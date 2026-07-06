@@ -47,7 +47,10 @@ import type {
 const MAX_WORKFLOWS = 10;
 const REST_PAGE_SIZE = 100;
 const REST_LIST_CAP = 200;
+const REST_PAGE_CAP = 10;
 const MAX_CHECK_RUN_PAGES = 2;
+const REST_CHECK_CACHE_TTL_MS = 60_000;
+const REST_CHECK_LOOKUP_BUDGET = 40;
 const GRAPHQL_PR_REVIEW_STATES: Record<string, PrReviewMeta["state"]> = {
   OPEN: "open",
   MERGED: "merged",
@@ -231,6 +234,7 @@ interface RestIssue {
   html_url?: string;
   labels?: Array<{ name?: string | null }> | null;
   created_at?: string;
+  author_association?: string | null;
   assignees?: Array<{ login?: string | null }> | null;
   user?: { login?: string | null } | null;
   pull_request?: unknown;
@@ -254,6 +258,22 @@ interface RestCombinedStatus {
 interface RestCheckSummary {
   states: ChecksState[];
   incomplete: boolean;
+}
+
+function parseCombinedStatus(raw: string): RestCheckSummary {
+  try {
+    const parsed = JSON.parse(raw || "{}") as RestCombinedStatus;
+    const legacyStatuses = parsed.statuses ?? [];
+    if (legacyStatuses.length > 0) {
+      return { states: legacyStatuses.map((s) => mapStatusState(s.state)), incomplete: false };
+    }
+    if (parsed.state && parsed.state.toLowerCase() !== "pending") {
+      return { states: [mapStatusState(parsed.state)], incomplete: false };
+    }
+    return { states: [], incomplete: false };
+  } catch {
+    return { states: [], incomplete: true };
+  }
 }
 
 function mapMergeable(v: string | undefined): boolean | null {
@@ -302,31 +322,6 @@ function worstChecks(states: ChecksState[]): ChecksState {
   return "none";
 }
 
-function isSameSlug(owner: string | undefined, repo: string | undefined, slug: string): boolean {
-  return owner != null && repo != null && `${owner}/${repo}`.toLowerCase() === slug.toLowerCase();
-}
-
-function closingIssueNumbersFromBody(body: string, slug: string): number[] {
-  const out = new Set<number>();
-  const ref = String.raw`(?:https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/issues\/([0-9]+)|(?:([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+))?#([0-9]+))`;
-  const re = new RegExp(
-    String.raw`\b(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+${ref}`,
-    "gi",
-  );
-  for (const m of body.matchAll(re)) {
-    const urlNumber = m[3];
-    const qualifiedNumber = m[6];
-    if (urlNumber) {
-      if (isSameSlug(m[1], m[2], slug)) out.add(Number(urlNumber));
-    } else if (m[4] || m[5]) {
-      if (isSameSlug(m[4], m[5], slug)) out.add(Number(qualifiedNumber));
-    } else if (qualifiedNumber) {
-      out.add(Number(qualifiedNumber));
-    }
-  }
-  return [...out];
-}
-
 /** GitHub forge driven through the `gh` CLI (operator's existing auth). */
 export class GithubForge implements GitForge {
   readonly kind = "github" as const;
@@ -339,6 +334,7 @@ export class GithubForge implements GitForge {
   /** Latch: true once we've emitted the ≥200 open-PR cap warning so it fires at
    *  most once per forge instance (on transition into the capped regime). */
   private openPrCapLogged = false;
+  private readonly restCheckCache = new Map<string, { at: number; state: ChecksState }>();
   constructor(
     readonly slug: string,
     private readonly cfg: ForgeConfig,
@@ -378,6 +374,7 @@ export class GithubForge implements GitForge {
         .map((a) => a.login ?? undefined)
         .filter((login): login is string => !!login),
       author: i.user?.login ?? undefined,
+      authorAssociation: i.author_association ?? undefined,
     };
   }
 
@@ -403,7 +400,7 @@ export class GithubForge implements GitForge {
 
   private async listIssuesRest(): Promise<Issue[]> {
     const issues: Issue[] = [];
-    for (let page = 1; issues.length < REST_LIST_CAP; page++) {
+    for (let page = 1; page <= REST_PAGE_CAP && issues.length < REST_LIST_CAP; page++) {
       const out = await this.run(
         this.restGetArgs(`repos/${this.slug}/issues`, [
           "state=open",
@@ -613,6 +610,7 @@ export class GithubForge implements GitForge {
     // fan-out is bounded and small; not worth caching/batching for the claim re-check.
     // GraphQL (not `gh issue view`) so the same call also carries the author's
     // authorAssociation — the autonomous-spawn author trust gate reads it from here.
+    if (graphRateLimit.blocked()) return this.getIssueRest(issueNumber);
     try {
       const [owner, repo] = this.slug.split("/");
       const out = await this.run([
@@ -659,6 +657,18 @@ export class GithubForge implements GitForge {
         author: i.author?.login,
         authorAssociation: i.authorAssociation ?? undefined,
       };
+    } catch (err) {
+      if (isRateLimitError(err)) return this.getIssueRest(issueNumber);
+      return null;
+    }
+  }
+
+  private async getIssueRest(issueNumber: number): Promise<Issue | null> {
+    try {
+      const out = await this.run(this.restGetArgs(`repos/${this.slug}/issues/${issueNumber}`));
+      const issue = JSON.parse(out || "null") as RestIssue | null;
+      if (!issue || issue.pull_request != null) return null;
+      return this.mapRestIssue(issue);
     } catch {
       return null;
     }
@@ -983,13 +993,9 @@ export class GithubForge implements GitForge {
     const states: ChecksState[] = [];
     let incomplete = false;
     if (statusResult.status === "fulfilled") {
-      const parsed = JSON.parse(statusResult.value || "{}") as RestCombinedStatus;
-      const legacyStatuses = parsed.statuses ?? [];
-      if (legacyStatuses.length > 0) {
-        for (const status of legacyStatuses) states.push(mapStatusState(status.state));
-      } else if (parsed.state && parsed.state.toLowerCase() !== "pending") {
-        states.push(mapStatusState(parsed.state));
-      }
+      const status = parseCombinedStatus(statusResult.value);
+      states.push(...status.states);
+      incomplete ||= status.incomplete;
     } else {
       incomplete = true;
     }
@@ -1003,13 +1009,21 @@ export class GithubForge implements GitForge {
   }
 
   private async restChecksForHead(headSha?: string): Promise<ChecksState> {
-    const summary = await this.restCheckSummaryForHead(headSha);
-    return worstChecks(summary.states);
+    try {
+      const summary = await this.restCheckSummaryForHead(headSha);
+      return summary.incomplete ? "pending" : worstChecks(summary.states);
+    } catch {
+      return "pending";
+    }
   }
 
   private async restChecksForHeadStrict(headSha?: string): Promise<ChecksState> {
-    const summary = await this.restCheckSummaryForHead(headSha);
-    return summary.incomplete ? "pending" : worstChecks(summary.states);
+    try {
+      const summary = await this.restCheckSummaryForHead(headSha);
+      return summary.incomplete ? "pending" : worstChecks(summary.states);
+    } catch {
+      return "pending";
+    }
   }
 
   private mapRestPull(pr: RestPull, deployConfigured: boolean, checks: ChecksState): PrStatus {
@@ -1035,6 +1049,34 @@ export class GithubForge implements GitForge {
     };
   }
 
+  private async restChecksForPulls(prs: RestPull[]): Promise<ChecksState[]> {
+    const now = Date.now();
+    const checks: ChecksState[] = Array.from({ length: prs.length }, () => "none");
+    const lookups: Array<{ index: number; sha: string }> = [];
+    for (let i = 0; i < prs.length; i++) {
+      const sha = prs[i]!.head?.sha;
+      if (!sha) continue;
+      const cached = this.restCheckCache.get(sha);
+      if (cached && now - cached.at < REST_CHECK_CACHE_TTL_MS) {
+        checks[i] = cached.state;
+        continue;
+      }
+      if (cached) this.restCheckCache.delete(sha);
+      if (lookups.length < REST_CHECK_LOOKUP_BUDGET) {
+        lookups.push({ index: i, sha });
+      } else {
+        checks[i] = "pending";
+      }
+    }
+    const freshChecks = await mapBounded(lookups, 6, async ({ sha }) => {
+      const state = await this.restChecksForHeadStrict(sha);
+      this.restCheckCache.set(sha, { at: Date.now(), state });
+      return state;
+    });
+    for (let i = 0; i < lookups.length; i++) checks[lookups[i]!.index] = freshChecks[i]!;
+    return checks;
+  }
+
   private async listOpenPrSnapshotRest(deployConfigured: boolean): Promise<OpenPrSnapshot> {
     const { prs, capped } = await this.listOpenPullsRest();
     if (capped && !this.openPrCapLogged) {
@@ -1043,7 +1085,7 @@ export class GithubForge implements GitForge {
         `[github] ${this.slug} has ≥200 open PRs; REST batch truncated — tail branches fall back to per-session`,
       );
     }
-    const checks = await mapBounded(prs, 6, (pr) => this.restChecksForHeadStrict(pr.head?.sha));
+    const checks = await this.restChecksForPulls(prs);
     const pullRequests = prs.map((pr, i) => this.mapRestPullToPullRequest(pr, checks[i]!));
     const expectedOwner = this.forkOwner ?? this.slug.split("/")[0];
     const statuses = new Map<string, PrStatus>();
@@ -1061,7 +1103,7 @@ export class GithubForge implements GitForge {
       }
     }
 
-    return { prs: pullRequests, statuses, capped };
+    return { prs: pullRequests, statuses, capped, source: "rest" };
   }
 
   /** REST fallback for the herd's per-session PR status when GitHub's GraphQL
@@ -1211,7 +1253,7 @@ export class GithubForge implements GitForge {
       // else: existing is already the right entry — keep it
     }
 
-    return { prs: pullRequests, statuses, capped: prs.length >= 200 };
+    return { prs: pullRequests, statuses, capped: prs.length >= 200, source: "graphql" };
   }
 
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
@@ -1804,7 +1846,7 @@ export class GithubForge implements GitForge {
   }
 
   async listOpenPrClosingIssues(): Promise<number[]> {
-    if (graphRateLimit.blocked()) return this.listOpenPrClosingIssuesRest();
+    if (graphRateLimit.blocked()) return [];
     // Issues an open PR would close (UI-linked + `Closes #N` bodies). Paginated like
     // listSubIssueSummaries; capped to ~200 open PRs. Best-effort — any failure yields []
     // and Up Next falls back to the shepherd:active exclusion alone.
@@ -1831,22 +1873,9 @@ export class GithubForge implements GitForge {
         endCursor = pageInfo.endCursor;
       }
     } catch (err) {
-      if (isRateLimitError(err)) return this.listOpenPrClosingIssuesRest();
+      if (isRateLimitError(err)) return [];
       return [];
     }
     return [...closed];
-  }
-
-  private async listOpenPrClosingIssuesRest(): Promise<number[]> {
-    try {
-      const closed = new Set<number>();
-      const { prs } = await this.listOpenPullsRest();
-      for (const pr of prs) {
-        for (const n of closingIssueNumbersFromBody(pr.body ?? "", this.slug)) closed.add(n);
-      }
-      return [...closed];
-    } catch {
-      return [];
-    }
   }
 }

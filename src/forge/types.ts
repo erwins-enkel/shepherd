@@ -314,6 +314,8 @@ export interface OpenPrSnapshot {
   statuses: Map<string, PrStatus>;
   /** True when ≥200 open PRs were returned (tail truncated by the --limit 200 cap). */
   capped: boolean;
+  /** Transport used to produce this snapshot; absent on older/test doubles. */
+  source?: "graphql" | "rest";
 }
 
 export interface GitForge {

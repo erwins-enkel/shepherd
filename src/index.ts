@@ -1355,6 +1355,7 @@ const criticIdleIntervalMs = 300_000;
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
+    if (graphRateLimit.blocked()) return;
     const now = Date.now();
     // Cold path: no dashboard + no autonomous work → throttle the per-repo PR
     // enumeration to the coarse idle cadence (the cheap 15s verdict-finalize tick
@@ -2254,10 +2255,9 @@ const backlogPoller = new BacklogPoller(
   (dir) => backlog.refresh(dir),
   90_000,
   broadcastBacklog,
-  // Warm the backlog only while a dashboard is open and the GraphQL bucket is
-  // healthy — backlog counts serve the overview, which nobody is reading when
-  // there are no clients. (A reconnect fires the debounced presence catch-up.)
-  () => presence.hasClients() && !graphRateLimit.blocked(),
+  // Warm the backlog only while a dashboard is open — REST fallbacks keep counts
+  // useful even while the GraphQL bucket is exhausted.
+  () => presence.hasClients(),
 );
 deferredStarts.push(() => {
   setTimeout(() => void backlogPoller.tick(), 3_000);

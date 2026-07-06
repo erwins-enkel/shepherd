@@ -229,6 +229,30 @@ test("GithubForge.listIssues: REST fallback during GraphQL backoff filters PRs b
   }
 });
 
+test("GithubForge.listIssues: REST fallback stops at the hard page cap", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    return JSON.stringify(
+      Array.from({ length: 100 }, (_, i) => ({
+        number: i + 1,
+        title: `PR ${i + 1}`,
+        pull_request: {},
+        html_url: `https://github.com/o/r/pull/${i + 1}`,
+      })),
+    );
+  };
+  blockGraphql();
+  try {
+    const issues = await new GithubForge("o/r", {}, run).listIssues();
+    expect(issues).toEqual([]);
+    expect(calls).toHaveLength(10);
+    expect(calls.at(-1)).toContain("page=10");
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("GithubForge.listIssues: retries REST after GraphQL rate-limit error", async () => {
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<string> => {
@@ -290,6 +314,63 @@ test("GithubForge.getIssue: fetches via GraphQL and maps author + authorAssociat
   const queryArg = calls[0]![calls[0]!.indexOf("-f") + 1] ?? "";
   expect(queryArg).toContain("authorAssociation");
   expect(queryArg).toContain("author{login}");
+});
+
+test("GithubForge.getIssue: REST fallback during GraphQL backoff maps authorAssociation", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args.includes("repos/o/r/issues/5")) {
+      return JSON.stringify({
+        number: 5,
+        title: "rest",
+        body: "body",
+        html_url: "https://github.com/o/r/issues/5",
+        created_at: ISSUE_CREATED_AT,
+        author_association: "COLLABORATOR",
+        user: { login: "alice" },
+        labels: [{ name: "bug" }],
+        assignees: [{ login: "bob" }],
+      });
+    }
+    return "";
+  };
+  blockGraphql();
+  try {
+    const issue = await new GithubForge("o/r", {}, run).getIssue!(5);
+    expect(issue).toMatchObject({
+      number: 5,
+      author: "alice",
+      authorAssociation: "COLLABORATOR",
+      labels: ["bug"],
+      assignees: ["bob"],
+    });
+    expect(calls[0]!.slice(0, 3)).toEqual(["api", "--method", "GET"]);
+    expect(calls[0]).toContain("repos/o/r/issues/5");
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("GithubForge.getIssue: retries REST after GraphQL rate-limit error", async () => {
+  const calls: string[][] = [];
+  const run = async (args: string[]): Promise<string> => {
+    calls.push(args);
+    if (args[0] === "api" && args[1] === "graphql") {
+      throw { stderr: "API rate limit exceeded for graphql resource" };
+    }
+    return JSON.stringify({
+      number: 6,
+      title: "rest",
+      html_url: "https://github.com/o/r/issues/6",
+      created_at: ISSUE_CREATED_AT,
+      author_association: "MEMBER",
+    });
+  };
+  const issue = await new GithubForge("o/r", {}, run).getIssue!(6);
+  expect(issue?.authorAssociation).toBe("MEMBER");
+  expect(calls[0]!.slice(0, 2)).toEqual(["api", "graphql"]);
+  expect(calls[1]!.slice(0, 3)).toEqual(["api", "--method", "GET"]);
 });
 
 test('GithubForge.getIssue: body defaults to "" and createdAt falls back on absent/bad fields', async () => {
@@ -2223,6 +2304,111 @@ test("listOpenPrSnapshot: REST check lookup failure maps repo-wide checks to pen
   }
 });
 
+test("listOpenPrSnapshot: malformed REST status JSON maps that PR to pending", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    if (args.includes("repos/o/r/pulls")) {
+      return JSON.stringify([
+        {
+          number: 15,
+          html_url: "u15",
+          title: "feat",
+          state: "open",
+          user: { login: "alice" },
+          head: { ref: "feat/bad-status", sha: "sha15", repo: { owner: { login: "o" } } },
+        },
+      ]);
+    }
+    if (args.includes("repos/o/r/commits/sha15/status")) return "not-json";
+    if (args.includes("repos/o/r/commits/sha15/check-runs")) {
+      return JSON.stringify({
+        total_count: 1,
+        check_runs: [{ status: "completed", conclusion: "success" }],
+      });
+    }
+    return "";
+  };
+  blockGraphql();
+  try {
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.prs[0]!.checks).toBe("pending");
+    expect(snap.statuses.get("feat/bad-status")!.checks).toBe("pending");
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("listOpenPrSnapshot: REST check enrichment reuses cached head checks", async () => {
+  let checkCalls = 0;
+  const run = async (args: string[]): Promise<string> => {
+    if (args.includes("repos/o/r/pulls")) {
+      return JSON.stringify([
+        {
+          number: 16,
+          html_url: "u16",
+          title: "feat",
+          state: "open",
+          user: { login: "alice" },
+          head: { ref: "feat/cache", sha: "sha16", repo: { owner: { login: "o" } } },
+        },
+      ]);
+    }
+    if (args.includes("repos/o/r/commits/sha16/status")) {
+      checkCalls++;
+      return JSON.stringify({ state: "success" });
+    }
+    if (args.includes("repos/o/r/commits/sha16/check-runs")) {
+      checkCalls++;
+      return JSON.stringify({ total_count: 0, check_runs: [] });
+    }
+    return "";
+  };
+  blockGraphql();
+  try {
+    const forge = new GithubForge("o/r", {}, run);
+    expect((await forge.listOpenPrSnapshot!()).prs[0]!.checks).toBe("success");
+    expect((await forge.listOpenPrSnapshot!()).prs[0]!.checks).toBe("success");
+    expect(checkCalls).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("listOpenPrSnapshot: REST check enrichment budget maps overflow PRs to pending", async () => {
+  let checkCalls = 0;
+  const run = async (args: string[]): Promise<string> => {
+    if (args.includes("repos/o/r/pulls")) {
+      return JSON.stringify(
+        Array.from({ length: 41 }, (_, i) => ({
+          number: i + 1,
+          html_url: `u${i + 1}`,
+          title: "feat",
+          state: "open",
+          user: { login: "alice" },
+          head: { ref: `feat/${i + 1}`, sha: `sha${i + 1}`, repo: { owner: { login: "o" } } },
+        })),
+      );
+    }
+    if (args.some((arg) => arg.includes("/status"))) {
+      checkCalls++;
+      return JSON.stringify({ state: "success" });
+    }
+    if (args.some((arg) => arg.includes("/check-runs"))) {
+      checkCalls++;
+      return JSON.stringify({ total_count: 0, check_runs: [] });
+    }
+    return "";
+  };
+  blockGraphql();
+  try {
+    const snap = await new GithubForge("o/r", {}, run).listOpenPrSnapshot!();
+    expect(snap.prs.slice(0, 40).every((pr) => pr.checks === "success")).toBe(true);
+    expect(snap.prs[40]!.checks).toBe("pending");
+    expect(checkCalls).toBe(80);
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("listOpenPrSnapshot: REST ignores combined-status pending sentinel when no legacy statuses exist", async () => {
   const run = async (args: string[]): Promise<string> => {
     if (args.includes("repos/o/r/pulls")) {
@@ -2430,31 +2616,16 @@ test("listOpenPrSnapshot: unparseable run-list output degrades to no-flag", asyn
   expect(snap.prs.every((p) => !p.awaitingWorkflowApproval)).toBe(true);
 });
 
-test("GithubForge.listOpenPrClosingIssues: REST fallback parses same-repo body references only", async () => {
+test("GithubForge.listOpenPrClosingIssues: GraphQL rate limit returns conservative empty fallback", async () => {
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<string> => {
     calls.push(args);
     if (args[0] === "api" && args[1] === "graphql") {
       throw { stderr: "API rate limit exceeded for graphql resource" };
     }
-    if (args.includes("repos/o/r/pulls")) {
-      return JSON.stringify([
-        {
-          number: 1,
-          body: [
-            "Closes #1",
-            "fixes o/r#2",
-            "Resolved https://github.com/o/r/issues/3",
-            "closes other/repo#4",
-            "fixes https://github.com/other/repo/issues/5",
-          ].join("\n"),
-        },
-      ]);
-    }
     return "";
   };
   const closed = await new GithubForge("o/r", {}, run).listOpenPrClosingIssues!();
-  expect(closed.sort((a, b) => a - b)).toEqual([1, 2, 3]);
-  const restCall = calls.find((c) => c.includes("repos/o/r/pulls"))!;
-  expect(restCall.slice(0, 3)).toEqual(["api", "--method", "GET"]);
+  expect(closed).toEqual([]);
+  expect(calls.some((c) => c.includes("repos/o/r/pulls"))).toBe(false);
 });

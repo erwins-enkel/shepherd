@@ -228,6 +228,51 @@ describe("Viewport preview tab", () => {
   });
 });
 
+describe("Viewport rename affordances", () => {
+  it("renders the session name in the normal desktop header and double-click opens rename", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "rename-head", name: "visible session title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const title = container.querySelector<HTMLElement>(".vp-head:not(.mobile) .vp-name");
+    expect(title, "normal desktop header title").not.toBeNull();
+    expect(title!.textContent).toBe("visible session title");
+
+    title!.click();
+    title!.click();
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    expect((input.element() as HTMLInputElement).value).toBe("visible session title");
+  });
+
+  it("opens rename only for matching targeted requests", async () => {
+    const { rerender } = render(Viewport, {
+      session: session({ id: "rename-target", name: "target title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+      renameRequest: { id: "other", tick: 1 },
+    });
+
+    await expect
+      .element(page.getByRole("textbox", { name: m.viewport_rename_aria() }))
+      .not.toBeInTheDocument();
+
+    await rerender({
+      session: session({ id: "rename-target", name: "target title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+      renameRequest: { id: "rename-target", tick: 2 },
+    });
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    expect((input.element() as HTMLInputElement).value).toBe("target title");
+  });
+});
+
 // ── Start-preview re-entrancy guard ──────────────────────────────────────────
 // Regression: the original code used $state<Set<string>> which Svelte 5 does
 // NOT proxy, so .add()/.delete() never triggered reactivity and the disabled

@@ -12,6 +12,7 @@
     resumable,
     opener,
     onresume,
+    onrename,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,
@@ -27,6 +28,7 @@
     // the element that opened the menu (the card hit-target) — focus returns here on close
     opener?: HTMLElement;
     onresume?: () => void;
+    onrename?: () => void;
     // when provided, a two-step armed Relaunch item appears between Resume and
     // Decommission (the parent closes over the session id, like onresume/ondecommission)
     onrelaunch?: () => void;
@@ -145,6 +147,11 @@
   {#if resumable && onresume}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onresume}>
       <span class="cm-icon" aria-hidden="true">↻</span>{m.cardmenu_resume()}
+    </button>
+  {/if}
+  {#if onrename}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onrename}>
+      <span class="cm-icon" aria-hidden="true">✎</span>{m.cardmenu_rename()}
     </button>
   {/if}
   {#if onrelaunch}

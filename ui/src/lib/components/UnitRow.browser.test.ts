@@ -157,6 +157,28 @@ describe("UnitRow preview badge", () => {
   });
 });
 
+describe("UnitRow context menu", () => {
+  it("offers Rename and calls the row rename handler", async () => {
+    const onrename = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "rename-row", name: "rename row" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onrename,
+    });
+
+    const hit = page.getByRole("button", { name: m.unit_open_aria({ name: "rename row" }) });
+    hit.element().dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+
+    await page.getByRole("menuitem", { name: m.cardmenu_rename() }).click();
+
+    expect(onrename).toHaveBeenCalledWith("rename-row");
+  });
+});
+
 describe("UnitRow inline repo emoji filter", () => {
   // The emoji's title carries the repo name (hover reveal); match it precisely.
   it("clicking the emoji scopes the filter to this repo (non-additive) without selecting the row", async () => {

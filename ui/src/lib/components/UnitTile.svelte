@@ -38,6 +38,7 @@
     onselect,
     git,
     activity,
+    onrename,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,
@@ -51,6 +52,8 @@
     git?: GitState;
     // live per-session signal (heartbeat ts); feeds the TimePopover's last-activity line
     activity?: SessionActivity;
+    // when provided, the CardMenu gains a Rename action
+    onrename?: (id: string) => void;
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
     onrelaunch?: (id: string) => void;
@@ -206,7 +209,7 @@
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   const hasMenu = $derived(
-    resumable || relaunchable || relaunchElsewhereAble || variantable || replaceable,
+    resumable || !!onrename || relaunchable || relaunchElsewhereAble || variantable || replaceable,
   );
   function openMenuAt(x: number, y: number): boolean {
     if (menu || !hasMenu) return false;
@@ -226,6 +229,10 @@
     } catch {
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
     }
+  }
+  function renameFromMenu() {
+    menu = null;
+    onrename?.(session.id);
   }
   function relaunchFromMenu() {
     menu = null;
@@ -362,6 +369,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrename={onrename ? renameFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     onvariant={variantable ? variantFromMenu : undefined}

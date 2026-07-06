@@ -12,6 +12,7 @@
     previewServe: Record<string, "ok" | "failed">;
     onpreview?: (id: string) => void;
     ondecommission?: (id: string) => void;
+    onrename?: (id: string) => void;
     onrelaunch?: (id: string) => void;
     onrelaunchElsewhere?: (id: string) => void;
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
@@ -82,6 +83,7 @@
     previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
     onpreview={withPreview ? ctx.onpreview : undefined}
     ondecommission={ctx.ondecommission}
+    onrename={ctx.onrename}
     onrelaunch={ctx.onrelaunch}
     onrelaunchElsewhere={ctx.onrelaunchElsewhere}
     onvariant={ctx.onvariant}

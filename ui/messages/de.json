@@ -675,6 +675,7 @@
   "redrawmenu_resume_hint": "Startet den Agenten mit dem Resume-Befehl des Providers neu und rendert die komplette Historie in aktueller Breite. Bricht einen laufenden Turn ab!",
   "cardmenu_label": "Sitzungs-Aktionen",
   "cardmenu_resume": "Sitzung fortsetzen",
+  "cardmenu_rename": "Umbenennen",
   "cardmenu_relaunch": "Neu starten",
   "cardmenu_relaunch_confirm": "Verwerfen & neu starten?",
   "cardmenu_relaunch_elsewhere": "In anderem Repo neu starten…",

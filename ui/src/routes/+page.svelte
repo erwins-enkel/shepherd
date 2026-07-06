@@ -191,6 +191,8 @@
   // Viewport so it switches to its Preview tab. A counter (not a boolean) so a
   // repeat click on the already-selected session still re-triggers the open.
   let openPreviewTick = $state(0);
+  let renameRequest = $state<{ id: string; tick: number } | null>(null);
+  let renameRequestSeq = 0;
   // Flatten the /api/preview snapshot ({ id: { previewPort, serve? } }) into the
   // store's flat sessionId → port|null map (unchanged shape; serve is separate).
   function flattenPreview(
@@ -212,6 +214,11 @@
   function openPreview(id: string) {
     selectUnit(id);
     openPreviewTick++;
+  }
+  function openRename(id: string) {
+    selectUnit(id, false);
+    if (!mobile.current && viewMode === "all") viewMode = "focus";
+    renameRequest = { id, tick: ++renameRequestSeq };
   }
   let showNew = $state(false);
   let showSettings = $state(false);
@@ -2446,6 +2453,7 @@
             preview={store.preview}
             previewServe={store.previewServe}
             onpreview={openPreview}
+            onrename={openRename}
             epics={store.epics}
             onepic={openEpicInBacklog}
             {activeEpicKeys}
@@ -2547,6 +2555,7 @@
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
+            {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
@@ -2581,6 +2590,7 @@
           {onrelaunchElsewhere}
           {onvariant}
           {onreplace}
+          onrename={openRename}
           onselect={(id) => {
             selectedId = id;
             viewMode = "focus";
@@ -2622,6 +2632,7 @@
             preview={store.preview}
             previewServe={store.previewServe}
             onpreview={openPreview}
+            onrename={openRename}
             epics={store.epics}
             onepic={openEpicInBacklog}
             {activeEpicKeys}
@@ -2711,6 +2722,7 @@
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
             {openPreviewTick}
+            {renameRequest}
             buildQueue={store.buildQueues[selected.id] ?? null}
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}

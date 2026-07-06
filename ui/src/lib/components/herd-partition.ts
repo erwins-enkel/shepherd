@@ -38,10 +38,11 @@ import { isMerging } from "./merge-train";
  *  as pending — UNLESS the repo has no CI at all (`g.noCi`, GitHub + zero workflows), where
  *  `none` is terminal and the PR is handed off like a green one. The groups render top→bottom as
  *  active → ciRunning → ciFailed →
- *  reviewerRunning → waitingOnReviewer → waitingOnMerger → draftAwaitingSignoff →
- *  awaitingMerge → ready → merging → merged (Herd.svelte's template order, mirrored
- *  by herd-keynav's railOrder via flattenByStage), tracking the session lifecycle. `isReviewing`
- *  is injected so this stays a pure function (the caller wires it to the reviews store). */
+ *  reviewerRunning → reworkRunning → waitingOnReviewer → waitingOnMerger →
+ *  draftAwaitingSignoff → awaitingMerge → ready → merging → merged (Herd.svelte's template
+ *  order, mirrored by herd-keynav's railOrder via flattenByStage), tracking the session
+ *  lifecycle. `isReviewing` is injected so this stays a pure function (the caller wires it to
+ *  the reviews store). */
 type Stage =
   | "merged"
   | "merging"

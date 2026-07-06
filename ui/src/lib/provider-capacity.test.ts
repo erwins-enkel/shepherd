@@ -3,6 +3,7 @@ import {
   bothAgentProvidersReady,
   capacitySuggestedProvider,
   claudeUsageHoldLikely,
+  readyAgentProviders,
 } from "./provider-capacity";
 import type { AgentProvider, DiagnosticsSnapshot, UsageLimits } from "./types";
 
@@ -84,5 +85,19 @@ describe("bothAgentProvidersReady", () => {
   it("requires both provider checks to be ok", () => {
     expect(bothAgentProvidersReady(diagnostics({ claude: "ok", codex: "ok" }))).toBe(true);
     expect(bothAgentProvidersReady(diagnostics({ claude: "ok", codex: "optional" }))).toBe(false);
+  });
+});
+
+describe("readyAgentProviders", () => {
+  it("returns every provider whose diagnostics check is ok", () => {
+    expect(readyAgentProviders(diagnostics({ claude: "ok", codex: "ok" }))).toEqual([
+      "claude",
+      "codex",
+    ]);
+    expect(readyAgentProviders(diagnostics({ claude: "ok", codex: "optional" }))).toEqual([
+      "claude",
+    ]);
+    expect(readyAgentProviders(diagnostics({ claude: "error", codex: "ok" }))).toEqual(["codex"]);
+    expect(readyAgentProviders(diagnostics({ claude: "error", codex: "optional" }))).toEqual([]);
   });
 });

@@ -1578,10 +1578,21 @@ export async function refreshUpNext(): Promise<{ ok: boolean }> {
 }
 
 /** Start one or many Up Next items. Spawns are serialized server-side. */
+export type UpNextStartChoice = {
+  agentProvider?: AgentProvider;
+  model?: string | null;
+  effort?: string | null;
+};
+
 export async function startUpNext(
   items: { repoPath: string; issueRef: UpNextItem["issueRef"] }[],
-): Promise<{ created: Session[]; errors: { number: number; error: string }[] }> {
-  return postJson("/api/up-next/start", { items }, "start up next");
+  choice?: UpNextStartChoice,
+): Promise<{
+  created: Session[];
+  held: { id: string; repoPath: string; number: number; reused?: boolean }[];
+  errors: { number: number; error: string }[];
+}> {
+  return postJson("/api/up-next/start", { items, ...(choice ?? {}) }, "start up next");
 }
 
 /** Trigger a recap regeneration for a session. Returns `{status}` from the server. */

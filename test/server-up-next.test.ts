@@ -6,17 +6,31 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import type { UpNextSnapshot, UpNextSection } from "../src/up-next-core";
-import type { Session } from "../src/types";
+import type { CreateSessionInput, Session } from "../src/types";
 
 let tmpRoot: string;
 let repoDir: string;
+const oldUsageHoldEnabled = config.usageHoldEnabled;
+const oldUsageHoldPct = config.usageHoldPct;
+const oldDefaultModel = config.defaultModel;
+const oldDefaultEffort = config.defaultEffort;
 
 beforeEach(() => {
   tmpRoot = mkdtempSync(join(config.repoRoot, "shepherd-upnext-test-"));
   repoDir = join(tmpRoot, "repo");
   mkdirSync(repoDir);
+  config.usageHoldEnabled = oldUsageHoldEnabled;
+  config.usageHoldPct = oldUsageHoldPct;
+  config.defaultModel = oldDefaultModel;
+  config.defaultEffort = oldDefaultEffort;
 });
-afterEach(() => rmSync(tmpRoot, { recursive: true, force: true }));
+afterEach(() => {
+  config.usageHoldEnabled = oldUsageHoldEnabled;
+  config.usageHoldPct = oldUsageHoldPct;
+  config.defaultModel = oldDefaultModel;
+  config.defaultEffort = oldDefaultEffort;
+  rmSync(tmpRoot, { recursive: true, force: true });
+});
 
 const SNAP: UpNextSnapshot = {
   generatedAt: 123,
@@ -30,12 +44,20 @@ function harness(
   opts: {
     snapshot?: UpNextSnapshot | null;
     hiddenRepoPathsRaw?: () => Set<string>;
-    create?: (input: { repoPath: string; issueRef?: { number: number } }) => Promise<Session>;
+    create?: (input: CreateSessionInput) => Promise<Session>;
     defaultBranch?: () => Promise<string>;
+    limits?: () => { session5h?: { pct: number }; week?: { pct: number } };
   } = {},
 ) {
   const store = new SessionStore(":memory:");
-  const createCalls: Array<{ at: number; repoPath: string; number: number | undefined }> = [];
+  const createCalls: Array<{
+    at: number;
+    repoPath: string;
+    number: number | undefined;
+    agentProvider: CreateSessionInput["agentProvider"];
+    model: CreateSessionInput["model"];
+    effort: CreateSessionInput["effort"];
+  }> = [];
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
   let refreshCalls = 0;
@@ -45,13 +67,20 @@ function harness(
     service: {
       create:
         opts.create ??
-        (async (input: { repoPath: string; issueRef?: { number: number } }) => {
-          createCalls.push({ at: ++n, repoPath: input.repoPath, number: input.issueRef?.number });
+        (async (input: CreateSessionInput) => {
+          createCalls.push({
+            at: ++n,
+            repoPath: input.repoPath,
+            number: input.issueRef?.number,
+            agentProvider: input.agentProvider,
+            model: input.model,
+            effort: input.effort,
+          });
           return { id: `s${n}` } as Session;
         }),
     } as unknown as AppDeps["service"],
     events: new EventHub(),
-    usageLimits: { limits: () => ({}) } as unknown as AppDeps["usageLimits"],
+    usageLimits: { limits: opts.limits ?? (() => ({})) } as unknown as AppDeps["usageLimits"],
     resolveForge: () =>
       ({
         defaultBranch: opts.defaultBranch ?? (async () => "main"),
@@ -73,6 +102,7 @@ function harness(
   };
   return {
     app: makeApp(deps),
+    store,
     createCalls,
     labelCalls,
     refreshCalls: () => refreshCalls,
@@ -80,11 +110,11 @@ function harness(
   };
 }
 
-const startReq = (items: unknown) =>
+const startReq = (items: unknown, extra: Record<string, unknown> = {}) =>
   new Request("http://x/api/up-next/start", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ items }),
+    body: JSON.stringify({ items, ...extra }),
   });
 
 test("GET /api/up-next returns the cached snapshot and kicks a recompute", async () => {
@@ -123,6 +153,124 @@ test("POST /api/up-next/start spawns one session and stamps the claim", async ()
   // claim is stamped asynchronously, so it should have recorded #7.
   await new Promise((r) => setTimeout(r, 5));
   expect(labelCalls).toContain(7);
+});
+
+test("POST /api/up-next/start forwards selected provider, model and effort to create", async () => {
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    }),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls).toHaveLength(1);
+  expect(createCalls[0]!.agentProvider).toBe("codex");
+  expect(createCalls[0]!.model).toBe("gpt-5.5");
+  expect(createCalls[0]!.effort).toBe("high");
+});
+
+test("POST /api/up-next/start treats selected provider default model as null", async () => {
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "codex",
+      model: "default",
+      effort: "default",
+    }),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls).toHaveLength(1);
+  expect(createCalls[0]!.agentProvider).toBe("codex");
+  expect(createCalls[0]!.model).toBeNull();
+  expect(createCalls[0]!.effort).toBeNull();
+});
+
+test("POST /api/up-next/start preserves default model and effort for provider-only choice", async () => {
+  config.defaultModel = "sonnet";
+  config.defaultEffort = "high";
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "claude",
+    }),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls).toHaveLength(1);
+  expect(createCalls[0]!.agentProvider).toBe("claude");
+  expect(createCalls[0]!.model).toBe("sonnet");
+  expect(createCalls[0]!.effort).toBe("high");
+});
+
+test("POST /api/up-next/start rejects invalid provider/model/effort choices", async () => {
+  const { app, createCalls } = harness();
+  const item = { repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } };
+  expect((await app.fetch(startReq([item], { agentProvider: "bad" }))).status).toBe(400);
+  expect(
+    (await app.fetch(startReq([item], { agentProvider: "codex", model: "opus" }))).status,
+  ).toBe(400);
+  expect(
+    (await app.fetch(startReq([item], { agentProvider: "codex", effort: "turbo" }))).status,
+  ).toBe(400);
+  expect(createCalls).toHaveLength(0);
+});
+
+test("POST /api/up-next/start accepts Codex xhigh effort for argv-build clamping", async () => {
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "xhigh",
+    }),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls).toHaveLength(1);
+  expect(createCalls[0]!.effort).toBe("xhigh");
+});
+
+test("POST /api/up-next/start holds capped Claude without spawning and clears the lens", async () => {
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+  const { app, createCalls, labelCalls, recomputeCalls } = harness({
+    limits: () => ({ session5h: { pct: 90 }, week: { pct: 10 } }),
+  });
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "claude",
+      model: "default",
+      effort: "default",
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { created: unknown[]; held: unknown[]; errors: unknown[] };
+  expect(body.created).toHaveLength(0);
+  expect(body.held).toHaveLength(1);
+  expect(body.errors).toHaveLength(0);
+  expect(createCalls).toHaveLength(0);
+  await new Promise((r) => setTimeout(r, 20));
+  expect(labelCalls).toContain(7);
+  expect(recomputeCalls).toEqual([[{ repoPath: repoDir, issueNumber: 7 }]]);
+});
+
+test("POST /api/up-next/start reuses an existing held task for the same issue", async () => {
+  config.usageHoldEnabled = true;
+  config.usageHoldPct = 80;
+  const { app, store, createCalls } = harness({
+    limits: () => ({ session5h: { pct: 90 }, week: { pct: 10 } }),
+  });
+  const item = { repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } };
+  const first = await app.fetch(startReq([item], { agentProvider: "claude" }));
+  const second = await app.fetch(startReq([item], { agentProvider: "claude" }));
+  expect(first.status).toBe(200);
+  expect(second.status).toBe(200);
+  const firstBody = (await first.json()) as { held: { id: string }[] };
+  const secondBody = (await second.json()) as { held: { id: string; reused?: boolean }[] };
+  expect(secondBody.held[0]!.id).toBe(firstBody.held[0]!.id);
+  expect(secondBody.held[0]!.reused).toBe(true);
+  expect(store.listHeldTasks()).toHaveLength(1);
+  expect(createCalls).toHaveLength(0);
 });
 
 test("POST /api/up-next/start recomputes the lens via recomputeUntilCleared (not an immediate refresh)", async () => {

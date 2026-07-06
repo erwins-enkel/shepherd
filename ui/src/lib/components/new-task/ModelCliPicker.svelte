@@ -2,10 +2,12 @@
   import { m } from "$lib/paraglide/messages";
   import { modelOptionLabel } from "$lib/model-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider } from "$lib/types";
+  import { AGENT_PROVIDERS, CODEX_MODELS, type AgentProvider, type UsageLimits } from "$lib/types";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
   import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
   import type { HandoffMode } from "$lib/api";
+  import { codexGaugeList, codexTokenUsage, gaugeColor, gaugeList } from "../usage-gauges";
+  import { formatResetIn, formatTokenLabel } from "$lib/format";
 
   type Choice = {
     agentProvider: AgentProvider;
@@ -29,6 +31,9 @@
     initialModel = "default",
     initialEffort = "default",
     handoff = false,
+    usageLimits = null,
+    nowMs = Date.now(),
+    holdLikely = false,
     opener,
     onconfirm,
     onclose,
@@ -45,6 +50,9 @@
     initialEffort?: string;
     /** Show the in-place continuation handoff mode picker. */
     handoff?: boolean;
+    usageLimits?: UsageLimits | null;
+    nowMs?: number;
+    holdLikely?: boolean;
     opener?: HTMLElement;
     onconfirm: (choice: Choice) => void;
     onclose: () => void;
@@ -60,6 +68,9 @@
 
   const provModels = $derived(providerModels(agentProvider));
   const provEfforts = $derived(providerEfforts(agentProvider));
+  const claudeGauges = $derived(gaugeList(usageLimits));
+  const codexUsage = $derived(codexTokenUsage(usageLimits));
+  const codexGauges = $derived(codexGaugeList(codexUsage));
 
   // Keep the model valid for the selected provider (seed or a provider switch may invalidate it):
   // Claude falls back to "default" (provider default), Codex to its top curated alias.
@@ -82,6 +93,8 @@
       ...(handoff ? { handoffMode } : {}),
     });
   }
+
+  const gaugeFill = (pct: number) => Math.min(Math.max(pct, 0), 100) / 100;
 
   let el = $state<HTMLDivElement>();
 
@@ -142,6 +155,60 @@
       {/each}
     </select>
   </div>
+
+  {#if usageLimits || holdLikely}
+    <div class="mcp-usage" role="note">
+      {#if holdLikely}
+        <p class="mcp-hold">{m.newtask_agent_provider_codex_suggested_for_hold()}</p>
+      {/if}
+      <div class="mcp-provider-usage">
+        <span class="micro">{m.agent_provider_claude()}</span>
+        {#if claudeGauges.length > 0}
+          {#each claudeGauges as g (g.label)}
+            <div class="mcp-gauge">
+              <span>{g.label}</span>
+              <span class="mcp-bar">
+                <span
+                  class="mcp-fill"
+                  style="transform:scaleX({gaugeFill(g.w.pct)});background:{gaugeColor(g.w.pct)}"
+                ></span>
+              </span>
+              <span style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              <small>{formatResetIn(g.w.resetAt, nowMs)}</small>
+            </div>
+          {/each}
+        {:else}
+          <span class="mcp-unavailable">{m.upnext_usage_unavailable()}</span>
+        {/if}
+      </div>
+      <div class="mcp-provider-usage">
+        <span class="micro">{m.agent_provider_codex()}</span>
+        {#if codexGauges.length > 0}
+          {#each codexGauges as g (g.label)}
+            <div class="mcp-gauge">
+              <span>{g.label}</span>
+              <span class="mcp-bar">
+                <span
+                  class="mcp-fill"
+                  style="transform:scaleX({gaugeFill(g.w.pct)});background:{gaugeColor(g.w.pct)}"
+                ></span>
+              </span>
+              <span style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+              <small>{formatResetIn(g.w.resetAt, nowMs)}</small>
+            </div>
+          {/each}
+        {:else}
+          <span class="mcp-unavailable">{m.topbar_codex_limits_unavailable()}</span>
+        {/if}
+        {#if codexUsage}
+          <div class="mcp-token">
+            <span>{m.topbar_tokens_total()}</span>
+            <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
+          </div>
+        {/if}
+      </div>
+    </div>
+  {/if}
 
   <div class="mcp-field">
     <label class="micro" for="mcp-model">{m.newtask_model_label()}</label>
@@ -221,6 +288,55 @@
     color: var(--color-muted);
     font-size: var(--fs-meta);
     line-height: 1.45;
+  }
+  .mcp-usage {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 8px;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+  }
+  .mcp-hold {
+    margin: 0;
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+  }
+  .mcp-provider-usage {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .mcp-gauge,
+  .mcp-token {
+    display: grid;
+    grid-template-columns: 24px minmax(48px, 1fr) 34px auto;
+    align-items: center;
+    gap: 6px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    font-variant-numeric: tabular-nums;
+  }
+  .mcp-token {
+    grid-template-columns: 1fr auto;
+  }
+  .mcp-gauge small,
+  .mcp-token span:first-child,
+  .mcp-unavailable {
+    color: var(--color-faint);
+  }
+  .mcp-bar {
+    height: 5px;
+    border: 1px solid var(--color-line-bright);
+    background: var(--color-line);
+    overflow: hidden;
+  }
+  .mcp-fill {
+    display: block;
+    width: 100%;
+    height: 100%;
+    transform-origin: left;
   }
   .mcp-field {
     display: flex;

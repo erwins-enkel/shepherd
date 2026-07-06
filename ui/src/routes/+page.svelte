@@ -643,6 +643,14 @@
   const composeHoldLikely = $derived(
     relaunchOriginalId === null && editHeldId === null ? holdLikely : false,
   );
+  const upNextLaunch = $derived({
+    store,
+    defaultAgentProvider: settings?.defaultAgentProvider ?? "claude",
+    fableAvailable: settings?.fableAvailable ?? true,
+    usageHoldEnabled,
+    usageHoldPct,
+    nowMs,
+  });
 
   const selected = $derived(store.sessions.find((s) => s.id === selectedId) ?? null);
   // Pending MCP OAuth authorize URL for the selected session's awaiting-input block, if any.
@@ -2468,6 +2476,7 @@
             {owedFocusHandledNonce}
             onfocusresolved={onOwedFocusResolved}
             onbacklog={() => (showBacklog = true)}
+            {upNextLaunch}
           />
           {#if store.sessions.length === 0 && herdFilter !== "done" && !panelOnlyLens}
             <BacklogView
@@ -2640,6 +2649,7 @@
             {owedFocusHandledNonce}
             onfocusresolved={onOwedFocusResolved}
             onbacklog={() => (showBacklog = true)}
+            {upNextLaunch}
           />
         {/if}
         {#if panelOnlyLens}

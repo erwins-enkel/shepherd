@@ -897,48 +897,125 @@ interface UpNextStartItem {
   issueRef: { number: number; url: string; title: string; body: string };
 }
 
+interface UpNextStartChoice {
+  agentProvider: AgentProvider;
+  model?: string | null;
+  effort?: string | null;
+}
+
+interface UpNextStartPayload {
+  items: UpNextStartItem[];
+  choice: UpNextStartChoice | null;
+}
+
 /** Cap on how long the backgrounded post-start recompute waits for the claim label writes
  *  to settle before recomputing anyway — a hung `gh` must not stall it (verify-and-retry and
  *  the 15-min interval loop still backstop). */
 const CLAIM_SETTLE_TIMEOUT_MS = 8_000;
 
-/** Validate the POST /api/up-next/start body into safe, repo-scoped start items. */
-function parseUpNextStartItems(body: unknown): UpNextStartItem[] | null {
+function parseUpNextStartItem(raw: unknown): UpNextStartItem | null {
+  const it = raw as { repoPath?: unknown; issueRef?: Record<string, unknown> };
+  const dir = safeRepoDir(typeof it?.repoPath === "string" ? it.repoPath : "", config.repoRoot);
+  const ir = it?.issueRef;
+  if (
+    !dir ||
+    !ir ||
+    typeof ir.number !== "number" ||
+    typeof ir.url !== "string" ||
+    typeof ir.title !== "string"
+  )
+    return null;
+  return {
+    dir,
+    issueRef: {
+      number: ir.number,
+      url: ir.url,
+      title: ir.title,
+      body: typeof ir.body === "string" ? ir.body : "",
+    },
+  };
+}
+
+function parseUpNextStartChoice(obj: Record<string, unknown>): UpNextStartChoice | Response | null {
+  const hasChoice = "agentProvider" in obj || "model" in obj || "effort" in obj;
+  if (!hasChoice) return null;
+
+  const choice = validateModelChoice(obj);
+  if (!choice.ok) return json({ error: choice.error }, 400);
+  if (!choice.value.agentProvider)
+    return json({ error: "agentProvider required when model or effort is supplied" }, 400);
+  const parsed: UpNextStartChoice = { agentProvider: choice.value.agentProvider };
+  if ("model" in obj) parsed.model = choice.value.model;
+  if ("effort" in obj) parsed.effort = choice.value.effort;
+  return parsed;
+}
+
+/** Validate the POST /api/up-next/start body into safe, repo-scoped start items + optional
+ * provider/model/effort choice. */
+function parseUpNextStartPayload(body: unknown): UpNextStartPayload | Response {
+  if (!body || typeof body !== "object" || Array.isArray(body))
+    return json({ error: "items required" }, 400);
   const itemsRaw = (body as { items?: unknown } | null)?.items;
-  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0) return null;
-  const items: UpNextStartItem[] = [];
-  for (const raw of itemsRaw) {
-    const it = raw as { repoPath?: unknown; issueRef?: Record<string, unknown> };
-    const dir = safeRepoDir(typeof it?.repoPath === "string" ? it.repoPath : "", config.repoRoot);
-    const ir = it?.issueRef;
-    if (
-      !dir ||
-      !ir ||
-      typeof ir.number !== "number" ||
-      typeof ir.url !== "string" ||
-      typeof ir.title !== "string"
-    )
-      return null;
-    items.push({
-      dir,
-      issueRef: {
-        number: ir.number,
-        url: ir.url,
-        title: ir.title,
-        body: typeof ir.body === "string" ? ir.body : "",
-      },
-    });
-  }
-  return items;
+  if (!Array.isArray(itemsRaw) || itemsRaw.length === 0)
+    return json({ error: "items required" }, 400);
+  const items = itemsRaw.map(parseUpNextStartItem);
+  if (items.some((it) => it === null)) return json({ error: "items required" }, 400);
+  const choice = parseUpNextStartChoice(body as Record<string, unknown>);
+  if (choice instanceof Response) return choice;
+  return {
+    items: items as UpNextStartItem[],
+    choice,
+  };
+}
+
+function usageHoldApplies(value: CreateSessionInput, deps: AppDeps): boolean {
+  const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
+  if (provider !== "claude") return false;
+  const lim = deps.usageLimits.limits(Date.now());
+  return shouldHold({
+    enabled: config.usageHoldEnabled,
+    holdPct: config.usageHoldPct,
+    session5hPct: lim.session5h?.pct ?? 0,
+    weekPct: lim.week?.pct ?? 0,
+    force: false,
+  });
+}
+
+function findHeldIssue(deps: AppDeps, repoPath: string, issueNumber: number) {
+  return deps.store
+    .listHeldTasks()
+    .find((h) => h.repoPath === repoPath && h.input.issueRef?.number === issueNumber);
+}
+
+function holdUpNextIssue(
+  deps: AppDeps,
+  input: CreateSessionInput,
+): { id: string; repoPath: string; number: number; reused?: boolean } {
+  const number = input.issueRef?.number;
+  if (number == null) throw new Error("held Up Next item missing issueRef");
+  const existing = findHeldIssue(deps, input.repoPath, number);
+  if (existing) return { id: existing.id, repoPath: input.repoPath, number, reused: true };
+  const id = randomUUID();
+  deps.store.addHeldTask({
+    id,
+    repoPath: input.repoPath,
+    input,
+    createdAt: Date.now(),
+    reason: "usage",
+  });
+  deps.events.emit("held:changed", { count: deps.store.countHeldTasks() });
+  return { id, repoPath: input.repoPath, number };
 }
 
 async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response> {
   const b = firstRunBlock();
   if (b) return b;
-  const items = parseUpNextStartItems(await req.json().catch(() => null));
-  if (!items) return json({ error: "items required" }, 400);
+  const payload = parseUpNextStartPayload(await req.json().catch(() => null));
+  if (payload instanceof Response) return payload;
+  const { items, choice } = payload;
 
   const created: Session[] = [];
+  const held: { id: string; repoPath: string; number: number; reused?: boolean }[] = [];
   const errors: { number: number; error: string }[] = [];
   const claims: Promise<void>[] = [];
   const startedRefs: { repoPath: string; issueNumber: number }[] = [];
@@ -955,20 +1032,32 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       // orchestration stays the auto epic-runner's job (documented v1 scoping, #1169).
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
-      const s = await deps.service.create({
+      const input: CreateSessionInput = {
         repoPath: it.dir,
         baseBranch: base,
         prompt: it.issueRef.title,
         // Operator default model (repo override wins; "auto"/"inherit" → no --model flag).
         // The Fable promo is client-only and never applied here, matching drain spawns.
-        model: drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
-        effort: drainSpawnEffort(
-          resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort),
-        ),
+        agentProvider: choice?.agentProvider,
+        model:
+          choice && "model" in choice
+            ? (choice.model ?? null)
+            : drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        effort:
+          choice && "effort" in choice
+            ? choice.effort
+            : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),
         images: [],
         auto: false,
         issueRef: it.issueRef,
-      });
+      };
+      if (usageHoldApplies(input, deps)) {
+        held.push(holdUpNextIssue(deps, input));
+        claims.push(claimLinkedIssue(forge, it.issueRef.number));
+        startedRefs.push({ repoPath: it.dir, issueNumber: it.issueRef.number });
+        return;
+      }
+      const s = await deps.service.create(input);
       created.push(s);
       deps.events.emit("session:new", s);
       // Stamp the drain claim so the board reflects it's being worked (mirrors New Task).
@@ -998,7 +1087,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       await up.recomputeUntilCleared(startedRefs);
     })().catch((err) => console.warn("[up-next] post-start:", err));
   }
-  return json({ created, errors }, created.length > 0 ? 201 : 502);
+  return json({ created, held, errors }, created.length > 0 ? 201 : held.length > 0 ? 200 : 502);
 }
 
 async function handleDrain({ req, parts, url, deps }: Ctx): Promise<Response | null> {

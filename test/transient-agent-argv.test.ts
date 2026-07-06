@@ -136,6 +136,17 @@ test("multiple NULs are each escaped", () => {
   for (const arg of argv) expect(arg.includes("\0")).toBe(false);
 });
 
+test("Codex prompts escape NULs with the same argv contract as Claude", () => {
+  const { argv } = buildTransientAgentArgv("writer-only", {
+    provider: "codex",
+    model: "gpt-5.3-codex",
+    prompt: "a\0b",
+  });
+  expect(argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+  expect(argv[argv.length - 1]).toBe("a\\0b");
+  for (const arg of argv) expect(arg.includes("\0")).toBe(false);
+});
+
 test("NUL-free prompts pass through byte-for-byte unchanged (no spurious escaping)", () => {
   const prompt = "review the plan; key is `${slug}\\0${fork}` (already a literal escape)";
   const { argv } = buildTransientAgentArgv("reviewer", { model: null, prompt });

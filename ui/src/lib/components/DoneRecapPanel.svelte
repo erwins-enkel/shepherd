@@ -156,6 +156,12 @@
     {:else if recap?.state === "failed"}
       <!-- generation ran but couldn't produce a recap — say so, don't imply it was never tried. -->
       <p class="dr-muted">{m.recap_failed()}</p>
+      {#if recap.headline}
+        <p class="dr-failure-headline">{recap.headline}</p>
+      {/if}
+      {#if recap.body}
+        <p class="dr-failure-body">{recap.body}</p>
+      {/if}
     {:else if predatesRecapFeature}
       <!-- finished before durable recaps existed: name the reason instead of a bare "unavailable". -->
       <p class="dr-muted">{m.recap_predates_feature()}</p>
@@ -326,5 +332,19 @@
     margin: 0;
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+
+  .dr-failure-headline {
+    margin: 0;
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+  }
+
+  .dr-failure-body {
+    margin: 0;
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    color: var(--color-ink);
+    white-space: pre-wrap;
   }
 </style>

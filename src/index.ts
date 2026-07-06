@@ -141,7 +141,7 @@ import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
-import { RecapService } from "./recap";
+import { RecapService, type LandedWorkEvidence } from "./recap";
 import { PostMergeStepsService } from "./post-merge-steps";
 import { BuildQueueReminderService } from "./build-queue-reminder";
 import { HerdDigestService } from "./herd-digest";
@@ -445,6 +445,8 @@ const egressWatcher = new EgressWatcher({
   emit: (event, data) => events.emit(event, data),
 });
 
+const autoMergedRecapEvidence = new Map<string, { prNumber: number; headSha: string | null }>();
+
 // Session recap (#XXX): generates a plain-language summary of each settled-idle session
 // so the operator can skim what happened without reading the transcript. Mirrors planGate's
 // deps/onChange wiring; model defaults to "sonnet" inside the service. Constructed BEFORE
@@ -461,6 +463,31 @@ const recapService: RecapService = new RecapService({
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
   resolveBase: (s) => resolveDiffBase(s, prPoller, resolveForge),
+  landedWorkEvidence: (s, head): LandedWorkEvidence | null => {
+    const autoMerged = autoMergedRecapEvidence.get(s.id);
+    if (autoMerged && (autoMerged.headSha == null || autoMerged.headSha === head)) {
+      return {
+        kind: "merged_pr",
+        summary: `automerge merged PR #${autoMerged.prNumber}`,
+      };
+    }
+    const git = prPoller.snapshot()[s.id];
+    if (git?.state === "merged" && (git.headSha == null || git.headSha === head)) {
+      return {
+        kind: "merged_pr",
+        summary: `merged PR${git.number ? ` #${git.number}` : ""}`,
+      };
+    }
+    const review = store.getReview(s.id);
+    if (review?.headSha === head) {
+      return { kind: "review", summary: "PR review recorded for this head" };
+    }
+    const recap = store.getRecap(s.id);
+    if (recap?.headSha === head && recap.changedFiles.length > 0) {
+      return { kind: "existing_recap", summary: "existing recap recorded changed files" };
+    }
+    return null;
+  },
 });
 
 // Lazy holder for the restricted agent-ingress listener's ephemeral port. The listener is started
@@ -1376,6 +1403,7 @@ events.subscribe((event, data) => {
     reviewService.forget(id);
     planGate.forget(id);
     recapService.onArchived(id);
+    autoMergedRecapEvidence.delete(id);
     buildQueueReminder.forget(id);
     docAgent.onArchived(id);
   }
@@ -1642,6 +1670,9 @@ const autoMerge = new AutoMergeService({
   emitStatus: (status) => events.emit("automerge:status", status),
   emitArchived: (id) => events.emit("session:archived", { id }),
   dropPrCache: (id) => prPoller.drop(id),
+  noteMergedForRecap: ({ sessionId, prNumber, headSha }) => {
+    autoMergedRecapEvidence.set(sessionId, { prNumber, headSha });
+  },
   retainClaim: (id) => drain.retainClaim(id),
   rebaseCap: config.autoMergeRebaseCap,
 });

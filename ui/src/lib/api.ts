@@ -1615,9 +1615,10 @@ export async function releasePlanGate(id: string): Promise<boolean> {
 }
 
 /** Outcome of an on-demand plan review trigger: a reviewer spawned, the request was a silent
- *  no-op (plan unchanged / already approved), or a spawn attempt failed. Mirrors the server's
- *  PlanReviewTrigger so the UI can distinguish a dedupe from a genuine error. */
-export type PlanReviewTrigger = "started" | "skipped" | "error";
+ *  no-op (plan unchanged / already approved), the plan artifact is unavailable, or a spawn attempt
+ *  failed. Mirrors the server's PlanReviewTrigger so the UI can distinguish a dedupe from a
+ *  genuine error. */
+export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
 
 /** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS.
  *  Returns the trigger outcome so the caller can tell a real review from a silent dedupe

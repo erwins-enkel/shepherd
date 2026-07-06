@@ -174,29 +174,79 @@ test("plan-gate: api-key without a configured key fails closed → 'error', no s
   });
 });
 
-test("consider no-ops when plan missing/empty", async () => {
+test("consider reports plan-unavailable when a planning session needs review but the plan is unusable", async () => {
   const h = harness({ readPlan: () => null });
   const status = await h.svc.consider(planningSession() as any);
-  expect(status).toBe("skipped");
+  expect(status).toBe("plan-unavailable");
   expect(h.started.length).toBe(0);
 });
-test("consider no-ops when session is not in planning phase", async () => {
-  const h = harness();
+
+test("consider treats empty plan text as plan-unavailable", async () => {
+  const h = harness({ readPlan: () => "  \n\t " });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("plan-unavailable");
+  expect(h.started.length).toBe(0);
+});
+
+test("consider no-ops when session is not in planning phase, before reading an unavailable plan", async () => {
+  let reads = 0;
+  const h = harness({
+    readPlan: () => {
+      reads += 1;
+      return null;
+    },
+  });
   const status = await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any);
   expect(status).toBe("skipped");
+  expect(reads).toBe(0);
   expect(h.started.length).toBe(0);
 });
+
+test("consider no-ops while an existing plan review is in flight, before reading an unavailable plan", async () => {
+  let plan = "PLAN TEXT";
+  const h = harness({ readPlan: () => plan });
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  plan = "";
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped");
+  expect(h.started.length).toBe(1);
+});
+
+test("consider no-ops while a plan review is starting, before reading an unavailable plan", async () => {
+  let reads = 0;
+  const h = harness({
+    readPlan: () => {
+      reads += 1;
+      return null;
+    },
+  });
+  (h.svc as any).starting.add("s1");
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped");
+  expect(reads).toBe(0);
+  expect(h.started.length).toBe(0);
+});
+
+test("consider no-ops when already approved, before reading an unavailable plan", async () => {
+  let reads = 0;
+  const h = harness({
+    readPlan: () => {
+      reads += 1;
+      return null;
+    },
+    store: { getPlanGate: () => ({ planHash: "other", approved: true }) },
+  });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("skipped");
+  expect(reads).toBe(0);
+  expect(h.started.length).toBe(0);
+});
+
 test("consider dedupes an unchanged plan hash", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const h = harness({ store: { getPlanGate: () => ({ planHash: hash, approved: false }) } });
   const status = await h.svc.consider(planningSession() as any);
   expect(status).toBe("skipped"); // route reports "skipped" so the UI explains the no-op
-  expect(h.started.length).toBe(0);
-});
-test("consider no-ops when already approved", async () => {
-  const h = harness({ store: { getPlanGate: () => ({ planHash: "other", approved: true }) } });
-  const status = await h.svc.consider(planningSession() as any);
-  expect(status).toBe("skipped");
   expect(h.started.length).toBe(0);
 });
 test("consider re-reviews an error verdict even when the plan hash is unchanged", async () => {

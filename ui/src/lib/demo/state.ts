@@ -239,9 +239,11 @@ export const demoState = {
     });
   },
 
-  /** Trigger an on-demand plan review — the reviewing latch lights up. */
-  reviewPlan(id: string): void {
+  /** Trigger an on-demand plan review — seeded plan gates simulate a reviewer, no gate is unavailable. */
+  reviewPlan(id: string): "started" | "plan-unavailable" {
+    if (!world.planGates[id]) return "plan-unavailable";
     emit({ event: "session:plangate-reviewing", data: { id, reviewing: true } });
+    return "started";
   },
 
   /** Release an approved plan gate → the agent flips from planning to executing. */

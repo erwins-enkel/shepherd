@@ -222,6 +222,31 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByText(m.planpanel_review_changes_pending())).toBeVisible();
   });
 
+  it("explains the required plan artifact in the planning/no-gate empty state", async () => {
+    const id = "s-plan-unavailable-empty";
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_plan_unavailable())).toBeVisible();
+  });
+
+  it("shows persistent plan-unavailable feedback after review trigger returns that status", async () => {
+    const id = "s-plan-unavailable-click";
+    vi.mocked(reviewPlan).mockResolvedValue("plan-unavailable");
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
+
+    await new Promise((resolve) => setTimeout(resolve, 6500));
+    await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
+  });
+
   it("renders no status note when the chip is hidden", () => {
     const id = "s-none";
     render(PlanPanel, {

@@ -2504,8 +2504,9 @@ function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
 // POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
 // 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
 // `status` tells the caller whether a reviewer actually spawned ("started"), the plan was a
-// silent no-op ("skipped" — unchanged / already approved), or a spawn attempt failed ("error"),
-// so the UI can explain why nothing changed without mislabelling a failure as an unchanged plan.
+// silent no-op ("skipped" — unchanged / already approved), the plan artifact is unavailable
+// ("plan-unavailable"), or a spawn attempt failed ("error"), so the UI can explain why nothing
+// changed without mislabelling a failure as an unchanged plan.
 async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-plan")) return null;
   const s = deps.store.get(parts[2]);

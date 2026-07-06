@@ -168,6 +168,32 @@ test("POST /api/sessions/:id/review-plan → status:skipped when consider dedupe
   expect(await res.json()).toEqual({ ok: true, status: "skipped" });
 });
 
+test("POST /api/sessions/:id/review-plan → status:plan-unavailable when no usable plan artifact exists", async () => {
+  const { app, store } = harness({
+    planGate: {
+      consider: async () => "plan-unavailable" as const,
+    },
+  });
+  const seeded = store.create({
+    name: "missing plan",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/missing-plan",
+    worktreePath: join(repoDir, "wt-missing"),
+    isolated: true,
+    herdrSession: "sess-missing",
+    herdrAgentId: "term_missing",
+    claudeSessionId: "claude-missing",
+    model: null,
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${seeded.id}/review-plan`, { method: "POST" }),
+  );
+  expect(res.status).toBe(202);
+  expect(await res.json()).toEqual({ ok: true, status: "plan-unavailable" });
+});
+
 test("POST /api/sessions/:id/review-plan → 404 for unknown id", async () => {
   let called = false;
   const { app } = harness({

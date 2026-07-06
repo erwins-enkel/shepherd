@@ -22,9 +22,10 @@ import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
- *  (plan unchanged / already approved / nothing to review), or a spawn attempt failed. The
- *  review-plan route relays this so the UI can distinguish a silent dedupe from a real error. */
-export type PlanReviewTrigger = "started" | "skipped" | "error";
+ *  (plan unchanged / already approved / nothing to review), the plan artifact is unavailable, or
+ *  a spawn attempt failed. The review-plan route relays this so the UI can distinguish a silent
+ *  dedupe from a real error or an unusable `.shepherd-plan.md`. */
+export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
@@ -239,16 +240,16 @@ export class PlanGateService {
   async consider(session: Session): Promise<PlanReviewTrigger> {
     if (session.planPhase !== "planning") return "skipped"; // only gate before execution
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
+    const prior = this.deps.store.getPlanGate(session.id);
+    if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
-    if (!plan) return "skipped"; // no plan written yet → nothing to review
+    if (!plan) return "plan-unavailable"; // missing / unreadable / empty → nothing usable to review
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
     // considers would otherwise both clear the guards above and double-spawn (orphaning the
     // first run's worktree + terminal). With the claim here, the second bails on the guard.
     this.starting.add(session.id);
     try {
       const planHash = await PlanGateService.hashPlan(plan);
-      const prior = this.deps.store.getPlanGate(session.id);
-      if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
       // Dedupe an unchanged plan — but NEVER skip past an `error` verdict. A timeout/unparseable
       // run produced no real verdict, so re-running it (e.g. via the "Review plan now" button) must
       // retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip's error carve-out.

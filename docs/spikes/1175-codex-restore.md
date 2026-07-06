@@ -20,6 +20,26 @@ The id **cannot** be pinned at spawn, but it **can** be discovered deterministic
 design is robust regardless of whether `codex resume` appends to the same rollout or forks a new one.
 Non-isolated Codex (shared cwd) stays `cannot_restore` by design.
 
+## Non-isolated Codex — deliberately blocked (not an oversight)
+
+Restore stays `cannot_restore` for **non-isolated** Codex sessions **by design** — this was confirmed
+with the operator during planning ("non-isolated Codex … keep blocking"). It is a correctness limit,
+not missing wiring: the id is discovered by matching the rollout header's `cwd`, which is unique only
+for an isolated worktree. A non-isolated session shares the repo cwd with siblings, later sessions,
+relaunches, and the operator's own `codex` runs, so **neither** strategy can attribute a rollout to a
+specific Shepherd row:
+
+- **Derive-at-restore** (this PR): "newest `source=cli` rollout for the repo cwd" at restore time is
+  whatever ran most recently in that repo — routinely an unrelated conversation once the repo is reused.
+- **Persist-at-spawn**: the populate-once capture can just as easily grab a sibling's / the operator's
+  rollout, so the persisted id can be the wrong one.
+
+Codex exposes no `--session-id` to pin and no way to read back its self-generated id (Finding 1), so a
+shared cwd is fundamentally un-attributable. Per #1175's principle — _restoring the wrong conversation
+is worse than refusing_ — those rows keep the "relaunch instead" hint, matching the autopilot
+isolated-only guard for Codex. It becomes feasible only if Codex adds spawn-time id pinning; tracked
+as a follow-up in **#1476**.
+
 ## Environment
 
 |               |                                                                                              |

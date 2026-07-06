@@ -3312,7 +3312,11 @@ export class SessionService {
       this.deps.store.setProviderSessionId(s.id, id); // write-through refresh
       return id;
     }
-    throw new RestoreError("cannot_restore"); // codex non-isolated, or any other provider
+    // codex non-isolated, or any other provider. Non-isolated Codex shares the repo cwd with
+    // siblings/relaunches/operator runs, so no rollout can be reliably attributed to THIS row —
+    // restoring the wrong conversation is worse than refusing (#1175). Blocked pending Codex
+    // spawn-time id pinning; tracked in #1476.
+    throw new RestoreError("cannot_restore");
   }
 
   async restore(id: string): Promise<Session | null> {

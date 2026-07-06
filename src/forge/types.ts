@@ -410,6 +410,11 @@ export interface GitForge {
    *  with a PR-edit API (GitHub) implement it; others omit it and the caller logs that the
    *  body may be stale. */
   editPr?(prNumber: number, o: { title?: string; body?: string }): Promise<void>;
+  /** Stamp a label on a PR, creating it on the host if absent (best-effort). Used to flag
+   *  Codex-authored session PRs (`codex-authored`) for extra review care. Optional: only
+   *  hosts with a label + PR-edit API (GitHub) implement it; others omit it and flagging is
+   *  skipped. Idempotent — re-adding an already-present label is a no-op. */
+  addPrLabel?(prNumber: number, label: string): Promise<void>;
   /** Flip an open draft PR to ready-for-review (`gh pr ready <n>`). Optional: only
    *  hosts with a draft API implement it; the draft-reconcile service treats absence
    *  as "cannot promote on this host". */

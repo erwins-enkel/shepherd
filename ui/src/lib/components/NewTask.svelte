@@ -1403,11 +1403,13 @@
     cursor: default;
   }
   .hint {
-    flex: 1 1 18ch;
-    min-width: 0;
     font-size: var(--fs-meta);
     line-height: 1.35;
     color: var(--color-muted);
+  }
+  .attach-row .hint {
+    flex: 1 1 18ch;
+    min-width: 0;
   }
   .repo-shortcuts-hint {
     display: block;

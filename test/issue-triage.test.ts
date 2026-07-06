@@ -40,6 +40,11 @@ describe("parseModelJson", () => {
     expect(parseModelJson("not json at all")).toBeNull();
     expect(parseModelJson('{"category": "bug"')).toBeNull();
   });
+
+  it("extracts the object from prose-wrapped output", () => {
+    const raw = 'Sure! Here is the classification:\n{"category":"feature"}\nHope that helps.';
+    expect(parseModelJson(raw)).toEqual({ category: "feature" });
+  });
 });
 
 describe("validateDecision", () => {
@@ -63,9 +68,17 @@ describe("validateDecision", () => {
     expect(validateDecision({ ...base, category: "wontfix" })).toBeNull();
   });
 
-  it("no-ops (null) on out-of-allowlist labels", () => {
-    expect(validateDecision({ ...base, labels: ["bug", "priority:high"] })).toBeNull();
-    expect(validateDecision({ ...base, labels: "bug" })).toBeNull();
+  it("classifies a feature (whose label 'enhancement' differs from the category name)", () => {
+    // Regression: previously a model `labels: ["feature"]` failed the allowlist
+    // gate and dropped every feature request. The labels field is now ignored.
+    expect(validateDecision({ ...base, category: "feature", labels: ["feature"] })?.category).toBe(
+      "feature",
+    );
+  });
+
+  it("ignores any labels field the model emits (category is authoritative)", () => {
+    expect(validateDecision({ ...base, labels: ["anything", "at:all"] })?.category).toBe("bug");
+    expect(validateDecision({ ...base, labels: "not-an-array" })?.category).toBe("bug");
   });
 
   it("no-ops (null) on non-object / null input", () => {

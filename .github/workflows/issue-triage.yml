@@ -1,0 +1,141 @@
+name: Issue triage
+
+# Triage newly-opened issues with one paid Haiku 4.5 call: classify → label →
+# (unless in dry-run) post ONE disclosed automated comment.
+#
+# Trigger is `issues` (NOT pull_request_target), so issue content can never reach
+# secrets. Issue title/body are passed to the script via `env:` only — never
+# interpolated into a `run:` line — and are treated as untrusted data. The model
+# has no tools; its JSON is re-validated against a fixed allowlist in the script,
+# and the posted comment has @mentions neutralized.
+on:
+  issues:
+    types: [opened]
+
+# One run per issue; don't cancel an in-flight run for the same issue.
+concurrency:
+  group: issue-triage-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+# Least privilege. `issues: write` covers reading current labels (idempotency
+# pre-check) and applying labels/comments via the fallback token; the branded
+# App installation token (when configured) carries its own down-scoped grant.
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  triage:
+    runs-on: ubuntu-latest
+    # Skip maintainers entirely — only triage non-maintainer authors. Author
+    # association is a property of the issue event, so the payload value is correct.
+    if: >-
+      github.event.issue.author_association != 'OWNER'
+      && github.event.issue.author_association != 'MEMBER'
+      && github.event.issue.author_association != 'COLLABORATOR'
+    steps:
+      - name: Checkout (docs + triage script — our own trusted code)
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      # Authoritative idempotency + best-effort abuse guard, both UNPAID. The
+      # event payload's labels are frozen at open time and never carry the marker,
+      # so we query the issue's CURRENT labels here to gate re-runs.
+      - name: Pre-flight (marker check + per-author burst guard)
+        id: preflight
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          AUTHOR: ${{ github.event.issue.user.login }}
+        run: |
+          set -euo pipefail
+          already=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/labels" \
+            --jq 'any(.[]; .name == "bot-triaged")')
+          echo "already_triaged=${already}" >> "$GITHUB_OUTPUT"
+          echo "bot-triaged already present: ${already}"
+
+          # Best-effort: if this author opened >=5 issues in the last hour, skip
+          # the paid call. Search indexing lags and has no cross-run state — this
+          # is layered UNDER the mandatory Anthropic console budget cap, not a
+          # substitute for it. Never fail the job on a search hiccup.
+          since=$(date -u -d '1 hour ago' +%Y-%m-%dT%H:%M:%SZ)
+          count=$(gh api -X GET search/issues \
+            -f q="repo:${REPO} type:issue author:${AUTHOR} created:>=${since}" \
+            --jq '.total_count' 2>/dev/null || echo 0)
+          if [ "${count:-0}" -ge 5 ]; then burst=true; else burst=false; fi
+          echo "author_burst=${burst}" >> "$GITHUB_OUTPUT"
+          echo "author issues in last hour: ${count} (burst=${burst})"
+
+      # Mint a scoped, short-lived branded App token when configured. Non-fatal:
+      # on failure the token output is empty and the post/label step no-ops.
+      - name: Mint GitHub App token (when configured)
+        id: app-token
+        if: ${{ vars.ISSUE_TRIAGE_APP_CLIENT_ID != '' }}
+        continue-on-error: true
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ vars.ISSUE_TRIAGE_APP_CLIENT_ID }}
+          private-key: ${{ secrets.ISSUE_TRIAGE_APP_PRIVATE_KEY }}
+          permission-contents: read
+          permission-issues: write
+
+      # The one paid call. Gated on the pre-flight so re-runs and bursts don't
+      # spend. Issue text arrives via env: (no shell interpolation); the script
+      # emits a single-line `decision=<json>` to $GITHUB_OUTPUT.
+      - name: Classify + draft (Haiku 4.5)
+        id: triage
+        if: >-
+          steps.preflight.outputs.already_triaged != 'true'
+          && steps.preflight.outputs.author_burst != 'true'
+        env:
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          ISSUE_BODY: ${{ github.event.issue.body }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          ISSUE_BOT_ANSWER_QUESTIONS: ${{ vars.ISSUE_BOT_ANSWER_QUESTIONS }}
+          ISSUE_BOT_COMMENT_ON_BUG_FEATURE: ${{ vars.ISSUE_BOT_COMMENT_ON_BUG_FEATURE }}
+        run: bun scripts/issue-triage.ts
+
+      # Apply the label + `bot-triaged` marker and post the comment — LIVE only.
+      # Requires: not already triaged, an App token present, dry-run OFF (fail-safe:
+      # dry-run unless the var is exactly 'false'), and a processable decision.
+      # Labels are ADDITIVE: the reporter's template label is never removed.
+      - name: Apply label + comment (live)
+        if: >-
+          steps.preflight.outputs.already_triaged != 'true'
+          && steps.app-token.outputs.token != ''
+          && vars.ISSUE_BOT_DRY_RUN == 'false'
+          && steps.triage.outputs.decision != ''
+          && fromJSON(steps.triage.outputs.decision).action == 'process'
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          REPO: ${{ github.repository }}
+          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          DECISION: ${{ steps.triage.outputs.decision }}
+        run: |
+          set -euo pipefail
+          # Category label(s) + the bot-triaged marker (additive; template label kept).
+          mapfile -t labels < <(printf '%s' "$DECISION" | jq -r '.labels[]')
+          labels+=("bot-triaged")
+          # Self-heal: ensure every label exists before --add-label (which requires
+          # it) so a not-yet-created custom label (needs-info / invalid / bot-triaged)
+          # can't hard-fail the step under `set -e`. Runs live-only; existing labels
+          # (bug / enhancement / documentation) no-op via `|| true`. gh assigns a
+          # random colour when --color is omitted; operators may pre-create to style.
+          for l in "${labels[@]}"; do
+            gh label create "$l" --repo "$REPO" >/dev/null 2>&1 || true
+          done
+          args=()
+          for l in "${labels[@]}"; do args+=(--add-label "$l"); done
+          gh issue edit "$ISSUE_NUMBER" --repo "$REPO" "${args[@]}"
+
+          # Post the disclosed comment via --body-file (model output is never
+          # interpolated into the shell). shouldComment can be false for label-only.
+          if [ "$(printf '%s' "$DECISION" | jq -r '.shouldComment')" = "true" ]; then
+            printf '%s' "$DECISION" | jq -r '.comment' > comment.md
+            gh issue comment "$ISSUE_NUMBER" --repo "$REPO" --body-file comment.md
+          fi

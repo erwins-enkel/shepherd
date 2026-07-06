@@ -1,5 +1,5 @@
 import { test, expect } from "vitest";
-import { groupSessionsByEpic } from "./epic-grouping";
+import { groupSessionsByEpic as groupSessionsByEpicRaw } from "./epic-grouping";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
 function session(
@@ -92,6 +92,26 @@ function git(state: GitState["state"], checks: GitState["checks"] = "none"): Git
 }
 
 const now = 1000;
+
+function groupSessionsByEpic(
+  sessions: Session[],
+  epics: Record<string, Epic>,
+  activeEpicKeys: Set<string>,
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean,
+  at: number,
+  isReworkRunning: (session: Session) => boolean = () => false,
+) {
+  return groupSessionsByEpicRaw(
+    sessions,
+    epics,
+    activeEpicKeys,
+    git,
+    isReviewing,
+    isReworkRunning,
+    at,
+  );
+}
 
 test("key-alignment: child issue number groups; parent issue number does NOT", () => {
   const e = epic("/r", 100, [101, 102]);
@@ -261,6 +281,29 @@ test("ordering: within a group, members come back in STAGE_ORDER lifecycle order
 
   expect(groups).toHaveLength(1);
   expect(groups[0].sessions.map((s) => s.id)).toEqual(["a", "r", "m"]);
+});
+
+test("ordering: reworkRunning sits after reviewerRunning and before waiting-on-reviewer", () => {
+  const e = epic("/r", 100, [1, 2, 3]);
+  const epics = { [key("/r", 100)]: e };
+  const active = new Set([key("/r", 100)]);
+
+  const wait = session("wait", "/r", 1, "idle");
+  const rework = session("rework", "/r", 2, "running");
+  const review = session("review", "/r", 3, "running");
+
+  const { groups } = groupSessionsByEpic(
+    [wait, rework, review],
+    epics,
+    active,
+    { wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" } },
+    (id) => id === "review",
+    now,
+    (s) => s.id === "rework",
+  );
+
+  expect(groups).toHaveLength(1);
+  expect(groups[0].sessions.map((s) => s.id)).toEqual(["review", "rework", "wait"]);
 });
 
 test("issueNumber == null never groups", () => {

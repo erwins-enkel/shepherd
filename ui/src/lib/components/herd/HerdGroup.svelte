@@ -108,6 +108,7 @@
      reviewing) — amber mirrors the CI-pending dot and the critic badge */
   .ci-head,
   .reviewing-head,
+  .rework-head,
   .merging-head {
     display: flex;
     align-items: center;

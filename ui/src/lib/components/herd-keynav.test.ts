@@ -1,6 +1,6 @@
 import { test, expect } from "vitest";
 import {
-  railOrder,
+  railOrder as railOrderRaw,
   cycleId,
   nthId,
   nextNeedsYou,
@@ -8,6 +8,7 @@ import {
   altComboKey,
   jumpDigitIndex,
 } from "./herd-keynav";
+import type { HerdFilter } from "./herd-partition";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
 function session(
@@ -98,6 +99,34 @@ function epic(repoPath: string, parentIssueNumber: number, childNumbers: number[
 }
 
 const epicKey = (repoPath: string, parent: number) => `${repoPath}#${parent}`;
+const noReview = () => false;
+const noRework = () => false;
+
+function railOrder(
+  sessions: Session[],
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean = noReview,
+  now: number = Date.now(),
+  filter: HerdFilter = "all",
+  workingBlocked: Record<string, boolean> = {},
+  epics: Record<string, Epic> = {},
+  activeEpicKeys: Set<string> = new Set(),
+  collapsedKeys: Set<string> = new Set(),
+  isReworkRunning: (session: Session) => boolean = noRework,
+) {
+  return railOrderRaw(
+    sessions,
+    git,
+    isReviewing,
+    isReworkRunning,
+    now,
+    filter,
+    workingBlocked,
+    epics,
+    activeEpicKeys,
+    collapsedKeys,
+  );
+}
 
 test("railOrder flattens the partition in the rail's render order", () => {
   // input order interleaves stages; the rail renders active → ciRunning →
@@ -231,6 +260,29 @@ test("railOrder mirrors the template across ≥2 groups + rest over ≥2 stages"
   // groups top in basename/parent order (A then B), each lifecycle-flattened;
   // then rest by STAGE_ORDER (ciRunning before merged)
   expect(order).toEqual(["a-active", "a-ready", "b-member", "rest-ci", "rest-merged"]);
+});
+
+test("railOrder places reworkRunning after reviewerRunning and before waiting groups", () => {
+  const list = [
+    session("wait", false, "idle"),
+    session("rework"),
+    session("review"),
+    session("active"),
+  ];
+  const order = railOrder(
+    list,
+    { wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" } },
+    (id) => id === "review",
+    1000,
+    "all",
+    {},
+    {},
+    new Set(),
+    new Set(),
+    (s) => s.id === "rework",
+  );
+
+  expect(order).toEqual(["active", "review", "rework", "wait"]);
 });
 
 test("cycleId steps down and up through the order", () => {

@@ -1,5 +1,9 @@
 import { test, expect } from "vitest";
-import { partitionSessions, shownSessions } from "./herd-partition";
+import {
+  partitionSessions as partitionSessionsRaw,
+  shownSessions,
+  flattenByStage,
+} from "./herd-partition";
 import type { Session, GitState, SessionStatus } from "$lib/types";
 
 function session(id: string, readyToMerge = false, status: SessionStatus = "running"): Session {
@@ -53,6 +57,22 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
 
 function git(state: GitState["state"], checks: GitState["checks"] = "none"): GitState {
   return { kind: "github", state, checks, deployConfigured: false };
+}
+
+const notReviewing = () => false;
+const notReworking = () => false;
+
+function partitionSessions(
+  sessions: Session[],
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean = notReviewing,
+  isReworkRunningOrNow: ((session: Session) => boolean) | number = notReworking,
+  now: number = Date.now(),
+) {
+  const isReworkRunning =
+    typeof isReworkRunningOrNow === "number" ? notReworking : isReworkRunningOrNow;
+  const at = typeof isReworkRunningOrNow === "number" ? isReworkRunningOrNow : now;
+  return partitionSessionsRaw(sessions, git, isReviewing, isReworkRunning, at);
 }
 
 test("ready sessions land in the ready group, active stay on top", () => {
@@ -182,6 +202,71 @@ test("a session under review lands in the reviewerRunning group", () => {
   const { active, reviewerRunning } = partitionSessions(list, {}, (id) => id === "rv");
   expect(active.map((s) => s.id)).toEqual(["a", "b"]);
   expect(reviewerRunning.map((s) => s.id)).toEqual(["rv"]);
+});
+
+test("display-running plan-gate REWORK lands in the reworkRunning group", () => {
+  const plan = { ...session("plan"), planPhase: "planning" as const };
+  const { active, reworkRunning } = partitionSessions(
+    [session("a"), plan, session("b")],
+    {},
+    notReviewing,
+    (s) => s.id === "plan",
+  );
+  expect(active.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(reworkRunning.map((s) => s.id)).toEqual(["plan"]);
+});
+
+test("display-running critic REWORK lands in the reworkRunning group", () => {
+  const list = [session("a"), session("crit"), session("b")];
+  const { active, reworkRunning } = partitionSessions(
+    list,
+    {},
+    notReviewing,
+    (s) => s.id === "crit",
+  );
+  expect(active.map((s) => s.id)).toEqual(["a", "b"]);
+  expect(reworkRunning.map((s) => s.id)).toEqual(["crit"]);
+});
+
+test("display-running REWORK beats pending and failing CI", () => {
+  const list = [session("pending"), session("failed")];
+  const { ciRunning, ciFailed, reworkRunning } = partitionSessions(
+    list,
+    { pending: git("open", "pending"), failed: git("open", "failure") },
+    notReviewing,
+    () => true,
+  );
+  expect(ciRunning).toHaveLength(0);
+  expect(ciFailed).toHaveLength(0);
+  expect(reworkRunning.map((s) => s.id)).toEqual(["pending", "failed"]);
+});
+
+test("idle changes-requested with failed CI stays in ciFailed, not reworkRunning", () => {
+  const idle = session("idle", false, "idle");
+  const { ciFailed, reworkRunning } = partitionSessions(
+    [idle],
+    { idle: git("open", "failure") },
+    notReviewing,
+    notReworking,
+  );
+  expect(reworkRunning).toHaveLength(0);
+  expect(ciFailed.map((s) => s.id)).toEqual(["idle"]);
+});
+
+test("flattenByStage places reworkRunning after reviewerRunning and before waiting groups", () => {
+  const list = [
+    session("wait", false, "idle"),
+    session("rework"),
+    session("review"),
+    session("active"),
+  ];
+  const p = partitionSessions(
+    list,
+    { wait: gitHandoff("reviewer", "scoop") },
+    (id) => id === "review",
+    (s) => s.id === "rework",
+  );
+  expect(flattenByStage(p).map((s) => s.id)).toEqual(["active", "review", "rework", "wait"]);
 });
 
 test("reviewing wins over pending CI when both apply", () => {

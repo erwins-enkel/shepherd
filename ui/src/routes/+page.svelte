@@ -90,6 +90,7 @@
     altComboKey,
   } from "$lib/components/herd-keynav";
   import { groupSessionsByEpic } from "$lib/components/epic-grouping";
+  import { isReworkRunning as isReworkRunningSession } from "$lib/components/rework-running";
   import { buildCommands } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import {
@@ -464,12 +465,19 @@
   // for ordering — so the filter asymmetry with render/rail is intentional and harmless.
   const epicGroupOf = $derived.by(() => {
     const isReviewing = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+    const isReworkRunning = (session: Session) =>
+      isReworkRunningSession(
+        session,
+        { planGate: planGates.map[session.id], review: reviews.map[session.id] },
+        store.workingBlocked,
+      );
     const { groups } = groupSessionsByEpic(
       herdSessions,
       store.epics,
       activeEpicKeys,
       store.git,
       isReviewing,
+      isReworkRunning,
       nowMs,
     );
     // Build from an entries array (not .set in a loop) so it's a plain non-reactive
@@ -1282,6 +1290,12 @@
       herdSessions,
       store.git,
       (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      (session) =>
+        isReworkRunningSession(
+          session,
+          { planGate: planGates.map[session.id], review: reviews.map[session.id] },
+          store.workingBlocked,
+        ),
       nowMs,
       // a page-level status filter short-circuits the rail's all/ready filter in
       // Herd's shown set (one filter at a time) — mirror that here so keynav walks

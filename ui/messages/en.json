@@ -2615,5 +2615,6 @@
   "planpanel_env_help_aria": "Where to change plan and review coding environments",
   "planpanel_env_popover_title": "Coding environment",
   "planpanel_env_popover_body": "Plan shows the task session's coding CLI, model and reasoning effort. Review shows the Plan Gate reviewer that checked this plan. Change task defaults in New Task, repo defaults or global defaults; change the reviewer under Settings -> CLIs -> Planner (plan reviewer).",
-  "planpanel_env_docs_link": "Open configuration docs"
+  "planpanel_env_docs_link": "Open configuration docs",
+  "herd_rework_running_group": "Rework running ({count})"
 }

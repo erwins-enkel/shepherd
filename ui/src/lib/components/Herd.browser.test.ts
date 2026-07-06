@@ -3,9 +3,11 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import Herd from "./Herd.svelte";
+import { railOrder } from "./herd-keynav";
+import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "$lib/reviews.svelte";
 import { postMergeSteps } from "$lib/post-merge-steps.svelte";
-import type { Session, GitState, Epic, EpicChild, PostMergeSteps } from "$lib/types";
+import type { Session, GitState, Epic, EpicChild, PostMergeSteps, ReviewVerdict } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -74,6 +76,22 @@ const base = {
   onnew: () => {},
   activity: {},
 };
+
+function changesReview(sessionId: string): ReviewVerdict {
+  return {
+    sessionId,
+    headSha: "abc",
+    decision: "changes_requested",
+    summary: "changes",
+    body: "body",
+    findings: ["fix it"],
+    addressRound: 1,
+    addressCap: 3,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 0,
+    updatedAt: 0,
+  };
+}
 
 describe("Herd merging group", () => {
   it("renders a Merging group for in-train sessions", async () => {
@@ -639,5 +657,76 @@ describe("Herd reviewer-running preview badge", () => {
     });
     // The .preview-badge span renders the text "Preview" when previewPort is non-null
     await expect.element(page.getByText("Preview")).toBeInTheDocument();
+  });
+});
+
+describe("Herd rework-running group", () => {
+  afterEach(() => {
+    reviews.setReviewing("review", false);
+    reviews.drop("rework");
+  });
+
+  it("renders in the same order as railOrder, including working-while-blocked REWORK", async () => {
+    const sessions = [
+      session({ id: "wait", name: "waiting reviewer", status: "idle" }),
+      session({ id: "rework", name: "rework active", status: "blocked" }),
+      session({ id: "review", name: "review active", status: "running" }),
+      session({ id: "ci", name: "ci active", status: "running" }),
+      session({ id: "active", name: "plain active", status: "running" }),
+    ];
+    const git = {
+      wait: {
+        kind: "github",
+        state: "open",
+        checks: "success",
+        deployConfigured: false,
+        handoff: "reviewer",
+        handoffWho: "scoop",
+      },
+      ci: {
+        kind: "github",
+        state: "open",
+        checks: "pending",
+        deployConfigured: false,
+      },
+      rework: {
+        kind: "github",
+        state: "open",
+        checks: "failure",
+        deployConfigured: false,
+      },
+    } satisfies Record<string, GitState>;
+    const workingBlocked = { rework: true };
+    reviews.setReviewing("review", true);
+    reviews.apply({ id: "rework", review: changesReview("rework") });
+
+    render(Herd, {
+      ...base,
+      sessions,
+      git,
+      workingBlocked,
+    });
+
+    await expect.element(page.getByText(/Rework running \(1\)/i)).toBeInTheDocument();
+    const rendered = [...document.querySelectorAll<HTMLElement>("[data-unit-id]")].map(
+      (el) => el.dataset.unitId,
+    );
+    const ordered = railOrder(
+      sessions,
+      git,
+      (id) => reviews.isReviewing(id) || planGates.isReviewing(id),
+      (s) =>
+        isReworkRunning(
+          s,
+          { planGate: planGates.map[s.id], review: reviews.map[s.id] },
+          workingBlocked,
+        ),
+      0,
+      "all",
+      workingBlocked,
+    );
+
+    expect(rendered).toEqual(ordered);
+    expect(rendered).toEqual(["active", "ci", "review", "rework", "wait"]);
   });
 });

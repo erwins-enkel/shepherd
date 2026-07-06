@@ -23,6 +23,7 @@ export function groupSessionsByEpic(
   activeEpicKeys: Set<string>,
   git: Record<string, GitState>,
   isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
   now: number,
 ): { groups: Array<{ key: string; epic: Epic; sessions: Session[] }>; rest: Session[] } {
   // Build a child→epicKey index from the ACTIVE epics only.
@@ -58,7 +59,9 @@ export function groupSessionsByEpic(
       key,
       // key came from childIndex, which is built only from epics present above → defined.
       epic: epics[key],
-      sessions: flattenByStage(partitionSessions(memberSessions, git, isReviewing, now)),
+      sessions: flattenByStage(
+        partitionSessions(memberSessions, git, isReviewing, isReworkRunning, now),
+      ),
     }))
     .sort((a, b) => {
       const byRepo = basename(a.epic.repoPath).localeCompare(basename(b.epic.repoPath));

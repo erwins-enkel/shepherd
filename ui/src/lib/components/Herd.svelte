@@ -28,6 +28,7 @@
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
   import { displayStatus } from "$lib/display-status";
+  import { isReworkRunning as isReworkRunningSession } from "./rework-running";
   import { reviews, planGates } from "$lib/reviews.svelte";
   import { m } from "$lib/paraglide/messages";
   import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
@@ -229,6 +230,12 @@
   // a critic post-PR review or a pre-execution plan-gate review currently in flight —
   // the reviewer is actively working the session, so it is NOT awaiting the operator.
   const inReview = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
+  const isReworkRunning = (session: Session) =>
+    isReworkRunningSession(
+      session,
+      { planGate: planGates.map[session.id], review: reviews.map[session.id] },
+      workingBlocked,
+    );
 
   // Derives the quota block kind for a session if its block has shape "quota"; null otherwise.
   const quotaKindFor = (id: string) => {
@@ -276,9 +283,19 @@
   // form a group). Epic grouping then runs over the remainder; a session is never double-grouped.
   const experimentGrouped = $derived(groupSessionsByExperiment(shown));
   const grouped = $derived(
-    groupSessionsByEpic(experimentGrouped.rest, epics, activeEpicKeys, git, inReview, nowMs),
+    groupSessionsByEpic(
+      experimentGrouped.rest,
+      epics,
+      activeEpicKeys,
+      git,
+      inReview,
+      isReworkRunning,
+      nowMs,
+    ),
   );
-  const partition = $derived(partitionSessions(grouped.rest, git, inReview, nowMs));
+  const partition = $derived(
+    partitionSessions(grouped.rest, git, inReview, isReworkRunning, nowMs),
+  );
   // ready-to-merge sessions that actually have an open PR — the merge-train link
   // only surfaces when there's something to run (fail-closed: no PR → no link).
   // In-review sessions are excluded so the link's count matches the launch action.
@@ -291,7 +308,10 @@
   // partition depends on (grouped, git, inReview, nowMs).
   const groupParts = $derived(
     new Map(
-      grouped.groups.map((g) => [g.key, partitionSessions(g.sessions, git, inReview, nowMs)]),
+      grouped.groups.map((g) => [
+        g.key,
+        partitionSessions(g.sessions, git, inReview, isReworkRunning, nowMs),
+      ]),
     ),
   );
   // Per-group attention cues — reads the shared partition; the blocked count still scans
@@ -396,6 +416,13 @@
         sessions: partition.reviewerRunning,
         headClass: "reviewing-head",
         countLabel: m.herd_reviewer_running_group({ count: partition.reviewerRunning.length }),
+        withPreview: true,
+      },
+      partition.reworkRunning.length > 0 && {
+        key: "rework-running",
+        sessions: partition.reworkRunning,
+        headClass: "rework-head",
+        countLabel: m.herd_rework_running_group({ count: partition.reworkRunning.length }),
         withPreview: true,
       },
       partition.waitingOnReviewer.length > 0 && {

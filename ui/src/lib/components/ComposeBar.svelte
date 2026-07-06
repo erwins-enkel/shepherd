@@ -147,7 +147,7 @@
 
   // Dictation (Web Speech / the local-Whisper voice plugin) lives in the shared controller —
   // $lib/dictation.svelte.ts owns the engine pick, recording, live interim preview and
-  // teardown; this sheet just renders its state on the ◉ button and the lines below the field.
+  // teardown; this sheet just renders its state on the mic button and the lines below the field.
   const dict = createDictation({
     getText: () => value,
     setText: (t) => (value = t),
@@ -174,7 +174,7 @@
     // still edit the transcript inline
     ta?.focus();
     autogrow();
-    // The ◉ dictate entry opens the sheet already listening — otherwise a local-only dictate
+    // The mic dictate entry opens the sheet already listening — otherwise a local-only dictate
     // chip would open an idle sheet. The controller owns the engine pick and the probe/ready
     // sequencing (Web Speech synchronously; local once its pre-resolved status applies, still
     // inside the chip tap's getUserMedia activation window — a denial just flashes an error
@@ -370,8 +370,23 @@
               ? m.composebar_dictate_stop_aria()
               : m.composebar_dictate_aria()}
           aria-pressed={dict.listening}
-          onpointerdown={tapMic}>{m.composebar_dictate()}</button
+          onpointerdown={tapMic}
         >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+            <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+            <path d="M12 19v3" />
+            <path d="M8 22h8" />
+          </svg>
+        </button>
       {/if}
       <button
         type="button"
@@ -573,8 +588,16 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .btn.mic {
-    font-size: var(--fs-lg);
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     line-height: 1;
+  }
+  .btn.mic svg {
+    width: var(--icon-btn-glyph);
+    height: var(--icon-btn-glyph);
+    display: block;
   }
   /* while listening/transcribing: highlighted + a soft pulse so it reads as "working" */
   .btn.mic.listening,

@@ -875,23 +875,35 @@
       cancelRename();
     }
   }
-  // Double-tap / double-click on the session title also opens the editor.
-  // Hand-rolled click timing instead of ondblclick so touch and mouse behave
-  // identically (iOS Safari fires dblclick unreliably) — the first tap keeps
-  // its existing job (meta popover via focus), the second one renames.
-  // The timestamp is deliberately shared across the title elements (desig +
-  // vp-name): both carry the same session
-  // identity side by side, so a double-tap straddling them still reads as
-  // "double-tap the title" and should rename.
+  // Double-tap / double-click on the session title opens the rename editor; a
+  // lone tap toggles the git rail (desktop only). Hand-rolled click timing
+  // instead of ondblclick so touch and mouse behave identically (iOS Safari
+  // fires dblclick unreliably). The timestamp is deliberately shared across the
+  // title elements (desig + vp-name): both carry the same session identity side
+  // by side, so a double-tap straddling them still reads as "double-tap the
+  // title" and should rename.
+  //
+  // Timing: the single-tap toggle fires instantly so the common action stays
+  // snappy; the double-tap that renames undoes the first tap's toggle, so the
+  // rail returns to its pre-rename state and the only flash is on the rare
+  // rename path. Synchronous — no timer, so nothing fires after the user moves
+  // on. The toggle is desktop-only (gitOpen doesn't exist on compact, where the
+  // rail lives in the header fold instead), so the mobile .ctx-trigger keeps its
+  // first-tap-focus / double-tap-rename behavior unchanged.
+  // 500ms matches the common OS double-click default (400 dropped slow double-clicks).
+  const DOUBLE_TAP_MS = 500;
   let lastTitleTap = 0;
   function onTitleTap() {
     const now = Date.now();
-    // 500ms matches the common OS double-click default (400 dropped slow double-clicks)
-    if (now - lastTitleTap < 500) {
+    if (now - lastTitleTap < DOUBLE_TAP_MS) {
       lastTitleTap = 0;
+      // undo the toggle the first tap performed → rail back to its original state
+      if (!compact) gitOpen = !gitOpen;
       void startRename();
     } else {
       lastTitleTap = now;
+      // desktop: a lone tap toggles the git rail immediately
+      if (!compact) gitOpen = !gitOpen;
     }
   }
   function onTitleKey(e: KeyboardEvent) {
@@ -2213,6 +2225,31 @@
       <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
            takes the title's slot in place when active -->
       {@render renameNoteEl()}
+      <!-- git-rail disclosure, welded to the title: the full rail (PR / CI /
+           merge / critic / ready / verdict) plus the autopilot toggle live one
+           tap away, revealed as a second header row (.vp-git-strip). Sitting it
+           beside the title enlarges the tap target and pairs it with the
+           single-tap-toggle on the title itself (onTitleTap). A direct tap here
+           toggles instantly and is the keyboard/AT path (aria-expanded). -->
+      <button
+        class="git-toggle"
+        class:open={gitOpen}
+        class:attention={prAttention || planAttention}
+        class:clear={prClear}
+        type="button"
+        aria-expanded={gitOpen}
+        onclick={() => (gitOpen = !gitOpen)}
+        title={gitToggleState
+          ? m.viewport_git_actions_title_state({ state: gitToggleState })
+          : m.viewport_git_actions_title()}
+        aria-label={gitToggleState
+          ? m.viewport_git_actions_aria_state({ state: gitToggleState })
+          : m.viewport_git_actions_aria()}
+      >
+        <span class="gt-dot" aria-hidden="true"></span>
+        <span class="gt-label">{m.viewport_git_actions()}</span>
+        <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
+      </button>
     {/if}
     <div class="spacer"></div>
     <ViewportTabBar
@@ -2277,30 +2314,6 @@
          executing read-only chip — it is its home. -->
     <PlanGateBadge {session} />
     {#if !compact}
-      <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
-           plus the autopilot toggle live one disclosure away — this toggle reveals
-           them as a second header row (.vp-git-strip), keeping the primary line
-           down to identity + tabs + status. Decommission is NOT in here on
-           desktop: it sits inline in the actions cluster (quiet ✕ / green nudge). -->
-      <button
-        class="git-toggle"
-        class:open={gitOpen}
-        class:attention={prAttention || planAttention}
-        class:clear={prClear}
-        type="button"
-        aria-expanded={gitOpen}
-        onclick={() => (gitOpen = !gitOpen)}
-        title={gitToggleState
-          ? m.viewport_git_actions_title_state({ state: gitToggleState })
-          : m.viewport_git_actions_title()}
-        aria-label={gitToggleState
-          ? m.viewport_git_actions_aria_state({ state: gitToggleState })
-          : m.viewport_git_actions_aria()}
-      >
-        <span class="gt-dot" aria-hidden="true"></span>
-        <span class="gt-label">{m.viewport_git_actions()}</span>
-        <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
-      </button>
       <!-- passive at-rest pip: the READY control lives in the git strip; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely
            by the Automation pill in GitRail; paused/complete states still appear

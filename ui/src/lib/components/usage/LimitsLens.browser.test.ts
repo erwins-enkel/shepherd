@@ -242,10 +242,14 @@ describe("LimitsLens", () => {
     render(LimitsLens, { limits, projections: projectionsFixture(), codexUsage });
 
     await expect
-      .element(page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })))
+      .element(
+        page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })),
+      )
       .toBeInTheDocument();
     await expect
-      .element(page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })))
+      .element(
+        page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })),
+      )
       .toBeInTheDocument();
 
     const claude = document.querySelector<HTMLElement>(".provider-claude");

@@ -136,11 +136,16 @@ describe("Usage modal component", () => {
 
     // Wait for the Limits lens to appear. Claude meters stay in their provider section, and
     // Codex uses the reused top-menu LimitGaugeRow primitive rather than the lens meter markup.
-    await expect.poll(() => document.querySelectorAll(".provider-claude .meter-track").length).toBe(2);
+    await expect
+      .poll(() => document.querySelectorAll(".provider-claude .meter-track").length)
+      .toBe(2);
     await expect
       .poll(() => document.querySelectorAll(".provider-codex .sheet-gauge-row").length)
       .toBe(2);
-    expect(document.querySelector(".provider-strip"), "Codex strip suppressed on Limits tab").toBeNull();
+    expect(
+      document.querySelector(".provider-strip"),
+      "Codex strip suppressed on Limits tab",
+    ).toBeNull();
 
     // Range selector must not be present on the Limits tab
     const rangeGroup = document.querySelector('[role="group"][aria-label]');

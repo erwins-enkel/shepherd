@@ -23,7 +23,6 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import prettier from "prettier";
 // @ts-expect-error — .mjs sibling script without types; PAGES is a plain data array.
 import { PAGES } from "../../docs-site/scripts/sync-docs.mjs";
 
@@ -137,6 +136,7 @@ export type DocsPage = { title: string; path: string; keywords: string };
 
 export const DOCS_PAGES: readonly DocsPage[] = ${JSON.stringify(pages)};
 `;
+  const prettier = await import("prettier");
   const config = (await prettier.resolveConfig(OUT)) ?? {};
   return prettier.format(src, { ...config, parser: "typescript" });
 }

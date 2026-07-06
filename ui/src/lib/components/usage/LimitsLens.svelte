@@ -1,5 +1,10 @@
 <script lang="ts">
-  import type { UsageLimits, UsageProjection, UsageHistoryResponse } from "$lib/types";
+  import type {
+    UsageLimits,
+    UsageProjection,
+    UsageHistoryResponse,
+    UsageProviderSnapshot,
+  } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { gaugeList, gaugeColor, modelWeekList } from "$lib/components/usage-gauges";
   import { formatResetIn } from "$lib/format";
@@ -7,14 +12,17 @@
   import Sparkline from "./Sparkline.svelte";
   import ModelWeekGauge from "./ModelWeekGauge.svelte";
   import UsageHistoryPanel from "./UsageHistoryPanel.svelte";
+  import CodexTokenDetail from "../top-bar/CodexTokenDetail.svelte";
 
   const {
     limits,
     projections,
+    codexUsage = null,
     history = null,
   }: {
     limits: UsageLimits;
     projections: UsageProjection[];
+    codexUsage?: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
     history?: UsageHistoryResponse | null;
   } = $props();
 
@@ -26,6 +34,7 @@
   // Per-model weekly passthrough sub-limits (e.g. Fable) — rendered as their own bars below the
   // calibrated 5H/WK windows. Kept out of `gaugeList` (no cap-inversion, no projection/sparkline).
   const perModel = $derived(modelWeekList(limits));
+  const hasClaude = $derived(gauges.length > 0 || perModel.length > 0);
 
   let showHistory = $state(false);
 
@@ -64,93 +73,109 @@
 </script>
 
 <div class="limits-lens panel">
-  {#if gauges.length === 0 && perModel.length === 0}
+  {#if !hasClaude && !codexUsage}
     <p class="no-data">{m.usage_limits_no_data()}</p>
   {:else}
-    {#each gauges as gauge (gauge.label)}
-      {@const pct = Math.min(Math.max(gauge.w.pct, 0), 100)}
-      {@const color = gaugeColor(gauge.w.pct)}
-      {@const proj = findProjection(gauge.label)}
-      {@const projPct = proj ? Math.min(Math.max(proj.projectedPct, 0), 100) : null}
-      {@const willExceed = proj ? proj.projectedPct > 100 : false}
-
-      <div class="window-block">
-        <div class="window-header">
-          <span class="window-label">{windowLabel(gauge.label)}</span>
-          <span class="micro">{gauge.label}</span>
-          <span class="window-pct" style="color:{color}">{gauge.w.pct}%</span>
+    {#if hasClaude}
+      <div class="provider-section provider-claude">
+        <div class="provider-heading micro">
+          {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
         </div>
+        {#each gauges as gauge (gauge.label)}
+          {@const pct = Math.min(Math.max(gauge.w.pct, 0), 100)}
+          {@const color = gaugeColor(gauge.w.pct)}
+          {@const proj = findProjection(gauge.label)}
+          {@const projPct = proj ? Math.min(Math.max(proj.projectedPct, 0), 100) : null}
+          {@const willExceed = proj ? proj.projectedPct > 100 : false}
 
-        <div
-          class="meter-wrap"
-          role="meter"
-          aria-valuenow={gauge.w.pct}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-label={windowLabel(gauge.label)}
-        >
-          <div class="meter-track">
-            <!-- Current fill -->
-            <div class="meter-fill" style="width:{pct}%;background:{color}"></div>
-            <!-- Projection tick -->
-            {#if projPct !== null}
-              <div class="proj-tick" style="left:{projPct}%" aria-hidden="true"></div>
-            {/if}
-          </div>
-        </div>
+          <div class="window-block">
+            <div class="window-header">
+              <span class="window-label">{windowLabel(gauge.label)}</span>
+              <span class="micro">{gauge.label}</span>
+              <span class="window-pct" style="color:{color}">{gauge.w.pct}%</span>
+            </div>
 
-        <!-- Recorded current-cycle trend: scrape samples + a live "now" endpoint. -->
-        <div class="spark-row">
-          <Sparkline
-            points={inlinePoints(gauge.label, gauge.w.pct, gauge.w.resetAt)}
-            {color}
-            liveLast={true}
-            domain={{ min: 0, max: 100 }}
-            ariaLabel={m.usage_history_inline_label({ window: windowLabel(gauge.label) })}
-          />
-        </div>
-
-        <div class="window-meta">
-          <span class="reset-time"
-            >{m.usage_limits_resets_in({ time: formatResetIn(gauge.w.resetAt, nowMs) })}</span
-          >
-          {#if proj}
-            <span class="proj-info" class:will-exceed={willExceed}>
-              {m.usage_limits_projected({ pct: proj.projectedPct })}
-              {#if willExceed}
-                &nbsp;—&nbsp;<span class="exceed-label">{m.usage_limits_will_exceed()}</span>
-              {/if}
-            </span>
-            <span class="burn-rate"
-              >{m.usage_limits_burn_rate({ rate: formatUnits(proj.burnRatePerHour) })}</span
+            <div
+              class="meter-wrap"
+              role="meter"
+              aria-valuenow={gauge.w.pct}
+              aria-valuemin={0}
+              aria-valuemax={100}
+              aria-label={windowLabel(gauge.label)}
             >
-          {/if}
-        </div>
-      </div>
-    {/each}
+              <div class="meter-track">
+                <!-- Current fill -->
+                <div class="meter-fill" style="width:{pct}%;background:{color}"></div>
+                <!-- Projection tick -->
+                {#if projPct !== null}
+                  <div class="proj-tick" style="left:{projPct}%" aria-hidden="true"></div>
+                {/if}
+              </div>
+            </div>
 
-    {#if perModel.length > 0}
-      <div class="model-week-block">
-        {#each perModel as entry (entry.model)}
-          <ModelWeekGauge {entry} {nowMs} />
+            <!-- Recorded current-cycle trend: scrape samples + a live "now" endpoint. -->
+            <div class="spark-row">
+              <Sparkline
+                points={inlinePoints(gauge.label, gauge.w.pct, gauge.w.resetAt)}
+                {color}
+                liveLast={true}
+                domain={{ min: 0, max: 100 }}
+                ariaLabel={m.usage_history_inline_label({ window: windowLabel(gauge.label) })}
+              />
+            </div>
+
+            <div class="window-meta">
+              <span class="reset-time"
+                >{m.usage_limits_resets_in({ time: formatResetIn(gauge.w.resetAt, nowMs) })}</span
+              >
+              {#if proj}
+                <span class="proj-info" class:will-exceed={willExceed}>
+                  {m.usage_limits_projected({ pct: proj.projectedPct })}
+                  {#if willExceed}
+                    &nbsp;—&nbsp;<span class="exceed-label">{m.usage_limits_will_exceed()}</span>
+                  {/if}
+                </span>
+                <span class="burn-rate"
+                  >{m.usage_limits_burn_rate({ rate: formatUnits(proj.burnRatePerHour) })}</span
+                >
+              {/if}
+            </div>
+          </div>
         {/each}
+
+        {#if perModel.length > 0}
+          <div class="model-week-block">
+            {#each perModel as entry (entry.model)}
+              <ModelWeekGauge {entry} {nowMs} />
+            {/each}
+          </div>
+        {/if}
+
+        {#if hasHistory}
+          <div class="history-toggle-row">
+            <button
+              type="button"
+              class="gbtn"
+              aria-expanded={showHistory}
+              onclick={() => (showHistory = !showHistory)}
+            >
+              {showHistory ? m.usage_history_hide() : m.usage_history_view()}
+            </button>
+          </div>
+          {#if showHistory && history}
+            <UsageHistoryPanel {history} />
+          {/if}
+        {/if}
       </div>
     {/if}
 
-    {#if hasHistory}
-      <div class="history-toggle-row">
-        <button
-          type="button"
-          class="gbtn"
-          aria-expanded={showHistory}
-          onclick={() => (showHistory = !showHistory)}
-        >
-          {showHistory ? m.usage_history_hide() : m.usage_history_view()}
-        </button>
+    {#if codexUsage}
+      <div class="provider-section provider-codex" class:stale={codexUsage.stale}>
+        <div class="provider-heading micro">
+          {m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })}
+        </div>
+        <CodexTokenDetail usage={codexUsage} {nowMs} periodLabel={windowLabel} />
       </div>
-      {#if showHistory && history}
-        <UsageHistoryPanel {history} />
-      {/if}
     {/if}
   {/if}
 </div>
@@ -160,6 +185,21 @@
     display: flex;
     flex-direction: column;
     gap: 1.5rem;
+  }
+
+  .provider-section {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .provider-section.stale {
+    opacity: 0.5;
+  }
+
+  .provider-heading {
+    padding-bottom: 0.25rem;
+    border-bottom: 1px solid var(--color-line);
   }
 
   .no-data {

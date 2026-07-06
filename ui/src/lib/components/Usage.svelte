@@ -247,7 +247,7 @@
       </div>
     {/if}
 
-    {#if codexUsage}
+    {#if codexUsage && tab !== "limits"}
       <div class="provider-strip" class:provider-stale={codexUsage.stale}>
         <span class="provider-name">{m.agent_provider_codex()}</span>
         <span class="provider-metric">
@@ -286,7 +286,7 @@
       {:else if tab === "timeline" && timeline}
         <TimelineLens {timeline} />
       {:else if tab === "limits" && limits}
-        <LimitsLens {limits} {projections} />
+        <LimitsLens {limits} {projections} {codexUsage} />
       {:else if tab === "github" && github}
         <GithubLens data={github} />
       {:else if bodyError}

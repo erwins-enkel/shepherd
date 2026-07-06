@@ -2,7 +2,14 @@ import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
-import type { UsageLimits, UsageProjection, UsageHistoryResponse } from "$lib/types";
+import type {
+  UsageLimits,
+  UsageProjection,
+  UsageHistoryResponse,
+  UsageProviderSnapshot,
+} from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+import { formatTokenLabel } from "$lib/format";
 
 const BASE = Date.now();
 const H = 3_600_000;
@@ -24,6 +31,35 @@ function projectionsFixture(): UsageProjection[] {
     { window: "5H", projectedPct: 64, resetAt: BASE + 2.5 * H, burnRatePerHour: 48_000 },
     { window: "WK", projectedPct: 41, resetAt: BASE + 58 * H, burnRatePerHour: 31_000 },
   ];
+}
+
+function emptyLimitsFixture(): UsageLimits {
+  return {
+    session5h: null,
+    week: null,
+    perModelWeek: [],
+    credits: null,
+    stale: false,
+    calibratedAt: null,
+    subscriptionOnly: false,
+  };
+}
+
+function codexUsageFixture(
+  overrides: Partial<Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }>> = {},
+): Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> {
+  return {
+    provider: "codex",
+    kind: "tokens",
+    totalTokens: 884_800_000,
+    session5hTokens: 229_700_000,
+    weekTokens: 689_900_000,
+    updatedAt: BASE - 60_000,
+    stale: false,
+    session5h: { pct: 42, resetAt: BASE + H },
+    week: { pct: 7, resetAt: BASE + 6 * 24 * H },
+    ...overrides,
+  };
 }
 
 function historyFixture(): UsageHistoryResponse {
@@ -75,7 +111,7 @@ describe("LimitsLens", () => {
     render(LimitsLens, { limits, projections });
 
     // Two window blocks — one per gauge (5H and WK)
-    const meterTracks = document.querySelectorAll(".meter-track");
+    const meterTracks = document.querySelectorAll(".provider-claude .meter-track");
     expect(meterTracks.length, "one meter per window").toBe(2);
   });
 
@@ -167,8 +203,8 @@ describe("LimitsLens", () => {
     const projections = projectionsFixture();
     render(LimitsLens, { limits, projections, history: null });
 
-    expect(document.querySelectorAll(".meter-track").length).toBe(2);
-    expect(document.querySelectorAll(".proj-tick").length).toBe(2);
+    expect(document.querySelectorAll(".provider-claude .meter-track").length).toBe(2);
+    expect(document.querySelectorAll(".provider-claude .proj-tick").length).toBe(2);
     // No recorded history ⇒ no toggle
     expect(document.querySelector("button[aria-expanded]"), "no toggle without history").toBeNull();
     // Inline sparkline still renders (single live "now" point)
@@ -183,7 +219,10 @@ describe("LimitsLens", () => {
     render(LimitsLens, { limits, projections: projectionsFixture() });
 
     // Its own block, NOT a 5H/WK meter-track (those stay at 2)
-    expect(document.querySelectorAll(".meter-track").length, "5H/WK meters unchanged").toBe(2);
+    expect(
+      document.querySelectorAll(".provider-claude .meter-track").length,
+      "5H/WK meters unchanged",
+    ).toBe(2);
     const mwBar = document.querySelector(".model-week-block .mw-bar");
     expect(mwBar, "Fable passthrough bar present").not.toBeNull();
     await expect.element(page.getByText("Weekly window (Fable)")).toBeInTheDocument();
@@ -191,17 +230,58 @@ describe("LimitsLens", () => {
   });
 
   it("renders 'no data' message when limits are empty", async () => {
-    const emptyLimits = {
-      session5h: null,
-      week: null,
-      perModelWeek: [],
-      credits: null,
-      stale: false,
-      calibratedAt: null,
-      subscriptionOnly: false,
-    };
+    const emptyLimits = emptyLimitsFixture();
     render(LimitsLens, { limits: emptyLimits, projections: [] });
 
     await expect.element(page.getByText(/no usage-window data/i)).toBeInTheDocument();
+  });
+
+  it("renders provider-scoped Claude and Codex sections without mixing stale state", async () => {
+    const limits = limitsFixture();
+    const codexUsage = codexUsageFixture({ stale: true });
+    render(LimitsLens, { limits, projections: projectionsFixture(), codexUsage });
+
+    await expect
+      .element(page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByText(m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })))
+      .toBeInTheDocument();
+
+    const claude = document.querySelector<HTMLElement>(".provider-claude");
+    const codex = document.querySelector<HTMLElement>(".provider-codex");
+    expect(claude, "Claude section present").not.toBeNull();
+    expect(codex, "Codex section present").not.toBeNull();
+    expect(claude!.classList.contains("stale"), "Claude does not inherit Codex stale").toBe(false);
+    expect(codex!.classList.contains("stale"), "Codex uses its own stale flag").toBe(true);
+    expect(claude!.querySelectorAll(".meter-track").length, "Claude meters").toBe(2);
+    expect(codex!.querySelectorAll(".sheet-gauge-row").length, "Codex top-menu gauge rows").toBe(2);
+  });
+
+  it("renders codex-only limit gauges without the generic no-data message", async () => {
+    const limits = emptyLimitsFixture();
+    const codexUsage = codexUsageFixture();
+    render(LimitsLens, { limits, projections: [], codexUsage });
+
+    expect(document.querySelector(".provider-claude"), "no empty Claude section").toBeNull();
+    const codex = document.querySelector<HTMLElement>(".provider-codex");
+    expect(codex, "Codex section present").not.toBeNull();
+    expect(codex!.querySelectorAll(".sheet-gauge-row").length, "Codex gauges").toBe(2);
+    expect(document.querySelector(".no-data"), "no generic no-data with Codex usage").toBeNull();
+    await expect.element(page.getByText("42%")).toBeInTheDocument();
+    await expect.element(page.getByText("7%")).toBeInTheDocument();
+  });
+
+  it("renders codex token-only fallback without fake gauges", async () => {
+    const limits = emptyLimitsFixture();
+    const codexUsage = codexUsageFixture({ session5h: null, week: null });
+    render(LimitsLens, { limits, projections: [], codexUsage });
+
+    const codex = document.querySelector<HTMLElement>(".provider-codex");
+    expect(codex, "Codex section present").not.toBeNull();
+    expect(codex!.querySelectorAll(".sheet-gauge-row").length, "no fake Codex gauges").toBe(0);
+    await expect.element(page.getByText(m.topbar_codex_limits_unavailable())).toBeInTheDocument();
+    await expect.element(page.getByText(formatTokenLabel(884_800_000))).toBeInTheDocument();
+    expect(document.querySelector(".no-data"), "no generic no-data with token fallback").toBeNull();
   });
 });

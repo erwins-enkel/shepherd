@@ -179,8 +179,21 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
   });
 
   it("reviewPlan emits the reviewing latch", () => {
-    const frames = capture(() => demoState.reviewPlan("authstore"));
+    let status: ReturnType<typeof demoState.reviewPlan> | undefined;
+    const frames = capture(() => {
+      status = demoState.reviewPlan("authstore");
+    });
+    expect(status).toBe("started");
     expect(events(frames)).toEqual(["session:plangate-reviewing"]);
+  });
+
+  it("reviewPlan returns plan-unavailable without a reviewing latch when no plan gate exists", () => {
+    let status: ReturnType<typeof demoState.reviewPlan> | undefined;
+    const frames = capture(() => {
+      status = demoState.reviewPlan("neon");
+    });
+    expect(status).toBe("plan-unavailable");
+    expect(events(frames)).toEqual([]);
   });
 
   it("mergePr emits session:merging with a since timestamp", () => {

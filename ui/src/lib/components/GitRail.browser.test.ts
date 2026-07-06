@@ -33,7 +33,9 @@ const gitStateFn = vi.fn(async () => openPrState);
 // "started"/"skipped"/"error" or reject it to exercise the fail-closed toast paths.
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 // reviewPlanFn drives the manual plan-review trigger handler; same resolution options.
-const reviewPlanFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
+const reviewPlanFn = vi.fn(
+  async () => "started" as "started" | "skipped" | "plan-unavailable" | "error",
+);
 
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
@@ -1132,6 +1134,21 @@ describe("GitRail — manual plan-review trigger", () => {
     await armAndConfirmPlan(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_plan_skipped());
+  });
+
+  it("'plan-unavailable' raises the specific plan artifact toast", async () => {
+    reviewPlanFn.mockResolvedValue("plan-unavailable");
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: false, planPhase: "planning" },
+    });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+    await armAndConfirmPlan(h);
+    await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
+    expect(toastsInfo).toHaveBeenCalledWith(m.gitrail_review_plan_unavailable());
   });
 
   // 6. "skipped" WHILE isReviewing is true → toasts.info NOT called.

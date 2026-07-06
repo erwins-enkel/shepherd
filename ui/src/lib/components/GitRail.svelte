@@ -518,9 +518,11 @@
       // "started" → bridge to the WS reviewing flag (silent; the indicator is the feedback).
       // "skipped" while NOT already reviewing → transient note. "error" → persistent toast.
       if (status === "started") awaitingPlanReview = true;
+      else if (status === "plan-unavailable" && !planGates.isReviewing(sessionId))
+        toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(sessionId))
         toasts.info(m.gitrail_review_plan_skipped());
-      else if (status !== "skipped")
+      else if (status === "error")
         toasts.info(m.gitrail_review_plan_failed(), {
           duration: null,
           alert: true,

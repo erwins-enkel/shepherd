@@ -108,6 +108,9 @@
   // why nothing changed. Auto-dismissed so it can't go stale between clicks.
   // null = no note (fresh page, or a real review is/was in flight).
   let outcome = $state<"approved" | "changes" | "idle" | "error" | null>(null);
+  // Persistent while the current planning state has no usable `.shepherd-plan.md` artifact.
+  // Unlike `outcome`, this must not auto-dismiss: it explains why Review cannot start.
+  let planUnavailable = $state(false);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
   const inFlight = $derived(busy || reviewing || awaitingReview);
 
@@ -117,7 +120,12 @@
     if (reviewing) {
       awaitingReview = false;
       outcome = null;
+      planUnavailable = false;
     }
+  });
+
+  $effect(() => {
+    if (gate || !canReviewNow) planUnavailable = false;
   });
 
   // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
@@ -150,12 +158,14 @@
     if (inFlight || !canReviewNow) return;
     busy = true;
     outcome = null;
+    planUnavailable = false;
     try {
       const status = await reviewPlan(session.id);
       // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
       // "skipped" → unchanged/already-approved/not-reviewable; branch on the cached gate so
       // approved plans do not read as blocked and requested-change plans do not read as cleared.
       if (status === "started") awaitingReview = true;
+      else if (status === "plan-unavailable" && !reviewing) planUnavailable = true;
       else if (status === "skipped" && !reviewing) outcome = skippedOutcome(gate);
       else if (status === "error") outcome = "error";
     } catch {
@@ -301,7 +311,13 @@
           <!-- eslint-disable-next-line svelte/no-at-html-tags -- plan markdown, DOMPurify-sanitized above -->
           <div class="md">{@html planHtml}</div>
         {:else}
-          <p class="empty">{m.planpanel_empty()}</p>
+          <p class="empty">
+            {#if canReviewNow && !gate}
+              {m.planpanel_plan_unavailable()}
+            {:else}
+              {m.planpanel_empty()}
+            {/if}
+          </p>
         {/if}
       </section>
 
@@ -326,7 +342,9 @@
         </section>
       {/if}
 
-      {#if outcome === "approved"}
+      {#if planUnavailable}
+        <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
+      {:else if outcome === "approved"}
         <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
       {:else if outcome === "changes"}
         <p class="note" role="status">{m.planpanel_review_changes_pending()}</p>

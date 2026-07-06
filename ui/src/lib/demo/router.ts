@@ -195,8 +195,8 @@ const sessionIdMutationRoutes: ReadonlyArray<{
     method: "POST",
     pattern: /^\/api\/sessions\/[^/]+\/review-plan$/,
     handle: (path) => {
-      demoState.reviewPlan(seg(path, 3));
-      return json({ status: "started" });
+      const status = demoState.reviewPlan(seg(path, 3));
+      return json({ status });
     },
   },
   {

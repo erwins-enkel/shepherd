@@ -103,6 +103,18 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect(demoState.sessions().find((s) => s.id === "authstore")?.planPhase).toBe("executing");
   });
 
+  it("POST /review-plan returns started for the seeded plan-gate demo", async () => {
+    const r = await handleApi("POST", u("/api/sessions/authstore/review-plan"), undefined);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ status: "started" });
+  });
+
+  it("POST /review-plan returns plan-unavailable when the demo session has no plan gate", async () => {
+    const r = await handleApi("POST", u("/api/sessions/neon/review-plan"), undefined);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ status: "plan-unavailable" });
+  });
+
   it("POST git/merge returns a PrStatus", async () => {
     const r = await handleApi("POST", u("/api/sessions/rounding/git/merge"), {});
     const body = await r.json();

@@ -17,6 +17,16 @@
     readyAgentProviders,
   } from "$lib/provider-capacity";
 
+  type SortMode = "recommended" | "newest" | "oldest" | "title-asc" | "title-desc";
+  type RenderGroup = {
+    id: string;
+    title: string;
+    kind: "priority" | "normal" | "repo";
+    items: UpNextItem[];
+    totalCount: number;
+    cap: number;
+  };
+
   // Open the Backlog overlay from the empty state (threaded up through Herd to +page).
   // repoFilter: selected repo paths of the active chip-rail filter (empty = unfiltered) — scopes
   // the queue to those repos, identical to how the session lenses filter. filteredRepo is the
@@ -44,6 +54,7 @@
   // triggers a background refresh that lands in place via the upnext:snapshot WS event), so the
   // lens reflects "now" rather than the last app-load — not just on-app-load (#1169 spec).
   onMount(() => {
+    sortMode = readStoredSortMode();
     void upNext.load();
   });
 
@@ -51,9 +62,41 @@
   // ranked list and we reveal the rest in place via "show all N".
   const PRIORITY_CAP = 10;
   const REPO_CAP = 5;
+  const NORMAL_CAP = 5;
+  const SORT_STORAGE_KEY = "shepherd.upnext.sort";
   // Manual starts bypass the per-repo maxAuto drain cap, so a large batch could launch a swarm
   // unintentionally — confirm above this many selected (issue #1169 tunable).
   const CONFIRM_THRESHOLD = 3;
+  const SORT_MODES: SortMode[] = ["recommended", "newest", "oldest", "title-asc", "title-desc"];
+  const SORT_LABELS: Record<SortMode, () => string> = {
+    recommended: m.upnext_sort_recommended,
+    newest: m.upnext_sort_newest,
+    oldest: m.upnext_sort_oldest,
+    "title-asc": m.upnext_sort_title_asc,
+    "title-desc": m.upnext_sort_title_desc,
+  };
+  let sortMode = $state<SortMode>("newest");
+
+  function validSortMode(value: string | null): SortMode {
+    return SORT_MODES.includes(value as SortMode) ? (value as SortMode) : "newest";
+  }
+
+  function readStoredSortMode(): SortMode {
+    try {
+      return validSortMode(localStorage.getItem(SORT_STORAGE_KEY));
+    } catch {
+      return "newest";
+    }
+  }
+
+  function setSortMode(mode: SortMode) {
+    sortMode = mode;
+    try {
+      localStorage.setItem(SORT_STORAGE_KEY, mode);
+    } catch {
+      /* storage may be blocked */
+    }
+  }
 
   const snap = $derived(upNext.snapshot);
   // The chip-rail repo filter scopes the queue to one repo, identical to the session lenses.
@@ -99,13 +142,80 @@
   const sectionKey = (s: UpNextSection) =>
     s.kind === "priority" ? "priority" : (s.repoPath ?? "");
   const capOf = (s: UpNextSection) => (s.kind === "priority" ? PRIORITY_CAP : REPO_CAP);
-  function shownItems(s: UpNextSection): UpNextItem[] {
-    return expanded.has(sectionKey(s)) ? s.items : s.items.slice(0, capOf(s));
+  const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
+  function sectionTitle(s: UpNextSection): string {
+    return s.kind === "priority"
+      ? m.upnext_priority_section()
+      : (s.repoLabel ?? repoBase(s.repoPath));
+  }
+  function stableCompare(a: UpNextItem, b: UpNextItem): number {
+    return (
+      a.repoLabel.localeCompare(b.repoLabel) ||
+      a.repoPath.localeCompare(b.repoPath) ||
+      a.number - b.number
+    );
+  }
+  function compareItems(a: UpNextItem, b: UpNextItem): number {
+    if (sortMode === "newest") return b.createdAt - a.createdAt || stableCompare(a, b);
+    if (sortMode === "oldest") return a.createdAt - b.createdAt || stableCompare(a, b);
+    if (sortMode === "title-asc") return a.title.localeCompare(b.title) || stableCompare(a, b);
+    if (sortMode === "title-desc") return b.title.localeCompare(a.title) || stableCompare(a, b);
+    return stableCompare(a, b);
+  }
+  function sortItems(items: UpNextItem[]): UpNextItem[] {
+    return sortMode === "recommended" ? items : [...items].sort(compareItems);
+  }
+  const renderGroups = $derived.by((): RenderGroup[] => {
+    if (sortMode === "recommended") {
+      return sections.map((s) => ({
+        id: sectionKey(s),
+        title: sectionTitle(s),
+        kind: s.kind === "priority" ? "priority" : "repo",
+        items: s.items,
+        totalCount: s.totalCount,
+        cap: capOf(s),
+      }));
+    }
+
+    // Epic rows are aged by their parent epic's createdAt in src/up-next-core.ts,
+    // even though the displayed title/number is the next actionable child.
+    const all = sections.flatMap((s) => s.items);
+    const priority = sortItems(all.filter((it) => it.priority));
+    const normal = sortItems(all.filter((it) => !it.priority));
+    const groups: RenderGroup[] = [];
+    if (priority.length > 0) {
+      groups.push({
+        id: "priority",
+        title: m.upnext_priority_section(),
+        kind: "priority",
+        items: priority,
+        totalCount: priority.length,
+        cap: PRIORITY_CAP,
+      });
+    }
+    if (normal.length > 0) {
+      groups.push({
+        id: "normal",
+        title: m.upnext_normal_section(),
+        kind: "normal",
+        items: normal,
+        totalCount: normal.length,
+        cap: NORMAL_CAP,
+      });
+    }
+    return groups;
+  });
+  const visibleRepoCount = $derived(
+    new Set(sections.flatMap((s) => s.items.map((it) => it.repoPath))).size,
+  );
+  const showRepoContext = $derived(sortMode !== "recommended" && visibleRepoCount > 1);
+  function shownItems(g: RenderGroup): UpNextItem[] {
+    return expanded.has(g.id) ? g.items : g.items.slice(0, g.cap);
   }
 
   // Selected items still present in the current snapshot (a refresh may have dropped some).
   const selectedItems = $derived(
-    sections.flatMap((s) => s.items).filter((it) => selected.has(keyOf(it))),
+    renderGroups.flatMap((g) => g.items).filter((it) => selected.has(keyOf(it))),
   );
   const selectedCount = $derived(selectedItems.length);
   const usageLimits = $derived(launchContext?.store.usageLimits ?? null);
@@ -135,10 +245,9 @@
     else selected.add(k);
     confirmPending = false; // selection changed — re-confirm if still over threshold
   }
-  function toggleExpand(s: UpNextSection) {
-    const k = sectionKey(s);
-    if (expanded.has(k)) expanded.delete(k);
-    else expanded.add(k);
+  function toggleExpand(g: RenderGroup) {
+    if (expanded.has(g.id)) expanded.delete(g.id);
+    else expanded.add(g.id);
   }
 
   async function doStart(items: UpNextItem[], choice?: UpNextStartChoice) {
@@ -229,20 +338,13 @@
       refreshing = false;
     }
   }
-
-  const repoBase = (p: string | null) => p?.split("/").filter(Boolean).at(-1) ?? "";
-  function sectionTitle(s: UpNextSection): string {
-    return s.kind === "priority"
-      ? m.upnext_priority_section()
-      : (s.repoLabel ?? repoBase(s.repoPath));
-  }
 </script>
 
 {#snippet pill(label: string, cls: string)}
   <span class="un-pill {cls}">{label}</span>
 {/snippet}
 
-{#snippet row(it: UpNextItem)}
+{#snippet row(it: UpNextItem, showRepo: boolean)}
   <li class="un-row">
     <label class="un-check">
       <input
@@ -256,6 +358,9 @@
     <a class="un-link" href={it.url} target="_blank" rel="noopener noreferrer">
       <span class="un-num">#{it.number}</span>
       <span class="un-title">{it.title}</span>
+      {#if showRepo}
+        <span class="un-repo">{it.repoLabel || repoBase(it.repoPath)}</span>
+      {/if}
     </a>
     <span class="un-pills">
       {#if it.priority}{@render pill(m.upnext_pill_priority(), "un-pill-priority")}{/if}
@@ -279,6 +384,17 @@
     {#if updatedAgo}
       <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
     {/if}
+    <div class="un-sort" role="group" aria-label={m.upnext_sort_aria()}>
+      {#each SORT_MODES as mode (mode)}
+        <button
+          type="button"
+          class="un-sort-btn"
+          class:seg-active={sortMode === mode}
+          aria-pressed={sortMode === mode}
+          onclick={() => setSortMode(mode)}>{SORT_LABELS[mode]()}</button
+        >
+      {/each}
+    </div>
     <button
       type="button"
       class="un-refresh"
@@ -334,21 +450,21 @@
         {/if}
       </div>
     {:else}
-      {#each sections as s (sectionKey(s))}
+      {#each renderGroups as g (g.id)}
         <div class="un-section">
-          <p class="un-section-head" class:un-section-head-priority={s.kind === "priority"}>
-            {sectionTitle(s)}
+          <p class="un-section-head" class:un-section-head-priority={g.kind === "priority"}>
+            {g.title}
           </p>
           <ul class="un-list">
-            {#each shownItems(s) as it (keyOf(it))}
-              {@render row(it)}
+            {#each shownItems(g) as it (keyOf(it))}
+              {@render row(it, showRepoContext)}
             {/each}
           </ul>
-          {#if s.totalCount > capOf(s)}
-            <button type="button" class="un-expand" onclick={() => toggleExpand(s)}>
-              {expanded.has(sectionKey(s))
+          {#if g.totalCount > g.cap}
+            <button type="button" class="un-expand" onclick={() => toggleExpand(g)}>
+              {expanded.has(g.id)
                 ? m.upnext_show_less()
-                : m.upnext_show_all({ count: s.totalCount })}
+                : m.upnext_show_all({ count: g.totalCount })}
             </button>
           {/if}
         </div>
@@ -388,10 +504,11 @@
 
   .un-head {
     display: flex;
-    align-items: baseline;
+    align-items: center;
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--color-line);
+    flex-wrap: wrap;
   }
   .un-title-h {
     font-size: var(--fs-meta);
@@ -403,6 +520,45 @@
   .un-updated {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+  .un-sort {
+    display: flex;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    overflow: hidden;
+    min-width: min(100%, 320px);
+  }
+  .un-sort-btn {
+    flex: 1;
+    min-width: 0;
+    min-height: 32px;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-micro);
+    cursor: pointer;
+    padding: 0 6px;
+    color: var(--color-muted);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .un-sort-btn:last-child {
+    border-right: 0;
+  }
+  .un-sort-btn:hover {
+    color: var(--color-ink);
+  }
+  .un-sort-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  .un-sort-btn.seg-active {
+    color: var(--color-amber);
+    background: var(--color-inset);
+    box-shadow: inset 0 -2px 0 var(--color-amber);
   }
   .un-refresh {
     margin-left: auto;
@@ -545,6 +701,11 @@
     text-overflow: ellipsis;
     white-space: nowrap;
     transition: color 0.12s ease;
+  }
+  .un-repo {
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    flex: none;
   }
   .un-pills {
     display: flex;

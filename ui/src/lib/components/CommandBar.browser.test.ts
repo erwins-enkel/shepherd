@@ -162,7 +162,7 @@ describe("CommandBar — grouping & recency", () => {
     await expect.element(page.getByRole("option").first()).toHaveTextContent("held-needs-input");
   });
 
-  it("promotes working-while-blocked sessions when they still have a block entry", async () => {
+  it("does not promote working-while-blocked sessions even with a block entry", async () => {
     renderBar({
       sessions: [
         session({ id: "waiting", name: "reviewer-cli-metadata", status: "done", updatedAt: 99 }),
@@ -173,8 +173,8 @@ describe("CommandBar — grouping & recency", () => {
     });
 
     const first = page.getByRole("option").first();
-    await expect.element(first).toHaveTextContent("working-needs-input");
-    await expect.element(first).toHaveTextContent(m.status_working());
+    await expect.element(first).toHaveTextContent("reviewer-cli-metadata");
+    await expect.element(first).toHaveTextContent(m.status_done());
   });
 
   it("promotes autopilot-paused sessions and explains them with the needs-you label", async () => {

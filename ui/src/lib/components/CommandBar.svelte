@@ -108,8 +108,10 @@
 
   const needsInputIds = $derived(
     new Set([
-      ...sortBlocked(sessions, blocks).map((e) => e.session.id),
-      ...sessions.filter((s) => s.autopilotPaused).map((s) => s.id),
+      ...sortBlocked(sessions, blocks)
+        .filter((e) => !workingBlocked[e.session.id])
+        .map((e) => e.session.id),
+      ...sessions.filter((s) => s.autopilotPaused && !workingBlocked[s.id]).map((s) => s.id),
     ]),
   );
 

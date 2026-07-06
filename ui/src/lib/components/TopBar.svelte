@@ -15,6 +15,7 @@
     hotterGauge,
     modelWeekList,
     overspending,
+    type CompactUsageView,
     type GaugeKey,
   } from "./usage-gauges";
   import {
@@ -301,6 +302,15 @@
   const creditColor = $derived(
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
   );
+  function compactUsageMeasureKey(view: CompactUsageView): string {
+    const base = `${view.provider}:${view.mode}:${view.widthClass}`;
+    if (view.mode === "limits") {
+      return `${base}:${view.gauges.map((g) => `${g.label}:${g.w.pct}`).join(",")}`;
+    }
+    if (view.mode === "tokens") return `${base}:${view.totalTokens}`;
+    if (view.mode === "model") return `${base}:${view.model.model}:${view.model.pct}`;
+    return base;
+  }
   const compactUsageViews = $derived(
     compactUsageViewList({
       gauges,
@@ -316,7 +326,7 @@
   const compactUsageRotating = $derived(rotatingCompactUsageViews.length >= 2);
   const compactUsageSetSignature = $derived(
     `${compactUsageRotating ? "rot" : "single"}:${compactUsageViews
-      .map((view) => `${view.provider}:${view.mode}:${view.widthClass}`)
+      .map(compactUsageMeasureKey)
       .join("|")}`,
   );
   let activeCompactUsageIndex = $state(0);

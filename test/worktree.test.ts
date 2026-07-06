@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync, existsSync, mkdirSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 import { execFileSync } from "node:child_process";
-import { WorktreeMgr, WorktreeRestoreError } from "../src/worktree";
+import { WorktreeMgr, WorktreeMissingBaseError, WorktreeRestoreError } from "../src/worktree";
 import { ProcessReaper } from "../src/process-reaper";
 
 let repo: string;
@@ -389,9 +389,12 @@ const gitEnvBasic = {
   GIT_COMMITTER_EMAIL: "t@t",
 };
 
-test("create: invalid base ref throws with stderr in message", () => {
+test("create: missing base ref throws typed error", () => {
   const wt = new WorktreeMgr();
-  expect(() => wt.create(repo, "no-such-base", "x")).toThrow(/invalid reference/i);
+  expect(() => wt.create(repo, "no-such-base", "x")).toThrow(WorktreeMissingBaseError);
+  expect(() => wt.create(repo, "no-such-base", "x")).toThrow(
+    /base ref "no-such-base" does not resolve to a commit/i,
+  );
 });
 
 test("create: non-git directory returns non-isolated, no throw", () => {

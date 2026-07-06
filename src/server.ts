@@ -3,7 +3,7 @@ import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
 import { PREVIEW_SETUP_STEER, RestoreError } from "./service";
-import { WorktreeRestoreError } from "./worktree";
+import { WorktreeMissingBaseError, WorktreeRestoreError } from "./worktree";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
 import type { CreateSessionInput } from "./types";
@@ -1892,9 +1892,11 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
 }
 
 /** Map a service.create() error to the appropriate Response.
- *  SandboxAutoRefused → 403; agent_name_taken → 409; anything else → 502. */
+ *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
+ *  anything else → 502. */
 function createErrorResponse(e: unknown): Response {
   if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
+  if (e instanceof WorktreeMissingBaseError) return json({ error: e.message }, 422);
   const msg = e instanceof Error ? e.message : "create failed";
   const taken = /agent_name_taken/.test(msg);
   return json({ error: taken ? "task name already in use, retry" : msg }, taken ? 409 : 502);

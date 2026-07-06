@@ -53,6 +53,15 @@ export class WorktreeRestoreError extends Error {
   }
 }
 
+export class WorktreeMissingBaseError extends Error {
+  constructor(public readonly baseRef: string) {
+    super(
+      `base ref "${baseRef}" does not resolve to a commit; create an initial commit or choose an existing base branch`,
+    );
+    this.name = "WorktreeMissingBaseError";
+  }
+}
+
 export class WorktreeMgr {
   /** Injectable so tests can assert the teardown orphan sweep fires without real /proc. */
   constructor(private reaper: ProcessReaper = new ProcessReaper()) {}
@@ -73,6 +82,9 @@ export class WorktreeMgr {
     if (!this.isGit(repoPath)) {
       return { worktreePath: repoPath, branch: null, isolated: false };
     }
+    if (!this.baseRefResolvesToCommit(repoPath, baseBranch)) {
+      throw new WorktreeMissingBaseError(baseBranch);
+    }
     ensureShepherdExclude(repoPath);
     const branch = `shepherd/${name}`;
     const parent = join(dirname(repoPath), ".shepherd-worktrees");
@@ -87,6 +99,18 @@ export class WorktreeMgr {
       return { worktreePath, branch, isolated: true };
     } catch (err) {
       return this.recoverFromAddFailure(repoPath, baseBranch, branch, worktreePath, err);
+    }
+  }
+
+  private baseRefResolvesToCommit(repoPath: string, baseRef: string): boolean {
+    try {
+      execFileSync("git", ["rev-parse", "--verify", `${baseRef}^{commit}`], {
+        cwd: repoPath,
+        stdio: "pipe",
+      });
+      return true;
+    } catch {
+      return false;
     }
   }
 

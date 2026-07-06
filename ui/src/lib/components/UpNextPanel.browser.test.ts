@@ -159,6 +159,11 @@ const providerSelect = () => document.querySelector<HTMLSelectElement>("#mcp-pro
 const pickerConfirm = () => document.querySelector<HTMLButtonElement>(".mcp-actions .primary")!;
 const rowNumbers = () =>
   Array.from(document.querySelectorAll(".un-row .un-num")).map((el) => el.textContent ?? "");
+// Sort now lives behind a ⇅ icon that opens a listbox menu; open it, then pick the mode.
+const pickSort = async (name: string) => {
+  document.querySelector<HTMLButtonElement>(".un-sortbtn")!.click();
+  await page.getByRole("option", { name }).click();
+};
 
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
@@ -262,18 +267,18 @@ describe("UpNextPanel sorting", () => {
   it("keeps the server-ranked sections available as Recommended", async () => {
     upNext.snapshot = sortSnapshot();
     render(UpNextPanel, {});
-    await page.getByRole("button", { name: m.upnext_sort_recommended() }).click();
+    await pickSort(m.upnext_sort_recommended());
     await expect.poll(rowNumbers).toEqual(["#10", "#11", "#20", "#21", "#30", "#31"]);
   });
 
   it("sorts oldest and title modes within the priority and normal tiers", async () => {
     upNext.snapshot = sortSnapshot();
     render(UpNextPanel, {});
-    await page.getByRole("button", { name: m.upnext_sort_oldest() }).click();
+    await pickSort(m.upnext_sort_oldest());
     await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#20", "#21", "#31"]);
-    await page.getByRole("button", { name: m.upnext_sort_title_asc() }).click();
+    await pickSort(m.upnext_sort_title_asc());
     await expect.poll(rowNumbers).toEqual(["#11", "#10", "#21", "#20", "#31", "#30"]);
-    await page.getByRole("button", { name: m.upnext_sort_title_desc() }).click();
+    await pickSort(m.upnext_sort_title_desc());
     await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#31", "#20", "#21"]);
   });
 
@@ -317,7 +322,7 @@ describe("UpNextPanel sorting", () => {
     upNext.snapshot = snapshot;
     render(UpNextPanel, {});
     await page.getByRole("button", { name: m.upnext_show_all({ count: 6 }) }).click();
-    await page.getByRole("button", { name: m.upnext_sort_oldest() }).click();
+    await pickSort(m.upnext_sort_oldest());
     await expect.element(page.getByText(m.upnext_show_less())).toBeInTheDocument();
   });
 
@@ -326,7 +331,7 @@ describe("UpNextPanel sorting", () => {
     upNext.snapshot = snapshot;
     const original = snapshot.sections.map((s) => s.items.map((it) => it.number));
     render(UpNextPanel, {});
-    await page.getByRole("button", { name: m.upnext_sort_title_desc() }).click();
+    await pickSort(m.upnext_sort_title_desc());
     await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#31", "#20", "#21"]);
     expect(snapshot.sections.map((s) => s.items.map((it) => it.number))).toEqual(original);
   });

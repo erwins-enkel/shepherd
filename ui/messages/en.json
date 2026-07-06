@@ -2210,6 +2210,7 @@
   "upnext_priority_section": "Priority",
   "upnext_normal_section": "Queued",
   "upnext_sort_aria": "Sort Up Next",
+  "upnext_sort_by": "Sort by {mode}",
   "upnext_sort_recommended": "Recommended",
   "upnext_sort_newest": "Newest",
   "upnext_sort_oldest": "Oldest",

@@ -2628,5 +2628,7 @@
   "topbar_usage_provider_short_codex": "CX",
   "feat_usage_gauge_provider_rotation_title": "Usage gauges rotate by CLI",
   "feat_usage_gauge_provider_rotation_body": "When Claude Code and Codex usage data are both configured, the compact top-bar gauge now alternates every two minutes between CC and CX. Codex shows rate-limit bars when available, or token totals until the CLI reports reset windows.",
-  "plugins_repo": "REPO"
+  "plugins_repo": "REPO",
+  "feat_codex_bring_back_title": "Bring back Codex sessions",
+  "feat_codex_bring_back_body": "Bring back now works for Codex sessions too, not just Claude. Select a done Codex session in the Done lens and click Bring back — Shepherd re-creates its worktree and resumes the exact Codex conversation by its session id. Only isolated Codex sessions can be brought back; others still need a relaunch."
 }

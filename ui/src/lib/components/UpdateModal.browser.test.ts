@@ -157,9 +157,10 @@ describe("UpdateModal", () => {
     expect(card).not.toBeNull();
     expect(getComputedStyle(backdrop!).display).toBe("none");
     expect(getComputedStyle(sheet!).display).not.toBe("none");
-    expect(card!.scrollHeight, "fixture should exercise the mobile sheet scroll path").toBeGreaterThan(
-      card!.clientHeight,
-    );
+    expect(
+      card!.scrollHeight,
+      "fixture should exercise the mobile sheet scroll path",
+    ).toBeGreaterThan(card!.clientHeight);
 
     const before = sheet!.getBoundingClientRect();
     card!.scrollTop = 80;

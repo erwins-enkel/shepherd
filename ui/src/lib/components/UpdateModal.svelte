@@ -81,9 +81,7 @@
       <div class="summary">
         <span class="count">{update.behind}</span>
         <span class="micro"
-          >{update.behind === 1
-            ? m.updatemodal_commits_one()
-            : m.updatemodal_commits_other()}</span
+          >{update.behind === 1 ? m.updatemodal_commits_one() : m.updatemodal_commits_other()}</span
         >
         {#if update.current && update.latest}
           <span class="shas micro">{update.current} → {update.latest}</span>

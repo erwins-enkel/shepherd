@@ -3031,22 +3031,36 @@ test("restore: isolated codex with no matching rollout → cannot_restore", asyn
   });
 });
 
-test("restore: non-isolated codex → cannot_restore (shared cwd is ambiguous)", async () => {
-  const store = new SessionStore(":memory:");
-  const svc = makeRestoreSvc(store, {});
-  const s = archivedWithSession(store, {
-    agentProvider: "codex",
-    claudeSessionId: "",
-    isolated: false,
-  });
-  let err: unknown;
-  try {
-    await svc.restore(s.id);
-  } catch (e) {
-    err = e;
-  }
-  expect(err).toBeInstanceOf(RestoreError);
-  expect((err as RestoreError).code).toBe("cannot_restore");
+test("restore: non-isolated codex → cannot_restore EVEN with a matching rollout present", async () => {
+  // Locks the DELIBERATE isolated-only guard (#1175 / #1476): a non-isolated session shares its cwd
+  // with siblings/relaunches/operator runs, so a discoverable rollout can't be attributed to THIS
+  // row — restore refuses even when findCodexSessionId WOULD return an id for the cwd. Proves the
+  // block is the intentional guard, not an incidental "no rollout found".
+  await withCodexHome(
+    [
+      {
+        name: "rollout-shared.jsonl",
+        payload: { session_id: "codex-uuid-shared", cwd: "/wt/x", source: "cli" },
+      },
+    ],
+    async () => {
+      const store = new SessionStore(":memory:");
+      const svc = makeRestoreSvc(store, {});
+      const s = archivedWithSession(store, {
+        agentProvider: "codex",
+        claudeSessionId: "",
+        isolated: false,
+      });
+      let err: unknown;
+      try {
+        await svc.restore(s.id);
+      } catch (e) {
+        err = e;
+      }
+      expect(err).toBeInstanceOf(RestoreError);
+      expect((err as RestoreError).code).toBe("cannot_restore");
+    },
+  );
 });
 
 test("captureCodexSessionId: seeds a running isolated codex session from its rollout", async () => {

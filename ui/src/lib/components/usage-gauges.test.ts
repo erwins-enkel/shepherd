@@ -108,6 +108,7 @@ describe("compactUsageViews", () => {
   it("returns a Claude limit view for Claude-only normal gauges", () => {
     const views = compactUsageViews({
       gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      claudeStale: false,
       perModel: [],
       credits: null,
       codexUsage: null,
@@ -118,9 +119,22 @@ describe("compactUsageViews", () => {
     ]);
   });
 
+  it("marks Claude limit compact views stale when the Claude snapshot is stale", () => {
+    const views = compactUsageViews({
+      gauges: gaugeList(limits({ session5h: w(10), week: w(20), stale: true })),
+      claudeStale: true,
+      perModel: [],
+      credits: null,
+      codexUsage: null,
+    });
+
+    expect(views).toMatchObject([{ provider: "claude", mode: "limits", stale: true }]);
+  });
+
   it("returns a Codex limit view when Codex-only has rate-limit windows", () => {
     const views = compactUsageViews({
       gauges: [],
+      claudeStale: false,
       perModel: [],
       credits: null,
       codexUsage: { ...codexTokens, session5h: w(7), week: w(9) },
@@ -134,6 +148,7 @@ describe("compactUsageViews", () => {
   it("returns a Codex token fallback when Codex-only has no rate-limit windows", () => {
     const views = compactUsageViews({
       gauges: [],
+      claudeStale: false,
       perModel: [],
       credits: null,
       codexUsage: codexTokens,
@@ -147,6 +162,7 @@ describe("compactUsageViews", () => {
   it("returns Claude plus Codex token fallback for both-provider token-only Codex", () => {
     const views = compactUsageViews({
       gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      claudeStale: false,
       perModel: [],
       credits: null,
       codexUsage: codexTokens,
@@ -162,6 +178,7 @@ describe("compactUsageViews", () => {
   it("returns Claude plus Codex limit views when both have rate-limit windows", () => {
     const views = compactUsageViews({
       gauges: gaugeList(limits({ session5h: w(10), week: w(20) })),
+      claudeStale: false,
       perModel: [],
       credits: null,
       codexUsage: { ...codexTokens, session5h: w(7), week: w(9) },
@@ -176,6 +193,7 @@ describe("compactUsageViews", () => {
   it("preserves the Claude credit compact view when a normal window is capped", () => {
     const views = compactUsageViews({
       gauges: gaugeList(limits({ session5h: w(100), week: w(20) })),
+      claudeStale: false,
       perModel: [],
       credits: credit({ spent: 0.29 }),
       codexUsage: null,
@@ -189,6 +207,7 @@ describe("compactUsageViews", () => {
   it("preserves the Claude per-model compact view when it is the only Claude signal", () => {
     const views = compactUsageViews({
       gauges: [],
+      claudeStale: false,
       perModel: [{ model: "fable", pct: 7, resetAt: null, scrapedAt: 0, stale: false }],
       credits: null,
       codexUsage: null,

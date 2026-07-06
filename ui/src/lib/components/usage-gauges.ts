@@ -121,11 +121,13 @@ export function codexTokenUsage(
 
 export function compactUsageViews({
   gauges,
+  claudeStale,
   perModel,
   credits,
   codexUsage,
 }: {
   gauges: Gauge[];
+  claudeStale: boolean;
   perModel: ModelWeekWindow[];
   credits: CreditWindow | null;
   codexUsage: CodexTokenSnapshot | null;
@@ -147,7 +149,7 @@ export function compactUsageViews({
       provider: "claude",
       mode: "limits",
       gauges,
-      stale: false,
+      stale: claudeStale,
       rotationEligible: true,
       widthClass: "bars",
     });

@@ -302,7 +302,13 @@
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
   );
   const compactUsageViews = $derived(
-    compactUsageViewList({ gauges, perModel, credits, codexUsage }),
+    compactUsageViewList({
+      gauges,
+      claudeStale: limits?.stale ?? false,
+      perModel,
+      credits,
+      codexUsage,
+    }),
   );
   const rotatingCompactUsageViews = $derived(
     compactUsageViews.filter((view) => view.rotationEligible),

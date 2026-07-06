@@ -1,5 +1,5 @@
 import type { Issue, GitState } from "./forge/types";
-import type { SessionStatus, ReviewDecision } from "./types";
+import type { AgentProvider, SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
 
@@ -41,8 +41,19 @@ export interface HoldReason {
   detail?: string;
 }
 
+export interface EpicProviderSettings {
+  agentProvider: AgentProvider;
+  model: string | null;
+  effort: string | null;
+}
+
 export type DrainDecision =
-  | { kind: "spawn"; issue: Issue; integrationBranch?: string }
+  | {
+      kind: "spawn";
+      issue: Issue;
+      integrationBranch?: string;
+      epicProviderSettings?: EpicProviderSettings;
+    }
   | { kind: "retire"; sessionId: string; prNumber: number }
   | { kind: "hold"; reason: HoldReason };
 
@@ -105,6 +116,9 @@ export interface DrainRepoState {
   /** Epic mode: the active epic's integration branch — epic-child spawns base on it.
    *  null/undefined for label-drain (spawns base on the default branch). */
   epicIntegrationBranch?: string | null;
+  /** Epic mode: explicit provider/model/effort for child spawns. Undefined for label-drain
+   *  and for epics inheriting the repo/global defaults. */
+  epicProviderSettings?: EpicProviderSettings | null;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -254,6 +268,7 @@ export function computeNext(state: DrainRepoState): DrainDecision {
     kind: "spawn",
     issue: next,
     integrationBranch: state.epicIntegrationBranch ?? undefined,
+    epicProviderSettings: state.epicProviderSettings ?? undefined,
   };
 }
 

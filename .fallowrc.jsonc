@@ -278,6 +278,30 @@
         "reason": "Codex provider creation branches through the existing session-create orchestration; keep capped until create is split by provider lifecycle."
       },
       {
+        "files": ["src/service.ts"],
+        "functions": ["replaceAgent"],
+        "maxCyclomatic": 18,
+        "maxCognitive": 17,
+        "maxCrap": 1000,
+        "reason": "Provider handoff now rehydrates issue context and keeps replacement in-place inside the existing replace orchestration; keep capped until replaceAgent is split by lifecycle stage."
+      },
+      {
+        "files": ["src/drain.ts"],
+        "functions": ["buildState"],
+        "maxCyclomatic": 16,
+        "maxCognitive": 18,
+        "maxCrap": 1000,
+        "reason": "Epic provider settings are gathered alongside the existing epic child-selection state; keep capped until drain state assembly is split from candidate selection."
+      },
+      {
+        "files": ["src/drain.ts"],
+        "functions": ["doSpawn"],
+        "maxCyclomatic": 22,
+        "maxCognitive": 19,
+        "maxCrap": 1000,
+        "reason": "Epic child spawns can override provider/model/effort while preserving the existing claim, sandbox and issue-forwarding flow; keep capped until spawn preparation is extracted."
+      },
+      {
         "files": ["src/store.ts"],
         "functions": ["hydrate"],
         "maxCyclomatic": 22,

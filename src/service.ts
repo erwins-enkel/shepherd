@@ -1362,6 +1362,35 @@ function composeHandoffSummaryPrompt(originalPrompt: string): string {
   ].join("\n");
 }
 
+function composeProviderHandoffPrompt(
+  prompt: string,
+  meta: {
+    session: Session;
+    sourceProvider: AgentProvider;
+    targetProvider: AgentProvider;
+    model: string | null;
+    effort: string | null | undefined;
+  },
+): string {
+  const s = meta.session;
+  const lines = [
+    "Provider handoff context:",
+    "- This is a Shepherd provider handoff, not a native provider conversation resume.",
+    `- Shepherd session: ${s.id} (${s.desig})`,
+    `- Source provider: ${meta.sourceProvider}`,
+    `- Target provider: ${meta.targetProvider}`,
+    `- Target model: ${meta.model ?? "provider default"}`,
+    `- Target effort: ${meta.effort ?? "provider default"}`,
+    `- Repo: ${s.repoPath}`,
+    `- Worktree: ${s.worktreePath}`,
+    `- Branch: ${s.branch ?? "none"}`,
+    `- Base branch: ${s.baseBranch}`,
+    `- Issue number: ${s.issueNumber ?? "none"}`,
+    `- PR number: ${s.mergingPrNumber ?? "unknown"}`,
+  ];
+  return `${prompt}\n\n${lines.join("\n")}`;
+}
+
 export class SessionService {
   constructor(private deps: ServiceDeps) {}
 
@@ -2748,6 +2777,7 @@ export class SessionService {
       model: string | null;
       handoffMode?: HandoffMode;
       effort?: string | null;
+      issueRef?: IssueRef;
     },
   ): Promise<Session> {
     const s = this.deps.store.get(id);
@@ -2755,6 +2785,7 @@ export class SessionService {
       throw new Error(`cannot replace agent for ${id}: missing or archived`);
 
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
+    const sourceProvider = s.agentProvider ?? "claude";
     const model = modelForProviderOrDefault(opts.model, agentProvider);
     const claudeSessionId = agentProvider === "claude" ? randomUUID() : "";
     const carriedUploads = this.listWorktreeUploads(s.worktreePath);
@@ -2766,11 +2797,15 @@ export class SessionService {
     const input: CreateSessionInput = {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
-      prompt: opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
+      prompt: composeProviderHandoffPrompt(
+        opts.handoffMode === "summarize" ? composeHandoffSummaryPrompt(s.prompt) : s.prompt,
+        { session: s, sourceProvider, targetProvider: agentProvider, model, effort: opts.effort },
+      ),
       agentProvider,
       model,
       effort: opts.effort,
       images: [],
+      issueRef: opts.issueRef,
       planGateEnabled: s.planGateEnabled,
       autopilotEnabled: s.autopilotEnabled,
       research: s.research,

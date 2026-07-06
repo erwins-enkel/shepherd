@@ -1005,19 +1005,73 @@ export function validateBuildStepStatus(body: unknown): BuildStepStatus | null {
 }
 
 /** Validate a PATCH body for PUT /api/epic. Returns null on any violation. */
-export function validateEpicRunPatch(
-  v: unknown,
-): { mode?: "auto" | "attended"; status?: "idle" | "running" | "paused" } | null {
+export type EpicRunPatch = {
+  mode?: "auto" | "attended";
+  status?: "idle" | "running" | "paused";
+  agentProvider?: AgentProvider | null;
+  model?: string | null;
+  effort?: string | null;
+};
+
+const EPIC_RUN_PATCH_KEYS = ["mode", "status", "agentProvider", "model", "effort"] as const;
+const EPIC_RUN_PATCH_KEY_SET = new Set(EPIC_RUN_PATCH_KEYS);
+type EpicRunPatchKey = (typeof EPIC_RUN_PATCH_KEYS)[number];
+type EpicRunPatchFieldValidator = (value: unknown, out: EpicRunPatch) => boolean;
+
+function parseEpicRunMode(v: unknown): EpicRunPatch["mode"] | null {
+  return v === "auto" || v === "attended" ? v : null;
+}
+
+function parseEpicRunStatus(v: unknown): EpicRunPatch["status"] | null {
+  return v === "idle" || v === "running" || v === "paused" ? v : null;
+}
+
+function parseEpicRunAgentProvider(v: unknown): AgentProvider | null | undefined {
+  if (v === null) return null;
+  return (AGENT_PROVIDERS as readonly unknown[]).includes(v) ? (v as AgentProvider) : undefined;
+}
+
+const EPIC_RUN_PATCH_FIELD_VALIDATORS: Record<EpicRunPatchKey, EpicRunPatchFieldValidator> = {
+  mode(value, out) {
+    const mode = parseEpicRunMode(value);
+    if (mode === null) return false;
+    out.mode = mode;
+    return true;
+  },
+  status(value, out) {
+    const status = parseEpicRunStatus(value);
+    if (status === null) return false;
+    out.status = status;
+    return true;
+  },
+  agentProvider(value, out) {
+    const agentProvider = parseEpicRunAgentProvider(value);
+    if (agentProvider === undefined) return false;
+    out.agentProvider = agentProvider;
+    return true;
+  },
+  model(value, out) {
+    const model = validateModel(value, out.agentProvider ?? undefined);
+    if (!model.ok) return false;
+    out.model = model.value;
+    return true;
+  },
+  effort(value, out) {
+    const effort = validateEffort(value);
+    if (!effort.ok) return false;
+    out.effort = effort.value;
+    return true;
+  },
+};
+
+export function validateEpicRunPatch(v: unknown): EpicRunPatch | null {
   if (typeof v !== "object" || v === null || Array.isArray(v)) return null;
   const o = v as Record<string, unknown>;
-  const out: { mode?: "auto" | "attended"; status?: "idle" | "running" | "paused" } = {};
-  if ("mode" in o) {
-    if (o.mode !== "auto" && o.mode !== "attended") return null;
-    out.mode = o.mode;
-  }
-  if ("status" in o) {
-    if (o.status !== "idle" && o.status !== "running" && o.status !== "paused") return null;
-    out.status = o.status;
+  if (Object.keys(o).some((key) => !EPIC_RUN_PATCH_KEY_SET.has(key as EpicRunPatchKey)))
+    return null;
+  const out: EpicRunPatch = {};
+  for (const key of EPIC_RUN_PATCH_KEYS) {
+    if (key in o && !EPIC_RUN_PATCH_FIELD_VALIDATORS[key](o[key], out)) return null;
   }
   return out;
 }

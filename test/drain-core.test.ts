@@ -81,6 +81,23 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "spawn", issue: i });
   });
 
+  test("epic provider settings are carried only when present", () => {
+    const i = issue(5);
+    const d = computeNext(
+      state({
+        candidates: [i],
+        epicIntegrationBranch: "epic/327-parent",
+        epicProviderSettings: { agentProvider: "codex", model: "gpt-5.5", effort: "high" },
+      }),
+    );
+    expect(d).toEqual({
+      kind: "spawn",
+      issue: i,
+      integrationBranch: "epic/327-parent",
+      epicProviderSettings: { agentProvider: "codex", model: "gpt-5.5", effort: "high" },
+    });
+  });
+
   test("cap hit → hold cap", () => {
     const d = computeNext(
       state({

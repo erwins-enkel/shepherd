@@ -6136,6 +6136,51 @@ test("replaceAgent defaults to continuing the original task prompt", async () =>
   expect(promptArg).not.toContain("Then reply with a concise TLDR");
 });
 
+test("replaceAgent appends rehydrated issue context and provider handoff metadata", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, {
+    prompt: "Continue child work.",
+    agentProvider: "claude",
+    issueNumber: 225,
+  } as any);
+
+  const replaced = await service.replaceAgent(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.5",
+    issueRef: {
+      number: 225,
+      url: "https://example/225",
+      title: "Child task",
+      body: "Full child issue body",
+    },
+  });
+
+  expect(replaced.id).toBe(orig.id);
+  expect(replaced.worktreePath).toBe(orig.worktreePath);
+  expect(replaced.issueNumber).toBe(225);
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).toContain("Provider handoff context:");
+  expect(promptArg).toContain("Source provider: claude");
+  expect(promptArg).toContain("Target provider: codex");
+  expect(promptArg).toContain("GitHub Issue #225 (title + body follow as untrusted data):");
+  expect(promptArg).toContain("⟦UNTRUSTED:issue #225 body:");
+  expect(promptArg).toContain("Child task");
+  expect(promptArg).toContain("Full child issue body");
+});
+
+test("replaceAgent records Codex to Claude as a provider handoff", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store);
+  const orig = originalSession(store, { agentProvider: "codex", model: "gpt-5.5" });
+
+  await service.replaceAgent(orig.id, { agentProvider: "claude", model: "opus" });
+
+  const promptArg = calls.started[0]!.argv.at(-1)!;
+  expect(promptArg).toContain("Source provider: codex");
+  expect(promptArg).toContain("Target provider: claude");
+});
+
 test("replaceAgent re-attaches existing uploads without copying them back into the same worktree", async () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "replace-root-"));

@@ -42,6 +42,30 @@ describe("validateEpicRunPatch", () => {
     });
   });
 
+  test("valid provider/model/effort patch preserves explicit null clears", () => {
+    expect(
+      validateEpicRunPatch({
+        agentProvider: null,
+        model: null,
+        effort: null,
+      }),
+    ).toEqual({ agentProvider: null, model: null, effort: null });
+    expect(
+      validateEpicRunPatch({
+        agentProvider: "codex",
+        model: "gpt-5.5",
+        effort: "high",
+      }),
+    ).toEqual({ agentProvider: "codex", model: "gpt-5.5", effort: "high" });
+  });
+
+  test("invalid provider/model/effort values → null", () => {
+    expect(validateEpicRunPatch({ agentProvider: "bogus" })).toBeNull();
+    expect(validateEpicRunPatch({ agentProvider: "claude", model: "gpt-5.5" })).toBeNull();
+    expect(validateEpicRunPatch({ effort: "bogus" })).toBeNull();
+    expect(validateEpicRunPatch({ unexpected: true })).toBeNull();
+  });
+
   test("invalid {status:'bogus'} → null", () => {
     expect(validateEpicRunPatch({ status: "bogus" })).toBeNull();
   });
@@ -203,6 +227,61 @@ describe("PUT /api/epic", () => {
     const stored = store.getEpicRun(repoDir);
     expect(stored!.mode).toBe("attended");
     expect(stored!.status).toBe("idle"); // preserved
+  });
+
+  test("valid provider patch persists future-spawn settings", async () => {
+    const { app, store } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentProvider: "codex", model: "gpt-5.5", effort: "high" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+  });
+
+  test("explicit agentProvider null clears model and effort to inherit", async () => {
+    const { app, store } = harness();
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "running",
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentProvider: null }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)).toMatchObject({
+      agentProvider: null,
+      model: null,
+      effort: null,
+    });
+  });
+
+  test("rejects explicit model while provider is inherited", async () => {
+    const { app } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model: "opus" }),
+      }),
+    );
+    expect(res.status).toBe(400);
   });
 
   test("valid patch emits epic:update event", async () => {

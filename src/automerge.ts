@@ -75,6 +75,11 @@ export interface AutoMergeDeps {
   emitStatus: (s: AutoMergeStatus) => void;
   emitArchived: (id: string) => void;
   dropPrCache: (id: string) => void;
+  noteMergedForRecap?: (input: {
+    sessionId: string;
+    prNumber: number;
+    headSha: string | null;
+  }) => void;
   /** Mark a session so the drain's onArchived keeps its claim (close failed). */
   retainClaim: (id: string) => void;
   rebaseCap: number;
@@ -305,6 +310,7 @@ export class AutoMergeService {
       return false;
     }
     this.mergeFail.delete(sessionId); // success clears any backoff
+    this.deps.noteMergedForRecap?.({ sessionId, prNumber, headSha });
     // Clear the behind-cache so sibling sessions get a fresh read now that main has moved.
     this.behindCache.clear();
     // Autonomous merge emits no session:git event, so clear the merge-train mark and

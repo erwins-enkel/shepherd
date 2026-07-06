@@ -72,16 +72,32 @@ test("ready PR → forge.merge called with squash + delete-branch, then archived
   const merge = mock(async () => {});
   const archive = mock(() => 1);
   const resolveMerging = mock(() => {});
+  const noted: Array<{ sessionId: string; prNumber: number; headSha: string | null }> = [];
+  const order: string[] = [];
   const d = deps({
     resolveForge: () =>
       ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
-    service: { archive, reply: mock(() => true), resume: mock(() => true), resolveMerging } as any,
+    service: {
+      archive: mock(() => {
+        order.push("archive");
+        return archive();
+      }),
+      reply: mock(() => true),
+      resume: mock(() => true),
+      resolveMerging,
+    } as any,
+    noteMergedForRecap: (input) => {
+      order.push("note");
+      noted.push(input);
+    },
   });
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect((merge as any).mock.calls[0]).toEqual([7, { method: "squash", deleteBranch: true }]);
   expect(archive.mock.calls.length).toBe(1);
   expect((resolveMerging as any).mock.calls).toEqual([["s1", true]]);
+  expect(noted).toEqual([{ sessionId: "s1", prNumber: 7, headSha: "h1" }]);
+  expect(order).toEqual(["note", "archive"]);
 });
 
 test("behind → steers a rebase + bumps the counter, does NOT merge", async () => {

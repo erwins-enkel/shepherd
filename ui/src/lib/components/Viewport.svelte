@@ -9,6 +9,7 @@
     GitState,
     Leftover,
     Session,
+    SessionActivity,
     SessionStatus,
     SessionUsage,
     SubagentEntry,
@@ -92,6 +93,7 @@
     limits = null,
     connected = true,
     git = null,
+    activity = undefined,
     previewPort = null,
     claudeAlive = undefined,
     previewServeFailed = false,
@@ -130,6 +132,8 @@
     // PR/git state for this session; once a PR exists the work is effectively done,
     // so the header promotes its decommission button into a "ready to clean up" nudge
     git?: GitState | null;
+    /** Live focused-session activity signal (heartbeat + current task-agent tool summary). */
+    activity?: SessionActivity;
     /** Live preview-listener port for this session (server-driven). Non-null → the
      *  Preview tab + pane are available; the iframe URL is built from window.location. */
     previewPort?: number | null;
@@ -2254,6 +2258,8 @@
          (issue #1022) -->
     <ReviewInFlightBanner
       {session}
+      {dStatus}
+      {activity}
       keystrokes={opKeystrokes}
       {tab}
       bind:height={reviewBannerH}

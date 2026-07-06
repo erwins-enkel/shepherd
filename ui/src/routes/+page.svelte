@@ -2517,6 +2517,7 @@
             connected={store.connected}
             limits={store.usageLimits}
             git={store.git[selected.id]}
+            activity={store.activity[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             claudeAlive={store.claudeAlive[selected.id]}
             previewMap={store.preview}
@@ -2679,6 +2680,7 @@
             session={selected}
             touch={touch.current}
             git={store.git[selected.id]}
+            activity={store.activity[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
             claudeAlive={store.claudeAlive[selected.id]}
             previewMap={store.preview}

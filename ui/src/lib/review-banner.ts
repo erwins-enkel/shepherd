@@ -1,4 +1,4 @@
-import type { PlanDecision, ReviewDecision, ReviewVerdict } from "./types";
+import type { PlanDecision, PlanGate, ReviewDecision, ReviewVerdict, SessionStatus } from "./types";
 
 // Pure state selection for the review-in-flight terminal banner (issue #1022),
 // mirroring the critic-badge.ts / plan-gate-badge.ts pattern so the predicate is
@@ -37,6 +37,16 @@ export type BannerState =
         | "reviewbanner_released"
         | "reviewbanner_awaiting_go"
         | "reviewbanner_errored";
+    }
+  | {
+      show: true;
+      phase: "addressing";
+      tone: "calm";
+      kind: ReviewKind;
+      round?: number;
+      cap?: number;
+      summary: string | null;
+      fallbackKey: "reviewbanner_rework_plan_fallback" | "reviewbanner_rework_critic_fallback";
     };
 
 /**
@@ -128,6 +138,64 @@ export interface ReviewBannerInput {
   delivered: boolean;
   /** Conclusion (plan-gate): session.auto || effectiveAutopilot. */
   autoReleased: boolean;
+}
+
+export interface ActiveReworkBannerInput {
+  planPhase: "planning" | "executing" | null;
+  dStatus: SessionStatus;
+  planGate: Pick<PlanGate, "decision" | "round" | "cap"> | undefined;
+  planReviewing: boolean;
+  review: Pick<ReviewVerdict, "decision" | "addressRound" | "addressCap"> | undefined;
+  criticReviewing: boolean;
+  activitySummary: string | null | undefined;
+}
+
+/** Active task-agent rework telemetry for the same bottom strip as review/CI.
+ *  Parked REWORK verdicts stay in the header/list chips; only a display-running
+ *  session gets this strip. */
+export function activeReworkBannerState(input: ActiveReworkBannerInput): BannerState {
+  if (input.dStatus !== "running") return { show: false };
+
+  if (
+    input.planPhase === "planning" &&
+    input.planGate?.decision === "changes_requested" &&
+    !input.planReviewing
+  ) {
+    return {
+      show: true,
+      phase: "addressing",
+      tone: "calm",
+      kind: "plangate",
+      round: input.planGate.round,
+      cap: input.planGate.cap,
+      summary: input.activitySummary ?? null,
+      fallbackKey: "reviewbanner_rework_plan_fallback",
+    };
+  }
+
+  if (
+    input.planPhase !== "planning" &&
+    input.review?.decision === "changes_requested" &&
+    !input.criticReviewing
+  ) {
+    const hasRound = input.review.addressRound > 0 && input.review.addressCap > 0;
+    return {
+      show: true,
+      phase: "addressing",
+      tone: "calm",
+      kind: "critic",
+      ...(hasRound
+        ? {
+            round: Math.min(input.review.addressRound, input.review.addressCap),
+            cap: input.review.addressCap,
+          }
+        : {}),
+      summary: input.activitySummary ?? null,
+      fallbackKey: "reviewbanner_rework_critic_fallback",
+    };
+  }
+
+  return { show: false };
 }
 
 /**

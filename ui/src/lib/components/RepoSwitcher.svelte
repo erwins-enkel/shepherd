@@ -232,6 +232,14 @@
     scrollRailToStart();
   }
 
+  // Menu twin of Shift+click: additively toggle this repo in/out of the herd filter (same
+  // onrepofilter path as onChipClick), then close. Reaches touch users who lack the Shift gesture.
+  function commitFilter() {
+    if (!menu) return;
+    onrepofilter(menu.chip.repoPath, true);
+    closeMenu();
+  }
+
   $effect(() => () => clearHold());
 
   $effect(() => {
@@ -250,7 +258,26 @@
     const current = menu;
     if (!current) return;
     function onKeydown(e: KeyboardEvent) {
-      if (e.key === "Escape") closeMenu();
+      if (e.key === "Escape") {
+        closeMenu();
+        return;
+      }
+      // Roving focus across the menu items (they are tabindex="-1", so Arrow/Home/End — not Tab —
+      // move between them). preventDefault so these keys don't scroll the page instead.
+      if (!menuEl) return;
+      const items = [...menuEl.querySelectorAll<HTMLButtonElement>(".rs-menu-item")];
+      if (items.length === 0) return;
+      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      let next = -1;
+      if (e.key === "ArrowDown") next = idx < 0 ? 0 : (idx + 1) % items.length;
+      else if (e.key === "ArrowUp")
+        next = idx < 0 ? items.length - 1 : (idx - 1 + items.length) % items.length;
+      else if (e.key === "Home") next = 0;
+      else if (e.key === "End") next = items.length - 1;
+      if (next >= 0) {
+        e.preventDefault();
+        items[next]?.focus();
+      }
     }
     function onPointer(e: Event) {
       if (menuEl && !menuEl.contains(e.target as Node)) closeMenu();
@@ -350,6 +377,7 @@
 
 {#if menu}
   {@const menuPinned = pinnedRepo === menu.chip.repoPath}
+  {@const menuFiltered = repoFilter.has(menu.chip.repoPath)}
   <div
     bind:this={menuEl}
     class="rs-menu"
@@ -362,6 +390,11 @@
       <span class="rs-menu-icon" aria-hidden="true">{menuPinned ? "⌫" : "⌖"}</span>{menuPinned
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
+    </button>
+    <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={commitFilter}>
+      <span class="rs-menu-icon" aria-hidden="true">{menuFiltered ? "⊖" : "⊕"}</span>{menuFiltered
+        ? m.repo_chip_remove_filter()
+        : m.repo_chip_add_filter()}
     </button>
   </div>
 {/if}
@@ -566,6 +599,10 @@
       min-height: 44px;
       min-width: 44px;
       justify-content: center;
+    }
+    /* The menu is reached via long-press on touch, so its items are tap targets too. */
+    .rs-menu-item {
+      min-height: 44px;
     }
   }
 </style>

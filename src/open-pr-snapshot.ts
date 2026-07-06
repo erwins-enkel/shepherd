@@ -1,4 +1,5 @@
 import type { GitForge, OpenPrSnapshot } from "./forge/types";
+import { graphRateLimit } from "./forge/rate-limit";
 import { Semaphore } from "./semaphore";
 
 /** Matches the pr-poller's full-sweep cadence so a poller-warmed entry is reused
@@ -40,7 +41,9 @@ export class OpenPrSnapshotService {
     if (!this.isCapable(forge)) return null;
     const slug = forge.slug!;
     const entry = this.cache.get(slug);
-    if (entry && this.now() - entry.at < SNAPSHOT_TTL_MS) return entry.value;
+    if (entry && this.now() - entry.at < SNAPSHOT_TTL_MS) {
+      if (!graphRateLimit.blocked() || entry.value.source === "rest") return entry.value;
+    }
     return this.load(slug, forge, false);
   }
 

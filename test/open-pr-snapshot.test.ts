@@ -5,11 +5,20 @@
  */
 import { test, expect } from "bun:test";
 import { OpenPrSnapshotService, SNAPSHOT_TTL_MS } from "../src/open-pr-snapshot";
+import { graphRateLimit } from "../src/forge/rate-limit";
 import type { GitForge, OpenPrSnapshot, PrStatus } from "../src/forge/types";
 
 // ── helpers ────────────────────────────────────────────────────────────────
 
-function makeSnapshot(id = 1): OpenPrSnapshot {
+function blockGraphql(): void {
+  graphRateLimit.noteLimitError(60);
+}
+
+function unblockGraphql(): void {
+  graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+}
+
+function makeSnapshot(id = 1, source?: OpenPrSnapshot["source"]): OpenPrSnapshot {
   const status: PrStatus = {
     state: "open",
     number: id,
@@ -33,6 +42,7 @@ function makeSnapshot(id = 1): OpenPrSnapshot {
     ],
     statuses: new Map([["branch-a", status]]),
     capped: false,
+    source,
   };
 }
 
@@ -114,6 +124,54 @@ test("read-through: second get within TTL returns cached, no new forge call", as
   now = SNAPSHOT_TTL_MS - 1; // still fresh
   await svc.get(forge);
   expect(forge.calls).toBe(1);
+});
+
+test("read-through: GraphQL backoff bypasses a fresh GraphQL snapshot", async () => {
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  let source: OpenPrSnapshot["source"] = "graphql";
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    (forge as unknown as { calls: number }).calls++;
+    return makeSnapshot((forge as unknown as { calls: number }).calls, source);
+  };
+  Object.defineProperty(forge, "calls", { value: 0, writable: true, configurable: true });
+
+  await svc.get(forge);
+  now = SNAPSHOT_TTL_MS - 1;
+  source = "rest";
+  blockGraphql();
+  try {
+    const snap = await svc.get(forge);
+    expect(snap!.source).toBe("rest");
+    expect(snap!.prs[0]!.number).toBe(2);
+    expect(forge.calls).toBe(2);
+  } finally {
+    unblockGraphql();
+  }
+});
+
+test("read-through: GraphQL backoff reuses a fresh REST snapshot", async () => {
+  let now = 0;
+  const svc = new OpenPrSnapshotService(() => now);
+  const forge = makeForge();
+  (forge as unknown as Record<string, unknown>).listOpenPrSnapshot = async () => {
+    (forge as unknown as { calls: number }).calls++;
+    return makeSnapshot((forge as unknown as { calls: number }).calls, "rest");
+  };
+  Object.defineProperty(forge, "calls", { value: 0, writable: true, configurable: true });
+
+  await svc.get(forge);
+  now = SNAPSHOT_TTL_MS - 1;
+  blockGraphql();
+  try {
+    const snap = await svc.get(forge);
+    expect(snap!.source).toBe("rest");
+    expect(snap!.prs[0]!.number).toBe(1);
+    expect(forge.calls).toBe(1);
+  } finally {
+    unblockGraphql();
+  }
 });
 
 test("read-through: get after TTL expiry refetches", async () => {

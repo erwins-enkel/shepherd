@@ -778,7 +778,7 @@ test("serializes a targeted poll behind a sweep — one gh at a time", async () 
 
 // ── warm() / rateLimited() cadence gating ─────────────────────────────────────
 
-test("fastTick skips when rateLimited() is true", async () => {
+test("fastTick under rateLimited() keeps transient PRs moving per-session", async () => {
   const store = new SessionStore(":memory:");
   store.create({ ...baseSession, branch: "shepherd/a" });
   let calls = 0;
@@ -806,7 +806,7 @@ test("fastTick skips when rateLimited() is true", async () => {
   calls = 0;
   rl = true; // engage the rate-limit gate
   await poller.fastTick();
-  expect(calls).toBe(0); // rateLimited → skipped; cache still holds the open PR
+  expect(calls).toBe(1); // rateLimited → no batch, but per-session status still refreshes
   expect(poller.snapshot()).toBeDefined(); // cache untouched
 });
 

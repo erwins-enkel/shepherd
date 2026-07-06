@@ -1121,6 +1121,74 @@ describe("TopBar — working-while-blocked counts in the working tally, not bloc
   });
 });
 
+describe("TopBar — gear attention dot is settings-owned", () => {
+  it("desktop: running or blocked sessions do not put a pip on the gear", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const list = [
+      { id: "r1", status: "running" },
+      { id: "b1", status: "blocked" },
+    ] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: list,
+    });
+
+    expect(document.querySelector(".halt-pip")).toBeNull();
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.halt_all_aria({ count: 1 }) }))
+      .toBeInTheDocument();
+  });
+
+  it("mobile: running, blocked, update and what's-new signals do not put a pip on the gear", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const list = [
+      { id: "r1", status: "running" },
+      { id: "b1", status: "blocked" },
+    ] as unknown as Session[];
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: list,
+      update: { behind: 2 } as UpdateStatus,
+      herdrUpdate: { updateAvailable: true } as HerdrUpdateStatus,
+      whatsNew: true,
+      diagnosticsOverall: "ok",
+    });
+
+    expect(document.querySelector(".gear-pip")).toBeNull();
+  });
+
+  it("mobile: diagnostics warning/error put the settings-attention pip on the gear", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const { rerender } = render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: [],
+      diagnosticsOverall: "error",
+    });
+
+    expect(document.querySelector(".gear-pip")?.getAttribute("data-tier")).toBe("red");
+
+    await rerender({
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      sessions: [],
+      diagnosticsOverall: "warning",
+    });
+
+    expect(document.querySelector(".gear-pip")?.getAttribute("data-tier")).toBe("yellow");
+  });
+});
+
 describe("TopBar — idle gear opens Settings directly", () => {
   it("desktop: an idle herd's gear opens Settings without a menu", async () => {
     await page.viewport(1280, 900);

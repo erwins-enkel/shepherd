@@ -4,12 +4,11 @@
   import type { FeedbackKind } from "$lib/feedback-link";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
-  type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
+  type GearPipTier = "red" | "yellow" | null;
 
   let {
     mobile,
     haltable,
-    blocked,
     gearPipTier,
     gearOpensMenu,
     armed,
@@ -28,7 +27,6 @@
   }: {
     mobile: boolean;
     haltable: number;
-    blocked: number;
     gearPipTier: GearPipTier;
     gearOpensMenu: boolean;
     armed: boolean;
@@ -58,14 +56,7 @@
     aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
     aria-expanded={gearOpensMenu ? menuOpen : undefined}
     aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
-    >⚙{#if !mobile && haltable > 0}<span
-        class="halt-pip"
-        class:alert={blocked > 0}
-        aria-hidden="true"
-      ></span>{/if}{#if mobile && gearPipTier}<span
-        class="gear-pip"
-        data-tier={gearPipTier}
-        aria-hidden="true"
+    >⚙{#if mobile && gearPipTier}<span class="gear-pip" data-tier={gearPipTier} aria-hidden="true"
       ></span>{/if}</button
   >
   {#if menuOpen && !mobile}
@@ -273,24 +264,8 @@
   .gear:hover {
     color: var(--color-amber);
   }
-  /* Pip on the gear: the only at-rest cue that there's a herd to halt. Amber while
-     agents merely work; red (.alert) only when something is blocked, so red stays
-     reserved for "needs you" rather than the normal running state. */
-  .halt-pip {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--color-amber);
-    box-shadow: 0 0 0 2px var(--color-panel);
-  }
-  .halt-pip.alert {
-    background: var(--color-red);
-  }
-  /* Mobile only: single severity dot on the gear — red > orange > yellow > blue.
-     One dot replaces the old three-pip "measles" layout on mobile. */
+  /* Mobile only: single settings-attention dot for diagnostics surfaced inside
+     the gear sheet. Session state has its own stronger affordances elsewhere. */
   .gear-pip {
     position: absolute;
     top: 2px;
@@ -303,14 +278,8 @@
   .gear-pip[data-tier="red"] {
     background: var(--color-red);
   }
-  .gear-pip[data-tier="orange"] {
-    background: var(--color-warn);
-  }
   .gear-pip[data-tier="yellow"] {
     background: var(--color-amber);
-  }
-  .gear-pip[data-tier="blue"] {
-    background: var(--color-blue);
   }
   /* Mobile: finger-sized tap targets (≥44px) — the desktop sizes are tuned for a
      cursor and are too small to hit reliably on a phone. These rules (.gear.mobile)

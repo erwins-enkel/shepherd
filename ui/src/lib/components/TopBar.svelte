@@ -542,22 +542,18 @@
   // once the bar has crowded down to icons.
   // Plugin items also force menu mode: their actions live in the menu, not the gear click.
   const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges || pluginItems.length > 0);
-  // Mobile only: every gear-area signal collapses into ONE dot, colored by the
-  // most serious active tier (red > orange > yellow > blue). Desktop keeps its
-  // halt-pip + dedicated badges, so this stays null off-mobile.
-  type GearPipTier = "red" | "orange" | "yellow" | "blue" | null;
+  // Mobile only: settings-owned diagnostics attention collapses into one dot on
+  // the gear, because the Diagnose row lives inside the gear sheet on phones.
+  // Herd/session state stays on the tallies and rows instead of duplicating here.
+  type GearPipTier = "red" | "yellow" | null;
   const gearPipTier = $derived<GearPipTier>(
     !mobile
       ? null
-      : blocked > 0 || diagnosticsOverall === "error"
+      : diagnosticsOverall === "error"
         ? "red"
-        : haltable > 0 || updateAvailable
-          ? "orange"
-          : diagnosticsOverall === "warning"
-            ? "yellow"
-            : herdrUpdateAvailable || codexUpdateAvailable || whatsNew || learningsPresent
-              ? "blue"
-              : null,
+        : diagnosticsOverall === "warning"
+          ? "yellow"
+          : null,
   );
   function clickGear() {
     if (!gearOpensMenu) {
@@ -767,19 +763,12 @@
     {/if}
     <!-- The gear adapts to state: idle herd → a click opens Settings directly;
          when something is haltable it becomes a menu button opening the e-stop above
-         the Settings entry. The pip differs by platform:
-         • Desktop keeps the dedicated halt-pip — the only at-rest cue that there's a
-           herd to halt: amber while agents simply work (matches the working colour),
-           escalating to red only when something is blocked. Other signals (update,
-           health, what's-new) live in their own labelled badges.
-         • Mobile folds those badges into the gear's bottom sheet, so the gear carries
-           a SINGLE collapsed dot (gearPipTier) coloured by the most serious active
-           signal — red > orange > yellow > blue. Red still means "needs you",
-           consistent with the rest of the bar. -->
+         the Settings entry. The gear's dot is settings-owned attention only:
+         diagnostics have a standalone desktop pip, and fold into the gear on mobile
+         because the Diagnose row lives in that sheet. -->
     <TopBarGear
       {mobile}
       {haltable}
-      {blocked}
       {gearPipTier}
       {gearOpensMenu}
       {armed}
@@ -898,14 +887,14 @@
   }
   /* learnings-btn, learn-glyph, learn-n, gear-wrap, gear-menu moved to top-bar/TopBarBadges.svelte / TopBarGear.svelte (#855) */
   /* quick, theme-seg, t-opt, contrast-toggle, gear-sheet-portal, menu-scrim, gear-sheet, sheet-* moved to top-bar/TopBarMobileSheet.svelte (#855) */
-  /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, halt-pip, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
+  /* menu-item, menu-icon, menu-glyph, menu-label, halt-item, menu-sep moved to top-bar/TopBarGear.svelte (#855) */
   .rightside {
     margin-left: auto;
     display: flex;
     align-items: center;
     gap: 16px;
   }
-  /* gear, gear-pip, halt-pip, health-pip, health-dot moved to top-bar/TopBarGear.svelte / TopBarBadges.svelte (#855) */
+  /* gear, gear-pip, health-pip, health-dot moved to top-bar/TopBarGear.svelte / TopBarBadges.svelte (#855) */
   /* whatsnew-badge, whatsnew-dot-btn, wn-pip, health-pip, health-dot, update-badge, learnings-btn moved to top-bar/TopBarBadges.svelte (#855) */
   /* usage-sub-only, gauges-wrap, gauges, gauge, g-label, gauge-wrap, gauge-btn, gauge-pop,
      gauge-pop-desk, gp-window, gp-head, credit-amount moved to top-bar/TopBarUsage.svelte (#855) */

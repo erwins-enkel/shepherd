@@ -64,7 +64,7 @@ function harness(opts: {
   relaunchThrows?: Error;
   resolveForge?: AppDeps["resolveForge"];
   archiveCleared?: string[]; // ids archiveMany reports cleared (default: the requested id)
-  staged?: { path: string; name: string }[]; // what stageRelaunchImages returns
+  staged?: { path: string; name: string | null; nameRecorded: boolean }[]; // what stageRelaunchImages returns
 }) {
   const emitted: Spy[] = [];
   const calls = {
@@ -118,7 +118,9 @@ function harness(opts: {
     }),
     stageRelaunchImages: (id: string) => {
       calls.stageRelaunchImages.push(id);
-      return opts.staged ?? [{ path: "/stage/carried.png", name: "carried.png" }];
+      return (
+        opts.staged ?? [{ path: "/stage/carried.png", name: "carried.png", nameRecorded: true }]
+      );
     },
   } as unknown as SessionService;
 
@@ -491,8 +493,8 @@ function relaunchUploadsReq(id = "orig"): Request {
 
 test("POST /api/sessions/:id/relaunch-uploads returns staged { images }", async () => {
   const staged = [
-    { path: "/stage/a.png", name: "a.png" },
-    { path: "/stage/b.jpg", name: "b.jpg" },
+    { path: "/stage/a.png", name: "a.png", nameRecorded: true },
+    { path: "/stage/b.jpg", name: "b.jpg", nameRecorded: true },
   ];
   const h = harness({ original: { issueNumber: null, repoPath: REPO }, staged });
   const res = await h.app.fetch(relaunchUploadsReq("orig"));

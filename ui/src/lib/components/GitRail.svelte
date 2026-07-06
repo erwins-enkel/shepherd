@@ -23,6 +23,8 @@
   import Coachmark from "$lib/components/Coachmark.svelte";
   import { pollWhileVisible } from "$lib/visibility";
   import { pullMainAndToast } from "$lib/pull-offer";
+  import { marked } from "marked";
+  import createDOMPurify from "dompurify";
 
   let {
     sessionId,
@@ -77,6 +79,14 @@
   // "no forge / no PR"). Drives the error+Retry fallback so the rail never renders
   // silently empty, and keeps the poll retrying until the forge recovers.
   let loadFailed = $state(false);
+  type DomPurifyApi = { sanitize: (dirty: string) => string };
+  type DomPurifyFactory = ((root: Window) => DomPurifyApi) & Partial<DomPurifyApi>;
+  function getDOMPurify(): DomPurifyApi {
+    const candidate = createDOMPurify as unknown as DomPurifyFactory;
+    return typeof candidate.sanitize === "function"
+      ? (candidate as DomPurifyApi)
+      : candidate(window);
+  }
 
   // Open-PR popover
   let showPr = $state(false);
@@ -430,9 +440,7 @@
           : m.gitrail_review_plan(),
   );
   // Render the (AI-authored) findings as markdown, sanitized before @html.
-  // marked + DOMPurify are dynamically imported on first render so they stay off
-  // the first-paint critical path; gated on showReview so the (browser-only)
-  // sanitizer never runs during SSR.
+  // Gated on showReview so the browser-only sanitizer never runs during SSR.
   let renderedBody = $state("");
   $effect(() => {
     const body = showReview ? verdict?.body : undefined;
@@ -440,20 +448,8 @@
       renderedBody = "";
       return;
     }
-    let alive = true;
-    Promise.all([import("marked"), import("dompurify")])
-      .then(([{ marked }, { default: DOMPurify }]) => {
-        if (alive)
-          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
-      })
-      .catch((err) => {
-        // Markdown render is progressive enhancement; warn so a broken
-        // marked/dompurify load isn't swallowed silently.
-        console.warn("PR body markdown render failed", err);
-      });
-    return () => {
-      alive = false;
-    };
+    const DOMPurify = getDOMPurify();
+    renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
   });
   const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
   let reviewFlash = $state<string | null>(null);

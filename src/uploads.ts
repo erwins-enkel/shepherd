@@ -76,6 +76,11 @@ export function uploadFilename(ext: string): string {
   return `${randomUUID()}.${safeExt(ext) ?? "bin"}`;
 }
 
+export interface UploadCopyResult {
+  src: string;
+  copiedPath: string | null;
+}
+
 /**
  * Copy each staged file into the worktree's uploads dir; return new absolute paths
  * (basename preserved) for the files that actually existed. COPY-not-move keeps the
@@ -86,15 +91,21 @@ export function uploadFilename(ext: string): string {
  * (e.g. already swept after 24h) is skipped, not thrown on, so the spawn proceeds without
  * it; the caller surfaces the drop.
  */
-export function copyStagedIntoWorktree(uploads: string[], worktreePath: string): string[] {
+export function copyStagedIntoWorktree(
+  uploads: string[],
+  worktreePath: string,
+): UploadCopyResult[] {
   const dir = worktreeUploadsDir(worktreePath);
   mkdirSync(dir, { recursive: true });
-  const copied: string[] = [];
+  const copied: UploadCopyResult[] = [];
   for (const src of uploads) {
-    if (!existsSync(src)) continue; // source swept/lost — skip, caller reports the drop
+    if (!existsSync(src)) {
+      copied.push({ src, copiedPath: null }); // source swept/lost — skip, caller reports the drop
+      continue;
+    }
     const dest = join(dir, basename(src));
     copyFileSync(src, dest);
-    copied.push(dest);
+    copied.push({ src, copiedPath: dest });
   }
   return copied;
 }

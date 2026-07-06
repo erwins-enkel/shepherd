@@ -71,6 +71,7 @@
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
+  import { effortLabel } from "$lib/effort-guidance";
   import { buildPreviewUrl } from "$lib/previewUrl";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
@@ -478,10 +479,129 @@
     onnavigate?.(switchOrder[next]);
   }
 
-  // null model = claude's own default (shepherd passed no --model flag);
-  // a set alias routes through the shared label so 1M variants don't show the raw token.
-  const modelDisplay = $derived(
-    session.model ? modelLabel(session.model) : m.newtask_model_default(),
+  const launch = $derived(session.launchMetadata ?? null);
+  const launchSource = $derived(launch?.sourceKind ?? "legacy");
+  const workBranchDisplay = $derived(
+    launch?.branch.sharedCheckout
+      ? m.tasktip_shared_checkout()
+      : ((launch?.branch.workBranch ?? session.branch)?.replace(/^shepherd\//, "") ??
+          m.tasktip_shared_checkout()),
+  );
+  const baseBranchDisplay = $derived(launch?.branch.baseBranch ?? session.baseBranch);
+  const promptDisplay = $derived(launch?.prompt || session.prompt || m.tasktip_not_recorded());
+  const issueDisplay = $derived(
+    launch?.issue
+      ? m.tasktip_issue_value({ number: launch.issue.number, title: launch.issue.title })
+      : session.issueNumber != null
+        ? m.tasktip_issue_number({ number: session.issueNumber })
+        : launchSource === "legacy"
+          ? m.tasktip_not_recorded()
+          : m.tasktip_none(),
+  );
+  const launchedFiles = $derived(
+    launch?.attachments.filter((a) => !a.dropped && a.launchedName).map((a) => a.launchedName!) ??
+      null,
+  );
+  const droppedFiles = $derived(
+    launch?.attachments.filter((a) => a.dropped).map((a) => a.submittedName) ?? [],
+  );
+  const filesDisplay = $derived(
+    launchedFiles === null
+      ? m.tasktip_not_recorded()
+      : launchedFiles.length > 0
+        ? launchedFiles.join(", ")
+        : m.tasktip_none(),
+  );
+  const droppedFilesDisplay = $derived(droppedFiles.length > 0 ? droppedFiles.join(", ") : "");
+
+  function checkboxDisplay(value: boolean | undefined): string {
+    if (value === true) return m.tasktip_checked();
+    if (value === false) return m.tasktip_unchecked();
+    return launchSource === "generated" ? m.tasktip_generated() : m.tasktip_not_recorded();
+  }
+  const researchCheckboxDisplay = $derived(checkboxDisplay(launch?.uiState?.researchChecked));
+  const planGateCheckboxDisplay = $derived(checkboxDisplay(launch?.uiState?.planGateChecked));
+  const autopilotCheckboxDisplay = $derived(checkboxDisplay(launch?.uiState?.autopilotChecked));
+  const planGateOptInDisplay = $derived(
+    (launch?.resolvedLaunch.planGateOptIn ?? session.planGateEnabled ?? false)
+      ? m.tasktip_on()
+      : m.tasktip_off(),
+  );
+  const planGateCurrentDisplay = $derived(
+    session.planPhase === "planning"
+      ? m.tasktip_plan_gate_planning()
+      : session.planPhase === "executing" && (launch?.resolvedLaunch.planGateOptIn ?? false)
+        ? m.tasktip_plan_gate_released()
+        : planGateOptInDisplay,
+  );
+  const researchLaunchedDisplay = $derived(
+    (launch?.resolvedLaunch.research ?? session.research) ? m.tasktip_on() : m.tasktip_off(),
+  );
+  const autopilotOptInDisplay = $derived(
+    (launch?.resolvedLaunch.autopilotOptIn ?? session.autopilotEnabled ?? false)
+      ? m.tasktip_on()
+      : m.tasktip_off(),
+  );
+  const autopilotStatusDisplay = $derived(
+    session.planPhase === "planning"
+      ? m.tasktip_autopilot_planning()
+      : session.autopilotPaused
+        ? m.session_autopilot_paused_label()
+        : session.autopilotComplete
+          ? m.session_autopilot_complete_label()
+          : autopilotOptInDisplay,
+  );
+  const providerDisplay = $derived(
+    (session.agentProvider ?? launch?.agent.provider ?? "claude") === "codex"
+      ? m.agent_provider_codex()
+      : m.agent_provider_claude(),
+  );
+  const submittedModelDisplay = $derived(
+    launch
+      ? launch.submittedChoices.model
+        ? modelLabel(launch.submittedChoices.model)
+        : m.newtask_model_default()
+      : m.tasktip_not_recorded(),
+  );
+  const storedModelDisplay = $derived(
+    (session.model ?? launch?.resolvedLaunch.storedModel)
+      ? modelLabel((session.model ?? launch?.resolvedLaunch.storedModel)!)
+      : m.newtask_model_default(),
+  );
+  const submittedEffortDisplay = $derived(
+    launch
+      ? launch.submittedChoices.effort
+        ? effortLabel(launch.submittedChoices.effort)
+        : m.effort_default()
+      : m.tasktip_not_recorded(),
+  );
+  const storedEffortDisplay = $derived(
+    (session.effort ?? launch?.resolvedLaunch.effort)
+      ? effortLabel((session.effort ?? launch?.resolvedLaunch.effort)!)
+      : m.effort_default(),
+  );
+  function sandboxDisplay(profile: string | null | undefined): string {
+    if (profile === "autonomous") return m.session_sandbox_autonomous_label();
+    if (profile === "standard") return m.session_sandbox_standard_label();
+    if (profile === "trusted") return m.session_sandbox_unconfined_label();
+    return m.tasktip_not_recorded();
+  }
+  const submittedSandboxDisplay = $derived(
+    launch
+      ? launch.submittedChoices.sandboxProfile
+        ? sandboxDisplay(launch.submittedChoices.sandboxProfile)
+        : m.tasktip_inherit()
+      : m.tasktip_not_recorded(),
+  );
+  const spawnedSandboxDisplay = $derived(sandboxDisplay(session.sandboxApplied ?? null));
+  const sandboxFlagsDisplay = $derived(
+    [
+      session.sandboxDegraded ? m.session_sandbox_degraded_label() : "",
+      session.egressApplied ? m.tasktip_egress_applied() : "",
+      session.egressDegraded ? m.session_sandbox_egress_degraded_label() : "",
+    ]
+      .filter(Boolean)
+      .join(", "),
   );
 
   // The `session` prop is re-resolved from the store whenever the sessions
@@ -1803,10 +1923,99 @@
   {#snippet metaPop()}
     <span class="desig-pop" role="tooltip">
       <span class="dp-row">
-        <span class="dp-k">{m.viewport_profile_label()}</span>
-        <span class="dp-v">{modelDisplay}</span>
+        <span class="dp-k">{m.tasktip_prompt()}</span>
+        <span class="dp-v">{promptDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_issue()}</span>
+        <span class="dp-v">{issueDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_files()}</span>
+        <span class="dp-v">{filesDisplay}</span>
+      </span>
+      {#if droppedFilesDisplay}
+        <span class="dp-row">
+          <span class="dp-k">{m.tasktip_dropped_files()}</span>
+          <span class="dp-v">{droppedFilesDisplay}</span>
+        </span>
+      {/if}
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_base_branch()}</span>
+        <span class="dp-v">{baseBranchDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_work_branch()}</span>
+        <span class="dp-v">{workBranchDisplay}</span>
+      </span>
+      <span class="dp-section">{m.tasktip_launch_state()}</span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_research_checkbox()}</span>
+        <span class="dp-v">{researchCheckboxDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_research_launched()}</span>
+        <span class="dp-v">{researchLaunchedDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_plan_gate_checkbox()}</span>
+        <span class="dp-v">{planGateCheckboxDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_plan_gate_optin()}</span>
+        <span class="dp-v">{planGateOptInDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_plan_gate_current()}</span>
+        <span class="dp-v">{planGateCurrentDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_autopilot_checkbox()}</span>
+        <span class="dp-v">{autopilotCheckboxDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_autopilot_optin()}</span>
+        <span class="dp-v">{autopilotOptInDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_autopilot_status()}</span>
+        <span class="dp-v">{autopilotStatusDisplay}</span>
+      </span>
+      <span class="dp-section">{m.tasktip_runtime()}</span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_cli()}</span>
+        <span class="dp-v">{providerDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_model_submitted()}</span>
+        <span class="dp-v">{submittedModelDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_model_stored()}</span>
+        <span class="dp-v">{storedModelDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_effort_submitted()}</span>
+        <span class="dp-v">{submittedEffortDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_effort_stored()}</span>
+        <span class="dp-v">{storedEffortDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_sandbox_submitted()}</span>
+        <span class="dp-v">{submittedSandboxDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_sandbox_spawned()}</span>
+        <span class="dp-v">{spawnedSandboxDisplay}</span>
+      </span>
+      <span class="dp-row">
+        <span class="dp-k">{m.tasktip_sandbox_flags()}</span>
+        <span class="dp-v">{sandboxFlagsDisplay || m.tasktip_none()}</span>
       </span>
       {#if usage && usage.total > 0}
+        <span class="dp-section">{m.tasktip_usage()}</span>
         <span class="dp-row">
           <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
           <span
@@ -2583,7 +2792,7 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
-  /* secondary meta popover (profile + tokens), revealed on hover/focus of the desig */
+  /* secondary meta popover, revealed on hover/focus of the task designator */
   .desig-pop {
     position: absolute;
     top: calc(100% + 4px);
@@ -2591,13 +2800,16 @@
     z-index: 20;
     display: none;
     flex-direction: column;
-    gap: 3px;
-    padding: 6px 9px;
+    gap: 4px;
+    width: min(520px, calc(100vw - 24px));
+    max-height: min(70vh, 720px);
+    overflow: auto;
+    padding: 8px 10px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    white-space: nowrap;
+    box-shadow: 0 6px 20px color-mix(in srgb, var(--color-bg) 45%, transparent);
+    white-space: normal;
     text-transform: none;
     letter-spacing: normal;
   }
@@ -2606,17 +2818,28 @@
     display: flex;
   }
   .dp-row {
-    display: flex;
-    gap: 10px;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: minmax(128px, 0.42fr) minmax(0, 1fr);
+    gap: 12px;
+    align-items: start;
     font-size: var(--fs-meta);
+  }
+  .dp-section {
+    margin-top: 4px;
+    padding-top: 5px;
+    border-top: 1px solid var(--color-line);
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    font-weight: 700;
   }
   .dp-k {
     color: var(--color-muted);
   }
   .dp-v {
+    min-width: 0;
     color: var(--color-ink);
     font-variant-numeric: tabular-nums;
+    overflow-wrap: anywhere;
   }
 
   /* full task name — the visible rename target beside the task designator */

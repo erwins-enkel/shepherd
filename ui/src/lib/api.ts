@@ -923,10 +923,14 @@ export async function restoreSession(id: string): Promise<Session> {
  * can seed them as removable chips. Returns the carried attachments (server path +
  * display name); throws a `failed` error on a non-2xx response.
  */
-export async function stageRelaunchImages(id: string): Promise<{ path: string; name: string }[]> {
+export async function stageRelaunchImages(
+  id: string,
+): Promise<{ path: string; name: string | null; nameRecorded: boolean }[]> {
   const r = await fetch(`/api/sessions/${id}/relaunch-uploads`, { method: "POST" });
   if (!r.ok) throw await failed(r, "relaunch-uploads");
-  const body = (await r.json()) as { images?: { path: string; name: string }[] };
+  const body = (await r.json()) as {
+    images?: { path: string; name: string | null; nameRecorded: boolean }[];
+  };
   return body.images ?? [];
 }
 

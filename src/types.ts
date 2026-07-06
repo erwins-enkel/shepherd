@@ -114,6 +114,8 @@ export interface Session {
    *  once set (see persistSpawnIdentity) — a failed/wrong re-derivation can't silently self-clear
    *  onto the default account. */
   spawnAccountDir: string | null;
+  /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
+  launchMetadata?: SessionLaunchMetadata | null;
 }
 
 /**
@@ -164,6 +166,48 @@ export interface IssueRef {
   body: string;
 }
 
+export interface LaunchUiState {
+  researchChecked: boolean;
+  planGateChecked: boolean;
+  autopilotChecked: boolean;
+}
+
+export interface LaunchAttachmentMetadata {
+  submittedName: string;
+  launchedName: string | null;
+  dropped: boolean;
+  /** Internal join key for carried relaunch uploads. Never displayed to users. */
+  storedName?: string | null;
+}
+
+export interface SessionLaunchMetadata {
+  sourceKind: "user" | "generated";
+  prompt: string;
+  issue: { number: number; title: string; url: string } | null;
+  attachments: LaunchAttachmentMetadata[];
+  branch: { baseBranch: string; workBranch: string | null; sharedCheckout: boolean };
+  uiState: LaunchUiState | null;
+  submittedChoices: {
+    planGateOverride: boolean | null;
+    autopilotOverride: boolean | null;
+    sandboxProfile: SandboxProfile | null;
+    model: string | null;
+    effort: string | null;
+  };
+  resolvedLaunch: {
+    research: boolean;
+    planGateOptIn: boolean;
+    autopilotOptIn: boolean;
+    storedModel: string | null;
+    effort: string | null;
+    sandboxApplied: SandboxProfile | null;
+    sandboxDegraded: boolean;
+    egressApplied: boolean;
+    egressDegraded: boolean;
+  };
+  agent: { provider: AgentProvider; model: string | null; effort: string | null };
+}
+
 export interface CreateSessionInput {
   repoPath: string;
   baseBranch: string;
@@ -172,7 +216,9 @@ export interface CreateSessionInput {
   model: string | null; // null = provider default (no --model flag)
   effort?: string | null; // reasoning effort tier; null/absent = provider default (no effort flag)
   images: string[]; // absolute paths to staged attachments (may be empty)
+  attachmentNames?: string[]; // display-only names, index-aligned with images
   issueRef?: IssueRef; // optional attached issue; body appended out-of-band
+  launchUiState?: LaunchUiState; // visible New Task checkbox state at submit time
   /** True when this session is auto-spawned by the drain queue (default false). The
    *  persisted `issueNumber` is NOT an input here — the service derives it from
    *  `issueRef.number`, so an attached issue is mapped for drain dedupe automatically. */
@@ -211,6 +257,8 @@ export interface RelaunchOverrides {
   effort?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
+  attachmentNames?: string[];
+  launchUiState?: LaunchUiState;
   /** Research task kind override; absent → keep original. */
   research?: boolean;
 }

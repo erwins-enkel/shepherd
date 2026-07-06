@@ -71,13 +71,13 @@ test("copyStagedIntoWorktree copies files in, keeping the staged source recovera
   const copied = copyStagedIntoWorktree([a, b], wt);
 
   expect(copied).toEqual([
-    join(worktreeUploadsDir(wt), "a.png"),
-    join(worktreeUploadsDir(wt), "b.jpg"),
+    { src: a, copiedPath: join(worktreeUploadsDir(wt), "a.png") },
+    { src: b, copiedPath: join(worktreeUploadsDir(wt), "b.jpg") },
   ]);
   expect(existsSync(a)).toBe(true); // copied, not moved — survives a failed/retried spawn
   expect(existsSync(b)).toBe(true);
-  expect(readFileSync(copied[0]!, "utf8")).toBe("AAA");
-  expect(readFileSync(copied[1]!, "utf8")).toBe("BBB");
+  expect(readFileSync(copied[0]!.copiedPath!, "utf8")).toBe("AAA");
+  expect(readFileSync(copied[1]!.copiedPath!, "utf8")).toBe("BBB");
 });
 
 test("copyStagedIntoWorktree skips a missing source and copies the rest", () => {
@@ -91,10 +91,13 @@ test("copyStagedIntoWorktree skips a missing source and copies the rest", () => 
 
   const copied = copyStagedIntoWorktree([gone, present], wt);
 
-  // The missing source is skipped (not thrown on); only the present one is copied through.
-  expect(copied).toEqual([join(worktreeUploadsDir(wt), "present.png")]);
+  // The missing source is marked (not thrown on); the present one is copied through.
+  expect(copied).toEqual([
+    { src: gone, copiedPath: null },
+    { src: present, copiedPath: join(worktreeUploadsDir(wt), "present.png") },
+  ]);
   expect(existsSync(join(worktreeUploadsDir(wt), "gone.png"))).toBe(false);
-  expect(readFileSync(copied[0]!, "utf8")).toBe("OK");
+  expect(readFileSync(copied[1]!.copiedPath!, "utf8")).toBe("OK");
 });
 
 test("sweepStaging deletes files older than maxAge, keeps fresh ones", () => {

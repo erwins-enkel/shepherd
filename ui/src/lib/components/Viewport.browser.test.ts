@@ -228,6 +228,98 @@ describe("Viewport preview tab", () => {
   });
 });
 
+describe("Viewport task detail tooltip", () => {
+  it("shows launch metadata and updates live plan-gate state", async () => {
+    const launchMetadata = {
+      sourceKind: "user" as const,
+      prompt: "build the task tooltip",
+      issue: { number: 42, title: "Hover details", url: "https://example.test/42" },
+      attachments: [
+        {
+          submittedName: "mockup.png",
+          launchedName: "mockup.png",
+          dropped: false,
+          storedName: "uuid.png",
+        },
+        {
+          submittedName: "lost-notes.md",
+          launchedName: null,
+          dropped: true,
+          storedName: null,
+        },
+      ],
+      branch: { baseBranch: "main", workBranch: "shepherd/task-tooltip", sharedCheckout: false },
+      uiState: {
+        researchChecked: false,
+        planGateChecked: true,
+        autopilotChecked: true,
+      },
+      submittedChoices: {
+        planGateOverride: true,
+        autopilotOverride: true,
+        sandboxProfile: "autonomous" as const,
+        model: "opus",
+        effort: "high",
+      },
+      resolvedLaunch: {
+        research: false,
+        planGateOptIn: true,
+        autopilotOptIn: true,
+        storedModel: "opus",
+        effort: "high",
+        sandboxApplied: "autonomous" as const,
+        sandboxDegraded: false,
+        egressApplied: true,
+        egressDegraded: false,
+      },
+      agent: { provider: "claude" as const, model: "opus", effort: "high" },
+    };
+    const initial = session({
+      id: "tooltip",
+      prompt: "fallback prompt",
+      branch: "shepherd/task-tooltip",
+      model: "opus",
+      effort: "high",
+      planGateEnabled: true,
+      planPhase: "planning",
+      autopilotEnabled: true,
+      sandboxApplied: "autonomous",
+      egressApplied: true,
+      launchMetadata,
+    });
+
+    const { rerender } = render(Viewport, {
+      session: initial,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await page.getByText("TASK-01").hover();
+    const tooltip = page.getByRole("tooltip");
+    await expect.element(tooltip).toBeVisible();
+    expect(tooltip.element().textContent).toContain("build the task tooltip");
+    expect(tooltip.element().textContent).toContain("#42: Hover details");
+    expect(tooltip.element().textContent).toContain("mockup.png");
+    expect(tooltip.element().textContent).toContain("lost-notes.md");
+    expect(tooltip.element().textContent).toContain("Plan gate current");
+    expect(tooltip.element().textContent).toContain("Planning");
+    expect(tooltip.element().textContent).toContain("Autonomous");
+    expect(tooltip.element().textContent).toContain("Egress allowlist");
+
+    await rerender({
+      session: session({
+        ...initial,
+        planPhase: "executing",
+      }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await page.getByText("TASK-01").hover();
+    expect(page.getByRole("tooltip").element().textContent).toContain("Released");
+  });
+});
+
 describe("Viewport rename affordances", () => {
   const headerNameSlug = (value: string) =>
     value

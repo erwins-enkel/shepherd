@@ -14,14 +14,17 @@ import type {
   AgentProvider,
   CreateSessionInput,
   IssueRef,
+  LaunchAttachmentMetadata,
   RelaunchOverrides,
   Session,
+  SessionLaunchMetadata,
 } from "./types";
 import {
   copyStagedIntoWorktree,
   stagingDir,
   sweepStaging,
   STAGING_TTL_MS,
+  type UploadCopyResult,
   uploadExtensionFromName,
   uploadFilename,
   worktreeUploadsDir,
@@ -53,6 +56,7 @@ import {
   autoHoldReason,
   isDegraded,
   isEgressDegraded,
+  isSandboxProfile,
   egressApplies,
   willEgressConfine,
   wrapArgv,
@@ -153,7 +157,7 @@ export interface ServiceDeps {
   /** Event bus for live state pushes (e.g. session:ready); absent in tests that skip it. */
   events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
-  copyUploads?: (uploads: string[], worktreePath: string) => string[];
+  copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
@@ -1485,24 +1489,16 @@ export class SessionService {
   private async composePromptArg(
     input: CreateSessionInput,
     worktreePath: string,
-  ): Promise<{ promptArg: string; dropped: number; injectionHits: string[] }> {
+  ): Promise<{
+    promptArg: string;
+    dropped: number;
+    injectionHits: string[];
+    attachments: LaunchAttachmentMetadata[];
+  }> {
     let promptArg = input.prompt;
-    let dropped = 0;
     const scanTargets: string[] = [];
-    if (input.images.length > 0) {
-      const copy = this.deps.copyUploads ?? copyStagedIntoWorktree;
-      const copied = copy(input.images, worktreePath);
-      if (copied.length > 0) promptArg = `${promptArg}\n\nAttached files:\n${copied.join("\n")}`;
-      dropped = input.images.length - copied.length;
-      if (dropped > 0) {
-        // A staged upload vanished before spawn (swept after STAGING_TTL_MS, or otherwise
-        // lost). Note it in-prompt so the agent knows an attachment is missing, and warn.
-        promptArg = `${promptArg}\n\n[Note: ${dropped} attached file(s) could not be restored — the upload expired and is unavailable for this session.]`;
-        console.warn(
-          `[uploads] ${dropped}/${input.images.length} staged file(s) missing at spawn; proceeding without them`,
-        );
-      }
-    }
+    const uploads = this.composeUploadPrompt(input, worktreePath);
+    if (uploads.promptBlock) promptArg = `${promptArg}\n\n${uploads.promptBlock}`;
     if (input.issueRef) {
       const r = input.issueRef;
       const fencedBody = fenceUntrusted(
@@ -1517,7 +1513,46 @@ export class SessionService {
         scanTargets.push(comments);
       }
     }
-    return { promptArg, dropped, injectionHits: scanForInjection(scanTargets.join("\n")) };
+    return {
+      promptArg,
+      dropped: uploads.dropped,
+      injectionHits: scanForInjection(scanTargets.join("\n")),
+      attachments: uploads.attachments,
+    };
+  }
+
+  private composeUploadPrompt(
+    input: CreateSessionInput,
+    worktreePath: string,
+  ): { promptBlock: string; dropped: number; attachments: LaunchAttachmentMetadata[] } {
+    if (input.images.length === 0) return { promptBlock: "", dropped: 0, attachments: [] };
+    const copy = this.deps.copyUploads ?? copyStagedIntoWorktree;
+    const copied = copy(input.images, worktreePath);
+    const copiedPaths = copied.flatMap((r) => (r.copiedPath ? [r.copiedPath] : []));
+    const attachments = input.images.map((_, i) => {
+      const submittedName = input.attachmentNames?.[i] ?? `Attachment ${i + 1}`;
+      const copiedPath = copied[i]?.copiedPath ?? null;
+      return {
+        submittedName,
+        launchedName: copiedPath ? submittedName : null,
+        dropped: copiedPath === null,
+        storedName: copiedPath ? basename(copiedPath) : null,
+      };
+    });
+    const dropped = input.images.length - copiedPaths.length;
+    const attachedBlock =
+      copiedPaths.length > 0 ? `Attached files:\n${copiedPaths.join("\n")}` : "";
+    if (dropped === 0) return { promptBlock: attachedBlock, dropped, attachments };
+
+    console.warn(
+      `[uploads] ${dropped}/${input.images.length} staged file(s) missing at spawn; proceeding without them`,
+    );
+    const droppedNote = `[Note: ${dropped} attached file(s) could not be restored — the upload expired and is unavailable for this session.]`;
+    return {
+      promptBlock: [attachedBlock, droppedNote].filter(Boolean).join("\n\n"),
+      dropped,
+      attachments,
+    };
   }
 
   /** Best-effort fetch + compose of an attached issue's comment thread. Any missing forge,
@@ -2409,6 +2444,68 @@ export class SessionService {
     return baseRef;
   }
 
+  private buildLaunchMetadata(args: {
+    input: CreateSessionInput;
+    spawnInput: CreateSessionInput;
+    attachments: LaunchAttachmentMetadata[];
+    branch: string | null;
+    agentProvider: AgentProvider;
+    repoConfig: RepoConfig;
+    planGateOn: boolean;
+    outcome: {
+      applied: string | null;
+      degraded: boolean;
+      egressApplied: boolean;
+      egressDegraded: boolean;
+    };
+  }): SessionLaunchMetadata {
+    const issue = args.spawnInput.issueRef
+      ? {
+          number: args.spawnInput.issueRef.number,
+          title: args.spawnInput.issueRef.title,
+          url: args.spawnInput.issueRef.url,
+        }
+      : null;
+    return {
+      sourceKind: args.input.launchUiState ? "user" : "generated",
+      prompt: args.input.prompt,
+      issue,
+      attachments: args.attachments,
+      branch: {
+        baseBranch: args.input.baseBranch,
+        workBranch: args.branch,
+        sharedCheckout: args.branch === null,
+      },
+      uiState: args.input.launchUiState ?? null,
+      submittedChoices: {
+        planGateOverride: args.input.planGateEnabled ?? null,
+        autopilotOverride: args.input.autopilotEnabled ?? null,
+        sandboxProfile: args.input.sandboxProfile ?? null,
+        model: args.input.model,
+        effort: args.input.effort ?? null,
+      },
+      resolvedLaunch: {
+        research: args.spawnInput.research ?? false,
+        planGateOptIn: args.planGateOn,
+        autopilotOptIn: effectiveAutopilot(
+          { autopilotEnabled: args.spawnInput.autopilotEnabled ?? null },
+          args.repoConfig.autopilotEnabled,
+        ),
+        storedModel: args.spawnInput.model,
+        effort: args.spawnInput.effort ?? null,
+        sandboxApplied: isSandboxProfile(args.outcome.applied) ? args.outcome.applied : null,
+        sandboxDegraded: args.outcome.degraded,
+        egressApplied: args.outcome.egressApplied,
+        egressDegraded: args.outcome.egressDegraded,
+      },
+      agent: {
+        provider: args.agentProvider,
+        model: args.spawnInput.model,
+        effort: args.spawnInput.effort ?? null,
+      },
+    };
+  }
+
   private async resolveCreateLaunch(
     input: CreateSessionInput,
     wt: { isolated: boolean },
@@ -2535,6 +2632,7 @@ export class SessionService {
         promptArg,
         dropped: droppedImages,
         injectionHits,
+        attachments,
       } = await this.composePromptArg(input, wt.worktreePath);
       const { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv } =
         await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
@@ -2577,6 +2675,16 @@ export class SessionService {
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
+        launchMetadata: this.buildLaunchMetadata({
+          input,
+          spawnInput,
+          attachments,
+          branch: wt.branch,
+          agentProvider,
+          repoConfig,
+          planGateOn,
+          outcome,
+        }),
       });
       // The row exists post-create; read it back so persistSpawnIdentity sees the persisted
       // (null) prior spawn-identity fields rather than relying on the in-memory shape.
@@ -2644,19 +2752,19 @@ export class SessionService {
    * New Task. Copy-not-move keeps the original recoverable on a spawn failure. Returns
    * the new staged paths (empty when the original has no uploads dir).
    */
-  private copyOriginalUploads(worktreePath: string): string[] {
+  private copyOriginalUploads(worktreePath: string): { path: string; sourceName: string }[] {
     const srcDir = worktreeUploadsDir(worktreePath);
     if (!existsSync(srcDir)) return [];
     const stage = stagingDir(config.repoRoot);
     mkdirSync(stage, { recursive: true });
-    const copied: string[] = [];
+    const copied: { path: string; sourceName: string }[] = [];
     for (const name of readdirSync(srcDir)) {
       const src = join(srcDir, name);
       if (!statSync(src).isFile()) continue;
       const ext = uploadExtensionFromName(name);
       const dest = join(stage, uploadFilename(ext));
       copyFileSync(src, dest);
-      copied.push(dest);
+      copied.push({ path: dest, sourceName: name });
     }
     return copied;
   }
@@ -2717,6 +2825,7 @@ export class SessionService {
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
     //     re-merging here would double the carried uploads.
     const images = this.carryRelaunchImages(s, overrides, originalId);
+    const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
     const effectiveProvider = overrides?.agentProvider ?? s.agentProvider ?? "claude";
@@ -2741,6 +2850,8 @@ export class SessionService {
       autopilotEnabled: s.autopilotEnabled,
       research: pickOverride(overrides?.research, s.research),
       images,
+      attachmentNames,
+      launchUiState: overrides?.launchUiState,
       issueRef,
       auto: false,
     };
@@ -2900,13 +3011,23 @@ export class SessionService {
    * its copies. Before staging, we reclaim staged uploads past the TTL (the same sweep the
    * server runs at startup, over the shared staging dir) so repeated opens don't accumulate.
    */
-  stageRelaunchImages(originalId: string): { path: string; name: string }[] {
+  stageRelaunchImages(
+    originalId: string,
+  ): { path: string; name: string | null; nameRecorded: boolean }[] {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
       throw new Error(`cannot stage relaunch uploads for ${originalId}: missing or archived`);
     sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
-    const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
-    return paths.map((p) => ({ path: p, name: basename(p) }));
+    const copied = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
+    const namesByStored = new Map(
+      (s.launchMetadata?.attachments ?? [])
+        .filter((a) => a.storedName && !a.dropped)
+        .map((a) => [a.storedName!, a.submittedName]),
+    );
+    return copied.map((c) => {
+      const name = namesByStored.get(c.sourceName) ?? null;
+      return { path: c.path, name, nameRecorded: name !== null };
+    });
   }
 
   /** Resolve the uploads a relaunch carries: an explicit `overrides.images` array (even empty,
@@ -2919,12 +3040,24 @@ export class SessionService {
   ): string[] {
     if (overrides?.images !== undefined) return overrides.images;
     const copied = this.copyOriginalUploads(s.worktreePath);
-    const images = copied.slice(0, MAX_IMAGES);
+    const images = copied.slice(0, MAX_IMAGES).map((c) => c.path);
     if (copied.length > images.length)
       console.warn(
         `[relaunch] ${originalId}: ${copied.length} files exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
       );
     return images;
+  }
+
+  private carryRelaunchAttachmentNames(
+    s: Session,
+    overrides: RelaunchOverrides | undefined,
+    images: string[],
+  ): string[] | undefined {
+    if (overrides?.images !== undefined) return overrides.attachmentNames;
+    const recorded = (s.launchMetadata?.attachments ?? [])
+      .filter((a) => !a.dropped && a.submittedName)
+      .map((a) => a.submittedName);
+    return recorded.length === images.length ? recorded : undefined;
   }
 
   /**

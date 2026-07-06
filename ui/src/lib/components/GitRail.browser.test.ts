@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render } from "vitest-browser-svelte";
+import { render as rawRender } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { GitState, ReviewVerdict } from "$lib/types";
@@ -72,6 +72,13 @@ const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
 // Mocked pull-offer fn — imported for assertions in the post-merge suite.
 const { pullMainAndToast } = await import("$lib/pull-offer");
 
+const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
+function render(...args: Parameters<typeof rawRender>): ReturnType<typeof rawRender> {
+  const result = rawRender(...args);
+  mounted.push(result);
+  return result;
+}
+
 // Deterministic measurement: pin the rail's font so CI (no Berkeley Mono) and
 // local agree. The rail mounts into a fixed-width host cell. On desktop the
 // failure we guard against is overflow past that cell; on mobile the rail is a
@@ -85,7 +92,10 @@ beforeEach(() => {
     body { margin: 0; }`;
   document.head.appendChild(fontStyle);
 });
-afterEach(() => {
+afterEach(async () => {
+  for (const instance of mounted.splice(0).reverse()) {
+    await instance.unmount();
+  }
   fontStyle.remove();
   document.body.innerHTML = "";
 });
@@ -689,10 +699,13 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
       expect(d, "review dialog opened").not.toBeNull();
       return d!;
     });
-    // give marked+DOMPurify (dynamic import in an $effect) a tick to render the body
-    await vi.waitFor(() => {
-      expect(dialog.querySelector(".rv-body a"), "body link rendered").not.toBeNull();
-    });
+    // give the markdown-rendering $effect a tick to render the body
+    await vi.waitFor(
+      () => {
+        expect(dialog.querySelector(".rv-body a"), "body link rendered").not.toBeNull();
+      },
+      { timeout: 5000 },
+    );
     return { chip: chip!, dialog };
   }
 

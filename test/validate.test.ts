@@ -60,6 +60,90 @@ test("valid input returns ok with value", () => {
   }
 });
 
+test("validateCreate accepts index-aligned attachment names and visible launch checkbox state", () => {
+  const dir = stagingDir(root);
+  mkdirSync(dir, { recursive: true });
+  const upload = join(dir, "uuid.png");
+  writeFileSync(upload, "PNG");
+
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "do the thing",
+      images: [upload],
+      attachmentNames: ["../mockup\n.png"],
+      launchUiState: {
+        researchChecked: false,
+        planGateChecked: true,
+        autopilotChecked: true,
+      },
+    },
+    root,
+  );
+
+  expect(r.ok).toBe(true);
+  if (r.ok) {
+    expect(r.value.images).toEqual([upload]);
+    expect(r.value.attachmentNames).toEqual(["mockup.png"]);
+    expect(r.value.launchUiState).toEqual({
+      researchChecked: false,
+      planGateChecked: true,
+      autopilotChecked: true,
+    });
+  }
+});
+
+test("validateCreate rejects attachment names that do not match image indexes", () => {
+  const dir = stagingDir(root);
+  mkdirSync(dir, { recursive: true });
+  const upload = join(dir, "uuid.png");
+  writeFileSync(upload, "PNG");
+
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "do the thing",
+      images: [upload],
+      attachmentNames: ["one.png", "extra.png"],
+    },
+    root,
+  );
+
+  expect(r.ok).toBe(false);
+  if (!r.ok) expect(r.error).toBe("attachmentNames length must match images");
+});
+
+test("validateRelaunchOverrides carries attachment names only with images", () => {
+  const dir = stagingDir(root);
+  mkdirSync(dir, { recursive: true });
+  const upload = join(dir, "uuid.png");
+  writeFileSync(upload, "PNG");
+
+  const ok = validateRelaunchOverrides(
+    {
+      images: [upload],
+      attachmentNames: ["original.png"],
+      launchUiState: {
+        researchChecked: false,
+        planGateChecked: false,
+        autopilotChecked: true,
+      },
+    },
+    root,
+  );
+  expect(ok.ok).toBe(true);
+  if (ok.ok) {
+    expect(ok.value.attachmentNames).toEqual(["original.png"]);
+    expect(ok.value.launchUiState?.autopilotChecked).toBe(true);
+  }
+
+  const bad = validateRelaunchOverrides({ attachmentNames: ["orphan.png"] }, root);
+  expect(bad.ok).toBe(false);
+  if (!bad.ok) expect(bad.error).toBe("attachmentNames requires images");
+});
+
 test("known model accepted and passed through", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "opus" },

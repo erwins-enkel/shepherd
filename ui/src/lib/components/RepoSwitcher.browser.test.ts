@@ -263,6 +263,82 @@ describe("RepoSwitcher — filter rail", () => {
     expect(scroller.scrollLeft).toBe(0);
   });
 
+  it("the repo chip menu adds a repo to the filter (additive toggle)", async () => {
+    const onrepofilter = vi.fn();
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter,
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    await expect
+      .element(page.getByRole("menuitem", { name: m.repo_chip_add_filter() }))
+      .toBeVisible();
+    (document.querySelectorAll(".rs-menu-item")[1] as HTMLElement).click();
+    await tick();
+
+    // Same path as Shift+click: additive toggle.
+    expect(onrepofilter).toHaveBeenCalledWith("/repo/alpha", true);
+    expect(document.querySelector(".rs-menu"), "menu closes after filtering").toBeNull();
+  });
+
+  it("the filter menu item reads 'Remove from filter' when the repo is already filtered", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(["/repo/alpha"]),
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    await expect
+      .element(page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }))
+      .toBeVisible();
+    expect(
+      document.querySelector(`.rs-menu-item[role="menuitem"]:nth-child(2)`)?.textContent,
+    ).toContain(m.repo_chip_remove_filter());
+  });
+
+  it("arrow / home / end keys rove focus between the two menu items", async () => {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const items = [...document.querySelectorAll<HTMLElement>(".rs-menu-item")];
+    expect(items.length).toBe(2);
+    // The open effect focuses the first item.
+    expect(document.activeElement).toBe(items[0]);
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(document.activeElement).toBe(items[1]);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    expect(document.activeElement).toBe(items[0]);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
+    expect(document.activeElement).toBe(items[1]);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
+    expect(document.activeElement).toBe(items[0]);
+
+    // Escape still closes.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await tick();
+    expect(document.querySelector(".rs-menu"), "menu closed by Escape").toBeNull();
+  });
+
   it("holding a chip opens the pin menu and suppresses the filter click", async () => {
     vi.useFakeTimers();
     const onrepofilter = vi.fn();

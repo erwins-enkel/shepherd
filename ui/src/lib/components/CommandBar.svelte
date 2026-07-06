@@ -12,11 +12,13 @@
   import type { Command } from "$lib/command-registry";
   import { fuzzyScore } from "$lib/fuzzy";
   import { jumpDigitIndex } from "$lib/components/herd-keynav";
+  import { sortBlocked, type BlockState } from "$lib/triage";
   import { m } from "$lib/paraglide/messages";
 
   let {
     sessions,
     workingBlocked,
+    blocks = {},
     commands,
     onselectsession,
     onselectrepo,
@@ -29,6 +31,7 @@
   }: {
     sessions: Session[];
     workingBlocked: Record<string, boolean>;
+    blocks?: Record<string, BlockState>;
     commands: Command[];
     onselectsession: (id: string) => void;
     onselectrepo: (path: string) => void;
@@ -103,11 +106,22 @@
     { id: "owed", label: () => m.herd_seg_owed() },
   ];
 
+  const needsInputIds = $derived(
+    new Set([
+      ...sortBlocked(sessions, blocks)
+        .filter((e) => !workingBlocked[e.session.id])
+        .map((e) => e.session.id),
+      ...sessions.filter((s) => s.autopilotPaused && !workingBlocked[s.id]).map((s) => s.id),
+    ]),
+  );
+
+  const autopilotPausedLabel = $derived(m.session_autopilot_paused_label().toLocaleUpperCase());
+
   // Fuzzy-match + rank, per group. The fuzzy matcher runs only over the SHORT display
   // fields (title/desig/repo name) so a short query can't subsequence-match nearly every
   // long prompt; the haystack starts with the primary text so matched positions below its
   // length map straight onto the highlighted primary. A blank query scores every row 0, so
-  // the sort falls back to recency — preserving the previous unfiltered ordering exactly.
+  // the sort promotes needs-input sessions first and then falls back to recency.
   // (updatedAt / lastUsedAt are the last-activity signals; lenses keep their fixed order.)
   const sessionRows = $derived<Row[]>(
     sessions
@@ -124,14 +138,21 @@
         };
       })
       .filter((e) => e.res !== null || e.promptMatch)
-      .sort((a, b) => (b.res?.score ?? 0) - (a.res?.score ?? 0) || b.s.updatedAt - a.s.updatedAt)
+      .sort(
+        (a, b) =>
+          (b.res?.score ?? 0) - (a.res?.score ?? 0) ||
+          Number(needsInputIds.has(b.s.id)) - Number(needsInputIds.has(a.s.id)) ||
+          b.s.updatedAt - a.s.updatedAt,
+      )
       .map(({ s, title, res, promptMatch }) => ({
         kind: "session",
         id: s.id,
         title,
         repoPath: s.repoPath,
         repoName: repos.nameFor(s.repoPath),
-        status: statusLabel(displayStatus(s, workingBlocked)),
+        status: s.autopilotPaused
+          ? autopilotPausedLabel
+          : statusLabel(displayStatus(s, workingBlocked)),
         hl: (res?.positions ?? []).filter((p) => p < title.length),
         promptMatch,
       })),

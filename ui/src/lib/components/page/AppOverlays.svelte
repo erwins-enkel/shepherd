@@ -574,6 +574,7 @@
   <CommandBar
     sessions={store.sessions}
     workingBlocked={store.workingBlocked}
+    blocks={store.blocks}
     commands={commandBarCommands}
     onselectsession={oncommandbarsession}
     onselectrepo={oncommandbarrepo}

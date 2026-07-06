@@ -6,6 +6,7 @@ import CommandBar from "./CommandBar.svelte";
 import { m } from "$lib/paraglide/messages";
 import { repos } from "$lib/repos.svelte";
 import type { Command } from "$lib/command-registry";
+import type { BlockState } from "$lib/triage";
 import type { RepoEntry, Session } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -96,6 +97,10 @@ function seedSessions(): Session[] {
   ];
 }
 
+function block(since = 1): BlockState {
+  return { reason: { shape: "awaiting-input", options: [], tail: [] }, since };
+}
+
 function renderBar(overrides: Partial<Parameters<typeof CommandBar>[1]> = {}) {
   const onselectsession = vi.fn();
   const onselectrepo = vi.fn();
@@ -129,6 +134,69 @@ describe("CommandBar — grouping & recency", () => {
     await expect.element(page.getByText(m.commandbar_group_lenses())).toBeVisible();
     // First option is the most-recently-updated session ("newer" = s2).
     await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
+  });
+
+  it("promotes blocks-backed sessions above newer waiting sessions", async () => {
+    renderBar({
+      sessions: [
+        session({ id: "waiting", name: "reviewer-cli-metadata", status: "done", updatedAt: 99 }),
+        session({ id: "blocked", name: "needs-input", status: "blocked", updatedAt: 10 }),
+      ],
+      blocks: { blocked: block() },
+    });
+
+    const first = page.getByRole("option").first();
+    await expect.element(first).toHaveTextContent("needs-input");
+    await expect.element(first).toHaveTextContent(m.status_blocked());
+  });
+
+  it("promotes held-style blocked sessions through blocks alone", async () => {
+    renderBar({
+      sessions: [
+        session({ id: "waiting", name: "reviewer-cli-metadata", status: "done", updatedAt: 99 }),
+        session({ id: "held", name: "held-needs-input", status: "blocked", updatedAt: 10 }),
+      ],
+      blocks: { held: block() },
+    });
+
+    await expect.element(page.getByRole("option").first()).toHaveTextContent("held-needs-input");
+  });
+
+  it("does not promote working-while-blocked sessions even with a block entry", async () => {
+    renderBar({
+      sessions: [
+        session({ id: "waiting", name: "reviewer-cli-metadata", status: "done", updatedAt: 99 }),
+        session({ id: "working", name: "working-needs-input", status: "blocked", updatedAt: 10 }),
+      ],
+      workingBlocked: { working: true },
+      blocks: { working: block() },
+    });
+
+    const first = page.getByRole("option").first();
+    await expect.element(first).toHaveTextContent("reviewer-cli-metadata");
+    await expect.element(first).toHaveTextContent(m.status_done());
+  });
+
+  it("promotes autopilot-paused sessions and explains them with the needs-you label", async () => {
+    renderBar({
+      sessions: [
+        session({ id: "waiting", name: "reviewer-cli-metadata", status: "done", updatedAt: 99 }),
+        session({
+          id: "paused",
+          name: "autopilot-paused",
+          status: "done",
+          autopilotPaused: true,
+          updatedAt: 10,
+        }),
+      ],
+    });
+
+    const first = page.getByRole("option").first();
+    await expect.element(first).toHaveTextContent("autopilot-paused");
+    await expect
+      .element(first)
+      .toHaveTextContent(m.session_autopilot_paused_label().toLocaleUpperCase());
+    expect(first.element().textContent).not.toContain(m.status_done());
   });
 
   it("filters fuzzily across sessions, repos and lenses", async () => {

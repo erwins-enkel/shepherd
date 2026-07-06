@@ -1,15 +1,24 @@
 name: Awaiting-response sweep
 
 # Chases down issues that are blocked on the reporter. When a maintainer asks a question and
-# labels the issue `awaiting-response`, this workflow pings after 3 days of silence and closes 3
+# labels the issue `awaiting-response`, this workflow pings after 3 days of INACTIVITY and closes 3
 # days after that (6 days total) — so a question we can't answer without the reporter doesn't
 # linger open forever. It ONLY ever touches issues carrying `awaiting-response`; everything else is
 # invisible to it (`only-labels`). PRs are excluded entirely (both PR knobs are -1).
 #
-# The moment the person we're waiting on replies, the `clear-on-reply` job strips the label, which
-# both stops the countdown and removes any `stale` marker — so a real answer never trips the sweep.
-# A maintainer's own comment does NOT clear it (we're waiting on the reporter, not on us): the job
-# fires only when the comment author IS the issue author.
+# TWO distinct mechanisms, don't conflate them:
+#
+#   1. The stale TIMER is activity-based, not reporter-specific. `days-before-stale: 3` counts days
+#      since the last update of ANY kind, and `remove-stale-when-updated: true` drops the `stale`
+#      marker + restarts the countdown on ANY update — INCLUDING a maintainer's own comment. So a
+#      maintainer follow-up (e.g. re-asking, adding detail) legitimately hands the reporter a fresh
+#      3-day window rather than closing out from under an active thread. That's the intended trade;
+#      actions/stale tracks inactivity, and we accept "any activity" as the reset signal.
+#
+#   2. The `awaiting-response` LABEL is cleared reporter-only. The `clear-on-reply` job strips it
+#      (and any `stale` marker) the moment the ISSUE AUTHOR comments — taking the issue out of scope
+#      entirely so the sweep never chases it again. A maintainer's comment resets the timer (per #1)
+#      but does NOT clear the label: we're still waiting on the reporter, so the issue stays tracked.
 
 on:
   schedule:

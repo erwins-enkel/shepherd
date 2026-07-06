@@ -3,18 +3,31 @@ name: Issue triage
 # Triage newly-opened issues with one paid Haiku 4.5 call: classify → label →
 # (unless in dry-run) post ONE disclosed automated comment.
 #
-# Trigger is `issues` (NOT pull_request_target), so issue content can never reach
-# secrets. Issue title/body are passed to the script via `env:` only — never
-# interpolated into a `run:` line — and are treated as untrusted data. The model
-# has no tools; its JSON is re-validated against a fixed allowlist in the script,
-# and the posted comment has @mentions neutralized.
+# Two triggers:
+#   - issues.opened — the real path (respects ISSUE_BOT_DRY_RUN).
+#   - workflow_dispatch(issue_number) — a manual test button that classifies +
+#     logs a chosen existing issue and is FORCED to dry-run: it can NEVER post or
+#     label, regardless of ISSUE_BOT_DRY_RUN. Useful for eyeballing decisions and
+#     bypasses the author gate so you can test any issue.
+#
+# `issues` is NOT pull_request_target, so issue content can never reach secrets.
+# Issue title/body are handled as untrusted data: passed via `env:` / written to
+# $GITHUB_ENV with a random delimiter, never interpolated into a `run:` line. The
+# model has no tools; its JSON is re-validated against a fixed allowlist in the
+# script, and the posted comment has @mentions neutralized.
 on:
   issues:
     types: [opened]
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: "Existing issue number to triage (manual runs always dry-run — never post/label)"
+        required: true
+        type: string
 
 # One run per issue; don't cancel an in-flight run for the same issue.
 concurrency:
-  group: issue-triage-${{ github.event.issue.number }}
+  group: issue-triage-${{ github.event.issue.number || github.event.inputs.issue_number }}
   cancel-in-progress: false
 
 # Least privilege. `issues: write` covers reading current labels (idempotency
@@ -27,12 +40,15 @@ permissions:
 jobs:
   triage:
     runs-on: ubuntu-latest
-    # Skip maintainers entirely — only triage non-maintainer authors. Author
-    # association is a property of the issue event, so the payload value is correct.
+    # Skip maintainers on the real path — only triage non-maintainer authors.
+    # A manual dispatch bypasses this gate (it is forced dry-run, so it can't post).
     if: >-
-      github.event.issue.author_association != 'OWNER'
-      && github.event.issue.author_association != 'MEMBER'
-      && github.event.issue.author_association != 'COLLABORATOR'
+      github.event_name == 'workflow_dispatch'
+      || (
+        github.event.issue.author_association != 'OWNER'
+        && github.event.issue.author_association != 'MEMBER'
+        && github.event.issue.author_association != 'COLLABORATOR'
+      )
     steps:
       - name: Checkout (docs + triage script — our own trusted code)
         uses: actions/checkout@v7
@@ -42,16 +58,57 @@ jobs:
         with:
           bun-version: latest
 
+      # Resolve the target issue from EITHER the trigger payload (issues.opened)
+      # OR the manual dispatch input (fetched via the API). Number/author go to
+      # step outputs; title/body are written to $GITHUB_ENV with a random heredoc
+      # delimiter so untrusted issue content can't forge an env assignment. On the
+      # payload path the raw values arrive via `env:` (never shell-interpolated).
+      - name: Resolve target issue
+        id: issue
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_NUMBER: ${{ github.event.inputs.issue_number }}
+          RAW_NUMBER: ${{ github.event.issue.number }}
+          RAW_AUTHOR: ${{ github.event.issue.user.login }}
+          RAW_TITLE: ${{ github.event.issue.title }}
+          RAW_BODY: ${{ github.event.issue.body }}
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            case "$INPUT_NUMBER" in
+              '' | *[!0-9]*) echo "issue_number must be a positive integer" >&2; exit 1 ;;
+            esac
+            json=$(gh api "repos/${REPO}/issues/${INPUT_NUMBER}")
+            number="$INPUT_NUMBER"
+            author=$(printf '%s' "$json" | jq -r '.user.login')
+            title=$(printf '%s' "$json" | jq -r '.title // ""')
+            body=$(printf '%s' "$json" | jq -r '.body // ""')
+          else
+            number="$RAW_NUMBER"
+            author="$RAW_AUTHOR"
+            title="$RAW_TITLE"
+            body="$RAW_BODY"
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+          echo "author=${author}" >> "$GITHUB_OUTPUT"
+          d="ghenv_$(openssl rand -hex 16)"
+          { echo "ISSUE_TITLE<<$d"; printf '%s\n' "$title"; echo "$d"; } >> "$GITHUB_ENV"
+          d="ghenv_$(openssl rand -hex 16)"
+          { echo "ISSUE_BODY<<$d"; printf '%s\n' "$body"; echo "$d"; } >> "$GITHUB_ENV"
+
       # Authoritative idempotency + best-effort abuse guard, both UNPAID. The
       # event payload's labels are frozen at open time and never carry the marker,
-      # so we query the issue's CURRENT labels here to gate re-runs.
+      # so we query the issue's CURRENT labels here to gate re-runs. (A manual
+      # dispatch bypasses these gates in the classify step below.)
       - name: Pre-flight (marker check + per-author burst guard)
         id: preflight
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
-          AUTHOR: ${{ github.event.issue.user.login }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
+          AUTHOR: ${{ steps.issue.outputs.author }}
         run: |
           set -euo pipefail
           already=$(gh api "repos/${REPO}/issues/${ISSUE_NUMBER}/labels" \
@@ -84,29 +141,34 @@ jobs:
           permission-contents: read
           permission-issues: write
 
-      # The one paid call. Gated on the pre-flight so re-runs and bursts don't
-      # spend. Issue text arrives via env: (no shell interpolation); the script
-      # emits a single-line `decision=<json>` to $GITHUB_OUTPUT.
+      # The one paid call. On the real path it's gated by the pre-flight so re-runs
+      # and bursts don't spend; a manual dispatch bypasses those gates (you asked
+      # for this specific issue). Issue text arrives via env (ISSUE_TITLE/ISSUE_BODY
+      # set in $GITHUB_ENV — no shell interpolation); the script emits a single-line
+      # `decision=<json>` to $GITHUB_OUTPUT.
       - name: Classify + draft (Haiku 4.5)
         id: triage
         if: >-
-          steps.preflight.outputs.already_triaged != 'true'
-          && steps.preflight.outputs.author_burst != 'true'
+          github.event_name == 'workflow_dispatch'
+          || (
+            steps.preflight.outputs.already_triaged != 'true'
+            && steps.preflight.outputs.author_burst != 'true'
+          )
         env:
-          ISSUE_TITLE: ${{ github.event.issue.title }}
-          ISSUE_BODY: ${{ github.event.issue.body }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           ISSUE_BOT_ANSWER_QUESTIONS: ${{ vars.ISSUE_BOT_ANSWER_QUESTIONS }}
           ISSUE_BOT_COMMENT_ON_BUG_FEATURE: ${{ vars.ISSUE_BOT_COMMENT_ON_BUG_FEATURE }}
         run: bun scripts/issue-triage.ts
 
       # Apply the label + `bot-triaged` marker and post the comment — LIVE only.
-      # Requires: not already triaged, an App token present, dry-run OFF (fail-safe:
-      # dry-run unless the var is exactly 'false'), and a processable decision.
-      # Labels are ADDITIVE: the reporter's template label is never removed.
+      # A manual dispatch NEVER reaches here (forced dry-run, ignores the var).
+      # Requires: real trigger, not already triaged, an App token present, dry-run
+      # OFF (fail-safe: dry-run unless the var is exactly 'false'), a processable
+      # decision. Labels are ADDITIVE: the reporter's template label is never removed.
       - name: Apply label + comment (live)
         if: >-
-          steps.preflight.outputs.already_triaged != 'true'
+          github.event_name != 'workflow_dispatch'
+          && steps.preflight.outputs.already_triaged != 'true'
           && steps.app-token.outputs.token != ''
           && vars.ISSUE_BOT_DRY_RUN == 'false'
           && steps.triage.outputs.decision != ''
@@ -114,7 +176,7 @@ jobs:
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
           REPO: ${{ github.repository }}
-          ISSUE_NUMBER: ${{ github.event.issue.number }}
+          ISSUE_NUMBER: ${{ steps.issue.outputs.number }}
           DECISION: ${{ steps.triage.outputs.decision }}
         run: |
           set -euo pipefail

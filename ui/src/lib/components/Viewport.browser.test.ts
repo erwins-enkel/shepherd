@@ -900,3 +900,27 @@ describe("Viewport Activity tab A/B switch", () => {
     ).toBeNull();
   });
 });
+
+// ── Phone back control glyph (two-left-chevron regression) ────────────────────
+// On phone the .back control collapses from the desktop "‹ Herd" text to a bare
+// glyph. It must NOT be the left chevron "‹" — that made it visually identical to
+// the adjacent needs-you pager's prev button (also "‹"), yielding two ambiguous
+// left chevrons. It renders as the list glyph "☰" (back to the herd list), which
+// the pager never uses. The .back button only mounts when `onback` is supplied.
+describe("Viewport phone back glyph", () => {
+  it("phone back control renders the list glyph ☰, not the left chevron ‹", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "back-glyph" }),
+      mobile: true,
+      onback: vi.fn(),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const back = container.querySelector(".back");
+    expect(back, ".back control should render on phone when onback is supplied").not.toBeNull();
+    const glyph = back!.textContent?.trim();
+    expect(glyph, "phone back glyph is the list glyph").toBe("☰");
+    expect(glyph, "phone back glyph must not be the left chevron").not.toBe("‹");
+  });
+});

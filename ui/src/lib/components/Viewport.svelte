@@ -1889,7 +1889,7 @@
   >
     {#if onback}
       <button class="back" type="button" onclick={onback} aria-label={m.viewport_back_aria()}
-        >{mobile ? "‹" : m.viewport_back_button()}</button
+        >{mobile ? "☰" : m.viewport_back_button()}</button
       >
     {/if}
     {#if showQueueNav}
@@ -3221,7 +3221,8 @@
     min-height: 44px;
     padding: 5px 12px;
   }
-  /* phone: the back control is a bare chevron — size it up to read as an icon */
+  /* phone: the back control is a bare list glyph (☰, distinct from the ‹/› queue
+     pager) — size it up to read as an icon */
   .vp-head.phone .back {
     font-size: var(--fs-xl);
     line-height: 1;

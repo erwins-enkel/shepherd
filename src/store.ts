@@ -33,6 +33,7 @@ import type {
   SessionUsageSnapshot,
   SessionUsageBucket,
   WindowedBucketSum,
+  SessionLaunchMetadata,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
@@ -214,6 +215,7 @@ type NewSession = Omit<
   | "experimentRole"
   | "spawnTerminalId"
   | "spawnAccountDir"
+  | "launchMetadata"
 > & {
   id?: string;
   model?: string | null;
@@ -232,6 +234,7 @@ type NewSession = Omit<
   egressDegraded?: boolean;
   research?: boolean;
   mergeTrainPrs?: number[];
+  launchMetadata?: SessionLaunchMetadata | null;
 };
 
 const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePath,
@@ -243,7 +246,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
-  spawnTerminalId, spawnAccountDir, providerSessionId`;
+  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -301,6 +304,7 @@ type SessionRow = {
   experimentRole: string | null;
   spawnTerminalId: string | null;
   spawnAccountDir: string | null;
+  launchMetadataJson: string | null;
 };
 
 /** SQLite row shape for the reviews table. */
@@ -478,6 +482,25 @@ function parseMergeTrainPrsJson(raw: string | null | undefined): number[] | null
   } catch {
     return null;
   }
+}
+
+function parseLaunchMetadataJson(raw: string | null | undefined): SessionLaunchMetadata | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    const m = parsed as Partial<SessionLaunchMetadata>;
+    if (m.sourceKind !== "user" && m.sourceKind !== "generated") return null;
+    if (typeof m.prompt !== "string") return null;
+    if (!Array.isArray(m.attachments)) return null;
+    return m as SessionLaunchMetadata;
+  } catch {
+    return null;
+  }
+}
+
+function launchMetadataJson(value: SessionLaunchMetadata | null | undefined): string | null {
+  return value ? JSON.stringify(value) : null;
 }
 
 /** Tolerantly parse the persisted manualSteps JSON back to ManualStep[] (never throws). #1059. */
@@ -1793,6 +1816,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       experimentRole: null,
       spawnTerminalId: null, // stamped post-create by persistSpawnIdentity
       spawnAccountDir: null,
+      launchMetadata: input.launchMetadata ?? null,
     };
   }
 
@@ -1802,7 +1826,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1856,6 +1880,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // spawnTerminalId — always null at create (stamped post-create by persistSpawnIdentity)
           null, // spawnAccountDir — always null at create
           strOrEmpty(s.providerSessionId), // "" at create for both providers; Codex id captured post-spawn
+          launchMetadataJson(s.launchMetadata),
         ],
       );
       return s;
@@ -3112,6 +3137,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // account's CLAUDE_CONFIG_DIR. Both nullable; written only via setSpawnIdentity.
     add("spawnTerminalId", `spawnTerminalId TEXT`);
     add("spawnAccountDir", `spawnAccountDir TEXT`);
+    add("launchMetadataJson", `launchMetadataJson TEXT`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -4417,6 +4443,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: r.haltedAt ?? null,
       manualSteps: parseManualStepsJson(r.manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
+      launchMetadata: parseLaunchMetadataJson(r.launchMetadataJson),
       experimentId: r.experimentId ?? null,
       experimentRole:
         r.experimentRole === "variant" || r.experimentRole === "comparison"

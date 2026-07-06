@@ -71,7 +71,13 @@
       model: string | null;
       effort: string | null;
       images: string[];
+      attachmentNames?: string[];
       issueRef?: IssueRef;
+      launchUiState?: {
+        researchChecked: boolean;
+        planGateChecked: boolean;
+        autopilotChecked: boolean;
+      };
       planGateEnabled: boolean | null;
       autopilotEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
@@ -664,6 +670,7 @@
         model: model !== "default" ? model : null,
         effort: effort !== "default" ? effort : null,
         images: images.map((i) => i.path),
+        attachmentNames: images.map((i) => i.name),
         issueRef: issueRef
           ? {
               number: issueRef.number,
@@ -672,6 +679,11 @@
               body: issueRef.body,
             }
           : undefined,
+        launchUiState: {
+          researchChecked: research,
+          planGateChecked: planGate,
+          autopilotChecked: autopilot,
+        },
         planGateEnabled: planGateFlag(planGateTouched, planGate),
         autopilotEnabled: automationFlag(autopilotTouched, autopilot),
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,

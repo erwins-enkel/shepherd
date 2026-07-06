@@ -1398,7 +1398,10 @@ test("createSession: copies attachments into worktree and appends paths to the p
       list: () => [],
     } as any,
     copyUploads: (uploads: string[], worktreePath: string) =>
-      uploads.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+      uploads.map((i) => ({
+        src: i,
+        copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
   });
 
   const s = await service.create({
@@ -1448,9 +1451,12 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
     events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
     // One of two staged attachments is gone; the copy seam returns only the survivor.
     copyUploads: (uploads: string[], worktreePath: string) =>
-      uploads
-        .filter((i) => !i.includes("gone"))
-        .map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+      uploads.map((i) => ({
+        src: i,
+        copiedPath: i.includes("gone")
+          ? null
+          : `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
   });
 
   const s = await service.create({
@@ -1459,6 +1465,12 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
     prompt: "look at this",
     model: null,
     images: ["/stage/gone.png", "/stage/kept.png"],
+    attachmentNames: ["original gone.png", "original kept.png"],
+    launchUiState: {
+      researchChecked: false,
+      planGateChecked: true,
+      autopilotChecked: true,
+    },
   });
 
   const prompt = calls.argv[calls.argv.length - 1] as string;
@@ -1469,6 +1481,29 @@ test("createSession: a dropped (swept) attachment still spawns, notes the loss, 
   expect(events).toContainEqual({
     event: "session:uploads-dropped",
     data: { id: s.id, count: 1 },
+  });
+  expect(store.get(s.id)?.launchMetadata).toMatchObject({
+    sourceKind: "user",
+    prompt: "look at this",
+    attachments: [
+      {
+        submittedName: "original gone.png",
+        launchedName: null,
+        dropped: true,
+        storedName: null,
+      },
+      {
+        submittedName: "original kept.png",
+        launchedName: "original kept.png",
+        dropped: false,
+        storedName: "kept.png",
+      },
+    ],
+    uiState: {
+      researchChecked: false,
+      planGateChecked: true,
+      autopilotChecked: true,
+    },
   });
 });
 
@@ -5771,7 +5806,10 @@ function relaunchHarness(store: SessionStore) {
       },
     } as any,
     copyUploads: (images: string[], worktreePath: string) =>
-      images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+      images.map((i) => ({
+        src: i,
+        copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
   });
   return { service, calls, breakOverride, breakStart };
 }
@@ -5858,21 +5896,86 @@ test("relaunch carries uploads over (staged copies created, originals untouched)
   config.repoRoot = root;
   try {
     const { service, calls } = relaunchHarness(store);
-    const orig = originalSession(store, { worktreePath: wt });
+    const orig = originalSession(store, {
+      worktreePath: wt,
+      launchMetadata: {
+        sourceKind: "user",
+        prompt: "do the thing",
+        issue: null,
+        attachments: [
+          {
+            submittedName: "alpha design.png",
+            launchedName: "alpha design.png",
+            dropped: false,
+            storedName: "a.png",
+          },
+          {
+            submittedName: "beta photo.jpg",
+            launchedName: "beta photo.jpg",
+            dropped: false,
+            storedName: "b.jpg",
+          },
+          {
+            submittedName: "notes from user.md",
+            launchedName: "notes from user.md",
+            dropped: false,
+            storedName: "notes.md",
+          },
+        ],
+        branch: { baseBranch: "develop", workBranch: "shepherd/orig", sharedCheckout: false },
+        uiState: {
+          researchChecked: false,
+          planGateChecked: true,
+          autopilotChecked: true,
+        },
+        submittedChoices: {
+          planGateOverride: true,
+          autopilotOverride: true,
+          sandboxProfile: null,
+          model: "opus",
+          effort: null,
+        },
+        resolvedLaunch: {
+          research: false,
+          planGateOptIn: true,
+          autopilotOptIn: true,
+          storedModel: "opus",
+          effort: null,
+          sandboxApplied: null,
+          sandboxDegraded: false,
+          egressApplied: false,
+          egressDegraded: false,
+        },
+        agent: { provider: "claude", model: "opus", effort: null },
+      },
+    });
 
-    await service.relaunch(orig.id);
+    const stagedForEdit = service.stageRelaunchImages(orig.id);
+    expect(stagedForEdit.map((entry) => entry.name).sort()).toEqual([
+      "alpha design.png",
+      "beta photo.jpg",
+      "notes from user.md",
+    ]);
+    expect(stagedForEdit.every((entry) => entry.nameRecorded)).toBe(true);
+
+    const fresh = await service.relaunch(orig.id);
 
     // originals untouched
     expect(readdirSync(uploads).sort()).toEqual(["a.png", "b.jpg", "notes.md"]);
-    // fresh staged copies landed (extensions preserved) and were passed to create
+    // picker staging plus quick-relaunch staging both landed (extensions preserved)
     const staged = readdirSync(join(root, ".shepherd-uploads-staging"));
-    expect(staged).toHaveLength(3);
-    expect(staged.filter((f) => f.endsWith(".png"))).toHaveLength(1);
-    expect(staged.filter((f) => f.endsWith(".jpg"))).toHaveLength(1);
-    expect(staged.filter((f) => f.endsWith(".md"))).toHaveLength(1);
+    expect(staged).toHaveLength(6);
+    expect(staged.filter((f) => f.endsWith(".png"))).toHaveLength(2);
+    expect(staged.filter((f) => f.endsWith(".jpg"))).toHaveLength(2);
+    expect(staged.filter((f) => f.endsWith(".md"))).toHaveLength(2);
     // all uploads flowed into the spawn argv (via copyUploads mock)
     const argv = calls.started[0]!.argv;
     expect(argv[argv.length - 1]).toContain("Attached files:");
+    expect(fresh.launchMetadata?.attachments.map((a) => a.submittedName).sort()).toEqual([
+      "alpha design.png",
+      "beta photo.jpg",
+      "notes from user.md",
+    ]);
   } finally {
     config.repoRoot = prevRoot;
   }
@@ -6302,7 +6405,7 @@ test("relaunch WITH overrides uses override uploads verbatim (no auto-carry)", a
   }
 });
 
-test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAGES, returns path+name", () => {
+test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAGES, returns path with unrecorded legacy names", () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "relaunch-stageroot-"));
   const wt = mkdtempSync(join(tmpdir(), "relaunch-stagewt-"));
@@ -6323,8 +6426,8 @@ test("stageRelaunchImages copies worktree uploads into staging, caps at MAX_IMAG
     const stagingDir = join(root, ".shepherd-uploads-staging");
     for (const entry of staged) {
       expect(entry.path.startsWith(stagingDir)).toBe(true);
-      expect(entry.name.length).toBeGreaterThan(0);
-      expect(entry.name).toBe(entry.path.split("/").pop()!);
+      expect(entry.name).toBeNull();
+      expect(entry.nameRecorded).toBe(false);
     }
     // originals on disk untouched (all 12 still present)
     expect(readdirSync(uploads)).toHaveLength(12);

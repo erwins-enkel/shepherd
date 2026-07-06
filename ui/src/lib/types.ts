@@ -843,6 +843,8 @@ export interface Session {
   egressDegraded: boolean;
   /** Issue number that seeded this session; null when launched without an issue. */
   issueNumber: number | null;
+  /** Launch-time display metadata for the task-id tooltip. Null/absent for legacy rows. */
+  launchMetadata?: SessionLaunchMetadata | null;
   /** Web URL of the linked forge issue. Populated **only** by the Done-list endpoint
    *  (`GET /api/sessions/done`) for archived sessions — the live counterpart is
    *  {@link GitState.issueUrl}, keyed by active session id and absent once archived. Same
@@ -1575,6 +1577,49 @@ export interface RelaunchOverrides {
   effort?: string | null;
   planGateEnabled?: boolean | null;
   images?: string[];
+  attachmentNames?: string[];
+  launchUiState?: LaunchUiState;
+}
+
+export interface LaunchUiState {
+  researchChecked: boolean;
+  planGateChecked: boolean;
+  autopilotChecked: boolean;
+}
+
+export interface LaunchAttachmentMetadata {
+  submittedName: string;
+  launchedName: string | null;
+  dropped: boolean;
+  storedName?: string | null;
+}
+
+export interface SessionLaunchMetadata {
+  sourceKind: "user" | "generated";
+  prompt: string;
+  issue: { number: number; title: string; url: string } | null;
+  attachments: LaunchAttachmentMetadata[];
+  branch: { baseBranch: string; workBranch: string | null; sharedCheckout: boolean };
+  uiState: LaunchUiState | null;
+  submittedChoices: {
+    planGateOverride: boolean | null;
+    autopilotOverride: boolean | null;
+    sandboxProfile: SandboxProfile | null;
+    model: string | null;
+    effort: string | null;
+  };
+  resolvedLaunch: {
+    research: boolean;
+    planGateOptIn: boolean;
+    autopilotOptIn: boolean;
+    storedModel: string | null;
+    effort: string | null;
+    sandboxApplied: SandboxProfile | null;
+    sandboxDegraded: boolean;
+    egressApplied: boolean;
+    egressDegraded: boolean;
+  };
+  agent: { provider: AgentProvider; model: string | null; effort: string | null };
 }
 
 export interface CreateInput {
@@ -1585,7 +1630,9 @@ export interface CreateInput {
   model: string | null;
   effort?: string | null; // reasoning-effort tier; null/absent → provider default (no effort flag)
   images?: string[]; // absolute staged upload paths from /api/uploads
+  attachmentNames?: string[];
   issueRef?: IssueRef; // optional attached issue; body appended server-side
+  launchUiState?: LaunchUiState;
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
   autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default

@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
-import type { PrReview, Recap, ReviewVerdict } from "../src/types";
+import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
 function mk() {
@@ -65,6 +65,62 @@ test("session providerSessionId: update() preserves it when absent from patch, r
   // an explicit reset (relaunch path) clears it
   s.update(a.id, { providerSessionId: "" });
   expect(s.get(a.id)?.providerSessionId).toBe("");
+});
+
+test("session launchMetadata persists and legacy rows hydrate as null", () => {
+  const s = mk();
+  const launchMetadata = {
+    sourceKind: "user",
+    prompt: "inspect the upload",
+    issue: { number: 7, title: "Broken", url: "https://example.test/7" },
+    attachments: [
+      {
+        submittedName: "design.png",
+        launchedName: "design.png",
+        dropped: false,
+        storedName: "uuid.png",
+      },
+    ],
+    branch: {
+      baseBranch: "main",
+      workBranch: "shepherd/repo-flatten",
+      sharedCheckout: false,
+    },
+    uiState: {
+      researchChecked: false,
+      planGateChecked: true,
+      autopilotChecked: true,
+    },
+    submittedChoices: {
+      planGateOverride: true,
+      autopilotOverride: true,
+      sandboxProfile: "autonomous",
+      model: "opus",
+      effort: "high",
+    },
+    resolvedLaunch: {
+      research: false,
+      planGateOptIn: true,
+      autopilotOptIn: true,
+      storedModel: "opus",
+      effort: "high",
+      sandboxApplied: "autonomous",
+      sandboxDegraded: false,
+      egressApplied: true,
+      egressDegraded: false,
+    },
+    agent: {
+      provider: "claude",
+      model: "opus",
+      effort: "high",
+    },
+  } satisfies SessionLaunchMetadata;
+
+  const modern = s.create({ ...base, launchMetadata });
+  expect(s.get(modern.id)?.launchMetadata).toEqual(launchMetadata);
+
+  const legacy = s.create({ ...base, herdrAgentId: "term_legacy" });
+  expect(s.get(legacy.id)?.launchMetadata).toBeNull();
 });
 
 test("session migration: an old sessions row without providerSessionId gains the '' default", () => {

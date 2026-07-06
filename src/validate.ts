@@ -10,6 +10,7 @@ import {
   type AgentProvider,
   type CreateSessionInput,
   type IssueRef,
+  type LaunchUiState,
   type RelaunchOverrides,
   type Steer,
   type BuildStepInput,
@@ -44,7 +45,9 @@ const ALLOWED_KEYS = new Set([
   "model",
   "effort",
   "images",
+  "attachmentNames",
   "issueRef",
+  "launchUiState",
   "planGateEnabled",
   "autopilotEnabled",
   "sandboxProfile",
@@ -264,6 +267,28 @@ function validateImages(value: unknown, root: string): Field<string[]> {
   }
   if (new Set(images).size !== images.length) return err("duplicate attachment paths");
   return field(images);
+}
+
+function sanitizeAttachmentName(value: string, fallback: string): string {
+  const clean = value
+    .replace(/[/\\]/g, "")
+    // eslint-disable-next-line no-control-regex
+    .replace(/[\x00-\x1f\x7f]/g, "")
+    .replace(/^\.+/, "")
+    .trim();
+  return clean.slice(0, 160) || fallback;
+}
+
+function validateAttachmentNames(value: unknown, imageCount: number): Field<string[] | undefined> {
+  if (value === undefined) return field(undefined);
+  if (!Array.isArray(value)) return err("attachmentNames must be an array");
+  if (value.length !== imageCount) return err("attachmentNames length must match images");
+  const names: string[] = [];
+  for (let i = 0; i < value.length; i++) {
+    if (typeof value[i] !== "string") return err(`attachmentNames[${i}] must be a string`);
+    names.push(sanitizeAttachmentName(value[i], `Attachment ${i + 1}`));
+  }
+  return field(names);
 }
 
 // ── validateNewProject ────────────────────────────────────────────────────────
@@ -519,14 +544,8 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   if (!effort.ok) return effort;
 
   const root = resolve(expandHome(repoRoot));
-  const repoPath = validateRepoPath(obj.repoPath, root);
-  if (!repoPath.ok) return repoPath;
-
-  const images = validateImages(obj.images, root);
-  if (!images.ok) return images;
-
-  const issueRef = validateIssueRef(obj.issueRef);
-  if (!issueRef.ok) return issueRef;
+  const launch = validateCreateLaunchFields(obj, root);
+  if (!launch.ok) return launch;
 
   const options = validateOptions(obj);
   if (!options.ok) return options;
@@ -534,19 +553,55 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   return {
     ok: true,
     value: {
-      repoPath: repoPath.value,
+      repoPath: launch.value.repoPath,
       baseBranch: baseBranch.value,
       prompt: prompt.value,
       agentProvider: agentProvider.value,
       model: model.value,
       effort: effort.value,
-      images: images.value,
-      issueRef: issueRef.value,
+      images: launch.value.images,
+      attachmentNames: launch.value.attachmentNames,
+      issueRef: launch.value.issueRef,
+      launchUiState: launch.value.launchUiState,
       // mergeTrainPrs is number[] | undefined; consumers read it via truthiness /
       // `?? null`, so an explicit undefined is equivalent to omitting the key.
       ...options.value,
     },
   };
+}
+
+function validateCreateLaunchFields(
+  obj: Record<string, unknown>,
+  root: string,
+): Field<{
+  repoPath: string;
+  images: string[];
+  attachmentNames: string[] | undefined;
+  issueRef: IssueRef | undefined;
+  launchUiState: LaunchUiState | undefined;
+}> {
+  const repoPath = validateRepoPath(obj.repoPath, root);
+  if (!repoPath.ok) return repoPath;
+
+  const images = validateImages(obj.images, root);
+  if (!images.ok) return images;
+
+  const attachmentNames = validateAttachmentNames(obj.attachmentNames, images.value.length);
+  if (!attachmentNames.ok) return attachmentNames;
+
+  const issueRef = validateIssueRef(obj.issueRef);
+  if (!issueRef.ok) return issueRef;
+
+  const launchUiState = validateLaunchUiState(obj.launchUiState);
+  if (!launchUiState.ok) return launchUiState;
+
+  return field({
+    repoPath: repoPath.value,
+    images: images.value,
+    attachmentNames: attachmentNames.value,
+    issueRef: issueRef.value,
+    launchUiState: launchUiState.value,
+  });
 }
 
 /** Optional create-time overrides, bundled so validateCreate stays flat (below the
@@ -604,6 +659,28 @@ function validateResearch(value: unknown): Field<boolean> {
   return err("research must be a boolean or absent");
 }
 
+function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined> {
+  if (value === undefined) return field(undefined);
+  if (value === null || typeof value !== "object" || Array.isArray(value))
+    return err("launchUiState must be an object or absent");
+  const obj = value as Record<string, unknown>;
+  for (const key of Object.keys(obj)) {
+    if (!["researchChecked", "planGateChecked", "autopilotChecked"].includes(key))
+      return err(`launchUiState unknown key: ${key}`);
+  }
+  if (typeof obj.researchChecked !== "boolean")
+    return err("launchUiState.researchChecked must be a boolean");
+  if (typeof obj.planGateChecked !== "boolean")
+    return err("launchUiState.planGateChecked must be a boolean");
+  if (typeof obj.autopilotChecked !== "boolean")
+    return err("launchUiState.autopilotChecked must be a boolean");
+  return field({
+    researchChecked: obj.researchChecked,
+    planGateChecked: obj.planGateChecked,
+    autopilotChecked: obj.autopilotChecked,
+  });
+}
+
 /** mergeTrainPrs — optional array of positive integers; absent → undefined (store defaults null). */
 function validateMergeTrainPrs(value: unknown): Field<number[] | undefined> {
   if (value === undefined) return field(undefined);
@@ -628,6 +705,8 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "planGateEnabled",
   "research",
   "images",
+  "attachmentNames",
+  "launchUiState",
 ]);
 
 /**
@@ -670,6 +749,14 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "research", apply: () => validateResearch(obj.research) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
+    {
+      key: "attachmentNames",
+      apply: () =>
+        obj.images === undefined
+          ? err("attachmentNames requires images")
+          : validateAttachmentNames(obj.attachmentNames, (out.images ?? []).length),
+    },
+    { key: "launchUiState", apply: () => validateLaunchUiState(obj.launchUiState) },
   ];
   for (const { key, apply } of fields) {
     if (obj[key] === undefined) continue;

@@ -1820,6 +1820,12 @@
       model: string | null;
       effort: string | null;
       images: string[];
+      attachmentNames?: string[];
+      launchUiState?: {
+        researchChecked: boolean;
+        planGateChecked: boolean;
+        autopilotChecked: boolean;
+      };
       planGateEnabled: boolean | null;
     },
   ) {
@@ -1833,6 +1839,8 @@
         effort: input.effort,
         planGateEnabled: input.planGateEnabled,
         images: input.images,
+        attachmentNames: input.attachmentNames,
+        launchUiState: input.launchUiState,
       });
     } catch (e) {
       if (e instanceof ApiError && e.code === "in_progress")
@@ -1866,7 +1874,13 @@
       model: string | null;
       effort: string | null;
       images: string[];
+      attachmentNames?: string[];
       issueRef?: IssueRef;
+      launchUiState?: {
+        researchChecked: boolean;
+        planGateChecked: boolean;
+        autopilotChecked: boolean;
+      };
       planGateEnabled: boolean | null;
       autopilotEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
@@ -1887,7 +1901,13 @@
     model: string | null;
     effort: string | null;
     images: string[];
+    attachmentNames?: string[];
     issueRef?: IssueRef;
+    launchUiState?: {
+      researchChecked: boolean;
+      planGateChecked: boolean;
+      autopilotChecked: boolean;
+    };
     planGateEnabled: boolean | null;
     autopilotEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
@@ -1928,7 +1948,10 @@
     // so the operator knows to re-attach (never double-attach).
     let staged: { path: string; name: string }[] = [];
     try {
-      staged = await stageRelaunchImages(id);
+      staged = (await stageRelaunchImages(id)).map((img) => ({
+        path: img.path,
+        name: img.nameRecorded && img.name ? img.name : m.tasktip_not_recorded(),
+      }));
     } catch {
       toasts.info(m.relaunch_images_carry_failed(), { alert: true });
     } finally {
@@ -1967,7 +1990,10 @@
     // Mirror relaunch's null-model handling: null = "claude default" → literal "default".
     composeModel = input.model ?? "default";
     composeEffort = input.effort ?? "default";
-    composeImages = (input.images ?? []).map((p) => ({ path: p, name: p.split("/").at(-1) ?? p }));
+    composeImages = (input.images ?? []).map((p, i) => ({
+      path: p,
+      name: input.attachmentNames?.[i] ?? p.split("/").at(-1) ?? p,
+    }));
     // The held input carries an IssueRef (no labels/assignees); pad it to the Issue shape
     // the composer chip expects. The body rides out-of-band, same as a fresh attach.
     composeIssue = input.issueRef

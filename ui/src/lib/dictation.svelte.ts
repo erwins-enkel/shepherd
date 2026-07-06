@@ -427,7 +427,7 @@ export function createDictation(host: DictationHost) {
     }
   }
 
-  // "Open already listening" (ComposeBar's ◉ dictate entry). Reproduces the pre-extraction
+  // "Open already listening" (ComposeBar's mic dictate entry). Reproduces the pre-extraction
   // mount order with no .then-registration race: Web Speech starts synchronously (never
   // delayed by the probe); the local branch chains on `ready` — the controller's OWN status
   // application — so its guard always reads applied state, and is skipped when the web engine

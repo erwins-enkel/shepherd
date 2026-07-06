@@ -1169,7 +1169,7 @@
     position: relative;
   }
   /* Reserve the mic's corner only while it is rendered (no engine → no dead padding),
-     so typed text never runs under the floating ◉ button. */
+     so typed text never runs under the floating mic button. */
   .prompt-wrap:has(:global(.micbtn-anchor)) textarea {
     padding-right: 58px;
   }

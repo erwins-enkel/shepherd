@@ -5,7 +5,7 @@
 
   // Reusable dictation mic for any text field — mount it directly AFTER the field inside any
   // block container; no position:relative needed on the host. A zero-height in-flow anchor
-  // hugs the field's bottom edge and the ◉ button is absolutely positioned against it, so it
+  // hugs the field's bottom edge and the mic button is absolutely positioned against it, so it
   // floats inside the field's bottom-right corner and tracks the field's autogrow. The origin
   // and error lines render after the anchor in normal flow (below the field), OUTSIDE the
   // button's positioning context — they can never displace the button. The host should pad
@@ -64,8 +64,23 @@
           ? m.micbtn_dictate_stop_aria()
           : m.micbtn_dictate_aria()}
       aria-pressed={dict.listening}
-      onpointerdown={tapMic}>{m.micbtn_dictate()}</button
+      onpointerdown={tapMic}
     >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <path d="M12 19v3" />
+        <path d="M8 22h8" />
+      </svg>
+    </button>
   </div>
   {#if dict.voiceError}
     <div class="mic-hint" role="alert">{m.micbtn_transcribe_failed()}</div>
@@ -92,6 +107,7 @@
     bottom: 6px;
     width: 44px;
     height: 44px;
+    padding: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -108,6 +124,11 @@
     transition:
       background 0.08s,
       border-color 0.08s;
+  }
+  .micbtn svg {
+    width: var(--icon-btn-glyph);
+    height: var(--icon-btn-glyph);
+    display: block;
   }
   .micbtn:active {
     background: var(--color-line-bright);

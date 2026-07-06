@@ -42,20 +42,20 @@
 
   // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
   // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
-  // composeDictate opens the sheet already listening — the one-tap ◉ dictate chip sets
+  // composeDictate opens the sheet already listening — the one-tap mic dictate chip sets
   // it; the compose-first entries (✎, swipe-up) leave it false so the keyboard
   // comes up to type.
   let composeOpen = $state(false);
   let composeDictate = $state(false);
   let ctrlRowEl: HTMLDivElement | undefined = $state();
   function openCompose() {
-    composeDictate = false; // compose-first; the ◉ dictate toggle lives inside the sheet too
+    composeDictate = false; // compose-first; the mic dictate toggle lives inside the sheet too
     composeOpen = true;
   }
   // one-tap dictate: opens the sheet already listening (preserves Kai's original
   // affordance), a peer of the ✎ compose entry rather than a step inside it.
   // Gated on Web Speech support so the chip never becomes a dead end where it's
-  // unavailable (e.g. an iOS home-screen PWA); the sheet's own ◉ toggle hides
+  // unavailable (e.g. an iOS home-screen PWA); the sheet's own mic toggle hides
   // itself there the same way.
   const speechSupported =
     typeof window !== "undefined" &&
@@ -63,7 +63,7 @@
       (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
       (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
     );
-  // Also offer the ◉ chip where the local-Whisper plugin gives a mic even without Web Speech
+  // Also offer the mic chip where the local-Whisper plugin gives a mic even without Web Speech
   // (iOS home-screen PWA). Requires the client to actually be able to record (MediaRecorder +
   // getUserMedia). Memoized once per page load; absent → chip shows only under Web Speech,
   // exactly as before. The sheet's own mic then records via the plugin on an in-sheet tap.
@@ -216,8 +216,23 @@
         onpointerdown={(e) => {
           e.preventDefault();
           openDictate();
-        }}>{m.composebar_dictate()}</button
+        }}
       >
+        <svg
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+          <path d="M12 19v3" />
+          <path d="M8 22h8" />
+        </svg>
+      </button>
     {/if}
     <button
       type="button"
@@ -291,12 +306,15 @@
     border-color: var(--color-red);
     color: var(--color-red);
   }
-  .ctrl-row .attach {
+  .ctrl-row .attach,
+  .ctrl-row .dictate {
     display: inline-flex;
     align-items: center;
     justify-content: center;
+    padding: 0;
   }
-  .ctrl-row .attach svg {
+  .ctrl-row .attach svg,
+  .ctrl-row .dictate svg {
     width: var(--fs-lg);
     height: var(--fs-lg);
     display: block;

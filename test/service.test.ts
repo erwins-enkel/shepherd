@@ -1370,7 +1370,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
   expect(store.get(s.id)?.model).toBe("opus");
 });
 
-test("createSession: copies images into worktree and appends paths to the prompt", async () => {
+test("createSession: copies uploads into worktree and appends paths to the prompt", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -1397,8 +1397,8 @@ test("createSession: copies images into worktree and appends paths to the prompt
       },
       list: () => [],
     } as any,
-    copyUploads: (images: string[], worktreePath: string) =>
-      images.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
+    copyUploads: (uploads: string[], worktreePath: string) =>
+      uploads.map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
   });
 
   const s = await service.create({
@@ -1406,18 +1406,18 @@ test("createSession: copies images into worktree and appends paths to the prompt
     baseBranch: "main",
     prompt: "look at this",
     model: null,
-    images: ["/stage/a.png", "/stage/b.png"],
+    images: ["/stage/a.png", "/stage/notes.md"],
   });
 
-  // prompt argv (last element) carries the user text + the copied image paths
+  // prompt argv (last element) carries the user text + the copied upload paths
   expect(calls.argv[calls.argv.length - 1]).toBe(
-    "look at this\n\nAttached images:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/b.png",
+    "look at this\n\nAttached files:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/notes.md",
   );
   // stored prompt stays the clean user text
   expect(store.get(s.id)?.prompt).toBe("look at this");
 });
 
-test("createSession: a dropped (swept) image still spawns, notes the loss, emits a toast event", async () => {
+test("createSession: a dropped (swept) upload still spawns, notes the loss, emits a toast event", async () => {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const events: { event: string; data: any }[] = [];
@@ -1446,9 +1446,9 @@ test("createSession: a dropped (swept) image still spawns, notes the loss, emits
       list: () => [],
     } as any,
     events: { emit: (event: string, data: unknown) => events.push({ event, data }) },
-    // One of two staged images is gone — the copy seam returns only the survivor.
-    copyUploads: (images: string[], worktreePath: string) =>
-      images
+    // One of two staged uploads is gone — the copy seam returns only the survivor.
+    copyUploads: (uploads: string[], worktreePath: string) =>
+      uploads
         .filter((i) => !i.includes("gone"))
         .map((i) => `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`),
   });
@@ -1462,9 +1462,9 @@ test("createSession: a dropped (swept) image still spawns, notes the loss, emits
   });
 
   const prompt = calls.argv[calls.argv.length - 1] as string;
-  // The surviving image is still attached, and the loss is noted in-prompt.
-  expect(prompt).toContain("Attached images:\n/wt/repo-x/.shepherd-uploads/kept.png");
-  expect(prompt).toContain("1 attached image(s) could not be restored");
+  // The surviving upload is still attached, and the loss is noted in-prompt.
+  expect(prompt).toContain("Attached files:\n/wt/repo-x/.shepherd-uploads/kept.png");
+  expect(prompt).toContain("1 attached file(s) could not be restored");
   // Operator-visible signal emitted against the new session id.
   expect(events).toContainEqual({
     event: "session:uploads-dropped",
@@ -5844,7 +5844,7 @@ test("relaunch passes a supplied issueRef through to create", async () => {
   expect(promptArg).toContain("details here");
 });
 
-test("relaunch carries images over (staged copies created, originals untouched)", async () => {
+test("relaunch carries uploads over (staged copies created, originals untouched)", async () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "relaunch-root-"));
   const wt = mkdtempSync(join(tmpdir(), "relaunch-wt-"));
@@ -5852,6 +5852,7 @@ test("relaunch carries images over (staged copies created, originals untouched)"
   mkdirSync(uploads, { recursive: true });
   writeFileSync(join(uploads, "a.png"), "PNGDATA");
   writeFileSync(join(uploads, "b.jpg"), "JPGDATA");
+  writeFileSync(join(uploads, "notes.md"), "NOTES");
 
   const prevRoot = config.repoRoot;
   config.repoRoot = root;
@@ -5862,15 +5863,16 @@ test("relaunch carries images over (staged copies created, originals untouched)"
     await service.relaunch(orig.id);
 
     // originals untouched
-    expect(readdirSync(uploads).sort()).toEqual(["a.png", "b.jpg"]);
+    expect(readdirSync(uploads).sort()).toEqual(["a.png", "b.jpg", "notes.md"]);
     // fresh staged copies landed (extensions preserved) and were passed to create
     const staged = readdirSync(join(root, ".shepherd-uploads-staging"));
-    expect(staged).toHaveLength(2);
+    expect(staged).toHaveLength(3);
     expect(staged.filter((f) => f.endsWith(".png"))).toHaveLength(1);
     expect(staged.filter((f) => f.endsWith(".jpg"))).toHaveLength(1);
-    // both images flowed into the spawn argv (via copyUploads mock)
+    expect(staged.filter((f) => f.endsWith(".md"))).toHaveLength(1);
+    // all uploads flowed into the spawn argv (via copyUploads mock)
     const argv = calls.started[0]!.argv;
-    expect(argv[argv.length - 1]).toContain("Attached images:");
+    expect(argv[argv.length - 1]).toContain("Attached files:");
   } finally {
     config.repoRoot = prevRoot;
   }
@@ -6141,6 +6143,7 @@ test("replaceAgent re-attaches existing uploads without copying them back into t
   const uploads = join(wt, ".shepherd-uploads");
   mkdirSync(uploads, { recursive: true });
   writeFileSync(join(uploads, "diagram.png"), "PNGDATA");
+  writeFileSync(join(uploads, "notes.md"), "NOTES");
 
   const prevRoot = config.repoRoot;
   config.repoRoot = root;
@@ -6152,10 +6155,12 @@ test("replaceAgent re-attaches existing uploads without copying them back into t
     await service.replaceAgent(orig.id, { agentProvider: "claude", model: null });
 
     const promptArg = calls.started[0]!.argv.at(-1)!;
-    expect(promptArg).toContain("Attached images:");
+    expect(promptArg).toContain("Attached files:");
     expect(promptArg).toContain(join(uploads, "diagram.png"));
+    expect(promptArg).toContain(join(uploads, "notes.md"));
     expect(calls.started[1]!.argv.at(-1)!).toContain(join(uploads, "diagram.png"));
-    expect(readdirSync(uploads)).toEqual(["diagram.png"]);
+    expect(calls.started[1]!.argv.at(-1)!).toContain(join(uploads, "notes.md"));
+    expect(readdirSync(uploads).sort()).toEqual(["diagram.png", "notes.md"]);
     expect(existsSync(join(root, ".shepherd-uploads-staging"))).toBe(false);
   } finally {
     config.repoRoot = prevRoot;
@@ -6219,7 +6224,7 @@ test("relaunch overrides treat an absent field as keep-original (explicit null r
   expect(cleared.planGateEnabled).toBe(null);
 });
 
-test("relaunch WITH overrides uses override images verbatim (no auto-carry)", async () => {
+test("relaunch WITH overrides uses override uploads verbatim (no auto-carry)", async () => {
   const store = new SessionStore(":memory:");
   const root = mkdtempSync(join(tmpdir(), "relaunch-imgroot-"));
   const wt = mkdtempSync(join(tmpdir(), "relaunch-imgwt-"));
@@ -6233,7 +6238,7 @@ test("relaunch WITH overrides uses override images verbatim (no auto-carry)", as
     const { service, calls } = relaunchHarness(store);
     const orig = originalSession(store, { worktreePath: wt });
 
-    await service.relaunch(orig.id, undefined, { images: ["/stage/supplied.jpg"] });
+    await service.relaunch(orig.id, undefined, { images: ["/stage/supplied.pdf"] });
 
     // With overrides present, the composer is authoritative: copyOriginalUploads must NOT
     // run, so the staging dir is absent or empty (no carried originals re-staged).
@@ -6243,10 +6248,10 @@ test("relaunch WITH overrides uses override images verbatim (no auto-carry)", as
     // Spawn argv carries ONLY the supplied override, never a copied original.
     const argv = calls.started[0]!.argv;
     const promptArg = argv[argv.length - 1]!;
-    expect(promptArg).toContain("Attached images:");
-    expect(promptArg).toContain("supplied.jpg"); // the authoritative override list
+    expect(promptArg).toContain("Attached files:");
+    expect(promptArg).toContain("supplied.pdf"); // the authoritative override list
     expect(promptArg).not.toContain("orig"); // no auto-carried original
-    expect(promptArg).not.toMatch(/\.png/); // only the supplied .jpg made it
+    expect(promptArg).not.toMatch(/\.png/); // only the supplied .pdf made it
   } finally {
     config.repoRoot = prevRoot;
   }

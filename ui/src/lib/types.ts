@@ -1581,7 +1581,7 @@ export interface CreateInput {
   agentProvider?: AgentProvider;
   model: string | null;
   effort?: string | null; // reasoning-effort tier; null/absent → provider default (no effort flag)
-  images?: string[]; // absolute staging paths from /api/uploads
+  images?: string[]; // absolute staged upload paths from /api/uploads
   issueRef?: IssueRef; // optional attached issue; body appended server-side
   planGateEnabled?: boolean | null; // per-task plan-gate override; absent → inherit repo default
   autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default

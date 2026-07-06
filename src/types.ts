@@ -154,7 +154,7 @@ export interface PostMergeSteps {
 
 /**
  * A GitHub/Gitea issue attached to a task by reference. The body rides along
- * out-of-band into the agent's prompt argv (like images) so it never counts
+ * out-of-band into the agent's prompt argv (like uploaded files) so it never counts
  * against the 8000-char human-prompt guard.
  */
 export interface IssueRef {
@@ -193,7 +193,7 @@ export interface CreateSessionInput {
  * Optional override bag applied over the original session on relaunch. Every field is
  * optional: an ABSENT field keeps the original's value, a PRESENT one (including an
  * explicit `null` for `model`/`planGateEnabled`) replaces it. Lets a caller relaunch
- * into a different repo (`repoPath`) while carrying prompt/model/base-branch/images
+ * into a different repo (`repoPath`) while carrying prompt/model/base-branch/uploads
  * forward; `images` are appended to the original's carried-over uploads. A bare relaunch
  * sends no body → no overrides → byte-for-byte the original quick-relaunch.
  */

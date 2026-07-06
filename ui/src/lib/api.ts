@@ -283,9 +283,9 @@ export const putTuiFullscreen = (value: boolean): Promise<{ tuiFullscreen: boole
 export const putTuiDisableMouse = (value: boolean): Promise<{ tuiDisableMouse: boolean }> =>
   patchSettings<{ tuiDisableMouse: boolean }>({ tuiDisableMouse: value });
 
-/** Upload one image; returns its absolute server path. Pass sessionId to store it
+/** Upload one file; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
-export async function uploadImage(file: File, sessionId?: string): Promise<string> {
+export async function uploadFile(file: File, sessionId?: string): Promise<string> {
   const fd = new FormData();
   fd.append("file", file);
   const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
@@ -294,6 +294,9 @@ export async function uploadImage(file: File, sessionId?: string): Promise<strin
   if (!r.ok) throw await failed(r, "upload");
   return (await r.json()).path as string;
 }
+
+/** Backward-compatible image-attach helper. Callers must keep their own image filter. */
+export const uploadImage = uploadFile;
 
 /** Detection status of the optional `voice-whisper` plugin (local Whisper transcription). */
 export interface VoiceStatus {

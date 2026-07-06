@@ -18,6 +18,7 @@ import {
   copyStagedIntoWorktree,
   sweepStaging,
   uploadFilename,
+  uploadExtension,
   handleUpload,
 } from "../src/uploads";
 import { SessionStore } from "../src/store";
@@ -112,6 +113,15 @@ test("uploadFilename returns <uuid>.<ext>", () => {
   expect(uploadFilename("png")).toMatch(/^[0-9a-f-]{36}\.png$/);
 });
 
+test("uploadExtension preserves only a safe extension", () => {
+  expect(uploadExtension("../evil.md")).toBe("md");
+  expect(uploadExtension("brief.final.PDF")).toBe("PDF");
+  expect(uploadExtension("weird.na/me.m*d")).toBe("md");
+  expect(uploadExtension("README")).toBe("bin");
+  expect(uploadExtension("...")).toBe("bin");
+  expect(uploadExtension("")).toBe("bin");
+});
+
 function uploadReq(file: File | null, query = ""): Request {
   const fd = new FormData();
   if (file) fd.append("file", file);
@@ -163,11 +173,25 @@ test("handleUpload 404s for an unknown session", async () => {
   expect(res.status).toBe(404);
 });
 
-test("handleUpload 415s an unsupported type", async () => {
+test("handleUpload accepts a non-image file", async () => {
   const store = new SessionStore(":memory:");
   const file = new File([new Uint8Array([1])], "x.pdf", { type: "application/pdf" });
   const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
-  expect(res.status).toBe(415);
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.path.startsWith(stagingDir(root) + "/")).toBe(true);
+  expect(body.path.endsWith(".pdf")).toBe(true);
+  expect(existsSync(body.path)).toBe(true);
+});
+
+test("handleUpload accepts an empty MIME file and falls back for extensionless names", async () => {
+  const store = new SessionStore(":memory:");
+  const file = new File([new Uint8Array([1])], "README", { type: "" });
+  const res = await handleUpload(uploadReq(file), { store, repoRoot: root });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.path.endsWith(".bin")).toBe(true);
+  expect(existsSync(body.path)).toBe(true);
 });
 
 test("handleUpload 413s a file over the size cap", async () => {

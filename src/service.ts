@@ -152,7 +152,7 @@ export interface ServiceDeps {
   /** Event bus for live state pushes (e.g. session:ready); absent in tests that skip it. */
   events?: Pick<EventHub, "emit">;
   /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
-  copyUploads?: (images: string[], worktreePath: string) => string[];
+  copyUploads?: (uploads: string[], worktreePath: string) => string[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
@@ -1442,13 +1442,13 @@ export class SessionService {
   #epicNoticeSteered = new Set<string>();
 
   /**
-   * Build the human-turn prompt: the user's text plus any attached images, the issue
+   * Build the human-turn prompt: the user's text plus any attached files, the issue
    * body, and the issue's comment thread — all appended out-of-band so they never count
    * against the 8000-char human-prompt guard (the same approach for each). The comment
    * thread is the human discussion that refined the original request; fetching it is
    * best-effort (see fetchIssueCommentsBlock) so a spawn never fails on comments.
    *
-   * Returns the prompt plus `dropped`: the count of attached images whose staged source
+   * Returns the prompt plus `dropped`: the count of attached files whose staged source
    * was gone (e.g. swept after 24h) so copyStagedIntoWorktree skipped it. The spawn still
    * proceeds without them; the caller emits an operator-visible signal for the drop.
    */
@@ -1462,14 +1462,14 @@ export class SessionService {
     if (input.images.length > 0) {
       const copy = this.deps.copyUploads ?? copyStagedIntoWorktree;
       const copied = copy(input.images, worktreePath);
-      if (copied.length > 0) promptArg = `${promptArg}\n\nAttached images:\n${copied.join("\n")}`;
+      if (copied.length > 0) promptArg = `${promptArg}\n\nAttached files:\n${copied.join("\n")}`;
       dropped = input.images.length - copied.length;
       if (dropped > 0) {
         // A staged upload vanished before spawn (swept after STAGING_TTL_MS, or otherwise
         // lost). Note it in-prompt so the agent knows an attachment is missing, and warn.
-        promptArg = `${promptArg}\n\n[Note: ${dropped} attached image(s) could not be restored — the upload expired and is unavailable for this session.]`;
+        promptArg = `${promptArg}\n\n[Note: ${dropped} attached file(s) could not be restored — the upload expired and is unavailable for this session.]`;
         console.warn(
-          `[uploads] ${dropped}/${input.images.length} staged image(s) missing at spawn; proceeding without them`,
+          `[uploads] ${dropped}/${input.images.length} staged file(s) missing at spawn; proceeding without them`,
         );
       }
     }
@@ -2557,9 +2557,9 @@ export class SessionService {
       // after authoring the queue without waiting for a human gate that will never come.
       if (shouldPreApproveBuildQueue(repoConfig, session, spawnInput.research))
         this.deps.store.setBuildQueueApproved(sessionId, true, "auto");
-      // An attached image was lost before spawn (staged upload swept after 24h). The session
+      // An attached file was lost before spawn (staged upload swept after 24h). The session
       // started without it; surface that to the operator as a toast — they can relaunch with
-      // the image re-attached if it was essential. Emitted after the store row exists so the
+      // the file re-attached if it was essential. Emitted after the store row exists so the
       // UI can map the toast to the session.
       if (droppedImages > 0)
         this.deps.events?.emit("session:uploads-dropped", { id: sessionId, count: droppedImages });
@@ -2652,18 +2652,18 @@ export class SessionService {
    * `overrides` is an optional bag applied over the original (absent field keeps the
    * original's value; a present one — incl. explicit `null` — replaces it), letting a
    * caller relaunch into a DIFFERENT repo while carrying prompt/model/base-branch
-   * forward. Image handling forks on whether overrides are present:
+   * forward. Upload handling forks on whether overrides are present:
    *   - quick relaunch (`overrides == null`) → the original's uploads are auto-carried
    *     (copied into staging), byte-for-byte the original spawn.
    *   - relaunch WITH overrides → `overrides.images` is used VERBATIM and the original's
    *     uploads are NOT auto-carried. The composer is the single source of truth here: it
    *     seeds the carried originals (via `stageRelaunchImages`) into the override list and
-   *     the operator edits that list, so re-merging server-side would double the images.
+   *     the operator edits that list, so re-merging server-side would double the uploads.
    *
-   * On the quick-relaunch branch, the original's uploaded images are COPIED (not
+   * On the quick-relaunch branch, the original's uploaded files are COPIED (not
    * moved) into staging and passed to `create`, which lands them in the new
    * worktree — so a spawn failure here
-   * leaves the original's images intact on disk (the originals are reclaimed only
+   * leaves the original's uploads intact on disk (the originals are reclaimed only
    * when the original's worktree is torn down by the route, after a successful
    * spawn). On any error AFTER `create`, the just-created session is best-effort
    * torn down and the error rethrown, so no orphaned new session leaks.
@@ -2677,7 +2677,7 @@ export class SessionService {
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
 
-    // Image handling forks on whether overrides are present:
+    // Upload handling forks on whether overrides are present:
     //   - quick relaunch (no overrides) → auto-carry the original's uploads, copied (not
     //     moved) into staging so create() can land them in the new worktree like New Task,
     //     with the originals staying recoverable on a spawn failure. Cap at MAX_IMAGES and
@@ -2685,7 +2685,7 @@ export class SessionService {
     //   - relaunch WITH overrides → use overrides.images VERBATIM and do NOT auto-carry.
     //     The composer already seeded the carried originals into overrides.images (via
     //     stageRelaunchImages) and the operator edited that list, so it is authoritative;
-    //     re-merging here would double the carried images.
+    //     re-merging here would double the carried uploads.
     const images = this.carryRelaunchImages(s, overrides, originalId);
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
@@ -2756,11 +2756,11 @@ export class SessionService {
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
     const model = modelForProviderOrDefault(opts.model, agentProvider);
     const claudeSessionId = agentProvider === "claude" ? randomUUID() : "";
-    const carriedImages = this.listWorktreeUploads(s.worktreePath);
-    const promptImages = carriedImages.slice(0, MAX_IMAGES);
-    if (carriedImages.length > promptImages.length)
+    const carriedUploads = this.listWorktreeUploads(s.worktreePath);
+    const promptUploads = carriedUploads.slice(0, MAX_IMAGES);
+    if (carriedUploads.length > promptUploads.length)
       console.warn(
-        `[replace] ${s.id}: ${carriedImages.length} images exceed cap ${MAX_IMAGES}; dropped ${carriedImages.length - promptImages.length}`,
+        `[replace] ${s.id}: ${carriedUploads.length} uploads exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
     const input: CreateSessionInput = {
       repoPath: s.repoPath,
@@ -2777,8 +2777,8 @@ export class SessionService {
     };
     const composed = await this.composePromptArg(input, s.worktreePath);
     const promptArg =
-      promptImages.length > 0
-        ? `${composed.promptArg}\n\nAttached images:\n${promptImages.join("\n")}`
+      promptUploads.length > 0
+        ? `${composed.promptArg}\n\nAttached files:\n${promptUploads.join("\n")}`
         : composed.promptArg;
     const launch = await this.resolveCreateLaunch(
       input,
@@ -2853,7 +2853,7 @@ export class SessionService {
   }
 
   /**
-   * Stage an original session's uploaded images for a relaunch-WITH-overrides composer
+   * Stage an original session's uploaded files for a relaunch-WITH-overrides composer
    * to seed. Copies (not moves) the original's worktree uploads into the repo staging dir
    * — like the quick-relaunch branch and New Task — and returns the staged path plus its
    * basename for each, capped at MAX_IMAGES so the UI never seeds more chips than a spawn
@@ -2867,13 +2867,13 @@ export class SessionService {
   stageRelaunchImages(originalId: string): { path: string; name: string }[] {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
-      throw new Error(`cannot stage relaunch images for ${originalId}: missing or archived`);
+      throw new Error(`cannot stage relaunch uploads for ${originalId}: missing or archived`);
     sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
     const paths = this.copyOriginalUploads(s.worktreePath).slice(0, MAX_IMAGES);
     return paths.map((p) => ({ path: p, name: basename(p) }));
   }
 
-  /** Resolve the images a relaunch carries: an explicit `overrides.images` array (even empty,
+  /** Resolve the uploads a relaunch carries: an explicit `overrides.images` array (even empty,
    *  composer-seeded) is used verbatim; otherwise the original's uploads are auto-carried (capped
    *  at MAX_IMAGES) — matching the bare-relaunch path so variants/replace keep their attachments. */
   private carryRelaunchImages(
@@ -2886,14 +2886,14 @@ export class SessionService {
     const images = copied.slice(0, MAX_IMAGES);
     if (copied.length > images.length)
       console.warn(
-        `[relaunch] ${originalId}: ${copied.length} images exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
+        `[relaunch] ${originalId}: ${copied.length} uploads exceed cap ${MAX_IMAGES}; dropped ${copied.length - images.length}`,
       );
     return images;
   }
 
   /**
    * Spawn a comparison VARIANT of an existing session: a fresh sibling carrying the original's
-   * prompt / base-branch / images but a different agent provider/model, linked to the original in
+   * prompt / base-branch / uploads but a different agent provider/model, linked to the original in
    * a comparison experiment. Unlike relaunch, the original is LEFT ALIVE (the route does not tear
    * it down) and the variant carries NO issue link (issueRef undefined) so it cannot double-claim
    * the original's still-active issue/ACTIVE_LABEL. Idempotent on the group: if the original

@@ -181,32 +181,32 @@
           <span class="mcp-unavailable">{m.upnext_usage_unavailable()}</span>
         {/if}
       </div>
-      <div class="mcp-provider-usage">
-        <span class="micro">{m.agent_provider_codex()}</span>
-        {#if codexGauges.length > 0}
-          {#each codexGauges as g (g.label)}
-            <div class="mcp-gauge">
-              <span>{g.label}</span>
-              <span class="mcp-bar">
-                <span
-                  class="mcp-fill"
-                  style="transform:scaleX({gaugeFill(g.w.pct)});background:{gaugeColor(g.w.pct)}"
-                ></span>
-              </span>
-              <span style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
-              <small>{formatResetIn(g.w.resetAt, nowMs)}</small>
-            </div>
-          {/each}
-        {:else}
-          <span class="mcp-unavailable">{m.topbar_codex_limits_unavailable()}</span>
-        {/if}
-        {#if codexUsage}
+      {#if codexUsage}
+        <div class="mcp-provider-usage">
+          <span class="micro">{m.agent_provider_codex()}</span>
+          {#if codexGauges.length > 0}
+            {#each codexGauges as g (g.label)}
+              <div class="mcp-gauge">
+                <span>{g.label}</span>
+                <span class="mcp-bar">
+                  <span
+                    class="mcp-fill"
+                    style="transform:scaleX({gaugeFill(g.w.pct)});background:{gaugeColor(g.w.pct)}"
+                  ></span>
+                </span>
+                <span style="color:{gaugeColor(g.w.pct)}">{g.w.pct}%</span>
+                <small>{formatResetIn(g.w.resetAt, nowMs)}</small>
+              </div>
+            {/each}
+          {:else}
+            <span class="mcp-unavailable">{m.topbar_codex_limits_unavailable()}</span>
+          {/if}
           <div class="mcp-token">
             <span>{m.topbar_tokens_total()}</span>
             <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
           </div>
-        {/if}
-      </div>
+        </div>
+      {/if}
     </div>
   {/if}
 

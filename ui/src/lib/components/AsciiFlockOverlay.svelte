@@ -14,8 +14,8 @@
       id: "sheep-1",
       type: "sheep",
       kind: "light small",
-      lane: 22,
-      width: 92,
+      art: "  __\n (oo)\\\n /||\\",
+      lane: 18,
       start: 108,
       distance: -136,
       delay: "-1s",
@@ -24,9 +24,9 @@
     {
       id: "sheep-2",
       type: "sheep",
-      kind: "dark small flip",
-      lane: 70,
-      width: 94,
+      kind: "dark small",
+      art: " ,_,\n(oo)-.\n /|\\\\",
+      lane: 72,
       start: 93,
       distance: -124,
       delay: "-6s",
@@ -36,8 +36,8 @@
       id: "sheep-3",
       type: "sheep",
       kind: "light big",
-      lane: 104,
-      width: 146,
+      art: "  .-''''-.\n /  (oo)  \\\n(__(____)__)\n   ||  ||",
+      lane: 108,
       start: 116,
       distance: -150,
       delay: "-4s",
@@ -46,9 +46,9 @@
     {
       id: "sheep-4",
       type: "sheep",
-      kind: "dark big flip",
-      lane: 24,
-      width: 140,
+      kind: "dark big",
+      art: "   .-oooo-.\n  (  (oo) )\n   )  --  (\n  /__|  |__\\",
+      lane: 30,
       start: 70,
       distance: -100,
       delay: "-11s",
@@ -57,20 +57,20 @@
     {
       id: "sheep-5",
       type: "sheep",
-      kind: "light small",
-      lane: 146,
-      width: 90,
-      start: 82,
-      distance: -114,
+      kind: "light tiny reverse",
+      art: " _.\n(o)\n/|\\",
+      lane: 150,
+      start: -18,
+      distance: 118,
       delay: "-9s",
       duration: "12s",
     },
     {
       id: "sheep-6",
       type: "sheep",
-      kind: "light small flip",
+      kind: "light small",
+      art: "  __\n (oo)\n/|  |\\",
       lane: 86,
-      width: 88,
       start: 42,
       distance: -74,
       delay: "-7s",
@@ -80,8 +80,8 @@
       id: "sheep-7",
       type: "sheep",
       kind: "dark small",
+      art: " .-.\n(oo)___\n || ||",
       lane: 166,
-      width: 96,
       start: 118,
       distance: -148,
       delay: "-14s",
@@ -91,8 +91,8 @@
       id: "dog",
       type: "dog",
       kind: "dog",
+      art: " /^..^\\\n/  _  \\\n  / \\_",
       lane: 10,
-      width: 86,
       start: 122,
       distance: -150,
       delay: "-4s",
@@ -109,62 +109,15 @@
   aria-hidden="true"
 >
   {#each actors as actor (actor.id)}
-    <svg
+    <pre
       class="actor {actor.kind}"
       data-flock-actor={actor.type}
-      viewBox={actor.type === "dog" ? "0 0 92 54" : "0 0 148 92"}
+      data-flock-art={actor.id}
       style:--lane={`${actor.lane}px`}
       style:--start={`${actor.start}vw`}
       style:--distance={`${actor.distance}vw`}
       style:--delay={actor.delay}
-      style:--duration={actor.duration}
-      style:--actor-width={`${actor.width}px`}
-      role="img"
-    >
-      {#if actor.type === "dog"}
-        <g class="sprite">
-          <path class="dog-body" d="M18 34 C22 22 35 19 46 25 L66 23 C73 22 79 27 80 34" />
-          <path class="dog-head" d="M18 34 L11 25 L20 19 L31 27" />
-          <path class="dog-ear" d="M16 23 L12 12 L25 20" />
-          <path class="dog-tail" d="M77 28 C86 21 89 14 88 8" />
-          <path class="dog-leg" d="M36 32 L31 46 M57 31 L61 46" />
-          <circle class="dog-eye" cx="21" cy="26" r="2" />
-        </g>
-      {:else}
-        <g class="sprite">
-          <path class="leg rear" d="M43 62 L39 86 M65 64 L63 86 M91 63 L94 86 M108 60 L113 84" />
-          <path
-            class="wool mass"
-            d="M35 58
-               C20 57 14 44 22 34
-               C16 22 29 12 42 18
-               C49 4 70 6 75 19
-               C87 8 105 16 104 31
-               C119 29 129 42 123 55
-               C129 67 114 77 101 70
-               C91 82 72 79 68 67
-               C56 79 37 74 35 58Z"
-          />
-          <circle class="wool puff" cx="34" cy="38" r="16" />
-          <circle class="wool puff" cx="52" cy="24" r="18" />
-          <circle class="wool puff" cx="75" cy="25" r="20" />
-          <circle class="wool puff" cx="98" cy="36" r="18" />
-          <circle class="wool puff" cx="54" cy="57" r="20" />
-          <circle class="wool puff" cx="83" cy="59" r="19" />
-          <path
-            class="face"
-            d="M111 39
-               C126 34 140 44 139 59
-               C138 75 121 80 111 68
-               C104 60 103 45 111 39Z"
-          />
-          <path class="ear" d="M116 42 C115 29 128 27 131 39 C126 40 121 42 116 42Z" />
-          <path class="snout" d="M126 61 C130 63 134 62 136 59" />
-          <circle class="eye" cx="126" cy="52" r="3" />
-          <path class="tail" d="M22 47 C11 45 9 55 18 59" />
-        </g>
-      {/if}
-    </svg>
+      style:--duration={actor.duration}>{actor.art}</pre>
   {/each}
 </div>
 
@@ -188,93 +141,39 @@
     position: absolute;
     bottom: var(--lane);
     left: 0;
-    width: var(--actor-width);
-    height: auto;
+    margin: 0;
     color: var(--color-ink-bright);
-    opacity: 0.62;
-    overflow: visible;
+    font-family: inherit;
+    font-size: var(--fs-meta);
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: 0;
+    white-space: pre;
+    opacity: 0.64;
     transform: translate3d(var(--start), 0, 0);
     animation:
       flock-cross var(--duration) linear var(--delay) infinite,
-      flock-bob 0.56s ease-in-out var(--delay) infinite alternate;
+      flock-wiggle 0.58s ease-in-out var(--delay) infinite alternate;
   }
   .actor.big {
-    opacity: 0.56;
+    font-size: var(--fs-base);
+    opacity: 0.58;
+  }
+  .actor.tiny {
+    font-size: var(--fs-micro);
+    opacity: 0.58;
   }
   .actor.dark {
     color: var(--color-slate);
-    opacity: 0.66;
+    opacity: 0.68;
   }
   .actor.dog {
     color: var(--color-amber);
+    font-size: var(--fs-base);
     opacity: 0.82;
     animation:
       flock-cross var(--duration) linear var(--delay) infinite,
-      dog-bound 0.48s ease-in-out var(--delay) infinite alternate;
-  }
-  .sprite {
-    transform-origin: center;
-  }
-  .actor.flip .sprite {
-    transform: translateX(148px) scaleX(-1);
-  }
-  .actor.dog.flip .sprite {
-    transform: translateX(92px) scaleX(-1);
-  }
-  .wool {
-    fill: currentColor;
-    stroke: color-mix(in srgb, currentColor 64%, var(--color-bg));
-    stroke-width: 3;
-    stroke-linejoin: round;
-  }
-  .wool.mass {
-    opacity: 0.82;
-  }
-  .wool.puff {
-    opacity: 0.96;
-  }
-  .face,
-  .ear {
-    fill: var(--color-bg);
-    stroke: currentColor;
-    stroke-width: 4;
-    stroke-linejoin: round;
-  }
-  .tail,
-  .snout,
-  .eye {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 3;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .eye {
-    fill: currentColor;
-    stroke: none;
-  }
-  .leg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 5;
-    stroke-linecap: round;
-  }
-  .leg.rear {
-    opacity: 0.82;
-  }
-  .dog-body,
-  .dog-head,
-  .dog-ear,
-  .dog-tail,
-  .dog-leg {
-    fill: none;
-    stroke: currentColor;
-    stroke-width: 4;
-    stroke-linecap: round;
-    stroke-linejoin: round;
-  }
-  .dog-eye {
-    fill: currentColor;
+      dog-loop 0.46s ease-in-out var(--delay) infinite alternate;
   }
   .flock.reduced .actor {
     animation: none;
@@ -312,20 +211,24 @@
       transform: translate3d(calc(var(--start) + var(--distance)), 0, 0);
     }
   }
-  @keyframes flock-bob {
+  @keyframes flock-wiggle {
     from {
       translate: 0 -3px;
+      rotate: -2deg;
     }
     to {
       translate: 0 4px;
+      rotate: 2deg;
     }
   }
-  @keyframes dog-bound {
+  @keyframes dog-loop {
     from {
       translate: 0 -6px;
+      rotate: 3deg;
     }
     to {
       translate: 0 5px;
+      rotate: -3deg;
     }
   }
 
@@ -342,13 +245,13 @@
       z-index: 0;
     }
     .actor {
-      opacity: 0.26;
+      opacity: 0.3;
     }
     .actor.big {
-      opacity: 0.24;
+      opacity: 0.28;
     }
     .actor.dog {
-      opacity: 0.38;
+      opacity: 0.42;
     }
   }
 

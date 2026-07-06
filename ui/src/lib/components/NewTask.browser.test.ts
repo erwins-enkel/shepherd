@@ -380,6 +380,23 @@ describe("NewTask provider capacity gauge", () => {
     expect(rows[1]?.textContent).toContain(m.newtask_provider_capacity_unavailable());
     expect(rows[1]?.textContent).not.toContain("100%");
   });
+
+  it("wraps the gauge rows on narrow widths instead of overflowing the field", async () => {
+    await page.viewport(390, 800);
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo",
+        usageLimits: capacityLimits(),
+      }),
+    });
+
+    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
+
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
+    for (const row of rows) {
+      expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    }
+  });
 });
 
 describe("NewTask issue picker epic-parent rows", () => {

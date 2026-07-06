@@ -47,6 +47,7 @@
 
 <style>
   .pcap {
+    container-type: inline-size;
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -113,5 +114,18 @@
     display: block;
     height: 100%;
     transition: width 0.2s ease;
+  }
+
+  @container (max-width: 16rem) {
+    .pcap-row {
+      grid-template-columns: minmax(0, 1fr);
+      gap: 4px;
+      align-items: start;
+    }
+
+    .pcap-value,
+    .pcap-miss {
+      white-space: normal;
+    }
   }
 </style>

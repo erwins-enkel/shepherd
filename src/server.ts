@@ -2141,11 +2141,11 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   if (!body || typeof (body as { text?: unknown }).text !== "string") {
     return json({ error: "body must be {text: string}" }, 400);
   }
-  // reply() returns false for an unknown id, a dead pane, OR a transient herdr-unreachable
-  // (it can't confirm liveness, so it can't deliver) — all collapse to 404 here. The last
-  // case is rare and "couldn't deliver" is honest; differentiating would need a richer
-  // return than the boolean that broadcast()/auto-address also rely on.
-  const ok = deps.service.reply(parts[2], (body as { text: string }).text);
+  // operatorReply() is the human free-text boundary: same false semantics as reply() (unknown id,
+  // dead pane, or transient herdr-unreachable → 404 here), but it also injects the epic-authoring
+  // notice once per session when the message signals epic intent (#1405). Internal steers keep
+  // calling service.reply() directly, so they never trip that path.
+  const ok = deps.service.operatorReply(parts[2], (body as { text: string }).text);
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 

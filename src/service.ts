@@ -615,6 +615,21 @@ export function detectEpicIntent(prompt: string): boolean {
 }
 
 /**
+ * Compose the steer payload for a mid-session (steer-time) operator reply (#1405). When the
+ * operator's message signals epic intent, append the epic-authoring notice so the epic-shape
+ * contract rides at steer-time too: spawn-time detectEpicIntent (composeDirectives) only fires on
+ * the SPAWN prompt, and the `.claude/skills/shepherd-epic-authoring` skill is Claude-only AND
+ * model-invoked — Codex never reads `.claude/skills/`, and even Claude may not auto-pick the skill
+ * on a bare epic reply. The injected block is the PTY-text channel that reaches BOTH providers
+ * deterministically, wrapped exactly like the spawn-time block. Returns null when the message shows
+ * no epic intent (the caller then delivers it verbatim). Exported for tests.
+ */
+export function composeEpicSteer(text: string): string | null {
+  if (!detectEpicIntent(text)) return null;
+  return `${text}\n\n<epic-authoring-notice>\n${EPIC_AUTHORING_NOTICE}\n</epic-authoring-notice>`;
+}
+
+/**
  * Agent-facing notice (#1257) that tells a PR-authoring agent to DECLARE manual operator steps in the
  * PR body via the carriers `parseManualSteps()` (src/manual-steps.ts) understands, so the #1061
  * post-merge pipeline + the Owed lens get a live data source. Claude gets it via composeSystemPrompt
@@ -1414,6 +1429,11 @@ export class SessionService {
   /** (repoPath#issue) keys already signaled as untrusted-author, so a stuck issue's periodic
    *  drain retries emit the untrusted_author signal ONCE rather than growing the store unbounded. */
   #untrustedAuthorSignaled = new Set<string>();
+
+  /** Session ids that have already had the epic-authoring notice steered in via operatorReply
+   *  (#1405). Ephemeral/in-memory — a first mid-session epic ask injects the notice once; later
+   *  epic replies deliver verbatim. Re-arming after a server restart is harmless. */
+  #epicNoticeSteered = new Set<string>();
 
   /**
    * Build the human-turn prompt: the user's text plus any attached images, the issue
@@ -3367,6 +3387,30 @@ export class SessionService {
   }
 
   /**
+   * The operator's free-text mid-session reply boundary (`POST /api/sessions/:id/reply`), as opposed
+   * to the internal steers (autopilot, plan-gate, critic, preview, retry-halted, approve) that call
+   * reply() directly. Same non-throwing boolean contract as reply().
+   *
+   * When the operator's message signals epic intent (composeEpicSteer), the epic-authoring notice is
+   * appended ONCE per session so the epic-shape contract reaches the agent mid-session too. This is
+   * the agnostic complement to the spawn-time #1391 notice, which only fires on the spawn prompt: the
+   * `.claude/skills/shepherd-epic-authoring` skill is Claude-only (Codex never reads `.claude/skills/`)
+   * AND model-invoked (even Claude may not auto-pick it), so operator-facing guidance that must reach
+   * both providers belongs in an injected steer block, not a skill. See #1405.
+   *
+   * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
+   * (signalPayload) so the learnings distiller never mines Shepherd's own notice. The session is
+   * marked only on SUCCESSFUL delivery, so a reply to a dead pane doesn't burn the one-shot.
+   */
+  operatorReply(id: string, text: string): boolean {
+    const combined = this.#epicNoticeSteered.has(id) ? null : composeEpicSteer(text);
+    if (!combined) return this.reply(id, text);
+    const ok = this.replyToLive(id, combined, this.liveTerminalIds(), /* signalPayload */ text);
+    if (ok) this.#epicNoticeSteered.add(id);
+    return ok;
+  }
+
+  /**
    * Steer the agent for session `id` to start its dev server with `command` running
    * in the background. The agent's PTY is a live CLI session — we can't spawn processes
    * ourselves, so we deliver a directive asking the agent to do it. Returns false for
@@ -3540,24 +3584,37 @@ export class SessionService {
     }
   }
 
-  /** Steer one session against a pre-fetched live set. False on unknown id or dead pane. */
-  private replyToLive(id: string, text: string, live: Set<string>): boolean {
+  /** Steer one session against a pre-fetched live set. False on unknown id or dead pane.
+   *  `signalPayload` (default = `text`) is threaded to sendSteerTo so operatorReply can deliver the
+   *  combined text while recording only the raw operator words (#1405). */
+  private replyToLive(
+    id: string,
+    text: string,
+    live: Set<string>,
+    signalPayload: string = text,
+  ): boolean {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
-    this.sendSteerTo(s, text);
+    this.sendSteerTo(s, text, signalPayload);
     return true;
   }
 
   /** Deliver a human-style steer to an already-resolved, live session: record the reply
    *  signal, then bracket-paste the text and submit with a CR. Single source for the send
    *  used by replyToLive (reply/retry) and broadcast (which resolves the session itself so
-   *  it can classify the outcome without a second store lookup). */
-  private sendSteerTo(s: Session, text: string): void {
+   *  it can classify the outcome without a second store lookup).
+   *
+   *  `signalPayload` defaults to the delivered `text`, so every existing caller is unchanged.
+   *  operatorReply (#1405) passes the RAW operator text here while `text` carries the
+   *  operator text PLUS the injected epic-authoring notice — the notice reaches the PTY but the
+   *  recorded `reply` signal stays the operator's words alone, so the learnings distiller never
+   *  mines Shepherd's own notice (`reply` is a mined signal kind). */
+  private sendSteerTo(s: Session, text: string, signalPayload: string = text): void {
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
       kind: "reply",
-      payload: text,
+      payload: signalPayload,
     });
     const PASTE_START = "\x1b[200~";
     const PASTE_END = "\x1b[201~";

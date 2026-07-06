@@ -14,6 +14,7 @@ import {
   listRepos,
   branchStatus,
   getCommands,
+  uploadFile,
 } from "$lib/api";
 
 // Mock the API so the issue picker renders deterministically with no network.
@@ -30,6 +31,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     listRepos: vi.fn(),
     branchStatus: vi.fn(),
     getCommands: vi.fn(),
+    uploadFile: vi.fn(),
   };
 });
 
@@ -45,6 +47,7 @@ const mockPutRepoConfig = vi.mocked(putRepoConfig);
 const mockListRepos = vi.mocked(listRepos);
 const mockBranchStatus = vi.mocked(branchStatus);
 const mockGetCommands = vi.mocked(getCommands);
+const mockUploadFile = vi.mocked(uploadFile);
 
 // A full RepoConfig with the plan gate flag overridable; the composer only reads
 // planGateEnabled but the store ingests the whole shape. automationConfirmed defaults
@@ -91,6 +94,7 @@ beforeEach(() => {
   mockListRepos.mockReset();
   mockBranchStatus.mockReset();
   mockGetCommands.mockReset();
+  mockUploadFile.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
@@ -101,6 +105,7 @@ beforeEach(() => {
   mockPutRepoConfig.mockResolvedValue(repoConfig(false));
   mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
   mockGetCommands.mockResolvedValue({ commands: [] });
+  mockUploadFile.mockResolvedValue("/staged/default");
   // Default: up to date — no hint rendered
   mockBranchStatus.mockResolvedValue({
     behind: 0,
@@ -157,6 +162,39 @@ describe("NewTask initialImages seed", () => {
 
     expect(page.getByText("a.png").query()).toBeNull();
     await expect.element(page.getByText("b.png")).toBeInTheDocument();
+  });
+});
+
+describe("NewTask file attachments", () => {
+  it("uploads a non-image file, renders a chip, and submits its staged path", async () => {
+    mockUploadFile.mockResolvedValue("/staged/notes.md");
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/attachments" }) });
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    const file = new File(["# Notes"], "notes.md", { type: "text/markdown" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    Object.defineProperty(input, "files", { value: dt.files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+    expect(mockUploadFile).toHaveBeenCalledWith(file);
+    await expect.element(page.getByText("notes.md")).toBeInTheDocument();
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "use the attached notes";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      prompt: "use the attached notes",
+      images: ["/staged/notes.md"],
+    });
   });
 });
 

@@ -8,7 +8,7 @@
     branchStatus,
     getCommands,
     getEpics,
-    uploadImage,
+    uploadFile,
     isPreviewBlocked,
     syncFork,
   } from "$lib/api";
@@ -465,14 +465,14 @@
   });
 
   async function addFiles(files: FileList | File[]) {
-    const imgs = Array.from(files).filter((f) => f.type.startsWith("image/"));
-    if (imgs.length === 0) return;
+    const uploads = Array.from(files);
+    if (uploads.length === 0) return;
     uploading = true;
     error = null;
     retry = null;
     try {
-      for (const f of imgs) {
-        const path = await uploadImage(f);
+      for (const f of uploads) {
+        const path = await uploadFile(f);
         images.push({ path, name: f.name });
       }
     } catch (err) {
@@ -480,7 +480,7 @@
         error = (err as Error).message;
       } else {
         error = m.newtask_upload_failed({ reason: reason(err, m.newtask_attach_image()) });
-        retry = () => addFiles(imgs);
+        retry = () => addFiles(uploads);
       }
     } finally {
       uploading = false;
@@ -499,7 +499,7 @@
     handleImagePaste(e, addFiles);
   }
 
-  function removeImage(path: string) {
+  function removeUpload(path: string) {
     images = images.filter((i) => i.path !== path);
   }
 
@@ -904,7 +904,6 @@
       <input
         bind:this={fileInput}
         type="file"
-        accept="image/*"
         multiple
         hidden
         onchange={(e) => {
@@ -921,7 +920,7 @@
               <button
                 type="button"
                 class="chip-x"
-                onclick={() => removeImage(img.path)}
+                onclick={() => removeUpload(img.path)}
                 aria-label={m.newtask_remove_image_aria()}>✕</button
               >
             </span>

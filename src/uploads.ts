@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { mkdirSync, copyFileSync, rmSync, readdirSync, statSync, existsSync } from "node:fs";
-import { join, basename } from "node:path";
+import { join, basename, extname } from "node:path";
 import type { SessionStore } from "./store";
 
 export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -8,7 +8,7 @@ export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
 /** Age after which an abandoned staged upload (New Task or relaunch carry) is reclaimed. */
 export const STAGING_TTL_MS = 24 * 60 * 60 * 1000;
 
-const MIME_EXT: Record<string, string> = {
+const IMAGE_MIME_EXT: Record<string, string> = {
   "image/png": "png",
   "image/jpeg": "jpg",
   "image/gif": "gif",
@@ -17,7 +17,7 @@ const MIME_EXT: Record<string, string> = {
 
 /** Extension for a supported image MIME, or null if unsupported. */
 export function extForMime(mime: string): string | null {
-  return MIME_EXT[mime] ?? null;
+  return IMAGE_MIME_EXT[mime] ?? null;
 }
 
 /** Pre-session staging dir for New Task uploads (worktree doesn't exist yet). */
@@ -30,9 +30,21 @@ export function worktreeUploadsDir(worktreePath: string): string {
   return join(worktreePath, ".shepherd-uploads");
 }
 
-/** Generate a fresh, traversal-safe filename for a validated image. */
+/** Generate a fresh, traversal-safe filename for a staged upload. */
 export function uploadFilename(ext: string): string {
   return `${randomUUID()}.${ext}`;
+}
+
+/** Safe extension for a staged upload, derived from client filename only. */
+export function uploadExtension(name: string): string {
+  let safe = basename(name);
+  // eslint-disable-next-line no-control-regex
+  safe = safe.replace(/[/\\]/g, "").replace(/[\x00-\x1f\x7f]/g, "");
+  if (!safe || /^\.+$/.test(safe)) return "bin";
+  const ext = extname(safe).replace(/^\./, "");
+  if (!ext || /^\.+$/.test(ext)) return "bin";
+  const compact = ext.replace(/[^A-Za-z0-9_-]/g, "");
+  return compact || "bin";
 }
 
 /**
@@ -45,11 +57,11 @@ export function uploadFilename(ext: string): string {
  * (e.g. already swept after 24h) is skipped, not thrown on, so the spawn proceeds without
  * it; the caller surfaces the drop.
  */
-export function copyStagedIntoWorktree(images: string[], worktreePath: string): string[] {
+export function copyStagedIntoWorktree(uploads: string[], worktreePath: string): string[] {
   const dir = worktreeUploadsDir(worktreePath);
   mkdirSync(dir, { recursive: true });
   const copied: string[] = [];
-  for (const src of images) {
+  for (const src of uploads) {
     if (!existsSync(src)) continue; // source swept/lost — skip, caller reports the drop
     const dest = join(dir, basename(src));
     copyFileSync(src, dest);
@@ -97,8 +109,6 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   const file = await parseUploadFile(req);
   if (file instanceof Response) return file;
 
-  const ext = extForMime(file.type);
-  if (!ext) return j({ error: "unsupported image type" }, 415);
   if (file.size > MAX_UPLOAD_BYTES) return j({ error: "file too large" }, 413);
 
   const sessionId = new URL(req.url).searchParams.get("session");
@@ -112,7 +122,7 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   }
 
   mkdirSync(destDir, { recursive: true });
-  const path = join(destDir, uploadFilename(ext));
+  const path = join(destDir, uploadFilename(uploadExtension(file.name)));
   await Bun.write(path, file);
   return j({ path });
 }

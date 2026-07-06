@@ -16,6 +16,7 @@
     onsettings = undefined,
     filteredRepo = null,
     statusFilter = null,
+    onrename = undefined,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
     onvariant = undefined,
@@ -30,6 +31,8 @@
     git: Record<string, GitState>;
     // per-session live activity (heartbeat) — threaded into the tiles' TimePopover
     activity?: Record<string, SessionActivity>;
+    // when provided, each tile's CardMenu gains a Rename action
+    onrename?: (id: string) => void;
     // when provided, each tile's CardMenu gains a two-step armed Relaunch action
     onrelaunch?: (id: string) => void;
     // when provided, each tile's CardMenu gains a one-click "Relaunch elsewhere" item
@@ -81,6 +84,7 @@
         {onselect}
         git={git[session.id]}
         activity={activity[session.id]}
+        {onrename}
         {onrelaunch}
         {onrelaunchElsewhere}
         {onvariant}

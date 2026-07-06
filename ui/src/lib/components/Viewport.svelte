@@ -99,6 +99,7 @@
     previewServeFailed = false,
     previewMap = {},
     openPreviewTick = 0,
+    renameRequest = null,
     buildQueue = null,
     onSeedBuildQueue,
     previewHost = null,
@@ -151,6 +152,8 @@
     previewMap?: Record<string, number | null>;
     /** Monotonic tick bumped by a row's Preview-badge click → switch to the Preview tab. */
     openPreviewTick?: number;
+    /** Targeted request from a card context-menu Rename action. */
+    renameRequest?: { id: string; tick: number } | null;
     /** Current build queue for this session; updated live by WS queue:update events. */
     buildQueue?: BuildQueue | null;
     /** Called when the panel bootstrap-GETs or mutates a queue, to seed the store. */
@@ -693,6 +696,17 @@
     await tick();
     renameInput?.select();
   }
+  let lastRenameRequestTick = -1;
+  $effect(() => {
+    if (
+      renameRequest &&
+      renameRequest.id === session.id &&
+      renameRequest.tick !== lastRenameRequestTick
+    ) {
+      lastRenameRequestTick = renameRequest.tick;
+      void startRename();
+    }
+  });
   function cancelRename() {
     renaming = false;
     renameError = null;
@@ -735,7 +749,7 @@
   // identically (iOS Safari fires dblclick unreliably) — the first tap keeps
   // its existing job (meta popover via focus), the second one renames.
   // The timestamp is deliberately shared across the title elements (desig +
-  // vp-name co-render on compact desktops): both carry the same session
+  // vp-name): both carry the same session
   // identity side by side, so a double-tap straddling them still reads as
   // "double-tap the title" and should rename.
   let lastTitleTap = 0;
@@ -1958,8 +1972,9 @@
           {@render metaPop()}
         {/if}
       </span>
-      {#if compact && !renaming}
-        <!-- foldable/touch desktop only: surfaces the full name the desig can't carry.
+      {#if !renaming}
+        <!-- visible task title: on normal desktop this restores the name beside the
+             designator; on compact/touch desktop it keeps the previous name target.
              Pointer-only rename target — the adjacent desig owns the keyboard/AT path
              (a button role here would announce a second, redundant control for the
              same identity), so no role/tabindex/keydown by design. Hidden while
@@ -2593,8 +2608,7 @@
     font-variant-numeric: tabular-nums;
   }
 
-  /* full task name — surfaced in compact headers where the session list is
-     hidden, so the desig number alone can't identify the session */
+  /* full task name — the visible rename target beside the task designator */
   .vp-name {
     color: var(--color-ink);
     font-size: var(--fs-base);

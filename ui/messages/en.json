@@ -675,6 +675,7 @@
   "redrawmenu_resume_hint": "Respawns the agent with its provider's resume command and re-renders the full history at the current width. Aborts a running turn!",
   "cardmenu_label": "Session actions",
   "cardmenu_resume": "Resume session",
+  "cardmenu_rename": "Rename",
   "cardmenu_relaunch": "Relaunch",
   "cardmenu_relaunch_confirm": "Discard & relaunch?",
   "cardmenu_relaunch_elsewhere": "Relaunch in another repo…",

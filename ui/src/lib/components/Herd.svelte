@@ -64,6 +64,7 @@
     filteredRepo = null,
     repoFilter = EMPTY_REPO_FILTER,
     onrepofilter = undefined,
+    onrename = undefined,
     filter = $bindable("all"),
     statusFilter = null,
     onstatusfilter = undefined,
@@ -120,6 +121,8 @@
     oncollapsetoggle?: (key: string) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
+    // when provided, each row's CardMenu gains a Rename action
+    onrename?: (id: string) => void;
     // when provided, each row's CardMenu gains a two-step armed Relaunch action
     onrelaunch?: (id: string) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
@@ -365,6 +368,7 @@
     previewServe,
     onpreview,
     ondecommission,
+    onrename,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,

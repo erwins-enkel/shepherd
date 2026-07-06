@@ -55,6 +55,7 @@
     previewServeFailed = false,
     onpreview,
     ondecommission,
+    onrename,
     onrelaunch,
     onrelaunchElsewhere,
     onvariant,
@@ -84,6 +85,8 @@
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both
     ondecommission?: (id: string) => void;
+    // when provided, the right-click / long-press CardMenu gains a Rename action
+    onrename?: (id: string) => void;
     // when provided, the right-click / long-press CardMenu gains a two-step armed
     // Relaunch action (spawns a fresh replacement + decommissions this session)
     onrelaunch?: (id: string) => void;
@@ -249,6 +252,7 @@
   const hasMenu = $derived(
     resumable ||
       !!ondecommission ||
+      !!onrename ||
       relaunchable ||
       relaunchElsewhereAble ||
       variantable ||
@@ -276,6 +280,10 @@
   function decommissionFromMenu() {
     menu = null;
     ondecommission?.(session.id);
+  }
+  function renameFromMenu() {
+    menu = null;
+    onrename?.(session.id);
   }
   function relaunchFromMenu() {
     menu = null;
@@ -556,6 +564,7 @@
     {resumable}
     opener={menu.opener}
     onresume={resumeFromMenu}
+    onrename={onrename ? renameFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     onvariant={variantable ? variantFromMenu : undefined}

@@ -2611,5 +2611,6 @@
   "planpanel_env_help_aria": "Wo sich die Coding-Umgebungen für Plan und Prüfung ändern lassen",
   "planpanel_env_popover_title": "Coding-Umgebung",
   "planpanel_env_popover_body": "Plan zeigt Coding-CLI, Modell und Reasoning Effort der Task-Session. Prüfung zeigt den Plan-Gate-Reviewer, der diesen Plan geprüft hat. Task-Defaults änderst du in Neuer Task, in Repo-Defaults oder globalen Defaults; den Reviewer unter Einstellungen -> CLIs -> Planer (Plan-Reviewer).",
-  "planpanel_env_docs_link": "Konfigurationsdoku öffnen"
+  "planpanel_env_docs_link": "Konfigurationsdoku öffnen",
+  "herd_rework_running_group": "REWORK läuft ({count})"
 }

@@ -25,7 +25,8 @@ import { groupSessionsByEpic } from "./epic-grouping";
 export function railOrder(
   sessions: Session[],
   git: Record<string, GitState>,
-  isReviewing: (id: string) => boolean = () => false,
+  isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
   now: number = Date.now(),
   filter: HerdFilter = "all",
   workingBlocked: Record<string, boolean> = {},
@@ -34,13 +35,21 @@ export function railOrder(
   collapsedKeys: Set<string> = new Set(),
 ): string[] {
   const shown = shownSessions(sessions, filter, isReviewing, workingBlocked, git, now);
-  const grouped = groupSessionsByEpic(shown, epics, activeEpicKeys, git, isReviewing, now);
+  const grouped = groupSessionsByEpic(
+    shown,
+    epics,
+    activeEpicKeys,
+    git,
+    isReviewing,
+    isReworkRunning,
+    now,
+  );
   const groupIds = grouped.groups.flatMap((g) =>
     collapsedKeys.has(g.key) ? [] : g.sessions.map((s) => s.id),
   );
-  const restIds = flattenByStage(partitionSessions(grouped.rest, git, isReviewing, now)).map(
-    (s) => s.id,
-  );
+  const restIds = flattenByStage(
+    partitionSessions(grouped.rest, git, isReviewing, isReworkRunning, now),
+  ).map((s) => s.id);
   return [...groupIds, ...restIds];
 }
 

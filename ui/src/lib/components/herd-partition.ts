@@ -8,6 +8,7 @@ import { isMerging } from "./merge-train";
  *  - ciRunning: open PR with CI checks in flight (`open` + `pending`)
  *  - ciFailed: open PR whose CI checks failed (`open` + `failure`) — done, needs a look
  *  - reviewerRunning: a critic run is in flight for the session
+ *  - reworkRunning: the task agent is actively addressing plan-gate or critic requested changes
  *  - draftAwaitingSignoff: open DRAFT PR, CI green (`open` + `success` + `isDraft`) AND
  *    the agent is not actively in the loop — parked, awaiting human sign-off before merge.
  *    Never reads as the green "Your turn" state; rendered in slate (parked, not actionable).
@@ -27,9 +28,9 @@ import { isMerging } from "./merge-train";
  *  - ready: operator-parked "ready to merge"
  *  - merged: PR already landed
  *
- *  First-match precedence (terminal states win; reviewing beats the CI/merge stages
+ *  First-match precedence (terminal states win; reviewing/rework beat the CI/merge stages
  *  as the later in-flight stage):
- *    merged > merging > ready > reviewerRunning > ciRunning > ciFailed >
+ *    merged > merging > ready > reviewerRunning > reworkRunning > ciRunning > ciFailed >
  *    draftAwaitingSignoff > (waitingOnReviewer | waitingOnMerger | awaitingMerge) > active.
  *  A draft outranks the handed-off groups: a green idle DRAFT is awaiting sign-off
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
@@ -46,6 +47,7 @@ type Stage =
   | "merging"
   | "ready"
   | "reviewerRunning"
+  | "reworkRunning"
   | "ciRunning"
   | "ciFailed"
   | "draftAwaitingSignoff"
@@ -98,7 +100,7 @@ export function shownSessions(
       (s) =>
         displayStatus(s, workingBlocked) !== "running" &&
         !inReview(s.id) &&
-        !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, now)),
+        !NOT_YOUR_TURN.has(stageOf(s, git[s.id], inReview, () => false, now)),
     );
   // Rundown + Owed + Up Next are panel-only lenses (a dedicated panel, no session list).
   if (filter === "rundown" || filter === "owed" || filter === "next") return [];
@@ -112,12 +114,14 @@ function terminalStage(
   s: Session,
   g: GitState | undefined,
   isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
   now: number,
 ): Stage | null {
   if (g?.state === "merged") return "merged";
   if (isMerging(s, now)) return "merging";
   if (s.readyToMerge) return "ready";
   if (isReviewing(s.id)) return "reviewerRunning";
+  if (isReworkRunning(s)) return "reworkRunning";
   if (g?.state === "open" && g.checks === "pending") return "ciRunning";
   if (g?.state === "open" && g.checks === "failure") return "ciFailed";
   return null;
@@ -139,9 +143,10 @@ function stageOf(
   s: Session,
   g: GitState | undefined,
   isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
   now: number,
 ): Stage {
-  const terminal = terminalStage(s, g, isReviewing, now);
+  const terminal = terminalStage(s, g, isReviewing, isReworkRunning, now);
   if (terminal) return terminal;
   // Raw status by design: a working-while-blocked session (display "running") is raw
   // "blocked" — both are excluded from greenIdle, so the display flag can't change
@@ -164,6 +169,7 @@ const STAGE_ORDER = [
   "ciRunning",
   "ciFailed",
   "reviewerRunning",
+  "reworkRunning",
   "waitingOnReviewer",
   "waitingOnMerger",
   "draftAwaitingSignoff",
@@ -181,13 +187,15 @@ export function flattenByStage(p: ReturnType<typeof partitionSessions>): Session
 export function partitionSessions(
   sessions: Session[],
   git: Record<string, GitState>,
-  isReviewing: (id: string) => boolean = () => false,
+  isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
   now: number = Date.now(),
 ): {
   active: Session[];
   ciRunning: Session[];
   ciFailed: Session[];
   reviewerRunning: Session[];
+  reworkRunning: Session[];
   draftAwaitingSignoff: Session[];
   waitingOnReviewer: Session[];
   waitingOnMerger: Session[];
@@ -201,6 +209,7 @@ export function partitionSessions(
     ciRunning: [],
     ciFailed: [],
     reviewerRunning: [],
+    reworkRunning: [],
     draftAwaitingSignoff: [],
     waitingOnReviewer: [],
     waitingOnMerger: [],
@@ -210,7 +219,7 @@ export function partitionSessions(
     merged: [],
   };
   for (const s of sessions) {
-    groups[stageOf(s, git[s.id], isReviewing, now)].push(s);
+    groups[stageOf(s, git[s.id], isReviewing, isReworkRunning, now)].push(s);
   }
   return groups;
 }

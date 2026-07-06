@@ -128,11 +128,14 @@ describe("gaugeColor", () => {
   it("0 → muted", () => {
     expect(gaugeColor(0)).toBe("var(--color-muted)");
   });
-  it("74 → muted", () => {
-    expect(gaugeColor(74)).toBe("var(--color-muted)");
+  it("50 → muted", () => {
+    expect(gaugeColor(50)).toBe("var(--color-muted)");
   });
-  it("75 → amber", () => {
-    expect(gaugeColor(75)).toBe("var(--color-amber)");
+  it("51 → amber", () => {
+    expect(gaugeColor(51)).toBe("var(--color-amber)");
+  });
+  it("80 → amber", () => {
+    expect(gaugeColor(80)).toBe("var(--color-amber)");
   });
   it("90 → amber", () => {
     expect(gaugeColor(90)).toBe("var(--color-amber)");

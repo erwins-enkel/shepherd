@@ -200,6 +200,9 @@
   .provider-heading {
     padding-bottom: 0.25rem;
     border-bottom: 1px solid var(--color-line);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    font-weight: 600;
   }
 
   .no-data {
@@ -221,18 +224,30 @@
   }
 
   .window-label {
-    font-size: var(--fs-base);
-    font-weight: 600;
-    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    font-weight: 500;
+    color: var(--color-ink);
     flex: 1;
   }
 
   .window-pct {
-    font-size: var(--fs-lg);
+    font-size: var(--fs-meta);
     font-weight: 600;
     font-variant-numeric: tabular-nums;
     min-width: 3.5rem;
     text-align: right;
+  }
+
+  .provider-codex :global(.gp-period),
+  .provider-codex :global(.g-pct),
+  .provider-codex :global(.gauge-pop-reset),
+  .provider-codex :global(.token-row) {
+    font-size: var(--fs-meta);
+  }
+
+  .provider-codex :global(.gp-period) {
+    color: var(--color-ink);
+    font-weight: 500;
   }
 
   .meter-wrap {

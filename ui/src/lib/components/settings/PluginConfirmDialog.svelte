@@ -3,15 +3,18 @@
   import { dialog } from "$lib/a11yDialog";
 
   type Confirm =
-    { kind: "install"; url: string } | { kind: "uninstall"; folder: string; name: string };
+    | { kind: "install"; url: string }
+    | { kind: "uninstall"; folder: string; name: string; loaded: boolean };
 
   let {
     confirm,
     onconfirm,
+    onconfirmrestart,
     oncancel,
   }: {
     confirm: Confirm;
     onconfirm: (c: Confirm) => void;
+    onconfirmrestart: (c: Extract<Confirm, { kind: "uninstall" }>) => void;
     oncancel: () => void;
   } = $props();
 
@@ -49,6 +52,11 @@
 
     <div class="actions">
       <button type="button" class="ghost" onclick={oncancel}>{m.common_cancel()}</button>
+      {#if confirm.kind === "uninstall" && confirm.loaded}
+        <button type="button" class="run danger wide" onclick={() => onconfirmrestart(confirm)}>
+          {m.plugins_uninstall_restart_shepherd()}
+        </button>
+      {/if}
       <button
         type="button"
         class="run"
@@ -120,6 +128,7 @@
   .actions {
     display: flex;
     justify-content: flex-end;
+    flex-wrap: wrap;
     gap: 8px;
     margin-top: 2px;
   }
@@ -142,6 +151,11 @@
   .run.danger {
     border-color: var(--color-red);
     color: var(--color-red);
+  }
+  .run.wide {
+    max-width: 100%;
+    white-space: normal;
+    text-align: center;
   }
   @media (max-width: 768px) {
     .overlay {

@@ -1263,6 +1263,7 @@
   "plugins_confirm_uninstall_title": "Uninstall this plugin?",
   "plugins_confirm_uninstall_body": "Remove {name}? This deletes its folder. A running plugin keeps working until you restart Shepherd.",
   "plugins_uninstall": "Uninstall",
+  "plugins_uninstall_restart_shepherd": "Uninstall + restart Shepherd",
   "plugins_activate": "Activate",
   "plugins_activating": "Activating…",
   "plugins_activate_needs_restart": "\"{name}\" loaded with an error — it may need its dependencies installed (bun install), then a restart of Shepherd.",

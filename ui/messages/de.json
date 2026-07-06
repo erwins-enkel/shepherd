@@ -1263,6 +1263,7 @@
   "plugins_confirm_uninstall_title": "Dieses Plugin deinstallieren?",
   "plugins_confirm_uninstall_body": "{name} entfernen? Dadurch wird sein Ordner gelöscht. Ein laufendes Plugin arbeitet weiter, bis du Shepherd neu startest.",
   "plugins_uninstall": "Deinstallieren",
+  "plugins_uninstall_restart_shepherd": "Deinstallieren + Shepherd neu starten",
   "plugins_activate": "Aktivieren",
   "plugins_activating": "Aktiviere…",
   "plugins_activate_needs_restart": "„{name}“ wurde mit einem Fehler geladen — installiere ggf. seine Abhängigkeiten (bun install) und starte Shepherd neu.",

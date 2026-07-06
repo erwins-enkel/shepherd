@@ -118,7 +118,39 @@ function stubApply(rows: InstalledPlugin[], apply: () => { payload: unknown; sta
   return calls;
 }
 
-afterEach(() => vi.unstubAllGlobals());
+function stubUninstallRestart(rows: InstalledPlugin[]) {
+  const calls: { url: string; method: string; body: string }[] = [];
+  vi.stubGlobal("fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    const method = init?.method ?? "GET";
+    calls.push({ url, method, body: init?.body ? String(init.body) : "" });
+    if (url.includes("/api/plugins/manage/installed/")) {
+      return new Response(null, { status: 204 });
+    }
+    if (url.includes("/api/restart")) {
+      return new Response(JSON.stringify({ started: true }), {
+        status: 202,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    if (url.includes("/api/health")) {
+      return new Response("ok", { status: 200 });
+    }
+    if (url.includes("/api/plugins/manage/installed")) {
+      return new Response(JSON.stringify({ installed: rows }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("{}", { status: 404 });
+  });
+  return calls;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
 
 describe("SettingsPluginsPanel", () => {
   it("always shows the install-from-URL section", async () => {
@@ -228,6 +260,53 @@ describe("SettingsPluginsPanel", () => {
     render(SettingsPluginsPanel, { plugins: [plugin({ id: "gone", name: "Gone Plugin" })] });
     await expect.element(page.getByText(/restart to unload/i)).toBeVisible();
     await expect.element(page.getByText("systemctl --user restart shepherd")).toBeVisible();
+  });
+
+  it("a loaded plugin confirmation offers uninstall plus Shepherd-only restart", async () => {
+    const calls = stubUninstallRestart([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, { plugins: [plugin()] });
+
+    await page.getByRole("button", { name: "Uninstall" }).click();
+    await expect
+      .element(page.getByRole("button", { name: "Uninstall + restart Shepherd" }))
+      .toBeVisible();
+
+    await page.getByRole("button", { name: "Uninstall + restart Shepherd" }).click();
+    await expect
+      .element(page.getByText("Restarting Shepherd — waiting for it to come back…"))
+      .toBeVisible();
+
+    await vi.waitFor(() =>
+      expect(
+        calls.some((c) => c.url.includes("/api/restart") && c.body === '{"herdr":false}'),
+      ).toBe(true),
+    );
+    const uninstallIdx = calls.findIndex((c) => c.method === "DELETE");
+    const restartIdx = calls.findIndex((c) => c.url.includes("/api/restart"));
+    expect(uninstallIdx).toBeGreaterThanOrEqual(0);
+    expect(restartIdx).toBeGreaterThan(uninstallIdx);
+  });
+
+  it("not-loaded plugin confirmations do not offer uninstall plus restart", async () => {
+    stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })]);
+    render(SettingsPluginsPanel, { plugins: [] });
+
+    await page.getByRole("button", { name: "Uninstall" }).click();
+    await expect.element(page.getByText("Uninstall this plugin?")).toBeVisible();
+    expect(document.body.textContent).not.toContain("Uninstall + restart Shepherd");
+  });
+
+  it("plain uninstall does not restart Shepherd", async () => {
+    const calls = stubUninstallRestart([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, { plugins: [plugin()] });
+
+    await page.getByRole("button", { name: "Uninstall" }).click();
+    await page
+      .getByRole("dialog", { name: "Uninstall this plugin?" })
+      .getByRole("button", { name: "Uninstall", exact: true })
+      .click();
+    await vi.waitFor(() => expect(calls.some((c) => c.method === "DELETE")).toBe(true));
+    expect(calls.some((c) => c.url.includes("/api/restart"))).toBe(false);
   });
 
   it("a pending plugin exposes an Activate button that posts + triggers a store refresh", async () => {

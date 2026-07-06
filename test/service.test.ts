@@ -6455,8 +6455,12 @@ test("stageRelaunchImages falls back to .bin for extensionless and unsafe carrie
     const staged = service.stageRelaunchImages(orig.id);
 
     expect(staged).toHaveLength(3);
-    expect(staged.every((entry) => entry.name.endsWith(".bin"))).toBe(true);
-    for (const entry of staged) expect(existsSync(entry.path)).toBe(true);
+    expect(staged.every((entry) => entry.path.endsWith(".bin"))).toBe(true);
+    for (const entry of staged) {
+      expect(entry.name).toBeNull();
+      expect(entry.nameRecorded).toBe(false);
+      expect(existsSync(entry.path)).toBe(true);
+    }
   } finally {
     config.repoRoot = prevRoot;
   }

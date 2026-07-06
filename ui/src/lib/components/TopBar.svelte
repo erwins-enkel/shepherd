@@ -302,13 +302,12 @@
   const creditColor = $derived(
     credits?.stale ? "var(--color-muted)" : overspend ? "var(--color-amber)" : "var(--color-muted)",
   );
-  function compactUsageMeasureKey(view: CompactUsageView): string {
+  function compactUsageLayoutKey(view: CompactUsageView): string {
     const base = `${view.provider}:${view.mode}:${view.widthClass}`;
     if (view.mode === "limits") {
-      return `${base}:${view.gauges.map((g) => `${g.label}:${g.w.pct}`).join(",")}`;
+      return `${base}:${view.gauges.map((g) => g.label).join(",")}`;
     }
-    if (view.mode === "tokens") return `${base}:${view.totalTokens}`;
-    if (view.mode === "model") return `${base}:${view.model.model}:${view.model.pct}`;
+    if (view.mode === "model") return `${base}:${view.model.model}`;
     return base;
   }
   const compactUsageViews = $derived(
@@ -323,10 +322,11 @@
   const rotatingCompactUsageViews = $derived(
     compactUsageViews.filter((view) => view.rotationEligible),
   );
-  const compactUsageRotating = $derived(rotatingCompactUsageViews.length >= 2);
+  const rotatingCompactUsageCount = $derived(rotatingCompactUsageViews.length);
+  const compactUsageRotating = $derived(rotatingCompactUsageCount >= 2);
   const compactUsageSetSignature = $derived(
     `${compactUsageRotating ? "rot" : "single"}:${compactUsageViews
-      .map(compactUsageMeasureKey)
+      .map(compactUsageLayoutKey)
       .join("|")}`,
   );
   let activeCompactUsageIndex = $state(0);
@@ -340,7 +340,7 @@
 
   $effect(() => {
     const signature = compactUsageSetSignature;
-    const count = rotatingCompactUsageViews.length;
+    const count = rotatingCompactUsageCount;
     void signature;
     activeCompactUsageIndex = 0;
     if (count < 2) return;

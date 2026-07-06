@@ -1678,6 +1678,53 @@ describe("TopBar — CR extra-credit gauge", () => {
     expect(text, "full popover still has Codex").toContain(m.agent_provider_codex());
   });
 
+  it("does not restart compact usage rotation on live percentage updates", async () => {
+    vi.useFakeTimers();
+    await page.viewport(1436, 900);
+    document.body.style.width = "1436px";
+    const props = {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+    };
+    const { rerender } = render(TopBar, {
+      ...props,
+      limits: withCodex(fullLimits, { windows: true }),
+    });
+    const hud = document.querySelector<HTMLElement>(".hud");
+    expect(hud, "TopBar .hud mounted").not.toBeNull();
+    const toggle = hud!.querySelector<HTMLElement>(".gauges-toggle");
+    expect(toggle, "rotating toggle present").not.toBeNull();
+    expect(toggle!.textContent ?? "", "starts on Claude").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await rerender({
+      ...props,
+      limits: withCodex(
+        {
+          ...fullLimits,
+          session5h: { pct: 89, resetAt: 1_700_003_600_000 },
+          week: { pct: 65, resetAt: 1_700_600_000_000 },
+        },
+        { windows: true },
+      ),
+    });
+    await Promise.resolve();
+    expect(toggle!.textContent ?? "", "usage update does not immediately rotate").toContain(
+      m.topbar_usage_provider_short_claude(),
+    );
+
+    await vi.advanceTimersByTimeAsync(60_000);
+    await Promise.resolve();
+
+    expect(toggle!.textContent ?? "", "rotates at the original two-minute mark").toContain(
+      m.topbar_usage_provider_short_codex(),
+    );
+  });
+
   it("rotates desktop compact usage to Codex token fallback when Codex has no windows", async () => {
     vi.useFakeTimers();
     const hud = await renderDesktop(withCodex(fullLimits));

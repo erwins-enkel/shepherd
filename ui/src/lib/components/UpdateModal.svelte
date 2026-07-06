@@ -3,6 +3,7 @@
   import { applyUpdate } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import AsciiFlockOverlay from "$lib/components/AsciiFlockOverlay.svelte";
 
   let {
     update,
@@ -54,6 +55,9 @@
     if (e.target === e.currentTarget && !busy) onclose?.();
   }}
 >
+  {#if busy}
+    <AsciiFlockOverlay placement="backdrop" />
+  {/if}
   <div
     class="card bracket"
     role="dialog"
@@ -61,85 +65,92 @@
     aria-label={m.updatemodal_available()}
     use:dialog={{ onclose: () => !busy && onclose?.() }}
   >
-    <div class="chead">
-      <span class="micro">{m.updatemodal_available()}</span>
-      {#if !busy}
-        <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
-          >✕</button
-        >
-      {/if}
-    </div>
-
-    <div class="summary">
-      <span class="count">{update.behind}</span>
-      <span class="micro"
-        >{update.behind === 1 ? m.updatemodal_commits_one() : m.updatemodal_commits_other()}</span
-      >
-      {#if update.current && update.latest}
-        <span class="shas micro">{update.current} → {update.latest}</span>
-      {/if}
-    </div>
-
-    <div class="commits">
-      {#each update.commits as c (c.sha)}
-        <button
-          type="button"
-          class="commit"
-          class:expanded={expanded[c.sha]}
-          aria-expanded={!!expanded[c.sha]}
-          title={c.subject}
-          onclick={() => toggle(c.sha)}
-        >
-          <!-- inner wrapper carries the flex layout: WebKit doesn't reliably
-               grow a <button> that is itself a flex container when a child
-               wraps, which painted the expanded subject over the next row -->
-          <span class="row">
-            <span class="sha">{c.sha}</span>
-            <span class="subject">{c.subject}</span>
-          </span>
-        </button>
-      {/each}
-    </div>
-
     {#if busy}
-      <div class="status" aria-live="polite">{m.updatemodal_status()}</div>
+      <AsciiFlockOverlay placement="sheet" />
     {/if}
-    {#if liveLog}
-      <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
-      <!-- The concise .status line above is the polite announcement; the raw log
-           stays silent so a fast-appending stream doesn't re-announce every line. -->
-      <pre class="log">{liveLog}</pre>
-    {/if}
-    {#if error}<div class="err">{error}</div>{/if}
-
-    {#if failed}
-      <div class="failure">
-        <div class="err">
-          {m.updatemodal_deploy_failed()}
-          {#if deploy?.exitCode != null}
-            <span class="code">{m.updatemodal_exit_code({ code: deploy.exitCode })}</span>
-          {/if}
-        </div>
-        {#if deploy?.log}
-          <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
-          <pre class="log">{deploy.log}</pre>
+    <div class="card-content">
+      <div class="chead">
+        <span class="micro">{m.updatemodal_available()}</span>
+        {#if !busy}
+          <button type="button" class="x" onclick={() => onclose?.()} aria-label={m.common_close()}
+            >✕</button
+          >
         {/if}
       </div>
-    {/if}
 
-    <div class="actions">
-      {#if !busy}
-        <button type="button" class="later" onclick={() => onclose?.()}
-          >{m.updatemodal_later()}</button
+      <div class="summary">
+        <span class="count">{update.behind}</span>
+        <span class="micro"
+          >{update.behind === 1
+            ? m.updatemodal_commits_one()
+            : m.updatemodal_commits_other()}</span
         >
+        {#if update.current && update.latest}
+          <span class="shas micro">{update.current} → {update.latest}</span>
+        {/if}
+      </div>
+
+      <div class="commits">
+        {#each update.commits as c (c.sha)}
+          <button
+            type="button"
+            class="commit"
+            class:expanded={expanded[c.sha]}
+            aria-expanded={!!expanded[c.sha]}
+            title={c.subject}
+            onclick={() => toggle(c.sha)}
+          >
+            <!-- inner wrapper carries the flex layout: WebKit doesn't reliably
+                 grow a <button> that is itself a flex container when a child
+                 wraps, which painted the expanded subject over the next row -->
+            <span class="row">
+              <span class="sha">{c.sha}</span>
+              <span class="subject">{c.subject}</span>
+            </span>
+          </button>
+        {/each}
+      </div>
+
+      {#if busy}
+        <div class="status" aria-live="polite">{m.updatemodal_status()}</div>
       {/if}
-      <button type="button" class="run" onclick={confirm} disabled={busy}>
-        {busy
-          ? m.updatemodal_updating()
-          : failed
-            ? m.updatemodal_retry()
-            : m.updatemodal_update_now()}
-      </button>
+      {#if liveLog}
+        <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+        <!-- The concise .status line above is the polite announcement; the raw log
+             stays silent so a fast-appending stream doesn't re-announce every line. -->
+        <pre class="log">{liveLog}</pre>
+      {/if}
+      {#if error}<div class="err">{error}</div>{/if}
+
+      {#if failed}
+        <div class="failure">
+          <div class="err">
+            {m.updatemodal_deploy_failed()}
+            {#if deploy?.exitCode != null}
+              <span class="code">{m.updatemodal_exit_code({ code: deploy.exitCode })}</span>
+            {/if}
+          </div>
+          {#if deploy?.log}
+            <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+            <pre class="log">{deploy.log}</pre>
+          {/if}
+        </div>
+      {/if}
+
+      <div class="actions">
+        {#if !busy}
+          <button type="button" class="later" onclick={() => onclose?.()}
+            >{m.updatemodal_later()}</button
+          >
+        {/if}
+        <button type="button" class="run" onclick={confirm} disabled={busy}>
+          {busy
+            ? m.updatemodal_updating()
+            : failed
+              ? m.updatemodal_retry()
+              : m.updatemodal_update_now()}
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -158,16 +169,26 @@
   .card {
     position: relative;
     box-sizing: border-box;
+    z-index: 1;
     width: min(520px, 100%);
     max-height: 80dvh;
     display: flex;
     flex-direction: column;
-    gap: 14px;
+    gap: 0;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
     padding: 18px 18px 16px;
     overflow-x: clip;
     box-shadow: inset 0 0 30px -16px var(--color-amber);
+  }
+  .card-content {
+    position: relative;
+    z-index: 1;
+    flex: 1 1 auto;
+    min-height: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
   }
   .bracket::before,
   .bracket::after {
@@ -381,6 +402,9 @@
          (landscape phones): scroll the card rather than clip the actions */
       overflow-y: auto;
       animation: sheet-up 0.18s ease-out;
+    }
+    .card-content {
+      min-height: 100%;
     }
     .bracket::before,
     .bracket::after {

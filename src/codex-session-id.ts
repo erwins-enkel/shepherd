@@ -8,10 +8,10 @@
  *   {"type":"session_meta","payload":{"session_id":"<uuid>","id":"<uuid>","cwd":"<abs>","source":"cli",…}}
  *
  * Two constraints make this reliable for an ISOLATED worktree (unique cwd):
- *  - The cwd match is a RAW string compare against `worktreePath`, which is already canonical
- *    (Shepherd's `safeRepoDir` realpath-resolves repoPath and the worktree joins from it) and which
- *    Codex records canonically. No `realpath` is performed on the candidate cwd — this runs BEFORE
- *    the worktree is re-created at restore time, so the path may not exist on disk.
+ *  - The cwd match is a lexical `normalize()` compare against `worktreePath`, which is already
+ *    canonical (Shepherd's `safeRepoDir` realpath-resolves repoPath and the worktree joins from it)
+ *    and which Codex records canonically. No `realpath` is performed on the candidate cwd — this runs
+ *    BEFORE the worktree is re-created at restore time, so the path may not exist on disk.
  *  - `source === "cli"` excludes headless `codex exec` ROLE spawns (recap/critic/reviewer) that can
  *    share a worktree cwd; resuming one of those instead of the interactive session would be wrong.
  */
@@ -37,9 +37,10 @@ export function findCodexSessionId(
   home = codexHome(),
 ): string | null {
   const target = normalize(worktreePath);
-  // listRolloutFiles is newest-first, so the first cwd+cli match is the newest one.
+  // listRolloutFiles is newest-first by mtime, so the first cwd+cli match is the newest one — and the
+  // first file older than the window means every remaining file is too: stop rather than scan the tail.
   for (const { path, mtimeMs } of listRolloutFiles(home)) {
-    if (mtimeMs < notBeforeMs) continue;
+    if (mtimeMs < notBeforeMs) break;
     const meta = readSessionMeta(path);
     if (!meta || meta.source !== "cli" || !meta.id) continue;
     if (normalize(meta.cwd) === target) return meta.id;

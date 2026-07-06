@@ -2196,11 +2196,21 @@ export class SessionService {
    * when already set) and never writes an empty string — a `null` derive is a no-op, so a transient
    * miss can't clobber a good id. `restore` does NOT trust this cached value (it re-derives), so this
    * is purely the best-effort provider-neutral seed for #1087/#1160. Never throws.
+   *
+   * Returns `true` only when this was an APPLICABLE attempt that still missed (isolated Codex, unseeded,
+   * no matching rollout yet) — the signal the poller uses to back off its per-session rescan cadence so
+   * a never-matching running session doesn't scan the whole `$CODEX_HOME/sessions` tree every tick.
+   * Returns `false` for a non-applicable session (not Codex / non-isolated / already seeded) or a hit.
    */
-  captureCodexSessionId(s: Session): void {
-    if ((s.agentProvider ?? "claude") !== "codex" || !s.isolated || s.providerSessionId) return;
+  captureCodexSessionId(s: Session): boolean {
+    if ((s.agentProvider ?? "claude") !== "codex" || !s.isolated || s.providerSessionId)
+      return false;
     const id = findCodexSessionId(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
-    if (id) this.deps.store.setProviderSessionId(s.id, id);
+    if (id) {
+      this.deps.store.setProviderSessionId(s.id, id);
+      return false;
+    }
+    return true;
   }
 
   private resumeTarget(id: string): { session: Session; provider: AgentProvider } | null {

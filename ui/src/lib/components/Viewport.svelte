@@ -2275,7 +2275,7 @@
          plan (issue #809). Self-hides outside the plan phase. Unlike the session-list cards
          (UnitRow/UnitTile, which pass allowView={false}), the focused view surfaces the
          executing read-only chip — it is its home. -->
-    <PlanGateBadge {session} />
+    <PlanGateBadge {session} pulseReady />
     {#if !compact}
       <!-- desktop: the full git rail (PR / CI / merge / critic / ready / verdict)
            plus the autopilot toggle live one disclosure away — this toggle reveals

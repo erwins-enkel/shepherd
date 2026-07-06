@@ -11,6 +11,7 @@
   import { EMPTY_REPO_FILTER } from "./queue-strip";
   import { onMount } from "svelte";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
+  import UpNextSortMenu from "./UpNextSortMenu.svelte";
   import {
     capacitySuggestedProvider,
     claudeUsageHoldLikely,
@@ -97,6 +98,28 @@
     } catch {
       /* storage may be blocked */
     }
+  }
+
+  // Sort is a compact icon button opening an anchored listbox menu (see
+  // UpNextSortMenu). Rect is captured on open so the portaled menu can position
+  // itself under the trigger; the menu handles Esc/outside-click/scroll dismiss.
+  let sortBtn = $state<HTMLButtonElement>();
+  let sortMenuOpen = $state(false);
+  let sortAnchor = $state<DOMRect | null>(null);
+  const sortOptions = $derived(
+    SORT_MODES.map((mode) => ({ value: mode, label: SORT_LABELS[mode]() })),
+  );
+  function toggleSortMenu() {
+    if (sortMenuOpen) {
+      sortMenuOpen = false;
+      return;
+    }
+    if (sortBtn) sortAnchor = sortBtn.getBoundingClientRect();
+    sortMenuOpen = true;
+  }
+  function selectSort(value: string) {
+    setSortMode(validSortMode(value));
+    sortMenuOpen = false;
   }
 
   const snap = $derived(upNext.snapshot);
@@ -390,17 +413,6 @@
     {#if updatedAgo}
       <span class="un-updated">{m.upnext_updated_ago({ ago: updatedAgo })}</span>
     {/if}
-    <div class="un-sort" role="group" aria-label={m.upnext_sort_aria()}>
-      {#each SORT_MODES as mode (mode)}
-        <button
-          type="button"
-          class="un-sort-btn"
-          class:seg-active={sortMode === mode}
-          aria-pressed={sortMode === mode}
-          onclick={() => setSortMode(mode)}>{SORT_LABELS[mode]()}</button
-        >
-      {/each}
-    </div>
     <button
       type="button"
       class="un-refresh"
@@ -410,6 +422,18 @@
       aria-label={m.upnext_refresh()}
       onclick={refresh}>⟳</button
     >
+    <div class="un-sortwrap">
+      <button
+        bind:this={sortBtn}
+        type="button"
+        class="un-sortbtn"
+        aria-haspopup="listbox"
+        aria-expanded={sortMenuOpen}
+        title={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
+        aria-label={m.upnext_sort_by({ mode: SORT_LABELS[sortMode]() })}
+        onclick={toggleSortMenu}>⇅</button
+      >
+    </div>
   </header>
 
   {#if selectedCount > 0}
@@ -479,6 +503,18 @@
   </div>
 </section>
 
+{#if sortMenuOpen && sortAnchor}
+  <UpNextSortMenu
+    anchor={sortAnchor}
+    opener={sortBtn}
+    current={sortMode}
+    options={sortOptions}
+    label={m.upnext_sort_aria()}
+    onselect={selectSort}
+    onclose={() => (sortMenuOpen = false)}
+  />
+{/if}
+
 {#if picker}
   <ModelCliPicker
     x={picker.x}
@@ -527,47 +563,21 @@
     font-size: var(--fs-meta);
     color: var(--color-muted);
   }
-  .un-sort {
-    display: flex;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    overflow: hidden;
-    min-width: min(100%, 320px);
-  }
-  .un-sort-btn {
-    flex: 1;
-    min-width: 0;
-    min-height: 32px;
-    border: 0;
-    border-right: 1px solid var(--color-line);
-    background: none;
-    font-family: inherit;
-    font-size: var(--fs-micro);
-    cursor: pointer;
-    padding: 0 6px;
-    color: var(--color-muted);
-    text-align: center;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  .un-sort-btn:last-child {
-    border-right: 0;
-  }
-  .un-sort-btn:hover {
-    color: var(--color-ink);
-  }
-  .un-sort-btn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .un-sort-btn.seg-active {
-    color: var(--color-amber);
-    background: var(--color-inset);
-    box-shadow: inset 0 -2px 0 var(--color-amber);
-  }
-  .un-refresh {
+  /* Sort ⇅ trigger sits at the header's right edge; refresh ⟳ stays beside the
+     time. Both are compact ~30px controls matching the panel's dense chrome
+     (deliberate sub-44px tap targets — waiver noted in the PR). */
+  .un-sortwrap {
     margin-left: auto;
+    display: inline-flex;
+  }
+  .un-refresh,
+  .un-sortbtn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 30px;
+    min-width: 30px;
+    padding: 0 7px;
     background: transparent;
     border: 1px solid var(--color-line-bright);
     border-radius: 2px;
@@ -575,15 +585,18 @@
     font: inherit;
     font-size: var(--fs-lg);
     line-height: 1;
-    padding: 2px 7px;
     cursor: pointer;
-    transition: color 0.12s ease;
+    transition:
+      color 0.12s ease,
+      border-color 0.12s ease;
   }
-  .un-refresh:hover:not(:disabled) {
+  .un-refresh:hover:not(:disabled),
+  .un-sortbtn:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
-  .un-refresh:focus-visible {
+  .un-refresh:focus-visible,
+  .un-sortbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }

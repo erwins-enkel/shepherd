@@ -2211,6 +2211,7 @@
   "upnext_priority_section": "Priorität",
   "upnext_normal_section": "Warteschlange",
   "upnext_sort_aria": "Als Nächstes sortieren",
+  "upnext_sort_by": "Sortieren nach {mode}",
   "upnext_sort_recommended": "Empfohlen",
   "upnext_sort_newest": "Neueste",
   "upnext_sort_oldest": "Älteste",

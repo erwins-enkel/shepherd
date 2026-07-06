@@ -272,6 +272,7 @@
                   e.stopPropagation();
                 }}
                 onkeydown={(e) => {
+                  if (e.key === "Escape") envOpen = false;
                   e.stopPropagation();
                 }}
               >

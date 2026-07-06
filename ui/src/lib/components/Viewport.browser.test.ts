@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
@@ -20,12 +20,19 @@ vi.mock("$lib/api", async (importOriginal) => {
 const { default: Viewport } = await import("./Viewport.svelte");
 // Dynamic import AFTER the $lib/api mock: reviews.svelte imports $lib/api, so a static
 // (hoisted) import would pull the real module in before the mock registers and break it.
-const { reviews } = await import("$lib/reviews.svelte");
+const { reviews, planGates } = await import("$lib/reviews.svelte");
 // Dynamic import for same reason: recaps.svelte imports $lib/api via getRecaps.
 const { recaps } = await import("$lib/recaps.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
-import type { Session, BuildQueue, Recap } from "$lib/types";
+import type {
+  Session,
+  BuildQueue,
+  Recap,
+  PlanGate,
+  ReviewVerdict,
+  SessionActivity,
+} from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -73,6 +80,49 @@ function session(partial: Partial<Session> & { id: string }): Session {
     experimentId: null,
     experimentRole: null,
     ...partial,
+  };
+}
+
+function planGate(partial: Partial<PlanGate> = {}): PlanGate {
+  return {
+    sessionId: "s1",
+    planHash: "h",
+    decision: "changes_requested",
+    summary: "needs changes",
+    body: "body",
+    findings: ["tighten scope"],
+    round: 1,
+    cap: 5,
+    approved: false,
+    plan: "plan",
+    updatedAt: 0,
+    ...partial,
+  };
+}
+
+function reviewVerdict(partial: Partial<ReviewVerdict> = {}): ReviewVerdict {
+  return {
+    sessionId: "s1",
+    headSha: "abc",
+    decision: "changes_requested",
+    summary: "needs changes",
+    body: "body",
+    findings: ["fix it"],
+    addressRound: 1,
+    addressCap: 5,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 60_000,
+    updatedAt: 0,
+    ...partial,
+  };
+}
+
+function activity(summary: string | null): SessionActivity {
+  return {
+    lastActivityTs: summary ? 1_000 : 0,
+    summary,
+    recentTs: [],
+    recentErrTs: [],
   };
 }
 
@@ -315,6 +365,160 @@ describe("Viewport autopilot badge vs in-flight review", () => {
       openPreviewTick: 0,
     });
     await expect.element(badge()).not.toBeInTheDocument();
+  });
+});
+
+describe("Viewport active REWORK terminal strip", () => {
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.activity = {};
+    planGates.map = {};
+    planGates.reviewing = {};
+  }
+
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  function bannerHeight(container: HTMLElement): number {
+    const body = container.querySelector<HTMLElement>(".vp-body");
+    expect(body, ".vp-body should render").not.toBeNull();
+    return parseFloat(body!.style.getPropertyValue("--review-banner-h"));
+  }
+
+  it("shows active plan-gate rework with round/cap, cog, activity summary, and reserved terminal height", async () => {
+    const id = "rw-plan-active";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity("edited .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect
+      .element(page.getByText("REWORK · 1/5 · edited .shepherd-plan.md"))
+      .toBeInTheDocument();
+    expect(
+      container.querySelector(".review-banner .rb-cog"),
+      "rotating cog renders",
+    ).not.toBeNull();
+    await vi.waitFor(() =>
+      expect(
+        bannerHeight(container),
+        "--review-banner-h reserves the strip height",
+      ).toBeGreaterThan(0),
+    );
+  });
+
+  it("hides parked plan-gate rework", async () => {
+    const id = "rw-plan-parked";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "blocked", planPhase: "planning" }),
+      activity: activity("edited .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    expect(container.querySelector(".review-banner"), "no bottom strip while parked").toBeNull();
+  });
+
+  it("shows active PR-critic rework with source-file activity summary", async () => {
+    const id = "rw-critic-active";
+    reviews.map = {
+      [id]: reviewVerdict({ sessionId: id, addressRound: 1, addressCap: 5 }),
+    };
+
+    render(Viewport, {
+      session: session({ id, status: "running", planPhase: "executing" }),
+      activity: activity("edited Viewport.svelte"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect
+      .element(page.getByText("REWORK · 1/5 · edited Viewport.svelte"))
+      .toBeInTheDocument();
+  });
+
+  it("hides parked PR-critic rework", async () => {
+    const id = "rw-critic-parked";
+    reviews.map = {
+      [id]: reviewVerdict({ sessionId: id, addressRound: 1, addressCap: 5 }),
+    };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "done", planPhase: "executing" }),
+      activity: activity("edited Viewport.svelte"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    expect(container.querySelector(".review-banner"), "no bottom strip while parked").toBeNull();
+  });
+
+  it("shows phase-specific fallback text when activity has no summary", async () => {
+    const id = "rw-plan-fallback";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 2, cap: 5 }) };
+
+    render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity(null),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect.element(page.getByText("REWORK · 2/5 · revising the plan")).toBeInTheDocument();
+  });
+
+  it("does not stack active rework under an in-flight review", async () => {
+    const id = "rw-review-wins";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
+    planGates.applyReviewing(id, true);
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity("edited .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect.element(page.getByText(m.reviewbanner_calm())).toBeInTheDocument();
+    expect(container.querySelector(".review-banner")?.textContent).not.toContain("REWORK ·");
+    expect(container.querySelectorAll(".review-banner")).toHaveLength(1);
+  });
+
+  it("suppresses CI while active rework owns the shared strip", async () => {
+    const id = "rw-ci-suppressed";
+    reviews.map = {
+      [id]: reviewVerdict({ sessionId: id, addressRound: 1, addressCap: 5 }),
+    };
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "executing" }),
+      activity: activity("edited Viewport.svelte"),
+      git: {
+        kind: "github",
+        state: "open",
+        number: 12,
+        url: "https://example.test/pr/12",
+        checks: "pending",
+        deployConfigured: false,
+        runningChecks: ["verify / test"],
+      },
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect
+      .element(page.getByText("REWORK · 1/5 · edited Viewport.svelte"))
+      .toBeInTheDocument();
+    expect(container.querySelectorAll(".review-banner")).toHaveLength(1);
+    expect(container.querySelector(".ci-banner"), "CI strip is suppressed").toBeNull();
+    await vi.waitFor(() => expect(bannerHeight(container)).toBeGreaterThan(0));
   });
 });
 

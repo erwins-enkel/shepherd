@@ -1,9 +1,10 @@
 <script lang="ts">
-  import type { Session } from "$lib/types";
+  import type { Session, SessionActivity, SessionStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import {
+    activeReworkBannerState,
     reviewBannerState,
     criticConclusionShows,
     type BannerState,
@@ -17,12 +18,16 @@
   // guard is out of scope — this is the signal only.
   let {
     session,
+    dStatus,
+    activity,
     keystrokes,
     tab,
     height = $bindable(0),
     active = $bindable(false),
   }: {
     session: Session;
+    dStatus: SessionStatus;
+    activity?: SessionActivity;
     keystrokes: number;
     tab: string;
     height?: number;
@@ -126,22 +131,47 @@
   $effect(() => () => clearTimeout(conclusionTimer));
 
   // The conclusion tier (if active) wins; otherwise the live in-flight predicate.
+  const liveReviewView = $derived<BannerState>(
+    reviewBannerState({
+      kind: liveKind,
+      phase: "in-flight",
+      escalated,
+      autoAddressOn: repoConfig.autoAddress[session.repoPath] ?? false,
+      verdict: reviews.map[session.id],
+      decision: undefined,
+      delivered: false,
+      autoReleased,
+    }),
+  );
+
+  const activeReworkView = $derived<BannerState>(
+    activeReworkBannerState({
+      planPhase: session.planPhase,
+      dStatus,
+      planGate: planGates.map[session.id],
+      planReviewing,
+      review: reviews.map[session.id],
+      criticReviewing,
+      activitySummary: activity?.summary,
+    }),
+  );
+
   const view = $derived<BannerState>(
-    conclusion ??
-      reviewBannerState({
-        kind: liveKind,
-        phase: "in-flight",
-        escalated,
-        autoAddressOn: repoConfig.autoAddress[session.repoPath] ?? false,
-        verdict: reviews.map[session.id],
-        decision: undefined,
-        delivered: false,
-        autoReleased,
-      }),
+    conclusion ?? (liveReviewView.show ? liveReviewView : activeReworkView),
   );
 
   function bannerText(s: BannerState): string {
     if (!s.show) return "";
+    if (s.phase === "addressing") {
+      const work =
+        s.summary ??
+        (s.fallbackKey === "reviewbanner_rework_plan_fallback"
+          ? m.reviewbanner_rework_plan_fallback()
+          : m.reviewbanner_rework_critic_fallback());
+      return s.round != null && s.cap != null
+        ? m.reviewbanner_rework_count({ round: s.round, cap: s.cap, work })
+        : m.reviewbanner_rework_bare({ work });
+    }
     switch (s.copyKey) {
       case "reviewbanner_calm":
         return m.reviewbanner_calm();
@@ -165,10 +195,12 @@
     view.show && view.phase === "conclusion" && view.tone !== "errored" ? "✓" : "⚠",
   );
 
-  // While a review is actively running, lead with a rotating gear ("Shepherd is
-  // working, wait with typing") instead of the static ⚠. The brief conclusion
-  // tiers keep the static icon above — nothing is running there. (issue #1022)
-  const inFlight = $derived(view.show && view.phase === "in-flight");
+  // While a review is running or the task agent is actively addressing REWORK,
+  // lead with a rotating gear ("work is happening") instead of the static ⚠. The
+  // brief conclusion tiers keep the static icon above — nothing is running there.
+  const spinning = $derived(
+    view.show && (view.phase === "in-flight" || view.phase === "addressing"),
+  );
 
   // Publish the banner's occupied height so the floating jump-to-latest button can
   // lift clear of it (issue: scroll button obscured by this banner). The bound
@@ -201,7 +233,7 @@
     bind:offsetHeight={height}
     use:coachTarget={"review-inflight"}
   >
-    {#if inFlight}
+    {#if spinning}
       <!-- Rotating cog: an inline SVG (not the ⚙ glyph, which renders as a color
            emoji ignoring currentColor and rotates off-center) so it tints to the
            tone accent and turns cleanly about its center. -->
@@ -253,7 +285,8 @@
   /* Prominence bump scoped to the in-flight tier only: the "review is running"
      message reads taller + larger, while the short-lived conclusion tiers keep
      the compact base size above. */
-  .review-banner[data-phase="in-flight"] {
+  .review-banner[data-phase="in-flight"],
+  .review-banner[data-phase="addressing"] {
     padding: 9px 12px;
     font-size: var(--fs-base);
   }

@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  activeReworkBannerState,
   conclusionOutcome,
   criticConclusionShows,
   criticInFlightShows,
@@ -176,5 +177,111 @@ describe("reviewBannerState", () => {
       tone: "errored",
       copyKey: "reviewbanner_errored",
     });
+  });
+});
+
+describe("activeReworkBannerState", () => {
+  const base = {
+    planPhase: "planning" as const,
+    dStatus: "running" as const,
+    planGate: { decision: "changes_requested" as const, round: 1, cap: 5 },
+    planReviewing: false,
+    review: undefined,
+    criticReviewing: false,
+    activitySummary: "edited .shepherd-plan.md",
+  };
+
+  it("shows plan-gate rework only while planning, changes were requested, reviewer idle, and display status is running", () => {
+    expect(activeReworkBannerState(base)).toEqual({
+      show: true,
+      phase: "addressing",
+      tone: "calm",
+      kind: "plangate",
+      round: 1,
+      cap: 5,
+      summary: "edited .shepherd-plan.md",
+      fallbackKey: "reviewbanner_rework_plan_fallback",
+    });
+  });
+
+  it("hides parked plan-gate rework for non-running display statuses", () => {
+    for (const dStatus of ["idle", "blocked", "done", "archived"] as const) {
+      expect(activeReworkBannerState({ ...base, dStatus })).toEqual({ show: false });
+    }
+  });
+
+  it("hides plan-gate rework while the plan reviewer is in flight", () => {
+    expect(activeReworkBannerState({ ...base, planReviewing: true })).toEqual({ show: false });
+  });
+
+  it("hides plan-gate rework when there is no changes-requested verdict", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planGate: { decision: "approved", round: 1, cap: 5 },
+      }),
+    ).toEqual({ show: false });
+  });
+
+  it("shows critic rework while executing with a changes-requested review and no critic in flight", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planPhase: "executing",
+        planGate: undefined,
+        review: { decision: "changes_requested", addressRound: 2, addressCap: 5 },
+        activitySummary: "edited Viewport.svelte",
+      }),
+    ).toEqual({
+      show: true,
+      phase: "addressing",
+      tone: "calm",
+      kind: "critic",
+      round: 2,
+      cap: 5,
+      summary: "edited Viewport.svelte",
+      fallbackKey: "reviewbanner_rework_critic_fallback",
+    });
+  });
+
+  it("shows critic rework without a counter when no auto-address round is active", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planPhase: null,
+        planGate: undefined,
+        review: { decision: "changes_requested", addressRound: 0, addressCap: 5 },
+        activitySummary: null,
+      }),
+    ).toEqual({
+      show: true,
+      phase: "addressing",
+      tone: "calm",
+      kind: "critic",
+      summary: null,
+      fallbackKey: "reviewbanner_rework_critic_fallback",
+    });
+  });
+
+  it("hides critic rework while the critic is in flight", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planPhase: "executing",
+        planGate: undefined,
+        review: { decision: "changes_requested", addressRound: 1, addressCap: 5 },
+        criticReviewing: true,
+      }),
+    ).toEqual({ show: false });
+  });
+
+  it("does not show critic rework during the planning phase", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planGate: undefined,
+        review: { decision: "changes_requested", addressRound: 1, addressCap: 5 },
+      }),
+    ).toEqual({ show: false });
   });
 });

@@ -2,7 +2,7 @@
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import { releasePlanGate, reviewPlan } from "$lib/api";
-  import { canRelease } from "./plan-gate-badge";
+  import { canRelease, planGateChip } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
@@ -22,6 +22,7 @@
     ),
   );
   const reviewing = $derived(planGates.isReviewing(session.id));
+  const chip = $derived(planGateChip(session, gate, reviewing));
   const releasable = $derived(canRelease(session, gate));
   // Manual re-review only makes sense while still planning (not once executing).
   const canReviewNow = $derived(session.planPhase === "planning");
@@ -72,10 +73,9 @@
   // until `reviewing` is observed, with a backstop timeout so a lost event can't wedge the spinner.
   let awaitingReview = $state(false);
   // Outcome of the last manual review trigger that produced no live run, so the panel can explain
-  // why nothing changed: "unchanged" = server deduped (plan unchanged / already approved),
-  // "error" = the reviewer failed to spawn. Auto-dismissed so it can't go stale between clicks.
+  // why nothing changed. Auto-dismissed so it can't go stale between clicks.
   // null = no note (fresh page, or a real review is/was in flight).
-  let outcome = $state<"unchanged" | "error" | null>(null);
+  let outcome = $state<"approved" | "changes" | "idle" | "error" | null>(null);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
   const inFlight = $derived(busy || reviewing || awaitingReview);
 
@@ -121,9 +121,10 @@
     try {
       const status = await reviewPlan(session.id);
       // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
-      // "skipped" → unchanged plan / already approved; "error" → spawn failed.
+      // "skipped" → unchanged/already-approved/not-reviewable; branch on the cached gate so
+      // approved plans do not read as blocked and requested-change plans do not read as cleared.
       if (status === "started") awaitingReview = true;
-      else if (status === "skipped" && !reviewing) outcome = "unchanged";
+      else if (status === "skipped" && !reviewing) outcome = skippedOutcome(gate);
       else if (status === "error") outcome = "error";
     } catch {
       // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.
@@ -131,6 +132,45 @@
     } finally {
       busy = false;
     }
+  }
+
+  function skippedOutcome(currentGate: typeof gate): typeof outcome {
+    if (currentGate?.approved) return "approved";
+    if (currentGate?.decision === "changes_requested") return "changes";
+    if (currentGate?.decision === "error") return "error";
+    return "idle";
+  }
+
+  const statusNoteId = $derived(`plan-status-${session.id}`);
+  const statusNote = $derived(planStatusNote(chip));
+  const statusTone = $derived(planStatusTone(chip));
+
+  function planStatusNote(currentChip: typeof chip): string | null {
+    switch (currentChip.kind) {
+      case "ready":
+        return m.planpanel_status_ready();
+      case "changes":
+        return currentChip.round >= currentChip.cap
+          ? m.planpanel_status_changes_stalled()
+          : m.planpanel_status_changes();
+      case "error":
+        return m.planpanel_status_error();
+      case "planning":
+        return m.planpanel_status_planning();
+      case "reviewing":
+        return m.planpanel_status_reviewing();
+      case "view":
+        return m.planpanel_status_view();
+      case "none":
+        return null;
+    }
+  }
+
+  function planStatusTone(currentChip: typeof chip): "ready" | "changes" | "error" | "muted" {
+    if (currentChip.kind === "ready") return "ready";
+    if (currentChip.kind === "changes") return "changes";
+    if (currentChip.kind === "error") return "error";
+    return "muted";
   }
 </script>
 
@@ -199,14 +239,24 @@
         </section>
       {/if}
 
-      {#if outcome === "unchanged"}
-        <p class="note" role="status">{m.planpanel_review_unchanged()}</p>
+      {#if outcome === "approved"}
+        <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
+      {:else if outcome === "changes"}
+        <p class="note" role="status">{m.planpanel_review_changes_pending()}</p>
+      {:else if outcome === "idle"}
+        <p class="note" role="status">{m.planpanel_review_nothing_to_review()}</p>
       {:else if outcome === "error"}
         <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
       {/if}
 
+      {#if statusNote}
+        <p id={statusNoteId} class="status-note {statusTone}">
+          {statusNote}
+        </p>
+      {/if}
+
       {#if !readonly}
-        <div class="actions">
+        <div class="actions" aria-describedby={statusNote ? statusNoteId : undefined}>
           {#if canReviewNow}
             <button type="button" class="review" onclick={review} disabled={inFlight}>
               {#if inFlight}
@@ -216,7 +266,13 @@
               {/if}
             </button>
           {/if}
-          <button type="button" class="go" onclick={go} disabled={busy || !releasable}>
+          <button
+            type="button"
+            class="go"
+            onclick={go}
+            disabled={busy || !releasable}
+            aria-describedby={statusNote ? statusNoteId : undefined}
+          >
             {m.planpanel_go()}
           </button>
         </div>
@@ -420,6 +476,22 @@
     text-align: right;
   }
   .note.err {
+    color: var(--color-red);
+  }
+  .status-note {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    text-align: right;
+  }
+  .status-note.ready {
+    color: var(--color-green);
+  }
+  .status-note.changes {
+    color: var(--color-amber);
+  }
+  .status-note.error {
     color: var(--color-red);
   }
   .review,

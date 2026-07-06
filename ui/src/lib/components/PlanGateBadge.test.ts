@@ -1,5 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { planGateChip, canRelease } from "./plan-gate-badge";
+import {
+  planGateChip,
+  canRelease,
+  composePlanGateTooltip,
+  type PlanGateTooltipCopy,
+} from "./plan-gate-badge";
 import type { PlanGate, Session } from "$lib/types";
 
 const baseGate: PlanGate = {
@@ -17,6 +22,16 @@ const baseGate: PlanGate = {
 };
 const gate = (p: Partial<PlanGate>): PlanGate => ({ ...baseGate, ...p });
 const sess = (planPhase: Session["planPhase"]): Pick<Session, "planPhase"> => ({ planPhase });
+const tooltipCopy: PlanGateTooltipCopy = {
+  fallback: "Plan gate",
+  planning: "Review before execution.",
+  reviewing: "Review running.",
+  changes: "Execution waits for approval.",
+  changesStalled: "Plan is stalled.",
+  ready: "Plan approved.",
+  error: "Review did not complete.",
+  view: "Execution started.",
+};
 
 describe("planGateChip", () => {
   it("hides when planPhase is null", () => {
@@ -126,5 +141,49 @@ describe("canRelease", () => {
   });
   it("false once executing", () => {
     expect(canRelease(sess("executing"), gate({ approved: true }))).toBe(false);
+  });
+});
+
+describe("composePlanGateTooltip", () => {
+  it("preserves reviewer summary and appends the causal hint", () => {
+    const chip = planGateChip(sess("planning"), gate({ summary: "tighten scope" }), false);
+    expect(composePlanGateTooltip(chip, gate({ summary: "tighten scope" }), tooltipCopy)).toBe(
+      "tighten scope; Execution waits for approval.",
+    );
+  });
+
+  it("uses stalled copy for changes at the round cap", () => {
+    const chip = planGateChip(sess("planning"), gate({ round: 3, cap: 3 }), false);
+    expect(composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy)).toBe(
+      "Plan is stalled.",
+    );
+  });
+
+  it("covers ready, error, and view states without a summary", () => {
+    expect(
+      composePlanGateTooltip(
+        planGateChip(sess("planning"), gate({ approved: true, decision: "approved" }), false),
+        gate({ summary: "" }),
+        tooltipCopy,
+      ),
+    ).toBe("Plan approved.");
+    expect(
+      composePlanGateTooltip(
+        planGateChip(sess("planning"), gate({ decision: "error", approved: false }), false),
+        gate({ summary: "" }),
+        tooltipCopy,
+      ),
+    ).toBe("Review did not complete.");
+    expect(
+      composePlanGateTooltip(
+        planGateChip(sess("executing"), gate({ approved: true }), false),
+        gate({ summary: "" }),
+        tooltipCopy,
+      ),
+    ).toBe("Execution started.");
+  });
+
+  it("returns empty tooltip for hidden chip", () => {
+    expect(composePlanGateTooltip({ kind: "none" }, undefined, tooltipCopy)).toBe("");
   });
 });

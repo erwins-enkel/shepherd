@@ -3,8 +3,10 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
-import type { Session } from "$lib/types";
+import type { PlanGate, Session } from "$lib/types";
 import { planGates } from "$lib/reviews.svelte";
+import { reviewPlan } from "$lib/api";
+import { m } from "$lib/paraglide/messages";
 
 // Mock api so the panel's release/review calls never hit the network, keeping the
 // rest of the module intact (the reviews store imports other api exports).
@@ -66,11 +68,30 @@ function session(partial: Partial<Session> & { id: string }): Session {
   };
 }
 
+function gate(id: string, partial: Partial<PlanGate> = {}): PlanGate {
+  return {
+    sessionId: id,
+    planHash: "hash",
+    decision: "approved",
+    summary: "plan approved",
+    body: "",
+    findings: [],
+    round: 0,
+    cap: 3,
+    approved: true,
+    plan: "# Execution plan",
+    blocks: [],
+    updatedAt: Date.now(),
+    ...partial,
+  };
+}
+
 afterEach(() => {
   // The overlay is portaled to <body>, outside the test container, so clean it up.
   document.querySelectorAll(".overlay").forEach((el) => el.remove());
   // Clean up any seeded plan gate entries.
   planGates.map = {};
+  vi.mocked(reviewPlan).mockResolvedValue("skipped");
 });
 
 describe("PlanPanel portal", () => {
@@ -90,20 +111,9 @@ describe("PlanPanel read-only during execution", () => {
   it("shows plan content but no Go or Review buttons when planPhase is executing", async () => {
     const id = "s-executing";
     planGates.map = {
-      [id]: {
-        sessionId: id,
-        planHash: "xyz",
-        decision: "approved",
-        summary: "plan approved",
-        body: "",
-        findings: [],
-        round: 1,
-        cap: 3,
-        approved: true,
-        plan: "# Execution plan",
+      [id]: gate(id, {
         blocks: [{ type: "rich-text", id: "b1", markdown: "Step overview" }],
-        updatedAt: Date.now(),
-      },
+      }),
     };
 
     render(PlanPanel, {
@@ -117,6 +127,107 @@ describe("PlanPanel read-only during execution", () => {
 
     // Actions block is absent — no Go, no Review.
     expect(document.querySelector(".actions")).toBeNull();
+    await expect.element(page.getByText(m.planpanel_status_view())).toBeVisible();
+  });
+});
+
+describe("PlanPanel release state", () => {
+  it("keeps Go disabled for requested changes and explains approval is still required", async () => {
+    const id = "s-changes";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        summary: "tighten scope",
+        findings: ["tighten scope"],
+        round: 1,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_status_changes())).toBeVisible();
+    expect(document.querySelector(".findings-head")?.textContent).toBe(m.planpanel_findings());
+    await expect.element(page.getByRole("button", { name: m.planpanel_go() })).toBeDisabled();
+    expect(
+      document.querySelector<HTMLButtonElement>("button.go")?.getAttribute("aria-describedby"),
+    ).toMatch(/^plan-status-/);
+  });
+
+  it("distinguishes a stalled requested-change plan at the review cap", async () => {
+    const id = "s-cap";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_status_changes_stalled())).toBeVisible();
+  });
+
+  it("enables Go for an approved planning gate", async () => {
+    const id = "s-approved";
+    planGates.map = { [id]: gate(id) };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_status_ready())).toBeVisible();
+    await expect.element(page.getByRole("button", { name: m.planpanel_go() })).not.toBeDisabled();
+  });
+
+  it("shows approved skipped-review feedback without blocked copy", async () => {
+    const id = "s-approved-skip";
+    planGates.map = { [id]: gate(id) };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_already_approved())).toBeVisible();
+    await expect
+      .element(page.getByText(m.planpanel_review_changes_pending()))
+      .not.toBeInTheDocument();
+  });
+
+  it("shows pending-changes skipped-review feedback for unchanged unapproved plans", async () => {
+    const id = "s-changes-skip";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 1,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_changes_pending())).toBeVisible();
+  });
+
+  it("renders no status note when the chip is hidden", () => {
+    const id = "s-none";
+    render(PlanPanel, {
+      props: { session: session({ id, planPhase: null }), onclose: vi.fn() },
+    });
+
+    expect(document.querySelector(".status-note")).toBeNull();
   });
 });
 
@@ -125,16 +236,8 @@ describe("PlanPanel visual blocks", () => {
     const id = "s-blocks";
     // Seed the plan gate with blocks AND plan text before render.
     planGates.map = {
-      [id]: {
-        sessionId: id,
-        planHash: "abc",
-        decision: "approved",
+      [id]: gate(id, {
         summary: "looks good",
-        body: "",
-        findings: [],
-        round: 1,
-        cap: 3,
-        approved: true,
         plan: "# Real plan markdown",
         blocks: [
           { type: "rich-text", id: "b1", markdown: "Approach overview text" },
@@ -151,8 +254,7 @@ describe("PlanPanel visual blocks", () => {
             ],
           },
         ],
-        updatedAt: Date.now(),
-      },
+      }),
     };
 
     render(PlanPanel, {
@@ -174,20 +276,7 @@ describe("PlanPanel visual blocks", () => {
   it("markdown only: no caption when gate has no blocks", async () => {
     const id = "s-no-blocks";
     planGates.map = {
-      [id]: {
-        sessionId: id,
-        planHash: "def",
-        decision: "approved",
-        summary: "ok",
-        body: "",
-        findings: [],
-        round: 1,
-        cap: 3,
-        approved: true,
-        plan: "# Plan without blocks",
-        blocks: [],
-        updatedAt: Date.now(),
-      },
+      [id]: gate(id, { summary: "ok", plan: "# Plan without blocks" }),
     };
 
     render(PlanPanel, {

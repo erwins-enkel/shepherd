@@ -109,6 +109,8 @@ export interface DrainRepoState {
   mappedIssueNumbers: Set<number>;
   /** Labeled, ordered backlog issues (see selectCandidates). */
   candidates: Issue[];
+  /** Provider the next spawn would use after explicit epic settings or global defaults resolve. */
+  spawnAgentProvider: AgentProvider;
   /** Epic mode: when true, hold each spawn until the operator approves it. */
   epicAttended: boolean;
   /** Epic mode: operator approved the next spawn (consumed on spawn). */
@@ -195,6 +197,54 @@ function awaitingSignoff(
   return !signedOff(authority, signoffView(s));
 }
 
+function usageGuardsApply(state: DrainRepoState): boolean {
+  return state.spawnAgentProvider === "claude";
+}
+
+function retireDecision(state: DrainRepoState): DrainDecision | null {
+  const toRetire = state.autoSessions.find(
+    (s) =>
+      !s.fullAuto && readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
+  );
+  return toRetire
+    ? { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! }
+    : null;
+}
+
+function troubleHold(state: DrainRepoState): HoldReason | null {
+  const blocked = state.autoSessions.find((s) => s.status === "blocked");
+  if (blocked) return { code: "blocked", detail: blocked.desig };
+  const cr = state.autoSessions.find((s) => s.reviewDecision === "changes_requested");
+  if (cr) return { code: "changes_requested", detail: cr.desig };
+  const err = state.autoSessions.find((s) => s.reviewDecision === "error");
+  return err ? { code: "error", detail: err.desig } : null;
+}
+
+function capHold(state: DrainRepoState): HoldReason | null {
+  if (state.autoSessions.length < state.maxAuto) return null;
+  const awaiting = state.autoSessions.find((s) =>
+    awaitingSignoff(s, state.draftMode, state.signoffAuthority),
+  );
+  return awaiting
+    ? { code: "awaiting_signoff", detail: awaiting.desig }
+    : { code: "cap", detail: String(state.maxAuto) };
+}
+
+function usageHold(state: DrainRepoState): HoldReason | null {
+  if (!usageGuardsApply(state)) return null;
+  // Claude usage ceiling.
+  if (state.usagePct >= state.usageCeilingPct) {
+    return { code: "usage", detail: String(state.usagePct) };
+  }
+  // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.
+  // creditSpent is spend accrued since the weekly window began (see effectiveCreditSpent), so a
+  // nonzero month-to-date total with subscription headroom does NOT pause here.
+  if (state.creditSpent > state.creditSpendCeiling) {
+    return { code: "credits", detail: String(state.creditSpent) };
+  }
+  return null;
+}
+
 /**
  * Pure decision core. Given one repo's state snapshot, returns the single
  * highest-priority next action. The harness applies it, re-reads state, and calls
@@ -212,48 +262,24 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // worktree/pane and foreclose rebase recovery). Gating per-session (not on the repo flag)
   // ensures a non-full-auto session in an auto-merge repo still retires instead of sitting
   // un-retired-and-un-merged on a maxAuto slot and deadlocking the drain.
-  const toRetire = state.autoSessions.find(
-    (s) =>
-      !s.fullAuto && readyToRetire(s, state.criticEnabled, state.draftMode, state.signoffAuthority),
-  );
-  if (toRetire) {
-    return { kind: "retire", sessionId: toRetire.id, prNumber: toRetire.git!.number! };
-  }
+  const retire = retireDecision(state);
+  if (retire) return retire;
 
   // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
-  const blocked = state.autoSessions.find((s) => s.status === "blocked");
-  if (blocked) return { kind: "hold", reason: { code: "blocked", detail: blocked.desig } };
-  const cr = state.autoSessions.find((s) => s.reviewDecision === "changes_requested");
-  if (cr) return { kind: "hold", reason: { code: "changes_requested", detail: cr.desig } };
-  const err = state.autoSessions.find((s) => s.reviewDecision === "error");
-  if (err) return { kind: "hold", reason: { code: "error", detail: err.desig } };
+  const trouble = troubleHold(state);
+  if (trouble) return { kind: "hold", reason: trouble };
 
   // 3. Concurrency cap. In draftMode, if a session is retireable-but-unsigned it's the reason
   //    the slot stays taken — relabel the hold `awaiting_signoff` (with that session's desig) so
   //    the operator sees WHY the drain is stuck, not a bare `cap`. Relabel is CAP-ONLY by design:
   //    below the cap the drain keeps spawning, and surfacing a pending sign-off there is the herd
   //    UI's job, not a drain hold.
-  if (state.autoSessions.length >= state.maxAuto) {
-    const awaiting = state.autoSessions.find((s) =>
-      awaitingSignoff(s, state.draftMode, state.signoffAuthority),
-    );
-    if (awaiting) {
-      return { kind: "hold", reason: { code: "awaiting_signoff", detail: awaiting.desig } };
-    }
-    return { kind: "hold", reason: { code: "cap", detail: String(state.maxAuto) } };
-  }
+  const cap = capHold(state);
+  if (cap) return { kind: "hold", reason: cap };
 
   // 4. Usage ceiling.
-  if (state.usagePct >= state.usageCeilingPct) {
-    return { kind: "hold", reason: { code: "usage", detail: String(state.usagePct) } };
-  }
-
-  // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.
-  // creditSpent is spend accrued since the weekly window began (see effectiveCreditSpent), so a
-  // nonzero month-to-date total with subscription headroom does NOT pause here.
-  if (state.creditSpent > state.creditSpendCeiling) {
-    return { kind: "hold", reason: { code: "credits", detail: String(state.creditSpent) } };
-  }
+  const usage = usageHold(state);
+  if (usage) return { kind: "hold", reason: usage };
 
   // 5. Next un-mapped candidate.
   const next = state.candidates.find((c) => !state.mappedIssueNumbers.has(c.number));

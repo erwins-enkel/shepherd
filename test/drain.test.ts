@@ -11,7 +11,7 @@ import type {
   SubIssueRef,
 } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
+import type { AgentProvider, CreateSessionInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
 import { config } from "../src/config";
@@ -604,6 +604,26 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.reason).toBe("usage");
   expect(last.paused).toBe(true);
   expect(last.detail).toBe("92");
+});
+
+test("label drain with global Codex default bypasses Claude usage ceiling", async () => {
+  const saved = config.defaultAgentProvider;
+  config.defaultAgentProvider = "codex";
+  try {
+    const h = makeHarness({
+      maxAuto: 2,
+      usagePct: 100,
+      usageCeilingPct: 80,
+      issues: [issue(1)],
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    const last = h.statuses.at(-1)!;
+    expect(last.paused).toBe(false);
+    expect(last.reason).not.toBe("usage");
+  } finally {
+    config.defaultAgentProvider = saved;
+  }
 });
 
 function creditWindow(over: Partial<NonNullable<UsageLimitsType["credits"]>> = {}) {
@@ -1366,6 +1386,13 @@ describe("drain epic mode", () => {
   function epicHarness(
     epicStatus: "running" | "paused" = "running",
     epicMode: "auto" | "attended" = "auto",
+    opts: {
+      usagePct?: number;
+      usageCeilingPct?: number;
+      agentProvider?: AgentProvider;
+      model?: string | null;
+      effort?: string | null;
+    } = {},
   ) {
     const subIssues: SubIssueRef[] = [
       {
@@ -1387,6 +1414,8 @@ describe("drain epic mode", () => {
       assignees: [],
     };
     const h = makeHarness({
+      usagePct: opts.usagePct,
+      usageCeilingPct: opts.usageCeilingPct,
       // listIssues returns [] — epic native mode must NOT rely on it
       listIssuesImpl: async () => [],
       getIssueImpl: async (n) => (n === PARENT ? parentIssue : null),
@@ -1398,6 +1427,9 @@ describe("drain epic mode", () => {
       parentIssueNumber: PARENT,
       mode: epicMode,
       status: epicStatus,
+      agentProvider: opts.agentProvider,
+      model: opts.model,
+      effort: opts.effort,
     });
     return h;
   }
@@ -1413,6 +1445,43 @@ describe("drain epic mode", () => {
     expect(created.auto).toBe(true);
     expect(created.issueRef?.number).toBe(CHILD);
     expect(created.issueRef?.body).toBe("Notion spec 320");
+  });
+
+  test("running Codex epic spawns despite Claude usage ceiling", async () => {
+    const h = epicHarness("running", "auto", {
+      usagePct: 100,
+      usageCeilingPct: 80,
+      agentProvider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.agentProvider).toBe("codex");
+    expect(h.creates[0]!.model).toBe("gpt-5.5");
+    expect(h.creates[0]!.effort).toBe("high");
+    const last = h.statuses.at(-1)!;
+    expect(last.paused).toBe(false);
+    expect(last.reason).not.toBe("usage");
+  });
+
+  test("running epic inheriting global Codex default spawns despite Claude usage ceiling", async () => {
+    const saved = config.defaultAgentProvider;
+    config.defaultAgentProvider = "codex";
+    try {
+      const h = epicHarness("running", "auto", {
+        usagePct: 100,
+        usageCeilingPct: 80,
+      });
+      await h.drain.pump(REPO);
+      expect(h.creates).toHaveLength(1);
+      expect(h.creates[0]!.agentProvider).toBeUndefined();
+      const last = h.statuses.at(-1)!;
+      expect(last.paused).toBe(false);
+      expect(last.reason).not.toBe("usage");
+    } finally {
+      config.defaultAgentProvider = saved;
+    }
   });
 
   test("paused epic spawns nothing", async () => {

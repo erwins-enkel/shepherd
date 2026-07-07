@@ -58,6 +58,7 @@ function state(over: Partial<DrainRepoState> = {}): DrainRepoState {
     autoSessions: [],
     mappedIssueNumbers: new Set<number>(),
     candidates: [],
+    spawnAgentProvider: "claude",
     epicAttended: false,
     epicApprovedNext: false,
     ...over,
@@ -115,9 +116,54 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "hold", reason: { code: "usage", detail: "92" } });
   });
 
+  test("explicit Codex epic spawn bypasses Claude usage ceiling", () => {
+    const i = issue(2);
+    const d = computeNext(
+      state({
+        usagePct: 100,
+        usageCeilingPct: 80,
+        candidates: [i],
+        spawnAgentProvider: "codex",
+        epicProviderSettings: { agentProvider: "codex", model: "gpt-5.5", effort: "high" },
+      }),
+    );
+    expect(d).toEqual({
+      kind: "spawn",
+      issue: i,
+      epicProviderSettings: { agentProvider: "codex", model: "gpt-5.5", effort: "high" },
+    });
+  });
+
+  test("explicit Claude epic still honors usage ceiling", () => {
+    const d = computeNext(
+      state({
+        usagePct: 100,
+        usageCeilingPct: 80,
+        candidates: [issue(2)],
+        spawnAgentProvider: "claude",
+        epicProviderSettings: { agentProvider: "claude", model: "sonnet", effort: "high" },
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "usage", detail: "100" } });
+  });
+
   test("usage just under ceiling → spawn", () => {
     const d = computeNext(state({ usagePct: 79, usageCeilingPct: 80, candidates: [issue(2)] }));
     expect(d.kind).toBe("spawn");
+  });
+
+  test("inherited Codex spawn bypasses Claude usage ceiling", () => {
+    const i = issue(2);
+    const d = computeNext(
+      state({
+        usagePct: 100,
+        usageCeilingPct: 80,
+        candidates: [i],
+        spawnAgentProvider: "codex",
+        epicProviderSettings: null,
+      }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: i });
   });
 
   test("extra-credit spend over ceiling → hold credits with spend detail", () => {
@@ -125,6 +171,20 @@ describe("computeNext", () => {
       state({ creditSpent: 0.29, creditSpendCeiling: 0, candidates: [issue(2)] }),
     );
     expect(d).toEqual({ kind: "hold", reason: { code: "credits", detail: "0.29" } });
+  });
+
+  test("explicit Codex epic spawn bypasses Claude extra-credit guard", () => {
+    const i = issue(2);
+    const d = computeNext(
+      state({
+        creditSpent: 0.29,
+        creditSpendCeiling: 0,
+        candidates: [i],
+        spawnAgentProvider: "codex",
+        epicProviderSettings: { agentProvider: "codex", model: "gpt-5.5", effort: "high" },
+      }),
+    );
+    expect(d.kind).toBe("spawn");
   });
 
   test("extra-credit spend equal to ceiling → no credits hold (uses > not >=)", () => {

@@ -567,6 +567,7 @@ export class DrainService {
     let epicParent: number | null = null;
     let epicIntegrationBranch: string | null = null;
     let epicProviderSettings: DrainRepoState["epicProviderSettings"] = null;
+    let spawnAgentProvider = config.defaultAgentProvider;
     let builtEpic: Epic | null = null;
     if (epicActive) {
       // Epic is running/paused: source candidates from its dependency-gated children
@@ -581,6 +582,7 @@ export class DrainService {
               effort: epicRun!.effort ?? null,
             }
           : null;
+        spawnAgentProvider = epicRun!.agentProvider ?? config.defaultAgentProvider;
         // Pin the canonical name once (#645): re-deriving from the live title would re-point
         // spawns + the landing base on a mid-run title edit, orphaning already-merged children.
         epicIntegrationBranch = this.deps.store.getOrInitEpicIntegrationBranch(
@@ -619,6 +621,7 @@ export class DrainService {
         autoSessions,
         mappedIssueNumbers,
         candidates,
+        spawnAgentProvider,
         epicAttended,
         epicApprovedNext: this.approvedNext.has(repoPath),
         epicParent,

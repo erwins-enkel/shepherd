@@ -198,7 +198,7 @@ function awaitingSignoff(
 }
 
 function usageGuardsApply(state: DrainRepoState): boolean {
-  return state.spawnAgentProvider !== "codex";
+  return state.spawnAgentProvider === "claude";
 }
 
 function retireDecision(state: DrainRepoState): DrainDecision | null {
@@ -232,9 +232,13 @@ function capHold(state: DrainRepoState): HoldReason | null {
 
 function usageHold(state: DrainRepoState): HoldReason | null {
   if (!usageGuardsApply(state)) return null;
+  // Claude usage ceiling.
   if (state.usagePct >= state.usageCeilingPct) {
     return { code: "usage", detail: String(state.usagePct) };
   }
+  // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.
+  // creditSpent is spend accrued since the weekly window began (see effectiveCreditSpent), so a
+  // nonzero month-to-date total with subscription headroom does NOT pause here.
   if (state.creditSpent > state.creditSpendCeiling) {
     return { code: "credits", detail: String(state.creditSpent) };
   }
@@ -274,9 +278,6 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   if (cap) return { kind: "hold", reason: cap };
 
   // 4. Usage ceiling.
-  // Extra-credit cost guard: never keep spending NEW real pay-as-you-go money unattended.
-  // creditSpent is spend accrued since the weekly window began (see effectiveCreditSpent), so a
-  // nonzero month-to-date total with subscription headroom does NOT pause here.
   const usage = usageHold(state);
   if (usage) return { kind: "hold", reason: usage };
 

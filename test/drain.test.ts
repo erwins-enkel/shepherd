@@ -606,6 +606,26 @@ test("usage ceiling hold → status paused (usage banner reachable)", async () =
   expect(last.detail).toBe("92");
 });
 
+test("label drain with global Codex default bypasses Claude usage ceiling", async () => {
+  const saved = config.defaultAgentProvider;
+  config.defaultAgentProvider = "codex";
+  try {
+    const h = makeHarness({
+      maxAuto: 2,
+      usagePct: 100,
+      usageCeilingPct: 80,
+      issues: [issue(1)],
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates).toHaveLength(1);
+    const last = h.statuses.at(-1)!;
+    expect(last.paused).toBe(false);
+    expect(last.reason).not.toBe("usage");
+  } finally {
+    config.defaultAgentProvider = saved;
+  }
+});
+
 function creditWindow(over: Partial<NonNullable<UsageLimitsType["credits"]>> = {}) {
   return {
     pct: 50,

@@ -50,6 +50,7 @@ typography:
 rounded:
   sm: "2px"
   md: "3px"
+  chip: "6px"
   lg: "12px"
 spacing:
   xs: "4px"
@@ -87,6 +88,12 @@ components:
     backgroundColor: "{colors.amber}"
     size: "9px"
     rounded: "50%"
+  status-chip:
+    backgroundColor: "{colors.panel-2}"
+    textColor: "{colors.muted}"
+    typography: "{typography.label}"
+    rounded: "{rounded.chip}"
+    padding: "3px 9px"
   compose-sheet:
     backgroundColor: "{colors.head}"
     textColor: "{colors.ink}"
@@ -141,7 +148,9 @@ A desaturated, green-tinted monochrome ground with four reserved status accents.
 
 ### Named Rules
 
-**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (ready / actionable-complete), red (blocked), slate (idle / parked, including a WAITING agent awaiting its next steer). These hues are reserved for state. No decorative element may borrow a status color, or it dilutes the only signal that must never be missed. Green is spent only on a ready-to-ship session, never on a merely finished turn — so a parked agent reads quiet, not "done, ignore me." **Narrow exception — usage gauge:** the usage-limit bar may go red when `pct > 90` (approaching cap) as a bar-fill/text-only signal; it carries no halo or status pip, so a blocked agent's red pip remains the loudest red on screen. Red stays fully reserved for blocked agent state in all other UI elements.
+**The Four-Light Rule.** Status speaks in exactly four colors: amber (working), green (ready / actionable-complete), red (blocked), slate (idle / parked, including a WAITING agent awaiting its next steer). These hues are reserved for **state — never decoration**. State is not only _agent_ state: a **functional-status chip** reporting genuine machine state (git / CI / PR / ready) is status too, and may carry the matching semantic hue (blue stays informational, not a status light). What the rule forbids is a _decorative_ element borrowing a status color, which would dilute the only signal that must never be missed. Green is spent only on a ready-to-ship session, never on a merely finished turn — so a parked agent reads quiet, not "done, ignore me."
+
+**Red is rationed by loudness, not banned outright.** The _loudest_ red — a pulsing, haloed status pip, or the oxblood header wash (`--wash-blocked`) — stays fully reserved for blocked agent state, so it is never out-competed. Quieter, _subordinate_ red is permitted for non-agent failure: a CI-failure chip may go red on its text, border and dot, and the usage-limit bar may go red when `pct > 90` (approaching cap) as a bar-fill/text-only signal. Neither carries a halo, pulse, or wash, so a blocked agent's red pip remains the loudest red on screen.
 
 **The Quiet Ground Rule.** The surface is desaturated green-black; visible chroma stays at or below ~10% of any screen, spent on status lights and the one amber action. If the screen looks colorful at rest, color has leaked out of its lane.
 
@@ -197,10 +206,17 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 
 ### Buttons
 
-- **Shape:** Gently squared (2px radius). Square enough to read as instrument hardware, never pill-shaped.
+- **Shape:** Gently squared (2px radius). Square enough to read as instrument hardware, never pill-shaped. Buttons are interactive controls; a read-only _status chip_ steps to the softer 6px chip radius (see Status Chip below), which is still not the forbidden full pill (999px).
 - **Default:** Outline ghost. Transparent fill, 1px Bright Hairline border, Phosphor Ink text, uppercase 11px label at +0.12em, padding 7px 14px.
 - **Primary / Active:** Same ghost geometry, but border and text switch to Signal Amber with an inset amber glow (`inset 0 0 18px -10px`). The amber primary is never a solid amber fill; the glow does the emphasis.
 - **Hover:** Background lifts to `hover` (#0c1110); border brightens. No motion beyond the tonal shift.
+
+### Status Chip
+
+- **When:** A compact, read-only **functional-status** readout in a chip row — git / CI / PR / critic / ready state. It is a distinct control class: not a **Button** (interactive → 2px ghost), not a structural **Panel** (square, 0 radius), and not the inline **Badge** (the smallest 2px micro-label embedded in running text or a table cell). Reach for a chip when a row of machine-state values must read at a glance and stay thumb-reachable.
+- **Shape:** The 6px chip radius (`rounded.chip`) — the one softer step in the system, between the 2px control and the forbidden 999px pill. Padding ~3px 9px, uppercase 11px label (`--fs-meta`) at +0.08em, 1px Hairline border, `panel-2` fill.
+- **Semantic accent:** A chip may carry its status hue on **border + text + an optional leading dot**, chosen by meaning (blue = informational / PR, green = passing / ready, amber = in progress, slate = idle / parked). The hue is not decoration — it _is_ the status. Always pair it with a non-color cue: the label carries the meaning, the dot reinforces it; hue never stands alone.
+- **Subordinate red:** A functional failure (e.g. CI failed) may go red on text + border + dot, but never takes a halo, pulse, or wash — that loudest red stays reserved for the blocked agent pip (see the Four-Light Rule).
 
 ### Inputs / Fields
 
@@ -233,11 +249,11 @@ Shadows are permitted in exactly one situation: a summoned overlay. Bottom sheet
 ### Do:
 
 - **Do** keep everything in Berkeley Mono. Build hierarchy from size, weight, case, and ink brightness (Faint Moss -> Muted Sage -> Phosphor Ink -> Bright Phosphor).
-- **Do** reserve the four status colors (amber / green / red / slate) strictly for agent state. The Four-Light Rule is the most important rule in the system. Exception: the usage-limit gauge may show red when `pct > 90` as a bar-fill/text-only signal (see Four-Light Rule above).
+- **Do** reserve the four status colors (amber / green / red / slate) for _state_ — agent state and functional machine status (git / CI / PR / ready) alike — never for decoration. The Four-Light Rule is the most important rule in the system. Red is rationed by loudness: subordinate red (a CI-failure chip's text/border/dot, or the usage-limit gauge above `pct > 90` as bar-fill/text-only) is permitted, but the loudest red — pulsing haloed pip or oxblood wash — stays reserved for blocked agent state (see Four-Light Rule above).
 - **Do** build depth with tonal layering and 1px hairlines (inset < panel-2 < panel < head). If a panel needs separation, step the value or brighten the hairline.
-- **Do** keep structural panels square (0 radius) and reserve the 2px radius for buttons and chips; 12px is only for rising bottom sheets.
+- **Do** keep structural panels square (0 radius), use the 2px radius for buttons and controls and the 6px chip radius for status chips, and reserve 12px for rising bottom sheets. The full pill (999px) stays forbidden.
 - **Do** use tabular figures for any number that updates in place.
-- **Do** keep the screen calm at rest and make the blocked (red) state the loudest thing on it. The usage-gauge red (bar-fill/text-only, no halo/pip) is subordinate to this — a blocked pip remains the loudest red on screen. Spend attention only on what is actionable.
+- **Do** keep the screen calm at rest and make the blocked (red) state the loudest thing on it. Subordinate reds — the usage-gauge fill and a CI-failure chip (text/border/dot, no halo/pulse/wash) — stay below it; a blocked pip remains the loudest red on screen. Spend attention only on what is actionable.
 - **Do** pair every status color with a non-color cue (position, pulse, check glyph, or label), and keep touch targets thumb-reachable; phone steering is first-class.
 
 ### Don't:

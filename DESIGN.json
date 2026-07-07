@@ -198,6 +198,14 @@
       "css": ".ds-pip { width: 9px; height: 9px; border-radius: 50%; display: inline-block; margin-right: 10px; vertical-align: middle; } .ds-pip-working { background: var(--color-amber); animation: ds-pip-pulse 1.5s ease-out infinite; } .ds-pip-blocked { background: var(--color-red); } .ds-pip-ready { color: var(--color-green); font-size: 10px; font-weight: 700; line-height: 1; } @keyframes ds-pip-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-amber) 70%, transparent); } 70% { box-shadow: 0 0 0 7px transparent; } 100% { box-shadow: 0 0 0 0 transparent; } } @media (prefers-reduced-motion: reduce) { .ds-pip-working { animation: none; } }"
     },
     {
+      "name": "Status Chip",
+      "kind": "custom",
+      "refersTo": "status-chip",
+      "description": "Compact read-only functional-status chip (git / CI / PR / ready). 6px radius — softer than a 2px button, still not the forbidden 999px pill. Carries its semantic hue on border + text + optional leading dot; a failure red is subordinate (no halo, pulse, or wash), so a blocked agent's pip stays the loudest red on screen.",
+      "html": "<div class=\"ds-status-chips\"><span class=\"ds-status-chip info\"><span class=\"ds-status-dot\"></span>PR #42</span><span class=\"ds-status-chip ready\"><span class=\"ds-status-dot\"></span>CI passing</span><span class=\"ds-status-chip fail\"><span class=\"ds-status-dot\"></span>CI failed</span></div>",
+      "css": ".ds-status-chips { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; } .ds-status-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--color-panel-2); color: var(--color-muted); border: 1px solid var(--color-line); border-radius: 6px; padding: 3px 9px; font-family: var(--font-mono, ui-monospace, monospace); font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; white-space: nowrap; } .ds-status-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--color-muted); flex: none; } .ds-status-chip.info { color: var(--color-blue); border-color: var(--color-blue); } .ds-status-chip.info .ds-status-dot { background: var(--color-blue); } .ds-status-chip.ready { color: var(--color-green); border-color: var(--color-green); } .ds-status-chip.ready .ds-status-dot { background: var(--color-green); } .ds-status-chip.fail { color: var(--color-red); border-color: var(--color-red); } .ds-status-chip.fail .ds-status-dot { background: var(--color-red); }"
+    },
+    {
       "name": "Toolbar Panel",
       "kind": "card",
       "refersTo": "panel",
@@ -235,7 +243,7 @@
     "rules": [
       {
         "name": "The Four-Light Rule",
-        "body": "Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state; no decorative element may borrow a status color. Narrow exception: the usage-limit gauge may go red when pct > 90 as a bar-fill/text-only signal (no halo, no status pip), so a blocked agent's red pip remains the loudest red on screen.",
+        "body": "Status speaks in exactly four colors: amber (working), green (done/ready), red (blocked), slate (idle). These hues are reserved for state — never decoration. State includes functional machine status: a functional-status chip (git / CI / PR / ready) may carry the matching hue (blue stays informational, not a status light). Red is rationed by loudness: the loudest red — a pulsing haloed pip or the oxblood header wash — stays reserved for blocked agent state, while subordinate red (a CI-failure chip's text/border/dot, or the usage-limit gauge above pct > 90 as a bar-fill/text-only signal) carries no halo, pulse, or wash, so a blocked agent's red pip remains the loudest red on screen.",
         "section": "colors"
       },
       {
@@ -266,11 +274,11 @@
     ],
     "dos": [
       "Do keep everything in Berkeley Mono. Build hierarchy from size, weight, case, and ink brightness (Faint Moss -> Muted Sage -> Phosphor Ink -> Bright Phosphor).",
-      "Do reserve the four status colors (amber / green / red / slate) strictly for agent state. Exception: the usage-limit gauge may show red when pct > 90 as a bar-fill/text-only signal (see Four-Light Rule).",
+      "Do reserve the four status colors (amber / green / red / slate) for state — agent state and functional machine status (git / CI / PR / ready) alike — never decoration. Red is rationed by loudness: subordinate red (a CI-failure chip's text/border/dot, or the usage-limit gauge above pct > 90 as bar-fill/text-only) is permitted, but the loudest red — pulsing haloed pip or oxblood wash — stays reserved for blocked agent state (see Four-Light Rule).",
       "Do build depth with tonal layering and 1px hairlines (inset < panel-2 < panel < head).",
-      "Do keep structural panels square (0 radius) and reserve the 2px radius for buttons and chips; 12px is only for rising bottom sheets.",
+      "Do keep structural panels square (0 radius), use the 2px radius for buttons and controls and the 6px chip radius for status chips, and reserve 12px for rising bottom sheets; the full pill (999px) stays forbidden.",
       "Do use tabular figures for any number that updates in place.",
-      "Do keep the screen calm at rest and make the blocked (red) state the loudest thing on it. The usage-gauge red (bar-fill/text-only, no halo/pip) is subordinate — a blocked pip stays the loudest red on screen.",
+      "Do keep the screen calm at rest and make the blocked (red) state the loudest thing on it. Subordinate reds — the usage-gauge fill and a CI-failure chip (text/border/dot, no halo/pulse/wash) — stay below it; a blocked pip stays the loudest red on screen.",
       "Do pair every status color with a non-color cue (position, pulse, check glyph, or label), and keep touch targets thumb-reachable; phone steering is first-class."
     ],
     "donts": [

@@ -136,6 +136,34 @@ input, select, textarea {
 }
 /* state colors come from the accent/status tokens, applied to color + border */`;
 
+  const statusChipMarkup = `<span class="status-chip info"><span class="dot"></span>PR #42</span>
+<span class="status-chip ready"><span class="dot"></span>CI passing</span>
+<span class="status-chip fail"><span class="dot"></span>CI failed</span>
+
+.status-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border: 1px solid var(--color-line);
+  border-radius: 6px;          /* softer chip rung — not a 2px control, not a 999px pill */
+  background: var(--color-panel-2);
+  color: var(--color-muted);
+}
+.status-chip .dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: currentColor;    /* dot follows the chip's hue */
+}
+/* semantic accent on border + text + dot, chosen by meaning */
+.status-chip.info  { color: var(--color-blue);  border-color: var(--color-blue); }
+.status-chip.ready { color: var(--color-green); border-color: var(--color-green); }
+/* subordinate red — failure only; never a halo/pulse/wash (Four-Light Rule) */
+.status-chip.fail  { color: var(--color-red);   border-color: var(--color-red); }`;
+
   const meterMarkup = `<!-- PuiMeter — plugin UI primitive (issue #1185); rendered via PluginUIRenderer -->
 <div class="pui-meter">
   <div class="pui-meter-header">
@@ -704,12 +732,19 @@ input, select, textarea {
   </section>
 
   <section class="panel">
-    <h2>Badges &amp; pills</h2>
+    <h2>Badges &amp; chips</h2>
     <p class="when">
-      <strong>When:</strong> a compact, read-only status label (PR state, CI, critic verdict). Color
-      comes from the accent/status tokens. <strong>When not:</strong> if it's clickable it's a button,
-      not a badge.
+      Two read-only status primitives, split by size and context.
+      <strong>Badge</strong> — the smallest inline micro-label (2px radius, 10px, no dot) embedded
+      in running text, a table cell, or beside a title for a single state token.
+      <strong>Status chip</strong> — the 6px chip-row control (11px, optional leading dot,
+      thumb-reachable) for a row of functional-status values (git / CI / PR / ready). Both may carry
+      a semantic hue on border + text; only the chip adds the dot and the softer radius.
+      <strong>When not:</strong> if it's clickable it's a button, not a badge or chip; hue is reserved
+      for genuine state, never decoration.
     </p>
+
+    <p class="when"><strong>Badge</strong> — inline micro-label:</p>
     <div class="demo">
       <span class="badge">OPEN</span>
       <span class="badge" style="color: var(--color-green); border-color: var(--color-green)"
@@ -720,6 +755,20 @@ input, select, textarea {
       >
     </div>
     <pre><code>{badgeMarkup}</code></pre>
+
+    <p class="when"><strong>Status chip</strong> — functional-status row (radius 6px):</p>
+    <div class="demo">
+      <span class="status-chip"><span class="dot"></span>PR #42</span>
+      <span class="status-chip info"><span class="dot"></span>PR #42</span>
+      <span class="status-chip ready"><span class="dot"></span>CI passing</span>
+      <span class="status-chip ready"><span class="dot"></span>READY</span>
+      <span class="status-chip fail"><span class="dot"></span>CI failed</span>
+    </div>
+    <p class="when">
+      The <code>fail</code> chip's red is <strong>subordinate</strong> — text + border + dot only, never
+      a halo, pulse, or wash — so the blocked-agent pip stays the loudest red on screen (Four-Light Rule).
+    </p>
+    <pre><code>{statusChipMarkup}</code></pre>
   </section>
 
   <section class="panel">
@@ -1140,6 +1189,39 @@ input, select, textarea {
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
+  }
+  /* Status chip — 6px chip-row control; distinct from the 2px .chip color swatch above */
+  .status-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    background: var(--color-panel-2);
+    color: var(--color-muted);
+  }
+  .status-chip .dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: currentColor;
+  }
+  .status-chip.info {
+    color: var(--color-blue);
+    border-color: var(--color-blue);
+  }
+  .status-chip.ready {
+    color: var(--color-green);
+    border-color: var(--color-green);
+  }
+  /* subordinate red — failure only; never a halo/pulse/wash (Four-Light Rule) */
+  .status-chip.fail {
+    color: var(--color-red);
+    border-color: var(--color-red);
   }
   /* PuiMeter demo styles (mirrors PuiMeter.svelte) */
   .pui-meter-demo {

@@ -14,6 +14,7 @@
   import { jumpDigitIndex } from "$lib/components/herd-keynav";
   import { sortBlocked, type BlockState } from "$lib/triage";
   import { m } from "$lib/paraglide/messages";
+  import { untrack } from "svelte";
 
   let {
     sessions,
@@ -80,7 +81,7 @@
     | { kind: "doc"; title: string; url: string };
   type OptRow = Row & { oid: number };
 
-  let filter = $state(initialFilter ?? "");
+  let filter = $state(untrack(() => initialFilter) ?? "");
   let activeIdx = $state(0);
   let inputEl = $state<HTMLInputElement | null>(null);
   let listEl = $state<HTMLUListElement | null>(null);

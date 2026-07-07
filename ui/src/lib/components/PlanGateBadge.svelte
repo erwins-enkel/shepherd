@@ -1,9 +1,12 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import { composePlanGateTooltip, planGateChip } from "./plan-gate-badge";
+  import { composePlanGateTooltip, planGateChip, planGateStalled } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
+  import PlanGateMenu from "./PlanGateMenu.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { replySession, reviewPlan } from "$lib/api";
+  import { toasts } from "$lib/toasts.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surfaces (UnitRow/UnitTile) pass false so this chip
@@ -12,14 +15,28 @@
     session,
     allowView = true,
     pulseReady = false,
-  }: { session: Session; allowView?: boolean; pulseReady?: boolean } = $props();
+    labelOverride = null,
+    fallbackLabel = null,
+    fallbackTitle = null,
+  }: {
+    session: Session;
+    allowView?: boolean;
+    pulseReady?: boolean;
+    labelOverride?: string | null;
+    fallbackLabel?: string | null;
+    fallbackTitle?: string | null;
+  } = $props();
 
   const gate = $derived(planGates.map[session.id]);
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
   const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
+  const stalled = $derived(planGateStalled(chip));
 
   let open = $state(false);
+  let btnEl = $state<HTMLButtonElement>();
+  let menu = $state<{ anchor: DOMRect; autoFocus: boolean } | null>(null);
+  let busy = $state<"send" | "review" | null>(null);
 
   const title = $derived(
     composePlanGateTooltip(chip, gate, {
@@ -33,20 +50,108 @@
       view: m.plangate_tip_view(),
     }),
   );
+
+  function closeMenu() {
+    menu = null;
+  }
+
+  function openMenu(autoFocus: boolean) {
+    if (!stalled || !btnEl) return;
+    menu = { anchor: btnEl.getBoundingClientRect(), autoFocus };
+  }
+
+  function toggle(e: MouseEvent) {
+    e.stopPropagation();
+    if (stalled) {
+      if (menu) closeMenu();
+      else openMenu(true);
+      return;
+    }
+    open = true;
+  }
+
+  function findingsText(): string {
+    const findings = gate?.findings ?? [];
+    if (findings.length > 0) return findings.map((f, i) => `${i + 1}. ${f}`).join("\n");
+    const body = gate?.body?.trim();
+    return body ? body : m.plangate_repair_no_findings();
+  }
+
+  function repairDraft(): string {
+    return m.plangate_repair_steer({ findings: findingsText() });
+  }
+
+  async function sendChanges(text = repairDraft()) {
+    if (!gate || busy) return;
+    const draft = text.trim();
+    if (!draft) return;
+    busy = "send";
+    try {
+      await replySession(session.id, draft);
+      closeMenu();
+      toasts.info(m.plangate_repair_sent(), { key: `plan-repair:${session.id}` });
+    } catch {
+      toasts.info(m.plangate_repair_send_failed(), {
+        duration: null,
+        alert: true,
+        key: `plan-repair:${session.id}`,
+        action: { label: m.common_retry(), run: () => sendChanges(draft) },
+      });
+    } finally {
+      busy = null;
+    }
+  }
+
+  async function reviewAgain() {
+    if (busy || reviewing) return;
+    busy = "review";
+    try {
+      const status = await reviewPlan(session.id);
+      if (status === "started") toasts.info(m.plangate_review_started());
+      else if (status === "plan-unavailable" && !planGates.isReviewing(session.id))
+        toasts.info(m.gitrail_review_plan_unavailable());
+      else if (status === "skipped" && !planGates.isReviewing(session.id))
+        toasts.info(m.plangate_review_skipped_stalled());
+      else if (status === "error")
+        toasts.info(m.gitrail_review_plan_failed(), {
+          duration: null,
+          alert: true,
+          key: `review-plan:${session.id}`,
+        });
+      if (status !== "error") closeMenu();
+    } catch {
+      toasts.info(m.gitrail_review_plan_failed(), {
+        duration: null,
+        alert: true,
+        key: `review-plan:${session.id}`,
+      });
+    } finally {
+      busy = null;
+    }
+  }
 </script>
 
 {#if chip.kind !== "none"}
   <button
+    bind:this={btnEl}
     type="button"
     class="pg-badge pg-{chip.kind}{pulseClass}"
+    class:pg-stalled={stalled}
     {title}
-    onclick={(e) => {
+    aria-haspopup={stalled ? "menu" : undefined}
+    aria-expanded={stalled ? menu !== null : undefined}
+    onclick={toggle}
+    oncontextmenu={(e) => {
+      if (!stalled) return;
+      e.preventDefault();
       e.stopPropagation();
-      open = true;
+      openMenu(true);
     }}
   >
     {#if chip.kind === "reviewing"}
       <span class="rev-dot" aria-hidden="true"></span>{m.plangate_reviewing()}
+    {:else if labelOverride}
+      {labelOverride}
     {:else if chip.kind === "changes"}
       {m.plangate_changes({ round: chip.round, cap: chip.cap })}
     {:else if chip.kind === "ready"}
@@ -59,6 +164,30 @@
       {m.plangate_planning()}
     {/if}
   </button>
+{:else if fallbackLabel}
+  <span
+    class="pg-badge pg-changes pg-stalled pg-fallback"
+    title={fallbackTitle ?? fallbackLabel}
+    role="img"
+    aria-label={fallbackTitle ?? fallbackLabel}>{fallbackLabel}</span
+  >
+{/if}
+
+{#if menu}
+  <PlanGateMenu
+    anchor={menu.anchor}
+    opener={btnEl}
+    busy={busy !== null}
+    autoFocus={menu.autoFocus}
+    draftText={repairDraft()}
+    onopenplan={() => {
+      closeMenu();
+      open = true;
+    }}
+    onsendchanges={sendChanges}
+    onreview={reviewAgain}
+    onclose={closeMenu}
+  />
 {/if}
 
 {#if open}
@@ -85,6 +214,13 @@
   .pg-changes {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+  .pg-stalled {
+    background: color-mix(in srgb, var(--color-amber) 8%, transparent);
+  }
+  .pg-fallback {
+    display: inline-block;
+    cursor: default;
   }
   .pg-ready {
     border-color: var(--color-green);

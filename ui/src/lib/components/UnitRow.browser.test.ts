@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
-import type { Session } from "$lib/types";
+import type { PlanGate, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import type { ReviewVerdict } from "$lib/types";
 
@@ -14,7 +14,7 @@ vi.mock("$lib/api", async (importOriginal) => {
   return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
 });
 
-const { reviews } = await import("$lib/reviews.svelte");
+const { reviews, planGates } = await import("$lib/reviews.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -79,9 +79,26 @@ const baseVerdict: ReviewVerdict = {
   updatedAt: Date.now(),
 };
 
+const baseGate: PlanGate = {
+  sessionId: "s1",
+  planHash: "h",
+  decision: "changes_requested",
+  summary: "tighten scope",
+  body: "",
+  findings: ["tighten scope"],
+  round: 3,
+  cap: 3,
+  approved: false,
+  plan: "# Plan",
+  blocks: [],
+  updatedAt: Date.now(),
+};
+
 beforeEach(() => {
   reviews.reviewing = {};
   reviews.map = {};
+  planGates.reviewing = {};
+  planGates.map = {};
 });
 
 describe("UnitRow merging badge", () => {
@@ -441,6 +458,22 @@ describe("UnitRow quota-stalled badge", () => {
       quotaKind: "plan",
     });
     await expect.element(page.getByTitle(m.unitrow_quota_title())).toBeInTheDocument();
+  });
+
+  it("opens the stalled-plan menu from the Plan stalled quota chip", async () => {
+    const id = "qb5";
+    planGates.map = { [id]: { ...baseGate, sessionId: id } };
+
+    render(UnitRow, {
+      session: session({ id, status: "blocked", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      quotaKind: "plan",
+    });
+
+    await page.getByRole("button", { name: m.unitrow_quota_plan() }).click();
+    await expect.element(page.getByRole("menu", { name: m.plangate_menu_label() })).toBeVisible();
   });
 });
 

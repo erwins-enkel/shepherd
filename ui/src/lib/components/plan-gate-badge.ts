@@ -31,6 +31,10 @@ export type PlanGateChip =
   | { kind: "error" }
   | { kind: "planning" };
 
+export function planGateStalled(chip: PlanGateChip): boolean {
+  return chip.kind === "changes" && chip.round >= chip.cap;
+}
+
 export function planGateChip(
   session: Pick<Session, "planPhase">,
   gate: PlanGate | undefined,

@@ -96,8 +96,14 @@
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} />
   <BuildQueueBadge sessionId={session.id} />
-  <PlanGateBadge {session} allowView={false} />
-  {#if quotaKind}
+  <PlanGateBadge
+    {session}
+    allowView={false}
+    labelOverride={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
+    fallbackLabel={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
+    fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
+  />
+  {#if quotaKind && quotaKind !== "plan"}
     <span
       class="badge quota-stalled"
       role="img"

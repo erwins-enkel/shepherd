@@ -817,6 +817,35 @@ input, select, textarea {
       <button type="button" class="chip-action">⚙ Auto</button>
     </div>
     <pre><code>{chipRowMarkup}</code></pre>
+
+    <p class="when">
+      <strong>Two scoped allowances beyond a literal chip row</strong> — used by the Viewport
+      identity row (task bar), where a control relates to the git chip strip it sits with but is not
+      physically <em>in</em>
+      a chip row. Each is justified on its own footing, not by treating the identity row as one cohesive
+      cluster:
+    </p>
+    <ul class="when">
+      <li>
+        <strong>Standalone ghost chip</strong> — a read-only <em>identity label</em> (the
+        <code>TASK-XX</code>
+        designation) may take the 6px radius as a <strong>hue-less, dot-less</strong> boxed label. Distinct
+        from the inline 2px badge (status tokens) and the semantic status chip (hue + dot): the ghost
+        chip is shape-only and never borrows a status color.
+      </li>
+      <li>
+        <strong>Chip-radius disclosure control</strong> — the control that <em>discloses</em> a chip
+        strip (the git-rail foldout) may take the 6px radius to rhyme with what it opens, and may
+        keep a subordinate inset glow (<code>inset 0 0 18px -10px</code>) on its semantic states as
+        the disclosure's emphasis — a tight −10px inner tint, never a broadcast halo, so the
+        blocked-agent pip stays the loudest red (Four-Light Rule).
+      </li>
+      <li>
+        <strong>What stays a badge</strong> — read-only status pips that live among other 2px badges (the
+        ready pip, the plan-gate / autopilot status badges in the identity row) remain the 2px badge primitive,
+        so a lone 6px chip is never stranded between 2px siblings.
+      </li>
+    </ul>
   </section>
 
   <section class="panel">

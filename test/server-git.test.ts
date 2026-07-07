@@ -99,11 +99,16 @@ function fakeForge(
 function makeDeps(
   forge: GitForge | null,
   session: Session | null = SESSION,
-  opts: { draftMode?: boolean } = {},
+  opts: { draftMode?: boolean; signoffAuthority?: "human" | "critic" | "either" } = {},
 ): AppDeps & { emitted: { event: string; data: unknown }[]; cacheWrites: string[] } {
   const store: Partial<SessionStore> = {
     get: (id) => (session && id === session.id ? session : null),
-    getRepoConfig: () => ({ draftMode: opts.draftMode ?? false }) as any,
+    getRepoConfig: () =>
+      ({
+        draftMode: opts.draftMode ?? false,
+        signoffAuthority: opts.signoffAuthority ?? "human",
+      }) as any,
+    getReview: () => null,
   };
   const emitted: { event: string; data: unknown }[] = [];
   const cacheWrites: string[] = [];
@@ -285,6 +290,61 @@ test("POST git/ready promotes a draft PR and emits refreshed git state", async (
     id: "s1",
     git: { isDraft: false },
   });
+});
+
+test("POST git/ready rejects unsigned draft-mode PR before reconciler flips it back", async () => {
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+        isDraft: true,
+      }) as PrStatus,
+    markReady: async (n) => {
+      f.log.push(`ready:${n}`);
+    },
+  });
+  const deps = makeDeps(f, SESSION, { draftMode: true });
+  const app = makeApp(deps);
+
+  const res = await app.fetch(post("/api/sessions/s1/git/ready"));
+
+  expect(res.status).toBe(409);
+  expect(f.log).not.toContain("ready:5");
+  expect(await res.json()).toMatchObject({
+    code: "draft_awaiting_signoff",
+    error: expect.stringContaining("awaiting sign-off"),
+  });
+  expect(deps.cacheWrites).toEqual([]);
+  expect(deps.emitted.find((e) => e.event === "session:git")).toBeUndefined();
+});
+
+test("POST git/ready allows signed draft-mode PR", async () => {
+  let isDraft = true;
+  const f = fakeForge({
+    prStatus: async () =>
+      ({
+        state: "open",
+        number: 5,
+        checks: "success",
+        deployConfigured: true,
+        isDraft,
+        latestReview: { state: "approved", author: "reviewer", submittedAt: 1 },
+      }) as PrStatus,
+    markReady: async (n) => {
+      f.log.push(`ready:${n}`);
+      isDraft = false;
+    },
+  });
+  const app = makeApp(makeDeps(f, SESSION, { draftMode: true }));
+
+  const res = await app.fetch(post("/api/sessions/s1/git/ready"));
+
+  expect(res.status).toBe(200);
+  expect(f.log).toContain("ready:5");
+  expect(await res.json()).toMatchObject({ state: "open", number: 5, isDraft: false });
 });
 
 test("POST git/draft converts a ready PR back to draft", async () => {

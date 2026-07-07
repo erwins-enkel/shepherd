@@ -1104,7 +1104,17 @@ export async function gitState(id: string): Promise<GitState | null> {
  *  mutate the list snapshot optimistically. */
 export async function setPrDraftState(id: string, draft: boolean): Promise<GitState> {
   const r = await fetch(`/api/sessions/${id}/git/${draft ? "draft" : "ready"}`, JSON_POST());
-  if (!r.ok) throw await failed(r, draft ? "mark PR draft" : "mark PR ready");
+  if (!r.ok) {
+    const body = (await r.json().catch(() => null)) as { code?: string; error?: string } | null;
+    if (!draft && body?.code === "draft_awaiting_signoff") {
+      throw new Error(m.prbadge_ready_needs_signoff());
+    }
+    throw apiError(
+      r.status,
+      body,
+      `${draft ? "mark PR draft" : "mark PR ready"} failed: ${r.status}`,
+    );
+  }
   return r.json();
 }
 

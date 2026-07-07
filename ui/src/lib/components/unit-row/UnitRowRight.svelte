@@ -25,6 +25,8 @@
     decom,
     coarsePointer,
     pressDecommission,
+    previewChoiceOpen = false,
+    onpreviewchoice,
     elapsedEl = $bindable(),
   }: {
     session: Session;
@@ -40,20 +42,16 @@
     decom: "idle" | "armed";
     coarsePointer: boolean;
     pressDecommission: () => void;
+    previewChoiceOpen?: boolean;
+    onpreviewchoice?: (anchor: HTMLElement) => void;
     elapsedEl?: HTMLSpanElement;
   } = $props();
 
-  let previewChoiceOpen = $state(false);
   let previewWrapEl = $state<HTMLElement | null>(null);
   const previewOpenMode = $derived(repoConfig.previewOpenModeForLoaded(session.repoPath));
   const previewBusy = $derived(previewPort != null && previewOpenMode === null);
 
-  function closePreviewChoice() {
-    previewChoiceOpen = false;
-  }
-
   function choosePreview(target: "inline" | "tab") {
-    closePreviewChoice();
     onpreview?.(session.id, target);
   }
 
@@ -61,27 +59,11 @@
     e.stopPropagation();
     if (previewBusy || previewOpenMode === null) return;
     if (previewOpenMode === "ask") {
-      previewChoiceOpen = !previewChoiceOpen;
+      if (previewWrapEl) onpreviewchoice?.(previewWrapEl);
       return;
     }
     choosePreview(previewOpenMode);
   }
-
-  $effect(() => {
-    if (!previewChoiceOpen) return;
-    const onPointerDown = (e: PointerEvent) => {
-      if (previewWrapEl && !previewWrapEl.contains(e.target as Node)) closePreviewChoice();
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") closePreviewChoice();
-    };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKey);
-    };
-  });
 </script>
 
 <div class="u-right">
@@ -136,23 +118,6 @@
           }
         }}>{m.unitrow_preview_badge()}</span
       >
-      {#if previewChoiceOpen}
-        <span
-          class="preview-choice"
-          role="dialog"
-          aria-label={m.unitrow_preview_choice_label()}
-          tabindex="-1"
-          onclick={(e) => e.stopPropagation()}
-          onkeydown={(e) => e.stopPropagation()}
-        >
-          <button type="button" class="preview-choice-btn" onclick={() => choosePreview("inline")}>
-            {m.unitrow_preview_open_inline()}
-          </button>
-          <button type="button" class="preview-choice-btn" onclick={() => choosePreview("tab")}>
-            {m.viewport_preview_open_new_tab()}
-          </button>
-        </span>
-      {/if}
     </span>
   {/if}
   <ResearchBadge {session} />
@@ -328,40 +293,6 @@
     cursor: wait;
     opacity: 0.55;
   }
-  .preview-choice {
-    position: absolute;
-    top: calc(100% + 4px);
-    right: 0;
-    z-index: 3;
-    min-width: 150px;
-    padding: 4px;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-  }
-  .preview-choice-btn {
-    margin: 0;
-    padding: 5px 8px;
-    border: 0;
-    border-radius: 2px;
-    background: transparent;
-    color: var(--color-ink);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    text-align: left;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .preview-choice-btn:hover,
-  .preview-choice-btn:focus-visible {
-    background: var(--color-hover);
-    color: var(--color-ink-bright);
-    outline: none;
-  }
-
   /* Degraded: the slot's tailscale serve mapping failed to register — the preview
      still works on loopback but isn't exposed over Tailscale. Amber = attention/
      degraded (not red, which is reserved for a blocked session). */

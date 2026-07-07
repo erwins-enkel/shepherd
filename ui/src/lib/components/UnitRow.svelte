@@ -139,6 +139,63 @@
 
   const swipe = $derived(!!ondecommission && coarse.current);
 
+  const PREVIEW_CHOICE_WIDTH = 150;
+  let previewChoice = $state<{ top: number; left: number; anchor: HTMLElement } | null>(null);
+  let previewChoiceEl = $state<HTMLElement | null>(null);
+
+  function previewChoicePosition(anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = typeof window === "undefined" ? rect.right : window.innerWidth;
+    return {
+      top: rect.bottom + 4,
+      left: Math.max(
+        8,
+        Math.min(rect.right - PREVIEW_CHOICE_WIDTH, viewportWidth - 8 - PREVIEW_CHOICE_WIDTH),
+      ),
+      anchor,
+    };
+  }
+
+  function togglePreviewChoice(anchor: HTMLElement) {
+    previewChoice = previewChoice?.anchor === anchor ? null : previewChoicePosition(anchor);
+  }
+
+  function closePreviewChoice() {
+    previewChoice = null;
+  }
+
+  function choosePreview(target: "inline" | "tab") {
+    closePreviewChoice();
+    onpreview?.(session.id, target);
+  }
+
+  $effect(() => {
+    if (!previewChoice) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const choice = previewChoice;
+      if (!choice) return;
+      const target = e.target as Node;
+      if (previewChoiceEl?.contains(target) || choice.anchor.contains(target)) return;
+      closePreviewChoice();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePreviewChoice();
+    };
+    const onReposition = () => {
+      if (previewChoice) previewChoice = previewChoicePosition(previewChoice.anchor);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  });
+
   // gesture state
   let offset = $state(0); // px the row is slid left (negative); 0 = closed
   let dragging = $state(false); // finger down + tracking x → suppress snap transition
@@ -465,6 +522,8 @@
       {decom}
       coarsePointer={coarse.current}
       {pressDecommission}
+      previewChoiceOpen={previewChoice?.anchor != null}
+      onpreviewchoice={togglePreviewChoice}
       bind:elapsedEl
     />
 
@@ -576,6 +635,26 @@
 
 {#if tipRect && !menu}
   <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
+{/if}
+
+{#if previewChoice}
+  <div
+    class="preview-choice"
+    role="dialog"
+    aria-label={m.unitrow_preview_choice_label()}
+    tabindex="-1"
+    bind:this={previewChoiceEl}
+    style="top:{previewChoice.top}px;left:{previewChoice.left}px"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={(e) => e.stopPropagation()}
+  >
+    <button type="button" class="preview-choice-btn" onclick={() => choosePreview("inline")}>
+      {m.unitrow_preview_open_inline()}
+    </button>
+    <button type="button" class="preview-choice-btn" onclick={() => choosePreview("tab")}>
+      {m.viewport_preview_open_new_tab()}
+    </button>
+  </div>
 {/if}
 
 <style>
@@ -700,6 +779,38 @@
   }
   .slider.dragging {
     transition: none;
+  }
+
+  .preview-choice {
+    position: fixed;
+    z-index: 40;
+    min-width: 150px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+  }
+  .preview-choice-btn {
+    margin: 0;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .preview-choice-btn:hover,
+  .preview-choice-btn:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-ink-bright);
+    outline: none;
   }
 
   .unit::before {

@@ -204,6 +204,7 @@ describe("UnitRow preview badge", () => {
     await expect
       .element(page.getByRole("dialog", { name: "Choose preview target" }))
       .toBeInTheDocument();
+    expect(document.querySelector(".preview-choice")?.closest(".unit")).toBeNull();
     await page.getByRole("button", { name: "Open inline" }).click();
     expect(calls).toEqual([["p4", "inline"]]);
   });

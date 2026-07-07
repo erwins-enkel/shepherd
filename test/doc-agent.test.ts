@@ -1,9 +1,16 @@
 import { test, expect } from "bun:test";
+import { execFile } from "node:child_process";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
 import {
   DocAgentService,
   DOC_AGENT_LABEL,
   SERVER_INSTALL_ROOT,
   PrettierFormatError,
+  assertPrettierClean,
+  defaultPrettierWrite,
   isDocRelevantMerge,
   type DocAgentFinalize,
   type DocAgentDeps,
@@ -1099,6 +1106,111 @@ test("prettier regression: docs-site paths are never passed to prettier", async 
   const call = h.prettierCalls[0]!;
   for (const f of call.files) {
     expect(f).not.toContain("docs-site");
+  }
+});
+
+// ── real-prettier tests: the ignore-path fix + fail-closed --check guard ────────
+// These drive the REAL defaultPrettierWrite/assertPrettierClean (not the mocked seam), so they
+// prove the two halves the seam-based tests above cannot: (1) formatting is not silently skipped
+// when the worktree lives under a `.shepherd-*` path, and (2) the `--check` guard actually detects
+// a non-conformant file. They use SERVER_INSTALL_ROOT as cwd (real node_modules → prettier plugins
+// resolve) and the repo's real .prettierrc as the config, matching production.
+
+const execFileP = promisify(execFile);
+const REPO_PRETTIERRC = join(SERVER_INSTALL_ROOT, ".prettierrc");
+// A deliberately non-canonical Markdown table: prettier re-pads the first column to the width of
+// `attachmentNames`, so the input differs from prettier's output (the exact #1517 failure shape).
+const UNFORMATTED_MD = [
+  "# Doc",
+  "",
+  "| Field | Notes |",
+  "| --- | --- |",
+  "| `x` | short |",
+  "| `attachmentNames` | longer |",
+  "",
+].join("\n");
+
+/** Make a temp "worktree" whose path contains a `.shepherd-*` component (like the real
+ *  `.shepherd-worktrees/…`), holding a single unformatted `docs/<name>.md`. Returns the abs file
+ *  path + a cleanup thunk. */
+function mkShepherdWorktreeDoc(name = "foo.md"): { file: string; cleanup: () => void } {
+  // mkdtemp prefix `.shepherd-wt-` → the created dir matches the `.shepherd-*` glob in the repo's
+  // .prettierignore, reproducing the silent-skip that made doc PRs fail CI.
+  const wt = mkdtempSync(join(tmpdir(), ".shepherd-wt-"));
+  mkdirSync(join(wt, "docs"));
+  const file = join(wt, "docs", name);
+  writeFileSync(file, UNFORMATTED_MD);
+  return { file, cleanup: () => rmSync(wt, { recursive: true, force: true }) };
+}
+
+test("prettier fix (regression): defaultPrettierWrite formats a doc under a .shepherd-* worktree that the old path silently skipped", async () => {
+  const { file, cleanup } = mkShepherdWorktreeDoc();
+  try {
+    const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
+
+    // NEGATIVE CONTROL: the OLD invocation (no --ignore-path devNull) from cwd=SERVER_INSTALL_ROOT
+    // must leave the file BYTE-UNCHANGED — prettier treats it as ignored (path matches `.shepherd-*`
+    // in the repo .prettierignore). Without this, a mis-built temp layout would make the assertion
+    // below pass vacuously (the file would have formatted even without the fix).
+    await execFileP(binary, ["--write", "--config", REPO_PRETTIERRC, "--", file], {
+      cwd: SERVER_INSTALL_ROOT,
+    });
+    expect(readFileSync(file, "utf8")).toBe(UNFORMATTED_MD); // proven: layout reproduces the skip
+
+    // PATCHED: the real defaultPrettierWrite (adds --ignore-path devNull) MUST format it.
+    await defaultPrettierWrite({
+      cwd: SERVER_INSTALL_ROOT,
+      configPath: REPO_PRETTIERRC,
+      files: [file],
+    });
+    const formatted = readFileSync(file, "utf8");
+    expect(formatted).not.toBe(UNFORMATTED_MD);
+    // Alignment happened: prettier pads every table row to one width, so the short (`x`) row and the
+    // wide (`attachmentNames`) row now have identical length.
+    const rowX = formatted.split("\n").find((l) => l.includes("`x`"))!;
+    const rowLong = formatted.split("\n").find((l) => l.includes("`attachmentNames`"))!;
+    expect(rowX.length).toBe(rowLong.length);
+
+    // INDEPENDENT CONFIRMATION: the output passes `prettier --check` from a NON-nested path (a clean
+    // checkout equivalent, honoring default ignores) — i.e. it would go green in CI.
+    const plain = mkdtempSync(join(tmpdir(), "plain-doc-"));
+    try {
+      const plainFile = join(plain, "external-task-api.md");
+      writeFileSync(plainFile, formatted);
+      // exit 0 ⇒ resolves; a non-zero exit would reject and fail the test.
+      await execFileP(binary, ["--check", "--config", REPO_PRETTIERRC, "--", plainFile], {
+        cwd: SERVER_INSTALL_ROOT,
+      });
+    } finally {
+      rmSync(plain, { recursive: true, force: true });
+    }
+  } finally {
+    cleanup();
+  }
+});
+
+test("prettier guard: assertPrettierClean REJECTS an unformatted doc and RESOLVES a formatted one (detection half)", async () => {
+  const { file, cleanup } = mkShepherdWorktreeDoc();
+  try {
+    // Unformatted (and under a `.shepherd-*` path): --ignore-path devNull keeps --check non-vacuous,
+    // so the guard must detect the non-conformance and reject — this is the abort trigger.
+    await expect(
+      assertPrettierClean({ cwd: SERVER_INSTALL_ROOT, configPath: REPO_PRETTIERRC, files: [file] }),
+    ).rejects.toThrow();
+
+    // After formatting the SAME file, the guard must resolve (idempotency: no false-positive abort).
+    await defaultPrettierWrite({
+      cwd: SERVER_INSTALL_ROOT,
+      configPath: REPO_PRETTIERRC,
+      files: [file],
+    });
+    await assertPrettierClean({
+      cwd: SERVER_INSTALL_ROOT,
+      configPath: REPO_PRETTIERRC,
+      files: [file],
+    });
+  } finally {
+    cleanup();
   }
 });
 

@@ -319,4 +319,11 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
+  /* 44px touch targets on coarse pointers (matches SlashCommandMenu/AddRepoMenu). */
+  @media (max-width: 768px) {
+    .pgm-item,
+    .pgm-small {
+      min-height: 44px;
+    }
+  }
 </style>

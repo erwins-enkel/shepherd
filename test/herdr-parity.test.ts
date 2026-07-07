@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
-import { HerdrDriver } from "./herdr";
-import { SocketHerdrDriver } from "./herdr-socket-driver";
-import type { HerdrSocketClient } from "./herdr-socket-client";
+import { HerdrDriver } from "../src/herdr";
+import { SocketHerdrDriver } from "../src/herdr-socket-driver";
+import type { HerdrSocketClient } from "../src/herdr-socket-client";
 
 /**
  * Guards against the CLI and socket drivers' shared `parseAgents` ever diverging: both

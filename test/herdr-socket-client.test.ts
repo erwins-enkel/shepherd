@@ -3,9 +3,9 @@ import * as net from "node:net";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import { HerdrSocketClient, HerdrSocketError } from "./herdr-socket-client";
-import { maintenance } from "./maintenance";
-import { HerdrUnavailableError } from "./herdr";
+import { HerdrSocketClient, HerdrSocketError } from "../src/herdr-socket-client";
+import { maintenance } from "../src/maintenance";
+import { HerdrUnavailableError } from "../src/herdr";
 
 /** Minimal NDJSON JSON-RPC fake server: reads line-delimited requests, hands each
  *  parsed `{id, method, params}` to `onRequest`, which returns the response object(s)

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { HerdrDriver, parseAgents, parseProcs, parseReadText } from "./herdr";
+import { HerdrDriver, parseAgents, parseProcs, parseReadText } from "../src/herdr";
 
 // ── parseAgents ──────────────────────────────────────────────────────────────
 

@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
-import { StatusPoller } from "./poller";
-import type { SessionStore } from "./store";
-import type { HerdrDriver, HerdrAgent } from "./herdr";
+import { StatusPoller } from "../src/poller";
+import type { SessionStore } from "../src/store";
+import type { HerdrDriver, HerdrAgent } from "../src/herdr";
 
 /** Minimal store fixture: `list()` returns no active sessions, which keeps tick()'s
  *  body trivial (no reconcile/reap/preview/liveness work) so the test isolates the

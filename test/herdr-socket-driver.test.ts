@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
-import { SocketHerdrDriver, selectHerdrDriver } from "./herdr-socket-driver";
-import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "./herdr";
-import type { HerdrSocketClient } from "./herdr-socket-client";
+import { SocketHerdrDriver, selectHerdrDriver } from "../src/herdr-socket-driver";
+import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "../src/herdr";
+import type { HerdrSocketClient } from "../src/herdr-socket-client";
 
 /** Fake client exposing a controllable `request` spy. Cast through `unknown` (no
  *  explicit `any`) since the driver only ever calls `.request(...)` on it. */

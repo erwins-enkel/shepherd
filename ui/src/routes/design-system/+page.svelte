@@ -164,6 +164,36 @@ input, select, textarea {
 /* subordinate red — failure only; never a halo/pulse/wash (Four-Light Rule) */
 .status-chip.fail  { color: var(--color-red);   border-color: var(--color-red); }`;
 
+  const chipRowMarkup = `<!-- status/action chip row — read-only chips + interactive controls, one cohesive 6px set -->
+<span class="status-chip info"><span class="dot"></span>PR #42</span>
+<span class="status-chip ready"><span class="dot"></span>CI passing</span>
+<button class="chip-action primary">Merge</button>
+<button class="chip-action">Ready</button>
+<button class="chip-action">⚙ Auto</button>
+
+/* interactive control sharing the chip's 6px radius for row cohesion (a standalone button stays 2px) */
+.chip-action {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 9px;
+  border: 1px solid var(--color-line-bright);
+  border-radius: 6px;          /* the chip rung — NOT the forbidden 999px pill */
+  background: transparent;
+  color: var(--color-ink);
+  cursor: pointer;
+}
+.chip-action:hover { background: var(--color-hover); border-color: var(--color-ink); }  /* hover-lift: action, not a resting chip */
+.chip-action.primary {         /* amber primary — the loudest action in the row */
+  color: var(--color-amber);
+  border-color: var(--color-amber);
+  box-shadow: inset 0 0 18px -10px var(--color-amber);
+}`;
+
   const meterMarkup = `<!-- PuiMeter — plugin UI primitive (issue #1185); rendered via PluginUIRenderer -->
 <div class="pui-meter">
   <div class="pui-meter-header">
@@ -734,14 +764,16 @@ input, select, textarea {
   <section class="panel">
     <h2>Badges &amp; chips</h2>
     <p class="when">
-      Two read-only status primitives, split by size and context.
-      <strong>Badge</strong> — the smallest inline micro-label (2px radius, 10px, no dot) embedded
-      in running text, a table cell, or beside a title for a single state token.
+      Two status primitives, split by size and context.
+      <strong>Badge</strong> — the smallest inline, read-only micro-label (2px radius, 10px, no dot)
+      embedded in running text, a table cell, or beside a title for a single state token.
       <strong>Status chip</strong> — the 6px chip-row control (11px, optional leading dot,
       thumb-reachable) for a row of functional-status values (git / CI / PR / ready). Both may carry
       a semantic hue on border + text; only the chip adds the dot and the softer radius.
-      <strong>When not:</strong> if it's clickable it's a button, not a badge or chip; hue is reserved
-      for genuine state, never decoration.
+      <strong>When not:</strong> a badge stays read-only — a clickable control is a button. But
+      <em>inside a status/action chip row</em> a button may adopt the chip's 6px radius so the row reads
+      as one cohesive chip set (a standalone button stays 2px); hue is reserved for genuine state, never
+      decoration.
     </p>
 
     <p class="when"><strong>Badge</strong> — inline micro-label:</p>
@@ -769,6 +801,22 @@ input, select, textarea {
       a halo, pulse, or wash — so the blocked-agent pip stays the loudest red on screen (Four-Light Rule).
     </p>
     <pre><code>{statusChipMarkup}</code></pre>
+
+    <p class="when">
+      <strong>Chip-row cohesion</strong> — inside a status/action row, interactive controls (MERGE, READY,
+      ⚙ AUTO) may share the chip's 6px radius so the whole row reads as one cohesive chip set, not a 6px-chip
+      + 2px-button mix. The action still separates itself with its hover-lift (a resting status chip never
+      lifts) and, for the primary, the amber treatment — a deliberate relaxation of shape-encodes-interactivity,
+      scoped to the chip row; a standalone button stays 2px:
+    </p>
+    <div class="demo">
+      <span class="status-chip info"><span class="dot"></span>PR #42</span>
+      <span class="status-chip ready"><span class="dot"></span>CI passing</span>
+      <button type="button" class="chip-action primary">Merge</button>
+      <button type="button" class="chip-action">Ready</button>
+      <button type="button" class="chip-action">⚙ Auto</button>
+    </div>
+    <pre><code>{chipRowMarkup}</code></pre>
   </section>
 
   <section class="panel">
@@ -1222,6 +1270,33 @@ input, select, textarea {
   .status-chip.fail {
     color: var(--color-red);
     border-color: var(--color-red);
+  }
+  /* interactive control sharing the chip's 6px radius for row cohesion (a standalone button stays 2px) */
+  .chip-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font: inherit;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  /* hover-lift marks the action — a resting status chip never lifts */
+  .chip-action:hover {
+    background: var(--color-hover);
+    border-color: var(--color-ink);
+  }
+  /* amber primary — the loudest action in the row */
+  .chip-action.primary {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   /* PuiMeter demo styles (mirrors PuiMeter.svelte) */
   .pui-meter-demo {

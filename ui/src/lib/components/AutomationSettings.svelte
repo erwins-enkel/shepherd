@@ -72,6 +72,14 @@
   const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
+  const signoffAuthority = $derived(repoConfig.signoffAuthorityFor(repoPath));
+  const signoffHelp = $derived(
+    signoffAuthority === "human"
+      ? m.automation_signoff_human_help()
+      : signoffAuthority === "critic"
+        ? m.automation_signoff_critic_help()
+        : m.automation_signoff_either_help(),
+  );
   const autoOptimizeDesc = $derived(
     flags.learnings
       ? m.settings_auto_optimize_flagged_help()
@@ -427,7 +435,7 @@
       <select
         class="afield-num signoff-select"
         aria-label={m.automation_signoff_authority_label()}
-        value={repoConfig.signoffAuthorityFor(repoPath)}
+        value={signoffAuthority}
         onchange={(e) =>
           repoConfig.setSignoffAuthority(
             repoPath,
@@ -441,6 +449,7 @@
         <option value="either" disabled={!flags.critic}>{m.signoff_authority_either()}</option>
       </select>
     </label>
+    <div class="signoff-note">{signoffHelp}</div>
     {#if !flags.critic}
       <div class="signoff-note">{m.automation_signoff_needs_critic()}</div>
     {/if}

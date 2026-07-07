@@ -195,6 +195,7 @@ import { quotaBlockReason, type BlockReason } from "./blocked";
 import { upstreamStatus } from "./upstream-status";
 import { shouldHold } from "./usage-hold";
 import { PluginSpawnAborted } from "./plugins/types";
+import { signedOff, type SignoffView } from "./signoff";
 import { scanInstalled, installPlugin, uninstallPlugin } from "./plugins/manage";
 import { randomUUID } from "node:crypto";
 
@@ -3423,6 +3424,34 @@ async function refreshSessionGit(
   return git;
 }
 
+function unsignedDraftModeReadyResponse(
+  session: Session,
+  cur: PrStatus,
+  deps: AppDeps,
+): Response | null {
+  const cfg = deps.store.getRepoConfig(session.repoPath);
+  if (!cfg.draftMode) return null;
+
+  const review = deps.store.getReview(session.id);
+  const view: SignoffView = {
+    humanApproved: cur.latestReview?.state === "approved",
+    reviewDecision: review?.decision ?? null,
+    findings: review?.findings ?? [],
+    reviewHeadSha: review?.headSha ?? null,
+    headSha: cur.headSha ?? null,
+  };
+  if (signedOff(cfg.signoffAuthority, view)) return null;
+
+  return json(
+    {
+      code: "draft_awaiting_signoff",
+      error:
+        "This repo is in draft mode and the PR is still awaiting sign-off; approve it or change the sign-off setting before marking it ready for review.",
+    },
+    409,
+  );
+}
+
 async function forgeSetDraftState(
   forge: GitForge,
   session: Session,
@@ -3432,6 +3461,10 @@ async function forgeSetDraftState(
   const cur = await forge.prStatus(session.branch ?? "");
   if (cur.state !== "open" || !cur.number) {
     return json({ error: "no open PR" }, 409);
+  }
+  if (!draft) {
+    const blocked = unsignedDraftModeReadyResponse(session, cur, deps);
+    if (blocked) return blocked;
   }
   if (!!cur.isDraft !== draft) {
     const action = draft ? forge.convertToDraft : forge.markReady;

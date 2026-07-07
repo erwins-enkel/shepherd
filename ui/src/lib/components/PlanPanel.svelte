@@ -2,7 +2,7 @@
   import type { AgentProvider, Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import { dismissQuota, releasePlanGate, resumeQuota, reviewPlan } from "$lib/api";
-  import { canRelease, planGateChip } from "./plan-gate-badge";
+  import { canRelease, canShowPlanStallActions, planGateChip } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
@@ -37,13 +37,7 @@
   const planAnswerCtx = $derived(
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
-  const planStalled = $derived(
-    canReviewNow &&
-      session.status !== "running" &&
-      !reviewing &&
-      gate?.decision === "changes_requested" &&
-      gate.round >= gate.cap,
-  );
+  const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
   let envOpen = $state(false);
 
   function providerLabel(provider: AgentProvider): string {

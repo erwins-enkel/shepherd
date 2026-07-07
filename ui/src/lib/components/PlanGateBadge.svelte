@@ -1,7 +1,12 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import { composePlanGateTooltip, planGateChip, planGateStalled } from "./plan-gate-badge";
+  import {
+    canShowPlanStallActions,
+    composePlanGateTooltip,
+    planGateChip,
+    planGateStalled,
+  } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -30,6 +35,7 @@
   const gate = $derived(planGates.map[session.id]);
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
+  const stalledActionsVisible = $derived(canShowPlanStallActions(session, gate, reviewing));
   const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
   const stalled = $derived(planGateStalled(chip));
 
@@ -39,16 +45,21 @@
   let busy = $state<"send" | "review" | null>(null);
 
   const title = $derived(
-    composePlanGateTooltip(chip, gate, {
-      fallback: m.plangate_title(),
-      planning: m.plangate_tip_planning(),
-      reviewing: m.plangate_tip_reviewing(),
-      changes: m.plangate_tip_changes(),
-      changesStalled: m.plangate_tip_changes_stalled(),
-      ready: m.plangate_tip_ready(),
-      error: m.plangate_tip_error(),
-      view: m.plangate_tip_view(),
-    }),
+    composePlanGateTooltip(
+      chip,
+      gate,
+      {
+        fallback: m.plangate_title(),
+        planning: m.plangate_tip_planning(),
+        reviewing: m.plangate_tip_reviewing(),
+        changes: m.plangate_tip_changes(),
+        changesStalled: m.plangate_tip_changes_stalled(),
+        ready: m.plangate_tip_ready(),
+        error: m.plangate_tip_error(),
+        view: m.plangate_tip_view(),
+      },
+      { stalledActionsVisible },
+    ),
   );
 
   function closeMenu() {

@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   planGateChip,
   canRelease,
+  canShowPlanStallActions,
   composePlanGateTooltip,
   type PlanGateTooltipCopy,
 } from "./plan-gate-badge";
@@ -23,6 +24,10 @@ const baseGate: PlanGate = {
 };
 const gate = (p: Partial<PlanGate>): PlanGate => ({ ...baseGate, ...p });
 const sess = (planPhase: Session["planPhase"]): Pick<Session, "planPhase"> => ({ planPhase });
+const actionSess = (
+  planPhase: Session["planPhase"],
+  status: Session["status"] = "idle",
+): Pick<Session, "planPhase" | "status"> => ({ planPhase, status });
 const tooltipCopy: PlanGateTooltipCopy = {
   fallback: "Plan gate",
   planning: "Review before execution.",
@@ -145,6 +150,26 @@ describe("canRelease", () => {
   });
 });
 
+describe("canShowPlanStallActions", () => {
+  it("matches the actionable stalled plan state", () => {
+    expect(
+      canShowPlanStallActions(
+        actionSess("planning"),
+        gate({ decision: "changes_requested", round: 3, cap: 3 }),
+        false,
+      ),
+    ).toBe(true);
+  });
+
+  it("is false while the planning agent or reviewer is running", () => {
+    const stalledGate = gate({ decision: "changes_requested", round: 3, cap: 3 });
+    expect(canShowPlanStallActions(actionSess("planning", "running"), stalledGate, false)).toBe(
+      false,
+    );
+    expect(canShowPlanStallActions(actionSess("planning"), stalledGate, true)).toBe(false);
+  });
+});
+
 describe("composePlanGateTooltip", () => {
   it("preserves reviewer summary and appends the causal hint", () => {
     const chip = planGateChip(sess("planning"), gate({ summary: "tighten scope" }), false);
@@ -155,9 +180,18 @@ describe("composePlanGateTooltip", () => {
 
   it("uses stalled copy for changes at the round cap", () => {
     const chip = planGateChip(sess("planning"), gate({ round: 3, cap: 3 }), false);
-    const tooltip = composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy);
+    const tooltip = composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy, {
+      stalledActionsVisible: true,
+    });
     expect(tooltip).toBe(m.plangate_tip_changes_stalled());
     expect(tooltip.toLowerCase()).not.toContain("stall banner");
+  });
+
+  it("uses non-actionable changes copy at the round cap when stall actions are hidden", () => {
+    const chip = planGateChip(sess("planning"), gate({ round: 3, cap: 3 }), false);
+    expect(composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy)).toBe(
+      "Execution waits for approval.",
+    );
   });
 
   it("covers ready, error, and view states without a summary", () => {

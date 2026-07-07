@@ -266,8 +266,8 @@ export function parseProcs(result: unknown): string[] {
 }
 
 /**
- * Public method surface of `HerdrDriver`, extracted so a future socket-backed
- * driver (issue #1529) can implement the same contract behind the existing seam —
+ * Public method surface of `HerdrDriver`, extracted so the socket-backed
+ * driver (`SocketHerdrDriver`, issue #1529) implements the same contract behind the existing seam —
  * callers keep using `Pick<HerdrDriver, …>` today; nothing about them changes.
  */
 export interface IHerdrDriver {

@@ -106,8 +106,8 @@ describe("UpdateModal", () => {
 
     const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]');
     const sheet = document.querySelector<HTMLElement>('[data-flock="sheet"]');
-    const sheep = flock?.querySelector<HTMLElement>('[data-flock-actor="sheep"]');
-    const dog = flock?.querySelector<HTMLElement>('[data-flock-actor="dog"]');
+    const sheep = flock?.querySelector<SVGElement>('[data-flock-actor="sheep"]');
+    const dog = flock?.querySelector<SVGElement>('[data-flock-actor="dog"]');
     const card = document.querySelector<HTMLElement>(".card");
     const run = page.getByRole("button", { name: /updating/i });
 
@@ -115,10 +115,10 @@ describe("UpdateModal", () => {
     expect(sheet).not.toBeNull();
     expect(sheep).not.toBeNull();
     expect(dog).not.toBeNull();
-    expect(flock!.querySelector("svg")).toBeNull();
-    expect(sheep!.tagName).toBe("PRE");
-    expect(sheep!.textContent).toContain("(oo)");
-    expect(dog!.textContent).toContain("^..^");
+    expect(flock!.querySelector("pre")).toBeNull();
+    expect(sheep!.tagName).toBe("svg");
+    expect(sheep!.querySelector("[data-sheep-body]")).not.toBeNull();
+    expect(dog!.querySelector("[data-dog-body]")).not.toBeNull();
     expect(card).not.toBeNull();
     await expect.element(run).toBeVisible();
 
@@ -180,8 +180,8 @@ describe("UpdateModal", () => {
     expect(after.top).toBeLessThan(window.innerHeight);
     expect(sheet!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
     expect(sheet!.querySelector('[data-flock-actor="dog"]')).not.toBeNull();
-    expect(sheet!.querySelector("svg")).toBeNull();
-    expect(sheet!.textContent).toContain("(oo)");
+    expect(sheet!.querySelector("pre")).toBeNull();
+    expect(sheet!.querySelector("[data-sheep-body]")).not.toBeNull();
   });
 
   it("uses a testable static flock state when reduced motion is requested", async () => {
@@ -196,13 +196,13 @@ describe("UpdateModal", () => {
     });
 
     const flock = document.querySelector<HTMLElement>('[data-flock="backdrop"]');
-    const actor = flock?.querySelector<HTMLElement>(".actor");
+    const actor = flock?.querySelector<SVGElement>(".actor");
     expect(flock).not.toBeNull();
     expect(actor).not.toBeNull();
 
     await vi.waitFor(() => expect(flock!.dataset.reduced).toBe("true"));
     expect(getComputedStyle(actor!).animationName).toBe("none");
     expect(flock!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
-    expect(flock!.textContent).toContain("(oo)");
+    expect(flock!.querySelector("[data-sheep-body]")).not.toBeNull();
   });
 });

@@ -33,10 +33,11 @@
 
 <style>
   /* matches the sibling .gbtn buttons in the GitRail rail */
+  /* interactive control inside the git-rail chip row → 6px chip-row cohesion (DESIGN.md #1541) */
   .ready-toggle {
     background: transparent;
     border: 1px solid var(--color-line);
-    border-radius: 2px;
+    border-radius: 6px;
     color: var(--color-muted);
     font-family: var(--font-mono);
     white-space: nowrap;

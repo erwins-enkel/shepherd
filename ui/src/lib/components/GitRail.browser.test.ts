@@ -576,7 +576,7 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
     )!;
     retry.click();
     await vi.waitFor(() => {
-      const link = h.querySelector<HTMLAnchorElement>("a.prlink");
+      const link = h.querySelector<HTMLAnchorElement>("a.status-chip.info");
       expect(link, "PR link rendered after retry").not.toBeNull();
       expect(link!.getAttribute("href")).toBe(openPrState.url);
     });
@@ -589,6 +589,10 @@ describe("GitRail — mobile scroll affordance", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
+    // Emulate the real .vp-git-strip (display:flex; min-width:0) so the
+    // .git-rail-wrap.mobile (flex:1 1 auto; min-width:0) clamps to the cell and
+    // the rail scrolls — a plain block host only clamps while content fits.
+    h.style.display = "flex";
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
@@ -607,6 +611,8 @@ describe("GitRail — mobile scroll affordance", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
+    // flex host mirrors the real .vp-git-strip so the wrap clamps and the rail scrolls
+    h.style.display = "flex";
     const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 

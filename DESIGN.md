@@ -92,6 +92,7 @@ components:
     backgroundColor: "{colors.panel-2}"
     textColor: "{colors.muted}"
     typography: "{typography.label}"
+    letterSpacing: "0.08em"
     rounded: "{rounded.chip}"
     padding: "3px 9px"
   compose-sheet:

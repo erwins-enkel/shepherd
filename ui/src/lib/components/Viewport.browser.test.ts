@@ -385,6 +385,76 @@ describe("Viewport rename affordances", () => {
     expect(header!.querySelector<HTMLElement>(".branch")?.textContent).toBe("feature/actual-work");
   });
 
+  it("desktop single-tap on the title toggles the git rail instantly", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "toggle-head", name: "toggle title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    expect(header, "normal desktop header").not.toBeNull();
+    // rail closed at rest on desktop
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
+
+    header!.querySelector<HTMLElement>(".vp-name")!.click();
+    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+  });
+
+  it("double-tap renames and restores the rail to its pre-rename state", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "toggle-rename", name: "toggle rename title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    const title = header!.querySelector<HTMLElement>(".vp-name");
+    // two taps inside the double-tap window: tap 1 opens the rail, tap 2 undoes
+    // that and opens rename → the rail returns to closed, no lingering toggle
+    title!.click();
+    title!.click();
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
+  });
+
+  it("clicking the relocated git-toggle chip toggles the rail with aria-expanded", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "toggle-chip", name: "chip title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const header = container.querySelector<HTMLElement>(".vp-head:not(.mobile)");
+    const toggle = header!.querySelector<HTMLElement>(".git-toggle");
+    expect(toggle, "git-toggle chip").not.toBeNull();
+    expect(toggle!.getAttribute("aria-expanded")).toBe("false");
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
+
+    toggle!.click();
+    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    expect(toggle!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("mobile double-tap on the title still renames (no rail toggle path)", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "toggle-mobile", name: "mobile title" }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const trigger = container.querySelector<HTMLElement>(".vp-head.mobile .ctx-trigger");
+    expect(trigger, "mobile ctx-trigger").not.toBeNull();
+    trigger!.click();
+    trigger!.click();
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+  });
+
   it("opens rename only for matching targeted requests", async () => {
     const { rerender } = render(Viewport, {
       session: session({ id: "rename-target", name: "target title" }),

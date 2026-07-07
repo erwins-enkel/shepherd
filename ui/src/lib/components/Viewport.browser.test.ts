@@ -321,6 +321,12 @@ describe("Viewport task detail tooltip", () => {
 });
 
 describe("Viewport rename affordances", () => {
+  // Several tests below fold/unfold the compact header; headerCollapsed persists
+  // to localStorage on every toggleFold, so a prior test's fold would leak into
+  // the next mount and invert its "true"→"false" assertions. Reset so every test
+  // starts unfolded (mirrors the reset in the swipe-scoping describe block below).
+  beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
+
   const headerNameSlug = (value: string) =>
     value
       .toLowerCase()
@@ -420,6 +426,81 @@ describe("Viewport rename affordances", () => {
     expect(container.querySelector(".vp-git-strip")).toBeNull();
   });
 
+  it("touch-desktop single tap folds the header instantly", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "touch-fold", name: "touch fold title" }),
+      touch: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const fold = container.querySelector<HTMLElement>(".vp-fold");
+    expect(fold, "header fold button").not.toBeNull();
+    expect(fold!.getAttribute("aria-expanded")).toBe("true");
+
+    const title = container.querySelector<HTMLElement>(".vp-name");
+    expect(title, "touch-desktop title").not.toBeNull();
+    title!.click();
+
+    await expect.poll(() => fold!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("touch-desktop double-tap renames and restores the fold", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "touch-fold-rename", name: "touch fold rename title" }),
+      touch: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const fold = container.querySelector<HTMLElement>(".vp-fold");
+    expect(fold, "header fold button").not.toBeNull();
+
+    const title = container.querySelector<HTMLElement>(".vp-name");
+    // two taps inside the double-tap window: tap 1 folds the header, tap 2 undoes
+    // that and opens rename → the fold returns to unfolded, no lingering toggle
+    title!.click();
+    title!.click();
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    // .vp-actions (which contains .vp-fold) is display:none while compact+renaming,
+    // so assert the attribute value, not element visibility.
+    expect(fold!.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("touch-desktop double-tap restores the pre-fold tab, not just term", async () => {
+    // Both double-tap tests above start (and stay) on the default "term" tab,
+    // so `tab = preFoldTab` is a no-op there — the restore itself is never
+    // asserted. Switch to a non-terminal tab first so the undo path is
+    // actually exercised: toggleFold() forces tab="term" on fold, so a naive
+    // "call toggleFold() twice" undo would leave the tab on "term" instead of
+    // restoring it.
+    const { container } = render(Viewport, {
+      session: session({ id: "touch-fold-tab-restore", name: "touch tab restore title" }),
+      touch: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const activityTab = page.getByRole("tab", { name: "Activity", exact: true });
+    await activityTab.click();
+    await expect.element(activityTab).toHaveClass(/active/);
+
+    const title = container.querySelector<HTMLElement>(".vp-name");
+    expect(title, "touch-desktop title").not.toBeNull();
+    // two taps inside the double-tap window: tap 1 folds the header (forcing
+    // tab back to "term" internally), tap 2 undoes the fold — which must
+    // restore the pre-tap tab (Activity), not leave it on "term" — and opens
+    // rename.
+    title!.click();
+    title!.click();
+
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    await expect.element(activityTab).toHaveClass(/active/);
+  });
+
   it("clicking the relocated git-toggle chip toggles the rail with aria-expanded", async () => {
     const { container } = render(Viewport, {
       session: session({ id: "toggle-chip", name: "chip title" }),
@@ -438,7 +519,26 @@ describe("Viewport rename affordances", () => {
     expect(toggle!.getAttribute("aria-expanded")).toBe("true");
   });
 
-  it("mobile double-tap on the title still renames (no rail toggle path)", async () => {
+  it("phone single tap folds the header", async () => {
+    const { container } = render(Viewport, {
+      session: session({ id: "phone-fold", name: "phone fold title" }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    const fold = container.querySelector<HTMLElement>(".vp-fold");
+    expect(fold, "header fold button").not.toBeNull();
+    expect(fold!.getAttribute("aria-expanded")).toBe("true");
+
+    const trigger = container.querySelector<HTMLElement>(".vp-head.mobile .ctx-trigger");
+    expect(trigger, "mobile ctx-trigger").not.toBeNull();
+    trigger!.click();
+
+    await expect.poll(() => fold!.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("mobile double-tap on the title still renames (folds then undoes, not a rail toggle)", async () => {
     const { container } = render(Viewport, {
       session: session({ id: "toggle-mobile", name: "mobile title" }),
       mobile: true,

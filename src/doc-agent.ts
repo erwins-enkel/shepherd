@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { devNull } from "node:os";
 import { join, resolve } from "node:path";
 import { promisify } from "node:util";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
@@ -33,23 +34,60 @@ async function defaultGit(cwd: string, args: string[]): Promise<string> {
  *  plugins). Mirrors the pattern at egress.ts:94 and server.ts:127. */
 export const SERVER_INSTALL_ROOT = resolve(import.meta.dir, "..");
 
-/** Run the server's pinned prettier `--write` over `files`. No-op when the list is empty.
- *  `cwd` should be SERVER_INSTALL_ROOT: prettier 3 resolves the bare plugin specifiers in
- *  `configPath` (`prettier-plugin-svelte`/`-tailwindcss`) by importing from a synthetic module
- *  anchored at the CWD (verified on 3.8.4 — a wrong cwd fails with `imported from <cwd>/noop.js`),
- *  and those plugins are loaded for every parser, markdown included. SERVER_INSTALL_ROOT is the one
- *  directory guaranteed to have them (co-located with this pinned prettier); the managed worktree's
- *  own node_modules may be absent. Throws on prettier error — the caller catches for best-effort. */
-async function defaultPrettierWrite(args: {
+/** Run the server's pinned prettier `--check` over `files` with ALL ignore files disabled
+ *  (`--ignore-path devNull`) and reject if any file is not prettier-clean. Same `cwd`/`configPath`
+ *  as {@link defaultPrettierWrite}, so plugin resolution is identical (see that doc). No-op on an
+ *  empty list. Used as {@link defaultPrettierWrite}'s fail-closed verify; also exported so tests can
+ *  exercise the detection half on its own. */
+export async function assertPrettierClean(args: {
   cwd: string;
   configPath: string;
   files: string[];
 }): Promise<void> {
   if (args.files.length === 0) return;
   const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
-  await execFileP(binary, ["--write", "--config", args.configPath, "--", ...args.files], {
-    cwd: args.cwd,
-  });
+  await execFileP(
+    binary,
+    ["--check", "--ignore-path", devNull, "--config", args.configPath, "--", ...args.files],
+    { cwd: args.cwd },
+  );
+}
+
+/** Format `files` with the server's pinned prettier, then verify. No-op when the list is empty.
+ *  `cwd` should be SERVER_INSTALL_ROOT: prettier 3 resolves the bare plugin specifiers in
+ *  `configPath` (`prettier-plugin-svelte`/`-tailwindcss`) by importing from a synthetic module
+ *  anchored at the CWD (verified on 3.8.4 — a wrong cwd fails with `imported from <cwd>/noop.js`),
+ *  and those plugins are loaded for every parser, markdown included. SERVER_INSTALL_ROOT is the one
+ *  directory guaranteed to have them (co-located with this pinned prettier); the managed worktree's
+ *  own node_modules may be absent.
+ *
+ *  `--ignore-path devNull` disables ALL ignore files: the caller passes an already-whitelisted,
+ *  explicit file list (IN_SCOPE ∩ `docs/` ∩ existing), so prettier's ignore is redundant — and
+ *  harmful, because doc-agent worktrees live under `.shepherd-worktrees/` (worktree.ts), whose
+ *  component matches the `.shepherd-*` glob in the repo's own `.prettierignore`, silently making
+ *  `--write` a no-op on every doc file (the file is "ignored"). CI then checks the same file from a
+ *  clean checkout where nothing is ignored and fails `prettier --check`, so the doc PR is never
+ *  green and never auto-merges. Disabling ignores makes formatting independent of the worktree's
+ *  absolute location.
+ *
+ *  Fail-closed: after `--write`, {@link assertPrettierClean} runs `--check` with the SAME
+ *  cwd/config/ignore (only the mode flag differs) → prettier write→check is idempotent, so a valid
+ *  run never false-aborts, while a residual non-conformance (a future silent skip, config/version
+ *  drift, plugin load failure) throws here. Throws on prettier error — the caller catches to abort
+ *  the run (no commit/push/PR). */
+export async function defaultPrettierWrite(args: {
+  cwd: string;
+  configPath: string;
+  files: string[];
+}): Promise<void> {
+  if (args.files.length === 0) return;
+  const binary = join(SERVER_INSTALL_ROOT, "node_modules", ".bin", "prettier");
+  await execFileP(
+    binary,
+    ["--write", "--ignore-path", devNull, "--config", args.configPath, "--", ...args.files],
+    { cwd: args.cwd },
+  );
+  await assertPrettierClean(args);
 }
 
 /** Thrown by stageInScope when `prettier --write` fails, so finalize can fail-closed:
@@ -792,10 +830,12 @@ export class DocAgentService {
    * reference/cli/*, or a brand-new file is never staged → can't reach the PR.
    *
    * Before staging it formats the `docs/`-prefixed in-scope files (abs paths) with the server's
-   * pinned prettier so the PR passes CI's `prettier --check .` gate — docs-site/** is
+   * pinned prettier — then verifies (`--check`) — so the PR passes CI's `prettier --check .` gate;
+   * both run with ignores disabled so the worktree's `.shepherd-worktrees/` location can't make
+   * prettier silently skip the file (see {@link defaultPrettierWrite}). docs-site/** is
    * Astro/Starlight-governed and must NEVER be passed to root prettier. Prettier is fail-closed: a
-   * failure throws {@link PrettierFormatError}, which finalize catches to abort the run (no
-   * commit/push/PR) and record an `error` outcome. A skipped doc update beats a red un-mergeable PR.
+   * format OR verify failure throws {@link PrettierFormatError}, which finalize catches to abort the
+   * run (no commit/push/PR) and record an `error` outcome. A skipped doc update beats a red PR.
    */
   private async stageInScope(f: InFlight): Promise<string> {
     const inScope = IN_SCOPE_PATHS.filter((p) => this.fileExists(join(f.worktreePath, p)));

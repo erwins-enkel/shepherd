@@ -437,6 +437,10 @@ export class ReviewService {
       streakReviews: 0,
       errorRound: 0,
       reviewedPatchIds: [],
+      // Operator took over: the rework classification (REWORK RUNNING / banner / rundown) stops
+      // counting this verdict as active rework even though decision stays changes_requested, and
+      // attachReviewPush skips the emit below so the takeover doesn't re-notify.
+      dismissed: true,
     };
     this.deps.store.putReview(reset);
     this.deps.onChange(session.id, reset);
@@ -475,6 +479,9 @@ export class ReviewService {
         reviewedPatchIds: [],
         addressRound: 0,
         finalRoundPending: false,
+        // Forcing a fresh review re-engages active rework — clear any prior dismiss so the
+        // re-reviewed verdict classifies normally.
+        dismissed: false,
       });
     }
     // 4. one code path:

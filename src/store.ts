@@ -326,6 +326,7 @@ type ReviewVerdictRow = {
   seenNoteIds: string;
   url: string | null;
   spawnAborted: number | null;
+  dismissed: number | null;
   updatedAt: number;
 };
 
@@ -347,6 +348,8 @@ type PlanGateRow = {
   reviewerProvider: string | null;
   reviewerModel: string | null;
   reviewerEffort: string | null;
+  finalRoundPending: number | null;
+  dismissed: number | null;
 };
 
 /** SQLite row shape for the recaps table. */
@@ -2234,6 +2237,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       url: r.url ?? undefined,
       // Optional flag: present only on a pre-spawn abort row; a normal verdict omits it entirely.
       spawnAborted: r.spawnAborted ? true : undefined,
+      // Optional flag: true only when the operator dismissed/took over this stalled rework.
+      dismissed: r.dismissed ? true : undefined,
     } as ReviewVerdict;
   }
 
@@ -2241,7 +2246,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const r = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
       .get(sessionId) as ReviewVerdictRow | null;
@@ -2251,8 +2256,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   putReview(v: ReviewVerdict): void {
     this.db.run(
       `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
@@ -2260,7 +2265,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
          finalRoundTimeoutMs=excluded.finalRoundTimeoutMs, seenNoteIds=excluded.seenNoteIds,
-         url=excluded.url, spawnAborted=excluded.spawnAborted, updatedAt=excluded.updatedAt`,
+         url=excluded.url, spawnAborted=excluded.spawnAborted, dismissed=excluded.dismissed, updatedAt=excluded.updatedAt`,
       [
         v.sessionId,
         v.headSha,
@@ -2279,6 +2284,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         JSON.stringify(v.seenNoteIds ?? []),
         v.url ?? null,
         v.spawnAborted ? 1 : 0,
+        v.dismissed ? 1 : 0,
         v.updatedAt,
       ],
     );
@@ -2320,7 +2326,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const rows = this.db
       .query(
         `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
-                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, updatedAt FROM reviews`,
+                addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
     const out: Record<string, ReviewVerdict> = {};
@@ -2369,13 +2375,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       updatedAt: r.updatedAt,
       blocks,
       answeredQuestionKeys,
+      finalRoundPending: !!r.finalRoundPending,
+      dismissed: !!r.dismissed,
     } as PlanGate;
   }
 
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -2384,15 +2392,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
          summary=excluded.summary, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
          plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks,
          answeredQuestionKeys=excluded.answeredQuestionKeys,
          reviewerProvider=excluded.reviewerProvider, reviewerModel=excluded.reviewerModel,
-         reviewerEffort=excluded.reviewerEffort`,
+         reviewerEffort=excluded.reviewerEffort,
+         finalRoundPending=excluded.finalRoundPending, dismissed=excluded.dismissed`,
       [
         g.sessionId,
         g.planHash ?? "",
@@ -2410,6 +2419,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         g.reviewerProvider ?? null,
         g.reviewerModel ?? null,
         g.reviewerEffort ?? null,
+        g.finalRoundPending ? 1 : 0,
+        g.dismissed ? 1 : 0,
       ],
     );
   }
@@ -2421,7 +2432,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -3312,6 +3323,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // spawnAborted (#1211): marks a row that records a pre-spawn onSpawn abort (critic never ran),
     // exempting it from the same-head re-review dedup. Pre-existing rows backfill to 0 (real reviews).
     add("spawnAborted", `spawnAborted INTEGER NOT NULL DEFAULT 0`);
+    // dismissed: operator took over this stalled critic rework; classification/attention consumers
+    // skip it. Pre-existing rows backfill to 0 (not dismissed).
+    add("dismissed", `dismissed INTEGER NOT NULL DEFAULT 0`);
   }
 
   private migratePlanGateColumns(): void {
@@ -3325,6 +3339,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("reviewerProvider", `reviewerProvider TEXT`);
     add("reviewerModel", `reviewerModel TEXT`);
     add("reviewerEffort", `reviewerEffort TEXT`);
+    // finalRoundPending: the cap-th plan-rework steer just landed and the agent is revising the
+    // FINAL round (planStallStatus reads it). dismissed: operator took over this stalled plan
+    // rework. Pre-existing rows backfill to 0 (not final / not dismissed).
+    add("finalRoundPending", `finalRoundPending INTEGER NOT NULL DEFAULT 0`);
+    add("dismissed", `dismissed INTEGER NOT NULL DEFAULT 0`);
   }
 
   private migrateReviewerSpawnColumns(): void {

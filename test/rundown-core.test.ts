@@ -150,9 +150,20 @@ test("classifyAttention: each signal maps to the correct tier", () => {
     "blocked-decision",
   );
   expect(
-    c(session({ planPhase: "planning" }), { gate: { decision: "changes_requested" } as any }).tier,
+    c(session({ planPhase: "planning" }), {
+      gate: { decision: "changes_requested", round: 1, cap: 3 } as any,
+    }).tier,
   ).toBe(1);
-  expect(c(session(), { review: { decision: "changes_requested" } as any }).tier).toBe(1);
+  expect(
+    c(session(), {
+      review: {
+        decision: "changes_requested",
+        findings: ["f"],
+        addressRound: 1,
+        addressCap: 3,
+      } as any,
+    }).tier,
+  ).toBe(1);
   expect(c(session({ status: "idle" }), { git: git({ checks: "failure" }) }).tier).toBe(1);
 
   expect(c(session({ status: "idle" }), { git: git({ handoff: "merger" }) }).tier).toBe(2);
@@ -497,6 +508,64 @@ test("classifyAttention + assemble: executing session with retained gate has no 
   // The session must still appear (it has an in-flight signal from idle status + some tier).
   // planRound must be absent — the retained gate must not leak planRound into execution.
   expect(item?.planRound).toBeUndefined(); // L251 guard
+});
+
+test("plan-rework: running + stalled (takeover) suppresses the signal + planRound; idle keeps both", () => {
+  // round==cap, finalRoundPending absent → planStallStatus "stalled".
+  const gate = { ...retainedAtCapGate };
+  // RUNNING taken-over session: no plan-rework, no planRound (reads as active work).
+  const running = classifyAttention(
+    session({ planPhase: "planning", status: "running" }),
+    { gate },
+    NOW,
+  );
+  expect(running.signals).not.toContain("plan-rework");
+  const runOut = assembleHerdState({
+    sessions: [session({ planPhase: "planning", status: "running" })],
+    gates: { s1: gate },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-19",
+    now: NOW,
+  });
+  expect(runOut.sessions.find((s) => s.sessionId === "s1")?.planRound).toBeUndefined();
+  // IDLE genuinely-stalled session: plan-rework + planRound preserved (needs a human).
+  const idle = classifyAttention(session({ planPhase: "planning", status: "idle" }), { gate }, NOW);
+  expect(idle.signals).toContain("plan-rework");
+  const idleOut = assembleHerdState({
+    sessions: [session({ planPhase: "planning", status: "idle" })],
+    gates: { s1: gate },
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-06-19",
+    now: NOW,
+  });
+  expect(idleOut.sessions.find((s) => s.sessionId === "s1")?.planRound).toBe(3);
+});
+
+test("plan-rework: a dismissed gate suppresses the signal even when idle", () => {
+  const gate: PlanGate = { ...retainedAtCapGate, round: 1, cap: 3, dismissed: true };
+  const idle = classifyAttention(session({ planPhase: "planning", status: "idle" }), { gate }, NOW);
+  expect(idle.signals).not.toContain("plan-rework");
+});
+
+test("critic-rework: running + stalled suppresses; dismissed suppresses; idle stall keeps it", () => {
+  const stalled = {
+    decision: "changes_requested",
+    findings: ["f"],
+    addressRound: 3,
+    addressCap: 3,
+    finalRoundPending: false,
+    updatedAt: NOW,
+  } as any;
+  expect(
+    classifyAttention(session({ status: "running" }), { review: stalled }, NOW).signals,
+  ).not.toContain("critic-rework");
+  expect(
+    classifyAttention(session({ status: "idle" }), { review: stalled }, NOW).signals,
+  ).toContain("critic-rework");
+  expect(
+    classifyAttention(session({ status: "idle" }), { review: { ...stalled, dismissed: true } }, NOW)
+      .signals,
+  ).not.toContain("critic-rework");
 });
 
 test("classifyAttention + assemble: planning session with same at-cap gate still gets plan-rework + planRound (guard not over-suppressing)", () => {

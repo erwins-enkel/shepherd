@@ -10,6 +10,9 @@
     type BannerState,
     type ReviewKind,
   } from "$lib/review-banner";
+  import { planStallStatus } from "$lib/plan-status";
+  import { addressStallStatus } from "$lib/review-status";
+  import { clock } from "$lib/now.svelte";
 
   // Non-blocking signal that an in-flight PR-critic / plan-gate review may steer
   // this session when it concludes (issue #1022). Shown only when a paste could
@@ -150,8 +153,16 @@
       dStatus,
       planGate: planGates.map[session.id],
       planReviewing,
+      // A stalled/timed-out loop is no longer active rework (the genuine in-flight "final" round
+      // is not "stalled"); clock.current ticks so it flips when the timeout elapses.
+      planStalled: planGates.map[session.id]
+        ? planStallStatus(planGates.map[session.id]!, clock.current) === "stalled"
+        : false,
       review: reviews.map[session.id],
       criticReviewing,
+      criticStalled: reviews.map[session.id]
+        ? addressStallStatus(reviews.map[session.id]!, clock.current) === "stalled"
+        : false,
       activitySummary: activity?.summary,
     }),
   );

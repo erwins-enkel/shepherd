@@ -478,6 +478,7 @@
         session,
         { planGate: planGates.map[session.id], review: reviews.map[session.id] },
         store.workingBlocked,
+        nowMs,
       );
     const { groups } = groupSessionsByEpic(
       herdSessions,
@@ -1304,6 +1305,7 @@
           session,
           { planGate: planGates.map[session.id], review: reviews.map[session.id] },
           store.workingBlocked,
+          nowMs,
         ),
       nowMs,
       // a page-level status filter short-circuits the rail's all/ready filter in

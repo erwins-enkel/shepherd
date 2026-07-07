@@ -42,6 +42,19 @@ test("plan_gate CRUD round-trips + snapshot", () => {
   expect(s.getPlanGate("s1")).toBeNull();
 });
 
+test("plan_gate round-trips finalRoundPending + dismissed (legacy rows default false)", () => {
+  const s = new SessionStore(":memory:");
+  // A fresh in-loop gate omits both → hydrate treats absent as falsy.
+  s.putPlanGate(g());
+  expect(s.getPlanGate("s1")?.finalRoundPending).toBeFalsy();
+  expect(s.getPlanGate("s1")?.dismissed).toBeFalsy();
+  // Set both and confirm they persist.
+  s.putPlanGate(g({ finalRoundPending: true, dismissed: true }));
+  expect(s.getPlanGate("s1")?.finalRoundPending).toBe(true);
+  expect(s.getPlanGate("s1")?.dismissed).toBe(true);
+  expect(s.snapshotPlanGates().s1!.dismissed).toBe(true);
+});
+
 test("repo_config carries planGateEnabled default + setter", () => {
   const s = new SessionStore(":memory:");
   expect(s.getRepoConfig("/r").planGateEnabled).toBe(false);

@@ -720,6 +720,7 @@ describe("Herd rework-running group", () => {
           s,
           { planGate: planGates.map[s.id], review: reviews.map[s.id] },
           workingBlocked,
+          Date.now(),
         ),
       0,
       "all",

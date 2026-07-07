@@ -392,6 +392,13 @@ export interface PlanGate {
   // server field; absent ⇒ treated as []. Drives the "unanswered plan question" amber tab
   // signal via planQuestionsUnanswered in tab-signal.svelte.ts.
   answeredQuestionKeys?: string[];
+  // The cap-th plan-rework steer just landed → the FINAL round is in flight (agent revising).
+  // planStallStatus (plan-status.ts) reads it to keep the genuine final round in REWORK RUNNING.
+  // Absent ⇒ false.
+  finalRoundPending?: boolean;
+  // Operator dismissed / took over this stalled rework; the rework classification skips it.
+  // Absent ⇒ false.
+  dismissed?: boolean;
   updatedAt: number;
 }
 
@@ -578,6 +585,9 @@ export interface ReviewVerdict {
   addressCap: number; // server's streak cap for this run — the badge reads it instead of mirroring
   finalRoundPending: boolean; // cap-th steer just delivered, no re-review yet → dimmed FINAL badge
   finalRoundTimeoutMs: number; // live abandonment timeout (ms); UI escalates FINAL→STALLED after this
+  // Operator dismissed / took over this stalled critic rework; the rework classification skips it.
+  // Absent ⇒ false.
+  dismissed?: boolean;
   url?: string;
   updatedAt: number;
 }

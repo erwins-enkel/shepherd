@@ -1,11 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { stagingDir } from "../src/uploads";
 import { SessionStore } from "../src/store";
 import { SessionService } from "../src/service";
 import { EventHub } from "../src/events";
 import { makeApp, serve, PTY_GONE_CODE, claimLinkedIssue, type AppDeps } from "../src/server";
+import { WorktreeMgr } from "../src/worktree";
 import type { GitForge } from "../src/forge/types";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
@@ -259,6 +261,40 @@ test("POST /api/sessions surfaces a herdr failure with its real message (not a b
   expect(res.status).toBe(502); // herdr/git failure
   const body = await res.json();
   expect(body.error).toContain("no active workspace"); // real cause reaches the client
+});
+
+test("POST /api/sessions returns 422 when the selected base does not resolve to a commit", async () => {
+  const unbornRepo = join(tmpRoot, "unborn");
+  mkdirSync(unbornRepo);
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: unbornRepo });
+
+  const deps = makeDeps();
+  deps.service = new SessionService({
+    store: deps.store,
+    namer: async () => "x",
+    worktree: new WorktreeMgr(),
+    herdr: {
+      start: () => {
+        throw new Error("herdr should not start for a missing base ref");
+      },
+      list: () => [],
+      stop: () => {},
+      send: () => {},
+    } as any,
+    events: deps.events,
+  });
+
+  const res = await postSessions(makeApp(deps), {
+    repoPath: unbornRepo,
+    baseBranch: "main",
+    prompt: "go",
+  });
+
+  expect(res.status).toBe(422);
+  const body = await res.json();
+  expect(body.error).toContain('base ref "main" does not resolve to a commit');
+  expect(body.error).toContain("create an initial commit");
+  expect(body.error).toContain("choose an existing base branch");
 });
 
 test("an unhandled throw on any route becomes a JSON 500, not Bun's HTML error page", async () => {

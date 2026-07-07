@@ -209,6 +209,37 @@ describe("UnitRow preview badge", () => {
     expect(calls).toEqual([["p4", "inline"]]);
   });
 
+  it("ask mode keeps the chooser inside the viewport near the bottom edge", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    render(UnitRow, {
+      session: session({ id: "p4b" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    const badge = page.getByTitle("Preview").element();
+    const anchor = badge.parentElement as HTMLElement;
+    const anchorRect = DOMRect.fromRect({
+      x: 120,
+      y: window.innerHeight - 12,
+      width: 80,
+      height: 8,
+    });
+    const rectSpy = vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(anchorRect);
+
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    const choice = document.querySelector(".preview-choice") as HTMLElement;
+    const top = Number.parseFloat(choice.style.top);
+    expect(top).toBeLessThan(anchorRect.top);
+    expect(top + choice.getBoundingClientRect().height).toBeLessThanOrEqual(window.innerHeight);
+    rectSpy.mockRestore();
+  });
+
   it("tab mode bypasses the chooser", async () => {
     loadPreviewMode("/repo/a", "tab");
     const calls: Array<[string, "inline" | "tab" | undefined]> = [];

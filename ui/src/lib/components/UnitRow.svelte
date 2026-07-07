@@ -140,17 +140,32 @@
   const swipe = $derived(!!ondecommission && coarse.current);
 
   const PREVIEW_CHOICE_WIDTH = 150;
+  const PREVIEW_CHOICE_FALLBACK_HEIGHT = 64;
+  const PREVIEW_CHOICE_MARGIN = 8;
+  const PREVIEW_CHOICE_GAP = 4;
   let previewChoice = $state<{ top: number; left: number; anchor: HTMLElement } | null>(null);
   let previewChoiceEl = $state<HTMLElement | null>(null);
 
   function previewChoicePosition(anchor: HTMLElement) {
     const rect = anchor.getBoundingClientRect();
     const viewportWidth = typeof window === "undefined" ? rect.right : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? rect.bottom : window.innerHeight;
+    const choiceRect = previewChoiceEl?.getBoundingClientRect();
+    const choiceWidth = choiceRect?.width ?? PREVIEW_CHOICE_WIDTH;
+    const choiceHeight = choiceRect?.height ?? PREVIEW_CHOICE_FALLBACK_HEIGHT;
+    const belowTop = rect.bottom + PREVIEW_CHOICE_GAP;
+    const aboveTop = rect.top - PREVIEW_CHOICE_GAP - choiceHeight;
+    const maxTop = Math.max(
+      PREVIEW_CHOICE_MARGIN,
+      viewportHeight - PREVIEW_CHOICE_MARGIN - choiceHeight,
+    );
+    const preferredTop =
+      belowTop + choiceHeight <= viewportHeight - PREVIEW_CHOICE_MARGIN ? belowTop : aboveTop;
     return {
-      top: rect.bottom + 4,
+      top: Math.max(PREVIEW_CHOICE_MARGIN, Math.min(preferredTop, maxTop)),
       left: Math.max(
-        8,
-        Math.min(rect.right - PREVIEW_CHOICE_WIDTH, viewportWidth - 8 - PREVIEW_CHOICE_WIDTH),
+        PREVIEW_CHOICE_MARGIN,
+        Math.min(rect.right - choiceWidth, viewportWidth - PREVIEW_CHOICE_MARGIN - choiceWidth),
       ),
       anchor,
     };
@@ -159,6 +174,12 @@
   function togglePreviewChoice(anchor: HTMLElement) {
     previewChoice = previewChoice?.anchor === anchor ? null : previewChoicePosition(anchor);
   }
+
+  $effect(() => {
+    if (!previewChoice || !previewChoiceEl) return;
+    const next = previewChoicePosition(previewChoice.anchor);
+    if (next.top !== previewChoice.top || next.left !== previewChoice.left) previewChoice = next;
+  });
 
   function closePreviewChoice() {
     previewChoice = null;
@@ -785,6 +806,8 @@
     position: fixed;
     z-index: 40;
     min-width: 150px;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
     padding: 4px;
     display: flex;
     flex-direction: column;

@@ -90,6 +90,7 @@
     altComboKey,
   } from "$lib/components/herd-keynav";
   import { groupSessionsByEpic } from "$lib/components/epic-grouping";
+  import { normalizeEpicCollapse } from "$lib/components/herd-epic-collapse";
   import { isReworkRunning as isReworkRunningSession } from "$lib/components/rework-running";
   import { buildCommands } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
@@ -438,9 +439,34 @@
   // are reactive (a plain Set is not in Svelte 5); passed to both <Herd> (render) and
   // railOrder (nav) so the two read ONE source and can't drift.
   const collapsedEpics = new SvelteSet<string>();
+  const touchedEpicCollapseKeys = new SvelteSet<string>();
+  function replaceSet(target: SvelteSet<string>, next: ReadonlySet<string>) {
+    for (const key of [...target]) {
+      if (!next.has(key)) target.delete(key);
+    }
+    for (const key of next) {
+      if (!target.has(key)) target.add(key);
+    }
+  }
+  function normalizeRenderedEpicCollapse(keys: string[]) {
+    const next = normalizeEpicCollapse(keys, collapsedEpics, touchedEpicCollapseKeys);
+    replaceSet(collapsedEpics, next.collapsed);
+    replaceSet(touchedEpicCollapseKeys, next.touched);
+  }
+  function markEpicCollapseTouched(key: string) {
+    touchedEpicCollapseKeys.add(key);
+  }
+  function expandEpicGroup(key: string) {
+    markEpicCollapseTouched(key);
+    collapsedEpics.delete(key);
+  }
+  function collapseEpicGroup(key: string) {
+    markEpicCollapseTouched(key);
+    collapsedEpics.add(key);
+  }
   function toggleEpicCollapse(key: string) {
-    if (collapsedEpics.has(key)) collapsedEpics.delete(key);
-    else collapsedEpics.add(key);
+    if (collapsedEpics.has(key)) expandEpicGroup(key);
+    else collapseEpicGroup(key);
   }
   // Seed store.epics for any active epic we don't have the full Epic for yet (header
   // needs title + X/Y + backlog link). Reactive on activeEpicKeys, deduped per key.
@@ -1495,7 +1521,7 @@
       collapsedEpics,
     );
     if (expand) {
-      collapsedEpics.delete(expand);
+      expandEpicGroup(expand);
       await tick(); // let the now-expanded group's rows mount so keyNavSelect can scroll to the target
     }
     keyNavSelect(id, focusTerm);
@@ -2489,6 +2515,7 @@
             {activeEpicKeys}
             collapsedKeys={collapsedEpics}
             oncollapsetoggle={toggleEpicCollapse}
+            onrenderedepicgroups={normalizeRenderedEpicCollapse}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
@@ -2668,6 +2695,7 @@
             {activeEpicKeys}
             collapsedKeys={collapsedEpics}
             oncollapsetoggle={toggleEpicCollapse}
+            onrenderedepicgroups={normalizeRenderedEpicCollapse}
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}

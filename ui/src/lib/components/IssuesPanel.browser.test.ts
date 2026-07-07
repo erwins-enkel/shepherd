@@ -35,6 +35,17 @@ beforeEach(() => {
   mockListIssues.mockReset();
   mockGetEpics.mockReset();
   mockEpic.mockReset();
+  mockEpic.mockImplementation((repoPath: string, parentIssueNumber: number) =>
+    Promise.resolve({
+      repoPath,
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      source: "native",
+      children: [],
+      warnings: [],
+      run: { repoPath, parentIssueNumber, mode: "auto", status: "idle" },
+    }),
+  );
 });
 
 afterEach(() => {
@@ -159,8 +170,37 @@ describe("IssuesPanel epic badge", () => {
     mockGetEpics.mockResolvedValue({ epics, subIssues });
   }
 
+  function liveEpic(
+    parentIssueNumber: number,
+    states: Epic["children"][number]["state"][],
+    source: Epic["source"] = "native",
+  ): Epic {
+    return {
+      repoPath: "/repo",
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      source,
+      children: states.map((state, i) => ({
+        number: 100 + i,
+        title: `Child ${100 + i}`,
+        url: `https://example.com/issues/${100 + i}`,
+        order: i,
+        body: "",
+        blockedBy: [],
+        state,
+        sessionId: null,
+        prNumber: null,
+        issueClosed: state === "merged",
+        claimed: false,
+      })),
+      warnings: [],
+      run: { repoPath: "/repo", parentIssueNumber, mode: "auto", status: "idle" },
+    };
+  }
+
   it("native source renders SUB-ISSUES merged/total badge", async () => {
     seed([issue(10, "Parent issue")], [epic(10, 1, 3, "native")]);
+    mockEpic.mockResolvedValue(liveEpic(10, ["merged", "running", "running"], "native"));
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     // badge text is the accessible content — assert it directly
@@ -174,6 +214,9 @@ describe("IssuesPanel epic badge", () => {
 
   it("markdown source renders EPIC merged/total badge", async () => {
     seed([issue(20, "Epic parent")], [epic(20, 2, 4, "markdown")]);
+    mockEpic.mockResolvedValue(
+      liveEpic(20, ["merged", "merged", "running", "running"], "markdown"),
+    );
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     const expectedText = m.epic_badge({ merged: 2, total: 4 });
@@ -368,7 +411,73 @@ describe("IssuesPanel expandEpic", () => {
     expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("does NOT auto-expand any epic when expandEpic is null", async () => {
+  it("auto-expands only the topmost epic when expandEpic is null", async () => {
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(400), issue(327)],
+      viewer: null,
+    });
+    mockEpics.mockResolvedValue({ epics: [summary(400), summary(327)], subIssues: [] });
+    mockEpic.mockResolvedValue(epic(400));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: null });
+
+    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => badges[0]?.getAttribute("aria-expanded")).toBe("true");
+    expect(badges[1]?.getAttribute("aria-expanded")).toBe("false");
+    expect(mockEpic).toHaveBeenCalledWith("/repo", 400);
+  });
+
+  it("waits for listIssues when getEpics settles first before default-expanding the topmost epic", async () => {
+    let resolveIssues!: (r: Awaited<ReturnType<typeof listIssues>>) => void;
+    let resolveEpics!: (r: Awaited<ReturnType<typeof getEpics>>) => void;
+    mockIssues.mockReturnValue(new Promise((res) => (resolveIssues = res)));
+    mockEpics.mockReturnValue(new Promise((res) => (resolveEpics = res)));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    resolveEpics({ epics: [summary(2), summary(1)], subIssues: [] });
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector(".epic-badge")).toBeNull();
+    expect(mockEpic).not.toHaveBeenCalled();
+
+    resolveIssues({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(2), issue(1)],
+      viewer: null,
+    });
+
+    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => badges[0]?.getAttribute("aria-expanded")).toBe("true");
+    expect(badges[1]?.getAttribute("aria-expanded")).toBe("false");
+    expect(mockEpic).toHaveBeenCalledWith("/repo", 2);
+  });
+
+  it("expandEpic targeting a non-first epic suppresses default-opening the first epic", async () => {
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(1), issue(2)],
+      viewer: null,
+    });
+    mockEpics.mockResolvedValue({ epics: [summary(1), summary(2)], subIssues: [] });
+    mockEpic.mockResolvedValue(epic(2));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 2 });
+
+    await expect.poll(() => document.querySelectorAll(".epic-badge").length).toBe(2);
+    const badges = [...document.querySelectorAll(".epic-badge")];
+    await expect.poll(() => badges[1]?.getAttribute("aria-expanded")).toBe("true");
+    expect(badges[0]?.getAttribute("aria-expanded")).toBe("false");
+    expect(mockEpic).toHaveBeenCalledTimes(1);
+    expect(mockEpic).toHaveBeenCalledWith("/repo", 2);
+  });
+
+  it("clicking an epic card toggles the same expansion state as the badge", async () => {
     mockIssues.mockResolvedValue({
       slug: "acme/repo",
       webUrl: null,
@@ -378,12 +487,56 @@ describe("IssuesPanel expandEpic", () => {
     mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
     mockEpic.mockResolvedValue(epic(327));
 
-    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: null });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
-    // Badge stays collapsed; no targeted fetch.
-    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("false");
-    expect(mockEpic).not.toHaveBeenCalled();
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    const row = document.querySelector<HTMLElement>(".issue-row")!;
+    row.click();
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("false");
+    row.click();
+    await expect
+      .poll(() => document.querySelector(".epic-badge")?.getAttribute("aria-expanded"))
+      .toBe("true");
+  });
+
+  it("clicking inside the expanded EpicPanel subtree does not toggle the row", async () => {
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(327)],
+      viewer: null,
+    });
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
+    mockEpic.mockResolvedValue({
+      ...epic(327),
+      children: [
+        {
+          number: 500,
+          title: "Child row",
+          url: "https://example.com/i/500",
+          order: 0,
+          body: "",
+          blockedBy: [],
+          state: "running",
+          sessionId: null,
+          prNumber: null,
+          issueClosed: false,
+          claimed: false,
+        },
+      ],
+    });
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.element(page.getByText("Child row")).toBeInTheDocument();
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
+    document.querySelector<HTMLElement>("[data-epic-panel]")!.click();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(document.querySelector(".epic-badge")?.getAttribute("aria-expanded")).toBe("true");
   });
 
   it("waits for getEpics to settle before scrolling, then lands on the sorted-first row", async () => {
@@ -1089,8 +1242,7 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
     await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
 
     const badge = () => document.querySelector(".epic-badge") as HTMLButtonElement;
-    badge().click(); // expand → backfill fetch #1 (held pending)
-    await expect.poll(() => mockEpic.mock.calls.length).toBe(1);
+    await expect.poll(() => mockEpic.mock.calls.length).toBe(1); // default expand → fetch #1
     badge().click(); // collapse while the fetch is still in flight
 
     // The late settle must NOT re-seed the cache for the collapsed panel…

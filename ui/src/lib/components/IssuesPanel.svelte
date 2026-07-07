@@ -134,6 +134,7 @@
   );
   // Set of expanded epic issue numbers (SvelteSet for fine-grained reactivity).
   const expanded = new SvelteSet<number>();
+  let defaultEpicSeeded = $state(false);
   // One-shot fetch cache: issue number → fetched Epic (avoids re-fetching on re-render).
   const fetched = new SvelteMap<number, Epic>();
 
@@ -152,6 +153,7 @@
     loadError = false;
     filter = "";
     expanded.clear();
+    defaultEpicSeeded = false;
     epicByNumber = new Map();
     nativeSubIssues = new Set();
     epicsLoaded = false;
@@ -364,6 +366,19 @@
       expandEpicRow(number);
     }
   }
+
+  $effect(() => {
+    if (defaultEpicSeeded) return;
+    if (expandEpic != null) {
+      defaultEpicSeeded = true;
+      return;
+    }
+    if (!epicsSettled || visibleIssues.length === 0 || epicByNumber.size === 0) return;
+    const firstEpic = visibleIssues.find((issue) => epicByNumber.has(issue.number));
+    if (!firstEpic) return;
+    defaultEpicSeeded = true;
+    expandEpicRow(firstEpic.number);
+  });
 
   // Targeted expand+scroll driven by the `expandEpic` prop (e.g. EPIC badge click).
   // The expand fires as soon as a target is set; the scroll waits until the issue

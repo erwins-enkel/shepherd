@@ -524,6 +524,49 @@ describe("Herd epic grouping", () => {
     expect(oncollapsetoggle).toHaveBeenCalledWith("/repo/a#100");
   });
 
+  it("reports the rendered epic group order after experiment grouping removes raw earlier epics", async () => {
+    const onrenderedepicgroups = vi.fn();
+    const renderedEpics = {
+      "/repo/a#100": epic([epicChild(11), epicChild(12)]),
+      "/repo/a#200": {
+        ...epic([epicChild(21)]),
+        parentIssueNumber: 200,
+        parentTitle: "Later epic",
+        run: { repoPath: "/repo/a", parentIssueNumber: 200, mode: "auto", status: "running" },
+      } satisfies Epic,
+    };
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({
+          id: "a1",
+          name: "experiment original",
+          issueNumber: 11,
+          experimentId: "exp",
+          experimentRole: "variant",
+          createdAt: 1,
+        }),
+        session({
+          id: "a2",
+          name: "experiment variant",
+          issueNumber: 12,
+          experimentId: "exp",
+          experimentRole: "variant",
+          createdAt: 2,
+        }),
+        session({ id: "b1", name: "rendered epic child", issueNumber: 21 }),
+      ],
+      git: {},
+      epics: renderedEpics,
+      activeEpicKeys: new Set(["/repo/a#100", "/repo/a#200"]),
+      onrenderedepicgroups,
+    });
+
+    await expect.element(page.getByText("Later epic")).toBeInTheDocument();
+    await expect.poll(() => onrenderedepicgroups.mock.calls.at(-1)?.[0]).toEqual(["/repo/a#200"]);
+    expect(document.body.textContent).not.toContain("Big epic");
+  });
+
   it("keeps the merge-train action when the only ready PR session is an epic child", async () => {
     render(Herd, {
       ...base,

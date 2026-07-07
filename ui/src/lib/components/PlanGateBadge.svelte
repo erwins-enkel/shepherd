@@ -8,11 +8,16 @@
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surfaces (UnitRow/UnitTile) pass false so this chip
   // lives only in the per-session top bar (issue #809); see plan-gate-badge.ts.
-  let { session, allowView = true }: { session: Session; allowView?: boolean } = $props();
+  let {
+    session,
+    allowView = true,
+    pulseReady = false,
+  }: { session: Session; allowView?: boolean; pulseReady?: boolean } = $props();
 
   const gate = $derived(planGates.map[session.id]);
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
+  const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
 
   let open = $state(false);
 
@@ -33,7 +38,7 @@
 {#if chip.kind !== "none"}
   <button
     type="button"
-    class="pg-badge pg-{chip.kind}"
+    class="pg-badge pg-{chip.kind}{pulseClass}"
     {title}
     onclick={(e) => {
       e.stopPropagation();
@@ -86,6 +91,26 @@
     color: var(--color-green);
     font-weight: 600;
   }
+  .pg-pulse-ready {
+    position: relative;
+    background: color-mix(in srgb, var(--color-green) 8%, transparent);
+  }
+  .pg-pulse-ready::after {
+    content: "";
+    position: absolute;
+    inset: -3px;
+    border: 1px solid color-mix(in srgb, var(--color-green) 45%, transparent);
+    border-radius: 4px;
+    pointer-events: none;
+    opacity: 0;
+    transform: scale(0.96);
+    animation: pg-ready-pulse 2s ease-out infinite;
+  }
+  .pg-pulse-ready:hover::after,
+  .pg-pulse-ready:focus-visible::after {
+    animation: none;
+    opacity: 0;
+  }
   .pg-error {
     color: var(--color-faint);
   }
@@ -125,6 +150,23 @@
     }
     50% {
       opacity: 1;
+    }
+  }
+  @keyframes pg-ready-pulse {
+    0% {
+      opacity: 0.48;
+      transform: scale(0.96);
+    }
+    70%,
+    100% {
+      opacity: 0;
+      transform: scale(1.18);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .pg-pulse-ready::after {
+      animation: none;
+      opacity: 0;
     }
   }
 </style>

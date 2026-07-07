@@ -2330,7 +2330,7 @@
          plan (issue #809). Self-hides outside the plan phase. Unlike the session-list cards
          (UnitRow/UnitTile, which pass allowView={false}), the focused view surfaces the
          executing read-only chip — it is its home. -->
-    <PlanGateBadge {session} />
+    <PlanGateBadge {session} pulseReady />
     {#if !compact}
       <!-- passive at-rest pip: the READY control lives in the git strip; its ON
            state stays glance-able here. Autopilot's ON state is surfaced solely

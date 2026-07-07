@@ -1649,6 +1649,25 @@ export async function reviewPlan(id: string): Promise<PlanReviewTrigger> {
   return body.status ?? "skipped";
 }
 
+export type PlanQuotaResumeStatus = "resumed" | "unreachable" | "not-stalled" | (string & {});
+export type PlanQuotaDismissStatus = "dismissed" | "not-stalled" | (string & {});
+
+/** Resume a quota-stalled plan gate. Status decides whether the PTY was reached. */
+export async function resumeQuota(id: string): Promise<{ status: PlanQuotaResumeStatus }> {
+  const r = await fetch(`/api/sessions/${id}/quota/resume`, JSON_POST());
+  if (!r.ok) throw await failed(r, "quota resume");
+  const body = (await r.json().catch(() => ({}))) as { status?: string };
+  return { status: body.status ?? "not-stalled" };
+}
+
+/** Dismiss a quota-stalled plan gate without steering the findings back to the agent. */
+export async function dismissQuota(id: string): Promise<{ status: PlanQuotaDismissStatus }> {
+  const r = await fetch(`/api/sessions/${id}/quota/dismiss`, JSON_POST());
+  if (!r.ok) throw await failed(r, "quota dismiss");
+  const body = (await r.json().catch(() => ({}))) as { status?: string };
+  return { status: body.status ?? "not-stalled" };
+}
+
 /** Submit operator answers to a plan's question-form (#803). The server resolves them against the
  *  gate's persisted questions, composes a steer, and delivers it to the live planning agent.
  *  Returns whether the steer reached the PTY (`delivered:false` ⇒ the planning pane is gone).

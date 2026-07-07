@@ -66,6 +66,20 @@ export function canRelease(
   return Boolean(gate?.approved) && session.planPhase === "planning";
 }
 
+export function canShowPlanStallActions(
+  session: Pick<Session, "planPhase" | "status">,
+  gate: PlanGate | undefined,
+  reviewing: boolean,
+): boolean {
+  return Boolean(
+    session.planPhase === "planning" &&
+    session.status !== "running" &&
+    !reviewing &&
+    gate?.decision === "changes_requested" &&
+    gate.round >= gate.cap,
+  );
+}
+
 export type PlanGateTooltipCopy = {
   fallback: string;
   planning: string;
@@ -82,21 +96,28 @@ export function composePlanGateTooltip(
   chip: PlanGateChip,
   gate: Pick<PlanGate, "summary"> | undefined,
   copy: PlanGateTooltipCopy,
+  opts: { stalledActionsVisible?: boolean } = {},
 ): string {
   if (chip.kind === "none") return "";
-  const hint = planGateTooltipHint(chip, copy);
+  const hint = planGateTooltipHint(chip, copy, opts);
   const summary = gate?.summary?.trim();
   return summary ? `${summary}; ${hint}` : hint || copy.fallback;
 }
 
-function planGateTooltipHint(chip: PlanGateChip, copy: PlanGateTooltipCopy): string {
+function planGateTooltipHint(
+  chip: PlanGateChip,
+  copy: PlanGateTooltipCopy,
+  opts: { stalledActionsVisible?: boolean },
+): string {
   switch (chip.kind) {
     case "planning":
       return copy.planning;
     case "reviewing":
       return copy.reviewing;
     case "changes":
-      return chip.round >= chip.cap ? copy.changesStalled : copy.changes;
+      return chip.round >= chip.cap && opts.stalledActionsVisible
+        ? copy.changesStalled
+        : copy.changes;
     case "ready":
       return copy.ready;
     case "error":

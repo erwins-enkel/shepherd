@@ -18,12 +18,6 @@ export class HerdrSocketError extends Error {
   }
 }
 
-type PendingEntry = {
-  resolve: (value: unknown) => void;
-  reject: (err: unknown) => void;
-  timer: ReturnType<typeof setTimeout>;
-};
-
 type RpcResponse = {
   id?: unknown;
   result?: unknown;
@@ -31,28 +25,32 @@ type RpcResponse = {
 };
 
 /**
- * Persistent NDJSON JSON-RPC transport over herdr's Unix-domain socket (issue #1529).
- * Dumb transport only: it knows the wire framing (one JSON object per `\n`-delimited
- * line, requests keyed by a monotonic string `id`) and nothing about herdr's method
- * shapes — that lives in the future socket-backed `HerdrDriver`. Lazily opens the
- * socket on first use, reuses it across calls, and transparently reconnects after a
- * drop (e.g. a herdr update/handoff) on the NEXT request.
+ * NDJSON JSON-RPC transport over herdr's Unix-domain socket (issue #1529).
+ * Empirically, herdr's socket handles exactly ONE request/response per connection
+ * and then closes it (confirmed against live herdr 0.7.2 — a second request sent
+ * on an already-answered connection never gets a reply). So `request()` opens a
+ * fresh connection every call: connect → write one request line → read the one
+ * response line → settle → destroy. This is still spawn-free (a Unix-socket
+ * connect is far cheaper than fork/exec of the herdr binary), and it makes
+ * concurrency trivial — every request is an independent connection, so there is
+ * no shared line-reader, no head-of-line blocking, no multiplexing state.
+ *
+ * Dumb transport only: it knows the wire framing (one JSON object per
+ * `\n`-delimited line, requests keyed by a monotonic string `id`) and nothing
+ * about herdr's method shapes — that lives in the socket-backed `HerdrDriver`.
  */
 export class HerdrSocketClient {
-  private socket: net.Socket | null = null;
-  private connecting: Promise<net.Socket> | null = null;
-  private buffer = "";
   private nextId = 1;
-  private pending = new Map<string, PendingEntry>();
 
   constructor(private socketPath: string = config.herdrSocketPath) {}
 
-  /** JSON-RPC round trip: `{id, method, params}` out, `result` (typed `T`) back.
-   *  Rejects `HerdrSocketError` on an `{error}` reply, on timeout (default
-   *  `SOCKET_REQUEST_TIMEOUT_MS`), or on connection failure. Refuses synchronously
-   *  (throws `HerdrUnavailableError`, no bytes sent) while `maintenance.active` —
-   *  mirrors `makeHerdrRunner`/`makeHerdrAsyncRunner` so nothing pokes the socket
-   *  mid-update. */
+  /** JSON-RPC round trip: `{id, method, params}` out, `result` (typed `T`) back,
+   *  over a NEW connection opened just for this call. Rejects `HerdrSocketError`
+   *  on an `{error}` reply, with a timeout error (default `SOCKET_REQUEST_TIMEOUT_MS`)
+   *  if no reply arrives in time, or with a "closed before response" error if the
+   *  connection drops before a response was parsed. Refuses synchronously (throws
+   *  `HerdrUnavailableError`, no socket opened) while `maintenance.active` — mirrors
+   *  `makeHerdrRunner`/`makeHerdrAsyncRunner` so nothing pokes the socket mid-update. */
   async request<T = unknown>(
     method: string,
     params: object,
@@ -60,21 +58,74 @@ export class HerdrSocketClient {
   ): Promise<T> {
     if (maintenance.active) throw new HerdrUnavailableError();
 
-    const socket = await this.ensureConnected();
     const id = String(this.nextId++);
     const timeoutMs = opts?.timeoutMs ?? SOCKET_REQUEST_TIMEOUT_MS;
 
     return new Promise<T>((resolve, reject) => {
+      let settled = false;
+      let buffer = "";
+      const socket = net.createConnection(this.socketPath);
+
       const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`herdr socket request timed out after ${timeoutMs}ms: ${method}`));
+        settle(() =>
+          reject(new Error(`herdr socket request timed out after ${timeoutMs}ms: ${method}`)),
+        );
       }, timeoutMs);
-      this.pending.set(id, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
-        timer,
+
+      // Whoever settles first (response, timeout, error, or premature close) wins;
+      // the rest are no-ops. Always clean up the timer and the socket on settle.
+      const settle = (run: () => void): void => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        socket.removeAllListeners();
+        socket.destroy();
+        run();
+      };
+
+      // Attach the error handler before any await/tick so a connect failure
+      // (e.g. ENOENT, ECONNREFUSED) can never surface as an unhandled error.
+      socket.on("error", (err) => settle(() => reject(err)));
+
+      socket.on("connect", () => {
+        socket.write(JSON.stringify({ id, method, params }) + "\n");
       });
-      socket.write(JSON.stringify({ id, method, params }) + "\n");
+
+      socket.on("data", (chunk: Buffer) => {
+        if (settled) return;
+        buffer += chunk.toString("utf8");
+        const newlineIndex = buffer.indexOf("\n");
+        if (newlineIndex === -1) return; // still waiting for the rest of the line
+        const line = buffer.slice(0, newlineIndex);
+        if (!line.trim()) return;
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch (err) {
+          settle(() => reject(err instanceof Error ? err : new Error(String(err))));
+          return;
+        }
+        const res = parsed as RpcResponse;
+        settle(() => {
+          if (res.error) {
+            const code = typeof res.error.code === "string" ? res.error.code : "unknown";
+            const message = typeof res.error.message === "string" ? res.error.message : "";
+            reject(new HerdrSocketError(code, message));
+          } else {
+            resolve(res.result as T);
+          }
+        });
+      });
+
+      // The server FINs right after its one reply — normal case already settled
+      // above, so this is a no-op then. If close/end arrives BEFORE a response
+      // was parsed, that's a real failure: reject rather than hang.
+      const onPrematureClose = () => {
+        settle(() => reject(new Error("herdr socket closed before response")));
+      };
+      socket.on("close", onPrematureClose);
+      socket.on("end", onPrematureClose);
     });
   }
 
@@ -83,105 +134,10 @@ export class HerdrSocketClient {
     return this.request("ping", {});
   }
 
-  /** Tear down the live socket (if any) and reject any in-flight requests. Idempotent. */
+  /** No-op: kept for API symmetry and existing call sites (e.g. `selectHerdrDriver`'s
+   *  fallback path). There is no persistent connection to tear down — every
+   *  `request()` opens, uses, and closes its own connection. Idempotent. */
   close(): void {
-    this.rejectAllPending(new Error("herdr socket closed"));
-    if (this.socket) {
-      this.socket.removeAllListeners();
-      this.socket.destroy();
-      this.socket = null;
-    }
-    this.connecting = null;
-    this.buffer = "";
-  }
-
-  private rejectAllPending(err: unknown): void {
-    for (const entry of this.pending.values()) {
-      clearTimeout(entry.timer);
-      entry.reject(err);
-    }
-    this.pending.clear();
-  }
-
-  /** Lazily opens (or reuses) the persistent connection. Concurrent callers during
-   *  the initial connect share the same in-flight promise rather than racing separate
-   *  `net.createConnection` calls. */
-  private ensureConnected(): Promise<net.Socket> {
-    if (this.socket) return Promise.resolve(this.socket);
-    if (this.connecting) return this.connecting;
-
-    this.connecting = new Promise<net.Socket>((resolve, reject) => {
-      const socket = net.createConnection(this.socketPath);
-
-      const onError = (err: unknown) => {
-        this.connecting = null;
-        this.socket = null;
-        // Reconnect attempt itself failed before ever going live — reject only the
-        // connect promise; there is nothing pending on this dead socket yet.
-        reject(err instanceof Error ? err : new Error(String(err)));
-      };
-
-      socket.once("error", onError);
-      socket.once("connect", () => {
-        socket.removeListener("error", onError);
-        this.socket = socket;
-        this.connecting = null;
-        this.buffer = "";
-
-        // From here on, an error/close means an already-live connection dropped —
-        // fail every in-flight request and let the NEXT request() reconnect.
-        socket.on("error", () => this.handleDisconnect());
-        socket.on("close", () => this.handleDisconnect());
-        socket.on("data", (chunk: Buffer) => this.handleData(chunk));
-
-        resolve(socket);
-      });
-    });
-
-    return this.connecting;
-  }
-
-  private handleDisconnect(): void {
-    if (!this.socket) return; // already handled (error + close both fire)
-    this.socket.removeAllListeners();
-    this.socket = null;
-    this.connecting = null;
-    this.buffer = "";
-    this.rejectAllPending(new Error("herdr socket disconnected"));
-  }
-
-  private handleData(chunk: Buffer): void {
-    this.buffer += chunk.toString("utf8");
-    const lines = this.buffer.split("\n");
-    this.buffer = lines.pop() ?? ""; // trailing partial line (or "") stays buffered
-
-    for (const line of lines) {
-      if (!line.trim()) continue;
-      this.handleLine(line);
-    }
-  }
-
-  private handleLine(line: string): void {
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(line);
-    } catch {
-      return; // malformed line — nothing we can dispatch it to; ignore defensively
-    }
-    const res = parsed as RpcResponse;
-    const id = typeof res.id === "string" ? res.id : undefined;
-    const entry = id !== undefined ? this.pending.get(id) : undefined;
-    if (!entry) return; // unmatched id (or malformed-request echo) — ignore defensively
-
-    clearTimeout(entry.timer);
-    this.pending.delete(id!);
-
-    if (res.error) {
-      const code = typeof res.error.code === "string" ? res.error.code : "unknown";
-      const message = typeof res.error.message === "string" ? res.error.message : "";
-      entry.reject(new HerdrSocketError(code, message));
-    } else {
-      entry.resolve(res.result);
-    }
+    // Intentionally empty.
   }
 }

@@ -7,21 +7,25 @@ import { HerdrSocketClient, HerdrSocketError } from "../src/herdr-socket-client"
 import { maintenance } from "../src/maintenance";
 import { HerdrUnavailableError } from "../src/herdr";
 
-/** Minimal NDJSON JSON-RPC fake server: reads line-delimited requests, hands each
- *  parsed `{id, method, params}` to `onRequest`, which returns the response object(s)
- *  to write back (or `null` to answer nothing — for the timeout/drop tests). */
+/** Minimal NDJSON JSON-RPC fake server mirroring herdr's real socket behavior:
+ *  each accepted connection gets exactly ONE request read, ONE response written
+ *  (unless `onRequest` chooses not to reply), then the connection is ended —
+ *  never reused for a second round trip. */
 function startFakeServer(
   socketPath: string,
   onRequest: (req: { id: string; method: string; params: unknown }, socket: net.Socket) => void,
 ): net.Server {
   const server = net.createServer((socket) => {
     let buf = "";
+    let handled = false;
     socket.on("data", (chunk) => {
+      if (handled) return; // herdr only ever answers the first request per connection
       buf += chunk.toString("utf8");
       const lines = buf.split("\n");
       buf = lines.pop() ?? "";
       for (const line of lines) {
-        if (!line.trim()) continue;
+        if (!line.trim() || handled) continue;
+        handled = true;
         onRequest(JSON.parse(line), socket);
       }
     });
@@ -77,6 +81,7 @@ describe("HerdrSocketClient", () => {
           }) + "\n",
         );
       }
+      socket.end();
     });
     client = new HerdrSocketClient(socketPath);
 
@@ -89,15 +94,35 @@ describe("HerdrSocketClient", () => {
     expect(pong.capabilities).toEqual({ live_handoff: true, detached_server_daemon: false });
   });
 
-  test("id dispatch: concurrent requests resolve to their own result even out of order", async () => {
+  test("sequential requests each open a fresh connection", async () => {
+    let connectionCount = 0;
     server = startFakeServer(socketPath, (req, socket) => {
-      // Reply in REVERSE order relative to arrival: stash id=1's reply until id=2 arrives.
+      connectionCount++;
+      socket.write(JSON.stringify({ id: req.id, result: { echo: req.params } }) + "\n");
+      socket.end();
+    });
+    client = new HerdrSocketClient(socketPath);
+
+    const first = await client.request<{ echo: { n: number } }>("fast", { n: 1 });
+    const second = await client.request<{ echo: { n: number } }>("fast", { n: 2 });
+
+    expect(first.echo.n).toBe(1);
+    expect(second.echo.n).toBe(2);
+    expect(connectionCount).toBe(2);
+  });
+
+  test("concurrent requests each get their own connection and resolve independently", async () => {
+    server = startFakeServer(socketPath, (req, socket) => {
+      // Reply in REVERSE order relative to arrival: the slow request answers
+      // after the fast one, proving there is no shared per-connection queue.
       if (req.method === "slow") {
         setTimeout(() => {
           socket.write(JSON.stringify({ id: req.id, result: { echo: req.params } }) + "\n");
+          socket.end();
         }, 20);
       } else {
         socket.write(JSON.stringify({ id: req.id, result: { echo: req.params } }) + "\n");
+        socket.end();
       }
     });
     client = new HerdrSocketClient(socketPath);
@@ -116,6 +141,7 @@ describe("HerdrSocketClient", () => {
         JSON.stringify({ id: req.id, error: { code: "not_found", message: "no such agent" } }) +
           "\n",
       );
+      socket.end();
     });
     client = new HerdrSocketClient(socketPath);
 
@@ -136,28 +162,13 @@ describe("HerdrSocketClient", () => {
     await expect(client.request("hang", {}, { timeoutMs: 50 })).rejects.toThrow(/timed out/);
   });
 
-  test("reconnect: mid-flight drop rejects the pending request; next request() reconnects", async () => {
+  test("closed before response: connection dropped without a reply rejects (not hang)", async () => {
     server = startFakeServer(socketPath, (_req, socket) => {
-      // Drop the connection instead of answering.
       socket.destroy();
     });
     client = new HerdrSocketClient(socketPath);
 
-    await expect(client.request("ping", {})).rejects.toThrow(/disconnected/);
-
-    await closeServer(server);
-    try {
-      fs.unlinkSync(socketPath);
-    } catch {
-      /* already gone */
-    }
-
-    server = startFakeServer(socketPath, (req, socket) => {
-      socket.write(JSON.stringify({ id: req.id, result: { type: "pong" } }) + "\n");
-    });
-
-    const result = await client.request<{ type: string }>("ping", {});
-    expect(result.type).toBe("pong");
+    await expect(client.request("ping", {})).rejects.toThrow(/closed before response/);
   });
 
   test("maintenance gate: rejects with HerdrUnavailableError and sends no bytes", async () => {

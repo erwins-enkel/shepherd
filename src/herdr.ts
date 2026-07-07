@@ -243,7 +243,7 @@ export function parseAgents(result: unknown): HerdrAgent[] {
 
 /**
  * Extracts the buffer text from a herdr `agent.read` reply's `result` object
- * (`""` when absent). Shared with the future socket driver — see `parseAgents`.
+ * (`""` when absent). Shared with the socket driver — see `parseAgents`.
  */
 type PaneReadResult = { read?: { text?: string } } | null;
 
@@ -253,7 +253,7 @@ export function parseReadText(result: unknown): string {
 
 /**
  * Maps a herdr `pane.process_info` reply's `result` object to the foreground
- * process **names** (`[]` when absent). Shared with the future socket driver —
+ * process **names** (`[]` when absent). Shared with the socket driver —
  * see `parseAgents`.
  */
 type ProcessInfoResult = {

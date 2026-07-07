@@ -296,14 +296,6 @@ body {
     opacity: 0;
   }
 }
-@keyframes scan {
-  0% {
-    transform: translateY(-70px);
-  }
-  100% {
-    transform: translateY(100%);
-  }
-}
 /* in-flight MERGING text pulse — dims and restores amber opacity; clip-proof
    (no box-shadow halo), so it never bleeds into adjacent badges. */
 @keyframes merge-pulse {

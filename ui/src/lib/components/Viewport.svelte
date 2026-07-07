@@ -2460,7 +2460,7 @@
     />
   {/if}
 
-  <!-- scan overlay + terminal (terminal stays mounted across tab switches) -->
+  <!-- terminal (stays mounted across tab switches) -->
   <div
     class="vp-body"
     data-swipe-page
@@ -2469,7 +2469,6 @@
     aria-labelledby={tabId(tab)}
     style:--review-banner-h={`${reviewBannerH || ciBannerH}px`}
   >
-    <div class="scan" class:running={tab === "term"} aria-hidden="true"></div>
     <div
       class="term-mount"
       class:dragging
@@ -3288,33 +3287,6 @@
        terminal/diff/todo/preview always remains. Only bites under the
        expanded-recap takeover; normal body content is far taller. */
     min-height: 4rem;
-  }
-
-  /* faint amber scan line: full-height layer with a 70px amber band at its top,
-     swept top→bottom via translateY (compositor-only) instead of animating top.
-     Animation + will-change only when the terminal tab is active — no wasted
-     compositor layer or GPU work on idle dashboard tabs. */
-  .scan {
-    position: absolute;
-    left: 0;
-    right: 0;
-    top: 0;
-    height: 100%;
-    background-image: linear-gradient(
-      to bottom,
-      transparent,
-      color-mix(in srgb, var(--color-amber) 4%, transparent),
-      transparent
-    );
-    background-repeat: no-repeat;
-    background-size: 100% 70px;
-    background-position: 0 0;
-    pointer-events: none;
-    z-index: 1;
-  }
-  .scan.running {
-    will-change: transform;
-    animation: scan 8s linear infinite;
   }
 
   .term-mount {

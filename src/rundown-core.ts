@@ -19,6 +19,8 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { fenceUntrusted } from "./untrusted";
+import { planStallStatus } from "./plan-status";
+import { addressStallStatus } from "./review-status";
 
 export const RUNDOWN_VERDICT_FILE = ".shepherd-rundown.json";
 
@@ -122,6 +124,29 @@ export function planQuestionsUnanswered(gate: PlanGate | null | undefined): bool
   return false;
 }
 
+/** A session's plan gate surfaces as active plan-rework when changes were requested, the operator
+ *  hasn't dismissed/taken over, and — for a display-running / taken-over session only — the loop
+ *  hasn't stalled. An IDLE stalled rework still counts (it needs a human, and co-fires
+ *  blocked-decision via the quota block). Shared by the attention rule + the planRound copy so the
+ *  two never drift. See src/plan-status.ts. */
+function planReworkActive(s: Session, gate: PlanGate | undefined, now: number): boolean {
+  return (
+    s.planPhase === "planning" &&
+    gate?.decision === "changes_requested" &&
+    !gate.dismissed &&
+    !(s.status === "running" && planStallStatus(gate, now) === "stalled")
+  );
+}
+
+/** Critic-side twin of planReworkActive (no planPhase gate — critic rework runs post-PR). */
+function criticReworkActive(s: Session, review: ReviewVerdict | undefined, now: number): boolean {
+  return (
+    review?.decision === "changes_requested" &&
+    !review.dismissed &&
+    !(s.status === "running" && addressStallStatus(review, now) === "stalled")
+  );
+}
+
 /** Ordered (signal, predicate) rules. classifyAttention pushes each signal whose predicate
  *  holds, in this exact order — Tier-1 codes first, then Tier-2, then Tier-3 — so the emitted
  *  `signals` array order is stable. Splitting the predicates out of classifyAttention keeps
@@ -139,11 +164,8 @@ const ATTENTION_RULES: Array<{
       Boolean(s.autopilotPaused && s.autopilotQuestion) ||
       Boolean(c.block),
   },
-  {
-    signal: "plan-rework",
-    when: (s, c) => s.planPhase === "planning" && c.gate?.decision === "changes_requested",
-  },
-  { signal: "critic-rework", when: (_s, c) => c.review?.decision === "changes_requested" },
+  { signal: "plan-rework", when: (s, c, now) => planReworkActive(s, c.gate, now) },
+  { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, now) },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
   // auto-merge (#1060). Last in the Tier-1 block so a genuinely-more-urgent co-signal stays the
@@ -433,8 +455,8 @@ function toAssembledSession(
   if (git?.number != null) item.prNumber = git.number;
   if (git?.url) item.prUrl = git.url;
   if (review?.findings?.length) item.findings = review.findings;
-  if (s.planPhase === "planning" && gate && gate.decision === "changes_requested")
-    item.planRound = gate.round;
+  // Same predicate as the plan-rework signal so the round copy tracks it.
+  if (gate && planReworkActive(s, gate, now)) item.planRound = gate.round;
   const hold = explainHold(s, caches, now);
   if (hold !== null) item.hold = hold;
   return item;

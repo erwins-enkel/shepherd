@@ -475,8 +475,14 @@ export class PushService {
 export function attachReviewPush(events: EventHub, store: SessionStore, push: PushService): void {
   events.subscribe((event, data) => {
     if (event !== "session:review") return;
-    const { id, review } = data as { id: string; review: { decision: string } | null };
+    const { id, review } = data as {
+      id: string;
+      review: { decision: string; dismissed?: boolean } | null;
+    };
     if (review?.decision !== "changes_requested" && review?.decision !== "commented") return;
+    // A dismissed verdict is the operator taking over a stalled rework — clearStallState re-emits
+    // session:review with the (unchanged) changes_requested decision, which must NOT re-notify.
+    if (review.dismissed) return;
     const name = store.get(id)?.name ?? id;
     void push.notify({
       kind: "review",

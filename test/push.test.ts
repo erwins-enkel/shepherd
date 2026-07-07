@@ -439,6 +439,22 @@ test("attachReviewPush notifies on changes_requested and commented, ignores erro
   expect(calls[1]).toMatchObject({ kind: "review", sessionId: "r2", decision: "commented" });
 });
 
+test("attachReviewPush skips a dismissed verdict (operator took over → no re-notify)", async () => {
+  const calls: any[] = [];
+  const { store, push } = svc(async () => ({}));
+  (push as any).notify = async (p: any) => calls.push(p);
+  const events = new EventHub();
+  attachReviewPush(events, store, push);
+
+  // clearStallState re-emits session:review carrying the unchanged changes_requested decision.
+  events.emit("session:review", {
+    id: "r1",
+    review: { decision: "changes_requested", dismissed: true },
+  });
+  await Promise.resolve();
+  expect(calls.length).toBe(0);
+});
+
 function gitState(over: Partial<any> = {}) {
   return {
     kind: "github",

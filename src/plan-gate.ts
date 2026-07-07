@@ -563,6 +563,11 @@ export class PlanGateService {
     }
     // Round advances only when the steer actually lands; at/over the cap it holds.
     gate.round = priorRound >= this.cap ? priorRound : delivered ? priorRound + 1 : priorRound;
+    // The FINAL rework round is in flight only when THIS write is the cap-th delivered steer
+    // (priorRound === cap-1 → round === cap, delivered). The no-steer post-cap re-review
+    // (priorRound >= cap, delivered=false) and every sub-cap round leave it false, so
+    // planStallStatus can tell a genuine final round from a stall/takeover. See src/plan-status.ts.
+    gate.finalRoundPending = delivered && gate.round >= this.cap;
     if (gate.round >= this.cap) {
       // At/over the cap — a plan still unapproved after this many rounds can't progress on its own.
       // Fires on the crossing round and on any re-review that re-enters already at the cap.
@@ -677,7 +682,9 @@ export class PlanGateService {
   resume(session: Session): boolean {
     const gate = this.deps.store.getPlanGate(session.id);
     if (!gate || gate.decision !== "changes_requested") return false; // nothing to resume
-    const reset = { ...gate, round: 0 };
+    // Re-engaging active rework from a fresh round budget: clear dismissed + finalRoundPending so
+    // the re-steered agent classifies as REWORK RUNNING again (not stalled/taken-over).
+    const reset = { ...gate, round: 0, finalRoundPending: false, dismissed: false };
     this.deps.store.putPlanGate(reset);
     this.deps.onChange(session.id, reset);
     return this.deps.reply(session.id, planSteerText(gate.findings));
@@ -691,7 +698,9 @@ export class PlanGateService {
   dismiss(session: Session): void {
     const gate = this.deps.store.getPlanGate(session.id);
     if (!gate || gate.decision !== "changes_requested") return;
-    const reset = { ...gate, round: 0 };
+    // Operator took over: mark dismissed so the rework classification (REWORK RUNNING / banner /
+    // rundown) stops counting it as active rework, even after the round reset drops below the cap.
+    const reset = { ...gate, round: 0, finalRoundPending: false, dismissed: true };
     this.deps.store.putPlanGate(reset);
     this.deps.onChange(session.id, reset);
   }

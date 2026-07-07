@@ -293,6 +293,45 @@ function makeDeps(
   };
 }
 
+function verdict(over: Partial<ReviewVerdict> = {}): ReviewVerdict {
+  return {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "p",
+    decision: "changes_requested",
+    summary: "s",
+    body: "b",
+    findings: ["f"],
+    addressRound: 3,
+    addressCap: 3,
+    streakReviews: 1,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: true,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1000,
+    ...over,
+  };
+}
+
+test("clearStallState marks the verdict dismissed, keeps changes_requested", () => {
+  const { deps: d, reviews } = makeDeps({});
+  reviews["s1"] = verdict();
+  new ReviewService(d as any).clearStallState(session());
+  expect(reviews["s1"]!.dismissed).toBe(true);
+  expect(reviews["s1"]!.decision).toBe("changes_requested");
+  expect(reviews["s1"]!.addressRound).toBe(0);
+});
+
+test("forceReview pre-reset clears a prior dismissed flag", async () => {
+  const { deps: d, reviews } = makeDeps({});
+  reviews["s1"] = verdict({ dismissed: true });
+  await new ReviewService(d as any).forceReview(session(), OPEN_GREEN);
+  // forceReview writes the hygiene reset row (dismissed:false) before spawning the re-review.
+  expect(reviews["s1"]!.dismissed).toBeFalsy();
+});
+
 test("reviewPrompt embeds base + task and asks for the verdict file", () => {
   const p = reviewPrompt("main", "do the thing");
   expect(p).toContain("git diff main...HEAD");

@@ -143,22 +143,31 @@ export interface ReviewBannerInput {
 export interface ActiveReworkBannerInput {
   planPhase: "planning" | "executing" | null;
   dStatus: SessionStatus;
-  planGate: Pick<PlanGate, "decision" | "round" | "cap"> | undefined;
+  planGate: Pick<PlanGate, "decision" | "round" | "cap" | "dismissed"> | undefined;
   planReviewing: boolean;
-  review: Pick<ReviewVerdict, "decision" | "addressRound" | "addressCap"> | undefined;
+  // planStallStatus(planGate, now) === "stalled" — the plan-rework loop has stalled/been taken over
+  // (the genuine in-flight "final" round is NOT stalled). Computed by the component (it holds the
+  // clock); absent ⇒ treated as not-stalled. Keeps this function pure + trivially testable.
+  planStalled?: boolean;
+  review: Pick<ReviewVerdict, "decision" | "addressRound" | "addressCap" | "dismissed"> | undefined;
   criticReviewing: boolean;
+  // addressStallStatus(review, now) === "stalled" — same idea for the critic auto-address loop.
+  criticStalled?: boolean;
   activitySummary: string | null | undefined;
 }
 
 /** Active task-agent rework telemetry for the same bottom strip as review/CI.
  *  Parked REWORK verdicts stay in the header/list chips; only a display-running
- *  session gets this strip. */
+ *  session gets this strip. A verdict the operator dismissed/took over, or whose rework loop
+ *  has stalled, is no longer "actively reworking" — the strip clears for it. */
 export function activeReworkBannerState(input: ActiveReworkBannerInput): BannerState {
   if (input.dStatus !== "running") return { show: false };
 
   if (
     input.planPhase === "planning" &&
     input.planGate?.decision === "changes_requested" &&
+    !input.planGate.dismissed &&
+    !input.planStalled &&
     !input.planReviewing
   ) {
     return {
@@ -176,6 +185,8 @@ export function activeReworkBannerState(input: ActiveReworkBannerInput): BannerS
   if (
     input.planPhase !== "planning" &&
     input.review?.decision === "changes_requested" &&
+    !input.review.dismissed &&
+    !input.criticStalled &&
     !input.criticReviewing
   ) {
     const hasRound = input.review.addressRound > 0 && input.review.addressCap > 0;

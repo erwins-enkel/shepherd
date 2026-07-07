@@ -1105,6 +1105,104 @@ test("resume no-op: gate decision is 'error' → returns false", () => {
   expect(h.svc.resume(planningSession() as any)).toBe(false);
 });
 
+// ── finalRoundPending + dismissed (rework-stall classification) ────────────────
+
+test("request-changes: final delivered round (round==cap) sets finalRoundPending", async () => {
+  const h = harness({
+    cap: 3,
+    readVerdict: () => ({ decision: "request-changes", summary: "no", body: "B", findings: ["f"] }),
+    reply: () => true,
+    store: {
+      getPlanGate: () => ({ planHash: "x", approved: false, round: 2, findings: ["f"] }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.round).toBe(3); // cap reached via the final delivered steer
+  expect(h.store.gate.finalRoundPending).toBe(true);
+});
+
+test("request-changes: sub-cap round leaves finalRoundPending false", async () => {
+  const h = harness({
+    cap: 3,
+    readVerdict: () => ({ decision: "request-changes", summary: "no", body: "B", findings: ["f"] }),
+    reply: () => true,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.round).toBe(1);
+  expect(h.store.gate.finalRoundPending).toBeFalsy();
+});
+
+test("request-changes at cap (no steer) leaves finalRoundPending false → planStallStatus stalled", async () => {
+  const h = harness({
+    cap: 1,
+    readVerdict: () => ({ decision: "request-changes", summary: "no", body: "B", findings: ["f"] }),
+    reply: () => true,
+    store: {
+      getPlanGate: () => ({ planHash: "x", approved: false, round: 1, findings: ["f"] }),
+      addSignal() {},
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.finalRoundPending).toBeFalsy();
+});
+
+test("dismiss: marks dismissed=true, clears finalRoundPending, keeps changes_requested", () => {
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "changes_requested",
+    summary: "x",
+    body: "b",
+    findings: ["f"],
+    round: 3,
+    cap: 3,
+    approved: false,
+    plan: "p",
+    finalRoundPending: true,
+    updatedAt: 1000,
+  };
+  const putCalls: any[] = [];
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
+  });
+  h.svc.dismiss(planningSession() as any);
+  expect(putCalls).toHaveLength(1);
+  expect(putCalls[0].dismissed).toBe(true);
+  expect(putCalls[0].finalRoundPending).toBe(false);
+  expect(putCalls[0].decision).toBe("changes_requested");
+  expect(putCalls[0].round).toBe(0);
+});
+
+test("resume: clears a prior dismissed flag", () => {
+  const gate: any = {
+    sessionId: "s1",
+    planHash: "h1",
+    decision: "changes_requested",
+    summary: "x",
+    body: "b",
+    findings: ["f"],
+    round: 3,
+    cap: 3,
+    approved: false,
+    plan: "p",
+    dismissed: true,
+    updatedAt: 1000,
+  };
+  const putCalls: any[] = [];
+  const h = harness({
+    store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
+    reply: () => true,
+  });
+  h.svc.resume(planningSession() as any);
+  expect(putCalls).toHaveLength(1);
+  expect(putCalls[0].dismissed).toBe(false);
+});
+
 // ── readPlanBlocks: blocks captured into the gate ──────────────────────────────
 
 const questionBlock = () => ({

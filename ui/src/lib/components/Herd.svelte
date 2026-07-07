@@ -239,6 +239,7 @@
       session,
       { planGate: planGates.map[session.id], review: reviews.map[session.id] },
       workingBlocked,
+      nowMs,
     );
 
   // Derives the quota block kind for a session if its block has shape "quota"; null otherwise.

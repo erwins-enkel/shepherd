@@ -477,6 +477,14 @@ export interface PlanGate {
   // key is absent here is still pending (see planQuestionsUnanswered). Optional (like `blocks`):
   // absent ⇒ treated as [] by every consumer.
   answeredQuestionKeys?: string[];
+  // cap-th steer just delivered while at/over the cap → the FINAL plan-rework round is in flight
+  // (agent actively revising). Distinguishes the genuine final round from a post-cap re-review /
+  // takeover (both leave round === cap); planStallStatus reads it. Absent ⇒ false. See src/plan-status.ts.
+  finalRoundPending?: boolean;
+  // Operator dismissed / took over this stalled rework. Display + attention consumers stop counting
+  // this verdict as active rework (REWORK RUNNING / review banner / rundown rework signal). Reset to
+  // false on any new verdict (buildGate) and on resume(). Absent ⇒ false.
+  dismissed?: boolean;
   updatedAt: number;
 }
 
@@ -501,6 +509,10 @@ export interface ReviewVerdict {
   seenNoteIds: string[]; // ids of author notes already fed to the critic, so each is injected only once
   url?: string; // posted PR-review URL, when the host returns one
   spawnAborted?: boolean; // true ⇒ this row records a pre-spawn onSpawn abort (critic never ran — e.g. no usable account), surfaced for the badge but EXEMPT from the same-head dedup so the auto path re-attempts once the blocker clears. Cleared (omitted) on every real verdict.
+  // Operator dismissed / took over this stalled critic rework (clearStallState). Display + attention
+  // consumers stop counting it as active rework and attachReviewPush skips it. Reset to false on any
+  // new verdict (buildVerdict) and on forceReview. Absent ⇒ false.
+  dismissed?: boolean;
   updatedAt: number;
 }
 

@@ -444,6 +444,33 @@ test("reviews: upsert + read by session, snapshot all", () => {
   expect(store.getReview("s1")).toBeNull();
 });
 
+test("reviews: dismissed round-trips; legacy rows default falsy", () => {
+  const store = new SessionStore(":memory:");
+  const v = {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "pid",
+    decision: "changes_requested" as const,
+    summary: "",
+    body: "",
+    findings: ["f"],
+    addressRound: 3,
+    addressCap: 3,
+    streakReviews: 1,
+    reviewedPatchIds: [],
+    errorRound: 0,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 1,
+  };
+  store.putReview(v);
+  expect(store.getReview("s1")?.dismissed).toBeFalsy();
+  store.putReview({ ...v, dismissed: true, updatedAt: 2 });
+  expect(store.getReview("s1")?.dismissed).toBe(true);
+  expect(store.snapshotReviews().s1!.dismissed).toBe(true);
+});
+
 test("reviews: findings/addressRound/addressCap/errorRound/seenNoteIds default when absent", () => {
   const store = new SessionStore(":memory:");
   // a verdict row written before the #247 columns existed (missing the new fields)

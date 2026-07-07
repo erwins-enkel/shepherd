@@ -284,4 +284,35 @@ describe("activeReworkBannerState", () => {
       }),
     ).toEqual({ show: false });
   });
+
+  it("hides plan-gate rework when the operator dismissed it", () => {
+    expect(
+      activeReworkBannerState({
+        ...base,
+        planGate: { decision: "changes_requested", round: 1, cap: 5, dismissed: true },
+      }),
+    ).toEqual({ show: false });
+  });
+
+  it("hides plan-gate rework when the loop has stalled (takeover)", () => {
+    expect(activeReworkBannerState({ ...base, planStalled: true })).toEqual({ show: false });
+  });
+
+  it("hides critic rework when dismissed or stalled", () => {
+    const criticBase = {
+      ...base,
+      planPhase: "executing" as const,
+      planGate: undefined,
+      review: { decision: "changes_requested" as const, addressRound: 2, addressCap: 5 },
+    };
+    expect(
+      activeReworkBannerState({
+        ...criticBase,
+        review: { ...criticBase.review, dismissed: true },
+      }),
+    ).toEqual({ show: false });
+    expect(activeReworkBannerState({ ...criticBase, criticStalled: true })).toEqual({
+      show: false,
+    });
+  });
 });

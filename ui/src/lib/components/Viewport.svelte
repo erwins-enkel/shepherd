@@ -876,34 +876,52 @@
     }
   }
   // Double-tap / double-click on the session title opens the rename editor; a
-  // lone tap toggles the git rail (desktop only). Hand-rolled click timing
-  // instead of ondblclick so touch and mouse behave identically (iOS Safari
-  // fires dblclick unreliably). The timestamp is deliberately shared across the
-  // title elements (desig + vp-name): both carry the same session identity side
-  // by side, so a double-tap straddling them still reads as "double-tap the
-  // title" and should rename.
+  // lone tap toggles the disclosure — the git rail on desktop, the header fold
+  // on compact (mobile + touch). Hand-rolled click timing instead of ondblclick
+  // so touch and mouse behave identically (iOS Safari fires dblclick
+  // unreliably). The timestamp is deliberately shared across the title
+  // elements (desig + vp-name + ctx-trigger): they carry the same session
+  // identity side by side, so a double-tap straddling them still reads as
+  // "double-tap the title" and should rename.
   //
   // Timing: the single-tap toggle fires instantly so the common action stays
   // snappy; the double-tap that renames undoes the first tap's toggle, so the
-  // rail returns to its pre-rename state and the only flash is on the rare
-  // rename path. Synchronous — no timer, so nothing fires after the user moves
-  // on. The toggle is desktop-only (gitOpen doesn't exist on compact, where the
-  // rail lives in the header fold instead), so the mobile .ctx-trigger keeps its
-  // first-tap-focus / double-tap-rename behavior unchanged.
+  // disclosure returns to its pre-rename state and the only flash is on the
+  // rare rename path. Synchronous — no timer, so nothing fires after the user
+  // moves on. `toggleFold()` isn't a pure involution (it also forces
+  // `tab = "term"` when it collapses, so a non-terminal tab isn't stranded),
+  // so the compact undo can't just call it twice — it restores both
+  // `headerCollapsed` and the pre-tap tab via `preFoldTab`.
   // 500ms matches the common OS double-click default (400 dropped slow double-clicks).
   const DOUBLE_TAP_MS = 500;
   let lastTitleTap = 0;
+  // compact only: the tab shown before a first-tap fold, restored if the second
+  // tap turns the gesture into a rename (so rename leaves the fold — and the
+  // visible tab — exactly as the user left them). Deliberately a plain snapshot,
+  // not a $derived: it's reassigned imperatively on every fold tap (see below),
+  // not meant to track `tab` reactively.
+  // svelte-ignore state_referenced_locally
+  let preFoldTab: typeof tab = tab;
   function onTitleTap() {
     const now = Date.now();
     if (now - lastTitleTap < DOUBLE_TAP_MS) {
       lastTitleTap = 0;
-      // undo the toggle the first tap performed → rail back to its original state
-      if (!compact) gitOpen = !gitOpen;
+      // undo the first tap's toggle → header back to its pre-tap state
+      if (compact) {
+        headerCollapsed = !headerCollapsed;
+        tab = preFoldTab;
+      } else {
+        gitOpen = !gitOpen;
+      }
       void startRename();
     } else {
       lastTitleTap = now;
-      // desktop: a lone tap toggles the git rail immediately
-      if (!compact) gitOpen = !gitOpen;
+      if (compact) {
+        preFoldTab = tab;
+        toggleFold();
+      } else {
+        gitOpen = !gitOpen;
+      }
     }
   }
   function onTitleKey(e: KeyboardEvent) {

@@ -189,6 +189,22 @@ describe("UnitRow preview badge", () => {
     expect(selects).toBe(0);
   });
 
+  it("keeps the badge above the row hit overlay for real pointer targeting", async () => {
+    loadPreviewMode("/repo/a", "inline");
+    render(UnitRow, {
+      session: session({ id: "p3b" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    const badge = page.getByTitle("Preview").element() as HTMLElement;
+    const rect = badge.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(hit).toBe(badge);
+  });
+
   it("ask mode opens a chooser and routes each choice", async () => {
     loadPreviewMode("/repo/a", "ask");
     const calls: Array<[string, "inline" | "tab" | undefined]> = [];

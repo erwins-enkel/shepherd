@@ -270,6 +270,7 @@
      colliding with any status hue. Outlined + pointer to signal it's clickable. */
   .preview-wrap {
     position: relative;
+    z-index: 1;
     display: inline-flex;
     justify-content: flex-end;
   }

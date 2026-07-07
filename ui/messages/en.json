@@ -2742,5 +2742,11 @@
   "planpanel_quota_dismissing": "Dismissing…",
   "planpanel_quota_unreachable": "Couldn't reach the planning pane. The plan was not resumed.",
   "planpanel_quota_not_stalled": "This plan is no longer stalled. Refresh or review again if the state looks stale.",
-  "planpanel_quota_failed": "Couldn't update the stalled plan. Please try again."
+  "planpanel_quota_failed": "Couldn't update the stalled plan. Please try again.",
+  "epic_start_title": "Click to start this epic. Shepherd launches the next eligible child issue and continues according to the selected mode.",
+  "epic_pause_title": "Click to pause this epic runner. Existing sessions and progress stay intact.",
+  "epic_mode_auto_title": "Click to switch to attended mode. Shepherd will wait for you to approve each next child issue.",
+  "epic_mode_auto_aria": "Auto: switch epic to attended mode",
+  "epic_mode_attended_title": "Click to switch to auto mode. Shepherd will launch eligible child issues without asking for each approval.",
+  "epic_mode_attended_aria": "Attended: switch epic to auto mode"
 }

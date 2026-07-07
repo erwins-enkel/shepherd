@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { AgentProvider, Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import { releasePlanGate, reviewPlan } from "$lib/api";
+  import { dismissQuota, releasePlanGate, resumeQuota, reviewPlan } from "$lib/api";
   import { canRelease, planGateChip } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
@@ -36,6 +36,13 @@
   // its questions persist past approval), with submit locked while a review is in flight.
   const planAnswerCtx = $derived(
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
+  );
+  const planStalled = $derived(
+    canReviewNow &&
+      session.status !== "running" &&
+      !reviewing &&
+      gate?.decision === "changes_requested" &&
+      gate.round >= gate.cap,
   );
   let envOpen = $state(false);
 
@@ -113,6 +120,8 @@
   let planUnavailable = $state(false);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
   const inFlight = $derived(busy || reviewing || awaitingReview);
+  let quotaBusy = $state<"resume" | "dismiss" | null>(null);
+  let quotaOutcome = $state<"unreachable" | "not-stalled" | "error" | null>(null);
 
   // Once the WS `reviewing` flag takes over the in-flight indicator, drop the bridge and any
   // stale no-op/error note — a real run supersedes both.
@@ -126,6 +135,10 @@
 
   $effect(() => {
     if (gate || !canReviewNow) planUnavailable = false;
+  });
+
+  $effect(() => {
+    if (!planStalled) quotaOutcome = null;
   });
 
   // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
@@ -173,6 +186,48 @@
       outcome = "error";
     } finally {
       busy = false;
+    }
+  }
+
+  async function resumeStalledPlan() {
+    if (!planStalled || quotaBusy) return;
+    quotaBusy = "resume";
+    quotaOutcome = null;
+    try {
+      const { status } = await resumeQuota(session.id);
+      if (status === "resumed") {
+        onclose();
+      } else if (status === "unreachable") {
+        quotaOutcome = "unreachable";
+      } else if (status === "not-stalled") {
+        quotaOutcome = "not-stalled";
+      } else {
+        quotaOutcome = "error";
+      }
+    } catch {
+      quotaOutcome = "error";
+    } finally {
+      quotaBusy = null;
+    }
+  }
+
+  async function dismissStalledPlan() {
+    if (!planStalled || quotaBusy) return;
+    quotaBusy = "dismiss";
+    quotaOutcome = null;
+    try {
+      const { status } = await dismissQuota(session.id);
+      if (status === "dismissed") {
+        onclose();
+      } else if (status === "not-stalled") {
+        quotaOutcome = "not-stalled";
+      } else {
+        quotaOutcome = "error";
+      }
+    } catch {
+      quotaOutcome = "error";
+    } finally {
+      quotaBusy = null;
     }
   }
 
@@ -360,10 +415,43 @@
         </p>
       {/if}
 
+      {#if planStalled}
+        <div class="quota-actions" aria-describedby={statusNote ? statusNoteId : undefined}>
+          <button
+            type="button"
+            class="quota-btn primary"
+            onclick={resumeStalledPlan}
+            disabled={quotaBusy !== null}
+          >
+            {quotaBusy === "resume" ? m.planpanel_quota_resuming() : m.planpanel_quota_resume()}
+          </button>
+          <button
+            type="button"
+            class="quota-btn"
+            onclick={dismissStalledPlan}
+            disabled={quotaBusy !== null}
+          >
+            {quotaBusy === "dismiss" ? m.planpanel_quota_dismissing() : m.planpanel_quota_dismiss()}
+          </button>
+        </div>
+        {#if quotaOutcome === "unreachable"}
+          <p class="note err" role="alert">{m.planpanel_quota_unreachable()}</p>
+        {:else if quotaOutcome === "not-stalled"}
+          <p class="note" role="status">{m.planpanel_quota_not_stalled()}</p>
+        {:else if quotaOutcome === "error"}
+          <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
+        {/if}
+      {/if}
+
       {#if !readonly}
         <div class="actions" aria-describedby={statusNote ? statusNoteId : undefined}>
           {#if canReviewNow}
-            <button type="button" class="review" onclick={review} disabled={inFlight}>
+            <button
+              type="button"
+              class="review"
+              onclick={review}
+              disabled={inFlight || !!quotaBusy}
+            >
               {#if inFlight}
                 <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
               {:else}
@@ -375,7 +463,7 @@
             type="button"
             class="go"
             onclick={go}
-            disabled={busy || !releasable}
+            disabled={busy || !!quotaBusy || !releasable}
             aria-describedby={statusNote ? statusNoteId : undefined}
           >
             {m.planpanel_go()}
@@ -665,6 +753,12 @@
     justify-content: flex-end;
     margin-top: 2px;
   }
+  .quota-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+  }
   .note {
     margin: 0;
     color: var(--color-muted);
@@ -691,7 +785,8 @@
     color: var(--color-red);
   }
   .review,
-  .go {
+  .go,
+  .quota-btn {
     border: 1px solid var(--color-line-bright);
     background: transparent;
     color: var(--color-ink);
@@ -707,6 +802,11 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+  }
+  .quota-btn.primary {
+    border-color: var(--color-amber);
+    color: var(--color-amber);
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   /* plan reviewer running now: amber pulsing dot (mirrors PlanGateBadge) */
   .rev-dot {
@@ -732,7 +832,8 @@
     box-shadow: inset 0 0 18px -10px var(--color-green);
   }
   .review:disabled,
-  .go:disabled {
+  .go:disabled,
+  .quota-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
     color: var(--color-faint);

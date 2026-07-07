@@ -6,6 +6,7 @@ import {
   type PlanGateTooltipCopy,
 } from "./plan-gate-badge";
 import type { PlanGate, Session } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 const baseGate: PlanGate = {
   sessionId: "s1",
@@ -27,7 +28,7 @@ const tooltipCopy: PlanGateTooltipCopy = {
   planning: "Review before execution.",
   reviewing: "Review running.",
   changes: "Execution waits for approval.",
-  changesStalled: "Plan is stalled.",
+  changesStalled: m.plangate_tip_changes_stalled(),
   ready: "Plan approved.",
   error: "Review did not complete.",
   view: "Execution started.",
@@ -154,9 +155,9 @@ describe("composePlanGateTooltip", () => {
 
   it("uses stalled copy for changes at the round cap", () => {
     const chip = planGateChip(sess("planning"), gate({ round: 3, cap: 3 }), false);
-    expect(composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy)).toBe(
-      "Plan is stalled.",
-    );
+    const tooltip = composePlanGateTooltip(chip, gate({ summary: "" }), tooltipCopy);
+    expect(tooltip).toBe(m.plangate_tip_changes_stalled());
+    expect(tooltip.toLowerCase()).not.toContain("stall banner");
   });
 
   it("covers ready, error, and view states without a summary", () => {

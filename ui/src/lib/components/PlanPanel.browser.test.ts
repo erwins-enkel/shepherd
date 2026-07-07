@@ -92,7 +92,9 @@ afterEach(() => {
   document.querySelectorAll(".overlay").forEach((el) => el.remove());
   // Clean up any seeded plan gate entries.
   planGates.map = {};
+  planGates.reviewing = {};
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
+  vi.unstubAllGlobals();
 });
 
 describe("PlanPanel portal", () => {
@@ -174,6 +176,194 @@ describe("PlanPanel release state", () => {
     });
 
     await expect.element(page.getByText(m.planpanel_status_changes_stalled())).toBeVisible();
+  });
+
+  it("resumes a stalled plan through the quota endpoint and closes on resumed", async () => {
+    const id = "s-resume";
+    const onclose = vi.fn();
+    const fetch = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true, status: "resumed" }), { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_resume() }).click();
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalledTimes(1));
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/sessions/${id}/quota/resume`,
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("dismisses a stalled plan through the quota endpoint and closes on dismissed", async () => {
+    const id = "s-dismiss";
+    const onclose = vi.fn();
+    const fetch = vi.fn(async () => {
+      return new Response(JSON.stringify({ ok: true, status: "dismissed" }), { status: 202 });
+    });
+    vi.stubGlobal("fetch", fetch);
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_dismiss() }).click();
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalledTimes(1));
+    expect(fetch).toHaveBeenCalledWith(
+      `/api/sessions/${id}/quota/dismiss`,
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("keeps the panel open when resume cannot reach the planning pane", async () => {
+    const id = "s-unreachable";
+    const onclose = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(JSON.stringify({ ok: true, status: "unreachable" }), { status: 202 });
+      }),
+    );
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_resume() }).click();
+    await expect.element(page.getByText(m.planpanel_quota_unreachable())).toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+    await expect.element(page.getByRole("dialog", { name: m.planpanel_title() })).toBeVisible();
+  });
+
+  it("keeps the panel open when the quota endpoint reports not-stalled", async () => {
+    const id = "s-not-stalled";
+    const onclose = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(JSON.stringify({ ok: true, status: "not-stalled" }), { status: 202 });
+      }),
+    );
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_dismiss() }).click();
+    await expect.element(page.getByText(m.planpanel_quota_not_stalled())).toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+    await expect.element(page.getByRole("dialog", { name: m.planpanel_title() })).toBeVisible();
+  });
+
+  it("keeps the panel open and shows failure copy when a quota action rejects", async () => {
+    const id = "s-quota-error";
+    const onclose = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        return new Response(JSON.stringify({ error: "boom" }), { status: 500 });
+      }),
+    );
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_resume() }).click();
+    await expect.element(page.getByText(m.planpanel_quota_failed())).toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
+  it("does not render stalled quota actions while the planning agent is running", async () => {
+    const id = "s-running";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id, status: "running" }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_status_changes_stalled())).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_dismiss() }))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not render stalled quota actions while the plan reviewer is in flight", async () => {
+    const id = "s-reviewing";
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+    planGates.applyReviewing(id, true);
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_status_reviewing())).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
+      .not.toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_dismiss() }))
+      .not.toBeInTheDocument();
   });
 
   it("enables Go for an approved planning gate", async () => {

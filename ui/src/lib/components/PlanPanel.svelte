@@ -236,15 +236,15 @@
   }
 
   const statusNoteId = $derived(`plan-status-${session.id}`);
-  const statusNote = $derived(planStatusNote(chip));
+  const statusNote = $derived(planStatusNote(chip, planStalled));
   const statusTone = $derived(planStatusTone(chip));
 
-  function planStatusNote(currentChip: typeof chip): string | null {
+  function planStatusNote(currentChip: typeof chip, stalledActionsVisible: boolean): string | null {
     switch (currentChip.kind) {
       case "ready":
         return m.planpanel_status_ready();
       case "changes":
-        return currentChip.round >= currentChip.cap
+        return stalledActionsVisible
           ? m.planpanel_status_changes_stalled()
           : m.planpanel_status_changes();
       case "error":

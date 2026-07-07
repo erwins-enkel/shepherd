@@ -176,6 +176,12 @@ describe("PlanPanel release state", () => {
     });
 
     await expect.element(page.getByText(m.planpanel_status_changes_stalled())).toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_dismiss() }))
+      .toBeVisible();
   });
 
   it("resumes a stalled plan through the quota endpoint and closes on resumed", async () => {
@@ -354,7 +360,7 @@ describe("PlanPanel release state", () => {
     expect(onclose).not.toHaveBeenCalled();
   });
 
-  it("does not render stalled quota actions while the planning agent is running", async () => {
+  it("does not render stalled action copy or quota actions while the planning agent is running", async () => {
     const id = "s-running";
     planGates.map = {
       [id]: gate(id, {
@@ -369,7 +375,10 @@ describe("PlanPanel release state", () => {
       props: { session: session({ id, status: "running" }), onclose: vi.fn() },
     });
 
-    await expect.element(page.getByText(m.planpanel_status_changes_stalled())).toBeVisible();
+    await expect.element(page.getByText(m.planpanel_status_changes())).toBeVisible();
+    await expect
+      .element(page.getByText(m.planpanel_status_changes_stalled()))
+      .not.toBeInTheDocument();
     await expect
       .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
       .not.toBeInTheDocument();

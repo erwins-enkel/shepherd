@@ -117,8 +117,8 @@ describe("UpdateModal", () => {
     expect(dog).not.toBeNull();
     expect(flock!.querySelector("svg")).toBeNull();
     expect(sheep!.tagName).toBe("PRE");
-    expect(sheep!.textContent).toContain("(oo)");
-    expect(dog!.textContent).toContain("^..^");
+    expect(sheep!.textContent).toContain("(o.o)");
+    expect(dog!.textContent).toContain("(___()");
     expect(card).not.toBeNull();
     await expect.element(run).toBeVisible();
 
@@ -181,7 +181,7 @@ describe("UpdateModal", () => {
     expect(sheet!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
     expect(sheet!.querySelector('[data-flock-actor="dog"]')).not.toBeNull();
     expect(sheet!.querySelector("svg")).toBeNull();
-    expect(sheet!.textContent).toContain("(oo)");
+    expect(sheet!.textContent).toContain("(o.o)");
   });
 
   it("uses a testable static flock state when reduced motion is requested", async () => {
@@ -203,6 +203,6 @@ describe("UpdateModal", () => {
     await vi.waitFor(() => expect(flock!.dataset.reduced).toBe("true"));
     expect(getComputedStyle(actor!).animationName).toBe("none");
     expect(flock!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
-    expect(flock!.textContent).toContain("(oo)");
+    expect(flock!.textContent).toContain("(o.o)");
   });
 });

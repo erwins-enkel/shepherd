@@ -2798,21 +2798,45 @@
     display: inline-flex;
   }
 
+  /* the task designation as a read-only ghost chip: boxed at the 6px chip radius
+     to rhyme with the GitRail chip strip, but hue-less and dot-less so it never
+     competes with the semantic status chips. A sanctioned standalone ghost-chip
+     form (DESIGN.md), distinct from the inline 2px Badge. */
   .desig {
     font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--color-muted);
     flex-shrink: 0;
     cursor: default;
-    border-bottom: 1px dotted var(--color-line);
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
+    padding: 3px 9px;
     /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
   }
   .desig-wrap:hover .desig {
+    color: var(--color-ink-bright);
+    border-color: var(--color-line-bright);
+    background: var(--color-hover);
+  }
+  /* Compact / touch header (.vp-head.mobile) wraps its row, and the git-toggle the
+     ghost chip rhymes with isn't rendered there — so keep the designation the plain
+     dotted-underline label it was. A boxed chip would widen the wrapping row and
+     push the tab bar under the hover meta-popover (.desig-pop), which would then
+     intercept tab taps. */
+  .vp-head.mobile .desig {
+    border: 0;
+    border-bottom: 1px dotted var(--color-line);
+    border-radius: 0;
+    padding: 0;
+  }
+  .vp-head.mobile .desig-wrap:hover .desig {
     color: var(--color-ink);
+    border-color: var(--color-line);
+    background: transparent;
   }
   /* keyboard focus — flat inset amber ring, distinct from the hover color shift */
   .desig:focus-visible {
@@ -2918,17 +2942,17 @@
   .git-toggle {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    gap: 6px;
     flex-shrink: 0;
     background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 2px 7px;
+    padding: 3px 9px;
     cursor: pointer;
     transition:
       color 0.12s,
@@ -2954,8 +2978,8 @@
   }
   .gt-dot {
     flex: 0 0 auto;
-    width: 6px;
-    height: 6px;
+    width: 7px;
+    height: 7px;
     border-radius: 50%;
     background: var(--color-faint);
   }
@@ -3001,14 +3025,14 @@
     align-items: center;
     flex-shrink: 0;
     background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
+    border: 1px solid var(--color-line);
+    border-radius: 6px;
     color: var(--color-muted);
     font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.12em;
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    padding: 2px 7px;
+    padding: 3px 9px;
     cursor: pointer;
     transition:
       color 0.12s,

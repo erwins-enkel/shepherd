@@ -865,7 +865,7 @@
      chip-row cohesion (DESIGN.md #1541). Scoped to .rail so the PR-compose /
      findings-popover dialog buttons keep the standalone 2px. */
   .rail .gbtn {
-    border-radius: 6px;
+    border-radius: var(--radius-chip);
     padding: 3px 9px;
   }
   /* critic actively reviewing: amber outline (reused by automation pill) */

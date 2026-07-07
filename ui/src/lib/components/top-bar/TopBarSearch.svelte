@@ -53,7 +53,7 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     color: var(--color-muted);
-    border-radius: 2px;
+    border-radius: var(--radius-chip);
     cursor: pointer;
     font: inherit;
     flex-shrink: 0;

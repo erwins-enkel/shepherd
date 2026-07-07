@@ -94,6 +94,9 @@ export class HerdrSocketClient {
       socket.on("data", (chunk: Buffer) => {
         if (settled) return;
         buffer += chunk.toString("utf8");
+        // Relies on herdr's NDJSON framing: the reply is one newline-terminated line.
+        // A response sent without a trailing "\n" before FIN would be treated as a
+        // premature close (onPrematureClose) — safe per the 0.7.2 wire contract.
         const newlineIndex = buffer.indexOf("\n");
         if (newlineIndex === -1) return; // still waiting for the rest of the line
         const line = buffer.slice(0, newlineIndex);

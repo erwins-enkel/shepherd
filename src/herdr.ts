@@ -216,14 +216,14 @@ export function isNameTakenError(err: unknown): boolean {
   return false;
 }
 
+type AgentListResult = { agents?: Record<string, string>[] } | null;
+
 /**
  * Maps a herdr `agent.list` reply's `result` object to `HerdrAgent[]`. Pure and
  * module-level so BOTH the sync CLI driver (`HerdrDriver.list`/`listAsync`) and the
- * future socket driver (issue #1529) can share the exact same parsing — the reply
+ * socket driver (issue #1529) can share the exact same parsing — the reply
  * shape doesn't change with the transport. Read `result?.agents ?? []`.
  */
-type AgentListResult = { agents?: Record<string, string>[] } | null;
-
 export function parseAgents(result: unknown): HerdrAgent[] {
   const agents = (result as AgentListResult)?.agents ?? [];
   return agents.map((a: Record<string, string>) => ({

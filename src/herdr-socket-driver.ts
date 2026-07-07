@@ -11,8 +11,9 @@ import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
 
 /**
  * Socket-backed `IHerdrDriver` (issue #1529): routes the async read surface —
- * `listAsync`/`readAsync`/`paneForegroundProcs` — over herdr's persistent Unix-socket
- * JSON-RPC transport (`HerdrSocketClient`), avoiding a CLI spawn per poll tick.
+ * `listAsync`/`readAsync`/`paneForegroundProcs` — over herdr's Unix-socket
+ * JSON-RPC transport (`HerdrSocketClient`, one connection per request), avoiding a
+ * CLI spawn per poll tick.
  *
  * Every OTHER method — including the sync `list`/`read`/`tabs`/`panes` and the whole
  * write surface (`start`/`send`/`stop`/`relabel`/`closeTab`) — delegates straight to a

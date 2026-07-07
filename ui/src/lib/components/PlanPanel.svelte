@@ -130,15 +130,12 @@
       awaitingReview = false;
       outcome = null;
       planUnavailable = false;
+      quotaOutcome = null;
     }
   });
 
   $effect(() => {
     if (gate || !canReviewNow) planUnavailable = false;
-  });
-
-  $effect(() => {
-    if (!planStalled) quotaOutcome = null;
   });
 
   // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
@@ -434,13 +431,13 @@
             {quotaBusy === "dismiss" ? m.planpanel_quota_dismissing() : m.planpanel_quota_dismiss()}
           </button>
         </div>
-        {#if quotaOutcome === "unreachable"}
-          <p class="note err" role="alert">{m.planpanel_quota_unreachable()}</p>
-        {:else if quotaOutcome === "not-stalled"}
-          <p class="note" role="status">{m.planpanel_quota_not_stalled()}</p>
-        {:else if quotaOutcome === "error"}
-          <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
-        {/if}
+      {/if}
+      {#if quotaOutcome === "unreachable"}
+        <p class="note err" role="alert">{m.planpanel_quota_unreachable()}</p>
+      {:else if quotaOutcome === "not-stalled"}
+        <p class="note" role="status">{m.planpanel_quota_not_stalled()}</p>
+      {:else if quotaOutcome === "error"}
+        <p class="note err" role="alert">{m.planpanel_quota_failed()}</p>
       {/if}
 
       {#if !readonly}

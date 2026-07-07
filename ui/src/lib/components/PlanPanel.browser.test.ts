@@ -262,6 +262,43 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByRole("dialog", { name: m.planpanel_title() })).toBeVisible();
   });
 
+  it("keeps unreachable feedback visible after the server resets the plan gate round", async () => {
+    const id = "s-unreachable-reset";
+    const onclose = vi.fn();
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => {
+        planGates.apply(
+          id,
+          gate(id, {
+            decision: "changes_requested",
+            round: 0,
+            cap: 3,
+            approved: false,
+          }),
+        );
+        return new Response(JSON.stringify({ ok: true, status: "unreachable" }), { status: 202 });
+      }),
+    );
+    planGates.map = {
+      [id]: gate(id, {
+        decision: "changes_requested",
+        round: 3,
+        cap: 3,
+        approved: false,
+      }),
+    };
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose },
+    });
+
+    await page.getByRole("button", { name: m.planpanel_quota_resume() }).click();
+    await expect.element(page.getByText(m.planpanel_status_changes())).toBeVisible();
+    await expect.element(page.getByText(m.planpanel_quota_unreachable())).toBeVisible();
+    expect(onclose).not.toHaveBeenCalled();
+  });
+
   it("keeps the panel open when the quota endpoint reports not-stalled", async () => {
     const id = "s-not-stalled";
     const onclose = vi.fn();

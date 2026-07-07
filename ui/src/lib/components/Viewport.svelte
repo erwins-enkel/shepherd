@@ -2243,12 +2243,30 @@
       <!-- transient post-rename note (e.g. "branch kept"); the rename input itself
            takes the title's slot in place when active -->
       {@render renameNoteEl()}
-      <!-- git-rail disclosure, welded to the title: the full rail (PR / CI /
-           merge / critic / ready / verdict) plus the autopilot toggle live one
-           tap away, revealed as a second header row (.vp-git-strip). Sitting it
-           beside the title enlarges the tap target and pairs it with the
-           single-tap-toggle on the title itself (onTitleTap). A direct tap here
-           toggles instantly and is the keyboard/AT path (aria-expanded). -->
+    {/if}
+    <div class="spacer"></div>
+    <ViewportTabBar
+      bind:tab
+      {session}
+      {previewPort}
+      todoExists={!!todoExists}
+      {hasFiles}
+      {hasPreview}
+      {compact}
+      {headerFolded}
+      {vpBodyId}
+      {tabId}
+      {foldRegionId}
+    />
+    {#if !compact}
+      <span class="sep">·</span>
+      <!-- git-rail disclosure — grouped with the work-state chips (status ·
+           PLANNING) it shares meaning with, anchored in the right cluster so a
+           short task name no longer strands it mid-bar. Reveals the full rail
+           (PR / CI / merge / critic / ready / verdict) plus the autopilot toggle
+           as a second header row (.vp-git-strip). A direct tap toggles instantly
+           and is the keyboard/AT path (aria-expanded); tapping the task title
+           (onTitleTap) toggles the same strip. -->
       <button
         class="git-toggle"
         class:open={gitOpen}
@@ -2268,23 +2286,6 @@
         <span class="gt-label">{m.viewport_git_actions()}</span>
         <span class="gt-caret" aria-hidden="true">{gitOpen ? "▴" : "▾"}</span>
       </button>
-    {/if}
-    <div class="spacer"></div>
-    <ViewportTabBar
-      bind:tab
-      {session}
-      {previewPort}
-      todoExists={!!todoExists}
-      {hasFiles}
-      {hasPreview}
-      {compact}
-      {headerFolded}
-      {vpBodyId}
-      {tabId}
-      {foldRegionId}
-    />
-    {#if !compact}
-      <span class="sep">·</span>
     {/if}
     {#if mobile}
       <!-- connection state, alert-by-exception: a lone red dot only when dropped -->

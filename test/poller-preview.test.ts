@@ -16,6 +16,18 @@ import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
 
+/**
+ * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
+ * sync `list()` these pre-existing herdr fakes were written against. Rather than
+ * duplicate each fake's (sometimes stateful) `list()` logic, mirror it: `listAsync`
+ * resolves to whatever `list()` returns at call time.
+ */
+function withListAsync<T extends { list: () => HerdrAgent[] }>(
+  herdr: T,
+): T & { listAsync: () => Promise<HerdrAgent[]> } {
+  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+}
+
 // ── shared test fixtures ─────────────────────────────────────────────────────
 
 const baseHerdrAgent: HerdrAgent = {
@@ -109,7 +121,7 @@ function makePollerWithPreview(opts: {
 
   return new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as any,
+    withListAsync({ list: () => agents, read: () => "" } as any),
     () => {},
     () => {},
     1000, // intervalMs
@@ -151,13 +163,13 @@ test("preview sweep: throttle — two ticks within sweepMs → one sweep only", 
     now: () => clock,
   });
 
-  poller.tick(); // first tick: lastPreviewSweepAt=0 → sweep starts (async)
+  await poller.tick(); // first tick: lastPreviewSweepAt=0 → sweep starts (async)
   await new Promise((r) => setTimeout(r, 10)); // wait for async sweep to finish
   expect(service._convergeArgs.length).toBe(1); // one sweep
   expect(scanCalls.count).toBe(1);
 
   clock += 2000; // still within sweepMs (4000)
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs.length).toBe(1); // NO second sweep
   expect(scanCalls.count).toBe(1);
@@ -182,12 +194,12 @@ test("preview sweep: throttle — tick after sweepMs → second sweep fires", as
     now: () => clock,
   });
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10)); // wait for first async sweep
   expect(service._convergeArgs.length).toBe(1);
 
   clock += 5000; // past sweepMs
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10)); // wait for second async sweep
   expect(service._convergeArgs.length).toBe(2); // second sweep fired
   expect(scanCalls.count).toBe(2);
@@ -212,7 +224,7 @@ test("preview sweep: re-entrancy — pending sweep blocks a concurrent second sw
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -237,12 +249,12 @@ test("preview sweep: re-entrancy — pending sweep blocks a concurrent second sw
     },
   );
 
-  poller.tick(); // starts first sweep (in flight, pick is pending)
+  await poller.tick(); // starts first sweep (in flight, pick is pending)
   expect(scanCalls.count).toBe(1);
 
   // advance past sweepMs so throttle would allow a second
   clock += 5000;
-  poller.tick(); // re-entrancy guard must block this
+  await poller.tick(); // re-entrancy guard must block this
   expect(scanCalls.count).toBe(1); // scan NOT called again while first is in flight
 
   // release the slow pick
@@ -274,7 +286,7 @@ test("preview sweep: zero isolated sessions → converge([]) called, scan NOT ca
     now: () => 100_000,
   });
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs.length).toBe(1);
   expect(service._convergeArgs[0]).toEqual([]); // converge([]) called
@@ -298,7 +310,7 @@ test("preview sweep: no sessions at all → converge([]) called, scan NOT called
     now: () => 100_000,
   });
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs.length).toBe(1);
   expect(service._convergeArgs[0]).toEqual([]);
@@ -328,7 +340,7 @@ test("preview sweep: idle/done session with a live port → converge includes it
     now: () => 100_000,
   });
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
 
   expect(service._convergeArgs.length).toBeGreaterThanOrEqual(1);
@@ -351,7 +363,10 @@ test("preview sweep: when idle agent's port disappears → converge excludes it 
 
   const poller = new StatusPoller(
     store,
-    { list: () => [{ ...baseHerdrAgent, agentStatus: "done" as const }], read: () => "" } as any,
+    withListAsync({
+      list: () => [{ ...baseHerdrAgent, agentStatus: "done" as const }],
+      read: () => "",
+    } as any),
     () => {},
     () => {},
     1000,
@@ -377,7 +392,7 @@ test("preview sweep: when idle agent's port disappears → converge excludes it 
   );
 
   // First sweep: port present → converge includes session
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs[0]).toContainEqual({ sessionId: s.id, devPort: 5173 });
 
@@ -387,7 +402,7 @@ test("preview sweep: when idle agent's port disappears → converge excludes it 
 
   // Advance past sweepMs → second sweep
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   const secondConverge = service._convergeArgs[1]!;
   // session absent from the active list → converge([]) → release will be called by real PreviewService
@@ -428,7 +443,7 @@ test("preview sweep: single scan per sweep regardless of session count", async (
     now: () => 100_000,
   });
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   // scan called EXACTLY once for all 3 sessions
   expect(scanCalls.count).toBe(1);
@@ -446,7 +461,7 @@ test("preview sweep: pick is called with the session's worktreePath", async () =
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -473,7 +488,7 @@ test("preview sweep: pick is called with the session's worktreePath", async () =
     },
   );
 
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
 
   expect(pickCalls.length).toBeGreaterThanOrEqual(1);
@@ -516,7 +531,7 @@ test("preview sweep: throwing scan → no crash + previewSweeping resets → lat
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -540,7 +555,7 @@ test("preview sweep: throwing scan → no crash + previewSweeping resets → lat
   );
 
   // First tick: scan throws → poller must not crash
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   // no converge called (threw before reaching it)
   expect(service._convergeArgs.length).toBe(0);
@@ -548,7 +563,7 @@ test("preview sweep: throwing scan → no crash + previewSweeping resets → lat
   // previewSweeping must have been reset (finally ran) → a later tick past sweepMs must sweep
   shouldThrow = false;
   clock += 5000; // past sweepMs
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   // second sweep succeeded
   expect(service._convergeArgs.length).toBe(1);
@@ -564,7 +579,7 @@ test("preview sweep: rejecting pick → no crash + previewSweeping resets → la
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -588,14 +603,14 @@ test("preview sweep: rejecting pick → no crash + previewSweeping resets → la
   );
 
   // First tick: pick rejects → poller must not crash
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs.length).toBe(0);
 
   // previewSweeping must have reset → later tick past sweepMs must sweep normally
   shouldReject = false;
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
   expect(service._convergeArgs.length).toBe(1);
   expect(service._convergeArgs[0]).toContainEqual({ sessionId: expect.any(String), devPort: 5173 });
@@ -655,7 +670,7 @@ function makeIdleStopPoller(opts: {
     convergeArgs,
     poller: new StatusPoller(
       store,
-      { list: () => agents, read: () => "" } as any,
+      withListAsync({ list: () => agents, read: () => "" } as any),
       () => {},
       () => {},
       1000, // intervalMs
@@ -688,7 +703,7 @@ function makeIdleStopPoller(opts: {
 /** Drive a fresh sweep: advance clock past sweepMs, call tick(), await microtasks. */
 async function runSweep(clock: { v: number }, poller: StatusPoller): Promise<void> {
   clock.v += 5000; // past the 4000ms sweepMs
-  poller.tick();
+  await poller.tick();
   await new Promise((r) => setTimeout(r, 10));
 }
 
@@ -705,7 +720,7 @@ test("idle-stop: disabled by default — no stop called even when idle+stale", a
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -816,7 +831,10 @@ test("idle-stop: stale-status guard — s.status is idle (stale snapshot) but st
     store,
     // Agent reports "working" (HerdrState) → mapState → "running" → reconcileAgent updates store
     // to "running" before async sweep fires, so store.get(id).status = "running"
-    { list: () => [{ ...baseHerdrAgent, agentStatus: "working" as const }], read: () => "" } as any,
+    withListAsync({
+      list: () => [{ ...baseHerdrAgent, agentStatus: "working" as const }],
+      read: () => "",
+    } as any),
     () => {},
     () => {},
     1000,
@@ -1009,7 +1027,7 @@ test("idle-stop: reset on recovery — after SIGTERM, next sweep with low idleSi
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1075,7 +1093,7 @@ test("idle-stop: reset on port death — after SIGTERM, port disappears then rea
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1141,7 +1159,7 @@ test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not 
 
   const poller = new StatusPoller(
     store,
-    { list: () => [baseHerdrAgent], read: () => "" } as any,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
     () => {},
     () => {},
     1000,

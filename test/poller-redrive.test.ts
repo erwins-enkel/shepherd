@@ -9,6 +9,18 @@ import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import type { HerdrAgent } from "../src/herdr";
 
+/**
+ * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
+ * sync `list()` these pre-existing herdr fakes were written against. Rather than
+ * duplicate each fake's (sometimes stateful) `list()` logic, mirror it: `listAsync`
+ * resolves to whatever `list()` returns at call time.
+ */
+function withListAsync<T extends { list: () => HerdrAgent[] }>(
+  herdr: T,
+): T & { listAsync: () => Promise<HerdrAgent[]> } {
+  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+}
+
 const baseSession = {
   name: "x",
   prompt: "x",
@@ -34,7 +46,7 @@ function fakeAgent(terminalId: string): HerdrAgent {
   };
 }
 
-test("poller fires reDrive for a herdr-restored account pane (spawnTerminalId != live terminalId)", () => {
+test("poller fires reDrive for a herdr-restored account pane (spawnTerminalId != live terminalId)", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   store.setSpawnIdentity(s.id, "T1", "/acct"); // owning account, spawned on T1
@@ -43,7 +55,7 @@ test("poller fires reDrive for a herdr-restored account pane (spawnTerminalId !=
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as never,
+    withListAsync({ list: () => agents, read: () => "" } as never),
     () => {},
     () => {},
   );
@@ -51,12 +63,12 @@ test("poller fires reDrive for a herdr-restored account pane (spawnTerminalId !=
   const redriveCalls: string[] = [];
   poller.reDrive = (id) => redriveCalls.push(id);
 
-  poller.tick();
+  await poller.tick();
 
   expect(redriveCalls).toEqual([s.id]);
 });
 
-test("poller does NOT fire reDrive for a default session (spawnAccountDir=null)", () => {
+test("poller does NOT fire reDrive for a default session (spawnAccountDir=null)", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   // spawnAccountDir defaults to null (no owning account) — a fresh terminalId here is just the
@@ -66,7 +78,7 @@ test("poller does NOT fire reDrive for a default session (spawnAccountDir=null)"
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as never,
+    withListAsync({ list: () => agents, read: () => "" } as never),
     () => {},
     () => {},
   );
@@ -74,12 +86,12 @@ test("poller does NOT fire reDrive for a default session (spawnAccountDir=null)"
   const redriveCalls: string[] = [];
   poller.reDrive = (id) => redriveCalls.push(id);
 
-  poller.tick();
+  await poller.tick();
 
   expect(redriveCalls).toEqual([]);
 });
 
-test("poller tick() never throws even when reDrive itself throws (fire-and-forget dispatch)", () => {
+test("poller tick() never throws even when reDrive itself throws (fire-and-forget dispatch)", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   store.setSpawnIdentity(s.id, "T1", "/acct");
@@ -87,7 +99,7 @@ test("poller tick() never throws even when reDrive itself throws (fire-and-forge
   const agents: HerdrAgent[] = [fakeAgent("T2")];
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as never,
+    withListAsync({ list: () => agents, read: () => "" } as never),
     () => {},
     () => {},
   );
@@ -96,5 +108,5 @@ test("poller tick() never throws even when reDrive itself throws (fire-and-forge
     throw new Error("boom");
   };
 
-  expect(() => poller.tick()).not.toThrow();
+  await expect(poller.tick()).resolves.toBeUndefined();
 });

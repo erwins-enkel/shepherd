@@ -29,7 +29,19 @@ const baseSession = {
  *  block-clear) land on a later microtask. Flush a cycle before asserting them. */
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
-test("tick maps herdr state to status and emits only on change", () => {
+/**
+ * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
+ * sync `list()` these pre-existing herdr fakes were written against. Rather than
+ * duplicate each fake's (sometimes stateful) `list()` logic, mirror it: `listAsync`
+ * resolves to whatever `list()` returns at call time.
+ */
+function withListAsync<T extends { list: () => HerdrAgent[] }>(
+  herdr: T,
+): T & { listAsync: () => Promise<HerdrAgent[]> } {
+  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+}
+
+test("tick maps herdr state to status and emits only on change", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const emitted: { id: string; status: string }[] = [];
@@ -49,20 +61,20 @@ test("tick maps herdr state to status and emits only on change", () => {
 
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as any,
+    withListAsync({ list: () => agents, read: () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
 
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.status).toBe("running");
   expect(emitted).toEqual([{ id: s.id, status: "running" }]);
 
-  poller.tick(); // unchanged → no new emit
+  await poller.tick(); // unchanged → no new emit
   expect(emitted.length).toBe(1);
 
   agents = [{ ...agents[0]!, agentStatus: "blocked" }];
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.status).toBe("blocked");
   expect(emitted.length).toBe(2);
 });
@@ -95,7 +107,7 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -104,25 +116,25 @@ test("emits onBlock with a classified reason for blocked sessions, clears on res
     () => clock,
   );
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("menu");
 
   // within the reclassify window + same content → no new emit
   clock += 1000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
 
   // agent resumes → exactly one clear emit (block === null)
   agentStatus = "working";
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
 
-test("re-emits onBlock when the blocked reason changes after the cadence", () => {
+test("re-emits onBlock when the blocked reason changes after the cadence", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -145,7 +157,7 @@ test("re-emits onBlock when the blocked reason changes after the cadence", () =>
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -153,11 +165,11 @@ test("re-emits onBlock when the blocked reason changes after the cadence", () =>
     classifyBlocked,
     () => clock,
   );
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   text = "Continue? (y/n)";
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
   expect((blocks[1]!.block as any).shape).toBe("yes-no");
 });
@@ -203,7 +215,7 @@ function spinnerHarness(initialText: string) {
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     (_id, status) => statuses.push(status),
     (id, block) => {
       blocks.push({ id, block });
@@ -240,9 +252,9 @@ function spinnerHarness(initialText: string) {
   };
 }
 
-test("suppresses the awaiting-input fallback when the TUI shows a working spinner", () => {
+test("suppresses the awaiting-input fallback when the TUI shows a working spinner", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(0);
   // exactly one working-blocked(true) for the episode …
   expect(h.working).toEqual([{ id: h.id, working: true }]);
@@ -250,18 +262,18 @@ test("suppresses the awaiting-input fallback when the TUI shows a working spinne
   // … and further cadences over an ADVANCING buffer (live spinner ticks) stay silent
   h.setText(spinnerTail(18));
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   h.setText(spinnerTail(23));
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toHaveLength(1);
   expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
 });
 
-test("clears an announced block exactly once when the buffer flips to a working spinner", () => {
+test("clears an announced block exactly once when the buffer flips to a working spinner", async () => {
   const h = spinnerHarness("❯ 1. Yes\n  2. No");
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("menu");
   expect(h.working).toHaveLength(0);
@@ -269,7 +281,7 @@ test("clears an announced block exactly once when the buffer flips to a working 
   // dialog answered, herdr latches blocked, TUI now shows a live turn spinner
   h.setText(SPINNER_TAIL);
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(2);
   expect(h.blocks[1]!.block).toBeNull();
   expect(h.working).toEqual([{ id: h.id, working: true }]);
@@ -277,22 +289,22 @@ test("clears an announced block exactly once when the buffer flips to a working 
   // further suppressed cycles (spinner still ticking) emit nothing
   h.setText(spinnerTail(18));
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   h.setText(spinnerTail(23));
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(2);
   expect(h.working).toHaveLength(1);
 });
 
-test("re-arms after suppression: a later spinner-free awaiting-input tail emits a block", () => {
+test("re-arms after suppression: a later spinner-free awaiting-input tail emits a block", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(0);
 
   h.setText("I need your input on the API design.\n❯");
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   // flag-off lands in the same tick, BEFORE the block (badge + red row together)
@@ -300,25 +312,25 @@ test("re-arms after suppression: a later spinner-free awaiting-input tail emits 
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
 });
 
-test("still emits a menu block when a spinner line is also visible", () => {
+test("still emits a menu block when a spinner line is also visible", async () => {
   const h = spinnerHarness(`✶ Bunning… (1m 13s · ↑ 1.3k tokens)\n❯ 1. Yes\n  2. No`);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("menu");
   // a genuine dialog never enters the working-blocked display state
   expect(h.working).toHaveLength(0);
 });
 
-test("herdr leaving blocked drops the working-blocked flag in the same tick", () => {
+test("herdr leaving blocked drops the working-blocked flag in the same tick", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
   // herdr flips to working → flag-off synchronously on that tick (no probe wait,
   // no async flush — reconcileAgent clears it before any throttled path runs)
   h.setStatus("working");
   h.advance(1000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.working).toEqual([
     { id: h.id, working: true },
     { id: h.id, working: false },
@@ -327,32 +339,32 @@ test("herdr leaving blocked drops the working-blocked flag in the same tick", ()
   expect(h.blocks).toHaveLength(0); // suppression never announced a block to clear
 });
 
-test("suppress/re-arm cycle synthesizes no status transitions of its own", () => {
+test("suppress/re-arm cycle synthesizes no status transitions of its own", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick(); // blocked + suppressed
+  await h.poller.tick(); // blocked + suppressed
   h.setText(spinnerTail(18)); // spinner ticks → stays suppressed
   h.advance(5000);
-  h.poller.tick(); // still suppressed
+  await h.poller.tick(); // still suppressed
   h.setText("I need your input on the API design.\n❯");
   h.advance(5000);
-  h.poller.tick(); // re-arm → block emitted
+  await h.poller.tick(); // re-arm → block emitted
   expect(h.statuses).toEqual(["blocked"]); // only herdr's raw transition
 
   h.setStatus("working");
   h.advance(1000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.statuses).toEqual(["blocked", "running"]);
 });
 
-test("agent gone during suppression: reap emits exactly one working:false and marks done", () => {
+test("agent gone during suppression: reap emits exactly one working:false and marks done", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick(); // herdr blocked + spinner tail → suppression episode
+  await h.poller.tick(); // herdr blocked + spinner tail → suppression episode
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
   // claude exited / ctrl-c'd — herdr no longer lists the agent → reapGone
   h.setGone();
   h.advance(1000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.working).toEqual([
     { id: h.id, working: true },
     { id: h.id, working: false },
@@ -362,66 +374,66 @@ test("agent gone during suppression: reap emits exactly one working:false and ma
 
   // further ticks emit nothing more
   h.advance(1000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.working).toHaveLength(2);
 });
 
-test("archive during suppression: prune drops the flag silently (no working:false)", () => {
+test("archive during suppression: prune drops the flag silently (no working:false)", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick(); // enter the suppression episode
+  await h.poller.tick(); // enter the suppression episode
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
   // session archived → leaves the activeOnly list → pruneInactive clears tracking
   h.store.update(h.id, { status: "archived" });
   h.advance(1000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.working).toEqual([{ id: h.id, working: true }]); // NO additional emission
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
 });
 
-test("frozen spinner re-arms: an identical buffer across cadences surfaces the block", () => {
+test("frozen spinner re-arms: an identical buffer across cadences surfaces the block", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick(); // first sighting → one-cadence grace, suppressed
+  await h.poller.tick(); // first sighting → one-cadence grace, suppressed
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
   // buffer did NOT advance → wedged/static, not a live spinner → re-arm:
   // exactly one working:false then one awaiting-input block, in that order
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
 
   // a further identical-buffer cadence: sig-dedupe → no new emissions
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
 });
 
-test("advancing spinner stays suppressed across cadences", () => {
+test("advancing spinner stays suppressed across cadences", async () => {
   const h = spinnerHarness(spinnerTail(13));
-  h.poller.tick();
+  await h.poller.tick();
   for (const secs of [14, 15, 16]) {
     h.setText(spinnerTail(secs)); // elapsed counter ticks → buffer advances
     h.advance(3001);
-    h.poller.tick();
+    await h.poller.tick();
   }
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]); // only the initial flag-on
   expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
 });
 
-test("unwedged spinner re-enters suppression: flag back on, re-armed block cleared once", () => {
+test("unwedged spinner re-enters suppression: flag back on, re-armed block cleared once", async () => {
   const h = spinnerHarness(SPINNER_TAIL);
-  h.poller.tick(); // grace
+  await h.poller.tick(); // grace
   h.advance(3001);
-  h.poller.tick(); // frozen → re-arm
+  await h.poller.tick(); // frozen → re-arm
   expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
 
   // turn unwedges: the buffer advances again with a live spinner
   h.setText(spinnerTail(14));
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toEqual([
     "working:true",
     "working:false",
@@ -433,20 +445,20 @@ test("unwedged spinner re-enters suppression: flag back on, re-armed block clear
   // and the re-entered episode keeps suppressing while the spinner ticks
   h.setText(spinnerTail(15));
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toHaveLength(5);
   expect(h.poller.workingBlockedSnapshot()).toEqual({ [h.id]: true });
 });
 
-test("static buffer quoting a spinner-like markdown bullet ultimately surfaces the block", () => {
+test("static buffer quoting a spinner-like markdown bullet ultimately surfaces the block", async () => {
   // genuine awaiting-input tail that merely CONTAINS a spinner-shaped bullet line
   const h = spinnerHarness("Summary:\n* Done… (3s)\nWhich option do you prefer?\n❯");
-  h.poller.tick(); // first cadence: grace → may suppress
+  await h.poller.tick(); // first cadence: grace → may suppress
   expect(h.blocks).toHaveLength(0);
 
   // static across reads → second cadence re-arms with the block
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
@@ -505,7 +517,7 @@ test("GET /api/blocks returns the block snapshot (incl. authUrl); {} when unwire
   expect(await res.json()).toEqual({});
 });
 
-test("marks a session done and emits once when its herdr agent is gone", () => {
+test("marks a session done and emits once when its herdr agent is gone", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const emitted: { id: string; status: string }[] = [];
@@ -513,21 +525,21 @@ test("marks a session done and emits once when its herdr agent is gone", () => {
   // herdr no longer lists the agent (claude exited / ctrl-c reaped the terminal)
   const poller = new StatusPoller(
     store,
-    { list: () => [] as HerdrAgent[], read: () => "" } as any,
+    withListAsync({ list: () => [] as HerdrAgent[], read: () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
 
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.status).toBe("done");
   expect(store.get(s.id)?.lastState).toBe("done");
   expect(emitted).toEqual([{ id: s.id, status: "done" }]);
 
-  poller.tick(); // already done → no duplicate emit
+  await poller.tick(); // already done → no duplicate emit
   expect(emitted.length).toBe(1);
 });
 
-test("clears an active block when the agent disappears", () => {
+test("clears an active block when the agent disappears", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -547,7 +559,7 @@ test("clears an active block when the agent disappears", () => {
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "❯ 1. Yes\n  2. No" } as any,
+    withListAsync({ list: () => agents, read: () => "❯ 1. Yes\n  2. No" } as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -556,17 +568,17 @@ test("clears an active block when the agent disappears", () => {
     () => clock,
   );
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1); // classified the block
 
   agents = []; // agent gone
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.status).toBe("done");
   expect(blocks[blocks.length - 1]).toEqual({ id: s.id, block: null }); // block cleared
 });
 
-test("flags a silent working agent with a FROZEN terminal as a stall, fires once, re-arms on resume", () => {
+test("flags a silent working agent with a FROZEN terminal as a stall, fires once, re-arms on resume", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -598,7 +610,7 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
   let clock = 1_700_000_000_000; // realistic ms epoch so a past lastTs stays positive
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -619,53 +631,53 @@ test("flags a silent working agent with a FROZEN terminal as a stall, fires once
   // priming probe: a first sighting (no baseline) is NOT live-writing, so it routes
   // to interim and only RECORDS the transcript baseline (no readAsync injected → the
   // interim read no-ops). The NEXT probe sees the newest record advance → transcript.
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(0);
 
   // first transcript-path probe (newest record advanced) only captures a terminal
   // baseline — no emit yet
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(0);
 
   // next probe: terminal unchanged + transcript silent → stall fires
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
   expect((blocks[0]!.block as any).tail).toEqual(["still chewing on it"]);
 
   // throttled within probeCheckMs → no re-probe
   clock += 1000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
 
   // past the throttle, still stalled → fires only once per episode
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
 
   // terminal resumes moving (live generation) → the liveness gate clears the stall
   // and resets the baseline, re-arming the episode.
   visible = "Computing… (1s)";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 
   // frozen again: baseline was reset on recovery, so the first probe defers again…
   visible = "still chewing on it";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
   // …and the next confirms the frozen terminal → fires
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(3);
   expect((blocks[2]!.block as any).shape).toBe("stall");
 });
 
-test("does NOT flag a transcript-silent agent whose terminal is still moving (live generation)", () => {
+test("does NOT flag a transcript-silent agent whose terminal is still moving (live generation)", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -692,7 +704,7 @@ test("does NOT flag a transcript-silent agent whose terminal is still moving (li
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -707,13 +719,13 @@ test("does NOT flag a transcript-silent agent whose terminal is still moving (li
   // probe across several cadences — the terminal changes each time → never a stall
   for (let i = 0; i < 4; i++) {
     frame += 13;
-    poller.tick();
+    await poller.tick();
     clock += 7000;
   }
   expect(blocks).toHaveLength(0);
 });
 
-test("fires a stall for a hung command (pending past the ceiling) even when the terminal keeps ticking", () => {
+test("fires a stall for a hung command (pending past the ceiling) even when the terminal keeps ticking", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -741,7 +753,7 @@ test("fires a stall for a hung command (pending past the ceiling) even when the 
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -756,24 +768,24 @@ test("fires a stall for a hung command (pending past the ceiling) even when the 
 
   // priming probe: first sighting (no baseline) → interim, just records the
   // transcript baseline (no readAsync → no-op). Next probe advances → transcript path.
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(0);
 
   // pending candidate fires immediately (no baseline defer) despite the moving terminal
   frame += 5;
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
 
   // still hung + still ticking → once per episode, no re-fire / no false clear
   frame += 5;
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
 });
 
-test("clears an emitted stall when the terminal resumes moving even before the transcript catches up", () => {
+test("clears an emitted stall when the terminal resumes moving even before the transcript catches up", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -800,7 +812,7 @@ test("clears an emitted stall when the terminal resumes moving even before the t
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -812,23 +824,23 @@ test("clears an emitted stall when the terminal resumes moving even before the t
     7000,
   );
 
-  poller.tick(); // priming: first sighting → interim, just records transcript baseline
+  await poller.tick(); // priming: first sighting → interim, just records transcript baseline
   clock += 7000;
-  poller.tick(); // first transcript probe → terminal baseline
+  await poller.tick(); // first transcript probe → terminal baseline
   clock += 7000;
-  poller.tick(); // frozen → stall fires
+  await poller.tick(); // frozen → stall fires
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
 
   // terminal resumes ticking while the transcript is still silent → clear the stall
   visible = "Computing… (601s)";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
 
-test("acknowledgeStall clears the flag without re-firing while still stalled", () => {
+test("acknowledgeStall clears the flag without re-firing while still stalled", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -856,7 +868,7 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -871,13 +883,13 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
     7000, // probeCheckMs
   );
 
-  poller.tick(); // priming: first sighting → interim, just records transcript baseline
+  await poller.tick(); // priming: first sighting → interim, just records transcript baseline
   expect(blocks).toHaveLength(0);
   clock += 7000;
-  poller.tick(); // first transcript probe → terminal baseline, no emit yet
+  await poller.tick(); // first transcript probe → terminal baseline, no emit yet
   expect(blocks).toHaveLength(0);
   clock += 7000;
-  poller.tick(); // frozen terminal → stall fires
+  await poller.tick(); // frozen terminal → stall fires
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
 
@@ -888,27 +900,27 @@ test("acknowledgeStall clears the flag without re-firing while still stalled", (
 
   // still stalled on the next probe → does NOT re-announce (episode acknowledged)
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
 
   // terminal moves → episode re-arms; acknowledgeStall now no-ops (no live stall)
   visible = "Computing… (1s)";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect(poller.acknowledgeStall(s.id)).toBe(false);
 
   // a later stall fires again (baseline reset on recovery → defer one probe, then fire)
   visible = "still chewing on it";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   expect((blocks[blocks.length - 1]!.block as any).shape).toBe("stall");
 });
 
 test.each(["working", "blocked"] as const)(
   "auto-clears readyToMerge when a ready session transitions to %s",
-  (agentStatus) => {
+  async (agentStatus) => {
     const store = new SessionStore(":memory:");
     const s = store.create(baseSession);
     store.update(s.id, { readyToMerge: true });
@@ -929,7 +941,7 @@ test.each(["working", "blocked"] as const)(
 
     const poller = new StatusPoller(
       store,
-      { list: () => agents, read: () => "" } as any,
+      withListAsync({ list: () => agents, read: () => "" } as any),
       () => {},
       () => {},
       1000,
@@ -942,16 +954,16 @@ test.each(["working", "blocked"] as const)(
       (id, ready2) => ready.push({ id, ready: ready2 }),
     );
 
-    poller.tick();
+    await poller.tick();
     expect(store.get(s.id)?.readyToMerge).toBe(false);
     expect(ready).toEqual([{ id: s.id, ready: false }]);
 
-    poller.tick(); // already cleared → no duplicate emit
+    await poller.tick(); // already cleared → no duplicate emit
     expect(ready).toHaveLength(1);
   },
 );
 
-test("leaves readyToMerge untouched while a ready session stays idle", () => {
+test("leaves readyToMerge untouched while a ready session stays idle", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   store.update(s.id, { readyToMerge: true });
@@ -960,7 +972,7 @@ test("leaves readyToMerge untouched while a ready session stays idle", () => {
   // herdr "done" maps to idle status — not running/blocked, so the flag is sticky
   const poller = new StatusPoller(
     store,
-    {
+    withListAsync({
       list: (): HerdrAgent[] => [
         {
           agent: "claude",
@@ -974,7 +986,7 @@ test("leaves readyToMerge untouched while a ready session stays idle", () => {
         },
       ],
       read: () => "",
-    } as any,
+    } as any),
     () => {},
     () => {},
     1000,
@@ -987,12 +999,12 @@ test("leaves readyToMerge untouched while a ready session stays idle", () => {
     (id, r) => ready.push({ id, r }),
   );
 
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.readyToMerge).toBe(true);
   expect(ready).toHaveLength(0);
 });
 
-test("does not emit onBlock when reading the terminal throws", () => {
+test("does not emit onBlock when reading the terminal throws", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const blocks: unknown[] = [];
@@ -1016,7 +1028,7 @@ test("does not emit onBlock when reading the terminal throws", () => {
   const clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (_id, block) => blocks.push(block),
     1000,
@@ -1024,7 +1036,7 @@ test("does not emit onBlock when reading the terminal throws", () => {
     classifyBlocked,
     () => clock,
   );
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(0);
 });
 
@@ -1049,7 +1061,7 @@ const runningHerdr = {
   readAsync: () => Promise.resolve("const"),
 };
 
-test("maybeActivity emits via onActivity when the probe returns a signal", () => {
+test("maybeActivity emits via onActivity when the probe returns a signal", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: { id: string; activity: unknown }[] = [];
@@ -1066,7 +1078,7 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
   };
   const poller = new StatusPoller(
     store,
-    runningHerdr as any,
+    withListAsync(runningHerdr as any),
     () => {},
     () => {},
     1000,
@@ -1080,12 +1092,12 @@ test("maybeActivity emits via onActivity when the probe returns a signal", () =>
     (id, activity) => activities.push({ id, activity }),
   );
 
-  poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
+  await poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
   expect(activities).toHaveLength(0);
 
   clock += 8000; // past throttle
   signal.lastActivityTs = 1000; // newest record advanced → transcript path → emit
-  poller.tick();
+  await poller.tick();
   expect(activities).toHaveLength(1);
   expect(activities[0]!.activity).toEqual(signal);
 });
@@ -1112,7 +1124,7 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
 
   const poller = new StatusPoller(
     store,
-    runningHerdr as any,
+    withListAsync(runningHerdr as any),
     () => {},
     () => {},
     1000,
@@ -1126,34 +1138,34 @@ test("maybeActivity dedups identical signals — does not re-emit unchanged acti
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
+  await poller.tick(); // priming: first sighting → interim (constant terminal → no emit)
   await flush();
   expect(activities).toHaveLength(0);
 
   // newest record advances → transcript path → first emit (signalA)
   clock += 8000;
   currentSignal = signalA;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(activities).toHaveLength(1);
 
   // advance past throttle, SAME signal (ts unchanged) → not advancing → interim
   // path, constant terminal → no new emit.
   clock += 8000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(activities).toHaveLength(1);
 
   // swap signal in place (newer ts) → live-writing again → transcript path re-emits
   clock += 8000;
   currentSignal = signalB;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(activities).toHaveLength(2);
   expect(activities[1]).toEqual(signalB);
 });
 
-test("maybeActivity respects activityCheckMs throttle", () => {
+test("maybeActivity respects activityCheckMs throttle", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: unknown[] = [];
@@ -1175,7 +1187,7 @@ test("maybeActivity respects activityCheckMs throttle", () => {
 
   const poller = new StatusPoller(
     store,
-    runningHerdr as any,
+    withListAsync(runningHerdr as any),
     () => {},
     () => {},
     1000,
@@ -1189,28 +1201,28 @@ test("maybeActivity respects activityCheckMs throttle", () => {
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // probe called; first sighting → interim (constant terminal → no emit)
+  await poller.tick(); // probe called; first sighting → interim (constant terminal → no emit)
   expect(callCount).toBe(1);
   expect(activities).toHaveLength(0);
 
   clock += 3000; // within probeCheckMs (7000) → throttled
-  poller.tick();
+  await poller.tick();
   expect(callCount).toBe(1); // probe NOT called again yet
 
   clock += 5000; // now past the 7000ms throttle; newest record advanced → transcript emit
-  poller.tick();
+  await poller.tick();
   expect(callCount).toBe(2); // probe called again
   expect(activities).toHaveLength(1);
 });
 
-test("maybeActivity skips emit when probe returns null", () => {
+test("maybeActivity skips emit when probe returns null", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: unknown[] = [];
 
   const poller = new StatusPoller(
     store,
-    runningHerdr as any,
+    withListAsync(runningHerdr as any),
     () => {},
     () => {},
     1000,
@@ -1224,11 +1236,11 @@ test("maybeActivity skips emit when probe returns null", () => {
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick();
+  await poller.tick();
   expect(activities).toHaveLength(0);
 });
 
-test("maybeActivity does not run for non-running (idle/blocked) sessions", () => {
+test("maybeActivity does not run for non-running (idle/blocked) sessions", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSession);
   const activities: unknown[] = [];
@@ -1253,7 +1265,7 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
 
   const poller = new StatusPoller(
     store,
-    idleHerdr as any,
+    withListAsync(idleHerdr as any),
     () => {},
     () => {},
     1000,
@@ -1273,7 +1285,7 @@ test("maybeActivity does not run for non-running (idle/blocked) sessions", () =>
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick();
+  await poller.tick();
   expect(probeCallCount).toBe(0);
   expect(activities).toHaveLength(0);
 });
@@ -1312,7 +1324,7 @@ function interimHarness(opts: {
   };
   return new StatusPoller(
     opts.store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => opts.onBlock?.(id, block),
     1000,
@@ -1344,7 +1356,7 @@ test("interim: empty transcript + changing terminal accrues heartbeat ticks, nev
   });
 
   // first probe: captures baseline, no change to diff against yet → no tick, no emit
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(activities).toHaveLength(0);
 
@@ -1352,7 +1364,7 @@ test("interim: empty transcript + changing terminal accrues heartbeat ticks, nev
   for (let i = 0; i < 3; i++) {
     frame += 7;
     clock += 7000;
-    poller.tick();
+    await poller.tick();
     await flush();
   }
   expect(blocks).toHaveLength(0); // moving terminal never stalls
@@ -1379,7 +1391,7 @@ test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", async () => {
     onActivity: (_id, activity) => activities.push(activity),
   });
 
-  poller.tick(); // baseline
+  await poller.tick(); // baseline
   await flush();
   // accrue ticks well past the window so the oldest must be dropped
   const totalSpan = STRIP_WINDOW_MS * 2;
@@ -1388,7 +1400,7 @@ test("interim: heartbeat ticks are windowed to STRIP_WINDOW_MS", async () => {
     frame += 1;
     clock += 7000;
     elapsed += 7000;
-    poller.tick();
+    await poller.tick();
     await flush();
   }
   const last = activities[activities.length - 1]!;
@@ -1414,19 +1426,19 @@ test("interim: static terminal for ≥ stallMs fires a stall once, then clears w
   });
 
   // first probe: baseline only — must NOT fire even though static
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(0);
 
   // still static, but not yet past stallMs → no fire
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(0);
 
   // past stallMs of no change → stall fires once
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
@@ -1434,14 +1446,14 @@ test("interim: static terminal for ≥ stallMs fires a stall once, then clears w
 
   // still static past throttle → once per episode, no re-fire
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(1);
 
   // terminal moves again → stall clears
   visible = "moving now";
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
@@ -1462,7 +1474,7 @@ test("interim: first static sample defers — does not fire immediately", async 
   });
 
   // …the very first sample has no baseline to diff against → defer, no fire
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(blocks).toHaveLength(0);
 });
@@ -1490,7 +1502,7 @@ test("interim: terminal read throwing is best-effort — no throw, no emit", asy
   };
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (_id, block) => blocks.push(block),
     1000,
@@ -1504,7 +1516,7 @@ test("interim: terminal read throwing is best-effort — no throw, no emit", asy
     (_id, activity) => activities.push(activity),
   );
 
-  expect(() => poller.tick()).not.toThrow();
+  await expect(poller.tick()).resolves.toBeUndefined();
   await flush();
   expect(blocks).toHaveLength(0);
   expect(activities).toHaveLength(0);
@@ -1541,7 +1553,7 @@ test("interim: a second probe while the first read is in flight does not start a
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     () => {},
     1000,
@@ -1556,14 +1568,14 @@ test("interim: a second probe while the first read is in flight does not start a
   );
 
   // first tick dispatches a read that never resolves yet
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(reads).toBe(1);
 
   // advance past the throttle so the throttle alone wouldn't block a second probe,
   // tick again → the in-flight guard must suppress a second read
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(reads).toBe(1);
 
@@ -1571,7 +1583,7 @@ test("interim: a second probe while the first read is in flight does not start a
   resolveFirst("done");
   await flush();
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(reads).toBe(2);
 });
@@ -1611,7 +1623,7 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
   let clock = 1_700_000_000_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (_id, block) => blocks.push(block),
     1000,
@@ -1635,7 +1647,7 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
     (id, activity) => activities.push({ id, activity }),
   );
 
-  poller.tick(); // priming: first sighting → interim (records the transcript baseline)
+  await poller.tick(); // priming: first sighting → interim (records the transcript baseline)
   await flush();
   // discount any terminal read from the priming interim probe; from here every probe
   // sees the newest record advance → transcript path, which must never touch the terminal.
@@ -1644,7 +1656,7 @@ test("interim path is NOT used when the transcript probe returns a non-null sign
 
   for (let i = 0; i < 2; i++) {
     clock += 7000;
-    poller.tick();
+    await poller.tick();
     await flush();
   }
 
@@ -1698,7 +1710,7 @@ test("interim engages when the transcript parses but its newest record is FROZEN
   const staleTs = clock - 600_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     () => {},
     1000,
@@ -1717,7 +1729,7 @@ test("interim engages when the transcript parses but its newest record is FROZEN
 
   // first probe: no baseline → NOT live-writing → interim terminal-diff engages
   // immediately, reading the live terminal (captures the change-baseline this cycle).
-  poller.tick();
+  await poller.tick();
   await flush();
   expect(visibleReads).toBe(1);
 
@@ -1726,7 +1738,7 @@ test("interim engages when the transcript parses but its newest record is FROZEN
   for (let i = 0; i < 3; i++) {
     frame += 7;
     clock += 7000;
-    poller.tick();
+    await poller.tick();
     await flush();
   }
   expect(visibleReads).toBeGreaterThan(0);
@@ -1775,7 +1787,7 @@ test("a resumed stale transcript engages the interim path on the FIRST probe (no
 
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     () => {},
     1000,
@@ -1793,7 +1805,7 @@ test("a resumed stale transcript engages the interim path on the FIRST probe (no
   );
 
   // FIRST probe: no baseline → NOT live → interim engages (reads the terminal async).
-  poller.tick();
+  await poller.tick();
   await flush(); // the interim read is async
   expect(visibleReads).toBe(1); // interim path ran on probe 1
   // and crucially the stale transcript activity was NOT emitted (its "old" summary
@@ -1830,7 +1842,7 @@ test("a frozen resumed transcript with a frozen terminal fires an interim stall"
   const staleTs = clock - 600_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -1847,11 +1859,11 @@ test("a frozen resumed transcript with a frozen terminal fires an interim stall"
     () => {},
   );
 
-  poller.tick(); // probe 1: no baseline → interim engages, captures terminal baseline → defer
+  await poller.tick(); // probe 1: no baseline → interim engages, captures terminal baseline → defer
   await flush();
   expect(blocks).toHaveLength(0);
   clock += 7000;
-  poller.tick(); // probe 2: terminal still frozen past stallMs → interim stall fires
+  await poller.tick(); // probe 2: terminal still frozen past stallMs → interim stall fires
   await flush();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
@@ -1896,7 +1908,7 @@ test("a live-writing probe resets a stale interim stall baseline (Finding 1)", a
 
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -1927,10 +1939,10 @@ test("a live-writing probe resets a stale interim stall baseline (Finding 1)", a
 
   // Episode 1 (interim): establish a stall baseline, then fire. A first sighting (no
   // baseline) is NOT live-writing, so interim engages from probe 1.
-  poller.tick(); // probe 1: stale-frozen, no baseline → interim → terminal baseline (defer)
+  await poller.tick(); // probe 1: stale-frozen, no baseline → interim → terminal baseline (defer)
   await flush();
   clock += 7000;
-  poller.tick(); // probe 2: frozen past stallMs → interim stall fires
+  await poller.tick(); // probe 2: frozen past stallMs → interim stall fires
   await flush();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("stall");
@@ -1940,7 +1952,7 @@ test("a live-writing probe resets a stale interim stall baseline (Finding 1)", a
   // stall block (the clear emit).
   live = true;
   clock += 7000;
-  poller.tick();
+  await poller.tick();
   await flush();
   const afterLive = blocks.length;
   expect(blocks[afterLive - 1]).toEqual({ id: store.list()[0]!.id, block: null });
@@ -1950,12 +1962,12 @@ test("a live-writing probe resets a stale interim stall baseline (Finding 1)", a
   // immediately off the stale baseline. With the reset it has no baseline → defers.
   live = false;
   clock += 7000;
-  poller.tick(); // first interim sample post-reset → MUST defer, not fire
+  await poller.tick(); // first interim sample post-reset → MUST defer, not fire
   await flush();
   expect(blocks.length).toBe(afterLive); // no new stall fired off the stale baseline
 });
 
-test("pruneInactive clears activity tracking for a running-only session that goes away", () => {
+test("pruneInactive clears activity tracking for a running-only session that goes away", async () => {
   // A session that was only ever running (never blocked) populates lastProbeAt
   // and lastActivitySig but never lastSig — the old pruneInactive iterated only
   // lastSig.keys() and so those entries leaked. After prune, re-adding the same
@@ -1980,7 +1992,7 @@ test("pruneInactive clears activity tracking for a running-only session that goe
 
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as any,
+    withListAsync({ list: () => agents, read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -1997,17 +2009,17 @@ test("pruneInactive clears activity tracking for a running-only session that goe
     (_id, activity) => activities.push(activity),
   );
 
-  poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
+  await poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
   expect(activities).toHaveLength(0);
   clock += 8000;
-  poller.tick(); // newest record advanced → transcript path → emit; populates the maps
+  await poller.tick(); // newest record advanced → transcript path → emit; populates the maps
   expect(activities).toHaveLength(1);
 
   // session is archived — poller sees empty store list → pruneInactive fires
   store.update(s.id, { status: "archived" });
   agents = [];
   clock += 8000;
-  poller.tick(); // pruneInactive must clear lastProbeAt + lastActivitySig
+  await poller.tick(); // pruneInactive must clear lastProbeAt + lastActivitySig
 
   // session comes back (status reset to pending then running via herdr)
   store.update(s.id, { status: "running" });
@@ -2027,14 +2039,14 @@ test("pruneInactive clears activity tracking for a running-only session that goe
   // sighting → priming interim probe (no readAsync → no emit), then the advancing probe
   // re-emits via the transcript path (proving the activity sig map was cleared by prune).
   clock += 8000;
-  poller.tick(); // priming: first sighting post-resurrection → interim, no emit
+  await poller.tick(); // priming: first sighting post-resurrection → interim, no emit
   expect(activities).toHaveLength(1);
   clock += 8000;
-  poller.tick(); // newest record advanced → transcript path → must re-emit
+  await poller.tick(); // newest record advanced → transcript path → must re-emit
   expect(activities).toHaveLength(2);
 });
 
-test("tick adopts a resurrected agent by cwd, re-points the id, emits, and does NOT reap", () => {
+test("tick adopts a resurrected agent by cwd, re-points the id, emits, and does NOT reap", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...baseSession, worktreePath: "/wt", herdrAgentId: "term_stale" });
   const emitted: { id: string; status: string }[] = [];
@@ -2054,34 +2066,34 @@ test("tick adopts a resurrected agent by cwd, re-points the id, emits, and does 
 
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as any,
+    withListAsync({ list: () => agents, read: () => "" } as any),
     (id, status) => emitted.push({ id, status }),
     () => {},
   );
 
-  poller.tick();
+  await poller.tick();
   const out = store.get(s.id);
   expect(out?.herdrAgentId).toBe("term_fresh"); // adopted, not reaped
   expect(out?.status).toBe("running");
   expect(emitted).toContainEqual({ id: s.id, status: "running" });
 });
 
-test("tick reaps when neither terminalId nor cwd matches a live agent", () => {
+test("tick reaps when neither terminalId nor cwd matches a live agent", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({ ...baseSession, worktreePath: "/wt", herdrAgentId: "term_stale" });
 
   const poller = new StatusPoller(
     store,
-    { list: () => [], read: () => "" } as any,
+    withListAsync({ list: () => [], read: () => "" } as any),
     () => {},
     () => {},
   );
 
-  poller.tick();
+  await poller.tick();
   expect(store.get(s.id)?.status).toBe("done");
 });
 
-test("activitySnapshot returns last emitted signal, pruned when the session goes away", () => {
+test("activitySnapshot returns last emitted signal, pruned when the session goes away", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
 
@@ -2101,7 +2113,7 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
 
   const poller = new StatusPoller(
     store,
-    { list: () => agents, read: () => "" } as any,
+    withListAsync({ list: () => agents, read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -2118,11 +2130,11 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
     () => {},
   );
 
-  poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
+  await poller.tick(); // priming: first sighting → interim (no readAsync → no emit)
   expect(poller.activitySnapshot()).toEqual({});
 
   clock += 8000;
-  poller.tick(); // newest record advanced → transcript path emits → caches the signal
+  await poller.tick(); // newest record advanced → transcript path emits → caches the signal
   expect(poller.activitySnapshot()).toEqual({
     [s.id]: { lastActivityTs: 108_000, summary: "edited x.ts", recentTs: [], recentErrTs: [] },
   });
@@ -2131,11 +2143,11 @@ test("activitySnapshot returns last emitted signal, pruned when the session goes
   store.update(s.id, { status: "archived" });
   agents = [];
   clock += 8000;
-  poller.tick();
+  await poller.tick();
   expect(poller.activitySnapshot()).toEqual({});
 });
 
-test("tick() is a no-op while maintenance is active (no herdr call, no reap)", () => {
+test("tick() is a no-op while maintenance is active (no herdr call, no reap)", async () => {
   let listCalls = 0;
   const store = {
     list: () => {
@@ -2152,20 +2164,20 @@ test("tick() is a no-op while maintenance is active (no herdr call, no reap)", (
   };
   const poller = new StatusPoller(
     store,
-    herdr,
+    withListAsync(herdr),
     () => {},
     () => {},
   );
   maintenance.begin();
   try {
-    poller.tick();
+    await poller.tick();
     expect(listCalls).toBe(0);
   } finally {
     maintenance.end();
   }
 });
 
-test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
+test("tick() swallows a herdr.list() throw (no crash, no reap)", async () => {
   let reaped = false;
   const store = {
     list: () => {
@@ -2187,12 +2199,12 @@ test("tick() swallows a herdr.list() throw (no crash, no reap)", () => {
   };
   const poller = new StatusPoller(
     store,
-    herdr,
+    withListAsync(herdr),
     () => {},
     () => {},
   );
   // must NOT throw (an unhandled throw on the 1s interval would crash shepherd)
-  expect(() => poller.tick()).not.toThrow();
+  await expect(poller.tick()).resolves.toBeUndefined();
   expect(reaped).toBe(false); // tick bailed before touching the store
 });
 
@@ -2238,7 +2250,7 @@ function hookHarness(opts?: {
   const livenessWiring = opts?.onLivenessChange ? { onChange: opts.onLivenessChange } : undefined;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -2305,7 +2317,7 @@ test("hooks: PostToolUseFailure (status:error) populates recentErrTs", () => {
   }
 });
 
-test("hooks: a permission_prompt notification triggers maybeClassify on the next (non-blocked) tick, consumed once", () => {
+test("hooks: a permission_prompt notification triggers maybeClassify on the next (non-blocked) tick, consumed once", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -2314,21 +2326,21 @@ test("hooks: a permission_prompt notification triggers maybeClassify on the next
     const h = hookHarness({ visible: () => "❯ 1. Yes\n  2. No" });
     h.poller.ingestNotification(h.id, "permission_prompt");
 
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(1);
     expect((h.blocks[0]!.block as any).shape).toBe("menu");
 
     // marker consumed → a later tick does NOT re-classify/re-fire (sig-deduped anyway,
     // but the marker is gone so the awaiting branch never even runs again)
     h.advance(5000);
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(1);
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cadence passes", () => {
+test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cadence passes", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -2342,7 +2354,7 @@ test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cad
     // Prime `lastReadAt` fresh: a blocked tick runs maybeClassify (records the read
     // time + emits the first menu block), then drop back to working.
     h.setStatus("blocked");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(1);
     h.setStatus("working");
 
@@ -2351,33 +2363,33 @@ test("hooks: a throttled awaiting tick KEEPS the marker and retries once the cad
     // new block fires.
     h.poller.ingestNotification(h.id, "permission_prompt");
     h.advance(1000); // < reclassifyMs (3000)
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(1); // still throttled, nothing new
 
     // Cadence passes → the RETAINED marker drives a real classify this tick. Vary the
     // buffer so the sig differs from the primed menu and the emit isn't dedup-skipped.
     buf = "❯ 1. Approve\n  2. Deny\n  3. Cancel";
     h.advance(3000); // now > reclassifyMs since the priming read
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(2); // classify ran → block re-emitted
     expect((h.blocks[1]!.block as any).shape).toBe("menu");
 
     // Marker now consumed: a further (post-cadence) tick does not re-fire.
     h.advance(3000);
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(2);
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("hooks: idle_prompt does NOT trigger a block", () => {
+test("hooks: idle_prompt does NOT trigger a block", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = hookHarness({ visible: () => "❯ 1. Yes\n  2. No" });
     h.poller.ingestNotification(h.id, "idle_prompt");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(0);
   } finally {
     config.hooksSignals = orig;
@@ -2394,7 +2406,7 @@ test("hooks: freshness guard suppresses the interim activity emit while push is 
     const h = hookHarness({ visible: () => `Computing… (${frame}s)` });
 
     // prime the interim baseline
-    h.poller.tick();
+    await h.poller.tick();
     await flush();
     expect(h.activities).toHaveLength(0);
 
@@ -2407,7 +2419,7 @@ test("hooks: freshness guard suppresses the interim activity emit while push is 
     // fresh → suppressed. The only activity remains the push emit.
     frame += 7;
     h.advance(7000);
-    h.poller.tick();
+    await h.poller.tick();
     await flush();
     const interimEmits = h.activities.filter((a) => a.activity.summary === null);
     expect(interimEmits).toHaveLength(0);
@@ -2416,7 +2428,7 @@ test("hooks: freshness guard suppresses the interim activity emit while push is 
   }
 });
 
-test("hooks: freshness guard keeps the transcript stall firing for a frozen pure-generation turn", () => {
+test("hooks: freshness guard keeps the transcript stall firing for a frozen pure-generation turn", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -2434,14 +2446,14 @@ test("hooks: freshness guard keeps the transcript stall firing for a frozen pure
       h.poller.ingestActivity(h.id, { toolName: "Edit", status: "ok", ts: h.now() });
 
     refresh();
-    h.poller.tick(); // priming: first sighting → interim, records transcript baseline
+    await h.poller.tick(); // priming: first sighting → interim, records transcript baseline
     h.advance(7000);
     refresh();
-    h.poller.tick(); // transcript path → terminal baseline, no stall yet
+    await h.poller.tick(); // transcript path → terminal baseline, no stall yet
     expect(h.blocks).toHaveLength(0);
     h.advance(7000);
     refresh();
-    h.poller.tick(); // frozen terminal + silent transcript → stall STILL fires
+    await h.poller.tick(); // frozen terminal + silent transcript → stall STILL fires
     expect(h.blocks).toHaveLength(1);
     expect((h.blocks[0]!.block as any).shape).toBe("stall");
   } finally {
@@ -2449,7 +2461,7 @@ test("hooks: freshness guard keeps the transcript stall firing for a frozen pure
   }
 });
 
-test("hooks: freshness guard still emits the probe's activity when it carries error heat the push didn't", () => {
+test("hooks: freshness guard still emits the probe's activity when it carries error heat the push didn't", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -2472,10 +2484,10 @@ test("hooks: freshness guard still emits the probe's activity when it carries er
     const pushEmits = h.activities.length;
 
     // prime then advance so the transcript path engages (newest record advances)
-    h.poller.tick();
+    await h.poller.tick();
     h.advance(8000);
     h.poller.ingestActivity(h.id, { toolName: "Read", status: "ok", ts: h.now() }); // keep fresh
-    h.poller.tick();
+    await h.poller.tick();
 
     // the probe's error-bearing signal was emitted despite the fresh push
     const errEmits = h.activities.filter((a) => a.activity.recentErrTs.length > 0);
@@ -2486,7 +2498,7 @@ test("hooks: freshness guard still emits the probe's activity when it carries er
   }
 });
 
-test("hooks: pruneInactive clears the new maps and calls pruneHooks", () => {
+test("hooks: pruneInactive clears the new maps and calls pruneHooks", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -2497,7 +2509,7 @@ test("hooks: pruneInactive clears the new maps and calls pruneHooks", () => {
     // archive the session → it leaves the activeOnly list → pruneInactive
     h.store.update(h.id, { status: "archived" });
     h.advance(1000);
-    h.poller.tick();
+    await h.poller.tick();
 
     // pruneHooks called with the (now empty) active set
     expect(h.pruned.length).toBeGreaterThan(0);
@@ -2513,7 +2525,7 @@ test("hooks: pruneInactive clears the new maps and calls pruneHooks", () => {
   }
 });
 
-test("hooks: ingest* are inert when config.hooksSignals is off", () => {
+test("hooks: ingest* are inert when config.hooksSignals is off", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = false;
   try {
@@ -2522,7 +2534,7 @@ test("hooks: ingest* are inert when config.hooksSignals is off", () => {
     expect(h.activities).toHaveLength(0); // no emit
 
     h.poller.ingestNotification(h.id, "permission_prompt");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.blocks).toHaveLength(0); // no block trigger
   } finally {
     config.hooksSignals = orig;
@@ -2645,7 +2657,7 @@ function idleQuotaHarness() {
 
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -2658,33 +2670,33 @@ function idleQuotaHarness() {
 }
 
 // Property 1: emit once per episode
-test("quota: idle session in rework-stall emits block once; second tick with same state does not re-emit", () => {
+test("quota: idle session in rework-stall emits block once; second tick with same state does not re-emit", async () => {
   const { store, s, blocks, poller } = idleQuotaHarness();
   store.putReview(makeReworkStallReview(s.id));
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("quota");
   expect((blocks[0]!.block as any).quotaKind).toBe("rework");
 
   // second tick with same state → deduped, no new emit
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
 });
 
 // Property 2: clear on resolve
-test("quota: clears block when review is reset so quotaBlockReason returns null", () => {
+test("quota: clears block when review is reset so quotaBlockReason returns null", async () => {
   const { store, s, blocks, poller } = idleQuotaHarness();
   store.putReview(makeReworkStallReview(s.id));
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("quota");
 
   // reset the review row so the detector returns null
   store.dropReview(s.id);
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(2);
   expect(blocks[1]).toEqual({ id: s.id, block: null });
 });
@@ -2715,7 +2727,7 @@ test("quota: block is cleared when a quota-carrying session transitions to runni
 
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -2727,13 +2739,13 @@ test("quota: block is cleared when a quota-carrying session transitions to runni
   store.putReview(makeReworkStallReview(s.id));
 
   // idle tick → quota block emitted
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("quota");
 
   // session resumes
   agentStatus = "working";
-  poller.tick();
+  await poller.tick();
   // the running-path guard (probeTerminalInterim ~line 833) clears any non-stall
   // lastSig asynchronously via the interim path; flush the microtask queue.
   await flush();
@@ -2742,7 +2754,7 @@ test("quota: block is cleared when a quota-carrying session transitions to runni
 });
 
 // Property 4: blocked-status priority — quota branch not invoked for blocked sessions
-test("quota: blocked session goes through maybeClassify, not the quota branch", () => {
+test("quota: blocked session goes through maybeClassify, not the quota branch", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSession);
   const blocks: { id: string; block: unknown }[] = [];
@@ -2767,7 +2779,7 @@ test("quota: blocked session goes through maybeClassify, not the quota branch", 
   const clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -2779,19 +2791,19 @@ test("quota: blocked session goes through maybeClassify, not the quota branch", 
   // seed a quota condition too — but it must not matter for a blocked session
   store.putReview(makeReworkStallReview(s.id));
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   // must be a menu block (from maybeClassify), not a quota block
   expect((blocks[0]!.block as any).shape).toBe("menu");
 });
 
 // Property 5: plan kind emits quotaKind "plan"
-test("quota: idle session with exhausted plan gate (no review) emits quotaKind 'plan'", () => {
+test("quota: idle session with exhausted plan gate (no review) emits quotaKind 'plan'", async () => {
   const { store, s, blocks, poller } = idleQuotaHarness();
   store.setPlanPhase(s.id, "planning");
   store.putPlanGate(makeExhaustedGate(s.id));
 
-  poller.tick();
+  await poller.tick();
   expect(blocks).toHaveLength(1);
   expect((blocks[0]!.block as any).shape).toBe("quota");
   expect((blocks[0]!.block as any).quotaKind).toBe("plan");
@@ -2810,34 +2822,34 @@ test("fullscreen idle frame is not mistaken for a live turn (hasActiveSpinner = 
   expect(hasActiveSpinner(fullscreenIdle)).toBe(false);
 });
 
-test("fullscreen: a wedged (frozen) spinner frame is detected as frozen — chrome does not fake advancement", () => {
+test("fullscreen: a wedged (frozen) spinner frame is detected as frozen — chrome does not fake advancement", async () => {
   // The fullscreen buffer contains incidental status-bar chrome (path, progress bar).
   // Holding it CONSTANT across cadences must read as FROZEN and re-arm the block,
   // exactly like the classic "frozen spinner re-arms" test.
   const h = spinnerHarness(fullscreenSpinner);
   // first tick: spinner detected → one-cadence grace, suppressed
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
   // buffer did NOT advance → wedged; re-arm must fire working:false then block
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
   expect(h.poller.workingBlockedSnapshot()).toEqual({});
 
   // further identical-buffer cadence: sig-dedupe → no new emissions
   h.advance(3001);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.events).toEqual(["working:true", "working:false", "block:awaiting-input"]);
 });
 
-test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a stall)", () => {
+test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a stall)", async () => {
   // Simulate the elapsed-time counter ticking by appending a distinct suffix each
   // cadence. The spinner line remains valid across all iterations; the buffer
   // advances → suppression holds throughout.
   const h = spinnerHarness(fullscreenSpinner);
-  h.poller.tick(); // first tick: spinner detected → grace, suppressed
+  await h.poller.tick(); // first tick: spinner detected → grace, suppressed
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]);
 
@@ -2845,7 +2857,7 @@ test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a 
     // buffer changes each cadence (different suffix) while the spinner line persists
     h.setText(fullscreenSpinner + `\n<!-- tick:${secs} -->`);
     h.advance(3001);
-    h.poller.tick();
+    await h.poller.tick();
   }
   expect(h.blocks).toHaveLength(0);
   expect(h.working).toEqual([{ id: h.id, working: true }]); // only the initial flag-on
@@ -2856,10 +2868,10 @@ test("fullscreen: an advancing spinner frame stays suppressed (live turn, not a 
 const AUTH_URL =
   "https://mcp.notion.com/authorize?response_type=code&client_id=abc&code_challenge=x&code_challenge_method=S256&redirect_uri=http%3A%2F%2Flocalhost%3A3118%2Fcallback";
 
-test("awaiting-input block carries the detected auth URL + blockSnapshot exposes it", () => {
+test("awaiting-input block carries the detected auth URL + blockSnapshot exposes it", async () => {
   const h = spinnerHarness("Open the URL in your browser, then paste the callback here:");
   (h.poller as any).detectAuth = () => AUTH_URL;
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
@@ -2867,22 +2879,22 @@ test("awaiting-input block carries the detected auth URL + blockSnapshot exposes
   expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(AUTH_URL);
 });
 
-test("awaiting-input block has no authUrl when none is detected", () => {
+test("awaiting-input block has no authUrl when none is detected", async () => {
   const h = spinnerHarness("Type your answer:");
   (h.poller as any).detectAuth = () => null;
-  h.poller.tick();
+  await h.poller.tick();
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
 });
 
-test("detectAuth is not consulted for a non-awaiting (menu) block", () => {
+test("detectAuth is not consulted for a non-awaiting (menu) block", async () => {
   const h = spinnerHarness("❯ 1. Yes\n  2. No");
   let calls = 0;
   (h.poller as any).detectAuth = () => {
     calls++;
     return AUTH_URL;
   };
-  h.poller.tick();
+  await h.poller.tick();
   expect((h.blocks[0]!.block as any).shape).toBe("menu");
   expect(calls).toBe(0);
   expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
@@ -2891,12 +2903,12 @@ test("detectAuth is not consulted for a non-awaiting (menu) block", () => {
 test("blockSnapshot drops the auth URL when the session resumes", async () => {
   const h = spinnerHarness("Paste the callback URL:");
   (h.poller as any).detectAuth = () => AUTH_URL;
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.poller.blockSnapshot()[h.id]?.authUrl).toBe(AUTH_URL);
   // agent resumes → block clears → snapshot no longer carries it
   h.setStatus("working");
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
 });
@@ -2928,7 +2940,7 @@ function doneAuthHarness() {
   let clock = 100_000;
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -2939,7 +2951,7 @@ function doneAuthHarness() {
   return { store, id: s.id, blocks, poller, advance: (ms: number) => (clock += ms) };
 }
 
-test("emits an awaiting-input auth block for a done session with a fresh pending URL", () => {
+test("emits an awaiting-input auth block for a done session with a fresh pending URL", async () => {
   const h = doneAuthHarness();
   let authCalls = 0;
   h.poller.authMtime = () => 100; // stable mtime
@@ -2947,7 +2959,7 @@ test("emits an awaiting-input auth block for a done session with a fresh pending
     authCalls++;
     return { url: AUTH_URL, tail: ["Open this URL in your browser"] };
   };
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
@@ -2955,40 +2967,40 @@ test("emits an awaiting-input auth block for a done session with a fresh pending
   expect(authCalls).toBe(1);
   // unchanged mtime → no re-read, no re-emit (the standing block is preserved)
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(authCalls).toBe(1);
   expect(h.blocks).toHaveLength(1);
 });
 
-test("does not latch on a first-tick miss — re-probes when the transcript grows (flush race)", () => {
+test("does not latch on a first-tick miss — re-probes when the transcript grows (flush race)", async () => {
   const h = doneAuthHarness();
   let mtime = 100;
   let url: string | null = null; // URL not flushed to the transcript yet
   h.poller.authMtime = () => mtime;
   h.poller.detectRestingAuth = () => ({ url, tail: [] });
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(0); // nothing emitted, no suppression latched
   mtime = 200; // transcript appended → mtime bumps
   url = AUTH_URL; // the authorize URL is now present
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
 });
 
-test("clears the auth block at rest when the URL is answered (mtime bump, no running edge)", () => {
+test("clears the auth block at rest when the URL is answered (mtime bump, no running edge)", async () => {
   const h = doneAuthHarness();
   let mtime = 100;
   let url: string | null = AUTH_URL;
   h.poller.authMtime = () => mtime;
   h.poller.detectRestingAuth = () => ({ url, tail: [] });
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(1);
   // operator pastes the callback → transcript changes and detectPendingAuthUrl clears
   mtime = 200;
   url = null;
   h.advance(5000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.blocks).toHaveLength(2);
   expect(h.blocks[1]!.block).toBeNull();
   expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
@@ -3034,7 +3046,7 @@ function doneLoginHarness() {
   let alive = true; // a /login modal implies a live claude; the pre-guard skips husk sessions
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     () => {},
     (id, block) => blocks.push({ id, block }),
     1000,
@@ -3069,7 +3081,7 @@ function doneLoginHarness() {
 async function settleLogin(h: ReturnType<typeof doneLoginHarness>, times = 4) {
   for (let i = 0; i < times; i++) {
     h.advance(3000);
-    h.poller.tick();
+    await h.poller.tick();
     await flush();
   }
 }
@@ -3089,7 +3101,7 @@ test("never emits a still-painting partial URL (emits the full URL once it stabi
   const h = doneLoginHarness();
   h.setVisible(loginPanel(LOGIN_PARTIAL));
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush(); // read #1 = PARTIAL (observed, unconfirmed)
   h.setVisible(loginPanel(LOGIN_FULL)); // paint completed before the next read
   await settleLogin(h);
@@ -3112,10 +3124,10 @@ test("clears the /login banner on a no-URL read, with NO running/blocked transit
   expect(h.poller.blockSnapshot()[h.id]).toBeUndefined();
 });
 
-test("does not read the PTY while a transcript (MCP) URL stands", () => {
+test("does not read the PTY while a transcript (MCP) URL stands", async () => {
   const h = doneLoginHarness();
   h.poller.detectRestingAuth = () => ({ url: AUTH_URL, tail: [] }); // transcript owns the banner
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.readCalls()).toBe(0); // PTY source never consulted
   expect((h.blocks[0]!.block as any).authUrl).toBe(AUTH_URL);
 });
@@ -3123,15 +3135,15 @@ test("does not read the PTY while a transcript (MCP) URL stands", () => {
 test("throttles the PTY probe to one read per reclassify cadence", async () => {
   const h = doneLoginHarness();
   h.setVisible(loginPanel(LOGIN_FULL));
-  h.poller.tick();
+  await h.poller.tick();
   await flush(); // read #1
-  h.poller.tick();
+  await h.poller.tick();
   await flush(); // same clock → throttled, no read
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   expect(h.readCalls()).toBe(1);
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush(); // cadence elapsed → read #2
   expect(h.readCalls()).toBe(2);
 });
@@ -3144,26 +3156,26 @@ test("drops the confirmed /login cache on the leave-resting edge (no phantom re-
   // agent resumes → the leave-resting edge drops the detection caches
   h.setStatus("working");
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   // immediately re-rested: a single tick can only RE-OBSERVE (one read), never RE-CONFIRM, so the
   // stale FULL URL must not instantly re-emit.
   h.setStatus("done");
   const mark = h.blocks.length;
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   expect(h.blocks.slice(mark).some((b) => (b.block as any)?.authUrl === LOGIN_FULL)).toBe(false);
 });
 
-test("blocked path: reconstructs a /login URL from the visible buffer (after two reads, no partial)", () => {
+test("blocked path: reconstructs a /login URL from the visible buffer (after two reads, no partial)", async () => {
   const h = spinnerHarness(loginPanel(LOGIN_FULL));
   (h.poller as any).detectAuth = () => null; // no transcript URL
-  h.poller.tick(); // read #1 → awaiting-input block, URL observed but NOT yet confirmed
+  await h.poller.tick(); // read #1 → awaiting-input block, URL observed but NOT yet confirmed
   expect((h.blocks[0]!.block as any).shape).toBe("awaiting-input");
   expect((h.blocks[0]!.block as any).authUrl).toBeUndefined();
   h.advance(3000);
-  h.poller.tick(); // read #2 → confirmed → authUrl attached (re-emits, sig now includes authUrl)
+  await h.poller.tick(); // read #2 → confirmed → authUrl attached (re-emits, sig now includes authUrl)
   const last = h.blocks[h.blocks.length - 1]!.block as any;
   expect(last.authUrl).toBe(LOGIN_FULL);
   // never a truncated partial
@@ -3181,31 +3193,31 @@ test("blocked→idle inheritance surfaces the AUTH banner with a real (non-empty
   (h.poller as any).detectAuth = () => null; // no transcript URL → PTY reconstruction
   // Blocked: two reads confirm the /login URL (blocked path caches into the shared confirmed map).
   h.setStatus("blocked");
-  h.poller.tick();
+  await h.poller.tick();
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   // blocked → idle: NOT a leave-resting edge, so the confirmed cache persists and the resting
   // path inherits it. The inherited banner must carry the real login-panel tail, not a placeholder.
   h.setStatus("idle");
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   await flush();
   const authBlocks = h.blocks.filter((b) => (b.block as any)?.authUrl === LOGIN_FULL);
   expect(authBlocks.length).toBeGreaterThan(0);
   expect((authBlocks[authBlocks.length - 1]!.block as any).tail.length).toBeGreaterThan(0);
 });
 
-test("stops probing the PTY once a resting session's claude is known dead (husk)", () => {
+test("stops probing the PTY once a resting session's claude is known dead (husk)", async () => {
   const h = doneLoginHarness();
   h.setVisible(loginPanel(LOGIN_FULL));
   h.setAlive(false); // no live claude → no /login modal possible
-  h.poller.tick(); // cold tick: the post-loop liveness sweep records claude-dead
+  await h.poller.tick(); // cold tick: the post-loop liveness sweep records claude-dead
   const afterPrime = h.readCalls(); // the cold tick probes once before the sweep runs (undefined=maybe)
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   h.advance(3000);
-  h.poller.tick();
+  await h.poller.tick();
   expect(h.readCalls()).toBe(afterPrime); // no further PTY reads once known dead
   expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(0); // never surfaced a banner
 });

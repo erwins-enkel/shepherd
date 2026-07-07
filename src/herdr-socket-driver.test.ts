@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from "bun:test";
-import { SocketHerdrDriver } from "./herdr-socket-driver";
+import { SocketHerdrDriver, selectHerdrDriver } from "./herdr-socket-driver";
 import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "./herdr";
 import type { HerdrSocketClient } from "./herdr-socket-client";
 
@@ -198,5 +198,79 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
 
     expect(cli.closeTab).toHaveBeenCalledWith("tab1");
     expect(client.request).not.toHaveBeenCalled();
+  });
+});
+
+/** Fake socket client exposing controllable `ping`/`close` spies for `selectHerdrDriver`. */
+function fakePingClient(impl: () => Promise<{ protocol: number }>) {
+  return {
+    ping: mock(impl),
+    close: mock(() => undefined),
+  };
+}
+
+describe("selectHerdrDriver", () => {
+  it("enabled:false returns the cli instance; makeClient never called", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const makeCli = mock(() => cliInstance);
+    const makeClient = mock(
+      () => fakePingClient(() => Promise.resolve({ protocol: 16 })) as unknown as HerdrSocketClient,
+    );
+
+    const driver = await selectHerdrDriver({ enabled: false, makeCli, makeClient });
+
+    expect(driver).toBe(cliInstance);
+    expect(makeClient).not.toHaveBeenCalled();
+  });
+
+  it("enabled:true, supported protocol returns a SocketHerdrDriver; client.close NOT called", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.resolve({ protocol: 16 }));
+    const makeCli = mock(() => cliInstance);
+    const makeClient = mock(() => client as unknown as HerdrSocketClient);
+
+    const driver = await selectHerdrDriver({
+      enabled: true,
+      supportedProtocols: new Set([16]),
+      makeCli,
+      makeClient,
+    });
+
+    expect(driver).toBeInstanceOf(SocketHerdrDriver);
+    expect(client.close).not.toHaveBeenCalled();
+  });
+
+  it("enabled:true, unsupported protocol returns the cli; client.close called once", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.resolve({ protocol: 99 }));
+    const makeCli = mock(() => cliInstance);
+    const makeClient = mock(() => client as unknown as HerdrSocketClient);
+
+    const driver = await selectHerdrDriver({
+      enabled: true,
+      supportedProtocols: new Set([16]),
+      makeCli,
+      makeClient,
+    });
+
+    expect(driver).toBe(cliInstance);
+    expect(client.close).toHaveBeenCalledTimes(1);
+  });
+
+  it("enabled:true, ping rejects returns the cli; client.close called once", async () => {
+    const cliInstance = fakeCli() as unknown as HerdrDriver;
+    const client = fakePingClient(() => Promise.reject(new Error("no socket")));
+    const makeCli = mock(() => cliInstance);
+    const makeClient = mock(() => client as unknown as HerdrSocketClient);
+
+    const driver = await selectHerdrDriver({
+      enabled: true,
+      supportedProtocols: new Set([16]),
+      makeCli,
+      makeClient,
+    });
+
+    expect(driver).toBe(cliInstance);
+    expect(client.close).toHaveBeenCalledTimes(1);
   });
 });

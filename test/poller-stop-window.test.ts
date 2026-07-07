@@ -2,6 +2,18 @@ import { test, expect } from "bun:test";
 import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import type { HerdrAgent } from "../src/herdr";
+
+/**
+ * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
+ * sync `list()` these pre-existing herdr fakes were written against. Rather than
+ * duplicate each fake's (sometimes stateful) `list()` logic, mirror it: `listAsync`
+ * resolves to whatever `list()` returns at call time.
+ */
+function withListAsync<T extends { list: () => HerdrAgent[] }>(
+  herdr: T,
+): T & { listAsync: () => Promise<HerdrAgent[]> } {
+  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+}
 import { classifyBlocked } from "../src/blocked";
 import { config } from "../src/config";
 
@@ -50,7 +62,7 @@ function stopHarness() {
   };
   const poller = new StatusPoller(
     store,
-    herdr as any,
+    withListAsync(herdr as any),
     (id, status) => changes.push({ id, status }),
     () => {},
     1000, // intervalMs
@@ -81,21 +93,21 @@ function stopHarness() {
   };
 }
 
-test("stop-window: inert when config.hooksSignals is off", () => {
+test("stop-window: inert when config.hooksSignals is off", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = false;
   try {
     const h = stopHarness();
     h.poller.ingestStopMeasure(h.id, h.now());
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0);
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("stop-window: stop-wins emits a positive window on the done-flip", () => {
+test("stop-window: stop-wins emits a positive window on the done-flip", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -105,7 +117,7 @@ test("stop-window: stop-wins emits a positive window on the done-flip", () => {
     h.advance(2000); // t2 within window
     const t2 = h.now();
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toEqual([{ id: h.id, windowMs: t2 - t1 }]);
     expect(t2 - t1).toBeGreaterThan(0);
   } finally {
@@ -113,14 +125,14 @@ test("stop-window: stop-wins emits a positive window on the done-flip", () => {
   }
 });
 
-test("stop-window: herdr-wins emits a negative window when Stop arrives after the done-flip", () => {
+test("stop-window: herdr-wins emits a negative window when Stop arrives after the done-flip", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = stopHarness();
     const t1 = h.now();
     h.setStatus("done"); // done flip, no pending stop → parks pendingDone, no emit yet
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0);
 
     h.advance(1500); // t2 within window
@@ -133,24 +145,24 @@ test("stop-window: herdr-wins emits a negative window when Stop arrives after th
   }
 });
 
-test("stop-window: no-stop null emitted on expiry when a done-flip never pairs", () => {
+test("stop-window: no-stop null emitted on expiry when a done-flip never pairs", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = stopHarness();
     h.setStatus("done"); // done flip, no stop → pendingDone parked
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0);
 
     h.advance(31_000); // past the 30s horizon
-    h.poller.tick(); // expiry sweep fires the null
+    await h.poller.tick(); // expiry sweep fires the null
     expect(h.windows).toEqual([{ id: h.id, windowMs: null }]);
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("stop-window: a stale Stop with no done-flip is dropped silently (no emit)", () => {
+test("stop-window: a stale Stop with no done-flip is dropped silently (no emit)", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -158,45 +170,45 @@ test("stop-window: a stale Stop with no done-flip is dropped silently (no emit)"
     h.poller.ingestStopMeasure(h.id, h.now());
     // never flips to done; advance past the horizon and tick the expiry sweep
     h.advance(31_000);
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0); // a Stop with no done-flip is not a done-flip
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("stop-window: a superseded prior done emits null when overwritten by a fresh done", () => {
+test("stop-window: a superseded prior done emits null when overwritten by a fresh done", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = stopHarness();
     h.setStatus("done"); // done flip #1 at t1 (no stop → pendingDone parked)
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0);
 
     // leave done so a later done flip is a fresh EDGE
     h.advance(1000);
     h.setStatus("working");
-    h.poller.tick();
+    await h.poller.tick();
 
     // done flip #2 within the horizon, still no stop → supersedes the parked t1 done
     h.advance(1000);
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toEqual([{ id: h.id, windowMs: null }]); // the superseded t1 done
   } finally {
     config.hooksSignals = orig;
   }
 });
 
-test("stop-window: a Stop arriving past the horizon after a parked done parks instead of pairing", () => {
+test("stop-window: a Stop arriving past the horizon after a parked done parks instead of pairing", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = stopHarness();
     // done flip parks pendingDoneAt at t1 (no stop yet); same-tick expiry can't clear it (age 0)
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
     expect(h.windows).toHaveLength(0);
 
     // a Stop arrives MORE than the horizon later — but no tick ran, so the parked done survives.
@@ -209,7 +221,7 @@ test("stop-window: a Stop arriving past the horizon after a parked done parks in
   }
 });
 
-test("stop-window: a stale hookAwaitingInput marker does not swallow the measurement", () => {
+test("stop-window: a stale hookAwaitingInput marker does not swallow the measurement", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
@@ -222,7 +234,7 @@ test("stop-window: a stale hookAwaitingInput marker does not swallow the measure
     h.advance(2000);
     const t2 = h.now();
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
     // the measurement still fires — emit is structurally before reconcileAgent's tryHookAwaitingBlock early-return
     expect(h.windows).toEqual([{ id: h.id, windowMs: t2 - t1 }]);
   } finally {
@@ -230,12 +242,12 @@ test("stop-window: a stale hookAwaitingInput marker does not swallow the measure
   }
 });
 
-test("stop-window: measurement is observe-only — status still flips and onChange fires once", () => {
+test("stop-window: measurement is observe-only — status still flips and onChange fires once", async () => {
   const orig = config.hooksSignals;
   config.hooksSignals = true;
   try {
     const h = stopHarness();
-    h.poller.tick(); // prime: working → onChange(running)
+    await h.poller.tick(); // prime: working → onChange(running)
     const beforeDone = h.changes.length;
 
     const t1 = h.now();
@@ -243,7 +255,7 @@ test("stop-window: measurement is observe-only — status still flips and onChan
     h.advance(2000);
     const t2 = h.now();
     h.setStatus("done");
-    h.poller.tick();
+    await h.poller.tick();
 
     expect(h.windows).toEqual([{ id: h.id, windowMs: t2 - t1 }]); // stop-wins
     expect(h.store.get(h.id)?.status).toBe("done"); // routing untouched

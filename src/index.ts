@@ -24,7 +24,8 @@ import type {
   RundownEpicItem,
 } from "./types";
 import { WorktreeMgr } from "./worktree";
-import { HerdrDriver, matchAgent } from "./herdr";
+import { matchAgent, type IHerdrDriver } from "./herdr";
+import { selectHerdrDriver } from "./herdr-socket-driver";
 import { generateName } from "./namer";
 import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
@@ -426,7 +427,7 @@ function startBackground(): void {
 deferredStarts.push(() => {
   sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
 });
-const herdr = new HerdrDriver();
+const herdr: IHerdrDriver = await selectHerdrDriver();
 const worktree = new WorktreeMgr();
 const events = new EventHub();
 const onSessionGit = (listener: (input: { id: string; git: GitState }) => void): void => {

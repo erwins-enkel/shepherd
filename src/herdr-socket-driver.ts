@@ -1,4 +1,4 @@
-import type { HerdrSocketClient } from "./herdr-socket-client";
+import { HerdrSocketClient } from "./herdr-socket-client";
 import {
   HerdrDriver,
   parseAgents,
@@ -7,6 +7,7 @@ import {
   type HerdrAgent,
   type IHerdrDriver,
 } from "./herdr";
+import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
 
 /**
  * Socket-backed `IHerdrDriver` (issue #1529): routes the async read surface —
@@ -91,5 +92,45 @@ export class SocketHerdrDriver implements IHerdrDriver {
 
   closeTab(tabId: string): void {
     this.cli.closeTab(tabId);
+  }
+}
+
+/**
+ * Boot-time driver selection (issue #1529), flag-gated behind `config.herdrSocket`
+ * (default off). When enabled, pings herdr's socket once to confirm it speaks a
+ * protocol version we support before committing to `SocketHerdrDriver` — any
+ * mismatch or connection failure falls back to the plain CLI driver so a stale/absent
+ * herdr socket never blocks boot. Pure function of its (all-optional, injectable)
+ * args so it's unit-testable without a real socket.
+ */
+export async function selectHerdrDriver(opts?: {
+  enabled?: boolean;
+  supportedProtocols?: Set<number>;
+  makeCli?: () => HerdrDriver;
+  makeClient?: () => HerdrSocketClient;
+  log?: (msg: string) => void;
+}): Promise<IHerdrDriver> {
+  const enabled = opts?.enabled ?? config.herdrSocket;
+  const supportedProtocols = opts?.supportedProtocols ?? HERDR_SOCKET_SUPPORTED_PROTOCOLS;
+  const makeCli = opts?.makeCli ?? (() => new HerdrDriver());
+  const makeClient = opts?.makeClient ?? (() => new HerdrSocketClient());
+  const log = opts?.log ?? console.warn;
+
+  if (!enabled) return makeCli();
+
+  const client = makeClient();
+  try {
+    const { protocol } = await client.ping();
+    if (supportedProtocols.has(protocol)) {
+      log(`[herdr] socket driver active (protocol ${protocol})`);
+      return new SocketHerdrDriver(client, makeCli());
+    }
+    log(`[herdr] socket protocol ${protocol} not supported; using CLI driver`);
+    client.close();
+    return makeCli();
+  } catch (err) {
+    log(`[herdr] socket unavailable; using CLI driver: ${err}`);
+    client.close();
+    return makeCli();
   }
 }

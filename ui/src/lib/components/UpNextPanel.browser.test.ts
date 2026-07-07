@@ -480,6 +480,43 @@ describe("UpNextPanel provider picker", () => {
   });
 });
 
+describe("UpNextPanel header layout", () => {
+  const headEl = () => document.querySelector<HTMLElement>(".un-head")!;
+  const panelEl = () => document.querySelector<HTMLElement>(".upnext")!;
+  // Force a reflow at a given panel width so offsetHeight reflects the new layout.
+  const setWidth = (w: number) => {
+    panelEl().style.width = `${w}px`;
+    void headEl().offsetHeight;
+  };
+
+  // Font-agnostic guards: the header must never wrap a control to a second line.
+  // We assert the mechanism (flex-wrap: nowrap) directly, then prove behaviorally that
+  // the header keeps a single row's height even when the panel is forced narrower than
+  // its content — a wrap would add a row and grow the height. No px thresholds or
+  // monospace-metric assumptions, so it trips on the wrap regardless of the CI font.
+  it("keeps the header on a single row when the panel is narrow (with a snapshot)", async () => {
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.upnext_title())).toBeInTheDocument();
+    expect(getComputedStyle(headEl()).flexWrap).toBe("nowrap");
+    setWidth(600);
+    const wide = headEl().offsetHeight;
+    setWidth(140);
+    expect(headEl().offsetHeight).toBe(wide);
+  });
+
+  it("keeps the header single-row in the loading state (no updated-time span)", async () => {
+    upNext.snapshot = null;
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.common_loading())).toBeInTheDocument();
+    // The shrink valve must still exist without .un-updated present.
+    expect(document.querySelector(".un-updated")).toBeNull();
+    setWidth(600);
+    const wide = headEl().offsetHeight;
+    setWidth(140);
+    expect(headEl().offsetHeight).toBe(wide);
+  });
+});
+
 describe("UpNextPanel load failure", () => {
   it("surfaces a load error when every repo's issue fetch failed (empty queue, failures > 0)", async () => {
     upNext.snapshot = {

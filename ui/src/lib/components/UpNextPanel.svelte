@@ -544,15 +544,24 @@
     flex: 1;
   }
 
+  /* Single-line by design: the header never wraps a control to a second line
+     (issue: sort ⇅ dropped below the row at narrow mobile widths in the wider
+     monospace fallback). nowrap + fixed-size icons; the text spans are the
+     shrink valve (min-width:0 + ellipsis), so a too-narrow panel truncates the
+     text rather than wrapping a button. Both spans shrink so a valve exists even
+     in the loading state, where .un-updated is absent. */
   .un-head {
     display: flex;
     align-items: center;
     gap: 10px;
     padding: 12px 16px;
     border-bottom: 1px solid var(--color-line);
-    flex-wrap: wrap;
   }
   .un-title-h {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--fs-meta);
     letter-spacing: 0.18em;
     text-transform: uppercase;
@@ -560,6 +569,10 @@
     font-weight: 600;
   }
   .un-updated {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--fs-meta);
     color: var(--color-muted);
   }
@@ -567,11 +580,13 @@
      time. Both are compact ~30px controls matching the panel's dense chrome
      (deliberate sub-44px tap targets — waiver noted in the PR). */
   .un-sortwrap {
+    flex: none;
     margin-left: auto;
     display: inline-flex;
   }
   .un-refresh,
   .un-sortbtn {
+    flex: none;
     display: inline-flex;
     align-items: center;
     justify-content: center;

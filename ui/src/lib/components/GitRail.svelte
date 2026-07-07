@@ -861,6 +861,13 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
+  /* Rail buttons (⚙ automation pill, err/Retry) take the 6px chip radius for
+     chip-row cohesion (DESIGN.md #1541). Scoped to .rail so the PR-compose /
+     findings-popover dialog buttons keep the standalone 2px. */
+  .rail .gbtn {
+    border-radius: 6px;
+    padding: 3px 9px;
+  }
   /* critic actively reviewing: amber outline (reused by automation pill) */
   .gbtn.reviewing {
     border-color: var(--color-amber);
@@ -1005,9 +1012,12 @@
     align-items: center;
     gap: 5px;
   }
-  .rail.mobile :global(.prlink) {
+  /* Read-only status readouts are now .status-chip (was .prlink/.dot/.merged);
+     keep their touch legibility at --fs-base. Non-interactive, so NO 40px rule
+     (that stays scoped to .gbtn / button.verdict-chip above) — no fake tap targets.
+     The CI word is a sibling of the .dot, so the dot rule below still enlarges it. */
+  .rail.mobile :global(.status-chip) {
     font-size: var(--fs-base);
-    padding: 4px 2px;
   }
   .rail.mobile :global(.dot) {
     width: 9px;

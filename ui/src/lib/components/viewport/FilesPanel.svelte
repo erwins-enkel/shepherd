@@ -32,7 +32,7 @@
   let nextUploadId = 0;
   let dragOver = $state(false);
 
-  let fileInput: HTMLInputElement;
+  let fileInput = $state<HTMLInputElement>();
 
   async function browse(path: string) {
     loading = true;
@@ -160,7 +160,7 @@
   }
 
   function openFilePicker() {
-    fileInput.click();
+    fileInput?.click();
   }
 </script>
 

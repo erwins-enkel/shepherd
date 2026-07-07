@@ -9,6 +9,16 @@
 > the Codex CLI in alpha) from your browser or phone, with best-practice guardrails built in. On
 > your own server, on your own subscription.
 
+<p align="center">
+  <a href="https://shepherd.run">
+    <img
+      src="site/public/app-screenshot.webp"
+      alt="Shepherd mission-control overview showing an epic with multiple coding-agent sessions, status badges, review state, preview state, and elapsed time."
+      width="920"
+    >
+  </a>
+</p>
+
 [![GitHub Discussions](https://img.shields.io/github/discussions/erwins-enkel/shepherd?logo=github&label=Discussions)](https://github.com/erwins-enkel/shepherd/discussions)
 
 Shepherd spawns genuine interactive `claude` sessions (and, in alpha, `codex` sessions) in isolated

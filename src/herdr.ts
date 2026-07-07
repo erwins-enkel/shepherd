@@ -216,25 +216,93 @@ export function isNameTakenError(err: unknown): boolean {
   return false;
 }
 
-export class HerdrDriver {
+/**
+ * Maps a herdr `agent.list` reply's `result` object to `HerdrAgent[]`. Pure and
+ * module-level so BOTH the sync CLI driver (`HerdrDriver.list`/`listAsync`) and the
+ * future socket driver (issue #1529) can share the exact same parsing — the reply
+ * shape doesn't change with the transport. Read `result?.agents ?? []`.
+ */
+type AgentListResult = { agents?: Record<string, string>[] } | null;
+
+export function parseAgents(result: unknown): HerdrAgent[] {
+  const agents = (result as AgentListResult)?.agents ?? [];
+  return agents.map((a: Record<string, string>) => ({
+    agent: a.agent ?? "",
+    agentStatus: (a.agent_status ?? "unknown") as HerdrState,
+    // `noUncheckedIndexedAccess` widens Record<string,string> indexing to `| undefined`;
+    // `?? ""` keeps these required-string fields honest without changing the intent of
+    // the original (untyped) mapping — herdr always supplies them in practice.
+    cwd: a.cwd ?? "",
+    name: a.name ?? "",
+    paneId: a.pane_id ?? "",
+    tabId: a.tab_id ?? "",
+    terminalId: a.terminal_id ?? "",
+    workspaceId: a.workspace_id ?? "",
+  }));
+}
+
+/**
+ * Extracts the buffer text from a herdr `agent.read` reply's `result` object
+ * (`""` when absent). Shared with the future socket driver — see `parseAgents`.
+ */
+type PaneReadResult = { read?: { text?: string } } | null;
+
+export function parseReadText(result: unknown): string {
+  return (result as PaneReadResult)?.read?.text ?? "";
+}
+
+/**
+ * Maps a herdr `pane.process_info` reply's `result` object to the foreground
+ * process **names** (`[]` when absent). Shared with the future socket driver —
+ * see `parseAgents`.
+ */
+type ProcessInfoResult = {
+  process_info?: { foreground_processes?: Array<{ name: string }> };
+} | null;
+
+export function parseProcs(result: unknown): string[] {
+  const procs = (result as ProcessInfoResult)?.process_info?.foreground_processes ?? [];
+  return procs.map((p) => p.name);
+}
+
+/**
+ * Public method surface of `HerdrDriver`, extracted so a future socket-backed
+ * driver (issue #1529) can implement the same contract behind the existing seam —
+ * callers keep using `Pick<HerdrDriver, …>` today; nothing about them changes.
+ */
+export interface IHerdrDriver {
+  list(): HerdrAgent[];
+  /** Non-blocking sibling of `list()` — see `HerdrDriver.listAsync`. */
+  listAsync(): Promise<HerdrAgent[]>;
+  tabs(): HerdrTab[];
+  panes(): HerdrPane[];
+  paneForegroundProcs(paneId: string): Promise<string[]>;
+  start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent;
+  send(target: string, text: string): void;
+  read(target: string, source?: "visible" | "recent", lines?: number): string;
+  readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
+  stop(terminalId: string): void;
+  relabel(terminalId: string, newName: string): void;
+  closeTab(tabId: string): void;
+}
+
+export class HerdrDriver implements IHerdrDriver {
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
   ) {}
 
   list(): HerdrAgent[] {
-    const parsed = JSON.parse(this.runner(["agent", "list"]));
-    const agents = parsed?.result?.agents ?? [];
-    return agents.map((a: Record<string, string>) => ({
-      agent: a.agent ?? "",
-      agentStatus: (a.agent_status ?? "unknown") as HerdrState,
-      cwd: a.cwd,
-      name: a.name ?? "",
-      paneId: a.pane_id,
-      tabId: a.tab_id,
-      terminalId: a.terminal_id,
-      workspaceId: a.workspace_id,
-    }));
+    return parseAgents(JSON.parse(this.runner(["agent", "list"]))?.result);
+  }
+
+  /**
+   * Async sibling of `list()` — same maintenance guard, but spawns via `asyncRunner`
+   * so it never blocks Bun's single loop. Used by the poll loop, which calls `agent
+   * list` every 1s; the sync `list()` there would freeze the live web terminal.
+   */
+  async listAsync(): Promise<HerdrAgent[]> {
+    return parseAgents(JSON.parse(await this.asyncRunner(["agent", "list"]))?.result);
   }
 
   /** Every tab in the workspace — including husks with no live agent (`tab list`). */
@@ -275,10 +343,7 @@ export class HerdrDriver {
   async paneForegroundProcs(paneId: string): Promise<string[]> {
     const out = await this.asyncRunner(["pane", "process-info", "--pane", paneId]);
     try {
-      const parsed = JSON.parse(out);
-      const procs: Array<{ name: string }> =
-        parsed?.result?.process_info?.foreground_processes ?? [];
-      return procs.map((p) => p.name);
+      return parseProcs(JSON.parse(out)?.result);
     } catch {
       return [];
     }
@@ -449,7 +514,7 @@ export class HerdrDriver {
   /** Extract the buffer text from a herdr `agent read` reply (raw output on a parse miss). */
   private parseRead(out: string): string {
     try {
-      return JSON.parse(out)?.result?.read?.text ?? "";
+      return parseReadText(JSON.parse(out)?.result);
     } catch {
       return out;
     }

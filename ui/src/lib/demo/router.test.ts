@@ -269,6 +269,7 @@ describe("session-detail tab GETs never fall back to {}", () => {
     const repo = encodeURIComponent(REPO);
     const cfg = await get(`/api/repo-config?repo=${repo}`);
     expect(cfg.body.buildQueueEnabled).toBe(true);
+    expect(cfg.body.previewOpenMode).toBe("ask");
     const cmds = await get(`/api/commands?repo=${repo}`);
     expect(Array.isArray(cmds.body.commands)).toBe(true);
     expect(cmds.body.commands.length).toBeGreaterThan(0);

@@ -80,7 +80,7 @@
     // true when the server's tailscale serve registration failed; surfaces a degraded (amber) badge
     previewServeFailed?: boolean;
     // Preview badge clicked → select this session + open its Viewport preview pane
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     // when provided, the row gains a decommission affordance — coarse pointers get
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both

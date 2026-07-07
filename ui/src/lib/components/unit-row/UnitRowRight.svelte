@@ -33,7 +33,7 @@
     ondecommission?: (id: string) => void;
     previewPort?: number | null;
     previewServeFailed?: boolean;
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     reviewing: boolean;
     stepperTerminal: boolean;
@@ -42,6 +42,46 @@
     pressDecommission: () => void;
     elapsedEl?: HTMLSpanElement;
   } = $props();
+
+  let previewChoiceOpen = $state(false);
+  let previewWrapEl = $state<HTMLElement | null>(null);
+  const previewOpenMode = $derived(repoConfig.previewOpenModeForLoaded(session.repoPath));
+  const previewBusy = $derived(previewPort != null && previewOpenMode === null);
+
+  function closePreviewChoice() {
+    previewChoiceOpen = false;
+  }
+
+  function choosePreview(target: "inline" | "tab") {
+    closePreviewChoice();
+    onpreview?.(session.id, target);
+  }
+
+  function onPreviewActivate(e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
+    if (previewBusy || previewOpenMode === null) return;
+    if (previewOpenMode === "ask") {
+      previewChoiceOpen = !previewChoiceOpen;
+      return;
+    }
+    choosePreview(previewOpenMode);
+  }
+
+  $effect(() => {
+    if (!previewChoiceOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (previewWrapEl && !previewWrapEl.contains(e.target as Node)) closePreviewChoice();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePreviewChoice();
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+    };
+  });
 </script>
 
 <div class="u-right">
@@ -73,24 +113,47 @@
          this is an actionable control; rendered as role=button (not a nested
          <button>, which would be invalid inside the row's own button) with
          stopPropagation so the row's select doesn't also fire. -->
-    <span
-      class="preview-badge"
-      class:preview-badge--degraded={previewServeFailed}
-      role="button"
-      tabindex="0"
-      title={previewServeFailed ? m.unitrow_preview_badge_degraded() : m.unitrow_preview_badge()}
-      onclick={(e) => {
-        e.stopPropagation();
-        onpreview?.(session.id);
-      }}
-      onkeydown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onpreview?.(session.id);
-        }
-      }}>{m.unitrow_preview_badge()}</span
-    >
+    <span class="preview-wrap" bind:this={previewWrapEl}>
+      <span
+        class="preview-badge"
+        class:preview-badge--degraded={previewServeFailed}
+        class:preview-badge--busy={previewBusy}
+        role="button"
+        tabindex={previewBusy ? -1 : 0}
+        aria-busy={previewBusy}
+        aria-disabled={previewBusy}
+        aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
+        title={previewBusy
+          ? m.unitrow_preview_loading()
+          : previewServeFailed
+            ? m.unitrow_preview_badge_degraded()
+            : m.unitrow_preview_badge()}
+        onclick={onPreviewActivate}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onPreviewActivate(e);
+          }
+        }}>{m.unitrow_preview_badge()}</span
+      >
+      {#if previewChoiceOpen}
+        <span
+          class="preview-choice"
+          role="dialog"
+          aria-label={m.unitrow_preview_choice_label()}
+          tabindex="-1"
+          onclick={(e) => e.stopPropagation()}
+          onkeydown={(e) => e.stopPropagation()}
+        >
+          <button type="button" class="preview-choice-btn" onclick={() => choosePreview("inline")}>
+            {m.unitrow_preview_open_inline()}
+          </button>
+          <button type="button" class="preview-choice-btn" onclick={() => choosePreview("tab")}>
+            {m.viewport_preview_open_new_tab()}
+          </button>
+        </span>
+      {/if}
+    </span>
   {/if}
   <ResearchBadge {session} />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
@@ -240,6 +303,11 @@
      the non-reserved informational accent (green = READY, amber = running/critic,
      red = blocked, slate = done are all taken), so it reads as "go look" without
      colliding with any status hue. Outlined + pointer to signal it's clickable. */
+  .preview-wrap {
+    position: relative;
+    display: inline-flex;
+    justify-content: flex-end;
+  }
   .preview-badge {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
@@ -255,6 +323,43 @@
   .preview-badge:hover,
   .preview-badge:focus-visible {
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
+  }
+  .preview-badge--busy {
+    cursor: wait;
+    opacity: 0.55;
+  }
+  .preview-choice {
+    position: absolute;
+    top: calc(100% + 4px);
+    right: 0;
+    z-index: 3;
+    min-width: 150px;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+  }
+  .preview-choice-btn {
+    margin: 0;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .preview-choice-btn:hover,
+  .preview-choice-btn:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-ink-bright);
+    outline: none;
   }
 
   /* Degraded: the slot's tailscale serve mapping failed to register — the preview

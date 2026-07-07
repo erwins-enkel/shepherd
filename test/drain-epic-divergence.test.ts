@@ -86,6 +86,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,

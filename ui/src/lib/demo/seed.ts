@@ -1439,6 +1439,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: true,
     automationRowExists: true,
   };

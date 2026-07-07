@@ -6,7 +6,7 @@
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
   import { effortLabel } from "$lib/effort-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import type { RepoRoles } from "$lib/types";
+  import type { RepoConfig, RepoRoles } from "$lib/types";
   import "./automation-fields.css";
 
   let {
@@ -83,6 +83,7 @@
   const defaultModel = $derived(repoConfig.defaultModelFor(repoPath));
   const guidanceModel = $derived(modelGuidanceAlias(defaultModel, fableAvailable));
   const defaultEffort = $derived(repoConfig.defaultEffortFor(repoPath));
+  const previewOpenMode = $derived(repoConfig.previewOpenModeFor(repoPath));
 </script>
 
 <!-- Default model: a repo-wide override of the global default (Settings → Session).
@@ -128,6 +129,25 @@
     </select>
   </label>
   <div class="signoff-note">{m.automation_default_effort_hint()}</div>
+
+  <label class="drain-field">
+    <span class="drain-label">{m.automation_preview_open_mode_label()}</span>
+    <select
+      class="afield-num model-select"
+      aria-label={m.automation_preview_open_mode_label()}
+      value={previewOpenMode}
+      onchange={(e) =>
+        repoConfig.setPreviewOpenMode(
+          repoPath,
+          (e.currentTarget as HTMLSelectElement).value as RepoConfig["previewOpenMode"],
+        )}
+    >
+      <option value="ask">{m.preview_open_mode_ask()}</option>
+      <option value="inline">{m.preview_open_mode_inline()}</option>
+      <option value="tab">{m.preview_open_mode_tab()}</option>
+    </select>
+  </label>
+  <div class="signoff-note">{m.automation_preview_open_mode_hint()}</div>
 </div>
 
 <!-- Repo responsibilities: reviewer + merger (committed to .shepherd/roles.json) -->

@@ -2746,5 +2746,15 @@
   "epic_mode_auto_title": "Click to switch to attended mode. Shepherd will wait for you to approve each next child issue.",
   "epic_mode_auto_aria": "Auto: switch epic to attended mode",
   "epic_mode_attended_title": "Click to switch to auto mode. Shepherd will launch eligible child issues without asking for each approval.",
-  "epic_mode_attended_aria": "Attended: switch epic to auto mode"
+  "epic_mode_attended_aria": "Attended: switch epic to auto mode",
+  "automation_preview_open_mode_label": "Preview chip",
+  "automation_preview_open_mode_hint": "Controls what happens when you click a live Preview chip for this repo.",
+  "unitrow_preview_loading": "Loading repo preview setting",
+  "unitrow_preview_choice_label": "Choose preview target",
+  "unitrow_preview_open_inline": "Open inline",
+  "feat_preview_open_mode_title": "Choose how Preview chips open",
+  "feat_preview_open_mode_body": "Each repo can now open Preview chips inline, in a new browser tab, or ask each time.",
+  "preview_open_mode_ask": "Always ask",
+  "preview_open_mode_inline": "Inline preview",
+  "preview_open_mode_tab": "New browser tab"
 }

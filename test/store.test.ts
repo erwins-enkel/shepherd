@@ -232,6 +232,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
@@ -258,6 +259,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "tab",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
@@ -284,6 +286,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "tab",
   });
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
@@ -310,6 +313,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
   });
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
@@ -336,6 +340,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
   });
 });
 
@@ -375,6 +380,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
   });
   expect(store.getRepoConfig("/repo/d")).toMatchObject({
     autoDrainEnabled: true,
@@ -840,6 +846,32 @@ test("repo_config migration: an old row without sandboxProfile gains the trusted
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test("repo_config migration: an old row without previewOpenMode gains the ask default", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-preview-mode-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE repo_config (
+      repoPath TEXT PRIMARY KEY, criticEnabled INTEGER NOT NULL DEFAULT 1,
+      updatedAt INTEGER NOT NULL)`);
+    raw.run(`INSERT INTO repo_config (repoPath, criticEnabled, updatedAt) VALUES ('/old', 1, 1)`);
+    raw.close();
+    const store = new SessionStore(dbPath);
+    expect(store.getRepoConfig("/old").previewOpenMode).toBe("ask");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("repo_config: invalid previewOpenMode hydrates to ask", () => {
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), previewOpenMode: "inline" });
+  (store as unknown as { db: import("bun:sqlite").Database }).db.run(
+    `UPDATE repo_config SET previewOpenMode = 'sideways' WHERE repoPath = '/repo'`,
+  );
+  expect(store.getRepoConfig("/repo").previewOpenMode).toBe("ask");
 });
 
 test("session: sandboxApplied/sandboxDegraded default null/false, set via setSandboxState, round-trip", () => {

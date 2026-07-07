@@ -67,6 +67,7 @@ function makeHarness(opts: {
     sandboxProfile: "trusted",
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    previewOpenMode: "ask",
     egressExtraHosts: [],
     repoMode: "forge",
     autoOptimizeFlagged: false,

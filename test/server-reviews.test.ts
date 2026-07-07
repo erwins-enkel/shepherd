@@ -114,6 +114,7 @@ test("GET /api/repo-config defaults to critic on + auto-address off", async () =
     repoMode: "forge",
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: false,
   });
@@ -172,6 +173,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     repoMode: "forge",
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -203,6 +205,7 @@ test("PUT /api/repo-config sets criticEnabled=false, GET reflects it", async () 
     repoMode: "forge",
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -244,6 +247,7 @@ test("PUT /api/repo-config toggles autoAddressEnabled independently of criticEna
     repoMode: "forge",
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -285,6 +289,7 @@ test("PUT /api/repo-config sets learningsEnabled independently of criticEnabled"
     repoMode: "forge",
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: true,
   });
@@ -388,4 +393,38 @@ test("PUT /api/repo-config repoMode=bogus → 400", async () => {
     }),
   );
   expect(res.status).toBe(400);
+});
+
+// ── previewOpenMode ──────────────────────────────────────────────────────────
+
+test("PUT /api/repo-config previewOpenMode=tab persists, GET returns tab", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const put = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ previewOpenMode: "tab" }),
+    }),
+  );
+  expect(put.status).toBe(200);
+  expect(((await put.json()) as { previewOpenMode: string }).previewOpenMode).toBe("tab");
+
+  const get = await app.fetch(new Request(url));
+  expect(get.status).toBe(200);
+  expect(((await get.json()) as { previewOpenMode: string }).previewOpenMode).toBe("tab");
+});
+
+test("PUT /api/repo-config previewOpenMode=bogus → 400", async () => {
+  const { app } = harness();
+  const url = `http://x/api/repo-config?repo=${encodeURIComponent(repoDir)}`;
+  const res = await app.fetch(
+    new Request(url, {
+      method: "PUT",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ previewOpenMode: "bogus" }),
+    }),
+  );
+  expect(res.status).toBe(400);
+  expect(((await res.json()) as { error: string }).error).toContain("previewOpenMode");
 });

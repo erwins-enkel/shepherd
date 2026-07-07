@@ -136,6 +136,8 @@ export interface RepoConfig {
   previewStartScript?: string | null;
   /** The command captured when the local preview script was generated; used to recreate stale scripts. */
   previewStartCommand?: string | null;
+  /** What clicking a live Preview chip does by default for this repo. */
+  previewOpenMode: "ask" | "inline" | "tab";
 }
 
 export interface LocalPr {
@@ -472,6 +474,7 @@ type RepoCfgRow = {
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
+  previewOpenMode: string;
 };
 
 /** Tolerantly parse the persisted mergeTrainPrs JSON back to number[] | null (never throws). */
@@ -586,6 +589,10 @@ function parseEgressExtraHostsJson(raw: string | null | undefined): string[] {
   }
 }
 
+function normalizePreviewOpenMode(raw: string | null | undefined): RepoConfig["previewOpenMode"] {
+  return raw === "inline" || raw === "tab" || raw === "ask" ? raw : "ask";
+}
+
 /**
  * Map a nullable repo_config row to a fully-defaulted RepoConfig.
  * absent → critic on, learnings on, auto-address off (the spendier loop is explicit opt-in).
@@ -619,6 +626,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
+      previewOpenMode: "ask",
     };
   }
   return {
@@ -646,6 +654,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
+    previewOpenMode: normalizePreviewOpenMode(r.previewOpenMode),
   };
 }
 
@@ -676,6 +685,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
+    cfg.previewOpenMode,
     Date.now(),
   ];
 }
@@ -1211,7 +1221,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand
+                autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1224,8 +1234,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -1250,6 +1260,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
+         previewOpenMode = excluded.previewOpenMode,
          updatedAt = excluded.updatedAt`,
       repoConfigParams(repoPath, cfg),
     );
@@ -3226,6 +3237,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // Local preview launcher metadata. Nullable: absent until first successful script setup.
     add("previewStartScript", `previewStartScript TEXT`);
     add("previewStartCommand", `previewStartCommand TEXT`);
+    add("previewOpenMode", `previewOpenMode TEXT NOT NULL DEFAULT 'ask'`);
     // Issue #1025: first-task automation-confirmation. Nullable — new repos start unconfirmed.
     if (!cols.some((c) => c.name === "automationConfirmedAt")) {
       this.db.run(`ALTER TABLE repo_config ADD COLUMN automationConfirmedAt INTEGER`);

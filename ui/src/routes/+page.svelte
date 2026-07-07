@@ -70,7 +70,8 @@
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { repos } from "$lib/repos.svelte";
-  import { reviews, planGates } from "$lib/reviews.svelte";
+  import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
+  import { openPreviewInNewTab } from "$lib/previewOpen";
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
   import { upNext } from "$lib/up-next.svelte";
@@ -209,9 +210,23 @@
       Object.entries(map).flatMap(([id, v]) => (v.serve ? [[id, v.serve]] : [])),
     );
   }
-  // A row asked to open its live preview: select the session, then bump the tick
-  // so the Viewport flips to its Preview tab (after its own unit-switch reset).
-  function openPreview(id: string) {
+  // Keep Preview-chip behavior deterministic: rows only resolve their mode after
+  // the repo config has loaded successfully. Failed fetches leave the chip inert.
+  $effect(() => {
+    const reposWithPreview = new Set(
+      store.sessions.filter((s) => store.preview[s.id] != null).map((s) => s.repoPath),
+    );
+    for (const repo of reposWithPreview) void repoConfig.ensure(repo);
+  });
+  // A row asked to open its live preview. Inline preserves the existing select +
+  // Preview-tab tick path; tab uses the same URL helper as Viewport's iframe.
+  function openPreview(id: string, target: "inline" | "tab" = "inline") {
+    if (target === "tab") {
+      const port = store.preview[id];
+      if (port == null || typeof location === "undefined") return;
+      openPreviewInNewTab(settings?.previewHost ?? null, location, port);
+      return;
+    }
     selectUnit(id);
     openPreviewTick++;
   }

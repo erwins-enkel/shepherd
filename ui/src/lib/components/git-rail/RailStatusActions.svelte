@@ -234,7 +234,7 @@
   .gbtn {
     background: transparent;
     border: 1px solid var(--color-line);
-    border-radius: 6px;
+    border-radius: var(--radius-chip);
     color: var(--color-muted);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
@@ -277,7 +277,7 @@
     background: var(--color-panel-2);
     color: var(--color-muted);
     border: 1px solid var(--color-line);
-    border-radius: 6px;
+    border-radius: var(--radius-chip);
     padding: 3px 9px;
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
@@ -343,7 +343,7 @@
   .verdict-chip {
     background: transparent;
     border: 1px solid currentColor;
-    border-radius: 6px;
+    border-radius: var(--radius-chip);
     color: var(--color-muted);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);

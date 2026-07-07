@@ -190,7 +190,7 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    border-radius: 2px;
+    border-radius: var(--radius-chip);
     animation: update-pulse 2.4s ease-in-out infinite;
   }
   .update-badge .up-glyph {
@@ -241,7 +241,7 @@
     font-size: var(--fs-meta);
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    border-radius: 2px;
+    border-radius: var(--radius-chip);
   }
   .whatsnew-badge:hover {
     background: color-mix(in srgb, var(--color-blue) 22%, transparent);
@@ -259,7 +259,7 @@
     font-size: var(--fs-lg);
     line-height: 1;
     padding: 0 8px;
-    border-radius: 2px;
+    border-radius: var(--radius-chip);
     cursor: pointer;
     /* token height on fine-pointer desktop; the 44px touch floor is coarse-gated
        below so it no longer makes this a desktop outlier among the bar's boxes */

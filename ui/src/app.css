@@ -116,6 +116,11 @@
      /mobile 44px floors override it on touch. */
   --topbar-ctl-h: 30px;
 
+  /* The 6px "chip" radius rung (mirrors DESIGN.json rounded.chip) — the one softer
+     step between the 2px control and the forbidden 999px pill. Single source of the
+     rung, shared by the GitRail chips and the top-bar right-cluster controls. */
+  --radius-chip: 6px;
+
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is
      NOT actionable-complete, so it must not read green/"ignore me" — it reads as

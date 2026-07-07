@@ -286,7 +286,7 @@
     gap: 5px;
     background: transparent;
     border: 1px solid var(--color-amber);
-    border-radius: 2px;
+    border-radius: var(--radius-chip);
     color: var(--color-amber);
     font: inherit;
     font-size: var(--fs-meta);

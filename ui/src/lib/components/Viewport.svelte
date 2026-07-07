@@ -2834,6 +2834,8 @@
     padding: 0;
   }
   .vp-head.mobile .desig-wrap:hover .desig {
+    color: var(--color-ink);
+    border-color: var(--color-line);
     background: transparent;
   }
   /* keyboard focus — flat inset amber ring, distinct from the hover color shift */

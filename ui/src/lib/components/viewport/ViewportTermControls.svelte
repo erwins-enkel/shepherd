@@ -126,7 +126,9 @@
         >
       {/if}
     </button>
-    <ControlBar onkey={(seq) => send(seq)} include={["edit", "nav", "signal"]} />
+    <!-- include is a membership filter; ControlBar renders in palette order (nav-first,
+         see controlKeys). Listed nav-first here only to mirror the actual render order. -->
+    <ControlBar onkey={(seq) => send(seq)} include={["nav", "edit", "signal"]} />
     <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
          no keyboard on a phone to press the letter, so this is the sole way into
          the dialog's notes branch; it pulses to catch the eye and vanishes once

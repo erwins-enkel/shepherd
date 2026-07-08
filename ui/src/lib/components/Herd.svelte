@@ -50,6 +50,7 @@
     activeEpicKeys = new Set(),
     collapsedKeys = new Set(),
     oncollapsetoggle = undefined,
+    onrenderedepicgroups = undefined,
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
@@ -119,6 +120,9 @@
     collapsedKeys?: Set<string>;
     // toggles a group's collapse — the page owns the actual collapsedKeys mutation
     oncollapsetoggle?: (key: string) => void;
+    // reports the exact epic-group order this component renders; the page owns
+    // collapse-state normalization, but Herd owns the final filtered/grouped order.
+    onrenderedepicgroups?: (keys: string[]) => void;
     // when provided, rows gain left-swipe-to-decommission (mobile list)
     ondecommission?: (id: string) => void;
     // when provided, each row's CardMenu gains a Rename action
@@ -319,6 +323,14 @@
       ]),
     ),
   );
+  let lastRenderedEpicGroupSig = "";
+  $effect(() => {
+    const keys = grouped.groups.map((g) => g.key);
+    const sig = keys.join("\u0000");
+    if (sig === lastRenderedEpicGroupSig) return;
+    lastRenderedEpicGroupSig = sig;
+    onrenderedepicgroups?.(keys);
+  });
   // Per-group attention cues — reads the shared partition; the blocked count still scans
   // g.sessions directly via displayStatus (it's not a partition bucket).
   function cuesFor(g: { key: string; sessions: Session[] }): {

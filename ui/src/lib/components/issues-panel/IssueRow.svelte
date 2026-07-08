@@ -59,9 +59,45 @@
         ? { merged: epicSummary.merged, total: epicSummary.total }
         : { merged: 0, total: 0 },
   );
+
+  const interactiveSelector = [
+    "a",
+    "button",
+    "input",
+    "select",
+    "textarea",
+    "summary",
+    "[role='button']",
+    "[role='link']",
+    "[tabindex]:not([tabindex='-1'])",
+  ].join(",");
+
+  function onRowClick(event: MouseEvent) {
+    if (!isEpicParent) return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (!target) return;
+    if (target.closest("[data-epic-panel]")) return;
+    if (target.closest(interactiveSelector)) return;
+    ontoggleepic(issue.number);
+  }
+
+  function epicRowClick(node: HTMLElement) {
+    const click = (event: MouseEvent) => onRowClick(event);
+    node.addEventListener("click", click);
+    return {
+      destroy() {
+        node.removeEventListener("click", click);
+      },
+    };
+  }
 </script>
 
-<div class="issue-row" class:is-epic={isEpicParent} id={`epic-issue-row-${issue.number}`}>
+<div
+  class="issue-row"
+  class:is-epic={isEpicParent}
+  id={`epic-issue-row-${issue.number}`}
+  use:epicRowClick
+>
   <div class="issue-top">
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
     <a
@@ -159,11 +195,13 @@
     >
   </div>
   {#if epicSummary && isExpanded}
-    {#if epic}
-      <EpicPanel {repoPath} parent={issue.number} {epic} />
-    {:else}
-      <div class="muted">{m.common_loading()}</div>
-    {/if}
+    <div data-epic-panel>
+      {#if epic}
+        <EpicPanel {repoPath} parent={issue.number} {epic} />
+      {:else}
+        <div class="muted">{m.common_loading()}</div>
+      {/if}
+    </div>
   {/if}
 </div>
 

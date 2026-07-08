@@ -288,6 +288,23 @@ export class CodexUpdateService {
     return { started: true };
   }
 
+  /** Run the update, streaming lines to onLog, and capture the login-shell codex
+   *  path the script logs (`command -v` under `bash -lc`). Returns that path (the
+   *  binary actually resolved on PATH), or null if the line wasn't emitted. */
+  private async runUpdateCapturingPath(signal: AbortSignal): Promise<string | null> {
+    const marker = `${CODEX_UPDATE_LOG_PREFIX} on-PATH codex:`;
+    let onPathFromLog: string | null = null;
+    await this.runUpdate((line) => {
+      const at = line.indexOf(marker);
+      if (at !== -1) {
+        const val = line.slice(at + marker.length).trim();
+        onPathFromLog = val && val !== "<not found>" ? val : null;
+      }
+      this.onLog(line);
+    }, signal);
+    return onPathFromLog;
+  }
+
   /** Background body of apply(): run the update under a watchdog, decide success
    *  from a re-read version, emit status + a terminal result, and ALWAYS clear
    *  the applying guard in finally. */
@@ -299,37 +316,11 @@ export class CodexUpdateService {
     try {
       const ctrl = new AbortController();
       watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
-      await this.runUpdate((line) => this.onLog(line), ctrl.signal);
-      // Re-read the installed version once: it decides success AND is the version
-      // every failure branch reports as "what we're actually on" (never the
-      // target, which we know we did not reach).
-      const after = this.actualVersion(from);
-      if (ctrl.signal.aborted) {
-        result = { ok: false, from, to: after, error: "codex update timed out" };
-      } else {
-        // Success = the on-PATH version ADVANCED past what we started on. This is
-        // channel-agnostic: `codex update` on a standalone install targets the
-        // standalone channel, whose latest need not byte-match npm-latest, so an
-        // exact `after === npm-latest` check would falsely loop after a real
-        // standalone update. If the version went up, the update worked.
-        const ok = !!after && !!from && compareSemver(after, from) > 0;
-        // On non-convergence, resolve the actual on-PATH codex so the modal can
-        // name WHICH binary is stuck (a separate PATH-duplicate install, or an
-        // already-latest no-op) instead of a blind, unexplained retry loop.
-        const onPathBinary = ok ? null : this.resolveOnPathBinary();
-        this.last = {
-          current: after,
-          latest: to,
-          updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
-          notes: null,
-          checkedAt: Date.now(),
-          error: ok ? undefined : "codex was not updated",
-        };
-        this.onStatus(this.last);
-        result = ok
-          ? { ok: true, from, to: after }
-          : { ok: false, from, to: after, error: "codex was not updated", onPathBinary };
-      }
+      // Run the update; capture the login-shell-resolved codex path the script
+      // logs (the AUTHORITATIVE resolution — a standalone ~/.local/bin/codex may be
+      // on PATH only via a shell profile Node's process.env.PATH doesn't reflect).
+      const onPathFromLog = await this.runUpdateCapturingPath(ctrl.signal);
+      result = this.settleUpdate(from, to, onPathFromLog, ctrl.signal.aborted);
     } catch (err) {
       // runUpdate itself threw (e.g. spawn failed) — re-read the actual version
       // so we don't claim the target either.
@@ -344,6 +335,39 @@ export class CodexUpdateService {
       this.applying = false;
     }
     this.onDone(result);
+  }
+
+  /** Decide the outcome from a re-read `codex --version`: success iff the on-PATH
+   *  version ADVANCED past `from` (channel-agnostic — a standalone update whose
+   *  latest differs from npm-latest still counts, where an exact match check would
+   *  falsely loop). Emits the recomputed status; returns the terminal result. On
+   *  non-convergence it names WHICH binary is stuck (a PATH-duplicate install or an
+   *  already-latest no-op), preferring the script-logged login-shell path and
+   *  falling back to a Node PATH scan when that line wasn't captured. */
+  private settleUpdate(
+    from: string | null,
+    to: string | null,
+    onPathFromLog: string | null,
+    aborted: boolean,
+  ): CodexUpdateResult {
+    // Re-read once: it decides success AND is the version every failure branch
+    // reports as "what we're actually on" (never the target we did not reach).
+    const after = this.actualVersion(from);
+    if (aborted) return { ok: false, from, to: after, error: "codex update timed out" };
+    const ok = !!after && !!from && compareSemver(after, from) > 0;
+    const onPathBinary = ok ? null : (onPathFromLog ?? this.resolveOnPathBinary());
+    this.last = {
+      current: after,
+      latest: to,
+      updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
+      notes: null,
+      checkedAt: Date.now(),
+      error: ok ? undefined : "codex was not updated",
+    };
+    this.onStatus(this.last);
+    return ok
+      ? { ok: true, from, to: after }
+      : { ok: false, from, to: after, error: "codex was not updated", onPathBinary };
   }
 
   /** Re-read the installed codex version and the latest published one, then

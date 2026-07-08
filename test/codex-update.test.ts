@@ -179,6 +179,25 @@ test("apply(): non-advancement attaches the on-PATH binary for the stuck-update 
   });
 });
 
+test("apply(): stuck message prefers the login-shell path the script logged", async () => {
+  const { svc, dones } = primed({
+    current: "0.142.2",
+    installedAfter: "0.142.2", // did not advance
+    latest: "0.142.4",
+    // the script's `command -v` under bash -lc resolves the real on-PATH codex;
+    // it must win over the Node process.env.PATH scan (which could miss a
+    // profile-only ~/.local/bin).
+    resolveOnPathBinary: () => "/usr/bin/codex",
+    runUpdate: async (onLine) => {
+      onLine(">>> codex-update: on-PATH codex: /home/op/.local/bin/codex");
+    },
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: false, onPathBinary: "/home/op/.local/bin/codex" });
+});
+
 test("apply(): failure when version unchanged even though the child exits 0", async () => {
   const { svc, dones } = primed({ installedAfter: "0.142.2", latest: "0.142.4" });
   await svc.check(1); // current=0.142.2

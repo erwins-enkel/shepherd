@@ -21,16 +21,32 @@ test("buildUpdateScript: runs `herdr update --handoff`, no destructive pre-stop"
   expect(s).not.toContain("herdr server stop");
 });
 
-test("buildUpdateScript: on failure, relaunches herdr ONLY when it is unreachable", () => {
+test("buildUpdateScript: runs `agent list` UNCONDITIONALLY after update, not gated on rc (#1558)", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
-  // the whole recovery is gated on the update having failed
-  expect(s).toContain('if [ "$rc" -ne 0 ]; then');
-  // probe is the repo's own unreachable signal: `agent list` exits non-zero when
-  // herdr is unreachable — the exact throw broadcast() catches in service.ts.
+  // #1558: `herdr update` exits 0 even when it left no running server, so gating
+  // recovery on the exit code skipped the exact bug. Recovery must NOT be wrapped
+  // in an rc check any more.
+  expect(s).not.toContain('if [ "$rc" -ne 0 ]');
+  // `agent list` is the recovery: a herdr CLI call auto-spawns the daemon, so this
+  // both verifies AND resurrects the server, driver-independently.
   expect(s).toContain("agent list");
-  // relaunch a DETACHED server (bare `herdr server` is foreground) on the
-  // unreachable branch so the orphaned targets (which outlive the dead server) reattach.
+  // grace + retry so an in-flight --handoff / a systemd `Restart=always` unit can
+  // bind first before we conclude the server is unreachable.
+  expect(s).toContain("for attempt in 1 2 3");
+  expect(s).toContain("sleep 2");
+  expect(s).toContain("ok=1");
+});
+
+test("buildUpdateScript: relaunches a detached server ONLY as a post-retry fallback", () => {
+  const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
+  // the explicit relaunch is RETAINED (hedge against a weaker 0.7.x auto-spawn) but
+  // fires only in the `else` branch, i.e. after the grace+retry loop still failed.
   expect(s).toMatch(/setsid\b.*\bserver\b.*&/);
+  expect(s).toMatch(/else\s*\n\s*echo '[^']*unreachable after retries/);
+  // NEVER unlink the socket: herdr clears/rebinds its own stale socket on spawn, and
+  // an external `rm` could destroy a concurrently-recovering server's socket (#1558).
+  expect(s).not.toMatch(/\brm\b/);
+  expect(s).not.toContain("herdr.sock");
   // the nonexistent verb is gone; no stop/handoff (both need a live server) and no systemd.
   expect(s).not.toContain("herdr server start");
   expect(s).not.toContain("live-handoff");
@@ -39,8 +55,9 @@ test("buildUpdateScript: on failure, relaunches herdr ONLY when it is unreachabl
 
 test("buildUpdateScript: threads a custom HERDR_BIN through every herdr call", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6", "/opt/herdr/bin/herdr");
-  // the configured binary drives the update, the unreachable probe, and the
-  // relaunch — each shell-quoted so a path with spaces/quotes can't break the script.
+  // the configured binary drives the update, the auto-spawning `agent list` probe,
+  // and the fallback relaunch — each shell-quoted so a path with spaces/quotes can't
+  // break the script.
   expect(s).toContain("'/opt/herdr/bin/herdr' update --handoff");
   expect(s).toContain("'/opt/herdr/bin/herdr' agent list");
   expect(s).toContain("'/opt/herdr/bin/herdr' server");
@@ -56,8 +73,8 @@ test("buildUpdateScript: never restarts shepherd or shells systemd", () => {
 test("buildUpdateScript: echoes a greppable marker for each step", () => {
   const s = buildUpdateScript(LOG, "0.6.5", "0.6.6");
   const markers = s.split("\n").filter((l) => l.includes(UPDATE_LOG_PREFIX));
-  // running / exited rc / reachable-branch / unreachable-branch = 4 markers
-  // (the two failure branches are mutually exclusive at runtime, both present in text)
+  // running / exited rc / reachable-after-update / unreachable-after-retries = 4 markers
+  // (the reachable + unreachable branches are mutually exclusive at runtime, both in text)
   expect(markers.length).toBe(4);
   expect(s).toContain(`${UPDATE_LOG_PREFIX} herdr update exited rc=$rc`);
 });

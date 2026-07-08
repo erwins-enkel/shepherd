@@ -134,8 +134,8 @@ type FakeHerdr = {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
-  ) => { terminalId: string };
-  stop: (id: string) => void;
+  ) => Promise<{ terminalId: string }>;
+  stop: (id: string) => Promise<void>;
   list: () => FakePaneEntry[];
 };
 
@@ -144,13 +144,13 @@ function makeHerdr(livePanes: FakePaneEntry[] = []): FakeHerdr {
     started: [],
     stopped: [],
     livePanes,
-    start: (label, cwd, argv, env) => {
+    start: async (label, cwd, argv, env) => {
       const tid = `tid-${h.started.length + 1}`;
       h.started.push({ label, cwd, argv, env });
       h.livePanes.push({ cwd, terminalId: tid });
       return { terminalId: tid };
     },
-    stop: (id) => h.stopped.push(id),
+    stop: async (id) => void h.stopped.push(id),
     list: () => h.livePanes,
   };
   return h;

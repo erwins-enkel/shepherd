@@ -76,11 +76,11 @@ export class HerdrUsageProbe implements UsageProbe {
    * `agent start` failed outright — no agent is registered, so nothing shows in the list (the
    * boot/hourly tab-reaper sweep covers that husk).
    */
-  private sweep(): void {
+  private async sweep(): Promise<void> {
     for (const a of this.herdr.list()) {
       if (a.name !== PROBE_NAME) continue;
       try {
-        this.herdr.stop(a.terminalId);
+        await this.herdr.stop(a.terminalId);
       } catch {
         /* best-effort */
       }
@@ -92,14 +92,14 @@ export class HerdrUsageProbe implements UsageProbe {
     if (isApiKeyMode()) return null;
     // Reap leftovers from any prior run that didn't clean up after itself, so probe tabs can't
     // accumulate in herdr over time.
-    this.sweep();
+    await this.sweep();
 
     let terminalId: string;
     try {
       // Resolve the new agent by list diff: herdr.start()'s cwd-based resolution is ambiguous if a
       // prior probe still lingers in the same cwd, and would hand back a stale/dead terminal id.
       const before = new Set(this.herdr.list().map((a) => a.terminalId));
-      const started = this.herdr.start(PROBE_NAME, this.cwd, [
+      const started = await this.herdr.start(PROBE_NAME, this.cwd, [
         "claude",
         "--dangerously-skip-permissions",
       ]);
@@ -109,7 +109,7 @@ export class HerdrUsageProbe implements UsageProbe {
       // start() can throw after the agent is already running (the post-start cwd lookup found no
       // match) — reap that live probe before bailing. (A failed `agent start` leaves a tab with no
       // agent, which the sweep can't see; pre-existing gap, not handled here.)
-      this.sweep();
+      await this.sweep();
       return null;
     }
 
@@ -156,8 +156,10 @@ export class HerdrUsageProbe implements UsageProbe {
       void pump.catch(() => {});
       void drainErr.catch(() => {});
       // Sweep by name rather than stop(terminalId): closes this probe AND any straggler, and
-      // doesn't depend on terminalId having resolved.
-      this.sweep();
+      // doesn't depend on terminalId having resolved. Awaited: `sweep`'s `herdr.list()` loop
+      // header can throw synchronously (outside the per-item try), so an un-awaited call here
+      // would reject a detached promise from this `finally` with no handler.
+      await this.sweep();
     }
   }
 }

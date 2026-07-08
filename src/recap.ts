@@ -425,7 +425,7 @@ export class RecapService {
     const existing = this.deps.store.getRecap(sessionId);
     if (!existing || existing.state !== "generating") return;
     try {
-      this.deps.herdr.stop(this.resolveTerminal(existing.cwd));
+      void this.deps.herdr.stop(this.resolveTerminal(existing.cwd)).catch(() => {});
     } catch {
       /* best-effort */
     }
@@ -641,7 +641,12 @@ export class RecapService {
       // Spawn.
       const cwd = this._makeTmpDir();
       try {
-        this.deps.herdr.start(`recap ${session.desig}`, cwd, argv, apiKeyPassthroughEnv(false));
+        await this.deps.herdr.start(
+          `recap ${session.desig}`,
+          cwd,
+          argv,
+          apiKeyPassthroughEnv(false),
+        );
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so next settle can retry
@@ -837,7 +842,7 @@ export class RecapService {
     } finally {
       // Always reap pane + tmpdir.
       try {
-        this.deps.herdr.stop(this.resolveTerminal(r.cwd));
+        await this.deps.herdr.stop(this.resolveTerminal(r.cwd));
       } catch {
         /* best-effort */
       }

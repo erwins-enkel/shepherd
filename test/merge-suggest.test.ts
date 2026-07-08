@@ -50,14 +50,19 @@ function mkDeps(store: SessionStore, output: unknown, over: Record<string, unkno
     deps: {
       store,
       herdr: {
-        start: (agent: string, _dir: string, argv: string[], env?: Record<string, string>) => {
+        start: async (
+          agent: string,
+          _dir: string,
+          argv: string[],
+          env?: Record<string, string>,
+        ) => {
           cap.agent = agent;
           cap.argv = argv;
           cap.env = env;
           started.push(1);
           return { terminalId: "m1" };
         },
-        stop: () => {},
+        stop: async () => {},
       } as never,
       scratch: { create: () => ({ dir: "/scratch/m" }), remove: () => {} },
       onChange: () => {},
@@ -89,7 +94,7 @@ test("consider spawns + tick persists an intra merge suggestion (survivor = anch
     ],
   });
   const svc = new MergeSuggestionService(deps);
-  svc.consider("/r");
+  await svc.consider("/r");
   await svc.tick();
   const pending = store.listMergeSuggestions({ status: "pending" });
   expect(pending.length).toBe(1);
@@ -113,16 +118,16 @@ test("consider no-ops below minRules and when the active set is unchanged", asyn
   seedActive(store, "/r", "only one rule");
   const { deps, started } = mkDeps(store, { groups: [] }, { minRules: 2 });
   const svc = new MergeSuggestionService(deps);
-  svc.consider("/r"); // 1 active < 2
+  await svc.consider("/r"); // 1 active < 2
   expect(started.length).toBe(0);
 
   // Now enough rules → spawns once; after a successful tick the signature is stamped, so a
   // second consider over the SAME active set must not re-spawn.
   seedActive(store, "/r", "a second rule");
-  svc.consider("/r");
+  await svc.consider("/r");
   await svc.tick();
   expect(started.length).toBe(1);
-  svc.consider("/r");
+  await svc.consider("/r");
   expect(started.length).toBe(1); // unchanged set → no re-spawn
 });
 
@@ -137,14 +142,14 @@ test("dismissed group is not re-suggested after a benign rule edit (id-only sign
   };
   const { deps } = mkDeps(store, out);
   const svc = new MergeSuggestionService(deps);
-  svc.consider("/r");
+  await svc.consider("/r");
   await svc.tick();
   const s = store.listMergeSuggestions({ status: "pending" })[0]!;
   store.setMergeSuggestionStatus(s.id, "dismissed");
 
   // Benign edit: reword a member (its id is unchanged) and re-run via the manual trigger.
   store.setLearningStatus(b.id, "active", "Prefer bun over npm for ALL installs");
-  svc.mergeNow("/r");
+  await svc.mergeNow("/r");
   await svc.tick();
   expect(store.listMergeSuggestions({ status: "pending" }).length).toBe(0);
 });
@@ -160,7 +165,7 @@ test("intra: groups citing unknown ids or singletons are dropped", async () => {
     ],
   });
   const svc = new MergeSuggestionService(deps);
-  svc.mergeNow("/r");
+  await svc.mergeNow("/r");
   await svc.tick();
   expect(store.listMergeSuggestions({ status: "pending" }).length).toBe(0);
 });
@@ -175,7 +180,7 @@ test("considerCrossRepo persists a cross suggestion for a rule recurring across 
     groups: [{ memberIds: [a.id, b.id], canonicalRule: "Always write a regression test" }],
   });
   const svc = new MergeSuggestionService(deps);
-  svc.considerCrossRepo();
+  await svc.considerCrossRepo();
   await svc.tick();
   const cross = store.listMergeSuggestions({ kind: "cross", status: "pending" });
   expect(cross.length).toBe(1);
@@ -190,7 +195,7 @@ test("cross: a group whose members are all in one repo is rejected", async () =>
   // The LLM (wrongly) groups a with itself-in-one-repo; validation must require ≥2 repos.
   const { deps } = mkDeps(store, { groups: [{ memberIds: [a.id], canonicalRule: "same rule" }] });
   const svc = new MergeSuggestionService(deps);
-  svc.considerCrossRepo();
+  await svc.considerCrossRepo();
   await svc.tick();
   expect(store.listMergeSuggestions({ kind: "cross", status: "pending" }).length).toBe(0);
   void b;
@@ -205,7 +210,7 @@ test("cross: a group promoted to global (applied) is NOT re-suggested on a later
   };
   const { deps, started } = mkDeps(store, out);
   const svc = new MergeSuggestionService(deps);
-  svc.considerCrossRepo();
+  await svc.considerCrossRepo();
   await svc.tick();
   const cross = store.listMergeSuggestions({ kind: "cross", status: "pending" });
   expect(cross.length).toBe(1);
@@ -216,7 +221,7 @@ test("cross: a group promoted to global (applied) is NOT re-suggested on a later
   // Change the global active set so the cross pass isn't gated out by an unchanged signature —
   // this forces a real second spawn that must then be suppressed by the dedup, not the gate.
   seedActive(store, "/r3", "An entirely unrelated active rule");
-  svc.considerCrossRepo();
+  await svc.considerCrossRepo();
   await svc.tick();
   expect(started.length).toBe(2); // the pass genuinely re-ran (not gated out before spawn)
   expect(store.listMergeSuggestions({ kind: "cross", status: "pending" }).length).toBe(0);
@@ -224,7 +229,7 @@ test("cross: a group promoted to global (applied) is NOT re-suggested on a later
 
 // ── pure helpers ────────────────────────────────────────────────────────────
 
-test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", () => {
+test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", async () => {
   const mk = (id: string, injectedCount: number, createdAt: number): Learning =>
     ({ id, injectedCount, createdAt }) as Learning;
   const m = [mk("a", 1, 100), mk("b", 5, 200), mk("c", 3, 50)];
@@ -235,7 +240,7 @@ test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", (
   expect(pickSurvivor(tie).id).toBe("d");
 });
 
-test("crossRepoShortlist drops single-repo rules and caps with a reported drop", () => {
+test("crossRepoShortlist drops single-repo rules and caps with a reported drop", async () => {
   const mk = (id: string, repoPath: string, rule: string): Learning =>
     ({ id, repoPath, rule }) as Learning;
   const rules = [
@@ -257,7 +262,7 @@ test("crossRepoShortlist drops single-repo rules and caps with a reported drop",
 
 // ── store primitives: citation + restore + counter preservation ─────────────
 
-test("retireLearningMerged sets the citation; restore clears it; listSubsumed is status-scoped", () => {
+test("retireLearningMerged sets the citation; restore clears it; listSubsumed is status-scoped", async () => {
   const store = new SessionStore(":memory:");
   const survivor = seedActive(store, "/r", "survivor rule");
   const sub = seedActive(store, "/r", "subsumed rule");
@@ -275,7 +280,7 @@ test("retireLearningMerged sets the citation; restore clears it; listSubsumed is
   expect(store.listSubsumedLearnings(survivor.id).length).toBe(0);
 });
 
-test("mergeLearning preserves the survivor's effectiveness counters", () => {
+test("mergeLearning preserves the survivor's effectiveness counters", async () => {
   const store = new SessionStore(":memory:");
   const a = seedActive(store, "/r", "rule a");
   store.attributeInjected([a.id], { good: true }); // injected=1 helpful=1
@@ -289,7 +294,7 @@ test("mergeLearning preserves the survivor's effectiveness counters", () => {
 
 // ── fail-closed ─────────────────────────────────────────────────────────────
 
-test("api-key mode without a configured key fails closed (no spawn)", () => {
+test("api-key mode without a configured key fails closed (no spawn)", async () => {
   withAuth("api-key", null, () => {
     const store = new SessionStore(":memory:");
     seedActive(store, "/r", "rule a");
@@ -302,7 +307,7 @@ test("api-key mode without a configured key fails closed (no spawn)", () => {
 
 // ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
 
-test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-owned", () => {
+test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-owned", async () => {
   const store = new SessionStore(":memory:");
   seedActive(store, "/r", "Use bun, not npm");
   seedActive(store, "/r", "Prefer bun over npm for installs");
@@ -315,10 +320,10 @@ test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-o
   const svc = new MergeSuggestionService({
     store,
     herdr: {
-      start: () => ({ terminalId: "m1" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "m1" }),
+      stop: async () => {},
       list: () => listed,
-      closeTab: (t: string) => closed.push(t),
+      closeTab: async (t: string) => closed.push(t),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
@@ -328,23 +333,23 @@ test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-o
     readOutput: () => null, // run stays in flight (not finalized)
     log: () => {},
   } as never);
-  svc.consider("/r"); // in-flight run owns terminalId "m1"
+  await svc.consider("/r"); // in-flight run owns terminalId "m1"
   svc.reapOrphans();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 
-test("reapOrphans is a no-op when herdr is unavailable (merge-suggest)", () => {
+test("reapOrphans is a no-op when herdr is unavailable (merge-suggest)", async () => {
   const store = new SessionStore(":memory:");
   let closes = 0;
   const svc = new MergeSuggestionService({
     store,
     herdr: {
-      start: () => ({ terminalId: "t" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "t" }),
+      stop: async () => {},
       list: () => {
         throw new Error("herdr down");
       },
-      closeTab: () => {
+      closeTab: async () => {
         closes++;
       },
     },

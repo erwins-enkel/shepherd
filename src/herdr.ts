@@ -199,8 +199,10 @@ export function matchAgents(
  * Returns true when the error thrown by `runner` signals that a same-named agent is
  * already registered in herdr. The CLI emits `agent_name_taken` as a JSON code on
  * stderr/stdout, which execFileSync surfaces on the thrown error's `.stderr`/`.stdout`/
- * `.message`. Defensive: coerces unknown fields to string safely; non-Error throws return
- * false.
+ * `.message`. The socket transport surfaces it as `HerdrSocketError.code` (the `.message`
+ * is human prose without the marker, so the `.code` check is load-bearing there —
+ * confirmed against live herdr 0.7.3). Defensive: coerces unknown fields to string safely;
+ * non-Error throws return false.
  */
 export function isNameTakenError(err: unknown): boolean {
   if (err == null) return false;
@@ -208,7 +210,7 @@ export function isNameTakenError(err: unknown): boolean {
   if (typeof err === "string") return err.includes(marker);
   if (typeof err === "object") {
     const e = err as Record<string, unknown>;
-    for (const field of ["stderr", "stdout", "message"]) {
+    for (const field of ["stderr", "stdout", "message", "code"]) {
       const v = e[field];
       if (v != null && String(v).includes(marker)) return true;
     }
@@ -239,6 +241,85 @@ export function parseAgents(result: unknown): HerdrAgent[] {
     terminalId: a.terminal_id ?? "",
     workspaceId: a.workspace_id ?? "",
   }));
+}
+
+/**
+ * Maps a single herdr `AgentInfo` object (the `result.agent` of an `agent.start`
+ * `agent_started` reply) to one `HerdrAgent`, using the SAME field mapping as
+ * `parseAgents`' per-item map. The socket `start` (issue #1553) resolves its started
+ * agent straight from this reply — `agent_started.agent` carries `terminal_id`/`tab_id`/…
+ * directly (confirmed against live herdr 0.7.3), so it needs no post-start re-list, unlike
+ * the CLI path whose `agent start` output exposes no terminal id.
+ */
+export function parseAgentInfo(agent: unknown): HerdrAgent {
+  const a = (agent ?? {}) as Record<string, string>;
+  return {
+    agent: a.agent ?? "",
+    agentStatus: (a.agent_status ?? "unknown") as HerdrState,
+    cwd: a.cwd ?? "",
+    name: a.name ?? "",
+    paneId: a.pane_id ?? "",
+    tabId: a.tab_id ?? "",
+    terminalId: a.terminal_id ?? "",
+    workspaceId: a.workspace_id ?? "",
+  };
+}
+
+/**
+ * Builds the wrapped spawn argv shared by BOTH drivers (issue #1553), so a socket-backed
+ * `start` spawns a byte-identical process to the CLI path. Wraps argv (always
+ * `["claude", …]`) in a coreutils `env` shim that pins the V8 compile cache to a disk-backed
+ * dir. `env` execvp's straight into claude (no extra process layer), so herdr's PTY/agent
+ * detection is unaffected — but NODE_COMPILE_CACHE now lands on disk instead of
+ * `$TMPDIR/node-compile-cache` on the tmpfs, where it accreted unbounded and exhausted
+ * inodes (#560). Caller-supplied `env` vars (e.g. CLAUDE_CONFIG_DIR for api-key auth mode)
+ * are injected as additional KEY=VALUE tokens after NODE_COMPILE_CACHE, in sorted-key order
+ * for stability.
+ *
+ * Pins the CLASSIC renderer for every spawned claude UNLESS the caller already specified a
+ * renderer choice in `env` (Shepherd's integration assumes the classic renderer; the
+ * poller/blocked classifier scrape `agent read --source visible`, the web terminal forwards
+ * xterm keystrokes). The main-session spawn computes its own renderer env and routes it
+ * through both the membrane --setenv and this shim, so re-adding the pin here would
+ * duplicate it (and `env`'s last-wins would let the pin override an intended NO_FLICKER).
+ */
+export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
+  const envTokens = env
+    ? Object.entries(env)
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([k, v]) => `${k}=${v}`)
+    : [];
+  const callerSetRenderer =
+    !!env && ("CLAUDE_CODE_NO_FLICKER" in env || "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN" in env);
+  return [
+    "env",
+    `NODE_COMPILE_CACHE=${compileCacheDir()}`,
+    ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
+    ...envTokens,
+    ...argv,
+  ];
+}
+
+/**
+ * A promise-chain serializer (issue #1553): runs each submitted async fn only after the
+ * prior one settles, restoring the mutual exclusion the blocking sync `execFileSync` path
+ * gave the multi-step `start` orchestration. Without it, async yield points let two
+ * concurrent `start`s interleave — both seeing an empty `workspace.list` and
+ * double-creating the workspace, or racing collision-retry. NOT `singleFlight` (which
+ * coalesces distinct calls onto one run); every `start` must actually run. Per-instance:
+ * each driver owns its own chain. The internal tail swallows rejections so one failed call
+ * never poisons the queue.
+ */
+export function createSerializer(): <T>(fn: () => Promise<T>) => Promise<T> {
+  let tail: Promise<unknown> = Promise.resolve();
+  return <T>(fn: () => Promise<T>): Promise<T> => {
+    const run = tail.then(fn, fn);
+    tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    return run;
+  };
 }
 
 /**
@@ -277,16 +358,29 @@ export interface IHerdrDriver {
   tabs(): HerdrTab[];
   panes(): HerdrPane[];
   paneForegroundProcs(paneId: string): Promise<string[]>;
-  start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent;
+  /** Spawn an agent (issue #1553: async — socket-backed when `SHEPHERD_HERDR_SOCKET=1`,
+   *  else non-blocking CLI). Returns the started `HerdrAgent`. */
+  start(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent>;
+  /** Write literal text to an agent's PTY. Still SYNC + CLI-backed; its socket port is
+   *  deferred to #1567 (it uniquely colors a boolean-returning steer/reply cascade async). */
   send(target: string, text: string): void;
   read(target: string, source?: "visible" | "recent", lines?: number): string;
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
-  stop(terminalId: string): void;
-  relabel(terminalId: string, newName: string): void;
-  closeTab(tabId: string): void;
+  stop(terminalId: string): Promise<void>;
+  relabel(terminalId: string, newName: string): Promise<void>;
+  closeTab(tabId: string): Promise<void>;
 }
 
 export class HerdrDriver implements IHerdrDriver {
+  /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
+   *  now that the writes are async (issue #1553); see `createSerializer`. */
+  private serializeStart = createSerializer();
+
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
@@ -355,27 +449,36 @@ export class HerdrDriver implements IHerdrDriver {
    * has none, so the very first New Task after a herdr restart used to 500. Create a
    * "shepherd" workspace on demand. Idempotent: skips when any workspace already exists.
    */
-  private ensureWorkspace(cwd: string): void {
+  private async ensureWorkspace(cwd: string): Promise<void> {
     let workspaces: unknown[];
     try {
-      workspaces = JSON.parse(this.runner(["workspace", "list"]))?.result?.workspaces ?? [];
+      workspaces =
+        JSON.parse(await this.asyncRunner(["workspace", "list"]))?.result?.workspaces ?? [];
     } catch {
       workspaces = []; // unparseable/empty reply → treat as "none", create one
     }
     if (workspaces.length === 0) {
-      this.runner(["workspace", "create", "--cwd", cwd, "--label", "shepherd", "--no-focus"]);
+      await this.asyncRunner([
+        "workspace",
+        "create",
+        "--cwd",
+        cwd,
+        "--label",
+        "shepherd",
+        "--no-focus",
+      ]);
     }
   }
 
   /** Bounded-retry wrapper around `agent start` that evicts same-named squatter agents
    *  when herdr rejects with `agent_name_taken`. Up to 3 attempts; no sleep between them
-   *  (the sync herdr round-trips provide real-world spacing). */
-  private startAgentWithCollisionRetry(
+   *  (the herdr round-trips provide real-world spacing). */
+  private async startAgentWithCollisionRetry(
     name: string,
     tabId: string,
     cwd: string,
     wrapped: string[],
-  ): void {
+  ): Promise<void> {
     const agentStartArgs = [
       "agent",
       "start",
@@ -391,7 +494,7 @@ export class HerdrDriver implements IHerdrDriver {
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        this.runner(agentStartArgs);
+        await this.asyncRunner(agentStartArgs);
         return;
       } catch (err) {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) {
@@ -399,15 +502,34 @@ export class HerdrDriver implements IHerdrDriver {
           throw err;
         }
         // Evict squatter(s) by name — never by regex-parsing the error string
-        const squatters = this.list().filter((a) => a.name === name);
-        for (const sq of squatters) this.closeTab(sq.tabId);
+        const squatters = (await this.listAsync()).filter((a) => a.name === name);
+        for (const sq of squatters) await this.closeTab(sq.tabId);
       }
     }
   }
 
-  start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent {
+  /**
+   * Spawn an agent (issue #1553: `async` — non-blocking via `asyncRunner`). Serialized so
+   * concurrent spawns can't race the workspace/tab orchestration (the async yield points
+   * removed the implicit mutual exclusion the blocking sync path had).
+   */
+  start(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent> {
+    return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
+  }
+
+  private async startImpl(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent> {
     // herdr needs an active workspace before any tab can be created — guarantee one.
-    this.ensureWorkspace(cwd);
+    await this.ensureWorkspace(cwd);
     // Give each agent its OWN tab so its pane spans the full herdr window width.
     // `agent start` with no --tab splits the active tab, so agents pile up as
     // side-by-side panes each ~window/N wide — and that split-fixed width (not the
@@ -415,7 +537,7 @@ export class HerdrDriver implements IHerdrDriver {
     // out tall-and-narrow and resizing the browser can't widen it. A dedicated tab
     // keeps every agent full-width regardless of how many are running.
     const created = JSON.parse(
-      this.runner(["tab", "create", "--cwd", cwd, "--label", name, "--no-focus"]),
+      await this.asyncRunner(["tab", "create", "--cwd", cwd, "--label", name, "--no-focus"]),
     );
     const tabId: string | undefined = created?.result?.tab?.tab_id;
     // a fresh tab opens with an empty shell pane; `agent start --tab` splits it, so
@@ -427,71 +549,38 @@ export class HerdrDriver implements IHerdrDriver {
     // finds nothing). The tab already exists, so on ANY failure we must close it —
     // otherwise it lingers forever as an empty husk with no claude in it.
     try {
-      // Wrap argv (always `["claude", …]`) in a coreutils `env` shim that pins the V8
-      // compile cache to a disk-backed dir. `env` execvp's straight into claude (no extra
-      // process layer), so herdr's PTY/agent detection is unaffected — but NODE_COMPILE_CACHE
-      // now lands on disk instead of `$TMPDIR/node-compile-cache` on the tmpfs, where it
-      // accreted unbounded and exhausted inodes (#560). Caller-supplied `env` vars (e.g.
-      // CLAUDE_CONFIG_DIR for api-key auth mode) are injected as additional KEY=VALUE tokens
-      // after NODE_COMPILE_CACHE, in sorted-key order for stability.
-      const envTokens = env
-        ? Object.entries(env)
-            .sort(([a], [b]) => a.localeCompare(b))
-            .map(([k, v]) => `${k}=${v}`)
-        : [];
-      // Pin the CLASSIC renderer for every spawned claude UNLESS the caller already specified a
-      // renderer choice in `env`. The main-session spawn (prepareSpawn) computes its own renderer
-      // env — classic pin by default, or CLAUDE_CODE_NO_FLICKER when the operator opted into the
-      // fullscreen research preview (tuiFullscreen) — and routes it through BOTH the membrane
-      // --setenv and this shim, so re-adding the pin here would duplicate it (and `env`'s last-wins
-      // would let the pin override an intended NO_FLICKER). Satellites pass no renderer var and keep
-      // the classic pin exactly as before.
-      // Claude Code's opt-in fullscreen renderer (v2.1.89+) draws on the terminal's ALTERNATE
-      // screen buffer and captures the mouse — Shepherd's integration assumes the classic renderer
-      // (poller/blocked classifier scrape `agent read --source visible`; the web terminal forwards
-      // xterm keystrokes). (Shepherd attaches via `herdr agent attach`, not `claude attach`, so the
-      // docs' "background sessions always use fullscreen" carve-out does not apply.)
-      const callerSetRenderer =
-        !!env && ("CLAUDE_CODE_NO_FLICKER" in env || "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN" in env);
-      const wrapped = [
-        "env",
-        `NODE_COMPILE_CACHE=${compileCacheDir()}`,
-        ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
-        ...envTokens,
-        ...argv,
-      ];
+      // Byte-identical spawn to the socket path — see `buildWrappedArgv`.
+      const wrapped = buildWrappedArgv(argv, env);
       // Collision-breaker: if herdr rejects with `agent_name_taken` (a stale same-named
       // agent is still registered — e.g. shepherd restarted while an interactive `claude`
       // was running), resolve the squatter(s) by name from `list()`, close their tabs
       // (which both kills the orphan via --die-with-parent and synchronously releases the
-      // name), then retry. Bounded at 3 total attempts — no sleep: the sync herdr
-      // round-trips (list + tab close) provide the real-world spacing; a blocking sleep
-      // would freeze Bun's single event loop and stall the live web terminal.
-      this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
+      // name), then retry. Bounded at 3 total attempts.
+      await this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
 
       if (rootPaneId) {
         try {
-          this.runner(["pane", "close", rootPaneId]);
+          await this.asyncRunner(["pane", "close", rootPaneId]);
         } catch {
           /* best-effort: agent still runs if the shell pane lingers, just at split width */
         }
       }
 
-      // NOTE: resolves the just-started agent by its unique worktree cwd; ambiguous only if two
-      // sessions share a cwd (e.g. two non-git cwd-fallbacks on the same repoPath). TODO: prefer a
-      // terminal_id returned directly by `herdr agent start` if herdr exposes it.
-      const match = this.list()
-        .filter((a) => a.cwd === cwd)
-        .at(-1);
+      // NOTE: the CLI `agent start` output exposes no terminal id, so the just-started agent
+      // is resolved by its unique worktree cwd; ambiguous only if two sessions share a cwd
+      // (e.g. two non-git cwd-fallbacks on the same repoPath). The socket path (SocketHerdrDriver)
+      // is strictly more reliable — it reads terminal_id straight from the `agent.start` reply.
+      const match = (await this.listAsync()).filter((a) => a.cwd === cwd).at(-1);
       if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
       return match;
     } catch (err) {
-      this.closeTab(tabId); // roll back the orphan tab before propagating
+      await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;
     }
   }
 
-  /** Write literal text to an agent's PTY (no implicit Enter). */
+  /** Write literal text to an agent's PTY (no implicit Enter). Still SYNC + CLI-backed;
+   *  socket port deferred to #1567 (it colors a boolean-returning steer cascade async). */
   send(target: string, text: string): void {
     this.runner(["agent", "send", target, text]);
   }
@@ -550,10 +639,10 @@ export class HerdrDriver implements IHerdrDriver {
    * path fires only when the pane is truly gone from the list; the orphan sweep handles any
    * residue in that case.
    */
-  stop(terminalId: string): void {
-    const agent = this.list().find((a) => a.terminalId === terminalId);
+  async stop(terminalId: string): Promise<void> {
+    const agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
     if (!agent?.tabId) return;
-    this.closeTab(agent.tabId);
+    await this.closeTab(agent.tabId);
   }
 
   /**
@@ -563,22 +652,22 @@ export class HerdrDriver implements IHerdrDriver {
    * a cached tabId may be stale. Best-effort: a dead/already-renamed agent must never
    * crash the caller, so every step is guarded.
    */
-  relabel(terminalId: string, newName: string): void {
+  async relabel(terminalId: string, newName: string): Promise<void> {
     let agent;
     try {
-      agent = this.list().find((a) => a.terminalId === terminalId);
+      agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
     } catch {
       return;
     }
     if (!agent) return;
     try {
-      this.runner(["agent", "rename", terminalId, newName]);
+      await this.asyncRunner(["agent", "rename", terminalId, newName]);
     } catch {
       /* best-effort */
     }
     if (agent.tabId) {
       try {
-        this.runner(["tab", "rename", agent.tabId, newName]);
+        await this.asyncRunner(["tab", "rename", agent.tabId, newName]);
       } catch {
         /* best-effort */
       }
@@ -586,9 +675,9 @@ export class HerdrDriver implements IHerdrDriver {
   }
 
   /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
-  closeTab(tabId: string): void {
+  async closeTab(tabId: string): Promise<void> {
     try {
-      this.runner(["tab", "close", tabId]);
+      await this.asyncRunner(["tab", "close", tabId]);
     } catch {
       /* best-effort; tab may already be gone */
     }

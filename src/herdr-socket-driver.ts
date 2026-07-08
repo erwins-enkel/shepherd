@@ -1,6 +1,10 @@
 import { HerdrSocketClient } from "./herdr-socket-client";
 import {
   HerdrDriver,
+  buildWrappedArgv,
+  createSerializer,
+  isNameTakenError,
+  parseAgentInfo,
   parseAgents,
   parseProcs,
   parseReadText,
@@ -10,22 +14,27 @@ import {
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
 
 /**
- * Socket-backed `IHerdrDriver` (issue #1529): routes the async read surface —
- * `listAsync`/`readAsync`/`paneForegroundProcs` — over herdr's Unix-socket
- * JSON-RPC transport (`HerdrSocketClient`, one connection per request), avoiding a
- * CLI spawn per poll tick.
+ * Socket-backed `IHerdrDriver` (issues #1529, #1553): routes the async read surface —
+ * `listAsync`/`readAsync`/`paneForegroundProcs` (#1529) — and the async
+ * spawn/teardown/rename write surface — `start`/`stop`/`relabel`/`closeTab` (#1553) —
+ * over herdr's Unix-socket JSON-RPC transport (`HerdrSocketClient`, one connection per
+ * request), avoiding a CLI spawn per call.
  *
- * Every OTHER method — including the sync `list`/`read`/`tabs`/`panes` and the whole
- * write surface (`start`/`send`/`stop`/`relabel`/`closeTab`) — delegates straight to a
- * wrapped `HerdrDriver`. Two reasons this split is deliberate, not a TODO:
- *  - Sync methods can't be backed by an async socket without reintroducing event-loop
- *    blocking (they'd need a fake-sync wait on a promise) — the socket only helps async
- *    callers.
- *  - The write surface — `start`'s multi-step tab/workspace orchestration especially —
- *    stays on the proven, battle-tested CLI path for this PR; porting it to the socket
- *    is follow-up work, not bundled here.
+ * The methods that still delegate to a wrapped `HerdrDriver`, deliberately:
+ *  - The sync `list`/`read`/`tabs`/`panes` — a sync method can't be socket-backed without
+ *    reintroducing event-loop blocking (a fake-sync wait on a promise); the socket only
+ *    helps async callers.
+ *  - **`send`** — the ONE write still on the CLI. Its socket port is deferred to #1567
+ *    because it uniquely colors a boolean-returning steer/reply cascade async
+ *    (`sendSteerTo`→`reply`/`operatorReply`/`broadcast`→`PlanGate.resume`/`automerge`),
+ *    a blast radius unrelated to the spawn/teardown writes this driver ports. NOT an
+ *    oversight — see #1567.
  */
 export class SocketHerdrDriver implements IHerdrDriver {
+  /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
+   *  across the socket round-trips' async yield points (issue #1553). */
+  private serializeStart = createSerializer();
+
   constructor(
     private client: HerdrSocketClient,
     private cli: HerdrDriver,
@@ -71,28 +80,156 @@ export class SocketHerdrDriver implements IHerdrDriver {
     return this.cli.panes();
   }
 
-  start(name: string, cwd: string, argv: string[], env?: Record<string, string>): HerdrAgent {
-    return this.cli.start(name, cwd, argv, env);
-  }
-
-  send(target: string, text: string): void {
-    this.cli.send(target, text);
-  }
-
   read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
     return this.cli.read(target, source, lines);
   }
 
-  stop(terminalId: string): void {
-    this.cli.stop(terminalId);
+  /** `send` alone stays CLI-backed — socket port deferred to #1567. */
+  send(target: string, text: string): void {
+    this.cli.send(target, text);
   }
 
-  relabel(terminalId: string, newName: string): void {
-    this.cli.relabel(terminalId, newName);
+  // ── Socket-backed async writes (issue #1553) ─────────────────────────────
+
+  /**
+   * Spawn an agent over the socket, mirroring `HerdrDriver.start`'s orchestration:
+   * ensure a workspace → create a dedicated tab → `agent.start` (with collision-retry) →
+   * close the leftover shell pane → resolve the `HerdrAgent`. Unlike the CLI path, the
+   * `agent.start` reply carries the started agent's full `AgentInfo` (terminal_id/tab_id/…),
+   * so no post-start re-list is needed. Serialized to preserve start atomicity.
+   */
+  start(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent> {
+    return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
   }
 
-  closeTab(tabId: string): void {
-    this.cli.closeTab(tabId);
+  private async startImpl(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent> {
+    await this.ensureWorkspace(cwd);
+    const created = await this.client.request<{
+      tab?: { tab_id?: string };
+      root_pane?: { pane_id?: string };
+    }>("tab.create", { cwd, label: name, focus: false });
+    const tabId = created?.tab?.tab_id;
+    const rootPaneId = created?.root_pane?.pane_id;
+    if (!tabId) throw new Error(`herdr: tab.create returned no tab_id for ${name}`);
+
+    // The tab already exists, so on ANY post-create failure we must close it — otherwise it
+    // lingers forever as an empty husk with no agent in it.
+    try {
+      const agent = await this.startAgentWithCollisionRetry(
+        name,
+        tabId,
+        cwd,
+        buildWrappedArgv(argv, env),
+      );
+      if (rootPaneId) {
+        try {
+          await this.client.request("pane.close", { pane_id: rootPaneId });
+        } catch {
+          /* best-effort: agent still runs if the shell pane lingers, just at split width */
+        }
+      }
+      return parseAgentInfo(agent);
+    } catch (err) {
+      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      throw err;
+    }
+  }
+
+  /** herdr refuses `tab.create` without an active workspace; create a "shepherd" one on
+   *  demand. Idempotent: skips when any workspace already exists. Mirrors the CLI path. */
+  private async ensureWorkspace(cwd: string): Promise<void> {
+    let workspaces: unknown[];
+    try {
+      const res = await this.client.request<{ workspaces?: unknown[] }>("workspace.list", {});
+      workspaces = res?.workspaces ?? [];
+    } catch {
+      workspaces = []; // unreachable/error reply → treat as "none", create one
+    }
+    if (workspaces.length === 0) {
+      await this.client.request("workspace.create", { cwd, label: "shepherd", focus: false });
+    }
+  }
+
+  /** Bounded-retry `agent.start` that evicts same-named squatters on `agent_name_taken`
+   *  (confirmed the literal socket error `code` against live herdr 0.7.3). Returns the
+   *  started agent's raw `AgentInfo` for `parseAgentInfo`. Up to 3 attempts. */
+  private async startAgentWithCollisionRetry(
+    name: string,
+    tabId: string,
+    cwd: string,
+    wrapped: string[],
+  ): Promise<unknown> {
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        const res = await this.client.request<{ agent?: unknown }>("agent.start", {
+          name,
+          argv: wrapped,
+          cwd,
+          tab_id: tabId,
+          focus: false,
+        });
+        return res?.agent;
+      } catch (err) {
+        if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
+        // Evict squatter(s) by name — never by regex-parsing the error string
+        const squatters = (await this.listAsync()).filter((a) => a.name === name);
+        for (const sq of squatters) await this.closeTab(sq.tabId);
+      }
+    }
+    // Unreachable: the final attempt either returns or throws above.
+    throw new Error(`herdr: agent.start exhausted retries for ${name}`);
+  }
+
+  /** Best-effort teardown of the agent backing a terminal id: resolve its current tab FRESH
+   *  from the live list, then close that tab. No-op if the pane is gone. Mirrors the CLI. */
+  async stop(terminalId: string): Promise<void> {
+    const agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
+    if (!agent?.tabId) return;
+    await this.closeTab(agent.tabId);
+  }
+
+  /** Rename a live agent and its dedicated tab. Resolves FRESH from the live list;
+   *  best-effort — a dead/already-renamed agent must never crash the caller. */
+  async relabel(terminalId: string, newName: string): Promise<void> {
+    let agent;
+    try {
+      agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
+    } catch {
+      return;
+    }
+    if (!agent) return;
+    try {
+      await this.client.request("agent.rename", { target: terminalId, name: newName });
+    } catch {
+      /* best-effort */
+    }
+    if (agent.tabId) {
+      try {
+        await this.client.request("tab.rename", { tab_id: agent.tabId, label: newName });
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
+  /** Best-effort: close a tab by id (takes its panes + any agent down with it). */
+  async closeTab(tabId: string): Promise<void> {
+    try {
+      await this.client.request("tab.close", { tab_id: tabId });
+    } catch {
+      /* best-effort; tab may already be gone */
+    }
   }
 }
 

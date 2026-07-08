@@ -58,7 +58,12 @@ function makeService(store: SessionStore, wtLog: string[]) {
   return new SessionService({
     store,
     namer: () => "x",
-    herdr: { list: () => [], start: () => ({}) as never, stop: () => {}, send: () => {} } as never,
+    herdr: {
+      list: () => [],
+      start: async () => ({}) as never,
+      stop: async () => {},
+      send: () => {},
+    } as never,
     worktree: {
       create: () => ({}) as never,
       remove: () => {},
@@ -153,7 +158,12 @@ function makeDeps(opts: {
   const service = new SessionService({
     store,
     namer: () => "x",
-    herdr: { list: () => [], start: () => ({}) as never, stop: () => {}, send: () => {} } as never,
+    herdr: {
+      list: () => [],
+      start: async () => ({}) as never,
+      stop: async () => {},
+      send: () => {},
+    } as never,
     worktree: {
       create: () => ({}) as never,
       remove: () => {},

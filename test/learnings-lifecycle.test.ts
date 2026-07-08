@@ -161,7 +161,7 @@ function makeFakeDeps(opts: {
   };
 
   const optimizer: AutoRetireDeps["optimizer"] = {
-    optimizeOne: (id) => {
+    optimizeOne: async (id) => {
       optimizeCalls.push(id);
     },
   };
@@ -676,7 +676,7 @@ describe("runAutoRetire", () => {
       },
     };
 
-    const optimizer: AutoRetireDeps["optimizer"] = { optimizeOne: () => {} };
+    const optimizer: AutoRetireDeps["optimizer"] = { optimizeOne: async () => {} };
     runAutoRetire({ store, optimizer, nMin: 8, maxRetirePerSweep: 5 });
 
     expect(capturedReason).toBe(AUTO_RETIRE_REASON);

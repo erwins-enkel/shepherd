@@ -147,58 +147,60 @@ export class MergeSuggestionService {
 
   /** Intra-repo: propose merge groups when a repo has enough active rules and its active
    *  set changed since the last pass. No-op otherwise. Never awaits the spawn. */
-  consider(repoPath: string): void {
+  async consider(repoPath: string): Promise<void> {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
     const active = this.deps.store.listLearnings(repoPath, { status: "active" });
     if (active.length < this.minRules) return;
     const sig = this.sigOf(active.map((l) => l.id));
     if (this.deps.store.getMergePassSignature(repoPath) === sig) return;
-    this.enqueueOrBegin(repoPath, "intra", repoPath, sig, active);
+    await this.enqueueOrBegin(repoPath, "intra", repoPath, sig, active);
   }
 
   /** Cross-repo: propose promote-to-global suggestions for rules recurring across repos.
    *  Runs once per sweep globally; gated on repo span + a changed global signature. */
-  considerCrossRepo(): void {
+  async considerCrossRepo(): Promise<void> {
     const all = this.deps.store.listAllActiveLearnings();
     const repos = new Set(all.map((l) => l.repoPath));
     if (repos.size < this.crossMinRepos) return;
     const sig = this.sigOf(all.map((l) => l.id));
     if (this.deps.store.getMergePassSignature(CROSS_KEY) === sig) return;
-    this.enqueueOrBegin(CROSS_KEY, "cross", null, sig, all);
+    await this.enqueueOrBegin(CROSS_KEY, "cross", null, sig, all);
   }
 
   /** Manual trigger for a repo's intra pass — bypasses the active-count + signature gates
    *  (still needs ≥2 active rules to have anything to merge). Subject to the concurrency cap. */
-  mergeNow(repoPath: string): void {
+  async mergeNow(repoPath: string): Promise<void> {
     const active = this.deps.store.listLearnings(repoPath, { status: "active" });
     if (active.length < 2) return;
     const sig = this.sigOf(active.map((l) => l.id));
-    this.enqueueOrBegin(repoPath, "intra", repoPath, sig, active);
+    await this.enqueueOrBegin(repoPath, "intra", repoPath, sig, active);
   }
 
-  private enqueueOrBegin(
+  private async enqueueOrBegin(
     key: string,
     kind: MergeSuggestionKind,
     repoPath: string | null,
     sig: string,
     rules: Learning[],
-  ): void {
+  ): Promise<void> {
     if (this.inflight.has(key) || this.queued.has(key)) return;
     if (this.inflight.size < this.maxConcurrent) {
-      this.begin(key, kind, repoPath, sig, rules);
+      // Await so the spawn (and its inflight slot) is fully established before returning —
+      // preserving the "spawn then observe" ordering the blocking sync path guaranteed.
+      await this.begin(key, kind, repoPath, sig, rules);
     } else {
       this.queue.push({ key, kind, repoPath });
       this.queued.add(key);
     }
   }
 
-  private begin(
+  private async begin(
     key: string,
     kind: MergeSuggestionKind,
     repoPath: string | null,
     sig: string,
     rules: Learning[],
-  ): void {
+  ): Promise<void> {
     // Cross pass: cheap programmatic pre-filter + cap BEFORE the LLM sees anything, so a
     // large install can't blow context/timeout and silently degrade detection.
     let input = rules;
@@ -239,12 +241,8 @@ export class MergeSuggestionService {
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(
-        agentName,
-        dir,
-        argv,
-        apiKeyPassthroughEnv(false),
-      ).terminalId;
+      terminalId = (await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false)))
+        .terminalId;
     } catch (err) {
       if (err instanceof HerdrUnavailableError) {
         this.log(`herdr unavailable for ${key}: ${String(err)}`);
@@ -279,7 +277,7 @@ export class MergeSuggestionService {
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    reapTransientByLabel(this.deps.herdr, MERGE_LABEL, ownedTerms, "[merge]");
+    void reapTransientByLabel(this.deps.herdr, MERGE_LABEL, ownedTerms, "[merge]");
   }
 
   /** Finalize any run whose output file is ready or that timed out, then drain the queue. */
@@ -297,8 +295,9 @@ export class MergeSuggestionService {
       const e = this.queue.shift()!;
       this.queued.delete(e.key);
       // Re-read the current active set for the queued scope so a stale snapshot isn't used.
-      if (e.kind === "cross") this.considerCrossRepo();
-      else if (e.repoPath) this.mergeNow(e.repoPath);
+      // Await so the spawn + its inflight slot land before the loop re-checks capacity.
+      if (e.kind === "cross") await this.considerCrossRepo();
+      else if (e.repoPath) await this.mergeNow(e.repoPath);
     }
   }
 
@@ -312,7 +311,7 @@ export class MergeSuggestionService {
     } else {
       this.recordHealthFailure(f.key, "timeout-no-output");
     }
-    this.deps.herdr.stop(f.terminalId);
+    void this.deps.herdr.stop(f.terminalId).catch(() => {});
     this.deps.scratch.remove(f.dir);
     if (created > 0) this.deps.onChange();
   }

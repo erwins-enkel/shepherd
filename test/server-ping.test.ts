@@ -16,7 +16,7 @@ function makeDeps(): AppDeps {
       create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
       remove: () => {},
     } as any,
-    herdr: { start: () => ({}), list: () => [], stop: () => {}, send: () => {} } as any,
+    herdr: { start: async () => ({}), list: () => [], stop: async () => {}, send: () => {} } as any,
     events,
   });
   const usageLimits = {

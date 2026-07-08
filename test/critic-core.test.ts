@@ -308,12 +308,12 @@ test("reapRun: a throwing herdr.stop still removes the worktree and does not esc
   expect(removed).toEqual(["/wt-1"]);
 });
 
-test("reapRun: clean path reaps both terminal and worktree", () => {
+test("reapRun: clean path reaps both terminal and worktree", async () => {
   const stopped: string[] = [];
   const removed: string[] = [];
-  const herdr = { stop: (t: string) => stopped.push(t) };
+  const herdr = { stop: async (t: string) => void stopped.push(t) };
   const worktree = { remove: (p: string) => removed.push(p) };
-  reapRun(herdr, worktree, "term-2", "/wt-2");
+  await reapRun(herdr, worktree, "term-2", "/wt-2");
   expect(stopped).toEqual(["term-2"]);
   expect(removed).toEqual(["/wt-2"]);
 });

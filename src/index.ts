@@ -1953,9 +1953,13 @@ deferredStarts.push(() => {
 // synchronous boot point, so an empty owned set is correct: close every prior-lifetime orphan by
 // label prefix. Space-prefixed / multi-word labels can't collide with an `[a-z0-9-]` session slug.
 deferredStarts.push(() => {
-  reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
-  reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
-  reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
+  // Fire-and-forget: `reapTransientByLabel` is async now (issue #1553) but internally guarded
+  // (never rejects), and the thunk must stay `() => void` — `deferredStarts` is consumed
+  // synchronously, so an async thunk would trip `no-misused-promises`. Boot need not block on
+  // this best-effort orphan cleanup.
+  void reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
+  void reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
+  void reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
@@ -2033,12 +2037,12 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
-  for (const repo of listRepos(config.repoRoot)) distiller.consider(repo.path);
+  for (const repo of listRepos(config.repoRoot)) void distiller.consider(repo.path);
   // Phase 4 merge suggestions: per-repo near-duplicate clustering (intra) + a single global
   // cross-repo recurrence pass. Both no-op unless the active set is large enough AND changed
   // since the last pass, and each only enqueues (never awaited here).
-  for (const repo of listRepos(config.repoRoot)) mergeSuggest.consider(repo.path);
-  mergeSuggest.considerCrossRepo();
+  for (const repo of listRepos(config.repoRoot)) void mergeSuggest.consider(repo.path);
+  void mergeSuggest.considerCrossRepo();
   store.pruneOrphanMergeSuggestions();
   // Auto-retire: soft-retire active rules whose Wilson-bounded help-rate is below the
   // repo base rate (gated on real harm evidence). Returns the retired set so we only

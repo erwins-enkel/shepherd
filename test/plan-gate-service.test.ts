@@ -54,11 +54,11 @@ function harness(over: any = {}) {
   const deps: any = {
     store,
     herdr: {
-      start: (l: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (l: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         started.push({ l, cwd, argv, env });
         return { terminalId: "t1" };
       },
-      stop() {},
+      async stop() {},
       list: () => [],
     },
     worktreeExists: () => true,
@@ -261,10 +261,10 @@ test("consider re-reviews an error verdict even when the plan hash is unchanged"
 test("consider reports 'error' (not a dedupe) when the reviewer fails to spawn", async () => {
   const h = harness({
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("spawn boom");
       },
-      stop() {},
+      async stop() {},
     },
   });
   const status = await h.svc.consider(planningSession() as any);
@@ -906,8 +906,8 @@ test("reapReviewer reaps terminal+worktree+inflight but does NOT drop the persis
       },
     },
     herdr: {
-      start: () => ({ terminalId: "t-rev" }),
-      stop: (id: string) => stopped.push(id),
+      start: async () => ({ terminalId: "t-rev" }),
+      stop: async (id: string) => stopped.push(id),
       list: () => [],
     },
   });
@@ -951,8 +951,8 @@ test("adoptOrphans resolves the reviewer terminal by worktree cwd for reaping", 
       listReviewerSpawns: () => [orphanSpawn()],
     },
     herdr: {
-      start: () => ({ terminalId: "t1" }),
-      stop: (id: string) => stopped.push(id),
+      start: async () => ({ terminalId: "t1" }),
+      stop: async (id: string) => stopped.push(id),
       list: () => [{ cwd: "/wt-detached", terminalId: "rev-term-9" }],
     },
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),

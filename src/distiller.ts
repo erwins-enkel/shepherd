@@ -182,34 +182,37 @@ export class DistillerService {
       .filter((s) => !NON_LEARNING_SIGNAL_KINDS.has(s.kind));
   }
 
-  /** Start a distill run for `repoPath` if enough recent signals exist and none is in flight. */
-  consider(repoPath: string): void {
+  /** Start a distill run for `repoPath` if enough recent signals exist and none is in flight.
+   *  `async` since #1553 (the spawn is async); callers that don't need to await fire-and-forget. */
+  async consider(repoPath: string): Promise<void> {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
     const signals = this.recentLearningSignals(repoPath);
     if (signals.length < this.minSignals) return;
-    this.enqueueOrBegin(repoPath, signals);
+    await this.enqueueOrBegin(repoPath, signals);
   }
 
   /** Force a distill run regardless of the signal threshold (manual trigger).
    *  Still requires at least one signal — nothing to distill from otherwise.
    *  Subject to the concurrency cap; excess calls are queued. */
-  distillNow(repoPath: string): void {
+  async distillNow(repoPath: string): Promise<void> {
     const signals = this.recentLearningSignals(repoPath);
     if (signals.length === 0) return;
-    this.enqueueOrBegin(repoPath, signals);
+    await this.enqueueOrBegin(repoPath, signals);
   }
 
-  private enqueueOrBegin(repoPath: string, signals: Signal[]): void {
+  private async enqueueOrBegin(repoPath: string, signals: Signal[]): Promise<void> {
     if (this.inflight.has(repoPath) || this.queued.has(repoPath)) return;
     if (this.inflight.size < this.maxConcurrent) {
-      this.begin(repoPath, signals);
+      // Await so the spawn (and its inflight slot) is fully established before returning —
+      // preserving the "spawn then observe" ordering the blocking sync path guaranteed.
+      await this.begin(repoPath, signals);
     } else {
       this.queue.push({ repoPath, signals });
       this.queued.add(repoPath);
     }
   }
 
-  private begin(repoPath: string, signals: Signal[]): void {
+  private async begin(repoPath: string, signals: Signal[]): Promise<void> {
     const { dir } = this.deps.scratch.create();
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     if (isApiKeyMode() && !isApiKeyConfigured()) {
@@ -248,12 +251,8 @@ export class DistillerService {
     const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(
-        agentName,
-        dir,
-        argv,
-        apiKeyPassthroughEnv(false),
-      ).terminalId;
+      terminalId = (await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false)))
+        .terminalId;
     } catch (err) {
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[distill] herdr unavailable for ${repoPath}:`, err);
@@ -285,7 +284,7 @@ export class DistillerService {
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    reapTransientByLabel(this.deps.herdr, DISTILL_LABEL, ownedTerms, "[distill]");
+    void reapTransientByLabel(this.deps.herdr, DISTILL_LABEL, ownedTerms, "[distill]");
   }
 
   /** Finalize any run whose proposals file is ready or that timed out, then drain queue. */
@@ -303,7 +302,8 @@ export class DistillerService {
     while (this.inflight.size < this.maxConcurrent && this.queue.length) {
       const e = this.queue.shift()!;
       this.queued.delete(e.repoPath);
-      this.begin(e.repoPath, e.signals);
+      // Await so begin() reserves its inflight slot before the loop re-checks size.
+      await this.begin(e.repoPath, e.signals);
     }
   }
 
@@ -311,7 +311,7 @@ export class DistillerService {
     const { added, updated, deleted } = this.applyProposals(f.repoPath, raw);
     const flagged = this.applyIneffective(f, raw);
     const reaffirmed = this.applyReaffirm(f, raw);
-    this.deps.herdr.stop(f.terminalId);
+    void this.deps.herdr.stop(f.terminalId).catch(() => {});
     this.deps.scratch.remove(f.dir);
     if (raw !== null) {
       this.recordHealthSuccess();

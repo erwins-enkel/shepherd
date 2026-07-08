@@ -32,11 +32,11 @@ function makeDeps(over: Partial<import("../src/prompt-recommend").RecommendDeps>
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_r", cwd } as any;
       },
-      stop: () => {
+      stop: async () => {
         calls.stopped = true;
       },
     },
@@ -143,10 +143,10 @@ test("recommendPrompt: spawn throw → spawn-failed, temp dir cleaned", async ()
   const calls: any = { cleaned: false };
   const deps: any = {
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("herdr down");
       },
-      stop: () => {},
+      stop: async () => {},
     },
     makeTmpDir: () => "/tmp/shepherd-recommend-xyz",
     cleanup: () => {

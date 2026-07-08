@@ -14,6 +14,13 @@ afterEach(() => {
   else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
 });
 
+/** Build a HerdrDriver whose sync AND async runners share ONE fake. The write surface
+ *  (start/stop/relabel/closeTab, issue #1553) now runs on the async runner while reads
+ *  (list/tabs/panes) stay on the sync one, so a write test must wire both from its fake. */
+function mkDriver(fake: (args: string[]) => string): HerdrDriver {
+  return new HerdrDriver(fake, async (args) => fake(args));
+}
+
 const FIXTURE = JSON.stringify({
   result: {
     type: "agent_list",
@@ -41,8 +48,8 @@ const FIXTURE = JSON.stringify({
   },
 });
 
-test("list parses herdr json into typed agents", () => {
-  const d = new HerdrDriver(() => FIXTURE);
+test("list parses herdr json into typed agents", async () => {
+  const d = mkDriver(() => FIXTURE);
   const a = d.list();
   expect(a.length).toBe(2);
   expect(a[0]).toMatchObject({ terminalId: "term_a", agentStatus: "working", cwd: "/wt/a" });
@@ -56,8 +63,8 @@ const TAB_CREATE = JSON.stringify({
   },
 });
 
-test("list surfaces the agent name (empty when herdr omits it)", () => {
-  const d = new HerdrDriver(() => FIXTURE);
+test("list surfaces the agent name (empty when herdr omits it)", async () => {
+  const d = mkDriver(() => FIXTURE);
   const a = d.list();
   expect(a[0]!.name).toBe("flatten");
   expect(a[1]!.name).toBe(""); // second fixture agent has no name field
@@ -79,13 +86,17 @@ function reply(args: string[], workspaceList: string): string {
   return FIXTURE;
 }
 
-test("start gives each agent its own full-width tab, not a shared split pane", () => {
+test("start gives each agent its own full-width tab, not a shared split pane", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  const agent = d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
+  const agent = await d.start("flatten", "/wt/a", [
+    "claude",
+    "--dangerously-skip-permissions",
+    "go",
+  ]);
   expect(agent.terminalId).toBe("term_a");
   // 0) a workspace already exists, so we only check for one — no create
   expect(calls[0]).toEqual(["workspace", "list"]);
@@ -115,13 +126,13 @@ test("start gives each agent its own full-width tab, not a shared split pane", (
   expect(calls[3]).toEqual(["pane", "close", "p_root"]);
 });
 
-test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tmpfs, #560)", () => {
+test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tmpfs, #560)", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
+  await d.start("flatten", "/wt/a", ["claude", "--dangerously-skip-permissions", "go"]);
   const startCall = calls.find((c) => c[0] === "agent" && c[1] === "start")!;
   const post = startCall.slice(startCall.indexOf("--") + 1);
   // env shim is the first four post-`--` tokens (env + two pinned vars), and claude is
@@ -134,28 +145,28 @@ test("start wraps the agent argv in an `env NODE_COMPILE_CACHE=…` shim (off tm
   ]);
 });
 
-test("start pins the classic renderer (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1) for every spawn", () => {
+test("start pins the classic renderer (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1) for every spawn", async () => {
   // Claude Code's fullscreen renderer draws on the alternate screen buffer and captures the
   // mouse; Shepherd's poller/blocked scraping + xterm web terminal assume the classic
   // renderer. The pin forces classic regardless of the operator's persisted `tui` setting or
   // ambient CLAUDE_CODE_NO_FLICKER, so it must be present on EVERY spawned claude.
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x" });
+  await d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x" });
   const post = extractPost(calls);
   expect(post).toContain("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1");
 });
 
-test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restarted daemon)", () => {
+test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restarted daemon)", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST_EMPTY);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"]);
+  await d.start("flatten", "/wt/a", ["claude", "go"]);
   // with no active workspace, `tab create` would 500 — so we create one first
   expect(calls[0]).toEqual(["workspace", "list"]);
   expect(calls[1]).toEqual([
@@ -171,33 +182,33 @@ test("start bootstraps a 'shepherd' workspace when herdr has none (fresh/restart
   expect(calls[2]).toEqual(["tab", "create", "--cwd", "/wt/a", "--label", "flatten", "--no-focus"]);
 });
 
-test("stop closes the WHOLE tab backing a terminal id (not just its pane)", () => {
+test("stop closes the WHOLE tab backing a terminal id (not just its pane)", async () => {
   // Closing only the pane left an empty husk tab behind — every agent gets its own
   // dedicated tab, so a pane-close leaks the tab. Close the tab to take both down.
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return FIXTURE;
   });
-  d.stop("term_a");
+  await d.stop("term_a");
   expect(calls.at(-1)).toEqual(["tab", "close", "t1"]);
 });
 
-test("stop is a no-op for an unknown terminal id", () => {
-  const d = new HerdrDriver(() => FIXTURE);
-  expect(() => d.stop("term_missing")).not.toThrow();
+test("stop is a no-op for an unknown terminal id", async () => {
+  const d = mkDriver(() => FIXTURE);
+  await expect(d.stop("term_missing")).resolves.toBeUndefined();
 });
 
-test("start rolls back its orphan tab when agent start fails", () => {
+test("start rolls back its orphan tab when agent start fails", async () => {
   // tab create succeeds, then `agent start` throws — without rollback the freshly
   // created tab lingers forever with no claude in it ("didn't even launch claude").
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     if (args[0] === "agent" && args[1] === "start") throw new Error("herdr: agent start failed");
     return reply(args, WORKSPACE_LIST);
   });
-  expect(() => d.start("flatten", "/wt/a", ["claude", "go"])).toThrow();
+  await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow();
   expect(calls).toContainEqual(["tab", "close", "t_new"]);
 });
 
@@ -212,7 +223,7 @@ const TAB_LIST = JSON.stringify({
   },
 });
 
-test("tabs parses herdr tab-list json into typed tabs", () => {
+test("tabs parses herdr tab-list json into typed tabs", async () => {
   const d = new HerdrDriver((args) =>
     args[0] === "tab" && args[1] === "list" ? TAB_LIST : FIXTURE,
   );
@@ -221,14 +232,14 @@ test("tabs parses herdr tab-list json into typed tabs", () => {
   expect(t[0]).toMatchObject({ tabId: "w:1", label: "usage-probe", agentStatus: "unknown" });
 });
 
-test("closeTab is best-effort: swallows a runner error", () => {
-  const d = new HerdrDriver(() => {
+test("closeTab is best-effort: swallows a runner error", async () => {
+  const d = mkDriver(() => {
     throw new Error("boom");
   });
-  expect(() => d.closeTab("w:9")).not.toThrow();
+  await expect(d.closeTab("w:9")).resolves.toBeUndefined();
 });
 
-test("relabel: renames the agent and its tab via the looked-up tabId", () => {
+test("relabel: renames the agent and its tab via the looked-up tabId", async () => {
   const calls: string[][] = [];
   const runner = (args: string[]) => {
     calls.push(args);
@@ -239,20 +250,20 @@ test("relabel: renames the agent and its tab via the looked-up tabId", () => {
     }
     return "{}";
   };
-  const h = new HerdrDriver(runner);
-  h.relabel("term_1", "fresh-name");
+  const h = mkDriver(runner);
+  await h.relabel("term_1", "fresh-name");
   expect(calls).toContainEqual(["agent", "rename", "term_1", "fresh-name"]);
   expect(calls).toContainEqual(["tab", "rename", "tab_9", "fresh-name"]);
 });
 
-test("relabel: no-op (no throw) when the agent is gone", () => {
+test("relabel: no-op (no throw) when the agent is gone", async () => {
   const runner = (args: string[]) =>
     args[0] === "agent" && args[1] === "list" ? JSON.stringify({ result: { agents: [] } }) : "{}";
-  const h = new HerdrDriver(runner);
-  expect(() => h.relabel("term_gone", "fresh-name")).not.toThrow();
+  const h = mkDriver(runner);
+  await expect(h.relabel("term_gone", "fresh-name")).resolves.toBeUndefined();
 });
 
-test("mapState maps herdr states to shepherd status", () => {
+test("mapState maps herdr states to shepherd status", async () => {
   expect(mapState("working")).toBe("running");
   expect(mapState("blocked")).toBe("blocked");
   expect(mapState("done")).toBe("done");
@@ -275,33 +286,33 @@ const mkAgent = (over: Partial<HerdrAgent>) =>
 
 const sess = { herdrAgentId: "term_old", worktreePath: "/wt/a", name: "alpha" };
 
-test("matchAgent: terminalId fast path wins even if cwd differs", () => {
+test("matchAgent: terminalId fast path wins even if cwd differs", async () => {
   const a = mkAgent({ terminalId: "term_old", cwd: "/elsewhere" });
   expect(matchAgent(sess, [a, mkAgent({ terminalId: "term_x" })])).toBe(a);
 });
 
-test("matchAgent: falls back to a single cwd match and ignores the stale id", () => {
+test("matchAgent: falls back to a single cwd match and ignores the stale id", async () => {
   const a = mkAgent({ terminalId: "term_new", cwd: "/wt/a" });
   expect(matchAgent(sess, [a])).toBe(a);
 });
 
-test("matchAgent: cwd shared by 2+ agents → disambiguate by name", () => {
+test("matchAgent: cwd shared by 2+ agents → disambiguate by name", async () => {
   const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
   const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "beta" });
   expect(matchAgent(sess, [a, b])).toBe(a);
 });
 
-test("matchAgent: cwd ambiguous AND name ambiguous → null", () => {
+test("matchAgent: cwd ambiguous AND name ambiguous → null", async () => {
   const a = mkAgent({ terminalId: "t1", cwd: "/wt/a", name: "alpha" });
   const b = mkAgent({ terminalId: "t2", cwd: "/wt/a", name: "alpha" });
   expect(matchAgent(sess, [a, b])).toBeNull();
 });
 
-test("matchAgent: no terminalId and no cwd match → null", () => {
+test("matchAgent: no terminalId and no cwd match → null", async () => {
   expect(matchAgent(sess, [mkAgent({ terminalId: "t9", cwd: "/other" })])).toBeNull();
 });
 
-test("matchAgents: a dead session cannot steal a live sibling's exact-id agent at the same cwd", () => {
+test("matchAgents: a dead session cannot steal a live sibling's exact-id agent at the same cwd", async () => {
   const live = { id: "L", herdrAgentId: "term_live", worktreePath: "/wt", name: "x" };
   const dead = { id: "D", herdrAgentId: "term_dead", worktreePath: "/wt", name: "x" };
   const agents = [mkAgent({ terminalId: "term_live", cwd: "/wt", name: "x" })];
@@ -310,7 +321,7 @@ test("matchAgents: a dead session cannot steal a live sibling's exact-id agent a
   expect(m.get("D")).toBeNull();
 });
 
-test("matchAgents: each live agent is adopted by at most one session", () => {
+test("matchAgents: each live agent is adopted by at most one session", async () => {
   const a = { id: "A", herdrAgentId: "stale_a", worktreePath: "/wt", name: "alpha" };
   const b = { id: "B", herdrAgentId: "stale_b", worktreePath: "/wt", name: "beta" };
   const agents = [
@@ -322,13 +333,13 @@ test("matchAgents: each live agent is adopted by at most one session", () => {
   expect(m.get("B")?.terminalId).toBe("fresh_b");
 });
 
-test("matchAgents: stale terminalId adopts the fresh agent at the same cwd", () => {
+test("matchAgents: stale terminalId adopts the fresh agent at the same cwd", async () => {
   const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/z", name: "x" };
   const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/z", name: "x" })]);
   expect(m.get("S")?.terminalId).toBe("fresh");
 });
 
-test("matchAgents: across a herdr restart (all ids stale), a dead session can't steal the live one's agent by shared cwd", () => {
+test("matchAgents: across a herdr restart (all ids stale), a dead session can't steal the live one's agent by shared cwd", async () => {
   // Two non-isolated sessions at the same repo cwd; herdr reassigned every terminalId.
   const dead = { id: "D", herdrAgentId: "old_d", worktreePath: "/repo", name: "dead-task" };
   const live = { id: "L", herdrAgentId: "old_l", worktreePath: "/repo", name: "live-task" };
@@ -338,7 +349,7 @@ test("matchAgents: across a herdr restart (all ids stale), a dead session can't 
   expect(m.get("D")).toBeNull();
 });
 
-test("matchAgents: a sole session at its cwd re-pairs even when its name drifted from the agent", () => {
+test("matchAgents: a sole session at its cwd re-pairs even when its name drifted from the agent", async () => {
   // isolated session, unique cwd, herdr agent name no longer matches (relabel had failed).
   const s = { id: "S", herdrAgentId: "stale", worktreePath: "/wt/uniq", name: "new-name" };
   const m = matchAgents([s], [mkAgent({ terminalId: "fresh", cwd: "/wt/uniq", name: "old-name" })]);
@@ -348,7 +359,7 @@ test("matchAgents: a sole session at its cwd re-pairs even when its name drifted
 import { maintenance } from "../src/maintenance";
 import { HerdrUnavailableError, makeHerdrRunner, isNameTakenError } from "../src/herdr";
 
-test("runner throws fast (no spawn) while maintenance is active", () => {
+test("runner throws fast (no spawn) while maintenance is active", async () => {
   let spawned = 0;
   const runner = makeHerdrRunner(() => {
     spawned++;
@@ -363,7 +374,7 @@ test("runner throws fast (no spawn) while maintenance is active", () => {
   }
 });
 
-test("runner delegates to exec when maintenance is inactive", () => {
+test("runner delegates to exec when maintenance is inactive", async () => {
   const runner = makeHerdrRunner(() => "ok");
   expect(runner(["agent", "list"])).toBe("ok");
 });
@@ -426,13 +437,13 @@ function extractPost(calls: string[][]): string[] {
   return startCall.slice(startCall.indexOf("--") + 1);
 }
 
-test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE=…, claude, …]", () => {
+test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE=…, claude, …]", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"]);
+  await d.start("flatten", "/wt/a", ["claude", "go"]);
   const post = extractPost(calls);
   expect(post).toEqual([
     "env",
@@ -443,13 +454,13 @@ test("start with no env arg: wrapped portion is exactly [env, NODE_COMPILE_CACHE
   ]);
 });
 
-test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by key, before argv", () => {
+test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by key, before argv", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x", FOO: "bar" });
+  await d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CONFIG_DIR: "/x", FOO: "bar" });
   const post = extractPost(calls);
   // Keys sorted: CLAUDE_CONFIG_DIR < FOO; both pinned vars precede caller-supplied env
   expect(post).toEqual([
@@ -463,13 +474,13 @@ test("start with env arg: extra vars appear after NODE_COMPILE_CACHE, sorted by 
   ]);
 });
 
-test("start with empty env {}: wrapped is identical to no-env case", () => {
+test("start with empty env {}: wrapped is identical to no-env case", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"], {});
+  await d.start("flatten", "/wt/a", ["claude", "go"], {});
   const post = extractPost(calls);
   expect(post).toEqual([
     "env",
@@ -480,25 +491,27 @@ test("start with empty env {}: wrapped is identical to no-env case", () => {
   ]);
 });
 
-test("start with CLAUDE_CODE_NO_FLICKER env: pin omitted, NO_FLICKER present in wrapped", () => {
+test("start with CLAUDE_CODE_NO_FLICKER env: pin omitted, NO_FLICKER present in wrapped", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CODE_NO_FLICKER: "1" });
+  await d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CODE_NO_FLICKER: "1" });
   const post = extractPost(calls);
   expect(post).not.toContain("CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1");
   expect(post).toContain("CLAUDE_CODE_NO_FLICKER=1");
 });
 
-test("start with CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN env: pin appears exactly once (no duplicate)", () => {
+test("start with CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN env: pin appears exactly once (no duplicate)", async () => {
   const calls: string[][] = [];
-  const d = new HerdrDriver((args) => {
+  const d = mkDriver((args) => {
     calls.push(args);
     return reply(args, WORKSPACE_LIST);
   });
-  d.start("flatten", "/wt/a", ["claude", "go"], { CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1" });
+  await d.start("flatten", "/wt/a", ["claude", "go"], {
+    CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN: "1",
+  });
   const post = extractPost(calls);
   expect(post.filter((t) => t === "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1").length).toBe(1);
 });
@@ -550,7 +563,7 @@ const PANE_LIST_MISSING_FIELDS = JSON.stringify({
   },
 });
 
-test("panes() parses multi-pane reply into HerdrPane[] with correct field mapping", () => {
+test("panes() parses multi-pane reply into HerdrPane[] with correct field mapping", async () => {
   const d = new HerdrDriver((args) =>
     args[0] === "pane" && args[1] === "list" ? PANE_LIST : FIXTURE,
   );
@@ -572,7 +585,7 @@ test("panes() parses multi-pane reply into HerdrPane[] with correct field mappin
   });
 });
 
-test("panes() applies defensive defaults when optional fields are absent", () => {
+test("panes() applies defensive defaults when optional fields are absent", async () => {
   const d = new HerdrDriver((args) =>
     args[0] === "pane" && args[1] === "list" ? PANE_LIST_MISSING_FIELDS : FIXTURE,
   );
@@ -587,7 +600,7 @@ test("panes() applies defensive defaults when optional fields are absent", () =>
   });
 });
 
-test("panes() returns [] when result.panes is absent", () => {
+test("panes() returns [] when result.panes is absent", async () => {
   const d = new HerdrDriver((args) =>
     args[0] === "pane" && args[1] === "list" ? JSON.stringify({ result: {} }) : FIXTURE,
   );
@@ -680,35 +693,35 @@ test("paneForegroundProcs() propagates a thrown runner error (does not swallow)"
 const NAME_TAKEN_JSON =
   '{"error":{"code":"agent_name_taken","message":"agent name review TASK-504 is already used; candidates: terminal_id=t1 tab_id=tab_9 status=Unknown"},"id":"cli:agent:start"}';
 
-test("isNameTakenError: true when agent_name_taken appears on .stderr", () => {
+test("isNameTakenError: true when agent_name_taken appears on .stderr", async () => {
   const err = Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
   expect(isNameTakenError(err)).toBe(true);
 });
 
-test("isNameTakenError: true when agent_name_taken appears on .message", () => {
+test("isNameTakenError: true when agent_name_taken appears on .message", async () => {
   const err = new Error(NAME_TAKEN_JSON);
   expect(isNameTakenError(err)).toBe(true);
 });
 
-test("isNameTakenError: true when agent_name_taken appears on .stdout", () => {
+test("isNameTakenError: true when agent_name_taken appears on .stdout", async () => {
   const err = Object.assign(new Error("herdr CLI error"), { stdout: NAME_TAKEN_JSON });
   expect(isNameTakenError(err)).toBe(true);
 });
 
-test("isNameTakenError: false for an unrelated error", () => {
+test("isNameTakenError: false for an unrelated error", async () => {
   const err = new Error("herdr: some other failure");
   expect(isNameTakenError(err)).toBe(false);
 });
 
-test("isNameTakenError: false for undefined", () => {
+test("isNameTakenError: false for undefined", async () => {
   expect(isNameTakenError(undefined)).toBe(false);
 });
 
-test("isNameTakenError: false for null", () => {
+test("isNameTakenError: false for null", async () => {
   expect(isNameTakenError(null)).toBe(false);
 });
 
-test("isNameTakenError: false for plain string without marker", () => {
+test("isNameTakenError: false for plain string without marker", async () => {
   expect(isNameTakenError("something went wrong")).toBe(false);
 });
 
@@ -756,7 +769,7 @@ function makeNameTakenError(): Error {
   return Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
 }
 
-test("start: single collision then success — squatter tab closed, agent returned", () => {
+test("start: single collision then success — squatter tab closed, agent returned", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
   // list() returns squatter on first call (during eviction), then the fresh agent
@@ -781,8 +794,8 @@ test("start: single collision then success — squatter tab closed, agent return
     return "{}";
   };
 
-  const d = new HerdrDriver(runner);
-  const agent = d.start("review TASK-504", "/wt/a", ["claude", "go"]);
+  const d = mkDriver(runner);
+  const agent = await d.start("review TASK-504", "/wt/a", ["claude", "go"]);
 
   // squatter's tab was closed
   expect(calls).toContainEqual(["tab", "close", "tab_squatter"]);
@@ -792,7 +805,7 @@ test("start: single collision then success — squatter tab closed, agent return
   expect(agent.terminalId).toBe("term_started");
 });
 
-test("start: two collisions then success — bounded retry recovers, squatter evicted each time", () => {
+test("start: two collisions then success — bounded retry recovers, squatter evicted each time", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
   let listCallCount = 0;
@@ -816,8 +829,8 @@ test("start: two collisions then success — bounded retry recovers, squatter ev
     return "{}";
   };
 
-  const d = new HerdrDriver(runner);
-  const agent = d.start("review TASK-504", "/wt/a", ["claude", "go"]);
+  const d = mkDriver(runner);
+  const agent = await d.start("review TASK-504", "/wt/a", ["claude", "go"]);
 
   expect(agentStartAttempts).toBe(3);
   expect(agent.terminalId).toBe("term_started");
@@ -828,7 +841,7 @@ test("start: two collisions then success — bounded retry recovers, squatter ev
   expect(closeCalls.every((c) => c[2] !== "t_new")).toBe(true);
 });
 
-test("start: persistent collision exhausts 3 attempts — created tab rolled back, throws", () => {
+test("start: persistent collision exhausts 3 attempts — created tab rolled back, throws", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
 
@@ -845,8 +858,8 @@ test("start: persistent collision exhausts 3 attempts — created tab rolled bac
     return "{}";
   };
 
-  const d = new HerdrDriver(runner);
-  expect(() => d.start("review TASK-504", "/wt/a", ["claude", "go"])).toThrow();
+  const d = mkDriver(runner);
+  await expect(d.start("review TASK-504", "/wt/a", ["claude", "go"])).rejects.toThrow();
 
   // 3 total attempts exhausted
   expect(agentStartAttempts).toBe(3);
@@ -854,7 +867,7 @@ test("start: persistent collision exhausts 3 attempts — created tab rolled bac
   expect(calls).toContainEqual(["tab", "close", "t_new"]);
 });
 
-test("start: non-name-taken error — no retry, immediate rollback", () => {
+test("start: non-name-taken error — no retry, immediate rollback", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
 
@@ -870,8 +883,10 @@ test("start: non-name-taken error — no retry, immediate rollback", () => {
     return "{}";
   };
 
-  const d = new HerdrDriver(runner);
-  expect(() => d.start("review TASK-504", "/wt/a", ["claude", "go"])).toThrow("herdr: disk full");
+  const d = mkDriver(runner);
+  await expect(d.start("review TASK-504", "/wt/a", ["claude", "go"])).rejects.toThrow(
+    "herdr: disk full",
+  );
 
   // only one attempt — no retry for non-name-taken errors
   expect(agentStartAttempts).toBe(1);

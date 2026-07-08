@@ -25,7 +25,7 @@ function makeDeps(ghRunner?: GhRunner): AppDeps {
       remove: () => {},
     } as any,
     herdr: {
-      start: () => ({
+      start: async () => ({
         terminalId: "term_x",
         cwd: "/wt",
         agent: "claude",
@@ -35,7 +35,7 @@ function makeDeps(ghRunner?: GhRunner): AppDeps {
         workspaceId: "w",
       }),
       list: () => [],
-      stop: () => {},
+      stop: async () => {},
       send: () => {},
     } as any,
     events,

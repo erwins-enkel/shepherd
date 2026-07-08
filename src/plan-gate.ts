@@ -355,11 +355,13 @@ export class PlanGateService {
     }
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(
-        `plan-review ${session.desig}`,
-        wt.worktreePath,
-        aux.wrapped,
-        aux.spawnEnv,
+      terminalId = (
+        await this.deps.herdr.start(
+          `plan-review ${session.desig}`,
+          wt.worktreePath,
+          aux.wrapped,
+          aux.spawnEnv,
+        )
       ).terminalId;
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);
@@ -522,7 +524,7 @@ export class PlanGateService {
       }
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
-      this.deps.herdr.stop(f.terminalId);
+      await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
     }
   }
@@ -717,7 +719,7 @@ export class PlanGateService {
     this.starting.delete(sessionId);
     const f = this.inflight.get(sessionId);
     if (f) {
-      this.deps.herdr.stop(f.terminalId);
+      void this.deps.herdr.stop(f.terminalId).catch(() => {});
       this.deps.worktree.remove(f.worktreePath);
       this.inflight.delete(sessionId);
       this.deps.onReviewing?.(sessionId, false);

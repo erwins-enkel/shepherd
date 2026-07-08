@@ -143,11 +143,8 @@ export async function verifyApiKey(deps: VerifyKeyDeps): Promise<VerifyKeyResult
   try {
     cwd = makeTmpDir();
     try {
-      terminalId = deps.herdr.start(
-        "verify api key",
-        cwd,
-        verifyArgv(),
-        apiKeyPassthroughEnv(false),
+      terminalId = (
+        await deps.herdr.start("verify api key", cwd, verifyArgv(), apiKeyPassthroughEnv(false))
       ).terminalId;
     } catch {
       return { ok: false, reason: "spawn-failed" };
@@ -178,7 +175,7 @@ export async function verifyApiKey(deps: VerifyKeyDeps): Promise<VerifyKeyResult
   } finally {
     if (terminalId) {
       try {
-        deps.herdr.stop(terminalId);
+        await deps.herdr.stop(terminalId);
       } catch {
         /* best-effort */
       }

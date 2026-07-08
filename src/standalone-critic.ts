@@ -441,11 +441,13 @@ export class StandalonePrCriticService {
 
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(
-        `pr-critic ${repoPath}#${pr.number}`,
-        worktreePath,
-        aux.wrapped,
-        aux.spawnEnv,
+      terminalId = (
+        await this.deps.herdr.start(
+          `pr-critic ${repoPath}#${pr.number}`,
+          worktreePath,
+          aux.wrapped,
+          aux.spawnEnv,
+        )
       ).terminalId;
     } catch (err) {
       this.log(`[pr-critic] spawn failed for ${repoPath}#${pr.number}: ${String(err)}`);
@@ -607,7 +609,7 @@ export class StandalonePrCriticService {
         `pr:${f.repoPath}#${f.prNumber}`,
       );
     } finally {
-      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+      await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
   }
 
@@ -633,13 +635,17 @@ export class StandalonePrCriticService {
     const ownedTerms = new Set(
       [...this.inFlight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    reapTransientByLabel(this.deps.herdr, "pr-critic ", ownedTerms, "[pr-critic]");
+    void reapTransientByLabel(this.deps.herdr, "pr-critic ", ownedTerms, "[pr-critic]");
   }
 
-  /** Tear down every in-flight run (reap its terminal + worktree). For process shutdown. */
+  /** Tear down every in-flight run (reap its terminal + worktree). For process shutdown —
+   *  stays SYNC (a process `exit` handler can't await). The important teardown is the
+   *  synchronous worktree removal; the herdr tab is stopped best-effort fire-and-forget
+   *  (it dies with the parent on exit anyway). Mirrors `reapRun`'s ordering. */
   stopAll(): void {
     for (const f of this.inFlight.values()) {
-      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+      void this.deps.herdr.stop(f.terminalId).catch(() => {});
+      this.deps.worktree.remove(f.worktreePath);
     }
     this.inFlight.clear();
     this.starting.clear();

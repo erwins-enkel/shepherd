@@ -398,12 +398,12 @@ function mkHarness(opts?: {
         } as any);
 
   const herdr = {
-    start: (name: string, cwd: string, wrapped?: string[]) => {
+    start: async (name: string, cwd: string, wrapped?: string[]) => {
       starts.push({ name, cwd });
       startArgs.push({ name, cwd, argv: wrapped ?? [] });
       return { terminalId: "term-" + starts.length } as any;
     },
-    stop: (terminalId: string) => {
+    stop: async (terminalId: string) => {
       stoppedTerminals.push(terminalId);
     },
     list: () =>
@@ -416,7 +416,7 @@ function mkHarness(opts?: {
             terminalId: a.terminalId ?? "",
           }) as any,
       ),
-    closeTab: (tabId: string) => {
+    closeTab: async (tabId: string) => {
       closedTabs.push(tabId);
     },
   };

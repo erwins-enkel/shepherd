@@ -29,8 +29,8 @@ function makeService(hooks: { fn: Hooks }) {
     herdr: {
       // Unique terminalId per call — needed so an unhealed re-drive's fresh pane (and thus
       // fresh live terminalId) is distinguishable from the prior husk/anchor.
-      start: () => ({ terminalId: `term_${++startCount}` }) as never,
-      stop: () => {},
+      start: async () => ({ terminalId: `term_${++startCount}` }) as never,
+      stop: async () => {},
       list: () => [],
     } as never,
   });

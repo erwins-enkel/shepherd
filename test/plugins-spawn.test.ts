@@ -27,12 +27,12 @@ function makeService(hooks: { fn: Hooks }) {
       remove: (p: string) => removed.push(p),
     } as never,
     herdr: {
-      start: (_name: string, _cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (_name: string, _cwd: string, argv: string[], env?: Record<string, string>) => {
         captured.argv = argv;
         captured.env = env;
         return { terminalId: "term_z" } as never;
       },
-      stop: (id: string) => stopped.push(id),
+      stop: async (id: string) => stopped.push(id),
       list: () => [],
     } as never,
   });
@@ -129,7 +129,7 @@ test("no runSpawnHooks dep → spawn proceeds unchanged (no-op invariant)", asyn
       remove: () => {},
     } as never,
     herdr: {
-      start: () => {
+      start: async () => {
         started = true;
         return { terminalId: "term_z" } as never;
       },

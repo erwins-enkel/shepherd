@@ -202,7 +202,7 @@ export class HerdDigestService {
     const existing = this.deps.store.getHerdDigest(dayKey);
     if (!existing || existing.state !== "generating") return;
     try {
-      this.deps.herdr.stop(this.resolveTerminal(existing.cwd));
+      void this.deps.herdr.stop(this.resolveTerminal(existing.cwd)).catch(() => {});
     } catch {
       /* best-effort */
     }
@@ -344,7 +344,7 @@ export class HerdDigestService {
 
       const cwd = this._makeTmpDir();
       try {
-        this.deps.herdr.start("rundown", cwd, argv, apiKeyPassthroughEnv(false));
+        await this.deps.herdr.start("rundown", cwd, argv, apiKeyPassthroughEnv(false));
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so a later sweep can retry
@@ -505,7 +505,7 @@ export class HerdDigestService {
     } finally {
       // Always reap pane + tmpdir.
       try {
-        this.deps.herdr.stop(this.resolveTerminal(d.cwd));
+        await this.deps.herdr.stop(this.resolveTerminal(d.cwd));
       } catch {
         /* best-effort */
       }

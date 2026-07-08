@@ -67,11 +67,11 @@ function mkDeps(
     deps: {
       store,
       herdr: {
-        start: () => {
+        start: async () => {
           cap.starts++;
           return { terminalId: `opt${cap.starts}` };
         },
-        stop: () => cap.stops++,
+        stop: async () => cap.stops++,
       } as any,
       scratch: {
         create: () => ({ dir: `/scratch/${cap.starts}` }),
@@ -103,7 +103,7 @@ test("applies revisions + clears flag; onChange fires", async () => {
     },
   );
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   await svc.tick();
   const l = store.getLearning(id)!;
   expect(l.rule).toBe("new stronger rule");
@@ -130,7 +130,7 @@ test("optimizeOne scopes input + applied revisions to a single id", async () => 
     { writeInput: (_d, t) => (capturedTargets = t) },
   );
   const svc = new OptimizerService(deps as any);
-  svc.optimizeOne(a);
+  await svc.optimizeOne(a);
   await svc.tick();
   expect(store.getLearning(a)!.rule).toBe("A revised");
   expect(store.getLearning(b)!.rule).toBe("rule B"); // untouched
@@ -146,7 +146,7 @@ test("id-guard: a revision for an id not in the target set is ignored", async ()
     revisions: [{ id: "ghost-id", rule: "injected" }],
   });
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   await svc.tick();
   expect(store.getLearning(a)!.rule).toBe("rule A"); // untouched
   expect(store.getLearning(a)!.ineffectiveCount).toBe(1); // still flagged
@@ -159,7 +159,7 @@ test("promoted rule revised → resyncPromoted called once with repo", async () 
   const promoter = fakePromoter();
   const { deps } = mkDeps(store, { revisions: [{ id, rule: "promoted revised" }] }, { promoter });
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   await svc.tick();
   await Promise.resolve(); // let the fire-and-forget resync settle
   expect(promoter.calls).toEqual(["/r"]);
@@ -172,7 +172,7 @@ test("only an active rule revised → resyncPromoted NOT called", async () => {
   const promoter = fakePromoter();
   const { deps } = mkDeps(store, { revisions: [{ id, rule: "active revised" }] }, { promoter });
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   await svc.tick();
   await Promise.resolve();
   expect(promoter.calls).toEqual([]);
@@ -189,7 +189,7 @@ test("timeout/no-output → health failure, scratch removed, herdr stopped", asy
   // 3 timeout failures to trip the health threshold.
   for (let i = 0; i < 3; i++) {
     flag(store, "/r", id); // re-flag (reviseLearning never ran; but keep it flagged anyway)
-    svc.optimizeOne(id);
+    await svc.optimizeOne(id);
     t += 6_000;
     await svc.tick();
   }
@@ -207,8 +207,8 @@ test("one run per repo: a second optimizeAllFlagged is a no-op while the first i
   flag(store, "/r", id);
   const { deps, cap } = mkDeps(store, null); // readOutput null → run stays inflight
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   expect(cap.starts).toBe(1);
 });
 
@@ -218,22 +218,22 @@ test("empty/blank rule revision is rejected", async () => {
   flag(store, "/r", id);
   const { deps } = mkDeps(store, { revisions: [{ id, rule: "   " }] });
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   await svc.tick();
   expect(store.getLearning(id)!.rule).toBe("keep me"); // not applied
   expect(store.getLearning(id)!.ineffectiveCount).toBe(1); // still flagged
 });
 
-test("nothing flagged → no spawn", () => {
+test("nothing flagged → no spawn", async () => {
   const store = new SessionStore(":memory:");
   seedActiveRule(store, "/r", "rule"); // active but NOT flagged
   const { deps, cap } = mkDeps(store, { revisions: [] });
   const svc = new OptimizerService(deps as any);
-  svc.optimizeAllFlagged("/r");
+  await svc.optimizeAllFlagged("/r");
   expect(cap.starts).toBe(0);
 });
 
-test("spawn argv follows the safe contract + unique __optimize__ name", () => {
+test("spawn argv follows the safe contract + unique __optimize__ name", async () => {
   const store = new SessionStore(":memory:");
   const id = seedActiveRule(store, "/r", "rule");
   flag(store, "/r", id);
@@ -243,12 +243,12 @@ test("spawn argv follows the safe contract + unique __optimize__ name", () => {
   const deps = {
     store,
     herdr: {
-      start: (n: string, _cwd: string, a: string[]) => {
+      start: async (n: string, _cwd: string, a: string[]) => {
         name = n;
         argv = a;
         return { terminalId: "o1" };
       },
-      stop: () => {},
+      stop: async () => {},
     } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     promoter,
@@ -275,7 +275,7 @@ test("spawn argv follows the safe contract + unique __optimize__ name", () => {
 
 // ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
 
-test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + inflight-owned", () => {
+test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + inflight-owned", async () => {
   const store = new SessionStore(":memory:");
   const id = seedActiveRule(store, "/r", "old rule");
   flag(store, "/r", id);
@@ -288,10 +288,10 @@ test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + infligh
   const svc = new OptimizerService({
     store,
     herdr: {
-      start: () => ({ terminalId: "live1" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "live1" }),
+      stop: async () => {},
       list: () => listed,
-      closeTab: (t: string) => closed.push(t),
+      closeTab: async (t: string) => closed.push(t),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     promoter: fakePromoter(),
@@ -300,23 +300,23 @@ test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + infligh
     writeInput: () => {},
     readOutput: () => null, // run stays in flight (not finalized)
   } as never);
-  svc.optimizeOne(id); // in-flight run owns terminalId "live1"
+  await svc.optimizeOne(id); // in-flight run owns terminalId "live1"
   svc.reapOrphans();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 
-test("reapOrphans is a no-op when herdr is unavailable (optimizer)", () => {
+test("reapOrphans is a no-op when herdr is unavailable (optimizer)", async () => {
   const store = new SessionStore(":memory:");
   let closes = 0;
   const svc = new OptimizerService({
     store,
     herdr: {
-      start: () => ({ terminalId: "t" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "t" }),
+      stop: async () => {},
       list: () => {
         throw new HerdrUnavailableError();
       },
-      closeTab: () => {
+      closeTab: async () => {
         closes++;
       },
     },

@@ -1609,9 +1609,9 @@ function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps):
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  if (parts[2] === "distill") deps.distiller?.distillNow(dir);
-  else if (parts[2] === "optimize") deps.optimizer?.optimizeAllFlagged(dir);
-  else if (parts[2] === "merge-suggest") deps.mergeSuggest?.mergeNow(dir);
+  if (parts[2] === "distill") void deps.distiller?.distillNow(dir);
+  else if (parts[2] === "optimize") void deps.optimizer?.optimizeAllFlagged(dir);
+  else if (parts[2] === "merge-suggest") void deps.mergeSuggest?.mergeNow(dir);
   else if (parts[2] === "seen-retired") {
     deps.store.markRetiredSeen(dir, Date.now());
   }
@@ -1711,7 +1711,7 @@ async function handleLearningIdAction(ctx: Ctx): Promise<Response | null> {
 
   // POST /api/learnings/:id/optimize — optimize a single flagged rule
   if (parts[3] === "optimize") {
-    deps.optimizer?.optimizeOne(parts[2]);
+    void deps.optimizer?.optimizeOne(parts[2]);
     return json({ ok: true });
   }
 

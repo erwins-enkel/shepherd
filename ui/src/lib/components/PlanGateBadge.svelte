@@ -14,7 +14,7 @@
   import { toasts } from "$lib/toasts.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
-  // execution. The dense session-list surfaces (UnitRow/UnitTile) pass false so this chip
+  // execution. The dense session-list surface (UnitRow) passes false so this chip
   // lives only in the per-session top bar (issue #809); see plan-gate-badge.ts.
   let {
     session,

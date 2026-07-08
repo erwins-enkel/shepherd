@@ -20,15 +20,11 @@
   let {
     onnew,
     onbacklog,
-    mode = "focus",
-    onmode,
     mobile = false,
     desktopOnly = false,
   }: {
     onnew: () => void;
     onbacklog?: () => void;
-    mode?: "focus" | "all";
-    onmode?: (m: "focus" | "all") => void;
     mobile?: boolean;
     desktopOnly?: boolean;
   } = $props();
@@ -55,20 +51,6 @@
       >
     {/if}
     {#if !mobile}
-      <button
-        class="btn"
-        class:active={mode === "all"}
-        aria-pressed={mode === "all"}
-        type="button"
-        onclick={() => onmode?.("all")}>{m.actionbar_all_mode()}</button
-      >
-      <button
-        class="btn"
-        class:active={mode === "focus"}
-        aria-pressed={mode === "focus"}
-        type="button"
-        onclick={() => onmode?.("focus")}>{m.actionbar_focus_mode()}</button
-      >
       <div class="meta">
         <a
           class="repo"
@@ -156,17 +138,11 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  /* primary/active carry a resting amber glow — keep it under the focus ring */
-  .btn.primary:focus-visible,
-  .btn.active:focus-visible {
+  /* primary carries a resting amber glow — keep it under the focus ring */
+  .btn.primary:focus-visible {
     box-shadow:
       inset 0 0 0 1px var(--color-amber),
       inset 0 0 18px -10px var(--color-amber);
-  }
-  .btn.active {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
   .meta {
     margin-left: auto;

@@ -68,7 +68,7 @@ describe("planGateChip", () => {
   });
 
   it("suppresses the executing view chip when allowView is false (dense list surfaces)", () => {
-    // UnitRow/UnitTile pass allowView:false so the read-only PLAN chip stays off the
+    // UnitRow passes allowView:false so the read-only PLAN chip stays off the
     // crowded session cards; it then lives only in the per-session top bar.
     expect(
       planGateChip(sess("executing"), gate({ approved: true }), false, { allowView: false }),

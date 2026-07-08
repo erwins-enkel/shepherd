@@ -186,6 +186,7 @@ class RepoConfigStore {
   // repoPaths whose config has been successfully loaded from an authoritative
   // server response. Unlike settled, failed fetches never mark loaded.
   loaded = $state<Record<string, boolean>>({});
+  private ensureInflight = new Map<string, Promise<boolean>>();
 
   /** Spread a fetched RepoConfigResponse into every per-field $state map for `repoPath`. */
   private ingest(repoPath: string, c: RepoConfigResponse) {
@@ -235,6 +236,18 @@ class RepoConfigStore {
       this.markSettled(repoPath); // already-loaded ⇒ settled
       return true;
     }
+    const existing = this.ensureInflight.get(repoPath);
+    if (existing) return existing;
+    const pending = this.load(repoPath);
+    this.ensureInflight.set(repoPath, pending);
+    try {
+      return await pending;
+    } finally {
+      this.ensureInflight.delete(repoPath);
+    }
+  }
+
+  private async load(repoPath: string): Promise<boolean> {
     try {
       this.ingest(repoPath, await getRepoConfig(repoPath));
       return true;
@@ -618,7 +631,8 @@ class RepoConfigStore {
   }
 
   previewOpenModeForLoaded(repoPath: string): RepoConfig["previewOpenMode"] | null {
-    return this.isConfigLoaded(repoPath) ? this.previewOpenModeFor(repoPath) : null;
+    if (this.isConfigLoaded(repoPath)) return this.previewOpenModeFor(repoPath);
+    return this.isConfigSettled(repoPath) ? "ask" : null;
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's

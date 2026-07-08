@@ -290,6 +290,25 @@ describe("UnitRow preview badge", () => {
       .element(page.getByRole("dialog", { name: "Choose preview target" }))
       .not.toBeInTheDocument();
   });
+
+  it("falls back to ask after repo config loading fails", async () => {
+    repoConfig.settled = { "/repo/a": true };
+    const calls: Array<[string, "inline" | "tab" | undefined]> = [];
+    render(UnitRow, {
+      session: session({ id: "p7" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: (id: string, target?: "inline" | "tab") => calls.push([id, target]),
+    });
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    await page.getByRole("button", { name: "Open inline" }).click();
+    expect(calls).toEqual([["p7", "inline"]]);
+  });
 });
 
 describe("UnitRow context menu", () => {

@@ -200,6 +200,22 @@ test("repoConfig.ensure fetches and caches", async () => {
   expect(getRepoConfig).toHaveBeenCalledTimes(1);
 });
 
+test("repoConfig.ensure dedupes concurrent fetches", async () => {
+  let resolveConfig: (config: RepoConfig) => void = () => {};
+  vi.mocked(getRepoConfig).mockReturnValue(
+    new Promise((resolve) => {
+      resolveConfig = resolve;
+    }),
+  );
+  const first = repoConfig.ensure("/repo");
+  const second = repoConfig.ensure("/repo");
+  expect(getRepoConfig).toHaveBeenCalledTimes(1);
+  resolveConfig(rc({ previewOpenMode: "tab" }));
+  await expect(first).resolves.toBe(true);
+  await expect(second).resolves.toBe(true);
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("tab");
+});
+
 test("repoConfig preview open mode requires a successful load", async () => {
   expect(repoConfig.previewOpenModeFor("/repo")).toBe("ask");
   expect(repoConfig.previewOpenModeForLoaded("/repo")).toBeNull();
@@ -208,12 +224,12 @@ test("repoConfig preview open mode requires a successful load", async () => {
   expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("inline");
 });
 
-test("repoConfig failed ensure settles but does not mark preview mode loaded", async () => {
+test("repoConfig failed ensure settles and falls back to ask for preview mode", async () => {
   vi.mocked(getRepoConfig).mockRejectedValueOnce(new Error("network"));
   await expect(repoConfig.ensure("/repo")).resolves.toBe(false);
   expect(repoConfig.isConfigSettled("/repo")).toBe(true);
   expect(repoConfig.isConfigLoaded("/repo")).toBe(false);
-  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBeNull();
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("ask");
 });
 
 test("repoConfig successful PUT marks loaded after a failed GET", async () => {

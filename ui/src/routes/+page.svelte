@@ -2620,7 +2620,6 @@
             workingBlocked={store.workingBlocked}
             authUrl={selectedAuthUrl}
             onback={() => (mobileScreen = "list")}
-            onbroadcast={() => (showBroadcast = true)}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
             {retryReady}
@@ -2759,7 +2758,6 @@
             {onarchive}
             workingBlocked={store.workingBlocked}
             authUrl={selectedAuthUrl}
-            onbroadcast={() => (showBroadcast = true)}
             onretry={() => (showRetry = true)}
             retryHaltedCount={haltedCount}
             {retryReady}

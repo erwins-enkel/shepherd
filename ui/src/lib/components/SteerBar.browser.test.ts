@@ -41,7 +41,7 @@ afterEach(() => {
 
 describe("SteerBar labels toggle", () => {
   it("renders a right-anchored ABC toggle, off by default", () => {
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
     expect(toggle, "ABC toggle rendered").not.toBeNull();
     expect(toggle.textContent?.trim()).toBe("ABC");
@@ -54,7 +54,7 @@ describe("SteerBar labels toggle", () => {
   });
 
   it("clicking the toggle reveals labels, persists, and flips aria-pressed", async () => {
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
 
     toggle.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
@@ -68,7 +68,7 @@ describe("SteerBar labels toggle", () => {
 
   it("starts in the labels-on state when persisted", () => {
     localStorage.setItem(LABELS_KEY, "1");
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
     expect(toggle.getAttribute("aria-pressed")).toBe("true");
     expect(document.querySelector(".steer-bar")!.classList.contains("show-labels")).toBe(true);
@@ -90,7 +90,7 @@ describe("ABC visibility gating", () => {
 
   it("desktop, not compact (everything fits) → ABC hidden", async () => {
     await page.viewport(1000, 900);
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames();
 
@@ -113,7 +113,7 @@ describe("ABC visibility gating", () => {
         emoji: "🚀",
       }),
     );
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames(4); // 24-chip layout takes longer to settle than the 2-frame default
 
@@ -123,18 +123,81 @@ describe("ABC visibility gating", () => {
     expect(getComputedStyle(toggle).display, "ABC revealed when compact").not.toBe("none");
   });
 
-  it("mobile, not compact (≤768px) → ABC revealed, ⌁ label collapsed", async () => {
+  it("mobile, not compact (≤768px) → ABC revealed, retry-count label collapsed", async () => {
     await page.viewport(400, 900);
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    // The retry chip shares `.bc-label` for its count; render it live so we can
+    // assert the mobile collapse on a real element (the broadcast chip is gone).
+    render(SteerBar, {
+      focusedId: "s1",
+      repoPath: "/repo",
+      retryReady: true,
+      retryHaltedCount: 1,
+    });
     await tick();
     await frames();
 
     const bar = document.querySelector(".steer-bar") as HTMLElement;
     const toggle = document.querySelector(".lbl-toggle") as HTMLElement;
-    const bcLabel = document.querySelector(".chip.bc .bc-label") as HTMLElement;
+    const retryLabel = document.querySelector(".chip.retry-chip .bc-label") as HTMLElement;
     expect(bar.classList.contains("compact"), "single chip fits → not compact").toBe(false);
     expect(getComputedStyle(toggle).display, "ABC revealed by mobile rule").not.toBe("none");
-    expect(getComputedStyle(bcLabel).display, "⌁ label collapsed on mobile").toBe("none");
+    expect(getComputedStyle(retryLabel).display, "retry count collapsed on mobile").toBe("none");
+  });
+});
+
+describe("SteerBar mobile Esc + dictate gating", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900); // restore a sane width for other suites
+  });
+
+  it("desktop (mobile:false, touch:false) → no Esc key, no dictate mic", async () => {
+    await page.viewport(1000, 900);
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo", mobile: false, touch: false });
+    await tick();
+    await frames();
+
+    expect(document.querySelector(".key.escape"), "no Esc on desktop steer bar").toBeNull();
+    expect(document.querySelector(".dictate"), "no mic on desktop steer bar").toBeNull();
+  });
+
+  it("mobile → Esc key present; with micAvailable the dictate mic is present", async () => {
+    await page.viewport(400, 900);
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo", mobile: true, micAvailable: true });
+    await tick();
+    await frames();
+
+    expect(document.querySelector(".key.escape"), "Esc present on mobile").not.toBeNull();
+    expect(document.querySelector(".dictate"), "mic present when available").not.toBeNull();
+  });
+
+  it("mobile without micAvailable → Esc present but no dictate mic", async () => {
+    await page.viewport(400, 900);
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo", mobile: true, micAvailable: false });
+    await tick();
+    await frames();
+
+    expect(document.querySelector(".key.escape"), "Esc present on mobile").not.toBeNull();
+    expect(document.querySelector(".dictate"), "no mic when unavailable").toBeNull();
+  });
+
+  it("mobile dictate mic fires ondictate on pointerdown", async () => {
+    await page.viewport(400, 900);
+    const ondictate = vi.fn();
+    render(SteerBar, {
+      focusedId: "s1",
+      repoPath: "/repo",
+      mobile: true,
+      micAvailable: true,
+      ondictate,
+    });
+    await tick();
+    await frames();
+
+    const mic = document.querySelector(".dictate") as HTMLElement;
+    mic.dispatchEvent(new PointerEvent("pointerdown", { pointerId: 1, bubbles: true }));
+    await tick();
+
+    expect(ondictate).toHaveBeenCalledOnce();
   });
 });
 
@@ -145,7 +208,7 @@ describe("SteerBar edit-steers button", () => {
 
   it("renders the pencil edit button, outside the measured bar, with an accessible name", async () => {
     await page.viewport(1000, 900);
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames();
 
@@ -162,7 +225,7 @@ describe("SteerBar edit-steers button", () => {
   it("clicking it fires onedit", async () => {
     await page.viewport(1000, 900);
     const onedit = vi.fn();
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {}, onedit });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onedit });
     await tick();
     await frames();
 
@@ -176,7 +239,7 @@ describe("SteerBar edit-steers button", () => {
 
   it("desktop fits → edit shown, ABC hidden", async () => {
     await page.viewport(1000, 900);
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames();
 
@@ -197,7 +260,7 @@ describe("SteerBar edit-steers button", () => {
         emoji: "🚀",
       }),
     );
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames(4); // 24-chip layout takes longer to settle than the 2-frame default
 
@@ -209,7 +272,7 @@ describe("SteerBar edit-steers button", () => {
 
   it("mobile (≤768px) → edit hidden, ABC shown", async () => {
     await page.viewport(400, 900);
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
     await frames();
 
@@ -225,12 +288,11 @@ describe("SteerBar steer context menu", () => {
     vi.mocked(api.replySession).mockClear();
   });
 
-  // The steer chip carries an emoji, so `.chip.has-emoji` uniquely targets it
-  // (the leading broadcast chip is `.chip.bc`).
+  // The steer chip carries an emoji, so `.chip.has-emoji` uniquely targets it.
   const steerChip = () => document.querySelector(".steer-bar .chip.has-emoji") as HTMLElement;
 
   it("right-clicking a chip opens a menu with Run and Edit, and does not send", async () => {
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
 
     steerChip().dispatchEvent(
@@ -248,7 +310,7 @@ describe("SteerBar steer context menu", () => {
   });
 
   it("Run sends the steer to the focused session", async () => {
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {} });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo" });
     await tick();
 
     steerChip().dispatchEvent(
@@ -266,7 +328,7 @@ describe("SteerBar steer context menu", () => {
 
   it("Edit fires onedit with the steer id and does not send", async () => {
     const onedit = vi.fn();
-    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onbroadcast: () => {}, onedit });
+    render(SteerBar, { focusedId: "s1", repoPath: "/repo", onedit });
     await tick();
 
     steerChip().dispatchEvent(

@@ -7,24 +7,33 @@
   import { fitLabels } from "$lib/fit-labels";
   import { m } from "$lib/paraglide/messages";
   import SteerMenu from "$lib/components/SteerMenu.svelte";
+  import ControlBar from "$lib/components/ControlBar.svelte";
   import type { Steer } from "$lib/types";
 
   let {
     focusedId,
     repoPath,
-    onbroadcast,
     onretry,
     retryHaltedCount = 0,
     retryReady = false,
     onedit,
+    mobile = false,
+    touch = false,
+    termSend = () => {},
+    micAvailable = false,
+    ondictate = () => {},
   }: {
     focusedId: string;
     repoPath: string;
-    onbroadcast: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
     onedit?: (steerId?: string) => void;
+    mobile?: boolean;
+    touch?: boolean;
+    termSend?: (seq: string) => void;
+    micAvailable?: boolean;
+    ondictate?: () => void;
   } = $props();
 
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
@@ -33,8 +42,7 @@
     steers.list.filter((s) => s.inSteerBar && steerAppliesToRepo(s, repos.nameFor(repoPath))),
   );
 
-  // One-time coachmark: the steer chips are tap-to-send and the leading ⌁ broadcast chip
-  // broadcasts to many sessions — neither affordance is obvious on first sight.
+  // One-time coachmark: the steer chips are tap-to-send — not obvious on first sight.
   // Show a single muted hint until the operator dismisses it, then never again
   // (localStorage). SSR-safe: stays hidden until mount reads the flag.
   const COACH_KEY = "shepherd:steer-coach-seen";
@@ -163,6 +171,12 @@
      (swapping equal-width buttons never changes .steer-bar's clientWidth, so fitLabels
      can't oscillate). -->
 <div class="steer-row" data-swipe-ignore>
+  <!-- Esc frozen on the left edge (mobile/touch only) — moved up from the ctrl-row
+       so the two mobile bars share the same left anchor. termSend writes the raw
+       Esc byte straight to the PTY. -->
+  {#if mobile || touch}
+    <ControlBar include={["cancel"]} scroll={false} onkey={termSend} />
+  {/if}
   <!-- fitLabels toggles `compact` when the full labels overflow: chips that carry an
        emoji collapse to emoji-only (label stays in title/aria); the rest keep their
        label and the bar's horizontal scroll remains the final fallback. -->
@@ -173,17 +187,6 @@
     aria-label={m.steerbar_toolbar_aria()}
     use:fitLabels
   >
-    <button
-      type="button"
-      class="chip bc"
-      onpointerdown={down}
-      onpointermove={move}
-      onpointercancel={cancel}
-      onpointerup={(e) => tap(e, onbroadcast)}
-      title={m.steerbar_broadcast_aria()}
-      aria-label={m.steerbar_broadcast_aria()}
-      >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
-    >
     {#if retryReady && retryHaltedCount > 0}
       <button
         type="button"
@@ -250,6 +253,36 @@
     onpointercancel={cancel}
     onpointerup={(e) => tap(e, () => onedit?.())}>✎</button
   >
+  <!-- Dictate mic: rightmost pinned sibling on mobile/touch when speech capture is
+       available. Opens the compose sheet already listening (ondictate). Moved up
+       from the ctrl-row so Row 1 owns the mic; Row 2 keeps upload + Enter. -->
+  {#if (mobile || touch) && micAvailable}
+    <button
+      type="button"
+      class="dictate"
+      title={m.composebar_dictate_aria()}
+      aria-label={m.composebar_dictate_aria()}
+      onpointerdown={(e) => {
+        e.preventDefault();
+        ondictate();
+      }}
+    >
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
+        <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
+        <path d="M12 19v3" />
+        <path d="M8 22h8" />
+      </svg>
+    </button>
+  {/if}
 </div>
 
 {#if menu}
@@ -327,10 +360,6 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  .chip.bc {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
   .chip.retry-chip {
     color: var(--color-amber);
     border-color: var(--color-amber);
@@ -349,15 +378,15 @@
     margin-left: 6px;
   }
   /* compact (set by fitLabels on overflow): emoji-carrying chips shed their label —
-     the emoji is the identifier; label-only chips are untouched. The broadcast chip
-     joins in, matching its existing mobile collapse. The `:not(.show-labels)` guard
-     lets the ABC toggle force every label back on regardless of available width. */
+     the emoji is the identifier; label-only chips are untouched. The retry chip's
+     count (`.bc-label`) collapses too, matching its mobile collapse. The
+     `:not(.show-labels)` guard lets the ABC toggle force every label back on
+     regardless of available width. */
   .steer-bar:global(.compact):not(.show-labels) .chip.has-emoji .chip-label,
   .steer-bar:global(.compact):not(.show-labels) .bc-label {
     display: none;
   }
-  .steer-bar:global(.compact):not(.show-labels) .chip.has-emoji,
-  .steer-bar:global(.compact):not(.show-labels) .chip.bc {
+  .steer-bar:global(.compact):not(.show-labels) .chip.has-emoji {
     min-width: 44px;
     padding: 0;
   }
@@ -409,32 +438,17 @@
     border-color: var(--color-ink);
     background: var(--color-hover);
   }
-  /* on mobile the broadcast chip collapses to just its ⌁ icon to reclaim
-     space; matches the ControlBar Esc key's box model (min-width 44px, no
-     horizontal padding) so the collapsed chip and Esc render an identical width.
-     Esc additionally sits inside a 3px-padded group "well", nudging its box that
-     far right of the bar edge — match it with an equal left margin so the two
-     left edges line up, not just the widths.
-     The steer row also mirrors the ControlBar's *grouping*: ⌁ plays Esc's part
-     (own box, frozen left) and the steer chips play the Tab/nav groups. To line
-     the first steer chip up under the Tab key, the ⌁→first-chip channel must
-     equal the Esc→Tab channel (3px Esc-well + 6px ctrl-row gap + 3px Tab-well =
-     12px). The flex `gap` already gives 4px, so add the remaining 8px here.
-     This block ALSO surfaces the ABC toggle: on mobile the ⌁ label collapses
-     regardless of `compact`, so there's always a label to reveal — the `.lbl-toggle`
-     reveal below is viewport-only (1 class, so it ties the base `display: none` and
-     wins by coming later in source order), independent of `.show-labels` so the
-     toggle stays visible to collapse back once ABC is pressed.
+  /* on mobile the retry chip's count (`.bc-label`) collapses to just its ⟳ icon
+     to reclaim space, regardless of `compact`.
+     This block ALSO surfaces the ABC toggle: on mobile a label always collapses,
+     so there's always a label to reveal — the `.lbl-toggle` reveal below is
+     viewport-only (1 class, so it ties the base `display: none` and wins by coming
+     later in source order), independent of `.show-labels` so the toggle stays
+     visible to collapse back once ABC is pressed.
      The (max-height: 600px) arm keeps this collapse consistent on short-wide
      viewports (foldable split-screen / phone landscape) that now route to the
      mobile layout but are wider than the 768px breakpoint. */
   @media (max-width: 768px), (max-height: 600px) {
-    .steer-bar:not(.show-labels) .chip.bc {
-      min-width: 44px;
-      padding: 0;
-      margin-left: 3px;
-      margin-right: 8px;
-    }
     .steer-bar:not(.show-labels) .bc-label {
       display: none;
     }
@@ -444,6 +458,38 @@
     .edit-steers {
       display: none;
     }
+  }
+  /* Dictate mic — rightmost pinned action on the mobile steer row. Its right edge
+     aligns above Enter's on Row 2 (both 10px from the bar edge). */
+  .dictate {
+    flex: 0 0 auto;
+    align-self: center;
+    margin: 6px 10px 6px 0;
+    min-width: 44px;
+    height: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: var(--color-inset);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    cursor: pointer;
+    touch-action: manipulation;
+    user-select: none;
+    transition:
+      background 0.08s,
+      border-color 0.08s;
+  }
+  .dictate:active {
+    background: var(--color-line-bright);
+    border-color: var(--color-ink);
+  }
+  .dictate svg {
+    width: var(--fs-lg);
+    height: var(--fs-lg);
+    display: block;
   }
   /* one-time steer hint: flat, square, hairline-bordered, muted ink — sits
      directly above the steer row, no shadow or glow at rest */

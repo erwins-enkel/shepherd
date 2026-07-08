@@ -212,6 +212,25 @@ test("one run per repo: a second optimizeAllFlagged is a no-op while the first i
   expect(cap.starts).toBe(1);
 });
 
+test("fire-and-forget same-repo fan-out doesn't double-spawn (auto-retire loop race)", async () => {
+  // Regression: learnings-lifecycle fires `void optimizer.optimizeOne(rule.id)` per flagged
+  // rule; two rules in the SAME repo fan out in one tick. If begin() reserved its inflight
+  // slot only AFTER `await herdr.start`, both would pass the `inflight.has(repo)` guard and
+  // begin twice — the second `inflight.set(repo)` overwriting the first, leaking that agent +
+  // scratch dir. Synchronous reservation must dedup the second call.
+  const store = new SessionStore(":memory:");
+  const id1 = seedActiveRule(store, "/r", "rule one");
+  const id2 = seedActiveRule(store, "/r", "rule two");
+  flag(store, "/r", id1);
+  flag(store, "/r", id2);
+  const { deps, cap } = mkDeps(store, null); // readOutput null → run stays inflight
+  const svc = new OptimizerService(deps as any);
+
+  await Promise.all([svc.optimizeOne(id1), svc.optimizeOne(id2)]);
+
+  expect(cap.starts).toBe(1); // one spawn for the repo, not two — no leak
+});
+
 test("empty/blank rule revision is rejected", async () => {
   const store = new SessionStore(":memory:");
   const id = seedActiveRule(store, "/r", "keep me");

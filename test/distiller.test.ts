@@ -520,6 +520,23 @@ test("concurrency cap: at most maxConcurrent spawns live; queue drains via tick"
   expect(started.length).toBe(4);
 });
 
+test("cap holds under a fire-and-forget fan-out (daily-sweep race): begin reserves its slot synchronously", async () => {
+  // Regression: `void consider(repo)` per repo (index.ts daily sweep) fires all considers in
+  // one tick BEFORE any awaits. If begin() reserved its inflight slot only AFTER `await
+  // herdr.start`, every repo would pass `inflight.size < maxConcurrent` and blow the cap. The
+  // synchronous reservation must hold the line even when no individual call is awaited.
+  const store = new SessionStore(":memory:");
+  for (const r of ["/r1", "/r2", "/r3", "/r4"]) seedSignals(store, r, 3);
+  const { deps, started } = mkCollisionAwareDeps(store, null, () => {}, 2);
+  (deps as any).readProposals = () => null; // nothing finalizes during the fan-out
+  const d = new DistillerService(deps as any);
+
+  // Fan out concurrently (mirrors `for (const repo …) void distiller.consider(repo.path)`).
+  await Promise.all(["/r1", "/r2", "/r3", "/r4"].map((r) => d.consider(r)));
+
+  expect(started.length).toBe(2); // cap respected; r3 + r4 queued, not spawned
+});
+
 test("distillNow respects the cap: second call queued, drains on tick", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r1", 1);

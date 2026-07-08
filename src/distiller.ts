@@ -203,8 +203,10 @@ export class DistillerService {
   private async enqueueOrBegin(repoPath: string, signals: Signal[]): Promise<void> {
     if (this.inflight.has(repoPath) || this.queued.has(repoPath)) return;
     if (this.inflight.size < this.maxConcurrent) {
-      // Await so the spawn (and its inflight slot) is fully established before returning —
-      // preserving the "spawn then observe" ordering the blocking sync path guaranteed.
+      // begin() reserves its inflight slot synchronously (before its first await), so this
+      // size check + the has() guard above hold even under a fire-and-forget fan-out. The
+      // await here additionally lets awaiting callers (tests, the tick() drain) observe the
+      // spawn's completion; it is NOT what enforces the cap.
       await this.begin(repoPath, signals);
     } else {
       this.queue.push({ repoPath, signals });
@@ -249,11 +251,26 @@ export class DistillerService {
       prompt: distillPrompt(),
     });
     const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
-    let terminalId: string;
+    // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily
+    // sweep's fire-and-forget `void consider(repo)` fan-out can't let more than maxConcurrent
+    // repos pass the `inflight.size < maxConcurrent` check before any reserves, bypassing the
+    // cap/queue. The blocking sync path reserved implicitly by never yielding. terminalId is
+    // backfilled once herdr.start resolves; the slot is released if the spawn fails. (tick()
+    // skips a reserved run until it has output, so terminalId="" is never observed by finalize.)
+    const entry: InFlight = {
+      repoPath,
+      dir,
+      terminalId: "",
+      startedAt: this.now(),
+      signalIds: new Set(signals.map((s) => s.id)),
+    };
+    this.inflight.set(repoPath, entry);
     try {
-      terminalId = (await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false)))
-        .terminalId;
+      entry.terminalId = (
+        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
+      ).terminalId;
     } catch (err) {
+      this.inflight.delete(repoPath); // release the reservation
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[distill] herdr unavailable for ${repoPath}:`, err);
       } else {
@@ -263,13 +280,6 @@ export class DistillerService {
       this.deps.scratch.remove(dir);
       return;
     }
-    this.inflight.set(repoPath, {
-      repoPath,
-      dir,
-      terminalId,
-      startedAt: this.now(),
-      signalIds: new Set(signals.map((s) => s.id)),
-    });
   }
 
   /** Boot reconcile (issue #1135): close orphaned distiller tabs left by a PRIOR server

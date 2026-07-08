@@ -185,8 +185,10 @@ export class MergeSuggestionService {
   ): Promise<void> {
     if (this.inflight.has(key) || this.queued.has(key)) return;
     if (this.inflight.size < this.maxConcurrent) {
-      // Await so the spawn (and its inflight slot) is fully established before returning —
-      // preserving the "spawn then observe" ordering the blocking sync path guaranteed.
+      // begin() reserves its inflight slot synchronously (before its first await), so this
+      // size check + the has() guard above hold even under a fire-and-forget fan-out. The
+      // await here additionally lets awaiting callers (tests, the tick() drain) observe the
+      // spawn's completion; it is NOT what enforces the cap.
       await this.begin(key, kind, repoPath, sig, rules);
     } else {
       this.queue.push({ key, kind, repoPath });
@@ -239,11 +241,29 @@ export class MergeSuggestionService {
       prompt: kind === "cross" ? crossPrompt() : intraPrompt(),
     });
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
-    let terminalId: string;
+    // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily
+    // sweep's fire-and-forget fan-out over repos + cross can't let more than maxConcurrent keys
+    // pass the `inflight.size < maxConcurrent` check before any reserves, exceeding the cap.
+    // The blocking sync path reserved implicitly by never yielding. terminalId is backfilled
+    // once herdr.start resolves; the slot is released if the spawn fails. (tick() skips a
+    // reserved run until it has output, so terminalId="" is never observed by finalize.)
+    const entry: InFlight = {
+      key,
+      kind,
+      repoPath,
+      dir,
+      terminalId: "",
+      startedAt: this.now(),
+      members: new Map(input.map((l) => [l.id, l])),
+      sig,
+    };
+    this.inflight.set(key, entry);
     try {
-      terminalId = (await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false)))
-        .terminalId;
+      entry.terminalId = (
+        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
+      ).terminalId;
     } catch (err) {
+      this.inflight.delete(key); // release the reservation
       if (err instanceof HerdrUnavailableError) {
         this.log(`herdr unavailable for ${key}: ${String(err)}`);
       } else {
@@ -253,16 +273,6 @@ export class MergeSuggestionService {
       this.deps.scratch.remove(dir);
       return;
     }
-    this.inflight.set(key, {
-      key,
-      kind,
-      repoPath,
-      dir,
-      terminalId,
-      startedAt: this.now(),
-      members: new Map(input.map((l) => [l.id, l])),
-      sig,
-    });
   }
 
   /** Boot reconcile (issue #1135): close orphaned merge-suggestion tabs left by a PRIOR

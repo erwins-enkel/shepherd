@@ -438,16 +438,20 @@
     border-color: var(--color-ink);
     background: var(--color-hover);
   }
-  /* on mobile the retry chip's count (`.bc-label`) collapses to just its ⟳ icon
-     to reclaim space, regardless of `compact`.
-     This block ALSO surfaces the ABC toggle: on mobile a label always collapses,
-     so there's always a label to reveal — the `.lbl-toggle` reveal below is
-     viewport-only (1 class, so it ties the base `display: none` and wins by coming
-     later in source order), independent of `.show-labels` so the toggle stays
-     visible to collapse back once ABC is pressed.
-     The (max-height: 600px) arm keeps this collapse consistent on short-wide
-     viewports (foldable split-screen / phone landscape) that now route to the
-     mobile layout but are wider than the 768px breakpoint. */
+  /* Mobile / short-wide layout (phone portrait+landscape, foldable split-screen). Two
+     effects: (1) the retry chip's count (`.bc-label`) collapses to just its ⟳ icon to
+     reclaim space, regardless of `compact`; (2) the ABC toggle is surfaced. ABC's job is
+     to add `.show-labels`, restoring whatever is collapsed — the retry count here, plus
+     emoji chip labels once the bar overflows (`compact`). It's revealed unconditionally
+     (NOT gated on something currently being collapsed) so its slot in the pinned right
+     cluster — beside the mic — stays put as steers are added or a retry chip appears /
+     clears, instead of flickering with the overflow threshold or the async `compact`
+     toggle. With only plain-text chips and no retry chip there's nothing to expand and
+     the toggle is inert — a harmless, uncommon edge (emoji steer bars overflow → compact,
+     where ABC is meaningful). The reveal is viewport-only (1 class, so it ties the base
+     `display: none` and wins by source order), independent of `.show-labels` so the
+     toggle stays visible to collapse back. The (max-height: 600px) arm keeps this
+     consistent on short-wide viewports wider than the 768px breakpoint. */
   @media (max-width: 768px), (max-height: 600px) {
     .steer-bar:not(.show-labels) .bc-label {
       display: none;

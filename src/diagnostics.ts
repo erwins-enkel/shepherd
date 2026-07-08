@@ -71,6 +71,14 @@ export interface DiagnosticsDeps {
   /** Run `<bin> <args...>` and return stdout. Used for every `--version` probe
    *  plus the `which`/presence checks. Reject (incl. timeout) ⇒ binary absent. */
   runVersion?: (bin: string, args: string[]) => Promise<string>;
+  /** Probe herdr **server liveness** (not just binary presence): run `herdr agent
+   *  list`, resolving on a zero exit (daemon reachable), rejecting on
+   *  connection-refused / timeout (daemon offline). Exit code only — the agent
+   *  listing is discarded, so nothing but a state crosses into the snapshot. This is
+   *  the same reachability signal `herdr-update` relies on. Default
+   *  `execFileAsync(config.herdrBin, ["agent","list"])` with the shared probe
+   *  timeout. Injected in tests (resolve = live, reject = offline). */
+  runHerdrLiveness?: () => Promise<void>;
   /** Run `gh auth status`; resolves on a zero exit, rejects on non-zero / timeout.
    *  Its stdout is intentionally discarded (it carries account identity). On rejection
    *  the error's `code` / `killed` / `signal` classify the failure (see `ghProbe`):
@@ -180,6 +188,7 @@ export function defaultRunRemediation(
  */
 export class DiagnosticsService {
   private runVersion: (bin: string, args: string[]) => Promise<string>;
+  private runHerdrLiveness: () => Promise<void>;
   private runGhAuth: () => Promise<void>;
   private ghProbeAttempts: number;
   private ghProbeRetryDelayMs: number;
@@ -200,6 +209,17 @@ export class DiagnosticsService {
           timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
         });
         return stdout.toString();
+      });
+    this.runHerdrLiveness =
+      deps.runHerdrLiveness ??
+      (async () => {
+        // Exit code only — the agent listing is discarded. A zero exit means the
+        // daemon answered (reachable); a reject (ECONNREFUSED/ENOENT/timeout) means
+        // it's offline. `agent list` is the same reachability check `herdr-update` uses.
+        await execFileAsync(config.herdrBin, ["agent", "list"], {
+          encoding: "utf8",
+          timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
+        });
       });
     this.runGhAuth =
       deps.runGhAuth ??
@@ -238,16 +258,30 @@ export class DiagnosticsService {
   }
 
   /** Shared tri-state version probe (herdr / bun / node): missing ⇒ error,
-   *  below-floor ⇒ warning, else ok. Floors are advisory — never an error. */
+   *  below-floor ⇒ warning, else ok. Floors are advisory — never an error.
+   *
+   *  herdr additionally passes a `liveness` probe + an `offline` key: once the binary
+   *  is confirmed present, a daemon that doesn't answer is `error` (offline). Offline
+   *  outranks an outdated-version warning — a dead server is unusable now, a
+   *  live-but-old one merely wants updating. bun / node pass neither and keep the
+   *  binary-only tri-state. */
   private async versionProbe(
     id: string,
     bin: string,
     floor: string,
-    keys: { ok: string; outdated: string; missing: string },
+    keys: { ok: string; outdated: string; missing: string; offline?: string },
+    liveness?: () => Promise<void>,
   ): Promise<DiagnosticCheck> {
     const out = await this.runVersion(bin, ["--version"]);
     const version = this.parseVersion(out);
     if (!version) return { id, state: "error", hintKey: keys.missing };
+    if (liveness && keys.offline) {
+      try {
+        await liveness();
+      } catch {
+        return { id, state: "error", hintKey: keys.offline };
+      }
+    }
     if (compareSemver(version, floor) < 0) {
       return { id, state: "warning", hintKey: keys.outdated };
     }
@@ -255,11 +289,18 @@ export class DiagnosticsService {
   }
 
   private herdrProbe = (): Promise<DiagnosticCheck> =>
-    this.versionProbe("herdr", config.herdrBin, HERDR_MIN_VERSION, {
-      ok: "diagnostics_hint_herdr_ok",
-      outdated: "diagnostics_hint_herdr_outdated",
-      missing: "diagnostics_hint_herdr_missing",
-    });
+    this.versionProbe(
+      "herdr",
+      config.herdrBin,
+      HERDR_MIN_VERSION,
+      {
+        ok: "diagnostics_hint_herdr_ok",
+        outdated: "diagnostics_hint_herdr_outdated",
+        missing: "diagnostics_hint_herdr_missing",
+        offline: "diagnostics_hint_herdr_offline",
+      },
+      this.runHerdrLiveness,
+    );
 
   private bunProbe = (): Promise<DiagnosticCheck> =>
     this.versionProbe("bun", "bun", BUN_MIN_VERSION, {

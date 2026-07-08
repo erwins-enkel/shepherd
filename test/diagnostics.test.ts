@@ -38,6 +38,10 @@ const HEALTHY_VERSIONS: Record<string, string> = {
 function healthyDeps(): DiagnosticsDeps {
   return {
     runVersion: versionRunner({ ...HEALTHY_VERSIONS }),
+    // herdr daemon reachable (agent list exits 0). Override with a rejecting fn to
+    // model an offline server. Without this default, the real `execFileAsync` probe
+    // would shell out to an absent daemon and redden every herdr/overall-ok assertion.
+    runHerdrLiveness: async () => {},
     runGhAuth: async () => {},
     // gh probe now retries transient failures; zero delay keeps the failure-path tests
     // (which reject synchronously) from accruing real wall-time.
@@ -153,6 +157,61 @@ describe("DiagnosticsService probes", () => {
       expect(c.hintKey).toBe(missKey);
     });
   }
+
+  // ── herdr: server liveness (issue #1559) ─────────────────────────────────────
+  // A parseable `--version` proves only that the BINARY is present; the daemon must
+  // also answer. A reachable binary with a dead server is `error` (offline), not `ok`.
+  describe("herdr server liveness", () => {
+    const offline = () => Promise.reject(new Error("connect ECONNREFUSED"));
+
+    it("error/offline when the binary is present but the daemon is unreachable", async () => {
+      const svc = new DiagnosticsService({ ...healthyDeps(), runHerdrLiveness: offline });
+      const c = byId((await svc.check(0)).checks, "herdr");
+      expect(c.state).toBe("error");
+      expect(c.hintKey).toBe("diagnostics_hint_herdr_offline");
+      assertPure(c);
+    });
+
+    it("ok when the binary is current AND the daemon answers", async () => {
+      const svc = new DiagnosticsService({ ...healthyDeps(), runHerdrLiveness: async () => {} });
+      const c = byId((await svc.check(0)).checks, "herdr");
+      expect(c.state).toBe("ok");
+      expect(c.hintKey).toBe("diagnostics_hint_herdr_ok");
+    });
+
+    it("offline outranks an outdated-version warning", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: "herdr 0.5.0" }),
+        runHerdrLiveness: offline,
+      });
+      const c = byId((await svc.check(0)).checks, "herdr");
+      expect(c.state).toBe("error");
+      expect(c.hintKey).toBe("diagnostics_hint_herdr_offline");
+    });
+
+    it("skips the liveness probe when the binary is missing (stays _missing)", async () => {
+      let pinged = false;
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: new Error("ENOENT") }),
+        runHerdrLiveness: async () => {
+          pinged = true;
+        },
+      });
+      const c = byId((await svc.check(0)).checks, "herdr");
+      expect(c.state).toBe("error");
+      expect(c.hintKey).toBe("diagnostics_hint_herdr_missing");
+      expect(pinged).toBe(false);
+    });
+
+    it("an offline daemon drives the overall snapshot to error", async () => {
+      const svc = new DiagnosticsService({ ...healthyDeps(), runHerdrLiveness: offline });
+      const snap = await svc.check(0);
+      expect(byId(snap.checks, "herdr").state).toBe("error");
+      expect(snap.overall).toBe("error");
+    });
+  });
 
   // ── git: presence-only ───────────────────────────────────────────────────────
   it("git: ok when present", async () => {

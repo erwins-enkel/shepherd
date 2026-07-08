@@ -1268,6 +1268,7 @@
   "diagnostics_hint_herdr_ok": "herdr is up to date.",
   "diagnostics_hint_herdr_outdated": "Your herdr version is below the supported floor — update herdr.",
   "diagnostics_hint_herdr_missing": "herdr binary not found in PATH — install it to run agent sessions.",
+  "diagnostics_hint_herdr_offline": "herdr is installed but its server is offline — agent sessions can't run. Start it by running `herdr server`, then re-run Diagnose.",
   "diagnostics_hint_tailscale_ok": "Tailscale is connected.",
   "diagnostics_hint_tailscale_not_serving": "Tailscale is running but isn't fronting Shepherd — set up tailscale serve or a Tailscale Service for remote access.",
   "diagnostics_hint_tailscale_missing": "Tailscale not installed or not logged in — install it and run tailscale up.",

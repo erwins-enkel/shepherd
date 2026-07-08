@@ -190,6 +190,11 @@
     onpreview?.(session.id, target);
   }
 
+  function onPreviewChoiceKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") closePreviewChoice();
+    e.stopPropagation();
+  }
+
   $effect(() => {
     if (!previewChoice) return;
     const onPointerDown = (e: PointerEvent) => {
@@ -667,7 +672,7 @@
     bind:this={previewChoiceEl}
     style="top:{previewChoice.top}px;left:{previewChoice.left}px"
     onclick={(e) => e.stopPropagation()}
-    onkeydown={(e) => e.stopPropagation()}
+    onkeydown={onPreviewChoiceKeydown}
   >
     <button type="button" class="preview-choice-btn" onclick={() => choosePreview("inline")}>
       {m.unitrow_preview_open_inline()}

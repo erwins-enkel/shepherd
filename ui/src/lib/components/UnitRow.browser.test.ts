@@ -256,6 +256,28 @@ describe("UnitRow preview badge", () => {
     rectSpy.mockRestore();
   });
 
+  it("ask mode closes the chooser on Escape while focus is inside it", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    render(UnitRow, {
+      session: session({ id: "p4c" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    const inline = page.getByRole("button", { name: "Open inline" }).element();
+    inline.focus();
+    inline.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
   it("tab mode bypasses the chooser", async () => {
     loadPreviewMode("/repo/a", "tab");
     const calls: Array<[string, "inline" | "tab" | undefined]> = [];

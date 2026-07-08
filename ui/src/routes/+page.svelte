@@ -103,7 +103,6 @@
   import DoneRecapPanel from "$lib/components/DoneRecapPanel.svelte";
   import type { KickoffChoice } from "$lib/components/NewProject.svelte";
   import ActionBar from "$lib/components/ActionBar.svelte";
-  import HerdGrid from "$lib/components/HerdGrid.svelte";
   import QueueStrip from "$lib/components/QueueStrip.svelte";
   import RepoSwitcher from "$lib/components/RepoSwitcher.svelte";
   import {
@@ -218,7 +217,6 @@
   function openRename(id: string) {
     selectUnit(id, false, true);
     if (mobile.current) mobileScreen = "detail";
-    else if (viewMode === "all") viewMode = "focus";
     renameRequest = { id, tick: ++renameRequestSeq };
   }
   let showNew = $state(false);
@@ -590,7 +588,6 @@
     )
       showLearnings = false;
   });
-  let viewMode = $state<"focus" | "all">("focus");
   let nowMs = $state(Date.now());
   let composeRepoPath = $state<string | null>(null);
   let composeIssue = $state<Issue | null>(null);
@@ -2606,34 +2603,6 @@
           />
         </div>
       {/if}
-    {:else if viewMode === "all"}
-      <div class="grid-all">
-        <HerdGrid
-          sessions={herdSessions}
-          filteredRepo={repoFilterName}
-          {statusFilter}
-          {selectedId}
-          {nowMs}
-          git={store.git}
-          activity={store.activity}
-          {onrelaunch}
-          {onrelaunchElsewhere}
-          {onvariant}
-          {onreplace}
-          onrename={openRename}
-          onselect={(id) => {
-            selectedId = id;
-            viewMode = "focus";
-          }}
-          onnew={() => (showNew = true)}
-          {issueActionsUnset}
-          onsettings={() => {
-            settingsTab = "workspace";
-            showSettings = true;
-          }}
-          workingBlocked={store.workingBlocked}
-        />
-      </div>
     {:else}
       <div class="grid" class:compact={touch.current} class:collapsed={sidebarCollapsed}>
         {#if sidebarCollapsed}
@@ -2780,8 +2749,6 @@
   <ActionBar
     onnew={() => (showNew = true)}
     onbacklog={store.sessions.length > 0 ? () => (showBacklog = true) : undefined}
-    mode={viewMode}
-    onmode={(m) => (viewMode = m)}
     mobile={mobile.current}
     desktopOnly
   />
@@ -3160,15 +3127,6 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  .grid-all {
-    flex: 1;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-  }
-  .grid-all :global(.herd-grid) {
-    flex: 1;
-  }
   .empty {
     border: 1px solid var(--color-line);
     background: var(--color-panel);
@@ -3203,7 +3161,7 @@
   }
   /* Primary landmark wrapping the herd/viewport content. Transparent to the
      flex layout: it fills the shell column and lets its own child (.col /
-     .grid / .grid-all) keep flexing exactly as before the <main> wrapper.
+     .grid) keep flexing exactly as before the <main> wrapper.
      gap:inherit takes .shell's computed gap (14px desktop, 10px mobile) so the
      mobile list column + bottom ActionBar keep the spacing they had as direct
      shell children; no-op where the region holds a single child. */

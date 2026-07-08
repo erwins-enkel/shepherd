@@ -67,8 +67,6 @@
   "actionbar_new_task": "+ New Task",
   "actionbar_backlog": "Repos",
   "actionbar_shortcut_hint": "Shortcut: {key}",
-  "actionbar_all_mode": "All ▦",
-  "actionbar_focus_mode": "Focus ⌖",
   "actionbar_theme_group_aria": "Theme",
   "actionbar_theme_option": "{label} theme",
   "actionbar_contrast_toggle": "High contrast (better readability)",

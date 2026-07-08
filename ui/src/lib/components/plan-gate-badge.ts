@@ -13,7 +13,7 @@ import type { PlanGate, Session } from "../types";
  *                  caller allows it (`allowView`, default true) — surfaces the
  *                  signed-off plan read-only so the operator can re-open it during
  *                  execution (issue #809). No Go/Review actions are shown. The
- *                  dense session-list surfaces (UnitRow/UnitTile) pass
+ *                  dense session-list surface (UnitRow) passes
  *                  `allowView: false` to keep this read-only chip off the cards;
  *                  it then lives only in the per-session top bar.
  *  - "reviewing":  the plan reviewer is running now — wins over any stale verdict.

@@ -211,7 +211,8 @@
     );
   }
   // Keep Preview-chip behavior deterministic: rows only resolve their mode after
-  // the repo config has loaded successfully. Failed fetches leave the chip inert.
+  // the repo config fetch has settled. Successful loads use the persisted repo
+  // mode; failed loads fall back to ask so the chip never stays inert.
   $effect(() => {
     const reposWithPreview = new Set(
       store.sessions.filter((s) => store.preview[s.id] != null).map((s) => s.repoPath),

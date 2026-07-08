@@ -86,12 +86,16 @@ export function buildUpdateScript(
   // so gating recovery on `rc != 0` (as we used to) skipped the exact bug — a
   // successful swap that never brought the server back, leaving a stale socket and
   // clients looping on ConnectionRefused. So we ALWAYS run `herdr agent list` after
-  // the update, regardless of rc. That CLI call is itself the recovery: a herdr CLI
-  // call is documented to auto-spawn the daemon (herdr.ts:44-46; the "herdr update
-  // without a shepherd restart" design doc, item 4 body). It runs the real herdr
-  // binary directly, so it bypasses shepherd's in-process maintenance guard (which
-  // only gates shepherd's own Runner) and can resurrect the server before the poller
-  // even resumes — driver-independent (it does not depend on SHEPHERD_HERDR_SOCKET).
+  // the update, regardless of rc. That CLI call is itself the recovery: any herdr
+  // CLI call auto-spawns the daemon (stated in the "herdr update without a shepherd
+  // restart" design doc, item 4 body — docs/superpowers/specs/
+  // 2026-06-04-herdr-update-without-restart-design.md). Shepherd's own maintenance
+  // guard (`HerdrUnavailableError`, herdr.ts:44-46) corroborates it: that guard
+  // exists specifically to STOP shepherd's Runner from spawning mid-update, which
+  // only matters because a normal CLI call would. Our `agent list` here runs the
+  // real herdr binary directly, bypassing that in-process guard (which only gates
+  // shepherd's own Runner), so it can resurrect the server before the poller even
+  // resumes — driver-independent (it does not depend on SHEPHERD_HERDR_SOCKET).
   //
   // Grace + retry: a still-binding server — an in-flight `--handoff`, or a self-
   // managed systemd unit with `Restart=always` coming up — must not be mistaken for

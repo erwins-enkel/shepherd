@@ -74,10 +74,11 @@ export interface DiagnosticsDeps {
   /** Probe herdr **server liveness** (not just binary presence): run `herdr agent
    *  list`, resolving on a zero exit (daemon reachable), rejecting on
    *  connection-refused / timeout (daemon offline). Exit code only — the agent
-   *  listing is discarded, so nothing but a state crosses into the snapshot. This is
-   *  the same reachability signal `herdr-update` relies on. Default
-   *  `execFileAsync(config.herdrBin, ["agent","list"])` with the shared probe
-   *  timeout. Injected in tests (resolve = live, reject = offline). */
+   *  listing is discarded (routed to /dev/null, never buffered), so nothing but a
+   *  state crosses into the snapshot. This is the same reachability signal
+   *  `herdr-update` relies on. Default `spawn(config.herdrBin, ["agent","list"], {
+   *  stdio:"ignore" })` with the shared probe timeout. Injected in tests (resolve =
+   *  live, reject = offline). */
   runHerdrLiveness?: () => Promise<void>;
   /** Run `gh auth status`; resolves on a zero exit, rejects on non-zero / timeout.
    *  Its stdout is intentionally discarded (it carries account identity). On rejection
@@ -172,6 +173,37 @@ export function defaultRunRemediation(
   });
 }
 
+/** Default `runHerdrLiveness`: spawn `herdr agent list` with stdout/stderr routed to
+ *  /dev/null (`stdio: "ignore"`) — the exit code is the only signal, so a large agent
+ *  listing on a busy server is never buffered and can never exceed a buffer cap and
+ *  falsely read as offline (unlike `execFile`, whose 1 MiB `maxBuffer` would reject).
+ *  Resolves on exit 0 (daemon reachable); rejects on non-zero exit, spawn error
+ *  (ENOENT / ECONNREFUSED), or timeout (daemon offline). */
+function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn(bin, ["agent", "list"], { stdio: "ignore" });
+    let settled = false;
+    const timer = setTimeout(() => {
+      settled = true;
+      child.kill("SIGKILL");
+      reject(new Error("herdr liveness timed out"));
+    }, timeoutMs);
+    child.on("error", (err) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      reject(err);
+    });
+    child.on("close", (code) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      if (code === 0) resolve();
+      else reject(new Error(`herdr agent list exited ${String(code)}`));
+    });
+  });
+}
+
 /**
  * Server-side environment-readiness diagnostics (issue #623). Fans dependency
  * probes with `Promise.all` behind a TTL cache. Mirrors HerdrUpdateService:
@@ -212,15 +244,7 @@ export class DiagnosticsService {
       });
     this.runHerdrLiveness =
       deps.runHerdrLiveness ??
-      (async () => {
-        // Exit code only — the agent listing is discarded. A zero exit means the
-        // daemon answered (reachable); a reject (ECONNREFUSED/ENOENT/timeout) means
-        // it's offline. `agent list` is the same reachability check `herdr-update` uses.
-        await execFileAsync(config.herdrBin, ["agent", "list"], {
-          encoding: "utf8",
-          timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
-        });
-      });
+      (() => defaultHerdrLiveness(config.herdrBin, DIAGNOSTICS_PROBE_TIMEOUT_MS));
     this.runGhAuth =
       deps.runGhAuth ??
       (async () => {

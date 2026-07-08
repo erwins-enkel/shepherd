@@ -33,6 +33,7 @@
     setSessionAutopilot,
     stopPreview as apiStopPreview,
     getCommands,
+    getVoiceStatus,
   } from "$lib/api";
   import { imageFilesFromItems } from "$lib/clipboard";
   import { trimTrailingWhitespace } from "$lib/terminalSelection";
@@ -57,6 +58,7 @@
   import { recaps } from "$lib/recaps.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import ComposeBar from "$lib/components/ComposeBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import SessionRecap from "$lib/components/SessionRecap.svelte";
@@ -81,7 +83,6 @@
     session,
     onarchive,
     onback,
-    onbroadcast,
     onretry,
     retryHaltedCount = 0,
     retryReady = false,
@@ -113,7 +114,6 @@
     session: Session;
     onarchive?: (id: string, reap?: string[]) => void;
     onback?: () => void;
-    onbroadcast?: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
@@ -243,6 +243,41 @@
     }
   });
   let conn = $state<PtyConn | undefined>();
+
+  // Compose sheet — owned here because its two entry points live on different rows:
+  // the SteerBar mic (Row 1) opens it dictating; the ctrl-row swipe-up (Row 2) opens
+  // it in type mode. Both rows get callbacks that flip this state; the sheet mounts
+  // once below.
+  let composeOpen = $state(false);
+  let composeDictate = $state(false);
+
+  // Mic availability (mobile/touch only). Web Speech is the primary path; the
+  // local-Whisper plugin adds a mic on clients that can record (MediaRecorder +
+  // getUserMedia) even without Web Speech (e.g. an iOS home-screen PWA). The
+  // getVoiceStatus probe is gated to touch layouts so desktop fires no needless call.
+  const speechSupported =
+    typeof window !== "undefined" &&
+    !!(
+      (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
+      (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
+    );
+  const recorderSupported =
+    typeof window !== "undefined" &&
+    typeof MediaRecorder !== "undefined" &&
+    !!navigator.mediaDevices?.getUserMedia;
+  let localVoiceAvailable = $state(false);
+  $effect(() => {
+    if (!(mobile || touch)) return;
+    getVoiceStatus()
+      .then((s) => (localVoiceAvailable = s.available && recorderSupported))
+      .catch(() => {});
+  });
+  const micAvailable = $derived((mobile || touch) && (speechSupported || localVoiceAvailable));
+
+  // composed send: routes the line through composeKeystrokes (atomic bracketed
+  // paste) instead of xterm's textarea, sidestepping the Android IME duplication bug.
+  const sendComposed = (text: string) => conn?.send(composeKeystrokes(text));
+
   // monotonic local keystroke counter, bumped on every term.onData — drives the
   // ReviewInFlightBanner's client-side escalation (issue #1022). Pure UI signal,
   // independent of the server-side lastOperatorKeystrokeAt seam.
@@ -2617,11 +2652,18 @@
     <SteerBar
       focusedId={session.id}
       repoPath={session.repoPath}
-      onbroadcast={() => onbroadcast?.()}
       onretry={() => onretry?.()}
       {retryHaltedCount}
       {retryReady}
       onedit={(id) => onedit?.(id)}
+      {mobile}
+      {touch}
+      termSend={(seq) => conn?.send(seq)}
+      {micAvailable}
+      ondictate={() => {
+        composeDictate = true;
+        composeOpen = true;
+      }}
     />
   {/if}
 
@@ -2637,8 +2679,19 @@
     {uploading}
     {uploadFailed}
     {attachImages}
-    repoPath={session.repoPath}
+    onsummon={() => {
+      composeDictate = false;
+      composeOpen = true;
+    }}
   />
+  {#if composeOpen}
+    <ComposeBar
+      onsend={sendComposed}
+      onclose={() => (composeOpen = false)}
+      repoPath={session.repoPath}
+      startDictation={composeDictate}
+    />
+  {/if}
 
   {#if tab !== "activity"}
     <SessionRecap {session} />

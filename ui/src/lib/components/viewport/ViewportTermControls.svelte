@@ -1,11 +1,8 @@
 <script lang="ts">
-  import { composeKeystrokes } from "$lib/compose";
   import { isSwipeUp } from "../swipe";
   import ControlBar from "$lib/components/ControlBar.svelte";
-  import ComposeBar from "$lib/components/ComposeBar.svelte";
   import type { ControlKey } from "$lib/controlKeys";
   import { m } from "$lib/paraglide/messages";
-  import { getVoiceStatus } from "$lib/api";
 
   let {
     mobile,
@@ -17,7 +14,7 @@
     uploading,
     uploadFailed,
     attachImages,
-    repoPath,
+    onsummon,
   }: {
     mobile: boolean;
     touch: boolean;
@@ -28,62 +25,18 @@
     uploading: boolean;
     uploadFailed: boolean;
     attachImages: (files: FileList | File[]) => void;
-    repoPath: string;
+    onsummon: () => void;
   } = $props();
 
   let fileInput = $state<HTMLInputElement>();
-
-  // mobile compose bar submit. Routing the composed line through here (as an
-  // atomic bracketed paste) instead of xterm's textarea sidesteps the Android
-  // IME duplication bug. See composeKeystrokes for the byte mapping.
-  const sendComposed = (text: string) => send(composeKeystrokes(text));
-
-  // the compose overlay is summoned on demand (swipe-up from the ctrl-row gutter,
-  // or the ✎ chip), reclaiming the row the old always-on input bar occupied.
-  // composeDictate opens the sheet already listening — the one-tap mic dictate chip sets
-  // it; the compose-first entries (✎, swipe-up) leave it false so the keyboard
-  // comes up to type.
-  let composeOpen = $state(false);
-  let composeDictate = $state(false);
   let ctrlRowEl: HTMLDivElement | undefined = $state();
-  function openCompose() {
-    composeDictate = false; // compose-first; the mic dictate toggle lives inside the sheet too
-    composeOpen = true;
-  }
-  // one-tap dictate: opens the sheet already listening (preserves Kai's original
-  // affordance), a peer of the ✎ compose entry rather than a step inside it.
-  // Gated on Web Speech support so the chip never becomes a dead end where it's
-  // unavailable (e.g. an iOS home-screen PWA); the sheet's own mic toggle hides
-  // itself there the same way.
-  const speechSupported =
-    typeof window !== "undefined" &&
-    !!(
-      (window as { SpeechRecognition?: unknown }).SpeechRecognition ??
-      (window as { webkitSpeechRecognition?: unknown }).webkitSpeechRecognition
-    );
-  // Also offer the mic chip where the local-Whisper plugin gives a mic even without Web Speech
-  // (iOS home-screen PWA). Requires the client to actually be able to record (MediaRecorder +
-  // getUserMedia). Memoized once per page load; absent → chip shows only under Web Speech,
-  // exactly as before. The sheet's own mic then records via the plugin on an in-sheet tap.
-  const recorderSupported =
-    typeof window !== "undefined" &&
-    typeof MediaRecorder !== "undefined" &&
-    !!navigator.mediaDevices?.getUserMedia;
-  let localVoiceAvailable = $state(false);
-  $effect(() => {
-    getVoiceStatus()
-      .then((s) => (localVoiceAvailable = s.available && recorderSupported))
-      .catch(() => {});
-  });
-  function openDictate() {
-    composeDictate = true;
-    composeOpen = true;
-  }
-  // Swipe up from the ctrl-row gutter to summon the compose sheet — a bottom-edge
-  // gesture, so it never competes with the terminal's vertical scrollback (which
-  // lives above the row). isSwipeUp ignores chip taps and horizontal pane swipes.
-  // Listeners are bound in JS (not inline on the markup) so the row stays a plain
-  // static container — the chips remain the interactive elements.
+
+  // Swipe up from the ctrl-row gutter to summon the compose sheet (in type mode) —
+  // a bottom-edge gesture, so it never competes with the terminal's vertical
+  // scrollback (which lives above the row). isSwipeUp ignores chip taps and
+  // horizontal pane swipes. Listeners are bound in JS (not inline on the markup) so
+  // the row stays a plain static container — the chips remain the interactive
+  // elements. The compose sheet itself lives in Viewport; onsummon opens it.
   $effect(() => {
     const row = ctrlRowEl;
     if (!row) return;
@@ -103,7 +56,7 @@
       dy = e.touches[0].clientY - sy;
     };
     const end = () => {
-      if (isSwipeUp(dx, dy, 36)) openCompose();
+      if (isSwipeUp(dx, dy, 36)) onsummon();
       dx = dy = 0;
     };
     row.addEventListener("touchstart", start, { passive: true });
@@ -119,29 +72,10 @@
 
 {#if (mobile || touch) && tab === "term"}
   <div class="ctrl-row" bind:this={ctrlRowEl} data-swipe-ignore>
-    <!-- Esc frozen on the left edge; Tab/Space + arrows + ^-keys scroll in the
-         middle; attach/dictate/Enter frozen on the right. Tab/Space ride along
-         in the scroll well so the frozen edge stays one button wide — on a
-         portrait phone a wider frozen cluster squeezed the scroll window to ~2
-         keys. There's no compose chip — swipe up from this row to summon the
-         compose sheet. -->
-    <ControlBar onkey={(seq) => send(seq)} include={["cancel"]} scroll={false} />
-    <ControlBar onkey={(seq) => send(seq)} include={["edit", "nav", "signal"]} />
-    <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
-         no keyboard on a phone to press the letter, so this is the sole way into
-         the dialog's notes branch; it pulses to catch the eye and vanishes once
-         the prompt does -->
-    {#if notesKey}
-      <button
-        type="button"
-        class="notes"
-        aria-label={m.viewport_notes_aria({ key: notesKey })}
-        onpointerup={(e) => {
-          e.preventDefault();
-          if (notesKey) send(notesKey);
-        }}>✎ {notesKey.toUpperCase()}</button
-      >
-    {/if}
+    <!-- image upload frozen on the far left; Tab/Space + arrows + ^-keys scroll in
+         the middle; Enter frozen on the right. Esc + the dictate mic now live on
+         Row 1 (SteerBar). There's no compose chip — swipe up from this row to summon
+         the compose sheet in type mode. -->
     <button
       type="button"
       class="attach"
@@ -192,32 +126,23 @@
         >
       {/if}
     </button>
-    {#if speechSupported || localVoiceAvailable}
+    <!-- include is a membership filter; ControlBar renders in palette order (nav-first,
+         see controlKeys). Listed nav-first here only to mirror the actual render order. -->
+    <ControlBar onkey={(seq) => send(seq)} include={["nav", "edit", "signal"]} />
+    <!-- only while Claude's prompt offers it: a pulsing "add notes" key. There's
+         no keyboard on a phone to press the letter, so this is the sole way into
+         the dialog's notes branch; it pulses to catch the eye and vanishes once
+         the prompt does -->
+    {#if notesKey}
       <button
         type="button"
-        class="dictate"
-        title={m.composebar_dictate_aria()}
-        aria-label={m.composebar_dictate_aria()}
-        onpointerdown={(e) => {
+        class="notes"
+        aria-label={m.viewport_notes_aria({ key: notesKey })}
+        onpointerup={(e) => {
           e.preventDefault();
-          openDictate();
-        }}
+          if (notesKey) send(notesKey);
+        }}>✎ {notesKey.toUpperCase()}</button
       >
-        <svg
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z" />
-          <path d="M19 10v2a7 7 0 0 1-14 0v-2" />
-          <path d="M12 19v3" />
-          <path d="M8 22h8" />
-        </svg>
-      </button>
     {/if}
     <button
       type="button"
@@ -229,14 +154,6 @@
       }}>{enter.label}</button
     >
   </div>
-  {#if composeOpen}
-    <ComposeBar
-      onsend={sendComposed}
-      onclose={() => (composeOpen = false)}
-      {repoPath}
-      startDictation={composeDictate}
-    />
-  {/if}
   <input
     bind:this={fileInput}
     type="file"
@@ -257,11 +174,11 @@
     display: flex;
     align-items: center;
     gap: 6px;
+    padding-left: 10px;
     padding-right: 10px;
     background: var(--color-head);
     border-top: 1px solid var(--color-line);
   }
-  .ctrl-row .dictate,
   .ctrl-row .attach,
   .ctrl-row .enter {
     flex: 0 0 auto;
@@ -279,7 +196,6 @@
       background 0.08s,
       border-color 0.08s;
   }
-  .ctrl-row .dictate:active,
   .ctrl-row .attach:active,
   .ctrl-row .enter:active {
     background: var(--color-line-bright);
@@ -289,15 +205,13 @@
     border-color: var(--color-red);
     color: var(--color-red);
   }
-  .ctrl-row .attach,
-  .ctrl-row .dictate {
+  .ctrl-row .attach {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     padding: 0;
   }
-  .ctrl-row .attach svg,
-  .ctrl-row .dictate svg {
+  .ctrl-row .attach svg {
     width: var(--fs-lg);
     height: var(--fs-lg);
     display: block;

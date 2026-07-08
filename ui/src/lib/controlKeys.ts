@@ -6,8 +6,9 @@ import { m } from "$lib/paraglide/messages";
 
 // Visual grouping for the bar: keys in the same group sit together in one
 // "well" (Gestalt common-region), with a wider gap between groups so a glance
-// tells which keys belong together. "cancel" (Esc) is frozen on the left edge;
-// edit/nav/signal scroll in the middle (see ControlBar usage in Viewport).
+// tells which keys belong together. This palette feeds the mobile control row;
+// the nav (arrow) group leads the scrolling region so the arrow cluster stays
+// visible on a portrait phone, with edit/signal following.
 export type ControlGroup = "cancel" | "edit" | "nav" | "signal";
 
 // Optional colour accent carrying meaning (used sparingly so it stays a signal):
@@ -22,18 +23,19 @@ export interface ControlKey {
   tone?: ControlTone; // optional colour accent
 }
 
-// The control palette, ordered by group (Esc frozen left, the rest scroll in
-// the middle). Enter is intentionally absent — it's the primary affirmative
-// action and lives pinned in the thumb zone, see enterKey().
+// The control palette, ordered nav-first so the arrow cluster leads the
+// scrolling region (stays visible on a portrait phone); edit/signal follow.
+// Enter is intentionally absent — it's the primary affirmative action and
+// lives pinned in the thumb zone, see enterKey().
 export function controlKeys(): ControlKey[] {
   return [
     { label: "Esc", aria: m.controlkey_escape(), seq: "\x1b", group: "cancel", tone: "escape" },
-    { label: "Tab", aria: m.controlkey_tab(), seq: "\x09", group: "edit" },
-    { label: "␣", aria: m.controlkey_space(), seq: " ", group: "edit" },
     { label: "←", aria: m.controlkey_arrow_left(), seq: "\x1b[D", group: "nav" },
     { label: "→", aria: m.controlkey_arrow_right(), seq: "\x1b[C", group: "nav" },
     { label: "↑", aria: m.controlkey_arrow_up(), seq: "\x1b[A", group: "nav" },
     { label: "↓", aria: m.controlkey_arrow_down(), seq: "\x1b[B", group: "nav" },
+    { label: "Tab", aria: m.controlkey_tab(), seq: "\x09", group: "edit" },
+    { label: "␣", aria: m.controlkey_space(), seq: " ", group: "edit" },
     { label: "^A", aria: m.controlkey_ctrl_a(), seq: "\x01", group: "signal" },
     { label: "^E", aria: m.controlkey_ctrl_e(), seq: "\x05", group: "signal" },
     { label: "^U", aria: m.controlkey_ctrl_u(), seq: "\x15", group: "signal" },

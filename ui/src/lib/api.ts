@@ -1433,8 +1433,8 @@ export async function applyHerdrUpdate(): Promise<void> {
   }
 }
 
-/** Trigger `npm install -g @openai/codex` (non-destructive: running panes keep
- *  their loaded build; only new codex sessions pick up the new version). */
+/** Trigger `codex update` (non-destructive: running panes keep their loaded
+ *  build; only new codex sessions pick up the new version). */
 export async function applyCodexUpdate(): Promise<void> {
   const r = await fetch("/api/codex-update", { method: "POST", headers: JSON_HEADERS });
   if (!r.ok) {

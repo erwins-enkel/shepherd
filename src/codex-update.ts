@@ -1,4 +1,6 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
+import { delimiter, join } from "node:path";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { compareSemver } from "./herdr-update";
@@ -29,48 +31,113 @@ function sanitizeVersion(v: string | null | undefined): string {
  * The shell program shepherd spawns as a managed child. Extracted + exported
  * so its sequencing is unit-testable without a live codex release.
  *
- * Unlike `herdr update`, `npm install -g @openai/codex` is NON-destructive: it
- * swaps the global binary on disk, so already-spawned codex agent panes keep
- * running their loaded build and only NEW codex sessions pick up the new
- * version. There is therefore no handoff, no server restart, and no recovery
- * branch — just install + audit.
+ * Updates via codex's own **`codex update`** subcommand (`<codexBin> update`),
+ * which is install-kind aware: on an npm install it reruns `npm install -g
+ * @openai/codex`; on a standalone install it reruns the standalone installer,
+ * repointing the on-PATH `~/.local/bin/codex`. It therefore updates the SAME
+ * binary shepherd re-reads to verify — closing the npm/standalone mismatch that
+ * made `npm install -g` update a shadowed copy while the on-PATH codex stayed put
+ * (issue #1560). `codex update` is NON-destructive (swaps the binary on disk;
+ * running codex panes keep their loaded build, only new sessions pick it up), so
+ * there is no handoff, no server restart, and no recovery branch.
+ *
+ * Safety rails baked into the script:
+ * - **Probe first.** We only invoke `codex update` if `codex --help` advertises
+ *   the subcommand. A codex too old to have it would otherwise treat `update` as
+ *   an interactive prompt; `--help` just prints help and exits, never runs an agent.
+ * - **npm fallback gated on non-advancement.** If the subcommand is absent OR the
+ *   version did not advance (`after == before`), fall back to `npm install -g
+ *   @openai/codex`. Gating on the version — not the exit code — means an old codex
+ *   that silently no-ops still falls back, so old-npm hosts never regress.
+ * - **`export CODEX_NON_INTERACTIVE=1`** so the standalone installer path runs unattended.
  *
  * Every run appends ONE delimited block to `logPath` (default
- * ~/.shepherd/codex-update.log) via `tee -a`: a `=== codex-update <UTC> <from>
- * -> <to> ===` header, the step marker, raw `npm install` output, and the exit
- * code. The script writes this file itself so the record is COMPLETE even if
- * shepherd crashes mid-update.
+ * ~/.shepherd/codex-update.log) via `tee -a`: a `=== codex-update <UTC> <from> ->
+ * <to> ===` header, on-PATH diagnostics (resolved path, symlink target, all
+ * `codex` on PATH — surfaces the documented PATH-duplicate non-convergence mode),
+ * the step markers, raw updater output, and the post-update version. The script
+ * writes this file itself so the record is COMPLETE even if shepherd crashes.
  */
 export function buildUpdateScript(
   logPath: string,
-  from?: string | null,
-  to?: string | null,
+  from: string | null | undefined,
+  to: string | null | undefined,
+  codexBin: string,
 ): string {
   const f = sanitizeVersion(from);
   const t = sanitizeVersion(to);
-  // single-quote the path for the shell; a literal `'` inside it (vanishingly
-  // unlikely in a home path) is escaped via the classic '\'' close-reopen trick.
+  // single-quote path + binary for the shell; a literal `'` inside (vanishingly
+  // unlikely) is escaped via the classic '\'' close-reopen trick.
   const q = `'${logPath.replace(/'/g, "'\\''")}'`;
+  const cx = `'${codexBin.replace(/'/g, "'\\''")}'`;
+  const P = CODEX_UPDATE_LOG_PREFIX;
   return [
     `LOG=${q}`,
+    `CX=${cx}`,
     'mkdir -p "$(dirname "$LOG")"',
     "{",
     `  echo "=== codex-update $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
-    `  echo '${CODEX_UPDATE_LOG_PREFIX} running npm install -g @openai/codex'`,
-    "  npm install -g @openai/codex; rc=$?",
-    `  echo "${CODEX_UPDATE_LOG_PREFIX} npm install exited rc=$rc"`,
+    "  export CODEX_NON_INTERACTIVE=1",
+    `  before="$("$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)"`,
+    `  cxpath="$(command -v "$CX" 2>/dev/null || echo '<not found>')"`,
+    `  echo "${P} on-PATH codex: $cxpath"`,
+    `  echo "${P} symlink target: $(readlink "$cxpath" 2>/dev/null || echo '<none>')"`,
+    // bare-name `type -a codex` (not "$CX", which just echoes an absolute path)
+    // reveals PATH duplicates — the documented cause of a non-converging update.
+    `  dups="$(type -a codex 2>/dev/null || true)"`,
+    `  echo "${P} codex on PATH:" $dups`,
+    `  if "$CX" --help 2>/dev/null | grep -qE '^[[:space:]]+update[[:space:]]'; then`,
+    `    echo '${P} running codex update'`,
+    `    "$CX" update; rc=$?`,
+    `    echo "${P} codex update exited rc=$rc"`,
+    "    has_update=1",
+    "  else",
+    `    echo '${P} codex update subcommand not present; using npm'`,
+    "    has_update=0",
+    "  fi",
+    `  after="$("$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)"`,
+    `  if [ "$has_update" -eq 0 ] || [ "$after" = "$before" ]; then`,
+    `    echo '${P} falling back to npm install -g @openai/codex'`,
+    "    npm install -g @openai/codex; rc=$?",
+    `    echo "${P} npm install exited rc=$rc"`,
+    "  fi",
+    `  echo "${P} codex --version now: $("$CX" --version 2>/dev/null || echo '<unreadable>')"`,
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
 }
 
+/** Best-effort resolve the codex binary as it sits on PATH, for the "which codex
+ *  is actually stuck?" diagnostic. Pure PATH scan (no subprocess) so it never
+ *  spawns or throws; an absolute/relative `codexBin` is reported as-is; null if
+ *  nothing resolves. */
+function defaultResolveOnPath(codexBin: string): string | null {
+  try {
+    if (codexBin.includes("/")) return codexBin;
+    const dirs = (process.env.PATH ?? "").split(delimiter);
+    for (const dir of dirs) {
+      if (!dir) continue;
+      const candidate = join(dir, codexBin);
+      if (existsSync(candidate)) return candidate;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
- *  ✓/✗ state. Success is decided by a re-read `codex --version`, NOT the child's
- *  exit code (a no-op `npm install` still exits 0). */
+ *  ✓/✗ state. Success is decided by whether the re-read `codex --version`
+ *  ADVANCED, NOT the child's exit code (a no-op update still exits 0). */
 export interface CodexUpdateResult {
   ok: boolean;
   from: string | null;
   to: string | null;
   error?: string;
+  /** On a NON-converged update (version did not advance), the codex binary as
+   *  resolved on PATH — so the modal can name WHICH install is stuck (a separate
+   *  PATH duplicate, or an already-latest no-op) instead of a blind retry loop.
+   *  null/absent on success or when it can't be resolved. */
+  onPathBinary?: string | null;
 }
 
 export interface CodexUpdateDeps {
@@ -90,25 +157,30 @@ export interface CodexUpdateDeps {
   onStatus?: (status: CodexUpdateStatus) => void;
   /** the terminal result, emitted exactly once per apply(); default: no-op */
   onDone?: (result: CodexUpdateResult) => void;
-  /** watchdog ceiling before a hung `npm install` is force-killed (default 5min) */
+  /** inject point for tests; resolve the on-PATH codex for the stuck-update
+   *  diagnostic. Default: a pure PATH scan of `config.codexBin`. */
+  resolveOnPathBinary?: () => string | null;
+  /** watchdog ceiling before a hung update is force-killed (default 5min) */
   watchdogMs?: number;
 }
 
 /**
  * Tracks whether a newer @openai/codex (the OpenAI Codex CLI, one of Shepherd's
- * agent runtimes) is published on npm and, on demand, runs `npm install -g
- * @openai/codex` for the operator. It surfaces a badge keyed off
- * `updateAvailable`.
+ * agent runtimes) is published on npm and, on demand, runs `codex update` for the
+ * operator. It surfaces a badge keyed off `updateAvailable`.
  *
  * Modelled on {@link HerdrUpdateService}: the check parses the installed version
  * from `codex --version` and compares it against the npm registry. It is
  * fail-safe — any error (binary missing, network down, malformed payload) yields
  * updateAvailable:false, so a broken check can never raise a false badge.
  *
- * `apply()` spawns the install as a managed child of shepherd (no shepherd
- * restart). Because the install is non-destructive, running codex panes are not
- * interrupted. Success is determined by re-reading `codex --version` after the
- * child exits, not by exit code. The terminal result is emitted via onDone.
+ * `apply()` spawns `codex update` (with an npm fallback) as a managed child of
+ * shepherd (no shepherd restart). Because the update is non-destructive, running
+ * codex panes are not interrupted. Success is determined by whether a re-read
+ * `codex --version` ADVANCED past the prior version — channel-agnostic, so a
+ * standalone update whose version differs from npm-latest still counts. The
+ * terminal result is emitted via onDone; a non-converged update carries the
+ * on-PATH binary so the modal can explain which install is stuck.
  */
 export class CodexUpdateService {
   private versionRunner: () => string;
@@ -117,6 +189,7 @@ export class CodexUpdateService {
   private onLog: (line: string) => void;
   private onStatus: (status: CodexUpdateStatus) => void;
   private onDone: (result: CodexUpdateResult) => void;
+  private resolveOnPathBinary: () => string | null;
   private watchdogMs: number;
   private last: CodexUpdateStatus | null = null;
   private applying = false;
@@ -132,6 +205,8 @@ export class CodexUpdateService {
     this.onLog = deps.onLog ?? (() => {});
     this.onStatus = deps.onStatus ?? (() => {});
     this.onDone = deps.onDone ?? (() => {});
+    this.resolveOnPathBinary =
+      deps.resolveOnPathBinary ?? (() => defaultResolveOnPath(config.codexBin));
     this.watchdogMs = deps.watchdogMs ?? 5 * 60 * 1000;
   }
 
@@ -144,6 +219,7 @@ export class CodexUpdateService {
         config.codexUpdateLogPath,
         this.last?.current,
         this.last?.latest,
+        config.codexBin,
       );
       const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
       const kill = () => child.kill("SIGKILL");
@@ -231,7 +307,16 @@ export class CodexUpdateService {
       if (ctrl.signal.aborted) {
         result = { ok: false, from, to: after, error: "codex update timed out" };
       } else {
-        const ok = !!after && !!to && after === to;
+        // Success = the on-PATH version ADVANCED past what we started on. This is
+        // channel-agnostic: `codex update` on a standalone install targets the
+        // standalone channel, whose latest need not byte-match npm-latest, so an
+        // exact `after === npm-latest` check would falsely loop after a real
+        // standalone update. If the version went up, the update worked.
+        const ok = !!after && !!from && compareSemver(after, from) > 0;
+        // On non-convergence, resolve the actual on-PATH codex so the modal can
+        // name WHICH binary is stuck (a separate PATH-duplicate install, or an
+        // already-latest no-op) instead of a blind, unexplained retry loop.
+        const onPathBinary = ok ? null : this.resolveOnPathBinary();
         this.last = {
           current: after,
           latest: to,
@@ -242,8 +327,8 @@ export class CodexUpdateService {
         };
         this.onStatus(this.last);
         result = ok
-          ? { ok: true, from, to }
-          : { ok: false, from, to: after, error: "codex was not updated" };
+          ? { ok: true, from, to: after }
+          : { ok: false, from, to: after, error: "codex was not updated", onPathBinary };
       }
     } catch (err) {
       // runUpdate itself threw (e.g. spawn failed) — re-read the actual version

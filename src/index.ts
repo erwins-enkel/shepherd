@@ -2197,10 +2197,10 @@ setTimeout(checkHerdrUpdate, 4_000);
 setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
 
 // watch npm for a newer @openai/codex and surface the same informational badge as
-// herdr. Unlike `herdr update`, `npm install -g @openai/codex` is non-destructive
-// (running codex panes keep their loaded build), so apply() never interrupts a
-// session. Codex (the agent runtime) ships frequently, but a 6h cadence — the same
-// as herdr — is plenty for a badge the operator applies manually.
+// herdr. Unlike `herdr update`, `codex update` is non-destructive (running codex
+// panes keep their loaded build), so apply() never interrupts a session. Codex (the
+// agent runtime) ships frequently, but a 6h cadence — the same as herdr — is plenty
+// for a badge the operator applies manually.
 const codexUpdates = new CodexUpdateService({
   onLog: (line) => events.emit("codex-update:log", { line }),
   onStatus: (status) => events.emit("codex-update:status", status),

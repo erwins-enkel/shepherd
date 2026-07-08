@@ -33,10 +33,10 @@ describe("CodexUpdateModal", () => {
         update,
         log: [
           "=== codex-update 2026-07-01T07:10:00Z 0.142.4 -> 0.142.5 ===",
-          ">>> codex-update: running npm install -g @openai/codex",
+          ">>> codex-update: running codex update",
+          "Updating Codex via `npm install -g @openai/codex`...",
           "changed 2 packages in 5s",
-          "Reshimming mise 24.14.1...",
-          ">>> codex-update: npm install exited rc=0",
+          ">>> codex-update: codex update exited rc=0",
         ],
       },
     });
@@ -53,5 +53,29 @@ describe("CodexUpdateModal", () => {
       card!.scrollHeight,
       "dialog should not need its own vertical scrollbar",
     ).toBeLessThanOrEqual(card!.clientHeight + 1);
+  });
+
+  it("shows the stuck-update message naming the on-PATH binary on non-convergence", async () => {
+    const props = { update, log: [">>> codex-update: codex update exited rc=0"] };
+    const { rerender } = render(CodexUpdateModal, { props });
+
+    // click Run so the modal enters its submitting state, then deliver a
+    // non-converged `done` that carries the on-PATH binary (as the server would).
+    document.querySelector<HTMLButtonElement>(".run")?.click();
+    await rerender({
+      ...props,
+      done: {
+        ok: false,
+        from: "0.142.4",
+        to: "0.142.4",
+        onPathBinary: "/home/op/.local/bin/codex",
+      },
+    });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector(".status.fail")?.textContent ?? "").toContain(
+        "/home/op/.local/bin/codex",
+      ),
+    );
   });
 });

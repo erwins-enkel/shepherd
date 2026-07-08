@@ -1236,6 +1236,10 @@ export interface CodexUpdateResult {
   from: string | null;
   to: string | null;
   error?: string;
+  /** On a non-converged update (version did not advance), the codex binary as
+   *  resolved on PATH — lets the modal name which install is stuck instead of a
+   *  blind retry loop. null/absent on success or when unresolved. */
+  onPathBinary?: string | null;
 }
 
 /** Per-plugin update state (mirror of src/types.ts PluginUpdateState). */

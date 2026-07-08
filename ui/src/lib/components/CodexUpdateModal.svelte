@@ -25,10 +25,9 @@
 
   const CODEX_RELEASES_URL = "https://github.com/openai/codex/releases";
 
-  // `npm install -g @openai/codex` runs server-side in a managed child; shepherd
-  // stays up and the modal resolves itself via the `done` result. Busy only while
-  // the install is in flight; a terminal `done` ends it so the operator can read
-  // the ✓/✗ outcome and close.
+  // `codex update` runs server-side in a managed child; shepherd stays up and the
+  // modal resolves itself via the `done` result. Busy only while the update is in
+  // flight; a terminal `done` ends it so the operator can read the ✓/✗ outcome and close.
   const busy = $derived(submitting && !done);
 
   async function confirm() {
@@ -100,6 +99,11 @@
         <div class="status" class:ok={done.ok} class:fail={!done.ok} aria-live="polite">
           {#if done.ok}
             {m.codexupdate_done_ok({ latest: done.to ?? update.latest ?? "" })}
+          {:else if done.onPathBinary}
+            {m.codexupdate_done_fail_stuck({
+              current: done.to ?? update.current ?? "",
+              path: done.onPathBinary,
+            })}
           {:else}
             {m.codexupdate_done_fail({ current: done.to ?? update.current ?? "" })}
           {/if}

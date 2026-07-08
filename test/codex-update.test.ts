@@ -7,15 +7,36 @@ import {
 } from "../src/codex-update";
 
 const LOG = "/home/op/.shepherd/codex-update.log";
+const CB = "codex";
 
-// ── buildUpdateScript: non-destructive npm install, durable audit log ─────────
-test("buildUpdateScript: runs `npm install -g @openai/codex`", () => {
-  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4");
-  expect(s).toContain("npm install -g @openai/codex");
+// ── buildUpdateScript: `codex update` with npm fallback, durable audit log ─────
+test("buildUpdateScript: runs `codex update` and keeps an npm fallback", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  expect(s).toContain('"$CX" update'); // primary: codex's own install-kind-aware updater
+  expect(s).toContain("npm install -g @openai/codex"); // fallback for a codex lacking `update`
+  expect(s).toContain(`CX='${CB}'`);
+});
+
+test("buildUpdateScript: probes the subcommand and runs non-interactively", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  // `--help` probe guards against a too-old codex treating `update` as an agent prompt
+  expect(s).toContain('"$CX" --help');
+  expect(s).toContain("export CODEX_NON_INTERACTIVE=1");
+});
+
+test("buildUpdateScript: gates the npm fallback on version NON-advancement, not exit code", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  expect(s).toContain('[ "$after" = "$before" ]');
+});
+
+test("buildUpdateScript: emits portable duplicate diagnostics via `type -a codex`", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  expect(s).toContain("type -a codex"); // bare name reveals PATH dups even if CODEX_BIN is absolute
+  expect(s).not.toContain("which -a"); // non-POSIX, deliberately avoided
 });
 
 test("buildUpdateScript: never restarts a server, herdr, shepherd, or shells systemd", () => {
-  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4");
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
   // codex updates are non-destructive: no handoff, no server restart, no systemd.
   expect(s).not.toContain("--handoff");
   expect(s).not.toContain("herdr");
@@ -23,16 +44,16 @@ test("buildUpdateScript: never restarts a server, herdr, shepherd, or shells sys
   expect(s).not.toContain("systemd-run");
 });
 
-test("buildUpdateScript: echoes a greppable marker for each step", () => {
-  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4");
-  const markers = s.split("\n").filter((l) => l.includes(CODEX_UPDATE_LOG_PREFIX));
-  // running / exited rc = 2 markers
-  expect(markers.length).toBe(2);
+test("buildUpdateScript: echoes greppable markers for the update + fallback steps", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  expect(s).toContain(`${CODEX_UPDATE_LOG_PREFIX} running codex update`);
+  expect(s).toContain(`${CODEX_UPDATE_LOG_PREFIX} codex update exited rc=$rc`);
+  expect(s).toContain(`${CODEX_UPDATE_LOG_PREFIX} falling back to npm install -g @openai/codex`);
   expect(s).toContain(`${CODEX_UPDATE_LOG_PREFIX} npm install exited rc=$rc`);
 });
 
 test("buildUpdateScript: appends a delimited, timestamped, versioned block", () => {
-  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4");
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
   expect(s).toContain(`LOG='${LOG}'`);
   expect(s).toContain('| tee -a "$LOG"');
   expect(s).toContain("=== codex-update $(date -u +%Y-%m-%dT%H:%M:%SZ) 0.142.2 -> 0.142.4 ===");
@@ -40,13 +61,13 @@ test("buildUpdateScript: appends a delimited, timestamped, versioned block", () 
 });
 
 test("buildUpdateScript: sanitizes versions so a payload can't inject shell", () => {
-  const s = buildUpdateScript(LOG, "0.142.2", '0.142.4"; rm -rf ~ #');
+  const s = buildUpdateScript(LOG, "0.142.2", '0.142.4"; rm -rf ~ #', CB);
   expect(s).not.toContain("rm -rf");
   expect(s).toContain("0.142.2 -> 0.142.4 ===");
 });
 
 test("buildUpdateScript: missing versions degrade to 'unknown'", () => {
-  const s = buildUpdateScript(LOG, null, undefined);
+  const s = buildUpdateScript(LOG, null, undefined, CB);
   expect(s).toContain("unknown -> unknown ===");
 });
 
@@ -93,6 +114,7 @@ function primed(opts: {
   latest?: string;
   current?: string;
   runUpdate?: (onLine: (l: string) => void, signal: AbortSignal) => Promise<void>;
+  resolveOnPathBinary?: () => string | null;
   watchdogMs?: number;
 }) {
   const dones: CodexUpdateResult[] = [];
@@ -105,6 +127,8 @@ function primed(opts: {
     },
     fetchLatest: async () => ({ version: opts.latest ?? "0.142.4" }),
     runUpdate: opts.runUpdate ?? (async () => {}),
+    // default null so failure-path tests stay hermetic (no real PATH scan)
+    resolveOnPathBinary: opts.resolveOnPathBinary ?? (() => null),
     onLog: () => {},
     onStatus: () => {},
     onDone: (r) => dones.push(r),
@@ -115,13 +139,44 @@ function primed(opts: {
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
 
-test("apply(): success when re-read version equals target", async () => {
+test("apply(): success when the re-read version advances past the prior version", async () => {
   const { svc, dones } = primed({ installedAfter: "0.142.4", latest: "0.142.4" });
   await svc.check(1); // sets current=0.142.2, latest=0.142.4, updateAvailable
   expect(svc.apply()).toEqual({ started: true });
   await settle();
   expect(dones).toHaveLength(1);
   expect(dones[0]).toMatchObject({ ok: true, to: "0.142.4" });
+});
+
+test("apply(): success is by ADVANCEMENT, not npm-latest match (standalone channel skew)", async () => {
+  // A standalone `codex update` landed 0.142.9 while npm-latest reports 0.143.0 —
+  // the version advanced, so this is a success reported at the ACTUAL version.
+  const { svc, dones } = primed({
+    current: "0.142.2",
+    installedAfter: "0.142.9",
+    latest: "0.143.0",
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: true, to: "0.142.9" });
+});
+
+test("apply(): non-advancement attaches the on-PATH binary for the stuck-update message", async () => {
+  const { svc, dones } = primed({
+    current: "0.142.2",
+    installedAfter: "0.142.2", // update ran but version did not move (PATH dup / already-latest)
+    latest: "0.142.4",
+    resolveOnPathBinary: () => "/home/op/.local/bin/codex",
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(dones[0]).toMatchObject({
+    ok: false,
+    to: "0.142.2",
+    onPathBinary: "/home/op/.local/bin/codex",
+  });
 });
 
 test("apply(): failure when version unchanged even though the child exits 0", async () => {

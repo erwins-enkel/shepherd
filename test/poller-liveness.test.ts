@@ -15,6 +15,18 @@ import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
 
+/**
+ * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
+ * sync `list()` these pre-existing herdr fakes were written against. Rather than
+ * duplicate each fake's (sometimes stateful) `list()` logic, mirror it: `listAsync`
+ * resolves to whatever `list()` returns at call time.
+ */
+function withListAsync<T extends { list: () => HerdrAgent[] }>(
+  herdr: T,
+): T & { listAsync: () => Promise<HerdrAgent[]> } {
+  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+}
+
 const baseHerdrAgent: HerdrAgent = {
   agent: "claude",
   agentStatus: "done",
@@ -48,7 +60,7 @@ function makePoller(opts: {
 }) {
   return new StatusPoller(
     opts.store,
-    { list: () => opts.agents, read: () => "" } as any,
+    withListAsync({ list: () => opts.agents, read: () => "" } as any),
     () => {},
     () => {},
     1000,
@@ -71,7 +83,7 @@ function makePoller(opts: {
   );
 }
 
-test("liveness sweep: emits on first sighting and on flips, not steady state", () => {
+test("liveness sweep: emits on first sighting and on flips, not steady state", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSessionInput);
   let alive = true;
@@ -87,16 +99,16 @@ test("liveness sweep: emits on first sighting and on flips, not steady state", (
     now: () => clock,
   });
 
-  poller.tick(); // first sweep → first sighting emits
+  await poller.tick(); // first sweep → first sighting emits
   expect(changes).toEqual([{ id: s.id, alive: true }]);
 
   clock += 5000;
-  poller.tick(); // unchanged → no emit
+  await poller.tick(); // unchanged → no emit
   expect(changes.length).toBe(1);
 
   alive = false; // claude exited → husk
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   expect(changes).toEqual([
     { id: s.id, alive: true },
     { id: s.id, alive: false },
@@ -104,7 +116,7 @@ test("liveness sweep: emits on first sighting and on flips, not steady state", (
   expect(poller.claudeAliveSnapshot()).toEqual({ [s.id]: false });
 });
 
-test("liveness sweep: throttle — ticks within sweepMs don't re-scan", () => {
+test("liveness sweep: throttle — ticks within sweepMs don't re-scan", async () => {
   const store = new SessionStore(":memory:");
   store.create(baseSessionInput);
   let scans = 0;
@@ -122,17 +134,17 @@ test("liveness sweep: throttle — ticks within sweepMs don't re-scan", () => {
     now: () => clock,
   });
 
-  poller.tick();
+  await poller.tick();
   expect(scans).toBe(1);
   clock += 2000; // within sweepMs
-  poller.tick();
+  await poller.tick();
   expect(scans).toBe(1);
   clock += 3000; // past sweepMs
-  poller.tick();
+  await poller.tick();
   expect(scans).toBe(2);
 });
 
-test("liveness sweep: tracking pruned when a session leaves the active set", () => {
+test("liveness sweep: tracking pruned when a session leaves the active set", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSessionInput);
   let clock = 100_000;
@@ -146,16 +158,16 @@ test("liveness sweep: tracking pruned when a session leaves the active set", () 
     now: () => clock,
   });
 
-  poller.tick();
+  await poller.tick();
   expect(poller.claudeAliveSnapshot()).toEqual({ [s.id]: true });
 
   store.archive(s.id);
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   expect(poller.claudeAliveSnapshot()).toEqual({});
 });
 
-test("liveness sweep: a throwing scan is swallowed; later sweep recovers", () => {
+test("liveness sweep: a throwing scan is swallowed; later sweep recovers", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create(baseSessionInput);
   let shouldThrow = true;
@@ -174,12 +186,12 @@ test("liveness sweep: a throwing scan is swallowed; later sweep recovers", () =>
     now: () => clock,
   });
 
-  expect(() => poller.tick()).not.toThrow();
+  await expect(poller.tick()).resolves.toBeUndefined();
   expect(changes).toEqual([]);
 
   shouldThrow = false;
   clock += 5000;
-  poller.tick();
+  await poller.tick();
   expect(changes).toEqual([s.id]);
 });
 

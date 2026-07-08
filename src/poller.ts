@@ -157,6 +157,9 @@ export class StatusPoller {
   detectRestingAuth: (s: Session) => { url: string | null; tail: string[] } = readRestingAuth;
 
   private timer: ReturnType<typeof setInterval> | null = null;
+  /** Re-entrancy guard for `tick()`: async since `listAsync()` goes over the socket,
+   *  so a slow read could otherwise overlap the next 1s fire. */
+  private ticking = false;
   private lastReadAt = new Map<string, number>();
   private lastSig = new Map<string, string>();
   /** Last-emitted block reason per session (parallel to `lastActivity`), for client
@@ -279,7 +282,7 @@ export class StatusPoller {
 
   constructor(
     private store: SessionStore,
-    private herdr: Pick<HerdrDriver, "list" | "read" | "readAsync">,
+    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync">,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
     private intervalMs = 1000,
@@ -416,48 +419,57 @@ export class StatusPoller {
     return ep;
   }
 
-  tick(): void {
+  async tick(): Promise<void> {
     // herdr is mid-update: don't poll — a list() here would resurrect the herdr
     // server and (seeing no agents) wrongly reap every live session.
     if (maintenance.active) return;
-    // `herdr list` now carries a hard timeout (HERDR_TIMEOUT_MS), so an
-    // unresponsive herdr THROWS rather than blocking. This runs on a 1s interval
-    // with no surrounding try/catch, so an unhandled throw would crash shepherd
-    // (→ a restart-502, the very thing this design removes). Skip the tick on any
-    // herdr failure and retry next cadence — same best-effort stance as the
-    // read-based maybeStall/maybeClassify paths below. Probe herdr before the
-    // store so a failure bails without touching session state.
-    let agents: HerdrAgent[];
+    // tick() is async (listAsync() goes over the socket) and fires every intervalMs
+    // via setInterval, so a slow read could otherwise overlap the next fire. Skip
+    // this fire entirely while a prior tick is still in flight.
+    if (this.ticking) return;
+    this.ticking = true;
     try {
-      agents = this.herdr.list();
-    } catch (err) {
-      console.warn("[poller] herdr list failed; skipping tick:", err);
-      return;
-    }
-    const sessions = this.store.list({ activeOnly: true });
-    const matched = matchAgents(sessions, agents);
-    const activeIds = new Set<string>();
-    for (const s of sessions) {
-      activeIds.add(s.id);
-      const agent = matched.get(s.id) ?? null;
-      if (!agent) this.reapGone(s);
-      else this.reconcileAgent(s, agent);
-      // Best-effort seed of a live Codex session's provider-native id (no-op unless it's an isolated
-      // Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every tick for a session
-      // that never matches is wasteful, so an applicable miss backs off exponentially (see below).
-      // tick() runs on a bare setInterval — never throw.
-      if (agent && this.captureCodexSessionId) {
-        this.maybeCaptureCodexSessionId(s);
+      // `herdr list` now carries a hard timeout (HERDR_TIMEOUT_MS), so an
+      // unresponsive herdr THROWS rather than blocking. This runs on a 1s interval
+      // with no surrounding try/catch, so an unhandled throw would crash shepherd
+      // (→ a restart-502, the very thing this design removes). Skip the tick on any
+      // herdr failure and retry next cadence — same best-effort stance as the
+      // read-based maybeStall/maybeClassify paths below. Probe herdr before the
+      // store so a failure bails without touching session state.
+      let agents: HerdrAgent[];
+      try {
+        agents = await this.herdr.listAsync();
+      } catch (err) {
+        console.warn("[poller] herdr list failed; skipping tick:", err);
+        return;
       }
+      const sessions = this.store.list({ activeOnly: true });
+      const matched = matchAgents(sessions, agents);
+      const activeIds = new Set<string>();
+      for (const s of sessions) {
+        activeIds.add(s.id);
+        const agent = matched.get(s.id) ?? null;
+        if (!agent) this.reapGone(s);
+        else this.reconcileAgent(s, agent);
+        // Best-effort seed of a live Codex session's provider-native id (no-op unless it's an isolated
+        // Codex session that hasn't been seeded yet). Rescanning $CODEX_HOME every tick for a session
+        // that never matches is wasteful, so an applicable miss backs off exponentially (see below).
+        // tick() runs on a bare setInterval — never throw.
+        if (agent && this.captureCodexSessionId) {
+          this.maybeCaptureCodexSessionId(s);
+        }
+      }
+      this.pruneInactive(activeIds);
+      // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
+      // within the horizon (no-stop emit / silent stale-Stop drop). Gated; no behaviour change.
+      if (config.hooksSignals) this.expireStaleStopWindows();
+      // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
+      this.maybeRunPreviewSweep(sessions);
+      // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
+      this.maybeRunLivenessSweep(sessions);
+    } finally {
+      this.ticking = false;
     }
-    this.pruneInactive(activeIds);
-    // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
-    // within the horizon (no-stop emit / silent stale-Stop drop). Gated; no behaviour change.
-    if (config.hooksSignals) this.expireStaleStopWindows();
-    // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
-    this.maybeRunPreviewSweep(sessions);
-    // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
-    this.maybeRunLivenessSweep(sessions);
   }
 
   /**
@@ -1464,7 +1476,9 @@ export class StatusPoller {
   }
 
   start(): void {
-    this.timer = setInterval(() => this.tick(), this.intervalMs);
+    this.timer = setInterval(() => {
+      void this.tick().catch((err) => console.warn("[poller] tick failed:", err));
+    }, this.intervalMs);
   }
   stop(): void {
     if (this.timer) clearInterval(this.timer);

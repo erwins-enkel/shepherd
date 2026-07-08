@@ -33,6 +33,20 @@ const codexUpdateLogPath =
 // loads nothing (the clean zero-plugin invariant).
 const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "plugins");
 
+// herdr session id: "default" for a single-session install; a named herdr daemon
+// otherwise. Computed here (not just inline in `config`) because herdrSocketPath
+// below needs it to pick the right per-session socket.
+const herdrSession = process.env.HERDR_SESSION ?? "default";
+// Unix-socket path for herdr's native JSON-RPC API (issue #1529). HERDR_SOCKET_PATH
+// overrides outright; otherwise a non-default herdrSession gets its own per-session
+// socket (herdr scopes sessions this way), and the default session uses herdr's
+// top-level socket.
+const herdrSocketPath =
+  process.env.HERDR_SOCKET_PATH ??
+  (herdrSession !== "default"
+    ? `${process.env.HOME}/.config/herdr/sessions/${herdrSession}/herdr.sock`
+    : `${process.env.HOME}/.config/herdr/herdr.sock`);
+
 // Two independent review caps, each how many reviewer→agent steer rounds a findings
 // streak may spend before escalating to a human. Global, UI-configurable + persisted;
 // the env seeds a fresh DB. The bounds are the single source of truth for the env seed,
@@ -57,6 +71,10 @@ export const PLAN_REVIEW_CYCLES_MAX = 12;
 export const NODE_MIN_VERSION = "20.0.0";
 export const BUN_MIN_VERSION = "1.1.0";
 export const HERDR_MIN_VERSION = "0.7.0";
+// herdr's native Unix-socket JSON-RPC protocol is versioned and still preview-unstable
+// (issue #1529) — admit only protocol numbers we've actually validated against a live
+// herdr, never an open `>=` floor. Extend this set explicitly as new protocols are verified.
+export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;
@@ -442,7 +460,8 @@ export const config = {
   // managed by mise/nvm/fnm still works when the launcher's PATH excludes it —
   // otherwise the helper can't spawn and every session pane stays black.
   nodeBin: resolveNodeBin({ override: process.env.SHEPHERD_NODE_BIN }),
-  herdrSession: process.env.HERDR_SESSION ?? "default",
+  herdrSession,
+  herdrSocketPath,
   // usage tracking: where Claude Code writes its session JSONL
   claudeProjectsDir:
     process.env.CLAUDE_PROJECTS_DIR ??
@@ -516,6 +535,11 @@ export const config = {
   // Reduced push mode: global; UI-configurable + persisted; when on, the push
   // layer sends only `ready` notifications plus cost alerts (quieter devices).
   reducedPushMode: process.env.SHEPHERD_REDUCED_PUSH_MODE === "1",
+  // Adopt herdr's native Unix-socket JSON-RPC API (issue #1529) instead of shelling out to
+  // the `herdr` CLI for every call. Default-off feature flag: the socket protocol is still
+  // preview-unstable (see HERDR_SOCKET_SUPPORTED_PROTOCOLS above), so this stays reversible
+  // until the socket driver has soaked.
+  herdrSocket: process.env.SHEPHERD_HERDR_SOCKET === "1",
   // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
   // of polling, staged behind two default-off flags so each phase is independently reversible.
   // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned

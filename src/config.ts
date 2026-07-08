@@ -23,8 +23,8 @@ const forgesPath = process.env.SHEPHERD_FORGES ?? join(dirname(dbPath), "forges.
 const herdrUpdateLogPath =
   process.env.SHEPHERD_HERDR_UPDATE_LOG ?? join(dirname(dbPath), "herdr-update.log");
 // persistent codex-update audit log, mirroring herdrUpdateLogPath: one delimited
-// block per `npm install -g @openai/codex`, written by the update child itself so
-// `cat ~/.shepherd/codex-update.log` is a durable post-mortem. SHEPHERD_CODEX_UPDATE_LOG overrides.
+// block per `codex update` (with npm fallback), written by the update child itself
+// so `cat ~/.shepherd/codex-update.log` is a durable post-mortem. SHEPHERD_CODEX_UPDATE_LOG overrides.
 const codexUpdateLogPath =
   process.env.SHEPHERD_CODEX_UPDATE_LOG ?? join(dirname(dbPath), "codex-update.log");
 // Server-side plugin dir (issue #1124): private/out-of-repo extensions live here,

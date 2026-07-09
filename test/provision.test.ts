@@ -284,7 +284,9 @@ describe("provision orchestration (injected runner, no real installs)", () => {
       repo: "/repo",
     });
     const flat = calls.map((c) => c.join(" "));
-    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+    // No systemctl COMMAND issued. (HERDR_SERVE is a bash string that may *mention* systemctl —
+    // it prefers an existing unit over racing it — which is not provision touching systemd.)
+    expect(calls.some((c) => c[0] === "systemctl")).toBe(false);
     expect(flat.some((c) => c.includes("update.sh"))).toBe(false);
     expect(flat.some((c) => c.includes("/ui") && c.includes("bun run build"))).toBe(true);
     // honors the injected repo root (not process cwd)
@@ -317,8 +319,10 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("darwin takes no-service path (no systemd)", () => {
     const { calls, run } = recorder();
     provision({ run, probe: adequateProbe, platform: "darwin", env: {}, repo: "/repo" });
+    // No systemctl COMMAND issued. (HERDR_SERVE is a bash string that may *mention* systemctl —
+    // it prefers the unit when one exists — which is not provision touching systemd itself.)
+    expect(calls.some((c) => c[0] === "systemctl")).toBe(false);
     const flat = calls.map((c) => c.join(" "));
-    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
     expect(flat.some((c) => c.includes("/ui") && c.includes("bun run build"))).toBe(true);
   });
 });
@@ -442,7 +446,8 @@ describe("extracted helpers (direct)", () => {
     const flat = calls.map((c) => c.join(" "));
     expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
     expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
-    expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+    // buildOnly issues no systemctl COMMAND of its own (HERDR_SERVE's string may name it).
+    expect(calls.some((c) => c[0] === "systemctl")).toBe(false);
   });
 
   it("the herdr prereq installs the binary ONLY — no daemon start (#1574)", () => {
@@ -485,11 +490,26 @@ describe("extracted helpers (direct)", () => {
     expect(unit![1]).toContain("ExecStart=/usr/local/bin/herdr server");
 
     const flat = calls.map((c) => c.join(" "));
-    const adoptIdx = flat.findIndex((c) => c.includes("herdr server stop"));
+    const reloadIdx = flat.findIndex((c) => c.includes("daemon-reload"));
+    const tryRestartIdx = flat.findIndex((c) => c.includes("try-restart herdr"));
+    const adoptIdx = flat.findIndex((c) => c.includes('"$H" server stop'));
     const enableIdx = flat.findIndex((c) => c.includes("enable --now herdr"));
     expect(adoptIdx).toBeGreaterThanOrEqual(0);
-    // Adopt FIRST: a foreign daemon on the socket makes ExecStart exit 1 and the unit thrash.
+    // try-restart AFTER the reload: `enable --now` won't restart an already-active unit, so a
+    // re-provision whose ExecStart changed (herdr moved / HERDR_BIN changed) would otherwise
+    // keep running the stale path forever.
+    expect(reloadIdx).toBeLessThan(tryRestartIdx);
+    // Adopt BEFORE enabling: a foreign daemon on the socket makes ExecStart exit 1 and thrash.
     expect(adoptIdx).toBeLessThan(enableIdx);
+  });
+
+  it("the herdr unit reads the same env file shepherd.service does (HERDR_BIN/HERDR_SESSION)", () => {
+    // Without it, a HERDR_SESSION=<name> host supervises a daemon on the `default` session while
+    // Shepherd's liveness probe targets the per-session socket: unit `active`, herdr `offline`.
+    const unit = readFileSync("deploy/herdr.service", "utf8");
+    expect(unit).toContain("EnvironmentFile=-%h/.shepherd/env");
+    // Restart=always is only honest with the start-rate limit disabled.
+    expect(unit).toContain("StartLimitIntervalSec=0");
   });
 
   it("installService refuses to install a unit pointing at a herdr that is not on PATH (#1574)", () => {

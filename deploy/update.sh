@@ -102,20 +102,33 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
   # detached child, or a hand-rolled `herdr server`) makes ExecStart exit 1 ("already running"),
   # and Restart=always would thrash. `herdr server stop` is graceful — panes outlive the server
   # and reattach — and update.sh restarts Shepherd immediately below anyway.
-  export PATH="$HOME/.local/bin:$PATH"
-  HERDR_PATH="$(command -v herdr || true)"
+  #
+  # Resolution mirrors config.herdrBin (`HERDR_BIN ?? "herdr"`): source the unit's own env file,
+  # then look up ${HERDR_BIN:-herdr}. Done in a SUBSHELL — like the BACKUP_DIR resolution above —
+  # so neither the ~/.local/bin PATH prepend nor anything in ~/.shepherd/env leaks into the
+  # `systemctl restart` + health check further down this script.
+  HERDR_PATH="$(
+    set -a
+    [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"
+    set +a
+    PATH="$HOME/.local/bin:$PATH" command -v "${HERDR_BIN:-herdr}" || true
+  )"
   if [[ -n "$HERDR_PATH" ]]; then
     note "syncing herdr daemon unit"
     sed "s|^ExecStart=.*|ExecStart=${HERDR_PATH} server|" \
       "$REPO/deploy/herdr.service" >"$UNIT_DIR/herdr.service"
     systemctl --user daemon-reload
+    # `enable --now` does NOT restart an already-active unit, so a sync that CHANGED ExecStart
+    # (herdr moved, or HERDR_BIN changed) would leave the running daemon on the stale path
+    # forever. try-restart restarts iff active; no-op otherwise.
+    systemctl --user try-restart herdr >/dev/null 2>&1 || true
     if ! systemctl --user is-active --quiet herdr; then
-      herdr server stop >/dev/null 2>&1 || true
+      "$HERDR_PATH" server stop >/dev/null 2>&1 || true
       systemctl --user reset-failed herdr >/dev/null 2>&1 || true
     fi
     systemctl --user enable --now herdr || warn "herdr.service did not start — DIAGNOSE will report herdr offline"
   else
-    warn "herdr not on PATH — skipping herdr.service sync"
+    warn "herdr not found (HERDR_BIN / PATH) — skipping herdr.service sync"
   fi
 else
   warn "no systemd user manager — skipping backup timer sync (no automated backups on this host)"

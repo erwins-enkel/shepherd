@@ -122,12 +122,16 @@ export function templateHerdrUnit(unit: string, herdrPath: string): string {
 /** Adopt the socket before enabling the unit: if the unit is NOT already the active herdr, stop
  *  whatever daemon is (an in-app Fix's detached `HERDR_SERVE` child, or a hand-rolled one). A
  *  second `herdr server` against a bound socket exits 1, so without this `enable --now herdr`
- *  would thrash. Best-effort by construction — every branch swallows failure and exits 0, so a
- *  host with no herdr running (the fresh-install case) sails straight through. #1574 */
+ *  would thrash. Sources `~/.shepherd/env` and honors `HERDR_BIN` so it stops the SAME binary
+ *  the unit and the diagnostics probe use — a bare `herdr` would miss a `HERDR_BIN` daemon
+ *  entirely. Best-effort by construction: every branch swallows failure and exits 0, so a host
+ *  with no herdr running (the fresh-install case) sails straight through. #1574 */
 const HERDR_ADOPT_SOCKET =
   'export PATH="$HOME/.local/bin:$PATH"; ' +
+  '[ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; ' +
+  'H="${HERDR_BIN:-herdr}"; ' +
   "systemctl --user is-active --quiet herdr && exit 0; " +
-  "command -v herdr >/dev/null 2>&1 && herdr server stop >/dev/null 2>&1; " +
+  'command -v "$H" >/dev/null 2>&1 && "$H" server stop >/dev/null 2>&1; ' +
   "systemctl --user reset-failed herdr >/dev/null 2>&1; exit 0";
 
 /** Service path iff linux AND SHEPHERD_NO_SERVICE unset/empty. macOS always takes
@@ -248,19 +252,26 @@ function probeVersion(bin: string): string | null {
   }
 }
 
-/** Resolve a binary to its absolute path via `command -v`; null if not on PATH. Used to
- *  template the herdr unit's ExecStart (systemd needs an absolute executable).
+/** Resolve the herdr binary to an absolute path for the unit's ExecStart (systemd needs one);
+ *  null if it cannot be found.
+ *
+ *  Resolution order mirrors `config.herdrBin` (`HERDR_BIN ?? "herdr"`): source `~/.shepherd/env`
+ *  — the same file shepherd.service and herdr.service read — then `command -v "${HERDR_BIN:-herdr}"`.
+ *  Anything else supervises a different binary than the one diagnostics probes.
  *
  *  MUST be given the AUGMENTED env (`buildEnv`), not provision's inherited one: install.sh drops
  *  herdr in ~/.local/bin, which is absent from the PATH provision itself was launched with, so
  *  an inherited-PATH lookup finds nothing on the very host that just installed it. */
-function probeBinPath(bin: string, env: NodeJS.ProcessEnv): string | null {
+function probeBinPath(_bin: string, env: NodeJS.ProcessEnv): string | null {
   try {
-    const out = execFileSync("sh", ["-c", `command -v ${bin}`], {
-      encoding: "utf8",
-      stdio: ["ignore", "pipe", "ignore"],
-      env,
-    });
+    const out = execFileSync(
+      "sh",
+      [
+        "-c",
+        '[ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; command -v "${HERDR_BIN:-herdr}"',
+      ],
+      { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"], env },
+    );
     const p = out.trim();
     return p === "" ? null : p;
   } catch {
@@ -387,6 +398,11 @@ export function installService(
     templateHerdrUnit(fileIO.read(join(repo, "deploy", "herdr.service")), herdrPath),
   );
   run("systemctl", ["--user", "daemon-reload"]);
+  // Pick up a CHANGED ExecStart on a host whose herdr unit is already running: `enable --now`
+  // will not restart an active unit, so a re-provision after herdr moved (e.g. /usr/local/bin →
+  // ~/.local/bin, or HERDR_BIN changed) would otherwise leave the old daemon running the stale
+  // path forever. `try-restart` restarts it iff active, and is a no-op when it is not.
+  run("systemctl", ["--user", "try-restart", "herdr"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
   run("loginctl", ["enable-linger", user]);

@@ -37,7 +37,7 @@ function harness(initialStatus: SessionStatus, initialQueue: BuildQueue) {
       list: () => [session(state.status, state.planPhase)],
       getBuildQueue: () => state.queue,
     } as never,
-    steer: (_id, text) => {
+    steer: async (_id, text) => {
       steers.push(text);
       return true; // landed
     },
@@ -49,13 +49,13 @@ function harness(initialStatus: SessionStatus, initialQueue: BuildQueue) {
 }
 
 /** Drive a session from running → settled idle so it nudges once (the happy path). */
-function settleAndSweep(h: ReturnType<typeof harness>): void {
+async function settleAndSweep(h: ReturnType<typeof harness>): Promise<void> {
   h.state.status = "running";
-  h.svc.sweep(); // observe running → sawRunning
+  await h.svc.sweep(); // observe running → sawRunning
   h.state.status = "idle";
-  h.svc.sweep(); // first idle tick → start timer
+  await h.svc.sweep(); // first idle tick → start timer
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep(); // settled → evaluate
+  await h.svc.sweep(); // settled → evaluate
 }
 
 // ── isQueueDrifted ──────────────────────────────────────────────────────────
@@ -75,58 +75,58 @@ test("isQueueDrifted: false when unapproved, empty, has active, or no pending", 
 
 // ── sweep: happy path ───────────────────────────────────────────────────────
 
-test("reconciles drift: settled idle after running → exactly one steer, no double-steer", () => {
+test("reconciles drift: settled idle after running → exactly one steer, no double-steer", async () => {
   const h = harness("idle", queue(true, ["pending", "pending", "pending"]));
-  settleAndSweep(h);
+  await settleAndSweep(h);
   expect(h.steers).toEqual([RECONCILE_STEER]);
 
   // A second sweep in the SAME idle episode must not steer again.
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(1);
 });
 
 // ── sweep: guards (no steer) ────────────────────────────────────────────────
 
-test("no collision with approval: drifted but never ran (sawRunning false) → no steer", () => {
+test("no collision with approval: drifted but never ran (sawRunning false) → no steer", async () => {
   const h = harness("idle", queue(true, ["pending", "pending"]));
   // Never running: first idle tick, then settle — sawRunning stays false.
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(0);
 });
 
-test("no waking a done session: status done + drifted → no steer", () => {
+test("no waking a done session: status done + drifted → no steer", async () => {
   const h = harness("running", queue(true, ["pending", "pending"]));
-  h.svc.sweep(); // sawRunning
+  await h.svc.sweep(); // sawRunning
   h.state.status = "done";
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(0);
 });
 
-test("live gap honored: status running → no steer even when drifted", () => {
+test("live gap honored: status running → no steer even when drifted", async () => {
   const h = harness("running", queue(true, ["pending", "pending"]));
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(0);
 });
 
-test("not settled: first idle tick (below threshold) → no steer", () => {
+test("not settled: first idle tick (below threshold) → no steer", async () => {
   const h = harness("running", queue(true, ["pending"]));
-  h.svc.sweep(); // running → sawRunning
+  await h.svc.sweep(); // running → sawRunning
   h.state.status = "idle";
-  h.svc.sweep(); // first idle tick
+  await h.svc.sweep(); // first idle tick
   h.state.t += THRESHOLD - 1; // still below threshold
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(0);
 });
 
-test("negatives: has-active / all-done / unapproved / empty → no steer", () => {
+test("negatives: has-active / all-done / unapproved / empty → no steer", async () => {
   for (const q of [
     queue(true, ["active", "pending"]),
     queue(true, ["done", "done"]),
@@ -134,74 +134,74 @@ test("negatives: has-active / all-done / unapproved / empty → no steer", () =>
     queue(true, []),
   ]) {
     const h = harness("idle", q);
-    settleAndSweep(h);
+    await settleAndSweep(h);
     expect(h.steers).toHaveLength(0);
   }
 });
 
 // ── sweep: plan gate ────────────────────────────────────────────────────────
 
-test("plan gate: planning + drifted + settled idle → no steer", () => {
+test("plan gate: planning + drifted + settled idle → no steer", async () => {
   const h = harness("idle", queue(true, ["pending", "pending"]));
   h.state.planPhase = "planning";
   // Run during planning (must NOT set sawRunning), then settle idle and tick past threshold.
   h.state.status = "running";
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.status = "idle";
-  h.svc.sweep(); // first idle tick (reset by the planning guard anyway)
+  await h.svc.sweep(); // first idle tick (reset by the planning guard anyway)
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep(); // settled — but still planning → suppressed
+  await h.svc.sweep(); // settled — but still planning → suppressed
   expect(h.steers).toHaveLength(0);
 });
 
-test("plan gate: planning suppresses, then executing nudges once after a post-flip run", () => {
+test("plan gate: planning suppresses, then executing nudges once after a post-flip run", async () => {
   const h = harness("idle", queue(true, ["pending", "pending"]));
   h.state.planPhase = "planning";
 
   // Phase 1 — run + settle idle while still planning: no steer, and sawRunning stays false.
   h.state.status = "running";
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.status = "idle";
-  h.svc.sweep();
+  await h.svc.sweep();
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep();
+  await h.svc.sweep();
   expect(h.steers).toHaveLength(0);
 
   // Phase 2 — gate opens. A fresh execution run is required to arm sawRunning (the planning
   // run above never counted), so drive running AFTER the flip, then settle idle.
   h.state.planPhase = "executing";
   h.state.status = "running";
-  h.svc.sweep(); // sawRunning set now
+  await h.svc.sweep(); // sawRunning set now
   h.state.status = "idle";
-  h.svc.sweep(); // first idle tick of a fresh episode
+  await h.svc.sweep(); // first idle tick of a fresh episode
   h.state.t += THRESHOLD + 1;
-  h.svc.sweep(); // settled, executing, drifted → nudge
+  await h.svc.sweep(); // settled, executing, drifted → nudge
   expect(h.steers).toEqual([RECONCILE_STEER]);
 });
 
 // ── sweep: episode reset + lifetime cap + retry ─────────────────────────────
 
-test("episode reset: re-running between idle episodes allows another steer", () => {
+test("episode reset: re-running between idle episodes allows another steer", async () => {
   const h = harness("idle", queue(true, ["pending", "pending"]));
-  settleAndSweep(h);
+  await settleAndSweep(h);
   expect(h.steers).toHaveLength(1);
 
   // Re-activate, then settle again still drifted → a fresh episode steers again.
-  settleAndSweep(h);
+  await settleAndSweep(h);
   expect(h.steers).toHaveLength(2);
 });
 
-test("lifetime cap halts repeated nudging after maxNudges", () => {
+test("lifetime cap halts repeated nudging after maxNudges", async () => {
   const h = harness("idle", queue(true, ["pending", "pending"]));
-  settleAndSweep(h); // 1
-  settleAndSweep(h); // 2
-  settleAndSweep(h); // 3
+  await settleAndSweep(h); // 1
+  await settleAndSweep(h); // 2
+  await settleAndSweep(h); // 3
   expect(h.steers).toHaveLength(3);
-  settleAndSweep(h); // capped
+  await settleAndSweep(h); // capped
   expect(h.steers).toHaveLength(3);
 });
 
-test("non-landing steer is retried (state not consumed)", () => {
+test("non-landing steer is retried (state not consumed)", async () => {
   const state = {
     status: "idle" as SessionStatus,
     queue: queue(true, ["pending", "pending"]),
@@ -214,7 +214,7 @@ test("non-landing steer is retried (state not consumed)", () => {
       list: () => [session(state.status)],
       getBuildQueue: () => state.queue,
     } as never,
-    steer: (_id, text) => {
+    steer: async (_id, text) => {
       steers.push(text);
       return landed; // first attempt fails to land
     },
@@ -223,16 +223,16 @@ test("non-landing steer is retried (state not consumed)", () => {
   });
 
   state.status = "running";
-  svc.sweep();
+  await svc.sweep();
   state.status = "idle";
-  svc.sweep();
+  await svc.sweep();
   state.t += THRESHOLD + 1;
-  svc.sweep(); // attempt 1 — does not land
+  await svc.sweep(); // attempt 1 — does not land
   expect(steers).toHaveLength(1);
 
   // Still same idle episode; because it didn't land, the episode is not marked fired.
   landed = true;
   state.t += 1;
-  svc.sweep(); // retry — lands now
+  await svc.sweep(); // retry — lands now
   expect(steers).toHaveLength(2);
 });

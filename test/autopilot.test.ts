@@ -20,6 +20,11 @@ import type { AutopilotVerdict, Session, ReviewVerdict } from "../src/types";
 import type { BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
 
+/** Drain the microtask queue to the end. considerCi (the onGit CI-fix path) fire-and-forgets
+ *  driveSteer, which bumps the step only AFTER awaiting the now-async steer — two microtask hops
+ *  past onGit's synchronous return. A macrotask boundary flushes all of them deterministically. */
+const flush = () => new Promise<void>((r) => setTimeout(r, 0));
+
 function sess(over: Partial<Session> = {}): Session {
   return {
     id: "s1",
@@ -162,7 +167,7 @@ function harness(opts: {
       classifyCalls++;
       return opts.verdict ?? { kind: "unknown", summary: "" };
     },
-    steer: (_id, text) => {
+    steer: async (_id, text) => {
       events.push({ steer: text });
       return opts.steerOk ?? true;
     },
@@ -538,7 +543,7 @@ test("onState fired after onPrOpen handoff clear", () => {
 });
 
 test("full-auto: stays eligible after PR exists (keeps unblocking gates)", async () => {
-  const steer = mock(() => true);
+  const steer = mock(async () => true);
   const ap = harness({
     session: sess(),
     openPr: true,
@@ -553,7 +558,7 @@ test("full-auto: stays eligible after PR exists (keeps unblocking gates)", async
 });
 
 test("non-full-auto: still stands down once a PR exists", async () => {
-  const steer = mock(() => true);
+  const steer = mock(async () => true);
   const ap = harness({
     session: sess(),
     openPr: true,
@@ -567,7 +572,7 @@ test("non-full-auto: still stands down once a PR exists", async () => {
 });
 
 test("full-auto: a 'finished' verdict with a PR does NOT re-steer open-a-PR", async () => {
-  const steer = mock(() => true);
+  const steer = mock(async () => true);
   const ap = harness({
     session: sess({ status: "done" }),
     openPr: true,
@@ -605,7 +610,7 @@ test("re-entrant onBlock during an in-flight classify spawns + steers only once"
       classifyCalls++;
       return inflight;
     },
-    steer: (_id, t) => {
+    steer: async (_id, t) => {
       events.push({ steer: t });
       return true;
     },
@@ -650,7 +655,7 @@ function git(over: Partial<GitState> = {}): GitState {
 test("open PR + failing CI → CI-fix steer + step++", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git());
-  await Promise.resolve(); // driveSteer bumps one microtask after the sync onGit returns
+  await flush(); // driveSteer bumps a couple microtasks after the sync onGit returns
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
 });
@@ -668,9 +673,9 @@ test("same failing head is nudged only once", async () => {
 test("a new failing head (agent pushed a fix that still fails) re-steers", async () => {
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ headSha: "sha1" }));
-  await Promise.resolve();
+  await flush();
   h.svc.onGit("s1", git({ headSha: "sha2" }));
-  await Promise.resolve();
+  await flush();
   expect(h.events.filter((e) => "steer" in e).length).toBe(2);
   expect(h.state().autopilotStepCount).toBe(2);
 });
@@ -717,7 +722,7 @@ test("step cap stops CI-fix thrash and pauses to the operator", async () => {
   // poll N is visible to the cap check at poll N+1 — the production polls are seconds apart.
   for (let i = 0; i <= 10; i++) {
     h.svc.onGit("s1", git({ headSha: "sha" + i }));
-    await Promise.resolve();
+    await flush();
   }
   expect(h.events.filter((e) => "steer" in e).length).toBe(10);
   expect(h.state().autopilotPaused).toBe(true);
@@ -747,7 +752,7 @@ test("handoff reset fires once per PR-open, not every poll (preserves CI-fix bud
   const h = harness({ session: sess({ status: "running" }), repoEnabled: true });
   h.svc.onGit("s1", git({ checks: "success", headSha: "sha1" })); // open transition → reset
   h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // red → step 1
-  await Promise.resolve(); // let the (async) bump land before the next same-head poll
+  await flush(); // let the (async) bump land before the next same-head poll
   h.svc.onGit("s1", git({ checks: "failure", headSha: "sha1" })); // same red head, no reset, no re-steer
   expect(h.state().autopilotStepCount).toBe(1);
 });
@@ -1109,7 +1114,7 @@ test("merge-train: CI-fix resumes once the mark clears (guard is the only suppre
     repoEnabled: true,
   });
   h.svc.onGit("s1", git());
-  await Promise.resolve();
+  await flush();
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
   expect(h.state().autopilotStepCount).toBe(1);
 });

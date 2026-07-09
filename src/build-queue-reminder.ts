@@ -61,8 +61,8 @@ interface DebounceEntry {
 
 interface Deps {
   store: Pick<SessionStore, "list" | "getBuildQueue">;
-  /** Inject a steer into a session's live pane. Returns false for an unknown id / dead pane. */
-  steer: (id: string, text: string) => boolean;
+  /** Inject a steer into a session's live pane. Resolves false for an unknown id / dead pane. */
+  steer: (id: string, text: string) => Promise<boolean>;
   now?: () => number;
   idleThresholdMs?: number;
   maxNudges?: number;
@@ -103,14 +103,16 @@ export class BuildQueueReminderService {
   /**
    * Periodic auto-fire. For each active session with an approved, non-empty queue, advance the
    * settled-idle debounce and nudge once per episode when the queue is drifted. May surface a
-   * synchronous store (SQLite) error; the caller guards it so the timer can't die.
+   * store (SQLite) error or a rejected steer; the caller guards it so the timer can't die.
+   * Sessions are considered in turn (not fanned out) — the nudge is a steer, and steers serialize
+   * behind SessionService's FIFO anyway (#1567).
    */
-  sweep(): void {
+  async sweep(): Promise<void> {
     const now = this.now();
     const live = new Set<string>();
     for (const s of this.deps.store.list({ activeOnly: true })) {
       live.add(s.id);
-      this.considerSession(s.id, s.status, s.planPhase, now);
+      await this.considerSession(s.id, s.status, s.planPhase, now);
     }
     // Forget sessions that are no longer active/listed.
     for (const id of [...this.debounce.keys()]) {
@@ -119,12 +121,12 @@ export class BuildQueueReminderService {
   }
 
   /** Advance one session's debounce and nudge it if it's a drifted, settled-idle queue. */
-  private considerSession(
+  private async considerSession(
     id: string,
     status: SessionStatus,
     planPhase: Session["planPhase"],
     now: number,
-  ): void {
+  ): Promise<void> {
     const q = this.deps.store.getBuildQueue(id);
     // No approved queue yet (or none authored) → nothing to reconcile; drop any state.
     if (!q.approved || q.steps.length === 0) {
@@ -162,7 +164,7 @@ export class BuildQueueReminderService {
     if (!this.readyToNudge(e, q, now)) return;
 
     // If the steer doesn't land (dead pane), leave state untouched so the next sweep retries.
-    if (this.deps.steer(id, RECONCILE_STEER)) {
+    if (await this.deps.steer(id, RECONCILE_STEER)) {
       e.firedThisEpisode = true;
       e.nudgeCount++;
     }

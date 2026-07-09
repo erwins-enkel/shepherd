@@ -56,7 +56,8 @@ export interface AutoMergeDeps {
   >;
   service: {
     archive(id: string): Promise<number>;
-    reply(id: string, text: string): boolean;
+    /** SessionService.reply (async since #1567; resolves true when the steer reached a live pane). */
+    reply(id: string, text: string): Promise<boolean>;
     /** SessionService.resume (async — the awaited result decides; truthy = resumed). */
     resume(id: string): unknown;
     /** Clear the session's merge-train mark + credit the train tracker. Called directly
@@ -368,7 +369,7 @@ export class AutoMergeService {
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.
       if (!(await this.deps.service.resume(sessionId))) return;
     }
-    if (this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
+    if (await this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
       this.deps.store.setAutoMergeState(sessionId, {
         rebaseCount: s.autoMergeRebaseCount + 1,
         rebaseHead: headSha,

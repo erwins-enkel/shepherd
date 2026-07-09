@@ -33,17 +33,21 @@ export class PtyBridge {
         onExit: () => this.ws.close(),
       },
     ) as NodeProc;
-    (async () => {
+    // Deliberately not awaited — this pump runs for the life of the bridge. A broken stream just
+    // ends it; the subprocess's `onExit` above is what closes the socket.
+    void (async () => {
       for await (const chunk of this.proc!.stdout as ReadableStream<Uint8Array>) {
         markPtyEvent("out");
         this.ws.send(chunk);
       }
-    })();
+    })().catch(() => {
+      /* stream torn down — onExit closes the ws */
+    });
   }
 
   write(data: string): void {
-    this.proc?.stdin.write(data);
-    this.proc?.stdin.flush();
+    void this.proc?.stdin.write(data);
+    void this.proc?.stdin.flush();
   }
 
   close(): void {

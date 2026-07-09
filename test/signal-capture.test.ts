@@ -8,12 +8,12 @@ function deps(store: SessionStore) {
     store,
     worktree: {} as any,
     // reply() now liveness-checks the pane before sending; list the session's agent live.
-    herdr: { send: () => {}, list: () => [{ terminalId: "t1" }] } as any,
+    herdr: { send: async () => {}, list: () => [{ terminalId: "t1" }] } as any,
     namer: (p: string) => p,
   };
 }
 
-test("reply records a 'reply' signal for the session's repo", () => {
+test("reply records a 'reply' signal for the session's repo", async () => {
   const store = new SessionStore(":memory:");
   const s = store.create({
     name: "n",
@@ -27,7 +27,7 @@ test("reply records a 'reply' signal for the session's repo", () => {
     herdrAgentId: "t1",
   });
   const svc = new SessionService(deps(store) as any);
-  expect(svc.reply(s.id, "use uv not pip")).toBe(true);
+  expect(await svc.reply(s.id, "use uv not pip")).toBe(true);
   const sigs = store.listSignals("/r");
   expect(sigs.length).toBe(1);
   expect(sigs[0]!.kind).toBe("reply");
@@ -35,10 +35,10 @@ test("reply records a 'reply' signal for the session's repo", () => {
   expect(sigs[0]!.sessionId).toBe(s.id);
 });
 
-test("reply to a missing session records nothing", () => {
+test("reply to a missing session records nothing", async () => {
   const store = new SessionStore(":memory:");
   const svc = new SessionService(deps(store) as any);
-  expect(svc.reply("nope", "x")).toBe(false);
+  expect(await svc.reply("nope", "x")).toBe(false);
   expect(store.listSignals("/r").length).toBe(0);
 });
 

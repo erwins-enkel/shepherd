@@ -17,7 +17,7 @@ function fakeCli() {
     tabs: mock(() => [] as HerdrTab[]),
     panes: mock(() => [] as HerdrPane[]),
     start: mock(() => ({}) as HerdrAgent),
-    send: mock(() => undefined),
+    send: mock(async () => {}),
     read: mock(() => ""),
     stop: mock(() => undefined),
     relabel: mock(() => undefined),
@@ -153,15 +153,6 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
     expect(cli.panes).toHaveBeenCalledWith();
     expect(client.request).not.toHaveBeenCalled();
   });
-
-  it("send() STILL delegates to cli.send() (its socket port is deferred to #1567)", () => {
-    const { client, cli, driver } = setup();
-
-    driver.send("t", "hello");
-
-    expect(cli.send).toHaveBeenCalledWith("t", "hello");
-    expect(client.request).not.toHaveBeenCalled();
-  });
 });
 
 /** Route a socket `request(method, params)` to the right herdr `result` payload for the
@@ -195,7 +186,27 @@ function writeClient(
   return { request: mock(impl) } as unknown as HerdrSocketClient;
 }
 
-describe("SocketHerdrDriver — socket-backed async writes (#1553)", () => {
+describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () => {
+  it("send() issues agent.send over the socket (no CLI)", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const cli = fakeCli();
+    const driver = new SocketHerdrDriver(writeClient(rec), cli as unknown as HerdrDriver);
+
+    await driver.send("t", "hello");
+
+    expect(rec).toEqual([{ method: "agent.send", params: { target: "t", text: "hello" } }]);
+    expect(cli.send).not.toHaveBeenCalled();
+  });
+
+  it("send() propagates a rejected request() (a failed steer is never silently swallowed)", async () => {
+    const client = fakeClient(() => {
+      throw new HerdrSocketError("agent_not_found", "no such agent");
+    });
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+
+    await expect(driver.send("dead", "hi")).rejects.toThrow("no such agent");
+  });
+
   it("closeTab() issues tab.close over the socket (no CLI)", async () => {
     const rec: { method: string; params: unknown }[] = [];
     const cli = fakeCli();

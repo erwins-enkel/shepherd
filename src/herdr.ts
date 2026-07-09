@@ -366,9 +366,10 @@ export interface IHerdrDriver {
     argv: string[],
     env?: Record<string, string>,
   ): Promise<HerdrAgent>;
-  /** Write literal text to an agent's PTY. Still SYNC + CLI-backed; its socket port is
-   *  deferred to #1567 (it uniquely colors a boolean-returning steer/reply cascade async). */
-  send(target: string, text: string): void;
+  /** Write literal text to an agent's PTY (issue #1567: async — socket-backed when
+   *  `SHEPHERD_HERDR_SOCKET=1`, else non-blocking CLI). Callers that deliver a multi-send
+   *  sequence (bracket-paste then CR) must serialize the pair — see `SessionService.sendSteerTo`. */
+  send(target: string, text: string): Promise<void>;
   read(target: string, source?: "visible" | "recent", lines?: number): string;
   readAsync(target: string, source?: "visible" | "recent", lines?: number): Promise<string>;
   stop(terminalId: string): Promise<void>;
@@ -579,10 +580,10 @@ export class HerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Write literal text to an agent's PTY (no implicit Enter). Still SYNC + CLI-backed;
-   *  socket port deferred to #1567 (it colors a boolean-returning steer cascade async). */
-  send(target: string, text: string): void {
-    this.runner(["agent", "send", target, text]);
+  /** Write literal text to an agent's PTY (no implicit Enter). Async since #1567 — spawns via
+   *  `asyncRunner` so a steer never blocks Bun's loop, matching the other async writes. */
+  async send(target: string, text: string): Promise<void> {
+    await this.asyncRunner(["agent", "send", target, text]);
   }
 
   /** The `agent read` argv shared by the sync and async readers. */

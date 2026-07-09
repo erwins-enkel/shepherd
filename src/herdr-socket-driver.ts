@@ -14,21 +14,15 @@ import {
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
 
 /**
- * Socket-backed `IHerdrDriver` (issues #1529, #1553): routes the async read surface —
- * `listAsync`/`readAsync`/`paneForegroundProcs` (#1529) — and the async
- * spawn/teardown/rename write surface — `start`/`stop`/`relabel`/`closeTab` (#1553) —
- * over herdr's Unix-socket JSON-RPC transport (`HerdrSocketClient`, one connection per
- * request), avoiding a CLI spawn per call.
+ * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
+ * `listAsync`/`readAsync`/`paneForegroundProcs` (#1529) — and the entire async write surface —
+ * `start`/`stop`/`relabel`/`closeTab` (#1553) plus `send` (#1567) — over herdr's Unix-socket
+ * JSON-RPC transport (`HerdrSocketClient`, one connection per request), avoiding a CLI spawn
+ * per call.
  *
- * The methods that still delegate to a wrapped `HerdrDriver`, deliberately:
- *  - The sync `list`/`read`/`tabs`/`panes` — a sync method can't be socket-backed without
- *    reintroducing event-loop blocking (a fake-sync wait on a promise); the socket only
- *    helps async callers.
- *  - **`send`** — the ONE write still on the CLI. Its socket port is deferred to #1567
- *    because it uniquely colors a boolean-returning steer/reply cascade async
- *    (`sendSteerTo`→`reply`/`operatorReply`/`broadcast`→`PlanGate.resume`/`automerge`),
- *    a blast radius unrelated to the spawn/teardown writes this driver ports. NOT an
- *    oversight — see #1567.
+ * Only the sync `list`/`read`/`tabs`/`panes` still delegate to a wrapped `HerdrDriver`, and
+ * deliberately: a sync method can't be socket-backed without reintroducing event-loop blocking
+ * (a fake-sync wait on a promise); the socket only helps async callers.
  */
 export class SocketHerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
@@ -84,12 +78,19 @@ export class SocketHerdrDriver implements IHerdrDriver {
     return this.cli.read(target, source, lines);
   }
 
-  /** `send` alone stays CLI-backed — socket port deferred to #1567. */
-  send(target: string, text: string): void {
-    this.cli.send(target, text);
-  }
+  // ── Socket-backed async writes (issues #1553, #1567) ─────────────────────
 
-  // ── Socket-backed async writes (issue #1553) ─────────────────────────────
+  /**
+   * Write literal text to an agent's PTY (issue #1567). A rejected `request()` propagates —
+   * `send` has never been best-effort: `haltAll` catches per-agent so one dead pane can't abort
+   * the e-stop sweep, and a failed steer must report "not delivered" rather than silently drop.
+   * Deliberately NOT serialized here: ordering a multi-send sequence is the caller's contract
+   * (`SessionService.sendSteerTo` serializes its bracket-paste + CR pair), and serializing at the
+   * driver would also stall unrelated panes behind a slow one.
+   */
+  async send(target: string, text: string): Promise<void> {
+    await this.client.request("agent.send", { target, text });
+  }
 
   /**
    * Spawn an agent over the socket, mirroring `HerdrDriver.start`'s orchestration:

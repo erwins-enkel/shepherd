@@ -110,7 +110,7 @@ export interface AutopilotDeps {
   /** Classify why an agent stopped (src/autopilot-llm.classifyStop, pre-bound to herdr+model). */
   classify: (tail: string[], taskPrompt: string, label: string) => Promise<AutopilotVerdict>;
   /** Steer text into the session's live PTY (SessionService.reply). false = didn't land. */
-  steer: (id: string, text: string) => boolean;
+  steer: (id: string, text: string) => Promise<boolean>;
   /** Resume an exited session so it can be steered (SessionService.resume, async — the
    *  awaited result decides). truthy resolved value = ok. */
   resume: (id: string) => unknown;
@@ -308,7 +308,7 @@ export class AutopilotService {
       // no pinned session id) — then there's nothing to do.
       if (!(await this.deps.resume(s.id))) return false;
     }
-    return this.deps.steer(s.id, text);
+    return await this.deps.steer(s.id, text);
   }
 
   /** Steer `text` into the session and bump the step on a landed steer. Best-effort —

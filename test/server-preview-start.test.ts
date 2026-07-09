@@ -58,7 +58,7 @@ test("preview/start: already_bound → 409, detectDevCommand/startPreview NOT ca
   const deps: AppDeps = {
     store,
     service: {
-      startPreview: () => {
+      startPreview: async () => {
         startPreviewCalled = true;
         return true;
       },
@@ -81,7 +81,7 @@ test("preview/start: already_bound → 409, detectDevCommand/startPreview NOT ca
 test("preview/start: command_unknown → 409 when no command in body and detectDevCommand returns null", async () => {
   // Use a session with a worktreePath that has no package.json (real fs won't find one
   // at a non-existent path — detectDevCommand returns null).
-  const { app, store } = harness({ startPreview: () => true }, {});
+  const { app, store } = harness({ startPreview: async () => true }, {});
   const id = makeSession(store, "/nonexistent/path/12345");
   const res = await app.fetch(postJson(`/api/sessions/${id}/preview/start`, {}));
   expect(res.status).toBe(409);
@@ -93,7 +93,7 @@ test("preview/start: success → 200 {ok, command} when command provided in body
   const calls: { id: string; command: string }[] = [];
   const { app, store } = harness(
     {
-      startPreview: (id: string, command: string) => {
+      startPreview: async (id: string, command: string) => {
         calls.push({ id, command });
         return true;
       },
@@ -115,7 +115,7 @@ test("preview/start: configured local script starts without steering the agent",
   const calls: string[] = [];
   const { store } = harness(
     {
-      startPreview: () => {
+      startPreview: async () => {
         throw new Error("agent steer must not be used");
       },
     },
@@ -131,7 +131,7 @@ test("preview/start: configured local script starts without steering the agent",
   const localDeps: AppDeps = {
     store,
     service: {
-      startPreview: () => {
+      startPreview: async () => {
         throw new Error("agent steer must not be used");
       },
     } as any,
@@ -173,11 +173,11 @@ test("preview/start: ignores a non-canonical stored local script path", async ()
   const app = makeApp({
     store,
     service: {
-      reply: (sessionId: string, text: string) => {
+      reply: async (sessionId: string, text: string) => {
         replies.push({ id: sessionId, text });
         return true;
       },
-      startPreview: () => {
+      startPreview: async () => {
         throw new Error("legacy start steer must not be used");
       },
     } as any,
@@ -222,11 +222,11 @@ test("preview/start: missing local script sends one-time repo setup steer", asyn
   const app = makeApp({
     store,
     service: {
-      reply: (sessionId: string, text: string) => {
+      reply: async (sessionId: string, text: string) => {
         replies.push({ id: sessionId, text });
         return true;
       },
-      startPreview: () => {
+      startPreview: async () => {
         throw new Error("legacy start steer must not be used");
       },
     } as any,
@@ -277,7 +277,7 @@ test("preview/start: existing dev port binds preview without spawning or steerin
   const app = makeApp({
     store,
     service: {
-      startPreview: () => {
+      startPreview: async () => {
         steered = true;
         return true;
       },
@@ -329,7 +329,7 @@ test("preview/start: existing dev port with no preview slot returns an error", a
   const app = makeApp({
     store,
     service: {
-      startPreview: () => {
+      startPreview: async () => {
         steered = true;
         return true;
       },
@@ -360,7 +360,7 @@ test("preview/start: existing dev port with no preview slot returns an error", a
 });
 
 test("preview/start: dead pane → 404 when startPreview returns false", async () => {
-  const { app, store } = harness({ startPreview: () => false }, {});
+  const { app, store } = harness({ startPreview: async () => false }, {});
   const id = makeSession(store);
   const res = await app.fetch(
     postJson(`/api/sessions/${id}/preview/start`, { command: "bun run dev" }),
@@ -371,7 +371,7 @@ test("preview/start: dead pane → 404 when startPreview returns false", async (
 });
 
 test("preview/start: unknown session id → 404", async () => {
-  const { app } = harness({ startPreview: () => true }, {});
+  const { app } = harness({ startPreview: async () => true }, {});
   const res = await app.fetch(
     postJson("/api/sessions/ghost-id/preview/start", { command: "bun run dev" }),
   );
@@ -379,7 +379,7 @@ test("preview/start: unknown session id → 404", async () => {
 });
 
 test("preview/start: missing content-type → 415", async () => {
-  const { app, store } = harness({ startPreview: () => true }, {});
+  const { app, store } = harness({ startPreview: async () => true }, {});
   const id = makeSession(store);
   const res = await app.fetch(
     new Request(`http://x/api/sessions/${id}/preview/start`, {

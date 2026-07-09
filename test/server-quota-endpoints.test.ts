@@ -183,7 +183,7 @@ test("quota/resume, plan kind → calls planGate.resume, status:resumed when it 
   const resumed: Session[] = [];
   const planGate: AppDeps["planGate"] = {
     consider: async () => "skipped" as const,
-    resume: (s) => {
+    resume: async (s) => {
       resumed.push(s);
       return true;
     },
@@ -202,7 +202,7 @@ test("quota/resume, plan kind → calls planGate.resume, status:resumed when it 
 test("quota/resume, plan kind → status:unreachable when planGate.resume returns false", async () => {
   const planGate: AppDeps["planGate"] = {
     consider: async () => "skipped" as const,
-    resume: () => false,
+    resume: async () => false,
     dismiss: () => {},
   };
   const app = makeApp(
@@ -335,7 +335,7 @@ test("quota/dismiss, plan kind → calls planGate.dismiss, status:dismissed", as
   const dismissed: Session[] = [];
   const planGate: AppDeps["planGate"] = {
     consider: async () => "skipped" as const,
-    resume: () => false,
+    resume: async () => false,
     dismiss: (s) => {
       dismissed.push(s);
     },

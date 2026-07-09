@@ -516,11 +516,11 @@ export class PreviewService {
     if (!listener) return;
     this.listeners.delete(sessionId);
     this.slotOwner.delete(listener.previewPort);
-    try {
-      listener.server?.stop(true);
-    } catch {
+    // `stop(true)` is async — the sync try/catch it used to sit in could never have seen its
+    // rejection. Attach the handler to the promise so an already-gone server stays a no-op.
+    void listener.server?.stop(true).catch(() => {
       /* already gone */
-    }
+    });
     try {
       this.onChange?.(sessionId, null);
     } catch {
@@ -549,11 +549,9 @@ export class PreviewService {
   /** Stop every listener (shutdown / tests). Does NOT fire onChange. */
   stopAll(): void {
     for (const listener of this.listeners.values()) {
-      try {
-        listener.server?.stop(true);
-      } catch {
+      void listener.server?.stop(true).catch(() => {
         /* already gone */
-      }
+      });
     }
     this.listeners.clear();
     this.slotOwner.clear();

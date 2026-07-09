@@ -139,11 +139,13 @@ export class HerdrUsageProbe implements UsageProbe {
       // type the slash command, let the command menu register, THEN submit with Enter separately —
       // a combined "/usage\r" runs before the menu is ready and the panel never opens.
       await sleep(5000); // let claude boot
-      proc.stdin.write("/usage");
-      proc.stdin.flush();
+      // Awaited (not fire-and-forget) so a failed write to a dead probe pane lands in the catch
+      // below as a clean `null`, rather than escaping as an unhandled rejection.
+      await proc.stdin.write("/usage");
+      await proc.stdin.flush();
       await sleep(900);
-      proc.stdin.write("\r");
-      proc.stdin.flush();
+      await proc.stdin.write("\r");
+      await proc.stdin.flush();
       return await awaitUsageFrame(() => buf, sleep);
     } catch {
       return null;

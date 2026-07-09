@@ -7,7 +7,7 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
-import { matchAgents, needsAccountRedrive } from "./herdr";
+import { createSerializer, matchAgents, needsAccountRedrive } from "./herdr";
 import { config } from "./config";
 import { findCodexSessionId } from "./codex-session-id";
 import type {
@@ -1474,6 +1474,16 @@ export class SessionService {
    *  (#1405). Ephemeral/in-memory — a first mid-session epic ask injects the notice once; later
    *  epic replies deliver verbatim. Re-arming after a server restart is harmless. */
   #epicNoticeSteered = new Set<string>();
+
+  /**
+   * Serializes every steer's bracket-paste + CR pair (issue #1567). `herdr.send` is async now, so
+   * the two writes of one steer no longer reach the PTY as an uninterruptible unit: without this,
+   * two overlapping steers to the same pane (an autopilot nudge landing mid-broadcast, say) can
+   * interleave as paste-A → paste-B → CR-A → CR-B, submitting a corrupted merge of both texts.
+   * A single global FIFO — not per-target — because steers are low-volume and human-paced, and one
+   * chain keeps the invariant obvious; see `createSerializer`.
+   */
+  #serializeSteer = createSerializer();
 
   /**
    * Build the human-turn prompt: the user's text plus any attached files, the issue
@@ -3620,9 +3630,12 @@ export class SessionService {
    * (claude exited / terminal reaped) — a live store row can still back a dead pane,
    * which would make herdr.send throw. The up-front liveness check keeps reply an honest,
    * non-throwing boolean for human steers, and hands the auto-address loop a clean
-   * "not delivered" instead of relying on it to catch the throw downstream.
+   * "not delivered" instead of relying on it to catch the throw downstream. (Since #1567 the
+   * send is async, so the narrow post-check race — pane dies between check and send — surfaces
+   * as a REJECTED promise rather than a sync throw; the callers that already guarded that race
+   * with try/catch now guard it with try/await.)
    */
-  reply(id: string, text: string): boolean {
+  reply(id: string, text: string): Promise<boolean> {
     return this.replyToLive(id, text, this.liveTerminalIds());
   }
 
@@ -3644,10 +3657,10 @@ export class SessionService {
    * lives in steerWithEpicNotice, shared with broadcast() so both operator free-text channels behave
    * identically.
    */
-  operatorReply(id: string, text: string): boolean {
+  async operatorReply(id: string, text: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !this.liveTerminalIds().has(s.herdrAgentId)) return false; // unknown or dead pane
-    this.steerWithEpicNotice(s, text);
+    await this.steerWithEpicNotice(s, text);
     return true;
   }
 
@@ -3657,10 +3670,10 @@ export class SessionService {
    * ourselves, so we deliver a directive asking the agent to do it. Returns false for
    * an unknown id or a dead pane (same semantics as reply()).
    */
-  startPreview(id: string, command: string): boolean {
+  async startPreview(id: string, command: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
-    return this.reply(id, PREVIEW_START_STEER(command, s.agentProvider ?? "claude"));
+    return await this.reply(id, PREVIEW_START_STEER(command, s.agentProvider ?? "claude"));
   }
 
   /**
@@ -3715,7 +3728,7 @@ export class SessionService {
       // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
       // than steered — else the retry lands on the wrong-account pane.
       if (live.has(s.herdrAgentId) && !this.shouldDeferSteer(id)) {
-        if (this.replyToLive(id, continueText, live)) {
+        if (await this.replyToLive(id, continueText, live)) {
           steered++;
           succeeded = true;
         }
@@ -3748,10 +3761,10 @@ export class SessionService {
    *                busy-herd broadcast looked like a no-op).
    *   - offline:   unknown id or dead pane — the steer wasn't delivered.
    *  `delivered + queued + offline === total`. */
-  broadcast(
+  async broadcast(
     ids: string[],
     text: string,
-  ): { delivered: number; queued: number; offline: number; total: number } {
+  ): Promise<{ delivered: number; queued: number; offline: number; total: number }> {
     let agents: HerdrAgent[];
     try {
       agents = this.deps.herdr.list();
@@ -3772,7 +3785,10 @@ export class SessionService {
       // Like operatorReply, an epic-intent broadcast injects the epic-authoring notice once per
       // session (#1405). Delivery classification below is unchanged — the notice only alters the
       // PTY text, not whether/how the steer lands, and the recorded signal stays the raw text.
-      this.steerWithEpicNotice(s, text);
+      // Sequential, not a parallel fan-out: each steer's paste+CR pair funnels through the same
+      // #serializeSteer FIFO anyway, so awaiting in turn costs nothing but keeps the loop's
+      // per-target classification honest if one send rejects (it propagates, as it always has).
+      await this.steerWithEpicNotice(s, text);
       if (statusByTerminal.get(s.herdrAgentId) === "working") queued++;
       else delivered++;
     }
@@ -3797,17 +3813,22 @@ export class SessionService {
    * listed: a swallowed failure would emit a success-looking `halt:done {halted:0}`,
    * indistinguishable from "nothing was working" — a silent no-op at the worst moment.
    */
-  haltAll(): { halted: number } {
+  async haltAll(): Promise<{ halted: number }> {
     const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
     const sessions = this.deps.store.list({ activeOnly: true });
     let halted = 0;
     for (const agent of matchAgents(sessions, agents).values()) {
       if (agent?.agentStatus !== "working") continue;
+      // Deliberately NOT routed through #serializeSteer: an e-stop must never queue behind the
+      // very steers it exists to cancel (a wedged send would hold the FIFO up to herdr's timeout).
+      // A lone ESC landing between a concurrent steer's paste and CR is harmless — it lands inside
+      // pasted text of a turn we are interrupting anyway.
+      //
       // Best-effort: a pane that died between `list` and `send` (or any single send
-      // throwing) must NOT abort the sweep — keep interrupting the rest. Count only the
+      // rejecting) must NOT abort the sweep — keep interrupting the rest. Count only the
       // interrupts that actually landed; best-effort reach is the point of an e-stop.
       try {
-        this.deps.herdr.send(agent.terminalId, "\x1b");
+        await this.deps.herdr.send(agent.terminalId, "\x1b");
         halted++;
       } catch {
         /* dead / raced pane — skip it, the herd-wide stop carries on */
@@ -3831,15 +3852,15 @@ export class SessionService {
   /** Steer one session against a pre-fetched live set. False on unknown id or dead pane.
    *  `signalPayload` (default = `text`) is threaded to sendSteerTo so operatorReply can deliver the
    *  combined text while recording only the raw operator words (#1405). */
-  private replyToLive(
+  private async replyToLive(
     id: string,
     text: string,
     live: Set<string>,
     signalPayload: string = text,
-  ): boolean {
+  ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
-    this.sendSteerTo(s, text, signalPayload);
+    await this.sendSteerTo(s, text, signalPayload);
     return true;
   }
 
@@ -3853,7 +3874,7 @@ export class SessionService {
    *  operator text PLUS the injected epic-authoring notice — the notice reaches the PTY but the
    *  recorded `reply` signal stays the operator's words alone, so the learnings distiller never
    *  mines Shepherd's own notice (`reply` is a mined signal kind). */
-  private sendSteerTo(s: Session, text: string, signalPayload: string = text): void {
+  private async sendSteerTo(s: Session, text: string, signalPayload: string = text): Promise<void> {
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
@@ -3863,8 +3884,12 @@ export class SessionService {
     const PASTE_START = "\x1b[200~";
     const PASTE_END = "\x1b[201~";
     const safe = text.replaceAll(PASTE_START, "").replaceAll(PASTE_END, "");
-    this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
-    this.deps.herdr.send(s.herdrAgentId, "\r");
+    // The CR must reach the PTY only after the paste has landed, and no other steer may slip
+    // between them — the paste-end marker is what makes this CR unambiguously Enter (#1567).
+    await this.#serializeSteer(async () => {
+      await this.deps.herdr.send(s.herdrAgentId, `${PASTE_START}${safe}${PASTE_END}`);
+      await this.deps.herdr.send(s.herdrAgentId, "\r");
+    });
   }
 
   /** Deliver an operator-authored steer to an already-resolved, LIVE session, injecting the
@@ -3874,13 +3899,18 @@ export class SessionService {
    *  behave identically — a broadcast that says "make these epics" gets the same guidance a single
    *  reply would. Callers have already confirmed the pane is live, so injecting == delivering and
    *  marking here can't burn the one-shot on a non-delivery. */
-  private steerWithEpicNotice(s: Session, text: string): void {
+  private async steerWithEpicNotice(s: Session, text: string): Promise<void> {
     const combined = this.#epicNoticeSteered.has(s.id) ? null : composeEpicSteer(text);
-    if (combined) {
-      this.sendSteerTo(s, combined, /* signalPayload */ text);
-      this.#epicNoticeSteered.add(s.id);
-    } else {
-      this.sendSteerTo(s, text);
+    if (!combined) return this.sendSteerTo(s, text);
+    // Claim the one-shot BEFORE the await, not after: the send is async now (#1567), so two
+    // concurrent epic-intent steers to one session would both see an unmarked set and inject the
+    // notice twice. Roll the claim back if delivery throws, preserving "mark only on success".
+    this.#epicNoticeSteered.add(s.id);
+    try {
+      await this.sendSteerTo(s, combined, /* signalPayload */ text);
+    } catch (err) {
+      this.#epicNoticeSteered.delete(s.id);
+      throw err;
     }
   }
 
@@ -3911,13 +3941,16 @@ export class SessionService {
    * session is unknown, not planning, or not yet approved. Used by the /go route (interactive)
    * and by PlanGateService for an auto session's auto-release on approval.
    */
-  releasePlanGate(id: string): boolean {
+  async releasePlanGate(id: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || s.planPhase !== "planning") return false;
     if (!this.deps.store.getPlanGate(id)?.approved) return false;
     this.#enterExecution(id);
     const { draftMode } = this.deps.store.getRepoConfig(s.repoPath);
-    this.reply(id, planGoSteer(draftMode));
+    // Awaited, not fire-and-forget: the release is only honest once the "implement the plan" steer
+    // has actually reached the pane. The boolean stays "did we release", not "did the steer land"
+    // — a dead pane still transitions the phase, exactly as before #1567.
+    await this.reply(id, planGoSteer(draftMode));
     return true;
   }
 

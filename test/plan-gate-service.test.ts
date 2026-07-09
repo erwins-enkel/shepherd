@@ -69,8 +69,8 @@ function harness(over: any = {}) {
     },
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
-    reply: () => true,
-    release() {},
+    reply: async () => true,
+    async release() {},
     onChange() {},
     onReviewing() {},
     cap: 3,
@@ -975,7 +975,7 @@ test("inflightWorktrees: returns worktree path after consider() spawns a review"
 
 // ── resume (operator "resume" for plan stalled at adversarial-review cap) ────
 
-test("resume happy path: resets round to 0, fires onChange, re-steers findings, returns true", () => {
+test("resume happy path: resets round to 0, fires onChange, re-steers findings, returns true", async () => {
   const cap = 3;
   const findings = ["address concern X", "clarify scope Y"];
   const gate: any = {
@@ -997,12 +997,12 @@ test("resume happy path: resets round to 0, fires onChange, re-steers findings, 
   const h = harness({
     store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
     onChange: (id: string, g: any) => onChangeCalls.push({ id, g }),
-    reply: (id: string, text: string) => {
+    reply: async (id: string, text: string) => {
       replyCalls.push(text);
       return true;
     },
   });
-  const result = h.svc.resume(planningSession() as any);
+  const result = await h.svc.resume(planningSession() as any);
   // round reset to 0
   expect(putCalls).toHaveLength(1);
   expect(putCalls[0].round).toBe(0);
@@ -1021,7 +1021,7 @@ test("resume happy path: resets round to 0, fires onChange, re-steers findings, 
   expect(result).toBe(true);
 });
 
-test("resume: reply returns false → resume returns false", () => {
+test("resume: reply returns false → resume returns false", async () => {
   const gate: any = {
     sessionId: "s1",
     planHash: "h1",
@@ -1037,28 +1037,28 @@ test("resume: reply returns false → resume returns false", () => {
   };
   const h = harness({
     store: { getPlanGate: () => gate, putPlanGate: () => {} },
-    reply: () => false,
+    reply: async () => false,
   });
-  expect(h.svc.resume(planningSession() as any)).toBe(false);
+  expect(await h.svc.resume(planningSession() as any)).toBe(false);
 });
 
-test("resume no-op: no gate → returns false, no putPlanGate/reply", () => {
+test("resume no-op: no gate → returns false, no putPlanGate/reply", async () => {
   const putCalls: any[] = [];
   const replyCalls: any[] = [];
   const h = harness({
     store: { getPlanGate: () => null, putPlanGate: (g: any) => putCalls.push(g) },
-    reply: (id: string, text: string) => {
+    reply: async (id: string, text: string) => {
       replyCalls.push(text);
       return true;
     },
   });
-  const result = h.svc.resume(planningSession() as any);
+  const result = await h.svc.resume(planningSession() as any);
   expect(result).toBe(false);
   expect(putCalls).toHaveLength(0);
   expect(replyCalls).toHaveLength(0);
 });
 
-test("resume no-op: gate decision is 'approved' → returns false, no putPlanGate/reply", () => {
+test("resume no-op: gate decision is 'approved' → returns false, no putPlanGate/reply", async () => {
   const gate: any = {
     sessionId: "s1",
     planHash: "h1",
@@ -1076,18 +1076,18 @@ test("resume no-op: gate decision is 'approved' → returns false, no putPlanGat
   const replyCalls: any[] = [];
   const h = harness({
     store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
-    reply: (id: string, text: string) => {
+    reply: async (id: string, text: string) => {
       replyCalls.push(text);
       return true;
     },
   });
-  const result = h.svc.resume(planningSession() as any);
+  const result = await h.svc.resume(planningSession() as any);
   expect(result).toBe(false);
   expect(putCalls).toHaveLength(0);
   expect(replyCalls).toHaveLength(0);
 });
 
-test("resume no-op: gate decision is 'error' → returns false", () => {
+test("resume no-op: gate decision is 'error' → returns false", async () => {
   const gate: any = {
     sessionId: "s1",
     planHash: "h1",
@@ -1102,7 +1102,7 @@ test("resume no-op: gate decision is 'error' → returns false", () => {
     updatedAt: 1000,
   };
   const h = harness({ store: { getPlanGate: () => gate, putPlanGate: () => {} } });
-  expect(h.svc.resume(planningSession() as any)).toBe(false);
+  expect(await h.svc.resume(planningSession() as any)).toBe(false);
 });
 
 // ── finalRoundPending + dismissed (rework-stall classification) ────────────────
@@ -1178,7 +1178,7 @@ test("dismiss: marks dismissed=true, clears finalRoundPending, keeps changes_req
   expect(putCalls[0].round).toBe(0);
 });
 
-test("resume: clears a prior dismissed flag", () => {
+test("resume: clears a prior dismissed flag", async () => {
   const gate: any = {
     sessionId: "s1",
     planHash: "h1",
@@ -1196,9 +1196,9 @@ test("resume: clears a prior dismissed flag", () => {
   const putCalls: any[] = [];
   const h = harness({
     store: { getPlanGate: () => gate, putPlanGate: (g: any) => putCalls.push(g) },
-    reply: () => true,
+    reply: async () => true,
   });
-  h.svc.resume(planningSession() as any);
+  await h.svc.resume(planningSession() as any);
   expect(putCalls).toHaveLength(1);
   expect(putCalls[0].dismissed).toBe(false);
 });

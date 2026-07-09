@@ -356,8 +356,9 @@ export interface AppDeps {
    *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */
   planGate?: {
     consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
-    /** Reset the plan-gate round so the quota block clears, re-delivering findings to the agent. */
-    resume?(session: Session): boolean;
+    /** Reset the plan-gate round so the quota block clears, re-delivering findings to the agent.
+     *  Async since #1567 — resolves true when the re-delivered steer reached the live pane. */
+    resume?(session: Session): Promise<boolean>;
     /** Reset the plan-gate round WITHOUT re-delivering findings (dismiss the quota block). */
     dismiss?(session: Session): void;
   };
@@ -441,7 +442,8 @@ export interface AppDeps {
   /** Background merge-suggestion pass — manual per-repo trigger ("Suggest merges now").
    *  Optional so tests that don't wire it still type-check; route no-ops when absent. */
   mergeSuggest?: {
-    mergeNow: (repoPath: string) => void;
+    /** Async (MergeSuggestService.mergeNow); the trigger route fires it and forgets. */
+    mergeNow: (repoPath: string) => Promise<void>;
   };
   /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR, or a cross-repo
    *  recurrence rule into the user-global ~/.claude/CLAUDE.md directly (#872). */
@@ -2239,7 +2241,7 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   // dead pane, or transient herdr-unreachable → 404 here), but it also injects the epic-authoring
   // notice once per session when the message signals epic intent (#1405). Internal steers keep
   // calling service.reply() directly, so they never trip that path.
-  const ok = deps.service.operatorReply(parts[2], (body as { text: string }).text);
+  const ok = await deps.service.operatorReply(parts[2], (body as { text: string }).text);
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 
@@ -2263,9 +2265,9 @@ async function handleSessionRecommend({ req, parts, deps }: Ctx): Promise<Respon
 
 // POST /api/sessions/:id/go — release an APPROVED planning session into execution.
 // 200 when the plan-gate transition fires (planning + approved); 409 otherwise.
-function handleSessionGo({ req, parts, deps }: Ctx): Response | null {
+async function handleSessionGo({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "go")) return null;
-  return deps.service.releasePlanGate(parts[2])
+  return (await deps.service.releasePlanGate(parts[2]))
     ? json({ ok: true })
     : json({ error: "plan not approved or not in planning phase" }, 409);
 }
@@ -2307,12 +2309,13 @@ async function handleSessionAnswerPlanQuestions({
   }
   const resolved = resolvePlanAnswers(gate.blocks, answers as RawAnswer[]);
   if (resolved.length === 0) return json({ error: "no answers resolved" }, 400);
-  const delivered = deps.service.reply(id, planAnswerSteerText(resolved));
+  const delivered = await deps.service.reply(id, planAnswerSteerText(resolved));
   // Durably record the answered questions so the "unanswered plan question" attention signal
   // clears (#1332). Keys derive from the RESOLVED answers only — a dropped invalid/blank answer
   // never records a key. Re-fetch + planHash-guard so a concurrent finalize() that reset the
   // keys for a NEW planHash can't be clobbered by writing back a stale gate; the read-modify-
-  // write is synchronous (no await between getPlanGate and putPlanGate).
+  // write is synchronous (no await between getPlanGate and putPlanGate) — the steer's await
+  // above sits BEFORE the re-fetch, so it widens no window the planHash guard doesn't cover.
   const answeredKeys = resolved.map((r) => `${r.blockId} ${r.questionId}`);
   const fresh = deps.store.getPlanGate(id);
   if (fresh && fresh.planHash === gate.planHash) {
@@ -2403,7 +2406,7 @@ async function sendPreviewSetupSteer(
     previewStartScript: setupScriptPath,
     previewStartCommand: command,
   });
-  const ok = deps.service.reply(
+  const ok = await deps.service.reply(
     id,
     PREVIEW_SETUP_STEER({
       scriptPath: setupScriptPath,
@@ -2430,7 +2433,7 @@ async function sendLegacyPreviewStart(
 ): Promise<Response> {
   const resolved = command ?? (await detectDevCommand(s.worktreePath));
   if (!resolved) return json({ error: "command_unknown" }, 409);
-  const ok = deps.service.startPreview(id, resolved);
+  const ok = await deps.service.startPreview(id, resolved);
   return ok
     ? json({ ok: true, mode: "agent", command: resolved })
     : json({ error: "not found" }, 404);
@@ -2707,7 +2710,9 @@ async function handleSessionQuotaResume({ req, parts, deps }: Ctx): Promise<Resp
   );
   if (!reason) return json({ ok: true, status: "not-stalled" }, 202);
   if (reason.quotaKind === "plan") {
-    const ok = deps.planGate?.resume?.(s) ?? false;
+    // `await` BEFORE `?? false`: without it `ok` would be an always-truthy Promise and every
+    // unreachable pane would report "resumed".
+    const ok = (await deps.planGate?.resume?.(s)) ?? false;
     return json({ ok: true, status: ok ? "resumed" : "unreachable" }, 202);
   }
   // critic kinds: rework / review / error
@@ -3201,11 +3206,14 @@ async function postBuildStepStatus(
 }
 
 // POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
-function approveBuildQueue(deps: AppDeps, id: string): Response {
+async function approveBuildQueue(deps: AppDeps, id: string): Promise<Response> {
   deps.store.setBuildQueueApproved(id, true, "operator");
   const q = deps.store.getBuildQueue(id);
   deps.events?.emit("queue:update", q);
-  deps.service.reply(id, APPROVE_STEER); // best-effort; ignore boolean return
+  // Awaited so the "Begin now" steer has landed before the operator sees the approved queue, and
+  // so a failed send still surfaces as a 500 (exactly as the sync throw did pre-#1567). The
+  // boolean is still ignored: a dead pane must not un-approve the queue.
+  await deps.service.reply(id, APPROVE_STEER);
   return json(q);
 }
 
@@ -4628,7 +4636,7 @@ async function handleBroadcast({ req, parts, deps }: Ctx): Promise<Response | nu
       const body = await req.json().catch(() => null);
       const parsed = validateBroadcast(body);
       if (!parsed) return json({ error: "body must be {text: string, ids: string[]}" }, 400);
-      return json(deps.service.broadcast(parsed.ids, parsed.text));
+      return json(await deps.service.broadcast(parsed.ids, parsed.text));
     }
   }
   return null;
@@ -4756,14 +4764,14 @@ async function handleRetry({ req, parts, deps }: Ctx): Promise<Response | null> 
 }
 
 // ── halt the herd: interrupt every live working agent at once ──
-function handleHalt({ req, parts, deps }: Ctx): Response | null {
+async function handleHalt({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] !== "api" || parts[1] !== "halt" || parts[2]) return null;
   // Explicit 405 (matching handleSessionsClearMerged) rather than falling through to a
   // generic 404 — the path exists, only the verb is wrong.
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   // No body: the server computes the target set (every live `working` pane) itself,
   // so there is nothing to validate. The shared auth/origin guards still apply.
-  return json(deps.service.haltAll());
+  return json(await deps.service.haltAll());
 }
 
 // ── filesystem browser: list sub-directories for the root picker ──

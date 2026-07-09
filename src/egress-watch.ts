@@ -137,7 +137,9 @@ export class EgressWatcher {
   ): void {
     if (this.sessions.has(sessionId)) return; // already watching
 
-    const tick = () => this.#tick(sessionId, opts);
+    // `void`: #tick swallows all its own errors (see its doc), and the timer callback is
+    // `() => void` — returning the promise would be a misused-promises violation, not a handler.
+    const tick = () => void this.#tick(sessionId, opts);
     const interval = this.deps.setInterval(tick, this.deps.intervalMs);
     this.sessions.set(sessionId, {
       interval,

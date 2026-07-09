@@ -382,11 +382,13 @@ export class ReviewService {
     }
     let terminalId: string;
     try {
-      terminalId = this.deps.herdr.start(
-        `review ${session.desig}`,
-        wt.worktreePath,
-        aux.wrapped,
-        aux.spawnEnv,
+      terminalId = (
+        await this.deps.herdr.start(
+          `review ${session.desig}`,
+          wt.worktreePath,
+          aux.wrapped,
+          aux.spawnEnv,
+        )
       ).terminalId;
     } catch (err) {
       console.warn(`[review] spawn failed for ${session.id}:`, err);
@@ -455,7 +457,7 @@ export class ReviewService {
     const f = this.inflight.get(session.id);
     if (f) {
       if (f.finalizing) return "skipped";
-      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+      await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
       this.deps.onReviewing?.(session.id, false);
       this.inflight.delete(session.id);
     }
@@ -750,7 +752,7 @@ export class ReviewService {
       );
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
-      reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
+      await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
     }
   }
 
@@ -1112,7 +1114,7 @@ export class ReviewService {
     // Resolve by NAME first ("review TASK-<n>"), fall back to cwd only as a safety net
     // (avoids a second list() call for the name-absent case when the session is gone).
     const squatter = this.findSquatter(s ? `review ${s.desig}` : "", row.worktreePath);
-    if (squatter) this.deps.herdr.closeTab(squatter.tabId);
+    if (squatter) await this.deps.herdr.closeTab(squatter.tabId);
     // Remove the worktree AFTER freeing the name so the herdr slot is open before
     // the worktree is gone (mirrors plan-gate's ordering invariant).
     this.deps.worktree.remove(row.worktreePath);
@@ -1152,7 +1154,7 @@ export class ReviewService {
     this.starting.delete(sessionId);
     const f = this.inflight.get(sessionId);
     if (f) {
-      this.deps.herdr.stop(f.terminalId);
+      void this.deps.herdr.stop(f.terminalId).catch(() => {});
       this.deps.worktree.remove(f.worktreePath);
       this.inflight.delete(sessionId);
       this.deps.onReviewing?.(sessionId, false);

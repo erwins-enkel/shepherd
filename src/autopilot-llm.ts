@@ -186,11 +186,13 @@ export async function classifyStop(
     cwd = makeTmpDir();
     const prompt = classifierPrompt(tail, taskPrompt);
     try {
-      terminalId = deps.herdr.start(
-        label,
-        cwd,
-        classifierArgv(provider, model, prompt, effort),
-        apiKeyPassthroughEnv(false),
+      terminalId = (
+        await deps.herdr.start(
+          label,
+          cwd,
+          classifierArgv(provider, model, prompt, effort),
+          apiKeyPassthroughEnv(false),
+        )
       ).terminalId;
     } catch {
       return SURFACE; // herdr/claude unavailable → surface (don't auto-proceed blind)
@@ -200,7 +202,7 @@ export async function classifyStop(
   } finally {
     if (terminalId) {
       try {
-        deps.herdr.stop(terminalId);
+        await deps.herdr.stop(terminalId);
       } catch {
         /* best-effort */
       }

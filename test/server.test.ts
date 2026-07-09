@@ -39,7 +39,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
       remove: () => {},
     } as any,
     herdr: {
-      start: () => ({
+      start: async () => ({
         terminalId: "term_x",
         cwd: "/wt",
         agent: "claude",
@@ -49,7 +49,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
         workspaceId: "w",
       }),
       list: () => liveTerminals.map((terminalId) => ({ terminalId })),
-      stop: () => {},
+      stop: async () => {},
       send: () => {},
     } as any,
     events,
@@ -274,11 +274,11 @@ test("POST /api/sessions returns 422 when the selected base does not resolve to 
     namer: async () => "x",
     worktree: new WorktreeMgr(),
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("herdr should not start for a missing base ref");
       },
       list: () => [],
-      stop: () => {},
+      stop: async () => {},
       send: () => {},
     } as any,
     events: deps.events,
@@ -338,7 +338,12 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
       branchExists: () => false,
       remove: () => {},
     } as any,
-    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
     reaper: fullReaper,
   });
   const usageLimits = {
@@ -1393,7 +1398,12 @@ function clearMergedHarness() {
       remove: () => {},
       branchExists: () => false,
     } as any,
-    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
     reaper: {
       detect,
       reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
@@ -1986,7 +1996,12 @@ function harnessWithPreviewStop({
       branchExists: () => false,
       remove: () => {},
     } as any,
-    herdr: { start: () => ({}) as any, list: () => [], stop: () => {}, send: () => {} } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
     reaper: { detect: () => [], reap: () => {}, stopListenersOnPort },
     preview: { devPortFor },
   });

@@ -151,11 +151,13 @@ export async function llmName(
   try {
     cwd = makeTmpDir();
     try {
-      terminalId = deps.herdr.start(
-        label,
-        cwd,
-        namerArgv(provider, model, taskText, effort),
-        apiKeyPassthroughEnv(false),
+      terminalId = (
+        await deps.herdr.start(
+          label,
+          cwd,
+          namerArgv(provider, model, taskText, effort),
+          apiKeyPassthroughEnv(false),
+        )
       ).terminalId;
     } catch {
       return null; // herdr/claude unavailable → fall back to heuristic
@@ -165,7 +167,7 @@ export async function llmName(
   } finally {
     if (terminalId) {
       try {
-        deps.herdr.stop(terminalId);
+        await deps.herdr.stop(terminalId);
       } catch {
         /* best-effort */
       }

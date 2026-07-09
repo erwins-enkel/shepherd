@@ -193,8 +193,8 @@ type FakeHerdr = {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
-  ) => { terminalId: string };
-  stop: (id: string) => void;
+  ) => Promise<{ terminalId: string }>;
+  stop: (id: string) => Promise<void>;
   list: () => FakePaneEntry[];
   paneForegroundProcs: (paneId: string) => Promise<string[]>;
 };
@@ -206,13 +206,13 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
     livePanes,
     procsOverride: new Map(),
     defaultProcs,
-    start: (label, cwd, argv, env) => {
+    start: async (label, cwd, argv, env) => {
       const tid = `tid-${h.started.length + 1}`;
       h.started.push({ label, cwd, argv, env });
       h.livePanes.push({ cwd, terminalId: tid });
       return { terminalId: tid };
     },
-    stop: (id) => h.stopped.push(id),
+    stop: async (id) => void h.stopped.push(id),
     list: () => h.livePanes,
     paneForegroundProcs: async (paneId: string) => h.procsOverride.get(paneId) ?? h.defaultProcs,
   };
@@ -1072,10 +1072,10 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
     livePanes: [],
     procsOverride: new Map(),
     defaultProcs: ["zsh"],
-    start: () => {
+    start: async () => {
       throw new Error("herdr start failed");
     },
-    stop: (id) => herdr.stopped.push(id),
+    stop: async (id) => void herdr.stopped.push(id),
     list: () => herdr.livePanes,
     paneForegroundProcs: async (paneId: string) =>
       herdr.procsOverride.get(paneId) ?? herdr.defaultProcs,

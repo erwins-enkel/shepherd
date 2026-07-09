@@ -15,7 +15,7 @@ import type { EgressWatcher } from "../src/egress-watch";
 // A herdr stub that records the argv it was started with (the assertion target).
 function herdrStub(record: { argv?: string[] }) {
   return {
-    start: (_name: string, cwd: string, argv: string[]) => {
+    start: async (_name: string, cwd: string, argv: string[]) => {
       record.argv = argv;
       return {
         terminalId: "term_x",
@@ -28,9 +28,9 @@ function herdrStub(record: { argv?: string[] }) {
       };
     },
     list: () => [],
-    stop: () => {},
+    stop: async () => {},
     send: () => {},
-    relabel: () => {},
+    relabel: async () => {},
   } as any;
 }
 
@@ -475,7 +475,7 @@ function makeWatcherStub(): Pick<EgressWatcher, "start" | "stop"> & {
     starts,
     stops,
     start: (sessionId, opts) => starts.push({ sessionId, opts }),
-    stop: (sessionId) => stops.push(sessionId),
+    stop: async (sessionId) => stops.push(sessionId),
   };
 }
 

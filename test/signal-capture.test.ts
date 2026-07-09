@@ -64,8 +64,8 @@ test("critic changes_requested records a 'critic' signal", async () => {
   const svc = new ReviewService({
     store,
     herdr: {
-      start: () => ({ terminalId: "rev1" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "rev1" }),
+      stop: async () => {},
       list: () => [{ cwd: "/rev-wt", terminalId: "rev1", agentStatus: "idle" }],
     } as any,
     worktree: {

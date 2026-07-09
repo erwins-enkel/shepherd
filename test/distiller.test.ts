@@ -37,7 +37,7 @@ function mkDeps(store: SessionStore, proposals: any, onChange = () => {}) {
   return {
     deps: {
       store,
-      herdr: { start: () => ({ terminalId: "dist1" }), stop: () => {} } as any,
+      herdr: { start: async () => ({ terminalId: "dist1" }), stop: async () => {} } as any,
       scratch: {
         create: () => {
           const d = { dir: `/scratch/${started.length}` };
@@ -63,7 +63,7 @@ test("consider spawns when enough new signals, tick stores proposed learnings", 
     rules: [{ rule: "use bun not npm", rationale: "repo is bun", evidence: ["x"] }],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
   const learnings = store.listLearnings("/r", { status: "proposed" });
   expect(learnings.length).toBe(1);
@@ -75,7 +75,7 @@ test("consider does nothing below the signal threshold", async () => {
   seedSignals(store, "/r", 2);
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   expect(started.length).toBe(0);
 });
 
@@ -93,7 +93,7 @@ test("egress_drop signals are excluded from the learnings corpus + threshold", a
   }
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   expect(started.length).toBe(0); // 2 learning signals < 3, egress_drop ignored
 });
 
@@ -114,7 +114,7 @@ test("injection_detected and untrusted_author signals are excluded from the lear
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   expect(started.length).toBe(0); // still 2 learning signals < 3, security telemetry ignored
 });
 
@@ -123,7 +123,7 @@ test("distillNow forces a run regardless of threshold", async () => {
   seedSignals(store, "/r", 1);
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   expect(started.length).toBe(1);
 });
 
@@ -135,7 +135,7 @@ test("duplicate rule text is not re-proposed", async () => {
     rules: [{ rule: "Use Bun not npm", rationale: "dup", evidence: [] }],
   });
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   await d.tick();
   expect(store.listLearnings("/r").length).toBe(1); // unchanged
 });
@@ -150,23 +150,23 @@ test("onChange fires after a run that produced rules", async () => {
     () => fired++,
   );
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   await d.tick();
   expect(fired).toBe(1);
 });
 
-test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare Write, no skip-permissions)", () => {
+test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare Write, no skip-permissions)", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);
   let argv: string[] = [];
   const deps = {
     store,
     herdr: {
-      start: (_name: string, _cwd: string, a: string[]) => {
+      start: async (_name: string, _cwd: string, a: string[]) => {
         argv = a;
         return { terminalId: "d1" };
       },
-      stop: () => {},
+      stop: async () => {},
     } as any,
     scratch: { create: () => ({ dir: "/scratch" }), remove: () => {} },
     onChange: () => {},
@@ -176,7 +176,7 @@ test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare
     readProposals: () => null,
   };
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
 
   expect(argv).not.toContain("--dangerously-skip-permissions");
   const allow = argv.indexOf("--allowedTools");
@@ -204,13 +204,13 @@ function spawnCapture(store: SessionStore) {
   const deps = {
     store,
     herdr: {
-      start: (_n: string, _c: string, a: string[], env?: Record<string, string>) => {
+      start: async (_n: string, _c: string, a: string[], env?: Record<string, string>) => {
         cap.argv = a;
         cap.env = env;
         cap.starts++;
         return { terminalId: "d1" };
       },
-      stop: () => {},
+      stop: async () => {},
     } as any,
     scratch: { create: () => ({ dir: "/scratch" }), remove: () => cap.removed++ },
     onChange: () => {},
@@ -222,7 +222,7 @@ function spawnCapture(store: SessionStore) {
   return { deps, cap };
 }
 
-test("distill spawn: subscription mode — --settings unchanged + no env 4th arg", () => {
+test("distill spawn: subscription mode — --settings unchanged + no env 4th arg", async () => {
   withAuth("subscription", "/ignored.sh", () => {
     const store = new SessionStore(":memory:");
     seedSignals(store, "/r", 3);
@@ -233,7 +233,7 @@ test("distill spawn: subscription mode — --settings unchanged + no env 4th arg
   });
 });
 
-test("distill spawn: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", () => {
+test("distill spawn: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {
   withAuth("api-key", "/helper.sh", () => {
     const store = new SessionStore(":memory:");
     seedSignals(store, "/r", 3);
@@ -246,7 +246,7 @@ test("distill spawn: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG
   });
 });
 
-test("distill spawn: api-key without a configured key fails closed (no spawn, scratch cleaned)", () => {
+test("distill spawn: api-key without a configured key fails closed (no spawn, scratch cleaned)", async () => {
   withAuth("api-key", null, () => {
     const store = new SessionStore(":memory:");
     seedSignals(store, "/r", 3);
@@ -267,11 +267,11 @@ test("tick finalizes and reaps a run that times out without proposals", async ()
   const deps = {
     store,
     herdr: {
-      start: () => {
+      start: async () => {
         starts++;
         return { terminalId: `d${starts}` };
       },
-      stop: () => stopped++,
+      stop: async () => stopped++,
     } as any,
     scratch: { create: () => ({ dir: `/scratch/${starts}` }), remove: () => removed++ },
     onChange: () => {},
@@ -282,7 +282,7 @@ test("tick finalizes and reaps a run that times out without proposals", async ()
     readProposals: () => null, // proposals never written
   };
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   expect(starts).toBe(1);
   await d.tick(); // not yet timed out
   expect(stopped).toBe(0);
@@ -291,19 +291,19 @@ test("tick finalizes and reaps a run that times out without proposals", async ()
   expect(stopped).toBe(1);
   expect(removed).toBe(1);
   expect(store.listLearnings("/r").length).toBe(0); // no proposals → nothing added
-  d.distillNow("/r"); // inflight cleared → a new run can start
+  await d.distillNow("/r"); // inflight cleared → a new run can start
   expect(starts).toBe(2);
 });
 
-test("distillNow with zero signals does not spawn a run", () => {
+test("distillNow with zero signals does not spawn a run", async () => {
   const store = new SessionStore(":memory:");
   const { deps, started } = mkDeps(store, { rules: [] }); // no signals seeded
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   expect(started.length).toBe(0);
 });
 
-test("consider does nothing when learnings disabled for the repo", () => {
+test("consider does nothing when learnings disabled for the repo", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 5);
   store.setRepoConfig("/r", {
@@ -332,7 +332,7 @@ test("consider does nothing when learnings disabled for the repo", () => {
   });
   const { deps, started } = mkDeps(store, { rules: [] });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   expect(started.length).toBe(0);
 });
 
@@ -381,10 +381,10 @@ test("distiller increments ineffective for cited active rule ids with validated 
       getLearning: () => null,
     },
     herdr: {
-      start: () => ({ terminalId: "t1" }) as never,
-      stop: () => {},
+      start: async () => ({ terminalId: "t1" }) as never,
+      stop: async () => {},
       list: () => [],
-      closeTab: () => {},
+      closeTab: async () => {},
     },
     scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
     onChange: () => {},
@@ -399,13 +399,13 @@ test("distiller increments ineffective for cited active rule ids with validated 
       ],
     }),
   });
-  svc.distillNow("/r");
+  await svc.distillNow("/r");
   await svc.tick();
   // only the real active id is bumped, and only the in-window signal id is passed through
   expect(bumped).toEqual([{ id: "rule-1", signals: ["s1"] }]);
 });
 
-test("dismissed rules are passed to the distiller so they aren't re-proposed", () => {
+test("dismissed rules are passed to the distiller so they aren't re-proposed", async () => {
   const store = new SessionStore(":memory:");
   const dis = store.addLearning({
     repoPath: "/r",
@@ -418,7 +418,7 @@ test("dismissed rules are passed to the distiller so they aren't re-proposed", (
   let captured: string[] = [];
   const deps = {
     store,
-    herdr: { start: () => ({ terminalId: "d1" }), stop: () => {} } as any,
+    herdr: { start: async () => ({ terminalId: "d1" }), stop: async () => {} } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
     now: () => 1000,
@@ -429,7 +429,7 @@ test("dismissed rules are passed to the distiller so they aren't re-proposed", (
     readProposals: () => null,
   };
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   expect(captured).toContain("dismissed rule");
 });
 
@@ -449,7 +449,7 @@ function mkCollisionAwareDeps(
     deps: {
       store,
       herdr: {
-        start: (name: string, cwd: string) => {
+        start: async (name: string, cwd: string) => {
           if (liveNames.has(name)) throw new Error(`agent_name_taken: ${name}`);
           const terminalId = `dist${nextId++}`;
           liveNames.add(name);
@@ -457,7 +457,7 @@ function mkCollisionAwareDeps(
           started.push({ name, dir: cwd });
           return { terminalId };
         },
-        stop: (terminalId: string) => {
+        stop: async (terminalId: string) => {
           const n = nameByTerminalId.get(terminalId);
           if (n) liveNames.delete(n);
           nameByTerminalId.delete(terminalId);
@@ -486,8 +486,8 @@ test("collision regression: two repos considered together get distinct unique ag
   const { deps, started } = mkCollisionAwareDeps(store, { rules: [], ineffective: [] });
   const d = new DistillerService(deps as any);
   // Both repos pass threshold — both should spawn without collision
-  d.consider("/r1");
-  d.consider("/r2");
+  await d.consider("/r1");
+  await d.consider("/r2");
   expect(started.length).toBe(2);
   // Names must be unique and share the DISTILL_LABEL prefix
   const [n1, n2] = started.map((s) => s.name);
@@ -506,10 +506,10 @@ test("concurrency cap: at most maxConcurrent spawns live; queue drains via tick"
   (deps as any).readProposals = readProposals;
   const d = new DistillerService(deps as any);
 
-  d.consider("/r1");
-  d.consider("/r2");
-  d.consider("/r3");
-  d.consider("/r4");
+  await d.consider("/r1");
+  await d.consider("/r2");
+  await d.consider("/r3");
+  await d.consider("/r4");
 
   // Only 2 spawned (cap)
   expect(started.length).toBe(2);
@@ -518,6 +518,23 @@ test("concurrency cap: at most maxConcurrent spawns live; queue drains via tick"
   tickRead = true;
   await d.tick(); // finalizes r1 + r2, drains r3 + r4
   expect(started.length).toBe(4);
+});
+
+test("cap holds under a fire-and-forget fan-out (daily-sweep race): begin reserves its slot synchronously", async () => {
+  // Regression: `void consider(repo)` per repo (index.ts daily sweep) fires all considers in
+  // one tick BEFORE any awaits. If begin() reserved its inflight slot only AFTER `await
+  // herdr.start`, every repo would pass `inflight.size < maxConcurrent` and blow the cap. The
+  // synchronous reservation must hold the line even when no individual call is awaited.
+  const store = new SessionStore(":memory:");
+  for (const r of ["/r1", "/r2", "/r3", "/r4"]) seedSignals(store, r, 3);
+  const { deps, started } = mkCollisionAwareDeps(store, null, () => {}, 2);
+  (deps as any).readProposals = () => null; // nothing finalizes during the fan-out
+  const d = new DistillerService(deps as any);
+
+  // Fan out concurrently (mirrors `for (const repo …) void distiller.consider(repo.path)`).
+  await Promise.all(["/r1", "/r2", "/r3", "/r4"].map((r) => d.consider(r)));
+
+  expect(started.length).toBe(2); // cap respected; r3 + r4 queued, not spawned
 });
 
 test("distillNow respects the cap: second call queued, drains on tick", async () => {
@@ -530,8 +547,8 @@ test("distillNow respects the cap: second call queued, drains on tick", async ()
   (deps as any).readProposals = readProposals;
   const d = new DistillerService(deps as any);
 
-  d.distillNow("/r1");
-  d.distillNow("/r2");
+  await d.distillNow("/r1");
+  await d.distillNow("/r2");
 
   expect(started.length).toBe(1); // only 1 inflight
 
@@ -549,12 +566,12 @@ test("health — spawn failures accumulate; HerdrUnavailableError is NOT counted
   const deps = {
     store,
     herdr: {
-      start: () => {
+      start: async () => {
         if (throwUnavailable) throw new HerdrUnavailableError();
         if (throwSpawn) throw new Error("spawn failed");
         return { terminalId: "t1" };
       },
-      stop: () => {},
+      stop: async () => {},
     } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
@@ -567,7 +584,7 @@ test("health — spawn failures accumulate; HerdrUnavailableError is NOT counted
 
   // HerdrUnavailableError does NOT affect health
   throwUnavailable = true;
-  d.distillNow("/r0");
+  await d.distillNow("/r0");
   expect(d.health().ok).toBe(true);
   expect(d.health().consecutiveFailures).toBe(0);
 
@@ -575,18 +592,18 @@ test("health — spawn failures accumulate; HerdrUnavailableError is NOT counted
   throwSpawn = true;
 
   // 3 spawn failures → threshold breached
-  d.distillNow("/r1");
+  await d.distillNow("/r1");
   expect(d.health().ok).toBe(true); // 1 failure
-  d.distillNow("/r2");
+  await d.distillNow("/r2");
   expect(d.health().ok).toBe(true); // 2 failures
-  d.distillNow("/r3");
+  await d.distillNow("/r3");
   expect(d.health().ok).toBe(false); // 3 failures → not ok
   expect(d.health().consecutiveFailures).toBe(3);
   expect(d.health().lastFailure?.reason).toBe("spawn");
   expect(d.health().lastFailure?.repoPath).toBe("/r3");
 });
 
-test("health — onChange fires on the unhealthy transition and on every further failure while unhealthy", () => {
+test("health — onChange fires on the unhealthy transition and on every further failure while unhealthy", async () => {
   const store = new SessionStore(":memory:");
   for (let i = 0; i < 6; i++) seedSignals(store, `/r${i}`, 1);
 
@@ -594,10 +611,10 @@ test("health — onChange fires on the unhealthy transition and on every further
   const deps = {
     store,
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("spawn failed");
       },
-      stop: () => {},
+      stop: async () => {},
     } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => changes++,
@@ -609,16 +626,16 @@ test("health — onChange fires on the unhealthy transition and on every further
   const d = new DistillerService(deps as any);
 
   // Below threshold (banner hidden): no emit.
-  d.distillNow("/r0"); // 1 failure
-  d.distillNow("/r1"); // 2 failures
+  await d.distillNow("/r0"); // 1 failure
+  await d.distillNow("/r1"); // 2 failures
   expect(changes).toBe(0);
 
-  d.distillNow("/r2"); // 3rd failure → ok→unhealthy transition
+  await d.distillNow("/r2"); // 3rd failure → ok→unhealthy transition
   expect(changes).toBe(1);
 
   // Already unhealthy: each further failure still emits so the count stays fresh.
-  d.distillNow("/r3"); // 4 failures
-  d.distillNow("/r4"); // 5 failures
+  await d.distillNow("/r3"); // 4 failures
+  await d.distillNow("/r4"); // 5 failures
   expect(changes).toBe(3);
   expect(d.health().consecutiveFailures).toBe(5);
 });
@@ -645,7 +662,7 @@ test("UPDATE merges rule text + rationale while preserving counters", async () =
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   const updated = store.getLearning(learning.id)!;
@@ -676,7 +693,7 @@ test("ADD carrying text just merged by an UPDATE is deduped (no duplicate active
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   // Exactly one rule remains (the merged one); no duplicate proposed rule was added.
@@ -687,7 +704,7 @@ test("ADD carrying text just merged by an UPDATE is deduped (no duplicate active
   expect(only.status).toBe("active");
 });
 
-test("activeRules payload marks promoted rules (UPDATE/DELETE eligibility)", () => {
+test("activeRules payload marks promoted rules (UPDATE/DELETE eligibility)", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);
   const active = store.addLearning({
@@ -717,7 +734,7 @@ test("activeRules payload marks promoted rules (UPDATE/DELETE eligibility)", () 
     captured = activeRules;
   };
   const d = new DistillerService(deps as any);
-  d.consider("/r"); // begin() → writeSignals runs synchronously
+  await d.consider("/r"); // begin() → writeSignals runs synchronously
 
   const byId = new Map(captured.map((r) => [r.id, r]));
   expect(byId.get(active.id)?.promoted).toBe(false);
@@ -743,7 +760,7 @@ test("UPDATE skips promoted rules", async () => {
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   const unchanged = store.getLearning(learning.id)!;
@@ -774,7 +791,7 @@ test("UPDATE and DELETE ignore bogus and non-active ids", async () => {
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   const unchanged = store.getLearning(proposed.id)!;
@@ -800,7 +817,7 @@ test("DELETE soft-retires with reason 'superseded'", async () => {
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   const retired = store.getLearning(learning.id)!;
@@ -819,7 +836,7 @@ test("ADD cap: at most 5 rules added per run", async () => {
   }));
   const { deps } = mkDeps(store, { rules, updates: [], deletes: [], ineffective: [] });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   expect(store.listLearnings("/r", { status: "proposed" }).length).toBe(5); // capped at 5
@@ -844,7 +861,7 @@ test("UPDATE cap: at most 5 updates applied per run", async () => {
     ineffective: [],
   });
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   const changed = ids.filter((id, i) => store.getLearning(id)!.rule === `updated rule ${i}`);
@@ -874,7 +891,7 @@ test("onChange fires on update-only proposals (no rules, no ineffective)", async
     () => fired++,
   );
   const d = new DistillerService(deps as any);
-  d.consider("/r");
+  await d.consider("/r");
   await d.tick();
 
   expect(fired).toBe(1);
@@ -889,8 +906,8 @@ test("health — timeout-no-output counts as failure; successful finalize resets
   const deps = {
     store,
     herdr: {
-      start: () => ({ terminalId: "t1" }),
-      stop: () => stops++,
+      start: async () => ({ terminalId: "t1" }),
+      stop: async () => stops++,
     } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
@@ -905,7 +922,7 @@ test("health — timeout-no-output counts as failure; successful finalize resets
   // 3 timeout failures to trip health
   for (let i = 0; i < 3; i++) {
     readResult = null;
-    d.distillNow("/r");
+    await d.distillNow("/r");
     t += 6_000; // force timeout
     await d.tick(); // timeout-no-output → failure
   }
@@ -915,7 +932,7 @@ test("health — timeout-no-output counts as failure; successful finalize resets
   // Now a successful run resets health
   t += 1;
   readResult = { rules: [], ineffective: [] };
-  d.distillNow("/r");
+  await d.distillNow("/r");
   await d.tick(); // proposals ready → success
   expect(d.health().ok).toBe(true);
   expect(d.health().consecutiveFailures).toBe(0);
@@ -942,7 +959,7 @@ test("#842: distiller persists sanitized scopeGlobs from a proposal", async () =
     ],
   });
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   await d.tick();
   const [l] = store.listLearnings("/r", { status: "proposed" });
   expect(l!.scopeGlobs).toEqual(["ui/**/*.svelte"]);
@@ -955,7 +972,7 @@ test("#842: a proposal without scopeGlobs stays an Always-rule (empty globs)", a
     rules: [{ rule: "general rule", rationale: "", evidence: [] }],
   });
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
   await d.tick();
   const [l] = store.listLearnings("/r", { status: "proposed" });
   expect(l!.scopeGlobs).toEqual([]);
@@ -993,7 +1010,7 @@ test("reaffirm: re-evidenced proposed rule accrues evidence (not NOOP)", async (
   const svc = new DistillerService({
     ...(deps as any),
   });
-  svc.distillNow("/r");
+  await svc.distillNow("/r");
   await svc.tick();
 
   const after = store.getLearning(proposed.id)!;
@@ -1020,7 +1037,7 @@ test("reaffirm: evidence not in f.signalIds (fabricated id) is not accrued", asy
     reaffirm: [{ id: proposed.id, evidence: ["hallucinated-id-not-in-run"] }],
   });
   const svc = new DistillerService(deps as any);
-  svc.distillNow("/r");
+  await svc.distillNow("/r");
   await svc.tick();
 
   // fabricated signal id filtered out → accrueProposedEvidence called with []  → returns null → count stays 0
@@ -1028,7 +1045,7 @@ test("reaffirm: evidence not in f.signalIds (fabricated id) is not accrued", asy
   expect(after.evidenceCount).toBe(0);
 });
 
-test("reaffirm: proposedRules passed to writeSignals include proposed rules sorted by evidenceCount DESC capped at 30", () => {
+test("reaffirm: proposedRules passed to writeSignals include proposed rules sorted by evidenceCount DESC capped at 30", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);
 
@@ -1042,7 +1059,7 @@ test("reaffirm: proposedRules passed to writeSignals include proposed rules sort
   let capturedProposed: { id: string; rule: string }[] = [];
   const deps = {
     store,
-    herdr: { start: () => ({ terminalId: "d1" }), stop: () => {} } as any,
+    herdr: { start: async () => ({ terminalId: "d1" }), stop: async () => {} } as any,
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
     now: () => 1000,
@@ -1059,7 +1076,7 @@ test("reaffirm: proposedRules passed to writeSignals include proposed rules sort
     readProposals: () => null,
   };
   const d = new DistillerService(deps as any);
-  d.distillNow("/r");
+  await d.distillNow("/r");
 
   // p2 has evidenceCount=1, p1 has evidenceCount=0 → p2 should come first
   expect(capturedProposed.length).toBe(2);
@@ -1071,7 +1088,7 @@ test("reaffirm: proposedRules passed to writeSignals include proposed rules sort
 
 // ── boot reapOrphans (issue #1135) ──────────────────────────────────────────
 
-test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight-owned", () => {
+test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight-owned", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);
   const closed: string[] = [];
@@ -1083,10 +1100,10 @@ test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight
   const svc = new DistillerService({
     store,
     herdr: {
-      start: () => ({ terminalId: "live1" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "live1" }),
+      stop: async () => {},
       list: () => listed,
-      closeTab: (id: string) => closed.push(id),
+      closeTab: async (id: string) => closed.push(id),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
     onChange: () => {},
@@ -1095,23 +1112,23 @@ test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight
     writeSignals: () => {},
     readProposals: () => null, // run stays in flight (not finalized)
   } as never);
-  svc.distillNow("/r"); // in-flight run owns terminalId "live1"
+  await svc.distillNow("/r"); // in-flight run owns terminalId "live1"
   svc.reapOrphans();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 
-test("reapOrphans is a no-op when herdr is unavailable", () => {
+test("reapOrphans is a no-op when herdr is unavailable", async () => {
   const store = new SessionStore(":memory:");
   let closes = 0;
   const svc = new DistillerService({
     store,
     herdr: {
-      start: () => ({ terminalId: "t" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "t" }),
+      stop: async () => {},
       list: () => {
         throw new HerdrUnavailableError();
       },
-      closeTab: () => {
+      closeTab: async () => {
         closes++;
       },
     },

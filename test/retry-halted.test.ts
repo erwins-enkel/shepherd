@@ -46,12 +46,12 @@ function makeHarness({
       branchExists: () => false,
     } as any,
     herdr: {
-      start: () => ({}) as any,
+      start: async () => ({}) as any,
       list: () =>
         [...liveIds].map((id) => ({ terminalId: id, agentStatus: "idle", cwd: "/", name: "" })),
-      stop: () => {},
+      stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
-      relabel: () => {},
+      relabel: async () => {},
     } as any,
   });
 

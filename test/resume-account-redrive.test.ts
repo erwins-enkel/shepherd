@@ -33,7 +33,7 @@ function makeService(hooks: { fn: Hooks }) {
     herdr: {
       // Unique terminalId per call, like Task 2's harness — needsAccountRedrive assertions
       // depend on the fresh id differing from both the stale spawnTerminalId and the husk.
-      start: (
+      start: async (
         _name: string,
         _cwd: string,
         _argv: string[],
@@ -43,7 +43,7 @@ function makeService(hooks: { fn: Hooks }) {
         startCalls.push({ env });
         return { terminalId: `term_${startCount}` };
       },
-      stop: (terminalId: string) => {
+      stop: async (terminalId: string) => {
         stopCalls.push(terminalId);
       },
       list: () => (liveAgent.current ? [liveAgent.current] : []),

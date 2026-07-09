@@ -34,18 +34,18 @@ import type { HerdrDriver } from "./herdr";
  * @param ownedTerminalIds terminalIds of THIS process's live runs, which must be spared.
  * @param logTag a short bracketed tag for log lines, e.g. "[distill]".
  */
-export function reapTransientByLabel(
+export async function reapTransientByLabel(
   herdr: Pick<HerdrDriver, "list" | "closeTab">,
   labelPrefix: string,
   ownedTerminalIds: Set<string>,
   logTag: string,
-): void {
+): Promise<void> {
   let reaped = 0;
   try {
     for (const a of herdr.list()) {
       if (!a.name.startsWith(labelPrefix)) continue;
       if (ownedTerminalIds.has(a.terminalId)) continue; // spare a live run started by THIS process
-      herdr.closeTab(a.tabId);
+      await herdr.closeTab(a.tabId);
       reaped++;
     }
   } catch (err) {

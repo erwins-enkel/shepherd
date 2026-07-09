@@ -40,11 +40,11 @@ function makeDeps(over: Partial<VerifyKeyDeps> & { readAsync?: () => Promise<str
   const { readAsync: readAsyncOver, ...rest } = over;
   const base: VerifyKeyDeps = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_v", cwd } as any;
       },
-      stop: () => {
+      stop: async () => {
         calls.stopped = true;
       },
       readAsync: async () => {
@@ -139,10 +139,10 @@ test("verifyApiKey: spawn throws → spawn-failed, still cleans up", async () =>
     const calls: any = { cleaned: false };
     const deps: VerifyKeyDeps = {
       herdr: {
-        start: () => {
+        start: async () => {
           throw new Error("spawn failed");
         },
-        stop: () => {},
+        stop: async () => {},
         readAsync: async () => "",
       },
       makeTmpDir: () => "/tmp/verify-xyz",

@@ -72,9 +72,9 @@ function makeDeps(): AppDeps {
       remove: () => {},
     } as any,
     herdr: {
-      start: () => ({ terminalId: "term_x" }),
+      start: async () => ({ terminalId: "term_x" }),
       list: () => [],
-      stop: () => {},
+      stop: async () => {},
       send: () => {},
     } as any,
     events,

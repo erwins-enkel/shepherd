@@ -26,7 +26,7 @@ function procFake(
   return {
     closed,
     h: {
-      closeTab: (id) => void closed.push(id),
+      closeTab: async (id) => void closed.push(id),
       panes: () => {
         if (opts.panesThrows) throw new Error("pane list: unknown subcommand");
         return panes;

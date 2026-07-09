@@ -789,11 +789,8 @@ export class DocAgentService {
       return "aborted";
     }
     try {
-      const terminalId = this.deps.herdr.start(
-        agentName,
-        worktreePath,
-        aux.wrapped,
-        aux.spawnEnv,
+      const terminalId = (
+        await this.deps.herdr.start(agentName, worktreePath, aux.wrapped, aux.spawnEnv)
       ).terminalId;
       return { terminalId, spawnSessionId: sessionId };
     } catch (err) {
@@ -904,7 +901,7 @@ export class DocAgentService {
       this.deps.store.completeReviewerSpawn(f.spawnSessionId, usage ?? ZEROED_USAGE, this.now());
       // Cleanup mirrors Promoter.cleanup: stop the agent (closes its tab), remove the worktree, and
       // force-delete the local branch (the pushed remote branch backs any opened PR).
-      this.deps.herdr.stop(f.terminalId);
+      await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
       try {
         await this.git(f.repoPath, ["branch", "-D", f.branch]);
@@ -1356,7 +1353,7 @@ export class DocAgentService {
   private async pruneWorktree(repo: string, path: string, branch: string): Promise<void> {
     await this.completeRowFor(path);
     const tab = this.findLiveTab(path);
-    if (tab) this.deps.herdr.closeTab(tab.tabId);
+    if (tab) await this.deps.herdr.closeTab(tab.tabId);
     this.deps.worktree.remove(path);
     try {
       await this.git(repo, ["branch", "-D", branch]);
@@ -1418,7 +1415,7 @@ export class DocAgentService {
       for (const a of this.deps.herdr.list()) {
         if (!a.name.startsWith(DOC_AGENT_LABEL)) continue;
         if (ownedTerms.has(a.terminalId) || ownedCwds.has(a.cwd)) continue; // spare re-adopted runs
-        this.deps.herdr.closeTab(a.tabId);
+        void this.deps.herdr.closeTab(a.tabId);
       }
     } catch (err) {
       console.warn("[doc-agent] reapOrphans tab pass:", err);

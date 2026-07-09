@@ -87,8 +87,8 @@ function makeService(hooks: { fn: Hooks }) {
       remove: () => {},
     } as never,
     herdr: {
-      start: () => ({ terminalId: `term_${++counter}` }) as never,
-      stop: () => {},
+      start: async () => ({ terminalId: `term_${++counter}` }) as never,
+      stop: async () => {},
       list: () => [],
     } as never,
   });

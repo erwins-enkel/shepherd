@@ -23,7 +23,7 @@ function baseDeps(pluginRegistry?: PluginRegistry): AppDeps {
       branchExists: () => false,
       remove: () => {},
     } as never,
-    herdr: { start: () => ({ terminalId: "t" }) as never, list: () => [] } as never,
+    herdr: { start: async () => ({ terminalId: "t" }) as never, list: () => [] } as never,
     events,
   });
   const usageLimits = {

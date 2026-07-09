@@ -31,11 +31,11 @@ test("scrape returns null without calling herdr.start in api-key mode", async ()
     let startCalled = false;
     const herdr = {
       list: () => [] as HerdrAgent[],
-      start: () => {
+      start: async () => {
         startCalled = true;
         throw new Error("herdr.start must not be called in api-key mode");
       },
-      stop: () => {},
+      stop: async () => {},
     };
     const result = await new HerdrUsageProbe(herdr, "/repo").scrape();
     expect(result).toBeNull();
@@ -57,10 +57,10 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
   ];
   const herdr = {
     list: () => agents,
-    start: () => {
+    start: async () => {
       throw new Error("agent start failed after tab create");
     },
-    stop: (id: string) => {
+    stop: async (id: string) => {
       stopped.push(id);
     },
   };

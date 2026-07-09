@@ -38,11 +38,11 @@ function makeDeps(over: Partial<import("../src/namer-llm").LlmNamerDeps> = {}) {
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_n", cwd } as any;
       },
-      stop: () => {
+      stop: async () => {
         calls.stopped = true;
       },
     },
@@ -188,10 +188,10 @@ test("llmName: null when spawn throws (no claude / herdr down), still cleans", a
   const calls: any = { cleaned: false };
   const deps: any = {
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("spawn failed");
       },
-      stop: () => {},
+      stop: async () => {},
     },
     makeTmpDir: () => "/tmp/namer-xyz",
     cleanup: () => {

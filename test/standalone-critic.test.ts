@@ -175,11 +175,11 @@ function makeDeps(
     },
     herdr: new (class {
       readonly recorded = spies.stopped; // this-dependent: unbound call loses this.recorded
-      start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
+      async start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
         spies.started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
       }
-      stop(t: string) {
+      async stop(t: string) {
         this.recorded.push(t); // this.recorded → throws TypeError if called unbound
       }
     })(),
@@ -842,10 +842,10 @@ test("reapOrphans closes orphaned pr-critic tabs, sparing unrelated names", () =
   ];
   const { deps } = makeDeps({
     herdr: {
-      start: () => ({ terminalId: "rt" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "rt" }),
+      stop: async () => {},
       list: () => listed,
-      closeTab: (id: string) => closed.push(id),
+      closeTab: async (id: string) => closed.push(id),
     },
   });
   const svc = new StandalonePrCriticService(deps as any);
@@ -857,12 +857,12 @@ test("reapOrphans is a no-op when herdr is unavailable", () => {
   let closes = 0;
   const { deps } = makeDeps({
     herdr: {
-      start: () => ({ terminalId: "rt" }),
-      stop: () => {},
+      start: async () => ({ terminalId: "rt" }),
+      stop: async () => {},
       list: () => {
         throw new Error("herdr unavailable");
       },
-      closeTab: () => {
+      closeTab: async () => {
         closes++;
       },
     },

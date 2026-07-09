@@ -1,7 +1,7 @@
 import { describe, expect, it, mock } from "bun:test";
 import { SocketHerdrDriver, selectHerdrDriver } from "../src/herdr-socket-driver";
 import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "../src/herdr";
-import type { HerdrSocketClient } from "../src/herdr-socket-client";
+import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-client";
 
 /** Fake client exposing a controllable `request` spy. Cast through `unknown` (no
  *  explicit `any`) since the driver only ever calls `.request(...)` on it. */
@@ -154,17 +154,7 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
     expect(client.request).not.toHaveBeenCalled();
   });
 
-  it("start() delegates to cli.start() with forwarded args", () => {
-    const { client, cli, driver } = setup();
-    cli.start.mockReturnValue(parsedAgent);
-
-    const env = { FOO: "bar" };
-    expect(driver.start("name", "/cwd", ["claude"], env)).toEqual(parsedAgent);
-    expect(cli.start).toHaveBeenCalledWith("name", "/cwd", ["claude"], env);
-    expect(client.request).not.toHaveBeenCalled();
-  });
-
-  it("send() delegates to cli.send() with forwarded args", () => {
+  it("send() STILL delegates to cli.send() (its socket port is deferred to #1567)", () => {
     const { client, cli, driver } = setup();
 
     driver.send("t", "hello");
@@ -172,32 +162,190 @@ describe("SocketHerdrDriver — delegation to the CLI driver", () => {
     expect(cli.send).toHaveBeenCalledWith("t", "hello");
     expect(client.request).not.toHaveBeenCalled();
   });
+});
 
-  it("stop() delegates to cli.stop() with forwarded args", () => {
-    const { client, cli, driver } = setup();
+/** Route a socket `request(method, params)` to the right herdr `result` payload for the
+ *  write surface. `recorded` captures the (method, params) sequence for assertions. */
+function writeClient(
+  recorded: { method: string; params: unknown }[],
+  opts: { workspaces?: unknown[]; startResult?: unknown; onAgentStart?: () => void } = {},
+): HerdrSocketClient {
+  const impl = (method: string, params: unknown): unknown => {
+    recorded.push({ method, params });
+    switch (method) {
+      case "agent.list":
+        return agentBody;
+      case "workspace.list":
+        return { type: "workspace_list", workspaces: opts.workspaces ?? [{ workspace_id: "w1" }] };
+      case "workspace.create":
+        return { type: "workspace_created" };
+      case "tab.create":
+        return {
+          type: "tab_created",
+          tab: { tab_id: "tab_new" },
+          root_pane: { pane_id: "p_root" },
+        };
+      case "agent.start":
+        opts.onAgentStart?.();
+        return { type: "agent_started", agent: opts.startResult ?? agentBody.agents[0] };
+      default:
+        return { type: "ok" };
+    }
+  };
+  return { request: mock(impl) } as unknown as HerdrSocketClient;
+}
 
-    driver.stop("t1");
+describe("SocketHerdrDriver — socket-backed async writes (#1553)", () => {
+  it("closeTab() issues tab.close over the socket (no CLI)", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const cli = fakeCli();
+    const driver = new SocketHerdrDriver(writeClient(rec), cli as unknown as HerdrDriver);
 
-    expect(cli.stop).toHaveBeenCalledWith("t1");
-    expect(client.request).not.toHaveBeenCalled();
+    await driver.closeTab("tabX");
+
+    expect(rec).toEqual([{ method: "tab.close", params: { tab_id: "tabX" } }]);
+    expect(cli.closeTab).not.toHaveBeenCalled();
   });
 
-  it("relabel() delegates to cli.relabel() with forwarded args", () => {
-    const { client, cli, driver } = setup();
+  it("stop() resolves the tab from a fresh agent.list, then tab.close", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
 
-    driver.relabel("t1", "new name");
+    await driver.stop("t1");
 
-    expect(cli.relabel).toHaveBeenCalledWith("t1", "new name");
-    expect(client.request).not.toHaveBeenCalled();
+    expect(rec.map((r) => r.method)).toEqual(["agent.list", "tab.close"]);
+    expect(rec[1]!.params).toEqual({ tab_id: "tab1" });
   });
 
-  it("closeTab() delegates to cli.closeTab() with forwarded args", () => {
-    const { client, cli, driver } = setup();
+  it("stop() is a no-op for an unknown terminal id (no tab.close)", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
 
-    driver.closeTab("tab1");
+    await driver.stop("t_missing");
 
-    expect(cli.closeTab).toHaveBeenCalledWith("tab1");
-    expect(client.request).not.toHaveBeenCalled();
+    expect(rec.map((r) => r.method)).toEqual(["agent.list"]);
+  });
+
+  it("relabel() renames the agent AND its looked-up tab", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
+
+    await driver.relabel("t1", "fresh");
+
+    expect(rec.map((r) => r.method)).toEqual(["agent.list", "agent.rename", "tab.rename"]);
+    expect(rec[1]!.params).toEqual({ target: "t1", name: "fresh" });
+    expect(rec[2]!.params).toEqual({ tab_id: "tab1", label: "fresh" });
+  });
+
+  it("start() orchestrates workspace.list → tab.create → agent.start → pane.close, resolving from agent_started", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
+
+    const agent = await driver.start("TASK-01", "/repo/worktree", ["claude", "go"]);
+
+    // resolved DIRECTLY from the agent.start reply — no post-start agent.list
+    expect(agent).toEqual(parsedAgent);
+    expect(rec.map((r) => r.method)).toEqual([
+      "workspace.list",
+      "tab.create",
+      "agent.start",
+      "pane.close",
+    ]);
+    const startCall = rec.find((r) => r.method === "agent.start")!.params as {
+      name: string;
+      argv: string[];
+      cwd: string;
+      tab_id: string;
+      focus: boolean;
+    };
+    expect(startCall.name).toBe("TASK-01");
+    expect(startCall.tab_id).toBe("tab_new");
+    expect(startCall.cwd).toBe("/repo/worktree");
+    expect(startCall.focus).toBe(false);
+    // byte-identical wrapped argv (env shim + classic-renderer pin) ends with the raw argv
+    expect(startCall.argv[0]).toBe("env");
+    expect(startCall.argv[1]).toContain("NODE_COMPILE_CACHE=");
+    expect(startCall.argv.slice(-2)).toEqual(["claude", "go"]);
+  });
+
+  it("start() bootstraps a 'shepherd' workspace when herdr has none", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(
+      writeClient(rec, { workspaces: [] }),
+      fakeCli() as unknown as HerdrDriver,
+    );
+
+    await driver.start("TASK-01", "/repo/worktree", ["claude"]);
+
+    expect(rec[0]!.method).toBe("workspace.list");
+    expect(rec[1]).toEqual({
+      method: "workspace.create",
+      params: { cwd: "/repo/worktree", label: "shepherd", focus: false },
+    });
+  });
+
+  it("start() evicts a same-named squatter on agent_name_taken, then retries", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    let attempts = 0;
+    const client = writeClient(rec, {
+      onAgentStart: () => {
+        attempts++;
+        if (attempts === 1) throw new HerdrSocketError("agent_name_taken", "name in use");
+      },
+    });
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+
+    const agent = await driver.start("TASK-01", "/repo/worktree", ["claude"]);
+
+    expect(agent).toEqual(parsedAgent);
+    expect(attempts).toBe(2);
+    // eviction path: after the collision it lists agents by name and closes the squatter's tab
+    const methods = rec.map((r) => r.method);
+    expect(methods).toContain("agent.list");
+    expect(methods).toContain("tab.close");
+  });
+
+  it("start() rolls back its freshly created tab on a non-collision failure", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const client = writeClient(rec, {
+      onAgentStart: () => {
+        throw new HerdrSocketError("spawn_failed", "boom");
+      },
+    });
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+
+    await expect(driver.start("TASK-01", "/repo/worktree", ["claude"])).rejects.toThrow();
+    // the orphan tab (tab_new) is closed before the error propagates
+    expect(rec).toContainEqual({ method: "tab.close", params: { tab_id: "tab_new" } });
+  });
+
+  it("start() is serialized: two concurrent starts don't double-create the workspace", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    // Empty workspace list forces a create; a shared mutable flag proves ordering.
+    let created = 0;
+    const impl = (method: string, params: unknown): unknown => {
+      rec.push({ method, params });
+      if (method === "workspace.list")
+        return { type: "workspace_list", workspaces: created > 0 ? [{ workspace_id: "w1" }] : [] };
+      if (method === "workspace.create") {
+        created++;
+        return { type: "workspace_created" };
+      }
+      if (method === "tab.create")
+        return { type: "tab_created", tab: { tab_id: "tab_new" }, root_pane: { pane_id: "p" } };
+      if (method === "agent.start") return { type: "agent_started", agent: agentBody.agents[0] };
+      return { type: "ok" };
+    };
+    const client = { request: mock(impl) } as unknown as HerdrSocketClient;
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+
+    await Promise.all([
+      driver.start("A", "/repo/worktree", ["claude"]),
+      driver.start("B", "/repo/worktree", ["claude"]),
+    ]);
+
+    // Serialized: the first start creates the workspace, the second sees it and does NOT.
+    expect(created).toBe(1);
   });
 });
 

@@ -41,11 +41,11 @@ function makeHarness(agents: HerdrAgent[] = []) {
       branchExists: () => false,
     } as any,
     herdr: {
-      start: () => ({}) as any,
+      start: async () => ({}) as any,
       list: () => agents,
-      stop: () => {},
+      stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
-      relabel: () => {},
+      relabel: async () => {},
     } as any,
   });
 

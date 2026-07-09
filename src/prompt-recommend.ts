@@ -214,7 +214,7 @@ export async function recommendPrompt(
     // claude needs the api-key passthrough env in key mode; codex uses its own login.
     const env = args.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined;
     try {
-      terminalId = deps.herdr.start(args.label, cwd, argv, env).terminalId;
+      terminalId = (await deps.herdr.start(args.label, cwd, argv, env)).terminalId;
     } catch {
       return { error: "spawn-failed" };
     }
@@ -223,7 +223,7 @@ export async function recommendPrompt(
   } finally {
     if (terminalId) {
       try {
-        deps.herdr.stop(terminalId);
+        await deps.herdr.stop(terminalId);
       } catch {
         /* best-effort */
       }

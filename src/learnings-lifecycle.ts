@@ -410,7 +410,7 @@ function retireRepoCandidates(
 
     if (autoOptimizeFlagged && store.autoOptimizedAt(rule.id) === null) {
       // Enqueue rewrite; do not retire yet, do not consume budget
-      optimizer.optimizeOne(rule.id);
+      void optimizer.optimizeOne(rule.id);
     } else if (retiredThisSweep < maxRetirePerSweep) {
       const retiredRow = store.retireLearning(rule.id, AUTO_RETIRE_REASON);
       if (retiredRow !== null) {

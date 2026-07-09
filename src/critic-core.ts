@@ -522,14 +522,14 @@ export async function captureUsage(
  *  `this.list()` does `JSON.parse(runner(...))`, which fails if the herdr CLI
  *  errors) — guard it so a herdr hiccup can't strand the worktree, and run
  *  `worktree.remove` (itself internally guarded) unconditionally. */
-export function reapRun(
-  herdr: { stop(terminalId: string): void },
+export async function reapRun(
+  herdr: { stop(terminalId: string): Promise<void> },
   worktree: { remove(worktreePath: string): void },
   terminalId: string,
   worktreePath: string,
-): void {
+): Promise<void> {
   try {
-    herdr.stop(terminalId);
+    await herdr.stop(terminalId);
   } catch (err) {
     console.warn(`[review] reap: herdr.stop failed for ${terminalId}:`, err);
   } finally {

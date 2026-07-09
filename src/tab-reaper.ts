@@ -151,7 +151,7 @@ export async function reapOrphanTabs(
   }
 
   const closed = [...toReap];
-  for (const tabId of closed) herdr.closeTab(tabId);
+  for (const tabId of closed) await herdr.closeTab(tabId);
   return { closed, sparedLive, sparedError, shellOnly };
 }
 

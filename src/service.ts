@@ -1873,7 +1873,7 @@ export class SessionService {
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there. patchEnv LAST.
     const spawnEnv = { ...apiKeyPassthrough, ...rendererEnv, ...patchEnv };
-    const agent = this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
+    const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
       this.deps.egressWatcher?.start(ctx.sessionId, {
@@ -2983,7 +2983,7 @@ export class SessionService {
       if (updated) this.persistSpawnIdentity(updated, outcome);
     } catch (e) {
       try {
-        this.deps.herdr.stop(outcome.terminalId);
+        await this.deps.herdr.stop(outcome.terminalId);
       } catch {
         /* best-effort: leave the original agent registered if persistence failed */
       }
@@ -2991,7 +2991,7 @@ export class SessionService {
     }
 
     try {
-      this.deps.herdr.stop(s.herdrAgentId);
+      await this.deps.herdr.stop(s.herdrAgentId);
     } catch {
       /* best-effort: the replacement is already persisted */
     }
@@ -3299,7 +3299,7 @@ export class SessionService {
       updated = this.rename(session.id, slug, { renameLocalBranch: false });
     }
     if (!updated) return;
-    this.deps.herdr.relabel(session.herdrAgentId, slug);
+    await this.deps.herdr.relabel(session.herdrAgentId, slug);
     this.deps.events?.emit("session:renamed", {
       id: updated.id,
       name: updated.name,
@@ -3385,7 +3385,7 @@ export class SessionService {
     // intended: replacing the live agent is deliberate (an explicit "bring agent back", or a
     // restored wrong-account husk), and aborting it (e.g. "don't run
     // under the wrong account") is honored by NOT spawning a replacement.
-    if (agent) this.deps.herdr.stop(agent.terminalId);
+    if (agent) await this.deps.herdr.stop(agent.terminalId);
 
     const outcome = await this.prepareResumeSpawn(
       session,
@@ -3581,11 +3581,9 @@ export class SessionService {
     const label = nameMirrorsBranch ? this.uniqueName(live.replace(/^shepherd\//, "")) : null;
     this.deps.store.update(id, label ? { name: label, branch: live } : { branch: live });
     if (label) {
-      try {
-        this.deps.herdr.relabel(s.herdrAgentId, label);
-      } catch {
-        /* tab may be gone — branch adoption still stands */
-      }
+      // Fire-and-forget: this method is sync; `relabel` is internally guarded (best-effort,
+      // never rejects), so a floating call is safe — a gone tab doesn't undo branch adoption.
+      void this.deps.herdr.relabel(s.herdrAgentId, label);
     }
     this.deps.events?.emit("session:renamed", { id, name: label ?? s.name, branch: live });
     return live;
@@ -4279,7 +4277,7 @@ export class SessionService {
       this.deps.reaper.reap(hit);
       reaped = hit.length;
     }
-    this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
+    await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the
     // worktree to build its prompt, so it MUST run while the worktree still exists.
     // Race a 15s timeout so a stuck git can never permanently stall teardown / the merge

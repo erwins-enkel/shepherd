@@ -126,28 +126,32 @@ export class OptimizerService {
 
   /** Optimize a single flagged rule by id. No-op when missing, not active/promoted, or
    *  not actually flagged. Scopes the input + applied revisions to JUST this id. */
-  optimizeOne(id: string): void {
+  async optimizeOne(id: string): Promise<void> {
     const l = this.deps.store.getLearning(id);
     if (!l) return;
     if (l.status !== "active" && l.status !== "promoted") return;
     if (l.ineffectiveCount <= 0) return;
-    this.enqueueOrBegin(l.repoPath, [id]);
+    await this.enqueueOrBegin(l.repoPath, [id]);
   }
 
   /** Optimize every flagged (ineffectiveCount > 0) active/promoted rule in a repo. */
-  optimizeAllFlagged(repoPath: string): void {
+  async optimizeAllFlagged(repoPath: string): Promise<void> {
     const flagged = this.deps.store
       .listActiveLearnings(repoPath)
       .filter((l) => l.ineffectiveCount > 0)
       .map((l) => l.id);
     if (flagged.length === 0) return;
-    this.enqueueOrBegin(repoPath, flagged);
+    await this.enqueueOrBegin(repoPath, flagged);
   }
 
-  private enqueueOrBegin(repoPath: string, ids: string[]): void {
+  private async enqueueOrBegin(repoPath: string, ids: string[]): Promise<void> {
     if (this.inflight.has(repoPath) || this.queued.has(repoPath)) return;
     if (this.inflight.size < this.maxConcurrent) {
-      this.begin(repoPath, ids);
+      // begin() reserves its inflight slot synchronously (before its first await), so this
+      // size check + the has() guard above hold even under a fire-and-forget fan-out. The
+      // await here additionally lets awaiting callers (tests, the tick() drain) observe the
+      // spawn's completion; it is NOT what enforces the cap.
+      await this.begin(repoPath, ids);
     } else {
       this.queue.push({ repoPath, ids });
       this.queued.add(repoPath);
@@ -182,7 +186,7 @@ export class OptimizerService {
     return { targets, targetIds, promotedIds };
   }
 
-  private begin(repoPath: string, ids: string[]): void {
+  private async begin(repoPath: string, ids: string[]): Promise<void> {
     const { dir } = this.deps.scratch.create();
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     if (isApiKeyMode() && !isApiKeyConfigured()) {
@@ -212,15 +216,28 @@ export class OptimizerService {
       prompt: optimizePrompt(),
     });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
-    let terminalId: string;
+    // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so a same-tick
+    // fire-and-forget fan-out (void optimizeOne(...) per flagged rule, or the daily sweep)
+    // can't race past enqueueOrBegin's `inflight.has`/`inflight.size` guards and double-spawn.
+    // The blocking sync path reserved implicitly by never yielding; async must reserve
+    // explicitly. terminalId is backfilled once herdr.start resolves; the slot is released if
+    // the spawn fails. (tick() skips a reserved run until it has output, so terminalId="" is
+    // never observed by finalize.)
+    const entry: InFlight = {
+      repoPath,
+      dir,
+      terminalId: "",
+      startedAt: this.now(),
+      targetIds,
+      promotedIds,
+    };
+    this.inflight.set(repoPath, entry);
     try {
-      terminalId = this.deps.herdr.start(
-        agentName,
-        dir,
-        argv,
-        apiKeyPassthroughEnv(false),
+      entry.terminalId = (
+        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
       ).terminalId;
     } catch (err) {
+      this.inflight.delete(repoPath); // release the reservation
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[optimize] herdr unavailable for ${repoPath}:`, err);
       } else {
@@ -230,14 +247,6 @@ export class OptimizerService {
       this.deps.scratch.remove(dir);
       return;
     }
-    this.inflight.set(repoPath, {
-      repoPath,
-      dir,
-      terminalId,
-      startedAt: this.now(),
-      targetIds,
-      promotedIds,
-    });
   }
 
   /** Boot reconcile (issue #1135): close orphaned optimizer tabs left by a PRIOR server
@@ -252,7 +261,7 @@ export class OptimizerService {
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
-    reapTransientByLabel(this.deps.herdr, OPTIMIZE_LABEL, ownedTerms, "[optimize]");
+    void reapTransientByLabel(this.deps.herdr, OPTIMIZE_LABEL, ownedTerms, "[optimize]");
   }
 
   /** Finalize any run whose output file is ready or that timed out, then drain queue. */
@@ -270,13 +279,15 @@ export class OptimizerService {
     while (this.inflight.size < this.maxConcurrent && this.queue.length) {
       const e = this.queue.shift()!;
       this.queued.delete(e.repoPath);
-      this.begin(e.repoPath, e.ids);
+      // Await so begin() reserves its inflight slot before the loop re-checks size —
+      // preserving the concurrency cap the blocking sync path guaranteed.
+      await this.begin(e.repoPath, e.ids);
     }
   }
 
   private finalize(f: InFlight, raw: RawOptimized | null): void {
     const { revised, promotedRevised } = this.applyRevisions(f, raw);
-    this.deps.herdr.stop(f.terminalId);
+    void this.deps.herdr.stop(f.terminalId).catch(() => {});
     this.deps.scratch.remove(f.dir);
     if (raw !== null) {
       this.recordHealthSuccess();

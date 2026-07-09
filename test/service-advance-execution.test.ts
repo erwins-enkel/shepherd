@@ -39,9 +39,9 @@ function harness(opts: { session: ReturnType<typeof sess> | null; paneLive?: boo
     namer: async () => "x",
     worktree: { create: () => ({}) as any, remove: () => {} } as any,
     herdr: {
-      start: () => ({}) as any,
+      start: async () => ({}) as any,
       list: () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
-      stop: () => {},
+      stop: async () => {},
       send: (target: string, text: string) => sent.push({ target, text }),
     } as any,
     events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) },

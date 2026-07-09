@@ -32,11 +32,11 @@ function makeDeps(over: Partial<import("../src/autopilot-llm").ClassifierDeps> =
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
     herdr: {
-      start: (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+      start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_c", cwd } as any;
       },
-      stop: () => {
+      stop: async () => {
         calls.stopped = true;
       },
     },
@@ -206,10 +206,10 @@ test("classifyStop: surfaces (and cleans up) when the spawn throws", async () =>
   const calls: any = { cleaned: false };
   const deps: any = {
     herdr: {
-      start: () => {
+      start: async () => {
         throw new Error("herdr down");
       },
-      stop: () => {},
+      stop: async () => {},
     },
     makeTmpDir: () => "/tmp/autopilot-xyz",
     cleanup: () => {

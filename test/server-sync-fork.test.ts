@@ -45,7 +45,7 @@ function makeDeps(resolveForge?: (dir: string) => GitForge | null): AppDeps {
       remove: () => {},
     } as any,
     herdr: {
-      start: () => ({
+      start: async () => ({
         terminalId: "term_x",
         cwd: "/wt",
         agent: "claude",
@@ -55,7 +55,7 @@ function makeDeps(resolveForge?: (dir: string) => GitForge | null): AppDeps {
         workspaceId: "w",
       }),
       list: () => [],
-      stop: () => {},
+      stop: async () => {},
       send: () => {},
     } as any,
     events,

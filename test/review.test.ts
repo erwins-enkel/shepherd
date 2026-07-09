@@ -212,11 +212,11 @@ function makeDeps(
     },
     herdr: new (class {
       readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
-      start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
+      async start(name: string, cwd: string, argv: string[], env?: Record<string, string>) {
         started.push({ name, cwd, argv, env });
         return { terminalId: "rt" } as any;
       }
-      stop(t: string) {
+      async stop(t: string) {
         this.recorded.push(t); // this.recorded → throws TypeError if called unbound
       }
       // tick() consults agentStatus + paneForegroundProcs via isSpawnAlive to gate verdicts.
@@ -235,7 +235,7 @@ function makeDeps(
         // Tests that need a live-but-idle critic pass criticProcs with non-shell entries.
         return opts.criticProcs ?? ["zsh"];
       }
-      closeTab() {
+      async closeTab() {
         /* forward-compat; used by other tests via the existing path */
       }
     })(),
@@ -2474,10 +2474,10 @@ function makeOrphanDeps(
       recordReviewerSpawn: () => {},
     },
     herdr: {
-      start: () => ({ terminalId: "rt" }) as any,
-      stop: () => {},
+      start: async () => ({ terminalId: "rt" }) as any,
+      stop: async () => {},
       list: () => agents,
-      closeTab: (tabId: string) => closedTabs.push(tabId),
+      closeTab: async (tabId: string) => closedTabs.push(tabId),
     },
     worktree: {
       createDetached: async () => ({ worktreePath: "/wt", branch: null, isolated: true }),

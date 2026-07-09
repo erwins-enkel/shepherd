@@ -25,8 +25,8 @@ function makeService(hooks: { fn: Hooks }) {
     herdr: {
       // Unique terminalId per call — real herdr terminalIds are unique per spawn, and the
       // reDriveAccount healed/unhealed inference depends on spawnTerminalId actually changing.
-      start: () => ({ terminalId: `term_${++startCount}` }) as never,
-      stop: () => {},
+      start: async () => ({ terminalId: `term_${++startCount}` }) as never,
+      stop: async () => {},
       list: () => [],
     } as never,
   });

@@ -27,7 +27,7 @@ function makeSandbox(): {
   };
 }
 
-function runInSandbox(cmd: string, home: string) {
+function runInSandbox(cmd: string, home: string, extraEnv: Record<string, string> = {}) {
   // Hermetic PATH: the stub bin dir FIRST, then only the base system dirs (`sh`, `sleep`,
   // `touch`, `command` must resolve). Deliberately does NOT inherit process.env.PATH, for two
   // reasons. (1) Safety: a dev host has a real herdr on PATH, and a test that falls through to
@@ -37,7 +37,7 @@ function runInSandbox(cmd: string, home: string) {
   // nothing, exit non-zero, and pass this test on a herdr-less CI runner.
   const sandboxPath = `${home}/.local/bin:/usr/bin:/bin`;
   return spawnSync("sh", ["-c", cmd], {
-    env: { ...process.env, HOME: home, PATH: sandboxPath },
+    env: { ...process.env, HOME: home, PATH: sandboxPath, ...extraEnv },
     encoding: "utf8",
   });
 }
@@ -57,19 +57,49 @@ describe("herdr offline remediation (#1574)", () => {
   });
 
   it("is idempotent: a live daemon short-circuits before spawning a second", () => {
-    expect(HERDR_SERVE.indexOf("herdr agent list")).toBeLessThan(
-      HERDR_SERVE.indexOf("herdr server"),
-    );
+    expect(HERDR_SERVE.indexOf('"$H" agent list')).toBeLessThan(HERDR_SERVE.indexOf('"$H" server'));
   });
 
   it("puts ~/.local/bin on PATH before invoking herdr", () => {
-    expect(HERDR_SERVE.indexOf(".local/bin")).toBeLessThan(HERDR_SERVE.indexOf("herdr agent list"));
+    expect(HERDR_SERVE.indexOf(".local/bin")).toBeLessThan(HERDR_SERVE.indexOf('"$H" agent list'));
+  });
+
+  it("resolves the binary through HERDR_BIN, matching what the check actually spawns", () => {
+    // diagnostics spawns config.herdrBin = HERDR_BIN ?? "herdr". Starting a bare `herdr`
+    // here would start a DIFFERENT binary than the one probed whenever HERDR_BIN is set.
+    expect(HERDR_SERVE).toContain('H="${HERDR_BIN:-herdr}"');
+    expect(HERDR_SERVE).not.toContain("herdr agent list");
+    expect(HERDR_SERVE).not.toContain("setsid herdr server");
+  });
+
+  it("HERDR_BIN, when set, is the binary actually started (behavioral)", () => {
+    // The check this must clear spawns config.herdrBin. If HERDR_SERVE hardcoded `herdr`,
+    // a host with HERDR_BIN set would start the wrong binary and the poll would time out.
+    const { dir, writeStub } = makeSandbox();
+    const altLog = join(dir, "alt.log");
+    const defaultLog = join(dir, "default.log");
+    try {
+      // The on-PATH stub must NEVER run when HERDR_BIN points elsewhere.
+      writeStub(`#!/bin/sh\necho "$@" >>${defaultLog}\nexit 0\n`);
+      const altBin = join(dir, "herdr-alt");
+      writeFileSync(altBin, `#!/bin/sh\necho "$@" >>${altLog}\nexit 0\n`, { mode: 0o755 });
+
+      const r = runInSandbox(HERDR_SERVE, dir, { HERDR_BIN: altBin });
+
+      expect(r.status).toBe(0);
+      expect(existsSync(altLog)).toBe(true);
+      expect(readFileSync(altLog, "utf8")).toContain("agent list");
+      // The PATH-resolved `herdr` was never touched.
+      expect(existsSync(defaultLog)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("herdr_missing installs AND starts, so the single-apply preflight scenario reaches green", () => {
     const cmd = REMEDIATIONS.diagnostics_hint_herdr_missing!;
     expect(cmd).toContain("herdr.dev/install.sh");
-    expect(cmd).toContain("herdr server");
+    expect(cmd).toContain('"$H" server');
   });
 
   it("herdr_missing wraps the reused HERDR_SERVE block in a subshell so && gates it as one unit", () => {

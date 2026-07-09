@@ -26,8 +26,14 @@ export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
  *
  *  Shape, in order, and every clause is load-bearing:
  *   - `export PATH` — herdr installs to ~/.local/bin, absent from a non-login shell's PATH.
+ *   - `H="${HERDR_BIN:-herdr}"` — the check this must CLEAR spawns `config.herdrBin`
+ *     (`HERDR_BIN ?? "herdr"`, src/config.ts). A bare `herdr` here would start a DIFFERENT
+ *     binary than the one diagnostics probes whenever HERDR_BIN is set, so the poll would
+ *     time out and the in-app Fix would reject. Resolved by the shell at run time, so the
+ *     static string still carries no env dependency of its own.
  *   - `agent list || { start }` — IDEMPOTENT: a live daemon short-circuits, so this never
- *     races a second server against a bound socket. Also makes the command safe to re-run.
+ *     races a second server against a bound socket (a second `herdr server` against a bound
+ *     socket exits 1 with "herdr server is already running" — verified, #1574).
  *   - `setsid … || nohup …` — detach so the daemon outlives the shell (an `incus exec`
  *     session, or the in-app Fix endpoint's child). macOS has NO `setsid`, and buildOnly()
  *     is the macOS path, so the nohup fallback is required, not decorative.
@@ -38,13 +44,13 @@ export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
  *  NOT durable across a `systemctl restart shepherd` when spawned from Shepherd's cgroup;
  *  the systemd path installs `deploy/herdr.service` (Restart=always) for that. */
 export const HERDR_SERVE =
-  'export PATH="$HOME/.local/bin:$PATH"; ' +
-  "herdr agent list >/dev/null 2>&1 || " +
+  'export PATH="$HOME/.local/bin:$PATH"; H="${HERDR_BIN:-herdr}"; ' +
+  '"$H" agent list >/dev/null 2>&1 || ' +
   "{ if command -v setsid >/dev/null 2>&1; then " +
-  "setsid herdr server </dev/null >/dev/null 2>&1 & " +
-  "else nohup herdr server </dev/null >/dev/null 2>&1 & fi; }; " +
+  'setsid "$H" server </dev/null >/dev/null 2>&1 & ' +
+  'else nohup "$H" server </dev/null >/dev/null 2>&1 & fi; }; ' +
   "for _ in 1 2 3 4 5 6 7 8 9 10; do " +
-  "herdr agent list >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1";
+  '"$H" agent list >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1';
 
 const CODEX_INSTALL =
   "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh";
@@ -75,10 +81,17 @@ export const REMEDIATIONS: Record<string, string> = {
   // Install AND start: a bare binary leaves the daemon dead, which #1562 correctly reports
   // as `offline`/error. The harness's preflight scenario applies this hint ONCE with no
   // second round (run.ts:216), so installing without starting can never reach green.
-  // HERDR_SERVE is wrapped in a subshell so `&&` gates the WHOLE block (liveness check,
-  // spawn, poll) on install success, not just HERDR_INSTALL's leading `export` (its `;`
-  // would otherwise terminate the && chain and run the rest unconditionally).
+  // The SUBSHELL is load-bearing: HERDR_SERVE's OWN first statement is
+  // `export PATH=…;`, and that `;` terminates the `&&` chain — so a bare
+  // `${HERDR_INSTALL} && ${HERDR_SERVE}` would gate only the export, and the liveness
+  // check, spawn and poll would all run even when the install failed. `( … )` makes the
+  // whole block one compound command whose status is what `&&` gates on.
   diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && (${HERDR_SERVE})`,
+  // Install ONLY, deliberately. The version probe reads the BINARY (`herdr --version`
+  // answers with no daemon running — verified), so reinstalling clears the `outdated`
+  // warning on the next probe without touching the running server. Restarting the daemon
+  // to adopt the new binary is a separate concern (panes outlive the server; herdr ships
+  // `update --handoff` for exactly that) — tracked in #1578, NOT bolted on here.
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
   diagnostics_hint_herdr_offline: HERDR_SERVE,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",

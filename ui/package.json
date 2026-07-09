@@ -47,7 +47,7 @@
     "@xterm/addon-webgl": "^0.19.0",
     "@xterm/xterm": "^6.0.0",
     "dompurify": "^3.4.11",
-    "marked": "^18.0.5",
+    "marked": "^18.0.6",
     "mermaid": "^11.16.0",
     "shiki": "^4.3.1",
     "svelte-dnd-action": "^0.9.70"

@@ -124,7 +124,7 @@ export function templateHerdrUnit(unit: string, herdrPath: string): string {
  *  second `herdr server` against a bound socket exits 1, so without this `enable --now herdr`
  *  would thrash. Best-effort by construction — every branch swallows failure and exits 0, so a
  *  host with no herdr running (the fresh-install case) sails straight through. #1574 */
-export const HERDR_ADOPT_SOCKET =
+const HERDR_ADOPT_SOCKET =
   'export PATH="$HOME/.local/bin:$PATH"; ' +
   "systemctl --user is-active --quiet herdr && exit 0; " +
   "command -v herdr >/dev/null 2>&1 && herdr server stop >/dev/null 2>&1; " +

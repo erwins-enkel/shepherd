@@ -18,7 +18,7 @@ const NODE_INSTALL =
   'mkdir -p "$HOME/.local/bin" && ' +
   'ln -sf "$("$FNM" exec --using=lts-latest node -e \'console.log(process.execPath)\')" ' +
   '"$HOME/.local/bin/node"';
-const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
+export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
 
 /** Bring the herdr daemon up and PROVE it answers. herdr 0.7.3 does NOT auto-spawn its
  *  server on a CLI call (verified in a clean instance, #1574) — a host that never ran

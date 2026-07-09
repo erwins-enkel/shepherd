@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { REMEDIATIONS, autoFixCommandFor, HERDR_SERVE } from "../src/remediations";
+import { REMEDIATIONS, autoFixCommandFor, HERDR_SERVE, HERDR_INSTALL } from "../src/remediations";
 
 /** Build an isolated $HOME (with `logPath`/`markerPath` already decided) and a `.local/bin`
  *  dir so HERDR_SERVE's own `export PATH="$HOME/.local/bin:$PATH"` resolves to whatever stub
@@ -79,12 +79,24 @@ describe("herdr_missing composition is behaviorally gated, not just shaped right
   // `herdr` binary. `false`/`true` stand in for the install clause. Every run gets its own
   // $HOME with a stubbed `herdr` on `.local/bin`, so HERDR_SERVE's own PATH-prepend resolves
   // to the stub — never the real herdr this dev host has installed.
+  //
+  // Derive from the PRODUCTION string, substituting only the network-touching install
+  // clause. A regression that drops the subshell parens changes this command's shell
+  // semantics and fails the install-failure test below — which is the whole point.
+  const composed = (installClause: string) =>
+    REMEDIATIONS.diagnostics_hint_herdr_missing!.replace(HERDR_INSTALL, installClause);
+
+  it("derives from the production string by substituting the install clause", () => {
+    // Guards against a silently-vacuous substitution (e.g. HERDR_INSTALL renamed/edited
+    // so .replace matches nothing and `composed` just returns the unmodified prod string).
+    expect(composed("false")).not.toContain("curl");
+  });
 
   it("install failure gates the WHOLE block: herdr is never invoked at all", () => {
     const { dir, logPath, writeStub } = makeSandbox();
     writeStub(`#!/bin/sh\necho "$@" >> "${logPath}"\nexit 0\n`);
     try {
-      const result = runInSandbox(`false && (${HERDR_SERVE})`, dir);
+      const result = runInSandbox(composed("false"), dir);
       expect(result.status).not.toBe(0);
       expect(existsSync(logPath)).toBe(false);
     } finally {
@@ -98,7 +110,7 @@ describe("herdr_missing composition is behaviorally gated, not just shaped right
       `#!/bin/sh\necho "$@" >> "${logPath}"\nif [ "$1" = "agent" ]; then exit 0; fi\nexit 0\n`,
     );
     try {
-      const result = runInSandbox(`true && (${HERDR_SERVE})`, dir);
+      const result = runInSandbox(composed("true"), dir);
       expect(result.status).toBe(0);
       const log = readFileSync(logPath, "utf8");
       expect(log).toContain("agent list");
@@ -117,7 +129,7 @@ describe("herdr_missing composition is behaviorally gated, not just shaped right
         `exit 1\n`,
     );
     try {
-      const result = runInSandbox(`true && (${HERDR_SERVE})`, dir);
+      const result = runInSandbox(composed("true"), dir);
       expect(result.status).toBe(0);
       expect(existsSync(markerPath)).toBe(true);
     } finally {

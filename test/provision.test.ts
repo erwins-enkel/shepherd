@@ -384,6 +384,20 @@ describe("extracted helpers (direct)", () => {
     ).toThrow(/\$USER/);
   });
 
+  it("installs + enables the herdr unit BEFORE shepherd starts (#1574)", () => {
+    const { calls, writes, run, fileIO } = recorder();
+    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" });
+
+    expect([...writes.keys()].some((p) => p.endsWith("systemd/user/herdr.service"))).toBe(true);
+
+    const flat = calls.map((c) => c.join(" "));
+    const enableHerdr = flat.findIndex((c) => c.includes("enable --now herdr"));
+    const startShepherd = flat.findIndex((c) => c.includes("deploy/update.sh"));
+    expect(enableHerdr).toBeGreaterThanOrEqual(0);
+    // Ordering is the point: update.sh starts Shepherd, which needs a live daemon.
+    expect(enableHerdr).toBeLessThan(startShepherd);
+  });
+
   it("buildOnly installs deps + builds UI with the build env, no systemd", () => {
     const { calls, run } = recorder();
     buildOnly("/repo", run, { PATH: "/x" });
@@ -391,6 +405,22 @@ describe("extracted helpers (direct)", () => {
     expect(flat.some((c) => c.includes('cd "/repo" && bun install'))).toBe(true);
     expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
     expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
+  });
+
+  it("starts a detached herdr daemon, no systemd on this path (#1574)", () => {
+    const { calls, run } = recorder();
+    buildOnly("/repo", run, { PATH: "/x" });
+
+    const flat = calls.map((c) => c.join(" "));
+    const serve = flat.find((c) => c.includes("herdr server"));
+    expect(serve).toBeDefined();
+    expect(serve!.startsWith("bash -c")).toBe(true);
+    // macOS takes this path and has no setsid.
+    expect(serve!).toContain("nohup");
+    // It must precede the slow build so a dead daemon fails fast.
+    const serveIdx = flat.findIndex((c) => c.includes("herdr server"));
+    const installIdx = flat.findIndex((c) => c.includes("bun install"));
+    expect(serveIdx).toBeLessThan(installIdx);
   });
 });
 

@@ -20,7 +20,7 @@ import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
 import { compareSemver } from "../src/herdr-update";
-import { autoFixCommandFor } from "../src/remediations";
+import { autoFixCommandFor, HERDR_SERVE } from "../src/remediations";
 import { resolveBackupDir, backupConfiguredMarker } from "../src/backup-paths";
 
 // ── pure types + data ─────────────────────────────────────────────────────────
@@ -314,11 +314,19 @@ export function installService(
     join(unitDir, "shepherd-logrotate.timer"),
     fileIO.read(join(repo, "deploy", "shepherd-logrotate.timer")),
   );
+  // herdr's daemon: Shepherd cannot spawn a single agent without it, and herdr 0.7.3 does
+  // NOT auto-spawn it (#1574). Copies verbatim — the unit's only path is %h-relative, which
+  // systemd expands, so there is no WorkingDirectory to template.
+  fileIO.write(join(unitDir, "herdr.service"), fileIO.read(join(repo, "deploy", "herdr.service")));
   run("systemctl", ["--user", "daemon-reload"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
   run("loginctl", ["enable-linger", user]);
   run("systemctl", ["--user", "enable", "shepherd"]);
+  // --now: bring the daemon up immediately. MUST precede update.sh below, which starts
+  // Shepherd — a Shepherd that boots against a dead herdr reports `offline` and spawns
+  // nothing. `enable` alone would only arm it for the next login.
+  run("systemctl", ["--user", "enable", "--now", "herdr"]);
   // Mark this host as backup-EXPECTED before enabling the timer: the server's staleness check
   // treats marker-present + no recent success as a failure, so a box whose backup is broken from
   // the very first run is flagged (a no-marker host, e.g. macOS/core-only, stays silent).
@@ -336,9 +344,14 @@ export function installService(
   run("bash", [join(repo, "deploy", "update.sh")], { env: buildEnv });
 }
 
-/** No-service path (harness e2e + macOS): deps + UI install + UI build only.
- * Do NOT touch systemd. (The harness boots Shepherd directly afterward.) */
+/** No-service path (harness e2e + macOS): starts the herdr daemon directly (no systemd unit
+ * on this path), then deps + UI install + UI build. Do NOT touch systemd. (The harness boots
+ * Shepherd directly afterward.) */
 export function buildOnly(repo: string, run: Runner, buildEnv: NodeJS.ProcessEnv): void {
+  // No systemd on this path (harness install-e2e + macOS), so start the daemon directly.
+  // HERDR_SERVE is idempotent and polls until it answers, so this both starts and verifies.
+  log("starting herdr server (no-service path)");
+  run("bash", ["-c", HERDR_SERVE], { env: buildEnv });
   log("installing deps (root + ui)");
   run("bash", ["-c", `cd "${repo}" && bun install`], { env: buildEnv });
   // node-pty ships spawn-helper without the exec bit and Bun preserves tarball perms,

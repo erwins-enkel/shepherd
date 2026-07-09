@@ -25,9 +25,10 @@ function greenSnapshot(): DiagnosticsSnapshot {
   };
 }
 
-/** Recorder runner: code 0 for everything; serves a diagnostics snapshot for the
- *  probe call and `active` for the `systemctl --user is-active shepherd` check. */
-function recorder(snapshot: DiagnosticsSnapshot) {
+/** Recorder runner: code 0 for everything; serves a diagnostics snapshot for the probe call
+ *  and `active` for the `systemctl --user is-active <unit>` checks (both `herdr` and
+ *  `shepherd`). `deadUnit` makes exactly one of them report `failed` instead. */
+function recorder(snapshot: DiagnosticsSnapshot, deadUnit?: "herdr" | "shepherd") {
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<IncusExec> => {
     calls.push(args);
@@ -35,8 +36,12 @@ function recorder(snapshot: DiagnosticsSnapshot) {
     if (joined.includes("/api/diagnostics?refresh=1")) {
       return { stdout: JSON.stringify(snapshot), stderr: "", code: 0 };
     }
-    if (joined.includes("is-active shepherd")) {
-      return { stdout: "active\n", stderr: "", code: 0 };
+    for (const unit of ["herdr", "shepherd"] as const) {
+      if (joined.includes(`is-active ${unit}`)) {
+        return unit === deadUnit
+          ? { stdout: "failed\n", stderr: "", code: 3 }
+          : { stdout: "active\n", stderr: "", code: 0 };
+      }
     }
     return { stdout: "", stderr: "", code: 0 };
   };
@@ -78,8 +83,11 @@ describe("install-e2e-service runScenario (lifecycle)", () => {
     expect(install!).toContain("SHEPHERD_DIR=/opt/shepherd");
     expect(install!).not.toContain("SHEPHERD_NO_SERVICE");
 
-    // unit active-check ran; the manual `bun src/index.ts` boot did NOT.
+    // both unit active-checks ran; the manual `bun src/index.ts` boot did NOT.
     expect(flat.some((c) => c.includes("systemctl --user is-active shepherd"))).toBe(true);
+    // herdr's unit is asserted too: a green `herdr` check only proves SOME daemon answers,
+    // not that the supervised one does (#1574).
+    expect(flat.some((c) => c.includes("systemctl --user is-active herdr"))).toBe(true);
     expect(flat.some((c) => c.includes("src/index.ts"))).toBe(false);
 
     // health-check through the running unit + probe.
@@ -90,7 +98,10 @@ describe("install-e2e-service runScenario (lifecycle)", () => {
     expect(idx("git init -q -b main")).toBeLessThan(idx("loginctl enable-linger root"));
     expect(idx("loginctl enable-linger root")).toBeLessThan(idx("/root/.shepherd/env"));
     expect(idx("/root/.shepherd/env")).toBeLessThan(idx("bash /root/install.sh"));
-    expect(idx("bash /root/install.sh")).toBeLessThan(idx("systemctl --user is-active shepherd"));
+    expect(idx("bash /root/install.sh")).toBeLessThan(idx("systemctl --user is-active herdr"));
+    expect(idx("systemctl --user is-active herdr")).toBeLessThan(
+      idx("systemctl --user is-active shepherd"),
+    );
 
     // outcome
     expect(result.reachedGreen).toBe(true);
@@ -146,15 +157,22 @@ describe("install-e2e-service runScenario (lifecycle)", () => {
     expect(calls.some((c) => c[0] === "delete")).toBe(true);
   });
 
+  it("fails closed when the herdr unit is not active after install (#1574)", async () => {
+    // The regression this guards: provision leaves an unsupervised daemon on the socket, the
+    // unit's ExecStart exits 1 ("already running"), Restart=always thrashes it into `failed` —
+    // and the `herdr` diagnostic still reads `ok` because the orphan answers. Only the unit's
+    // own state exposes it, so the scenario must fail closed here.
+    const { run } = recorder(greenSnapshot(), "herdr");
+    const d = new IncusDriver(run, "shep-onb-");
+    const result = await runScenario(d, lifecycle, "/tmp/shepherd.tar");
+
+    expect(result.installE2E).toBe(true);
+    expect(result.reachedGreen).toBe(false);
+    expect(result.error).toContain("herdr user unit not active");
+  });
+
   it("fails closed when the shepherd unit is not active after install", async () => {
-    const calls: string[][] = [];
-    const run = async (args: string[]): Promise<IncusExec> => {
-      calls.push(args);
-      if (args.join(" ").includes("is-active shepherd")) {
-        return { stdout: "failed\n", stderr: "", code: 3 };
-      }
-      return { stdout: "", stderr: "", code: 0 };
-    };
+    const { calls, run } = recorder(greenSnapshot(), "shepherd");
     const d = new IncusDriver(run, "shep-onb-");
     const result = await runScenario(d, lifecycle, "/tmp/shepherd.tar");
 

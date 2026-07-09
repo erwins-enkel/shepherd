@@ -159,7 +159,11 @@ async function runInstallLifecycleE2E(
     );
   }
 
-  // The unit owns the process — assert it's active, then wait for it to serve.
+  // The units own their processes — assert both are active, then wait for Shepherd to serve.
+  // herdr is checked explicitly: a green `herdr` diagnostic only proves some daemon answers,
+  // not that the SUPERVISED one does. An unsupervised daemon on the socket makes herdr.service
+  // thrash into `failed` behind a passing check — invisible without this assertion. #1574
+  await assertUnitActive(driver, scenario.id, "herdr");
   await assertUnitActive(driver, scenario.id);
   await waitForApi(driver, scenario.id);
 

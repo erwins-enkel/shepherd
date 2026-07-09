@@ -145,18 +145,48 @@ export async function waitForApi(driver: IncusDriver, name: string): Promise<voi
   if (poll.code !== 0) throw new Error(`Shepherd did not come up in ${name}`);
 }
 
-/** Assert the `shepherd` systemd USER unit is `active` (the lifecycle scenario's
- *  proof that the service path — not a hand-rolled boot — owns the process).
- *  `XDG_RUNTIME_DIR=/run/user/0` is required for `systemctl --user` to reach the
- *  user bus inside an `incus exec` session (no login session sets it). */
-export async function assertUnitActive(driver: IncusDriver, name: string): Promise<void> {
+/** Best-effort `systemctl status` tail for a unit, formatted for appending to an assertion
+ *  failure. Returns "" on any capture problem so it can never mask the original failure. */
+async function unitStatusDetail(driver: IncusDriver, name: string, unit: string): Promise<string> {
+  try {
+    const s = await driver.exec(name, [
+      "sh",
+      "-c",
+      `XDG_RUNTIME_DIR=/run/user/0 systemctl --user status ${unit} --no-pager -l -n 30 2>&1 || true`,
+    ]);
+    const out = s.stdout.trim();
+    return out ? `\n--- systemctl status ${unit} ---\n${out}` : "";
+  } catch {
+    return "";
+  }
+}
+
+/** Assert a systemd USER unit is `active` (the lifecycle scenario's proof that the service
+ *  path — not a hand-rolled boot — owns the process). `XDG_RUNTIME_DIR=/run/user/0` is
+ *  required for `systemctl --user` to reach the user bus inside an `incus exec` session
+ *  (no login session sets it).
+ *
+ *  Asserting `herdr` too is load-bearing, not decorative: a `herdr: ok` diagnostic only
+ *  proves SOME daemon answers the socket. If provision left an unsupervised daemon there,
+ *  the unit's ExecStart exits 1 ("already running") and `Restart=always` thrashes it into
+ *  `failed` — while the check stays green and the host silently has no supervised daemon.
+ *  Only the unit's own state can catch that. #1574 */
+export async function assertUnitActive(
+  driver: IncusDriver,
+  name: string,
+  unit = "shepherd",
+): Promise<void> {
   const r = await driver.exec(name, [
     "sh",
     "-c",
-    "XDG_RUNTIME_DIR=/run/user/0 systemctl --user is-active shepherd",
+    `XDG_RUNTIME_DIR=/run/user/0 systemctl --user is-active ${unit}`,
   ]);
   if (r.stdout.trim() !== "active") {
-    throw new Error(`shepherd user unit not active in ${name}: ${r.stdout || r.stderr}`);
+    // A bare "not active: failed" is undiagnosable from CI logs. Attach the unit's status +
+    // recent journal so the FIRST red run says why (ExecStart missing? crash-looped? bound
+    // socket?). Best-effort: a capture failure must never mask the assertion failure.
+    const detail = await unitStatusDetail(driver, name, unit);
+    throw new Error(`${unit} user unit not active in ${name}: ${r.stdout || r.stderr}${detail}`);
   }
 }
 

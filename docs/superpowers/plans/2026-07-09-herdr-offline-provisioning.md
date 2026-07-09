@@ -84,6 +84,19 @@ describe("herdr offline remediation (#1574)", () => {
 });
 ```
 
+**These six are shape-only assertions and cannot catch a composition bug** (swap the
+idempotency `||` for a `;` and every one still passes). Add behavioral tests that run the
+composed string through a real shell against a **stubbed** herdr. Safety rules, non-negotiable:
+never execute the real `HERDR_INSTALL` (it curls the network) — substitute `false && (…)` /
+`true && (…)` for the install clause; never execute the real `herdr`; and because `HERDR_SERVE`
+prepends `$HOME/.local/bin` (which holds the *real* herdr on a dev host), every test must run
+with `HOME` set to a tmpdir and the stub written to `<tmpdir>/.local/bin/herdr`.
+
+Three cases: (1) `false && (${HERDR_SERVE})` ⇒ non-zero exit and herdr **never invoked** —
+this is the test that fails against a bare `&&`; (2) stub whose `agent list` exits 0 ⇒ exit 0,
+log has `agent list`, no `server` (idempotent short-circuit); (3) stub whose `agent list` fails
+until `server` drops a marker ⇒ exit 0 and marker exists (spawn + poll path).
+
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `bun run test test/remediations.test.ts`
@@ -129,7 +142,10 @@ Then in the `REMEDIATIONS` map, replace the two herdr lines:
   // Install AND start: a bare binary leaves the daemon dead, which #1562 correctly reports
   // as `offline`/error. The harness's preflight scenario applies this hint ONCE with no
   // second round (run.ts:216), so installing without starting can never reach green.
-  diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && ${HERDR_SERVE}`,
+  // The SUBSHELL is load-bearing: HERDR_SERVE opens with `export PATH=…;`, so a bare
+  // `&&` would bind to that statement alone and the rest would run even on a failed
+  // install. `( … )` gates the whole block and yields its exit status to `&&`.
+  diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && (${HERDR_SERVE})`,
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
   diagnostics_hint_herdr_offline: HERDR_SERVE,
 ```

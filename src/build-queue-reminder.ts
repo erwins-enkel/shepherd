@@ -73,6 +73,9 @@ export class BuildQueueReminderService {
   private idleThresholdMs: number;
   private maxNudges: number;
   private debounce = new Map<string, DebounceEntry>();
+  /** True while a sweep is in flight. Guards re-entrancy now that `sweep` awaits its steer
+   *  (#1567) — see the drop-the-tick rationale on `sweep`. */
+  private sweeping = false;
 
   constructor(private deps: Deps) {
     this.now = deps.now ?? Date.now;
@@ -106,17 +109,32 @@ export class BuildQueueReminderService {
    * store (SQLite) error or a rejected steer; the caller guards it so the timer can't die.
    * Sessions are considered in turn (not fanned out) — the nudge is a steer, and steers serialize
    * behind SessionService's FIFO anyway (#1567).
+   *
+   * Re-entrancy guard (#1567): the sweep now AWAITS each steer, so a slow one can still be in
+   * flight when the next 15s tick fires. `considerSession` only sets `firedThisEpisode` once its
+   * steer resolves, so an overlapping sweep would re-pass `readyToNudge` for the same session and
+   * deliver a duplicate reconcile steer (plus a double `nudgeCount++`). Pre-#1567 the sweep ran to
+   * completion synchronously, which made overlap impossible. The tick is DROPPED rather than
+   * queued: this is an idle-debounced nudge, so the next tick 15s later re-evaluates from fresh
+   * state — queueing would just replay a decision made against a stale `now`. Mirrors the
+   * `releasingHeld` guard on the 30s held-task tick in index.ts.
    */
   async sweep(): Promise<void> {
-    const now = this.now();
-    const live = new Set<string>();
-    for (const s of this.deps.store.list({ activeOnly: true })) {
-      live.add(s.id);
-      await this.considerSession(s.id, s.status, s.planPhase, now);
-    }
-    // Forget sessions that are no longer active/listed.
-    for (const id of [...this.debounce.keys()]) {
-      if (!live.has(id)) this.debounce.delete(id);
+    if (this.sweeping) return; // prior sweep still steering — skip this tick
+    this.sweeping = true;
+    try {
+      const now = this.now();
+      const live = new Set<string>();
+      for (const s of this.deps.store.list({ activeOnly: true })) {
+        live.add(s.id);
+        await this.considerSession(s.id, s.status, s.planPhase, now);
+      }
+      // Forget sessions that are no longer active/listed.
+      for (const id of [...this.debounce.keys()]) {
+        if (!live.has(id)) this.debounce.delete(id);
+      }
+    } finally {
+      this.sweeping = false; // a thrown store error / rejected steer must not wedge the sweep off
     }
   }
 

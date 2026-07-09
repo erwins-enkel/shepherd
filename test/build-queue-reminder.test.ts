@@ -236,3 +236,87 @@ test("non-landing steer is retried (state not consumed)", async () => {
   await svc.sweep(); // retry — lands now
   expect(steers).toHaveLength(2);
 });
+
+// ── sweep: re-entrancy (#1567) ──────────────────────────────────────────────
+
+/** A harness whose steer parks until released, so a second sweep can overlap the first. */
+function slowSteerHarness() {
+  const state = { status: "idle" as SessionStatus, t: 0 };
+  const steers: string[] = [];
+  let release!: () => void;
+  const parked = new Promise<void>((r) => (release = r));
+  const svc = new BuildQueueReminderService({
+    store: {
+      list: () => [session(state.status, null)],
+      getBuildQueue: () => queue(true, ["pending", "pending"]),
+    } as never,
+    steer: async (_id, text) => {
+      steers.push(text);
+      await parked; // the steer is in flight across the next tick
+      return true;
+    },
+    now: () => state.t,
+    idleThresholdMs: THRESHOLD,
+    maxNudges: 3,
+  });
+  return { svc, state, steers, release };
+}
+
+test("overlapping sweeps never double-steer the same session (the tick is dropped, not queued)", async () => {
+  const { svc, state, steers, release } = slowSteerHarness();
+
+  // running → idle → settled, so the next sweep is eligible to nudge.
+  state.status = "running";
+  await svc.sweep();
+  state.status = "idle";
+  await svc.sweep();
+  state.t += THRESHOLD + 1;
+
+  // Sweep A parks inside its steer. Sweep B fires on the next 15s tick while A is still in flight:
+  // A has not yet set firedThisEpisode (that happens only after its steer resolves).
+  const a = svc.sweep();
+  await new Promise((r) => setTimeout(r, 0));
+  const b = svc.sweep();
+  await new Promise((r) => setTimeout(r, 0));
+
+  expect(steers).toHaveLength(1); // B must not deliver a duplicate reconcile steer
+
+  release();
+  await Promise.all([a, b]);
+  expect(steers).toHaveLength(1);
+});
+
+test("a rejected steer clears the in-flight guard — the next tick still sweeps", async () => {
+  const state = { status: "idle" as SessionStatus, t: 0 };
+  const steers: string[] = [];
+  let fail = true;
+  const svc = new BuildQueueReminderService({
+    store: {
+      list: () => [session(state.status, null)],
+      getBuildQueue: () => queue(true, ["pending", "pending"]),
+    } as never,
+    steer: async (_id, text) => {
+      steers.push(text);
+      if (fail) throw new Error("herdr: no such agent");
+      return true;
+    },
+    now: () => state.t,
+    idleThresholdMs: THRESHOLD,
+    maxNudges: 3,
+  });
+
+  state.status = "running";
+  await svc.sweep();
+  state.status = "idle";
+  await svc.sweep();
+  state.t += THRESHOLD + 1;
+
+  // The steer rejects — the sweep propagates (index.ts's .catch logs it) but must not wedge.
+  await expect(svc.sweep()).rejects.toThrow("no such agent");
+  expect(steers).toHaveLength(1);
+
+  fail = false;
+  state.t += 1;
+  await svc.sweep(); // guard cleared → the retry lands
+  expect(steers).toHaveLength(2);
+});

@@ -14,11 +14,18 @@ export default [
   // serialize a Promise as `{}` with no type error. These two rules are the durable enforcement.
   //
   // Scoped to `src/**/*.ts` on purpose: `projectService` needs a tsconfig per package, and the
-  // root tsconfig covers server code only (ui/ + extension/ have their own). Tests are excluded
-  // too — they legitimately fire-and-forget. Widening this to ui/ means wiring the svelte parser
-  // project and eating a much slower lint; not worth it for the surface this gate protects.
+  // root tsconfig covers server code only (ui/ + extension/ have their own). Widening this to ui/
+  // means wiring the svelte parser project and eating a much slower lint; not worth it for the
+  // surface this gate protects.
+  //
+  // Test files are excluded — they legitimately fire-and-forget. That exclusion has to be spelled
+  // out: `src/**/*.ts` also matches the SIX colocated `*.test.ts` files under src/ (auth-url,
+  // hold, hold-service, signoff, plugins/loader, plugins/gear-validate). Without the `ignores`
+  // below, a floating promise would be an error in `src/hold.test.ts` but fine in
+  // `test/hold.test.ts` — an arbitrary split that depends only on where the test happens to live.
   {
     files: ["src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
     languageOptions: {
       parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
     },

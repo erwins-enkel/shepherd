@@ -75,7 +75,10 @@ export const REMEDIATIONS: Record<string, string> = {
   // Install AND start: a bare binary leaves the daemon dead, which #1562 correctly reports
   // as `offline`/error. The harness's preflight scenario applies this hint ONCE with no
   // second round (run.ts:216), so installing without starting can never reach green.
-  diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && ${HERDR_SERVE}`,
+  // HERDR_SERVE is wrapped in a subshell so `&&` gates the WHOLE block (liveness check,
+  // spawn, poll) on install success, not just HERDR_INSTALL's leading `export` (its `;`
+  // would otherwise terminate the && chain and run the rest unconditionally).
+  diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && (${HERDR_SERVE})`,
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
   diagnostics_hint_herdr_offline: HERDR_SERVE,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",

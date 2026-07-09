@@ -92,8 +92,13 @@ never execute the real `HERDR_INSTALL` (it curls the network) — substitute `fa
 prepends `$HOME/.local/bin` (which holds the *real* herdr on a dev host), every test must run
 with `HOME` set to a tmpdir and the stub written to `<tmpdir>/.local/bin/herdr`.
 
-Three cases: (1) `false && (${HERDR_SERVE})` ⇒ non-zero exit and herdr **never invoked** —
-this is the test that fails against a bare `&&`; (2) stub whose `agent list` exits 0 ⇒ exit 0,
+Two further properties, each learned the hard way in review:
+
+- **Derive the command from the production string**, `REMEDIATIONS.diagnostics_hint_herdr_missing.replace(HERDR_INSTALL, "false"|"true")` (export `HERDR_INSTALL` for this). A test that hard-codes `false && (${HERDR_SERVE})` still passes after someone deletes the parens from production — it never reads the shipped value, so it guards nothing.
+- **Give the sandbox a hermetic `PATH`** (`<tmpHome>/.local/bin:/usr/bin:/bin`), never `...process.env`. Two reasons: a dev host has a real herdr on PATH and the test would talk to the live daemon; and the stub must stay reachable even when the command under test never runs `HERDR_SERVE`'s own `export PATH=…` — otherwise the bare-`&&` regression finds no herdr at all, logs nothing, exits non-zero, and **passes** on a herdr-less CI runner.
+
+Three cases: (1) `composed("false")` ⇒ non-zero exit and herdr **never invoked** —
+this is the test that must fail against a bare `&&`; (2) stub whose `agent list` exits 0 ⇒ exit 0,
 log has `agent list`, no `server` (idempotent short-circuit); (3) stub whose `agent list` fails
 until `server` drops a marker ⇒ exit 0 and marker exists (spawn + poll path).
 

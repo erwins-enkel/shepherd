@@ -20,7 +20,7 @@ import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
 import { compareSemver } from "../src/herdr-update";
-import { autoFixCommandFor, HERDR_SERVE } from "../src/remediations";
+import { autoFixCommandFor, HERDR_INSTALL, HERDR_SERVE } from "../src/remediations";
 import { resolveBackupDir, backupConfiguredMarker } from "../src/backup-paths";
 
 // ── pure types + data ─────────────────────────────────────────────────────────
@@ -36,12 +36,27 @@ export interface Prereq {
   hintKey: string;
   /** Advisory version floor; undefined ⇒ presence-only. */
   floor?: string;
+  /** Overrides the hintKey's shipped remediation for THIS loop only — set when the
+   *  remediation does more than provision wants here. See herdr below. */
+  installCommand?: string;
 }
 
 export const PREREQS: readonly Prereq[] = [
   { bin: "bun", hintKey: "diagnostics_hint_bun_missing", floor: BUN_MIN_VERSION },
   { bin: "node", hintKey: "diagnostics_hint_node_missing", floor: NODE_MIN_VERSION },
-  { bin: "herdr", hintKey: "diagnostics_hint_herdr_missing", floor: HERDR_MIN_VERSION },
+  {
+    bin: "herdr",
+    hintKey: "diagnostics_hint_herdr_missing",
+    floor: HERDR_MIN_VERSION,
+    // INSTALL ONLY — deliberately NOT the hint's shipped remediation, which is
+    // `HERDR_INSTALL && (HERDR_SERVE)` and leaves a DETACHED, unsupervised daemon holding the
+    // socket. `installService` then runs `enable --now herdr`, whose ExecStart hits that bound
+    // socket, exits 1 ("herdr server is already running" — verified), and Restart=always
+    // thrashes the unit while the orphan keeps serving. The check still reads `ok` (the orphan
+    // answers), so the breakage would be invisible. On the service path the UNIT owns the
+    // daemon; `buildOnly` (no systemd) starts it explicitly instead. #1574
+    installCommand: HERDR_INSTALL,
+  },
   // claude is presence-only (no version floor), like diagnostics.
   { bin: "claude", hintKey: "diagnostics_hint_claude_missing" },
 ];
@@ -90,8 +105,30 @@ export function selectPrereqCommand(
   probed: { version: string | null },
 ): string | undefined {
   if (!needsInstall(probed.version, prereq.floor)) return undefined;
-  return autoFixCommandFor(prereq.hintKey);
+  // `installCommand` wins when set (herdr: install-only, no daemon start). Otherwise the
+  // shipped remediation via autoFixCommandFor, which still excludes guidance-only hints.
+  return prereq.installCommand ?? autoFixCommandFor(prereq.hintKey);
 }
+
+/** Rewrite the herdr unit's `ExecStart` to an absolute, resolved herdr path. systemd needs an
+ *  absolute executable, and herdr is NOT always at `~/.local/bin` — a package install can land
+ *  it in `/usr/local/bin`. Presence (`probeVersion`) and liveness (`config.herdrBin`) both
+ *  resolve `herdr` on `$PATH`, so a hardcoded unit path could point at nothing while the checks
+ *  are perfectly happy, and `enable --now herdr` would fail the whole provision. #1574 */
+export function templateHerdrUnit(unit: string, herdrPath: string): string {
+  return unit.replace(/^ExecStart=.*$/m, `ExecStart=${herdrPath} server`);
+}
+
+/** Adopt the socket before enabling the unit: if the unit is NOT already the active herdr, stop
+ *  whatever daemon is (an in-app Fix's detached `HERDR_SERVE` child, or a hand-rolled one). A
+ *  second `herdr server` against a bound socket exits 1, so without this `enable --now herdr`
+ *  would thrash. Best-effort by construction — every branch swallows failure and exits 0, so a
+ *  host with no herdr running (the fresh-install case) sails straight through. #1574 */
+export const HERDR_ADOPT_SOCKET =
+  'export PATH="$HOME/.local/bin:$PATH"; ' +
+  "systemctl --user is-active --quiet herdr && exit 0; " +
+  "command -v herdr >/dev/null 2>&1 && herdr server stop >/dev/null 2>&1; " +
+  "systemctl --user reset-failed herdr >/dev/null 2>&1; exit 0";
 
 /** Service path iff linux AND SHEPHERD_NO_SERVICE unset/empty. macOS always takes
  *  the no-service path AND warrants the degraded banner. */
@@ -211,6 +248,21 @@ function probeVersion(bin: string): string | null {
   }
 }
 
+/** Resolve a binary to its absolute path via `command -v`; null if not on PATH. Used to
+ *  template the herdr unit's ExecStart (systemd needs an absolute executable). */
+function probeBinPath(bin: string): string | null {
+  try {
+    const out = execFileSync("sh", ["-c", `command -v ${bin}`], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    const p = out.trim();
+    return p === "" ? null : p;
+  } catch {
+    return null;
+  }
+}
+
 function log(msg: string): void {
   process.stdout.write(`\x1b[36m▸ ${msg}\x1b[0m\n`);
 }
@@ -228,6 +280,8 @@ interface ProvisionOpts {
   fileIO?: FileIO;
   /** Injectable total-memory probe; defaults to os.totalmem. */
   totalMem?: () => number;
+  /** Injectable absolute-path resolver (herdr.service ExecStart templating). */
+  probePath?: (bin: string) => string | null;
 }
 
 /** Step 1 — table-driven prereq install loop (idempotent; skips adequate tools). */
@@ -276,6 +330,8 @@ export function installService(
   env: NodeJS.ProcessEnv,
   home: string,
   buildEnv: NodeJS.ProcessEnv,
+  /** Resolves a binary to an absolute path (injected in tests). */
+  probePath: (bin: string) => string | null = probeBinPath,
 ): void {
   log("installing systemd user unit");
   const unitDir = join(home, ".config", "systemd", "user");
@@ -314,15 +370,25 @@ export function installService(
     join(unitDir, "shepherd-logrotate.timer"),
     fileIO.read(join(repo, "deploy", "shepherd-logrotate.timer")),
   );
-  // herdr's daemon: Shepherd cannot spawn a single agent without it, and herdr 0.7.3 does
-  // NOT auto-spawn it (#1574). Copies verbatim — the unit's only path is %h-relative, which
-  // systemd expands, so there is no WorkingDirectory to template.
-  fileIO.write(join(unitDir, "herdr.service"), fileIO.read(join(repo, "deploy", "herdr.service")));
+  // herdr's daemon: Shepherd cannot spawn a single agent without it, and herdr 0.7.3 does NOT
+  // auto-spawn it (#1574). TEMPLATED, not verbatim: ExecStart must be the herdr this host
+  // actually resolves on PATH (installers use ~/.local/bin, packages /usr/local/bin), else the
+  // unit points at nothing while `probeVersion`/`config.herdrBin` are perfectly happy.
+  const herdrPath = probePath("herdr");
+  if (!herdrPath) throw new Error("cannot install herdr.service: herdr is not on PATH");
+  fileIO.write(
+    join(unitDir, "herdr.service"),
+    templateHerdrUnit(fileIO.read(join(repo, "deploy", "herdr.service")), herdrPath),
+  );
   run("systemctl", ["--user", "daemon-reload"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
   run("loginctl", ["enable-linger", user]);
   run("systemctl", ["--user", "enable", "shepherd"]);
+  // Take the socket before enabling: any daemon NOT owned by the unit (an in-app Fix's detached
+  // HERDR_SERVE child, a hand-rolled server) would make ExecStart exit 1 and thrash the unit.
+  // No-op on a fresh host, and on one the unit already owns.
+  run("bash", ["-c", HERDR_ADOPT_SOCKET], { env });
   // --now: bring the daemon up immediately. MUST precede update.sh below, which starts
   // Shepherd — a Shepherd that boots against a dead herdr reports `offline` and spawns
   // nothing. `enable` alone would only arm it for the next login.
@@ -372,6 +438,7 @@ export function provision(opts: ProvisionOpts = {}): void {
   const repo = opts.repo ?? process.cwd();
   const home = homedir();
   const memFn = opts.totalMem ?? totalmem;
+  const probePath = opts.probePath ?? probeBinPath;
 
   const memWarning = lowMemoryWarning(memFn());
   if (memWarning !== null) {
@@ -383,7 +450,7 @@ export function provision(opts: ProvisionOpts = {}): void {
 
   const decision = decideServicePath(platform, env.SHEPHERD_NO_SERVICE);
   if (decision.service) {
-    installService(repo, run, fileIO, env, home, buildEnv);
+    installService(repo, run, fileIO, env, home, buildEnv, probePath);
   } else {
     buildOnly(repo, run, buildEnv);
   }

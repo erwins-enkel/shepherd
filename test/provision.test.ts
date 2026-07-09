@@ -16,6 +16,7 @@ import {
   ensureNodeGyp,
   installService,
   buildOnly,
+  templateHerdrUnit,
   lowMemoryWarning,
   INSTALL_RAM_FLOOR_BYTES,
   type FileIO,
@@ -331,7 +332,15 @@ describe("extracted helpers (direct)", () => {
 
   it("installService templates+writes the unit, enables, delegates build, throws without $USER", () => {
     const { calls, writes, run, fileIO } = recorder();
-    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" });
+    installService(
+      "/repo",
+      run,
+      fileIO,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => "/root/.local/bin/herdr",
+    );
     const flat = calls.map((c) => c.join(" "));
     expect([...writes.keys()].some((p) => p.endsWith("systemd/user/shepherd.service"))).toBe(true);
     expect(flat.some((c) => c.includes("daemon-reload"))).toBe(true);
@@ -380,13 +389,29 @@ describe("extracted helpers (direct)", () => {
 
     const fresh = recorder();
     expect(() =>
-      installService("/repo", fresh.run, fresh.fileIO, {}, "/home/op", { PATH: "/x" }),
+      installService(
+        "/repo",
+        fresh.run,
+        fresh.fileIO,
+        {},
+        "/home/op",
+        { PATH: "/x" },
+        () => "/root/.local/bin/herdr",
+      ),
     ).toThrow(/\$USER/);
   });
 
   it("installs + enables the herdr unit BEFORE shepherd starts (#1574)", () => {
     const { calls, writes, run, fileIO } = recorder();
-    installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" });
+    installService(
+      "/repo",
+      run,
+      fileIO,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => "/root/.local/bin/herdr",
+    );
 
     expect([...writes.keys()].some((p) => p.endsWith("systemd/user/herdr.service"))).toBe(true);
 
@@ -407,18 +432,72 @@ describe("extracted helpers (direct)", () => {
     expect(flat.some((c) => c.includes("systemctl"))).toBe(false);
   });
 
+  it("the herdr prereq installs the binary ONLY — no daemon start (#1574)", () => {
+    // The shipped `herdr_missing` remediation is `HERDR_INSTALL && (HERDR_SERVE)`. Running that
+    // here would leave an unsupervised daemon on the socket, so `enable --now herdr` would hit a
+    // bound socket, exit 1, and Restart=always would thrash the unit into `failed` while the
+    // orphan kept serving (check reads `ok`, breakage invisible). The UNIT must own the daemon.
+    const herdr = PREREQS.find((p) => p.bin === "herdr")!;
+    const cmd = selectPrereqCommand(herdr, { version: null })!;
+    expect(cmd).toContain("herdr.dev/install.sh");
+    expect(cmd).not.toContain("server");
+    expect(cmd).not.toContain("agent list");
+  });
+
+  it("templateHerdrUnit rewrites ExecStart to the resolved herdr path (#1574)", () => {
+    const unit = readFileSync("deploy/herdr.service", "utf8");
+    const out = templateHerdrUnit(unit, "/usr/local/bin/herdr");
+    expect(out).toContain("ExecStart=/usr/local/bin/herdr server");
+    expect(out).not.toContain("ExecStart=%h/.local/bin/herdr server");
+    // Everything else survives, incl. the restart policy that makes Restart=always honest.
+    expect(out).toContain("StartLimitIntervalSec=0");
+    expect(out).toContain("Restart=always");
+  });
+
+  it("installService writes a TEMPLATED herdr unit and adopts the socket before enabling (#1574)", () => {
+    const { calls, writes, run, fileIO } = recorder();
+    installService(
+      "/repo",
+      run,
+      fileIO,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => "/usr/local/bin/herdr",
+    );
+
+    const unit = [...writes.entries()].find(([p]) => p.endsWith("systemd/user/herdr.service"));
+    expect(unit).toBeDefined();
+    // Resolved path, not the %h default — herdr is not always in ~/.local/bin.
+    expect(unit![1]).toContain("ExecStart=/usr/local/bin/herdr server");
+
+    const flat = calls.map((c) => c.join(" "));
+    const adoptIdx = flat.findIndex((c) => c.includes("herdr server stop"));
+    const enableIdx = flat.findIndex((c) => c.includes("enable --now herdr"));
+    expect(adoptIdx).toBeGreaterThanOrEqual(0);
+    // Adopt FIRST: a foreign daemon on the socket makes ExecStart exit 1 and the unit thrash.
+    expect(adoptIdx).toBeLessThan(enableIdx);
+  });
+
+  it("installService refuses to install a unit pointing at a herdr that is not on PATH (#1574)", () => {
+    const { run, fileIO } = recorder();
+    expect(() =>
+      installService("/repo", run, fileIO, { USER: "me" }, "/home/op", { PATH: "/x" }, () => null),
+    ).toThrow(/herdr is not on PATH/);
+  });
+
   it("starts a detached herdr daemon, no systemd on this path (#1574)", () => {
     const { calls, run } = recorder();
     buildOnly("/repo", run, { PATH: "/x" });
 
     const flat = calls.map((c) => c.join(" "));
-    const serve = flat.find((c) => c.includes("herdr server"));
+    const serve = flat.find((c) => c.includes('"$H" server'));
     expect(serve).toBeDefined();
     expect(serve!.startsWith("bash -c")).toBe(true);
     // macOS takes this path and has no setsid.
     expect(serve!).toContain("nohup");
     // It must precede the slow build so a dead daemon fails fast.
-    const serveIdx = flat.findIndex((c) => c.includes("herdr server"));
+    const serveIdx = flat.findIndex((c) => c.includes('"$H" server'));
     const installIdx = flat.findIndex((c) => c.includes("bun install"));
     expect(serveIdx).toBeLessThan(installIdx);
   });

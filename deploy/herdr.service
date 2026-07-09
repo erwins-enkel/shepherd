@@ -4,9 +4,22 @@ Description=herdr — terminal workspace manager (Shepherd's session backend)
 # auto-spawn it on a CLI call (#1574). A user unit — NOT system — because herdr's socket,
 # config and panes all live under $HOME and belong to the operator, same as shepherd.service.
 Documentation=https://herdr.dev
+# Restart=always (below) is only honest with the start-rate limit DISABLED. systemd's default
+# (StartLimitBurst=5 within StartLimitIntervalSec=10s) parks a unit permanently in `failed`
+# after five quick restarts — precisely the crashed/OOM-killed case the restart policy exists
+# to recover. 0 disables the limit; RestartSec=2 is what bounds the retry rate.
+StartLimitIntervalSec=0
 
 [Service]
 Type=simple
+# TEMPLATED, not literal: deploy/provision.ts and deploy/update.sh rewrite this line to the
+# herdr path resolved via `command -v herdr` before installing the unit. herdr is not always in
+# ~/.local/bin — its installer puts it there, but a package install can land it in
+# /usr/local/bin (the onboarding harness seeds exactly that). Both the presence check
+# (provision's `probeVersion`) and the liveness probe (`config.herdrBin`) resolve `herdr` on
+# $PATH, so a hardcoded path could disagree with them and make `enable --now herdr` fail on
+# such a host. The value below is the common default, used verbatim only if templating is
+# somehow skipped.
 ExecStart=%h/.local/bin/herdr server
 # Restart=always (not on-failure): a `herdr server stop`, an OOM kill, or a crashed daemon
 # must all come back — panes OUTLIVE the server and reattach, so a restart is always safe

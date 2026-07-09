@@ -87,6 +87,36 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
   cp "$REPO/deploy/shepherd-logrotate.timer" "$UNIT_DIR/shepherd-logrotate.timer"
   systemctl --user daemon-reload
   systemctl --user enable --now shepherd-logrotate.timer
+
+  # ── sync the herdr daemon unit (#1574) ───────────────────────────────────────
+  # Same self-heal rationale as the timers above: provision.ts installs herdr.service only on a
+  # FRESH box, so without this every already-provisioned host would keep running an unsupervised
+  # daemon (or none at all) forever. herdr 0.7.3 does NOT auto-spawn its server, and Shepherd
+  # cannot start a single agent without it.
+  #
+  # ExecStart is TEMPLATED to the resolved herdr, not copied: an installer puts herdr in
+  # ~/.local/bin, a package in /usr/local/bin, and the unit must exec the same binary the
+  # diagnostics probe resolves on PATH.
+  #
+  # Before `enable --now`: hand the socket over. A daemon the unit does NOT own (an in-app Fix's
+  # detached child, or a hand-rolled `herdr server`) makes ExecStart exit 1 ("already running"),
+  # and Restart=always would thrash. `herdr server stop` is graceful — panes outlive the server
+  # and reattach — and update.sh restarts Shepherd immediately below anyway.
+  export PATH="$HOME/.local/bin:$PATH"
+  HERDR_PATH="$(command -v herdr || true)"
+  if [[ -n "$HERDR_PATH" ]]; then
+    note "syncing herdr daemon unit"
+    sed "s|^ExecStart=.*|ExecStart=${HERDR_PATH} server|" \
+      "$REPO/deploy/herdr.service" >"$UNIT_DIR/herdr.service"
+    systemctl --user daemon-reload
+    if ! systemctl --user is-active --quiet herdr; then
+      herdr server stop >/dev/null 2>&1 || true
+      systemctl --user reset-failed herdr >/dev/null 2>&1 || true
+    fi
+    systemctl --user enable --now herdr || warn "herdr.service did not start — DIAGNOSE will report herdr offline"
+  else
+    warn "herdr not on PATH — skipping herdr.service sync"
+  fi
 else
   warn "no systemd user manager — skipping backup timer sync (no automated backups on this host)"
 fi

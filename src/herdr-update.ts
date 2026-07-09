@@ -110,9 +110,11 @@ export function buildUpdateScript(
     `  echo '${UPDATE_LOG_PREFIX} running herdr update --handoff'`,
     `  ${h} update --handoff; rc=$?`,
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
-    // Unconditional (NOT gated on rc): the CLI call auto-spawns the daemon, so this
-    // both verifies AND recovers the server. Grace+retry lets an in-flight --handoff
-    // or a systemd `Restart=always` unit bind first before we conclude "unreachable".
+    // Unconditional (NOT gated on rc): `herdr update` can exit 0 having left NO running
+    // server (#1558), so this call VERIFIES reachability on every path. It does not repair —
+    // nothing auto-spawns (#1574); the fallback below is the only repair. Grace+retry lets an
+    // in-flight --handoff or a systemd `Restart=always` unit bind first before we conclude
+    // "unreachable".
     "  ok=0",
     "  for attempt in 1 2 3; do",
     `    if timeout 10 ${h} agent list >/dev/null 2>&1; then ok=1; break; fi`,

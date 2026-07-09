@@ -587,6 +587,7 @@ function defaultRepoConfig() {
     sandboxProfile: "trusted" as const,
     defaultModel: "inherit",
     defaultEffort: "inherit",
+    previewOpenMode: "ask" as const,
     egressExtraHosts: [] as string[],
     repoMode: "forge" as const,
     autoOptimizeFlagged: false,

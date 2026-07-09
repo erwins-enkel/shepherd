@@ -635,6 +635,8 @@ export interface RepoConfig {
   previewStartScript?: string | null;
   /** Command captured when Shepherd generated the local preview start script. */
   previewStartCommand?: string | null;
+  /** What clicking a live Preview chip does by default for this repo. */
+  previewOpenMode: "ask" | "inline" | "tab";
 }
 
 /** Live per-repo merge-train status pushed to clients (mirrors server AutoMergeStatus). */

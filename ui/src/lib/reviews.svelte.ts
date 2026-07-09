@@ -173,6 +173,7 @@ class RepoConfigStore {
   sandboxProfile = $state<Record<string, SandboxProfile>>({}); // per-repo sandbox confinement (default "trusted")
   defaultModel = $state<Record<string, string>>({}); // per-repo default-model override (default "inherit")
   defaultEffort = $state<Record<string, string>>({}); // per-repo default-effort override (default "inherit")
+  previewOpenMode = $state<Record<string, RepoConfig["previewOpenMode"]>>({}); // Preview chip action (default ask)
   maxAuto = $state<Record<string, number>>({}); // max concurrent auto sessions (default 1)
   autoLabel = $state<Record<string, string>>({}); // label used to pick drain issues (default "shepherd:auto")
   usageCeiling = $state<Record<string, number>>({}); // usage % ceiling before pausing drain (default 80)
@@ -182,6 +183,10 @@ class RepoConfigStore {
   // "has a value": a failed fetch leaves the per-field maps unset yet must count as
   // settled so the UI stops showing a loading state and falls back to defaults.
   settled = $state<Record<string, boolean>>({});
+  // repoPaths whose config has been successfully loaded from an authoritative
+  // server response. Unlike settled, failed fetches never mark loaded.
+  loaded = $state<Record<string, boolean>>({});
+  private ensureInflight = new Map<string, Promise<boolean>>();
 
   /** Spread a fetched RepoConfigResponse into every per-field $state map for `repoPath`. */
   private ingest(repoPath: string, c: RepoConfigResponse) {
@@ -203,6 +208,7 @@ class RepoConfigStore {
     this.sandboxProfile = { ...this.sandboxProfile, [repoPath]: c.sandboxProfile };
     this.defaultModel = { ...this.defaultModel, [repoPath]: c.defaultModel };
     this.defaultEffort = { ...this.defaultEffort, [repoPath]: c.defaultEffort };
+    this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: c.previewOpenMode };
     this.maxAuto = { ...this.maxAuto, [repoPath]: c.maxAuto };
     this.autoLabel = { ...this.autoLabel, [repoPath]: c.autoLabel };
     this.usageCeiling = { ...this.usageCeiling, [repoPath]: c.usageCeilingPct };
@@ -210,6 +216,8 @@ class RepoConfigStore {
       this.confirmed = { ...this.confirmed, [repoPath]: c.automationConfirmed };
     if (c.automationRowExists !== undefined)
       this.rowExists = { ...this.rowExists, [repoPath]: c.automationRowExists };
+    this.markSettled(repoPath);
+    if (!this.loaded[repoPath]) this.loaded = { ...this.loaded, [repoPath]: true };
   }
 
   /** Idempotently mark a repo's config as settled; no-op (no reactive write) if it
@@ -224,10 +232,22 @@ class RepoConfigStore {
    *  confirmed/rowExists (e.g. the first-task seed/confirm gate) must NOT treat that as a
    *  genuine "new repo", or a transient GET failure would mis-seed an existing repo. */
   async ensure(repoPath: string): Promise<boolean> {
-    if (repoPath in this.enabled) {
+    if (this.loaded[repoPath]) {
       this.markSettled(repoPath); // already-loaded ⇒ settled
       return true;
     }
+    const existing = this.ensureInflight.get(repoPath);
+    if (existing) return existing;
+    const pending = this.load(repoPath);
+    this.ensureInflight.set(repoPath, pending);
+    try {
+      return await pending;
+    } finally {
+      this.ensureInflight.delete(repoPath);
+    }
+  }
+
+  private async load(repoPath: string): Promise<boolean> {
     try {
       this.ingest(repoPath, await getRepoConfig(repoPath));
       return true;
@@ -246,6 +266,10 @@ class RepoConfigStore {
    *  as "off" while its repo default is still loading. */
   isConfigSettled(repoPath: string): boolean {
     return this.settled[repoPath] ?? false;
+  }
+
+  isConfigLoaded(repoPath: string): boolean {
+    return this.loaded[repoPath] ?? false;
   }
 
   /** Optimistically apply a patch, then reconcile from the server (or revert on error). */
@@ -271,6 +295,7 @@ class RepoConfigStore {
         | "sandboxProfile"
         | "defaultModel"
         | "defaultEffort"
+        | "previewOpenMode"
         | "maxAuto"
         | "autoLabel"
         | "usageCeilingPct"
@@ -463,6 +488,14 @@ class RepoConfigStore {
     });
   }
 
+  async setPreviewOpenMode(repoPath: string, value: RepoConfig["previewOpenMode"]) {
+    const prev = this.previewOpenMode[repoPath];
+    this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: value }; // optimistic
+    await this.apply(repoPath, { previewOpenMode: value }, () => {
+      this.previewOpenMode = { ...this.previewOpenMode, [repoPath]: prev };
+    });
+  }
+
   async toggleBuildQueue(repoPath: string) {
     const prev = this.buildQueue[repoPath];
     const next = !this.isBuildQueueEnabled(repoPath);
@@ -591,6 +624,15 @@ class RepoConfigStore {
   /** The repo's default-effort override SETTING ("inherit" | "default" | <tier>). */
   defaultEffortFor(repoPath: string): string {
     return this.defaultEffort[repoPath] ?? "inherit";
+  }
+
+  previewOpenModeFor(repoPath: string): RepoConfig["previewOpenMode"] {
+    return this.previewOpenMode[repoPath] ?? "ask";
+  }
+
+  previewOpenModeForLoaded(repoPath: string): RepoConfig["previewOpenMode"] | null {
+    if (this.isConfigLoaded(repoPath)) return this.previewOpenModeFor(repoPath);
+    return this.isConfigSettled(repoPath) ? "ask" : null;
   }
 
   /** All automation on/off flags for a repo, in one read — shared by the pill's

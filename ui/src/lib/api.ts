@@ -1759,6 +1759,7 @@ export async function putRepoConfig(
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"
+      | "previewOpenMode"
     >
   > & { automationConfirmed?: boolean },
 ): Promise<RepoConfigResponse> {

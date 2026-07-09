@@ -2746,5 +2746,15 @@
   "epic_mode_auto_title": "Klicken, um in den begleiteten Modus zu wechseln. Shepherd wartet dann darauf, dass du jedes nächste Kind-Issue freigibst.",
   "epic_mode_auto_aria": "Automatisch: Epic in begleiteten Modus wechseln",
   "epic_mode_attended_title": "Klicken, um in den automatischen Modus zu wechseln. Shepherd startet geeignete Kind-Issues dann ohne einzelne Freigabe.",
-  "epic_mode_attended_aria": "Begleitet: Epic in automatischen Modus wechseln"
+  "epic_mode_attended_aria": "Begleitet: Epic in automatischen Modus wechseln",
+  "automation_preview_open_mode_label": "Vorschau-Chip",
+  "automation_preview_open_mode_hint": "Steuert, was passiert, wenn du in diesem Repository einen Live-Vorschau-Chip anklickst.",
+  "unitrow_preview_loading": "Repo-Vorschau-Einstellung wird geladen",
+  "unitrow_preview_choice_label": "Vorschau-Ziel wählen",
+  "unitrow_preview_open_inline": "Inline öffnen",
+  "feat_preview_open_mode_title": "Festlegen, wie Vorschau-Chips öffnen",
+  "feat_preview_open_mode_body": "Pro Repository können Vorschau-Chips jetzt inline, in einem neuen Browser-Tab oder mit Nachfrage geöffnet werden.",
+  "preview_open_mode_ask": "Immer nachfragen",
+  "preview_open_mode_inline": "Inline-Vorschau",
+  "preview_open_mode_tab": "Neuer Browser-Tab"
 }

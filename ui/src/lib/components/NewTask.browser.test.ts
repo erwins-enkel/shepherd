@@ -81,6 +81,7 @@ function repoConfig(
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: true,
     automationRowExists: true,
   };
@@ -1236,6 +1237,7 @@ function unconfirmedNewRepoConfig(): RepoConfig & {
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
+    previewOpenMode: "ask",
     automationConfirmed: false,
     automationRowExists: false,
   };

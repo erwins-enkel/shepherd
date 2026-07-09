@@ -36,6 +36,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   hidden: false,
   previewStartScript: null,
   previewStartCommand: null,
+  previewOpenMode: "ask",
   ...overrides,
 });
 
@@ -70,11 +71,17 @@ beforeEach(() => {
   repoConfig.allPrs = {};
   repoConfig.signoffAuthority = {};
   repoConfig.repoMode = {};
+  repoConfig.sandboxProfile = {};
+  repoConfig.defaultModel = {};
+  repoConfig.defaultEffort = {};
+  repoConfig.previewOpenMode = {};
   repoConfig.maxAuto = {};
   repoConfig.autoLabel = {};
   repoConfig.usageCeiling = {};
   repoConfig.confirmed = {};
   repoConfig.rowExists = {};
+  repoConfig.settled = {};
+  repoConfig.loaded = {};
   vi.clearAllMocks();
 });
 
@@ -187,9 +194,52 @@ test("repoConfig.ensure fetches and caches", async () => {
   vi.mocked(getRepoConfig).mockResolvedValue(rc({ criticEnabled: false }));
   await repoConfig.ensure("/repo");
   expect(repoConfig.isEnabled("/repo")).toBe(false);
+  expect(repoConfig.isConfigLoaded("/repo")).toBe(true);
   // second call should NOT fetch again
   await repoConfig.ensure("/repo");
   expect(getRepoConfig).toHaveBeenCalledTimes(1);
+});
+
+test("repoConfig.ensure dedupes concurrent fetches", async () => {
+  let resolveConfig: (config: RepoConfig) => void = () => {};
+  vi.mocked(getRepoConfig).mockReturnValue(
+    new Promise((resolve) => {
+      resolveConfig = resolve;
+    }),
+  );
+  const first = repoConfig.ensure("/repo");
+  const second = repoConfig.ensure("/repo");
+  expect(getRepoConfig).toHaveBeenCalledTimes(1);
+  resolveConfig(rc({ previewOpenMode: "tab" }));
+  await expect(first).resolves.toBe(true);
+  await expect(second).resolves.toBe(true);
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("tab");
+});
+
+test("repoConfig preview open mode requires a successful load", async () => {
+  expect(repoConfig.previewOpenModeFor("/repo")).toBe("ask");
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBeNull();
+  vi.mocked(getRepoConfig).mockResolvedValue(rc({ previewOpenMode: "inline" }));
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("inline");
+});
+
+test("repoConfig failed ensure settles and falls back to ask for preview mode", async () => {
+  vi.mocked(getRepoConfig).mockRejectedValueOnce(new Error("network"));
+  await expect(repoConfig.ensure("/repo")).resolves.toBe(false);
+  expect(repoConfig.isConfigSettled("/repo")).toBe(true);
+  expect(repoConfig.isConfigLoaded("/repo")).toBe(false);
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("ask");
+});
+
+test("repoConfig successful PUT marks loaded after a failed GET", async () => {
+  vi.mocked(getRepoConfig).mockRejectedValueOnce(new Error("network"));
+  await repoConfig.ensure("/repo");
+  expect(repoConfig.isConfigLoaded("/repo")).toBe(false);
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ previewOpenMode: "tab" }));
+  await repoConfig.setPreviewOpenMode("/repo", "tab");
+  expect(repoConfig.isConfigLoaded("/repo")).toBe(true);
+  expect(repoConfig.previewOpenModeForLoaded("/repo")).toBe("tab");
 });
 
 test("repoConfig.isAllPrsEnabled defaults to false for unknown repo", () => {

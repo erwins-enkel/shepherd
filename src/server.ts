@@ -1182,6 +1182,11 @@ function parseRepoDefaultEffort(v: unknown): string | { error: string } {
   return r;
 }
 
+function parsePreviewOpenMode(v: unknown): "ask" | "inline" | "tab" | { error: string } {
+  if (v === "ask" || v === "inline" || v === "tab") return v;
+  return { error: "previewOpenMode must be one of: ask, inline, tab" };
+}
+
 // the optional boolean fields of a repo-config patch body
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
@@ -1224,6 +1229,7 @@ type RepoCfgBody = {
   repoMode?: unknown;
   previewStartScript?: unknown;
   previewStartCommand?: unknown;
+  previewOpenMode?: unknown;
   automationConfirmed?: unknown;
 };
 
@@ -1247,6 +1253,7 @@ type RepoCfgScalars = {
   repoMode?: "forge" | "lightweight";
   previewStartScript?: string | null;
   previewStartCommand?: string | null;
+  previewOpenMode?: "ask" | "inline" | "tab";
 };
 
 /** Adapt validateEgressExtraHosts (a Field result) to the scalar-parser contract:
@@ -1277,6 +1284,7 @@ const REPO_CFG_SCALAR_PARSERS: readonly [keyof RepoCfgScalars, (v: unknown) => u
   ["repoMode", parseRepoMode],
   ["previewStartScript", parseNullableString],
   ["previewStartCommand", parseNullableString],
+  ["previewOpenMode", parsePreviewOpenMode],
 ];
 
 /** Validate the non-boolean (scalar/enum) repo-config fields, or the 400 Response to
@@ -1319,6 +1327,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       repoMode?: "forge" | "lightweight";
       previewStartScript?: string | null;
       previewStartCommand?: string | null;
+      previewOpenMode?: "ask" | "inline" | "tab";
       automationConfirmed?: boolean;
     }
   | Response
@@ -1349,6 +1358,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     repoMode,
     previewStartScript,
     previewStartCommand,
+    previewOpenMode,
   } = scalars;
   const present =
     REPO_CFG_BOOL_FIELDS.some((k) => body[k] !== undefined) ||
@@ -1363,12 +1373,13 @@ async function parseRepoConfigPatch(req: Request): Promise<
     repoMode !== undefined ||
     previewStartScript !== undefined ||
     previewStartCommand !== undefined ||
+    previewOpenMode !== undefined ||
     body.automationConfirmed !== undefined;
   if (!present) {
     return json(
       {
         error:
-          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, automationConfirmed",
+          "body must set at least one of: criticEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, autoOptimizeFlagged, hidden, signoffAuthority, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, maxAuto, autoLabel, usageCeilingPct, repoMode, previewStartScript, previewStartCommand, previewOpenMode, automationConfirmed",
       },
       400,
     );
@@ -1398,6 +1409,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     repoMode,
     previewStartScript,
     previewStartCommand,
+    previewOpenMode,
     automationConfirmed: body.automationConfirmed as boolean | undefined,
   };
 }

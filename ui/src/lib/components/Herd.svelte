@@ -106,7 +106,7 @@
     // live sessionId → tailscale-serve registration status; "failed" surfaces degraded badge
     previewServe?: Record<string, "ok" | "failed">;
     // a row's Preview badge was clicked → select the session + open its Viewport preview pane
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     // live epics map (store.epics, keyed `${repoPath}#${parentIssueNumber}`) — threaded
     // into each row so an epic-seeded session can badge with WS-live counts
     epics?: Record<string, Epic>;

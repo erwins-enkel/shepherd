@@ -25,6 +25,8 @@
     decom,
     coarsePointer,
     pressDecommission,
+    previewChoiceOpen = false,
+    onpreviewchoice,
     elapsedEl = $bindable(),
   }: {
     session: Session;
@@ -33,15 +35,35 @@
     ondecommission?: (id: string) => void;
     previewPort?: number | null;
     previewServeFailed?: boolean;
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     reviewing: boolean;
     stepperTerminal: boolean;
     decom: "idle" | "armed";
     coarsePointer: boolean;
     pressDecommission: () => void;
+    previewChoiceOpen?: boolean;
+    onpreviewchoice?: (anchor: HTMLElement) => void;
     elapsedEl?: HTMLSpanElement;
   } = $props();
+
+  let previewWrapEl = $state<HTMLElement | null>(null);
+  const previewOpenMode = $derived(repoConfig.previewOpenModeForLoaded(session.repoPath));
+  const previewBusy = $derived(previewPort != null && previewOpenMode === null);
+
+  function choosePreview(target: "inline" | "tab") {
+    onpreview?.(session.id, target);
+  }
+
+  function onPreviewActivate(e: MouseEvent | KeyboardEvent) {
+    e.stopPropagation();
+    if (previewBusy || previewOpenMode === null) return;
+    if (previewOpenMode === "ask") {
+      if (previewWrapEl) onpreviewchoice?.(previewWrapEl);
+      return;
+    }
+    choosePreview(previewOpenMode);
+  }
 </script>
 
 <div class="u-right">
@@ -73,24 +95,30 @@
          this is an actionable control; rendered as role=button (not a nested
          <button>, which would be invalid inside the row's own button) with
          stopPropagation so the row's select doesn't also fire. -->
-    <span
-      class="preview-badge"
-      class:preview-badge--degraded={previewServeFailed}
-      role="button"
-      tabindex="0"
-      title={previewServeFailed ? m.unitrow_preview_badge_degraded() : m.unitrow_preview_badge()}
-      onclick={(e) => {
-        e.stopPropagation();
-        onpreview?.(session.id);
-      }}
-      onkeydown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          e.stopPropagation();
-          onpreview?.(session.id);
-        }
-      }}>{m.unitrow_preview_badge()}</span
-    >
+    <span class="preview-wrap" bind:this={previewWrapEl}>
+      <span
+        class="preview-badge"
+        class:preview-badge--degraded={previewServeFailed}
+        class:preview-badge--busy={previewBusy}
+        role="button"
+        tabindex={previewBusy ? -1 : 0}
+        aria-busy={previewBusy}
+        aria-disabled={previewBusy}
+        aria-expanded={previewOpenMode === "ask" ? previewChoiceOpen : undefined}
+        title={previewBusy
+          ? m.unitrow_preview_loading()
+          : previewServeFailed
+            ? m.unitrow_preview_badge_degraded()
+            : m.unitrow_preview_badge()}
+        onclick={onPreviewActivate}
+        onkeydown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            onPreviewActivate(e);
+          }
+        }}>{m.unitrow_preview_badge()}</span
+      >
+    </span>
   {/if}
   <ResearchBadge {session} />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
@@ -240,6 +268,12 @@
      the non-reserved informational accent (green = READY, amber = running/critic,
      red = blocked, slate = done are all taken), so it reads as "go look" without
      colliding with any status hue. Outlined + pointer to signal it's clickable. */
+  .preview-wrap {
+    position: relative;
+    z-index: 1;
+    display: inline-flex;
+    justify-content: flex-end;
+  }
   .preview-badge {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;
@@ -256,7 +290,10 @@
   .preview-badge:focus-visible {
     background: color-mix(in srgb, var(--color-blue) 14%, transparent);
   }
-
+  .preview-badge--busy {
+    cursor: wait;
+    opacity: 0.55;
+  }
   /* Degraded: the slot's tailscale serve mapping failed to register — the preview
      still works on loopback but isn't exposed over Tailscale. Amber = attention/
      degraded (not red, which is reserved for a blocked session). */

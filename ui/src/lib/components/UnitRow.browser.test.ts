@@ -14,7 +14,7 @@ vi.mock("$lib/api", async (importOriginal) => {
   return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
 });
 
-const { reviews, planGates } = await import("$lib/reviews.svelte");
+const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -99,7 +99,16 @@ beforeEach(() => {
   reviews.map = {};
   planGates.reviewing = {};
   planGates.map = {};
+  repoConfig.previewOpenMode = {};
+  repoConfig.loaded = {};
+  repoConfig.settled = {};
 });
+
+function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask") {
+  repoConfig.previewOpenMode = { ...repoConfig.previewOpenMode, [repoPath]: mode };
+  repoConfig.loaded = { ...repoConfig.loaded, [repoPath]: true };
+  repoConfig.settled = { ...repoConfig.settled, [repoPath]: true };
+}
 
 describe("UnitRow merging badge", () => {
   it("shows MERGING for a merging session, not READY", async () => {
@@ -135,6 +144,7 @@ describe("UnitRow preview badge", () => {
   // The badge text bubbles into the row button's accessible name too, so match the
   // badge precisely by its title attribute rather than the ambiguous role+name.
   it("renders the Preview badge only when a preview port is bound", async () => {
+    loadPreviewMode("/repo/a");
     render(UnitRow, {
       session: session({ id: "p1" }),
       selected: false,
@@ -157,7 +167,9 @@ describe("UnitRow preview badge", () => {
   });
 
   it("clicking the badge calls onpreview with the session id (not onselect twice)", async () => {
+    loadPreviewMode("/repo/a", "inline");
     let previewed: string | null = null;
+    let target: "inline" | "tab" | undefined;
     let selects = 0;
     render(UnitRow, {
       session: session({ id: "p3" }),
@@ -165,12 +177,182 @@ describe("UnitRow preview badge", () => {
       nowMs: Date.now(),
       onselect: () => selects++,
       previewPort: 8002,
-      onpreview: (id: string) => (previewed = id),
+      onpreview: (id: string, t?: "inline" | "tab") => {
+        previewed = id;
+        target = t;
+      },
     });
     await page.getByTitle("Preview").click();
     expect(previewed).toBe("p3");
+    expect(target).toBe("inline");
     // the badge stops propagation, so the row's own select doesn't also fire
     expect(selects).toBe(0);
+  });
+
+  it("keeps the badge above the row hit overlay for real pointer targeting", async () => {
+    loadPreviewMode("/repo/a", "inline");
+    render(UnitRow, {
+      session: session({ id: "p3b" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    const badge = page.getByTitle("Preview").element() as HTMLElement;
+    const rect = badge.getBoundingClientRect();
+    const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+    expect(hit).toBe(badge);
+  });
+
+  it("ask mode opens a chooser and routes each choice", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    const calls: Array<[string, "inline" | "tab" | undefined]> = [];
+    render(UnitRow, {
+      session: session({ id: "p4" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: (id: string, target?: "inline" | "tab") => calls.push([id, target]),
+    });
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    expect(document.querySelector(".preview-choice")?.closest(".unit")).toBeNull();
+    await page.getByRole("button", { name: "Open inline" }).click();
+    expect(calls).toEqual([["p4", "inline"]]);
+  });
+
+  it("ask mode closes the chooser when the preview port unbinds", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    const props = {
+      session: session({ id: "p4a" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    };
+    const screen = render(UnitRow, props);
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+
+    await screen.rerender({ ...props, previewPort: null });
+
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("ask mode keeps the chooser inside the viewport near the bottom edge", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    render(UnitRow, {
+      session: session({ id: "p4b" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    const badge = page.getByTitle("Preview").element();
+    const anchor = badge.parentElement as HTMLElement;
+    const anchorRect = DOMRect.fromRect({
+      x: 120,
+      y: window.innerHeight - 12,
+      width: 80,
+      height: 8,
+    });
+    const rectSpy = vi.spyOn(anchor, "getBoundingClientRect").mockReturnValue(anchorRect);
+
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    const choice = document.querySelector(".preview-choice") as HTMLElement;
+    const top = Number.parseFloat(choice.style.top);
+    expect(top).toBeLessThan(anchorRect.top);
+    expect(top + choice.getBoundingClientRect().height).toBeLessThanOrEqual(window.innerHeight);
+    rectSpy.mockRestore();
+  });
+
+  it("ask mode closes the chooser on Escape while focus is inside it", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    render(UnitRow, {
+      session: session({ id: "p4c" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    });
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    const inline = page.getByRole("button", { name: "Open inline" }).element();
+    inline.focus();
+    inline.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("tab mode bypasses the chooser", async () => {
+    loadPreviewMode("/repo/a", "tab");
+    const calls: Array<[string, "inline" | "tab" | undefined]> = [];
+    render(UnitRow, {
+      session: session({ id: "p5" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: (id: string, target?: "inline" | "tab") => calls.push([id, target]),
+    });
+    await page.getByTitle("Preview").click();
+    expect(calls).toEqual([["p5", "tab"]]);
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("does not fall back to ask while repo config is not loaded", async () => {
+    const onpreview = vi.fn();
+    render(UnitRow, {
+      session: session({ id: "p6" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview,
+    });
+    await page.getByTitle("Loading repo preview setting").click({ force: true });
+    expect(onpreview).not.toHaveBeenCalled();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("falls back to ask after repo config loading fails", async () => {
+    repoConfig.settled = { "/repo/a": true };
+    const calls: Array<[string, "inline" | "tab" | undefined]> = [];
+    render(UnitRow, {
+      session: session({ id: "p7" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: (id: string, target?: "inline" | "tab") => calls.push([id, target]),
+    });
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+    await page.getByRole("button", { name: "Open inline" }).click();
+    expect(calls).toEqual([["p7", "inline"]]);
   });
 });
 

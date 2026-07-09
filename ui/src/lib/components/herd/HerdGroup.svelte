@@ -10,7 +10,7 @@
     activity: Record<string, SessionActivity>;
     preview: Record<string, number | null>;
     previewServe: Record<string, "ok" | "failed">;
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     ondecommission?: (id: string) => void;
     onrename?: (id: string) => void;
     onrelaunch?: (id: string) => void;

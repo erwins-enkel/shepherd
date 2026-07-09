@@ -12,6 +12,7 @@ test("read: returns the stored config plus automation-metadata flags", () => {
   const { svc } = harness();
   const view = svc.read("/r");
   expect(view.criticEnabled).toBeDefined();
+  expect(view.previewOpenMode).toBe("ask");
   expect(view.automationConfirmed).toBe(false);
   expect(view.automationRowExists).toBe(false);
 });
@@ -25,6 +26,15 @@ test("patch: merges defined fields, persists, returns fresh view", () => {
   expect(r.config.maxAuto).toBe(3);
   // Persisted, not just echoed.
   expect(store.getRepoConfig("/r").maxAuto).toBe(3);
+});
+
+test("patch: persists previewOpenMode", () => {
+  const { store, svc } = harness();
+  const r = svc.patch("/r", { previewOpenMode: "tab" });
+  expect(r.ok).toBe(true);
+  if (!r.ok) throw new Error("expected ok");
+  expect(r.config.previewOpenMode).toBe("tab");
+  expect(store.getRepoConfig("/r").previewOpenMode).toBe("tab");
 });
 
 test("patch: undefined fields leave the current value untouched", () => {
@@ -85,6 +95,14 @@ test("patch: hidden survives a later unrelated patch (no read-modify-write clobb
   const r = svc.patch("/r", { criticEnabled: false });
   expect(r.ok && r.config.hidden).toBe(true);
   expect(store.getRepoConfig("/r").hidden).toBe(true);
+});
+
+test("patch: previewOpenMode survives a later unrelated patch", () => {
+  const { store, svc } = harness();
+  expect(svc.patch("/r", { previewOpenMode: "inline" }).ok).toBe(true);
+  const r = svc.patch("/r", { criticEnabled: false });
+  expect(r.ok && r.config.previewOpenMode).toBe("inline");
+  expect(store.getRepoConfig("/r").previewOpenMode).toBe("inline");
 });
 
 test("hiddenRepoPaths: returns exactly the repos flagged hidden", () => {

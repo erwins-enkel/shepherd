@@ -80,7 +80,7 @@
     // true when the server's tailscale serve registration failed; surfaces a degraded (amber) badge
     previewServeFailed?: boolean;
     // Preview badge clicked → select this session + open its Viewport preview pane
-    onpreview?: (id: string) => void;
+    onpreview?: (id: string, target?: "inline" | "tab") => void;
     // when provided, the row gains a decommission affordance — coarse pointers get
     // the left-swipe gesture, fine pointers a hover-revealed ✕ button, and the
     // right-click / long-press CardMenu offers it on both
@@ -138,6 +138,93 @@
   }
 
   const swipe = $derived(!!ondecommission && coarse.current);
+
+  const PREVIEW_CHOICE_WIDTH = 150;
+  const PREVIEW_CHOICE_FALLBACK_HEIGHT = 64;
+  const PREVIEW_CHOICE_MARGIN = 8;
+  const PREVIEW_CHOICE_GAP = 4;
+  let previewChoice = $state<{ top: number; left: number; anchor: HTMLElement } | null>(null);
+  let previewChoiceEl = $state<HTMLElement | null>(null);
+
+  function previewChoicePosition(anchor: HTMLElement) {
+    const rect = anchor.getBoundingClientRect();
+    const viewportWidth = typeof window === "undefined" ? rect.right : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? rect.bottom : window.innerHeight;
+    const choiceRect = previewChoiceEl?.getBoundingClientRect();
+    const choiceWidth = choiceRect?.width ?? PREVIEW_CHOICE_WIDTH;
+    const choiceHeight = choiceRect?.height ?? PREVIEW_CHOICE_FALLBACK_HEIGHT;
+    const belowTop = rect.bottom + PREVIEW_CHOICE_GAP;
+    const aboveTop = rect.top - PREVIEW_CHOICE_GAP - choiceHeight;
+    const maxTop = Math.max(
+      PREVIEW_CHOICE_MARGIN,
+      viewportHeight - PREVIEW_CHOICE_MARGIN - choiceHeight,
+    );
+    const preferredTop =
+      belowTop + choiceHeight <= viewportHeight - PREVIEW_CHOICE_MARGIN ? belowTop : aboveTop;
+    return {
+      top: Math.max(PREVIEW_CHOICE_MARGIN, Math.min(preferredTop, maxTop)),
+      left: Math.max(
+        PREVIEW_CHOICE_MARGIN,
+        Math.min(rect.right - choiceWidth, viewportWidth - PREVIEW_CHOICE_MARGIN - choiceWidth),
+      ),
+      anchor,
+    };
+  }
+
+  function togglePreviewChoice(anchor: HTMLElement) {
+    previewChoice = previewChoice?.anchor === anchor ? null : previewChoicePosition(anchor);
+  }
+
+  $effect(() => {
+    if (previewPort == null) closePreviewChoice();
+  });
+
+  $effect(() => {
+    if (!previewChoice || !previewChoiceEl) return;
+    const next = previewChoicePosition(previewChoice.anchor);
+    if (next.top !== previewChoice.top || next.left !== previewChoice.left) previewChoice = next;
+  });
+
+  function closePreviewChoice() {
+    previewChoice = null;
+  }
+
+  function choosePreview(target: "inline" | "tab") {
+    closePreviewChoice();
+    onpreview?.(session.id, target);
+  }
+
+  function onPreviewChoiceKeydown(e: KeyboardEvent) {
+    if (e.key === "Escape") closePreviewChoice();
+    e.stopPropagation();
+  }
+
+  $effect(() => {
+    if (!previewChoice) return;
+    const onPointerDown = (e: PointerEvent) => {
+      const choice = previewChoice;
+      if (!choice) return;
+      const target = e.target as Node;
+      if (previewChoiceEl?.contains(target) || choice.anchor.contains(target)) return;
+      closePreviewChoice();
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") closePreviewChoice();
+    };
+    const onReposition = () => {
+      if (previewChoice) previewChoice = previewChoicePosition(previewChoice.anchor);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKey);
+    window.addEventListener("resize", onReposition);
+    window.addEventListener("scroll", onReposition, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKey);
+      window.removeEventListener("resize", onReposition);
+      window.removeEventListener("scroll", onReposition, true);
+    };
+  });
 
   // gesture state
   let offset = $state(0); // px the row is slid left (negative); 0 = closed
@@ -465,6 +552,8 @@
       {decom}
       coarsePointer={coarse.current}
       {pressDecommission}
+      previewChoiceOpen={previewChoice?.anchor != null}
+      onpreviewchoice={togglePreviewChoice}
       bind:elapsedEl
     />
 
@@ -576,6 +665,26 @@
 
 {#if tipRect && !menu}
   <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
+{/if}
+
+{#if previewChoice && previewPort != null}
+  <div
+    class="preview-choice"
+    role="dialog"
+    aria-label={m.unitrow_preview_choice_label()}
+    tabindex="-1"
+    bind:this={previewChoiceEl}
+    style="top:{previewChoice.top}px;left:{previewChoice.left}px"
+    onclick={(e) => e.stopPropagation()}
+    onkeydown={onPreviewChoiceKeydown}
+  >
+    <button type="button" class="preview-choice-btn" onclick={() => choosePreview("inline")}>
+      {m.unitrow_preview_open_inline()}
+    </button>
+    <button type="button" class="preview-choice-btn" onclick={() => choosePreview("tab")}>
+      {m.viewport_preview_open_new_tab()}
+    </button>
+  </div>
 {/if}
 
 <style>
@@ -700,6 +809,49 @@
   }
   .slider.dragging {
     transition: none;
+  }
+
+  .preview-choice {
+    position: fixed;
+    z-index: 60;
+    min-width: 150px;
+    max-height: calc(100dvh - 16px);
+    overflow-y: auto;
+    padding: 4px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    background: var(--color-panel);
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+  }
+  .preview-choice-btn {
+    margin: 0;
+    padding: 5px 8px;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    color: var(--color-ink);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .preview-choice-btn:hover,
+  .preview-choice-btn:focus-visible {
+    background: var(--color-hover);
+    color: var(--color-ink-bright);
+    outline: none;
+  }
+
+  @media (pointer: coarse) {
+    .preview-choice-btn {
+      min-width: 160px;
+      min-height: 44px;
+      padding: 10px 12px;
+      font-size: var(--fs-base);
+    }
   }
 
   .unit::before {

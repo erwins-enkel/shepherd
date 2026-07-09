@@ -15,15 +15,22 @@ function makeSandbox(): {
   logPath: string;
   markerPath: string;
   writeStub: (script: string) => void;
+  writeSystemctlStub: (script: string) => void;
 } {
   const dir = mkdtempSync(join(tmpdir(), "herdr-remediation-"));
   const binDir = join(dir, ".local", "bin");
   mkdirSync(binDir, { recursive: true });
+  // Stub `systemctl` too, denying by default (`cat herdr` non-zero ⇒ "no unit here").
+  // MANDATORY, not tidiness: HERDR_SERVE's unit branch would otherwise resolve the REAL
+  // systemctl from /usr/bin and could `restart herdr` on the developer's own machine.
+  writeFileSync(join(binDir, "systemctl"), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
   return {
     dir,
     logPath: join(dir, "herdr.log"),
     markerPath: join(dir, "marker"),
     writeStub: (script: string) => writeFileSync(join(binDir, "herdr"), script, { mode: 0o755 }),
+    writeSystemctlStub: (script: string) =>
+      writeFileSync(join(binDir, "systemctl"), script, { mode: 0o755 }),
   };
 }
 
@@ -68,8 +75,44 @@ describe("herdr offline remediation (#1574)", () => {
     // diagnostics spawns config.herdrBin = HERDR_BIN ?? "herdr". Starting a bare `herdr`
     // here would start a DIFFERENT binary than the one probed whenever HERDR_BIN is set.
     expect(HERDR_SERVE).toContain('H="${HERDR_BIN:-herdr}"');
+    expect(HERDR_SERVE).toContain("systemctl --user restart herdr");
     expect(HERDR_SERVE).not.toContain("herdr agent list");
     expect(HERDR_SERVE).not.toContain("setsid herdr server");
+  });
+
+  it("drives the systemd unit when one exists, instead of racing it with a detached daemon", () => {
+    // On a provisioned host `herdr: offline` means herdr.service cannot bind. Spawning a
+    // detached daemon there puts an unsupervised process on the socket: the unit's ExecStart
+    // exits 1 forever (StartLimitIntervalSec=0 ⇒ never parks in `failed`) while the check reads
+    // `ok` because the orphan answers. Drive the unit; never race it. (#1574)
+    const { dir, writeStub, writeSystemctlStub } = makeSandbox();
+    const herdrLog = join(dir, "herdr.log");
+    const sysLog = join(dir, "systemctl.log");
+    try {
+      // Daemon is dead until the unit is restarted; then it answers.
+      writeStub(
+        `#!/bin/sh\necho "$@" >>${herdrLog}\n` +
+          `if [ "$1" = "agent" ] && [ -f ${dir}/started ]; then exit 0; fi\n` +
+          `if [ "$1" = "agent" ]; then exit 1; fi\nexit 0\n`,
+      );
+      // Unit exists (`cat` ⇒ 0); `restart` brings the daemon up.
+      writeSystemctlStub(
+        `#!/bin/sh\necho "$@" >>${sysLog}\n` +
+          `for a in "$@"; do\n` +
+          `  [ "$a" = "cat" ] && exit 0\n` +
+          `  [ "$a" = "restart" ] && { touch ${dir}/started; exit 0; }\n` +
+          `done\nexit 1\n`,
+      );
+
+      const r = runInSandbox(HERDR_SERVE, dir);
+
+      expect(r.status).toBe(0);
+      expect(readFileSync(sysLog, "utf8")).toContain("restart herdr");
+      // The daemon was NEVER spawned directly — no orphan on the socket.
+      expect(readFileSync(herdrLog, "utf8")).not.toContain("server");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("HERDR_BIN, when set, is the binary actually started (behavioral)", () => {

@@ -34,19 +34,29 @@ export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
  *   - `agent list || { start }` — IDEMPOTENT: a live daemon short-circuits, so this never
  *     races a second server against a bound socket (a second `herdr server` against a bound
  *     socket exits 1 with "herdr server is already running" — verified, #1574).
- *   - `setsid … || nohup …` — detach so the daemon outlives the shell (an `incus exec`
- *     session, or the in-app Fix endpoint's child). macOS has NO `setsid`, and buildOnly()
- *     is the macOS path, so the nohup fallback is required, not decorative.
+ *   - `systemctl --user restart herdr` WHEN THE UNIT EXISTS — on a provisioned host,
+ *     `herdr: offline` means `herdr.service` itself cannot bind. Spawning a detached daemon
+ *     there would put an unsupervised process on the socket, so the unit's ExecStart exits 1
+ *     forever (`StartLimitIntervalSec=0` means it never even parks in `failed`) while the check
+ *     reads `ok` because the orphan answers — exactly the green-check/thrashing-unit state this
+ *     whole change exists to eliminate. Drive the unit; never race it.
+ *   - `setsid … || nohup …` — the FALLBACK, for hosts with no unit (macOS, `buildOnly`'s
+ *     SHEPHERD_NO_SERVICE path, hand-rolled installs). Detach so the daemon outlives the shell
+ *     (an `incus exec` session, or the in-app Fix endpoint's child). macOS has NO `setsid`, so
+ *     the nohup branch is required, not decorative.
  *   - the poll — resolve only once the daemon actually ANSWERS. Without it the command
  *     exits 0 the instant the fork returns, and a caller (provision, the harness) would
  *     treat a still-binding — or crashed — server as success. Bounded at ~10s.
  *
- *  NOT durable across a `systemctl restart shepherd` when spawned from Shepherd's cgroup;
- *  the systemd path installs `deploy/herdr.service` (Restart=always) for that. */
+ *  The detached fallback is NOT durable across a `systemctl restart shepherd` when spawned from
+ *  Shepherd's cgroup; that is precisely why the unit branch is preferred where one exists. */
 export const HERDR_SERVE =
   'export PATH="$HOME/.local/bin:$PATH"; H="${HERDR_BIN:-herdr}"; ' +
   '"$H" agent list >/dev/null 2>&1 || ' +
-  "{ if command -v setsid >/dev/null 2>&1; then " +
+  "{ if command -v systemctl >/dev/null 2>&1 && " +
+  "systemctl --user cat herdr >/dev/null 2>&1; then " +
+  "systemctl --user restart herdr >/dev/null 2>&1; " +
+  "elif command -v setsid >/dev/null 2>&1; then " +
   'setsid "$H" server </dev/null >/dev/null 2>&1 & ' +
   'else nohup "$H" server </dev/null >/dev/null 2>&1 & fi; }; ' +
   "for _ in 1 2 3 4 5 6 7 8 9 10; do " +

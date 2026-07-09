@@ -19,6 +19,33 @@ const NODE_INSTALL =
   'ln -sf "$("$FNM" exec --using=lts-latest node -e \'console.log(process.execPath)\')" ' +
   '"$HOME/.local/bin/node"';
 const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
+
+/** Bring the herdr daemon up and PROVE it answers. herdr 0.7.3 does NOT auto-spawn its
+ *  server on a CLI call (verified in a clean instance, #1574) — a host that never ran
+ *  `herdr server` has a dead socket, which is exactly the `offline` state #1562 made red.
+ *
+ *  Shape, in order, and every clause is load-bearing:
+ *   - `export PATH` — herdr installs to ~/.local/bin, absent from a non-login shell's PATH.
+ *   - `agent list || { start }` — IDEMPOTENT: a live daemon short-circuits, so this never
+ *     races a second server against a bound socket. Also makes the command safe to re-run.
+ *   - `setsid … || nohup …` — detach so the daemon outlives the shell (an `incus exec`
+ *     session, or the in-app Fix endpoint's child). macOS has NO `setsid`, and buildOnly()
+ *     is the macOS path, so the nohup fallback is required, not decorative.
+ *   - the poll — resolve only once the daemon actually ANSWERS. Without it the command
+ *     exits 0 the instant the fork returns, and a caller (provision, the harness) would
+ *     treat a still-binding — or crashed — server as success. Bounded at ~10s.
+ *
+ *  NOT durable across a `systemctl restart shepherd` when spawned from Shepherd's cgroup;
+ *  the systemd path installs `deploy/herdr.service` (Restart=always) for that. */
+export const HERDR_SERVE =
+  'export PATH="$HOME/.local/bin:$PATH"; ' +
+  "herdr agent list >/dev/null 2>&1 || " +
+  "{ if command -v setsid >/dev/null 2>&1; then " +
+  "setsid herdr server </dev/null >/dev/null 2>&1 & " +
+  "else nohup herdr server </dev/null >/dev/null 2>&1 & fi; }; " +
+  "for _ in 1 2 3 4 5 6 7 8 9 10; do " +
+  "herdr agent list >/dev/null 2>&1 && exit 0; sleep 1; done; exit 1";
+
 const CODEX_INSTALL =
   "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh";
 
@@ -45,8 +72,12 @@ export const REMEDIATIONS: Record<string, string> = {
   diagnostics_hint_bun_missing: "curl -fsSL https://bun.sh/install | bash",
   diagnostics_hint_node_missing: NODE_INSTALL,
   diagnostics_hint_node_outdated: NODE_INSTALL,
-  diagnostics_hint_herdr_missing: HERDR_INSTALL,
+  // Install AND start: a bare binary leaves the daemon dead, which #1562 correctly reports
+  // as `offline`/error. The harness's preflight scenario applies this hint ONCE with no
+  // second round (run.ts:216), so installing without starting can never reach green.
+  diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && ${HERDR_SERVE}`,
   diagnostics_hint_herdr_outdated: HERDR_INSTALL,
+  diagnostics_hint_herdr_offline: HERDR_SERVE,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
   diagnostics_hint_claude_optional: "curl -fsSL https://claude.ai/install.sh | bash",
   diagnostics_hint_codex_missing: CODEX_INSTALL,

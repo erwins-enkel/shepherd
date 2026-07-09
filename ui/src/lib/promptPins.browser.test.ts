@@ -5,10 +5,11 @@
 // steer — bracketed paste + CR. Replaying it through a real xterm parser means this
 // test fails the day that echo shape changes, instead of the bar silently going blank.
 //
-// The capture is deliberately long enough to scroll: the first prompt's echo ends up
-// in the trimmed scrollback (line < baseY) and the second is still on the screen rows
-// (line >= baseY), so both halves of the scan range are exercised — that split is what
-// the mock-based unit tests got wrong.
+// The capture is deliberately shaped to exercise what mocks got wrong:
+//   • it scrolls, so the 1st prompt's echo lands in the trimmed scrollback
+//     (line < baseY) while the 2nd stays on the screen rows (line >= baseY);
+//   • it ends with UNSUBMITTED text left sitting in the live input box, so the
+//     rule-frame guard is exercised against a row that ECHO really does match.
 import { describe, it, expect, afterEach } from "vitest";
 import { Terminal } from "@xterm/xterm";
 import { scanPromptPins, resolvePinnedPrompt } from "./promptPins";
@@ -44,6 +45,8 @@ const pinsOf = (t: Terminal) => {
 
 const PROMPT_1 = "List the integers 1 through 25, one per line, nothing else. No preamble.";
 const PROMPT_2 = "Now name one primary color. One word only.";
+/** Typed into the live input box during the capture and never submitted. */
+const DRAFT = "this question is still being typed";
 
 describe("promptPins against a real Claude Code PTY capture", () => {
   it("finds both submitted prompts, with the agent's row padding stripped", async () => {
@@ -70,21 +73,45 @@ describe("promptPins against a real Claude Code PTY capture", () => {
 
   it("never mistakes the live input box — a `❯` row framed by rules — for a prompt", async () => {
     term = await replay();
-    // The box is on screen at cursorY; it must not appear as a third pin.
-    expect(pinsOf(term)).toHaveLength(2);
+    const b = term.buffer.normal;
+    const rows = Array.from({ length: b.baseY + term.rows }, (_, i) =>
+      (b.getLine(i)?.translateToString(true) ?? "").trimEnd(),
+    );
+
+    // Anti-vacuity: the captured box really does hold unsubmitted text, and that row
+    // really does match ECHO — so only the rule-frame guard can be rejecting it.
+    const box = rows.findIndex((r) => r.includes(DRAFT));
+    expect(box).toBeGreaterThan(-1);
+    expect(rows[box]).toMatch(/^❯[ \u00a0]\S/);
+    expect(rows[box - 1]).toMatch(/^─{3,}$/);
+
+    const pins = pinsOf(term);
+    expect(pins).toHaveLength(2);
+    expect(pins.map((p) => p.text)).not.toContain(DRAFT);
   });
 
   it("resolves the reader's position to the prompt that produced what they see", async () => {
     term = await replay();
     const pins = pinsOf(term);
     const [first, second] = pins as [(typeof pins)[0], (typeof pins)[0]];
+    const rows = term.rows;
     const at = (viewportY: number) =>
-      resolvePinnedPrompt(pins, { viewportY, agentOwnsScroll: false, scrolledUp: true }).pin?.text;
+      resolvePinnedPrompt(pins, { viewportY, rows, agentOwnsScroll: false, scrolledUp: true }).pin
+        ?.text;
 
-    expect(at(second.line + 1)).toBe(PROMPT_2); // reading the 2nd answer
-    expect(at(second.line - 1)).toBe(PROMPT_1); // scrolled back into the 1st answer's tail
-    expect(at(first.line)).toBe(PROMPT_1); // parked on the 1st echo itself
-    expect(at(first.line - 1)).toBeUndefined(); // above every prompt: the banner
+    // Parked at the latest output (viewportY === baseY). The newest echo sits BELOW
+    // viewportY among the screen rows — this is the case a top anchor got wrong.
+    expect(at(term.buffer.normal.baseY)).toBe(PROMPT_2);
+
+    // Scrolled back far enough that the 2nd echo has left the bottom of the screen.
+    expect(at(second.line - rows)).toBe(PROMPT_1);
+
+    // Scrolled to the very top: the banner fills the screen, but the 1st echo is still
+    // visible below it, so it governs.
+    expect(at(0)).toBe(PROMPT_1);
+
+    // A viewport that ends above the 1st echo has no prompt to name yet.
+    expect(at(first.line - rows)).toBeUndefined();
   });
 
   it("the captured agent never seized the scroll, so xterm's viewportY is authoritative", async () => {

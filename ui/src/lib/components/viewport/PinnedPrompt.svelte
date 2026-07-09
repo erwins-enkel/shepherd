@@ -30,13 +30,6 @@
   let popEl = $state<HTMLElement | null>(null);
   let open = $state(false);
 
-  // Only the collapsed bar reserves terminal rows; the popover floats over them.
-  // Seeded pre-paint so the terminal refits once, not twice.
-  $effect(() => {
-    void pins.length;
-    height = barEl ? barEl.offsetHeight : 0;
-  });
-
   // A prompt list with nothing in it has nothing to expand.
   $effect(() => {
     if (pins.length === 0) open = false;
@@ -73,7 +66,10 @@
   }
 </script>
 
-<div class="pp-bar" bind:this={barEl}>
+<!-- Only the collapsed bar reserves terminal rows (the popover floats over them), and
+     its height is *observed* rather than derived: it also moves with --ui-scale and
+     with a (pointer: coarse) flip, neither of which changes any prop. -->
+<div class="pp-bar" bind:this={barEl} bind:offsetHeight={height}>
   <button
     type="button"
     class="pp-main"

@@ -11,6 +11,11 @@ paste (`ESC [ 200 ~ … ESC [ 201 ~`) followed by CR — and the session is long
 that the first prompt's echo scrolled into the trimmed scrollback while the second
 is still on the screen rows.
 
+It also ends with a third line of text typed into the live input box and deliberately
+never submitted. The box's own row starts with `❯` too, so that draft is what proves
+the rule-frame guard rejects it structurally rather than by accident: delete the guard
+and this fixture's test goes red.
+
 It exists to pin down the one thing `promptPins.ts` assumes about the agent: that a
 submitted prompt is rendered as a `❯ <text>` line at column 0. If Claude Code ever
 changes that, the test fails loudly instead of the pinned-prompt bar going quietly

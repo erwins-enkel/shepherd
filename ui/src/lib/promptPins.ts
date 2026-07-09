@@ -22,9 +22,13 @@ import type { AgentProvider } from "./types";
 
 /** Matches an agent's echo of an operator prompt; capture 1 is the text. */
 const ECHO: Partial<Record<AgentProvider, RegExp>> = {
-  // U+276F. Requires a non-space first char so the *empty* live input box
-  // ("❯ " with nothing after it) can never register as a prompt.
-  claude: /^❯ (\S.*)$/,
+  // U+276F, then the separator. The committed echo uses a plain space while the live
+  // input box happens to use U+00A0 — accept BOTH rather than lean on that quirk to
+  // tell them apart, because a `\S` that silently rejects the box today would silently
+  // start pinning half-typed text the day the agent switches it to a plain space. The
+  // structural RULE guard below is the discriminator. The non-space first char still
+  // rejects the *empty* box ("❯" with nothing after it).
+  claude: /^❯[ \u00a0](\S.*)$/,
 };
 
 /** The agent draws its live input box between two full-width horizontal rules. That
@@ -40,7 +44,7 @@ const CONT = /^ {2}(\S.*)$/;
  *  extra text is never seen, so folding it only grows the string. */
 const MAX_CONT_LINES = 4;
 
-/** One operator prompt located in the terminal's committed scrollback. */
+/** One operator prompt located in the terminal's normal buffer. */
 export interface PromptPin {
   /** 0-based absolute index of the echo's first line in `buffer.normal`. */
   line: number;
@@ -101,6 +105,8 @@ export function scanPromptPins(
 export interface PinPosition {
   /** Absolute buffer line at the top of what the reader can see. */
   viewportY: number;
+  /** Height of the viewport in lines, so the bottom visible row can be derived. */
+  rows: number;
   /** The agent grabbed the wheel and repaints its own scrolled view, so xterm's
    *  viewport never moves and `viewportY` says nothing about where the reader is
    *  (see `agentOwnsScroll` in Viewport.svelte). */
@@ -110,28 +116,39 @@ export interface PinPosition {
 }
 
 export interface ResolvedPin {
-  /** The prompt governing the top of the viewport; null when none precedes it. */
+  /** The prompt governing what the reader can see; null when none precedes it. */
   pin: PromptPin | null;
   /** We cannot know which prompt the reader is looking at. `pin` is null. */
   uncertain: boolean;
 }
 
 /**
- * The prompt governing the reader's position: the last one echoed at or above
- * the top visible line.
+ * The prompt governing the reader's position: the last one echoed at or above the
+ * BOTTOM visible row.
  *
- * When the agent owns the scroll we genuinely cannot answer. xterm's `viewportY`
- * is pinned to the bottom no matter where the agent has scrolled its own view,
- * so resolving against it would confidently name the *newest* prompt while the
- * reader stares at output from an old one. Say "unknown" instead of lying — but
- * only once they've actually scrolled up; sitting at the bottom, the newest
- * prompt is right either way.
+ * Anchoring on the bottom row rather than the top is what makes this right in the two
+ * cases that matter most. Parked at the latest output — the common state — `viewportY`
+ * equals `baseY`, yet the newest prompt's echo sits *below* it among the screen rows;
+ * a top anchor would skip that pin and name the previous prompt, or, in a session
+ * under one screenful (`baseY === 0`), name nothing at all while the prompt and its
+ * answer are both plainly on screen. The bottom anchor names the newest prompt whose
+ * echo the reader can actually see, and falls back to the older one only once the
+ * newer echo has scrolled off the bottom edge — which is exactly when the reader is
+ * looking at the older prompt's output.
+ *
+ * When the agent owns the scroll we genuinely cannot answer. xterm's viewport is
+ * pinned to the bottom no matter where the agent has scrolled its own view, so
+ * resolving against it would confidently name the *newest* prompt while the reader
+ * stares at output from an old one. Say "unknown" instead of lying — but only once
+ * they've actually scrolled up; sitting at the bottom, the newest prompt is right
+ * either way.
  */
 export function resolvePinnedPrompt(pins: PromptPin[], pos: PinPosition): ResolvedPin {
   if (pos.agentOwnsScroll && pos.scrolledUp) return { pin: null, uncertain: true };
+  const bottom = pos.viewportY + pos.rows - 1;
   let found: PromptPin | null = null;
   for (const p of pins) {
-    if (p.line > pos.viewportY) break; // pins are ascending by construction
+    if (p.line > bottom) break; // pins are ascending by construction
     found = p;
   }
   return { pin: found, uncertain: false };

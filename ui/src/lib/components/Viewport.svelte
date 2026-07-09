@@ -379,10 +379,8 @@
   //    normal buffer): it grabs the wheel and repaints its own scrolled view, so
   //    xterm's viewport never moves and we can't read a position. We approximate
   //    it with a wheel/gesture accumulator (scrollDepth) and jump back with the
-  //    app's own Ctrl+End shortcut instead of moving xterm. (Claude Code v2.1.205
-  //    does neither — it stays on the normal buffer with mouse tracking off, so it
-  //    lands in the xterm-owned branch above. Both branches still run: an agent may
-  //    enable mouse tracking at any time, and other providers do.)
+  //    app's own Ctrl+End shortcut instead of moving xterm. (Claude Code takes the
+  //    xterm-owned branch — see `agentOwnsScroll` for what was measured.)
   let scrolledUp = $state(false);
   // px-ish accumulator of net upward scrolling while the agent owns the scroll;
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
@@ -1143,11 +1141,15 @@
 
   // The agent owns the scroll whenever it drives a full-screen view and pins
   // xterm's viewport at the bottom: either the alternate screen (classic TUI) or
-  // mouse-tracking on the normal buffer. Claude Code does the latter — it stays
-  // on the normal buffer (keeping scrollback) but grabs the wheel and repaints
-  // its own scrolled view, so xterm's viewport never moves. In both regimes we
-  // can't read a scroll position from xterm; we lean on the gesture accumulator
+  // mouse-tracking on the normal buffer, where the app grabs the wheel and repaints
+  // its own scrolled view so xterm's viewport never moves. In both regimes we can't
+  // read a scroll position from xterm; we lean on the gesture accumulator
   // (scrollDepth) and jump back with the app's own shortcut instead.
+  //
+  // Claude Code (v2.1.205) does NEITHER — verified by replaying a real PTY capture,
+  // see promptPins.browser.test.ts — so it takes the xterm-owned branch and its scroll
+  // position is readable. This stays a live check regardless: an agent may enable
+  // mouse tracking at any moment, and other providers do.
   const agentOwnsScroll = (term: Terminal): boolean =>
     term.buffer.active.type === "alternate" || term.modes.mouseTrackingMode !== "none";
 
@@ -1815,6 +1817,7 @@
       const b = term.buffer.active;
       resolvedPin = resolvePinnedPrompt(promptPins, {
         viewportY: b.viewportY,
+        rows: term.rows,
         agentOwnsScroll: agentOwnsScroll(term),
         scrolledUp,
       });
@@ -1883,6 +1886,10 @@
         recomputeScrolled();
       }
     });
+    // A reflow renumbers every line the pins are defined against. A live agent would
+    // repaint and heal them on the next write, but an ended or parked session has no
+    // PTY left to do that, so the pins would keep pointing at pre-resize lines forever.
+    const resizeSub = term.onResize(schedulePinScan);
     // Drop any previous session's pins so they can't flash on this terminal, then
     // pick up whatever the pane replays on attach.
     promptPins = [];
@@ -1937,6 +1944,7 @@
       scrollSub.dispose();
       bufSub.dispose();
       writeSub.dispose();
+      resizeSub.dispose();
       renderSub.dispose();
       osc52Sub.dispose();
       ro.disconnect();
@@ -3467,10 +3475,15 @@
        behavior — rather than resizing the PTY toward xterm's clamped 1-row minimum.
 
        --pinned-prompt-h reserves the pinned-prompt strip at the TOP the same way
-       (0px when the bar is absent), so xterm reflows below it instead of under it. */
+       (0px when the bar is absent), so xterm reflows below it instead of under it.
+       It is a MARGIN, so it counts toward the mount's occupied box: the floor above
+       is what must absorb it, or margin + 4rem would exceed the 4rem-floored body
+       and clip the bottom prompt row — the very thing that floor exists to prevent.
+       Hence `4rem - pinned`, clamped at 0 (the bar can be taller than 4rem when
+       --ui-scale is cranked up). */
     margin-top: var(--pinned-prompt-h, 0px);
     height: calc(100% - var(--review-banner-h, 0px) - var(--pinned-prompt-h, 0px));
-    min-height: 4rem;
+    min-height: max(0px, calc(4rem - var(--pinned-prompt-h, 0px)));
     overflow: hidden;
     /* we drive vertical scroll via touch handlers; keep the browser out of it */
     touch-action: none;

@@ -85,9 +85,13 @@
   --fs-xl: calc(20px * var(--ui-scale));
   --fs-2xl: calc(22px * var(--ui-scale));
 
-  /* Lift for a small anchored popover floating over app content (EmojiPicker's
-     `.ep`, AutomationPanel's `.auto-pop`, PinnedPrompt's `.pp-pop`). Those two
-     predate this token and still carry the literal it was distilled from. */
+  /* Lift for a small anchored popover floating over app content (PinnedPrompt's
+     `.pp-pop`). Distilled from the literal that 7 pre-existing popovers still
+     hard-code across AutomationPanel, GitRail (x2), Stepper, TimePopover,
+     TopBarHeldBadge and ViewportTabBar; they are left alone here rather than
+     swept in on a feature branch. Other popovers (EmojiPicker's `.ep`, the
+     menus) carry their own, differing literals — this token is not yet the one
+     true shadow, so don't read it as one. */
   --shadow-pop: 0 6px 20px rgb(0 0 0 / 0.45);
 
   /* Fixed mobile action bar (list screen) — single source so the bar's sizing

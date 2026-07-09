@@ -396,11 +396,19 @@
   // would otherwise never surface the jump-to-bottom button. Plain (non-reactive)
   // like scrollDepth; cleared when the reader is back at the bottom or jumps down.
   let contentBelowScroll = false;
-  // Operator prompts located in the terminal's committed scrollback, and which of
-  // them governs the top of the viewport. See promptPins.ts.
+  // Operator prompts located in the terminal's normal buffer, and which of them
+  // governs what the reader can see. See promptPins.ts.
   let promptPins = $state<PromptPin[]>([]);
   let resolvedPin = $state<ResolvedPin>({ pin: null, uncertain: false });
   let pinnedPromptH = $state(0);
+  // The agent is painting into the ALTERNATE screen. Pins are absolute indices into
+  // `buffer.normal`, so nothing about them applies here: the alt buffer has its own
+  // coordinates (viewportY is pinned at 0) and never receives a prompt echo at all.
+  // Sessions spawned under the fullscreen renderer (CLAUDE_CODE_NO_FLICKER=1, see
+  // mainSessionRendererEnv in src/service.ts) live here for their whole life; a normal
+  // session enters it transiently whenever the agent shells out to a full-screen tool.
+  // Either way the bar hides rather than assert something about the wrong buffer.
+  let altScreen = $state(false);
   let dragging = $state(false);
   // The key to press for Claude's "add notes" prompt option, scraped live from
   // the painted screen (null when the prompt isn't offering it). On a phone
@@ -438,10 +446,14 @@
   const vpBodyId = $derived(`vp-panel-${session.id}`);
   const tabId = $derived((t: typeof tab) => `vp-tab-${t}-${session.id}`);
 
-  // Locating operator prompts in the scrollback needs the provider's prompt-echo
-  // shape; only verified providers get the pinned-prompt bar (see promptPins.ts).
+  // Locating operator prompts in the buffer needs the provider's prompt-echo shape;
+  // only verified providers get the pinned-prompt bar (see promptPins.ts). It also
+  // needs the normal buffer: under the fullscreen renderer the agent paints into the
+  // alternate screen, where no echo is ever committed, so the bar would sit there
+  // reserving a terminal row to say "No prompt yet" forever.
   const provider = $derived(session.agentProvider ?? null);
   const pinsSupported = $derived(supportsPromptPins(provider));
+  const showPinnedPrompt = $derived(tab === "term" && pinsSupported && !altScreen);
 
   function toggleFold() {
     headerCollapsed = !headerCollapsed;
@@ -1315,8 +1327,8 @@
       // readers can follow the live agent session (the .term-mount region label
       // alone names the area but exposes none of its scrolling content).
       screenReaderMode: true,
-      // Claude Code runs as a TUI with mouse tracking on, which hands mouse drags
-      // to the app instead of selecting text. xterm lets a modifier force local
+      // An agent TUI that captures the mouse hands drags to the app instead of
+      // selecting text. xterm lets a modifier force local
       // selection anyway — Shift on Linux/Windows, Option (⌥) on macOS — but the
       // macOS path only works when this option is enabled (default off). Without
       // it, Mac users can't select terminal text at all while an agent is running.
@@ -1670,9 +1682,8 @@
     };
     el.addEventListener("copy", onCopy, true);
 
-    // Claude Code runs as a full-screen TUI with mouse tracking on (it stays on
-    // the normal buffer, keeping scrollback, but grabs the wheel): scrolling
-    // means sending wheel input to the app, which is what the mouse wheel does on
+    // When an agent TUI captures the mouse, scrolling means sending wheel input to
+    // the app, which is what the mouse wheel does on
     // desktop. Touch emits no wheel events, so translate one-finger drags into
     // wheel events on xterm's screen — xterm then forwards them per the active
     // mode (to the app when mouse-tracking, otherwise its own scrollback).
@@ -1807,14 +1818,22 @@
     });
     ro.observe(el);
 
-    // track scroll position so we can offer a jump-to-bottom button. The two
-    // regimes (gesture accumulator vs. xterm viewport offset) and why content
-    // arrival matters are documented in `isScrolledAwayFromBottom`.
-    // Which operator prompt governs the top of the viewport. Cheap (a walk over a
+    // Which operator prompt governs what the reader can see. Cheap (a walk over a
     // handful of pins), so it rides every scroll recompute.
+    //
+    // The alternate screen is excluded up front, and NOT left to the agent-owns-scroll
+    // guard inside resolvePinnedPrompt: that guard only bites once `scrolledUp` is set,
+    // and the very frame the agent takes over calls clearAgentScrollState(), which
+    // zeroes the gesture accumulator and leaves `scrolledUp` false. Resolving there
+    // would read the alt buffer's viewportY — always 0 — against pins that index the
+    // NORMAL buffer, naming whichever prompt happens to sit in its first screenful.
     const recomputePin = () => {
       if (!pinsSupported) return;
-      const b = term.buffer.active;
+      if (altScreen) {
+        resolvedPin = { pin: null, uncertain: true };
+        return;
+      }
+      const b = term.buffer.normal; // === active here; pins index this buffer
       resolvedPin = resolvePinnedPrompt(promptPins, {
         viewportY: b.viewportY,
         rows: term.rows,
@@ -1856,6 +1875,9 @@
       }, 250);
     };
 
+    // track scroll position so we can offer a jump-to-bottom button. The two
+    // regimes (gesture accumulator vs. xterm viewport offset) and why content
+    // arrival matters are documented in `isScrolledAwayFromBottom`.
     const recomputeScrolled = () => {
       const b = term.buffer.active;
       if (scrollDepth === 0) contentBelowScroll = false; // verified bottom → re-arm
@@ -1867,8 +1889,10 @@
       });
       recomputePin();
     };
+    const syncAltScreen = () => (altScreen = term.buffer.active.type === "alternate");
     const scrollSub = term.onScroll(recomputeScrolled);
     const bufSub = term.buffer.onBufferChange(() => {
+      syncAltScreen(); // before recomputePin, which must not read the alt buffer
       clearAgentScrollState();
       recomputeScrolled();
     });
@@ -1891,9 +1915,12 @@
     // PTY left to do that, so the pins would keep pointing at pre-resize lines forever.
     const resizeSub = term.onResize(schedulePinScan);
     // Drop any previous session's pins so they can't flash on this terminal, then
-    // pick up whatever the pane replays on attach.
+    // pick up whatever the pane replays on attach. Seed the buffer type too: a
+    // fullscreen-renderer session is ALREADY on the alt screen when we attach, so
+    // onBufferChange never fires for it and the bar would otherwise show.
     promptPins = [];
     resolvedPin = { pin: null, uncertain: false };
+    syncAltScreen();
     schedulePinScan();
 
     // Surface Claude Code's "press n to add notes" prompt option as a tappable
@@ -2586,12 +2613,13 @@
     id={vpBodyId}
     aria-labelledby={tabId(tab)}
     style:--review-banner-h={`${reviewBannerH || ciBannerH}px`}
-    style:--pinned-prompt-h={`${tab === "term" && pinsSupported ? pinnedPromptH : 0}px`}
+    style:--pinned-prompt-h={`${showPinnedPrompt ? pinnedPromptH : 0}px`}
   >
-    {#if tab === "term" && pinsSupported}
+    {#if showPinnedPrompt}
       <!-- Pinned prompt: keeps the operator's own question above the answer they're
-           reading. In-flow (the terminal reserves --pinned-prompt-h), so it never
-           covers agent output; resizing it intentionally triggers an xterm refit. -->
+           reading. It floats (absolute, top:0) but never covers agent output, because
+           .term-mount reserves its height as a margin-top from --pinned-prompt-h;
+           changing that height intentionally triggers an xterm refit. -->
       <PinnedPrompt
         pins={promptPins}
         resolved={resolvedPin}

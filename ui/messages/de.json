@@ -2637,6 +2637,7 @@
   "clipboard_copied_toast": "In die Zwischenablage kopiert",
   "clipboard_copy_failed": "Kopieren in die Zwischenablage fehlgeschlagen",
   "pinned_prompt_label": "Du fragtest",
+  "pinned_prompt_count": "{count} Prompts in dieser Sitzung",
   "pinned_prompt_none": "Noch kein Prompt",
   "pinned_prompt_unknown": "Zurückgescrollt — Prompt unbekannt",
   "pinned_prompt_history_title": "Deine Prompts in dieser Sitzung",

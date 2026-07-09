@@ -3,15 +3,15 @@
   import type { PromptPin, ResolvedPin } from "$lib/promptPins";
 
   // Keeps the operator's own question visible above the terminal while they read
-  // (or scroll back through) the agent's answer to it. Prompts are located in the
-  // terminal's committed scrollback — see promptPins.ts for why that is the only
-  // durable trace a prompt leaves in a raw-PTY viewport.
+  // (or scroll back through) the agent's answer to it. Prompts are located by
+  // scanning the terminal's normal buffer — see promptPins.ts for why that echo is
+  // the only durable trace a prompt leaves in a raw-PTY viewport.
   //
-  // The bar is in-flow above the terminal, not overlaid: .term-mount reserves its
-  // height via --pinned-prompt-h so the strip can never cover agent output. The
-  // expanded list, by contrast, is a small anchored, NON-modal popover (it does
-  // not seize the app) so it takes no scrim — see the Modal & scrim recipe on
-  // /design-system for that exemption.
+  // The bar itself is absolutely positioned and takes no flow space; what keeps it
+  // from covering agent output is .term-mount, which reserves the bar's published
+  // height as a margin-top (--pinned-prompt-h). The expanded list, by contrast, is a
+  // small anchored, NON-modal popover (it does not seize the app) so it takes no
+  // scrim — see the Modal & scrim recipe on /design-system for that exemption.
   let {
     pins,
     resolved,
@@ -78,7 +78,9 @@
     aria-haspopup="dialog"
     onclick={() => (open = !open)}
   >
-    <span class="pp-label" aria-hidden="true">{m.pinned_prompt_label()}</span>
+    <!-- The label is part of the button's accessible name on purpose: without it a
+         screen reader announces the bare prompt text with no hint of what it is. -->
+    <span class="pp-label">{m.pinned_prompt_label()}</span>
     {#if resolved.uncertain}
       <span class="pp-text pp-quiet">{m.pinned_prompt_unknown()}</span>
     {:else if resolved.pin}
@@ -87,7 +89,9 @@
       <span class="pp-text pp-quiet">{m.pinned_prompt_none()}</span>
     {/if}
     {#if pins.length > 1}
-      <span class="pp-count">{pins.length}</span>
+      <!-- A bare numeral announces as an unlabelled "3"; hide the glyph and name it. -->
+      <span class="pp-count" aria-hidden="true">{pins.length}</span>
+      <span class="pp-sr">{m.pinned_prompt_count({ count: pins.length })}</span>
     {/if}
     <span class="pp-chevron" class:open aria-hidden="true">⌃</span>
   </button>
@@ -121,8 +125,10 @@
 {/if}
 
 <style>
-  /* In-flow strip: .term-mount shrinks by --pinned-prompt-h (published on .vp-body)
-     so the terminal reflows BELOW this bar rather than being covered by it. */
+  /* Floats over .vp-body's top edge and occupies no flow space of its own. The
+     terminal reflows BELOW it because .term-mount takes a margin-top of
+     --pinned-prompt-h (this bar's measured height, published on .vp-body) — see the
+     .term-mount invariant in Viewport.svelte, which the margin has to stay inside. */
   .pp-bar {
     position: absolute;
     top: 0;
@@ -171,6 +177,16 @@
   .pp-quiet {
     color: var(--color-faint);
     font-style: italic;
+  }
+
+  /* Reachable by assistive tech, invisible on screen. */
+  .pp-sr {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
   }
 
   .pp-count {

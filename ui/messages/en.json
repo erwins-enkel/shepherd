@@ -2637,6 +2637,7 @@
   "clipboard_copied_toast": "Copied to clipboard",
   "clipboard_copy_failed": "Couldn’t copy to clipboard",
   "pinned_prompt_label": "You asked",
+  "pinned_prompt_count": "{count} prompts in this session",
   "pinned_prompt_none": "No prompt yet",
   "pinned_prompt_unknown": "Scrolled back — prompt unknown",
   "pinned_prompt_history_title": "Your prompts in this session",

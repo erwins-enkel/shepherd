@@ -95,28 +95,61 @@ describe("promptPins against a real Claude Code PTY capture", () => {
     const pins = pinsOf(term);
     const [first, second] = pins as [(typeof pins)[0], (typeof pins)[0]];
     const rows = term.rows;
-    const at = (viewportY: number) =>
-      resolvePinnedPrompt(pins, { viewportY, rows, agentOwnsScroll: false, scrolledUp: true }).pin
-        ?.text;
+    const resolve = (viewportY: number, scrolledUp: boolean) =>
+      resolvePinnedPrompt(pins, { viewportY, rows, agentOwnsScroll: false, scrolledUp }).pin?.text;
 
-    // Parked at the latest output (viewportY === baseY). The newest echo sits BELOW
-    // viewportY among the screen rows — this is the case a top anchor got wrong.
-    expect(at(term.buffer.normal.baseY)).toBe(PROMPT_2);
+    // Parked at the latest output (viewportY === baseY): the newest echo sits BELOW
+    // viewportY among the screen rows, which a top anchor would skip.
+    expect(resolve(term.buffer.normal.baseY, false)).toBe(PROMPT_2);
 
-    // Scrolled back far enough that the 2nd echo has left the bottom of the screen.
-    expect(at(second.line - rows)).toBe(PROMPT_1);
+    // Scrolled back into the tail of the 1st answer. The 2nd echo (line 44) is still
+    // on screen from here, but the reader is reading the 1st — a bottom anchor would
+    // mislabel this whole band as PROMPT_2.
+    expect(resolve(second.line - 5, true)).toBe(PROMPT_1);
 
-    // Scrolled to the very top: the banner fills the screen, but the 1st echo is still
-    // visible below it, so it governs.
-    expect(at(0)).toBe(PROMPT_1);
+    // Scrolled so the 2nd echo is the top row → it takes over.
+    expect(resolve(second.line, true)).toBe(PROMPT_2);
 
-    // A viewport that ends above the 1st echo has no prompt to name yet.
-    expect(at(first.line - rows)).toBeUndefined();
+    // Parked on the 1st echo itself.
+    expect(resolve(first.line, true)).toBe(PROMPT_1);
+
+    // Scrolled to the very top: the banner, above every prompt.
+    expect(resolve(0, true)).toBeUndefined();
   });
 
   it("the captured agent never seized the scroll, so xterm's viewportY is authoritative", async () => {
     term = await replay();
     expect(term.buffer.active.type).toBe("normal");
     expect(term.modes.mouseTrackingMode).toBe("none");
+  });
+
+  // Why Viewport.svelte hides the bar outright on the alternate screen rather than
+  // trusting resolvePinnedPrompt's agent-owns-scroll guard. Sessions spawned under the
+  // fullscreen renderer (CLAUDE_CODE_NO_FLICKER=1) live on the alt screen for their
+  // whole life; a normal one enters it whenever the agent shells out to a TUI.
+  it("on the alternate screen the pins' coordinates no longer describe what is on screen", async () => {
+    term = await replay();
+    const pins = pinsOf(term);
+    expect(pins).toHaveLength(2);
+
+    await new Promise<void>((r) => term!.write("\x1b[?1049h", r)); // enter alt screen
+
+    expect(term.buffer.active.type).toBe("alternate");
+    // The alt buffer has its own coordinate space, pinned at the top…
+    expect(term.buffer.active.viewportY).toBe(0);
+    // …while the pins still index the normal buffer, which is untouched.
+    expect(pinsOf(term).map((p) => p.text)).toEqual([PROMPT_1, PROMPT_2]);
+
+    // Resolving against the alt viewportY silently names the prompt that happens to
+    // lie in the normal buffer's first screenful — and the agent-owns-scroll guard
+    // does NOT catch it, because entering the alt screen resets `scrolledUp` to false.
+    const misresolved = resolvePinnedPrompt(pins, {
+      viewportY: term.buffer.active.viewportY,
+      rows: term.rows,
+      agentOwnsScroll: true,
+      scrolledUp: false,
+    });
+    expect(misresolved.uncertain).toBe(false);
+    expect(misresolved.pin?.text).toBe(PROMPT_1); // a confident falsehood; hence the gate
   });
 });

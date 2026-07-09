@@ -126,7 +126,34 @@ describe("scanPromptPins", () => {
   });
 });
 
-describe("resolvePinnedPrompt — xterm owns the scrollback", () => {
+describe("resolvePinnedPrompt — parked at the latest output (bottom anchor)", () => {
+  const at = (pins: PromptPin[], viewportY: number, rows: number) =>
+    resolvePinnedPrompt(pins, { viewportY, rows, agentOwnsScroll: false, scrolledUp: false });
+
+  // Both regressions come from anchoring on the TOP visible row here, where
+  // viewportY === baseY and so every on-screen echo gets skipped.
+  it("regression: a session under one screenful (baseY === 0) still pins its prompt", () => {
+    const short: PromptPin[] = [
+      { line: 3, text: "first" },
+      { line: 9, text: "second" },
+    ];
+    expect(at(short, 0, 30).pin?.text).toBe("second"); // NOT null / "No prompt yet"
+  });
+
+  it("regression: parked at the bottom of a long session pins the NEWEST prompt", () => {
+    const long: PromptPin[] = [
+      { line: 14, text: "first" }, // trimmed into the scrollback
+      { line: 44, text: "second" }, // among the screen rows, BELOW viewportY
+    ];
+    expect(at(long, 27, 30).pin?.text).toBe("second"); // NOT the previous prompt
+  });
+
+  it("no prompts asked yet → nothing to pin", () => {
+    expect(at([], 40, 10)).toEqual({ pin: null, uncertain: false });
+  });
+});
+
+describe("resolvePinnedPrompt — scrolled back (top anchor)", () => {
   const ROWS = 10;
   const pins: PromptPin[] = [
     { line: 3, text: "first" },
@@ -136,61 +163,24 @@ describe("resolvePinnedPrompt — xterm owns the scrollback", () => {
   const at = (viewportY: number, rows = ROWS) =>
     resolvePinnedPrompt(pins, { viewportY, rows, agentOwnsScroll: false, scrolledUp: true });
 
-  it("the newest echo on screen governs, even though it sits BELOW viewportY", () => {
-    expect(at(15).pin?.text).toBe("second"); // screen 15..24; the echo at 20 is visible
+  it("the prompt whose output fills the top of the view governs", () => {
+    expect(at(10).pin?.text).toBe("first"); // screen 10..19: all of it the 1st answer
   });
 
-  it("scrolled back until the newer echo falls off the bottom → the earlier prompt", () => {
-    expect(at(5).pin?.text).toBe("first"); // screen 5..14: only the 1st echo is at/above
+  it("once the newer echo reaches the top row, it takes over", () => {
+    expect(at(20).pin?.text).toBe("second"); // the echo itself is the top row
+    expect(at(21).pin?.text).toBe("second");
   });
 
-  it("parked on the very first echo → that prompt governs", () => {
-    expect(at(0).pin?.text).toBe("first"); // screen 0..9; the echo at 3 is visible
+  // A bottom anchor would flip to "second" the instant its echo crept onto the LAST
+  // visible row, mislabelling the ROWS-1 lines of the 1st answer sitting above it.
+  it("regression: the newer echo merely being visible does not steal the label", () => {
+    // screen 15..24: the 2nd echo sits at row 20, but rows 15..19 are the 1st answer.
+    expect(at(15).pin?.text).toBe("first");
   });
 
   it("scrolled above every echo (the banner) → nothing to pin, but not uncertain", () => {
-    expect(at(0, 2)).toEqual({ pin: null, uncertain: false }); // screen 0..1, echo at 3
-  });
-
-  it("no prompts asked yet → nothing to pin", () => {
-    expect(
-      resolvePinnedPrompt([], {
-        viewportY: 40,
-        rows: ROWS,
-        agentOwnsScroll: false,
-        scrolledUp: false,
-      }),
-    ).toEqual({ pin: null, uncertain: false });
-  });
-
-  // Both regressions come from anchoring on the TOP visible row, where viewportY ===
-  // baseY at the bottom and every on-screen echo is skipped.
-  it("regression: a session under one screenful (baseY === 0) still pins its prompt", () => {
-    const short: PromptPin[] = [
-      { line: 3, text: "first" },
-      { line: 9, text: "second" },
-    ];
-    const r = resolvePinnedPrompt(short, {
-      viewportY: 0, // nothing has scrolled
-      rows: 30,
-      agentOwnsScroll: false,
-      scrolledUp: false,
-    });
-    expect(r.pin?.text).toBe("second"); // NOT null / "No prompt yet"
-  });
-
-  it("regression: parked at the bottom of a long session pins the NEWEST prompt", () => {
-    const long: PromptPin[] = [
-      { line: 14, text: "first" }, // scrolled into the trimmed scrollback
-      { line: 44, text: "second" }, // still among the screen rows, below viewportY
-    ];
-    const r = resolvePinnedPrompt(long, {
-      viewportY: 27, // === baseY: parked at the latest output
-      rows: 30,
-      agentOwnsScroll: false,
-      scrolledUp: false,
-    });
-    expect(r.pin?.text).toBe("second"); // NOT the previous prompt
+    expect(at(0)).toEqual({ pin: null, uncertain: false });
   });
 });
 

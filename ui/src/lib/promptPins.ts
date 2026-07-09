@@ -124,31 +124,42 @@ export interface ResolvedPin {
 
 /**
  * The prompt governing the reader's position: the last one echoed at or above the
- * BOTTOM visible row.
+ * anchor row, which is the BOTTOM visible row when parked at the latest output and
+ * the TOP visible row once the reader has scrolled back.
  *
- * Anchoring on the bottom row rather than the top is what makes this right in the two
- * cases that matter most. Parked at the latest output — the common state — `viewportY`
- * equals `baseY`, yet the newest prompt's echo sits *below* it among the screen rows;
- * a top anchor would skip that pin and name the previous prompt, or, in a session
- * under one screenful (`baseY === 0`), name nothing at all while the prompt and its
- * answer are both plainly on screen. The bottom anchor names the newest prompt whose
- * echo the reader can actually see, and falls back to the older one only once the
- * newer echo has scrolled off the bottom edge — which is exactly when the reader is
- * looking at the older prompt's output.
+ * The two anchors answer two different questions, and which one is being asked
+ * depends entirely on `scrolledUp`:
+ *
+ *  • Parked at the bottom, the reader is watching the newest turn. `viewportY` equals
+ *    `baseY`, yet that turn's echo sits *below* it among the screen rows — so a top
+ *    anchor names the previous prompt, or, in a session under one screenful
+ *    (`baseY === 0`), names nothing at all while the prompt and its answer are both
+ *    plainly on screen. Anchor on the bottom row: the newest prompt asked.
+ *
+ *  • Scrolled back, the reader is reading down from the top of the view, and the bar
+ *    is a sticky section header for it. Anchor on the top row. A bottom anchor here
+ *    would label the top `rows - 1` lines of an older answer with the *next* prompt,
+ *    the moment its echo crept onto the last visible row — the inverse of the bug the
+ *    bottom anchor fixes.
+ *
+ * Note the two only ever disagree while an echo is visible on screen; once the reader
+ * is deep inside one long answer, with no echo in the band, both name the same prompt.
+ * That is the case the bar exists for.
  *
  * When the agent owns the scroll we genuinely cannot answer. xterm's viewport is
  * pinned to the bottom no matter where the agent has scrolled its own view, so
  * resolving against it would confidently name the *newest* prompt while the reader
  * stares at output from an old one. Say "unknown" instead of lying — but only once
  * they've actually scrolled up; sitting at the bottom, the newest prompt is right
- * either way.
+ * either way. Callers must ALSO keep this away from the alternate screen, where the
+ * pins index a different buffer entirely (see Viewport.svelte).
  */
 export function resolvePinnedPrompt(pins: PromptPin[], pos: PinPosition): ResolvedPin {
   if (pos.agentOwnsScroll && pos.scrolledUp) return { pin: null, uncertain: true };
-  const bottom = pos.viewportY + pos.rows - 1;
+  const anchor = pos.scrolledUp ? pos.viewportY : pos.viewportY + pos.rows - 1;
   let found: PromptPin | null = null;
   for (const p of pins) {
-    if (p.line > bottom) break; // pins are ascending by construction
+    if (p.line > anchor) break; // pins are ascending by construction
     found = p;
   }
   return { pin: found, uncertain: false };

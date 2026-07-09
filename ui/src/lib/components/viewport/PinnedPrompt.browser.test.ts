@@ -88,6 +88,16 @@ describe("PinnedPrompt", () => {
     expect(document.querySelector(".scrim, .overlay")).toBeNull();
   });
 
+  it("names itself for a screen reader: label + prompt, and the count is not a bare number", async () => {
+    mount();
+    const name = document.querySelector("button.pp-main")!.textContent!;
+    expect(name).toContain("You asked"); // not aria-hidden: the text alone lacks context
+    expect(name).toContain("now rewrite it as a haiku");
+    expect(name).toContain("2 prompts in this session");
+    // the numeral itself is decorative once the phrase above names it
+    expect(document.querySelector(".pp-count")!.getAttribute("aria-hidden")).toBe("true");
+  });
+
   it("publishes its occupied height so the terminal can reserve it", async () => {
     let height = 0;
     render(PinnedPrompt, {

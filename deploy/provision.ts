@@ -125,10 +125,16 @@ export function templateHerdrUnit(unit: string, herdrPath: string): string {
  *  would thrash. Sources `~/.shepherd/env` and honors `HERDR_BIN` so it stops the SAME binary
  *  the unit and the diagnostics probe use — a bare `herdr` would miss a `HERDR_BIN` daemon
  *  entirely. Best-effort by construction: every branch swallows failure and exits 0, so a host
- *  with no herdr running (the fresh-install case) sails straight through. #1574 */
+ *  with no herdr running (the fresh-install case) sails straight through. #1574
+ *
+ *  `set -a` around the source is load-bearing, not decoration: a bare `.` leaves HERDR_SESSION /
+ *  HERDR_SOCKET_PATH as UNEXPORTED shell variables, so the `server stop` CHILD never sees them
+ *  and addresses the default socket. On a non-default-session host that stops nothing, the real
+ *  orphan stays bound, and `enable --now herdr` then thrashes the unit forever behind a green
+ *  check. (HERDR_BIN only appeared to work because it is expanded in-shell, below.) */
 const HERDR_ADOPT_SOCKET =
   'export PATH="$HOME/.local/bin:$PATH"; ' +
-  '[ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; ' +
+  'set -a; [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"; set +a; ' +
   'H="${HERDR_BIN:-herdr}"; ' +
   "systemctl --user is-active --quiet herdr && exit 0; " +
   'command -v "$H" >/dev/null 2>&1 && "$H" server stop >/dev/null 2>&1; ' +
@@ -279,6 +285,16 @@ function probeBinPath(_bin: string, env: NodeJS.ProcessEnv): string | null {
   }
 }
 
+/** Read a file that may not exist yet; null when absent/unreadable. Lets `installService` ask
+ *  "did this unit actually change?" without a stat seam — a missing unit reads as changed. */
+function readIfPresent(fileIO: FileIO, path: string): string | null {
+  try {
+    return fileIO.read(path);
+  } catch {
+    return null;
+  }
+}
+
 function log(msg: string): void {
   process.stdout.write(`\x1b[36m▸ ${msg}\x1b[0m\n`);
 }
@@ -393,16 +409,23 @@ export function installService(
   // buildEnv, NOT env: it carries ~/.local/bin (where install.sh just put herdr) on PATH.
   const herdrPath = probePath("herdr", buildEnv);
   if (!herdrPath) throw new Error("cannot install herdr.service: herdr is not on PATH");
-  fileIO.write(
-    join(unitDir, "herdr.service"),
-    templateHerdrUnit(fileIO.read(join(repo, "deploy", "herdr.service")), herdrPath),
+  const herdrUnitPath = join(unitDir, "herdr.service");
+  const desiredHerdrUnit = templateHerdrUnit(
+    fileIO.read(join(repo, "deploy", "herdr.service")),
+    herdrPath,
   );
+  const herdrUnitChanged = readIfPresent(fileIO, herdrUnitPath) !== desiredHerdrUnit;
+  if (herdrUnitChanged) fileIO.write(herdrUnitPath, desiredHerdrUnit);
   run("systemctl", ["--user", "daemon-reload"]);
   // Pick up a CHANGED ExecStart on a host whose herdr unit is already running: `enable --now`
   // will not restart an active unit, so a re-provision after herdr moved (e.g. /usr/local/bin →
   // ~/.local/bin, or HERDR_BIN changed) would otherwise leave the old daemon running the stale
   // path forever. `try-restart` restarts it iff active, and is a no-op when it is not.
-  run("systemctl", ["--user", "try-restart", "herdr"]);
+  //
+  // GATED on the unit actually differing: try-restart kills the daemon backing every live agent
+  // session, so bouncing it for a byte-identical unit would make each re-provision needlessly
+  // disruptive. A missing installed unit reads as "changed" (the first-install case).
+  if (herdrUnitChanged) run("systemctl", ["--user", "try-restart", "herdr"]);
   const user = env.USER;
   if (!user) throw new Error("cannot enable-linger: $USER is not set");
   run("loginctl", ["enable-linger", user]);

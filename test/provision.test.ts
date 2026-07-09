@@ -503,6 +503,55 @@ describe("extracted helpers (direct)", () => {
     expect(adoptIdx).toBeLessThan(enableIdx);
   });
 
+  it("skips try-restart when the herdr unit is byte-identical (no needless daemon bounce)", () => {
+    // try-restart kills the daemon backing every live agent session. Re-provisioning a host
+    // whose unit did not change must not bounce it. (#1574)
+    const { calls, writes, run, fileIO } = recorder();
+    const herdrPath = "/usr/local/bin/herdr";
+    const unitPath = join("/home/op", ".config", "systemd", "user", "herdr.service");
+    const desired = templateHerdrUnit(readFileSync("deploy/herdr.service", "utf8"), herdrPath);
+    // Installed unit already matches what we would write.
+    const preloaded: FileIO = {
+      read: (p) => (p === unitPath ? desired : fileIO.read(p)),
+      write: fileIO.write,
+    };
+
+    installService(
+      "/repo",
+      run,
+      preloaded,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => herdrPath,
+    );
+
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes("try-restart herdr"))).toBe(false);
+    // ...and it is not rewritten either.
+    expect([...writes.keys()]).not.toContain(unitPath);
+  });
+
+  it("HERDR_ADOPT_SOCKET exports the env file so `server stop` addresses the right socket", () => {
+    // A bare `.` leaves HERDR_SESSION / HERDR_SOCKET_PATH unexported, so the `server stop` CHILD
+    // targets the default socket, the real orphan survives, and enable --now thrashes forever.
+    const { calls, run, fileIO } = recorder();
+    installService(
+      "/repo",
+      run,
+      fileIO,
+      { USER: "me" },
+      "/home/op",
+      { PATH: "/x" },
+      () => "/usr/local/bin/herdr",
+    );
+    const adopt = calls.map((c) => c.join(" ")).find((c) => c.includes('"$H" server stop'))!;
+    expect(adopt).toContain("set -a;");
+    expect(adopt).toContain("set +a;");
+    expect(adopt.indexOf("set -a;")).toBeLessThan(adopt.indexOf(".shepherd/env"));
+    expect(adopt.indexOf(".shepherd/env")).toBeLessThan(adopt.indexOf("set +a;"));
+  });
+
   it("the herdr unit reads the same env file shepherd.service does (HERDR_BIN/HERDR_SESSION)", () => {
     // Without it, a HERDR_SESSION=<name> host supervises a daemon on the `default` session while
     // Shepherd's liveness probe targets the per-session socket: unit `active`, herdr `offline`.

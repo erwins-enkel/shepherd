@@ -43,6 +43,13 @@
   import { altComboKey, isCommandBarChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
+  import {
+    scanPromptPins,
+    resolvePinnedPrompt,
+    supportsPromptPins,
+    type PromptPin,
+    type ResolvedPin,
+  } from "$lib/promptPins";
   import { pollWhileVisible } from "$lib/visibility";
   import TodoPanel from "$lib/components/TodoPanel.svelte";
   import ActivityFeed from "$lib/components/ActivityFeed.svelte";
@@ -69,6 +76,7 @@
   import ViewportTabBar from "./viewport/ViewportTabBar.svelte";
   import ViewportHeaderActions from "./viewport/ViewportHeaderActions.svelte";
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
+  import PinnedPrompt from "./viewport/PinnedPrompt.svelte";
   import { handleOsc52 } from "$lib/osc52";
   import type { BuildQueue } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -368,10 +376,13 @@
   //  • xterm owns the scrollback (plain shell, mouse-tracking off): read its
   //    viewport offset directly.
   //  • the agent owns the scroll (alternate screen, or mouse-tracking on the
-  //    normal buffer like Claude Code): it grabs the wheel and repaints its own
-  //    scrolled view, so xterm's viewport never moves and we can't read a
-  //    position. We approximate it with a wheel/gesture accumulator (scrollDepth)
-  //    and jump back with the app's own Ctrl+End shortcut instead of moving xterm.
+  //    normal buffer): it grabs the wheel and repaints its own scrolled view, so
+  //    xterm's viewport never moves and we can't read a position. We approximate
+  //    it with a wheel/gesture accumulator (scrollDepth) and jump back with the
+  //    app's own Ctrl+End shortcut instead of moving xterm. (Claude Code v2.1.205
+  //    does neither — it stays on the normal buffer with mouse tracking off, so it
+  //    lands in the xterm-owned branch above. Both branches still run: an agent may
+  //    enable mouse tracking at any time, and other providers do.)
   let scrolledUp = $state(false);
   // px-ish accumulator of net upward scrolling while the agent owns the scroll;
   // plain (non-reactive) — only `scrolledUp` drives the UI. Reset on re-attach,
@@ -387,6 +398,11 @@
   // would otherwise never surface the jump-to-bottom button. Plain (non-reactive)
   // like scrollDepth; cleared when the reader is back at the bottom or jumps down.
   let contentBelowScroll = false;
+  // Operator prompts located in the terminal's committed scrollback, and which of
+  // them governs the top of the viewport. See promptPins.ts.
+  let promptPins = $state<PromptPin[]>([]);
+  let resolvedPin = $state<ResolvedPin>({ pin: null, uncertain: false });
+  let pinnedPromptH = $state(0);
   let dragging = $state(false);
   // The key to press for Claude's "add notes" prompt option, scraped live from
   // the painted screen (null when the prompt isn't offering it). On a phone
@@ -423,6 +439,11 @@
   // panel's aria-labelledby resolve uniquely if more than one viewport ever mounts.
   const vpBodyId = $derived(`vp-panel-${session.id}`);
   const tabId = $derived((t: typeof tab) => `vp-tab-${t}-${session.id}`);
+
+  // Locating operator prompts in the scrollback needs the provider's prompt-echo
+  // shape; only verified providers get the pinned-prompt bar (see promptPins.ts).
+  const provider = $derived(session.agentProvider ?? null);
+  const pinsSupported = $derived(supportsPromptPins(provider));
 
   function toggleFold() {
     headerCollapsed = !headerCollapsed;
@@ -1787,6 +1808,51 @@
     // track scroll position so we can offer a jump-to-bottom button. The two
     // regimes (gesture accumulator vs. xterm viewport offset) and why content
     // arrival matters are documented in `isScrolledAwayFromBottom`.
+    // Which operator prompt governs the top of the viewport. Cheap (a walk over a
+    // handful of pins), so it rides every scroll recompute.
+    const recomputePin = () => {
+      if (!pinsSupported) return;
+      const b = term.buffer.active;
+      resolvedPin = resolvePinnedPrompt(promptPins, {
+        viewportY: b.viewportY,
+        agentOwnsScroll: agentOwnsScroll(term),
+        scrolledUp,
+      });
+    };
+
+    // Re-derive the pins from the buffer's current truth. Debounced because it walks
+    // the whole normal buffer (xterm's default 1000-line scrollback cap, plus the
+    // screen rows) and output streams in a burst per turn. A full rescan — rather
+    // than an incremental tail walk — is what keeps the absolute line indices right
+    // after xterm trims the scrollback and shifts every one of them down.
+    //
+    // The screen rows are in scope on purpose: a session that hasn't yet filled one
+    // screenful has baseY === 0 and no scrollback at all, and even in a long one the
+    // newest prompt is normally still on screen.
+    let pinScanT: ReturnType<typeof setTimeout> | null = null;
+    const samePins = (a: PromptPin[], b: PromptPin[]) =>
+      a.length === b.length && a.every((p, i) => p.line === b[i]!.line && p.text === b[i]!.text);
+    const rescanPins = () => {
+      if (!pinsSupported) return;
+      const b = term.buffer.normal;
+      const next = scanPromptPins(
+        provider,
+        b.baseY + term.rows,
+        (i) => b.getLine(i)?.translateToString(true) ?? null,
+      );
+      // Most rescans land on an unchanged list (output streams; prompts don't). Reusing
+      // the old array keeps a burst of writes from re-rendering the bar 4x a second.
+      if (!samePins(next, promptPins)) promptPins = next;
+      recomputePin();
+    };
+    const schedulePinScan = () => {
+      if (!pinsSupported || pinScanT) return;
+      pinScanT = setTimeout(() => {
+        pinScanT = null;
+        rescanPins();
+      }, 250);
+    };
+
     const recomputeScrolled = () => {
       const b = term.buffer.active;
       if (scrollDepth === 0) contentBelowScroll = false; // verified bottom → re-arm
@@ -1796,6 +1862,7 @@
         contentBelowScroll,
         viewportOffsetLines: b.baseY - b.viewportY,
       });
+      recomputePin();
     };
     const scrollSub = term.onScroll(recomputeScrolled);
     const bufSub = term.buffer.onBufferChange(() => {
@@ -1810,11 +1877,17 @@
     // reader switches back. Agent-owned regime only — xterm-owned scroll already
     // tracks writes via onScroll.
     const writeSub = term.onWriteParsed(() => {
+      schedulePinScan(); // new output may have committed a fresh prompt echo
       if (agentOwnsScroll(term) && scrollDepth > 0 && !contentBelowScroll) {
         contentBelowScroll = true;
         recomputeScrolled();
       }
     });
+    // Drop any previous session's pins so they can't flash on this terminal, then
+    // pick up whatever the pane replays on attach.
+    promptPins = [];
+    resolvedPin = { pin: null, uncertain: false };
+    schedulePinScan();
 
     // Surface Claude Code's "press n to add notes" prompt option as a tappable
     // control-row key — on a phone there's no keyboard to press it, so the
@@ -1860,6 +1933,7 @@
       el?.removeEventListener("touchend", onTouchEnd);
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
       stopFling();
+      if (pinScanT) clearTimeout(pinScanT);
       scrollSub.dispose();
       bufSub.dispose();
       writeSub.dispose();
@@ -2504,7 +2578,19 @@
     id={vpBodyId}
     aria-labelledby={tabId(tab)}
     style:--review-banner-h={`${reviewBannerH || ciBannerH}px`}
+    style:--pinned-prompt-h={`${tab === "term" && pinsSupported ? pinnedPromptH : 0}px`}
   >
+    {#if tab === "term" && pinsSupported}
+      <!-- Pinned prompt: keeps the operator's own question above the answer they're
+           reading. In-flow (the terminal reserves --pinned-prompt-h), so it never
+           covers agent output; resizing it intentionally triggers an xterm refit. -->
+      <PinnedPrompt
+        pins={promptPins}
+        resolved={resolvedPin}
+        bind:height={pinnedPromptH}
+        onjump={(line) => termRef?.scrollToLine(line)}
+      />
+    {/if}
     <div
       class="term-mount"
       class:dragging
@@ -3378,8 +3464,12 @@
        mount taller than a squeezed body and clip the bottom prompt row via
        .vp-body's overflow:hidden even with no banner. At the floor (squeezed-recap
        takeover) the mount == body, so the banner overlaps its bottom again — prior
-       behavior — rather than resizing the PTY toward xterm's clamped 1-row minimum. */
-    height: calc(100% - var(--review-banner-h, 0px));
+       behavior — rather than resizing the PTY toward xterm's clamped 1-row minimum.
+
+       --pinned-prompt-h reserves the pinned-prompt strip at the TOP the same way
+       (0px when the bar is absent), so xterm reflows below it instead of under it. */
+    margin-top: var(--pinned-prompt-h, 0px);
+    height: calc(100% - var(--review-banner-h, 0px) - var(--pinned-prompt-h, 0px));
     min-height: 4rem;
     overflow: hidden;
     /* we drive vertical scroll via touch handlers; keep the browser out of it */

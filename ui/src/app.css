@@ -85,6 +85,11 @@
   --fs-xl: calc(20px * var(--ui-scale));
   --fs-2xl: calc(22px * var(--ui-scale));
 
+  /* Lift for a small anchored popover floating over app content (EmojiPicker's
+     `.ep`, AutomationPanel's `.auto-pop`, PinnedPrompt's `.pp-pop`). Those two
+     predate this token and still carry the literal it was distilled from. */
+  --shadow-pop: 0 6px 20px rgb(0 0 0 / 0.45);
+
   /* Fixed mobile action bar (list screen) — single source so the bar's sizing
      and the list's padding-bottom reservation can't drift. The bar's own
      padding + border are tokenized here and consumed in ActionBar.svelte, so

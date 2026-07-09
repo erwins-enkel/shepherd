@@ -176,6 +176,10 @@
   }
 
   $effect(() => {
+    if (previewPort == null) closePreviewChoice();
+  });
+
+  $effect(() => {
     if (!previewChoice || !previewChoiceEl) return;
     const next = previewChoicePosition(previewChoice.anchor);
     if (next.top !== previewChoice.top || next.left !== previewChoice.left) previewChoice = next;
@@ -663,7 +667,7 @@
   <TimePopover {session} {git} {activity} {nowMs} anchorRect={tipRect} onclose={tipHide} />
 {/if}
 
-{#if previewChoice}
+{#if previewChoice && previewPort != null}
   <div
     class="preview-choice"
     role="dialog"
@@ -809,7 +813,7 @@
 
   .preview-choice {
     position: fixed;
-    z-index: 40;
+    z-index: 60;
     min-width: 150px;
     max-height: calc(100dvh - 16px);
     overflow-y: auto;
@@ -839,6 +843,15 @@
     background: var(--color-hover);
     color: var(--color-ink-bright);
     outline: none;
+  }
+
+  @media (pointer: coarse) {
+    .preview-choice-btn {
+      min-width: 160px;
+      min-height: 44px;
+      padding: 10px 12px;
+      font-size: var(--fs-base);
+    }
   }
 
   .unit::before {

@@ -225,6 +225,29 @@ describe("UnitRow preview badge", () => {
     expect(calls).toEqual([["p4", "inline"]]);
   });
 
+  it("ask mode closes the chooser when the preview port unbinds", async () => {
+    loadPreviewMode("/repo/a", "ask");
+    const props = {
+      session: session({ id: "p4a" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      previewPort: 8002,
+      onpreview: () => {},
+    };
+    const screen = render(UnitRow, props);
+    await page.getByTitle("Preview").click();
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .toBeInTheDocument();
+
+    await screen.rerender({ ...props, previewPort: null });
+
+    await expect
+      .element(page.getByRole("dialog", { name: "Choose preview target" }))
+      .not.toBeInTheDocument();
+  });
+
   it("ask mode keeps the chooser inside the viewport near the bottom edge", async () => {
     loadPreviewMode("/repo/a", "ask");
     render(UnitRow, {

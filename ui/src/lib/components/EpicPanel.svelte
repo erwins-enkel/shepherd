@@ -105,6 +105,7 @@
       <button
         class="gbtn"
         type="button"
+        title={m.epic_pause_title()}
         onclick={() =>
           updateEpic(repoPath, parent, { status: "paused" }).catch(() =>
             toasts.info(m.epic_update_failed(), {
@@ -120,6 +121,7 @@
       <button
         class="gbtn"
         type="button"
+        title={m.epic_start_title()}
         onclick={() =>
           updateEpic(repoPath, parent, { status: "running" }).catch(() =>
             toasts.info(m.epic_update_failed(), {
@@ -136,6 +138,8 @@
     <button
       class="gbtn"
       type="button"
+      title={epic.run.mode === "auto" ? m.epic_mode_auto_title() : m.epic_mode_attended_title()}
+      aria-label={epic.run.mode === "auto" ? m.epic_mode_auto_aria() : m.epic_mode_attended_aria()}
       onclick={() =>
         updateEpic(repoPath, parent, {
           mode: epic.run.mode === "auto" ? "attended" : "auto",

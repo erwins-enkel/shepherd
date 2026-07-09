@@ -2740,5 +2740,11 @@
   "planpanel_quota_dismissing": "Verwerfe…",
   "planpanel_quota_unreachable": "Der Planungsbereich war nicht erreichbar. Der Plan wurde nicht fortgesetzt.",
   "planpanel_quota_not_stalled": "Dieser Plan ist nicht mehr blockiert. Aktualisiere oder prüfe erneut, falls der Status veraltet wirkt.",
-  "planpanel_quota_failed": "Der blockierte Plan konnte nicht aktualisiert werden. Bitte erneut versuchen."
+  "planpanel_quota_failed": "Der blockierte Plan konnte nicht aktualisiert werden. Bitte erneut versuchen.",
+  "epic_start_title": "Klicken, um diesen Epic zu starten. Shepherd startet das nächste geeignete Kind-Issue und fährt im gewählten Modus fort.",
+  "epic_pause_title": "Klicken, um diesen Epic-Runner zu pausieren. Laufende Sessions und Fortschritt bleiben erhalten.",
+  "epic_mode_auto_title": "Klicken, um in den begleiteten Modus zu wechseln. Shepherd wartet dann darauf, dass du jedes nächste Kind-Issue freigibst.",
+  "epic_mode_auto_aria": "Automatisch: Epic in begleiteten Modus wechseln",
+  "epic_mode_attended_title": "Klicken, um in den automatischen Modus zu wechseln. Shepherd startet geeignete Kind-Issues dann ohne einzelne Freigabe.",
+  "epic_mode_attended_aria": "Begleitet: Epic in automatischen Modus wechseln"
 }

@@ -35,15 +35,22 @@
     if (pins.length === 0) open = false;
   });
 
+  /** Closing the popover unmounts whatever inside it holds focus, which would drop
+   *  focus to <body> — and from there the operator's keystrokes never reach the
+   *  terminal. Hand it back to the opener, the one element guaranteed to outlive the
+   *  close. Used by Escape and by picking a prompt; an outside click is exempt, since
+   *  it has already moved focus somewhere the operator chose. */
+  function close() {
+    open = false;
+    (barEl?.querySelector("button") as HTMLElement | null)?.focus();
+  }
+
   // Non-modal popover: dismiss on Escape or a click outside, per the anchored-popover
   // exemption. Focus stays where the operator put it.
   $effect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        open = false;
-        (barEl?.querySelector("button") as HTMLElement | null)?.focus();
-      }
+      if (e.key === "Escape") close();
     };
     const onDown = (e: PointerEvent) => {
       const t = e.target as Node;
@@ -62,7 +69,7 @@
 
   function jump(line: number) {
     onjump(line);
-    open = false;
+    close();
   }
 </script>
 

@@ -409,6 +409,11 @@
   // session enters it transiently whenever the agent shells out to a full-screen tool.
   // Either way the bar hides rather than assert something about the wrong buffer.
   let altScreen = $state(false);
+  // Set once the first (debounced) scan of the replayed pane has run. The bar waits for
+  // it so it neither claims "No prompt yet" before anything has been looked at, nor —
+  // on a fullscreen-renderer session, whose replay carries the alt-screen switch —
+  // mounts for a frame and then unmounts, which would cost a pointless PTY resize.
+  let pinsScanned = $state(false);
   let dragging = $state(false);
   // The key to press for Claude's "add notes" prompt option, scraped live from
   // the painted screen (null when the prompt isn't offering it). On a phone
@@ -451,9 +456,20 @@
   // needs the normal buffer: under the fullscreen renderer the agent paints into the
   // alternate screen, where no echo is ever committed, so the bar would sit there
   // reserving a terminal row to say "No prompt yet" forever.
+  //
+  // Showing or hiding the bar changes --pinned-prompt-h, which changes .term-mount's
+  // box, which trips its ResizeObserver → refit() → a PTY resize. That is the same
+  // accepted trade the review/CI banner strip already makes, and it is why the bar
+  // waits for `pinsScanned`: a fullscreen-renderer session would otherwise mount it,
+  // hide it on the replayed alt-screen switch, and resize the child for nothing. What
+  // remains is a resize pair when the agent enters and leaves the alternate screen
+  // mid-session (its own full-screen overlays). Deliberate: SIGWINCH is the contract a
+  // TUI already lives under, and reserving the row while the bar is hidden would leave
+  // a dead strip above every full-screen view — including, permanently, every session
+  // on the fullscreen renderer.
   const provider = $derived(session.agentProvider ?? null);
   const pinsSupported = $derived(supportsPromptPins(provider));
-  const showPinnedPrompt = $derived(tab === "term" && pinsSupported && !altScreen);
+  const showPinnedPrompt = $derived(tab === "term" && pinsSupported && pinsScanned && !altScreen);
 
   function toggleFold() {
     headerCollapsed = !headerCollapsed;
@@ -1865,6 +1881,7 @@
       // Most rescans land on an unchanged list (output streams; prompts don't). Reusing
       // the old array keeps a burst of writes from re-rendering the bar 4x a second.
       if (!samePins(next, promptPins)) promptPins = next;
+      pinsScanned = true;
       recomputePin();
     };
     const schedulePinScan = () => {
@@ -1914,12 +1931,14 @@
     // repaint and heal them on the next write, but an ended or parked session has no
     // PTY left to do that, so the pins would keep pointing at pre-resize lines forever.
     const resizeSub = term.onResize(schedulePinScan);
-    // Drop any previous session's pins so they can't flash on this terminal, then
-    // pick up whatever the pane replays on attach. Seed the buffer type too: a
-    // fullscreen-renderer session is ALREADY on the alt screen when we attach, so
-    // onBufferChange never fires for it and the bar would otherwise show.
+    // Drop the previous session's pins so they can't flash on this terminal, and clear
+    // its buffer type — this runs before a single PTY byte is parsed (both term.write
+    // sites are async callbacks), so it can only ever read "normal"; it resets stale
+    // state, it does not detect anything. What actually catches a fullscreen-renderer
+    // session is onBufferChange, firing on the `\x1b[?1049h` in the pane's replay.
     promptPins = [];
     resolvedPin = { pin: null, uncertain: false };
+    pinsScanned = false;
     syncAltScreen();
     schedulePinScan();
 

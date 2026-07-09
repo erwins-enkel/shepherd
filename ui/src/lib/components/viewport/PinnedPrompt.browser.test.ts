@@ -68,6 +68,27 @@ describe("PinnedPrompt", () => {
     await vi.waitFor(() => expect(document.querySelector(".pp-pop")).toBeNull());
   });
 
+  it("jumping returns focus to the bar, so keystrokes still reach the terminal", async () => {
+    mount();
+    await page.getByRole("button", { expanded: false }).click();
+    await page.getByText("why is the sky blue?").last().click();
+
+    // The clicked .pp-item is gone with the popover; focus must not fall to <body>.
+    await vi.waitFor(() => expect(document.activeElement).not.toBe(document.body));
+    expect(document.activeElement).toBe(document.querySelector("button.pp-main"));
+  });
+
+  it("Escape also returns focus to the bar", async () => {
+    mount();
+    const opener = document.querySelector("button.pp-main") as HTMLElement;
+    await page.getByRole("button", { expanded: false }).click();
+    (document.querySelector(".pp-item") as HTMLElement).focus();
+
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+
+    await vi.waitFor(() => expect(document.activeElement).toBe(opener));
+  });
+
   it("Escape dismisses the non-modal popover", async () => {
     mount();
     await page.getByRole("button", { expanded: false }).click();

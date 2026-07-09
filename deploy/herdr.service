@@ -1,0 +1,22 @@
+[Unit]
+Description=herdr — terminal workspace manager (Shepherd's session backend)
+# Shepherd cannot spawn a single agent without this daemon, and herdr 0.7.3 does NOT
+# auto-spawn it on a CLI call (#1574). A user unit — NOT system — because herdr's socket,
+# config and panes all live under $HOME and belong to the operator, same as shepherd.service.
+Documentation=https://herdr.dev
+
+[Service]
+Type=simple
+ExecStart=%h/.local/bin/herdr server
+# Restart=always (not on-failure): a `herdr server stop`, an OOM kill, or a crashed daemon
+# must all come back — panes OUTLIVE the server and reattach, so a restart is always safe
+# and always preferable to a host that silently can't start agents. This is the "durable
+# operator-side fix" src/herdr-update.ts refers to; with it, that module's last-resort
+# `setsid herdr server` fallback becomes dead code on a provisioned host (it stays for
+# hand-rolled installs).
+Restart=always
+RestartSec=2
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

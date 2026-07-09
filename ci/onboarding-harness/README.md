@@ -23,6 +23,12 @@ the auto-fixable checks reach `ok`:
 herdr  bun  node  git  claude
 ```
 
+`herdr: ok` means the daemon **answers**, not merely that the binary parses a `--version`
+(#1562 added a liveness probe; #1574 made the installer satisfy it). `deploy/provision.ts`
+therefore leaves a running server: a `Restart=always` user unit (`deploy/herdr.service`) on
+the service path, a detached `herdr server` on this `SHEPHERD_NO_SERVICE` path. herdr does
+**not** auto-spawn its daemon on a CLI call.
+
 `gh` and `tailscale` stay non-ok on a throw-away host (no tailnet, no gh login) and are
 intentionally excluded from `expect` — success is scoped to the installer's auto-fixable set,
 same as every other scenario.

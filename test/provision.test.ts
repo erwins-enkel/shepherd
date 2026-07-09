@@ -187,6 +187,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("skips adequate prereqs and never installs tailscale", () => {
     const { calls, run } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       probe: adequateProbe,
       platform: "linux",
@@ -211,6 +212,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("always lays the node-gyp safety net", () => {
     const { calls, run } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       probe: adequateProbe,
       platform: "linux",
@@ -224,6 +226,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("service path installs+enables the unit and delegates build to update.sh", () => {
     const { calls, run, writes, fileIO } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       fileIO,
       probe: adequateProbe,
@@ -250,7 +253,15 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("templates the installed unit's WorkingDirectory to the repo path (not a copy)", () => {
     const { writes, run, fileIO } = recorder();
     const repo = "/home/op/custom-shepherd-dir";
-    provision({ run, fileIO, probe: adequateProbe, platform: "linux", env: { USER: "me" }, repo });
+    provision({
+      probePath: () => "/root/.local/bin/herdr",
+      run,
+      fileIO,
+      probe: adequateProbe,
+      platform: "linux",
+      env: { USER: "me" },
+      repo,
+    });
     const [target, content] = [...writes.entries()].find(([p]) =>
       p.endsWith("systemd/user/shepherd.service"),
     )!;
@@ -265,6 +276,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("no-service path builds directly and never touches systemd", () => {
     const { calls, run } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       probe: adequateProbe,
       platform: "linux",
@@ -283,6 +295,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
   it("runs the build steps with ~/.bun/bin on PATH (node-gyp/node-pty rebuild)", () => {
     const { calls, opts, run } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       probe: adequateProbe,
       platform: "linux",
@@ -541,6 +554,7 @@ describe("provision — low-memory advisory wiring", () => {
   it("emits the advisory when totalMem is below the floor", () => {
     const { run, fileIO } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       fileIO,
       probe: adequateProbe,
@@ -557,6 +571,7 @@ describe("provision — low-memory advisory wiring", () => {
   it("does NOT emit the advisory when totalMem is above the floor", () => {
     const { run, fileIO } = recorder();
     provision({
+      probePath: () => "/root/.local/bin/herdr",
       run,
       fileIO,
       probe: adequateProbe,

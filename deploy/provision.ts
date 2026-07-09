@@ -249,12 +249,17 @@ function probeVersion(bin: string): string | null {
 }
 
 /** Resolve a binary to its absolute path via `command -v`; null if not on PATH. Used to
- *  template the herdr unit's ExecStart (systemd needs an absolute executable). */
-function probeBinPath(bin: string): string | null {
+ *  template the herdr unit's ExecStart (systemd needs an absolute executable).
+ *
+ *  MUST be given the AUGMENTED env (`buildEnv`), not provision's inherited one: install.sh drops
+ *  herdr in ~/.local/bin, which is absent from the PATH provision itself was launched with, so
+ *  an inherited-PATH lookup finds nothing on the very host that just installed it. */
+function probeBinPath(bin: string, env: NodeJS.ProcessEnv): string | null {
   try {
     const out = execFileSync("sh", ["-c", `command -v ${bin}`], {
       encoding: "utf8",
       stdio: ["ignore", "pipe", "ignore"],
+      env,
     });
     const p = out.trim();
     return p === "" ? null : p;
@@ -281,7 +286,7 @@ interface ProvisionOpts {
   /** Injectable total-memory probe; defaults to os.totalmem. */
   totalMem?: () => number;
   /** Injectable absolute-path resolver (herdr.service ExecStart templating). */
-  probePath?: (bin: string) => string | null;
+  probePath?: (bin: string, env: NodeJS.ProcessEnv) => string | null;
 }
 
 /** Step 1 — table-driven prereq install loop (idempotent; skips adequate tools). */
@@ -330,8 +335,8 @@ export function installService(
   env: NodeJS.ProcessEnv,
   home: string,
   buildEnv: NodeJS.ProcessEnv,
-  /** Resolves a binary to an absolute path (injected in tests). */
-  probePath: (bin: string) => string | null = probeBinPath,
+  /** Resolves a binary to an absolute path against a given env (injected in tests). */
+  probePath: (bin: string, env: NodeJS.ProcessEnv) => string | null = probeBinPath,
 ): void {
   log("installing systemd user unit");
   const unitDir = join(home, ".config", "systemd", "user");
@@ -374,7 +379,8 @@ export function installService(
   // auto-spawn it (#1574). TEMPLATED, not verbatim: ExecStart must be the herdr this host
   // actually resolves on PATH (installers use ~/.local/bin, packages /usr/local/bin), else the
   // unit points at nothing while `probeVersion`/`config.herdrBin` are perfectly happy.
-  const herdrPath = probePath("herdr");
+  // buildEnv, NOT env: it carries ~/.local/bin (where install.sh just put herdr) on PATH.
+  const herdrPath = probePath("herdr", buildEnv);
   if (!herdrPath) throw new Error("cannot install herdr.service: herdr is not on PATH");
   fileIO.write(
     join(unitDir, "herdr.service"),

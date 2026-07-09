@@ -28,7 +28,18 @@ function makeSandbox(): {
 }
 
 function runInSandbox(cmd: string, home: string) {
-  return spawnSync("sh", ["-c", cmd], { env: { ...process.env, HOME: home }, encoding: "utf8" });
+  // Hermetic PATH: the stub bin dir FIRST, then only the base system dirs (`sh`, `sleep`,
+  // `touch`, `command` must resolve). Deliberately does NOT inherit process.env.PATH, for two
+  // reasons. (1) Safety: a dev host has a real herdr on PATH, and a test that falls through to
+  // it would talk to the live daemon. (2) Teeth: the stub must be reachable even when the
+  // command under test never runs HERDR_SERVE's own `export PATH=...` — otherwise a regression
+  // that drops the subshell (leaving the export gated out) would find no herdr at all, log
+  // nothing, exit non-zero, and pass this test on a herdr-less CI runner.
+  const sandboxPath = `${home}/.local/bin:/usr/bin:/bin`;
+  return spawnSync("sh", ["-c", cmd], {
+    env: { ...process.env, HOME: home, PATH: sandboxPath },
+    encoding: "utf8",
+  });
 }
 
 describe("herdr offline remediation (#1574)", () => {

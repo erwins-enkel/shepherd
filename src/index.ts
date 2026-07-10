@@ -2400,7 +2400,7 @@ const appDeps: AppDeps = {
     reviewing: () => planGate.reviewingIds(),
   },
   planGate: {
-    consider: (s) => planGate.consider(s),
+    consider: (s, opts) => planGate.consider(s, opts),
     resume: (s) => planGate.resume(s),
     dismiss: (s) => planGate.dismiss(s),
   },

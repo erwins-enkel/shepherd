@@ -142,6 +142,39 @@ test("POST /api/sessions/:id/review-plan → 202, calls consider, relays status:
   expect(considered[0]!.id).toBe(id);
 });
 
+test("POST /api/sessions/:id/review-plan → forwards { force: true } to consider (operator click bypasses dedupe)", async () => {
+  const calls: Array<[Session, { force?: boolean } | undefined]> = [];
+  const { app, store } = harness({
+    planGate: {
+      consider: async (s: Session, opts?: { force?: boolean }) => {
+        calls.push([s, opts]);
+        return "started" as const;
+      },
+    },
+  });
+  const seeded = store.create({
+    name: "force",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/force",
+    worktreePath: join(repoDir, "wt-force"),
+    isolated: true,
+    herdrSession: "sess-force",
+    herdrAgentId: "term_force",
+    claudeSessionId: "claude-force",
+    model: null,
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${seeded.id}/review-plan`, { method: "POST" }),
+  );
+  expect(res.status).toBe(202);
+  expect(await res.json()).toEqual({ ok: true, status: "started" });
+  expect(calls.length).toBe(1);
+  expect(calls[0]![0]!.id).toBe(seeded.id);
+  expect(calls[0]![1]).toEqual({ force: true });
+});
+
 test("POST /api/sessions/:id/review-plan → status:skipped when consider deduped", async () => {
   const { app, store } = harness({
     planGate: {

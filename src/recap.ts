@@ -21,6 +21,7 @@ import type { HerdrDriver } from "./herdr";
 import type { Session, Recap, AgentProvider } from "./types";
 import type { DiffResult } from "./types";
 import type { RoleEnvironment } from "./default-model";
+import type { OperatorLanguage } from "./operator-language";
 import type { ActivityEntry } from "./activity";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
@@ -205,6 +206,8 @@ export interface RecapServiceDeps {
   onChange: (id: string, recap: Recap | null) => void;
   // optional environment thunk (CLI + model, read per spawn → live settings)
   env?: () => RoleEnvironment;
+  // optional operator-language thunk (read per spawn → live settings; default "en")
+  operatorLanguage?: () => OperatorLanguage;
   now?: () => number;
   timeoutMs?: number;
   idleThresholdMs?: number;
@@ -246,6 +249,7 @@ export class RecapService {
   private timeoutMs: number;
   private idleThresholdMs: number;
   private env: () => RoleEnvironment;
+  private operatorLanguage: () => OperatorLanguage;
 
   private _resolveBase: (session: Session) => Promise<{ base: string; resolved: boolean }>;
   private _computeDiff: (
@@ -287,6 +291,7 @@ export class RecapService {
     // No service-internal model default — the sonnet default now lives in config.recapModel seeding
     // (config.recapCli="claude"), resolved by roleEnv at the call site in index.ts.
     this.env = optional(deps.env, () => ({ provider: "claude", model: null }));
+    this.operatorLanguage = optional(deps.operatorLanguage, () => "en");
     this._resolveBase = optional(deps.resolveBase, (s) =>
       Promise.resolve({ base: s.baseBranch, resolved: false }),
     );
@@ -629,6 +634,7 @@ export class RecapService {
         changedFiles: changedFilesWithStatus,
         digest,
         context,
+        operatorLanguage: this.operatorLanguage(),
       });
       const env = this.env();
       const { argv, sessionId: spawnSessionId } = recapArgv(

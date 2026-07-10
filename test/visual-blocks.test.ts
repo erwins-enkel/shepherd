@@ -832,6 +832,117 @@ describe("groundBlocks", () => {
   });
 });
 
+// ── groundBlocks: a translated path/filename is silently dropped, verbatim survives (Task 5,
+// issue #1586) — this is WHY `path`/`filename` are on the VisualBlock verbatim field list in
+// operator-language.ts: if the agent ever "translated" one of these instead of copying it
+// verbatim, grounding can no longer match it back to the real diff and drops it (or the whole
+// block).
+describe("groundBlocks: translated path/filename is dropped", () => {
+  const fooFile: DiffFile = {
+    path: "src/foo.ts",
+    status: "modified",
+    additions: 5,
+    deletions: 2,
+    binary: false,
+    hunks: [],
+  };
+  const barFile: DiffFile = {
+    path: "src/bar.ts",
+    status: "added",
+    additions: 10,
+    deletions: 0,
+    binary: false,
+    hunks: [],
+  };
+  const addedFile = makeAddedFile("src/new.ts", ["const x = 1;"]);
+
+  describe("carrier present (pendingDiff non-empty)", () => {
+    it("file-tree: one entry with a translated (non-matching) path is dropped, verbatim path survives", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "modified" }, // verbatim — survives
+            { path: "src/foo-übersetzt.ts", change: "modified" }, // "translated" — dropped
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(1);
+      expect(blk.entries[0]!.path).toBe("src/foo.ts");
+    });
+
+    it("file-tree: EVERY entry's path is translated (non-matching) → whole block dropped", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [{ path: "src/foo-übersetzt.ts", change: "modified" }],
+        },
+      ]);
+      const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("diff: a translated (non-matching) path is dropped by joinDiffBlocks; verbatim path survives", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "verbatim — kept" },
+        { type: "diff", id: "d2", path: "src/foo-übersetzt.ts", summary: "translated — dropped" },
+      ]);
+      const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "diff");
+      expect(blk.id).toBe("d1");
+      expect(blk.file).toBe(fooFile);
+    });
+
+    it("code: a translated (non-matching) filename is dropped by joinCodeBlocks", () => {
+      const blocks = parseVisualBlocks([
+        { type: "code", id: "c1", filename: "src/neu.ts" }, // translated filename — never matches
+      ]);
+      const result = groundBlocks(blocks, [addedFile], ["src/new.ts"]);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("carrier miss (pendingDiff empty — fallback path)", () => {
+    it("file-tree: entries are filtered against changedFiles; a translated path is dropped, verbatim survives", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "modified" }, // verbatim — matches changedFiles
+            { path: "src/foo-übersetzt.ts", change: "modified" }, // translated — dropped
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(1);
+      expect(blk.entries[0]!.path).toBe("src/foo.ts");
+    });
+
+    it("diff: dropped unconditionally, even with a verbatim path (no real hunks to ground against)", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "x" },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("code: dropped unconditionally, even with a verbatim filename (no real hunks to ground against)", () => {
+      const blocks = parseVisualBlocks([{ type: "code", id: "c1", filename: "src/new.ts" }]);
+      const result = groundBlocks(blocks, [], ["src/new.ts"]);
+      expect(result).toEqual([]);
+    });
+  });
+});
+
 // ── constant arrays ────────────────────────────────────────────────────────────
 
 describe("constant arrays", () => {

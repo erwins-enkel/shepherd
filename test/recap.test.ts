@@ -988,6 +988,51 @@ test("generate: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR 
   });
 });
 
+// ─── operator-language: per-spawn read, not frozen at construction (Task 5, issue #1586) ────
+
+test("generate: reads operatorLanguage per spawn, not cached at construction", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const store = makeStore([s]);
+  let lang: "en" | "de" = "en";
+  let callCount = 0;
+
+  const svc = new RecapService({
+    store: store as any,
+    herdr: herdr as any,
+    onChange: () => {},
+    env: () => ({ provider: "claude", model: "sonnet" }),
+    operatorLanguage: () => {
+      callCount++;
+      return lang;
+    },
+    now: () => 1,
+    timeoutMs: 300_000,
+    headSha: async () => "sha-head",
+    computeDiff: async () => NON_EMPTY_DIFF as any,
+    readTranscript: (): ActivityEntry[] => [],
+    readPlan: () => "",
+    readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
+    makeTmpDir: () => "/tmp/r1",
+    cleanup: () => {},
+  });
+
+  // First generation, still "en": getter invoked, prompt carries no German marker.
+  await svc.regenerate(s);
+  expect(callCount).toBe(1);
+  const firstPrompt = herdr.started[0]!.argv.at(-1)!;
+  expect(firstPrompt).not.toContain("German");
+
+  // Flip the live setting, then drive a second generation on the SAME service instance —
+  // a construction-frozen value would never see this change.
+  lang = "de";
+  const svc2 = svc; // same instance, reused deliberately
+  await svc2.regenerate(s);
+  expect(callCount).toBe(2);
+  const secondPrompt = herdr.started[1]!.argv.at(-1)!;
+  expect(secondPrompt).toContain("German");
+});
+
 test("generate: api-key without a configured key fails closed → 'error', no spawn", async () => {
   await withAuth("api-key", null, async () => {
     const s = makeSession({ status: "idle" });

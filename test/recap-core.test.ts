@@ -691,3 +691,64 @@ test("buildRecapPrompt: data-model/api-endpoint doc mentions redaction", () => {
   });
   expect(p).toContain("redact");
 });
+
+// ─── operator-language injection (Task 5, issue #1586) ──────────────────────
+
+// fenceUntrusted() mints a random per-call nonce (see src/untrusted.ts), so two independent
+// buildRecapPrompt calls never come out byte-identical purely because of that nonce even when
+// nothing else differs. Normalize it out before the byte-identity comparison below.
+const normalizeUntrustedNonce = (s: string): string =>
+  s.replace(/⟦(\/?)UNTRUSTED:(\w+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2:NONCE⟧");
+
+test("en is byte-identical: buildRecapPrompt with/without explicit operatorLanguage:'en'", () => {
+  const representativeInput = {
+    taskPrompt: "Implement recap",
+    plan: "Step 1: do x",
+    changedFiles: [
+      { path: "src/new.ts", status: "added" as const },
+      { path: "src/old.ts", status: "modified" as const },
+    ],
+    digest: "[Edit] edited server.ts",
+    context: "Critic verdict: looks good",
+  };
+  const withoutLang = normalizeUntrustedNonce(buildRecapPrompt(representativeInput));
+  const withEnLang = normalizeUntrustedNonce(
+    buildRecapPrompt({ ...representativeInput, operatorLanguage: "en" }),
+  );
+  expect(withEnLang).toBe(withoutLang);
+  expect(withoutLang).not.toContain("German");
+  expect(withEnLang).not.toContain("German");
+  expect(withoutLang).not.toContain("write ONLY these natural-language fields");
+  expect(withEnLang).not.toContain("write ONLY these natural-language fields");
+});
+
+test("de: buildRecapPrompt names headline/body/openItems as German-prose fields, keeps verdict literal", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    operatorLanguage: "de",
+  });
+  expect(p).toContain("headline");
+  expect(p).toContain("body");
+  expect(p).toContain("openItems");
+  expect(p).toContain("German");
+  expect(p).toContain('"ready" | "parked" | "needs_attention"');
+});
+
+test("de: buildRecapPrompt carries the VisualBlock verbatim-fields rule (visualBlockLanguageLine appended)", () => {
+  const p = buildRecapPrompt({
+    taskPrompt: "t",
+    plan: "",
+    changedFiles: [],
+    digest: "",
+    context: "",
+    operatorLanguage: "de",
+  });
+  expect(p).toContain("write ONLY these natural-language fields");
+  for (const field of ["type", "tone", "mermaid.source"]) {
+    expect(p).toContain(field);
+  }
+});

@@ -470,6 +470,8 @@ const recapService: RecapService = new RecapService({
   herdr,
   // Per-role model thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.recapCli, config.recapModel, config.recapEffort),
+  // Live operator-language setting, read per spawn (#1586).
+  operatorLanguage: () => config.operatorLanguage,
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.

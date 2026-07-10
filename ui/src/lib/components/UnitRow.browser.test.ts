@@ -659,6 +659,33 @@ describe("UnitRow quota-stalled badge", () => {
   });
 });
 
+describe("UnitRow hold subline", () => {
+  it("truncates a long hold line on the inner .u-hold-text span", async () => {
+    render(UnitRow, {
+      session: session({ id: "h1" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: {
+        code: "autopilot-paused",
+        params: {
+          question:
+            "Should I use the existing retry helper or write a bespoke backoff loop for this new queue consumer?",
+        },
+      },
+    });
+    const holdEl = document.body.querySelector(".u-hold");
+    const textEl = document.body.querySelector(".u-hold-text");
+    expect(holdEl, ".u-hold present").not.toBeNull();
+    expect(textEl, ".u-hold-text present").not.toBeNull();
+    expect(textEl?.textContent).toContain("Should I use the existing retry helper");
+    const style = getComputedStyle(textEl as HTMLElement);
+    expect(style.overflow).toBe("hidden");
+    expect(style.textOverflow).toBe("ellipsis");
+    expect(style.whiteSpace).toBe("nowrap");
+  });
+});
+
 describe("UnitRow manual-steps chip", () => {
   // The chip's text content (the count) bubbles into the accessible name too, so match it
   // precisely by its title attribute rather than the ambiguous role+name (same pattern as the

@@ -534,7 +534,7 @@
         {/if}
       </div>
       {#if hold}
-        <div class="u-hold">{holdLine(hold)}</div>
+        <div class="u-hold"><span class="u-hold-text">{holdLine(hold)}</span></div>
       {/if}
     </div>
 
@@ -1002,14 +1002,20 @@
      Shown only when a hold reason is present (server-set); mirrors the
      `.u-repo` density — same muted color and meta-size font, single line. */
   .u-hold {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
     margin-top: 3px;
     color: var(--color-muted);
     font-size: var(--fs-meta);
     line-height: 1.3;
+  }
+  .u-hold-text {
+    min-width: 0;
+    max-width: 34ch;
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
-    max-width: 34ch;
   }
 
   /* Live activity sub-line: the heartbeat strip. Quiet, single-line — the

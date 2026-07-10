@@ -77,6 +77,12 @@
   import { upNext } from "$lib/up-next.svelte";
   import { claudeUsageHoldLikely } from "$lib/provider-capacity";
   import { doneSessions } from "$lib/done.svelte";
+  import {
+    doneRailIds,
+    doneSessionsForRepoFilter,
+    nextDoneSelectedId,
+    resolveDoneSelected,
+  } from "$lib/done-filter";
   import { postMergeSteps as postMergeStepsStore } from "$lib/post-merge-steps.svelte";
   import { learnings } from "$lib/learnings.svelte";
   import TopBar from "$lib/components/TopBar.svelte";
@@ -1286,8 +1292,9 @@
   // (the live list), which has EVICTED archived sessions — so reusing it for a done
   // (archived) id would break. doneSelectedId tracks the picked done row instead.
   let doneSelectedId = $state<string | null>(null);
-  // The currently-selected done session (resolved against the lazy doneSessions list).
-  const doneSelected = $derived(doneSessions.sessions.find((s) => s.id === doneSelectedId) ?? null);
+  const shownDoneSessions = $derived(doneSessionsForRepoFilter(doneSessions.sessions, repoFilter));
+  // The currently-selected done session (resolved against the filtered lazy done list).
+  const doneSelected = $derived(resolveDoneSelected(shownDoneSessions, doneSelectedId));
   // Entering the Done lens lazy-loads the archived session list + repopulates the
   // shared recaps store (archived recaps persist server-side; live events dropped the
   // session's recap, /api/recaps returns it). Both are best-effort / self-handling.
@@ -1318,12 +1325,7 @@
   });
   $effect(() => {
     if (herdFilter !== "done") return;
-    const list = doneSessions.sessions;
-    if (list.length === 0) {
-      doneSelectedId = null;
-    } else if (!list.some((s) => s.id === doneSelectedId)) {
-      doneSelectedId = list[0].id;
-    }
+    doneSelectedId = nextDoneSelectedId(shownDoneSessions, doneSelectedId);
   });
 
   // The herd rail's visible session order (same shown set + partition + group
@@ -1334,7 +1336,7 @@
     // The Done lens is its own navigation space (archived rows, not live `sessions`),
     // so j/k/1-9 walk the done list and select via doneSelectedId — never the hidden
     // live partition.
-    if (herdFilter === "done") return doneSessions.sessions.map((s) => s.id);
+    if (herdFilter === "done") return doneRailIds(shownDoneSessions);
     return railOrder(
       herdSessions,
       store.git,
@@ -2550,7 +2552,7 @@
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             onlandepic={onLandEpic}
-            doneList={doneSessions.sessions}
+            doneList={shownDoneSessions}
             {doneSelectedId}
             ondoneselect={(id) => {
               doneSelectedId = id;
@@ -2702,7 +2704,7 @@
             completedEpics={completedEpicsShown}
             ondismissepic={onDismissEpic}
             onlandepic={onLandEpic}
-            doneList={doneSessions.sessions}
+            doneList={shownDoneSessions}
             {doneSelectedId}
             ondoneselect={(id) => (doneSelectedId = id)}
             onrundownitem={selectRundownItem}

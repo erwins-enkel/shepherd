@@ -143,6 +143,7 @@ import { normalizeDefaultEffortSetting } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
+import { normalizeOperatorLanguage } from "./operator-language";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
@@ -299,6 +300,12 @@ const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
   const v = normalizeAuthModeSetting(savedAm);
   if (v !== null) config.authMode = v;
+}
+// a UI-chosen operator language (persisted) overrides the env seed; absent or unrecognised → keep default.
+const savedOl = store.getSetting("operatorLanguage");
+if (savedOl !== null) {
+  const v = normalizeOperatorLanguage(savedOl);
+  if (v !== null) config.operatorLanguage = v;
 }
 // a UI-set telemetry consent (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedTc = store.getSetting("telemetryConsent");

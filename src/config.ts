@@ -11,6 +11,7 @@ import { normalizeDefaultEffortSetting, effortBelowHigh } from "./default-effort
 import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
+import { normalizeOperatorLanguage } from "./operator-language";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { applyHerdrSocket } from "./herdr-session";
 
@@ -693,6 +694,10 @@ export const config = {
   // Operator auth footing for spawned agents. 'subscription' (default) = subscription OAuth;
   // 'api-key' = bill against an Anthropic API key. Persisted + UI-configurable; env seeds a fresh DB.
   authMode: normalizeAuthModeSetting(process.env.SHEPHERD_AUTH_MODE) ?? "subscription",
+  // Language agents address the operator in. 'en' (default) = no change; 'de' = agents address
+  // the operator in German while keeping code/commands/identifiers/logs/commits/GitHub text in
+  // their original language. Persisted + UI-configurable; env seeds a fresh DB.
+  operatorLanguage: normalizeOperatorLanguage(process.env.SHEPHERD_OPERATOR_LANGUAGE) ?? "en",
   // Path to the apiKeyHelper script (written by Shepherd when the operator supplies a key).
   // null = no key configured. The raw key is NEVER stored — only this script path.
   authApiKeyHelperPath: (process.env.SHEPHERD_API_KEY_HELPER_PATH ?? null) as string | null,

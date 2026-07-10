@@ -169,6 +169,7 @@ toggleable any time from the Settings panel. The env vars below seed a fresh DB
 | `SHEPHERD_APTABASE_HOST` | _(derived from the App-Key region)_ | Ingestion host override for self-hosted Aptabase. When unset, the host is derived from the App-Key region prefix: `A-EU-…` → `https://eu.aptabase.com`, `A-US-…` → `https://us.aptabase.com`. A self-hosted (`A-SH-…`) or unknown-region key **requires** this override, else telemetry no-ops |
 | `DO_NOT_TRACK` | _(unset)_ | The [console DNT standard](https://consoledonottrack.com). Truthy (`1`/`true`) **hard-disables** telemetry **and** suppresses the first-run consent prompt, regardless of the persisted consent state |
 | `SHEPHERD_TELEMETRY_CONSENT` | `unset` | Seeds the persisted consent for a fresh DB: `unset` (prompt on first run), `granted`, or `denied`. A UI-set consent in the DB overrides this env seed at boot; unrecognised values are ignored |
+| `SHEPHERD_OPERATOR_LANGUAGE` | `en` | Seeds the operator language for a fresh DB: `en` (agents write to the operator in English — no change) or `de` (agents address the operator in German while keeping code, commands, identifiers, logs, commit messages, and GitHub issue/PR text in their original language). A UI-set value in the DB overrides this env seed at boot; unrecognised values are ignored |
 
 ## Per-agent sandbox / permission profiles
 

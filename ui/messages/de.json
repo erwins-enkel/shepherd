@@ -2804,5 +2804,7 @@
   "hold_cta_resume_failed": "Plan-Review konnte nicht fortgesetzt werden. Erneut versuchen.",
   "settings_operator_language_title": "Betreibersprache",
   "settings_operator_language_hint": "Die Sprache, in der Shepherds Agenten mit dir sprechen — Status, Rückfragen, Pläne, Übergaben. Unabhängig von der Sprache dieser Oberfläche. Code, Befehle, Logs und GitHub-Texte bleiben in ihrer Originalsprache.",
-  "settings_operator_language_save_failed": "Betreibersprache konnte nicht gespeichert werden."
+  "settings_operator_language_save_failed": "Betreibersprache konnte nicht gespeichert werden.",
+  "feat_operator_language_title": "Agenten sprechen deine Sprache",
+  "feat_operator_language_body": "Lege in den Einstellungen eine Betreibersprache fest, und Shepherds gestartete Agenten verfassen ihre Statusupdates, Rückfragen, Planerklärungen und Übergaben in dieser Sprache. Code, Befehle, Logs, Commit-Nachrichten und GitHub-Issue-/PR-Texte bleiben in ihrer Originalsprache."
 }

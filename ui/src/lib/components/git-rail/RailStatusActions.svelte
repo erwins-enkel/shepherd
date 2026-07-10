@@ -26,6 +26,7 @@
     canReviewPlan,
     planReviewing,
     planReviewLabel,
+    planReviewBlockedReason,
     startPr,
     doMerge,
     doRedeploy,
@@ -53,6 +54,7 @@
     canReviewPlan: boolean;
     planReviewing: boolean;
     planReviewLabel: string;
+    planReviewBlockedReason: string | null;
     startPr: () => void;
     doMerge: (skipArm?: boolean) => Promise<void>;
     doRedeploy: (skipArm?: boolean) => Promise<void>;
@@ -219,10 +221,18 @@
 {#if canReviewPlan}
   <button
     class="gbtn"
-    class:armed={armed === "review-plan"}
+    class:armed={armed === "review-plan" && !planReviewBlockedReason}
     type="button"
     disabled={planReviewing}
-    onclick={() => doReviewPlan()}
+    aria-disabled={planReviewBlockedReason ? "true" : undefined}
+    title={planReviewBlockedReason ?? undefined}
+    aria-label={planReviewBlockedReason
+      ? `${planReviewLabel} — ${planReviewBlockedReason}`
+      : undefined}
+    onclick={() => {
+      if (planReviewBlockedReason) return;
+      doReviewPlan();
+    }}
   >
     {planReviewLabel}
   </button>
@@ -255,6 +265,17 @@
   .gbtn:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* Inert (not busy) — kept focusable so the reason in `title`/aria-label is reachable
+     by keyboard, unlike bare `disabled`. */
+  .gbtn[aria-disabled="true"] {
+    opacity: 0.55;
+    cursor: not-allowed;
+  }
+  .gbtn[aria-disabled="true"]:hover {
+    border-color: var(--color-line);
+    color: var(--color-muted);
+    background: transparent;
   }
   .gbtn.armed {
     border-color: var(--color-amber);

@@ -2,7 +2,12 @@
   import type { AgentProvider, Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import { dismissQuota, releasePlanGate, resumeQuota, reviewPlan } from "$lib/api";
-  import { canRelease, canShowPlanStallActions, planGateChip } from "./plan-gate-badge";
+  import {
+    canRelease,
+    canShowPlanStallActions,
+    canTriggerPlanReview,
+    planGateChip,
+  } from "./plan-gate-badge";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
@@ -38,6 +43,9 @@
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
+  // Only `approved` renders the Review control inert: `force` re-reviews an unchanged plan, but the
+  // server never bypasses `approved`. (The `reviewing` case is handled by the in-flight spinner path.)
+  const planReviewBlock = $derived(canTriggerPlanReview(session, gate, reviewing));
   let envOpen = $state(false);
 
   function providerLabel(provider: AgentProvider): string {
@@ -106,9 +114,10 @@
   // until `reviewing` is observed, with a backstop timeout so a lost event can't wedge the spinner.
   let awaitingReview = $state(false);
   // Outcome of the last manual review trigger that produced no live run, so the panel can explain
-  // why nothing changed. Auto-dismissed so it can't go stale between clicks.
-  // null = no note (fresh page, or a real review is/was in flight).
-  let outcome = $state<"approved" | "changes" | "idle" | "error" | null>(null);
+  // that it couldn't start. Auto-dismissed so it can't go stale between clicks.
+  // null = no note (fresh page, or a real review is/was in flight). The cause is not guessed from the
+  // cached gate — `force` makes any "unchanged/approved" claim false, and a plugin abort is unknowable.
+  let outcome = $state<"skipped" | "error" | null>(null);
   // Persistent while the current planning state has no usable `.shepherd-plan.md` artifact.
   // Unlike `outcome`, this must not auto-dismiss: it explains why Review cannot start.
   let planUnavailable = $state(false);
@@ -166,11 +175,11 @@
     try {
       const status = await reviewPlan(session.id);
       // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
-      // "skipped" → unchanged/already-approved/not-reviewable; branch on the cached gate so
-      // approved plans do not read as blocked and requested-change plans do not read as cleared.
+      // "skipped" → the review couldn't start (a race, an approval landing, a planPhase flip, or a
+      // plugin abort). The cause is unknowable from here, so the note stays causally silent.
       if (status === "started") awaitingReview = true;
       else if (status === "plan-unavailable" && !reviewing) planUnavailable = true;
-      else if (status === "skipped" && !reviewing) outcome = skippedOutcome(gate);
+      else if (status === "skipped" && !reviewing) outcome = "skipped";
       else if (status === "error") outcome = "error";
     } catch {
       // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.
@@ -220,13 +229,6 @@
     } finally {
       quotaBusy = null;
     }
-  }
-
-  function skippedOutcome(currentGate: typeof gate): typeof outcome {
-    if (currentGate?.approved) return "approved";
-    if (currentGate?.decision === "changes_requested") return "changes";
-    if (currentGate?.decision === "error") return "error";
-    return "idle";
   }
 
   const statusNoteId = $derived(`plan-status-${session.id}`);
@@ -390,11 +392,7 @@
 
       {#if planUnavailable}
         <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
-      {:else if outcome === "approved"}
-        <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
-      {:else if outcome === "changes"}
-        <p class="note" role="status">{m.planpanel_review_changes_pending()}</p>
-      {:else if outcome === "idle"}
+      {:else if outcome === "skipped"}
         <p class="note" role="status">{m.planpanel_review_nothing_to_review()}</p>
       {:else if outcome === "error"}
         <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
@@ -440,8 +438,15 @@
             <button
               type="button"
               class="review"
-              onclick={review}
               disabled={inFlight || !!quotaBusy}
+              aria-disabled={planReviewBlock === "approved" ? "true" : undefined}
+              aria-label={planReviewBlock === "approved"
+                ? `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`
+                : undefined}
+              onclick={() => {
+                if (planReviewBlock === "approved") return;
+                review();
+              }}
             >
               {#if inFlight}
                 <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
@@ -460,6 +465,9 @@
             {m.planpanel_go()}
           </button>
         </div>
+        {#if planReviewBlock === "approved"}
+          <p class="note" role="status">{m.planpanel_review_already_approved()}</p>
+        {/if}
       {/if}
     </div>
   </div>
@@ -824,7 +832,10 @@
   }
   .review:disabled,
   .go:disabled,
-  .quota-btn:disabled {
+  .quota-btn:disabled,
+  /* Inert (approved) — kept focusable so its aria-label reason is keyboard-reachable,
+     unlike bare `disabled`. */
+  .review[aria-disabled="true"] {
     opacity: 0.5;
     cursor: not-allowed;
     color: var(--color-faint);

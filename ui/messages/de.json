@@ -619,7 +619,7 @@
   "plangate_repair_sent": "Plan-Änderungen an den Agenten gesendet.",
   "plangate_repair_send_failed": "Plan-Änderungen konnten nicht an den Agenten gesendet werden.",
   "plangate_review_started": "Plan-Prüfung gestartet.",
-  "plangate_review_skipped_stalled": "Plan-Prüfung nicht gestartet, weil der Plan unverändert ist. Lass den Agenten .shepherd-plan.md aktualisieren und prüfe dann erneut.",
+  "plangate_review_skipped_stalled": "Planprüfung konnte gerade nicht gestartet werden.",
   "feat_plan_stall_menu_title": "Gestoppte Pläne direkt am Chip reparieren",
   "feat_plan_stall_menu_body": "Wenn eine Plan-Prüfung ihr Rundenlimit erreicht, öffnet der Plan-Chip jetzt ein Aktionsmenü: Plan öffnen, einen vorbereiteten Steuertext mit Review-Befunden bearbeiten oder nach Änderung von .shepherd-plan.md erneut prüfen.",
   "plangate_tip_planning": "Planprüfung vor der Ausführung erforderlich.",
@@ -640,9 +640,8 @@
   "planpanel_reviewing": "Prüfe Plan…",
   "planpanel_review_unchanged": "Plan seit der letzten Prüfung unverändert; keine erneute Prüfung nötig.",
   "planpanel_review_already_approved": "Plan bereits freigegeben; bereit zum Start.",
-  "planpanel_review_changes_pending": "Plan unverändert. Angeforderte Änderungen brauchen vor der Ausführung weiter eine Freigabe.",
   "planpanel_review_plan_unavailable": "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist.",
-  "planpanel_review_nothing_to_review": "Aktuell gibt es nichts zu prüfen.",
+  "planpanel_review_nothing_to_review": "Planprüfung konnte gerade nicht gestartet werden.",
   "planpanel_review_failed": "Prüfung konnte nicht gestartet werden. Bitte erneut versuchen.",
   "planpanel_status_ready": "Plan freigegeben. Starte die Ausführung, wenn bereit.",
   "planpanel_status_changes": "Prüfung hat Änderungen angefordert. Los wird erst nach Überarbeitung und Freigabe aktiv.",
@@ -1594,7 +1593,7 @@
   "gitrail_review_plan": "Plan prüfen",
   "gitrail_rereview_plan": "Plan erneut prüfen",
   "gitrail_reviewing_plan": "Prüfe Plan…",
-  "gitrail_review_plan_skipped": "Plan-Prüfung nicht gestartet – unverändert, bereits freigegeben oder läuft bereits.",
+  "gitrail_review_plan_skipped": "Planprüfung konnte gerade nicht gestartet werden.",
   "gitrail_review_plan_unavailable": "Plan-Prüfung nicht gestartet: .shepherd-plan.md fehlt, ist leer oder nicht lesbar.",
   "gitrail_review_plan_failed": "Plan-Prüfung konnte nicht gestartet werden. Erneut versuchen.",
   "feat_manual_critic_review_title": "Kritiker-Review neu starten",
@@ -2779,5 +2778,6 @@
   "feat_issue_author_label_filter_body": "Issue-Listen zeigen jetzt den Autor jedes Issues, und das Filter-Menü kann den Backlog nach Autor und Label eingrenzen — wähle einen Autor oder schalte ein oder mehrere Labels an, um die Liste zu fokussieren.",
   "reviewbanner_preview_waiting": "Überprüfung startet…",
   "feat_review_live_preview_title": "Live-Vorschau der Überprüfung + gedimmtes Terminal",
-  "feat_review_live_preview_body": "Während eine PR-Critic- oder Plan-Gate-Überprüfung im Hintergrund läuft, zeigt der amber Balken jetzt einen Live-Auszug dessen, was der Prüfer gerade tut — seine letzten Aktionen — und das Terminal wird gedimmt, um zu signalisieren, dass Shepherd arbeitet und du nichts eingeben musst. Das Dimmen ist rein visuell; dein Prompt bleibt nutzbar."
+  "feat_review_live_preview_body": "Während eine PR-Critic- oder Plan-Gate-Überprüfung im Hintergrund läuft, zeigt der amber Balken jetzt einen Live-Auszug dessen, was der Prüfer gerade tut — seine letzten Aktionen — und das Terminal wird gedimmt, um zu signalisieren, dass Shepherd arbeitet und du nichts eingeben musst. Das Dimmen ist rein visuell; dein Prompt bleibt nutzbar.",
+  "gitrail_review_plan_approved": "Plan bereits freigegeben – nichts erneut zu prüfen."
 }

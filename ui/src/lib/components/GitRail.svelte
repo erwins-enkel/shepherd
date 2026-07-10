@@ -14,6 +14,7 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { checksCleared } from "$lib/checks-cleared";
   import { criticChip, criticBadgeLabel } from "./critic-badge";
+  import { canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
   import { automationCount, AUTOMATION_TOTAL } from "./git-rail-automation";
@@ -430,6 +431,21 @@
   // (planPhase === "planning"), matching PlanPanel's canReviewNow.
   const canReviewPlan = $derived(planPhase === "planning");
   const planReviewing = $derived(planGates.isReviewing(sessionId) || awaitingPlanReview);
+  // Only `approved` is a genuine block: `force` re-reviews an unchanged/at-cap plan, but the
+  // server never bypasses `approved`, so a click there would dead no-op. Pass GitRail's own
+  // `planReviewing` (store flag ∪ the 3 s optimistic bridge) so the block can't re-enable mid-bridge.
+  // (The "reviewing" case is already covered by the button's `disabled={planReviewing}` busy state.)
+  const planReviewBlock = $derived(
+    canTriggerPlanReview({ planPhase }, planGates.map[sessionId], planReviewing),
+  );
+  const planReviewBlockedReason = $derived(
+    planReviewBlock === "approved" ? m.gitrail_review_plan_approved() : null,
+  );
+  // If the control becomes blocked while its 3 s confirm latch is armed, drop the latch so it
+  // can't linger on an inert button.
+  $effect(() => {
+    if (planReviewBlockedReason && armed === "review-plan") armed = null;
+  });
   const planReviewLabel = $derived(
     armed === "review-plan"
       ? m.gitrail_confirm_review()
@@ -635,6 +651,7 @@
         {canReviewPlan}
         {planReviewing}
         {planReviewLabel}
+        {planReviewBlockedReason}
         {startPr}
         {doMerge}
         {doRedeploy}

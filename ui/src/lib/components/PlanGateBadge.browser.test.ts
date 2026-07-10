@@ -10,7 +10,9 @@ import { toasts } from "$lib/toasts.svelte";
 
 const api = vi.hoisted(() => ({
   replySession: vi.fn(async () => {}),
-  reviewPlan: vi.fn(async () => "skipped" as const),
+  reviewPlan: vi.fn(
+    async (): Promise<"started" | "skipped" | "plan-unavailable" | "error"> => "skipped",
+  ),
   releasePlanGate: vi.fn(async () => true),
 }));
 
@@ -141,7 +143,7 @@ describe("PlanGateBadge stalled menu", () => {
     expect(toasts.items.some((t) => t.text === m.plangate_repair_sent())).toBe(true);
   });
 
-  it("explains an unchanged plan when re-review is skipped", async () => {
+  it("toasts when a re-review can't start (skipped)", async () => {
     const id = "s-review";
     planGates.map = { [id]: gate(id) };
 
@@ -152,5 +154,19 @@ describe("PlanGateBadge stalled menu", () => {
 
     await vi.waitFor(() => expect(api.reviewPlan).toHaveBeenCalledWith(id));
     expect(toasts.items.some((t) => t.text === m.plangate_review_skipped_stalled())).toBe(true);
+  });
+
+  it("starts a real re-review from the stalled menu (force bypasses the dedupe)", async () => {
+    const id = "s-review-started";
+    api.reviewPlan.mockResolvedValue("started");
+    planGates.map = { [id]: gate(id) };
+
+    render(PlanGateBadge, { props: { session: session({ id }) } });
+
+    await page.getByRole("button", { name: m.plangate_changes({ round: 3, cap: 3 }) }).click();
+    await page.getByRole("menuitem", { name: m.plangate_menu_rereview() }).click();
+
+    await vi.waitFor(() => expect(api.reviewPlan).toHaveBeenCalledWith(id));
+    expect(toasts.items.some((t) => t.text === m.plangate_review_started())).toBe(true);
   });
 });

@@ -93,6 +93,7 @@ afterEach(() => {
   // Clean up any seeded plan gate entries.
   planGates.map = {};
   planGates.reviewing = {};
+  vi.mocked(reviewPlan).mockReset();
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
   vi.unstubAllGlobals();
 });
@@ -424,23 +425,32 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByRole("button", { name: m.planpanel_go() })).not.toBeDisabled();
   });
 
-  it("shows approved skipped-review feedback without blocked copy", async () => {
-    const id = "s-approved-skip";
+  it("renders the review control inert for an approved gate and does not trigger a review", async () => {
+    const id = "s-approved-inert";
     planGates.map = { [id]: gate(id) };
 
     render(PlanPanel, {
       props: { session: session({ id }), onclose: vi.fn() },
     });
 
-    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    // The approved reason is shown persistently beside the control.
     await expect.element(page.getByText(m.planpanel_review_already_approved())).toBeVisible();
-    await expect
-      .element(page.getByText(m.planpanel_review_changes_pending()))
-      .not.toBeInTheDocument();
+
+    const reviewBtn = page.getByRole("button", {
+      name: `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`,
+    });
+    await expect.element(reviewBtn).toHaveAttribute("aria-disabled", "true");
+
+    // Clicking the inert control is a guarded no-op — no review is triggered. `force` bypasses
+    // Playwright's actionability wait (it treats aria-disabled as not-enabled), so the click still
+    // dispatches and we assert the component's own onclick guard swallows it.
+    await reviewBtn.click({ force: true });
+    expect(vi.mocked(reviewPlan)).not.toHaveBeenCalled();
   });
 
-  it("shows pending-changes skipped-review feedback for unchanged unapproved plans", async () => {
-    const id = "s-changes-skip";
+  it("starts a real review for an unchanged unapproved (changes-requested) plan", async () => {
+    const id = "s-changes-review";
+    vi.mocked(reviewPlan).mockResolvedValue("started");
     planGates.map = {
       [id]: gate(id, {
         decision: "changes_requested",
@@ -455,7 +465,9 @@ describe("PlanPanel release state", () => {
     });
 
     await page.getByRole("button", { name: m.planpanel_review_now() }).click();
-    await expect.element(page.getByText(m.planpanel_review_changes_pending())).toBeVisible();
+    expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
+    // The in-flight indicator appears (the "started" bridge to the WS reviewing flag).
+    await expect.element(page.getByText(m.planpanel_reviewing())).toBeVisible();
   });
 
   it("explains the required plan artifact in the planning/no-gate empty state", async () => {

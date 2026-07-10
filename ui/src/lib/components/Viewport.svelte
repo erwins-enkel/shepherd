@@ -75,6 +75,7 @@
   import { modelLabel } from "$lib/model-label";
   import { effortLabel } from "$lib/effort-guidance";
   import { buildPreviewUrl } from "$lib/previewUrl";
+  import { longPress } from "./longpress";
 
   // Enter pinned in the thumb zone — locale-reactive for its accessible name.
   const enter = $derived(enterKey());
@@ -430,6 +431,10 @@
   const tabId = $derived((t: typeof tab) => `vp-tab-${t}-${session.id}`);
 
   function toggleFold() {
+    // also a ViewportTabBar callback — callers that never pass through onTitleTap's
+    // swallow guard, so reset the popover flags here too (holdOpen would leak a
+    // bound capture listener; focusOpen a stuck-open popover).
+    resetMeta();
     headerCollapsed = !headerCollapsed;
     // folding hides the tab switcher, so a non-terminal tab would be stranded with no
     // way back except unfolding — and its panel would keep filling the body, reclaiming
@@ -943,6 +948,15 @@
   // svelte-ignore state_referenced_locally
   let preFoldTab: typeof tab = tab;
   function onTitleTap() {
+    // A tap while the popover is held open is a dismissal, nothing else: swallow it
+    // so it neither folds the header nor toggles the git rail nor starts a rename.
+    // Reset lastTitleTap so this closing tap isn't read as the first half of a
+    // double-tap (a double-tap over an open popover must not rename).
+    if (holdOpen) {
+      holdOpen = false;
+      lastTitleTap = 0;
+      return;
+    }
     const now = Date.now();
     if (now - lastTitleTap < DOUBLE_TAP_MS) {
       lastTitleTap = 0;
@@ -970,6 +984,170 @@
       void startRename();
     }
   }
+
+  // ── task-info popover reveal ────────────────────────────────────────────────
+  // The .desig-pop tooltip used to be revealed purely by CSS (:hover / :focus-
+  // within), which both fire on a touch tap — so one tap popped the popover *and*
+  // folded the header. The reveal is now driven from state, one flag per gesture,
+  // and the CSS keys off .desig-wrap.meta-open instead.
+  let hoverOpen = $state(false); // pointerenter/leave on .desig-wrap, non-touch only
+  let focusOpen = $state(false); // focusin/out on the wrap, keyboard/AT-origin only
+  let holdOpen = $state(false); // longPress toggle (touch only)
+  const metaVisible = $derived(hoverOpen || focusOpen || holdOpen);
+  // SSR-stable id for the aria-describedby span that advertises the affordance.
+  const metaDescId = $props.id();
+
+  // bind:this targets. desigWrapEl is bound on BOTH .desig-wrap branches (phone
+  // .ctx + desktop) — miss the phone branch and insideTitle() returns false for
+  // .ctx-trigger, so the closing re-tap would leak through and fold the header.
+  // vpNameEl exists only on the desktop branch (.vp-name isn't rendered on phone),
+  // so insideTitle() tolerates it being undefined via `?.`.
+  let desigWrapEl = $state<HTMLElement | undefined>();
+  let vpNameEl = $state<HTMLElement | undefined>();
+  let renameFieldEl = $state<HTMLElement | undefined>();
+
+  // .vp-name is a *sibling* of .desig-wrap, not a descendant, so the "inside the
+  // title" region is a union — a containment test against .desig-wrap alone would
+  // class the very .vp-name you long-pressed as outside. Widened to
+  // EventTarget|Node|null because callers pass e.target / e.relatedTarget, never a
+  // bare Node; Node.contains(null) === false is the behaviour we want.
+  const insideTitle = (t: EventTarget | Node | null) =>
+    t instanceof Node && (!!desigWrapEl?.contains(t) || !!vpNameEl?.contains(t));
+  const insideRenameField = (t: EventTarget | Node | null) =>
+    t instanceof Node && !!renameFieldEl?.contains(t);
+
+  function resetMeta() {
+    hoverOpen = false;
+    focusOpen = false;
+    holdOpen = false;
+  }
+
+  // Pointer-origin detection for focus, without a stranded flag. A touch that
+  // yields focus must have lifted before longPress fired at 500ms (otherwise
+  // touchend is preventDefault'd and no focus arrives), so pointerdown→focus is
+  // bounded just above 500ms; mouse is ~1ms; AT focus has no preceding pointerdown
+  // and ages out. Date.now() (NOT performance.now()) deliberately: it is mockable
+  // via vi.setSystemTime, matches lastTitleTap's clock, and monotonicity is
+  // irrelevant for a 600ms recency window. lastPointerType lets oncontextmenu on
+  // the triggers suppress the native menu only for a real touch long-press, not for
+  // a mouse right-click on a touchscreen laptop (the device `touch` prop can't tell
+  // them apart).
+  const POINTER_FOCUS_MS = 600; // > longPress's 500ms
+  let lastPointerDownAt = -Infinity;
+  let lastPointerType = "";
+  $effect(() => {
+    const onWinPointerDown = (e: PointerEvent) => {
+      lastPointerDownAt = Date.now();
+      lastPointerType = e.pointerType;
+    };
+    const onWinKeyDown = () => {
+      lastPointerDownAt = -Infinity; // keyboard wins → any following focus opens
+      lastPointerType = ""; // so the keyboard Menu key isn't suppressed
+    };
+    window.addEventListener("pointerdown", onWinPointerDown, { capture: true });
+    window.addEventListener("keydown", onWinKeyDown, { capture: true });
+    return () => {
+      window.removeEventListener("pointerdown", onWinPointerDown, { capture: true });
+      window.removeEventListener("keydown", onWinKeyDown, { capture: true });
+    };
+  });
+
+  // pointerenter/leave (NOT over/out — those bubble on descendant transitions, so
+  // moving into the popover would close it). Early-return on touch: a touch never
+  // fires pointerenter with pointerType "mouse" (its compat events are MouseEvents,
+  // not PointerEvents), and a pen must still open (guard is !== "touch", not
+  // === "mouse").
+  function onWrapPointerEnter(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    hoverOpen = true;
+  }
+  function onWrapPointerLeave(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    hoverOpen = false;
+  }
+
+  // focusin/focusout on the WRAP, not focus/blur on the trigger: .desig-pop lives
+  // inside .desig-wrap, so if AT (VoiceOver/TalkBack) moves DOM focus into the
+  // popover to read it, focus/blur on .desig would collapse it mid-read. We diverge
+  // from UnitRow's `:focus-visible` gate deliberately — UnitRow's tooltip is
+  // decorative, ours is the only AT path to the launch details, and whether
+  // :focus-visible matches AT-driven focus is UA-dependent. Instead we ask *where
+  // the focus came from* (recent pointerdown ⇒ mouse/touch ⇒ suppress; otherwise
+  // keyboard/AT ⇒ reveal). NEVER clear the origin on pointerup — on touch it
+  // precedes the compat mousedown that delivers focus — and NEVER use a sticky
+  // boolean: a held press preventDefault's touchend, so no focus ever arrives to
+  // consume it and the flag would strand.
+  function onWrapFocusIn(e: FocusEvent) {
+    if (renaming || insideRenameField(e.target)) return;
+    if (insideTitle(e.relatedTarget)) return; // moving within the title region
+    const pointerDriven = Date.now() - lastPointerDownAt <= POINTER_FOCUS_MS;
+    focusOpen = !pointerDriven;
+  }
+  function onWrapFocusOut(e: FocusEvent) {
+    if (renaming || insideRenameField(e.target)) return;
+    if (insideTitle(e.relatedTarget)) return; // focus staying within the wrap (AT read)
+    focusOpen = false;
+  }
+
+  // longPress trigger (touch): open the popover (the close path is the onTitleTap
+  // swallow on the next tap). Returns true so longPress preventDefault's the trailing
+  // synthetic click, keeping the gesture clean.
+  function openMeta() {
+    holdOpen = true;
+    return true;
+  }
+  // Android Chrome fires a native contextmenu on long-press (can cancel the timer);
+  // suppress it only for a genuine touch press, read from the preceding pointerdown.
+  function onTriggerContextMenu(e: Event) {
+    if (lastPointerType === "touch") e.preventDefault();
+  }
+
+  // Reset all three flags on unit switch — a programmatic session switch would
+  // otherwise carry the previous session's open popover onto the new title. Mirrors
+  // the disarm-on-unit-switch effect below.
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    unitId;
+    resetMeta();
+  });
+  // Reset on every renaming transition (entering *and* leaving the editor). Not
+  // inside startRename(): it resets before its own await tick() → select(), which
+  // then fires focusin and re-opens focusOpen; the $effect runs after the DOM
+  // settles and also covers cancelRename()/commitRename(), which startRename()
+  // never sees. Closes the "popover remounts stuck open after a rename commits"
+  // hazard (Chrome doesn't reliably fire focusout on a removed element).
+  $effect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
+    renaming;
+    resetMeta();
+  });
+
+  // Dismissal — bound while metaVisible (not just holdOpen) so a keyboard user who
+  // opened it via focusOpen can still Escape it. Escape clears only the *latches*
+  // (focusOpen, holdOpen); hoverOpen is live cursor-tracking already cleared by the
+  // pointerleave that ends the hover, and clearing it here would hide the popover
+  // with the cursor still inside the wrap, dead until the pointer leaves and
+  // re-enters. An outside pointerdown closes everything. (Scroll-to-close and
+  // focus-restore from AddRepoMenu are deliberately skipped: .desig-pop is itself
+  // overflow:auto and is never focused.)
+  $effect(() => {
+    if (!metaVisible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        focusOpen = false;
+        holdOpen = false;
+      }
+    };
+    const onDown = (e: PointerEvent) => {
+      if (!insideTitle(e.target)) resetMeta();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("pointerdown", onDown, { capture: true });
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, { capture: true });
+    };
+  });
 
   // ── stop preview ──────────────────────────────────────────────────────────
   // Per-session "stop in flight" guard: keyed by session id. The 15s timer fires
@@ -2105,7 +2283,7 @@
        title's own slot in place (see desig/ctx-name below), so there is no
        separate field or pencil button. -->
   {#snippet renameField()}
-    <span class="rename-edit">
+    <span class="rename-edit" bind:this={renameFieldEl}>
       <input
         bind:this={renameInput}
         class="rename-input"
@@ -2220,7 +2398,21 @@
           }}>{repoIcon}</span
         >
       {/if}
-      <span class="desig-wrap ctx" class:editing={renaming}>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- the wrap is a non-interactive container; the pointer/focus handlers only
+           track hover/focus state to reveal the popover. The interactive trigger
+           (.ctx-trigger, role="button") lives inside it. -->
+      <span
+        class="desig-wrap ctx"
+        class:editing={renaming}
+        class:meta-open={metaVisible}
+        class:hovering={hoverOpen}
+        bind:this={desigWrapEl}
+        onpointerenter={onWrapPointerEnter}
+        onpointerleave={onWrapPointerLeave}
+        onfocusin={onWrapFocusIn}
+        onfocusout={onWrapFocusOut}
+      >
         {#if renaming}
           {@render renameField()}
         {:else}
@@ -2229,8 +2421,11 @@
             role="button"
             tabindex="0"
             aria-label={`${m.topbar_detail_context_aria({ repo: repoName, name: session.name })} — ${m.viewport_title_enter_renames()}`}
+            aria-describedby={metaDescId}
             onclick={onTitleTap}
             onkeydown={onTitleKey}
+            oncontextmenu={onTriggerContextMenu}
+            use:longPress={{ onTrigger: openMeta }}
           >
             {#if !repoIcon}
               <span class="ctx-glyph" aria-hidden="true">▣</span>
@@ -2243,11 +2438,26 @@
           </span>
           {@render metaPop()}
         {/if}
+        <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
       </span>
     {:else}
       <!-- TASK-XX: hover/focus reveals the secondary meta (profile + token usage)
            that used to sit inline in the header, reclaiming horizontal space -->
-      <span class="desig-wrap" class:editing={renaming}>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <!-- non-interactive container; pointer/focus handlers only track state to
+           reveal the popover. The interactive trigger (.desig, role="button")
+           lives inside it. -->
+      <span
+        class="desig-wrap"
+        class:editing={renaming}
+        class:meta-open={metaVisible}
+        class:hovering={hoverOpen}
+        bind:this={desigWrapEl}
+        onpointerenter={onWrapPointerEnter}
+        onpointerleave={onWrapPointerLeave}
+        onfocusin={onWrapFocusIn}
+        onfocusout={onWrapFocusOut}
+      >
         {#if renaming}
           {@render renameField()}
         {:else}
@@ -2256,11 +2466,15 @@
             role="button"
             tabindex="0"
             aria-label={`${m.viewport_meta_aria()} — ${m.viewport_title_enter_renames()}`}
+            aria-describedby={metaDescId}
             onclick={onTitleTap}
-            onkeydown={onTitleKey}>{session.desig}</span
+            onkeydown={onTitleKey}
+            oncontextmenu={onTriggerContextMenu}
+            use:longPress={{ onTrigger: openMeta }}>{session.desig}</span
           >
           {@render metaPop()}
         {/if}
+        <span class="vp-meta-sr" id={metaDescId}>{m.viewport_meta_desc()}</span>
       </span>
       {#if !renaming}
         <!-- visible task title: on normal desktop this restores the name beside the
@@ -2270,7 +2484,18 @@
              same identity), so no role/tabindex/keydown by design. Hidden while
              renaming: the input already shows the editable name in the desig slot. -->
         <!-- svelte-ignore a11y_click_events_have_key_events, a11y_no_static_element_interactions -->
-        <span class="vp-name" title={session.name} onclick={onTitleTap}>{session.name}</span>
+        <!-- keep use:longPress here — .vp-name is the most obvious hold target on
+             touch-desktop; dropping it leaves that press doing nothing. The popover
+             still anchors to .desig-wrap (its sibling). Mouse hover on .vp-name opens
+             nothing (the pointer handlers are on the wrap) — pre-existing, unchanged. -->
+        <span
+          class="vp-name"
+          title={session.name}
+          bind:this={vpNameEl}
+          onclick={onTitleTap}
+          oncontextmenu={onTriggerContextMenu}
+          use:longPress={{ onTrigger: openMeta }}>{session.name}</span
+        >
       {/if}
     {/if}
     {#if !compact}
@@ -2857,6 +3082,9 @@
     position: relative;
     flex-shrink: 0;
     display: inline-flex;
+    /* shared by .desig-pop's width and the hover-bridge ::after below, so the
+       bridge spans the popover (up to 520px), not the narrow chip. */
+    --desig-pop-w: min(520px, calc(100vw - 24px));
   }
 
   /* the task designation as a read-only ghost chip: boxed at the 6px chip radius
@@ -2873,12 +3101,16 @@
     border: 1px solid var(--color-line);
     border-radius: 6px;
     padding: 3px 9px;
-    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick.
+       -webkit-touch-callout: a 500ms hold on this text would otherwise raise iOS
+       Safari's selection callout/magnifier over the popover (user-select:none alone
+       doesn't suppress it) — mirrors UnitRow's long-press-on-text fix. */
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
   }
-  .desig-wrap:hover .desig {
+  .desig-wrap.hovering .desig {
     color: var(--color-ink-bright);
     border-color: var(--color-line-bright);
     background: var(--color-hover);
@@ -2894,7 +3126,7 @@
     border-radius: 0;
     padding: 0;
   }
-  .vp-head.mobile .desig-wrap:hover .desig {
+  .vp-head.mobile .desig-wrap.hovering .desig {
     color: var(--color-ink);
     border-color: var(--color-line);
     background: transparent;
@@ -2915,7 +3147,7 @@
     display: none;
     flex-direction: column;
     gap: 4px;
-    width: min(520px, calc(100vw - 24px));
+    width: var(--desig-pop-w);
     max-height: min(70vh, 720px);
     overflow: auto;
     padding: 8px 10px;
@@ -2927,9 +3159,26 @@
     text-transform: none;
     letter-spacing: normal;
   }
-  .desig-wrap:hover .desig-pop,
-  .desig-wrap:focus-within .desig-pop {
+  .desig-wrap.meta-open .desig-pop {
     display: flex;
+  }
+  /* Hover-bridge: .desig-pop sits at top:calc(100% + 4px), so a 4px dead band
+     outside the wrap separates chip from popover; a mouse crossing it fires
+     pointerleave and closes the popover before reaching its scrollable content.
+     This out-of-flow ::after (a pseudo-element's hit target is its origin element,
+     so the pointer never actually leaves .desig-wrap) bridges the band. Gated on
+     .hovering (never true for touch) — never .meta-open — so no dead hit-strip is
+     laid across a wrapped phone header; :not(.editing) so it isn't armed with the
+     rename editor (and no popover) beneath it. position:absolute is required: the
+     wrap is inline-flex, so an in-flow ::after would become a flex item and widen
+     the chip. */
+  .desig-wrap.hovering:not(.editing)::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: var(--desig-pop-w);
+    height: 4px;
   }
   .dp-row {
     display: grid;
@@ -2960,10 +3209,13 @@
   .vp-name {
     color: var(--color-ink);
     font-size: var(--fs-base);
-    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick.
+       -webkit-touch-callout: suppress iOS Safari's selection callout on a 500ms hold
+       (the hold that opens the popover) — see .desig. */
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
     /* flex-basis 0 (not auto) so the name's content width doesn't drive the
        wrap calc on mobile — otherwise a long name reserves the whole row and
        pushes the decommission button onto the next line. It absorbs the slack
@@ -3120,10 +3372,13 @@
     gap: 6px;
     min-width: 0;
     cursor: default;
-    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick */
+    /* double-tap renames: no double-tap zoom, no text-selection flash on dblclick.
+       -webkit-touch-callout: suppress iOS Safari's selection callout on a 500ms hold
+       (the hold that opens the popover) — see .desig. */
     touch-action: manipulation;
     -webkit-user-select: none;
     user-select: none;
+    -webkit-touch-callout: none;
   }
   .ctx-glyph {
     color: var(--color-amber);
@@ -3211,8 +3466,12 @@
   }
 
   /* status word for assistive tech only; sighted users read it from the tint +
-     the leading shape glyph (blocked/done) */
-  .vp-status-sr {
+     the leading shape glyph (blocked/done). .vp-meta-sr shares the recipe: the
+     aria-describedby target that advertises the popover affordance, mounted as the
+     last child of .desig-wrap (position:absolute keeps it out of the inline-flex
+     flow so it never widens the chip). */
+  .vp-status-sr,
+  .vp-meta-sr {
     position: absolute;
     width: 1px;
     height: 1px;

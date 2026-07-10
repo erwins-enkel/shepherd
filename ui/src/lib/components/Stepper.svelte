@@ -3,6 +3,7 @@
   import { reviews } from "$lib/reviews.svelte";
   import { deriveStage, STAGE_ORDER, PR_INDEX, REVIEW_INDEX, type Stage } from "./stage";
   import type { ChecksState } from "$lib/types";
+  import { anchorPopover } from "$lib/floating-anchor";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -10,11 +11,16 @@
     git,
     readyToMerge,
     planPhase = null,
+    onactivate,
   }: {
     sessionId: string;
     git?: GitState;
     readyToMerge: boolean;
     planPhase?: Session["planPhase"];
+    // Activating the bar (click / Enter / Space) selects the row — same action as
+    // the card's primary .unit-hit button. Optional so the component stays usable
+    // standalone (e.g. tests / stories).
+    onactivate?: () => void;
   } = $props();
 
   const verdict = $derived(reviews.map[sessionId]);
@@ -27,6 +33,15 @@
     pr: m.activity_stage_pr,
     review: m.activity_stage_review,
     ready: m.activity_stage_ready,
+  };
+
+  // Plain-language explanation of what each stage means, shown per legend row.
+  const STAGE_DESC: Record<Stage, () => string> = {
+    planning: m.stepper_desc_planning,
+    implementing: m.stepper_desc_implementing,
+    pr: m.stepper_desc_pr,
+    review: m.stepper_desc_review,
+    ready: m.stepper_desc_ready,
   };
 
   // Localized CI verdict word, keyed by the checks rollup.
@@ -71,11 +86,11 @@
     return m.stepper_legend_pending();
   }
 
-  // Accessible name: progress + CI verdict (once the PR stage is reached) + review
-  // verdict (once the review stage is reached), so pass/fail is conveyed by text —
-  // not by segment color alone (WCAG 1.4.1). States without a *_STATE_LABEL entry
-  // (`none`, review `error`) have no verdict to announce and omit their clause.
-  const ariaLabel = $derived.by(() => {
+  // Progress summary: stage + CI verdict (once PR reached) + review verdict (once
+  // review reached), so pass/fail is conveyed by text, not segment color alone
+  // (WCAG 1.4.1). States without a *_STATE_LABEL entry (`none`, review `error`)
+  // omit their clause.
+  const progressLabel = $derived.by(() => {
     const parts: string[] = [m.activity_progress({ stage: STAGE_LABEL[info.reached]() })];
     const ciWord = CI_STATE_LABEL[info.ci]?.();
     if (prReached && ciWord) parts.push(m.activity_ci_status({ state: ciWord }));
@@ -84,36 +99,76 @@
     return parts.join(" · ");
   });
 
-  // --- Hover legend (desktop only; pure visual duplicate of ariaLabel) ---
-  const LEGEND_W = 220;
-  // Flip the popover below the stepper when there isn't room above it.
-  // ~110px legend height + ~50px margin headroom = 160px safe zone from top.
-  const FLIP_BELOW_PX = 160;
-  let stepperEl: HTMLSpanElement | undefined = $state();
-  // null = closed; `top` xor `bottom` set depending on flip.
-  let legendPos = $state<{ top?: number; bottom?: number; left: number } | null>(null);
+  // Accessible name discloses the activation target (activating opens the session,
+  // same as the primary .unit-hit button) — not only the progress status.
+  const openLabel = $derived(`${m.stepper_open_hint()} · ${progressLabel}`);
 
-  function openLegend() {
-    // Touch devices fire synthetic mouseenter on tap — guard with hover-capable check
-    // so the legend only opens for real pointer devices (CSS hover media query).
-    if (!window.matchMedia("(hover: hover)").matches) return;
-    const r = stepperEl?.getBoundingClientRect();
-    if (!r) return;
-    const left = Math.max(8, Math.min(r.left, window.innerWidth - LEGEND_W - 8));
-    // position: fixed because the card clips (overflow: hidden); above by
-    // default, flipped below when too close to the viewport top.
-    legendPos =
-      r.top < FLIP_BELOW_PX
-        ? { top: r.bottom + 6, left }
-        : { bottom: window.innerHeight - r.top + 6, left };
+  // --- Legend tooltip (native top-layer popover; desktop hover/focus only) ---
+  // Reuses the InfoTip / anchorPopover recipe so the popover escapes the card's
+  // overflow clipping and is placed with Floating UI flip/shift.
+  const legendId = $props.id();
+  let open = $state(false);
+  let stepperEl = $state<HTMLButtonElement | null>(null);
+  let legendEl = $state<HTMLElement | null>(null);
+
+  const isCoarse = () =>
+    typeof window !== "undefined" && window.matchMedia("(pointer: coarse)").matches;
+
+  // Fine pointer: hover opens. Touch pointerenter is skipped so a tap just selects
+  // the row (no tap-toggle) rather than popping a desktop tooltip.
+  function onEnter(e: PointerEvent) {
+    if (e.pointerType !== "touch") open = true;
+  }
+  // Focus opens on fine pointers only. A touch tap also focuses the button, so
+  // gating on coarse keeps a tap from opening the tooltip (point: desktop affordance).
+  function onOpen() {
+    if (!isCoarse()) open = true;
+  }
+  function onClose() {
+    open = false;
   }
 
-  // A fixed-position popover detaches from its row on scroll — dismiss immediately.
+  // Position the popover above the bar whenever open + both elements exist.
+  // anchorPopover's teardown hides the popover, so flipping `open` false closes it.
   $effect(() => {
-    if (!legendPos) return;
-    const close = () => (legendPos = null);
-    window.addEventListener("scroll", close, true);
-    return () => window.removeEventListener("scroll", close, true);
+    if (!open || !stepperEl || !legendEl) return;
+    try {
+      legendEl.showPopover();
+    } catch {
+      return; // not connected this tick — effect re-runs once legendEl mounts
+    }
+    return anchorPopover(stepperEl, legendEl, 6, "top");
+  });
+
+  // Dismiss on Esc, outside pointerdown, and scroll/resize (mirrors InfoTip).
+  $effect(() => {
+    if (!open) return;
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") open = false;
+    }
+    function onPointerdown(e: PointerEvent) {
+      if (
+        legendEl &&
+        !legendEl.contains(e.target as Node) &&
+        stepperEl &&
+        !stepperEl.contains(e.target as Node)
+      ) {
+        open = false;
+      }
+    }
+    function onScrollOrResize() {
+      open = false;
+    }
+    window.addEventListener("keydown", onKeydown);
+    window.addEventListener("pointerdown", onPointerdown);
+    window.addEventListener("scroll", onScrollOrResize, { capture: true, passive: true });
+    window.addEventListener("resize", onScrollOrResize, { passive: true });
+    return () => {
+      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("pointerdown", onPointerdown);
+      window.removeEventListener("scroll", onScrollOrResize, { capture: true });
+      window.removeEventListener("resize", onScrollOrResize);
+    };
   });
 </script>
 
@@ -122,13 +177,20 @@
     {info.terminal === "merged" ? m.activity_merged() : m.activity_closed()}
   </span>
 {:else}
-  <span
+  <!-- Activatable, focusable control (a real <button>, not a clickable role=img):
+       hover/focus reveals the legend, click/Enter/Space selects the row. Raised
+       above the .unit-hit overlay so it actually receives the pointer/focus. -->
+  <button
+    type="button"
     class="stepper"
-    role="img"
-    aria-label={ariaLabel}
+    aria-label={openLabel}
+    aria-describedby={legendId}
     bind:this={stepperEl}
-    onmouseenter={openLegend}
-    onmouseleave={() => (legendPos = null)}
+    onpointerenter={onEnter}
+    onpointerleave={onClose}
+    onfocus={onOpen}
+    onblur={onClose}
+    onclick={() => onactivate?.()}
   >
     {#each STAGE_ORDER as stage, i (stage)}
       <span
@@ -140,42 +202,64 @@
         aria-hidden="true"
       ></span>
     {/each}
-    {#if legendPos}
-      <!-- visual-only duplicate of ariaLabel (no role, inert to pointer/AT) -->
-      <span
-        class="legend"
-        aria-hidden="true"
-        style:width="{LEGEND_W}px"
-        style:left="{legendPos.left}px"
-        style:top={legendPos.top != null ? `${legendPos.top}px` : undefined}
-        style:bottom={legendPos.bottom != null ? `${legendPos.bottom}px` : undefined}
-      >
-        {#each STAGE_ORDER as stage, i (stage)}
-          {@const verdictWord = legendVerdict(i)}
-          <span class="lg-row" class:cur={i === info.index}>
-            <span
-              class="seg sw {segTint(i) ?? ''}"
-              class:done={i < info.index}
-              class:active={i === info.index}
-              class:pending={i > info.index}
-              class:skipped={stage === "planning" && info.planningSkipped}
-            ></span>
-            <span class="lg-label">
-              {STAGE_LABEL[stage]()}{verdictWord ? ` — ${verdictWord}` : ""}
-            </span>
-            <span class="lg-state">{legendState(i)}</span>
+  </button>
+  <!-- role=tooltip so aria-describedby surfaces the stage legend to screen readers.
+       popover=manual: native top-layer, escapes the card's overflow:hidden. A
+       <span> (phrasing) — not a <div> — so it stays valid inside the phrasing-only
+       .meta-stepper / .meta wrapper at the call site; every child here is a span. -->
+  <span id={legendId} bind:this={legendEl} class="legend" role="tooltip" popover="manual">
+    {#each STAGE_ORDER as stage, i (stage)}
+      {@const verdictWord = legendVerdict(i)}
+      <span class="lg-row" class:cur={i === info.index}>
+        <span
+          class="seg sw {segTint(i) ?? ''}"
+          class:done={i < info.index}
+          class:active={i === info.index}
+          class:pending={i > info.index}
+          class:skipped={stage === "planning" && info.planningSkipped}
+          aria-hidden="true"
+        ></span>
+        <span class="lg-text">
+          <span class="lg-label">
+            {STAGE_LABEL[stage]()}{verdictWord ? ` — ${verdictWord}` : ""}
           </span>
-        {/each}
+          <span class="lg-desc">{STAGE_DESC[stage]()}</span>
+        </span>
+        <span class="lg-state">{legendState(i)}</span>
       </span>
-    {/if}
+    {/each}
   </span>
 {/if}
 
 <style>
+  /* Button reset (mirrors InfoTip's .info) so the bar looks unchanged, plus the
+     control-only raise above .unit-hit (the bug fix). The terminal .chip branch is
+     deliberately left unraised so clicking it still falls through to row-select. */
   .stepper {
+    position: relative;
+    z-index: 1;
     display: inline-flex;
     align-items: center;
     gap: 3px;
+    margin: 0;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: help;
+  }
+  /* Enlarge the pointer/focus target well beyond the 3px-tall lamps, with no
+     reflow (the halo is an absolutely-positioned pseudo, not layout box). */
+  .stepper::before {
+    content: "";
+    position: absolute;
+    inset: -8px -6px;
+  }
+  .stepper:focus-visible {
+    outline: 2px solid var(--color-line-bright);
+    outline-offset: 3px;
+    border-radius: 2px;
   }
   /* Small quiet segments for a dense list row. */
   .seg {
@@ -218,46 +302,65 @@
     outline: 1px solid var(--color-red);
     outline-offset: 1px;
   }
-  /* Hover legend — fixed so the card's overflow:hidden can't clip it.
-     Width is set via style:width="{LEGEND_W}px" to keep the single source of truth. */
-  .legend {
+  /* Top-layer popover positioning: fixed + inset:auto + margin:0 lets Floating UI
+     drive left/top without fighting browser default centering. */
+  [popover].legend {
     position: fixed;
+    inset: auto;
+    margin: 0;
     z-index: 30;
-    pointer-events: none;
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    width: min(300px, 92vw);
+    gap: 4px;
     padding: 6px 8px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
-    font-size: var(--fs-micro);
-    line-height: 1.5;
+    box-shadow: var(--shadow-popover);
+    font-size: var(--fs-meta);
+    line-height: 1.4;
     text-align: left;
   }
-  .lg-row {
+  /* Flex layout applies only when shown — the closed popover keeps the UA
+     `display:none` so it never intercepts pointer events or reserves space. */
+  [popover].legend:popover-open {
     display: flex;
-    align-items: center;
+    flex-direction: column;
+  }
+  .lg-row {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
     gap: 6px;
     color: var(--color-muted);
   }
   .lg-row.cur {
     color: var(--color-ink);
   }
-  .lg-label {
-    flex: 1;
+  .lg-text {
     min-width: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .lg-label {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+  .lg-desc {
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    white-space: normal;
+    line-height: 1.35;
+  }
   .lg-state {
     flex: none;
+    white-space: nowrap;
   }
-  /* legend swatch reuses .seg state classes (tint + done/active/pending); only its width differs. */
+  /* legend swatch reuses .seg state classes (tint + done/active/pending); a wider
+     bar, nudged down to align with the label's first line. */
   .seg.sw {
     width: 12px;
+    margin-top: 5px;
   }
   .chip {
     font-size: var(--fs-micro);

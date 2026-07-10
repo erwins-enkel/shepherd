@@ -696,3 +696,84 @@ describe("UnitRow manual-steps chip", () => {
     await expect.element(page.getByText(m.unitrow_manual_steps({ count: 1 }))).toBeInTheDocument();
   });
 });
+
+describe("UnitRow stepper bar", () => {
+  // A running session makes showStepper true, so the .stepper <button> renders.
+  function renderRunning(onselect: (id: string) => void): HTMLButtonElement {
+    render(UnitRow, {
+      session: session({ id: "step-1", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect,
+    });
+    return document.querySelector("button.stepper") as HTMLButtonElement;
+  }
+
+  it("is pointer-targetable above the .unit-hit overlay and opens the legend on hover", async () => {
+    const stepper = renderRunning(() => {});
+    expect(stepper, "stepper button renders for a running session").not.toBeNull();
+    const r = stepper.getBoundingClientRect();
+
+    // (a) TARGETING — at the bar centre the pointer lands on the raised stepper,
+    // not the transparent .unit-hit click overlay (it did before the z-index fix).
+    const hit = document.elementFromPoint(
+      r.left + r.width / 2,
+      r.top + r.height / 2,
+    ) as HTMLElement;
+    expect(stepper.contains(hit) || hit === stepper, "centre targets the stepper").toBe(true);
+    expect(hit.closest(".unit-hit"), "centre is not the overlay").toBeNull();
+
+    // (b) OPENING — the hover entry the overlay used to swallow now opens the legend.
+    stepper.dispatchEvent(
+      new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }),
+    );
+    await vi.waitFor(() => {
+      const tip = stepper.getAttribute("aria-describedby");
+      expect(document.getElementById(tip!)?.matches(":popover-open"), "legend opens on hover").toBe(
+        true,
+      );
+    });
+  });
+
+  it("clicking the bar selects the row exactly once, while hover does not select", async () => {
+    const selected: string[] = [];
+    const stepper = renderRunning((id) => selected.push(id));
+
+    // Hover explains — it must NOT select the row.
+    stepper.dispatchEvent(
+      new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }),
+    );
+    expect(selected, "hover does not select").toEqual([]);
+
+    // Click activates the row exactly once (no dead zone from the raise).
+    stepper.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(selected, "click forwards exactly one onselect(session.id)").toEqual(["step-1"]);
+  });
+
+  it("the enlarged ::before halo (outside the visible 3px bar) targets the stepper and forwards one onselect on click", async () => {
+    const selected: string[] = [];
+    const stepper = renderRunning((id) => selected.push(id));
+    const r = stepper.getBoundingClientRect();
+
+    // A point 4px BELOW the 3px bar — inside the ::before halo (inset -8px), outside
+    // the visible segments. Without the enlarged pseudo this resolves to .unit-hit.
+    const hx = r.left + r.width / 2;
+    const hy = r.bottom + 4;
+    const halo = document.elementFromPoint(hx, hy) as HTMLElement;
+    expect(halo?.closest(".stepper"), "halo point targets the stepper").toBe(stepper);
+    expect(halo.closest(".unit-hit"), "halo is not the overlay").toBeNull();
+
+    // Hovering the halo opens the legend.
+    stepper.dispatchEvent(
+      new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }),
+    );
+    await vi.waitFor(() => {
+      const tip = stepper.getAttribute("aria-describedby");
+      expect(document.getElementById(tip!)?.matches(":popover-open")).toBe(true);
+    });
+
+    // Clicking the halo selects the row exactly once.
+    halo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    expect(selected, "halo click forwards exactly one onselect").toEqual(["step-1"]);
+  });
+});

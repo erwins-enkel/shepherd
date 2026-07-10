@@ -611,6 +611,7 @@
             {git}
             readyToMerge={session.readyToMerge}
             planPhase={session.planPhase}
+            onactivate={() => onselect(session.id)}
           />
         </span>
       {/if}

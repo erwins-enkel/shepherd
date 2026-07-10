@@ -114,13 +114,45 @@ describe("Stepper aria-label contract", () => {
     const reviewWord = m.activity_review_changes();
     const reviewLabel = m.activity_review_status({ state: reviewWord });
 
-    // Find the stepper element by role.
-    const stepper = document.querySelector('[role="img"]');
-    expect(stepper, "stepper element present").not.toBeNull();
+    // The bar is a <button> (activatable, focusable) — not a role=img.
+    const stepper = document.querySelector("button.stepper");
+    expect(stepper, "stepper button present").not.toBeNull();
 
     const label = stepper!.getAttribute("aria-label") ?? "";
+    // Name discloses the activation target (opens the session), not only progress.
+    expect(label, "aria-label discloses open-session action").toContain(m.stepper_open_hint());
     expect(label, "aria-label contains progress stage").toContain(progressLabel);
     expect(label, "aria-label contains CI failure").toContain(ciLabel);
     expect(label, "aria-label contains review changes-requested").toContain(reviewLabel);
+  });
+});
+
+describe("Stepper legend tooltip", () => {
+  it("opens the role=tooltip legend on keyboard focus (fine pointer)", async () => {
+    render(Stepper, {
+      sessionId: "legend-focus-1",
+      readyToMerge: false,
+      planPhase: "executing",
+    });
+
+    const stepper = document.querySelector("button.stepper") as HTMLButtonElement;
+    expect(stepper, "stepper button present").not.toBeNull();
+    // Legend is described-by the button and starts closed.
+    const tipId = stepper.getAttribute("aria-describedby");
+    expect(tipId, "button has aria-describedby").toBeTruthy();
+
+    stepper.focus();
+    await vi.waitFor(() => {
+      const tip = document.getElementById(tipId!);
+      expect(tip, "legend is the described element").not.toBeNull();
+      expect(tip!.getAttribute("role"), "legend is a tooltip").toBe("tooltip");
+      expect(tip!.matches(":popover-open"), "legend popover is open on focus").toBe(true);
+    });
+
+    // A plain-language description renders inside the open legend.
+    const legend = document.getElementById(tipId!)!;
+    expect(legend.textContent, "legend includes a stage description").toContain(
+      m.stepper_desc_implementing(),
+    );
   });
 });

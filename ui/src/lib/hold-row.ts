@@ -43,8 +43,10 @@ export function rowState(
   gate: PlanGate | undefined,
   planReviewing: boolean,
   serverHold: HoldReason | undefined,
+  // Callers that already computed the chip (rowHold) pass it in to avoid recomputing the
+  // identical pure value; direct callers (tests) omit it and it's derived here.
+  chip: PlanGateChip = planGateChip(session, gate, planReviewing, { allowView: false }),
 ): RowState {
-  const chip = planGateChip(session, gate, planReviewing, { allowView: false });
   const running = session.status === "running";
   const parked = session.status === "idle" || session.status === "done";
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
@@ -144,8 +146,8 @@ export function rowHold(
   planReviewing: boolean,
   serverHold: HoldReason | undefined,
 ): RowHold {
-  const state = rowState(session, gate, planReviewing, serverHold);
   const chip = planGateChip(session, gate, planReviewing, { allowView: false });
+  const state = rowState(session, gate, planReviewing, serverHold, chip);
   const ctx: Ctx = { gate, chip, serverHold };
   return { state, line: LINE[state](ctx), action: ACTION[state]() };
 }

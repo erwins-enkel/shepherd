@@ -1170,10 +1170,16 @@
       background 0.12s;
   }
   .hold-cta::after {
-    /* expand the hit target to >=44px without changing visual geometry */
+    /* Enlarge the hit target without changing visual geometry. The TOP inset is clamped to
+       -2px: the subline sits only 3px below the (2-line) .u-sub prompt, and this button is
+       raised above the .unit-hit select overlay — a larger upward bleed would let clicks in
+       the prompt band arm the CTA (esp. Go) instead of selecting the row. Downward/sideways
+       expansion is safe (the next row paints on top; the subline's sides are non-interactive),
+       so the target grows there instead. Deliberately below the 44px mobile bar on this dense
+       desktop-primary row. */
     content: "";
     position: absolute;
-    inset: -14px -8px;
+    inset: -2px -10px -12px -10px;
   }
   .hold-cta:hover {
     background: color-mix(in oklab, var(--color-blue) 12%, transparent);

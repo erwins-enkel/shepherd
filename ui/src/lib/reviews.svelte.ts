@@ -11,15 +11,31 @@ import {
   putRepoConfig,
 } from "./api";
 
+/** Max lines kept in a review's rolling live-activity feed (the terminal preview shows these,
+ *  newest at the bottom). Bounded so the ephemeral tail can't grow without limit. */
+export const MAX_ACTIVITY_LINES = 4;
+
+/** Append `summary` to a bounded rolling feed, deduping against the last line (the server
+ *  re-emits the same summary every tick → no churn). Returns the SAME array reference when
+ *  nothing changed so callers can skip a reactive write. */
+function pushActivity(cur: string[] | undefined, summary: string): string[] {
+  const feed = cur ?? [];
+  if (feed[feed.length - 1] === summary) return feed; // unchanged → signal no-op to caller
+  return [...feed, summary].slice(-MAX_ACTIVITY_LINES);
+}
+
 /** Client cache of critic verdicts keyed by session id. Loaded once on app start;
  *  live updates arrive via the `session:review` WS event (see store.svelte.ts). */
 class ReviewsStore {
   map = $state<Record<string, ReviewVerdict>>({});
   // session ids with a critic run currently in flight; driven by `session:reviewing`
   reviewing = $state<Record<string, boolean>>({});
-  // latest tool-use summary of the in-flight critic, keyed by session id; driven by
-  // `session:critic-activity`. Surfaced in the badge tooltip; cleared when the run ends.
-  activity = $state<Record<string, string>>({});
+  // rolling live-activity feed (last MAX_ACTIVITY_LINES tool-use summaries) of the in-flight
+  // critic, keyed by session id; driven by `session:critic-activity`. Surfaced in the badge
+  // tooltip (latest line) and the review-in-flight banner preview (full feed). RESET on both
+  // ends of a reviewing transition (start + end) and wiped on bootstrap — see the staleness
+  // invariant: no line from a prior run or from before a reconnect may leak into a later preview.
+  activity = $state<Record<string, string[]>>({});
 
   async load() {
     try {
@@ -30,6 +46,9 @@ class ReviewsStore {
     try {
       // bootstrap in-flight runs so a reload mid-review still shows the indicator
       this.reviewing = Object.fromEntries((await getReviewingIds()).map((id) => [id, true]));
+      // Snapshot carries no historical activity → any pre-existing feed is stale after a resync.
+      // Wipe it; the live feed rebuilds from `session:critic-activity` within ~1 tick.
+      this.activity = {};
     } catch {
       /* best-effort; `session:reviewing` events still populate it */
     }
@@ -48,20 +67,27 @@ class ReviewsStore {
 
   setReviewing(id: string, on: boolean) {
     if (!!this.reviewing[id] === on) return;
+    // Any genuine transition resets the feed: on START a new run must begin empty (defensive
+    // against a missed end-clear), on END the finished run's live tail is stale. Guarded by the
+    // early return above so a repeated same-state call doesn't clear.
+    this.clearActivity(id);
     if (on) this.reviewing = { ...this.reviewing, [id]: true };
     else {
       const copy = { ...this.reviewing };
       delete copy[id];
       this.reviewing = copy;
-      this.clearActivity(id); // run ended → its live activity is stale
     }
   }
 
-  /** Record the in-flight critic's latest tool-use summary; ignores an unchanged value
-   *  so the server re-emitting the same line every tick causes no reactive churn. */
+  /** Append the in-flight critic's latest tool-use summary to its bounded rolling feed
+   *  (last MAX_ACTIVITY_LINES). Dedups against the last line so the server re-emitting the
+   *  same line every tick causes no reactive churn. No `reviewing` gate needed: the preview
+   *  only renders in-flight and every run starts empty, so a straggler tick after the end can
+   *  never surface (see staleness invariant). */
   setActivity(id: string, summary: string) {
-    if (this.activity[id] === summary) return;
-    this.activity = { ...this.activity, [id]: summary };
+    const next = pushActivity(this.activity[id], summary);
+    if (next === this.activity[id]) return; // unchanged reference → no churn
+    this.activity = { ...this.activity, [id]: next };
   }
 
   private clearActivity(id: string) {
@@ -71,8 +97,15 @@ class ReviewsStore {
     this.activity = copy;
   }
 
+  /** Latest feed line (for the badge tooltip); null when the feed is empty/absent. */
   activityFor(id: string): string | null {
-    return this.activity[id] ?? null;
+    const feed = this.activity[id];
+    return feed && feed.length ? feed[feed.length - 1]! : null;
+  }
+
+  /** The full rolling feed (oldest→newest) for the banner preview; [] when absent. */
+  activityFeed(id: string): string[] {
+    return this.activity[id] ?? [];
   }
 
   isReviewing(id: string): boolean {
@@ -97,12 +130,20 @@ export class PlanGateStore {
   map = $state<Record<string, PlanGate>>({});
   // session ids whose plan reviewer is currently in flight; driven by `session:plangate-reviewing`
   reviewing = $state<Record<string, boolean>>({});
+  // rolling live-activity feed (last MAX_ACTIVITY_LINES) of the in-flight plan reviewer; driven
+  // by `session:plangate-activity`, surfaced in the review-in-flight banner preview. Same
+  // staleness invariant as ReviewsStore: reset on both ends of a reviewing transition and wiped
+  // on bootstrap so no line from a prior run or from before a reconnect leaks into a later preview.
+  activity = $state<Record<string, string[]>>({});
 
   /** Bootstrap from a GET /api/plan-gates snapshot + GET /api/plan-gates/inflight ids,
    *  so a reload mid-review still shows verdicts and the in-flight indicator. */
   bootstrap(map: Record<string, PlanGate>, inflightIds: string[]) {
     this.map = map;
     this.reviewing = Object.fromEntries(inflightIds.map((id) => [id, true]));
+    // Snapshot carries no historical activity → wipe any stale feed; it rebuilds from
+    // `session:plangate-activity` within ~1 tick. Covers load() (which calls through here).
+    this.activity = {};
   }
 
   /** Re-fetch the snapshot + in-flight ids from the server (best-effort). */
@@ -130,12 +171,34 @@ export class PlanGateStore {
 
   applyReviewing(id: string, on: boolean) {
     if (!!this.reviewing[id] === on) return;
+    // Reset the feed on both ends of a transition (start = fresh empty run, end = stale tail).
+    this.clearActivity(id);
     if (on) this.reviewing = { ...this.reviewing, [id]: true };
     else {
       const copy = { ...this.reviewing };
       delete copy[id];
       this.reviewing = copy;
     }
+  }
+
+  /** Append the in-flight plan reviewer's latest tool-use summary to its bounded rolling feed
+   *  (last MAX_ACTIVITY_LINES), deduping against the last line. Mirrors ReviewsStore.setActivity. */
+  setActivity(id: string, summary: string) {
+    const next = pushActivity(this.activity[id], summary);
+    if (next === this.activity[id]) return; // unchanged reference → no churn
+    this.activity = { ...this.activity, [id]: next };
+  }
+
+  private clearActivity(id: string) {
+    if (!(id in this.activity)) return;
+    const copy = { ...this.activity };
+    delete copy[id];
+    this.activity = copy;
+  }
+
+  /** The full rolling feed (oldest→newest) for the banner preview; [] when absent. */
+  activityFeed(id: string): string[] {
+    return this.activity[id] ?? [];
   }
 
   isReviewing(id: string): boolean {

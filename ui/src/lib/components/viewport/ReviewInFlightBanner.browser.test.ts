@@ -1,0 +1,158 @@
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { render } from "vitest-browser-svelte";
+import "../../../app.css";
+import { m } from "$lib/paraglide/messages";
+import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
+import type { PlanGate, ReviewVerdict } from "$lib/types";
+
+const { default: ReviewInFlightBanner } = await import("./ReviewInFlightBanner.svelte");
+
+const REPO = "/r";
+const ID = "s1";
+
+// Minimal session; the banner only reads id/repoPath/planPhase/auto/autopilotEnabled.
+const sess = (over: Record<string, unknown> = {}) => ({
+  id: ID,
+  repoPath: REPO,
+  planPhase: null,
+  auto: false,
+  autopilotEnabled: false,
+  ...over,
+});
+
+// Props typed loosely — the banner's Session prop is a large type we don't need in full here.
+const props = (over: Record<string, unknown> = {}): Record<string, unknown> => ({
+  session: sess(),
+  dStatus: "idle",
+  activity: undefined,
+  keystrokes: 0,
+  tab: "term",
+  ...over,
+});
+
+const changesRequested = (): ReviewVerdict => ({
+  sessionId: ID,
+  headSha: "abc",
+  decision: "changes_requested",
+  summary: "needs work",
+  body: "B",
+  findings: ["fix X"],
+  addressRound: 1, // < cap → addressStallStatus === "round" (never "stalled"): clock-independent
+  addressCap: 3,
+  finalRoundPending: false,
+  finalRoundTimeoutMs: 900_000,
+  updatedAt: 0,
+});
+
+const approvedGate = (): PlanGate => ({
+  sessionId: ID,
+  planHash: "abc",
+  decision: "approved",
+  summary: "ok",
+  body: "B",
+  findings: [],
+  round: 0,
+  cap: 5,
+  approved: true,
+  plan: "PLAN",
+  updatedAt: 0,
+});
+
+const feedLines = () => [...document.querySelectorAll(".rb-pv-line")].map((e) => e.textContent);
+const banner = () => document.querySelector(".review-banner");
+
+beforeEach(() => {
+  reviews.map = {};
+  reviews.reviewing = {};
+  reviews.activity = {};
+  planGates.map = {};
+  planGates.reviewing = {};
+  planGates.activity = {};
+  repoConfig.autoAddress = {};
+  repoConfig.autopilot = {};
+});
+
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
+describe("ReviewInFlightBanner preview — in-flight tier", () => {
+  it("critic in-flight (auto-address on): renders the rolling activity feed, oldest→newest", async () => {
+    repoConfig.autoAddress = { [REPO]: true };
+    reviews.setReviewing(ID, true);
+    reviews.setActivity(ID, "read review.ts");
+    reviews.setActivity(ID, "$ git diff main...HEAD");
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(feedLines).toEqual(["read review.ts", "$ git diff main...HEAD"]); // newest line sits at the bottom
+  });
+
+  it("plan-gate in-flight: renders the reviewer's activity feed", async () => {
+    planGates.applyReviewing(ID, true);
+    planGates.setActivity(ID, "read .shepherd-plan.md");
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(feedLines).toEqual(["read .shepherd-plan.md"]);
+  });
+
+  it("caps the preview at 4 lines, dropping the oldest (newest at the bottom)", async () => {
+    planGates.applyReviewing(ID, true);
+    for (const l of ["act-1", "act-2", "act-3", "act-4", "act-5"]) planGates.setActivity(ID, l);
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(feedLines).toEqual(["act-2", "act-3", "act-4", "act-5"]);
+  });
+
+  it("shows the waiting placeholder (no feed lines) before the first activity arrives", async () => {
+    planGates.applyReviewing(ID, true);
+    render(ReviewInFlightBanner, props() as never);
+    await expect
+      .poll(() => document.querySelector(".rb-pv-wait")?.textContent)
+      .toBe(m.reviewbanner_preview_waiting());
+    expect(feedLines()).toEqual([]);
+  });
+
+  it("keeps a stable banner height as the feed fills from 0 to 4 lines", async () => {
+    planGates.applyReviewing(ID, true);
+    render(ReviewInFlightBanner, props() as never);
+    await expect
+      .poll(() => document.querySelector(".rb-pv-wait")?.textContent)
+      .toBe(m.reviewbanner_preview_waiting());
+    const emptyH = banner()!.getBoundingClientRect().height;
+    for (const l of ["act-1", "act-2", "act-3", "act-4"]) planGates.setActivity(ID, l);
+    await expect.poll(() => feedLines().length).toBe(4);
+    const fullH = banner()!.getBoundingClientRect().height;
+    expect(fullH).toBe(emptyH); // fixed 4-row preview area → one xterm refit, not per-line churn
+  });
+});
+
+describe("ReviewInFlightBanner preview — negative cases (no preview / no dim)", () => {
+  it("critic in-flight with auto-address OFF: banner hidden entirely, so no preview", async () => {
+    repoConfig.autoAddress = { [REPO]: false };
+    reviews.setReviewing(ID, true);
+    render(ReviewInFlightBanner, props() as never);
+    // criticInFlightShows is false → the whole banner suppresses; nothing to dim behind.
+    await expect.poll(() => banner()).toBeNull();
+    expect(document.querySelector(".rb-preview")).toBeNull();
+  });
+
+  it("addressing phase (agent reworks in the PTY): banner shows, but no preview", async () => {
+    reviews.map = { [ID]: changesRequested() }; // not reviewing; running; executing → addressing
+    render(
+      ReviewInFlightBanner,
+      props({ session: sess({ planPhase: "executing" }), dStatus: "running" }) as never,
+    );
+    await expect.poll(() => banner()?.getAttribute("data-phase")).toBe("addressing");
+    expect(document.querySelector(".rb-preview")).toBeNull();
+  });
+
+  it("conclusion phase (verdict just landed): banner shows, but no preview", async () => {
+    planGates.applyReviewing(ID, true);
+    render(ReviewInFlightBanner, props() as never);
+    await expect
+      .poll(() => document.querySelector(".rb-pv-wait")?.textContent)
+      .toBe(m.reviewbanner_preview_waiting());
+    // land an approved verdict and end the review → the brief conclusion tier
+    planGates.map = { [ID]: approvedGate() };
+    planGates.applyReviewing(ID, false);
+    await expect.poll(() => banner()?.getAttribute("data-phase")).toBe("conclusion");
+    expect(document.querySelector(".rb-preview")).toBeNull();
+  });
+});

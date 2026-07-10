@@ -1153,6 +1153,7 @@ const planGate = new PlanGateService({
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
+  onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
 // Grace window for a recent uncompleted reviewer_spawns row: spares a recently-spawned reviewer

@@ -16,7 +16,8 @@ import {
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { readSessionUsage, type SessionUsage } from "./usage";
+import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
+import { readActivitySignal } from "./activity-signal";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
@@ -134,6 +135,14 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Fired when a plan review starts (true) and when it ends (false) for a session. */
   onReviewing?: (id: string, reviewing: boolean) => void;
   /**
+   * Fired each tick a plan reviewer is still running, with its latest *meaningful* tool-use
+   * summary (e.g. "$ git diff", "read plan"). Surfaced live in the UI review-in-flight banner
+   * preview so the operator can see what the reviewer is doing, not just that it's busy. Only
+   * fired when a summary is available; the run-ended (onReviewing false) signal clears it
+   * client-side. Mirrors ReviewService's onActivity.
+   */
+  onActivity?: (id: string, summary: string) => void;
+  /**
    * Max adversarial rounds before escalating to the human (default 5). Pass a thunk to read a
    * live, UI-configurable value per-use — resolved on every read so a settings change takes
    * effect on the next run without a restart.
@@ -155,6 +164,9 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
   baseSha?: (repoPath: string, base: string) => string;
+  /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
+   *  transcript via readActivitySignal). null = no parseable activity yet. */
+  readActivity?: (worktreePath: string, reviewerSessionId: string) => string | null;
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
@@ -208,6 +220,7 @@ export class PlanGateService {
   private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
+  private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
@@ -224,6 +237,7 @@ export class PlanGateService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultBaseSha;
+    this.readActivity = deps.readActivity ?? defaultReadActivity;
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
@@ -491,7 +505,14 @@ export class PlanGateService {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
       const raw = this.readVerdict(f.worktreePath);
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
-      if (!raw && !timedOut) continue;
+      if (!raw && !timedOut) {
+        // still running — surface what the reviewer is doing right now. Emit every tick (not
+        // only on change) so a reloaded client repopulates within one tick; the client dedups
+        // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
+        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId);
+        if (summary) this.deps.onActivity?.(f.sessionId, summary);
+        continue;
+      }
       f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
       // Always drop the entry, even if finalize throws — otherwise it stays
       // `finalizing=true` and every later tick `continue`s past it, wedging the
@@ -902,6 +923,13 @@ function defaultReadPlan(worktreePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Latest meaningful tool-use summary from the plan reviewer's JSONL transcript (its claude
+ *  session id forces a predictable path under the disposable worktree). null when the transcript
+ *  is missing or has no parseable activity yet. Mirrors review.ts's defaultReadActivity. */
+function defaultReadActivity(worktreePath: string, reviewerSessionId: string): string | null {
+  return readActivitySignal(jsonlPathFor(worktreePath, reviewerSessionId))?.summary ?? null;
 }
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a

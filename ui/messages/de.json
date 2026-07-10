@@ -2773,5 +2773,8 @@
   "issues_filter_no_match": "keine Issues entsprechen den aktiven Filtern",
   "issuerow_author_by": "von {login}",
   "feat_issue_author_label_filter_title": "Issues nach Autor und Label filtern",
-  "feat_issue_author_label_filter_body": "Issue-Listen zeigen jetzt den Autor jedes Issues, und das Filter-Menü kann den Backlog nach Autor und Label eingrenzen — wähle einen Autor oder schalte ein oder mehrere Labels an, um die Liste zu fokussieren."
+  "feat_issue_author_label_filter_body": "Issue-Listen zeigen jetzt den Autor jedes Issues, und das Filter-Menü kann den Backlog nach Autor und Label eingrenzen — wähle einen Autor oder schalte ein oder mehrere Labels an, um die Liste zu fokussieren.",
+  "reviewbanner_preview_waiting": "Überprüfung startet…",
+  "feat_review_live_preview_title": "Live-Vorschau der Überprüfung + gedimmtes Terminal",
+  "feat_review_live_preview_body": "Während eine PR-Critic- oder Plan-Gate-Überprüfung im Hintergrund läuft, zeigt der amber Balken jetzt einen Live-Auszug dessen, was der Prüfer gerade tut — seine letzten Aktionen — und das Terminal wird gedimmt, um zu signalisieren, dass Shepherd arbeitet und du nichts eingeben musst. Das Dimmen ist rein visuell; dein Prompt bleibt nutzbar."
 }

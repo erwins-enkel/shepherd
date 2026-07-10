@@ -132,6 +132,11 @@
   --status-warn: var(--color-warn);
   --status-idle: var(--color-slate);
 
+  /* Elevation for floating popovers/tooltips (anchored, non-modal). Single source
+     for the shared drop shadow used by InfoTip/GlossaryTerm/Coachmark and the
+     Stepper legend, so the raw value lives here in the semantic layer, not inline. */
+  --shadow-popover: 0 4px 16px rgba(0, 0, 0, 0.4);
+
   /* Header wash for an alert-by-exception (blocked / parked) session. On the
      near-black ground a 24% red→head blend lands as a deep oxblood bezel that
      reads as alarm; the same recipe is re-tuned for light below. */

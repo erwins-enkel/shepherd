@@ -3821,8 +3821,16 @@ export class SessionService {
       if (agent?.agentStatus !== "working") continue;
       // Deliberately NOT routed through #serializeSteer: an e-stop must never queue behind the
       // very steers it exists to cancel (a wedged send would hold the FIFO up to herdr's timeout).
-      // A lone ESC landing between a concurrent steer's paste and CR is harmless — it lands inside
-      // pasted text of a turn we are interrupting anyway.
+      //
+      // The bypass is not free, and the cost is not what it first looks like. `sendSteerTo` writes
+      // PASTE_START + text + PASTE_END in ONE send, so an ESC slipping in before that steer's CR
+      // arrives AFTER the paste block has already closed: it is a live keystroke against the
+      // composed input, not a byte inside the pasted text. It can therefore clear/interrupt that
+      // input, and the steer's trailing CR then submits whatever remains (possibly an empty prompt)
+      // while `reply()` still resolves `true`. We accept that: the operator asked to interrupt every
+      // working agent, so a steer racing the e-stop is collateral of an intentional interrupt.
+      // Serializing instead would trade this narrow, intended race for an e-stop that can block
+      // behind a wedged send — a far worse failure at the worst moment.
       //
       // Best-effort: a pane that died between `list` and `send` (or any single send
       // rejecting) must NOT abort the sweep — keep interrupting the rest. Count only the

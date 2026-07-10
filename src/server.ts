@@ -420,6 +420,9 @@ export interface AppDeps {
    *  Optional so environments/tests that don't wire it still type-check; the route
    *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
   distiller?: {
+    // TODO(#1567 follow-up): mistyped. DistillerService.distillNow is `async`, so this `=> void`
+    // hides a floating promise at the trigger route below. Fixing the type here forces ~16 test
+    // doubles async — a pre-existing bug worth its own PR, not this one's.
     distillNow: (repoPath: string) => void;
     health?: () => {
       ok: boolean;
@@ -432,6 +435,8 @@ export interface AppDeps {
    *  Wired to the real OptimizerService in index.ts. */
   optimizer?: {
     optimizeOne: (id: string) => void;
+    // TODO(#1567 follow-up): mistyped the same way as `distillNow` above — OptimizerService's
+    // method is `async`. Same reason for deferring the fix.
     optimizeAllFlagged: (repoPath: string) => void;
     health?: () => {
       ok: boolean;
@@ -1611,9 +1616,18 @@ function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps):
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
+  // All three are async fire-and-forget, but only `mergeNow` is honestly typed (this PR retyped
+  // that seam), so only it can carry a handler. `.catch`, not a bare `void`: mergeNow →
+  // enqueueOrBegin → begin never catches, so a throwing scratch.create() would surface as an
+  // unhandled rejection — and `no-floating-promises` defaults to `ignoreVoid: true`, so the gate
+  // this PR lands would not flag it. The two `=> void` neighbours hide the same bug behind a wrong
+  // type; see the TODOs on their DI declarations.
   if (parts[2] === "distill") void deps.distiller?.distillNow(dir);
   else if (parts[2] === "optimize") void deps.optimizer?.optimizeAllFlagged(dir);
-  else if (parts[2] === "merge-suggest") void deps.mergeSuggest?.mergeNow(dir);
+  else if (parts[2] === "merge-suggest")
+    void deps.mergeSuggest
+      ?.mergeNow(dir)
+      .catch((err) => console.warn("[merge-suggest] mergeNow failed:", err));
   else if (parts[2] === "seen-retired") {
     deps.store.markRetiredSeen(dir, Date.now());
   }

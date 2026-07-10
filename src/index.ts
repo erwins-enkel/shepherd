@@ -1364,9 +1364,12 @@ onSessionGit(({ id, git }) => {
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
-    void reviewService.tick();
-    void planGate.tick();
-    void standaloneCritic.tick();
+    void reviewService.tick().catch((err) => console.warn("[review] tick failed:", err));
+    // planGate.tick() has a `finally` but no `catch`, and neither does its finalize(): since #1567
+    // a rejected applyApproved → release → releasePlanGate → reply → herdr.send propagates straight
+    // out of the timer callback as an unhandled rejection.
+    void planGate.tick().catch((err) => console.warn("[plan-gate] tick failed:", err));
+    void standaloneCritic.tick().catch((err) => console.warn("[critic] tick failed:", err));
     void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
     void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
     void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
@@ -1403,7 +1406,7 @@ deferredStarts.push(() => {
     // above is untouched, so verdicts still settle promptly).
     if (!warm() && now - lastCriticSweepAt < criticIdleIntervalMs) return;
     lastCriticSweepAt = now;
-    void standaloneCritic.sweep();
+    void standaloneCritic.sweep().catch((err) => console.warn("[critic] sweep failed:", err));
   }, 60_000);
 });
 // archived sessions: reap any in-flight critic + drop the verdict, and reap any

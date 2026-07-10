@@ -59,7 +59,7 @@ describe("BacklogOverlay (Repos) shell layout stability", () => {
 
   it("keeps the modal shell height stable across content changes", async () => {
     await page.viewport(1280, 900);
-    const { rerender } = render(BacklogOverlay, props({ payload: payload(40) }));
+    const { rerender } = await render(BacklogOverlay, props({ payload: payload(40) }));
 
     const card = document.querySelector<HTMLElement>(".card");
     expect(card).not.toBeNull();

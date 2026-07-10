@@ -339,7 +339,7 @@ describe("UpNextPanel sorting", () => {
   it("restores a valid stored sort mode and falls back from invalid values", async () => {
     localStorage.setItem("shepherd.upnext.sort", "oldest");
     upNext.snapshot = sortSnapshot();
-    const first = render(UpNextPanel, {});
+    const first = await render(UpNextPanel, {});
     await expect.poll(rowNumbers).toEqual(["#10", "#11", "#30", "#20", "#21", "#31"]);
     first.unmount();
 

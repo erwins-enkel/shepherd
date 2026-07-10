@@ -27,7 +27,7 @@ describe("PuiActionButton", () => {
   });
 
   it("renders the label", async () => {
-    const { container } = renderInPlugin("acct", { label: "Make primary", route: ROUTE });
+    const { container } = await renderInPlugin("acct", { label: "Make primary", route: ROUTE });
     const btn = container.querySelector(".pui-action") as HTMLButtonElement;
     expect(btn).toBeTruthy();
     expect(btn.textContent?.trim()).toBe("Make primary");
@@ -41,7 +41,11 @@ describe("PuiActionButton", () => {
       return new Response("switched", { status: 200 });
     });
     const body = { mode: "specific", account: 2 };
-    const { container } = renderInPlugin("acct", { label: "Make primary", route: ROUTE, body });
+    const { container } = await renderInPlugin("acct", {
+      label: "Make primary",
+      route: ROUTE,
+      body,
+    });
     (container.querySelector(".pui-action") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0].url).toBe("/api/plugins/acct/switch-primary");
@@ -51,7 +55,7 @@ describe("PuiActionButton", () => {
 
   it("with confirm set, a click opens a dialog and only Confirm fires the POST", async () => {
     const fetchFn = mockFetch(() => new Response("ok", { status: 200 }));
-    const { container } = renderInPlugin("acct", {
+    const { container } = await renderInPlugin("acct", {
       label: "Make primary",
       route: ROUTE,
       confirm: "Switch the primary account?",
@@ -77,7 +81,7 @@ describe("PuiActionButton", () => {
 
   it("a failed POST does not throw and re-enables the button", async () => {
     mockFetch(() => new Response("boom", { status: 500 }));
-    const { container } = renderInPlugin("acct", { label: "Go", route: ROUTE });
+    const { container } = await renderInPlugin("acct", { label: "Go", route: ROUTE });
     const btn = container.querySelector(".pui-action") as HTMLButtonElement;
     btn.click();
     // Button disables while in flight, then re-enables after the (rejected) request settles.
@@ -86,7 +90,7 @@ describe("PuiActionButton", () => {
 
   it("an unsafe route path renders disabled and never fetches", async () => {
     const fetchFn = mockFetch(() => new Response("ok", { status: 200 }));
-    const { container } = renderInPlugin("acct", {
+    const { container } = await renderInPlugin("acct", {
       label: "Escape",
       route: { method: "POST", path: "../../etc" },
     });
@@ -100,7 +104,7 @@ describe("PuiActionButton", () => {
   it("without a plugin-id context (bare mount) renders disabled and never fetches", async () => {
     const fetchFn = mockFetch(() => new Response("ok", { status: 200 }));
     // Rendered directly, NOT via PluginUIRoot — no context.
-    const { container } = render(PuiActionButton, {
+    const { container } = await render(PuiActionButton, {
       node: { type: "action-button", props: { label: "Orphan", route: ROUTE } },
     });
     const btn = container.querySelector(".pui-action") as HTMLButtonElement;

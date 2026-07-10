@@ -20,7 +20,7 @@ describe("TableBlock", () => {
   });
 
   it("renders row cells", async () => {
-    const { container } = render(TableBlock, {
+    const { container } = await render(TableBlock, {
       block: {
         type: "table",
         id: "t2",

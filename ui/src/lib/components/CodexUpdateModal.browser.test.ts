@@ -57,7 +57,7 @@ describe("CodexUpdateModal", () => {
 
   it("shows the stuck-update message naming the on-PATH binary on non-convergence", async () => {
     const props = { update, log: [">>> codex-update: codex update exited rc=0"] };
-    const { rerender } = render(CodexUpdateModal, { props });
+    const { rerender } = await render(CodexUpdateModal, { props });
 
     // click Run so the modal enters its submitting state, then deliver a
     // non-converged `done` that carries the on-PATH binary (as the server would).

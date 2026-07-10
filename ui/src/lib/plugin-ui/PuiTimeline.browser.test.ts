@@ -26,7 +26,7 @@ describe("PuiTimeline", () => {
   });
 
   it("event list is an <ol>", async () => {
-    const { container } = render(PuiTimeline, {
+    const { container } = await render(PuiTimeline, {
       node: {
         type: "timeline",
         props: {
@@ -52,7 +52,7 @@ describe("PuiTimeline", () => {
   });
 
   it("renders multiple events in order", async () => {
-    const { container } = render(PuiTimeline, {
+    const { container } = await render(PuiTimeline, {
       node: {
         type: "timeline",
         props: {

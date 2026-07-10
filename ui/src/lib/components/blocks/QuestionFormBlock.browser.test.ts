@@ -20,7 +20,7 @@ afterEach(() => answerPlanQuestions.mockClear());
 
 describe("QuestionFormBlock", () => {
   it("renders single-kind prompt, options as radios, and kind hint", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block: {
         type: "question-form",
         id: "qf1",
@@ -45,7 +45,7 @@ describe("QuestionFormBlock", () => {
   });
 
   it("renders multi-kind options as checkboxes", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block: {
         type: "question-form",
         id: "qf2",
@@ -65,7 +65,7 @@ describe("QuestionFormBlock", () => {
   });
 
   it("renders freeform prompt with free-response affordance and no options", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block: {
         type: "question-form",
         id: "qf3",
@@ -86,7 +86,7 @@ describe("QuestionFormBlock", () => {
   });
 
   it("all rendered inputs are disabled", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block: {
         type: "question-form",
         id: "qf4",
@@ -126,7 +126,7 @@ describe("QuestionFormBlock — interactive (answerCtx present)", () => {
   };
 
   it("enables inputs when answerCtx is present", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block,
       answerCtx: { sessionId: "s1", locked: false },
     });
@@ -136,7 +136,7 @@ describe("QuestionFormBlock — interactive (answerCtx present)", () => {
   });
 
   it("keeps submit disabled until single + freeform are answered, then submits the payload", async () => {
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block,
       answerCtx: { sessionId: "sess-9", locked: false },
     });
@@ -170,7 +170,7 @@ describe("QuestionFormBlock — interactive (answerCtx present)", () => {
 
   it("surfaces an undelivered note when the steer can't reach the agent", async () => {
     answerPlanQuestions.mockResolvedValueOnce({ delivered: false });
-    const { container } = render(QuestionFormBlock, {
+    const { container } = await render(QuestionFormBlock, {
       block: {
         type: "question-form" as const,
         id: "qf",

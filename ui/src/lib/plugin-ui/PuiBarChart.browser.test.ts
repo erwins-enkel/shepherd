@@ -6,7 +6,7 @@ import PuiBarChart from "./PuiBarChart.svelte";
 
 describe("PuiBarChart", () => {
   it("horizontal (default): container has role=list", async () => {
-    const { container } = render(PuiBarChart, {
+    const { container } = await render(PuiBarChart, {
       node: {
         type: "bar-chart",
         props: {
@@ -30,7 +30,7 @@ describe("PuiBarChart", () => {
   });
 
   it("horizontal: each bar row has aria-label with label and value", async () => {
-    const { container } = render(PuiBarChart, {
+    const { container } = await render(PuiBarChart, {
       node: {
         type: "bar-chart",
         props: {
@@ -56,7 +56,7 @@ describe("PuiBarChart", () => {
   });
 
   it("value > max clamps fill to 100%", async () => {
-    const { container } = render(PuiBarChart, {
+    const { container } = await render(PuiBarChart, {
       node: {
         type: "bar-chart",
         props: {

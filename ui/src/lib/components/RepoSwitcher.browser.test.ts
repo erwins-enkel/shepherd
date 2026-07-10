@@ -128,7 +128,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("sorts the pinned repo to the first chip slot and marks it for assistive tech", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [
         chip({ repoPath: "/repo/alpha" }),
         chip({ repoPath: "/repo/beta" }),
@@ -406,7 +406,7 @@ describe("RepoSwitcher — filter rail", () => {
       repoPath: "/repo/alpha",
       drain: drain({ repoPath: "/repo/alpha", paused: true, reason: "blocked", detail: "TASK-07" }),
     });
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [pausedChip, chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -422,7 +422,7 @@ describe("RepoSwitcher — filter rail", () => {
 
   it("a chip with insights shows the ✦ marker + count in the rail and its aria-label carries the learnings clause", async () => {
     const learnChip = chip({ repoPath: "/repo/alpha", insights: 3 });
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [learnChip, chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -442,7 +442,7 @@ describe("RepoSwitcher — filter rail", () => {
 
   it("a curate-only chip shows a bare ✦ (no number) and the curate count in its aria-label", async () => {
     const curateChip = chip({ repoPath: "/repo/alpha", insights: 0, curate: 2 });
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [curateChip, chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -459,7 +459,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("a chip with no learnings shows no ✦ marker and a plain aria-label", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -472,7 +472,7 @@ describe("RepoSwitcher — filter rail", () => {
 
   it("the active chip keeps its ✦ mark and renders no learnings bar", async () => {
     const learnChip = chip({ repoPath: "/repo/alpha", insights: 31 });
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [learnChip, chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
@@ -488,7 +488,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("every chip with insights keeps its ✦ mark, including the active one", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [
         chip({ repoPath: "/repo/alpha", insights: 5 }),
         chip({ repoPath: "/repo/beta", insights: 9 }),
@@ -504,7 +504,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("the active filter chip carries no underline text-decoration", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
@@ -523,7 +523,7 @@ describe("RepoSwitcher — filter rail", () => {
     const bare = chip({ repoPath: "/repo/beta" });
 
     // filter on the bare repo: no detail line
-    const bareRender = render(RepoSwitcher, {
+    const bareRender = await render(RepoSwitcher, {
       chips: [withTele, bare],
       repoFilter: new Set(["/repo/beta"]),
       onrepofilter: () => {},
@@ -535,7 +535,7 @@ describe("RepoSwitcher — filter rail", () => {
     bareRender.unmount();
 
     // filter on the telemetry repo: detail line shows its inflight count
-    const teleRender = render(RepoSwitcher, {
+    const teleRender = await render(RepoSwitcher, {
       chips: [withTele, bare],
       repoFilter: new Set(["/repo/alpha"]),
       onrepofilter: () => {},
@@ -548,7 +548,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("lone-repo (1 chip + telemetry) renders the telemetry line WITHOUT filter chips", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [
         chip({
           repoPath: "/repo/solo",
@@ -564,7 +564,7 @@ describe("RepoSwitcher — filter rail", () => {
   });
 
   it("<2 chips and no telemetry renders no chips (only the empty live region)", async () => {
-    const { container } = render(RepoSwitcher, {
+    const { container } = await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo" })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -578,7 +578,7 @@ describe("RepoSwitcher — filter rail", () => {
 
   it("a lone-repo with only learnings (insights/curate, no drain) renders no bar and no detail line", async () => {
     // insights-only
-    const insightsRender = render(RepoSwitcher, {
+    const insightsRender = await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 5 })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},
@@ -588,7 +588,7 @@ describe("RepoSwitcher — filter rail", () => {
     insightsRender.unmount();
 
     // curate-only
-    const curateRender = render(RepoSwitcher, {
+    const curateRender = await render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/solo", insights: 0, curate: 3 })],
       repoFilter: new Set<string>(),
       onrepofilter: () => {},

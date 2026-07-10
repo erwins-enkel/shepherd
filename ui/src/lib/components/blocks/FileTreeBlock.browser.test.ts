@@ -6,7 +6,7 @@ import FileTreeBlock from "./FileTreeBlock.svelte";
 
 describe("FileTreeBlock", () => {
   it("renders directory structure from nested paths", async () => {
-    const { container } = render(FileTreeBlock, {
+    const { container } = await render(FileTreeBlock, {
       block: {
         type: "file-tree",
         id: "ft1",
@@ -46,7 +46,7 @@ describe("FileTreeBlock", () => {
   });
 
   it("shows localized accessible label for a 'removed' entry", async () => {
-    const { container } = render(FileTreeBlock, {
+    const { container } = await render(FileTreeBlock, {
       block: {
         type: "file-tree",
         id: "ft3",
@@ -86,7 +86,7 @@ describe("FileTreeBlock", () => {
   });
 
   it("renders no title element when title is absent", async () => {
-    const { container } = render(FileTreeBlock, {
+    const { container } = await render(FileTreeBlock, {
       block: {
         type: "file-tree",
         id: "ft6",

@@ -221,7 +221,7 @@ describe("DoneRecapPanel bring-back button", () => {
     recaps.map = { bb1: recap({ sessionId: "bb1" }) };
 
     // without onbringback: no button at all
-    const { rerender } = render(DoneRecapPanel, { session: session({ id: "bb1" }) });
+    const { rerender } = await render(DoneRecapPanel, { session: session({ id: "bb1" }) });
     expect(
       page.getByRole("button", { name: m.donerecap_bringback() }).query(),
       "no button without onbringback",

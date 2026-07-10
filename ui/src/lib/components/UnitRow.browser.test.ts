@@ -250,7 +250,7 @@ describe("UnitRow preview badge", () => {
       previewPort: 8002,
       onpreview: () => {},
     };
-    const screen = render(UnitRow, props);
+    const screen = await render(UnitRow, props);
     await page.getByTitle("Preview").click();
     await expect
       .element(page.getByRole("dialog", { name: "Choose preview target" }))

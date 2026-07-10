@@ -404,7 +404,7 @@ describe("Herd owed lens respects the repo filter (#owed)", () => {
       owedRecord("s2", "TASK-OUT", "/repo/other"),
       owedRecord("s3", "TASK-IN2", "/repo/shepherd"),
     ];
-    const screen = render(Herd, {
+    const screen = await render(Herd, {
       ...base,
       sessions: [],
       git: {},
@@ -426,7 +426,7 @@ describe("Herd owed lens respects the repo filter (#owed)", () => {
       owedRecord("s1", "TASK-IN", "/repo/shepherd"),
       owedRecord("s2", "TASK-OUT", "/repo/other"),
     ];
-    const screen = render(Herd, {
+    const screen = await render(Herd, {
       ...base,
       sessions: [],
       git: {},

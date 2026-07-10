@@ -195,7 +195,7 @@ describe("MicButton", () => {
     } as unknown as typeof MediaRecorder;
     try {
       const { props } = makeHost();
-      const screen = render(MicButton, props);
+      const screen = await render(MicButton, props);
       await expect.element(micBtn()).toBeVisible();
       await micBtn().click(); // startLocal() now awaits the pending permission prompt
       screen.unmount(); // teardown while acquiring
@@ -212,7 +212,7 @@ describe("MicButton", () => {
 
   it("unmount mid-recording stops recognition and uploads nothing", async () => {
     const { props } = makeHost();
-    const screen = render(MicButton, props);
+    const screen = await render(MicButton, props);
     await micBtn().click();
     const rec = FakeRecognition.instances[0]!;
     expect(rec.started).toBe(1);

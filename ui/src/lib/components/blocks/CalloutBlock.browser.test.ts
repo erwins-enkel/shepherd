@@ -20,7 +20,7 @@ describe("CalloutBlock", () => {
   });
 
   it("renders bold markdown inside callout as a <strong> element", async () => {
-    const { container } = render(CalloutBlock, {
+    const { container } = await render(CalloutBlock, {
       block: { type: "callout", id: "c7", tone: "risk", markdown: "**critical**" },
     });
     // wait for async dynamic-import (marked + dompurify) to settle

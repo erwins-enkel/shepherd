@@ -28,7 +28,7 @@ describe("DataModelBlock", () => {
   });
 
   it("renders field names", async () => {
-    const { container } = render(DataModelBlock, { block: BASIC_BLOCK });
+    const { container } = await render(DataModelBlock, { block: BASIC_BLOCK });
     // Field names appear in td.dm-field-name cells
     const cells = Array.from(container.querySelectorAll(".dm-field-name"));
     const cellTexts = cells.map((c) => c.textContent ?? "");
@@ -45,7 +45,7 @@ describe("DataModelBlock", () => {
   });
 
   it("does not render InferredBadge when inferred is not set", async () => {
-    const { container } = render(DataModelBlock, {
+    const { container } = await render(DataModelBlock, {
       block: { ...BASIC_BLOCK, id: "dm2", inferred: undefined },
     });
     // .inferred-badge span should not be present
@@ -54,7 +54,7 @@ describe("DataModelBlock", () => {
   });
 
   it("renders relations when present", async () => {
-    const { container } = render(DataModelBlock, {
+    const { container } = await render(DataModelBlock, {
       block: {
         ...BASIC_BLOCK,
         id: "dm3",

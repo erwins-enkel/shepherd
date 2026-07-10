@@ -605,7 +605,7 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
     try {
       // Widest available desktop chrome via the harness, but limits START null: the
       // full-label content fits the ~1250px window → no gauges, desktopCompact=false.
-      const { component } = render(TopBarLimitsHarness, {
+      const { component } = await render(TopBarLimitsHarness, {
         nowMs: 1_700_000_000_000,
         connected: true,
         mobile: false,
@@ -744,7 +744,7 @@ describe("TopBar — async held-task arrival re-measures (touch-desktop reactivi
     try {
       // Mount fitting: gauges present + constant, but heldCount starts 0 → the bar fits 800
       // with full tallies (the existing lone-content touch-desktop 800 cases fit).
-      const { component } = render(TopBarLimitsHarness, {
+      const { component } = await render(TopBarLimitsHarness, {
         nowMs: 1_700_000_000_000,
         connected: true,
         ...FLAGS["touch-desktop"],
@@ -1169,7 +1169,7 @@ describe("TopBar — gear attention dot is settings-owned", () => {
   it("mobile: diagnostics warning/error put the settings-attention pip on the gear", async () => {
     await page.viewport(390, 800);
     document.body.style.width = "390px";
-    const { rerender } = render(TopBar, {
+    const { rerender } = await render(TopBar, {
       nowMs: 1_700_000_000_000,
       connected: true,
       ...FLAGS.mobile,
@@ -1239,7 +1239,7 @@ describe("TopBar — idle gear opens Settings directly", () => {
   it("desktop: the open menu dismisses itself when the herd goes quiet underneath it", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
-    const { rerender } = render(TopBar, {
+    const { rerender } = await render(TopBar, {
       nowMs: 1_700_000_000_000,
       connected: true,
       ...FLAGS.desktop,
@@ -1756,7 +1756,7 @@ describe("TopBar — CR extra-credit gauge", () => {
       ...FLAGS.desktop,
       ...sessionsProp(0),
     };
-    const { rerender } = render(TopBar, {
+    const { rerender } = await render(TopBar, {
       ...props,
       limits: withCodex(fullLimits, { windows: true }),
     });

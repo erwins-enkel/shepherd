@@ -82,40 +82,26 @@ export function buildUpdateScript(
   // pane. Not stopping means a failed update usually leaves the live server +
   // panes untouched.
   //
-  // Recovery (#1558): `herdr update` exits 0 even when it leaves NO running server,
-  // so gating recovery on `rc != 0` (as we used to) skipped the exact bug — a
-  // successful swap that never brought the server back, leaving a stale socket and
-  // clients looping on ConnectionRefused. So we ALWAYS run `herdr agent list` after
-  // the update, regardless of rc. That CLI call is itself the recovery: any herdr
-  // CLI call auto-spawns the daemon (stated in the "herdr update without a shepherd
-  // restart" design doc, item 4 body — docs/superpowers/specs/
-  // 2026-06-04-herdr-update-without-restart-design.md). Shepherd's own maintenance
-  // guard (`HerdrUnavailableError`, herdr.ts:44-46) corroborates it: that guard
-  // exists specifically to STOP shepherd's Runner from spawning mid-update, which
-  // only matters because a normal CLI call would. Our `agent list` here runs the
-  // real herdr binary directly, bypassing that in-process guard (which only gates
-  // shepherd's own Runner), so it can resurrect the server before the poller even
-  // resumes — driver-independent (it does not depend on SHEPHERD_HERDR_SOCKET).
+  // Recovery (#1558): `herdr update` exits 0 even when it leaves NO running server, so
+  // gating recovery on `rc != 0` (as we used to) skipped the exact bug. So we ALWAYS run
+  // `herdr agent list` after the update, regardless of rc.
+  //
+  // That call VERIFIES; it does not repair. An earlier version of this comment claimed any
+  // herdr CLI call auto-spawns the daemon (sourced to the 0.6.x-era "herdr update without a
+  // shepherd restart" design doc). That is FALSE on 0.7.x: against a dead socket `herdr
+  // agent list` exits 1 with ENOENT and spawns nothing — verified in a clean instance
+  // (#1574). The `setsid … server` fallback below is therefore NOT a belt-and-braces
+  // leftover; it is the ONLY thing that recovers a host whose server did not come back.
   //
   // Grace + retry: a still-binding server — an in-flight `--handoff`, or a self-
   // managed systemd unit with `Restart=always` coming up — must not be mistaken for
   // "down". The retry loop lets it bind first, so a systemd-managed server wins and
-  // the fallback below is never entered (auto-spawn no-ops against a bound socket).
+  // the fallback below is never entered.
   //
-  // Last-resort fallback: ONLY after the retries still report unreachable do we
-  // relaunch a detached server, so orphaned targets reattach — the app's Reconnect /
-  // `viewport_herdr_unreachable` path, the "live agent returns once herdr is back"
-  // invariant from #413. Kept (not deleted) because the auto-spawn premise above is
-  // from the herdr 0.6.x era and this bug is 0.7.x — if 0.7.x no longer auto-spawns
-  // on `agent list`, this explicit relaunch is the only thing that recovers the host;
-  // removing it would regress vs. today's rc!=0 path. `setsid ... server` detaches
-  // the foreground `herdr server` into its own session so it outlives this script
-  // (and the `timeout … agent list` wrapper). Caveat: this recovery server is a child
-  // of shepherd's cgroup, so it is not durable across a later `systemctl restart
-  // shepherd` — at which point the still-alive targets simply re-orphan and recover
-  // again (never lost). A cgroup-durable server would need systemd-run, which this
-  // script deliberately avoids; `Restart=always` on a self-managed unit is the
-  // durable operator-side fix (see README).
+  // Last-resort fallback: the ONLY repair path (see above — nothing auto-spawns). Relaunch a
+  // detached server so orphaned targets reattach. On a host provisioned by deploy/provision.ts
+  // this is normally unreachable: `deploy/herdr.service` (Restart=always) wins the retry race
+  // above. It still covers hand-rolled installs with no unit.
   return [
     `LOG=${q}`,
     'mkdir -p "$(dirname "$LOG")"',
@@ -124,9 +110,11 @@ export function buildUpdateScript(
     `  echo '${UPDATE_LOG_PREFIX} running herdr update --handoff'`,
     `  ${h} update --handoff; rc=$?`,
     `  echo "${UPDATE_LOG_PREFIX} herdr update exited rc=$rc"`,
-    // Unconditional (NOT gated on rc): the CLI call auto-spawns the daemon, so this
-    // both verifies AND recovers the server. Grace+retry lets an in-flight --handoff
-    // or a systemd `Restart=always` unit bind first before we conclude "unreachable".
+    // Unconditional (NOT gated on rc): `herdr update` can exit 0 having left NO running
+    // server (#1558), so this call VERIFIES reachability on every path. It does not repair —
+    // nothing auto-spawns (#1574); the fallback below is the only repair. Grace+retry lets an
+    // in-flight --handoff or a systemd `Restart=always` unit bind first before we conclude
+    // "unreachable".
     "  ok=0",
     "  for attempt in 1 2 3; do",
     `    if timeout 10 ${h} agent list >/dev/null 2>&1; then ok=1; break; fi`,

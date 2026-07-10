@@ -1,8 +1,12 @@
 [Unit]
 Description=Shepherd — mission control for interactive Claude Code
 Documentation=https://github.com/erwins-enkel/shepherd
-After=network-online.target
+After=network-online.target herdr.service
 Wants=network-online.target
+# Wants (not Requires): a herdr that fails to start must not cascade-fail Shepherd — the
+# server still boots degraded and DIAGNOSE reports `herdr: offline`, which is the whole
+# point of the check. After= only orders us behind it when both are enabled.
+Wants=herdr.service
 
 [Service]
 Type=simple

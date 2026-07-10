@@ -1,0 +1,41 @@
+[Unit]
+Description=herdr — terminal workspace manager (Shepherd's session backend)
+# Shepherd cannot spawn a single agent without this daemon, and herdr 0.7.3 does NOT
+# auto-spawn it on a CLI call (#1574). A user unit — NOT system — because herdr's socket,
+# config and panes all live under $HOME and belong to the operator, same as shepherd.service.
+Documentation=https://herdr.dev
+# Restart=always (below) is only honest with the start-rate limit DISABLED. systemd's default
+# (StartLimitBurst=5 within StartLimitIntervalSec=10s) parks a unit permanently in `failed`
+# after five quick restarts — precisely the crashed/OOM-killed case the restart policy exists
+# to recover. 0 disables the limit; RestartSec=2 is what bounds the retry rate.
+StartLimitIntervalSec=0
+
+[Service]
+Type=simple
+# Same env file shepherd.service reads. Without it this daemon cannot see HERDR_BIN or
+# HERDR_SESSION — the documented knobs (README) that Shepherd itself honors via
+# `config.herdrBin` / `config.herdrSocketPath`. On a `HERDR_SESSION=<name>` host an
+# env-blind daemon serves the `default` session while Shepherd's liveness probe targets the
+# per-session socket: the unit is `active`, `herdr` reads `offline`, and no agent can spawn.
+EnvironmentFile=-%h/.shepherd/env
+# TEMPLATED, not literal: deploy/provision.ts and deploy/update.sh rewrite this line before
+# installing the unit, resolving `${HERDR_BIN:-herdr}` (env file first, then PATH). herdr is not
+# always in ~/.local/bin — its installer puts it there, a package install can land it in
+# /usr/local/bin (the onboarding harness seeds exactly that), and HERDR_BIN can point anywhere.
+# `config.herdrBin` is `HERDR_BIN ?? "herdr"`, so it only falls back to a PATH lookup when
+# HERDR_BIN is unset; the unit must exec whichever binary that resolves to, or it supervises a
+# different herdr than the one diagnostics probes. The value below is the common default, used
+# verbatim only if templating is somehow skipped.
+ExecStart=%h/.local/bin/herdr server
+# Restart=always (not on-failure): a `herdr server stop`, an OOM kill, or a crashed daemon
+# must all come back — panes OUTLIVE the server and reattach, so a restart is always safe
+# and always preferable to a host that silently can't start agents. This is the "durable
+# operator-side fix" src/herdr-update.ts refers to; with it, that module's last-resort
+# `setsid herdr server` fallback becomes dead code on a provisioned host (it stays for
+# hand-rolled installs).
+Restart=always
+RestartSec=2
+Environment=PATH=%h/.local/bin:%h/.bun/bin:/usr/local/bin:/usr/bin:/bin
+
+[Install]
+WantedBy=default.target

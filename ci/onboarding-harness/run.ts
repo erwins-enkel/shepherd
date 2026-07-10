@@ -40,6 +40,25 @@ type ScenarioBase = {
   gateEligible: boolean;
 };
 
+/** Shared tail of BOTH install-e2e runners: probe the freshly-installed host, assert the
+ *  target-ok set, and shape the result. `expect` is the target state (not a seeded defect),
+ *  so `reachedGreen` is just whether detection saw every check reach `ok`. */
+async function finishInstallE2E(
+  driver: IncusDriver,
+  scenario: Scenario,
+  base: ScenarioBase,
+): Promise<ScenarioResult> {
+  const after = await probeDiagnostics(driver, scenario.id);
+  const detection = assertDetection(after, scenario.id, scenario.expect);
+  return {
+    ...base,
+    detection,
+    appliedVia: "verbatim",
+    reachedGreen: detection.detected,
+    installE2E: true,
+  };
+}
+
 /** Inverse flow: bare host → real deploy/install.sh → assert it reaches green.
  *  No seeded defect, no baseline; `expect` is the target-ok set. The install is a
  *  deterministic, LLM-free apply, so it reuses the "verbatim" appliedVia. Throws
@@ -64,15 +83,7 @@ async function runInstallE2E(
     throw new Error(`install.sh failed in ${scenario.id}:\n${install.stderr || install.stdout}`);
   }
   await bootShepherd(driver, scenario.id);
-  const after = await probeDiagnostics(driver, scenario.id);
-  const detection = assertDetection(after, scenario.id, scenario.expect);
-  return {
-    ...base,
-    detection,
-    appliedVia: "verbatim",
-    reachedGreen: detection.detected,
-    installE2E: true,
-  };
+  return await finishInstallE2E(driver, scenario, base);
 }
 
 /** Turn the freshly-extracted /opt/shepherd into a real git checkout BEFORE
@@ -159,19 +170,14 @@ async function runInstallLifecycleE2E(
     );
   }
 
-  // The unit owns the process — assert it's active, then wait for it to serve.
+  // The units own their processes — assert both are active, then wait for Shepherd to serve.
+  // herdr is checked explicitly: a green `herdr` diagnostic only proves some daemon answers,
+  // not that the SUPERVISED one does. An unsupervised daemon on the socket makes herdr.service
+  // thrash into `failed` behind a passing check — invisible without this assertion. #1574
+  await assertUnitActive(driver, scenario.id, "herdr");
   await assertUnitActive(driver, scenario.id);
   await waitForApi(driver, scenario.id);
-
-  const after = await probeDiagnostics(driver, scenario.id);
-  const detection = assertDetection(after, scenario.id, scenario.expect);
-  return {
-    ...base,
-    detection,
-    appliedVia: "verbatim",
-    reachedGreen: detection.detected,
-    installE2E: true,
-  };
+  return await finishInstallE2E(driver, scenario, base);
 }
 
 /** Fail-fast PREFLIGHT flow (`herdr-missing`). Since #1313 a missing herdr prints

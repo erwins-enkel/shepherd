@@ -87,6 +87,69 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
   cp "$REPO/deploy/shepherd-logrotate.timer" "$UNIT_DIR/shepherd-logrotate.timer"
   systemctl --user daemon-reload
   systemctl --user enable --now shepherd-logrotate.timer
+
+  # ── sync the herdr daemon unit (#1574) ───────────────────────────────────────
+  # Same self-heal rationale as the timers above: provision.ts installs herdr.service only on a
+  # FRESH box, so without this every already-provisioned host would keep running an unsupervised
+  # daemon (or none at all) forever. herdr 0.7.3 does NOT auto-spawn its server, and Shepherd
+  # cannot start a single agent without it.
+  #
+  # ExecStart is TEMPLATED to the resolved herdr, not copied: an installer puts herdr in
+  # ~/.local/bin, a package in /usr/local/bin, and the unit must exec the same binary the
+  # diagnostics probe resolves on PATH.
+  #
+  # Before `enable --now`: hand the socket over. A daemon the unit does NOT own (an in-app Fix's
+  # detached child, or a hand-rolled `herdr server`) makes ExecStart exit 1 ("already running"),
+  # and Restart=always would thrash. `herdr server stop` is graceful — panes outlive the server
+  # and reattach — and update.sh restarts Shepherd immediately below anyway.
+  #
+  # Resolution mirrors config.herdrBin (`HERDR_BIN ?? "herdr"`): source the unit's own env file,
+  # then look up ${HERDR_BIN:-herdr}. Done in a SUBSHELL — like the BACKUP_DIR resolution above —
+  # so neither the ~/.local/bin PATH prepend nor anything in ~/.shepherd/env leaks into the
+  # `systemctl restart` + health check further down this script.
+  HERDR_PATH="$(
+    set -a
+    [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"
+    set +a
+    PATH="$HOME/.local/bin:$PATH" command -v "${HERDR_BIN:-herdr}" || true
+  )"
+  if [[ -n "$HERDR_PATH" ]]; then
+    note "syncing herdr daemon unit"
+    HERDR_UNIT_TMP="$(mktemp)"
+    sed "s|^ExecStart=.*|ExecStart=${HERDR_PATH} server|" \
+      "$REPO/deploy/herdr.service" >"$HERDR_UNIT_TMP"
+    # Only reload+bounce when the unit ACTUALLY changed. `try-restart` kills the daemon that
+    # backs every live agent session, so doing it on every `bun run update` would bounce the
+    # session backend for a byte-identical unit. `cmp` also treats a missing installed unit as
+    # "changed", which is the first-sync case.
+    if ! cmp -s "$HERDR_UNIT_TMP" "$UNIT_DIR/herdr.service"; then
+      mv "$HERDR_UNIT_TMP" "$UNIT_DIR/herdr.service"
+      systemctl --user daemon-reload
+      # `enable --now` does NOT restart an already-active unit, so a sync that CHANGED ExecStart
+      # (herdr moved, or HERDR_BIN changed) would leave the running daemon on the stale path
+      # forever. try-restart restarts iff active; no-op otherwise.
+      systemctl --user try-restart herdr >/dev/null 2>&1 || true
+    else
+      rm -f "$HERDR_UNIT_TMP"
+    fi
+    if ! systemctl --user is-active --quiet herdr; then
+      # Stop the unsupervised daemon in its OWN `set -a` subshell: the env file must reach the
+      # `server stop` CHILD (HERDR_SOCKET_PATH / HERDR_SESSION select which socket it addresses),
+      # or on a non-default-session host we stop nothing and leave the real orphan bound — after
+      # which `enable --now` below thrashes the unit forever behind a green check. Subshell keeps
+      # the no-leak property: nothing sourced here reaches the restart/health-check below.
+      (
+        set -a
+        [ -f "$HOME/.shepherd/env" ] && . "$HOME/.shepherd/env"
+        set +a
+        "$HERDR_PATH" server stop >/dev/null 2>&1
+      ) || true
+      systemctl --user reset-failed herdr >/dev/null 2>&1 || true
+    fi
+    systemctl --user enable --now herdr || warn "herdr.service did not start — DIAGNOSE will report herdr offline"
+  else
+    warn "herdr not found (HERDR_BIN / PATH) — skipping herdr.service sync"
+  fi
 else
   warn "no systemd user manager — skipping backup timer sync (no automated backups on this host)"
 fi

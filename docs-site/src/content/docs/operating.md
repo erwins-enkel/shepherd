@@ -76,6 +76,34 @@ web-push alert. macOS / core-only hosts have no backup timer and stay silent. Fu
 details are in the
 [backups runbook](https://github.com/erwins-enkel/shepherd/blob/main/docs/backups.md).
 
+## herdr server lifecycle & "Update Herd"
+
+Shepherd drives herdr but **does not own the herdr server's lifecycle** — the
+daemon is normally auto-spawned on demand by any `herdr` CLI call. **"Update
+Herd"** swaps the herdr binary (`herdr update --handoff`), which stops the running
+server for the swap. Afterwards Shepherd makes a best-effort attempt to bring it
+back: it runs `herdr agent list` (which auto-spawns the daemon) with a short
+grace+retry, and only if that still fails does it relaunch a detached server so
+orphaned panes reattach.
+
+If you run the herdr **server** under your own systemd unit, use
+**`Restart=always`**, not `Restart=on-failure`. The stop during an update is a
+_clean_ exit (status 0), which `Restart=on-failure` does **not** treat as a restart
+trigger — so the server would stay down after "Update Herd", leaving a stale
+`~/.config/herdr/herdr.sock` and clients looping on `ConnectionRefused`.
+`Restart=always` survives that clean stop and is the durable fix; Shepherd's
+post-update recovery above is a subordinate best-effort belt (its relaunched server
+is a child of Shepherd's cgroup and is not durable across a `systemctl restart
+shepherd`).
+
+Every "Update Herd" run appends one delimited block to `~/.shepherd/herdr-update.log`
+— written by the update child itself, so the record survives even if Shepherd dies
+mid-update:
+
+```bash
+grep '>>> herdr-update' ~/.shepherd/herdr-update.log   # each step marker + the exit code
+```
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

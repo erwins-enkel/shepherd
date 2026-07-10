@@ -25,6 +25,18 @@ The membrane keeps two token surfaces readable to any in-membrane tool call:
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
   `gh pr create`) at `src/sandbox.ts:413`.
 
+**Under api-key auth the OAuth surface shifts rather than disappears.** In
+subscription mode (the default) both binds above apply verbatim. In api-key mode
+(`SHEPHERD_AUTH_MODE=api-key`) `apiKeyMembraneFields` sets `maskCredentials`
+(`src/spawn-auth.ts:73-79`), and the membrane then binds `~/.claude` per-child RO
+**omitting `.credentials.json` entirely** — no bind of any kind
+(`src/sandbox.ts:308-317`) — so the OAuth token is genuinely absent inside the
+membrane. In its place the `apiKeyHelper` script is `--ro-bind`ed at the same path
+(`src/sandbox.ts:419-421`) so `--settings` resolves it, and that script is what an
+in-membrane tool call can read/run to obtain the API key. The residual is the same
+shape — a readable credential surface the session legitimately needs — with a
+different file behind it. (`~/.config/gh` is bound RO in both modes.)
+
 `--clearenv` (`src/sandbox.ts:438`) strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,
 …), re-setting only HOME/PATH/TERM + non-secret locale vars — so these two
@@ -51,7 +63,7 @@ secrets out of the membrane entirely.
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
 is watching (`willEgressConfine`, `src/sandbox.ts:565-570`; applied at
-`src/service.ts:1409`): the wrap applies iff the autonomous profile resolves
+`src/service.ts:1812`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -108,19 +120,20 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L1796-1814, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L2402-2418, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
-  `src/autopilot.ts:24-29`, dispatched at L307). It ingests **untrusted web**
+  `src/autopilot.ts:25-30`, dispatched at L323). It ingests **untrusted web**
   content on `trusted`/`standard` with the **network open**, and can
   `gh pr create` / open issues via the bound gh token — so a hijacked research
   agent has **both** readable tokens **and** open egress.
 
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
-  (`src/autopilot.ts:309-313`). The residual is **accepted**.
+  (`src/autopilot.ts:327-331` — a finished research session is marked complete
+  instead of being steered to open one). The residual is **accepted**.
 
 ## See also
 

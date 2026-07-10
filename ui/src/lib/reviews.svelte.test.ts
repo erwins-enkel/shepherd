@@ -189,10 +189,10 @@ test("setActivity ignores an unchanged value (no reactive churn)", () => {
 // Guaranteed by three reset points, verified below for BOTH stores: start (OFF→ON), end
 // (ON→OFF), and bootstrap/resync.
 
-test("reviews activityFeed accumulates distinct lines newest-last, capped at 4", () => {
+test("reviews activityFeed accumulates distinct lines newest-last, capped at 2", () => {
   reviews.setReviewing("s1", true);
   for (const l of ["a", "b", "c", "d", "e"]) reviews.setActivity("s1", l);
-  expect(reviews.activityFeed("s1")).toEqual(["b", "c", "d", "e"]); // oldest ("a") dropped
+  expect(reviews.activityFeed("s1")).toEqual(["d", "e"]); // older lines dropped (cap MAX_ACTIVITY_LINES)
   expect(reviews.activityFor("s1")).toBe("e"); // badge tooltip = newest line
 });
 

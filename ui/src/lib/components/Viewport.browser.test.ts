@@ -747,6 +747,58 @@ describe("Viewport autopilot badge vs in-flight review", () => {
   });
 });
 
+describe("Viewport review banner — reflow guarantee (no prompt overlap)", () => {
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.activity = {};
+    planGates.map = {};
+    planGates.reviewing = {};
+    planGates.activity = {};
+  }
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  // The literal reported bug: in a short terminal the tall banner overlaid the CLI prompt.
+  // The banner caps its height (max-height: min(50%, 100% - 4rem)) so it leaves ≥ 4rem for
+  // the terminal; .term-mount (= 100% - --review-banner-h, floored at 4rem) then reflows fully
+  // ABOVE it — keeping its 4rem floor and never extending under the banner. Rendered at a short
+  // terminal height where the banner's natural (uncapped) height would otherwise force the
+  // reserve under its floor and overlap the prompt.
+  it("caps the in-flight banner so .term-mount keeps its 4rem floor and never overlaps it", async () => {
+    const id = "vr-overlap";
+    planGates.applyReviewing(id, true);
+    planGates.setActivity(id, "read .shepherd-plan.md");
+
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    // Force a SHORT terminal (well above .vp-body's 4rem floor) so the cap has to engage.
+    (container as HTMLElement).style.height = "320px";
+
+    const banner = () => container.querySelector<HTMLElement>(".review-banner");
+    await vi.waitFor(() => expect(banner()).not.toBeNull());
+    const mount = container.querySelector<HTMLElement>(".term-mount")!;
+    expect(mount, ".term-mount should render").not.toBeNull();
+    const vpBody = container.querySelector<HTMLElement>(".vp-body")!;
+    const fourRem = 4 * parseFloat(getComputedStyle(document.documentElement).fontSize);
+
+    await vi.waitFor(() => {
+      const vpH = vpBody.getBoundingClientRect().height;
+      const b = banner()!.getBoundingClientRect();
+      const m = mount.getBoundingClientRect();
+      // Reflow guarantee: the banner leaves at least a 4rem terminal (banner ≤ vp-body - 4rem).
+      expect(b.height).toBeLessThanOrEqual(vpH - fourRem + 0.5);
+      // → .term-mount keeps its 4rem floor …
+      expect(m.height).toBeGreaterThanOrEqual(fourRem - 0.5);
+      // … and never extends under the banner (the prompt is never overlaid).
+      expect(m.bottom).toBeLessThanOrEqual(b.top + 0.5);
+    });
+  });
+});
+
 describe("Viewport active REWORK terminal strip", () => {
   function clearReviewState() {
     reviews.map = {};

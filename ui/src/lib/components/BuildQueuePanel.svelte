@@ -43,6 +43,12 @@
   const approved = $derived(queue?.approved ?? false);
 
   const contentId = $derived(`bqp-content-${sessionId}`);
+  const awaitingId = $derived(`bqp-awaiting-${sessionId}`);
+
+  // Curation state: the agent has authored steps and paused for the operator to
+  // review + approve. This is a needs-you moment (Design Principle 2), so it gets
+  // a distinct amber treatment the calm default states never carry.
+  const awaiting = $derived(!approved && steps.length > 0);
 
   // ------------- edit helpers -------------
 
@@ -159,7 +165,12 @@
 </script>
 
 {#if visible}
-  <div class="bqp" role="region" aria-label={m.buildqueue_panel_title()}>
+  <div
+    class="bqp"
+    class:is-awaiting={awaiting}
+    role="region"
+    aria-label={m.buildqueue_panel_title()}
+  >
     <button
       type="button"
       class="bqp-head bqp-collapse-toggle"
@@ -169,6 +180,7 @@
       aria-label={buildQueueCollapse.collapsed
         ? m.buildqueue_expand_aria()
         : m.buildqueue_collapse_aria()}
+      aria-describedby={awaiting ? awaitingId : undefined}
       title={buildQueueCollapse.collapsed
         ? m.buildqueue_expand_aria()
         : m.buildqueue_collapse_aria()}
@@ -177,6 +189,13 @@
       <span class="bqp-title">{m.buildqueue_panel_title()}</span>
       {#if approved && steps.length > 0}
         <span class={["bqp-approved", `bqp-run-${runState}`]}>{approvalLabel} · {runLabel}</span>
+      {:else if awaiting}
+        <!-- Needs-you chip: mirrors the approved chip's slot so the header always
+             narrates queue status. Lives in the always-rendered header, so the
+             signal (and its aria-describedby target) survives collapse. -->
+        <span class="bqp-awaiting-chip" id={awaitingId}>
+          <span class="bqp-awaiting-dot" aria-hidden="true"></span>{m.buildqueue_awaiting_chip()}
+        </span>
       {/if}
       <span class="bqp-collapse-glyph" aria-hidden="true"
         >{buildQueueCollapse.collapsed ? "▴" : "▾"}</span
@@ -188,6 +207,7 @@
         <p class="bqp-empty">{m.buildqueue_empty()}</p>
       {:else if !approved}
         <!-- Curation mode: editable list -->
+        <p class="bqp-hint">{m.buildqueue_awaiting_hint()}</p>
         <ol class="bqp-list" aria-label={m.buildqueue_panel_title()}>
           {#each steps as step, i (step.id)}
             <li class="bqp-row">
@@ -267,7 +287,7 @@
             {m.buildqueue_add_step()}
           </button>
           <button type="button" class="bqp-btn bqp-approve" onclick={approve}>
-            {m.buildqueue_approve()}
+            <span class="bqp-approve-glyph" aria-hidden="true">▸</span>{m.buildqueue_approve()}
           </button>
         </div>
       {:else}
@@ -305,6 +325,12 @@
     font-size: var(--fs-meta);
   }
 
+  /* Awaiting operator approval: a faint amber wash so the paused panel reads as
+     distinct from calm sibling panels without shouting (Design Principle 2). */
+  .is-awaiting {
+    background: color-mix(in oklab, var(--color-amber) 6%, var(--color-panel));
+  }
+
   /* The whole header is the collapse toggle (mirrors IntegratedEpicRow's
      .row-head), so a click anywhere on the bar expands/collapses — not just
      the ▴/▾ glyph. Button reset; the glyph keeps its boxed look below. */
@@ -338,6 +364,27 @@
     letter-spacing: 0.08em;
     text-transform: uppercase;
     /* Color lives on the run-state modifier classes below. */
+  }
+
+  /* Needs-you chip: amber (Shepherd's attention hue), sits in the same header
+     slot as .bqp-approved. The words carry the meaning; the dot is decoration,
+     so the signal never relies on hue alone. */
+  .bqp-awaiting-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-amber);
+  }
+
+  .bqp-awaiting-dot {
+    flex: none;
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--color-amber);
   }
 
   /* Run-state modifier colors (design-system rule 4 — tokens only, never literals).
@@ -387,6 +434,19 @@
     margin: 0;
     color: var(--color-faint);
     font-size: var(--fs-micro);
+  }
+
+  /* Explains the paused state and what to do. Full-surface amber wash + full
+     border (never a side-stripe); ink-bright text keeps the copy legible. */
+  .bqp-hint {
+    margin: 0;
+    padding: 5px 8px;
+    border: 1px solid color-mix(in oklab, var(--color-amber) 30%, transparent);
+    border-radius: 3px;
+    background: color-mix(in oklab, var(--color-amber) 10%, transparent);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-micro);
+    line-height: 1.45;
   }
 
   .bqp-list {
@@ -531,15 +591,34 @@
     padding-top: 2px;
   }
 
+  /* Emphasized primary: the design system's loudest-action recipe
+     (.chip-action.primary) — amber text + amber border + an inner amber glow.
+     Deliberately NOT a solid fill: --color-amber flips light↔dark across themes,
+     so on-amber text would drop below AA in light theme. Amber text on the panel
+     stays contrast-safe in both themes and both high-contrast variants. */
   .bqp-approve {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
     color: var(--color-amber);
     border-color: var(--color-amber);
-    font-weight: 500;
+    font-weight: 600;
+    box-shadow: inset 0 0 18px -10px var(--color-amber);
   }
 
-  .bqp-approve:hover,
-  .bqp-approve:focus-visible {
-    background: color-mix(in oklab, var(--color-amber) 12%, transparent);
+  /* :not(:disabled) keeps specificity on par with the base .bqp-btn hover so this
+     later rule wins and the CTA stays amber (never the ink hover). */
+  .bqp-approve:hover:not(:disabled),
+  .bqp-approve:focus-visible:not(:disabled) {
     color: var(--color-amber);
+    border-color: var(--color-amber);
+    box-shadow:
+      inset 0 0 0 1px var(--color-amber),
+      inset 0 0 22px -8px var(--color-amber);
+  }
+
+  .bqp-approve-glyph {
+    font-size: var(--fs-micro);
+    line-height: 1;
   }
 </style>

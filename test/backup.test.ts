@@ -17,6 +17,11 @@ import {
 const name = (d: Date) => `shepherd-${formatTs(d)}.db.gz`;
 const hoursAgo = (base: Date, h: number) => new Date(base.getTime() - h * 3600_000);
 
+// The live-db block does real FS + SQLite I/O (~7ms locally). Under CI I/O pressure a
+// shared runner can stall past bun:test's 5000ms default, timing out a hook/test that is
+// not actually slow. Give these headroom without hiding a real (orders-of-magnitude) regression.
+const IO_TIMEOUT_MS = 20_000;
+
 describe("formatTs / parseTs round-trip", () => {
   it("formats UTC and parses back", () => {
     const d = new Date(Date.UTC(2026, 5, 25, 14, 30, 5));
@@ -104,50 +109,72 @@ describe("snapshot + integrity + rotate (live db)", () => {
     live = new Database(dbPath); // a connection stays OPEN to mimic the running server
     live.run("PRAGMA foreign_keys = ON");
     live.run("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)");
-    for (let i = 0; i < 500; i++) live.run("INSERT INTO t (v) VALUES (?)", ["row" + i]);
-  });
+    // Single transaction: collapses 500 per-insert autocommits (fsyncs) into one commit.
+    const seed = live.transaction((n: number) => {
+      for (let i = 0; i < n; i++) live.run("INSERT INTO t (v) VALUES (?)", ["row" + i]);
+    });
+    seed(500);
+  }, IO_TIMEOUT_MS);
   afterEach(() => {
     live.close();
     rmSync(dir, { recursive: true, force: true });
-  });
+  }, IO_TIMEOUT_MS);
 
-  it("snapshots a live db read-only and the snapshot passes integrity_check", () => {
-    const snap = join(dir, "snap.db");
-    snapshot(dbPath, snap);
-    expect(existsSync(snap)).toBe(true);
-    expect(() => verifyIntegrity(snap)).not.toThrow();
-    // the live writer can still commit afterwards
-    expect(() => live.run("INSERT INTO t (v) VALUES ('after')")).not.toThrow();
-  });
+  it(
+    "snapshots a live db read-only and the snapshot passes integrity_check",
+    () => {
+      const snap = join(dir, "snap.db");
+      snapshot(dbPath, snap);
+      expect(existsSync(snap)).toBe(true);
+      expect(() => verifyIntegrity(snap)).not.toThrow();
+      // the live writer can still commit afterwards
+      expect(() => live.run("INSERT INTO t (v) VALUES ('after')")).not.toThrow();
+    },
+    IO_TIMEOUT_MS,
+  );
 
-  it("verifyIntegrity throws on a corrupt snapshot (=> caller discards it)", () => {
-    const bad = join(dir, "bad.db");
-    writeFileSync(bad, "this is not a sqlite file at all");
-    expect(() => verifyIntegrity(bad)).toThrow();
-  });
+  it(
+    "verifyIntegrity throws on a corrupt snapshot (=> caller discards it)",
+    () => {
+      const bad = join(dir, "bad.db");
+      writeFileSync(bad, "this is not a sqlite file at all");
+      expect(() => verifyIntegrity(bad)).toThrow();
+    },
+    IO_TIMEOUT_MS,
+  );
 
-  it("rotate deletes only the GFS losers, keeping shepherd-*.db.gz survivors", () => {
-    // plant 200 six-hourly snapshots + a foreign file
-    const base = new Date(Date.UTC(2026, 5, 25, 0, 0, 0));
-    for (let i = 0; i < 200; i++) writeFileSync(join(dir, name(hoursAgo(base, i * 6))), "x");
-    writeFileSync(join(dir, "backup.log"), "log");
-    rotate(dir);
-    const left = readdirSync(dir).filter((f) => f.startsWith("shepherd-") && f.endsWith(".db.gz"));
-    expect(left.length).toBeLessThanOrEqual(GFS.hourly + GFS.daily + GFS.weekly + GFS.monthly);
-    expect(left.length).toBeLessThan(200);
-    expect(existsSync(join(dir, "backup.log"))).toBe(true); // foreign file untouched
-  });
+  it(
+    "rotate deletes only the GFS losers, keeping shepherd-*.db.gz survivors",
+    () => {
+      // plant 200 six-hourly snapshots + a foreign file
+      const base = new Date(Date.UTC(2026, 5, 25, 0, 0, 0));
+      for (let i = 0; i < 200; i++) writeFileSync(join(dir, name(hoursAgo(base, i * 6))), "x");
+      writeFileSync(join(dir, "backup.log"), "log");
+      rotate(dir);
+      const left = readdirSync(dir).filter(
+        (f) => f.startsWith("shepherd-") && f.endsWith(".db.gz"),
+      );
+      expect(left.length).toBeLessThanOrEqual(GFS.hourly + GFS.daily + GFS.weekly + GFS.monthly);
+      expect(left.length).toBeLessThan(200);
+      expect(existsSync(join(dir, "backup.log"))).toBe(true); // foreign file untouched
+    },
+    IO_TIMEOUT_MS,
+  );
 
-  it("rotate reaps orphaned in-progress temp files a crashed run left behind", () => {
-    const ts = formatTs(new Date(Date.UTC(2026, 5, 25, 0, 0, 0)));
-    const snapTmp = `.shepherd-${ts}.db.tmp`; // uncompressed snapshot temp
-    const gzTmp = `shepherd-${ts}.db.gz.tmp`; // pre-rename gzip temp
-    writeFileSync(join(dir, snapTmp), "x");
-    writeFileSync(join(dir, gzTmp), "x");
-    writeFileSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))), "x"); // a real survivor
-    rotate(dir);
-    expect(existsSync(join(dir, snapTmp))).toBe(false);
-    expect(existsSync(join(dir, gzTmp))).toBe(false);
-    expect(existsSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))))).toBe(true);
-  });
+  it(
+    "rotate reaps orphaned in-progress temp files a crashed run left behind",
+    () => {
+      const ts = formatTs(new Date(Date.UTC(2026, 5, 25, 0, 0, 0)));
+      const snapTmp = `.shepherd-${ts}.db.tmp`; // uncompressed snapshot temp
+      const gzTmp = `shepherd-${ts}.db.gz.tmp`; // pre-rename gzip temp
+      writeFileSync(join(dir, snapTmp), "x");
+      writeFileSync(join(dir, gzTmp), "x");
+      writeFileSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))), "x"); // a real survivor
+      rotate(dir);
+      expect(existsSync(join(dir, snapTmp))).toBe(false);
+      expect(existsSync(join(dir, gzTmp))).toBe(false);
+      expect(existsSync(join(dir, name(new Date(Date.UTC(2026, 5, 25)))))).toBe(true);
+    },
+    IO_TIMEOUT_MS,
+  );
 });

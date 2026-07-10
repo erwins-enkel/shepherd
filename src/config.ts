@@ -12,6 +12,7 @@ import { normalizeAuthModeSetting } from "./auth-mode";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
+import { applyHerdrSocket } from "./herdr-session";
 
 const dbPath = process.env.SHEPHERD_DB ?? `${process.env.HOME}/.shepherd/shepherd.db`;
 // forge map sits next to the db by default; SHEPHERD_FORGES overrides the path.
@@ -33,19 +34,18 @@ const codexUpdateLogPath =
 // loads nothing (the clean zero-plugin invariant).
 const pluginsDir = process.env.SHEPHERD_PLUGINS_DIR ?? join(dirname(dbPath), "plugins");
 
-// herdr session id: "default" for a single-session install; a named herdr daemon
-// otherwise. Computed here (not just inline in `config`) because herdrSocketPath
-// below needs it to pick the right per-session socket.
-const herdrSession = process.env.HERDR_SESSION ?? "default";
-// Unix-socket path for herdr's native JSON-RPC API (issue #1529). HERDR_SOCKET_PATH
-// overrides outright; otherwise a non-default herdrSession gets its own per-session
-// socket (herdr scopes sessions this way), and the default session uses herdr's
-// top-level socket.
-const herdrSocketPath =
-  process.env.HERDR_SOCKET_PATH ??
-  (herdrSession !== "default"
-    ? `${process.env.HOME}/.config/herdr/sessions/${herdrSession}/herdr.sock`
-    : `${process.env.HOME}/.config/herdr/herdr.sock`);
+// herdr session id ("default" for a single-session install; a named daemon otherwise) and
+// the Unix-socket path for herdr's native JSON-RPC API (issue #1529). Resolved via the shared
+// helper so it also guards the in-pane footgun (issue #1596): when Shepherd runs INSIDE a herdr
+// pane (HERDR_ENV=1) and a non-`default` HERDR_SESSION disagrees with the pane-inherited
+// HERDR_SOCKET_PATH, the explicit session wins and applyHerdrSocket rewrites
+// process.env.HERDR_SOCKET_PATH so every spawned `herdr` CLI (which inherits process.env)
+// agrees with the socket driver — otherwise a dev/test instance silently attaches to the
+// parent pane's herd. Warns loudly on override; SHEPHERD_HERDR_IGNORE_SESSION=1 opts out.
+const { session: herdrSession, socketPath: herdrSocketPath } = applyHerdrSocket(
+  process.env,
+  process.env.HOME ?? "",
+);
 
 // Two independent review caps, each how many reviewer→agent steer rounds a findings
 // streak may spend before escalating to a human. Global, UI-configurable + persisted;

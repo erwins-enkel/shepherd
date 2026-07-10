@@ -88,6 +88,30 @@ if command -v systemctl >/dev/null 2>&1 && systemctl --user show-environment >/d
   systemctl --user daemon-reload
   systemctl --user enable --now shepherd-logrotate.timer
 
+  # ── sync the core shepherd.service unit ──────────────────────────────────────
+  # Same self-heal rationale as the timers + herdr unit: provision.ts installs shepherd.service
+  # only on a FRESH box, so an already-provisioned host never picks up later changes to the unit
+  # — most consequentially the `After=herdr.service` ordering. Without it, at boot Shepherd can
+  # start BEFORE the sibling herdr daemon, and the diagnostics probe (4s after Shepherd boot,
+  # src/index.ts) races herdr's startup and latches a false `herdr: offline`.
+  #
+  # TEMPLATED like the backup service above (templateUnit in provision.ts): rewrite only the
+  # WorkingDirectory line to THIS checkout so a custom SHEPHERD_DIR install runs against the right
+  # dir. Write only when the rendered unit differs (`cmp -s`, which also treats a missing installed
+  # unit as changed) so a byte-identical unit skips even a redundant daemon-reload. No restart in
+  # this block: the `systemctl --user restart shepherd` below applies the reloaded unit, and the
+  # `After=` ordering only takes effect at the next boot anyway.
+  SHEP_UNIT_TMP="$(mktemp)"
+  sed "s|^WorkingDirectory=.*|WorkingDirectory=${REPO}|" \
+    "$REPO/deploy/shepherd.service" >"$SHEP_UNIT_TMP"
+  if ! cmp -s "$SHEP_UNIT_TMP" "$UNIT_DIR/shepherd.service"; then
+    note "syncing shepherd.service unit"
+    mv "$SHEP_UNIT_TMP" "$UNIT_DIR/shepherd.service"
+    systemctl --user daemon-reload
+  else
+    rm -f "$SHEP_UNIT_TMP"
+  fi
+
   # ── sync the herdr daemon unit (#1574) ───────────────────────────────────────
   # Same self-heal rationale as the timers above: provision.ts installs herdr.service only on a
   # FRESH box, so without this every already-provisioned host would keep running an unsupervised

@@ -3,6 +3,7 @@ import {
   autoFixCommandFor,
   GUIDANCE_ONLY,
   REMEDIATIONS,
+  remediationEntriesFor,
   remediationsFor,
 } from "../../src/remediations";
 import type { DiagnosticsSnapshot } from "../../src/types";
@@ -63,6 +64,26 @@ describe("remediations catalog", () => {
     // privileged system install ⇒ guidance-only in-app (the root harness still applies it)
     expect(GUIDANCE_ONLY.has("diagnostics_hint_git_missing")).toBe(true);
     expect(autoFixCommandFor("diagnostics_hint_git_missing")).toBeUndefined();
+  });
+
+  it("remediationEntriesFor tags each entry's optional state (optional ⇒ non-fatal in the apply)", () => {
+    const snap: DiagnosticsSnapshot = {
+      checks: [
+        { id: "codex", state: "optional", hintKey: "diagnostics_hint_codex_optional" },
+        { id: "node", state: "warning", hintKey: "diagnostics_hint_node_outdated" },
+        { id: "bun", state: "error", hintKey: "diagnostics_hint_bun_missing" },
+        { id: "git", state: "ok", hintKey: "diagnostics_hint_git_ok" }, // ok → skipped
+      ],
+      generatedAt: 1,
+      overall: "error",
+    };
+    expect(remediationEntriesFor(snap)).toEqual([
+      { id: "codex", cmd: REMEDIATIONS.diagnostics_hint_codex_optional!, optional: true },
+      { id: "node", cmd: REMEDIATIONS.diagnostics_hint_node_outdated!, optional: false },
+      { id: "bun", cmd: REMEDIATIONS.diagnostics_hint_bun_missing!, optional: false },
+    ]);
+    // The string projection is unchanged (run.ts's path-selection `.length` is preserved).
+    expect(remediationsFor(snap)).toEqual(remediationEntriesFor(snap).map((r) => r.cmd));
   });
 
   it("remediationsFor includes the git install for a git-error snapshot (harness applies it as root)", () => {

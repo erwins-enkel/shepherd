@@ -638,7 +638,6 @@
   "planpanel_go": "Go: start execution",
   "planpanel_review_now": "Review plan now",
   "planpanel_reviewing": "Reviewing…",
-  "planpanel_review_unchanged": "Plan unchanged since the last review; nothing to re-check.",
   "planpanel_review_already_approved": "Plan already approved; ready to start.",
   "planpanel_review_plan_unavailable": "Review did not start because .shepherd-plan.md is missing, empty, or unreadable.",
   "planpanel_review_nothing_to_review": "Couldn't start a plan review right now.",

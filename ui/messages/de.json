@@ -638,7 +638,6 @@
   "planpanel_go": "Los: Ausführung starten",
   "planpanel_review_now": "Plan jetzt prüfen",
   "planpanel_reviewing": "Prüfe Plan…",
-  "planpanel_review_unchanged": "Plan seit der letzten Prüfung unverändert; keine erneute Prüfung nötig.",
   "planpanel_review_already_approved": "Plan bereits freigegeben; bereit zum Start.",
   "planpanel_review_plan_unavailable": "Prüfung nicht gestartet, weil .shepherd-plan.md fehlt, leer oder nicht lesbar ist.",
   "planpanel_review_nothing_to_review": "Planprüfung konnte gerade nicht gestartet werden.",

@@ -1,0 +1,6 @@
+# Root `bun test` config. The preload strips the operator's ambient SHEPHERD_* runtime config
+# before any test imports src/config.ts, so the suite is deterministic regardless of whether it
+# runs in CI, a plain shell, or inside a live Shepherd session (dogfooding). See the header of
+# test/setup-test-env.ts for the full rationale.
+[test]
+preload = ["./test/setup-test-env.ts"]

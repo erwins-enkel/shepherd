@@ -477,31 +477,41 @@ export class PlanGateService {
         await this.reapOrphanSpawn(sp);
         continue;
       }
-      const plan = (this.readPlan(s.worktreePath) ?? "").trim();
-      this.inflight.set(id, {
-        sessionId: id,
-        repoPath: s.repoPath,
-        worktreePath: sp.worktreePath,
-        terminalId: this.resolveTerminal(sp.worktreePath),
-        reviewerSessionId: sp.reviewerSessionId,
-        planHash: await PlanGateService.hashPlan(plan),
-        plan,
-        blocks: this.readPlanBlocks(s.worktreePath),
-        reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider, sp.model),
-        reviewerModel: sp.model,
-        reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
-        priorRound: prior?.round ?? 0,
-        // The `reviewer_spawns` row has no `forced` column, so a restart mid-forced-review
-        // resurrects the entry as `forced: false`. The divergence is deliberate: adding a column +
-        // migration to suppress one at-cap stall row isn't worth it, and it fails SAFE — after a
-        // crash "needs a human" is arguably true, and no operator is known to be present. Bounded at
-        // one stall row per restart per session, unreachable by clicking, so it can't walk the
-        // distiller toward its learnings-signal threshold. See applyChangesRequested's guards.
-        forced: false,
-        startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
-      });
+      this.inflight.set(id, await this.buildAdoptedInflight(sp, s, prior));
       this.deps.onReviewing?.(id, true);
     }
+  }
+
+  /** Rebuild an in-flight entry for a restart-orphaned plan review from its persisted spawn row.
+   *  Split out of adoptOrphans to keep that loop's cognitive complexity within the health bar. */
+  private async buildAdoptedInflight(
+    sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+    s: Session,
+    prior: PlanGate | null,
+  ): Promise<PlanInFlight> {
+    const plan = (this.readPlan(s.worktreePath) ?? "").trim();
+    return {
+      sessionId: s.id,
+      repoPath: s.repoPath,
+      worktreePath: sp.worktreePath,
+      terminalId: this.resolveTerminal(sp.worktreePath),
+      reviewerSessionId: sp.reviewerSessionId,
+      planHash: await PlanGateService.hashPlan(plan),
+      plan,
+      blocks: this.readPlanBlocks(s.worktreePath),
+      reviewerProvider: reviewerProviderFromSpawn(sp.reviewerProvider, sp.model),
+      reviewerModel: sp.model,
+      reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
+      priorRound: prior?.round ?? 0,
+      // The `reviewer_spawns` row has no `forced` column, so a restart mid-forced-review resurrects
+      // the entry as `forced: false`. The divergence is deliberate: adding a column + migration to
+      // suppress one at-cap stall row isn't worth it, and it fails SAFE — after a crash "needs a
+      // human" is arguably true, and no operator is known to be present. Bounded at one stall row per
+      // restart per session, unreachable by clicking, so it can't walk the distiller toward its
+      // learnings-signal threshold. See applyChangesRequested's guards.
+      forced: false,
+      startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
+    };
   }
 
   /** Targeted reap of an orphaned plan-review spawn whose gate already landed `approved` — mirrors
@@ -666,12 +676,21 @@ export class PlanGateService {
     // (priorRound >= cap, delivered=false) and every sub-cap round leave it false, so
     // planStallStatus can tell a genuine final round from a stall/takeover. See src/plan-status.ts.
     gate.finalRoundPending = delivered && gate.round >= this.cap;
+    this.escalateStallIfNeeded(f, gate, delivered);
+    this.deps.store.putPlanGate(gate);
+    this.deps.onChange(f.sessionId, gate);
+  }
+
+  /** Emit the learnings `stall` signal when a changes-requested round can't progress on its own —
+   *  at/over the cap, or sub-cap with an undelivered steer (dead pane). A forced re-review suppresses
+   *  the signal so a repeat-clickable button can't spam the distiller: an at-cap RE-ENTRY
+   *  (`priorRound >= cap`) is fully suppressed, but a forced CROSSING (`priorRound === cap-1` whose
+   *  steer lands) still signals exactly once. Split out of applyChangesRequested to keep its
+   *  cognitive complexity within the health bar. */
+  private escalateStallIfNeeded(f: PlanInFlight, gate: PlanGate, delivered: boolean): void {
     if (gate.round >= this.cap) {
-      // At/over the cap — a plan still unapproved after this many rounds can't progress on its own.
-      // Fires on the crossing round and on any re-review that re-enters already at the cap. Suppress
-      // ONLY a forced at-cap RE-ENTRY (`f.priorRound >= cap`): a repeat-clickable button must not
-      // spam the learnings distiller. NOT `!f.forced` — a forced CROSSING (priorRound === cap-1
-      // whose steer lands) still signals exactly once, as a crossing happens at most once per streak.
+      // Fires on the crossing round and on any re-review that re-enters already at the cap. NOT
+      // `!f.forced` — a forced crossing still signals once; only a forced at-cap re-entry is suppressed.
       if (!(f.forced && f.priorRound >= this.cap)) {
         this.deps.store.addSignal({
           repoPath: f.repoPath,
@@ -680,12 +699,12 @@ export class PlanGateService {
           payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
         });
       }
-    } else if (!delivered) {
-      // Sub-cap but the steer didn't land (dead/unreachable pane): the findings never reached the
-      // planning agent and the round didn't advance, so it's stranded just like a cap stall rather
-      // than mid-revision. Escalate so it surfaces instead of silently going quiet — but suppress the
-      // learnings signal on a forced run (newly reachable per click and unbounded); the console.warn
-      // and the rendered verdict still surface it to the operator.
+      return;
+    }
+    if (!delivered) {
+      // Sub-cap but the steer didn't land (dead/unreachable pane): stranded like a cap stall rather
+      // than mid-revision. Escalate so it surfaces — but suppress the learnings signal on a forced run
+      // (newly reachable per click and unbounded); the console.warn + rendered verdict still surface it.
       console.warn(
         `[plan-gate] changes-requested steer did not land for ${f.sessionId}; escalating`,
       );
@@ -699,8 +718,6 @@ export class PlanGateService {
         });
       }
     }
-    this.deps.store.putPlanGate(gate);
-    this.deps.onChange(f.sessionId, gate);
   }
 
   /** Persist the error gate + escalate, but don't steer (no real findings) and don't release. */

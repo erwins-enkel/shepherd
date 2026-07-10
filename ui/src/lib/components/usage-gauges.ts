@@ -220,10 +220,18 @@ export function overspending(limits: UsageLimits | null): boolean {
   return !!c && !c.stale && c.spent > 0;
 }
 
+/** One usage window's remaining room, labelled by which window it is (5H vs WK) so the gauge
+ *  is never ambiguous about which limit a bar reflects. */
+export interface ProviderCapacityWindow {
+  key: GaugeKey; // "5H" | "WK"
+  usedPct: number; // capped 0..100 — drives the bar color
+  remainingPct: number; // 100 − usedPct — the "% free"
+}
+
 export interface ProviderCapacityRow {
   provider: AgentProvider;
-  usedPct: number | null;
-  remainingPct: number | null;
+  /** Per-window rooms in display order (5H before WK). Empty when the provider has no window data. */
+  windows: ProviderCapacityWindow[];
   available: boolean;
   stale: boolean;
 }
@@ -232,36 +240,29 @@ function capPct(v: number): number {
   return Math.min(Math.max(v, 0), 100);
 }
 
-function remainingFromUsed(usedPct: number | null): number | null {
-  return usedPct == null ? null : Math.max(0, 100 - usedPct);
-}
-
-function hottestUsedPct(windows: Gauge[]): number | null {
-  if (!windows.length) return null;
-  return Math.max(...windows.map((g) => capPct(g.w.pct)));
+function capacityWindows(gauges: Gauge[]): ProviderCapacityWindow[] {
+  return gauges.map((g) => {
+    const usedPct = capPct(g.w.pct);
+    return { key: g.label, usedPct, remainingPct: Math.max(0, 100 - usedPct) };
+  });
 }
 
 export function providerCapacityRows(limits: UsageLimits | null): ProviderCapacityRow[] {
-  const claudeWindows = gaugeList(limits);
   const codexUsage = codexTokenUsage(limits);
-  const codexWindows = codexGaugeList(codexUsage);
-
-  const claudeUsedPct = hottestUsedPct(claudeWindows);
-  const codexUsedPct = hottestUsedPct(codexWindows);
+  const claudeWindows = capacityWindows(gaugeList(limits));
+  const codexWindows = capacityWindows(codexGaugeList(codexUsage));
 
   return [
     {
       provider: "claude",
-      usedPct: claudeUsedPct,
-      remainingPct: remainingFromUsed(claudeUsedPct),
-      available: claudeUsedPct != null,
+      windows: claudeWindows,
+      available: claudeWindows.length > 0,
       stale: limits?.stale ?? false,
     },
     {
       provider: "codex",
-      usedPct: codexUsedPct,
-      remainingPct: remainingFromUsed(codexUsedPct),
-      available: codexUsedPct != null,
+      windows: codexWindows,
+      available: codexWindows.length > 0,
       stale: codexUsage?.stale ?? false,
     },
   ];

@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
-import type { PlanGate, Session } from "$lib/types";
+import type { HoldReason, PlanGate, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import type { ReviewVerdict } from "$lib/types";
 
@@ -946,5 +946,109 @@ describe("UnitRow stepper bar", () => {
     // Clicking the halo selects the row exactly once.
     halo.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     expect(selected, "halo click forwards exactly one onselect").toEqual(["step-1"]);
+  });
+});
+
+describe("UnitRow awaits-operator attention wash", () => {
+  const unitEl = (id: string) => document.querySelector(`[data-unit-id="${id}"]`) as HTMLElement;
+
+  // Resolve a CSS color expression to its computed rgb() so the composition test can
+  // compare against the plain selected surface without pinning a literal value.
+  function resolvedBackgroundColor(cssValue: string): string {
+    const el = document.createElement("div");
+    el.style.background = cssValue;
+    document.body.appendChild(el);
+    const color = getComputedStyle(el).backgroundColor;
+    el.remove();
+    return color;
+  }
+
+  const renderHold = (id: string, hold: HoldReason | undefined, extra: Partial<Session> = {}) =>
+    render(UnitRow, {
+      session: session({ id, status: "idle", ...extra }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold,
+    });
+
+  it("applies .awaits-operator for a parked plan-rework hold", () => {
+    renderHold("aw-plan", { code: "plan-rework", params: { round: 2, cap: 5 } });
+    expect(unitEl("aw-plan").classList.contains("awaits-operator")).toBe(true);
+  });
+
+  it("applies .awaits-operator for a blocked-menu hold", () => {
+    render(UnitRow, {
+      session: session({ id: "aw-menu", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: { code: "blocked-menu" },
+    });
+    expect(unitEl("aw-menu").classList.contains("awaits-operator")).toBe(true);
+  });
+
+  it("does NOT apply for excluded holds (ci-red / critic-rework / merging)", () => {
+    for (const [id, code] of [
+      ["aw-ci", "ci-red"],
+      ["aw-critic", "critic-rework"],
+      ["aw-merging", "merging"],
+    ] as const) {
+      renderHold(id, { code });
+      expect(unitEl(id).classList.contains("awaits-operator"), code).toBe(false);
+    }
+  });
+
+  it("does NOT apply when there is no hold", () => {
+    renderHold("aw-none", undefined);
+    expect(unitEl("aw-none").classList.contains("awaits-operator")).toBe(false);
+  });
+
+  it("does NOT apply while running — the agent is the actor (e.g. active plan rework)", () => {
+    // The server emits plan-rework for a still-running planning session that is
+    // actively addressing changes; that is the agent's turn, not the operator's.
+    render(UnitRow, {
+      session: session({ id: "aw-running", status: "running", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: { code: "plan-rework", params: { round: 2, cap: 5 } },
+    });
+    expect(unitEl("aw-running").classList.contains("awaits-operator")).toBe(false);
+  });
+
+  it("does NOT apply to a working-while-blocked session (display-running, mid-turn)", () => {
+    render(UnitRow, {
+      session: session({ id: "aw-wb", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: { code: "blocked-menu" },
+      workingBlocked: { "aw-wb": true },
+    });
+    expect(unitEl("aw-wb").classList.contains("awaits-operator")).toBe(false);
+  });
+
+  it("does NOT apply to a readyToMerge card even under an otherwise-included hold (green ✓ guard)", () => {
+    renderHold("aw-ready", { code: "plan-rework" }, { readyToMerge: true });
+    expect(unitEl("aw-ready").classList.contains("awaits-operator")).toBe(false);
+  });
+
+  it("composes with selection: keeps both classes and a wash-tinted background", () => {
+    render(UnitRow, {
+      session: session({ id: "aw-sel", status: "idle" }),
+      selected: true,
+      nowMs: Date.now(),
+      onselect: () => {},
+      hold: { code: "plan-rework", params: { round: 2, cap: 5 } },
+    });
+    const unit = unitEl("aw-sel");
+    expect(unit.classList.contains("awaits-operator")).toBe(true);
+    expect(unit.classList.contains("sel")).toBe(true);
+    // the wash is composited INTO the selected background, so it differs from the
+    // plain selected surface (--color-sel) and is not transparent.
+    const bg = getComputedStyle(unit).backgroundColor;
+    expect(bg).not.toBe(resolvedBackgroundColor("var(--color-sel)"));
+    expect(bg).not.toBe("rgba(0, 0, 0, 0)");
   });
 });

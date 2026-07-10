@@ -80,6 +80,24 @@ export function canShowPlanStallActions(
   );
 }
 
+/** Reason a manual plan re-review is BLOCKED on GitRail / PlanPanel, or null when it can start.
+ *  `reviewing` (one already in flight) is checked BEFORE `approved` — matching planGateChip() — so a
+ *  review landing on a just-approved gate reads as in-flight, not "already approved". After the
+ *  `force` seam an unchanged/at-cap plan is no longer a block (force re-reviews it); only these two
+ *  states remain genuinely un-startable. The caller still gates visibility on planPhase==="planning". */
+export type PlanReviewBlockReason = "reviewing" | "approved";
+
+export function canTriggerPlanReview(
+  session: Pick<Session, "planPhase">,
+  gate: PlanGate | undefined,
+  reviewing: boolean,
+): PlanReviewBlockReason | null {
+  if (session.planPhase !== "planning") return null; // control isn't offered off the plan phase
+  if (reviewing) return "reviewing";
+  if (gate?.approved) return "approved";
+  return null;
+}
+
 export type PlanGateTooltipCopy = {
   fallback: string;
   planning: string;

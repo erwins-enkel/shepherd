@@ -22,10 +22,14 @@ import type { Scenario } from "./types";
  *    reported as DETECTION-ONLY. This is the honest "onboarding still needs the
  *    user here" finding the gap report exists to surface.
  *
- * NOTE: scenarios that require provisioning the harness doesn't yet implement
- * (a pinned outdated herdr build; a faked tailnet for the not-serving warning
- * state) are intentionally OMITTED rather than shipped as permanent gaps — see
- * the deferred follow-ups in docs/superpowers/specs/...-design.md.
+ * NOTE: the `herdr-outdated` scenario below covers DETECTION of a live-but-old herdr
+ * (warning), but its GREEN-ABLE remediation — `herdr update --handoff` (#1578) — stays
+ * deferred: install.sh can't pin an old build, so the harness can't stand up a real old
+ * live daemon to hand off from (the remediation's behavior is proved by
+ * test/remediations.test.ts + test/diagnostics.test.ts instead). Other scenarios that
+ * require provisioning the harness doesn't yet implement (a faked tailnet for the
+ * not-serving warning state) remain intentionally OMITTED rather than shipped as permanent
+ * gaps — see the deferred follow-ups in docs/superpowers/specs/...-design.md.
  */
 export const SCENARIOS: Scenario[] = [
   {
@@ -89,6 +93,29 @@ export const SCENARIOS: Scenario[] = [
     expect: [{ id: "herdr", state: "error" }],
     coaching: "structured",
     preflightFailFast: true,
+  },
+  {
+    // A live-but-OUTDATED herdr: `herdr --version` reports below HERDR_MIN_VERSION → `warning`,
+    // while the daemon still answers `agent list` (liveness ok) so it reads outdated, NOT
+    // offline. The baseline stub reports 99.99.99 (ok); this seed overwrites it to report an
+    // old version. Present-but-old passes the boot preflight (it fail-fasts only on a MISSING
+    // binary, src/preflight.ts), so the instance boots and self-diagnoses.
+    //
+    // DETECTION-ONLY: applies no remediation, so it exercises NONE of the #1578
+    // `herdr update --handoff` remediation and largely duplicates the outdated→warning unit
+    // coverage (test/diagnostics.test.ts); its only marginal value is the real boot+probe
+    // classification of a live-but-old herdr end-to-end. A green-able E2E stays deferred — see
+    // the header NOTE (no install.sh version pinning → no real old daemon to hand off from).
+    id: "herdr-outdated",
+    image: "images:archlinux",
+    seed: [
+      "mkdir -p ~/.local/bin",
+      "cat > ~/.local/bin/herdr <<'HERDR_STUB'\n#!/bin/sh\necho '{\"version\":\"0.6.5\"}'\nHERDR_STUB",
+      "chmod +x ~/.local/bin/herdr",
+    ],
+    expect: [{ id: "herdr", state: "warning" }],
+    coaching: "prose",
+    detectionOnly: true,
   },
   {
     // claudeProbe is PRESENCE-ONLY (a successful `claude --version` ⇒ ok; there is

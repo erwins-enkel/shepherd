@@ -1,3 +1,5 @@
+import { config } from "./config";
+import { buildUpdateScript } from "./herdr-update";
 import type { DiagnosticsSnapshot } from "./types";
 
 /** hintKey → verbatim shell remediation, keyed by the advice identifier Shepherd
@@ -97,12 +99,21 @@ export const REMEDIATIONS: Record<string, string> = {
   // check, spawn and poll would all run even when the install failed. `( … )` makes the
   // whole block one compound command whose status is what `&&` gates on.
   diagnostics_hint_herdr_missing: `${HERDR_INSTALL} && (${HERDR_SERVE})`,
-  // Install ONLY, deliberately. The version probe reads the BINARY (`herdr --version`
-  // answers with no daemon running — verified), so reinstalling clears the `outdated`
-  // warning on the next probe without touching the running server. Restarting the daemon
-  // to adopt the new binary is a separate concern (panes outlive the server; herdr ships
-  // `update --handoff` for exactly that) — tracked in #1578, NOT bolted on here.
-  diagnostics_hint_herdr_outdated: HERDR_INSTALL,
+  // Update AND hand off the running daemon (#1578). Reinstalling the binary alone (the
+  // pre-#1578 behavior) cleared the outdated WARNING — the probe reads `herdr --version`,
+  // the on-disk binary — but left the RUNNING daemon serving the old version: a degraded
+  // split state. `herdr update --handoff` (reused verbatim from buildUpdateScript) updates
+  // the binary AND hands the live targets to the new server ATOMICALLY, so a successful
+  // update can't leave an old daemon behind; its 3× reachability retry + detached
+  // `setsid server` relaunch keep a failed handoff from stranding the host offline.
+  // Verification is the diagnostics RE-PROBE (DiagnosticsService.fix → check): a no-op
+  // update leaves the binary old (still `warning`); a handoff that killed the server reads
+  // `offline` (error). The running-server version is exposed only over the herdr socket
+  // (`ping`), not a CLI verb, so the shell string cannot probe it directly — update
+  // atomicity + the re-probe are the guarantee. Stays auto-fixable (not GUIDANCE_ONLY).
+  // Executes in-app on the shepherd host only (the harness herdr-outdated scenario is
+  // detection-only), so buildUpdateScript's baked `config.herdrBin` is always the right one.
+  diagnostics_hint_herdr_outdated: buildUpdateScript(config.herdrUpdateLogPath),
   diagnostics_hint_herdr_offline: HERDR_SERVE,
   diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
   diagnostics_hint_claude_optional: "curl -fsSL https://claude.ai/install.sh | bash",

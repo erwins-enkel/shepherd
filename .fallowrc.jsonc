@@ -324,6 +324,22 @@
         "maxCognitive": 20,
         "maxCrap": 1000,
         "reason": "Demo session-detail GET dispatch chain gained the /worktree route (one branch over the cognitive default); keep capped until the GET routes move to the data-driven table the mutations already use (#855)."
+      },
+      {
+        "files": ["ui/src/lib/hold-row.ts"],
+        "functions": ["rowState"],
+        "maxCyclomatic": 22,
+        "maxCognitive": 19,
+        "maxCrap": 1000,
+        "reason": "Single ordered first-match classifier for the plan-gate row (#1561): one branch per rule (R1-R12), deliberately kept as a flat, top-to-bottom precedence chain so the exhaustively-tested rule order stays auditable at a glance. Cyclomatic is rule-count-driven, not nested logic (cognitive 19). Collapsing it into a data-driven rule table would hide the precedence the whole design turns on. Same envelope as src/drain.ts doSpawn (22/19)."
+      },
+      {
+        "files": ["ui/src/lib/components/UnitRow.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 62,
+        "maxCrap": 20000,
+        "reason": "Inline hold-reason subline + one-click CTA (#1561) adds ~+3 cognitive to the already-large row template (58 -> 61). The CTA block was extracted into the holdSubline snippet, which recovered cyclomatic back under the Tier-1 40 bar; the residual +1 over the 60 cognitive bar is genuine new-affordance cost. Keep capped until UnitRow is split into per-zone sub-components (#855), like the other large row templates."
       }
     ],
 

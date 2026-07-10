@@ -1268,12 +1268,21 @@ const GUARD_BASE = 31000 + Math.floor(Math.random() * 3000);
 
 /** Swap a bound listener's server for one whose `stop()` throws SYNCHRONOUSLY (a non-promise
  *  return would fail the same way, since `.catch` would then throw). */
-function breakServer(svc: PreviewService, sessionId: string): void {
+function breakServer(svc: PreviewService, sessionId: string): { stopReal: () => void } {
   const listener = (svc as any).listeners.get(sessionId);
+  const real = listener.server;
   listener.server = {
     stop() {
       throw new Error("boom: server already gone");
     },
+  };
+  // The service can no longer reach the REAL server (we just swapped it out), so `stopAll`/`release`
+  // will never close its socket. The test must, or it leaks a listening port for the rest of the run.
+  return {
+    stopReal: () =>
+      void Promise.resolve(real?.stop(true)).catch(() => {
+        /* already gone */
+      }),
   };
 }
 
@@ -1286,7 +1295,7 @@ test("PreviewService: release() still fires onChange when server.stop() throws s
   });
   const port = svc.ensure("s1", 40000);
   expect(port).not.toBeNull();
-  breakServer(svc, "s1");
+  const broken = breakServer(svc, "s1");
 
   expect(() => svc.release("s1")).not.toThrow();
   expect(changes).toEqual([
@@ -1294,15 +1303,17 @@ test("PreviewService: release() still fires onChange when server.stop() throws s
     ["s1", null], // teardown completed despite the throw
   ]);
   svc.stopAll();
+  broken.stopReal(); // the swapped-out server is ours to close
 });
 
 test("PreviewService: stopAll() clears its maps even when one server.stop() throws synchronously", () => {
   const svc = new PreviewService({ base: GUARD_BASE + 100, count: TEST_COUNT });
   expect(svc.ensure("s1", 40000)).not.toBeNull();
   expect(svc.ensure("s2", 40001)).not.toBeNull(); // two listeners, so an aborted loop is observable
-  breakServer(svc, "s1"); // the FIRST listener throws — the loop must not abort
+  const broken = breakServer(svc, "s1"); // the FIRST listener throws — the loop must not abort
 
   expect(() => svc.stopAll()).not.toThrow();
+  broken.stopReal(); // stopAll could not reach it; close it here or the port leaks
   expect((svc as any).listeners.size).toBe(0);
   expect((svc as any).slotOwner.size).toBe(0);
 });

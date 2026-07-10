@@ -2269,6 +2269,8 @@
   "feat_up_next_sort_body": "Up Next now lets you switch between recommended ranking, newest, oldest, and title A-Z/Z-A order. Priority work stays grouped first, and your sort choice is remembered.",
   "feat_herd_resizable_title": "Resize the Herd sidebar",
   "feat_herd_resizable_body": "Drag the splitter between the Herd sidebar and the terminal to choose how wide the session rail sits. Your width is remembered across refreshes; double-click the splitter to snap back to the default.",
+  "feat_manual_plan_rereview_title": "Re-review a plan on demand",
+  "feat_manual_plan_rereview_body": "The Re-review plan action now always starts a fresh review — even when the plan hasn't changed since the last round — so you can get a new verdict on a plan that stalled at the review cap. Trigger it from the plan menu, the git rail, or the plan panel. When a plan is already approved, the control now shows as unavailable with a reason instead of doing nothing.",
   "feat_title_tap_toggle_title": "Tap the title to toggle",
   "feat_title_tap_toggle_body": "A single tap on the session title now opens or closes the disclosure beside it: on desktop that's the PR, merge & critic actions, and on phone/touch it folds or unfolds the header to reclaim space for the terminal. Double-tap still renames the session.",
   "feat_upnext_skip_cli_picker_title": "Skip the coding-CLI picker in Up Next",

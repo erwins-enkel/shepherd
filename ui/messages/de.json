@@ -2269,6 +2269,8 @@
   "feat_up_next_sort_body": "Als Nächstes kann jetzt zwischen Empfehlung, neueste, älteste und Titel A-Z/Z-A wechseln. Priorisierte Arbeit bleibt zuerst gruppiert, und deine Sortierung wird gemerkt.",
   "feat_herd_resizable_title": "Herd-Seitenleiste anpassen",
   "feat_herd_resizable_body": "Zieh den Trenner zwischen der Herd-Seitenleiste und dem Terminal, um die Breite der Sitzungsleiste zu wählen. Deine Breite bleibt über Neuladen hinweg erhalten; ein Doppelklick auf den Trenner setzt sie auf den Standard zurück.",
+  "feat_manual_plan_rereview_title": "Plan auf Anfrage erneut prüfen",
+  "feat_manual_plan_rereview_body": "Die Aktion „Plan erneut prüfen“ startet jetzt immer eine frische Prüfung – auch wenn sich der Plan seit der letzten Runde nicht geändert hat –, sodass du ein neues Urteil für einen Plan erhältst, der an der Prüfungsgrenze feststeckt. Löse sie über das Planmenü, die Git-Leiste oder das Plan-Panel aus. Ist ein Plan bereits genehmigt, wird das Steuerelement jetzt mit einer Begründung als nicht verfügbar angezeigt, statt nichts zu tun.",
   "feat_title_tap_toggle_title": "Titel antippen zum Umschalten",
   "feat_title_tap_toggle_body": "Ein einfacher Tipp auf den Sitzungstitel öffnet oder schließt jetzt die danebenliegende Ansicht: Auf dem Desktop sind das die PR-, Merge- und Kritik-Aktionen, auf Telefon/Touch klappt er den Header ein oder aus, um Platz für das Terminal zu schaffen. Ein Doppel-Tipp benennt die Sitzung weiterhin um.",
   "feat_upnext_skip_cli_picker_title": "Coding-CLI-Auswahl in „Als Nächstes“ überspringen",

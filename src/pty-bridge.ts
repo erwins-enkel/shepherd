@@ -10,6 +10,10 @@ export interface PtySocket {
 
 type NodeProc = Bun.Subprocess<"pipe", "pipe", "inherit">;
 
+/** A write/flush against a helper whose pipe is already gone. Nothing to recover: the subprocess's
+ *  `onExit` closes the socket, and the browser reconnects. Swallowed, never left floating. */
+const pipeGone = (): void => {};
+
 /** Bridges one browser WS to a Node subprocess that owns the real PTY. */
 export class PtyBridge {
   private proc: NodeProc | null = null;
@@ -46,8 +50,15 @@ export class PtyBridge {
   }
 
   write(data: string): void {
-    void this.proc?.stdin.write(data);
-    void this.proc?.stdin.flush();
+    const stdin = this.proc?.stdin;
+    if (!stdin) return;
+    // BOTH `write` and `flush` are typed `number | Promise<number>` — the promise arm is why a bare
+    // call trips `no-floating-promises`. A plain `void` would silence the gate rather than handle
+    // the rejection (`ignoreVoid: true` is the rule's default), and this runs on EVERY keystroke
+    // into the web terminal: against a torn-down helper that is a per-keystroke unhandled rejection.
+    // `Promise.resolve` normalizes the union so the `.catch` attaches either way.
+    void Promise.resolve(stdin.write(data)).catch(pipeGone);
+    void Promise.resolve(stdin.flush()).catch(pipeGone);
   }
 
   close(): void {

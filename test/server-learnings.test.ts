@@ -857,3 +857,69 @@ test("POST /api/learnings/:id/revert-trial on a plain proposed rule → 404", as
   );
   expect(res.status).toBe(404);
 });
+
+// ── fire-and-forget rejections are caught, not floated (#1567 review) ─────────
+
+// Two independent detectors back these tests, which is why no `unhandledrejection` listener is
+// used: bun's own listener never fires in time (it reports a floating rejection as an immediate
+// test error instead), so asserting `unhandled === []` would be vacuous. Instead:
+//   1. bun FAILS a test outright on an unhandled rejection — a bare `void` regression trips that;
+//   2. the `.catch` must log, which the console.warn assertion below checks positively.
+
+/** Run `fn` with console.warn captured, then drain past the route's fire-and-forget `.catch`. */
+async function warningsDuring(fn: () => Promise<void>): Promise<string[]> {
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => void warnings.push(args.map(String).join(" "));
+  try {
+    await fn();
+    await new Promise((r) => setTimeout(r, 0));
+  } finally {
+    console.warn = origWarn;
+  }
+  return warnings;
+}
+
+test("POST /api/learnings/optimize: a REJECTING optimizeAllFlagged is caught, not left floating", async () => {
+  // The DI seam is typed `=> void` while the impl is async, so `tsc` and the lint gate are both
+  // blind here — `Promise.resolve(...)` in the route is what lets the `.catch` attach at runtime.
+  const optimizer: AppDeps["optimizer"] = {
+    optimizeAllFlagged: (() => Promise.reject(new Error("boom-all"))) as unknown as (
+      d: string,
+    ) => void,
+    optimizeOne: () => {},
+  };
+  const app = makeApp(makeOptimizerDeps(optimizer));
+
+  const warnings = await warningsDuring(async () => {
+    const res = await app.fetch(
+      new Request(`http://x/api/learnings/optimize?repo=${encodeURIComponent(validRepo)}`, {
+        method: "POST",
+      }),
+    );
+    expect(res.status).toBe(200); // fire-and-forget: the route still answers immediately
+  });
+
+  expect(
+    warnings.some((w) => w.includes("optimizeAllFlagged failed") && w.includes("boom-all")),
+  ).toBe(true);
+});
+
+test("POST /api/learnings/:id/optimize: a REJECTING optimizeOne is caught, not left floating", async () => {
+  const optimizer: AppDeps["optimizer"] = {
+    optimizeAllFlagged: () => {},
+    optimizeOne: (() => Promise.reject(new Error("boom-one"))) as unknown as (id: string) => void,
+  };
+  const app = makeApp(makeOptimizerDeps(optimizer));
+
+  const warnings = await warningsDuring(async () => {
+    const res = await app.fetch(
+      new Request("http://x/api/learnings/rule-1/optimize", { method: "POST" }),
+    );
+    expect(res.status).toBe(200);
+  });
+
+  expect(warnings.some((w) => w.includes("optimizeOne failed") && w.includes("boom-one"))).toBe(
+    true,
+  );
+});

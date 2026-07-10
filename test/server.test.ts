@@ -66,7 +66,7 @@ function makeDeps(liveTerminals: string[] = []): AppDeps {
     }),
     projections: () => [],
   };
-  const distiller = { distillNow: () => {} };
+  const distiller = { distillNow: async () => {} };
   return { store, service, events, usageLimits, distiller };
 }
 
@@ -358,7 +358,13 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
     }),
     projections: () => [],
   };
-  const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
+  const app = makeApp({
+    store,
+    service,
+    events,
+    usageLimits,
+    distiller: { distillNow: async () => {} },
+  });
   return { app, store };
 }
 
@@ -1356,7 +1362,7 @@ test("GET /api/learnings/health returns distiller health when health() present",
     consecutiveFailures: 3,
     lastFailure: { reason: "spawn", at: 1, repoPath: "/r" },
   };
-  deps.distiller = { distillNow: () => {}, health: () => unhealthy };
+  deps.distiller = { distillNow: async () => {}, health: () => unhealthy };
   const app = makeApp(deps);
   const res = await app.fetch(new Request("http://x/api/learnings/health"));
   expect(res.status).toBe(200);
@@ -1367,7 +1373,7 @@ test("GET /api/learnings/health returns distiller health when health() present",
 });
 
 test("GET /api/learnings/health returns safe default when distiller lacks health()", async () => {
-  const deps = makeDeps(); // distiller = { distillNow: () => {} } — no health
+  const deps = makeDeps(); // distiller = { distillNow: async () => {} } — no health
   const app = makeApp(deps);
   const res = await app.fetch(new Request("http://x/api/learnings/health"));
   expect(res.status).toBe(200);
@@ -2018,7 +2024,13 @@ function harnessWithPreviewStop({
     }),
     projections: () => [],
   };
-  const app = makeApp({ store, service, events, usageLimits, distiller: { distillNow: () => {} } });
+  const app = makeApp({
+    store,
+    service,
+    events,
+    usageLimits,
+    distiller: { distillNow: async () => {} },
+  });
   return { app, store };
 }
 

@@ -91,7 +91,7 @@ function makeDeps(): AppDeps {
     }),
     projections: () => [],
   };
-  return { store, service, events, usageLimits, distiller: { distillNow: () => {} } };
+  return { store, service, events, usageLimits, distiller: { distillNow: async () => {} } };
 }
 
 test("makeAgentIngressApp: a DENIED route 404s AT THE GATE (never reaches a handler)", async () => {

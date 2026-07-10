@@ -52,7 +52,7 @@ function makeDeps(ghRunner?: GhRunner): AppDeps {
     }),
     projections: () => [],
   };
-  const distiller = { distillNow: () => {} };
+  const distiller = { distillNow: async () => {} };
   return { store, service, events, usageLimits, distiller, newProjectGhRunner: ghRunner };
 }
 

@@ -72,7 +72,7 @@ function makeDeps(resolveForge?: (dir: string) => GitForge | null): AppDeps {
     }),
     projections: () => [],
   };
-  const distiller = { distillNow: () => {} };
+  const distiller = { distillNow: async () => {} };
   return { store, service, events, usageLimits, distiller, resolveForge } as AppDeps;
 }
 

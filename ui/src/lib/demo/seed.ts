@@ -962,6 +962,7 @@ function buildSettings(): Settings {
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
     defaultEffort: "default",
+    operatorLanguage: "en",
     criticCli: "inherit",
     criticModel: "default",
     criticEffort: "high",

@@ -2764,5 +2764,12 @@
   "feat_preview_open_mode_body": "Pro Repository können Vorschau-Chips jetzt inline, in einem neuen Browser-Tab oder mit Nachfrage geöffnet werden.",
   "preview_open_mode_ask": "Immer nachfragen",
   "preview_open_mode_inline": "Inline-Vorschau",
-  "preview_open_mode_tab": "Neuer Browser-Tab"
+  "preview_open_mode_tab": "Neuer Browser-Tab",
+  "issues_filter_author_heading": "Autor",
+  "issues_filter_author_all": "Alle Autoren",
+  "issues_filter_labels_heading": "Labels",
+  "issues_filter_no_match": "keine Issues entsprechen den aktiven Filtern",
+  "issuerow_author_by": "von {login}",
+  "feat_issue_author_label_filter_title": "Issues nach Autor und Label filtern",
+  "feat_issue_author_label_filter_body": "Issue-Listen zeigen jetzt den Autor jedes Issues, und das Filter-Menü kann den Backlog nach Autor und Label eingrenzen — wähle einen Autor oder schalte ein oder mehrere Labels an, um die Liste zu fokussieren."
 }

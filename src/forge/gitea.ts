@@ -129,6 +129,7 @@ export class GiteaForge implements GitForge {
       labels?: Array<{ name: string }>;
       created_at?: string;
       assignees?: Array<{ login?: string }> | null;
+      user?: { login?: string } | null;
     }>;
     return (raw ?? []).map((i) => {
       const ts = Date.parse(i.created_at ?? "");
@@ -142,6 +143,9 @@ export class GiteaForge implements GitForge {
         // Gitea serializes a user's canonical name as `login` (matches the PR-author
         // mapping above); drop any null/unnamed assignee defensively.
         assignees: (i.assignees ?? []).map((a) => a.login).filter((l): l is string => !!l),
+        // The issue's author (`user.login`) — surfaced in the UI's "by {login}" row text and
+        // author filter, mirroring GitHub's listIssues author mapping.
+        author: i.user?.login || undefined,
       };
     });
   }

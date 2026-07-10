@@ -1,9 +1,19 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { SvelteSet } from "svelte/reactivity";
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { hideOthers, hideActive, hideSubIssues, ACTIVE_LABEL } from "./issues-panel";
+  import {
+    hideOthers,
+    hideActive,
+    hideSubIssues,
+    filterByAuthor,
+    filterByLabels,
+    distinctAuthors,
+    distinctLabels,
+    ACTIVE_LABEL,
+  } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
 
@@ -40,15 +50,28 @@
   // with the viewer-agnostic "hide in progress" filter; the explicit
   // assigneeFiltered intermediate lets each empty state be attributed to the
   // filter that caused it.
+  // Repo-scoped author + label filters (shared UI recipe with IssuesPanel). Selection is
+  // local, reset on repo change and pruned on refresh (see the effects below); options are
+  // derived from the RAW `issues` list so picking one value doesn't drop the others.
+  let selectedAuthor = $state<string | null>(null);
+  const selectedLabels = new SvelteSet<string>();
+  let availableAuthors = $derived(distinctAuthors(issues));
+  let availableLabels = $derived(distinctLabels(issues));
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
-  let visibleIssues = $derived(
+  // Toggle-filtered set (mine → active → sub-issue), BEFORE the author/label filters.
+  // allHiddenBySubIssues keys off this intermediate so its attribution isn't stolen by an
+  // author/label miss downstream.
+  let subFiltered = $derived(
     hideSubIssues(
       activeFiltered,
       issuesFilter.hideSubIssues && epicsLoaded,
       nativeSubIssues,
       epicParents,
     ),
+  );
+  let visibleIssues = $derived(
+    filterByLabels(filterByAuthor(subFiltered, selectedAuthor), selectedLabels),
   );
   let allHiddenByAssignee = $derived(
     issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
@@ -64,7 +87,7 @@
     !allHiddenByAssignee &&
       !allHiddenByActive &&
       activeFiltered.length > 0 &&
-      visibleIssues.length === 0 &&
+      subFiltered.length === 0 &&
       issuesFilter.hideSubIssues &&
       epicsLoaded,
   );
@@ -90,6 +113,11 @@
     const rp = repoPath;
     hasTodo = null;
     todos = [];
+    // Repo-scoped author/label selection resets on repo change (its option sets are
+    // repo-specific). Keyed on repoPath here (not the tab/issues fetch), so switching tabs
+    // never clears an active filter.
+    selectedAuthor = null;
+    selectedLabels.clear();
     if (!rp) return;
     getTodo(rp)
       .then((r) => {
@@ -166,6 +194,31 @@
   $effect(() => {
     if (tab === "commands" && !loading) filterInput?.focus();
   });
+
+  // Prune any selected author/label a refresh removed from the current set (mirrors
+  // IssuesPanel), so an absent-but-selected value can't keep filtering while its picker
+  // entry is gone. Keyed on the option sets (which depend on `issues`, not the selection).
+  $effect(() => {
+    const authors = availableAuthors;
+    const labels = availableLabels;
+    untrack(() => {
+      if (selectedAuthor != null && !authors.includes(selectedAuthor)) selectedAuthor = null;
+      for (const label of [...selectedLabels]) {
+        if (!labels.includes(label)) selectedLabels.delete(label);
+      }
+    });
+  });
+
+  /** Author filter: null clears it (radio "All authors"). */
+  function pickAuthor(author: string | null) {
+    selectedAuthor = author;
+  }
+
+  /** Label filter: toggle a label in/out of the AND-set. */
+  function toggleLabel(label: string) {
+    if (selectedLabels.has(label)) selectedLabels.delete(label);
+    else selectedLabels.add(label);
+  }
 </script>
 
 <div class="ps-wrap">
@@ -252,7 +305,15 @@
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
         <div class="ps-filter-bar">
-          <IssueFilterPopover showMine={viewer != null} />
+          <IssueFilterPopover
+            showMine={viewer != null}
+            authors={availableAuthors}
+            labels={availableLabels}
+            {selectedAuthor}
+            selectedLabels={[...selectedLabels]}
+            onauthor={pickAuthor}
+            ontogglelabel={toggleLabel}
+          />
         </div>
         {#if allHiddenByAssignee}
           <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
@@ -260,6 +321,9 @@
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}
           <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else if visibleIssues.length === 0}
+          <!-- Author/label filters emptied the list (no text search on this tab). -->
+          <div class="muted">{m.issues_filter_no_match()}</div>
         {/if}
         {#each visibleIssues as i (i.number)}
           {@const ordered = orderedLabels(i.labels)}
@@ -270,6 +334,7 @@
             <div class="row row-epic" aria-disabled="true" title={m.promptsources_epic_hint()}>
               <span class="issue-num">#{i.number}</span>
               <span class="row-text">{i.title}</span>
+              {@render issueAuthor(i.author)}
               <span class="chips">
                 <span class="chip chip-epic">{m.promptsources_epic_tag()}</span>
                 {@render labelChips(ordered)}
@@ -279,6 +344,7 @@
             <button class="row" type="button" onclick={() => onpickissue(i)}>
               <span class="issue-num">#{i.number}</span>
               <span class="row-text">{i.title}</span>
+              {@render issueAuthor(i.author)}
               {#if ordered.length > 0}
                 <span class="chips">{@render labelChips(ordered)}</span>
               {/if}
@@ -289,6 +355,12 @@
     {/if}
   </div>
 </div>
+
+{#snippet issueAuthor(login: string | undefined)}
+  {#if login}
+    <span class="issue-author">{m.issuerow_author_by({ login })}</span>
+  {/if}
+{/snippet}
 
 {#snippet labelChips(ordered: string[])}
   {#each ordered.slice(0, 1) as lbl (lbl)}
@@ -437,6 +509,18 @@
     color: var(--color-muted);
     flex-shrink: 0;
     font-size: var(--fs-meta);
+  }
+
+  /* Subtle "by {login}" author metadata — dimmed, sits between the title and the label
+     chips; shrinks/ellipsates before the title's min-width floor so it never crushes it. */
+  .issue-author {
+    flex-shrink: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
   }
 
   /* Search input fills the sticky .ps-filter-bar wrapper (which provides the

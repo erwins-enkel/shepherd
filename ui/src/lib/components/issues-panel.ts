@@ -30,6 +30,64 @@ export function filterIssues(issues: readonly Issue[], query: string): Issue[] {
 }
 
 /**
+ * Distinct author logins present in an issue list, sorted case-insensitively.
+ * Issues without an author (forges/paths that don't supply one) contribute nothing.
+ * Source for the author filter's radio options — computed from the RAW list so
+ * picking one author doesn't make the others vanish from the picker.
+ */
+export function distinctAuthors(issues: readonly Issue[]): string[] {
+  const seen = new Set<string>();
+  for (const issue of issues) {
+    if (issue.author) seen.add(issue.author);
+  }
+  return [...seen].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+/**
+ * Distinct label names present in an issue list, sorted case-insensitively, EXCLUDING
+ * the `shepherd:active` system label (the dedicated "hide in progress" toggle already
+ * governs it, so it doesn't belong in the categorization picker). Source for the label
+ * filter's toggle chips — computed from the RAW list for the same reason as
+ * {@link distinctAuthors}.
+ */
+export function distinctLabels(issues: readonly Issue[]): string[] {
+  const seen = new Set<string>();
+  for (const issue of issues) {
+    for (const label of issue.labels ?? []) {
+      if (label !== ACTIVE_LABEL) seen.add(label);
+    }
+  }
+  return [...seen].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));
+}
+
+/**
+ * Narrow an issue list to a single author. Keeps issues whose `author` equals the
+ * selected login; a `null` selection is an identity filter (no author chosen). An issue
+ * with no author is dropped when a specific author is selected — correct, since it can't
+ * match. The `?? []`-free comparison is safe: `author` is a scalar, absent → undefined.
+ */
+export function filterByAuthor(issues: readonly Issue[], author: string | null): Issue[] {
+  if (author == null) return [...issues];
+  return issues.filter((issue) => issue.author === author);
+}
+
+/**
+ * Narrow an issue list to those carrying ALL selected labels (AND semantics, mirroring
+ * GitHub's multi-label filtering). An empty selection is an identity filter. The `?? []`
+ * guard tolerates a stale payload predating the `labels` field.
+ */
+export function filterByLabels(issues: readonly Issue[], selected: ReadonlySet<string>): Issue[] {
+  if (selected.size === 0) return [...issues];
+  return issues.filter((issue) => {
+    const labels = issue.labels ?? [];
+    for (const want of selected) {
+      if (!labels.includes(want)) return false;
+    }
+    return true;
+  });
+}
+
+/**
  * Narrow an issue list to "mine & unassigned" (#824): keep an issue when it has
  * no assignees OR the viewer is one of its assignees; drop issues assigned only
  * to other people.

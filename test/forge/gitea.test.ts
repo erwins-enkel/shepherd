@@ -297,6 +297,7 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
           labels: [{ name: "bug" }, { name: "p1" }],
           created_at: GITEA_ISSUE_CREATED_AT,
           assignees: [{ login: "alice" }, { login: "bob" }],
+          user: { login: "carol" },
         },
         {
           number: 4,
@@ -321,6 +322,7 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
       labels: ["bug", "p1"],
       createdAt: Date.parse(GITEA_ISSUE_CREATED_AT),
       assignees: ["alice", "bob"],
+      author: "carol",
     },
     {
       number: 4,

@@ -2764,5 +2764,12 @@
   "feat_preview_open_mode_body": "Each repo can now open Preview chips inline, in a new browser tab, or ask each time.",
   "preview_open_mode_ask": "Always ask",
   "preview_open_mode_inline": "Inline preview",
-  "preview_open_mode_tab": "New browser tab"
+  "preview_open_mode_tab": "New browser tab",
+  "issues_filter_author_heading": "Author",
+  "issues_filter_author_all": "All authors",
+  "issues_filter_labels_heading": "Labels",
+  "issues_filter_no_match": "no issues match the active filters",
+  "issuerow_author_by": "by {login}",
+  "feat_issue_author_label_filter_title": "Filter issues by author and label",
+  "feat_issue_author_label_filter_body": "Issue lists now show each issue's author, and the Filters menu can narrow the backlog by author and by label — pick an author or toggle one or more labels to focus the list."
 }

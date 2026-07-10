@@ -12,6 +12,10 @@ import {
   hideActive,
   hideSubIssues,
   sortEpicsFirst,
+  distinctAuthors,
+  distinctLabels,
+  filterByAuthor,
+  filterByLabels,
   ACTIVE_LABEL,
 } from "./issues-panel";
 import type { Issue } from "$lib/types";
@@ -22,6 +26,7 @@ function issue(
   body = "",
   labels: string[] = [],
   assignees: string[] = [],
+  author?: string,
 ): Issue {
   return {
     number,
@@ -31,6 +36,7 @@ function issue(
     labels,
     createdAt: 0,
     assignees,
+    author,
   };
 }
 
@@ -191,6 +197,108 @@ describe("hideSubIssues", () => {
     const subs = new Set<number>([]);
     const parents = new Set<number>([2]);
     expect(hideSubIssues(all, true, subs, parents)).toEqual(all);
+  });
+});
+
+describe("distinctAuthors", () => {
+  it("returns unique author logins sorted case-insensitively", () => {
+    const list = [
+      issue(1, "A", "", [], [], "scoop"),
+      issue(2, "B", "", [], [], "Kai"),
+      issue(3, "C", "", [], [], "scoop"),
+    ];
+    expect(distinctAuthors(list)).toEqual(["Kai", "scoop"]);
+  });
+
+  it("ignores issues without an author", () => {
+    const list = [issue(1, "A", "", [], [], "kai"), issue(2, "B")];
+    expect(distinctAuthors(list)).toEqual(["kai"]);
+  });
+
+  it("returns an empty array when no issue has an author", () => {
+    expect(distinctAuthors([issue(1, "A"), issue(2, "B")])).toEqual([]);
+  });
+});
+
+describe("distinctLabels", () => {
+  it("returns unique labels sorted case-insensitively, excluding shepherd:active", () => {
+    const list = [
+      issue(1, "A", "", ["enhancement", ACTIVE_LABEL]),
+      issue(2, "B", "", ["Bug", "enhancement"]),
+    ];
+    expect(distinctLabels(list)).toEqual(["Bug", "enhancement"]);
+  });
+
+  it("returns an empty array when the only label is shepherd:active", () => {
+    expect(distinctLabels([issue(1, "A", "", [ACTIVE_LABEL])])).toEqual([]);
+  });
+
+  it("does not throw on a stale payload missing labels", () => {
+    const stale = {
+      number: 1,
+      title: "No labels field",
+      body: "",
+      url: "https://example.test/1",
+      createdAt: 0,
+      assignees: [],
+    } as unknown as Issue;
+    expect(() => distinctLabels([stale])).not.toThrow();
+    expect(distinctLabels([stale])).toEqual([]);
+  });
+});
+
+describe("filterByAuthor", () => {
+  const mine = issue(1, "Mine", "", [], [], "kai");
+  const theirs = issue(2, "Theirs", "", [], [], "scoop");
+  const authorless = issue(3, "Authorless");
+  const all = [mine, theirs, authorless];
+
+  it("keeps only issues by the selected author", () => {
+    expect(filterByAuthor(all, "kai")).toEqual([mine]);
+  });
+
+  it("drops authorless issues when a specific author is selected", () => {
+    expect(filterByAuthor(all, "scoop")).toEqual([theirs]);
+  });
+
+  it("is an identity filter when author is null", () => {
+    const result = filterByAuthor(all, null);
+    expect(result).toEqual(all);
+    expect(result).not.toBe(all); // new array, input not mutated
+  });
+});
+
+describe("filterByLabels", () => {
+  const bug = issue(1, "Bug", "", ["bug"]);
+  const bugAndDocs = issue(2, "Bug+Docs", "", ["bug", "docs"]);
+  const docs = issue(3, "Docs", "", ["docs"]);
+  const all = [bug, bugAndDocs, docs];
+
+  it("keeps issues carrying the single selected label", () => {
+    expect(filterByLabels(all, new Set(["bug"]))).toEqual([bug, bugAndDocs]);
+  });
+
+  it("requires ALL selected labels (AND semantics)", () => {
+    expect(filterByLabels(all, new Set(["bug", "docs"]))).toEqual([bugAndDocs]);
+  });
+
+  it("is an identity filter when the selection is empty", () => {
+    const result = filterByLabels(all, new Set());
+    expect(result).toEqual(all);
+    expect(result).not.toBe(all);
+  });
+
+  it("does not throw on a stale payload missing labels", () => {
+    const stale = {
+      number: 4,
+      title: "No labels field",
+      body: "",
+      url: "https://example.test/4",
+      createdAt: 0,
+      assignees: [],
+    } as unknown as Issue;
+    expect(() => filterByLabels([stale], new Set(["bug"]))).not.toThrow();
+    expect(filterByLabels([stale], new Set(["bug"]))).toEqual([]);
   });
 });
 

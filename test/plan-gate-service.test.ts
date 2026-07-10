@@ -1261,3 +1261,40 @@ test("changes_requested verdict also carries blocks from readPlanBlocks", async 
   expect(h.store.gate.blocks).toHaveLength(1);
   expect(h.store.gate.blocks[0].type).toBe("question-form");
 });
+
+test("onActivity surfaces the running plan reviewer's latest tool-use while no verdict yet", async () => {
+  const acts: { id: string; summary: string }[] = [];
+  const h = harness({
+    readVerdict: () => null, // still running — no verdict file yet
+    readActivity: () => "read .shepherd-plan.md",
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(acts).toEqual([{ id: "s1", summary: "read .shepherd-plan.md" }]);
+});
+
+test("onActivity stays silent when the plan reviewer has no parseable activity yet", async () => {
+  const acts: unknown[] = [];
+  const h = harness({
+    readVerdict: () => null,
+    readActivity: () => null, // transcript missing / nothing parseable
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(acts).toEqual([]);
+});
+
+test("onActivity does not fire on the tick that finalizes the verdict", async () => {
+  const acts: unknown[] = [];
+  const h = harness({
+    // verdict present → this tick finalizes rather than reporting activity
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    readActivity: () => "read .shepherd-plan.md",
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(acts).toEqual([]);
+});

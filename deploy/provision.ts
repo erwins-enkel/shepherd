@@ -232,6 +232,41 @@ const defaultRunner: Runner = (cmd, args, opts) => {
   }
 };
 
+/** Synchronous sleep — provision runs a sequential, synchronous install flow, so the
+ *  between-attempt backoff in {@link runWithRetry} can't be a Promise. `ms <= 0` is a
+ *  no-op (tests pass 0 to stay instant). */
+function sleepSync(ms: number): void {
+  if (ms <= 0) return;
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/** Bounded, fail-closed retry around a single `run` step. Bun's dependency fetch/extract
+ *  can hit a transient registry/mirror flake — observed as `error: Fail extracting tarball
+ *  for "node-pty"` (#1602) — that succeeds on a re-run. Wrapping the `bun install` steps
+ *  lets one such flake not fail a cold-start install (nor red the onboarding release gate,
+ *  whose installE2E/serviceLifecycle scenarios drive this path). Any non-zero exit retries
+ *  up to `attempts`; a deterministic failure just re-fails each attempt and the last error
+ *  propagates — so a real regression still gates. Mirrors the apply-time retry in #1599. */
+function runWithRetry(
+  run: Runner,
+  cmd: string,
+  args: string[],
+  opts: { env?: NodeJS.ProcessEnv } | undefined,
+  attempts: number,
+  delayMs: number,
+): void {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      run(cmd, args, opts);
+      return;
+    } catch (err) {
+      if (attempt >= attempts) throw err;
+      log(`  step failed (attempt ${attempt}/${attempts}) — retrying in ${delayMs}ms`);
+      sleepSync(delayMs);
+    }
+  }
+}
+
 /** Injectable file IO. Production reads/writes the real filesystem; tests inject a
  *  recorder so the templated unit can be asserted without touching disk. */
 export interface FileIO {
@@ -458,18 +493,40 @@ export function installService(
 /** No-service path (harness e2e + macOS): starts the herdr daemon directly (no systemd unit
  * on this path), then deps + UI install + UI build. Do NOT touch systemd. (The harness boots
  * Shepherd directly afterward.) */
-export function buildOnly(repo: string, run: Runner, buildEnv: NodeJS.ProcessEnv): void {
+export function buildOnly(
+  repo: string,
+  run: Runner,
+  buildEnv: NodeJS.ProcessEnv,
+  // Bounds the transient-flake retry on the `bun install` steps; tests pass `delayMs: 0`.
+  retry: { attempts: number; delayMs: number } = { attempts: 2, delayMs: 3000 },
+): void {
   // No systemd on this path (harness install-e2e + macOS), so start the daemon directly.
   // HERDR_SERVE is idempotent and polls until it answers, so this both starts and verifies.
   log("starting herdr server (no-service path)");
   run("bash", ["-c", HERDR_SERVE], { env: buildEnv });
   log("installing deps (root + ui)");
-  run("bash", ["-c", `cd "${repo}" && bun install`], { env: buildEnv });
+  // Retry only the network-bound install: a transient `node-pty` tarball-extract flake
+  // must not fail the install (#1602). fix-perms / build are local + deterministic.
+  runWithRetry(
+    run,
+    "bash",
+    ["-c", `cd "${repo}" && bun install`],
+    { env: buildEnv },
+    retry.attempts,
+    retry.delayMs,
+  );
   // node-pty ships spawn-helper without the exec bit and Bun preserves tarball perms,
   // so on macOS posix_spawn fails ("posix_spawnp failed.") and every pane stays black.
   // Re-set it right after the root install; a silent no-op off macOS. See the script.
   run("bash", ["-c", `cd "${repo}" && bun scripts/fix-node-pty-perms.mjs`], { env: buildEnv });
-  run("bash", ["-c", `cd "${repo}/ui" && bun install`], { env: buildEnv });
+  runWithRetry(
+    run,
+    "bash",
+    ["-c", `cd "${repo}/ui" && bun install`],
+    { env: buildEnv },
+    retry.attempts,
+    retry.delayMs,
+  );
   log("building UI");
   run("bash", ["-c", `cd "${repo}/ui" && bun run build`], { env: buildEnv });
 }

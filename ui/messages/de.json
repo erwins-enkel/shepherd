@@ -1631,6 +1631,8 @@
   "queuebadge_label": "{resolved}/{total}",
   "queuebadge_title": "Build-Queue: {resolved} von {total} Schritten erledigt",
   "queuebadge_aria": "Build-Queue: {resolved} von {total} Schritten erledigt",
+  "queuebadge_stale_title": "Build-Queue: {total} Schritte, Fortschritt nicht gemeldet – Agent arbeitet, hat aber den Schrittstatus nicht aktualisiert",
+  "queuebadge_stale_aria": "Build-Queue-Fortschritt nicht gemeldet: {total} Schritte, Agent arbeitet, aber Status nicht aktualisiert",
   "feat_build_queue_progress_title": "Build-Queue-Fortschritt auf einen Blick",
   "feat_build_queue_progress_body": "Session-Karten zeigen jetzt ein kleines bernsteinfarbenes Badge mit Fortschrittsbalken, wenn eine genehmigte Build-Queue aktiv ist — erledigte / Gesamtschritte ohne Öffnen des Panels einsehbar.",
   "learnings_optimize": "Optimieren",

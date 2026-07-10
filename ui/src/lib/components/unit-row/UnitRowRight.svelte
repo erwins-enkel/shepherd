@@ -123,7 +123,7 @@
   <ResearchBadge {session} />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} />
-  <BuildQueueBadge sessionId={session.id} />
+  <BuildQueueBadge sessionId={session.id} planPhase={session.planPhase} {git} />
   <PlanGateBadge
     {session}
     allowView={false}

@@ -2,8 +2,13 @@
   import { buildQueues } from "$lib/buildQueues.svelte";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import type { Session, GitState } from "$lib/types";
 
-  let { sessionId }: { sessionId: string } = $props();
+  let {
+    sessionId,
+    planPhase,
+    git,
+  }: { sessionId: string; planPhase: Session["planPhase"]; git?: GitState } = $props();
 
   const queue = $derived(buildQueues.map[sessionId] ?? null);
   const total = $derived(queue?.steps.length ?? 0);
@@ -11,19 +16,47 @@
     queue?.steps.filter((s) => s.status === "done" || s.status === "skipped").length ?? 0,
   );
   const pct = $derived(total > 0 ? (resolved / total) * 100 : 0);
+
+  // "Working but unreported": the agent is past planning (or has an open PR
+  // already up, which only happens mid/post-implementation) yet EVERY step
+  // still sits at `pending` — none active, none done/skipped — so the agent
+  // isn't posting step status at all. Note this requires *all* steps pending,
+  // not merely "some": a queue with real (partial) resolved/total progress
+  // (e.g. 4/5) is normal progress, not a stale/unreported queue, even though
+  // one step remains pending.
+  const prPresent = $derived(git?.state === "open");
+  const working = $derived(planPhase !== "planning" || prPresent);
+  const drifted = $derived(
+    (queue?.approved ?? false) &&
+      total > 0 &&
+      (queue?.steps.every((s) => s.status === "pending") ?? false) &&
+      working,
+  );
 </script>
 
 {#if queue?.approved && total > 0}
-  <span
-    class="queue-badge"
-    role="img"
-    style="--queue-pct: {pct}%"
-    title={m.queuebadge_title({ resolved, total })}
-    aria-label={m.queuebadge_aria({ resolved, total })}
-    use:coachTarget={"build-queue-progress"}
-  >
-    <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
-  </span>
+  {#if drifted}
+    <span
+      class="queue-badge queue-badge--stale"
+      role="img"
+      title={m.queuebadge_stale_title({ total })}
+      aria-label={m.queuebadge_stale_aria({ total })}
+      use:coachTarget={"build-queue-progress"}
+    >
+      <span class="queue-label">⚠ {total}</span>
+    </span>
+  {:else}
+    <span
+      class="queue-badge"
+      role="img"
+      style="--queue-pct: {pct}%"
+      title={m.queuebadge_title({ resolved, total })}
+      aria-label={m.queuebadge_aria({ resolved, total })}
+      use:coachTarget={"build-queue-progress"}
+    >
+      <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
+    </span>
+  {/if}
 {/if}
 
 <style>
@@ -50,5 +83,31 @@
       color-mix(in srgb, var(--color-amber) 22%, transparent) var(--queue-pct),
       transparent var(--queue-pct)
     );
+  }
+
+  /* STALE (drifted): agent is working but hasn't posted step status, so every
+     step still reads `pending`. A left-fill wash at 0% would look identical to
+     "nothing started" — actively misleading — so this state drops --queue-pct
+     entirely in favor of a moving diagonal stripe: same amber hue (still
+     "attention", never red/green), but a texture that reads as "unknown/in
+     motion" rather than a measured 0%. */
+  .queue-badge--stale {
+    background: repeating-linear-gradient(
+      -45deg,
+      color-mix(in srgb, var(--color-amber) 22%, transparent) 0,
+      color-mix(in srgb, var(--color-amber) 22%, transparent) 4px,
+      transparent 4px,
+      transparent 8px
+    );
+    animation: queue-badge-stale-scroll 1.2s linear infinite;
+  }
+
+  @keyframes queue-badge-stale-scroll {
+    from {
+      background-position: 0 0;
+    }
+    to {
+      background-position: 16px 0;
+    }
   }
 </style>

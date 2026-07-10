@@ -450,6 +450,54 @@ describe("extracted helpers (direct)", () => {
     expect(calls.some((c) => c[0] === "systemctl")).toBe(false);
   });
 
+  it("buildOnly retries a transient `bun install` flake, then succeeds (#1602)", () => {
+    const calls: string[][] = [];
+    let rootInstall = 0;
+    const run: Runner = (cmd, args) => {
+      calls.push([cmd, ...args]);
+      if ([cmd, ...args].join(" ").includes('cd "/repo" && bun install')) {
+        // First attempt flakes (node-pty tarball extract), retry succeeds.
+        if (++rootInstall === 1) throw new Error('Fail extracting tarball for "node-pty"');
+      }
+    };
+    expect(() =>
+      buildOnly("/repo", run, { PATH: "/x" }, { attempts: 2, delayMs: 0 }),
+    ).not.toThrow();
+    expect(rootInstall).toBe(2); // failed once → retried → succeeded
+    // The retry didn't swallow the downstream steps.
+    const flat = calls.map((c) => c.join(" "));
+    expect(flat.some((c) => c.includes('cd "/repo/ui" && bun run build'))).toBe(true);
+  });
+
+  it("buildOnly propagates a `bun install` failure that persists past the retry bound (#1602)", () => {
+    let attempts = 0;
+    const run: Runner = (cmd, args) => {
+      if ([cmd, ...args].join(" ").includes('cd "/repo" && bun install')) {
+        attempts++;
+        throw new Error('Fail extracting tarball for "node-pty"');
+      }
+    };
+    // Fail-closed: a persistent failure still gates (throws) after exactly `attempts` tries.
+    expect(() => buildOnly("/repo", run, { PATH: "/x" }, { attempts: 2, delayMs: 0 })).toThrow(
+      /node-pty/,
+    );
+    expect(attempts).toBe(2);
+  });
+
+  it("buildOnly does not retry a non-install step — a UI build failure gates immediately", () => {
+    let buildAttempts = 0;
+    const run: Runner = (cmd, args) => {
+      if ([cmd, ...args].join(" ").includes("bun run build")) {
+        buildAttempts++;
+        throw new Error("build broke");
+      }
+    };
+    expect(() => buildOnly("/repo", run, { PATH: "/x" }, { attempts: 2, delayMs: 0 })).toThrow(
+      /build broke/,
+    );
+    expect(buildAttempts).toBe(1); // only the network install steps are retried
+  });
+
   it("the herdr prereq installs the binary ONLY — no daemon start (#1574)", () => {
     // The shipped `herdr_missing` remediation is `HERDR_INSTALL && (HERDR_SERVE)`. Running that
     // here would leave an unsupervised daemon on the socket, so `enable --now herdr` would hit a

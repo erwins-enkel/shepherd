@@ -20,6 +20,25 @@ die() {
   exit 1
 }
 
+# retry <attempts> <cmd...>: run <cmd> until it succeeds, up to <attempts> times, with a
+# 3s backoff between tries. Bun's dependency fetch/extract can hit a transient registry/
+# mirror flake — observed as `error: Fail extracting tarball for "node-pty"` (#1602) — that
+# succeeds on a re-run, so we wrap the `bun install` steps below. Fail-closed: a deterministic
+# failure re-fails every attempt and the final non-zero exit propagates under `set -e`.
+retry() {
+  local attempts="$1"
+  shift
+  local i
+  for ((i = 1; i <= attempts; i++)); do
+    "$@" && return 0
+    [ "$i" -lt "$attempts" ] && {
+      warn "\`$*\` failed (attempt $i/$attempts) — retrying in 3s"
+      sleep 3
+    }
+  done
+  return 1
+}
+
 # ── guard: the working tree IS the deployment ────────────────────────────────
 branch="$(git rev-parse --abbrev-ref HEAD)"
 [[ "$branch" == "main" ]] || warn "on branch '$branch' (not main) — the service will run THIS code"
@@ -36,12 +55,14 @@ fi
 
 # ── build ────────────────────────────────────────────────────────────────────
 note "installing deps (root + ui)"
-bun install
+# Retry only the network-bound install (transient node-pty tarball-extract flake, #1602);
+# fix-perms + build below are local + deterministic.
+retry 2 bun install
 # node-pty ships spawn-helper without the exec bit + Bun keeps tarball perms, so on
 # macOS posix_spawn fails ("posix_spawnp failed.") and panes stay black. Re-set it
 # after install (a silent no-op on Linux, where the forkpty path uses no helper).
 bun scripts/fix-node-pty-perms.mjs
-(cd ui && bun install)
+(cd ui && retry 2 bun install)
 
 note "building UI"
 (cd ui && bun run build)

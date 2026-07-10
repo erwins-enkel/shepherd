@@ -786,6 +786,46 @@ describe("DiagnosticsService.fix", () => {
     expect(bun.state).toBe("ok");
   });
 
+  // #1578: the outdated remediation runs `herdr update --handoff`. Success is NOT the shell's
+  // exit code (`herdr update` exits 0 even when it did nothing) — it is fix()'s RE-PROBE of
+  // `herdr --version`. These pin that the re-probe is the real verifier, since the running
+  // server's version is only exposed over the herdr socket, never a CLI verb the shell can read.
+  it("herdr outdated: a no-op update leaves the binary old → re-probe still `warning` (no false ok, #1578)", async () => {
+    const calls: string[] = [];
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      // Binary stays 0.5.0 across the fix (the remediation was a no-op / couldn't update).
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: "herdr 0.5.0" }),
+      runRemediation: async (cmd) => {
+        calls.push(cmd);
+      },
+    });
+    const snap = await svc.fix("herdr", 0);
+    expect(calls).toEqual([REMEDIATIONS.diagnostics_hint_herdr_outdated!]);
+    const herdr = byId(snap.checks, "herdr");
+    expect(herdr.state).toBe("warning");
+    expect(herdr.hintKey).toBe("diagnostics_hint_herdr_outdated");
+  });
+
+  it("herdr outdated: a successful update bumps the binary → re-probe `ok` (#1578)", async () => {
+    let updated = false;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      // Old until the remediation "updates" it, then above the floor.
+      runVersion: async (bin, args) => {
+        if (bin === "herdr") return updated ? "herdr 0.7.5" : "herdr 0.5.0";
+        return versionRunner({ ...HEALTHY_VERSIONS })!(bin, args);
+      },
+      runRemediation: async () => {
+        updated = true;
+      },
+    });
+    const snap = await svc.fix("herdr", 0);
+    const herdr = byId(snap.checks, "herdr");
+    expect(herdr.state).toBe("ok");
+    expect(herdr.hintKey).toBe("diagnostics_hint_herdr_ok");
+  });
+
   it("throws for an unknown checkId (runner never called)", async () => {
     let called = false;
     const svc = new DiagnosticsService({

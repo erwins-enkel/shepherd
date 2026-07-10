@@ -2442,4 +2442,92 @@ describe("groundPlanBlocks", () => {
     expect(blk.type).toBe("rich-text");
     expect((blk as unknown as Record<string, unknown>).inferred).toBeUndefined();
   });
+
+  // ── German operator-language plan sidecar round-trip (Task 4, issue #1586) ──
+  // Proves visualBlockLanguageLine's field rules keep a real German sidecar parseable:
+  // translatable fields carry German prose, machine fields (type/id/tone/change/kind/surface/path)
+  // stay verbatim, and nothing gets silently dropped by parseVisualBlocks or groundPlanBlocks.
+  it("a German plan-blocks fixture round-trips through parseVisualBlocks + groundPlanBlocks with zero drops", () => {
+    const raw = [
+      { type: "rich-text", id: "r1", markdown: "Diese Änderung fügt die Sprachpräferenz hinzu." },
+      {
+        type: "callout",
+        id: "c1",
+        tone: "info",
+        markdown: "Hinweis: die Konfiguration wird pro Betreiber gespeichert.",
+      },
+      {
+        type: "file-tree",
+        id: "ft1",
+        title: "Geplante Dateien",
+        entries: [
+          {
+            path: "src/operator-language.ts",
+            change: "added",
+            note: "Neues Modul für die Sprachdirektive.",
+          },
+          {
+            path: "src/service.ts",
+            change: "modified",
+            note: "Direktive wird hier eingefügt.",
+          },
+        ],
+      },
+      {
+        type: "mermaid",
+        id: "m1",
+        source: "flowchart TD\n  A[Config] --> B[Service]",
+        caption: "Ablauf der Sprachdirektive durch den Service.",
+      },
+      {
+        type: "table",
+        id: "t1",
+        columns: ["Feld", "Beschreibung"],
+        rows: [["operatorLanguage", "Bevorzugte Sprache des Betreibers"]],
+      },
+      {
+        type: "wireframe",
+        id: "w1",
+        surface: "browser",
+        html: "<div>Einstellungen</div>",
+        caption: "Mockup der Spracheinstellung.",
+      },
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          {
+            id: "q1",
+            prompt: "Welche Sprache soll der Agent standardmäßig verwenden?",
+            kind: "single",
+            options: ["Englisch", "Deutsch"],
+          },
+        ],
+      },
+    ];
+
+    const parsed = parseVisualBlocks(raw);
+    expect(parsed).toHaveLength(raw.length); // zero blocks dropped by the validator stage
+
+    const grounded = groundPlanBlocks(parsed);
+    expect(grounded).toHaveLength(raw.length); // zero blocks dropped by the plan-grounding stage
+
+    // type/id uniqueness + verbatim machine fields survive intact
+    const byId = new Map(grounded.map((b) => [b.id, b]));
+    expect(byId.size).toBe(raw.length); // ids stayed unique
+
+    const callout = asBlock(byId.get("c1"), "callout");
+    expect(callout.tone).toBe("info");
+    expect(callout.markdown).toContain("Betreiber");
+
+    const fileTree = asBlock(byId.get("ft1"), "file-tree");
+    expect(fileTree.entries.map((e) => e.change)).toEqual(["added", "modified"]);
+
+    const questionForm = asBlock(byId.get("qf1"), "question-form");
+    expect(questionForm.questions[0]!.kind).toBe("single");
+    expect(questionForm.questions[0]!.prompt).toContain("Sprache");
+
+    const wireframe = asBlock(byId.get("w1"), "wireframe");
+    expect(wireframe.surface).toBe("browser");
+  });
 });

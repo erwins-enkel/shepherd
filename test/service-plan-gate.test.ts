@@ -137,3 +137,70 @@ test("planBlockInstructions(INTERACTIVE) drops AskUserQuestion for codex, keeps 
     "AskUserQuestion",
   );
 });
+
+// ─── operator-language injection (Task 4, issue #1586) ──────────────────────
+
+test("en is byte-identical: composeSystemPrompt with/without explicit operatorLanguage:'en'", () => {
+  const representativeOpts = [
+    { planGate: "interactive" as const },
+    { planGate: "auto" as const },
+    {},
+    { agentProvider: "codex" as const },
+    { planGate: "interactive" as const, agentProvider: "codex" as const },
+  ];
+  for (const opts of representativeOpts) {
+    const withoutLang = composeSystemPrompt(null, false, opts);
+    const withEnLang = composeSystemPrompt(null, false, { ...opts, operatorLanguage: "en" });
+    expect(withEnLang).toBe(withoutLang);
+    expect(withoutLang).not.toContain("operator-language");
+    expect(withEnLang).not.toContain("operator-language");
+  }
+});
+
+test("en is byte-identical: planBlockInstructions with/without explicit operatorLanguage:'en'", () => {
+  for (const allowQuestionForm of [true, false]) {
+    const withoutLang = planBlockInstructions({ allowQuestionForm });
+    const withEnLang = planBlockInstructions({ allowQuestionForm, operatorLanguage: "en" });
+    expect(withEnLang).toBe(withoutLang);
+  }
+});
+
+test("import-time PLAN_GATE_DIRECTIVE constants render as 'en' regardless of env (import-time-constant trap)", () => {
+  // These are computed at module-import time with the literal "en" default — never config.operatorLanguage.
+  // This documents the contract: they must never carry the German directive or field-discipline text,
+  // even when SHEPHERD_OPERATOR_LANGUAGE=de is set in the environment.
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).not.toContain("operator-language");
+    // visualBlockLanguageLine("de")'s distinctive marker — must never appear in the "en"-rendered constant.
+    expect(d).not.toContain("write ONLY these natural-language fields");
+  }
+});
+
+test("de injects <operator-language> naming German, for both claude and codex", () => {
+  const claude = composeSystemPrompt(null, false, { operatorLanguage: "de" });
+  const codex = composeSystemPrompt(null, false, {
+    operatorLanguage: "de",
+    agentProvider: "codex",
+  });
+  for (const p of [claude, codex]) {
+    expect(p).toContain("<operator-language>");
+    expect(p).toContain("German");
+  }
+});
+
+test("de plan sidecar instructions carry the field-discipline verbatim-fields line", () => {
+  const t = planBlockInstructions({ allowQuestionForm: true, operatorLanguage: "de" });
+  for (const field of [
+    "type",
+    "id",
+    "tone",
+    "change",
+    "path",
+    "mermaid.source",
+    "method",
+    "surface",
+    "kind",
+  ]) {
+    expect(t).toContain(field);
+  }
+});

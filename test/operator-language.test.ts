@@ -194,6 +194,16 @@ describe("visualBlockLanguageLine — field inventory integrity (guards the guar
     expect(matches.length).toBe(2);
   });
 
+  // KNOWN LIMITATION: these count-regexes match `typeof r.field === "string"` and
+  // `ENUM.includes(r.field as Type)` directly, but NOT the indirect
+  // `const x = r.field; if (typeof x === "string")` idiom — the one `parseBlock`
+  // itself uses for `type` and `id` (src/visual-blocks.ts:570-574: `const id = r.id;
+  // if (typeof id !== "string") ...`). A future field added to a validator via that
+  // same indirect assign-then-typeof idiom will NOT increment either count above, so
+  // it can slip past this backstop silently. It must be added to TRANSLATE_FIELDS /
+  // VERBATIM_FIELDS by hand — this backstop only catches the two idioms it greps
+  // for; review must catch the rest.
+
   test("every VALIDATORS block type is represented in the field inventory", () => {
     const validatorsBlock = VISUAL_BLOCKS_SRC.slice(VISUAL_BLOCKS_SRC.indexOf("const VALIDATORS"));
     const blockTypes = [
@@ -261,5 +271,30 @@ describe("visualBlockLanguageLine", () => {
     expect(line).toContain("`api-endpoint.responses[].example`");
     expect(line).toContain("`api-endpoint.change`");
     expect(line).toContain("`question-form.questions[].kind`");
+  });
+});
+
+// ── No new `./config` import in recap.ts / plan-gate.ts ──────────────────────
+//
+// The point of this test: `deps.operatorLanguage` in recap.ts and plan-gate.ts
+// defaults to the literal () => "en" precisely so neither module needs a
+// `./config` import — the live value is wired at the composition root
+// (src/index.ts) instead. A module-level `./config` import in either file would
+// risk the config value getting read (and frozen) at import time rather than
+// per-spawn — see the plan's "import-time freeze" note for
+// PLAN_GATE_DIRECTIVE_INTERACTIVE / PLAN_GATE_DIRECTIVE_AUTO. This is a
+// source-level regression guard for that constraint, not a behavioral test.
+
+describe("no new ./config import (import-time-freeze guard)", () => {
+  const RECAP_SRC = readFileSync(join(import.meta.dir, "../src/recap.ts"), "utf8");
+  const PLAN_GATE_SRC = readFileSync(join(import.meta.dir, "../src/plan-gate.ts"), "utf8");
+  const CONFIG_IMPORT_RE = /from\s+["']\.\/config["']/;
+
+  test("src/recap.ts does not import from ./config", () => {
+    expect(CONFIG_IMPORT_RE.test(RECAP_SRC)).toBe(false);
+  });
+
+  test("src/plan-gate.ts does not import from ./config", () => {
+    expect(CONFIG_IMPORT_RE.test(PLAN_GATE_SRC)).toBe(false);
   });
 });

@@ -22,10 +22,11 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
 
-/** Outcome of an on-demand `consider()`: a reviewer actually spawned, the request was a no-op
- *  (plan unchanged / already approved / nothing to review), the plan artifact is unavailable, or
- *  a spawn attempt failed. The review-plan route relays this so the UI can distinguish a silent
- *  dedupe from a real error or an unusable `.shepherd-plan.md`. */
+/** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
+ *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
+ *  plugin-abort during spawn, or an unchanged plan on the auto-path); the plan artifact is
+ *  unavailable (`"plan-unavailable"`); or a spawn attempt failed (`"error"`). The review-plan route
+ *  relays this so the UI can distinguish a no-op from a real error or an unusable `.shepherd-plan.md`. */
 export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
 
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
@@ -187,6 +188,7 @@ interface PlanInFlight {
   reviewerModel: string | null;
   reviewerEffort: string | null;
   priorRound: number; // adversarial rounds already spent on this plan streak
+  forced: boolean; // this run is an operator's manual re-review (consider's opts.force) — governs the F3 hold + stall-signal guards
   startedAt: number;
   finalizing?: boolean;
 }
@@ -243,21 +245,32 @@ export class PlanGateService {
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
-  /** sha256 of the plan text — dedups re-reviews of an unchanged plan. */
+  /** sha256 of the plan text — dedups re-reviews of an unchanged plan on the auto-path. The manual
+   *  `force` path (consider's `opts.force`) deliberately bypasses this dedupe so an operator's
+   *  re-review always runs even when the plan text is byte-identical. */
   static async hashPlan(plan: string): Promise<string> {
     return createHash("sha256").update(plan).digest("hex");
   }
 
   /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
-   *  Returns `"started"` iff a reviewer actually spawned, `"skipped"` for a no-op (not planning,
-   *  in flight, no/unchanged plan, already approved), or `"error"` if a spawn was attempted but
-   *  failed. The on-demand "Review plan now" route relays this so the UI can tell a real review
-   *  from a silent dedupe — and a genuine failure from either — instead of just blinking the button. */
-  async consider(session: Session): Promise<PlanReviewTrigger> {
+   *  Returns `"started"` iff a reviewer actually spawned; `"skipped"` for a no-op — not planning,
+   *  a review already in flight/starting, an already-`approved` gate, an unchanged plan on the
+   *  auto-path, a `forget()` tombstone abort mid-fetch, or a plugin `onSpawn` refusal;
+   *  `"plan-unavailable"` when the plan artifact is missing/unreadable/empty; or `"error"` if a
+   *  spawn was attempted but failed. The on-demand "Review plan now" route relays this so the UI
+   *  can tell a real review from a no-op — and a genuine failure from either.
+   *
+   *  `opts.force` (the manual re-review path) bypasses ONLY the unchanged-plan hash dedupe, so an
+   *  operator's click always re-reviews the same plan text rather than silently no-opping on it —
+   *  a click is therefore no longer a silent dedupe. It bypasses no hard precondition: a non-
+   *  planning phase, an in-flight/starting review, an already-`approved` gate, and a missing plan
+   *  each still short-circuit exactly as on the auto-path. */
+  async consider(session: Session, opts?: { force?: boolean }): Promise<PlanReviewTrigger> {
+    const force = opts?.force === true;
     if (session.planPhase !== "planning") return "skipped"; // only gate before execution
     if (this.inflight.has(session.id) || this.starting.has(session.id)) return "skipped"; // in flight / mid-spawn
     const prior = this.deps.store.getPlanGate(session.id);
-    if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review
+    if (prior?.approved) return "skipped"; // already cleared → execution allowed, don't re-review (force does NOT bypass this)
     const plan = (this.readPlan(session.worktreePath) ?? "").trim();
     if (!plan) return "plan-unavailable"; // missing / unreadable / empty → nothing usable to review
     // Claim the slot SYNCHRONOUSLY, before any await — hashPlan is async, so two concurrent
@@ -266,11 +279,12 @@ export class PlanGateService {
     this.starting.add(session.id);
     try {
       const planHash = await PlanGateService.hashPlan(plan);
-      // Dedupe an unchanged plan — but NEVER skip past an `error` verdict. A timeout/unparseable
-      // run produced no real verdict, so re-running it (e.g. via the "Review plan now" button) must
-      // retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip's error carve-out.
-      if (prior?.planHash === planHash && prior.decision !== "error") return "skipped";
-      return await this.begin(session, plan, planHash, prior);
+      // Dedupe an unchanged plan on the auto-path — but NEVER when `force` (the manual re-review
+      // path) is set, and NEVER skip past an `error` verdict. `force` makes a click re-review the
+      // same plan text instead of no-opping; a timeout/unparseable run produced no real verdict, so
+      // re-running it must retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip.
+      if (!force && prior?.planHash === planHash && prior.decision !== "error") return "skipped";
+      return await this.begin(session, plan, planHash, prior, force);
     } finally {
       this.starting.delete(session.id);
     }
@@ -281,6 +295,7 @@ export class PlanGateService {
     plan: string,
     planHash: string,
     prior: PlanGate | null,
+    forced: boolean,
   ): Promise<PlanReviewTrigger> {
     // Resolve the base SHA so the reviewer inspects a CLEAN copy of the codebase at the base
     // branch — never the live worktree (the planning agent is still editing it). baseSha's
@@ -404,6 +419,7 @@ export class PlanGateService {
       reviewerModel: reviewerEnv.model,
       reviewerEffort,
       priorRound: prior?.round ?? 0,
+      forced,
       startedAt: this.now(),
     });
     // Persist the spawn row now (totals NULL until finalize) so plan-review burn is attributable
@@ -449,6 +465,18 @@ export class PlanGateService {
       // Reaped worktree ⇒ the review finalized (finalize removes it); nothing to re-adopt.
       if (!this.worktreeExists(sp.worktreePath)) continue;
       const prior = this.deps.store.getPlanGate(id);
+      // Uphold `approved ⇒ no reviewer in flight`. This method is the SECOND maintainer of that
+      // invariant (the first is consider()'s `prior?.approved` short-circuit): a crash between
+      // applyApproved's putPlanGate and finalize's worktree.remove leaves an approved gate whose
+      // orphan spawn still satisfies the adoption predicate. Re-adopting it would resurrect exactly
+      // the state the invariant forbids and let finalize() steer into an executing agent. Reap it
+      // properly instead — a bare `continue` would strand the reviewer terminal + a NULL-totals
+      // spawn row (gcStaleReviewWorktrees only reaps the worktree; reapReviewer only acts on
+      // entries already in `inflight`, which this is not). See reapOrphanSpawn.
+      if (prior?.approved) {
+        await this.reapOrphanSpawn(sp);
+        continue;
+      }
       const plan = (this.readPlan(s.worktreePath) ?? "").trim();
       this.inflight.set(id, {
         sessionId: id,
@@ -463,10 +491,38 @@ export class PlanGateService {
         reviewerModel: sp.model,
         reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
         priorRound: prior?.round ?? 0,
+        // The `reviewer_spawns` row has no `forced` column, so a restart mid-forced-review
+        // resurrects the entry as `forced: false`. The divergence is deliberate: adding a column +
+        // migration to suppress one at-cap stall row isn't worth it, and it fails SAFE — after a
+        // crash "needs a human" is arguably true, and no operator is known to be present. Bounded at
+        // one stall row per restart per session, unreachable by clicking, so it can't walk the
+        // distiller toward its learnings-signal threshold. See applyChangesRequested's guards.
+        forced: false,
         startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
       });
       this.deps.onReviewing?.(id, true);
     }
+  }
+
+  /** Targeted reap of an orphaned plan-review spawn whose gate already landed `approved` — mirrors
+   *  finalize()'s cleanup (terminal stop + best-effort usage capture + worktree remove) WITHOUT
+   *  re-adopting it into `inflight`. Keeps `approved ⇒ no reviewer in flight` while still closing the
+   *  reviewer terminal and completing the #502 cost-attribution row (its totals would otherwise stay
+   *  NULL forever). Best-effort throughout: a missing transcript leaves totals null rather than
+   *  throwing, exactly as finalize() does. */
+  private async reapOrphanSpawn(sp: {
+    worktreePath: string;
+    reviewerSessionId: string;
+  }): Promise<void> {
+    const terminalId = this.resolveTerminal(sp.worktreePath);
+    void this.deps.herdr.stop(terminalId).catch(() => {});
+    try {
+      const usage = await this.readUsage(sp.worktreePath, sp.reviewerSessionId);
+      if (usage) this.deps.store.completeReviewerSpawn(sp.reviewerSessionId, usage, this.now());
+    } catch (err) {
+      console.warn(`[plan-gate] orphan usage capture failed for ${sp.reviewerSessionId}:`, err);
+    }
+    this.deps.worktree.remove(sp.worktreePath);
   }
 
   /** Reap stale plan-review worktrees left on disk by a prior run — e.g. the older of two
@@ -577,6 +633,23 @@ export class PlanGateService {
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop
    *  steering and escalate to the operator. Execution stays gated until the plan is approved. */
   private async applyChangesRequested(f: PlanInFlight, gate: PlanGate): Promise<void> {
+    // Read the LIVE (prior) gate — buildGate hasn't persisted this verdict yet, so this still
+    // returns the pre-review row (with its round / finalRoundPending / planHash).
+    const prior = this.deps.store.getPlanGate(f.sessionId);
+    // F3 — a forced re-review of an UNCHANGED plan is inert on the streak. The findings are
+    // identical to what the planning agent already holds, so re-injecting them is noise. Hold
+    // `round`, leave `finalRoundPending` as it was, deliver NO steer, and write NO signal — neither
+    // the at-cap crossing nor the sub-cap unreachable-pane escalation, since no delivery was
+    // attempted so "unreachable" is meaningless. The fresh verdict (summary/body/findings) is still
+    // persisted + surfaced; only the streak-advancing and signal side effects are suppressed. A
+    // forced review of a CHANGED plan (hash differs) is a real revision and falls through below.
+    if (f.forced && prior && prior.planHash === f.planHash) {
+      gate.round = f.priorRound;
+      gate.finalRoundPending = prior.finalRoundPending;
+      this.deps.store.putPlanGate(gate);
+      this.deps.onChange(f.sessionId, gate);
+      return;
+    }
     const priorRound = f.priorRound;
     let delivered = false;
     if (priorRound < this.cap) {
@@ -595,27 +668,36 @@ export class PlanGateService {
     gate.finalRoundPending = delivered && gate.round >= this.cap;
     if (gate.round >= this.cap) {
       // At/over the cap — a plan still unapproved after this many rounds can't progress on its own.
-      // Fires on the crossing round and on any re-review that re-enters already at the cap.
-      this.deps.store.addSignal({
-        repoPath: f.repoPath,
-        sessionId: f.sessionId,
-        kind: "stall",
-        payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
-      });
+      // Fires on the crossing round and on any re-review that re-enters already at the cap. Suppress
+      // ONLY a forced at-cap RE-ENTRY (`f.priorRound >= cap`): a repeat-clickable button must not
+      // spam the learnings distiller. NOT `!f.forced` — a forced CROSSING (priorRound === cap-1
+      // whose steer lands) still signals exactly once, as a crossing happens at most once per streak.
+      if (!(f.forced && f.priorRound >= this.cap)) {
+        this.deps.store.addSignal({
+          repoPath: f.repoPath,
+          sessionId: f.sessionId,
+          kind: "stall",
+          payload: `plan reviewer requested changes ${gate.round} rounds running and the plan still isn't approved — needs a human`,
+        });
+      }
     } else if (!delivered) {
       // Sub-cap but the steer didn't land (dead/unreachable pane): the findings never reached the
       // planning agent and the round didn't advance, so it's stranded just like a cap stall rather
-      // than mid-revision. Escalate so it surfaces instead of silently going quiet.
+      // than mid-revision. Escalate so it surfaces instead of silently going quiet — but suppress the
+      // learnings signal on a forced run (newly reachable per click and unbounded); the console.warn
+      // and the rendered verdict still surface it to the operator.
       console.warn(
         `[plan-gate] changes-requested steer did not land for ${f.sessionId}; escalating`,
       );
-      this.deps.store.addSignal({
-        repoPath: f.repoPath,
-        sessionId: f.sessionId,
-        kind: "stall",
-        payload:
-          "plan reviewer requested changes but the planning agent's pane was unreachable — needs a human",
-      });
+      if (!f.forced) {
+        this.deps.store.addSignal({
+          repoPath: f.repoPath,
+          sessionId: f.sessionId,
+          kind: "stall",
+          payload:
+            "plan reviewer requested changes but the planning agent's pane was unreachable — needs a human",
+        });
+      }
     }
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
@@ -653,6 +735,10 @@ export class PlanGateService {
   }
 
   private buildGate(f: PlanInFlight, raw: RawPlanVerdict | null): PlanGate {
+    // Read the LIVE gate — buildGate runs in finalize() BEFORE this verdict is persisted, so this
+    // still returns the pre-review row, INCLUDING any answered keys the answer route merged into it
+    // while the review ran. Carry them forward when the plan text is unchanged (same planHash).
+    const live = this.deps.store.getPlanGate(f.sessionId);
     const decision = normalizeDecision(raw?.decision);
     const resolved: PlanDecision = raw && decision ? decision : "error";
     const summary = resolveSummary(resolved, raw);
@@ -675,10 +761,14 @@ export class PlanGateService {
       reviewerModel: f.reviewerModel,
       reviewerEffort: f.reviewerEffort,
       blocks: f.blocks,
-      // Fresh gate for this planHash — no questions answered yet. buildGate runs once per
-      // planHash (consider() dedups identical plans), so a revised plan resets the pending
-      // signal; the answer route appends resolved keys onto the persisted gate (#1332).
-      answeredQuestionKeys: [],
+      // Answered question-form keys belong to the plan TEXT, not to a single review run. A same-
+      // planHash re-run is reachable via `force` (the manual re-review path), so we can no longer
+      // assume buildGate runs once per planHash: carry the answers forward across a re-review of the
+      // SAME text and reset them only when the text changes. The read is of the LIVE gate above (not
+      // a begin()-time snapshot), so answers the answer route merged DURING the review survive; a
+      // changed plan → [] so planQuestionsUnanswered re-fires against the new question set (#1332).
+      answeredQuestionKeys:
+        live && live.planHash === f.planHash ? [...(live.answeredQuestionKeys ?? [])] : [],
       updatedAt: this.now(),
     };
   }

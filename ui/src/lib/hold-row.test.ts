@@ -54,6 +54,26 @@ describe("rowState / rowHold fixtures", () => {
     expect(r.action?.kind).toBe("answer");
   });
 
+  // Criterion 7: Go is structurally unreachable under a pending question. Gate is
+  // approved (chip reads ready) but a question-form block is still unanswered and the
+  // session is parked -- R9 (planQuestionsUnanswered && parked) precedes R11 (ready) in
+  // rule order, so the pending question wins and Go is never offered.
+  it("2b. approved gate + pending question, parked -> question, never ready/Go", () => {
+    const s = sess({ status: "idle", planPhase: "planning" });
+    const g = gate({
+      approved: true,
+      decision: "approved",
+      blocks: qBlocks,
+      answeredQuestionKeys: [],
+    });
+    const sh = hold("plan-question");
+    expect(rowState(s, g, false, sh)).toBe("question");
+    const r = rowHold(s, g, false, sh);
+    expect(r.line).toBe(m.hold_plan_question());
+    expect(r.action?.kind).toBe("answer");
+    expect(r.action?.kind).not.toBe("go");
+  });
+
   it("3. errored gate + question block -> error (not answer, not question line)", () => {
     const s = sess({ status: "idle" });
     const g = gate({ decision: "error", approved: false, blocks: qBlocks });

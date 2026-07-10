@@ -584,14 +584,14 @@ function parseBlock(item: unknown): VisualBlock | null {
  *  This is the trust boundary — be defensive, drop on any doubt. */
 export function parseVisualBlocks(raw: unknown): VisualBlock[] {
   // (A) warn if blocks field is present but non-array (mangled shape)
-  if (raw !== undefined && !Array.isArray(raw)) {
-    console.warn(
-      `[visual-blocks] blocks field is present but not an array (received ${typeof raw})`,
-    );
+  if (!Array.isArray(raw)) {
+    if (raw !== undefined) {
+      console.warn(
+        `[visual-blocks] blocks field is present but not an array (received ${typeof raw})`,
+      );
+    }
     return [];
   }
-
-  if (!Array.isArray(raw)) return [];
 
   const result: VisualBlock[] = [];
   const seenIds = new Set<string>();
@@ -600,14 +600,13 @@ export function parseVisualBlocks(raw: unknown): VisualBlock[] {
     const block = parseBlock(item);
     // (B) warn when parseBlock rejects — log type/id defensively from raw item
     if (!block) {
-      if (item && typeof item === "object" && !Array.isArray(item)) {
-        const itemObj = item as Record<string, unknown>;
-        const type = sanitizeForLog(itemObj.type);
-        const id = sanitizeForLog(itemObj.id);
-        console.warn(`[visual-blocks] dropped block: type="${type}" id="${id}"`);
-      } else {
-        console.warn(`[visual-blocks] dropped malformed block (not an object): ${typeof item}`);
-      }
+      const itemObj =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : undefined;
+      const type = sanitizeForLog(itemObj?.type);
+      const id = sanitizeForLog(itemObj?.id);
+      console.warn(`[visual-blocks] dropped block: type="${type}" id="${id}"`);
       continue;
     }
 

@@ -116,6 +116,13 @@ describe("parseVisualBlocks", () => {
       const result = parseVisualBlocks(["string-item", 5, null]);
       expect(result).toEqual([]);
       expect(warn.mock.calls.length).toBeGreaterThan(0);
+      // non-object items have no type/id to read — the standard warn shape must still
+      // report a type=/id= pair, using "<none>" for both rather than a distinct message.
+      for (const call of warn.mock.calls) {
+        const msg = call[0] as string;
+        expect(msg).toContain('type="<none>"');
+        expect(msg).toContain('id="<none>"');
+      }
     } finally {
       warn.mockRestore();
     }
@@ -141,20 +148,42 @@ describe("parseVisualBlocks", () => {
     }
   });
 
-  it("(hygiene) sanitizes type and id containing control characters", () => {
+  it("(hygiene) (B)-path: sanitizes type and id containing control characters on a dropped block", () => {
     const warn = spyOn(console, "warn");
     try {
+      // "rich-text\n\r" is not a known type (VALIDATORS lookup is exact-match), so this
+      // block is rejected at (B) — its id is never reserved.
       const result = parseVisualBlocks([
-        { type: "rich-text\n\r", id: "id\x1b[31m", markdown: "first" },
-        { type: "callout", id: "id\x1b[31m", tone: "info", markdown: "second" },
+        { type: "rich-text\n\r", id: "id\x1b[31m", markdown: "x" },
+      ]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).not.toContain("\n");
+      expect(msg).not.toContain("\r");
+      expect(msg).not.toContain("\x1b");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) (C)-path: sanitizes duplicate id containing control characters on a real dedup collision", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      // Both blocks validate successfully and share the same (control-character-laden) id —
+      // this is a genuine dedup collision, unlike feeding an already-rejected first block.
+      const result = parseVisualBlocks([
+        { type: "rich-text", id: "id\x1b[31m\n\r", markdown: "first" },
+        { type: "callout", id: "id\x1b[31m\n\r", tone: "info", markdown: "second" },
       ]);
       expect(result).toHaveLength(1);
-      for (const call of warn.mock.calls) {
-        const msg = call[0] as string;
-        expect(msg).not.toContain("\n");
-        expect(msg).not.toContain("\r");
-        expect(msg).not.toContain("\x1b");
-      }
+      expect(result[0]!.type).toBe("rich-text"); // first kept, second (duplicate) dropped
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("duplicate");
+      expect(msg).not.toContain("\n");
+      expect(msg).not.toContain("\r");
+      expect(msg).not.toContain("\x1b");
     } finally {
       warn.mockRestore();
     }

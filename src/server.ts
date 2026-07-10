@@ -420,11 +420,7 @@ export interface AppDeps {
    *  Optional so environments/tests that don't wire it still type-check; the route
    *  no-ops the trigger when absent. Wired to the real DistillerService in index.ts. */
   distiller?: {
-    // TODO(#1567 follow-up): mistyped. DistillerService.distillNow is `async … : Promise<void>`,
-    // so this `=> void` hides the promise from `tsc` and from the lint gate. The trigger route
-    // below no longer LEAKS (it wraps in `Promise.resolve(...).catch`), but the seam still lies.
-    // Retyping forces ~16 test doubles async — pre-existing, so it gets its own PR, not this one.
-    distillNow: (repoPath: string) => void;
+    distillNow: (repoPath: string) => Promise<void>;
     health?: () => {
       ok: boolean;
       consecutiveFailures: number;
@@ -435,12 +431,8 @@ export interface AppDeps {
    *  rules. Optional so tests that don't wire it still type-check; routes no-op when absent.
    *  Wired to the real OptimizerService in index.ts. */
   optimizer?: {
-    // TODO(#1567 follow-up): mistyped — OptimizerService.optimizeOne is `async`. Same as
-    // `distillNow` above; retype alongside its siblings so a marker-driven sweep can't miss it.
-    optimizeOne: (id: string) => void;
-    // TODO(#1567 follow-up): mistyped — OptimizerService.optimizeAllFlagged is `async`. Same
-    // reason for deferring the fix as `distillNow` above.
-    optimizeAllFlagged: (repoPath: string) => void;
+    optimizeOne: (id: string) => Promise<void>;
+    optimizeAllFlagged: (repoPath: string) => Promise<void>;
     health?: () => {
       ok: boolean;
       consecutiveFailures: number;
@@ -1631,20 +1623,16 @@ function handleRepoScopedLearningPost(parts: string[], url: URL, deps: AppDeps):
     return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
-  // All three are async fire-and-forget whose service chains (enqueueOrBegin → begin) never catch,
-  // so a bare `void` leaks an unhandled rejection — and `no-floating-promises` defaults to
-  // `ignoreVoid: true`, so the gate this PR lands cannot see it. `distillNow`/`optimizeAllFlagged`
-  // are still mistyped `=> void` (see the TODOs on their DI declarations), but the leak needs no
-  // retype to close: `Promise.resolve` normalizes the declared-void/actually-promise value so the
-  // `.catch` attaches at runtime regardless of what the seam claims.
+  // Async fire-and-forget whose service chains (enqueueOrBegin → begin) never catch internally, so
+  // the `.catch` here is what stops an unhandled rejection; `void` satisfies no-floating-promises.
   if (parts[2] === "distill")
-    void Promise.resolve(deps.distiller?.distillNow(dir)).catch((err) =>
-      console.warn("[distill] distillNow failed:", err),
-    );
+    void deps.distiller
+      ?.distillNow(dir)
+      .catch((err) => console.warn("[distill] distillNow failed:", err));
   else if (parts[2] === "optimize")
-    void Promise.resolve(deps.optimizer?.optimizeAllFlagged(dir)).catch((err) =>
-      console.warn("[optimize] optimizeAllFlagged failed:", err),
-    );
+    void deps.optimizer
+      ?.optimizeAllFlagged(dir)
+      .catch((err) => console.warn("[optimize] optimizeAllFlagged failed:", err));
   else if (parts[2] === "merge-suggest")
     void deps.mergeSuggest
       ?.mergeNow(dir)
@@ -1748,11 +1736,11 @@ async function handleLearningIdAction(ctx: Ctx): Promise<Response | null> {
 
   // POST /api/learnings/:id/optimize — optimize a single flagged rule
   if (parts[3] === "optimize") {
-    // Same shape as the distill/optimize triggers above: async under a `=> void` seam, so the
-    // rejection is invisible to both `tsc` and the lint gate. Normalize, then catch.
-    void Promise.resolve(deps.optimizer?.optimizeOne(parts[2])).catch((err) =>
-      console.warn("[optimize] optimizeOne failed:", err),
-    );
+    // Async fire-and-forget (same shape as the distill/optimize triggers above): catch the rejection,
+    // `void` for no-floating-promises.
+    void deps.optimizer
+      ?.optimizeOne(parts[2])
+      .catch((err) => console.warn("[optimize] optimizeOne failed:", err));
     return json({ ok: true });
   }
 

@@ -41,7 +41,7 @@ function makeDeps(): AppDeps {
     }),
     projections: () => [],
   };
-  return { store, service, events, usageLimits, distiller: { distillNow: () => {} } };
+  return { store, service, events, usageLimits, distiller: { distillNow: async () => {} } };
 }
 
 const cookieHeader = (value: string) => ({ Cookie: `${SESSION_COOKIE}=${value}` });

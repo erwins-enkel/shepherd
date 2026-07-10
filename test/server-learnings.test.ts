@@ -253,10 +253,10 @@ function makeOptimizerDeps(optimizer?: AppDeps["optimizer"]): AppDeps {
 test("POST /api/learnings/optimize?repo= valid → 200 {ok:true} and calls optimizeAllFlagged", async () => {
   const called: string[] = [];
   const optimizer: AppDeps["optimizer"] = {
-    optimizeAllFlagged: (dir) => {
+    optimizeAllFlagged: async (dir) => {
       called.push(dir);
     },
-    optimizeOne: () => {},
+    optimizeOne: async () => {},
   };
   const app = makeApp(makeOptimizerDeps(optimizer));
 
@@ -272,8 +272,8 @@ test("POST /api/learnings/optimize?repo= valid → 200 {ok:true} and calls optim
 
 test("POST /api/learnings/optimize?repo= missing → 400", async () => {
   const optimizer: AppDeps["optimizer"] = {
-    optimizeAllFlagged: () => {},
-    optimizeOne: () => {},
+    optimizeAllFlagged: async () => {},
+    optimizeOne: async () => {},
   };
   const app = makeApp(makeOptimizerDeps(optimizer));
 
@@ -287,8 +287,8 @@ test("POST /api/learnings/optimize?repo= missing → 400", async () => {
 test("POST /api/learnings/:id/optimize → 200 {ok:true} and calls optimizeOne", async () => {
   const called: string[] = [];
   const optimizer: AppDeps["optimizer"] = {
-    optimizeAllFlagged: () => {},
-    optimizeOne: (id) => {
+    optimizeAllFlagged: async () => {},
+    optimizeOne: async (id) => {
       called.push(id);
     },
   };
@@ -318,10 +318,10 @@ test("GET /api/learnings/health preserves top-level distiller fields and adds op
     service: {} as any,
     events,
     usageLimits: { limits: () => ({}) } as any,
-    distiller: { distillNow: () => {}, health: () => distillerHealth },
+    distiller: { distillNow: async () => {}, health: () => distillerHealth },
     optimizer: {
-      optimizeAllFlagged: () => {},
-      optimizeOne: () => {},
+      optimizeAllFlagged: async () => {},
+      optimizeOne: async () => {},
       health: () => optimizerHealth,
     },
   };
@@ -881,13 +881,10 @@ async function warningsDuring(fn: () => Promise<void>): Promise<string[]> {
 }
 
 test("POST /api/learnings/optimize: a REJECTING optimizeAllFlagged is caught, not left floating", async () => {
-  // The DI seam is typed `=> void` while the impl is async, so `tsc` and the lint gate are both
-  // blind here — `Promise.resolve(...)` in the route is what lets the `.catch` attach at runtime.
+  // The route fire-and-forgets this async seam; its `.catch` is what stops the rejection floating.
   const optimizer: AppDeps["optimizer"] = {
-    optimizeAllFlagged: (() => Promise.reject(new Error("boom-all"))) as unknown as (
-      d: string,
-    ) => void,
-    optimizeOne: () => {},
+    optimizeAllFlagged: () => Promise.reject(new Error("boom-all")),
+    optimizeOne: async () => {},
   };
   const app = makeApp(makeOptimizerDeps(optimizer));
 
@@ -907,8 +904,8 @@ test("POST /api/learnings/optimize: a REJECTING optimizeAllFlagged is caught, no
 
 test("POST /api/learnings/:id/optimize: a REJECTING optimizeOne is caught, not left floating", async () => {
   const optimizer: AppDeps["optimizer"] = {
-    optimizeAllFlagged: () => {},
-    optimizeOne: (() => Promise.reject(new Error("boom-one"))) as unknown as (id: string) => void,
+    optimizeAllFlagged: async () => {},
+    optimizeOne: () => Promise.reject(new Error("boom-one")),
   };
   const app = makeApp(makeOptimizerDeps(optimizer));
 

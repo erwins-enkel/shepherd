@@ -130,7 +130,7 @@ import { buildIssueUrl } from "./forge";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
 import { BaseCheckoutBusyError, MergeConflictError } from "./forge/local";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
-import { type PrCache, guardStaleTerminal, trustsTerminal } from "./pr-poller";
+import { type PrCache, gitStateChanged, guardStaleTerminal, trustsTerminal } from "./pr-poller";
 import {
   readRepoRoles,
   writeRepoRoles,
@@ -3519,21 +3519,40 @@ async function resolveGitState(
   deps: AppDeps,
 ): Promise<GitState> {
   const me = (await forge.currentUser?.()) ?? null;
-  const git: GitState = annotateHandoff(
-    { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
-    session.repoPath,
-    me,
-  );
   const prev = deps.prCache?.get(session.id);
-  const trusted = trustsTerminal(
-    prev,
-    git,
-    session.mergingSince != null,
-    session.mergingPrNumber ?? null,
+  const marked = session.mergingSince != null;
+  const markedNumber = session.mergingPrNumber ?? null;
+  // The same trust guard the poller applies to every status result: keep a genuinely
+  // merged/closed PR when merge-train-flagged or already-owned, else drop a reused
+  // branch-name collision to "none".
+  const guard = (raw: GitState): GitState =>
+    trustsTerminal(prev, raw, marked, markedNumber)
+      ? raw
+      : guardStaleTerminal(raw, (headSha) => deps.ownsPr?.(session, headSha) ?? null);
+
+  let result = guard(
+    annotateHandoff(
+      { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
+      session.repoPath,
+      me,
+    ),
   );
-  const result = trusted
-    ? git
-    : guardStaleTerminal(git, (headSha) => deps.ownsPr?.(session, headSha) ?? null);
+  // No PR for the stored branch: the agent may have renamed the worktree branch out
+  // from under us. Adopt the live branch and retry against it — mirrors the poller's
+  // statusPerSession so GitRail recognizes a renamed-branch PR the same way, and so a
+  // resolved "none" is authoritative (the caller can safely clear a stale cached PR).
+  if (result.state === "none") {
+    const live = deps.service.syncWorktreeBranch?.(session.id) ?? null;
+    if (live && live !== session.branch) {
+      result = guard(
+        annotateHandoff(
+          { kind: forge.kind, ...(await forge.prStatus(live)) },
+          session.repoPath,
+          me,
+        ),
+      );
+    }
+  }
   const issueUrl = buildIssueUrl(forge.webUrl, session.issueNumber);
   if (issueUrl) result.issueUrl = issueUrl;
   return result;
@@ -3550,7 +3569,22 @@ async function forgeGitStateResponse(
   session: Session,
   deps: AppDeps,
 ): Promise<Response> {
-  return json(await resolveGitState(forge, session, deps));
+  const result = await resolveGitState(forge, session, deps);
+  // Write-through: the git-rail's live GET is otherwise a read-only side channel the
+  // session card's cache (`prCache` + `session:git`) never sees, so a PR the poller
+  // hasn't cached stays invisible on the card while the detail view shows it. Feed the
+  // freshly-resolved state back into the shared cache and broadcast it — bounded to a
+  // genuine change (the poller's own gate), and "meaningful" so we surface a PR or clear
+  // one that was really there, but never emit a no-PR `none` for a session that never had
+  // one. `resolveGitState` reconciles a renamed branch first, so a `none` here is
+  // authoritative enough to clear a stale cached PR.
+  const prev = deps.prCache?.get(session.id);
+  const meaningful = result.state !== "none" || (prev != null && prev.state !== "none");
+  if (deps.prCache && meaningful && gitStateChanged(prev, result)) {
+    deps.prCache.set(session.id, result);
+    deps.events.emit("session:git", { id: session.id, git: result });
+  }
+  return json(result);
 }
 
 async function handleSessionGit(ctx: Ctx): Promise<Response | null> {

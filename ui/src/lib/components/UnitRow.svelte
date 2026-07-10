@@ -298,6 +298,12 @@
 
   let ctaBusy = $state(false);
 
+  // Armed "Go?" swaps in for the plain label; kept in the script so the .u-hold template
+  // stays under the Svelte-template complexity bar (the block lives in the holdSubline snippet).
+  const ctaLabel = $derived(
+    holdRow.action?.kind === "go" && goArmed ? m.hold_cta_go_arm() : (holdRow.action?.label ?? ""),
+  );
+
   function onHoldCta(e: MouseEvent) {
     e.stopPropagation();
     const a = holdRow.action;
@@ -540,6 +546,23 @@
   }
 </script>
 
+{#snippet holdSubline()}
+  {#if holdRow.line}
+    <div class="u-hold">
+      <span class="u-hold-text">{holdRow.line}</span>
+      {#if holdRow.action}
+        <button
+          type="button"
+          class="hold-cta hold-cta--{holdRow.action.kind}"
+          title={holdRow.action.title}
+          disabled={ctaBusy}
+          onclick={onHoldCta}>{ctaLabel}</button
+        >
+      {/if}
+    </div>
+  {/if}
+{/snippet}
+
 {#snippet row()}
   <div
     class="unit"
@@ -640,23 +663,7 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
-      {#if holdRow.line}
-        <div class="u-hold">
-          <span class="u-hold-text">{holdRow.line}</span>
-          {#if holdRow.action}
-            <button
-              type="button"
-              class="hold-cta hold-cta--{holdRow.action.kind}"
-              title={holdRow.action.title}
-              disabled={ctaBusy}
-              onclick={onHoldCta}
-              >{holdRow.action.kind === "go" && goArmed
-                ? m.hold_cta_go_arm()
-                : holdRow.action.label}</button
-            >
-          {/if}
-        </div>
-      {/if}
+      {@render holdSubline()}
     </div>
 
     <UnitRowRight

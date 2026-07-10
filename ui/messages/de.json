@@ -950,6 +950,8 @@
   "feat_automerge_body": "Aktiviere Voll-Auto-Merge, damit Shepherd fertige PRs für dich mergt: vor jedem Merge wird auf main rebased und erneut geprüft, damit parallele Aufgaben sicher bleiben.",
   "buildqueue_panel_title": "Build-Queue",
   "buildqueue_empty": "Noch keine Schritte. Der Agent erstellt eine Queue, wenn er startet.",
+  "buildqueue_awaiting_chip": "Wartet auf deine Freigabe",
+  "buildqueue_awaiting_hint": "Der Agent pausiert hier. Prüfe die Schritte und gib sie mit Freigeben & ausführen frei.",
   "buildqueue_status_pending": "ausstehend",
   "buildqueue_status_active": "aktiv",
   "buildqueue_status_done": "erledigt",

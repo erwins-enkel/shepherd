@@ -38,6 +38,7 @@ beforeEach(() => {
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root {
     --font-mono: ui-monospace, monospace;
+    --color-bg: #0a0d0c;
     --color-panel: #1a1a1a;
     --color-line: #333;
     --color-inset: #111;
@@ -141,6 +142,110 @@ describe("BuildQueuePanel — curation state (unapproved, with steps)", () => {
       onbootstrap: noop,
     });
     await expect.element(page.getByRole("button", { name: m.buildqueue_add_step() })).toBeVisible();
+  });
+});
+
+describe("BuildQueuePanel — awaiting-approval affordances (unapproved + steps)", () => {
+  const curationQueue: BuildQueue = {
+    sessionId: "s1",
+    approved: false,
+    steps: [
+      { id: "a", title: "Install deps", status: "pending", position: 0 },
+      { id: "b", title: "Run tests", status: "pending", position: 1 },
+    ],
+  };
+
+  it("shows the awaiting chip + explanatory hint and marks the panel is-awaiting", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    await expect.element(page.getByText(m.buildqueue_awaiting_chip())).toBeVisible();
+    await expect.element(page.getByText(m.buildqueue_awaiting_hint())).toBeVisible();
+    expect(document.querySelector(".bqp.is-awaiting"), "panel carries is-awaiting").not.toBeNull();
+  });
+
+  it("announces the awaiting status to assistive tech even when collapsed (aria-describedby → header chip)", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    const toggle = document.querySelector<HTMLButtonElement>("button.bqp-collapse-toggle")!;
+    const describedby = toggle.getAttribute("aria-describedby");
+    expect(describedby, "toggle describes the awaiting chip").toBeTruthy();
+    const chip = document.getElementById(describedby!);
+    expect(chip?.textContent).toContain(m.buildqueue_awaiting_chip());
+
+    // Collapse: the chip lives in the always-rendered header, so its description
+    // must still resolve and stay visible while the content is hidden.
+    buildQueueCollapse.set(true);
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".bqp-content.collapsed"))
+      .toBeTruthy();
+
+    expect(toggle.getAttribute("aria-describedby"), "describedby unchanged when collapsed").toBe(
+      describedby,
+    );
+    const chipAfter = document.getElementById(describedby!);
+    expect(chipAfter, "chip still in DOM when collapsed").not.toBeNull();
+    expect(chipAfter!.offsetParent, "chip still visible (header not collapsed)").not.toBeNull();
+  });
+
+  it("applies the amber tint, emphasized CTA, and amber chip in the browser (computed styles)", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: curationQueue,
+      onbootstrap: noop,
+    });
+    // 6% amber wash shifts the panel off the plain --color-panel (#1a1a1a).
+    const panel = document.querySelector<HTMLElement>(".bqp.is-awaiting")!;
+    expect(getComputedStyle(panel).backgroundColor, "tint applied").not.toBe("rgb(26, 26, 26)");
+
+    // Emphasized CTA: amber text + a non-empty inner-glow box-shadow (no solid fill).
+    const approve = document.querySelector<HTMLElement>("button.bqp-approve")!;
+    const approveStyle = getComputedStyle(approve);
+    expect(approveStyle.color, "CTA text is amber").toBe("rgb(245, 166, 35)");
+    expect(approveStyle.boxShadow, "CTA carries the inner-glow emphasis").not.toBe("none");
+
+    const chip = document.querySelector<HTMLElement>(".bqp-awaiting-chip")!;
+    expect(getComputedStyle(chip).color, "chip is amber").toBe("rgb(245, 166, 35)");
+  });
+});
+
+describe("BuildQueuePanel — awaiting affordances gated off other states", () => {
+  it("does not show awaiting affordances for an approved queue with steps", async () => {
+    const approvedQueue: BuildQueue = {
+      sessionId: "s1",
+      approved: true,
+      steps: [{ id: "a", title: "Install deps", status: "active", position: 0 }],
+    };
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: approvedQueue,
+      onbootstrap: noop,
+    });
+    expect(document.querySelector(".bqp.is-awaiting"), "no is-awaiting when approved").toBeNull();
+    expect(document.querySelector(".bqp-awaiting-chip"), "no chip when approved").toBeNull();
+    expect(document.querySelector(".bqp-hint"), "no hint when approved").toBeNull();
+  });
+
+  it("does not show awaiting affordances for an empty (unapproved, 0-step) queue", async () => {
+    render(BuildQueuePanel, {
+      sessionId: "s1",
+      enabled: true,
+      queue: { sessionId: "s1", steps: [], approved: false },
+      onbootstrap: noop,
+    });
+    expect(document.querySelector(".bqp.is-awaiting"), "no is-awaiting when empty").toBeNull();
+    expect(document.querySelector(".bqp-awaiting-chip"), "no chip when empty").toBeNull();
+    expect(document.querySelector(".bqp-hint"), "no hint when empty").toBeNull();
+    await expect.element(page.getByText(m.buildqueue_empty())).toBeInTheDocument();
   });
 });
 

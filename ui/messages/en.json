@@ -950,6 +950,8 @@
   "feat_automerge_body": "Turn on Full-auto merge to let Shepherd land ready PRs for you: it rebases onto main and re-verifies before every merge, so parallel tasks stay safe.",
   "buildqueue_panel_title": "Build queue",
   "buildqueue_empty": "No steps yet. The agent will author a queue when it starts.",
+  "buildqueue_awaiting_chip": "Awaiting your approval",
+  "buildqueue_awaiting_hint": "The agent paused here. Review the steps, then Approve & run to let it start.",
   "buildqueue_status_pending": "pending",
   "buildqueue_status_active": "active",
   "buildqueue_status_done": "done",

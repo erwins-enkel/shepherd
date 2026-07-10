@@ -204,8 +204,10 @@
     {/each}
   </button>
   <!-- role=tooltip so aria-describedby surfaces the stage legend to screen readers.
-       popover=manual: native top-layer, escapes the card's overflow:hidden. -->
-  <div id={legendId} bind:this={legendEl} class="legend" role="tooltip" popover="manual">
+       popover=manual: native top-layer, escapes the card's overflow:hidden. A
+       <span> (phrasing) — not a <div> — so it stays valid inside the phrasing-only
+       .meta-stepper / .meta wrapper at the call site; every child here is a span. -->
+  <span id={legendId} bind:this={legendEl} class="legend" role="tooltip" popover="manual">
     {#each STAGE_ORDER as stage, i (stage)}
       {@const verdictWord = legendVerdict(i)}
       <span class="lg-row" class:cur={i === info.index}>
@@ -226,7 +228,7 @@
         <span class="lg-state">{legendState(i)}</span>
       </span>
     {/each}
-  </div>
+  </span>
 {/if}
 
 <style>

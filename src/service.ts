@@ -1192,10 +1192,8 @@ export function composeSystemPrompt(
   }
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
-  // or null for "en" — so nothing is pushed and existing "en" callers stay byte-identical.
-  const opLang = operatorLanguageBlock(operatorLanguage);
-  if (opLang) blocks.push(opLang);
-  return blocks.join("\n\n");
+  // or null for "en" — filtered out below so existing "en" callers stay byte-identical.
+  return [...blocks, operatorLanguageBlock(operatorLanguage)].filter(Boolean).join("\n\n");
 }
 
 /**

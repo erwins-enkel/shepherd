@@ -1018,6 +1018,17 @@
     }
   }
 
+  // Apply the model / effort / operator-language preference trio from a loaded settings payload.
+  // Extracted from onMount so each added preference doesn't grow that handler's branch count.
+  function applyModelPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
+    defaultModel = s.defaultModel ?? "auto";
+    defaultModelSaved = defaultModel;
+    defaultEffort = s.defaultEffort ?? "default";
+    defaultEffortSaved = defaultEffort;
+    operatorLanguage = s.operatorLanguage ?? "en";
+    operatorLanguageSaved = operatorLanguage;
+  }
+
   onMount(async () => {
     try {
       const s = await getSettings();
@@ -1033,12 +1044,7 @@
       planReviewCyclesMax = s.planReviewCyclesMax;
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
-      defaultModel = s.defaultModel ?? "auto";
-      defaultModelSaved = defaultModel;
-      defaultEffort = s.defaultEffort ?? "default";
-      defaultEffortSaved = defaultEffort;
-      operatorLanguage = s.operatorLanguage ?? "en";
-      operatorLanguageSaved = operatorLanguage;
+      applyModelPrefs(s);
       // Fall back to the seed default per role when a field is absent (e.g. an older backend that
       // predates per-role environments) so the pickers never render blank — a sensible default is
       // always shown.

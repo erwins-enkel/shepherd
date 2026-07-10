@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 
 // Mock startPreview so it resolves to "ok" without a backend. All other
@@ -10,10 +11,22 @@ import "../../app.css";
 // The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
 const startPreviewFn = vi.fn(async () => ({ ok: true as const, command: "npm run dev" }));
 const stopPreviewFn = vi.fn(async () => ({ killed: 1 }) as { killed: number } | { notBound: true });
+// Rename resolves without a backend so the commit path (renaming → false) runs and
+// the popover-reveal commit test can observe the post-rename remount.
+const renameSessionFn = vi.fn(async (_id: string, name: string) => ({
+  session: session({ id: "renamed", name }),
+  branchRenamed: true,
+  prRetargeted: false,
+}));
 
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
-  return { ...actual, startPreview: startPreviewFn, stopPreview: stopPreviewFn };
+  return {
+    ...actual,
+    startPreview: startPreviewFn,
+    stopPreview: stopPreviewFn,
+    renameSession: renameSessionFn,
+  };
 });
 
 // Component must be imported AFTER the mock is registered.
@@ -124,6 +137,20 @@ function activity(summary: string | null): SessionActivity {
     recentTs: [],
     recentErrTs: [],
   };
+}
+
+// A bubbling touch event with the minimal `touches` shim longPress reads
+// (e.touches.length and e.touches[0].clientX/clientY on start/move; nothing off
+// touchend). Dispatches touch* only — no synthetic click — so onTitleTap never
+// runs from it. Hoisted to module scope: both the page-swipe describe and the
+// task-info-reveal describe use it.
+function fakeTouch(type: string, x: number, y: number): Event {
+  const e = new Event(type, { bubbles: true, cancelable: true });
+  Object.defineProperty(e, "touches", {
+    value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
+    configurable: true,
+  });
+  return e;
 }
 
 // The Preview tab is driven by a server-fed `previewPort` (single source of truth
@@ -889,15 +916,7 @@ describe("Viewport mobile page-swipe scoping", () => {
   beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
 
   // The swipe listeners live on the `.viewport` root and read e.target via closest();
-  // a bubbling Event carries our chosen target up to that root listener.
-  function fakeTouch(type: string, x: number, y: number): Event {
-    const e = new Event(type, { bubbles: true, cancelable: true });
-    Object.defineProperty(e, "touches", {
-      value: type === "touchend" ? [] : [{ clientX: x, clientY: y }],
-      configurable: true,
-    });
-    return e;
-  }
+  // the module-scope `fakeTouch` carries our chosen target up to that root listener.
 
   // A leftward drag with a large dx clears the axis slop and the commit threshold
   // (Math.min(120, width*0.33)), committing to "next" → onnavigate(switchOrder[1]).
@@ -1286,5 +1305,302 @@ describe("Viewport phone back glyph", () => {
     const glyph = back!.textContent?.trim();
     expect(glyph, "phone back glyph is the list glyph").toBe("☰");
     expect(glyph, "phone back glyph must not be the left chevron").not.toBe("‹");
+  });
+});
+
+// ── task-info popover reveal (tap-and-hold on touch; hover/keyboard-focus on
+// desktop) ──────────────────────────────────────────────────────────────────
+// Runs against real Chromium (vite.config: provider playwright()), so every
+// locator action moves a genuine pointer. The reveal is driven from component
+// state (.desig-wrap.meta-open .desig-pop), not CSS :hover/:focus-within.
+describe("Viewport task info reveal", () => {
+  // Park the shared real Playwright cursor in a neutral corner before each test so a
+  // stray pointerenter can't set hoverOpen when a component renders/updates under
+  // where the cursor happens to sit (prior describes move it via .hover()/.click()).
+  // hoverOpen is otherwise driven only by explicit synthetic pointer events here.
+  beforeEach(async () => {
+    localStorage.removeItem("shepherd-vp-header-collapsed");
+    const park = document.createElement("div");
+    park.style.cssText = "position:fixed;bottom:0;right:0;width:2px;height:2px;z-index:99999";
+    document.body.appendChild(park);
+    await userEvent.hover(park);
+    park.remove();
+  });
+
+  const POINTER_FOCUS_MS = 600;
+  const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  // small settle so a state→class→CSS reactive update has flushed before a
+  // *negative* assertion (a positive one uses expect.poll to wait).
+  const settle = () => delay(60);
+
+  // .desig-pop is always in the DOM (display:none when hidden), so read its
+  // computed display rather than relying on role resolution of a hidden node.
+  const popDisplay = (c: Element) => {
+    const pop = c.querySelector<HTMLElement>(".desig-pop");
+    return pop ? getComputedStyle(pop).display : "absent";
+  };
+  const isOpen = (c: Element) => popDisplay(c) === "flex";
+
+  // longPress uses a REAL 500ms setTimeout; fakeTouch dispatches touch* only (no
+  // click), so this opens the popover without ever running onTitleTap.
+  async function hold(el: Element) {
+    el.dispatchEvent(fakeTouch("touchstart", 0, 0));
+    await delay(600);
+  }
+
+  async function renderMeta(props: Record<string, unknown> = {}) {
+    const r = render(Viewport, {
+      session: session({ id: "meta", name: "meta title" }),
+      previewPort: null,
+      openPreviewTick: 0,
+      // suppress the terminal's mount auto-focus: otherwise xterm's helper textarea
+      // steals focus from .desig shortly after focus(), firing a real focusout
+      // (relatedTarget outside the wrap) that would race the focus assertions.
+      consumeAutoFocusTerm: () => false,
+      ...props,
+    });
+    // flush the mount $effect that binds the window-capture pointerdown/keydown
+    // listeners, so a synchronously-dispatched pointerdown stamps lastPointerDownAt.
+    await tick();
+    return r;
+  }
+  const folded = (c: Element) =>
+    c.querySelector(".vp-fold")?.getAttribute("aria-expanded") !== "true";
+
+  it("hold on the desktop trigger opens the popover and does not fold", async () => {
+    const { container } = await renderMeta({ touch: true });
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    expect(folded(container)).toBe(false);
+    await hold(desig);
+    expect(isOpen(container)).toBe(true);
+    expect(folded(container)).toBe(false); // hold ran no onTitleTap
+  });
+
+  it("mobile: hold on .ctx-trigger opens the popover and does not fold", async () => {
+    const { container } = await renderMeta({ mobile: true });
+    const trigger = container.querySelector<HTMLElement>(".ctx-trigger")!;
+    expect(folded(container)).toBe(false);
+    await hold(trigger);
+    expect(isOpen(container)).toBe(true);
+    expect(folded(container)).toBe(false);
+  });
+
+  it("mobile: a click while held closes it and does not fold (phone desigWrapEl bind)", async () => {
+    const { container } = await renderMeta({ mobile: true });
+    const trigger = container.querySelector<HTMLElement>(".ctx-trigger")!;
+    await hold(trigger);
+    expect(isOpen(container)).toBe(true);
+    // Real closing gesture: pointerdown (capture-phase dismissal listener sees it —
+    // insideTitle(e.target) must resolve true, which requires the phone desigWrapEl
+    // bind) followed by the click (fakeTouch fires no click; .click() would move a
+    // real pointer and contaminate hoverOpen) — the re-tap's onTitleTap swallows.
+    trigger.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    trigger.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(isOpen(container)).toBe(false);
+    expect(folded(container)).toBe(false); // swallowed → no fold
+  });
+
+  it("a pointerenter with pointerType touch does not open it", async () => {
+    const { container } = await renderMeta({ touch: true });
+    const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
+    wrap.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "touch" }));
+    await settle();
+    expect(isOpen(container)).toBe(false);
+  });
+
+  it("a pointerenter with pointerType mouse opens it", async () => {
+    const { container } = await renderMeta();
+    const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
+    wrap.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await expect.poll(() => isOpen(container)).toBe(true);
+  });
+
+  it("the hover bridge covers the 4px band below the chip (elementFromPoint)", async () => {
+    // The bridge is a .desig-wrap.hovering:not(.editing)::after that extends the
+    // wrap's hit area over the 4px gap to .desig-pop, so a mouse crossing it never
+    // fires pointerleave. Playwright's position-hover multiplies by an iframe scale
+    // and can't reliably land a 4px strip (see the step-2 spike), so pin the bridge
+    // deterministically: elementFromPoint in the band must resolve to the wrap
+    // (a pseudo-element's hit target is its origin element). Fails against unbridged
+    // CSS — without the ::after, the point resolves to the header row/body.
+    const { container } = await renderMeta();
+    const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
+    wrap.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await expect.poll(() => isOpen(container)).toBe(true); // .hovering set → ::after armed
+    const r = wrap.getBoundingClientRect();
+    const el = document.elementFromPoint(r.left + 8, r.bottom + 2);
+    expect(el, "band point resolves inside the wrap via the ::after bridge").not.toBeNull();
+    expect(wrap.contains(el) || el === wrap).toBe(true);
+  });
+
+  it("a full touch sequence (pointerdown/up, mousedown, focus) leaves it hidden", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    desig.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "touch" }));
+    desig.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+    desig.focus(); // fires focusin on the wrap; recent pointerdown ⇒ pointer-driven
+    await settle();
+    expect(isOpen(container)).toBe(false);
+  });
+
+  it("focus with no preceding pointerdown reveals it (keyboard/AT path)", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus(); // lastPointerDownAt is -Infinity → not pointer-driven → focusOpen
+    await expect.poll(() => isOpen(container)).toBe(true);
+  });
+
+  it("a focus long after a hold+close still reveals it (no stranded flag)", async () => {
+    // Pins the rejected sticky-boolean design: after a hold (touchend
+    // preventDefault'd → no focus consumes the flag) the boolean stranded forever,
+    // suppressing a later AT focus. The timestamp design ages out instead. Uses
+    // vi.setSystemTime to advance Date past the recency window; only Date is faked
+    // (toFake:["Date"]) so longPress's REAL 500ms setTimeout still fires.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const { container } = await renderMeta({ touch: true });
+      const desig = container.querySelector<HTMLElement>(".desig")!;
+      // a real pointerdown arms both designs (timestamp + the old sticky flag)
+      window.dispatchEvent(
+        new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }),
+      );
+      await hold(desig); // real-time wait; Date stays frozen
+      expect(isOpen(container)).toBe(true);
+      desig.dispatchEvent(new MouseEvent("click", { bubbles: true })); // close → holdOpen false
+      await settle();
+      expect(isOpen(container)).toBe(false);
+      vi.setSystemTime(Date.now() + POINTER_FOCUS_MS + 100); // age the timestamp out
+      desig.focus();
+      await settle();
+      expect(isOpen(container)).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("a focusout to a relatedTarget inside the wrap keeps it open (AT mid-read)", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus(); // opens via focusOpen
+    await expect.poll(() => isOpen(container)).toBe(true);
+    const inside = container.querySelector<HTMLElement>(".desig-pop")!; // inside the wrap
+    desig.dispatchEvent(new FocusEvent("focusout", { bubbles: true, relatedTarget: inside }));
+    await settle();
+    expect(isOpen(container)).toBe(true);
+  });
+
+  it("Escape closes a focus-opened popover", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus();
+    await expect.poll(() => isOpen(container)).toBe(true);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await expect.poll(() => isOpen(container)).toBe(false);
+  });
+
+  it("Escape does not close a hover-opened popover", async () => {
+    const { container } = await renderMeta();
+    const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
+    wrap.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" }));
+    await expect.poll(() => isOpen(container)).toBe(true);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await settle();
+    expect(isOpen(container)).toBe(true); // hoverOpen is live tracking, not a latch
+  });
+
+  it("a click while held closes it and does not fold (desktop .desig)", async () => {
+    const { container } = await renderMeta({ touch: true });
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    await hold(desig);
+    expect(isOpen(container)).toBe(true);
+    desig.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(isOpen(container)).toBe(false);
+    expect(folded(container)).toBe(false);
+  });
+
+  it("a closing re-tap (pointerdown + click + focus) does not reopen via focus", async () => {
+    const { container } = await renderMeta({ touch: true });
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    await hold(desig);
+    expect(isOpen(container)).toBe(true);
+    // the closing tap: its pointerdown makes the trailing focus pointer-driven
+    desig.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "touch" }));
+    desig.dispatchEvent(new MouseEvent("click", { bubbles: true })); // swallow → holdOpen false
+    desig.focus(); // pointer-driven ⇒ focusOpen stays false
+    await settle();
+    expect(isOpen(container)).toBe(false);
+  });
+
+  it("a click while held on .vp-name closes it and does not fold (sibling)", async () => {
+    const { container } = await renderMeta({ touch: true });
+    const name = container.querySelector<HTMLElement>(".vp-name")!;
+    await hold(name); // longPress on the sibling opens the wrap-anchored popover
+    expect(isOpen(container)).toBe(true);
+    name.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await settle();
+    expect(isOpen(container)).toBe(false);
+    expect(folded(container)).toBe(false);
+  });
+
+  it("an outside pointerdown closes it", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus();
+    await expect.poll(() => isOpen(container)).toBe(true);
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await expect.poll(() => isOpen(container)).toBe(false);
+  });
+
+  it("a renameRequest prop bump while open closes it", async () => {
+    const { container, rerender } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus();
+    await expect.poll(() => isOpen(container)).toBe(true);
+    await rerender({
+      session: session({ id: "meta", name: "meta title" }),
+      renameRequest: { id: "meta", tick: 1 },
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.poll(() => isOpen(container)).toBe(false);
+  });
+
+  it("Enter → rename → commit leaves the popover not visible", async () => {
+    const { container } = await renderMeta();
+    const desig = container.querySelector<HTMLElement>(".desig")!;
+    desig.focus();
+    await expect.poll(() => isOpen(container)).toBe(true);
+    desig.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    const input = page.getByRole("textbox", { name: m.viewport_rename_aria() });
+    await expect.element(input).toBeInTheDocument();
+    const inputEl = input.element() as HTMLInputElement;
+    inputEl.value = "renamed via enter";
+    inputEl.dispatchEvent(new Event("input", { bubbles: true }));
+    inputEl.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    // commit resolves (renameSession mocked) → renaming=false → .desig + metaPop
+    // remount; the $effect on renaming reset the flags, so it must not remount open.
+    await expect.poll(() => container.querySelector(".desig") !== null).toBe(true);
+    await settle();
+    expect(isOpen(container)).toBe(false);
+  });
+
+  // Kept LAST: the only case that moves the *real* Playwright pointer. It parks the
+  // cursor over the chip, which would fire a stray pointerenter (hoverOpen) on the
+  // next test's render — so no hidden-asserting case may follow it.
+  it("a real click toggles the git rail and does not latch the popover open", async () => {
+    const { container } = await renderMeta(); // pure mouse desktop → tap toggles git rail
+    const wrap = container.querySelector<HTMLElement>(".desig-wrap")!;
+    expect(container.querySelector(".vp-git-strip")).toBeNull();
+    // real Playwright click: moves the pointer (pointerenter → hoverOpen), focuses
+    // .desig with a preceding pointerdown (pointer-driven → focusOpen stays false),
+    // and runs onTitleTap → gitOpen.
+    await page.getByText("TASK-01").click();
+    await expect.poll(() => container.querySelector(".vp-git-strip")).not.toBeNull();
+    // move the pointer off → hoverOpen clears; nothing else latches → hidden.
+    wrap.dispatchEvent(new PointerEvent("pointerleave", { pointerType: "mouse" }));
+    await expect.poll(() => isOpen(container)).toBe(false);
   });
 });

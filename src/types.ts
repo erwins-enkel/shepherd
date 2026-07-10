@@ -455,7 +455,7 @@ export type PlanDecision = "approved" | "changes_requested" | "error";
 
 export interface PlanGate {
   sessionId: string;
-  planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan
+  planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan on the auto-path (the manual force path bypasses that dedupe)
   decision: PlanDecision;
   summary: string; // <=100 char one-liner for the badge tooltip
   body: string; // full markdown reviewer write-up

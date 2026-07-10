@@ -355,7 +355,7 @@ export interface AppDeps {
   /** Trigger an adversarial plan review for a session on demand (the /review-plan route).
    *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */
   planGate?: {
-    consider(session: Session): Promise<import("./plan-gate").PlanReviewTrigger>;
+    consider: import("./plan-gate").PlanGateService["consider"];
     /** Reset the plan-gate round so the quota block clears, re-delivering findings to the agent.
      *  Async since #1567 — resolves true when the re-delivered steer reached the live pane. */
     resume?(session: Session): Promise<boolean>;
@@ -2536,17 +2536,20 @@ function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
   return json({ killed });
 }
 
-// POST /api/sessions/:id/review-plan — trigger an on-demand adversarial plan review.
-// 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
-// `status` tells the caller whether a reviewer actually spawned ("started"), the plan was a
-// silent no-op ("skipped" — unchanged / already approved), the plan artifact is unavailable
-// ("plan-unavailable"), or a spawn attempt failed ("error"), so the UI can explain why nothing
-// changed without mislabelling a failure as an unchanged plan.
+// POST /api/sessions/:id/review-plan — operator-initiated (re)start of the adversarial plan
+// review. 404 for an unknown id; 202 once the review is kicked off (consider() is fire-and-go).
+// Mirrors /review-pr → reviewTrigger.force: this is a manual click, so it passes `force: true`
+// to bypass the unchanged-plan dedupe (an operator re-clicking on an identical plan should still
+// re-review). `status` tells the caller what happened: a reviewer actually spawned ("started"),
+// the plan artifact is unavailable ("plan-unavailable"), a spawn attempt failed ("error"), or
+// nothing happened ("skipped" — a review is already in flight, the gate is already approved, or
+// the session has left the plan phase; the route can't distinguish which), so the UI can explain
+// the outcome without mislabelling a failure as a no-op.
 async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-plan")) return null;
   const s = deps.store.get(parts[2]);
   if (!s) return json({ error: "not found" }, 404);
-  const status = (await deps.planGate?.consider(s)) ?? "skipped";
+  const status = (await deps.planGate?.consider(s, { force: true })) ?? "skipped";
   return json({ ok: true, status }, 202);
 }
 

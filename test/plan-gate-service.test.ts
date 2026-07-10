@@ -1298,3 +1298,309 @@ test("onActivity does not fire on the tick that finalizes the verdict", async ()
   await h.svc.tick();
   expect(acts).toEqual([]);
 });
+
+// ── force: the manual re-review seam (#don-offer-re-review) ────────────────────
+
+test("force bypasses the unchanged-plan hash dedupe → a reviewer spawns", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({ store: { getPlanGate: () => ({ planHash: hash, approved: false }) } });
+  const status = await h.svc.consider(planningSession() as any, { force: true });
+  expect(status).toBe("started"); // no silent dedupe — the click re-reviews the same text
+  expect(h.started.length).toBe(1);
+});
+
+test("unforced consider still dedupes an unchanged plan (regression: force defaults false)", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({ store: { getPlanGate: () => ({ planHash: hash, approved: false }) } });
+  expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+  expect(await h.svc.consider(planningSession() as any, { force: false })).toBe("skipped");
+  expect(h.started.length).toBe(0); // the auto-path is bit-identical to today
+});
+
+test("force does NOT bypass an approved gate → skipped, no spawn", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({ store: { getPlanGate: () => ({ planHash: hash, approved: true }) } });
+  const status = await h.svc.consider(planningSession() as any, { force: true });
+  expect(status).toBe("skipped"); // approved is a hard precondition force does not lift
+  expect(h.started.length).toBe(0);
+});
+
+test("force does NOT bypass a non-planning phase", async () => {
+  const h = harness();
+  const status = await h.svc.consider({ ...planningSession(), planPhase: "executing" } as any, {
+    force: true,
+  });
+  expect(status).toBe("skipped");
+  expect(h.started.length).toBe(0);
+});
+
+test("force does NOT bypass a starting review", async () => {
+  const h = harness();
+  (h.svc as any).starting.add("s1");
+  const status = await h.svc.consider(planningSession() as any, { force: true });
+  expect(status).toBe("skipped");
+  expect(h.started.length).toBe(0);
+});
+
+test("force does NOT bypass an in-flight review", async () => {
+  const h = harness();
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  const status = await h.svc.consider(planningSession() as any, { force: true });
+  expect(status).toBe("skipped");
+  expect(h.started.length).toBe(1);
+});
+
+test("force does NOT bypass an empty/unusable plan", async () => {
+  const h = harness({ readPlan: () => "  \n\t " });
+  const status = await h.svc.consider(planningSession() as any, { force: true });
+  expect(status).toBe("plan-unavailable");
+  expect(h.started.length).toBe(0);
+});
+
+// ── force + answeredQuestionKeys carry-forward (#1332) ─────────────────────────
+
+test("forced re-review of an unchanged plan preserves answeredQuestionKeys merged mid-review", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  // The live gate starts with no answers; the answer route merges keys into it AFTER begin() and
+  // BEFORE finalize(). buildGate reads the LIVE gate (not a begin()-time snapshot), so the merge
+  // must survive. `live` is mutable so we can simulate that mid-review merge.
+  let live: any = { planHash: hash, approved: false, answeredQuestionKeys: [] };
+  const h = harness({
+    store: {
+      getPlanGate: () => live,
+      get: () => ({ id: "s1", auto: false }),
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+  live = { planHash: hash, approved: false, answeredQuestionKeys: ["q1 q1a"] }; // merged mid-review
+  await h.svc.tick();
+  expect(h.store.gate.answeredQuestionKeys).toEqual(["q1 q1a"]); // survived the re-review
+});
+
+test("a review of a CHANGED plan resets answeredQuestionKeys", async () => {
+  const oldHash = await PlanGateService.hashPlan("OLD PLAN");
+  const h = harness({
+    readPlan: () => "NEW PLAN", // different text ⇒ different hash ⇒ not deduped
+    store: {
+      getPlanGate: () => ({
+        planHash: oldHash,
+        approved: false,
+        answeredQuestionKeys: ["q1 q1a"],
+      }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.answeredQuestionKeys).toEqual([]); // new question set ⇒ reset
+});
+
+// ── F3: a sub-cap forced re-review must not spend a rework round ───────────────
+
+test("F3: sub-cap forced re-review of an unchanged plan holds round + finalRoundPending, no steer, no stall", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const steers: string[] = [];
+  const signals: any[] = [];
+  const h = harness({
+    cap: 3,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix A"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: {
+      getPlanGate: () => ({
+        planHash: hash,
+        approved: false,
+        round: 1,
+        finalRoundPending: false,
+        findings: ["fix A"],
+      }),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+  await h.svc.tick();
+  expect(steers.length).toBe(0); // no re-steer of findings the agent already holds
+  expect(h.store.gate.round).toBe(1); // held at priorRound — no advance
+  expect(h.store.gate.finalRoundPending).toBe(false); // unchanged
+  expect(signals.length).toBe(0); // no stall row
+  expect(h.store.gate.decision).toBe("changes_requested"); // fresh verdict still persisted
+});
+
+test("F3: sub-cap forced review of a CHANGED plan advances the round and steers", async () => {
+  const oldHash = await PlanGateService.hashPlan("OLD PLAN");
+  const steers: string[] = [];
+  const h = harness({
+    cap: 3,
+    readPlan: () => "NEW PLAN",
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix A"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: {
+      getPlanGate: () => ({ planHash: oldHash, approved: false, round: 1, findings: ["fix A"] }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+  await h.svc.tick();
+  expect(steers.length).toBe(1); // a real revision steers
+  expect(h.store.gate.round).toBe(2); // priorRound(1) advanced
+});
+
+// ── force: stall-signal guards (learnings-corpus protection) ──────────────────
+
+test("forced at-cap re-entry of an unchanged plan writes no stall row (F3 preempts)", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const steers: string[] = [];
+  const signals: any[] = [];
+  const h = harness({
+    cap: 1,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["again"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: {
+      getPlanGate: () => ({ planHash: hash, approved: false, round: 1, findings: ["again"] }),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(signals.length).toBe(0); // repeat-clickable at the cap must not spam the distiller
+  expect(steers.length).toBe(0);
+  expect(h.store.gate.round).toBe(1);
+});
+
+test("forced CHANGED-plan crossing the cap writes exactly one stall row", async () => {
+  const oldHash = await PlanGateService.hashPlan("OLD PLAN");
+  const signals: any[] = [];
+  const h = harness({
+    cap: 3,
+    readPlan: () => "NEW PLAN",
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    reply: () => true,
+    store: {
+      getPlanGate: () => ({ planHash: oldHash, approved: false, round: 2, findings: ["fix"] }),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(signals.filter((s) => s.kind === "stall").length).toBe(1); // crossing signals once
+  expect(h.store.gate.round).toBe(3); // priorRound(2) crossed the cap
+});
+
+test("forced CHANGED-plan re-entry already at the cap suppresses the stall row (guard #1)", async () => {
+  const oldHash = await PlanGateService.hashPlan("OLD PLAN");
+  const signals: any[] = [];
+  const h = harness({
+    cap: 2,
+    readPlan: () => "NEW PLAN",
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    reply: () => true,
+    store: {
+      getPlanGate: () => ({ planHash: oldHash, approved: false, round: 3, findings: ["fix"] }),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(signals.length).toBe(0); // forced re-entry already at the cap → suppressed
+});
+
+test("forced sub-cap review whose steer doesn't land writes no stall row but records the verdict", async () => {
+  const oldHash = await PlanGateService.hashPlan("OLD PLAN");
+  const signals: any[] = [];
+  const h = harness({
+    cap: 3,
+    readPlan: () => "NEW PLAN",
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    reply: () => false, // dead / unreachable pane
+    store: {
+      getPlanGate: () => ({ planHash: oldHash, approved: false, round: 0, findings: ["fix"] }),
+      addSignal: (s: any) => signals.push(s),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(signals.length).toBe(0); // guard #2 suppresses the learnings row on a forced run
+  expect(h.store.gate.decision).toBe("changes_requested"); // operator not stranded — verdict recorded
+  expect(h.store.gate.round).toBe(0); // nothing delivered → no advance
+});
+
+// ── adoptOrphans: reap (not re-adopt) an approved orphan (invariant maintainer #2) ──
+
+test("adoptOrphans reaps an approved orphan: stops terminal, completes spawn, removes worktree, no inflight", async () => {
+  const stopped: string[] = [];
+  const usage = {
+    input: 1,
+    output: 2,
+    cacheRead: 3,
+    cacheWrite: 4,
+    total: 10,
+    messageCount: 1,
+    lastActivity: 0,
+    byModel: {},
+  };
+  const h = harness({
+    worktreeExists: () => true,
+    store: {
+      get: () => ({ id: "s1", repoPath: "/r", worktreePath: "/wt", planPhase: "planning" }),
+      getPlanGate: () => ({ planHash: "h", approved: true }),
+      listReviewerSpawns: () => [orphanSpawn()],
+    },
+    herdr: {
+      start: async () => ({ terminalId: "t1" }),
+      stop: async (id: string) => stopped.push(id),
+      list: () => [{ cwd: "/wt-detached", terminalId: "rev-term-approved" }],
+    },
+    readUsage: async () => usage,
+  });
+  await h.svc.adoptOrphans();
+  expect(h.svc.reviewingIds()).toEqual([]); // NOT re-adopted — approved ⇒ no reviewer in flight
+  expect(stopped).toContain("rev-term-approved"); // reviewer terminal stopped
+  expect(h.completedSpawns.length).toBe(1); // #502 spawn row completed (no NULL-totals leak)
+  expect(h.completedSpawns[0].u.total).toBe(10);
+  expect(h.removed).toContain("/wt-detached"); // disposable worktree removed
+});

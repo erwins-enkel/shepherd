@@ -99,8 +99,20 @@ function fakeForge(
 function makeDeps(
   forge: GitForge | null,
   session: Session | null = SESSION,
-  opts: { draftMode?: boolean; signoffAuthority?: "human" | "critic" | "either" } = {},
-): AppDeps & { emitted: { event: string; data: unknown }[]; cacheWrites: string[] } {
+  opts: {
+    draftMode?: boolean;
+    signoffAuthority?: "human" | "critic" | "either";
+    /** Injected worktree-branch reconcile: `resolveGitState` calls it on a "none" result
+     *  to adopt a renamed branch and retry. Absent (default) → reconcile is a no-op. */
+    syncBranch?: (id: string) => string | null;
+  } = {},
+): AppDeps & {
+  emitted: { event: string; data: unknown }[];
+  cacheWrites: string[];
+  /** The live cache map, exposed so a test can pre-seed a prior state (e.g. an already
+   *  cached open PR) and assert observable mutation after a GET write-through. */
+  snap: Record<string, GitState>;
+} {
   const store: Partial<SessionStore> = {
     get: (id) => (session && id === session.id ? session : null),
     getRepoConfig: () =>
@@ -113,16 +125,24 @@ function makeDeps(
   const emitted: { event: string; data: unknown }[] = [];
   const cacheWrites: string[] = [];
   const snap: Record<string, GitState> = {};
+  // Observable store (not just a write-log): `set` mutates `snap` so a later `get`
+  // reflects it — lets a second GET see the first's write-through and stay silent.
   const prCache: PrCache = {
     snapshot: () => snap,
     get: (id: string) => snap[id],
-    set: (id: string) => cacheWrites.push(id),
-    drop: (id: string) => cacheWrites.push(`drop:${id}`),
+    set: (id: string, git: GitState) => {
+      snap[id] = git;
+      cacheWrites.push(id);
+    },
+    drop: (id: string) => {
+      delete snap[id];
+      cacheWrites.push(`drop:${id}`);
+    },
   };
   return Object.assign(
     {
       store: store as SessionStore,
-      service: {} as SessionService,
+      service: { syncWorktreeBranch: opts.syncBranch } as unknown as SessionService,
       events: {
         emit: (event: string, data: unknown) => emitted.push({ event, data }),
       } as unknown as EventHub,
@@ -130,7 +150,7 @@ function makeDeps(
       resolveForge: () => forge,
       prCache,
     },
-    { emitted, cacheWrites },
+    { emitted, cacheWrites, snap },
   );
 }
 
@@ -173,6 +193,9 @@ test("GET git drops a merged PR whose head isn't on the session's branch (name c
   const body = await res.json();
   expect(body.state).toBe("none");
   expect(body.number).toBeUndefined();
+  // The guarded-to-none collision is a no-PR result for an uncached session → no write-through.
+  expect(deps.cacheWrites).toEqual([]);
+  expect(deps.emitted.filter((e) => e.event === "session:git")).toHaveLength(0);
 });
 
 test("GET git keeps a merged PR owned by the session's branch", async () => {
@@ -191,6 +214,80 @@ test("GET git keeps a merged PR owned by the session's branch", async () => {
   const body = await res.json();
   expect(body.state).toBe("merged");
   expect(body.number).toBe(5);
+});
+
+// ── GET write-through: the live git-rail fetch feeds the card's cache (issue: card shows
+//    no PR while the detail view does). resolveGitState now caches + emits session:git on a
+//    meaningful change, and reconciles a renamed branch first. ───────────────────────────
+const gitEvents = (deps: { emitted: { event: string; data: unknown }[] }) =>
+  deps.emitted.filter((e) => e.event === "session:git");
+
+test("GET git write-through surfaces an open PR into the cache and emits session:git", async () => {
+  const deps = makeDeps(fakeForge()); // default prStatus → open #5
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect((await res.json()).state).toBe("open");
+  expect(deps.cacheWrites).toEqual(["s1"]);
+  expect(deps.snap.s1?.state).toBe("open");
+  expect(gitEvents(deps)).toHaveLength(1);
+  expect(gitEvents(deps)[0]!.data).toMatchObject({ id: "s1", git: { state: "open", number: 5 } });
+});
+
+test("GET git write-through: an unchanged repoll neither re-writes nor re-emits", async () => {
+  const deps = makeDeps(fakeForge());
+  const app = makeApp(deps);
+  await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect(deps.cacheWrites).toEqual(["s1"]); // only the first GET wrote
+  expect(gitEvents(deps)).toHaveLength(1); // and only the first emitted
+});
+
+test("GET git write-through: a no-PR none for an uncached session stays silent", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({ state: "none", checks: "none", deployConfigured: true }),
+  });
+  const deps = makeDeps(f);
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect((await res.json()).state).toBe("none");
+  expect(deps.cacheWrites).toEqual([]);
+  expect(gitEvents(deps)).toHaveLength(0);
+});
+
+test("GET git write-through: clears a stale cached PR once the PR is genuinely gone", async () => {
+  const f = fakeForge({
+    prStatus: async () => ({ state: "none", checks: "none", deployConfigured: true }),
+  });
+  const deps = makeDeps(f);
+  deps.snap.s1 = { kind: "gitea", state: "open", number: 5, checks: "success" } as GitState;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  expect((await res.json()).state).toBe("none");
+  expect(deps.snap.s1?.state).toBe("none");
+  expect(gitEvents(deps)).toHaveLength(1);
+  expect(gitEvents(deps)[0]!.data).toMatchObject({ id: "s1", git: { state: "none" } });
+});
+
+test("GET git write-through: reconciles a renamed branch and surfaces its PR", async () => {
+  const heads: string[] = [];
+  const f = fakeForge({
+    prStatus: async (head: string) => {
+      heads.push(head);
+      return head === "shepherd/renamed"
+        ? { state: "open", number: 7, checks: "pending", deployConfigured: true }
+        : { state: "none", checks: "none", deployConfigured: true };
+    },
+  });
+  const deps = makeDeps(f, SESSION, { syncBranch: () => "shepherd/renamed" });
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://localhost/api/sessions/s1/git"));
+  const body = await res.json();
+  expect(body.state).toBe("open");
+  expect(body.number).toBe(7);
+  // stored branch tried first, then the reconciled live branch.
+  expect(heads).toEqual(["shepherd/add-feature", "shepherd/renamed"]);
+  expect(deps.snap.s1?.number).toBe(7);
+  expect(gitEvents(deps)).toHaveLength(1);
 });
 
 test("GET git → 404 when no forge for repo", async () => {

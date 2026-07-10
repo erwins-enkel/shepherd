@@ -231,24 +231,33 @@ describe("visualBlockLanguageLine", () => {
   test("every translate field is named exactly once, and not in the verbatim section", () => {
     const line = visualBlockLanguageLine("de") as string;
     for (const token of TRANSLATE_FIELDS) {
-      const re = new RegExp("`" + token.replace(/[.[\]]/g, "\\$&") + "`", "g");
-      expect(line.match(re)?.length ?? 0).toBe(1);
+      // Count literal `` `token` `` occurrences via split — no regex, so no metacharacter
+      // escaping to get wrong (the tokens contain `.`/`[`/`]`, and CodeQL rightly flags a
+      // hand-rolled escape that misses backslashes).
+      const needle = "`" + token + "`";
+      expect(line.split(needle).length - 1).toBe(1);
     }
   });
 
   test("every verbatim field is named exactly once, and not in the translate section", () => {
     const line = visualBlockLanguageLine("de") as string;
     for (const token of VERBATIM_FIELDS) {
-      const re = new RegExp("`" + token.replace(/[.[\]]/g, "\\$&") + "`", "g");
-      expect(line.match(re)?.length ?? 0).toBe(1);
+      // Count literal `` `token` `` occurrences via split — no regex, so no metacharacter
+      // escaping to get wrong (the tokens contain `.`/`[`/`]`, and CodeQL rightly flags a
+      // hand-rolled escape that misses backslashes).
+      const needle = "`" + token + "`";
+      expect(line.split(needle).length - 1).toBe(1);
     }
   });
 
   test("every field token in the emitted text is accounted for exactly once total (never both, never neither)", () => {
     const line = visualBlockLanguageLine("de") as string;
     for (const token of ALL_FIELD_TOKENS) {
-      const re = new RegExp("`" + token.replace(/[.[\]]/g, "\\$&") + "`", "g");
-      expect(line.match(re)?.length ?? 0).toBe(1);
+      // Count literal `` `token` `` occurrences via split — no regex, so no metacharacter
+      // escaping to get wrong (the tokens contain `.`/`[`/`]`, and CodeQL rightly flags a
+      // hand-rolled escape that misses backslashes).
+      const needle = "`" + token + "`";
+      expect(line.split(needle).length - 1).toBe(1);
     }
   });
 

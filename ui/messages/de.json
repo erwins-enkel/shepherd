@@ -2799,5 +2799,7 @@
   "hold_cta_resume_title": "Festgefahrene Plan-Review fortsetzen",
   "hold_cta_answer_title": "Plan öffnen, um offene Fragen zu beantworten",
   "feat_hold_cta_title": "Blockierte Sessions direkt in der Zeile bearbeiten",
-  "feat_hold_cta_body": "Eine im Plan-Gate blockierte Session erklärt jetzt direkt in ihrer Zeile, worauf sie wartet — wartet auf erneute Prüfung, Plan freigegeben oder Review festgefahren — und bietet die passende Ein-Klick-Aktion (Erneut prüfen, Los, Fortsetzen oder Antworten), ohne die Session zu öffnen."
+  "feat_hold_cta_body": "Eine im Plan-Gate blockierte Session erklärt jetzt direkt in ihrer Zeile, worauf sie wartet — wartet auf erneute Prüfung, Plan freigegeben oder Review festgefahren — und bietet die passende Ein-Klick-Aktion (Erneut prüfen, Los, Fortsetzen oder Antworten), ohne die Session zu öffnen.",
+  "hold_cta_go_failed": "Ausführung konnte nicht gestartet werden. Erneut versuchen.",
+  "hold_cta_resume_failed": "Plan-Review konnte nicht fortgesetzt werden. Erneut versuchen."
 }

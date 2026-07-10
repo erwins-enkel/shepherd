@@ -21,6 +21,7 @@
     onpreview,
     quotaKind = null,
     reviewing,
+    openPanelTick = 0,
     stepperTerminal,
     decom,
     coarsePointer,
@@ -38,6 +39,8 @@
     onpreview?: (id: string, target?: "inline" | "tab") => void;
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     reviewing: boolean;
+    // monotonic tick bumped by the row's "Answer" hold CTA → opens this session's PlanPanel
+    openPanelTick?: number;
     stepperTerminal: boolean;
     decom: "idle" | "armed";
     coarsePointer: boolean;
@@ -130,6 +133,7 @@
     labelOverride={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
     fallbackLabel={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
     fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
+    {openPanelTick}
   />
   {#if quotaKind && quotaKind !== "plan"}
     <span

@@ -23,6 +23,7 @@
     labelOverride = null,
     fallbackLabel = null,
     fallbackTitle = null,
+    openPanelTick = 0,
   }: {
     session: Session;
     allowView?: boolean;
@@ -30,6 +31,8 @@
     labelOverride?: string | null;
     fallbackLabel?: string | null;
     fallbackTitle?: string | null;
+    // monotonic tick bumped by the row's "Answer" hold CTA → opens PlanPanel directly
+    openPanelTick?: number;
   } = $props();
 
   const gate = $derived(planGates.map[session.id]);
@@ -43,6 +46,17 @@
   let btnEl = $state<HTMLButtonElement>();
   let menu = $state<{ anchor: DOMRect; autoFocus: boolean } | null>(null);
   let busy = $state<"send" | "review" | null>(null);
+
+  // The row's "Answer" hold CTA bumps openPanelTick → open PlanPanel directly (mirrors
+  // Viewport's openPreviewTick/lastPreviewTick idiom). Bypasses toggle(), which would open
+  // PlanGateMenu instead of the panel when the chip is stalled.
+  let lastPanelTick = 0;
+  $effect(() => {
+    if (openPanelTick > 0 && openPanelTick !== lastPanelTick) {
+      open = true; // open PlanPanel directly — NOT toggle()
+    }
+    lastPanelTick = openPanelTick;
+  });
 
   const title = $derived(
     composePlanGateTooltip(

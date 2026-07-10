@@ -8,13 +8,24 @@ import type { PlanGate, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import type { ReviewVerdict } from "$lib/types";
 
-// Mock api so the reviews store's load() never fires real network calls.
+// Mock api so the reviews store's load() never fires real network calls, and so the
+// hold-row CTA's three fail-closed calls (releasePlanGate/reviewPlan/resumeQuota) are
+// under test control instead of hitting the network.
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
-  return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
+  return {
+    ...actual,
+    getReviews: vi.fn(async () => ({})),
+    getReviewingIds: vi.fn(async () => []),
+    releasePlanGate: vi.fn(async () => true),
+    reviewPlan: vi.fn(async () => "started" as const),
+    resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
+  };
 });
 
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
+const { releasePlanGate, reviewPlan, resumeQuota } = await import("$lib/api");
+const { toasts } = await import("$lib/toasts.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -102,6 +113,10 @@ beforeEach(() => {
   repoConfig.previewOpenMode = {};
   repoConfig.loaded = {};
   repoConfig.settled = {};
+  toasts.items = [];
+  vi.mocked(releasePlanGate).mockReset().mockResolvedValue(true);
+  vi.mocked(reviewPlan).mockReset().mockResolvedValue("started");
+  vi.mocked(resumeQuota).mockReset().mockResolvedValue({ status: "resumed" });
 });
 
 function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask") {
@@ -683,6 +698,135 @@ describe("UnitRow hold subline", () => {
     expect(style.overflow).toBe("hidden");
     expect(style.textOverflow).toBe("ellipsis");
     expect(style.whiteSpace).toBe("nowrap");
+  });
+});
+
+describe("UnitRow plan-gate hold CTA", () => {
+  it("headline: awaiting-rereview line + Re-review button", async () => {
+    const id = "hc1";
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "changes_requested",
+        round: 1,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+        approved: false,
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .element(page.getByText(m.hold_awaiting_rereview({ round: 1, cap: 3 })))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_rereview() }))
+      .toBeInTheDocument();
+  });
+
+  it("ready + Go arm: first click arms (Go?, no call yet), second click releases the gate", async () => {
+    const id = "hc2";
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByRole("button", { name: m.hold_cta_go() })).toBeInTheDocument();
+    await page.getByRole("button", { name: m.hold_cta_go() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_go_arm() }))
+      .toBeInTheDocument();
+    expect(releasePlanGate).not.toHaveBeenCalled();
+    await page.getByRole("button", { name: m.hold_cta_go_arm() }).click();
+    expect(releasePlanGate).toHaveBeenCalledTimes(1);
+    expect(releasePlanGate).toHaveBeenCalledWith(id);
+  });
+
+  it("no optimistic hide on a false release: Go CTA stays, persistent toast raised", async () => {
+    const id = "hc3";
+    vi.mocked(releasePlanGate).mockResolvedValue(false);
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_go() }).click();
+    await page.getByRole("button", { name: m.hold_cta_go_arm() }).click();
+    await vi.waitFor(() => expect(releasePlanGate).toHaveBeenCalledTimes(1));
+    // Never optimistically hidden: the CTA disappears only when the WS gate update
+    // arrives (it never did here), so it must still be present — not disarmed-as-success.
+    await expect.element(page.getByRole("button", { name: m.hold_cta_go() })).toBeInTheDocument();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.hold_cta_go_failed())).toBe(true),
+    );
+    const t = toasts.items.find((x) => x.text === m.hold_cta_go_failed())!;
+    expect(t.durationMs).toBeUndefined(); // persistent — no auto-dismiss
+  });
+
+  it("busy: disables the CTA until the pending release settles", async () => {
+    const id = "hc4";
+    let resolve!: (v: boolean) => void;
+    vi.mocked(releasePlanGate).mockReturnValue(
+      new Promise<boolean>((r) => {
+        resolve = r;
+      }),
+    );
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_go() }).click(); // arm
+    await page.getByRole("button", { name: m.hold_cta_go_arm() }).click(); // fire (disarms sync)
+    const btn = page.getByRole("button", { name: m.hold_cta_go() });
+    await expect.element(btn).toBeDisabled();
+    resolve(true);
+    await expect.element(btn).not.toBeDisabled();
   });
 });
 

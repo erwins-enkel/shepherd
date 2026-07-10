@@ -18,7 +18,7 @@
   import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
   import { STATUS_COLOR, canResume, canRelaunch } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { resumeSession } from "$lib/api";
+  import { resumeSession, releasePlanGate, reviewPlan, resumeQuota } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
@@ -27,14 +27,14 @@
   import TimePopover from "./TimePopover.svelte";
   import HeartbeatStrip from "./HeartbeatStrip.svelte";
   import Stepper from "./Stepper.svelte";
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, planGates } from "$lib/reviews.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
-  import { holdLine } from "$lib/hold";
+  import { rowHold } from "$lib/hold-row";
   import {
     REVEAL_PX,
     snapOffset,
@@ -274,10 +274,117 @@
   onDestroy(() => {
     clearTimeout(armTimer);
     clearTimeout(tipTimer);
+    clearTimeout(goArmTimer);
     if (openRow === close) openRow = null;
   });
 
   const reviewing = $derived(reviews.isReviewing(session.id));
+
+  // plan-gate row state. NOTE: `reviewing` above is the CRITIC store (reviews.isReviewing) —
+  // this is the PLAN-GATE reviewer flag, a DIFFERENT store. Do not reuse the name `reviewing`.
+  // Named `holdRow` (not `row`): the `{#snippet row()}` below already owns that identifier.
+  const planGate = $derived(planGates.map[session.id]);
+  const planReviewing = $derived(planGates.isReviewing(session.id));
+  const holdRow = $derived(rowHold(session, planGate, planReviewing, hold));
+
+  // Go two-step arm (distinct names from decommission's armTimer/disarm above): releasing an
+  // approved plan gate is irreversible (starts execution), so the first click only arms.
+  let goArmed = $state(false);
+  let goArmTimer: ReturnType<typeof setTimeout> | undefined;
+  function disarmGo() {
+    clearTimeout(goArmTimer);
+    goArmed = false;
+  }
+
+  let ctaBusy = $state(false);
+
+  function onHoldCta(e: MouseEvent) {
+    e.stopPropagation();
+    const a = holdRow.action;
+    if (!a) return;
+    if (a.kind === "go") {
+      if (!goArmed) {
+        goArmed = true;
+        clearTimeout(goArmTimer);
+        goArmTimer = setTimeout(disarmGo, 3000);
+        return;
+      }
+      disarmGo();
+      void doGo();
+    } else if (a.kind === "rereview") void doReview();
+    else if (a.kind === "resume") void doResume();
+    else if (a.kind === "answer") openPlanPanel();
+  }
+
+  async function doGo() {
+    if (ctaBusy) return;
+    ctaBusy = true;
+    try {
+      const ok = await releasePlanGate(session.id); // false on 409, no throw; rejects on network error
+      if (!ok)
+        toasts.info(m.hold_cta_go_failed(), {
+          duration: null,
+          alert: true,
+          key: `hold-cta:go:${session.id}`,
+        });
+      // No optimistic hide: the CTA disappears only when the WS gate/planPhase update arrives.
+    } catch {
+      toasts.info(m.hold_cta_go_failed(), {
+        duration: null,
+        alert: true,
+        key: `hold-cta:go:${session.id}`,
+      });
+    } finally {
+      ctaBusy = false;
+    }
+  }
+
+  async function doReview() {
+    if (ctaBusy || planReviewing) return;
+    ctaBusy = true;
+    try {
+      const status = await reviewPlan(session.id);
+      if (status === "started") toasts.info(m.plangate_review_started());
+      else if (status === "plan-unavailable" && !planGates.isReviewing(session.id))
+        toasts.info(m.gitrail_review_plan_unavailable());
+      else if (status === "skipped" && !planGates.isReviewing(session.id))
+        toasts.info(m.plangate_review_skipped_stalled());
+      else if (status === "error")
+        toasts.info(m.gitrail_review_plan_failed(), {
+          duration: null,
+          alert: true,
+          key: `hold-cta:review:${session.id}`,
+        });
+    } catch {
+      toasts.info(m.gitrail_review_plan_failed(), {
+        duration: null,
+        alert: true,
+        key: `hold-cta:review:${session.id}`,
+      });
+    } finally {
+      ctaBusy = false;
+    }
+  }
+
+  async function doResume() {
+    if (ctaBusy) return;
+    ctaBusy = true;
+    try {
+      const { status } = await resumeQuota(session.id);
+      // resumed → nothing (the WS gate update clears the row). A row has no inline outcome
+      // surface (unlike PlanPanel's quotaOutcome), so surface non-success as a transient toast.
+      if (status !== "resumed") toasts.info(m.hold_cta_resume_failed());
+    } catch {
+      toasts.info(m.hold_cta_resume_failed());
+    } finally {
+      ctaBusy = false;
+    }
+  }
+
+  let openPanelTick = $state(0);
+  function openPlanPanel() {
+    openPanelTick++;
+  }
 
   // The status slot renders only for merging / ready; every other state (incl.
   // running — the left StatusPip carries that) shows nothing, so only then does
@@ -533,8 +640,22 @@
           <span class="car" aria-hidden="true">▏</span>
         {/if}
       </div>
-      {#if hold}
-        <div class="u-hold"><span class="u-hold-text">{holdLine(hold)}</span></div>
+      {#if holdRow.line}
+        <div class="u-hold">
+          <span class="u-hold-text">{holdRow.line}</span>
+          {#if holdRow.action}
+            <button
+              type="button"
+              class="hold-cta hold-cta--{holdRow.action.kind}"
+              title={holdRow.action.title}
+              disabled={ctaBusy}
+              onclick={onHoldCta}
+              >{holdRow.action.kind === "go" && goArmed
+                ? m.hold_cta_go_arm()
+                : holdRow.action.label}</button
+            >
+          {/if}
+        </div>
       {/if}
     </div>
 
@@ -548,6 +669,7 @@
       {onpreview}
       {quotaKind}
       {reviewing}
+      {openPanelTick}
       {stepperTerminal}
       {decom}
       coarsePointer={coarse.current}
@@ -1016,6 +1138,58 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+
+  /* Inline one-click action beside the hold subline (Go / Re-review / Resume / Answer) —
+     modeled on the .chip-manual-steps--link recipe: outlined micro chip, raised above the
+     .unit-hit overlay so it's actually clickable. */
+  .hold-cta {
+    flex: none;
+    position: relative;
+    z-index: 1;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border: 1px solid var(--color-blue);
+    border-radius: 2px;
+    color: var(--color-blue);
+    background: transparent;
+    cursor: pointer;
+    transition:
+      border-color 0.12s,
+      color 0.12s,
+      background 0.12s;
+  }
+  .hold-cta::after {
+    /* expand the hit target to >=44px without changing visual geometry */
+    content: "";
+    position: absolute;
+    inset: -14px -8px;
+  }
+  .hold-cta:hover {
+    background: color-mix(in oklab, var(--color-blue) 12%, transparent);
+  }
+  .hold-cta:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-blue);
+  }
+  .hold-cta:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+  /* Go releases an APPROVED plan → the actionable-complete green (design-system reserves green
+     for READY). The armed "Go?" keeps the same hue. */
+  .hold-cta--go {
+    border-color: var(--color-green);
+    color: var(--color-green);
+  }
+  .hold-cta--go:hover {
+    background: color-mix(in oklab, var(--color-green) 12%, transparent);
+  }
+  .hold-cta--go:focus-visible {
+    box-shadow: inset 0 0 0 1px var(--color-green);
   }
 
   /* Live activity sub-line: the heartbeat strip. Quiet, single-line — the

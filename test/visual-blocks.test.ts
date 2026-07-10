@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { DiffFile, DiffHunk } from "../src/types";
 import type { VisualBlock } from "../src/visual-blocks";
 
@@ -36,6 +36,147 @@ describe("parseVisualBlocks", () => {
     expect(parseVisualBlocks("string")).toEqual([]);
     expect(parseVisualBlocks(42)).toEqual([]);
     expect(parseVisualBlocks({ type: "rich-text", id: "1", markdown: "x" })).toEqual([]);
+  });
+
+  it("(A) warns when blocks is present but non-array (mangled blocks field)", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks("nope")).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("[visual-blocks]");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) warns for non-array object", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks({})).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) warns for number as blocks", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks(42)).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) stays silent when blocks is undefined (legitimate)", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks(undefined)).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) warns when parseBlock rejects with unknown type", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([{ type: "fancy-thing", id: "block1", markdown: "x" }]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("fancy-thing");
+      expect(msg).toContain("block1");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) warns when parseBlock rejects with invalid enum", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([
+        { type: "callout", id: "c1", tone: "invalid-tone", markdown: "x" },
+      ]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("callout");
+      expect(msg).toContain("c1");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) defensive read: warns for non-object item in array without throwing", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks(["string-item", 5, null]);
+      expect(result).toEqual([]);
+      expect(warn.mock.calls.length).toBeGreaterThan(0);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(C) warns for duplicate id", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([
+        { type: "rich-text", id: "dup", markdown: "first" },
+        { type: "callout", id: "dup", tone: "info", markdown: "second" },
+      ]);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe("dup");
+      expect(result[0]!.type).toBe("rich-text");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("duplicate");
+      expect(msg).toContain("dup");
+      expect(msg).toContain("callout");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) sanitizes type and id containing control characters", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([
+        { type: "rich-text\n\r", id: "id\x1b[31m", markdown: "first" },
+        { type: "callout", id: "id\x1b[31m", tone: "info", markdown: "second" },
+      ]);
+      expect(result).toHaveLength(1);
+      for (const call of warn.mock.calls) {
+        const msg = call[0] as string;
+        expect(msg).not.toContain("\n");
+        expect(msg).not.toContain("\r");
+        expect(msg).not.toContain("\x1b");
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) clamps very long type/id strings", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const longType = "a".repeat(200);
+      const longId = "b".repeat(200);
+      const result = parseVisualBlocks([
+        { type: longType, id: longId, markdown: "x" },
+        { type: "callout", id: longId, tone: "info", markdown: "y" },
+      ]);
+      expect(result).toHaveLength(1);
+      for (const call of warn.mock.calls) {
+        const msg = call[0] as string;
+        expect(msg.length).toBeLessThan(300);
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("drops blocks with missing id", () => {

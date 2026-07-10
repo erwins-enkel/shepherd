@@ -1,15 +1,24 @@
 import { test, expect, vi, beforeEach } from "vitest";
-import type { ReviewVerdict, RepoConfig } from "./types";
+import type { ReviewVerdict, PlanGate, RepoConfig } from "./types";
 
 vi.mock("./api", () => ({
   getReviews: vi.fn(),
   getReviewingIds: vi.fn(),
+  getPlanGates: vi.fn(),
+  getPlanGatesInflight: vi.fn(),
   getRepoConfig: vi.fn(),
   putRepoConfig: vi.fn(),
 }));
 
-import { reviews, repoConfig } from "./reviews.svelte";
-import { getReviews, getReviewingIds, getRepoConfig, putRepoConfig } from "./api";
+import { reviews, planGates, repoConfig } from "./reviews.svelte";
+import {
+  getReviews,
+  getReviewingIds,
+  getPlanGates,
+  getPlanGatesInflight,
+  getRepoConfig,
+  putRepoConfig,
+} from "./api";
 
 /** Build a minimal RepoConfig with all required fields; override as needed. */
 const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
@@ -54,10 +63,27 @@ const verdict = (id: string): ReviewVerdict => ({
   updatedAt: 0,
 });
 
+const planGate = (id: string): PlanGate => ({
+  sessionId: id,
+  planHash: "abc123",
+  decision: "approved",
+  summary: "ok",
+  body: "body",
+  findings: [],
+  round: 0,
+  cap: 5,
+  approved: true,
+  plan: "PLAN",
+  updatedAt: 0,
+});
+
 beforeEach(() => {
   reviews.map = {};
   reviews.reviewing = {};
   reviews.activity = {};
+  planGates.map = {};
+  planGates.reviewing = {};
+  planGates.activity = {};
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
   repoConfig.learnings = {};
@@ -156,6 +182,96 @@ test("setActivity ignores an unchanged value (no reactive churn)", () => {
   const before = reviews.activity;
   reviews.setActivity("s1", "$ git log"); // identical → same object reference kept
   expect(reviews.activity).toBe(before);
+});
+
+// ── review activity feed: rolling window + staleness invariant ──────────────
+// No line from a prior run or from before a reconnect may leak into a later in-flight preview.
+// Guaranteed by three reset points, verified below for BOTH stores: start (OFF→ON), end
+// (ON→OFF), and bootstrap/resync.
+
+test("reviews activityFeed accumulates distinct lines newest-last, capped at 4", () => {
+  reviews.setReviewing("s1", true);
+  for (const l of ["a", "b", "c", "d", "e"]) reviews.setActivity("s1", l);
+  expect(reviews.activityFeed("s1")).toEqual(["b", "c", "d", "e"]); // oldest ("a") dropped
+  expect(reviews.activityFor("s1")).toBe("e"); // badge tooltip = newest line
+});
+
+test("reviews activityFeed dedups a repeated last line", () => {
+  reviews.setActivity("s1", "a");
+  reviews.setActivity("s1", "a");
+  reviews.setActivity("s1", "b");
+  expect(reviews.activityFeed("s1")).toEqual(["a", "b"]);
+});
+
+test("reviews activityFeed returns [] for an unknown id", () => {
+  expect(reviews.activityFeed("nope")).toEqual([]);
+});
+
+test("reviews: starting a review resets a leftover feed (defensive against a missed end-clear)", () => {
+  // straggler feed present while NOT reviewing (a missed end-clear from a prior run)
+  reviews.setActivity("s1", "stale-from-prior-run");
+  expect(reviews.activityFeed("s1")).toEqual(["stale-from-prior-run"]);
+  reviews.setReviewing("s1", true); // OFF→ON must wipe it — a new run starts empty
+  expect(reviews.activityFeed("s1")).toEqual([]);
+});
+
+test("reviews: drop clears the live activity feed", () => {
+  reviews.setReviewing("s1", true);
+  reviews.setActivity("s1", "read x");
+  reviews.drop("s1");
+  expect(reviews.activityFeed("s1")).toEqual([]);
+});
+
+test("reviews.load wipes any stale feed, even for a still-in-flight id", async () => {
+  reviews.setReviewing("s7", true);
+  reviews.setActivity("s7", "line from before the resync");
+  vi.mocked(getReviews).mockResolvedValue({});
+  vi.mocked(getReviewingIds).mockResolvedValue(["s7"]); // snapshot: s7 still in flight
+  await reviews.load();
+  expect(reviews.isReviewing("s7")).toBe(true); // still in flight…
+  expect(reviews.activityFeed("s7")).toEqual([]); // …but feed wiped; rebuilds from live events
+});
+
+// ── plan-gate activity feed: mirrors ReviewsStore ──────────────────────────
+
+test("planGates activityFeed accumulates, dedups, and resets on the ON→OFF transition", () => {
+  planGates.applyReviewing("p1", true);
+  planGates.setActivity("p1", "read plan");
+  planGates.setActivity("p1", "read plan"); // dedup
+  planGates.setActivity("p1", "$ git diff");
+  expect(planGates.activityFeed("p1")).toEqual(["read plan", "$ git diff"]);
+  planGates.applyReviewing("p1", false); // end → clear
+  expect(planGates.activityFeed("p1")).toEqual([]);
+});
+
+test("planGates: a leftover feed is wiped when a new review starts", () => {
+  planGates.setActivity("p1", "stale"); // straggler while not reviewing
+  planGates.applyReviewing("p1", true); // OFF→ON must wipe it
+  expect(planGates.activityFeed("p1")).toEqual([]);
+});
+
+test("planGates: applying a verdict clears the feed", () => {
+  planGates.applyReviewing("p1", true);
+  planGates.setActivity("p1", "read plan");
+  planGates.apply("p1", planGate("p1"));
+  expect(planGates.activityFeed("p1")).toEqual([]);
+});
+
+test("planGates: drop clears the feed", () => {
+  planGates.applyReviewing("p1", true);
+  planGates.setActivity("p1", "read plan");
+  planGates.drop("p1");
+  expect(planGates.activityFeed("p1")).toEqual([]);
+});
+
+test("planGates.load wipes any stale feed, even for a still-in-flight id", async () => {
+  planGates.applyReviewing("p9", true);
+  planGates.setActivity("p9", "line before resync");
+  vi.mocked(getPlanGates).mockResolvedValue({});
+  vi.mocked(getPlanGatesInflight).mockResolvedValue(["p9"]);
+  await planGates.load();
+  expect(planGates.isReviewing("p9")).toBe(true);
+  expect(planGates.activityFeed("p9")).toEqual([]);
 });
 
 test("repoConfig.isEnabled returns true for unknown repo (default-on)", () => {

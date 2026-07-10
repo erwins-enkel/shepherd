@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { Session, SessionActivity, SessionStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
+  import { reviews, planGates, repoConfig, MAX_ACTIVITY_LINES } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import {
     activeReworkBannerState,
@@ -27,6 +27,7 @@
     tab,
     height = $bindable(0),
     active = $bindable(false),
+    inflight = $bindable(false),
   }: {
     session: Session;
     dStatus: SessionStatus;
@@ -38,6 +39,10 @@
      *  condition below). Bound out so a sibling status banner (CiRunningBanner)
      *  can suppress itself synchronously — no offsetHeight/paint race. */
     active?: boolean;
+    /** True iff the banner is showing its in-flight tier (a review runs off-screen,
+     *  the session PTY is idle). Bound out so the Viewport can dim the terminal only
+     *  in that phase — not during addressing (agent works in the PTY) or conclusion. */
+    inflight?: boolean;
   } = $props();
 
   // Live in-flight flags (mutually exclusive: plan-gate = planning phase, critic =
@@ -46,6 +51,18 @@
   const planReviewing = $derived(planGates.isReviewing(session.id));
   const liveKind = $derived<ReviewKind | null>(
     criticReviewing ? "critic" : planReviewing ? "plangate" : null,
+  );
+
+  // Live rolling activity feed of whichever reviewer is in flight (oldest→newest, ≤
+  // MAX_ACTIVITY_LINES). Rendered as the tail preview under the in-flight headline: the reviewer
+  // runs off-screen in its own worktree, so this is the operator's only window into what it's
+  // doing. Verbatim tool-use lines (e.g. "$ git diff", "read poller.ts") — NOT translated.
+  const feed = $derived<string[]>(
+    liveKind === "critic"
+      ? reviews.activityFeed(session.id)
+      : liveKind === "plangate"
+        ? planGates.activityFeed(session.id)
+        : [],
   );
 
   // Session's effective autopilot (mirrors src/effective-autopilot.ts): per-session
@@ -225,6 +242,10 @@
   $effect(() => {
     const shown = view.show && tab === "term";
     if (active !== shown) active = shown; // logical occupancy signal for a sibling status banner (pre-paint)
+    // Terminal-dim signal: only the in-flight tier (review runs off-screen, PTY idle). Narrowed
+    // off `view` directly so TS sees the discriminant; NOT during addressing/conclusion.
+    const preview = view.show && view.phase === "in-flight" && tab === "term";
+    if (inflight !== preview) inflight = preview;
     if (!shown) {
       height = 0; // hidden branch: reset (the only place height is zeroed)
       return;
@@ -244,29 +265,46 @@
     bind:offsetHeight={height}
     use:coachTarget={"review-inflight"}
   >
-    {#if spinning}
-      <!-- Rotating cog: an inline SVG (not the ⚙ glyph, which renders as a color
-           emoji ignoring currentColor and rotates off-center) so it tints to the
-           tone accent and turns cleanly about its center. -->
-      <svg
-        class="rb-cog"
-        viewBox="0 0 24 24"
-        fill="none"
-        stroke="currentColor"
-        stroke-width="2"
-        stroke-linecap="round"
-        stroke-linejoin="round"
-        aria-hidden="true"
-      >
-        <circle cx="12" cy="12" r="3" />
-        <path
-          d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
-        />
-      </svg>
-    {:else}
-      <span class="rb-icon" aria-hidden="true">{icon}</span>
+    <div class="rb-head">
+      {#if spinning}
+        <!-- Rotating cog: an inline SVG (not the ⚙ glyph, which renders as a color
+             emoji ignoring currentColor and rotates off-center) so it tints to the
+             tone accent and turns cleanly about its center. -->
+        <svg
+          class="rb-cog"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          stroke-width="2"
+          stroke-linecap="round"
+          stroke-linejoin="round"
+          aria-hidden="true"
+        >
+          <circle cx="12" cy="12" r="3" />
+          <path
+            d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"
+          />
+        </svg>
+      {:else}
+        <span class="rb-icon" aria-hidden="true">{icon}</span>
+      {/if}
+      <span class="rb-text">{bannerText(view)}</span>
+    </div>
+    {#if view.show && view.phase === "in-flight"}
+      <!-- Live "tail -f" of the off-screen reviewer's actions. Fixed height for MAX_ACTIVITY_LINES
+           rows so the banner keeps a stable height across the whole in-flight phase (lines fill
+           progressively) → one xterm refit on enter/exit, not one per line. aria-hidden: the
+           polite headline is the announcement; a fast-updating feed would spam a screen reader. -->
+      <div class="rb-preview" style:--rb-pv-rows={MAX_ACTIVITY_LINES} aria-hidden="true">
+        {#if feed.length === 0}
+          <span class="rb-pv-wait">{m.reviewbanner_preview_waiting()}</span>
+        {:else}
+          {#each feed as line, i (i)}
+            <span class="rb-pv-line">{line}</span>
+          {/each}
+        {/if}
+      </div>
     {/if}
-    <span class="rb-text">{bannerText(view)}</span>
   </div>
 {/if}
 
@@ -284,8 +322,7 @@
     right: 0;
     z-index: 2;
     display: flex;
-    align-items: center;
-    gap: 8px;
+    flex-direction: column;
     padding: 5px 10px;
     font-size: var(--fs-meta);
     color: var(--accent);
@@ -300,6 +337,43 @@
   .review-banner[data-phase="addressing"] {
     padding: 9px 12px;
     font-size: var(--fs-base);
+  }
+  /* Headline row (icon + message) — the former single-row flex layout. */
+  .rb-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  /* Live activity tail under the in-flight headline. Newest line pins to the bottom
+     (justify-content:flex-end); the reserved height is MAX_ACTIVITY_LINES rows (--rb-pv-rows) so
+     the banner keeps a STABLE height across the whole in-flight phase as lines fill in — one
+     xterm refit on enter/exit, not one per line. Monospace + quiet ink so it reads as terminal
+     echo of the off-screen reviewer, not app chrome. */
+  .rb-preview {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    margin-top: 6px;
+    height: calc(var(--fs-meta) * 1.5 * var(--rb-pv-rows, 4));
+    overflow: hidden;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+  }
+  .rb-pv-line {
+    line-height: 1.5;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* Older lines recede so the newest (bottom) reads as "happening now". */
+  .rb-pv-line:not(:last-child) {
+    color: var(--color-faint);
+  }
+  .rb-pv-wait {
+    line-height: 1.5;
+    color: var(--color-faint);
+    font-style: italic;
   }
   .rb-icon {
     font-size: var(--fs-base);

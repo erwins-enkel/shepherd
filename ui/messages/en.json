@@ -2773,5 +2773,8 @@
   "issues_filter_no_match": "no issues match the active filters",
   "issuerow_author_by": "by {login}",
   "feat_issue_author_label_filter_title": "Filter issues by author and label",
-  "feat_issue_author_label_filter_body": "Issue lists now show each issue's author, and the Filters menu can narrow the backlog by author and by label — pick an author or toggle one or more labels to focus the list."
+  "feat_issue_author_label_filter_body": "Issue lists now show each issue's author, and the Filters menu can narrow the backlog by author and by label — pick an author or toggle one or more labels to focus the list.",
+  "reviewbanner_preview_waiting": "Starting review…",
+  "feat_review_live_preview_title": "Live review preview + dimmed terminal",
+  "feat_review_live_preview_body": "While a PR-critic or plan-gate review runs off-screen, the amber banner now shows a live tail of what the reviewer is doing — its last few actions — and the terminal dims to signal that Shepherd is working and there's no need to type. The dim is visual only; your prompt stays usable."
 }

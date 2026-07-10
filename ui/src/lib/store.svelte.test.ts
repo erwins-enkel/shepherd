@@ -642,6 +642,39 @@ test("session:critic-activity routes to the reviews store", async () => {
   expect(reviews.activityFor("s1")).toBe("$ git diff");
 });
 
+test("session:plangate-activity routes to the plan-gates store feed", async () => {
+  const { planGates } = await import("./reviews.svelte");
+  planGates.activity = {};
+  planGates.reviewing = {};
+  const s = new HerdStore();
+  s.apply({ event: "session:plangate-activity", data: { id: "s1", summary: "read plan" } });
+  expect(planGates.activityFeed("s1")).toEqual(["read plan"]);
+});
+
+test("session:plangate-reviewing false clears the plan-gate activity feed", async () => {
+  const { planGates } = await import("./reviews.svelte");
+  planGates.activity = {};
+  planGates.reviewing = {};
+  const s = new HerdStore();
+  s.apply({ event: "session:plangate-reviewing", data: { id: "s1", reviewing: true } });
+  s.apply({ event: "session:plangate-activity", data: { id: "s1", summary: "read plan" } });
+  expect(planGates.activityFeed("s1")).toEqual(["read plan"]);
+  s.apply({ event: "session:plangate-reviewing", data: { id: "s1", reviewing: false } });
+  expect(planGates.activityFeed("s1")).toEqual([]);
+});
+
+test("session:reviewing false clears the critic activity feed", async () => {
+  const { reviews } = await import("./reviews.svelte");
+  reviews.activity = {};
+  reviews.reviewing = {};
+  const s = new HerdStore();
+  s.apply({ event: "session:reviewing", data: { id: "s1", reviewing: true } });
+  s.apply({ event: "session:critic-activity", data: { id: "s1", summary: "$ git diff" } });
+  expect(reviews.activityFeed("s1")).toEqual(["$ git diff"]);
+  s.apply({ event: "session:reviewing", data: { id: "s1", reviewing: false } });
+  expect(reviews.activityFeed("s1")).toEqual([]);
+});
+
 // ── session:subagents ──────────────────────────────────────────────────────
 
 const SUBAGENTS: SubagentEntry[] = [{ agentId: "a1", agentType: "Explore", startedAt: 1000 }];

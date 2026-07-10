@@ -292,6 +292,11 @@
   // jump-to-latest button lifts by `reviewBannerH || ciBannerH` (no max() needed).
   let ciBannerH = $state(0);
   let reviewActive = $state(false);
+  // In-flight-review dim signal, bound out of ReviewInFlightBanner: true ONLY while a review runs
+  // off-screen (its PTY is separate, this session's PTY is idle). Drives the .term-mount dim so
+  // the operator reads "Shepherd is working — hands off". False during addressing (agent works in
+  // THIS PTY) and conclusion, so the terminal never dims while its own output is live.
+  let reviewInFlight = $state(false);
   // Text stashed from an OSC 52 clipboard write that the browser refused (async writes need
   // a user gesture); the ClipboardPill offers a one-click retry that runs inside a real click.
   let pendingCopy = $state<string | null>(null);
@@ -2508,6 +2513,7 @@
     <div
       class="term-mount"
       class:dragging
+      class:reviewing={reviewInFlight}
       role="region"
       aria-label={m.viewport_terminal_tab()}
       bind:this={el}
@@ -2565,6 +2571,7 @@
       {tab}
       bind:height={reviewBannerH}
       bind:active={reviewActive}
+      bind:inflight={reviewInFlight}
     />
     <!-- Non-blocking "CI is running" banner: same bottom strip, shown only when no
          review banner claims it (reviewActive) so the two never overlap. -->
@@ -3384,6 +3391,15 @@
     overflow: hidden;
     /* we drive vertical scroll via touch handlers; keep the browser out of it */
     touch-action: none;
+  }
+
+  /* Visual-only dim while a review runs off-screen (bound from ReviewInFlightBanner's in-flight
+     tier): the operator reads "Shepherd is working — hands off". NOT a modal scrim/blur — this is
+     a non-blocking state and the live prompt stays usable; only the idle terminal recedes. The
+     review banner + its live preview are siblings in .vp-body, so they stay fully lit. */
+  .term-mount.reviewing {
+    opacity: 0.5;
+    transition: opacity 0.18s ease;
   }
 
   /* let xterm fill the mount */

@@ -20,7 +20,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 const { default: Viewport } = await import("./Viewport.svelte");
 // Dynamic import AFTER the $lib/api mock: reviews.svelte imports $lib/api, so a static
 // (hoisted) import would pull the real module in before the mock registers and break it.
-const { reviews, planGates } = await import("$lib/reviews.svelte");
+const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 // Dynamic import for same reason: recaps.svelte imports $lib/api via getRecaps.
 const { recaps } = await import("$lib/recaps.svelte");
 import { toasts } from "$lib/toasts.svelte";
@@ -1169,6 +1169,108 @@ describe("Viewport Activity tab A/B switch", () => {
 // the adjacent needs-you pager's prev button (also "‹"), yielding two ambiguous
 // left chevrons. It renders as the list glyph "☰" (back to the herd list), which
 // the pager never uses. The .back button only mounts when `onback` is supplied.
+// ── Terminal dim while a review runs off-screen (in-flight tier only) ─────────
+// The ReviewInFlightBanner binds out an `inflight` signal that is true ONLY on its in-flight
+// tier (a review runs in a separate worktree/PTY; this session's PTY is idle). Viewport uses it
+// to dim .term-mount (visual-only "hands off"). It must NOT dim during addressing (agent works
+// in THIS PTY), conclusion (review done), or when the critic banner is suppressed (auto-address
+// off). Verified for both Plan-Gate and Critic.
+describe("Viewport terminal dim on in-flight review", () => {
+  function clearReviewState() {
+    reviews.map = {};
+    reviews.reviewing = {};
+    reviews.activity = {};
+    planGates.map = {};
+    planGates.reviewing = {};
+    planGates.activity = {};
+    repoConfig.autoAddress = {};
+  }
+  beforeEach(clearReviewState);
+  afterEach(clearReviewState);
+
+  const termDimmed = (container: HTMLElement) =>
+    container.querySelector(".term-mount")?.classList.contains("reviewing");
+
+  it("plan-gate in-flight: dims the terminal", async () => {
+    const id = "dim-plan";
+    planGates.applyReviewing(id, true);
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.element(page.getByText(m.reviewbanner_calm())).toBeInTheDocument();
+    await expect.poll(() => termDimmed(container)).toBe(true);
+  });
+
+  it("critic in-flight (auto-address on): dims the terminal", async () => {
+    const id = "dim-critic";
+    repoConfig.autoAddress = { "/repo/a": true };
+    reviews.setReviewing(id, true);
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "executing" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.element(page.getByText(m.reviewbanner_calm())).toBeInTheDocument();
+    await expect.poll(() => termDimmed(container)).toBe(true);
+  });
+
+  it("addressing phase: does NOT dim (agent works in this PTY)", async () => {
+    const id = "dim-addressing";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity("edited .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect
+      .element(page.getByText("REWORK · 1/5 · edited .shepherd-plan.md"))
+      .toBeInTheDocument();
+    expect(termDimmed(container)).toBe(false);
+  });
+
+  it("critic in-flight with auto-address OFF: banner suppressed, so NO dim", async () => {
+    const id = "dim-critic-off";
+    repoConfig.autoAddress = { "/repo/a": false };
+    reviews.setReviewing(id, true);
+    const { container } = render(Viewport, {
+      session: session({ id, status: "idle", planPhase: "executing" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.poll(() => container.querySelector(".review-banner")).toBeNull();
+    expect(termDimmed(container)).toBe(false);
+  });
+
+  it("conclusion phase: does NOT dim once the verdict lands", async () => {
+    const id = "dim-conclusion";
+    planGates.applyReviewing(id, true);
+    const { container } = render(Viewport, {
+      session: session({ id, status: "running", planPhase: "planning" }),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    await expect.poll(() => termDimmed(container)).toBe(true); // in-flight → dimmed
+    // land an approved verdict and end the review → the brief conclusion tier
+    planGates.map = {
+      [id]: planGate({
+        sessionId: id,
+        decision: "approved",
+        approved: true,
+        round: 0,
+        findings: [],
+      }),
+    };
+    planGates.applyReviewing(id, false);
+    await expect
+      .poll(() => container.querySelector(".review-banner")?.getAttribute("data-phase"))
+      .toBe("conclusion");
+    expect(termDimmed(container)).toBe(false);
+  });
+});
+
 describe("Viewport phone back glyph", () => {
   it("phone back control renders the list glyph ☰, not the left chevron ‹", async () => {
     const { container } = render(Viewport, {

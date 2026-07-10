@@ -580,6 +580,9 @@ export class HerdStore {
       case "session:plangate-reviewing":
         planGates.applyReviewing(ev.data.id, ev.data.reviewing);
         return true;
+      case "session:plangate-activity":
+        planGates.setActivity(ev.data.id, ev.data.summary);
+        return true;
       default:
         return false;
     }

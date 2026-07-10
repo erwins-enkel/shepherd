@@ -1557,6 +1557,7 @@ export type WsEvent =
       data: { id: string; gate?: PlanGate; planPhase?: "planning" | "executing" };
     }
   | { event: "session:plangate-reviewing"; data: { id: string; reviewing: boolean } }
+  | { event: "session:plangate-activity"; data: { id: string; summary: string } }
   | { event: "learnings:update"; data: { pending: number } }
   | {
       event: "plugin:status";

@@ -286,7 +286,7 @@ describe("overspending", () => {
 });
 
 describe("providerCapacityRows", () => {
-  it("derives remaining room from the hottest available provider windows", () => {
+  it("returns per-window remaining room (5H then WK) for each provider", () => {
     const l = limits({
       session5h: w(30),
       week: w(60),
@@ -319,15 +319,19 @@ describe("providerCapacityRows", () => {
     expect(providerCapacityRows(l)).toEqual([
       {
         provider: "claude",
-        usedPct: 60,
-        remainingPct: 40,
+        windows: [
+          { key: "5H", usedPct: 30, remainingPct: 70 },
+          { key: "WK", usedPct: 60, remainingPct: 40 },
+        ],
         available: true,
         stale: false,
       },
       {
         provider: "codex",
-        usedPct: 80,
-        remainingPct: 20,
+        windows: [
+          { key: "5H", usedPct: 20, remainingPct: 80 },
+          { key: "WK", usedPct: 80, remainingPct: 20 },
+        ],
         available: true,
         stale: false,
       },
@@ -367,8 +371,7 @@ describe("providerCapacityRows", () => {
     expect(providerCapacityRows(l)[1]).toMatchObject({
       provider: "codex",
       available: false,
-      usedPct: null,
-      remainingPct: null,
+      windows: [],
     });
   });
 });

@@ -352,7 +352,7 @@ describe("NewTask task attachments", () => {
 });
 
 describe("NewTask provider capacity gauge", () => {
-  it("renders both providers with remaining room below the Coding CLI selector", async () => {
+  it("renders both usage windows per provider, labelled and in 5h→weekly order", async () => {
     render(NewTask, {
       props: base({
         initialRepoPath: "/repo",
@@ -361,11 +361,42 @@ describe("NewTask provider capacity gauge", () => {
     });
 
     await expect.element(page.getByText(m.newtask_provider_capacity_title())).toBeInTheDocument();
-    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
+    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
 
-    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
-    expect(rows[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 40 }));
-    expect(rows[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 20 }));
+    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
+
+    // Claude: 5h window (30% used → 70% free), then weekly (60% used → 40% free).
+    const claudeWins = providers[0]!.querySelectorAll<HTMLElement>(".pcap-window");
+    expect(claudeWins.length).toBe(2);
+    expect(claudeWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
+      m.newtask_provider_capacity_window_5h(),
+    );
+    expect(claudeWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 70 }));
+    expect(claudeWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
+      m.newtask_provider_capacity_window_week(),
+    );
+    expect(claudeWins[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 40 }));
+
+    // Meter exposes provider + full window name + free% to assistive tech.
+    expect(claudeWins[0]?.querySelector('[role="meter"]')?.getAttribute("aria-valuetext")).toBe(
+      m.newtask_provider_capacity_meter_window_aria({
+        provider: m.agent_provider_claude(),
+        window: m.usage_limits_window_5h(),
+        free: 70,
+      }),
+    );
+
+    // Codex: 5h (20% used → 80% free), then weekly (80% used → 20% free).
+    const codexWins = providers[1]!.querySelectorAll<HTMLElement>(".pcap-window");
+    expect(codexWins.length).toBe(2);
+    expect(codexWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
+      m.newtask_provider_capacity_window_5h(),
+    );
+    expect(codexWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 80 }));
+    expect(codexWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
+      m.newtask_provider_capacity_window_week(),
+    );
+    expect(codexWins[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 20 }));
   });
 
   it("shows Codex as unavailable when rollout limits are missing", async () => {
@@ -376,13 +407,16 @@ describe("NewTask provider capacity gauge", () => {
       }),
     });
 
-    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
-    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
-    expect(rows[1]?.textContent).toContain(m.newtask_provider_capacity_unavailable());
-    expect(rows[1]?.textContent).not.toContain("100%");
+    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
+    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
+    // Claude keeps both window bars; Codex shows the unavailable line and no bars.
+    expect(providers[0]!.querySelectorAll(".pcap-window").length).toBe(2);
+    expect(providers[1]!.querySelectorAll(".pcap-window").length).toBe(0);
+    expect(providers[1]?.textContent).toContain(m.newtask_provider_capacity_unavailable());
+    expect(providers[1]?.textContent).not.toContain("100%");
   });
 
-  it("wraps the gauge rows on narrow widths instead of overflowing the field", async () => {
+  it("wraps the window rows on narrow widths instead of overflowing the field", async () => {
     await page.viewport(390, 800);
     render(NewTask, {
       props: base({
@@ -391,11 +425,11 @@ describe("NewTask provider capacity gauge", () => {
       }),
     });
 
-    await expect.poll(() => document.querySelectorAll(".pcap-row").length).toBe(2);
+    await expect.poll(() => document.querySelectorAll(".pcap-window").length).toBe(4);
 
-    const rows = Array.from(document.querySelectorAll<HTMLElement>(".pcap-row"));
-    for (const row of rows) {
-      expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+    const wins = Array.from(document.querySelectorAll<HTMLElement>(".pcap-window"));
+    for (const win of wins) {
+      expect(win.scrollWidth).toBeLessThanOrEqual(win.clientWidth);
     }
   });
 });

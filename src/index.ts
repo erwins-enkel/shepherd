@@ -1167,6 +1167,7 @@ const planGate = new PlanGateService({
   },
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
+  operatorLanguage: () => config.operatorLanguage,
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),

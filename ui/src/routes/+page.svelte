@@ -133,6 +133,7 @@
   import { computeNewEntries } from "$lib/feature-gate";
   import { version } from "$lib/build-info";
   import { sidebarCollapse, sidebarShouldCollapse } from "$lib/sidebar-collapse.svelte";
+  import { herdWidth } from "$lib/herd-width.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
@@ -1112,6 +1113,66 @@
     sidebarCollapse.toggle();
     await tick();
     document.getElementById(wasCollapsed ? "herd-collapse-btn" : "herd-reopen-tab")?.focus();
+  }
+
+  // ── Herd sidebar resize (issue #1588, mouse-desktop only) ─────────────────
+  // The splitter drives herdWidth; the .grid below applies it as `--herd-w`. A
+  // ~3px threshold gates live resizing so a jittery click never moves the width,
+  // and commit() only persists after an actual drag. Reset is a manual
+  // double-click detector (two clicks <400ms apart) rather than native dblclick,
+  // which setPointerCapture + preventDefault can suppress. Gated on
+  // `!touch.current` (see herdResizable) so touch-wide + mobile are untouched.
+  const herdResizable = $derived(!touch.current);
+  // Derived (not inline in the template) to keep the .grid markup free of extra
+  // branches — +page's synthetic <template> complexity sits just under the fallow
+  // Tier-1 bar (see .fallowrc.jsonc), so conditionals live in <script>.
+  const herdResized = $derived(herdResizable && herdWidth.width !== null);
+  const herdWidthStyle = $derived(herdResized ? `--herd-w:${herdWidth.width}px` : undefined);
+  let herdColEl = $state<HTMLElement>();
+  let herdResizing = $state(false);
+  const HERD_DRAG_THRESHOLD = 3;
+  const HERD_DBLCLICK_MS = 400;
+  let herdLastClickTs = 0;
+
+  function startHerdResize(e: PointerEvent) {
+    // The splitter stays in the DOM but is display:none on touch (see .inert);
+    // guard anyway so a stray event can't resize when not resizable.
+    if (!herdResizable || e.button !== 0 || !herdColEl) return;
+    e.preventDefault();
+    const handle = e.currentTarget as HTMLElement;
+    const startX = e.clientX;
+    const startW = herdColEl.getBoundingClientRect().width;
+    let moved = false;
+    handle.setPointerCapture(e.pointerId);
+
+    const onMove = (ev: PointerEvent) => {
+      if (!moved && Math.abs(ev.clientX - startX) < HERD_DRAG_THRESHOLD) return;
+      if (!moved) {
+        moved = true;
+        herdResizing = true;
+      }
+      herdWidth.set(startW + (ev.clientX - startX));
+    };
+    const onUp = (ev: PointerEvent) => {
+      handle.releasePointerCapture(e.pointerId);
+      handle.removeEventListener("pointermove", onMove);
+      handle.removeEventListener("pointerup", onUp);
+      if (moved) {
+        herdResizing = false;
+        herdWidth.commit();
+        herdLastClickTs = 0; // a drag isn't a click
+        return;
+      }
+      // No drag → treat as a click; two within the window reset to default.
+      if (herdLastClickTs && ev.timeStamp - herdLastClickTs < HERD_DBLCLICK_MS) {
+        herdWidth.reset();
+        herdLastClickTs = 0;
+      } else {
+        herdLastClickTs = ev.timeStamp;
+      }
+    };
+    handle.addEventListener("pointermove", onMove);
+    handle.addEventListener("pointerup", onUp);
   }
 
   let mobileScreen = $state<"list" | "detail">("list");
@@ -2646,7 +2707,14 @@
         </div>
       {/if}
     {:else}
-      <div class="grid" class:compact={touch.current} class:collapsed={sidebarCollapsed}>
+      <div
+        class="grid"
+        class:compact={touch.current}
+        class:collapsed={sidebarCollapsed}
+        class:resized={herdResized}
+        class:resizing={herdResizing}
+        style={herdWidthStyle}
+      >
         {#if sidebarCollapsed}
           <button
             id="herd-reopen-tab"
@@ -2657,68 +2725,86 @@
             onclick={toggleSidebar}>›</button
           >
         {:else}
-          <Herd
-            sessions={herdSessions}
-            filteredRepo={repoFilterName}
-            {repoFilter}
-            onrepofilter={applyRepoFilter}
-            {statusFilter}
-            onstatusfilter={(s) => (statusFilter = s)}
-            {selectedId}
-            {nowMs}
-            onselect={(id) => selectUnit(id)}
-            onnew={() => (showNew = true)}
-            git={store.git}
-            activity={store.activity}
-            preview={store.preview}
-            previewServe={store.previewServe}
-            onpreview={openPreview}
-            onrename={openRename}
-            epics={store.epics}
-            onepic={openEpicInBacklog}
-            {activeEpicKeys}
-            collapsedKeys={collapsedEpics}
-            oncollapsetoggle={toggleEpicCollapse}
-            onrenderedepicgroups={normalizeRenderedEpicCollapse}
-            ondecommission={onarchive}
-            {onrelaunch}
-            {onrelaunchElsewhere}
-            {onvariant}
-            {onreplace}
-            {oncompare}
-            {onclearmerged}
-            {onmergetrain}
-            {issueActionsUnset}
-            onsettings={() => {
-              settingsTab = "workspace";
-              showSettings = true;
-            }}
-            bind:filter={herdFilter}
-            workingBlocked={store.workingBlocked}
-            blocks={store.blocks}
-            holds={store.holds}
-            collapsible={canCollapse}
-            oncollapse={toggleSidebar}
-            completedEpics={completedEpicsShown}
-            ondismissepic={onDismissEpic}
-            onlandepic={onLandEpic}
-            doneList={doneSessions.sessions}
-            {doneSelectedId}
-            ondoneselect={(id) => (doneSelectedId = id)}
-            onrundownitem={selectRundownItem}
-            onrundownepic={selectRundownEpic}
-            {focusEpic}
-            onackmigrationsepic={onAckEpicMigrations}
-            onackmanualsteps={onAckManualSteps}
-            onshowowed={onShowOwed}
-            {owedFocusId}
-            {owedFocusSnapshot}
-            {owedFocusNonce}
-            {owedFocusHandledNonce}
-            onfocusresolved={onOwedFocusResolved}
-            onbacklog={() => (showBacklog = true)}
-            {upNextLaunch}
-          />
+          <div class="herd-col" bind:this={herdColEl}>
+            <Herd
+              sessions={herdSessions}
+              filteredRepo={repoFilterName}
+              {repoFilter}
+              onrepofilter={applyRepoFilter}
+              {statusFilter}
+              onstatusfilter={(s) => (statusFilter = s)}
+              {selectedId}
+              {nowMs}
+              onselect={(id) => selectUnit(id)}
+              onnew={() => (showNew = true)}
+              git={store.git}
+              activity={store.activity}
+              preview={store.preview}
+              previewServe={store.previewServe}
+              onpreview={openPreview}
+              onrename={openRename}
+              epics={store.epics}
+              onepic={openEpicInBacklog}
+              {activeEpicKeys}
+              collapsedKeys={collapsedEpics}
+              oncollapsetoggle={toggleEpicCollapse}
+              onrenderedepicgroups={normalizeRenderedEpicCollapse}
+              ondecommission={onarchive}
+              {onrelaunch}
+              {onrelaunchElsewhere}
+              {onvariant}
+              {onreplace}
+              {oncompare}
+              {onclearmerged}
+              {onmergetrain}
+              {issueActionsUnset}
+              onsettings={() => {
+                settingsTab = "workspace";
+                showSettings = true;
+              }}
+              bind:filter={herdFilter}
+              workingBlocked={store.workingBlocked}
+              blocks={store.blocks}
+              holds={store.holds}
+              collapsible={canCollapse}
+              oncollapse={toggleSidebar}
+              completedEpics={completedEpicsShown}
+              ondismissepic={onDismissEpic}
+              onlandepic={onLandEpic}
+              doneList={doneSessions.sessions}
+              {doneSelectedId}
+              ondoneselect={(id) => (doneSelectedId = id)}
+              onrundownitem={selectRundownItem}
+              onrundownepic={selectRundownEpic}
+              {focusEpic}
+              onackmigrationsepic={onAckEpicMigrations}
+              onackmanualsteps={onAckManualSteps}
+              onshowowed={onShowOwed}
+              {owedFocusId}
+              {owedFocusSnapshot}
+              {owedFocusNonce}
+              {owedFocusHandledNonce}
+              onfocusresolved={onOwedFocusResolved}
+              onbacklog={() => (showBacklog = true)}
+              {upNextLaunch}
+            />
+            <!-- Drag-resize splitter (issue #1588): abs-positioned child of the
+                 position:relative .herd-col so it anchors to the sidebar's right
+                 edge (.grid is not positioned). Drag to resize, double-click to
+                 reset — see startHerdResize. Always in the DOM but display:none
+                 on touch (.inert) rather than {#if}-gated, to keep +page's
+                 <template> complexity under the fallow Tier-1 bar. -->
+            <div
+              class="herd-splitter"
+              class:inert={!herdResizable}
+              class:dragging={herdResizing}
+              role="separator"
+              aria-orientation="vertical"
+              aria-label={m.herd_resize_handle()}
+              title={m.herd_resize_handle()}
+              onpointerdown={startHerdResize}
+            ></div>
+          </div>
         {/if}
         {#if panelOnlyLens}
           <!-- Rundown + Owed lenses render their panel inside the rail (left); the main area
@@ -3131,6 +3217,67 @@
     gap: 14px;
     flex: 1;
     min-height: 0;
+  }
+  /* Operator-chosen sidebar width (issue #1588, mouse-desktop only). Set only
+     when `!touch.current && herdWidth.width !== null`, so it never coexists with
+     the touch-only .compact/.collapsed rules — specificity (0,2,0) beats base
+     .grid. --herd-w is a clamped px value from the splitter drag. */
+  .grid.resized {
+    grid-template-columns: var(--herd-w) 1fr;
+  }
+  /* During an active drag: kill text selection + force the resize cursor so
+     dragging over the terminal doesn't select its content. */
+  .grid.resizing {
+    user-select: none;
+    cursor: col-resize;
+  }
+  /* Wrapper around <Herd> that hosts the absolutely-positioned splitter. Single
+     implicit grid cell: the Herd .panel stretches to fill both axes exactly as
+     it did as a direct grid item. */
+  .herd-col {
+    position: relative;
+    display: grid;
+    min-height: 0;
+    min-width: 0;
+  }
+  /* Splitter: ~12px hit strip centred on the 14px grid gap at the sidebar's
+     right edge (right:0 of .herd-col is the sidebar edge; gap midpoint is +7px).
+     A 2px hairline (::after) is invisible at rest and brightens on hover/drag. */
+  .herd-splitter {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    right: -13px;
+    width: 12px;
+    cursor: col-resize;
+    z-index: 5;
+    touch-action: none;
+  }
+  /* Touch-wide layouts: keep the splitter in the DOM (avoids an extra template
+     branch) but fully inert — no hit area, no cursor, no visual. */
+  .herd-splitter.inert {
+    display: none;
+  }
+  .herd-splitter::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    transition: background 0.12s ease;
+  }
+  .herd-splitter:hover::after,
+  .herd-splitter.dragging::after {
+    background: var(--color-line-bright);
+  }
+  .herd-splitter:focus-visible {
+    outline: none;
+  }
+  .herd-splitter:focus-visible::after {
+    background: var(--color-line-bright);
   }
   /* touch devices on the desktop layout (e.g. unfolded foldables): the picker
      would otherwise eat too much of a narrow-ish wide screen */

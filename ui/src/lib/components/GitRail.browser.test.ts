@@ -75,8 +75,8 @@ const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
 const { pullMainAndToast } = await import("$lib/pull-offer");
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
-function render(...args: Parameters<typeof rawRender>): ReturnType<typeof rawRender> {
-  const result = rawRender(...args);
+async function render(...args: Parameters<typeof rawRender>): ReturnType<typeof rawRender> {
+  const result = await rawRender(...args);
   mounted.push(result);
   return result;
 }
@@ -185,7 +185,7 @@ describe("GitRail — shortened issue & PR labels", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     // accessible name (aria-label) carries the full reference…
     await expect.element(screen.getByRole("link", { name: "PR #12345" })).toBeVisible();
     // …and so does the hover tooltip…
@@ -203,7 +203,7 @@ describe("GitRail — shortened issue & PR labels", () => {
     });
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, issueNumber: 855 },
     });
@@ -221,7 +221,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
   });
@@ -230,7 +230,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
   });
@@ -247,7 +247,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     // repoPath empty: no automation pill; showReady irrelevant (state≠open, ready=false)
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, repoPath: "", mobile: false },
     });
@@ -266,7 +266,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(mergedState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByText(/merged/i)).toBeVisible();
     // Redeploy button must be present and in-bounds
     await expect.element(screen.getByRole("button", { name: /Redeploy/i })).toBeVisible();
@@ -283,7 +283,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(mergedState);
     await page.viewport(400, 900);
     const h = host(360);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByText(/merged/i)).toBeVisible();
     assertControlsWithin(h);
   });
@@ -300,7 +300,7 @@ describe("GitRail — controls stay within the cell", () => {
     await page.viewport(600, 900);
     const h = host(600);
     // repoPath set so automation pill renders (still needs to be in-bounds)
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByText(/closed/i)).toBeVisible();
     // automation pill is the only interactive control; assertControlsWithin covers it
     assertControlsWithin(h);
@@ -316,7 +316,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(blockedState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     // Merge button must still be present (just disabled)
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
@@ -336,7 +336,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(conflictState);
     await page.viewport(400, 900);
     const h = host(360);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -359,7 +359,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(unstableState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -379,7 +379,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(protectedState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -398,7 +398,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(behindState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -422,7 +422,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(unknownFailState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -442,7 +442,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(unknownOkState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -461,7 +461,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(draftState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     const mergeBtn = h.querySelector<HTMLButtonElement>("button.gbtn:not(.auto-pill)");
     expect(mergeBtn, "Merge button present").not.toBeNull();
@@ -475,7 +475,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, status: "running", showReady: true },
     });
@@ -491,7 +491,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: true, status: "running", showReady: true },
     });
@@ -508,7 +508,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(400, 900);
     const h = host(360);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     // Arm the merge button by clicking it once (first click arms, second confirms).
@@ -526,7 +526,7 @@ describe("GitRail — controls stay within the cell", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const mergeBtn = screen.getByRole("button", { name: /^Merge$/i });
@@ -547,7 +547,7 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
     gitStateFn.mockRejectedValue(new Error("forge 502"));
     await page.viewport(600, 900);
     const h = host(600);
-    render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     // the error fallback appears (not a blank rail)
     await vi.waitFor(() =>
       expect(h.querySelector<HTMLElement>(".err")?.textContent?.trim()).toBe(
@@ -566,7 +566,7 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
     gitStateFn.mockRejectedValue(new Error("forge 502"));
     await page.viewport(600, 900);
     const h = host(600);
-    render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await vi.waitFor(() => expect(h.querySelector(".err")).not.toBeNull());
 
     // forge recovers; clicking Retry re-fetches and the rail self-heals
@@ -593,7 +593,7 @@ describe("GitRail — mobile scroll affordance", () => {
     // .git-rail-wrap.mobile (flex:1 1 auto; min-width:0) clamps to the cell and
     // the rail scrolls — a plain block host only clamps while content fits.
     h.style.display = "flex";
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile");
@@ -613,7 +613,7 @@ describe("GitRail — mobile scroll affordance", () => {
     const h = host(360);
     // flex host mirrors the real .vp-git-strip so the wrap clamps and the rail scrolls
     h.style.display = "flex";
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail.mobile")!;
@@ -630,7 +630,7 @@ describe("GitRail — mobile scroll affordance", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const rail = h.querySelector<HTMLElement>(".rail");
@@ -648,7 +648,7 @@ describe("GitRail — plan review pulses the automation pill", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     // rail (and the pill) only renders once the mocked gitState resolves on mount
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
@@ -721,7 +721,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
@@ -733,7 +733,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
@@ -746,7 +746,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { chip, dialog } = await openReview(h);
@@ -765,7 +765,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { chip } = await openReview(h);
@@ -780,7 +780,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
@@ -805,7 +805,7 @@ describe("GitRail — review popover is a modal dialog with real focus semantics
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openReview(h);
@@ -856,7 +856,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     // start state: no verdict, not reviewing → "Review" label (the new no-verdict path)
     await vi.waitFor(() => expect(reviewBtn(h), "review button present").not.toBeNull());
@@ -867,7 +867,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue({ ...openPrState, checks: "pending" });
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     expect(reviewBtn(h), "no review button without green CI").toBeNull();
   });
@@ -881,7 +881,7 @@ describe("GitRail — manual critic-review trigger", () => {
     });
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByText(/merged/i)).toBeVisible();
     expect(reviewBtn(h), "no review button when not open").toBeNull();
   });
@@ -891,7 +891,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() =>
       expect(screen.getByRole("button", { name: /^Merge$/i }).element()).toBeTruthy(),
@@ -904,7 +904,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await vi.waitFor(() => expect(reviewBtn(h)).not.toBeNull());
 
@@ -936,7 +936,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
@@ -955,7 +955,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
@@ -970,7 +970,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
@@ -982,7 +982,7 @@ describe("GitRail — manual critic-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     await armAndConfirm(h);
     await vi.waitFor(() => expect(reviewPrFn).toHaveBeenCalledTimes(1));
@@ -1033,7 +1033,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1047,7 +1047,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: null },
     });
@@ -1062,7 +1062,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "executing" },
     });
@@ -1092,7 +1092,7 @@ describe("GitRail — manual plan-review trigger", () => {
     });
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1106,7 +1106,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1132,7 +1132,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1147,7 +1147,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1170,7 +1170,7 @@ describe("GitRail — manual plan-review trigger", () => {
     planGates.applyReviewing(baseProps.sessionId, true);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1194,7 +1194,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1216,7 +1216,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1239,7 +1239,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1257,7 +1257,7 @@ describe("GitRail — manual plan-review trigger", () => {
     planGates.applyReviewing(baseProps.sessionId, true);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1275,7 +1275,7 @@ describe("GitRail — manual plan-review trigger", () => {
     gitStateFn.mockResolvedValue(openPrState); // open + checks:success + critic enabled
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, mobile: false, planPhase: "planning" },
     });
@@ -1348,7 +1348,7 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(400, 900);
     const h = host(360);
-    render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: false } });
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: false } });
     await vi.waitFor(() =>
       expect(openPrBtn(h), "Open PR button present when AP off").not.toBeNull(),
     );
@@ -1360,7 +1360,7 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     const h = host(360);
     // repoPath present → the automation pill still renders, so only the Open-PR slot
     // is empty, not the rail. Wait for the pill, then assert Open PR is absent.
-    render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
     await vi.waitFor(() =>
       expect(h.querySelector(".auto-pill"), "automation pill renders").not.toBeNull(),
     );
@@ -1376,7 +1376,7 @@ describe("GitRail — Open PR hidden under autopilot", () => {
     gitStateFn.mockResolvedValue(noneState);
     await page.viewport(400, 900);
     const h = host(360);
-    const { component } = render(GitRailAutopilotHarness, {
+    const { component } = await render(GitRailAutopilotHarness, {
       target: h,
       props: { ...baseProps, mobile: true },
     });
@@ -1434,7 +1434,7 @@ describe("GitRail — post-merge decommission offer", () => {
     const ondecommission = vi.fn();
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, sessionId: "sess-A", mobile: false, ondecommission },
     });
@@ -1475,7 +1475,7 @@ describe("GitRail — post-merge decommission offer", () => {
     const ondecommission = vi.fn();
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: {
         ...baseProps,
@@ -1525,7 +1525,7 @@ describe("GitRail — post-merge decommission offer", () => {
     const ondecommission = vi.fn();
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: {
         ...baseProps,
@@ -1589,7 +1589,7 @@ describe("GitRail — post-merge decommission offer", () => {
     const ondecommission = vi.fn();
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: {
         ...baseProps,
@@ -1639,7 +1639,7 @@ describe("GitRail — post-merge decommission offer", () => {
     const ondecommission = vi.fn();
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, {
+    const screen = await render(GitRail, {
       target: h,
       props: { ...baseProps, sessionId: "sess-B", mobile: false, ondecommission },
     });
@@ -1707,7 +1707,7 @@ describe("GitRail — automation panel close affordance + overflow fix", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openAutomation(h);
@@ -1723,7 +1723,7 @@ describe("GitRail — automation panel close affordance + overflow fix", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(390, 844);
     const h = host(390);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openAutomation(h);
@@ -1743,7 +1743,7 @@ describe("GitRail — automation panel close affordance + overflow fix", () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(1024, 800);
     const h = host(600);
-    const screen = render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
 
     const { dialog } = await openAutomation(h);

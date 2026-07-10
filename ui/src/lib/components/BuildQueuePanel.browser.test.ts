@@ -419,7 +419,7 @@ describe("BuildQueuePanel — approved/running state", () => {
       approved: true,
       steps: [{ id: "a", title: "Step 1", status: "pending", position: 0 }],
     };
-    const { unmount } = render(BuildQueuePanel, {
+    const { unmount } = await render(BuildQueuePanel, {
       sessionId: "s1",
       enabled: true,
       queue: undefinedKindQueue,

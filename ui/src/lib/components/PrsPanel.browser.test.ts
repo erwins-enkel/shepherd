@@ -143,7 +143,7 @@ describe("PrsPanel launch-train toolbar", () => {
 
   it("clears the selection when the repoPath prop changes", async () => {
     seed([pr(1), pr(2)]);
-    const { rerender } = render(PrsPanel, {
+    const { rerender } = await render(PrsPanel, {
       repoPath: "/repo-a",
       onreview: noop,
       onlaunchtrain: noop,

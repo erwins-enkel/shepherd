@@ -164,7 +164,7 @@ describe("Viewport preview tab", () => {
   const previewTab = () => page.getByRole("tab", { name: "Preview" });
 
   it("opens the Preview tab + renders the iframe on a badge-click tick bump", async () => {
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: session({ id: "v1" }),
       previewPort: 8001,
       openPreviewTick: 0,
@@ -189,7 +189,7 @@ describe("Viewport preview tab", () => {
   });
 
   it("falls back to the terminal tab when the preview port goes null while open", async () => {
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: session({ id: "v2" }),
       previewPort: 8002,
       openPreviewTick: 1,
@@ -214,7 +214,7 @@ describe("Viewport preview tab", () => {
 
   it("does not re-open Preview on a later null→port flip without a fresh tick bump", async () => {
     // open via the initial tick, then the operator navigates away to another tab
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: session({ id: "v3" }),
       previewPort: 8003,
       openPreviewTick: 1,
@@ -315,7 +315,7 @@ describe("Viewport task detail tooltip", () => {
       launchMetadata,
     });
 
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: initial,
       previewPort: null,
       openPreviewTick: 0,
@@ -361,7 +361,7 @@ describe("Viewport rename affordances", () => {
       .replace(/^-+|-+$/g, "");
 
   it("renders a renamed session name once and double-click opens rename", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({
         id: "rename-head",
         name: "visible session title",
@@ -398,8 +398,8 @@ describe("Viewport rename affordances", () => {
     expect((input.element() as HTMLInputElement).value).toBe("visible session title");
   });
 
-  it("keeps a distinct normal desktop branch label visible", () => {
-    const { container } = render(Viewport, {
+  it("keeps a distinct normal desktop branch label visible", async () => {
+    const { container } = await render(Viewport, {
       session: session({
         id: "rename-branch",
         name: "visible session title",
@@ -419,7 +419,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("desktop single-tap on the title toggles the git rail instantly", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "toggle-head", name: "toggle title" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -435,7 +435,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("double-tap renames and restores the rail to its pre-rename state", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "toggle-rename", name: "toggle rename title" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -454,7 +454,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("touch-desktop single tap folds the header instantly", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "touch-fold", name: "touch fold title" }),
       touch: true,
       previewPort: null,
@@ -473,7 +473,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("touch-desktop double-tap renames and restores the fold", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "touch-fold-rename", name: "touch fold rename title" }),
       touch: true,
       previewPort: null,
@@ -503,7 +503,7 @@ describe("Viewport rename affordances", () => {
     // actually exercised: toggleFold() forces tab="term" on fold, so a naive
     // "call toggleFold() twice" undo would leave the tab on "term" instead of
     // restoring it.
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "touch-fold-tab-restore", name: "touch tab restore title" }),
       touch: true,
       previewPort: null,
@@ -529,7 +529,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("clicking the relocated git-toggle chip toggles the rail with aria-expanded", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "toggle-chip", name: "chip title" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -547,7 +547,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("phone single tap folds the header", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "phone-fold", name: "phone fold title" }),
       mobile: true,
       previewPort: null,
@@ -566,7 +566,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("mobile double-tap on the title still renames (folds then undoes, not a rail toggle)", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "toggle-mobile", name: "mobile title" }),
       mobile: true,
       previewPort: null,
@@ -583,7 +583,7 @@ describe("Viewport rename affordances", () => {
   });
 
   it("opens rename only for matching targeted requests", async () => {
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: session({ id: "rename-target", name: "target title" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -665,7 +665,7 @@ describe("Viewport preview stop — per-session pending resolution", () => {
     };
 
     // Render unit A ("task one") with a live preview, tab open.
-    const { rerender } = render(Viewport, {
+    const { rerender } = await render(Viewport, {
       session: session({ id: "A", name: "task one", status: "idle" }),
       previewPort: 8001,
       previewMap: { A: 8001 },
@@ -769,7 +769,7 @@ describe("Viewport active REWORK terminal strip", () => {
     const id = "rw-plan-active";
     planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
       activity: activity("edited .shepherd-plan.md"),
       previewPort: null,
@@ -795,7 +795,7 @@ describe("Viewport active REWORK terminal strip", () => {
     const id = "rw-plan-parked";
     planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "blocked", planPhase: "planning" }),
       activity: activity("edited .shepherd-plan.md"),
       previewPort: null,
@@ -829,7 +829,7 @@ describe("Viewport active REWORK terminal strip", () => {
       [id]: reviewVerdict({ sessionId: id, addressRound: 1, addressCap: 5 }),
     };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "done", planPhase: "executing" }),
       activity: activity("edited Viewport.svelte"),
       previewPort: null,
@@ -858,7 +858,7 @@ describe("Viewport active REWORK terminal strip", () => {
     planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
     planGates.applyReviewing(id, true);
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
       activity: activity("edited .shepherd-plan.md"),
       previewPort: null,
@@ -876,7 +876,7 @@ describe("Viewport active REWORK terminal strip", () => {
       [id]: reviewVerdict({ sessionId: id, addressRound: 1, addressCap: 5 }),
     };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "executing" }),
       activity: activity("edited Viewport.svelte"),
       git: {
@@ -946,7 +946,7 @@ describe("Viewport mobile page-swipe scoping", () => {
 
   it("pages to the next agent on a leftward drag inside the terminal body", async () => {
     const onnavigate = vi.fn();
-    const { container } = renderMobile(onnavigate);
+    const { container } = await renderMobile(onnavigate);
 
     const body = container.querySelector(".vp-body");
     expect(body, ".vp-body should render").not.toBeNull();
@@ -960,7 +960,7 @@ describe("Viewport mobile page-swipe scoping", () => {
 
   it("does NOT page when the same drag starts on the header chrome (.vp-head)", async () => {
     const onnavigate = vi.fn();
-    const { container } = renderMobile(onnavigate);
+    const { container } = await renderMobile(onnavigate);
 
     const head = container.querySelector(".vp-head");
     expect(head, ".vp-head should render").not.toBeNull();
@@ -971,7 +971,7 @@ describe("Viewport mobile page-swipe scoping", () => {
 
   it("tags only .vp-body with data-swipe-page; all top chrome is outside the allow-list", async () => {
     const onnavigate = vi.fn();
-    const { container } = renderMobile(onnavigate);
+    const { container } = await renderMobile(onnavigate);
 
     const body = container.querySelector(".vp-body");
     expect(body, ".vp-body should render").not.toBeNull();
@@ -992,7 +992,7 @@ describe("Viewport mobile page-swipe scoping", () => {
 
   it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
     const onnavigate = vi.fn();
-    const { container } = renderMobile(onnavigate);
+    const { container } = await renderMobile(onnavigate);
 
     const body = container.querySelector(".vp-body");
     expect(body, ".vp-body should render").not.toBeNull();
@@ -1020,7 +1020,7 @@ describe("Viewport armed decommission icon-only rendering", () => {
   it("armed compact decom button has no .decom-confirm child and has solid red background", async () => {
     // mobile=true + readyToMerge=false → the git-strip icon-only decom button renders.
     // Viewport.svelte CSS is scoped; app.css (imported at test top) provides tokens.
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "dc-compact", readyToMerge: false }),
       mobile: true,
       previewPort: null,
@@ -1073,7 +1073,7 @@ describe("Viewport armed decommission icon-only rendering", () => {
 
   it("armed quiet desktop decom button has no .decom-confirm child", async () => {
     // compact=false + readyToMerge=false → the desktop quiet icon-only decom button
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "dc-quiet", readyToMerge: false }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1132,7 +1132,7 @@ describe("Viewport Activity tab A/B switch", () => {
     const id = "ar-idle";
     recaps.map = { [id]: readyRecap(id) };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "idle" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1157,7 +1157,7 @@ describe("Viewport Activity tab A/B switch", () => {
     const id = "ar-running";
     recaps.map = { [id]: readyRecap(id) };
 
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1213,7 +1213,7 @@ describe("Viewport terminal dim on in-flight review", () => {
   it("plan-gate in-flight: dims the terminal", async () => {
     const id = "dim-plan";
     planGates.applyReviewing(id, true);
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1226,7 +1226,7 @@ describe("Viewport terminal dim on in-flight review", () => {
     const id = "dim-critic";
     repoConfig.autoAddress = { "/repo/a": true };
     reviews.setReviewing(id, true);
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "executing" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1238,7 +1238,7 @@ describe("Viewport terminal dim on in-flight review", () => {
   it("addressing phase: does NOT dim (agent works in this PTY)", async () => {
     const id = "dim-addressing";
     planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
       activity: activity("edited .shepherd-plan.md"),
       previewPort: null,
@@ -1254,7 +1254,7 @@ describe("Viewport terminal dim on in-flight review", () => {
     const id = "dim-critic-off";
     repoConfig.autoAddress = { "/repo/a": false };
     reviews.setReviewing(id, true);
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "idle", planPhase: "executing" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1266,7 +1266,7 @@ describe("Viewport terminal dim on in-flight review", () => {
   it("conclusion phase: does NOT dim once the verdict lands", async () => {
     const id = "dim-conclusion";
     planGates.applyReviewing(id, true);
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
       previewPort: null,
       openPreviewTick: 0,
@@ -1292,7 +1292,7 @@ describe("Viewport terminal dim on in-flight review", () => {
 
 describe("Viewport phone back glyph", () => {
   it("phone back control renders the list glyph ☰, not the left chevron ‹", async () => {
-    const { container } = render(Viewport, {
+    const { container } = await render(Viewport, {
       session: session({ id: "back-glyph" }),
       mobile: true,
       onback: vi.fn(),

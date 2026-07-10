@@ -13,7 +13,7 @@ describe("PuiBadge", () => {
   });
 
   it("applies ok tone color (green)", async () => {
-    const { container } = render(PuiBadge, {
+    const { container } = await render(PuiBadge, {
       node: { type: "badge", props: { label: "READY", tone: "ok" } },
     });
     const el = container.querySelector(".pui-badge") as HTMLElement | null;
@@ -21,7 +21,7 @@ describe("PuiBadge", () => {
   });
 
   it("applies error tone color (red)", async () => {
-    const { container } = render(PuiBadge, {
+    const { container } = await render(PuiBadge, {
       node: { type: "badge", props: { label: "FAIL", tone: "error" } },
     });
     const el = container.querySelector(".pui-badge") as HTMLElement | null;
@@ -29,7 +29,7 @@ describe("PuiBadge", () => {
   });
 
   it("applies warn tone color", async () => {
-    const { container } = render(PuiBadge, {
+    const { container } = await render(PuiBadge, {
       node: { type: "badge", props: { label: "CAUTION", tone: "warn" } },
     });
     const el = container.querySelector(".pui-badge") as HTMLElement | null;
@@ -37,7 +37,7 @@ describe("PuiBadge", () => {
   });
 
   it("defaults to neutral for unknown tone", async () => {
-    const { container } = render(PuiBadge, {
+    const { container } = await render(PuiBadge, {
       node: { type: "badge", props: { label: "X", tone: "bogus-tone" } },
     });
     const el = container.querySelector(".pui-badge") as HTMLElement | null;

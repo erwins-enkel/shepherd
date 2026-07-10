@@ -6,7 +6,7 @@ import PuiTimeSeries from "./PuiTimeSeries.svelte";
 
 describe("PuiTimeSeries", () => {
   it("with series renders a polyline", async () => {
-    const { container } = render(PuiTimeSeries, {
+    const { container } = await render(PuiTimeSeries, {
       node: {
         type: "time-series",
         props: {
@@ -18,7 +18,7 @@ describe("PuiTimeSeries", () => {
   });
 
   it("area kind renders a polygon", async () => {
-    const { container } = render(PuiTimeSeries, {
+    const { container } = await render(PuiTimeSeries, {
       node: {
         type: "time-series",
         props: {
@@ -45,7 +45,7 @@ describe("PuiTimeSeries", () => {
   });
 
   it("legend shows provided series label", async () => {
-    const { container } = render(PuiTimeSeries, {
+    const { container } = await render(PuiTimeSeries, {
       node: {
         type: "time-series",
         props: {
@@ -59,7 +59,7 @@ describe("PuiTimeSeries", () => {
   });
 
   it("clamps points outside [0, yMax] inside the viewBox", async () => {
-    const { container } = render(PuiTimeSeries, {
+    const { container } = await render(PuiTimeSeries, {
       node: {
         type: "time-series",
         props: {
@@ -86,7 +86,7 @@ describe("PuiTimeSeries", () => {
   });
 
   it("series with empty label is omitted from the legend", async () => {
-    const { container } = render(PuiTimeSeries, {
+    const { container } = await render(PuiTimeSeries, {
       node: {
         type: "time-series",
         props: {

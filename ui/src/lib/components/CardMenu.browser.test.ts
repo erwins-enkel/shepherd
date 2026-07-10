@@ -29,7 +29,7 @@ const base = (extra: Record<string, unknown> = {}) => ({
 
 describe("CardMenu relaunch action", () => {
   it("renders the Relaunch item only when onrelaunch is provided", async () => {
-    const { rerender } = render(CardMenu, { props: base() });
+    const { rerender } = await render(CardMenu, { props: base() });
     expect(document.querySelector(".card-menu")).not.toBeNull();
     // no onrelaunch → no Relaunch item
     expect(page.getByRole("menuitem", { name: m.cardmenu_relaunch() }).query()).toBeNull();

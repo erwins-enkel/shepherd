@@ -14,7 +14,7 @@ describe("PuiMeter", () => {
   });
 
   it("clamps value above max to 100%", async () => {
-    const { container } = render(PuiMeter, {
+    const { container } = await render(PuiMeter, {
       node: { type: "meter", props: { value: 200, max: 100 } },
     });
     const fill = container.querySelector(".pui-meter-fill") as HTMLElement | null;
@@ -22,7 +22,7 @@ describe("PuiMeter", () => {
   });
 
   it("clamps negative value to 0%", async () => {
-    const { container } = render(PuiMeter, {
+    const { container } = await render(PuiMeter, {
       node: { type: "meter", props: { value: -10, max: 100 } },
     });
     const fill = container.querySelector(".pui-meter-fill") as HTMLElement | null;

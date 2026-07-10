@@ -6,7 +6,7 @@ import PuiSparkline from "./PuiSparkline.svelte";
 
 describe("PuiSparkline", () => {
   it("with points renders a polyline and no empty text", async () => {
-    const { container } = render(PuiSparkline, {
+    const { container } = await render(PuiSparkline, {
       node: { type: "sparkline", props: { points: [1, 3, 2, 5, 4] } },
     });
     expect(container.querySelector("polyline")).not.toBeNull();
@@ -37,7 +37,7 @@ describe("PuiSparkline", () => {
   });
 
   it("NaN-laden array filters to finite values and renders without throwing", async () => {
-    const { container } = render(PuiSparkline, {
+    const { container } = await render(PuiSparkline, {
       node: { type: "sparkline", props: { points: [1, "x", 3] } },
     });
     // "x" coerces to NaN and is filtered out; 1 and 3 remain → renders chart
@@ -45,7 +45,7 @@ describe("PuiSparkline", () => {
   });
 
   it("renders label when provided", async () => {
-    const { container } = render(PuiSparkline, {
+    const { container } = await render(PuiSparkline, {
       node: { type: "sparkline", props: { points: [1, 2], label: "Requests" } },
     });
     // Label appears both in visible span and SVG <title>; query the span directly
@@ -54,7 +54,7 @@ describe("PuiSparkline", () => {
   });
 
   it("empty-string label falls back to localized aria-label", async () => {
-    const { container } = render(PuiSparkline, {
+    const { container } = await render(PuiSparkline, {
       node: { type: "sparkline", props: { points: [1, 2], label: "" } },
     });
     const svg = container.querySelector("[role=img]") as SVGElement | null;

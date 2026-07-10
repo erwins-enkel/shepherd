@@ -164,7 +164,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.loaded = true;
     postMergeSteps.settled = true;
     const onfocusresolved = vi.fn();
-    const screen = render(PostMergeStepsPanel, {
+    const screen = await render(PostMergeStepsPanel, {
       focusSessionId: "s1",
       focusSnapshot: snapshot({ sessionId: "s1" }),
       focusNonce: 1,
@@ -183,7 +183,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
 
   it("merged + live record NOT yet settled: waits (no frozen 'no longer owed' flash), then resolves once loaded", async () => {
     const onfocusresolved = vi.fn();
-    const screen = render(PostMergeStepsPanel, {
+    const screen = await render(PostMergeStepsPanel, {
       focusSessionId: "s1",
       focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
       focusNonce: 1,
@@ -251,7 +251,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
 
   it("remount guard: a lens toggle back with the same (already-handled) nonce shows no phantom frozen card", async () => {
     const onfocusresolved = vi.fn();
-    const first = render(PostMergeStepsPanel, {
+    const first = await render(PostMergeStepsPanel, {
       focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
       focusNonce: 1,
       focusHandledNonce: 0,
@@ -261,7 +261,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     await first.unmount();
 
     // Simulated remount (owner's page kept handledNonce === nonce across the panel's own unmount).
-    const second = render(PostMergeStepsPanel, {
+    const second = await render(PostMergeStepsPanel, {
       focusSnapshot: snapshot({ sessionId: "s1", merged: false }),
       focusNonce: 1,
       focusHandledNonce: 1,
@@ -300,7 +300,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.loaded = true;
     postMergeSteps.settled = true;
     const onfocusresolved = vi.fn();
-    const screen = render(PostMergeStepsPanel, {
+    const screen = await render(PostMergeStepsPanel, {
       repoFilter: new Set(["/repo/shepherd"]),
       focusSessionId: "s1",
       focusSnapshot: snapshot({ sessionId: "s1" }),
@@ -328,7 +328,7 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.loaded = true;
     postMergeSteps.settled = true;
     const onfocusresolved = vi.fn();
-    const screen = render(PostMergeStepsPanel, {
+    const screen = await render(PostMergeStepsPanel, {
       focusSnapshot: snapshot({ sessionId: "s1", merged: true }),
       focusNonce: 1,
       focusHandledNonce: 0,

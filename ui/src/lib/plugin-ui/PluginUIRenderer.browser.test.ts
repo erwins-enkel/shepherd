@@ -58,7 +58,7 @@ describe("PluginUIRenderer", () => {
   });
 
   it("dispatches gauge → PuiGauge (role=meter present)", async () => {
-    const { container } = render(PluginUIRenderer, {
+    const { container } = await render(PluginUIRenderer, {
       node: { type: "gauge", props: { value: 1, max: 2, label: "G" } },
     });
     expect(container.querySelector("[role=meter]")).not.toBeNull();
@@ -68,14 +68,14 @@ describe("PluginUIRenderer", () => {
   });
 
   it("dispatches sparkline → PuiSparkline (polyline present)", async () => {
-    const { container } = render(PluginUIRenderer, {
+    const { container } = await render(PluginUIRenderer, {
       node: { type: "sparkline", props: { points: [1, 2, 3] } },
     });
     expect(container.querySelector("polyline")).not.toBeNull();
   });
 
   it("dispatches time-series → PuiTimeSeries (polyline present)", async () => {
-    const { container } = render(PluginUIRenderer, {
+    const { container } = await render(PluginUIRenderer, {
       node: {
         type: "time-series",
         props: { series: [{ label: "X", points: [1, 2] }] },
@@ -85,7 +85,7 @@ describe("PluginUIRenderer", () => {
   });
 
   it("dispatches bar-chart → PuiBarChart (role=list present)", async () => {
-    const { container } = render(PluginUIRenderer, {
+    const { container } = await render(PluginUIRenderer, {
       node: {
         type: "bar-chart",
         props: { bars: [{ label: "A", value: 5 }] },
@@ -95,7 +95,7 @@ describe("PluginUIRenderer", () => {
   });
 
   it("dispatches timeline → PuiTimeline (<ol> present)", async () => {
-    const { container } = render(PluginUIRenderer, {
+    const { container } = await render(PluginUIRenderer, {
       node: {
         type: "timeline",
         props: { events: [{ at: "Now", label: "Launched" }] },

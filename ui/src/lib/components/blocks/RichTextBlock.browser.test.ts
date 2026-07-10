@@ -6,7 +6,7 @@ import RichTextBlock from "./RichTextBlock.svelte";
 
 describe("RichTextBlock", () => {
   it("renders bold markdown as a <strong> element", async () => {
-    const { container } = render(RichTextBlock, {
+    const { container } = await render(RichTextBlock, {
       block: { type: "rich-text", id: "r1", markdown: "**bold**" },
     });
     // wait for async dynamic-import render to settle
@@ -18,7 +18,7 @@ describe("RichTextBlock", () => {
   });
 
   it("renders nothing when markdown is empty", async () => {
-    const { container } = render(RichTextBlock, {
+    const { container } = await render(RichTextBlock, {
       block: { type: "rich-text", id: "r2", markdown: "" },
     });
     // rt-md div should not exist
@@ -26,7 +26,7 @@ describe("RichTextBlock", () => {
   });
 
   it("sanitizes html in markdown body (no script content in rendered output)", async () => {
-    const { container } = render(RichTextBlock, {
+    const { container } = await render(RichTextBlock, {
       block: { type: "rich-text", id: "r3", markdown: "safe **text** here" },
     });
     // wait for async render

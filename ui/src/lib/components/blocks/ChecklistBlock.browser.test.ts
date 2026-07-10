@@ -21,7 +21,7 @@ describe("ChecklistBlock", () => {
   });
 
   it("renders checked glyph for checked items", async () => {
-    const { container } = render(ChecklistBlock, {
+    const { container } = await render(ChecklistBlock, {
       block: {
         type: "checklist",
         id: "cl2",

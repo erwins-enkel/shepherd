@@ -20,7 +20,7 @@ describe("PuiTable", () => {
   });
 
   it("renders row cells", async () => {
-    const { container } = render(PuiTable, {
+    const { container } = await render(PuiTable, {
       node: {
         type: "table",
         props: {

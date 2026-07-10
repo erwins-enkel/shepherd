@@ -96,7 +96,7 @@ describe("RedrawMenu", () => {
   });
 
   it("restores focus to the trigger when the menu closes", async () => {
-    const screen = render(RedrawMenu, {
+    const screen = await render(RedrawMenu, {
       props: { anchor, live: true, resuming: false, ...handlers() },
     });
     await expect.poll(activeText).toContain(m.redrawmenu_nudge());

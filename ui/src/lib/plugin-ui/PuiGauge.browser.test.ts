@@ -6,7 +6,7 @@ import PuiGauge from "./PuiGauge.svelte";
 
 describe("PuiGauge", () => {
   it("renders label text when provided", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: 30, max: 100, label: "CPU Usage" } },
     });
     // The label appears both in a visible <span> and the SVG <title>; query the span directly
@@ -15,7 +15,7 @@ describe("PuiGauge", () => {
   });
 
   it("renders caption text when provided", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: 30, max: 100, caption: "Monthly budget" } },
     });
     const captionEl = container.querySelector(".pui-gauge-caption");
@@ -23,7 +23,7 @@ describe("PuiGauge", () => {
   });
 
   it("role=meter has correct aria attributes for given value/max", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: 42, max: 200 } },
     });
     const meter = container.querySelector("[role=meter]") as SVGElement | null;
@@ -34,7 +34,7 @@ describe("PuiGauge", () => {
   });
 
   it("clamps value above max — arc fully filled (dashOffset=0)", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: 999, max: 100 } },
     });
     const meter = container.querySelector("[role=meter]");
@@ -45,7 +45,7 @@ describe("PuiGauge", () => {
   });
 
   it("clamps negative value — arc fully empty (dashOffset=dashArray)", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: -50, max: 100 } },
     });
     const meter = container.querySelector("[role=meter]");
@@ -57,7 +57,7 @@ describe("PuiGauge", () => {
   });
 
   it("empty-string label falls back to localized aria-label", async () => {
-    const { container } = render(PuiGauge, {
+    const { container } = await render(PuiGauge, {
       node: { type: "gauge", props: { value: 1, max: 2, label: "" } },
     });
     const meter = container.querySelector("[role=meter]") as SVGElement | null;

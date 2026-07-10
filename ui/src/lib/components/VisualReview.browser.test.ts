@@ -55,8 +55,8 @@ describe("VisualReview dispatcher", () => {
     expect(() => render(VisualReview, { blocks })).not.toThrow();
   });
 
-  it("renders nothing for an empty blocks array", () => {
-    const { container } = render(VisualReview, { blocks: [] });
+  it("renders nothing for an empty blocks array", async () => {
+    const { container } = await render(VisualReview, { blocks: [] });
     expect(container.querySelector(".visual-review")?.children.length).toBe(0);
   });
 
@@ -109,7 +109,7 @@ describe("VisualReview dispatcher", () => {
         file: { ...TEST_DIFF_FILE, path: "src/b.ts" },
       },
     ];
-    const { container } = render(VisualReview, { blocks });
+    const { container } = await render(VisualReview, { blocks });
     const headings = container.querySelectorAll(".vr-highlight-head");
     expect(headings.length).toBe(1);
     await expect.element(page.getByText(/Highlighted changes/i)).toBeInTheDocument();
@@ -126,7 +126,7 @@ describe("VisualReview dispatcher", () => {
         file: TEST_DIFF_FILE,
       },
     ];
-    const { container } = render(VisualReview, { blocks });
+    const { container } = await render(VisualReview, { blocks });
     await expect.element(page.getByText(/Highlighted changes/i)).toBeInTheDocument();
     // assert DOM order: heading must precede the first diff block output
     const heading = container.querySelector(".vr-highlight-head");
@@ -142,7 +142,7 @@ describe("VisualReview dispatcher", () => {
 
   it("does not show 'Highlighted changes' heading when no diff blocks", async () => {
     const blocks: VisualBlock[] = [{ type: "rich-text", id: "r1", markdown: "No diffs here." }];
-    const { container } = render(VisualReview, { blocks });
+    const { container } = await render(VisualReview, { blocks });
     expect(container.querySelector(".vr-highlight-head")).toBeNull();
   });
 
@@ -201,7 +201,7 @@ describe("VisualReview dispatcher", () => {
         rows: [["db_host", "localhost"]],
       },
     ];
-    const { container } = render(VisualReview, { blocks });
+    const { container } = await render(VisualReview, { blocks });
     await expect.element(page.getByText("ConfigKey")).toBeInTheDocument();
     const cells = Array.from(container.querySelectorAll(".tb-td"));
     expect(cells.some((c) => c.textContent?.includes("db_host"))).toBe(true);

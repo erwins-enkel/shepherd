@@ -139,7 +139,7 @@
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
   {/if}
-  {#if issue.labels.length > 0 || age || (showAssignees && issue.assignees.length > 0)}
+  {#if issue.labels.length > 0 || age || issue.author || (showAssignees && issue.assignees.length > 0)}
     <div class="label-row">
       {#if showAssignees}
         {#each issue.assignees as login (login)}
@@ -156,6 +156,9 @@
           >{label}</span
         >
       {/each}
+      {#if issue.author}
+        <span class="issue-author">{m.issuerow_author_by({ login: issue.author })}</span>
+      {/if}
       {#if age}
         <span class="age-chip">{relativeAge(issue.createdAt, clock.current)}</span>
       {/if}
@@ -316,6 +319,15 @@
     letter-spacing: 0.1em;
     color: var(--color-faint);
     padding: 1px 0;
+  }
+
+  /* Subtle "by {login}" author text — dimmed, no chip border, so it reads as metadata
+     alongside the age and distinct from the 👤 assignee chip. Logins are verbatim. */
+  .issue-author {
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    padding: 1px 0;
+    white-space: nowrap;
   }
 
   .issue-actions {

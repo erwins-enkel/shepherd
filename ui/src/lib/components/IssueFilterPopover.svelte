@@ -6,7 +6,38 @@
 
   // showMine: when false the "mine & unassigned" row is NOT rendered (viewer unknown).
   // coachTargets: when true, the trigger carries use:coachTarget={"issue-filters"}.
-  let { showMine, coachTargets = false }: { showMine: boolean; coachTargets?: boolean } = $props();
+  // authors/labels: distinct option sets for the repo-scoped author + label filters
+  //   (computed by the parent from the raw issue list). selectedAuthor/selectedLabels are
+  //   the current selection; the parent owns the state and mutates it via the callbacks.
+  //   All optional — omitted (empty) → neither section renders, so existing callers are
+  //   unaffected.
+  let {
+    showMine,
+    coachTargets = false,
+    authors = [],
+    labels = [],
+    selectedAuthor = null,
+    selectedLabels = [],
+    onauthor = undefined,
+    ontogglelabel = undefined,
+  }: {
+    showMine: boolean;
+    coachTargets?: boolean;
+    authors?: string[];
+    labels?: string[];
+    selectedAuthor?: string | null;
+    selectedLabels?: string[];
+    onauthor?: (author: string | null) => void;
+    ontogglelabel?: (label: string) => void;
+  } = $props();
+
+  // Show the Author section at >=2 authors OR whenever a selection is set — the OR-guard
+  // keeps a still-valid author selection clearable when a refresh shrinks the option set to
+  // one (an absent selection is pruned upstream, so a non-null selectedAuthor is always in
+  // `authors`). The Labels section needs no such guard: its >=1 threshold can't hide a
+  // still-present selected label (an absent one is pruned upstream).
+  const showAuthorSection = $derived(authors.length >= 2 || selectedAuthor != null);
+  const showLabelSection = $derived(labels.length >= 1);
 
   // SSR-stable per-instance id for aria-controls wiring.
   const popoverId = $props.id();
@@ -17,11 +48,14 @@
   let popEl = $state<HTMLDivElement | null>(null);
 
   // Active count — gates mine toggle on showMine so a persisted hideOthers=true
-  // doesn't inflate the badge when the mine row isn't shown.
+  // doesn't inflate the badge when the mine row isn't shown. The author + label filters
+  // add one each per active selection (author = 0/1, labels = count).
   const activeCount = $derived(
     (showMine && issuesFilter.hideOthers ? 1 : 0) +
       (issuesFilter.hideActive ? 1 : 0) +
-      (issuesFilter.hideSubIssues ? 1 : 0),
+      (issuesFilter.hideSubIssues ? 1 : 0) +
+      (selectedAuthor != null ? 1 : 0) +
+      selectedLabels.length,
   );
 
   // Position the popover below the trigger whenever open + both elements exist.
@@ -149,6 +183,53 @@
       <span class="row-desc">{m.issues_filter_subissues_title()}</span>
     </span>
   </label>
+
+  {#if showAuthorSection}
+    <div class="section-divider" role="separator"></div>
+    <div class="section" role="radiogroup" aria-label={m.issues_filter_author_heading()}>
+      <div class="section-heading">{m.issues_filter_author_heading()}</div>
+      <label class="filter-row author-row">
+        <input
+          type="radio"
+          name="issue-author-filter-{popoverId}"
+          checked={selectedAuthor == null}
+          onchange={() => onauthor?.(null)}
+        />
+        <span class="row-label">{m.issues_filter_author_all()}</span>
+      </label>
+      {#each authors as author (author)}
+        <label class="filter-row author-row">
+          <input
+            type="radio"
+            name="issue-author-filter-{popoverId}"
+            checked={selectedAuthor === author}
+            onchange={() => onauthor?.(author)}
+          />
+          <span class="row-label author-login">{author}</span>
+        </label>
+      {/each}
+    </div>
+  {/if}
+
+  {#if showLabelSection}
+    <div class="section-divider" role="separator"></div>
+    <div class="section">
+      <div class="section-heading" id="issue-label-heading-{popoverId}">
+        {m.issues_filter_labels_heading()}
+      </div>
+      <div class="label-chips" role="group" aria-labelledby="issue-label-heading-{popoverId}">
+        {#each labels as label (label)}
+          {@const on = selectedLabels.includes(label)}
+          <button
+            type="button"
+            class={["label-toggle", { on }]}
+            aria-pressed={on}
+            onclick={() => ontogglelabel?.(label)}>{label}</button
+          >
+        {/each}
+      </div>
+    </div>
+  {/if}
 </div>
 
 <style>
@@ -217,6 +298,10 @@
     margin: 0;
     min-width: 240px;
     max-width: min(320px, 90vw);
+    /* Cap the height so a label-/author-heavy repo scrolls the picker instead of
+       overflowing the viewport. */
+    max-height: min(70vh, 460px);
+    overflow-y: auto;
     padding: 8px 0;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
@@ -279,5 +364,91 @@
     color: var(--color-muted);
     font-size: var(--fs-micro);
     line-height: 1.4;
+  }
+
+  /* Author + label filter sections, separated from the boolean toggles by a hairline. */
+  .section-divider {
+    height: 1px;
+    margin: 6px 12px;
+    background: var(--color-line);
+  }
+
+  .section {
+    padding: 0 12px;
+  }
+
+  .section-heading {
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    padding: 2px 0 4px;
+  }
+
+  /* Single-line radio rows for the author picker — tighter than the two-line boolean
+     rows above; overrides .filter-row's flex-start/padding. */
+  .author-row {
+    align-items: center;
+    gap: 8px;
+    padding: 3px 0;
+    margin: 0 -12px; /* full-width hover, re-inset by padding below */
+    padding-left: 12px;
+    padding-right: 12px;
+  }
+
+  .author-row input[type="radio"] {
+    flex-shrink: 0;
+    cursor: pointer;
+  }
+
+  /* Logins are mixed-case — keep them verbatim (no uppercasing). */
+  .author-login {
+    font-family: var(--font-mono);
+  }
+
+  .label-chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 2px 0 4px;
+  }
+
+  .label-toggle {
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    padding: 1px 6px;
+    cursor: pointer;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    transition:
+      color 0.12s,
+      border-color 0.12s,
+      background 0.12s;
+  }
+
+  .label-toggle:hover {
+    color: var(--color-ink);
+    border-color: var(--color-line-bright);
+  }
+
+  /* Selected label — amber accent matches the other "active filter" affordances. */
+  .label-toggle.on {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+  }
+
+  .label-toggle:focus-visible {
+    outline: 2px solid var(--color-line-bright);
+    outline-offset: 1px;
   }
 </style>

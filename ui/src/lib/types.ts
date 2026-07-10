@@ -187,6 +187,10 @@ export interface Issue {
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  "mine & unassigned" filter (#824). */
   assignees: string[];
+  /** Login of the issue's author, when the forge supplies it (GitHub always; Gitea via
+   *  `user.login`). Absent on hosts/paths that don't fetch it. Surfaced as the "by {login}"
+   *  row text and drives the author filter. */
+  author?: string;
 }
 
 /** Subset of an Issue attached to a task by reference (body rides out-of-band). */

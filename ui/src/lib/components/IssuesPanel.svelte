@@ -11,6 +11,10 @@
     hideActive,
     hideSubIssues,
     sortEpicsFirst,
+    filterByAuthor,
+    filterByLabels,
+    distinctAuthors,
+    distinctLabels,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -64,6 +68,14 @@
   // PromptSources — distinguishes "couldn't load" from "no open issues".
   let loadError = $state(false);
   let filter = $state("");
+  // Repo-scoped author + label filters. Selection is local (not the global issuesFilter
+  // store) because the option sets are repo-specific; reset on repo change and pruned on
+  // refresh (see the reconcile effect below). Options are derived from the RAW `issues`
+  // list so picking one value doesn't drop the others from the picker.
+  let selectedAuthor = $state<string | null>(null);
+  const selectedLabels = new SvelteSet<string>();
+  let availableAuthors = $derived(distinctAuthors(issues));
+  let availableLabels = $derived(distinctLabels(issues));
   // Epic summaries for this repo: number → EpicSummary.
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
   let nativeSubIssues = $state<Set<number>>(new Set());
@@ -95,6 +107,30 @@
       epicParentNums,
     ),
   );
+  // Author + label filters (repo-scoped), applied AFTER the toggle filters and BEFORE the
+  // text search. Kept as a named intermediate so the empty-state block can attribute a miss
+  // to the structured filters (this being empty) vs. the text search (this non-empty but
+  // visibleIssues empty).
+  let authorLabelFiltered = $derived(
+    filterByLabels(filterByAuthor(subFiltered, selectedAuthor), selectedLabels),
+  );
+
+  // Prune any selected author/label that a refresh removed from the current issue set.
+  // Without this, an absent-but-selected value keeps filtering while its picker entry is
+  // gone (the popover only renders present options), stranding the list unclearable. Keyed
+  // on the derived option sets (which depend on `issues`, not on the selection), so it can't
+  // loop; writes are untracked. A still-present selection that merely drops the author list
+  // below the popover's >=2 threshold is handled there (the section stays rendered).
+  $effect(() => {
+    const authors = availableAuthors;
+    const labels = availableLabels;
+    untrack(() => {
+      if (selectedAuthor != null && !authors.includes(selectedAuthor)) selectedAuthor = null;
+      for (const label of [...selectedLabels]) {
+        if (!labels.includes(label)) selectedLabels.delete(label);
+      }
+    });
+  });
   // Epic parents float to the top of the backlog (stable within each group), so
   // epics are the first thing the operator sees. Applied after text filtering.
   //
@@ -106,9 +142,9 @@
   // "" from the repo-change reset); sortEpicsFirst then pins it to the top once epics settle.
   let visibleIssues = $derived.by(() => {
     const base =
-      expandEpic != null && !subFiltered.some((i) => i.number === expandEpic)
-        ? [...issues.filter((i) => i.number === expandEpic), ...subFiltered]
-        : subFiltered;
+      expandEpic != null && !authorLabelFiltered.some((i) => i.number === expandEpic)
+        ? [...issues.filter((i) => i.number === expandEpic), ...authorLabelFiltered]
+        : authorLabelFiltered;
     return sortEpicsFirst(filterIssues(base, filter), epicParentNums);
   });
   // True when there ARE open issues but the assignee filter hid them all — drives
@@ -152,6 +188,8 @@
     loading = true;
     loadError = false;
     filter = "";
+    selectedAuthor = null;
+    selectedLabels.clear();
     expanded.clear();
     defaultEpicSeeded = false;
     epicByNumber = new Map();
@@ -354,6 +392,17 @@
     }
   });
 
+  /** Author filter: null clears it (radio "All authors"). */
+  function pickAuthor(author: string | null) {
+    selectedAuthor = author;
+  }
+
+  /** Label filter: toggle a label in/out of the AND-set. */
+  function toggleLabel(label: string) {
+    if (selectedLabels.has(label)) selectedLabels.delete(label);
+    else selectedLabels.add(label);
+  }
+
   /** Expand an epic's panel; the backfill effect above fetches it if needed. */
   function expandEpicRow(number: number) {
     expanded.add(number);
@@ -438,7 +487,16 @@
           placeholder={m.issuespanel_filter_placeholder()}
           aria-label={m.issuespanel_filter_placeholder()}
         />
-        <IssueFilterPopover showMine={viewer != null} coachTargets />
+        <IssueFilterPopover
+          showMine={viewer != null}
+          coachTargets
+          authors={availableAuthors}
+          labels={availableLabels}
+          {selectedAuthor}
+          selectedLabels={[...selectedLabels]}
+          onauthor={pickAuthor}
+          ontogglelabel={toggleLabel}
+        />
       </div>
       <!-- Only surface an empty-state reason when the rendered list is truly empty: a
            force-included navigated-to epic (Fix B) keeps visibleIssues non-empty, so a
@@ -450,6 +508,10 @@
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}
           <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else if authorLabelFiltered.length === 0}
+          <!-- Structured author/label filters emptied it (even if a search term is also
+               present) — a generic filter miss, not the search-specific copy. -->
+          <div class="muted">{m.issues_filter_no_match()}</div>
         {:else}
           <div class="muted">{m.issuespanel_no_match()}</div>
         {/if}

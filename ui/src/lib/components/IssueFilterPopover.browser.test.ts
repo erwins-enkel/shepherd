@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import { m } from "$lib/paraglide/messages";
@@ -225,5 +225,120 @@ describe("IssueFilterPopover", () => {
 
     // Focus must be restored to the trigger button.
     expect(document.activeElement).toBe(triggerBtn());
+  });
+});
+
+// ── Author + label filter sections ─────────────────────────────────────────────
+// Helpers scoped to the picker sections.
+const authorSection = () =>
+  popoverPanel()?.querySelector("[role='radiogroup']") as HTMLElement | null;
+const authorRadioFor = (login: string) =>
+  [...(authorSection()?.querySelectorAll(".author-row") ?? [])]
+    .find((row) => row.querySelector(".row-label")?.textContent?.trim() === login)
+    ?.querySelector<HTMLInputElement>("input[type=radio]") ?? null;
+const labelToggles = () =>
+  [...(popoverPanel()?.querySelectorAll(".label-toggle") ?? [])] as HTMLButtonElement[];
+const labelToggleFor = (label: string) =>
+  labelToggles().find((b) => b.textContent?.trim() === label) ?? null;
+
+async function open(props: Record<string, unknown>) {
+  render(IssueFilterPopover, props);
+  await expect.poll(() => triggerBtn()).toBeTruthy();
+  triggerBtn()!.click();
+  await expect.poll(() => isOpen()).toBe(true);
+}
+
+describe("IssueFilterPopover — author + label pickers", () => {
+  it("defaults: neither the author nor the label section renders when no options are passed", async () => {
+    await open({ showMine: true });
+    expect(authorSection()).toBeNull();
+    expect(labelToggles().length).toBe(0);
+  });
+
+  it("author section: renders 'All authors' + one radio per author when >=2 authors", async () => {
+    await open({ showMine: true, authors: ["kai", "scoop"] });
+    expect(authorSection()).toBeTruthy();
+    const radios = authorSection()!.querySelectorAll("input[type=radio]");
+    // All authors + kai + scoop.
+    expect(radios.length).toBe(3);
+    expect(authorRadioFor(m.issues_filter_author_all())).toBeTruthy();
+    expect(authorRadioFor("kai")).toBeTruthy();
+    expect(authorRadioFor("scoop")).toBeTruthy();
+  });
+
+  it("author section is hidden below two authors when nothing is selected", async () => {
+    await open({ showMine: true, authors: ["kai"], selectedAuthor: null });
+    expect(authorSection()).toBeNull();
+  });
+
+  it("author: the selected author's radio is checked; 'All authors' is checked when none selected", async () => {
+    await open({ showMine: true, authors: ["kai", "scoop"], selectedAuthor: "scoop" });
+    expect(authorRadioFor("scoop")!.checked).toBe(true);
+    expect(authorRadioFor(m.issues_filter_author_all())!.checked).toBe(false);
+  });
+
+  it("author callbacks: picking an author fires onauthor(login); 'All authors' fires onauthor(null)", async () => {
+    const onauthor = vi.fn();
+    await open({ showMine: true, authors: ["kai", "scoop"], selectedAuthor: "kai", onauthor });
+
+    authorRadioFor("scoop")!.click();
+    await expect.poll(() => onauthor).toHaveBeenCalledWith("scoop");
+
+    authorRadioFor(m.issues_filter_author_all())!.click();
+    await expect.poll(() => onauthor).toHaveBeenCalledWith(null);
+  });
+
+  it("refresh regression: a still-selected author keeps its clearable section when the option set shrinks to one", async () => {
+    // A same-repo refresh removed the other author but kept 'kai', so availableAuthors is
+    // now just ["kai"] — below the >=2 threshold. Because selectedAuthor stays set, the
+    // section must remain rendered and clearable via 'All authors'.
+    const onauthor = vi.fn();
+    await open({ showMine: true, authors: ["kai"], selectedAuthor: "kai", onauthor });
+
+    expect(authorSection()).toBeTruthy();
+    expect(authorRadioFor("kai")!.checked).toBe(true);
+
+    authorRadioFor(m.issues_filter_author_all())!.click();
+    await expect.poll(() => onauthor).toHaveBeenCalledWith(null);
+  });
+
+  it("label section: chips render with aria-pressed reflecting selectedLabels", async () => {
+    await open({ showMine: true, labels: ["BUG", "DOCS"], selectedLabels: ["BUG"] });
+    expect(labelToggles().length).toBe(2);
+    expect(labelToggleFor("BUG")!.getAttribute("aria-pressed")).toBe("true");
+    expect(labelToggleFor("DOCS")!.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("label callback: clicking a chip fires ontogglelabel(label)", async () => {
+    const ontogglelabel = vi.fn();
+    await open({ showMine: true, labels: ["BUG", "DOCS"], selectedLabels: [], ontogglelabel });
+
+    labelToggleFor("DOCS")!.click();
+    await expect.poll(() => ontogglelabel).toHaveBeenCalledWith("DOCS");
+  });
+
+  it("active count includes the selected author and every selected label", async () => {
+    // Default store (mine + subs) = 2, + author (1) + labels (2) = 5.
+    await open({
+      showMine: true,
+      authors: ["kai", "scoop"],
+      selectedAuthor: "kai",
+      labels: ["BUG", "DOCS"],
+      selectedLabels: ["BUG", "DOCS"],
+    });
+    expect(badgeText()).toBe("5");
+  });
+
+  it("focus on open still lands on the first boolean checkbox, not a radio, with sections present", async () => {
+    await open({
+      showMine: true,
+      authors: ["kai", "scoop"],
+      selectedAuthor: "kai",
+      labels: ["BUG"],
+      selectedLabels: ["BUG"],
+    });
+    // Let the focus-on-open setTimeout(0) settle.
+    await new Promise((r) => setTimeout(r, 50));
+    expect(document.activeElement).toBe(checkboxes()[0]);
   });
 });

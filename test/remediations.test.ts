@@ -107,7 +107,16 @@ describe("herdr offline remediation (#1574)", () => {
       const r = runInSandbox(HERDR_SERVE, dir);
 
       expect(r.status).toBe(0);
-      expect(readFileSync(sysLog, "utf8")).toContain("restart herdr");
+      const sys = readFileSync(sysLog, "utf8");
+      expect(sys).toContain("restart herdr");
+      // `reset-failed` clears a legacy/hand-edited unit the start-limiter parked in `failed`
+      // BEFORE the restart (mirrors provision's HERDR_ADOPT_SOCKET). The stub `exit 1`s on the
+      // unmatched `reset-failed` arg, so this exercises the real failing-reset-failed→restart
+      // path: ordering proves reset-failed runs first, and status 0 proves the non-zero
+      // reset-failed did NOT abort the sequence — a `;`→`&&` regression would flip status to 1
+      // and never reach restart.
+      expect(sys.indexOf("reset-failed herdr")).toBeGreaterThanOrEqual(0);
+      expect(sys.indexOf("reset-failed herdr")).toBeLessThan(sys.indexOf("restart herdr"));
       // The daemon was NEVER spawned directly — no orphan on the socket.
       expect(readFileSync(herdrLog, "utf8")).not.toContain("server");
     } finally {

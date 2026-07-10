@@ -34,12 +34,19 @@ export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
  *   - `agent list || { start }` — IDEMPOTENT: a live daemon short-circuits, so this never
  *     races a second server against a bound socket (a second `herdr server` against a bound
  *     socket exits 1 with "herdr server is already running" — verified, #1574).
- *   - `systemctl --user restart herdr` WHEN THE UNIT EXISTS — on a provisioned host,
- *     `herdr: offline` means `herdr.service` itself cannot bind. Spawning a detached daemon
- *     there would put an unsupervised process on the socket, so the unit's ExecStart exits 1
- *     forever (`StartLimitIntervalSec=0` means it never even parks in `failed`) while the check
- *     reads `ok` because the orphan answers — exactly the green-check/thrashing-unit state this
- *     whole change exists to eliminate. Drive the unit; never race it.
+ *   - `systemctl --user reset-failed herdr` THEN `restart herdr` WHEN THE UNIT EXISTS — on a
+ *     provisioned host, `herdr: offline` means `herdr.service` itself cannot bind. Spawning a
+ *     detached daemon there would put an unsupervised process on the socket, so the unit's
+ *     ExecStart exits 1 forever (`StartLimitIntervalSec=0` means it never even parks in `failed`)
+ *     while the check reads `ok` because the orphan answers — exactly the green-check/thrashing-unit
+ *     state this whole change exists to eliminate. Drive the unit; never race it. The leading
+ *     `reset-failed` mirrors provision's `HERDR_ADOPT_SOCKET`: on a host provisioned by the current
+ *     `deploy/` the unit carries `StartLimitIntervalSec=0` and so NEVER parks in `failed` from the
+ *     start-limiter, making `reset-failed` a strict no-op there — its only value is a LEGACY or
+ *     hand-edited unit lacking that setting, which a crash-loop against a held socket can park in
+ *     `failed` with the limiter tripped, whereupon a bare `restart` is refused ("start request
+ *     repeated too quickly") until the failed state is cleared. `;`-sequenced, not `&&`: a non-zero
+ *     `reset-failed` (nothing to clear) must NOT block the restart.
  *   - `setsid … || nohup …` — the FALLBACK, for hosts with no unit (macOS, `buildOnly`'s
  *     SHEPHERD_NO_SERVICE path, hand-rolled installs). Detach so the daemon outlives the shell
  *     (an `incus exec` session, or the in-app Fix endpoint's child). macOS has NO `setsid`, so
@@ -55,6 +62,7 @@ export const HERDR_SERVE =
   '"$H" agent list >/dev/null 2>&1 || ' +
   "{ if command -v systemctl >/dev/null 2>&1 && " +
   "systemctl --user cat herdr >/dev/null 2>&1; then " +
+  "systemctl --user reset-failed herdr >/dev/null 2>&1; " +
   "systemctl --user restart herdr >/dev/null 2>&1; " +
   "elif command -v setsid >/dev/null 2>&1; then " +
   'setsid "$H" server </dev/null >/dev/null 2>&1 & ' +

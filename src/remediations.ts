@@ -136,11 +136,31 @@ export const GUIDANCE_ONLY: ReadonlySet<string> = new Set([
   "diagnostics_hint_git_missing",
 ]);
 
-/** Verbatim commands for every non-ok check whose emitted hintKey has a known fix. */
-export function remediationsFor(snapshot: DiagnosticsSnapshot): string[] {
+/** One verbatim remediation resolved for a non-ok check. `optional` mirrors the
+ *  check's `optional` state (an equivalent alternative is already healthy — e.g.
+ *  `codex` when `claude` is present). The harness apply loop treats a failing
+ *  optional remediation as NON-fatal (a broken third-party/optional installer must
+ *  not red the release gate for an unrelated defect — #1577). */
+export interface Remediation {
+  id: string;
+  cmd: string;
+  optional: boolean;
+}
+
+/** Verbatim remediation entries for every non-ok check whose emitted hintKey has a
+ *  known fix, each tagged with whether its check is in the (non-fatal) `optional` state. */
+export function remediationEntriesFor(snapshot: DiagnosticsSnapshot): Remediation[] {
   return snapshot.checks
     .filter((c) => c.state !== "ok" && REMEDIATIONS[c.hintKey])
-    .map((c) => REMEDIATIONS[c.hintKey]!);
+    .map((c) => ({ id: c.id, cmd: REMEDIATIONS[c.hintKey]!, optional: c.state === "optional" }));
+}
+
+/** Verbatim commands for every non-ok check whose emitted hintKey has a known fix.
+ *  Thin projection of {@link remediationEntriesFor} — its `string[]` contract (and every
+ *  caller/gate that reads `.length`) is unchanged. The optional-vs-required distinction that
+ *  decides fatality lives in the consumer (`applyVerbatim`), which uses the richer entries. */
+export function remediationsFor(snapshot: DiagnosticsSnapshot): string[] {
+  return remediationEntriesFor(snapshot).map((r) => r.cmd);
 }
 
 /** The auto-fix gate for product surfaces (in-app Fix endpoint): the command for a

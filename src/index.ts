@@ -12,6 +12,8 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  DIAGNOSTICS_INTERVAL_MS,
+  DIAGNOSTICS_RECHECK_INTERVAL_MS,
   parseServedPort,
   validatePreviewPortRange,
   validateAgentIngressPort,
@@ -60,7 +62,7 @@ import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService } from "./codex-update";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
-import { DiagnosticsService } from "./diagnostics";
+import { DiagnosticsService, nextDiagnosticsDelay } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
@@ -2260,10 +2262,33 @@ const diagnostics = new DiagnosticsService({
   anyLightweightRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
 });
-const checkDiagnostics = async () =>
-  events.emit("diagnostics:status", await diagnostics.check(Date.now()));
-setTimeout(timerTask("diagnostics", checkDiagnostics), 4_000);
-setInterval(timerTask("diagnostics", checkDiagnostics), 6 * 60 * 60 * 1000);
+// Adaptive background re-check (NOT a fixed setInterval): each tick probes, pushes the
+// snapshot, then re-arms itself with a delay chosen from that snapshot — 60s while the
+// verdict is a hard `error` (so a transient herdr `offline` self-corrects within ~one
+// recheck instead of staying pinned on the client, which only takes the push), else the
+// 6h steady cadence. Bespoke wiring, not `timerTask`: that helper is fire-and-forget and
+// discards the snapshot the delay depends on. CRITICAL: the next tick is armed in `finally`
+// (on settle), never only on the success path — a thrown `check()` must not kill the loop
+// and freeze diagnostics until restart. `check()` is designed never to reject (each probe
+// resolves to its non-ok state), so the catch is defensive; on the off chance it throws we
+// re-arm at the recheck cadence to retry soon rather than wait 6h.
+const diagnosticsTick = async (): Promise<void> => {
+  let delay = DIAGNOSTICS_RECHECK_INTERVAL_MS;
+  try {
+    const snapshot = await diagnostics.check(Date.now());
+    events.emit("diagnostics:status", snapshot);
+    delay = nextDiagnosticsDelay(
+      snapshot.overall,
+      DIAGNOSTICS_INTERVAL_MS,
+      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+    );
+  } catch (err) {
+    console.warn("[diagnostics] tick failed:", err);
+  } finally {
+    setTimeout(() => void diagnosticsTick(), delay);
+  }
+};
+setTimeout(() => void diagnosticsTick(), 4_000);
 
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);

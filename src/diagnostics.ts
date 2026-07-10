@@ -125,6 +125,25 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
   return worst;
 }
 
+/**
+ * Adaptive delay until the next background diagnostics re-check, chosen from the snapshot
+ * just produced. ONLY an `error` accelerates to `recheckMs`: a hard error (canonically
+ * herdr `offline`) is expected to be transient/recoverable, and the client only learns it
+ * cleared from the next `diagnostics:status` push — so re-checking every `recheckMs` while
+ * `error` persists lets a healthy-again host self-correct within ~one recheck instead of
+ * staying pinned until the next `intervalMs`. `warning` deliberately stays on `intervalMs`:
+ * it is steady-state by design (advisory version floors, gh-not-required on lightweight
+ * hosts, `worstOf` never surfaces `optional` — it ranks 0, same as `ok`), so accelerating on
+ * it would fast-poll forever with no path back to the steady cadence.
+ */
+export function nextDiagnosticsDelay(
+  overall: DiagnosticState,
+  intervalMs: number,
+  recheckMs: number,
+): number {
+  return overall === "error" ? recheckMs : intervalMs;
+}
+
 /** Cap on drained child output: just enough to keep a noisy `curl | bash` install
  *  from blocking on a full pipe, then dropped. NEVER surfaced to the client. */
 const REMEDIATION_DRAIN_CAP = 1 << 20; // 1 MiB

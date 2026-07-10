@@ -2,9 +2,16 @@ import { describe, expect, it, spyOn } from "bun:test";
 import {
   DiagnosticsService,
   defaultRunRemediation,
+  nextDiagnosticsDelay,
   type DiagnosticsDeps,
 } from "../src/diagnostics";
-import { DIAGNOSTICS_TTL_MS, GH_PROBE_ATTEMPTS } from "../src/config";
+import {
+  DIAGNOSTICS_TTL_MS,
+  DIAGNOSTICS_INTERVAL_MS,
+  DIAGNOSTICS_RECHECK_INTERVAL_MS,
+  GH_PROBE_ATTEMPTS,
+} from "../src/config";
+import type { DiagnosticState } from "../src/types";
 import { REMEDIATIONS } from "../src/remediations";
 import type { DiagnosticCheck } from "../src/types";
 import { SessionStore } from "../src/store";
@@ -957,5 +964,44 @@ describe("DiagnosticsService gh probe — real anyForgeRepo closure (bare repo d
     expect(c.state).toBe("warning");
     expect(c.hintKey).toBe("diagnostics_hint_gh_not_required");
     assertPure(c);
+  });
+});
+
+// ── adaptive background re-check cadence (nextDiagnosticsDelay) ──────────────────
+// The scheduler in src/index.ts re-arms itself with this delay after every snapshot.
+// ONLY an `error` accelerates to the recheck interval so a transient hard error (herdr
+// `offline`) self-corrects fast; `warning` must stay on the steady interval or a
+// persistent-by-design warning (advisory version floors, gh-not-required) would fast-poll
+// forever. The input domain is exactly {ok, warning, error}: `overall` is worstOf(checks),
+// and worstOf ranks `optional` at 0 (== ok) upgrading only on a strict increase, so it can
+// never surface `optional` — hence it is intentionally not part of the cases below.
+describe("nextDiagnosticsDelay", () => {
+  const cases: Array<[DiagnosticState, number]> = [
+    ["error", DIAGNOSTICS_RECHECK_INTERVAL_MS],
+    ["warning", DIAGNOSTICS_INTERVAL_MS],
+    ["ok", DIAGNOSTICS_INTERVAL_MS],
+  ];
+  for (const [overall, expected] of cases) {
+    it(`overall=${overall} → ${expected === DIAGNOSTICS_RECHECK_INTERVAL_MS ? "recheck" : "steady"} interval`, () => {
+      expect(
+        nextDiagnosticsDelay(overall, DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS),
+      ).toBe(expected);
+    });
+  }
+
+  it("only error accelerates: warning/ok are ≥ error's delay (no permanent fast poll)", () => {
+    const err = nextDiagnosticsDelay(
+      "error",
+      DIAGNOSTICS_INTERVAL_MS,
+      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+    );
+    const warn = nextDiagnosticsDelay(
+      "warning",
+      DIAGNOSTICS_INTERVAL_MS,
+      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+    );
+    const ok = nextDiagnosticsDelay("ok", DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS);
+    expect(err).toBeLessThan(warn);
+    expect(warn).toBe(ok);
   });
 });

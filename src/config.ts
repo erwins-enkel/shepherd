@@ -78,6 +78,16 @@ export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;
+// Background diagnostics re-check cadence (src/index.ts). ADAPTIVE: the steady-state
+// interval is used while the last snapshot's `overall` is ok/warning; on an `error`
+// snapshot the scheduler switches to the much shorter recheck interval so a transient
+// hard error (canonically herdr `offline`) self-corrects within ~one recheck instead of
+// staying pinned on the client — which seeds diagnostics once and thereafter only takes
+// the `diagnostics:status` push (never re-GETs). Only `error` accelerates: a `warning`
+// is steady-state by design (advisory version floors, gh-not-required on lightweight
+// hosts) and must NOT drive a permanent fast poll.
+export const DIAGNOSTICS_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const DIAGNOSTICS_RECHECK_INTERVAL_MS = 60_000;
 // Per-probe exec timeout: a timed-out probe RESOLVES to its defined non-OK state
 // (never rejects the Promise.all), so one hung binary can't stall the batch.
 export const DIAGNOSTICS_PROBE_TIMEOUT_MS = 5_000;

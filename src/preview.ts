@@ -516,8 +516,14 @@ export class PreviewService {
     if (!listener) return;
     this.listeners.delete(sessionId);
     this.slotOwner.delete(listener.previewPort);
+    // BOTH guards are load-bearing. `stop(true)` is async, so the sync try/catch alone could never
+    // see its rejection — hence the `.catch`. But the try/catch still has to stay: a synchronous
+    // throw (or a non-promise return, which makes `.catch` itself throw) would otherwise skip the
+    // `onChange` below and strand the listener half-torn-down.
     try {
-      listener.server?.stop(true);
+      void listener.server?.stop(true).catch(() => {
+        /* already gone */
+      });
     } catch {
       /* already gone */
     }
@@ -549,8 +555,12 @@ export class PreviewService {
   /** Stop every listener (shutdown / tests). Does NOT fire onChange. */
   stopAll(): void {
     for (const listener of this.listeners.values()) {
+      // Sync guard kept alongside the `.catch` (see `release`): one server throwing synchronously
+      // must not abort the loop and leave `listeners`/`slotOwner` uncleared below.
       try {
-        listener.server?.stop(true);
+        void listener.server?.stop(true).catch(() => {
+          /* already gone */
+        });
       } catch {
         /* already gone */
       }

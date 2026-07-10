@@ -137,7 +137,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
    * land; only a true return advances the round. Absent → the auto-address loop is
    * disabled regardless of per-repo config.
    */
-  autoAddress?: (sessionId: string, text: string) => boolean;
+  autoAddress?: (sessionId: string, text: string) => Promise<boolean>;
   /**
    * Max auto-address rounds before escalating to the human (default 3). Pass a thunk to
    * read a live, UI-configurable value per-use — the cap is resolved on every read so a
@@ -878,7 +878,7 @@ export class ReviewService {
     } catch (err) {
       console.warn(`[review] postReview failed for ${f.sessionId}:`, err);
     }
-    verdict.addressRound = this.runAutoAddress(f, verdict); // reached only when the PR is open
+    verdict.addressRound = await this.runAutoAddress(f, verdict); // reached only when the PR is open
     // The cap-th steer was just delivered when the round ADVANCES into the cap
     // (priorRound < cap → addressRound === cap). The agent is now addressing that
     // final round → dimmed FINAL badge, not orange. A round HELD at the cap
@@ -909,7 +909,7 @@ export class ReviewService {
    * At/over the cap we stop steering and leave the round in place; the posted review,
    * the stalled badge, and (for blocking verdicts) the critic signal escalate it.
    */
-  private runAutoAddress(f: InFlight, verdict: ReviewVerdict): number {
+  private async runAutoAddress(f: InFlight, verdict: ReviewVerdict): Promise<number> {
     if (verdict.findings.length === 0) return 0; // clean → streak resets
     const enabled =
       !!this.deps.autoAddress && this.deps.store.getRepoConfig(f.repoPath).autoAddressEnabled;
@@ -922,14 +922,17 @@ export class ReviewService {
     if (f.priorRound >= this.cap) return f.priorRound; // gave up → hold (stalled badge persists)
     // The PR's still-open check lives in publishVerdict() (it also gates postReview + the
     // critic signal), so reaching here already means the PR is open — just steer.
-    // autoAddress (SessionService.reply) liveness-checks the pane and returns false for a
-    // dead one, so a steer that can't land normally reports false. A throw is now only a
+    // autoAddress (SessionService.reply) liveness-checks the pane and resolves false for a
+    // dead one, so a steer that can't land normally reports false. A rejection is now only a
     // narrow race — the pane dies between the liveness check and herdr.send — and still
     // counts as not-delivered: the round must not advance on a steer that never landed,
-    // and the throw must not strand finalize().
+    // and the rejection must not strand finalize().
     let delivered = false;
     try {
-      delivered = this.deps.autoAddress!(f.sessionId, steerText(verdict.findings, f.prNumber));
+      delivered = await this.deps.autoAddress!(
+        f.sessionId,
+        steerText(verdict.findings, f.prNumber),
+      );
     } catch (err) {
       console.warn(`[review] auto-address steer failed for ${f.sessionId}:`, err);
     }

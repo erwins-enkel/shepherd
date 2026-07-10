@@ -7,6 +7,33 @@ export default [
   ...ts.configs.recommended,
   ...svelte.configs.recommended,
   ...svelte.configs.prettier,
+  // Type-checked promise gate for the SERVER only (issue #1567). herdr's write surface is fully
+  // async now, and `send` in particular colors a deep steer/reply cascade (sendSteerTo → reply →
+  // PlanGate.resume / automerge / the routes). A dropped `await` in that cascade is invisible to
+  // `tsc`: a floating promise silently reorders a steer, and `json(service.haltAll())` would
+  // serialize a Promise as `{}` with no type error. These two rules are the durable enforcement.
+  //
+  // Scoped to `src/**/*.ts` on purpose: `projectService` needs a tsconfig per package, and the
+  // root tsconfig covers server code only (ui/ + extension/ have their own). Widening this to ui/
+  // means wiring the svelte parser project and eating a much slower lint; not worth it for the
+  // surface this gate protects.
+  //
+  // Test files are excluded — they legitimately fire-and-forget. That exclusion has to be spelled
+  // out: `src/**/*.ts` also matches the SIX colocated `*.test.ts` files under src/ (auth-url,
+  // hold, hold-service, signoff, plugins/loader, plugins/gear-validate). Without the `ignores`
+  // below, a floating promise would be an error in `src/hold.test.ts` but fine in
+  // `test/hold.test.ts` — an arbitrary split that depends only on where the test happens to live.
+  {
+    files: ["src/**/*.ts"],
+    ignores: ["**/*.test.ts"],
+    languageOptions: {
+      parserOptions: { projectService: true, tsconfigRootDir: import.meta.dirname },
+    },
+    rules: {
+      "@typescript-eslint/no-floating-promises": "error",
+      "@typescript-eslint/no-misused-promises": "error",
+    },
+  },
   // Test code legitimately uses `any` for mocks / `as any` casts on test doubles; keep the
   // rule on for production but relax it for test files (incl. colocated *.test.ts under src/ & ui/src).
   {

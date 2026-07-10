@@ -49,24 +49,26 @@ function harness(opts: {
       start: async () => ({}) as any,
       list: () => ((opts.paneLive ?? true) ? [{ terminalId: term }] : []),
       stop: async () => {},
-      send: (target: string, text: string) => sent.push({ target, text }),
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
     } as any,
     events: { emit: (event, data) => emitted.push({ event, data }) },
   });
   return { svc, setPhaseCalls, emitted, sent };
 }
 
-test("releasePlanGate flips phase + steers ONLY when approved and planning", () => {
+test("releasePlanGate flips phase + steers ONLY when approved and planning", async () => {
   // not yet approved → no-op
   const notApproved = harness({ session: sess(), gate: { approved: false } });
-  expect(notApproved.svc.releasePlanGate("s1")).toBe(false);
+  expect(await notApproved.svc.releasePlanGate("s1")).toBe(false);
   expect(notApproved.setPhaseCalls).toHaveLength(0);
   expect(notApproved.sent).toHaveLength(0);
   expect(notApproved.emitted).toHaveLength(0);
 
   // approved + planning → flips, steers, emits
   const h = harness({ session: sess(), gate: { approved: true } });
-  expect(h.svc.releasePlanGate("s1")).toBe(true);
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
   expect(h.setPhaseCalls).toEqual([{ id: "s1", phase: "executing" }]);
   expect(h.sent.length).toBeGreaterThan(0); // a steer landed on the live pane
   expect(h.emitted).toContainEqual({
@@ -75,30 +77,30 @@ test("releasePlanGate flips phase + steers ONLY when approved and planning", () 
   });
 });
 
-test("releasePlanGate is a no-op when phase !== planning", () => {
+test("releasePlanGate is a no-op when phase !== planning", async () => {
   const h = harness({ session: sess({ planPhase: "executing" }), gate: { approved: true } });
-  expect(h.svc.releasePlanGate("s1")).toBe(false);
+  expect(await h.svc.releasePlanGate("s1")).toBe(false);
   expect(h.setPhaseCalls).toHaveLength(0);
   expect(h.sent).toHaveLength(0);
   expect(h.emitted).toHaveLength(0);
 });
 
-test("releasePlanGate is a no-op for unknown id", () => {
+test("releasePlanGate is a no-op for unknown id", async () => {
   const h = harness({ session: null, gate: { approved: true } });
-  expect(h.svc.releasePlanGate("ghost")).toBe(false);
+  expect(await h.svc.releasePlanGate("ghost")).toBe(false);
   expect(h.setPhaseCalls).toHaveLength(0);
 });
 
-test("releasePlanGate steers WITHOUT draft note when draftMode=false", () => {
+test("releasePlanGate steers WITHOUT draft note when draftMode=false", async () => {
   const h = harness({ session: sess(), gate: { approved: true }, draftMode: false });
-  expect(h.svc.releasePlanGate("s1")).toBe(true);
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
   const steerText = h.sent.map((s) => s.text).join("");
   expect(steerText).not.toContain(DRAFT_PR_NOTE);
 });
 
-test("releasePlanGate steers WITH draft note when draftMode=true", () => {
+test("releasePlanGate steers WITH draft note when draftMode=true", async () => {
   const h = harness({ session: sess(), gate: { approved: true }, draftMode: true });
-  expect(h.svc.releasePlanGate("s1")).toBe(true);
+  expect(await h.svc.releasePlanGate("s1")).toBe(true);
   const steerText = h.sent.map((s) => s.text).join("");
   expect(steerText).toContain(DRAFT_PR_NOTE);
 });

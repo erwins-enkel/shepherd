@@ -893,3 +893,37 @@ test("start: non-name-taken error — no retry, immediate rollback", async () =>
   // created tab rolled back
   expect(calls).toContainEqual(["tab", "close", "t_new"]);
 });
+
+// ── send (issue #1567) ───────────────────────────────────────────────────────
+
+test("send: issues `agent send <target> <text>` on the ASYNC runner", async () => {
+  const calls: string[][] = [];
+  const syncCalls: string[][] = [];
+  const d = new HerdrDriver(
+    (args) => {
+      syncCalls.push(args);
+      return "{}";
+    },
+    async (args) => {
+      calls.push(args);
+      return "{}";
+    },
+  );
+
+  await d.send("term_a", "hello world");
+
+  expect(calls).toEqual([["agent", "send", "term_a", "hello world"]]);
+  // must never block the loop on the sync runner
+  expect(syncCalls).toEqual([]);
+});
+
+test("send: propagates a runner failure (a dead pane is never a silent no-op)", async () => {
+  const d = new HerdrDriver(
+    () => "{}",
+    async () => {
+      throw new Error("herdr: no such agent");
+    },
+  );
+
+  await expect(d.send("gone", "hi")).rejects.toThrow("herdr: no such agent");
+});

@@ -1096,7 +1096,8 @@ const reviewService = new ReviewService({
   // Defer while a herdr-restored account pane still needs a re-drive: return false (round holds,
   // retries next cycle) rather than steer findings into the wrong-account husk. The poller heals it
   // within ~1 tick (Locus A); shouldDeferSteer goes false once healed or bounded-out (degraded).
-  autoAddress: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
+  autoAddress: async (id, text) =>
+    service.shouldDeferSteer(id) ? false : await service.reply(id, text),
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
@@ -1147,8 +1148,12 @@ const planGate = new PlanGateService({
   // Defer while a herdr-restored account pane still needs a re-drive: return false so the plan-gate
   // round holds (retries next cycle) instead of steering findings into the wrong-account husk. The
   // poller heals it within ~1 tick (Locus A); shouldDeferSteer clears once healed or degraded.
-  reply: (id, text) => (service.shouldDeferSteer(id) ? false : service.reply(id, text)),
-  release: (id) => service.releasePlanGate(id),
+  reply: async (id, text) => (service.shouldDeferSteer(id) ? false : await service.reply(id, text)),
+  // Discards releasePlanGate's boolean: the plan-gate DI contract is "release it", not "was it
+  // releasable" — a no-op release (not planning / not approved) is not an error here.
+  release: async (id) => {
+    await service.releasePlanGate(id);
+  },
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
@@ -1360,9 +1365,12 @@ onSessionGit(({ id, git }) => {
 deferredStarts.push(() => {
   setInterval(() => {
     if (maintenance.active) return;
-    void reviewService.tick();
-    void planGate.tick();
-    void standaloneCritic.tick();
+    void reviewService.tick().catch((err) => console.warn("[review] tick failed:", err));
+    // planGate.tick() has a `finally` but no `catch`, and neither does its finalize(): since #1567
+    // a rejected applyApproved → release → releasePlanGate → reply → herdr.send propagates straight
+    // out of the timer callback as an unhandled rejection.
+    void planGate.tick().catch((err) => console.warn("[plan-gate] tick failed:", err));
+    void standaloneCritic.tick().catch((err) => console.warn("[critic] tick failed:", err));
     void recapService.tick().catch((err) => console.warn("[recap] tick failed:", err)); // finalize in-flight recaps (restart-safe)
     void recapService.sweep().catch((err) => console.warn("[recap] sweep failed:", err)); // settled-idle auto-fire
     void herdDigestService.tick().catch((err) => console.warn("[rundown] tick failed:", err)); // finalize in-flight digest (restart-safe)
@@ -1376,11 +1384,11 @@ deferredStarts.push(() => {
         .sweepReadyPrs()
         .catch((err) => console.warn("[doc-agent] sweepReadyPrs failed:", err)); // pre-merge: re-target docs onto an open code PR (settled-idle)
     }
-    try {
-      buildQueueReminder.sweep(); // settled-idle nudge for a drifted build queue (sync)
-    } catch (err) {
-      console.warn("[build-queue] reminder sweep failed:", err);
-    }
+    // settled-idle nudge for a drifted build queue; async since its steer is (#1567), so a
+    // rejection needs a .catch — a try/catch around the call would no longer see it.
+    void buildQueueReminder
+      .sweep()
+      .catch((err) => console.warn("[build-queue] reminder sweep failed:", err));
   }, 15_000);
 });
 // The standalone critic's enumeration runs on its OWN 60s timer, separate from the 15s
@@ -1399,7 +1407,7 @@ deferredStarts.push(() => {
     // above is untouched, so verdicts still settle promptly).
     if (!warm() && now - lastCriticSweepAt < criticIdleIntervalMs) return;
     lastCriticSweepAt = now;
-    void standaloneCritic.sweep();
+    void standaloneCritic.sweep().catch((err) => console.warn("[critic] sweep failed:", err));
   }, 60_000);
 });
 // archived sessions: reap any in-flight critic + drop the verdict, and reap any
@@ -2107,32 +2115,45 @@ deferredStarts.push(() => {
 // recompute live limit % from local JSONL ~every 30s; push to clients
 attachUsagePush(events, store, push);
 attachCreditsPush(events, store, push);
+
+/**
+ * Wrap an async background task for a timer callback. `setTimeout`/`setInterval` expect
+ * `() => void`, so handing them a bare async fn floats its promise: a rejection escapes as an
+ * unhandled rejection instead of being logged. Every periodic tick below is best-effort — a
+ * failed check must log and let the next tick retry, never take the process down.
+ */
+const timerTask = (label: string, fn: () => Promise<unknown>) => () =>
+  void fn().catch((err) => console.warn(`[${label}] tick failed:`, err));
+
 // Re-entrancy guard: a release can still be awaiting service.create() when the next
 // 30s tick fires; without this a second tick re-reads the not-yet-removed head task and
 // double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
 let releasingHeld = false;
 deferredStarts.push(() => {
-  setInterval(async () => {
-    await accountIndex.refresh(Date.now());
-    events.emit("usage:limits", usageLimits.limits(Date.now()));
-    if (releasingHeld) return; // prior release still draining — skip this tick's release
-    releasingHeld = true;
-    try {
-      await releaseHeldTasks(
-        { store, service, usageLimits, events, resolveForge },
-        {
-          enabled: config.usageHoldEnabled,
-          holdPct: config.usageHoldPct,
-          autoRelease: config.usageHoldAutoRelease,
-        },
-        Date.now(),
-      );
-    } catch (e) {
-      console.warn("[held] release failed:", e);
-    } finally {
-      releasingHeld = false;
-    }
-  }, 30_000);
+  setInterval(
+    timerTask("usage", async () => {
+      await accountIndex.refresh(Date.now());
+      events.emit("usage:limits", usageLimits.limits(Date.now()));
+      if (releasingHeld) return; // prior release still draining — skip this tick's release
+      releasingHeld = true;
+      try {
+        await releaseHeldTasks(
+          { store, service, usageLimits, events, resolveForge },
+          {
+            enabled: config.usageHoldEnabled,
+            holdPct: config.usageHoldPct,
+            autoRelease: config.usageHoldAutoRelease,
+          },
+          Date.now(),
+        );
+      } catch (e) {
+        console.warn("[held] release failed:", e);
+      } finally {
+        releasingHeld = false;
+      }
+    }),
+    30_000,
+  );
 });
 
 // calibrate the per-window caps daily (and once on startup) by scraping `/usage`.
@@ -2161,15 +2182,18 @@ const calibrate = singleFlight(runCalibrate);
 // paid extra-credit spend fresh) and relaxes back to daily once it's clear of the cap.
 const scheduleCalibrate = () => {
   setTimeout(
-    async () => {
-      await calibrate();
-      scheduleCalibrate();
+    () => {
+      // `finally`, not a plain await-then-reschedule: a rejected calibrate (the `/usage` probe
+      // can fail) must NOT kill the self-rescheduling loop and silently stop calibration forever.
+      void calibrate()
+        .catch((err) => console.warn("[usage] calibrate failed:", err))
+        .finally(() => scheduleCalibrate());
     },
     calibrateDelay(usageLimits.limits(Date.now())),
   );
 };
 deferredStarts.push(() => {
-  setTimeout(calibrate, 3_000);
+  setTimeout(timerTask("usage", calibrate), 3_000);
   scheduleCalibrate();
 });
 const refreshUsage = () => calibrate();
@@ -2182,8 +2206,8 @@ const updates = new UpdateService();
 // self-guarded: refuses unless this process IS the systemd unit's activation.
 const restart = new RestartService();
 const checkUpdates = async () => events.emit("update:status", await updates.check(Date.now()));
-setTimeout(checkUpdates, 3_000);
-setInterval(checkUpdates, 5 * 60 * 1000);
+setTimeout(timerTask("update", checkUpdates), 3_000);
+setInterval(timerTask("update", checkUpdates), 5 * 60 * 1000);
 
 // watch herdr.dev for a newer herdr release and surface an informational badge;
 // unlike the git self-update this never auto-applies. Applying ends live agent
@@ -2198,8 +2222,8 @@ const herdrUpdates = new HerdrUpdateService({
 });
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));
-setTimeout(checkHerdrUpdate, 4_000);
-setInterval(checkHerdrUpdate, 6 * 60 * 60 * 1000);
+setTimeout(timerTask("herdr-update", checkHerdrUpdate), 4_000);
+setInterval(timerTask("herdr-update", checkHerdrUpdate), 6 * 60 * 60 * 1000);
 
 // watch npm for a newer @openai/codex and surface the same informational badge as
 // herdr. Unlike `herdr update`, `codex update` is non-destructive (running codex
@@ -2213,8 +2237,8 @@ const codexUpdates = new CodexUpdateService({
 });
 const checkCodexUpdate = async () =>
   events.emit("codex-update:status", await codexUpdates.check(Date.now()));
-setTimeout(checkCodexUpdate, 5_000);
-setInterval(checkCodexUpdate, 6 * 60 * 60 * 1000);
+setTimeout(timerTask("codex-update", checkCodexUpdate), 5_000);
+setInterval(timerTask("codex-update", checkCodexUpdate), 6 * 60 * 60 * 1000);
 
 // watch installed plugins for a newer released version and surface an
 // informational badge — READ-ONLY, no apply (mirrors the codex badge). Each
@@ -2223,8 +2247,8 @@ setInterval(checkCodexUpdate, 6 * 60 * 60 * 1000);
 const pluginUpdates = new PluginUpdateService();
 const checkPluginUpdates = async () =>
   events.emit("plugin-update:status", await pluginUpdates.check(Date.now()));
-setTimeout(checkPluginUpdates, 6_000);
-setInterval(checkPluginUpdates, 30 * 60 * 1000);
+setTimeout(timerTask("plugin-update", checkPluginUpdates), 6_000);
+setInterval(timerTask("plugin-update", checkPluginUpdates), 30 * 60 * 1000);
 
 // environment-readiness diagnostics (issue #623): fan 7 dependency probes behind
 // a TTL cache and push the snapshot to clients. Like the herdr-update check, a
@@ -2238,8 +2262,8 @@ const diagnostics = new DiagnosticsService({
 });
 const checkDiagnostics = async () =>
   events.emit("diagnostics:status", await diagnostics.check(Date.now()));
-setTimeout(checkDiagnostics, 4_000);
-setInterval(checkDiagnostics, 6 * 60 * 60 * 1000);
+setTimeout(timerTask("diagnostics", checkDiagnostics), 4_000);
+setInterval(timerTask("diagnostics", checkDiagnostics), 6 * 60 * 60 * 1000);
 
 // forge resolution: detect a repo's GitHub/Gitea host from its `origin` remote.
 // Per-host config (tokens, gitea base URLs) loads from config.forges (SHEPHERD_FORGES);

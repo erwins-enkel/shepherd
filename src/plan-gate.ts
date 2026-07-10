@@ -127,10 +127,12 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Resolve the forge for a repo so begin() can fetch the originating issue's body as UNTRUSTED
    *  reviewer context. Optional + optional-chained: absence ⇒ no issue context (never blocks). */
   resolveForge?: (repoPath: string) => GitForge | null;
-  /** Steer reviewer findings into the live planning agent's PTY (SessionService.reply). */
-  reply: (sessionId: string, text: string) => boolean;
-  /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate). */
-  release: (sessionId: string) => void;
+  /** Steer reviewer findings into the live planning agent's PTY (SessionService.reply).
+   *  Async since #1567 — resolves true only when the steer reached a live pane. */
+  reply: (sessionId: string, text: string) => Promise<boolean>;
+  /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate).
+   *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
+  release: (sessionId: string) => Promise<void>;
   onChange: (id: string, gate: PlanGate) => void;
   /** Fired when a plan review starts (true) and when it ends (false) for a session. */
   onReviewing?: (id: string, reviewing: boolean) => void;
@@ -530,8 +532,8 @@ export class PlanGateService {
     // (a store/steer/release failure must not strand them).
     try {
       const gate = this.buildGate(f, raw);
-      if (gate.decision === "approved") this.applyApproved(f, gate);
-      else if (gate.decision === "changes_requested") this.applyChangesRequested(f, gate);
+      if (gate.decision === "approved") await this.applyApproved(f, gate);
+      else if (gate.decision === "changes_requested") await this.applyChangesRequested(f, gate);
       else this.applyError(f, gate); // timeout / unparseable verdict
       // Persist the reviewer's token total for exact cost attribution (issue #502). Best-effort:
       // a missing/half-written transcript leaves the spawn row's totals null rather than
@@ -560,7 +562,7 @@ export class PlanGateService {
    *  therefore NOT actually hands-free, so it must wait for the operator's explicit Go rather than
    *  auto-releasing here. Guard only the autopilot arm: drain (`s.auto`) can't reach a codex session
    *  (full-auto is codex-disabled), so it needs no guard and must still release unattended. */
-  private applyApproved(f: PlanInFlight, gate: PlanGate): void {
+  private async applyApproved(f: PlanInFlight, gate: PlanGate): Promise<void> {
     this.deps.store.putPlanGate(gate);
     this.deps.onChange(f.sessionId, gate);
     const s = this.deps.store.get(f.sessionId);
@@ -569,17 +571,17 @@ export class PlanGateService {
     const autopilotReleases =
       !codexNonIsolated &&
       effectiveAutopilot(s, this.deps.store.getRepoConfig(s.repoPath).autopilotEnabled);
-    if (s.auto || autopilotReleases) this.deps.release(f.sessionId);
+    if (s.auto || autopilotReleases) await this.deps.release(f.sessionId);
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop
    *  steering and escalate to the operator. Execution stays gated until the plan is approved. */
-  private applyChangesRequested(f: PlanInFlight, gate: PlanGate): void {
+  private async applyChangesRequested(f: PlanInFlight, gate: PlanGate): Promise<void> {
     const priorRound = f.priorRound;
     let delivered = false;
     if (priorRound < this.cap) {
       try {
-        delivered = this.deps.reply(f.sessionId, planSteerText(gate.findings));
+        delivered = await this.deps.reply(f.sessionId, planSteerText(gate.findings));
       } catch (err) {
         console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
       }
@@ -702,7 +704,7 @@ export class PlanGateService {
    * The normal consider() driver re-reviews once the revised plan changes its hash. Returns whether
    * the steer reached the live pane (false if there's nothing to resume or the pane was unreachable).
    */
-  resume(session: Session): boolean {
+  async resume(session: Session): Promise<boolean> {
     const gate = this.deps.store.getPlanGate(session.id);
     if (!gate || gate.decision !== "changes_requested") return false; // nothing to resume
     // Re-engaging active rework from a fresh round budget: clear dismissed + finalRoundPending so
@@ -710,7 +712,7 @@ export class PlanGateService {
     const reset = { ...gate, round: 0, finalRoundPending: false, dismissed: false };
     this.deps.store.putPlanGate(reset);
     this.deps.onChange(session.id, reset);
-    return this.deps.reply(session.id, planSteerText(gate.findings));
+    return await this.deps.reply(session.id, planSteerText(gate.findings));
   }
 
   /**

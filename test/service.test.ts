@@ -3369,7 +3369,7 @@ test("restore: spawn failure rolls back worktree and returns null", async () => 
   }
 });
 
-test("reply delivers the text as a bracketed paste, then submits with a carriage return", () => {
+test("reply delivers the text as a bracketed paste, then submits with a carriage return", async () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -3396,11 +3396,13 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
       start: async () => ({}) as any,
       list: () => [{ terminalId: "term_z" }], // pane is live
       stop: async () => {},
-      send: (target: string, text: string) => sent.push({ target, text }),
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
     } as any,
   });
 
-  expect(svc.reply(s.id, "1")).toBe(true);
+  expect(await svc.reply(s.id, "1")).toBe(true);
   // Wrapping in bracketed-paste markers gives an explicit paste-end, so the trailing
   // CR registers as Enter even when herdr coalesces the two writes into one PTY read
   // (a bare multi-line blob + "\r" trips Claude Code's paste heuristic and swallows
@@ -3409,16 +3411,16 @@ test("reply delivers the text as a bracketed paste, then submits with a carriage
     { target: "term_z", text: "\x1b[200~1\x1b[201~" },
     { target: "term_z", text: "\r" },
   ]);
-  expect(svc.reply("nope", "1")).toBe(false);
+  expect(await svc.reply("nope", "1")).toBe(false);
 
   // Stray paste markers in the payload are stripped: a leaked end-marker would close
   // the paste early; the start-marker is dropped for symmetry.
   sent.length = 0;
-  expect(svc.reply(s.id, "a\x1b[201~b\x1b[200~c")).toBe(true);
+  expect(await svc.reply(s.id, "a\x1b[201~b\x1b[200~c")).toBe(true);
   expect(sent[0]).toEqual({ target: "term_z", text: "\x1b[200~abc\x1b[201~" });
 });
 
-test("reply returns false for a live-in-store session whose pane is dead (no throw, no send)", () => {
+test("reply returns false for a live-in-store session whose pane is dead (no throw, no send)", async () => {
   const sent: unknown[] = [];
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -3445,16 +3447,18 @@ test("reply returns false for a live-in-store session whose pane is dead (no thr
       start: async () => ({}) as any,
       list: () => [{ terminalId: "term_other" }], // session's pane is NOT listed → dead
       stop: async () => {},
-      send: () => sent.push("sent"),
+      send: async () => {
+        sent.push("sent");
+      },
     } as any,
   });
   // honest boolean instead of letting herdr.send throw, and no steer is attempted
-  expect(svc.reply(s.id, "hi")).toBe(false);
+  expect(await svc.reply(s.id, "hi")).toBe(false);
   expect(sent).toEqual([]);
   expect(store.listSignals("/r").length).toBe(0); // undelivered steer records no signal
 });
 
-test("broadcast fans the text out to known sessions, skips unknown ids", () => {
+test("broadcast fans the text out to known sessions, skips unknown ids", async () => {
   const sent: { target: string; text: string }[] = [];
   const store = new SessionStore(":memory:");
   const mk = (name: string, agent: string) =>
@@ -3487,12 +3491,14 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
         { terminalId: "term_b", agentStatus: "idle" },
       ], // both panes live + idle
       stop: async () => {},
-      send: (target: string, text: string) => sent.push({ target, text }),
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
     } as any,
   });
 
   // term_a + term_b are live & idle → delivered; "ghost" has no live pane → offline.
-  const res = svc.broadcast([a.id, "ghost", b.id], "run tests");
+  const res = await svc.broadcast([a.id, "ghost", b.id], "run tests");
   expect(res).toEqual({ delivered: 2, queued: 0, offline: 1, total: 3 });
   expect(sent).toEqual([
     { target: "term_a", text: "\x1b[200~run tests\x1b[201~" },
@@ -3502,7 +3508,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", () => {
   ]);
 });
 
-test("broadcast classifies working agents as queued, non-working as delivered", () => {
+test("broadcast classifies working agents as queued, non-working as delivered", async () => {
   const store = new SessionStore(":memory:");
   const mk = (name: string, agent: string) =>
     store.create({
@@ -3539,7 +3545,7 @@ test("broadcast classifies working agents as queued, non-working as delivered", 
   });
 
   // working pane → queued (acts after its current turn); idle pane → delivered (acts now).
-  expect(svc.broadcast([idle.id, busy.id], "go")).toEqual({
+  expect(await svc.broadcast([idle.id, busy.id], "go")).toEqual({
     delivered: 1,
     queued: 1,
     offline: 0,
@@ -3547,7 +3553,7 @@ test("broadcast classifies working agents as queued, non-working as delivered", 
   });
 });
 
-test("broadcast reports every target offline when no panes are live", () => {
+test("broadcast reports every target offline when no panes are live", async () => {
   const sent: unknown[] = [];
   const store = new SessionStore(":memory:");
   const a = store.create({
@@ -3578,7 +3584,7 @@ test("broadcast reports every target offline when no panes are live", () => {
     } as any,
   });
 
-  expect(svc.broadcast([a.id, "ghost"], "go")).toEqual({
+  expect(await svc.broadcast([a.id, "ghost"], "go")).toEqual({
     delivered: 0,
     queued: 0,
     offline: 2,
@@ -3587,7 +3593,7 @@ test("broadcast reports every target offline when no panes are live", () => {
   expect(sent).toEqual([]); // nothing delivered
 });
 
-test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouched; emits count", () => {
+test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouched; emits count", async () => {
   const sent: { target: string; text: string }[] = [];
   const emitted: { e: string; d: unknown }[] = [];
   const store = new SessionStore(":memory:");
@@ -3627,14 +3633,16 @@ test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouche
         { terminalId: "term_d", agentStatus: "working", cwd: "/wt/d", name: "" },
       ],
       stop: async () => {},
-      send: (target: string, text: string) => sent.push({ target, text }),
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
     } as any,
   });
 
   // Only the two `working` panes are interrupted, each with a single ESC (the Claude
   // Code interrupt key) — no bracketed paste, no trailing CR. A lone ESC halts the
   // current turn without clearing input or quitting.
-  expect(svc.haltAll()).toEqual({ halted: 2 });
+  expect(await svc.haltAll()).toEqual({ halted: 2 });
   expect(sent).toEqual([
     { target: "term_a", text: "\x1b" },
     { target: "term_d", text: "\x1b" },
@@ -3642,7 +3650,7 @@ test("haltAll sends a lone ESC only to working panes; idle/blocked/dead untouche
   expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
 });
 
-test("haltAll keeps interrupting after one pane's send throws; counts only the landed ones", () => {
+test("haltAll keeps interrupting after one pane's send throws; counts only the landed ones", async () => {
   const sent: string[] = [];
   const emitted: { e: string; d: unknown }[] = [];
   const store = new SessionStore(":memory:");
@@ -3679,19 +3687,19 @@ test("haltAll keeps interrupting after one pane's send throws; counts only the l
         { terminalId: "term_c", agentStatus: "working", cwd: "/wt/c", name: "" },
       ],
       stop: async () => {},
-      send: (target: string) => {
+      send: async (target: string) => {
         if (target === "term_b") throw new Error("agent_not_found");
         sent.push(target);
       },
     } as any,
   });
 
-  expect(svc.haltAll()).toEqual({ halted: 2 }); // only the two that landed
+  expect(await svc.haltAll()).toEqual({ halted: 2 }); // only the two that landed
   expect(sent).toEqual(["term_a", "term_c"]); // b's failure didn't abort the sweep
   expect(emitted).toContainEqual({ e: "halt:done", d: { halted: 2 } });
 });
 
-test("haltAll throws (no emit) when herdr can't be reached — never a silent no-op", () => {
+test("haltAll throws (no emit) when herdr can't be reached — never a silent no-op", async () => {
   const emitted: { e: string; d: unknown }[] = [];
   const sent: unknown[] = [];
   const store = new SessionStore(":memory:");
@@ -3728,7 +3736,7 @@ test("haltAll throws (no emit) when herdr can't be reached — never a silent no
 
   // Propagates instead of returning {halted:0}: the route turns it into a 500 so the
   // UI surfaces halt_failed + Retry rather than a success-looking "Halted 0 agents".
-  expect(() => svc.haltAll()).toThrow("herdr down");
+  await expect(svc.haltAll()).rejects.toThrow("herdr down");
   expect(sent).toEqual([]);
   expect(emitted).toEqual([]); // no halt:done on a stop that never ran
 });
@@ -5342,15 +5350,17 @@ function makePreviewSvc(opts: {
       start: async () => ({}) as any,
       list: () => opts.liveIds.map((id) => ({ terminalId: id })),
       stop: async () => {},
-      send: (target: string, text: string) => sent.push({ target, text }),
+      send: async (target: string, text: string) => {
+        sent.push({ target, text });
+      },
     } as any,
   });
   return { svc, store, s, sent };
 }
 
-test("startPreview: sends PREVIEW_START_STEER as bracketed paste + CR, returns true", () => {
+test("startPreview: sends PREVIEW_START_STEER as bracketed paste + CR, returns true", async () => {
   const { svc, s, sent } = makePreviewSvc({ terminalId: "term_p", liveIds: ["term_p"] });
-  const result = svc.startPreview(s.id, "bun run dev");
+  const result = await svc.startPreview(s.id, "bun run dev");
   expect(result).toBe(true);
   // Two sends: paste-wrapped steer then CR
   expect(sent).toHaveLength(2);
@@ -5376,13 +5386,13 @@ test("startPreview: claude steer keeps the Claude Code background wording", () =
   expect(steer).not.toContain("For Codex:");
 });
 
-test("startPreview: codex steer uses Codex background terminal wording", () => {
+test("startPreview: codex steer uses Codex background terminal wording", async () => {
   const { svc, s, sent } = makePreviewSvc({
     terminalId: "term_c",
     liveIds: ["term_c"],
     agentProvider: "codex",
   });
-  const result = svc.startPreview(s.id, "bun run dev");
+  const result = await svc.startPreview(s.id, "bun run dev");
   expect(result).toBe(true);
   const [paste] = sent;
   expect(paste!.text).toContain("For Codex:");
@@ -5401,15 +5411,15 @@ test("startPreview: steer demands the tailnet HTTPS URL, not just localhost", ()
   expect(steer).not.toMatch(/\.ts\.net/);
 });
 
-test("startPreview: returns false for an unknown session id", () => {
+test("startPreview: returns false for an unknown session id", async () => {
   const { svc, sent } = makePreviewSvc({ terminalId: "term_p", liveIds: ["term_p"] });
-  expect(svc.startPreview("nope", "bun run dev")).toBe(false);
+  expect(await svc.startPreview("nope", "bun run dev")).toBe(false);
   expect(sent).toHaveLength(0);
 });
 
-test("startPreview: returns false for a dead pane (session in store but pane not live)", () => {
+test("startPreview: returns false for a dead pane (session in store but pane not live)", async () => {
   const { svc, s, sent } = makePreviewSvc({ terminalId: "term_dead", liveIds: ["term_other"] });
-  expect(svc.startPreview(s.id, "bun run dev")).toBe(false);
+  expect(await svc.startPreview(s.id, "bun run dev")).toBe(false);
   expect(sent).toHaveLength(0);
 });
 

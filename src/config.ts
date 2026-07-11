@@ -448,6 +448,22 @@ export function resolveAllowedOriginHosts(envValue: string | undefined): string[
   return hosts;
 }
 
+/**
+ * Fold the node's own resolved host into an origin allowlist in place (deduped;
+ * null/blank ignored). Called at boot once `config.previewHost` resolves so a
+ * same-node HUD — direct `tailscale serve`, where the served front host IS the
+ * node's own DNSName — is trusted without a manual SHEPHERD_ALLOWED_HOSTS. Only
+ * the hostname is trusted: preview-port origins are still rejected by the origin
+ * guard's preview-range check (it runs before the hostname check), so this does
+ * not open preview-forged CSRF. A Service-fronted HUD is served under a DIFFERENT
+ * DNS name, so it isn't covered here and still needs a manual allowlist entry.
+ * Issue #1645 Fix 2. Exported for tests.
+ */
+export function addOwnHostToAllowlist(hosts: string[], host: string | null): void {
+  const h = host?.trim();
+  if (h && !hosts.includes(h)) hosts.push(h);
+}
+
 export const config = {
   port: mainPort,
   // bind to loopback only; the Tailscale-serve proxy reaches it via 127.0.0.1.

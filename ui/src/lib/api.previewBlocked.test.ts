@@ -38,4 +38,20 @@ describe("preview-origin blocked detection", () => {
     expect(isPreviewBlocked(err)).toBe(false);
     expect(err!.message).toBe("nope");
   });
+
+  // A host-not-allowlisted 403 (real HUD on an un-allowed host, #1645 Fix 3) is NOT a preview
+  // block — it becomes a plain Error carrying the translated SHEPHERD_ALLOWED_HOSTS hint, so the
+  // UI stops misdirecting the operator to "the live preview".
+  it("maps a 403 host-block body to a plain (non-preview) error with hint copy", async () => {
+    globalThis.fetch = mockFetch(403, { error: "forbidden: origin host not allowed" });
+    const err = await createSession({ repo: "r", prompt: "p" } as unknown as CreateInput).then(
+      () => null,
+      (e) => e as Error,
+    );
+    expect(err).toBeInstanceOf(Error);
+    expect(isPreviewBlocked(err)).toBe(false);
+    // Remapped to a translated sentence — not the raw server string.
+    expect(err!.message.length).toBeGreaterThan(0);
+    expect(err!.message).not.toBe("forbidden: origin host not allowed");
+  });
 });

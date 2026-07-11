@@ -1630,6 +1630,8 @@
   "queuebadge_label": "{resolved}/{total}",
   "queuebadge_title": "Build queue: {resolved} of {total} steps done",
   "queuebadge_aria": "Build queue: {resolved} of {total} steps done",
+  "queuebadge_stale_title": "Build queue: {total} steps, progress unreported — agent working but hasn't updated step status",
+  "queuebadge_stale_aria": "Build queue progress unreported: {total} steps, agent working but status not updated",
   "feat_build_queue_progress_title": "Build queue progress at a glance",
   "feat_build_queue_progress_body": "Session cards now show a small amber badge with a progress meter when an approved build queue is active — see resolved / total steps without opening the panel.",
   "learnings_optimize": "Optimize",

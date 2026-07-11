@@ -362,6 +362,14 @@
         "maxCognitive": 62,
         "maxCrap": 20000,
         "reason": "Inline hold-reason subline + one-click CTA (#1561) adds ~+3 cognitive to the already-large row template (58 -> 61). The CTA block was extracted into the holdSubline snippet, which recovered cyclomatic back under the Tier-1 40 bar; the residual +1 over the 60 cognitive bar is genuine new-affordance cost. Keep capped until UnitRow is split into per-zone sub-components (#855), like the other large row templates."
+      },
+      {
+        "files": ["ui/src/lib/components/page/AppOverlays.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 41,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "AppOverlays is the flat page-level overlay dispatcher (one `{#if showX}` block per modal/drawer). The epic-diagnosis command-bar entry (#1657) adds one more overlay block, taking cyclomatic 40 -> 41 (one branch over the Tier-1 bar); cognitive stays well under (30). Each block is independent and idiomatic. Keep capped until the overlay list is split into grouped sub-dispatchers (#855)."
       }
     ],
 

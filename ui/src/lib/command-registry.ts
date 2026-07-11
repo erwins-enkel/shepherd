@@ -34,6 +34,9 @@ export type CommandCtx = {
   onNextNeedsYou: () => void;
   /** Opens the learnings drawer. */
   onLearnings: () => void;
+  /** Opens the epic-diagnosis entry (repo + arbitrary parent #) — reaches the fully
+   *  unrecognized would-be epic that has no on-screen EpicPanel/Diagnose button (#1657). */
+  onDiagnoseEpic: () => void;
   /** store.sessions.length > 0 — Broadcast needs at least one session. */
   hasSessions: boolean;
   /** haltedCount > 0 && usageBelow — mirrors SteerBar's retry chip visibility. */
@@ -98,6 +101,17 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         id: "retry",
         label: () => m.commandbar_cmd_retry(),
         run: ctx.onRetry,
+      },
+    },
+    {
+      // Always available: it targets an ARBITRARY parent number the operator types, so it
+      // can't be gated on live state the way the other verbs are.
+      available: true,
+      cmd: {
+        id: "diagnose-epic",
+        label: () => m.commandbar_cmd_diagnose_epic(),
+        keywords: () => m.commandbar_cmd_diagnose_epic_kw(),
+        run: ctx.onDiagnoseEpic,
       },
     },
     {

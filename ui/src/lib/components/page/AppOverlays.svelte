@@ -52,6 +52,7 @@
   import type { Command } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
+  import EpicDiagnoseEntry from "$lib/components/EpicDiagnoseEntry.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
   import BacklogOverlay from "$lib/components/BacklogOverlay.svelte";
@@ -169,6 +170,9 @@
     commandBarInitialFilter = undefined,
     showRetry,
     onretryclose,
+    showEpicDiagnose,
+    epicDiagnoseInitialRepo = undefined,
+    onepicdiagnoseclose,
     clearMergedSessions,
     clearMergedLeftovers,
     onclearmergedclose,
@@ -296,6 +300,10 @@
     commandBarInitialFilter?: string;
     showRetry: boolean;
     onretryclose: () => void;
+    showEpicDiagnose: boolean;
+    /** Repo the entry form's picker defaults to — the single in-focus repo, or undefined. */
+    epicDiagnoseInitialRepo?: string | undefined;
+    onepicdiagnoseclose: () => void;
     clearMergedSessions: Session[] | null;
     clearMergedLeftovers: number;
     onclearmergedclose: () => void;
@@ -594,6 +602,10 @@
 
 {#if showRetry}
   <RetryDialog sessions={store.sessions} onclose={onretryclose} />
+{/if}
+
+{#if showEpicDiagnose}
+  <EpicDiagnoseEntry initialRepo={epicDiagnoseInitialRepo} onclose={onepicdiagnoseclose} />
 {/if}
 
 {#if clearMergedSessions}

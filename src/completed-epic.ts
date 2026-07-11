@@ -43,6 +43,8 @@ export interface CompletedEpic {
   landingReady?: boolean;
   /** True when an open+ready landing has sat unlanded past EPIC_LANDING_STRANDED_MS (Rec D escalation). */
   landingStranded?: boolean;
+  /** Live, non-persisted: the landing PR's CI is terminally failing (not behind/conflicting). */
+  landingCiFailing?: boolean;
 }
 
 /** Rec D threshold: surface the "stranded" escalation when an open+ready landing PR has sat
@@ -101,7 +103,7 @@ export interface EnrichLandingDeps {
 }
 
 /** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
- *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`), mutating in place.
+ *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`), mutating in place.
  *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
  *  row's live fields undefined — never throws. Shared by GET /api/epics/completed and the rundown's
  *  landing-ready accessor so both compute readiness identically. */
@@ -128,6 +130,10 @@ export async function enrichLandingEpics(
           completedAt: row.completedAt,
           now: deps.now,
         });
+        // A terminally-failing landing PR that is NOT behind/conflicting (those are owned by the
+        // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts).
+        row.landingCiFailing =
+          pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
       } catch {
         // leave live fields undefined — callers always serve/return the base DB rows
       }

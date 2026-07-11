@@ -1878,7 +1878,21 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       stranded: e.landingStranded === true,
     }));
 
-  const val: RundownEpicItem[] = [...pausedItems, ...readyItems];
+  // CI-failing rows (terminal red, not behind/conflicting): surface as a distinct Tier-1 item. `epics`
+  // already excludes paused rows; a red row has landingReady=false so it is not in readyItems either —
+  // so each open row lands under exactly one heading.
+  const ciFailingItems: RundownEpicItem[] = epics
+    .filter((e) => e.landingState === "open" && e.landingCiFailing === true)
+    .map((e) => ({
+      repo: e.repoPath,
+      parent: e.parentIssueNumber,
+      title: e.parentTitle,
+      landingPr: e.landingPrNumber,
+      stranded: false,
+      ciFailing: true,
+    }));
+
+  const val: RundownEpicItem[] = [...pausedItems, ...readyItems, ...ciFailingItems];
   epicReadyCache = { key, ts: now, val };
   return val;
 };

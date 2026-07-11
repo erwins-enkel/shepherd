@@ -2821,6 +2821,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         title: typeof o.title === "string" ? o.title : "",
         landingPr: typeof o.landingPr === "number" ? o.landingPr : null,
         stranded: o.stranded === true,
+        ciFailing: o.ciFailing === true,
       });
     }
     return out;

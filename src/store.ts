@@ -172,7 +172,8 @@ export interface RepoConfig {
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
    *  (#1061). Default OFF — outbound write gated behind explicit per-repo opt-in (house rule). */
   manualStepsIssueEnabled: boolean;
-  // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
+  /** Pre-warm epic landing CI by opening the landing PR as an early draft during the drain
+   *  (#1664). Default OFF — explicit opt-in. */
   preWarmEpicLandingCi: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */

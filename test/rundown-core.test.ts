@@ -1054,3 +1054,46 @@ test("buildRundownPrompt: mixed paused + ready epics both rendered in dedicated 
   expect(prompt).toContain("#7");
   expect(prompt).toContain("#8");
 });
+
+// ─── operator-language injection (issue #1625) ──────────────────────────────
+
+// fenceUntrusted() mints a random per-call nonce, so two independent buildRundownPrompt calls
+// never come out byte-identical purely because of it. Normalize it out before comparing.
+const normalizeUntrustedNonce = (s: string): string =>
+  s.replace(/⟦(\/?)UNTRUSTED:([\w ]+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2:NONCE⟧");
+
+// A herd with a halted-error session so an assembled `hold` is present — this exercises the
+// renderHold(hold, operatorLanguage) branch (else the byte-identity test would pass vacuously).
+const holdAssembled = () =>
+  assembleHerdState({
+    sessions: [session({ haltReason: "error" })],
+    overnightDelta: { mergedPrs: [], archivedSessions: [] },
+    generatedFor: "2026-07-11",
+    now: NOW,
+  });
+
+test("en is byte-identical: buildRundownPrompt with/without explicit operatorLanguage:'en'", () => {
+  const out = holdAssembled();
+  const withoutLang = normalizeUntrustedNonce(buildRundownPrompt(out));
+  const withEnLang = normalizeUntrustedNonce(buildRundownPrompt(out, "en"));
+  expect(withEnLang).toBe(withoutLang);
+  expect(withoutLang).not.toContain("German");
+  expect(withEnLang).not.toContain("German");
+  // Proves the fixture carries a hold so the renderHold branch is actually reached (non-vacuous).
+  expect(withoutLang).toContain("Halted on an error");
+});
+
+test("de: buildRundownPrompt appends the directive and renders the hold `why` line in German", () => {
+  const p = buildRundownPrompt(holdAssembled(), "de");
+  expect(p).toContain("German");
+  // operator-facing prose fields named
+  expect(p).toContain("overnight");
+  expect(p).toContain("train");
+  expect(p).toContain("`label`");
+  // machine-read fields called out as verbatim
+  expect(p).toContain("`sessionId`");
+  expect(p).toContain("`pr`");
+  // the threaded renderHold(hold, "de") produced the German copy in the herd-state dump
+  expect(p).toContain("Auf einem Fehler gestoppt");
+  expect(p).not.toContain("Halted on an error");
+});

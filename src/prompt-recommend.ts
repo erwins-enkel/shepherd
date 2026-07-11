@@ -11,6 +11,7 @@ import {
   apiKeyPassthroughEnv,
 } from "./spawn-auth";
 import { fenceUntrusted } from "./untrusted";
+import type { OperatorLanguage } from "./operator-language";
 
 /** The file the recommender agent writes its suggestion JSON to, in its temp cwd. */
 export const RECOMMEND_FILE = ".shepherd-recommend.json";
@@ -41,6 +42,9 @@ export interface RecommendArgs {
   model: string;
   /** herdr terminal label for the transient agent. */
   label: string;
+  /** Live operator-language setting (#1586). Optional — absent → "en" (no directive, byte-identical).
+   *  Kept optional so the shared test `args()` helper + existing call sites need no change. */
+  operatorLanguage?: OperatorLanguage;
 }
 
 interface RawSuggestion {
@@ -60,10 +64,14 @@ interface RawSuggestion {
  * initiated on the operator's own session history, same trust boundary as the codex sessions
  * Shepherd already spawns; revisit if codex gains a scoped-permission mode.
  */
-export function recommenderPrompt(tail: string[], taskPrompt: string): string {
+export function recommenderPrompt(
+  tail: string[],
+  taskPrompt: string,
+  operatorLanguage: OperatorLanguage = "en",
+): string {
   const clippedTask = taskPrompt.slice(0, 2000);
   const clippedTail = tail.slice(-120).join("\n").slice(0, 12000);
-  return [
+  const lines = [
     "You are an expert coding-agent supervisor. Another coding agent is working on a task in a",
     "terminal. Read its original task and the recent history of its terminal, then write the SINGLE",
     "most useful next prompt a human operator could send to that agent to move the work forward —",
@@ -81,7 +89,18 @@ export function recommenderPrompt(tail: string[], taskPrompt: string): string {
     '{"prompt": "<the next prompt to send, addressed directly to the agent, ready to paste>"}',
     "The prompt must be concrete, actionable, and specific to this session — not generic advice.",
     "Do not read or modify any other file.",
-  ].join("\n");
+  ];
+
+  if (operatorLanguage === "de") {
+    lines.push(
+      "",
+      "Write the recommended prompt (the `prompt` value) in German — the operator reads it. Keep any " +
+        "code, commands, file paths, identifiers, and quoted agent/tool output embedded in it " +
+        "verbatim; never translate those. The `prompt` JSON key stays literal.",
+    );
+  }
+
+  return lines.join("\n");
 }
 
 const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
@@ -206,7 +225,7 @@ export async function recommendPrompt(
   let terminalId: string | null = null;
   try {
     cwd = makeTmpDir();
-    const prompt = recommenderPrompt(args.tail, args.taskPrompt);
+    const prompt = recommenderPrompt(args.tail, args.taskPrompt, args.operatorLanguage ?? "en");
     const argv =
       args.provider === "codex"
         ? codexRecommenderArgv(args.model, prompt)

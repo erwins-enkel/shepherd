@@ -46,3 +46,59 @@ const HOLD_LINE: Record<HoldCode, (hold: HoldReason) => string> = {
 export function holdLine(hold: HoldReason): string {
   return HOLD_LINE[hold.code](hold);
 }
+
+/** Does this hold mean the agent has stopped and awaits a DIRECT operator action?
+ *  Drives the card-level attention wash (UnitRow `.awaits-operator` + --wash-attention).
+ *
+ *  This is a VISUAL, agency-based classification — deliberately its OWN set, NOT the
+ *  behavioral "needs you" the rest of the app already defines differently:
+ *    - nextNeedsYou / CommandBar / common_needs_you → only `status === "blocked"`
+ *    - tab-signal.svelte.ts                          → blocked · ci-red · ready-to-merge
+ *    - Ready lens (shownSessions "ready")            → idle · blocked · done
+ *  and NOT the server rundown's SIGNAL_TIER (src/rundown-core.ts), which ranks by
+ *  URGENCY (e.g. critic-rework Tier 1, ready-merge Tier 3), not agency. The wash is
+ *  "rein visuell" and must not drift into any of those behavioral paths.
+ *
+ *  Excluded on purpose:
+ *    - ci-red / train-error / halted-usage: non-agent FAILURE / external limit — the
+ *      design system reserves a wash for blocked-AGENT state; failures get a subordinate
+ *      red chip, never a wash (DESIGN.md "Neither carries a halo, pulse, or wash").
+ *    - blocked-stall / stalled / recap-attention: uncertain heuristic / advisory nudge,
+ *      not a proven operator block.
+ *    - quota-*: limit-exhaustion; still carries the loud red "!" pip on its own.
+ *    - critic-rework / merging / merge-rebasing / awaiting-merge: autonomous or handed off.
+ *    - ready-merge: a green ✓ actionable-complete state (also guarded by !readyToMerge at
+ *      the callsite) — a red wash under green would break the Four-Light Rule.
+ *
+ *  Exhaustive Record so a newly-added HoldCode fails to compile until it is classified. */
+const HOLD_AWAITS_OPERATOR: Record<HoldCode, boolean> = {
+  "halted-error": true,
+  "autopilot-paused": true,
+  "blocked-menu": true,
+  "blocked-yes-no": true,
+  "blocked-awaiting-input": true,
+  "blocked-generic": true,
+  "plan-rework": true,
+  "plan-question": true,
+  "manual-steps": true,
+  "blocked-stall": false,
+  "quota-rework": false,
+  "quota-review": false,
+  "quota-error": false,
+  "quota-plan": false,
+  "critic-rework": false,
+  "ci-red": false,
+  "awaiting-merge": false,
+  "train-error": false,
+  stalled: false,
+  "recap-attention": false,
+  merging: false,
+  "merge-rebasing": false,
+  "ready-merge": false,
+  "halted-usage": false,
+};
+
+/** See HOLD_AWAITS_OPERATOR — the card-attention-wash predicate. */
+export function holdAwaitsOperator(hold: HoldReason): boolean {
+  return HOLD_AWAITS_OPERATOR[hold.code];
+}

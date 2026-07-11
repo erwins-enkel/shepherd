@@ -35,6 +35,7 @@
   import { onDestroy } from "svelte";
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import { rowHold } from "$lib/hold-row";
+  import { holdAwaitsOperator } from "$lib/hold";
   import {
     REVEAL_PX,
     snapOffset,
@@ -119,6 +120,22 @@
   // working-while-blocked session gets the full working treatment. Behavioral
   // reads (canResume) stay on the raw status.
   const dStatus = $derived(displayStatus(session, workingBlocked));
+
+  // The agent has stopped and awaits a DIRECT operator action → a subordinate red
+  // card wash (--wash-attention). See holdAwaitsOperator for the (deliberately
+  // narrow, agency-based) hold set. Two gates keep the wash honest:
+  //  - dStatus !== "running": a mid-turn session is the ACTOR, not waiting on you.
+  //    The server emits some operator-waiting holds (notably plan-rework) for a
+  //    still-running planning session that is actively addressing the requested
+  //    changes — that is the agent's turn, so it must not read as "you're up".
+  //    Using dStatus (not raw status) also excludes a working-while-blocked session
+  //    (display-running, shows the amber working pip), keeping the wash in step with
+  //    the pip rather than fighting it.
+  //  - !readyToMerge: a green ✓ (actionable-complete) card never takes a red wash
+  //    under it (Four-Light Rule).
+  const awaitsOperator = $derived(
+    !session.readyToMerge && dStatus !== "running" && !!hold && holdAwaitsOperator(hold),
+  );
 
   // repo the unit works in — the last path segment of its repoPath (e.g. "community-map")
   const repoName = $derived(session.repoPath.split("/").filter(Boolean).at(-1) ?? session.repoPath);
@@ -568,6 +585,7 @@
     class="unit"
     class:sel={selected}
     class:has-activity={live}
+    class:awaits-operator={awaitsOperator}
     class:decommissioning
     data-unit-id={session.id}
     style="--rule:{session.readyToMerge ? 'var(--color-green)' : STATUS_COLOR[dStatus]}"
@@ -1023,6 +1041,28 @@
     border-left: 0;
     border-top: 0;
     pointer-events: none;
+  }
+
+  /* Card-level attention wash: the agent has stopped and awaits a direct operator
+     action (see awaitsOperator / holdAwaitsOperator). A subordinate red tint that
+     makes "you're the next actor" legible at a glance without out-competing the
+     blocked pip or the --wash-blocked header. Composed with hover + selection so a
+     waiting card keeps its identity in every state; the pip / hold line carry the
+     non-color cue (WCAG 1.4.1), this tint only reinforces it. */
+  .unit.awaits-operator {
+    background: var(--wash-attention);
+  }
+  .unit.awaits-operator:hover {
+    background: color-mix(in srgb, var(--color-hover) 55%, var(--wash-attention));
+  }
+  .unit.awaits-operator.sel {
+    background:
+      radial-gradient(
+        120% 140% at 0% 50%,
+        color-mix(in srgb, var(--rule) 12%, transparent),
+        transparent 70%
+      ),
+      color-mix(in srgb, var(--color-sel) 78%, var(--wash-attention));
   }
 
   .pip-col {

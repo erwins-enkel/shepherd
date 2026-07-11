@@ -142,6 +142,13 @@
      reads as alarm; the same recipe is re-tuned for light below. */
   --wash-blocked: color-mix(in srgb, var(--color-red) 24%, var(--color-head));
   --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
+  /* Card-level attention wash for a session whose HOLD means the agent has
+     stopped and awaits the operator (see holdAwaitsOperator in lib/hold.ts).
+     Deliberately much lighter than --wash-blocked (a full card in a dense list,
+     not a header bezel) and mixed toward --color-panel (the card's own ground)
+     so it stays "nur ganz leicht" — a subordinate red that never out-competes
+     the blocked pip or the --wash-blocked header. */
+  --wash-attention: color-mix(in srgb, var(--color-red) 7%, var(--color-panel));
 
   /* Wireframe mockup tokens — themed off the semantic --color-* layer (read as computed
      values by WireframeBlock and injected into its sandboxed iframe, which can't inherit these). */
@@ -198,6 +205,10 @@
      (slate, near-neutral) blends cleanly enough to keep the srgb recipe. */
   --wash-blocked: oklch(0.86 0.065 23);
   --wash-done: color-mix(in srgb, var(--color-slate) 24%, var(--color-head));
+  /* sRGB-blending red toward near-white muddies into dusty pink (same reason as
+     --wash-blocked above); hand-tune a very light, low-chroma warm rose in OKLCH,
+     hue aligned to --red (~23) and lighter than the blocked wash. */
+  --wash-attention: oklch(0.965 0.016 23);
 }
 
 /* ── High contrast (WCAG / "Brillenträger") ──────────────────────────────────

@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   resolveAllowedOriginHosts,
+  addOwnHostToAllowlist,
   SHEPHERD_CAPTURE_EXTENSION_ID,
   SHEPHERD_CAPTURE_UNPACKED_DEV_ID,
 } from "../src/config";
@@ -46,4 +47,35 @@ test("resolveAllowedOriginHosts: trims whitespace, drops empties, preserves [::1
     SHEPHERD_CAPTURE_EXTENSION_ID,
     SHEPHERD_CAPTURE_UNPACKED_DEV_ID,
   ]);
+});
+
+// ── addOwnHostToAllowlist (issue #1645 Fix 2) ─────────────────────────────────
+
+// The node's own resolved tailnet host is folded in so a same-node HUD is trusted.
+test("addOwnHostToAllowlist: appends the node's own host", () => {
+  const hosts = ["localhost", "127.0.0.1"];
+  addOwnHostToAllowlist(hosts, "agentnode.example.ts.net");
+  expect(hosts).toEqual(["localhost", "127.0.0.1", "agentnode.example.ts.net"]);
+});
+
+// Dedup: an already-listed host must not be doubled (e.g. operator set it manually too).
+test("addOwnHostToAllowlist: does not double an already-listed host", () => {
+  const hosts = ["localhost", "agentnode.example.ts.net"];
+  addOwnHostToAllowlist(hosts, "agentnode.example.ts.net");
+  expect(hosts).toEqual(["localhost", "agentnode.example.ts.net"]);
+});
+
+// Null/blank host (tailscale absent, or resolveNodeHost returned null) is a no-op.
+test("addOwnHostToAllowlist: null or blank host is a no-op", () => {
+  const hosts = ["localhost"];
+  addOwnHostToAllowlist(hosts, null);
+  addOwnHostToAllowlist(hosts, "   ");
+  expect(hosts).toEqual(["localhost"]);
+});
+
+// A host with stray whitespace is trimmed before it lands in the allowlist.
+test("addOwnHostToAllowlist: trims surrounding whitespace", () => {
+  const hosts: string[] = [];
+  addOwnHostToAllowlist(hosts, "  agentnode.example.ts.net  ");
+  expect(hosts).toEqual(["agentnode.example.ts.net"]);
 });

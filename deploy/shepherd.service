@@ -22,7 +22,10 @@ RestartPreventExitStatus=78
 Environment=PATH=%h/.bun/bin:%h/.local/bin:/usr/local/bin:/usr/bin:/bin
 Environment=SHEPHERD_PORT=7330
 Environment=SHEPHERD_HOST=127.0.0.1
-# localhost defaults only; add your own tailnet hostname via SHEPHERD_ALLOWED_HOSTS in ~/.shepherd/env
+# localhost defaults only. A direct-served HUD (`tailscale serve` on this node) is trusted
+# automatically — Shepherd folds the node's own tailnet host into the allowlist at startup.
+# Only a Service-fronted / custom-DNS HUD (served under a different DNS name than this node)
+# needs its host added via SHEPHERD_ALLOWED_HOSTS in ~/.shepherd/env.
 Environment=SHEPHERD_ALLOWED_HOSTS=localhost,127.0.0.1,::1,[::1]
 # optional overrides (token, repo root, etc.) — file may be absent
 EnvironmentFile=-%h/.shepherd/env

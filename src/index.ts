@@ -17,6 +17,7 @@ import {
   parseServedPort,
   validatePreviewPortRange,
   validateAgentIngressPort,
+  addOwnHostToAllowlist,
 } from "./config";
 import { SessionStore } from "./store";
 import type {
@@ -400,6 +401,13 @@ let credentialBanner: string | null = null;
   }
   // Resolve the node's own tailnet hostname (null when tailscale is absent).
   config.previewHost = await resolveNodeHost();
+  // Fold the node's own tailnet host into the CSRF origin allowlist so a same-node HUD
+  // (direct `tailscale serve`, served front host == this node's DNSName) is trusted out of
+  // the box — no manual SHEPHERD_ALLOWED_HOSTS. Preview-port origins stay rejected (the
+  // guard's preview-range check runs first, independent of hostname) and foreign origins
+  // stay blocked. A Service-fronted HUD uses a different DNS name and still needs a manual
+  // allowlist entry (see deploy/shepherd.service). Issue #1645 Fix 2.
+  addOwnHostToAllowlist(config.allowedOriginHosts, config.previewHost);
   validatePreviewPortRange({
     previewPortBase: config.previewPortBase,
     previewPortCount: config.previewPortCount,

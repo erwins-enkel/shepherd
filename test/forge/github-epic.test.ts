@@ -1,6 +1,7 @@
 import { test, expect, describe } from "bun:test";
 import { GithubForge } from "../../src/forge/github";
 import type { GhRunner } from "../../src/forge/github";
+import { graphRateLimit } from "../../src/forge/rate-limit";
 
 function fakeRunner(responses: Record<string, string>) {
   const run = async (args: string[]): Promise<string> => {
@@ -220,5 +221,125 @@ describe("GithubForge listSubIssueSummaries", () => {
     expect(result.subIssueNumbers).toEqual([42]);
     expect(result.summaries.get(42)).toEqual({ total: 3, completed: 1 });
     expect(result.summaries.size).toBe(1);
+  });
+});
+
+describe("GithubForge listBlockedByOpen", () => {
+  test("real payload: maps blocked issues to open-blocker numbers; unblocked/closed-blocker issues omitted", async () => {
+    // Verified-live fixture shape (see task brief): #1600 has no blockers, #1601's only
+    // blocker is CLOSED — neither should appear in the result Map.
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: "y" },
+            nodes: [
+              { number: 1622, blockedBy: { nodes: [{ number: 1642, state: "OPEN" }] } },
+              { number: 1506, blockedBy: { nodes: [{ number: 1505, state: "OPEN" }] } },
+              { number: 1507, blockedBy: { nodes: [{ number: 1505, state: "OPEN" }] } },
+              { number: 1627, blockedBy: { nodes: [{ number: 1626, state: "OPEN" }] } },
+              { number: 1600, blockedBy: { nodes: [] } },
+              { number: 1601, blockedBy: { nodes: [{ number: 1500, state: "CLOSED" }] } },
+            ],
+          },
+        },
+      },
+    });
+    const { run, calls } = sequenceRunner([page]);
+    const result = await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+    expect(result).toEqual(
+      new Map([
+        [1622, [1642]],
+        [1506, [1505]],
+        [1507, [1505]],
+        [1627, [1626]],
+      ]),
+    );
+    expect(result.has(1600)).toBe(false);
+    expect(result.has(1601)).toBe(false);
+    expect(calls.length).toBe(1);
+  });
+
+  test("runner throws rate-limit error → returns empty Map (no rethrow)", async () => {
+    const run: GhRunner = async () => {
+      throw { stderr: "API rate limit exceeded for graphql resource" };
+    };
+    const result = await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+    expect(result).toBeInstanceOf(Map);
+    expect(result.size).toBe(0);
+  });
+
+  test("malformed JSON response → returns empty Map (no throw)", async () => {
+    const run: GhRunner = async () => "not json";
+    const result = await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+    expect(result.size).toBe(0);
+  });
+
+  test("graphRateLimit.blocked(): short-circuits to empty Map without calling the runner", async () => {
+    graphRateLimit.noteLimitError(60);
+    try {
+      const calls: string[][] = [];
+      const run: GhRunner = async (args) => {
+        calls.push(args);
+        return "{}";
+      };
+      const result = await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+      expect(result.size).toBe(0);
+      expect(calls.length).toBe(0);
+    } finally {
+      graphRateLimit.note({ remaining: 1000, resetAt: Date.now() + 60_000 });
+    }
+  });
+
+  test("two-page cursor: collects both pages into one Map, 2 runner calls, second passes after= from first", async () => {
+    const page1 = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: true, endCursor: "cursor-abc" },
+            nodes: [{ number: 10, blockedBy: { nodes: [{ number: 9, state: "OPEN" }] } }],
+          },
+        },
+      },
+    });
+    const page2 = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [{ number: 20, blockedBy: { nodes: [{ number: 19, state: "OPEN" }] } }],
+          },
+        },
+      },
+    });
+    const { run, calls } = sequenceRunner([page1, page2]);
+    const result = await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+    expect(calls.length).toBe(2);
+    expect(result).toEqual(
+      new Map([
+        [10, [9]],
+        [20, [19]],
+      ]),
+    );
+    const firstCallArgs = calls[0]!.join(" ");
+    const secondCallArgs = calls[1]!.join(" ");
+    expect(firstCallArgs).not.toContain("cursor-abc");
+    expect(secondCallArgs).toContain("cursor-abc");
+  });
+
+  test("cap: runner always returns hasNextPage:true → called at most MAX_SUMMARY_PAGES (2) times", async () => {
+    const infinitePage = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: true, endCursor: "cursor-loop" },
+            nodes: [{ number: 99, blockedBy: { nodes: [{ number: 98, state: "OPEN" }] } }],
+          },
+        },
+      },
+    });
+    const { run, calls } = infiniteRunner(infinitePage);
+    await new GithubForge("o/r", {} as never, run).listBlockedByOpen!();
+    expect(calls.length).toBe(2);
   });
 });

@@ -5141,6 +5141,35 @@ async function handleActionsRerun({ req, parts, deps }: Ctx): Promise<Response |
   }
 }
 
+// POST /api/actions/retry-ci — one-click "Retry CI" for a ci-red hold. The hold carries only the
+// PR number, so resolve the PR head's latest FAILED run here, then rerun its failed jobs. GitHub
+// only. Expected outcomes return 200 with a typed reason (unsupported forge / no failed run); a
+// genuine forge error is a 502 (the client throws on non-2xx and toasts generically).
+async function handleActionsRetryCi({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "actions" ||
+    parts[2] !== "retry-ci"
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string; pr?: number };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  if (typeof body.pr !== "number") return json({ error: "pr required" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  if (!forge?.rerunWorkflowRun || !forge.latestFailedRunForPr)
+    return json({ ok: false, reason: "unsupported" });
+  try {
+    const runId = await forge.latestFailedRunForPr(body.pr);
+    if (runId == null) return json({ ok: false, reason: "no-run" });
+    await forge.rerunWorkflowRun(runId, { failedOnly: true });
+    return json({ ok: true });
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "retry failed" }, 502);
+  }
+}
+
 // POST /api/actions/cancel — cancel an in-progress GitHub Actions run by repo + runId.
 async function handleActionsCancel({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (
@@ -6647,6 +6676,7 @@ const ROUTE_HANDLERS = [
   handlePrsList,
   handleActionsList,
   handleActionsRerun,
+  handleActionsRetryCi,
   handleActionsCancel,
   handleActionsHistory,
   handleActionsRunJobs,

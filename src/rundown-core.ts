@@ -19,7 +19,6 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { fenceUntrusted } from "./untrusted";
-import { planStallStatus } from "./plan-status";
 import { addressStallStatus } from "./review-status";
 
 export const RUNDOWN_VERDICT_FILE = ".shepherd-rundown.json";
@@ -124,17 +123,20 @@ export function planQuestionsUnanswered(gate: PlanGate | null | undefined): bool
   return false;
 }
 
-/** A session's plan gate surfaces as active plan-rework when changes were requested, the operator
- *  hasn't dismissed/taken over, and — for a display-running / taken-over session only — the loop
- *  hasn't stalled. An IDLE stalled rework still counts (it needs a human, and co-fires
- *  blocked-decision via the quota block). Shared by the attention rule + the planRound copy so the
- *  two never drift. See src/plan-status.ts. */
-function planReworkActive(s: Session, gate: PlanGate | undefined, now: number): boolean {
+/** A session's plan gate surfaces as active plan-rework only when it is the OPERATOR's turn:
+ *  changes were requested, the operator hasn't dismissed/taken over, and the session is NOT
+ *  running. A running session is the AGENT's turn — it is actively revising the plan (the row
+ *  reads "Agent is revising the plan"), so it must NOT rank as a Tier-1 "blocked on operator"
+ *  decision; it falls through to the routine `in-flight` signal (Tier-3) instead (#1629). A parked
+ *  (idle/done) rework still counts — awaiting re-review, or an idle stalled/at-cap streak that
+ *  co-fires blocked-decision via the quota block. Shared by the attention rule + the planRound copy
+ *  so the two never drift. */
+function planReworkActive(s: Session, gate: PlanGate | undefined): boolean {
   return (
     s.planPhase === "planning" &&
     gate?.decision === "changes_requested" &&
     !gate.dismissed &&
-    !(s.status === "running" && planStallStatus(gate, now) === "stalled")
+    s.status !== "running"
   );
 }
 
@@ -164,7 +166,7 @@ const ATTENTION_RULES: Array<{
       Boolean(s.autopilotPaused && s.autopilotQuestion) ||
       Boolean(c.block),
   },
-  { signal: "plan-rework", when: (s, c, now) => planReworkActive(s, c.gate, now) },
+  { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
   { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, now) },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
@@ -456,7 +458,7 @@ function toAssembledSession(
   if (git?.url) item.prUrl = git.url;
   if (review?.findings?.length) item.findings = review.findings;
   // Same predicate as the plan-rework signal so the round copy tracks it.
-  if (gate && planReworkActive(s, gate, now)) item.planRound = gate.round;
+  if (gate && planReworkActive(s, gate)) item.planRound = gate.round;
   const hold = explainHold(s, caches, now);
   if (hold !== null) item.hold = hold;
   return item;

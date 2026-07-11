@@ -2629,3 +2629,46 @@ test("GithubForge.listOpenPrClosingIssues: GraphQL rate limit returns conservati
   expect(closed).toEqual([]);
   expect(calls.some((c) => c.includes("repos/o/r/pulls"))).toBe(false);
 });
+
+// ── latestFailedRunForPr (retry-ci resolution, #1629) ────────────────────────
+test("latestFailedRunForPr: resolves the PR head, prefers the run matching its headSha", async () => {
+  const { run, calls } = fakeRunner({
+    "pr view": JSON.stringify({ headRefName: "feat/x", headRefOid: "sha-head" }),
+    "run list": JSON.stringify([
+      { databaseId: 10, headSha: "sha-old", createdAt: "2024-01-03T00:00:00Z" },
+      { databaseId: 11, headSha: "sha-head", createdAt: "2024-01-02T00:00:00Z" },
+    ]),
+  });
+  const runId = await new GithubForge("o/r", {}, run).latestFailedRunForPr!(42);
+  expect(runId).toBe(11); // matches PR headSha even though run 10 is newer
+  // lists failed runs on the resolved head branch
+  const listCall = calls.find((c) => c[0] === "run" && c[1] === "list")!;
+  expect(listCall).toContain("--branch");
+  expect(listCall).toContain("feat/x");
+  expect(listCall).toContain("--status");
+  expect(listCall).toContain("failure");
+});
+
+test("latestFailedRunForPr: no headSha match → newest failed run on the branch", async () => {
+  const { run } = fakeRunner({
+    "pr view": JSON.stringify({ headRefName: "feat/x", headRefOid: "sha-head" }),
+    "run list": JSON.stringify([
+      { databaseId: 10, headSha: "sha-a", createdAt: "2024-01-03T00:00:00Z" },
+      { databaseId: 11, headSha: "sha-b", createdAt: "2024-01-02T00:00:00Z" },
+    ]),
+  });
+  expect(await new GithubForge("o/r", {}, run).latestFailedRunForPr!(42)).toBe(10);
+});
+
+test("latestFailedRunForPr: no failed runs → null", async () => {
+  const { run } = fakeRunner({
+    "pr view": JSON.stringify({ headRefName: "feat/x", headRefOid: "sha-head" }),
+    "run list": "[]",
+  });
+  expect(await new GithubForge("o/r", {}, run).latestFailedRunForPr!(42)).toBeNull();
+});
+
+test("latestFailedRunForPr: unresolvable PR (no head ref) → null", async () => {
+  const { run } = fakeRunner({ "pr view": "{}" });
+  expect(await new GithubForge("o/r", {}, run).latestFailedRunForPr!(42)).toBeNull();
+});

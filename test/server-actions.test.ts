@@ -236,6 +236,84 @@ test("POST /api/actions/rerun surfaces forge failure → 502", async () => {
   expect((await res.json()).error).toContain("run not found");
 });
 
+test("POST /api/actions/retry-ci resolves the PR's failed run then reruns failedOnly", async () => {
+  let resolvedPr: number | null = null;
+  let rerun: { runId: number; failedOnly: boolean } | null = null;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        latestFailedRunForPr: async (pr) => {
+          resolvedPr = pr;
+          return 123;
+        },
+        rerunWorkflowRun: async (runId, o) => {
+          rerun = { runId, failedOnly: o.failedOnly };
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(postReq("retry-ci", { repo: repoDir, pr: 42 }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(resolvedPr!).toBe(42);
+  expect(rerun!).toEqual({ runId: 123, failedOnly: true });
+});
+
+test("POST /api/actions/retry-ci without a pr → 400", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({ latestFailedRunForPr: async () => 1, rerunWorkflowRun: async () => {} }),
+    ),
+  );
+  const res = await app.fetch(postReq("retry-ci", { repo: repoDir }));
+  expect(res.status).toBe(400);
+});
+
+test("POST /api/actions/retry-ci for a forge without rerun (gitea) → 200 { ok:false, reason:'unsupported' }", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({ kind: "gitea", rerunWorkflowRun: undefined, latestFailedRunForPr: undefined }),
+    ),
+  );
+  const res = await app.fetch(postReq("retry-ci", { repo: repoDir, pr: 42 }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: false, reason: "unsupported" });
+});
+
+test("POST /api/actions/retry-ci when no failed run resolves → 200 { ok:false, reason:'no-run' }", async () => {
+  let rerunCalled = false;
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        latestFailedRunForPr: async () => null,
+        rerunWorkflowRun: async () => {
+          rerunCalled = true;
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(postReq("retry-ci", { repo: repoDir, pr: 42 }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: false, reason: "no-run" });
+  expect(rerunCalled).toBe(false);
+});
+
+test("POST /api/actions/retry-ci surfaces forge failure → 502", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        latestFailedRunForPr: async () => {
+          throw new Error("gh boom");
+        },
+        rerunWorkflowRun: async () => {},
+      }),
+    ),
+  );
+  const res = await app.fetch(postReq("retry-ci", { repo: repoDir, pr: 42 }));
+  expect(res.status).toBe(502);
+  expect((await res.json()).error).toContain("gh boom");
+});
+
 test("POST /api/actions/cancel cancels by runId", async () => {
   let cancelled: number | null = null;
   const app = makeApp(

@@ -4,7 +4,7 @@ import { planGateChip, type PlanGateChip } from "$lib/components/plan-gate-badge
 import { planQuestionsUnanswered } from "$lib/tab-signal.svelte";
 import type { HoldReason, PlanGate, Session } from "$lib/types";
 
-/** The eleven mutually-exclusive presentations a plan-gate row can take. One classifier
+/** The twelve mutually-exclusive presentations a plan-gate row can take. One classifier
  *  decides the state; LINE and ACTION are total maps over it, so the subline can never
  *  contradict the button beside it. */
 export type RowState =
@@ -18,10 +18,11 @@ export type RowState =
   | "awaiting-rereview"
   | "ready"
   | "none"
-  | "server-answer";
+  | "server-answer"
+  | "ci-retry";
 
 export interface HoldAction {
-  kind: "go" | "rereview" | "resume" | "answer" | "reply";
+  kind: "go" | "rereview" | "resume" | "answer" | "reply" | "retry-ci";
   label: string;
   title: string;
 }
@@ -41,6 +42,13 @@ const PLAN_DOMAIN = new Set<HoldReason["code"]>(["plan-rework", "quota-plan", "p
  *  — the plan-phase rules R2–R12 are unaffected. */
 const ANSWERABLE = new Set<HoldReason["code"]>(["autopilot-paused", "blocked-yes-no"]);
 
+/** True when a server hold is a `ci-red` carrying its PR number — the only shape the "Retry CI"
+ *  CTA can act on (the endpoint resolves the PR head's latest failed run). Also a non-plan hold,
+ *  handled in R1's non-planning arm. #1629 */
+function isRetryableCiRed(h: HoldReason | undefined): boolean {
+  return h?.code === "ci-red" && h.params?.pr != null;
+}
+
 /** One ordered classifier, first match wins. Reads only `session` (synchronous with the
  *  row) + `gate`/`serverHold` (both async — a missing `gate` degrades to passthrough/none,
  *  never a wrong line). Exported so tests can assert the branch taken. */
@@ -58,6 +66,7 @@ export function rowState(
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
 
   if (session.planPhase !== "planning") {
+    if (isRetryableCiRed(serverHold)) return "ci-retry"; // R1b — ci-red with a PR → Retry CI CTA
     if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a
     return "passthrough"; // R1
   }
@@ -100,6 +109,7 @@ const LINE: Record<RowState, (ctx: Ctx) => string | null> = {
   dismissed: serverLine,
   none: serverLine,
   "server-answer": serverLine,
+  "ci-retry": serverLine,
   reviewing: ({ gate }) => {
     const n = gate?.findings?.length ?? 0;
     return n > 0 ? m.hold_reviewing_findings({ count: n }) : m.hold_reviewing_plain();
@@ -140,6 +150,11 @@ const reply = (): HoldAction => ({
   label: m.hold_cta_answer(),
   title: m.hold_cta_answer_reply_title(),
 });
+const retryCi = (): HoldAction => ({
+  kind: "retry-ci",
+  label: m.hold_cta_retry_ci(),
+  title: m.hold_cta_retry_ci_title(),
+});
 
 const ACTION: Record<RowState, () => HoldAction | null> = {
   passthrough: () => null,
@@ -153,6 +168,7 @@ const ACTION: Record<RowState, () => HoldAction | null> = {
   "awaiting-rereview": rereview,
   ready: go,
   "server-answer": reply,
+  "ci-retry": retryCi,
 };
 
 /** Classify the row, then read its line and action off the two total maps. */

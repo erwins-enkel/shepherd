@@ -32,7 +32,8 @@ const qBlocks = [
   { type: "question-form", id: "b1", questions: [{ id: "q1" }] },
 ] as PlanGate["blocks"];
 
-const hold = (code: HoldReason["code"]): HoldReason => ({ code });
+const hold = (code: HoldReason["code"], params?: HoldReason["params"]): HoldReason =>
+  params ? { code, params } : { code };
 
 describe("rowState / rowHold fixtures", () => {
   it("1. headline, no question block -> awaiting-rereview", () => {
@@ -248,6 +249,21 @@ describe("rowState / rowHold fixtures", () => {
     const sh = hold("autopilot-paused");
     expect(rowState(s, undefined, false, sh)).toBe("passthrough");
   });
+  it("22. non-planning + ci-red hold WITH pr -> ci-retry, server line + Retry CI CTA (#1629)", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("ci-red", { pr: 42 });
+    expect(rowState(s, undefined, false, sh)).toBe("ci-retry");
+    const r = rowHold(s, undefined, false, sh);
+    expect(r.line).toBe(holdLine(sh)); // keeps the "CI is failing on PR #42" server line
+    expect(r.action?.kind).toBe("retry-ci");
+    expect(r.action?.label).toBe(m.hold_cta_retry_ci());
+  });
+  it("23. non-planning + ci-red hold WITHOUT pr -> passthrough, no action (nothing to resolve)", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("ci-red"); // no params.pr
+    expect(rowState(s, undefined, false, sh)).toBe("passthrough");
+    expect(rowHold(s, undefined, false, sh).action).toBeNull();
+  });
 });
 
 // One canonical (session, gate, planReviewing, serverHold) tuple per RowState — reused by
@@ -315,6 +331,15 @@ const CASES: Array<{ state: RowState; args: Args }> = [
       hold("autopilot-paused"),
     ],
   },
+  {
+    state: "ci-retry",
+    args: [
+      sess({ planPhase: "executing", status: "idle" }),
+      undefined,
+      false,
+      hold("ci-red", { pr: 42 }),
+    ],
+  },
 ];
 
 describe("properties", () => {
@@ -331,6 +356,7 @@ describe("properties", () => {
       "ready",
       "none",
       "server-answer",
+      "ci-retry",
     ];
     expect(new Set(CASES.map((c) => c.state))).toEqual(new Set(allStates));
     for (const { state, args } of CASES) {

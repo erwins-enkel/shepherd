@@ -20,11 +20,14 @@ vi.mock("$lib/api", async (importOriginal) => {
     releasePlanGate: vi.fn(async () => true),
     reviewPlan: vi.fn(async () => "started" as const),
     resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
+    retryCi: vi.fn(
+      async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
+    ),
   };
 });
 
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
-const { releasePlanGate, reviewPlan, resumeQuota } = await import("$lib/api");
+const { releasePlanGate, reviewPlan, resumeQuota, retryCi } = await import("$lib/api");
 const { toasts } = await import("$lib/toasts.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -117,6 +120,7 @@ beforeEach(() => {
   vi.mocked(releasePlanGate).mockReset().mockResolvedValue(true);
   vi.mocked(reviewPlan).mockReset().mockResolvedValue("started");
   vi.mocked(resumeQuota).mockReset().mockResolvedValue({ status: "resumed" });
+  vi.mocked(retryCi).mockReset().mockResolvedValue({ ok: true });
 });
 
 function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask") {
@@ -792,6 +796,53 @@ describe("UnitRow plan-gate hold CTA", () => {
       expect(toasts.items.some((t) => t.text === m.hold_cta_go_failed())).toBe(true),
     );
     const t = toasts.items.find((x) => x.text === m.hold_cta_go_failed())!;
+    expect(t.durationMs).toBeUndefined(); // persistent — no auto-dismiss
+  });
+
+  it("ci-red hold: Retry CI arms then reruns via retryCi(repoPath, pr) (#1629)", async () => {
+    const id = "hcci";
+    render(UnitRow, {
+      // non-planning session with a ci-red hold carrying its PR → R1b ci-retry
+      session: session({ id, status: "idle", planPhase: "executing", repoPath: "/repo/z" }),
+      hold: { code: "ci-red", params: { pr: 42 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_retry_ci() }))
+      .toBeInTheDocument();
+    // First click only arms (touches CI) — label swaps, no call yet.
+    await page.getByRole("button", { name: m.hold_cta_retry_ci() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.hold_cta_retry_ci_arm() }))
+      .toBeInTheDocument();
+    expect(retryCi).not.toHaveBeenCalled();
+    // Second click fires with the repo + PR from the hold.
+    await page.getByRole("button", { name: m.hold_cta_retry_ci_arm() }).click();
+    await vi.waitFor(() => expect(retryCi).toHaveBeenCalledTimes(1));
+    expect(retryCi).toHaveBeenCalledWith("/repo/z", 42);
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.hold_cta_retry_ci_started())).toBe(true),
+    );
+  });
+
+  it("ci-red hold: retryCi throwing raises a persistent alert toast (#1629)", async () => {
+    const id = "hcci2";
+    vi.mocked(retryCi).mockRejectedValue(new Error("boom"));
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "executing" }),
+      hold: { code: "ci-red", params: { pr: 7 } },
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_retry_ci() }).click();
+    await page.getByRole("button", { name: m.hold_cta_retry_ci_arm() }).click();
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.hold_cta_retry_ci_failed())).toBe(true),
+    );
+    const t = toasts.items.find((x) => x.text === m.hold_cta_retry_ci_failed())!;
     expect(t.durationMs).toBeUndefined(); // persistent — no auto-dismiss
   });
 

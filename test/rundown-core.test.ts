@@ -149,11 +149,25 @@ test("classifyAttention: each signal maps to the correct tier", () => {
   expect(c(session({ autopilotPaused: true, autopilotQuestion: "which?" })).signals).toContain(
     "blocked-decision",
   );
+  // Parked (idle) plan-rework is the operator's turn → Tier-1.
   expect(
-    c(session({ planPhase: "planning" }), {
+    c(session({ planPhase: "planning", status: "idle" }), {
       gate: { decision: "changes_requested", round: 1, cap: 3 } as any,
     }).tier,
   ).toBe(1);
+  // Running plan-rework is the AGENT's turn (revising) → no plan-rework signal, in-flight Tier-3 (#1629).
+  const runningRevise = c(session({ planPhase: "planning", status: "running" }), {
+    gate: { decision: "changes_requested", round: 1, cap: 3 } as any,
+  });
+  expect(runningRevise.signals).not.toContain("plan-rework");
+  expect(runningRevise.tier).toBe(3);
+  expect(
+    explainHold(
+      session({ planPhase: "planning", status: "running" }),
+      { gate: { decision: "changes_requested", round: 1, cap: 3 } as any },
+      NOW,
+    ),
+  ).toBeNull();
   expect(
     c(session(), {
       review: {
@@ -510,16 +524,27 @@ test("classifyAttention + assemble: executing session with retained gate has no 
   expect(item?.planRound).toBeUndefined(); // L251 guard
 });
 
-test("plan-rework: running + stalled (takeover) suppresses the signal + planRound; idle keeps both", () => {
-  // round==cap, finalRoundPending absent → planStallStatus "stalled".
+test("plan-rework: running suppresses the signal + planRound (agent's turn), regardless of stall; idle keeps both", () => {
+  // A RUNNING session is the AGENT's turn (revising the plan), so it never gets plan-rework —
+  // whether the streak is at-cap/stalled or mid-round (#1629). It falls to in-flight (Tier-3).
   const gate = { ...retainedAtCapGate };
-  // RUNNING taken-over session: no plan-rework, no planRound (reads as active work).
+  // RUNNING at-cap session: no plan-rework, no planRound (reads as active work).
   const running = classifyAttention(
     session({ planPhase: "planning", status: "running" }),
     { gate },
     NOW,
   );
   expect(running.signals).not.toContain("plan-rework");
+  expect(running.signals).toContain("in-flight");
+  expect(running.tier).toBe(3);
+  // RUNNING below-cap (mid-round) session: still the agent's turn → no plan-rework either.
+  const runningMidRound = classifyAttention(
+    session({ planPhase: "planning", status: "running" }),
+    { gate: { ...retainedAtCapGate, round: 1, cap: 3 } },
+    NOW,
+  );
+  expect(runningMidRound.signals).not.toContain("plan-rework");
+  expect(runningMidRound.tier).toBe(3);
   const runOut = assembleHerdState({
     sessions: [session({ planPhase: "planning", status: "running" })],
     gates: { s1: gate },
@@ -676,8 +701,10 @@ test("explainHold: plan-question → { code: 'plan-question' }", () => {
 test("classifyAttention: plan-rework co-occurring with plan-question stays PRIMARY (round/cap intact)", () => {
   // A changes_requested AUTO plan whose questions are also unanswered fires both Tier-1 signals;
   // plan-question is ordered last so plan-rework remains the primary hold line with its params.
+  // Parked (idle) session: plan-rework is the operator's turn, so it fires (a running session would
+  // be the agent's turn and suppress plan-rework — see #1629).
   const gate = gateWithForm({ decision: "changes_requested", approved: false, round: 1, cap: 3 });
-  const s = session({ planPhase: "planning" });
+  const s = session({ planPhase: "planning", status: "idle" });
   const r = classifyAttention(s, { gate }, NOW);
   expect(r.signals).toContain("plan-rework");
   expect(r.signals).toContain("plan-question");

@@ -3642,9 +3642,15 @@
        resize, which is the intended reflow. The min-height floor equals .vp-body's
        own min-height (4rem) and must NOT exceed it: a larger floor would force the
        mount taller than a squeezed body and clip the bottom prompt row via
-       .vp-body's overflow:hidden even with no banner. At the floor (squeezed-recap
-       takeover) the mount == body, so the banner overlaps its bottom again — prior
-       behavior — rather than resizing the PTY toward xterm's clamped 1-row minimum. */
+       .vp-body's overflow:hidden even with no banner. The review banner caps its own
+       height at min(50%, 100% - 4rem) (see ReviewInFlightBanner) and shrinks its live
+       preview to fit, so for any usably-sized terminal --review-banner-h stays ≤ 100% -
+       4rem ⇒ this mount keeps its 4rem floor and the floor never overrides the reserve
+       into an overlap. The banner can't shrink below its headline row (~1 line,
+       flex-shrink:0), so only in the extreme squeezed-recap takeover — .vp-body pinned at
+       its own 4rem floor, where nothing fits both a prompt and a banner — a small residual
+       overlap of at most that headline row remains, still far less than the full-banner
+       burial before the cap. */
     height: calc(100% - var(--review-banner-h, 0px));
     min-height: 4rem;
     overflow: hidden;

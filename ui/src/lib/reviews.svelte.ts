@@ -12,8 +12,10 @@ import {
 } from "./api";
 
 /** Max lines kept in a review's rolling live-activity feed (the terminal preview shows these,
- *  newest at the bottom). Bounded so the ephemeral tail can't grow without limit. */
-export const MAX_ACTIVITY_LINES = 4;
+ *  newest at the bottom). Bounded so the ephemeral tail can't grow without limit. Also the
+ *  banner's reserved preview-row count (--rb-pv-rows) — kept small (2) so the in-flight banner
+ *  stays short and can't bury the terminal prompt in a short pane (see ReviewInFlightBanner). */
+export const MAX_ACTIVITY_LINES = 2;
 
 /** Append `summary` to a bounded rolling feed, deduping against the last line (the server
  *  re-emits the same summary every tick → no churn). Returns the SAME array reference when

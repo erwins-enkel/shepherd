@@ -291,10 +291,11 @@
       <span class="rb-text">{bannerText(view)}</span>
     </div>
     {#if view.show && view.phase === "in-flight"}
-      <!-- Live "tail -f" of the off-screen reviewer's actions. Fixed height for MAX_ACTIVITY_LINES
-           rows so the banner keeps a stable height across the whole in-flight phase (lines fill
-           progressively) → one xterm refit on enter/exit, not one per line. aria-hidden: the
-           polite headline is the announcement; a fast-updating feed would spam a screen reader. -->
+      <!-- Live "tail -f" of the off-screen reviewer's actions. Reserves MAX_ACTIVITY_LINES rows
+           (a fixed flex-basis) so the banner keeps a stable height across the whole in-flight phase
+           as lines fill progressively → one xterm refit on enter/exit, not one per line; it only
+           gives way when the banner's height cap bites in a short pane. aria-hidden: the polite
+           headline is the announcement; a fast-updating feed would spam a screen reader. -->
       <div class="rb-preview" style:--rb-pv-rows={MAX_ACTIVITY_LINES} aria-hidden="true">
         {#if feed.length === 0}
           <span class="rb-pv-wait">{m.reviewbanner_preview_waiting()}</span>
@@ -314,7 +315,21 @@
      strip sits BELOW the live prompt, not over it; the operator can still see and use
      the prompt while a review runs. Appearing/resizing it therefore intentionally
      triggers an xterm refit. Non-blocking: no scrim/blur — it does not seize
-     interaction. */
+     interaction.
+
+     Height is CAPPED (max-height below) so it can never bury the prompt:
+     - min(50%, …): never eats more than half the terminal body.
+     - calc(100% - 4rem): the reflow guarantee. Banner ≤ 100% - 4rem ⇒
+       .term-mount (= 100% - --review-banner-h) stays ≥ its own 4rem floor, so the floor
+       can never override the reserve and force an overlap. The live preview shrinks to fit
+       (flex-shrink below); the banner bottoms out at its headline row (.rb-head is
+       flex-shrink:0), so the guarantee holds for any usably-sized terminal. Only at the
+       .vp-body 4rem floor (expanded-recap takeover), where nothing fits both a prompt and a
+       banner, does a residual overlap of at most that one headline row remain.
+     - box-sizing:border-box so the padding + 1px border fold INTO the cap (else the
+       rendered box overshoots it and re-opens the overlap).
+     - overflow:hidden so offsetHeight (→ --review-banner-h) equals the rendered box; any
+       oversized content is clipped inside the cap instead of spilling below un-measured. */
   .review-banner {
     position: absolute;
     bottom: 0;
@@ -323,6 +338,9 @@
     z-index: 2;
     display: flex;
     flex-direction: column;
+    box-sizing: border-box;
+    max-height: min(50%, calc(100% - 4rem));
+    overflow: hidden;
     padding: 5px 10px;
     font-size: var(--fs-meta);
     color: var(--accent);
@@ -338,11 +356,15 @@
     padding: 9px 12px;
     font-size: var(--fs-base);
   }
-  /* Headline row (icon + message) — the former single-row flex layout. */
+  /* Headline row (icon + message) — the former single-row flex layout. flex-shrink:0
+     keeps it over a shrinking preview when the banner is capped; min-width:0 lets its
+     .rb-text child actually ellipsize rather than force the head past the cap. */
   .rb-head {
     display: flex;
     align-items: center;
     gap: 8px;
+    flex-shrink: 0;
+    min-width: 0;
   }
   /* Live activity tail under the in-flight headline. Newest line pins to the bottom
      (justify-content:flex-end); the reserved height is MAX_ACTIVITY_LINES rows (--rb-pv-rows) so
@@ -354,7 +376,12 @@
     flex-direction: column;
     justify-content: flex-end;
     margin-top: 6px;
-    height: calc(var(--fs-meta) * 1.5 * var(--rb-pv-rows, 4));
+    /* Reserve --rb-pv-rows rows as a fixed flex-basis (stable height → one xterm refit),
+       but flex-shrink:1 + min-height:0 let it give way FIRST when the banner's max-height
+       cap bites in a short pane; flex-end + overflow:hidden then keep the newest line
+       pinned at the bottom and clip the oldest off the top. */
+    flex: 0 1 calc(var(--fs-meta) * 1.5 * var(--rb-pv-rows, 2));
+    min-height: 0;
     overflow: hidden;
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
@@ -401,7 +428,14 @@
       animation: icon-btn-spin 6s linear infinite !important;
     }
   }
+  /* One deterministic-height line (min-width:0 so it can shrink inside .rb-head): it
+     ellipsizes in a narrow pane rather than wrapping and pushing the head past the cap.
+     The full text still reaches assistive tech via the banner's aria-live region. */
   .rb-text {
+    min-width: 0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
     color: var(--color-ink-bright);
   }
   /* Tone → accent token. Calm = amber (matches the REVIEWING dot); escalated =

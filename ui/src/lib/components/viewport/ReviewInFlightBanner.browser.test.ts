@@ -93,11 +93,11 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
     await expect.poll(feedLines).toEqual(["read .shepherd-plan.md"]);
   });
 
-  it("caps the preview at 4 lines, dropping the oldest (newest at the bottom)", async () => {
+  it("caps the preview at 2 lines, dropping the oldest (newest at the bottom)", async () => {
     planGates.applyReviewing(ID, true);
     for (const l of ["act-1", "act-2", "act-3", "act-4", "act-5"]) planGates.setActivity(ID, l);
     render(ReviewInFlightBanner, props() as never);
-    await expect.poll(feedLines).toEqual(["act-2", "act-3", "act-4", "act-5"]);
+    await expect.poll(feedLines).toEqual(["act-4", "act-5"]);
   });
 
   it("shows the waiting placeholder (no feed lines) before the first activity arrives", async () => {
@@ -109,17 +109,41 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
     expect(feedLines()).toEqual([]);
   });
 
-  it("keeps a stable banner height as the feed fills from 0 to 4 lines", async () => {
+  it("keeps a stable banner height as the feed fills from 0 to 2 lines", async () => {
     planGates.applyReviewing(ID, true);
     render(ReviewInFlightBanner, props() as never);
     await expect
       .poll(() => document.querySelector(".rb-pv-wait")?.textContent)
       .toBe(m.reviewbanner_preview_waiting());
     const emptyH = banner()!.getBoundingClientRect().height;
-    for (const l of ["act-1", "act-2", "act-3", "act-4"]) planGates.setActivity(ID, l);
-    await expect.poll(() => feedLines().length).toBe(4);
+    for (const l of ["act-1", "act-2"]) planGates.setActivity(ID, l);
+    await expect.poll(() => feedLines().length).toBe(2);
     const fullH = banner()!.getBoundingClientRect().height;
-    expect(fullH).toBe(emptyH); // fixed 4-row preview area → one xterm refit, not per-line churn
+    expect(fullH).toBe(emptyH); // reserved 2-row preview area → one xterm refit, not per-line churn
+  });
+
+  // The reflow guarantee: in a short pane the banner caps its own height so the terminal
+  // (.term-mount = 100% - --review-banner-h, floored at 4rem) can always reflow ABOVE it —
+  // i.e. banner ≤ containerHeight - 4rem, so .term-mount never drops under its floor and the
+  // prompt is never overlaid. See ReviewInFlightBanner's .review-banner max-height.
+  it("caps its height in a short pane so the terminal keeps its 4rem reflow floor", async () => {
+    planGates.applyReviewing(ID, true);
+    for (const l of ["act-1", "act-2"]) planGates.setActivity(ID, l);
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => banner()).not.toBeNull();
+    // The banner is position:absolute; make its mount div a positioned, definite short
+    // containing block — otherwise the % cap resolves against the viewport and is never
+    // exercised. (Read the host off the DOM: render()'s typed result varies by version.)
+    const host = banner()!.parentElement as HTMLElement;
+    host.style.position = "relative";
+    host.style.height = "120px";
+    await expect.poll(() => feedLines().length).toBe(2);
+    const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
+    const containerH = host.getBoundingClientRect().height;
+    const bannerH = banner()!.getBoundingClientRect().height;
+    expect(bannerH).toBeLessThanOrEqual(containerH - 4 * remPx + 0.5); // +0.5px rounding tolerance
+    expect(bannerH).toBeGreaterThan(0); // clamped, not collapsed — headline still shows at 120px
+    expect(document.querySelector(".rb-text")?.textContent?.trim()).toBeTruthy(); // headline present (ellipsized)
   });
 });
 

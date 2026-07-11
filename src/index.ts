@@ -27,7 +27,8 @@ import type {
 } from "./types";
 import { WorktreeMgr } from "./worktree";
 import { matchAgent, type IHerdrDriver } from "./herdr";
-import { selectHerdrDriver } from "./herdr-socket-driver";
+import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
+import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
 import { generateName } from "./namer";
 import { llmName } from "./namer-llm";
 import { EventHub } from "./events";
@@ -430,6 +431,10 @@ deferredStarts.push(() => {
   sweepStaging(config.repoRoot, STAGING_TTL_MS, Date.now());
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
+const herdrSocketActive = herdr instanceof SocketHerdrDriver;
+deferredStarts.push(() => {
+  startTerminalTransportSelfCheck(herdrSocketActive);
+});
 const worktree = new WorktreeMgr();
 const events = new EventHub();
 const onSessionGit = (listener: (input: { id: string; git: GitState }) => void): void => {
@@ -2403,6 +2408,7 @@ const appDeps: AppDeps = {
   diagnostics,
   starPrompt,
   herdr,
+  herdrSocketActive,
   resolveForge,
   prCache: prPoller,
   ownsPr,

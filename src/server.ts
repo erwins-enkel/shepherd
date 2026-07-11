@@ -9,6 +9,7 @@ import { RepoConfigService } from "./repo-config-service";
 import type { CreateSessionInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
+import { SocketPtyBridge } from "./socket-pty-bridge";
 import {
   config,
   DONE_LENS_WINDOW_MS,
@@ -124,6 +125,11 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
+import {
+  terminalTransportMetrics,
+  recordSocketAttach,
+  recordFallback,
+} from "./terminal-transport-metrics";
 import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
@@ -282,6 +288,8 @@ export interface AppDeps {
   };
   /** Herdr driver (for liveness checks). Absent in some tests; gate fails open. */
   herdr?: Pick<HerdrDriver, "list">;
+  /** True when the herdr socket driver is active (flag on + protocol probe ok). Gates the socket terminal path; absent/false → node-pty. */
+  herdrSocketActive?: boolean;
   /** In-memory PR-status cache surfaced in the list overview; absent in tests
    *  that don't exercise it. */
   prCache?: PrCache;
@@ -5681,6 +5689,18 @@ function handleHealth({ req, parts }: Ctx): Response | null {
   return req.method === "HEAD" ? new Response(null, { status: 200 }) : json({ ok: true });
 }
 
+/** Authenticated (unlike handleHealth) — reports the herdr socket terminal transport's flag
+ *  state, live-active status, and per-boot attach/fallback counters. */
+function handleTerminalTransport({ req, parts, deps }: Ctx): Response | null {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "terminal-transport" || parts[2])
+    return null;
+  return json({
+    flagActive: config.herdrSocket,
+    socketActive: deps.herdrSocketActive ?? false,
+    ...terminalTransportMetrics(),
+  });
+}
+
 // ── Epic API routes ──────────────────────────────────────────────────────────
 
 /** Build a default EpicRun from repo + parent when no stored run exists. */
@@ -6531,6 +6551,7 @@ const ROUTE_HANDLERS = [
   handleMe,
   handlePing,
   handleHealth,
+  handleTerminalTransport,
   handlePluginManagement,
   handlePluginRoutes,
   handleGitSnapshot,
@@ -6724,7 +6745,16 @@ export function serveAgentIngress(deps: AppDeps, port = 0) {
 
 type WsData =
   | { kind: "events"; unsub?: () => void }
-  | { kind: "pty"; id: string; terminalId: string; cols: number; rows: number; bridge?: PtyBridge };
+  | {
+      kind: "pty";
+      id: string;
+      terminalId: string;
+      cols: number;
+      rows: number;
+      bridge?: PtyBridge | SocketPtyBridge;
+      pendingInput?: string[];
+      awaitingFirstFrame?: boolean;
+    };
 
 // A pty WS closed with this code means "a newer client took over this terminal".
 // The client parks (shows a take-over prompt) instead of reconnecting — without
@@ -6738,23 +6768,64 @@ const PTY_SUPERSEDED_CODE = 4000;
 // Keep in sync with PTY_GONE_CODE in ui/src/lib/pty.ts.
 export const PTY_GONE_CODE = 4001;
 
+export interface LivePtyAttach {
+  terminalId: string;
+  paneTarget?: string;
+}
+
 /**
- * The terminalId to attach a PTY to, or null when the session's herdr agent is truly
- * gone (caller should close the socket). Resolves by STABLE key (cwd) so a herdr restart
- * that reassigned terminalIds doesn't strand the attach on the stored-at-upgrade id. A
- * herdr CLI hiccup (list throws) or no herdr at all falls back to the stored id rather
- * than closing a live session.
+ * Resolve a session to its live attach target, or null when the session's herdr agent is
+ * truly gone (caller should close the socket). Resolves by STABLE key (cwd) so a herdr
+ * restart that reassigned terminalIds doesn't strand the attach on the stored-at-upgrade id.
+ * Preserves the old hiccup semantics: a herdr CLI hiccup (list throws) or no herdr at all
+ * falls back to the stored id (node-pty attach, no paneTarget) rather than closing a live
+ * session.
  */
-function livePtyTerminalId(
+export function livePtyAttach(
   cur: Session,
   herdr: Pick<HerdrDriver, "list"> | undefined,
-): string | null {
-  if (!herdr) return cur.herdrAgentId;
+): LivePtyAttach | null {
+  if (!herdr) return { terminalId: cur.herdrAgentId };
   try {
-    return matchAgent(cur, herdr.list())?.terminalId ?? null;
+    const a = matchAgent(cur, herdr.list());
+    if (!a) return null; // truly gone → caller closes PTY_GONE
+    const paneTarget = a.paneId.includes(":") ? a.paneId : `${a.workspaceId}:${a.paneId}`;
+    return { terminalId: a.terminalId, paneTarget };
   } catch {
-    return cur.herdrAgentId; // herdr hiccup — attach optimistically with the stored id
+    return { terminalId: cur.herdrAgentId }; // herdr hiccup → optimistic node-pty attach, no paneTarget
   }
+}
+
+const SOCKET_TERMINAL_FAILURE_TTL_MS = 30_000;
+
+/** True when `id` had a socket-terminal failure recorded within the last `ttl` ms. */
+export function recentlyFailed(
+  m: Map<string, number>,
+  id: string,
+  now: number,
+  ttl = SOCKET_TERMINAL_FAILURE_TTL_MS,
+): boolean {
+  const t = m.get(id);
+  return t !== undefined && now - t < ttl;
+}
+
+/** Past-TTL sweep. KEEPS entries within ttl (incl. the current terminal's just-stamped one). */
+export function pruneSocketTerminalFailures(
+  m: Map<string, number>,
+  now: number,
+  ttl = SOCKET_TERMINAL_FAILURE_TTL_MS,
+): void {
+  for (const [id, t] of m) if (now - t >= ttl) m.delete(id);
+}
+
+/** Picks the socket bridge only when the driver is active, a pane target resolved, and this
+ *  terminal hasn't recently failed over the socket path. */
+export function pickTerminalBridgeKind(opts: {
+  herdrSocketActive?: boolean;
+  paneTarget?: string;
+  recentlyFailed: boolean;
+}): "socket" | "node-pty" {
+  return opts.herdrSocketActive && opts.paneTarget && !opts.recentlyFailed ? "socket" : "node-pty";
 }
 
 /** The /usage refresh handler drives a multi-second ephemeral `claude` scrape and needs a longer
@@ -6770,6 +6841,9 @@ export function serve(deps: AppDeps, port: number) {
   // In-memory + throttled; pruned in the pty close() handler. Consumed by nothing
   // yet — a future stage-and-apply guard reads it via getLastOperatorKeystrokeAt.
   const operatorKeystrokes = new Map<string, number>();
+  // terminals that recently fell off the socket path — memo so a reconnect within the
+  // TTL retries node-pty directly instead of re-attempting (and re-failing) the socket.
+  const socketTerminalFailures = new Map<string, number>();
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
@@ -6851,23 +6925,66 @@ export function serve(deps: AppDeps, port: number) {
           }
           // Resolve the live agent by STABLE key (cwd), not the id captured at upgrade:
           // a herdr restart reassigns terminalIds, so the stored one can be briefly stale.
-          const tid = livePtyTerminalId(cur, deps.herdr);
-          if (tid === null) {
+          const attach = livePtyAttach(cur, deps.herdr);
+          if (attach === null) {
             ws.close(PTY_GONE_CODE, "ended");
             return;
           }
+          const tid = attach.terminalId;
           ws.data.terminalId = tid; // keep close()'s ptyOwners cleanup keyed on the same id
           // single owner per terminal: claim it, then bump the previous owner
           // with a "superseded" close so it parks instead of fighting back.
           const prev = ptyOwners.get(tid);
           ptyOwners.set(tid, ws);
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
-          const bridge = new PtyBridge(tid, {
-            send: (d) => ws.send(d),
-            close: () => ws.close(),
+          const sock = { send: (d: string | Uint8Array) => ws.send(d), close: () => ws.close() };
+          const kind = pickTerminalBridgeKind({
+            herdrSocketActive: deps.herdrSocketActive,
+            paneTarget: attach.paneTarget,
+            recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
           });
-          ws.data.bridge = bridge;
-          bridge.open(ws.data.cols, ws.data.rows);
+          // Narrowed alias: the hook closures below run asynchronously, after which TS can no
+          // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
+          // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
+          const data = ws.data as Extract<WsData, { kind: "pty" }>;
+          if (kind === "node-pty") {
+            const b = new PtyBridge(tid, sock);
+            data.bridge = b;
+            b.open(data.cols, data.rows);
+          } else {
+            data.awaitingFirstFrame = true;
+            data.pendingInput = [];
+            const flushPending = (b: PtyBridge | SocketPtyBridge) => {
+              for (const f of data.pendingInput ?? []) b.write(f);
+              data.pendingInput = [];
+            };
+            const sb = new SocketPtyBridge(attach.paneTarget!, sock, {
+              onFirstFrame: () => {
+                recordSocketAttach();
+                console.info(`[herdr] socket terminal attached ${tid}`);
+                data.awaitingFirstFrame = false;
+                flushPending(data.bridge!);
+              },
+              onFallback: () => {
+                recordFallback();
+                console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
+                socketTerminalFailures.set(tid, Date.now());
+                const nb = new PtyBridge(tid, sock);
+                data.bridge = nb;
+                data.awaitingFirstFrame = false;
+                nb.open(data.cols, data.rows);
+                flushPending(nb);
+              },
+              onGone: () => {
+                ws.close(PTY_GONE_CODE, "ended");
+              },
+              onAbnormalExit: () => {
+                socketTerminalFailures.set(tid, Date.now());
+              },
+            });
+            data.bridge = sb;
+            sb.open(data.cols, data.rows);
+          }
         }
       },
       message(ws, msg) {
@@ -6888,7 +7005,8 @@ export function serve(deps: AppDeps, port: number) {
         // stream carries \x00resize: control frames that storm on mobile (#1022).
         if (isOperatorKeystroke(frame))
           stampOperatorKeystroke(operatorKeystrokes, ws.data.id, Date.now());
-        ws.data.bridge?.write(frame);
+        if (ws.data.awaitingFirstFrame) (ws.data.pendingInput ??= []).push(frame);
+        else ws.data.bridge?.write(frame);
       },
       close(ws) {
         if (ws.data.kind === "events") {
@@ -6899,6 +7017,7 @@ export function serve(deps: AppDeps, port: number) {
           // already claimed this terminal before our close fired)
           if (ptyOwners.get(ws.data.terminalId) === ws) ptyOwners.delete(ws.data.terminalId);
           operatorKeystrokes.delete(ws.data.id); // don't let the seam map grow unbounded
+          pruneSocketTerminalFailures(socketTerminalFailures, Date.now());
           ws.data.bridge?.close();
         }
       },

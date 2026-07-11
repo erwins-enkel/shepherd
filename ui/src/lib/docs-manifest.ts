@@ -81,7 +81,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Project house rules",
     path: "/reference/house-rules/",
     keywords:
-      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. running checks in a fresh worktree branch hygiene (one feature, linear off main) design system (required for any ui work) internationalization (required for any ui work) feature discovery (required for user-facing features) glossary (required when marking ui terms)",
+      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. running checks in a fresh worktree branch hygiene (one feature, linear off main) never git stash in a worktree (shared refs/stash) design system (required for any ui work) internationalization (required for any ui work) feature discovery (required for user-facing features) glossary (required when marking ui terms)",
   },
   {
     title: "Keyboard shortcuts",

@@ -82,7 +82,7 @@ import { Presence } from "./presence";
 import { ReviewService } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
-import { PlanGateService } from "./plan-gate";
+import { PlanGateService, shouldConsiderOnSettle } from "./plan-gate";
 import { AutopilotService } from "./autopilot";
 import { DrainService } from "./drain";
 import { SessionRouter, type SessionConsumer } from "./session-router";
@@ -1646,9 +1646,12 @@ const sessionRouter = new SessionRouter(
     // planning-phase session that just settled likely finished writing .shepherd-plan.md → kick the
     // adversarial review. Fires BEFORE the awaited consumer chain so a slow/hanging drain pump can
     // never starve it (#1193); consider() is self-contained and claims its slot synchronously.
+    // Also re-fires on the idle settle edge for the revise loop (a session that reworks its plan
+    // after `changes_requested` settles to idle, not done) — see shouldConsiderOnSettle (#1610).
     onStatusIndependent: (change) => {
       const sess = change.snapshot.session;
-      if (change.status === "done" && sess.planPhase === "planning")
+      const priorDecision = store.getPlanGate(sess.id)?.decision;
+      if (shouldConsiderOnSettle(change.status, sess.planPhase, priorDecision))
         void planGate.consider(sess).catch((err) => console.warn("[plan-gate] consider:", err));
     },
   },

@@ -29,6 +29,23 @@ import { fenceUntrusted } from "./untrusted";
  *  relays this so the UI can distinguish a no-op from a real error or an unusable `.shepherd-plan.md`. */
 export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
 
+/** Whether a settle edge should re-drive `consider()`. `done` always re-considers (first
+ *  draft + any settle); `idle` re-considers ONLY when a prior gate already requested changes
+ *  — the revise loop. This excludes the pre-first-draft window (no gate ⇒ `undefined`) so
+ *  partial authoring idles can't exhaust the adversarial cap, and excludes `error` gates
+ *  (consider() never dedups those, so idle-firing would spam re-reviews). `approved` gates are
+ *  excluded too (consider() would skip them anyway). See issue #1610. */
+export function shouldConsiderOnSettle(
+  status: string,
+  planPhase: Session["planPhase"],
+  priorDecision: PlanDecision | undefined,
+): boolean {
+  if (planPhase !== "planning") return false;
+  if (status === "done") return true;
+  if (status === "idle") return priorDecision === "changes_requested";
+  return false;
+}
+
 /** The plan the planning agent writes in its LIVE session worktree; the reviewer reads its text. */
 const PLAN_FILE = ".shepherd-plan.md";
 

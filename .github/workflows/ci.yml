@@ -2,7 +2,11 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    # Also run on PRs targeting an epic integration branch (epic/**) so epic-child
+    # PRs get CI — the adversarial reviewer gates on green CI, which the epic drain
+    # needs. The Fallow audit already diffs against origin/${{ github.base_ref }},
+    # so it scopes to the epic base automatically (no other job is base-relative).
+    branches: [main, "epic/**"]
   push:
     branches: [main]
 

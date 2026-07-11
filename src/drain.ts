@@ -1506,7 +1506,11 @@ export class DrainService {
     } catch (err) {
       // Refusal (hold/egress/transient): back off, DO NOT increment — the lifetime attempt is not burned.
       this.repairSpawnCooldown.set(key, this.now());
-      console.warn(`[drain] landing-repair spawn for ${repoPath}#${parent} failed:`, err);
+      // Log only the error message, never the error object: a create/auth failure can carry the
+      // provider apiKey in its request config, and passing `err` to the logger trips CodeQL's
+      // js/clear-text-logging. The message string alone is off that taint path.
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] landing-repair spawn for ${repoPath}#${parent} failed: ${reason}`);
     }
   }
 

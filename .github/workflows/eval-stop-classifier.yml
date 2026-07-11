@@ -26,6 +26,10 @@ on:
         description: "Model id (default claude-haiku-4-5 — the CLI 'haiku' snapshot)"
         required: false
         default: "claude-haiku-4-5"
+      operator_language_off:
+        description: "#1627 A/B: 'true' forces operator-language OFF everywhere (the *before* leg ≡ #1626 baseline); default 'false' runs the *after* leg (German directive live for de fixtures)"
+        required: false
+        default: "false"
 
 permissions:
   contents: read
@@ -53,7 +57,7 @@ jobs:
       - name: Run eval (report)
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}"
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }}
 
       # Machine-readable JSON (per-fixture kind distributions + no-tool/parse-fail counts) —
       # this is what you copy into docs/eval-stop-classifier.md. `if: always()` so the JSON is
@@ -64,4 +68,4 @@ jobs:
         if: always()
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" --json || true
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json || true

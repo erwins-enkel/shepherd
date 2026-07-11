@@ -199,9 +199,27 @@ export const FIXTURES: Fixture[] = [
       "Soll ich zuerst die Spezifikation schreiben, bevor ich implementiere? (j/n)",
     ],
     expectedKind: "gate",
+    // Baseline (not gating): the German twin of `gate-spec-first`, the recorded known gap that
+    // leans `question` even in English — kept for the before/after comparison, never gated (gating
+    // it would just import that gap). The German gate BUCKET is gated via `de-gate-commit` below.
     gating: false,
     lang: "de",
-    note: "German tail, English prompt — baseline mixed-language behavior (#1627 before/after).",
+    note: "German twin of the known-gap spec-first exemplar — baseline before/after datum only.",
+  },
+  {
+    id: "de-gate-commit",
+    taskPrompt: "Add a rate limiter to the API middleware.",
+    tail: [
+      "Der Rate-Limiter ist implementiert und die Tests sind grün.",
+      "Soll ich jetzt committen? (j/n)",
+    ],
+    expectedKind: "gate",
+    // GATING (#1627): the German proceed-obvious gate — German twin of the SOLID `gate-commit-now`,
+    // not the known-gap spec-first exemplar. T=9 for a noise-tolerant German-input signal.
+    gating: true,
+    trials: 9,
+    lang: "de",
+    note: "German proceed-obvious gate — committing its own green work is clearly correct.",
   },
   {
     id: "de-question-approach",
@@ -212,9 +230,24 @@ export const FIXTURES: Fixture[] = [
       "Das hat sehr unterschiedliche Sicherheits- und Skalierungs-Konsequenzen.",
     ],
     expectedKind: "question",
-    gating: false,
+    // GATING (#1627): the German product-fork bucket (5/5 at the #1626 baseline). T=9.
+    gating: true,
+    trials: 9,
     lang: "de",
-    note: "German tail, English prompt — baseline mixed-language behavior (#1627 before/after).",
+    note: "German real product fork needing a human — the German `question` bucket under #1627.",
+  },
+  {
+    id: "de-ambiguous-unknown",
+    taskPrompt: "Refactor the report generator for readability.",
+    tail: ["Mit dem ersten Teil fertig. Ich mache weiter.", ""],
+    expectedKind: "unknown",
+    // GATING (#1627 HEADLINE): the abstain bucket under German input — the exact erosion the
+    // input-robustness line defends against. No prior fixture covered German→unknown. T=9, the
+    // thick-confidence count the English `ambiguous-unknown` also uses for the most-eroded bucket.
+    gating: true,
+    trials: 9,
+    lang: "de",
+    note: "Genuinely ambiguous German tail — the classifier MUST abstain to unknown, not guess.",
   },
   {
     id: "de-finished-pr",
@@ -224,9 +257,11 @@ export const FIXTURES: Fixture[] = [
       "hinzugefügt. Alle Tests grün. Ich habe den PR noch nicht geöffnet.",
     ],
     expectedKind: "finished",
+    // Baseline (not gating): kept as a before/after datum; the three gated German buckets above
+    // (gate/question/unknown) are the load-bearing #1627 signal.
     gating: false,
     lang: "de",
-    note: "German tail, English prompt — baseline mixed-language behavior (#1627 before/after).",
+    note: "German tail, English prompt — baseline mixed-language before/after datum.",
   },
 ];
 
@@ -398,9 +433,15 @@ export function formatReport(
   results: FixtureResult[],
   decision: Decision,
   modelId: string,
+  operatorLanguageOff = false,
 ): string {
   const lines: string[] = [];
   lines.push(`autopilot stop-classifier eval — model=${modelId}`);
+  lines.push(
+    operatorLanguageOff
+      ? "operator-language: OFF (before leg — forced en everywhere, ≡ #1626 baseline)"
+      : "operator-language: per-fixture lang (after leg — German directive live for `de` fixtures)",
+  );
   lines.push(
     `fixtures=${results.length} (gating=${results.filter((r) => r.fixture.gating).length}, ` +
       `baseline=${results.filter((r) => !r.fixture.gating).length}); ` +
@@ -455,6 +496,11 @@ interface RunOptions {
   temperature: number;
   trials: number;
   filter?: string;
+  /** #1627 A/B switch: when true, force `operatorLanguage="en"` for EVERY fixture (the *before* leg
+   *  — byte-identical to the #1626 baseline). Default false → each fixture uses its own `lang` (the
+   *  *after* leg, with the German directive live for `de` fixtures). English fixtures are unchanged
+   *  either way. One harness, both A/B legs, reproducibly on the same branch/commit. */
+  operatorLanguageOff: boolean;
 }
 
 function buildRequestBody(
@@ -500,6 +546,7 @@ function parseArgs(argv: string[]): {
   threshold: number;
   filter?: string;
   json: boolean;
+  operatorLanguageOff: boolean;
 } {
   const get = (flag: string): string | undefined => {
     const i = argv.indexOf(flag);
@@ -512,6 +559,7 @@ function parseArgs(argv: string[]): {
     threshold: Number(get("--threshold") ?? GATING_ACCURACY_FLOOR),
     filter: get("--filter"),
     json: argv.includes("--json"),
+    operatorLanguageOff: argv.includes("--operator-language-off"),
   };
 }
 
@@ -540,13 +588,17 @@ async function main(): Promise<void> {
     temperature: args.temperature,
     trials: args.trials,
     filter: args.filter,
+    operatorLanguageOff: args.operatorLanguageOff,
   };
 
   const results: FixtureResult[] = [];
   let firstCall = true;
   for (const fixture of fixtures) {
     const n = trialsFor(fixture, args.trials);
-    const prompt = classifierPrompt(fixture.tail, fixture.taskPrompt);
+    // #1627 A/B: `--operator-language-off` forces "en" everywhere (the *before* leg); otherwise each
+    // fixture uses its own `lang`, so `de` fixtures exercise the real German directive (*after*).
+    const operatorLanguage = opts.operatorLanguageOff ? "en" : fixture.lang;
+    const prompt = classifierPrompt(fixture.tail, fixture.taskPrompt, operatorLanguage);
     const outcomes: TrialOutcome[] = [];
     for (let t = 0; t < n; t++) {
       let response: AnthropicResponse;
@@ -582,6 +634,9 @@ async function main(): Promise<void> {
         {
           model: args.model,
           temperature: args.temperature,
+          // #1627 A/B leg: false = *after* (per-fixture lang, German directive live for `de`);
+          // true = *before* (operator-language forced off everywhere, ≡ #1626 baseline).
+          operatorLanguageOff: args.operatorLanguageOff,
           decision,
           results: results.map((r) => ({
             id: r.fixture.id,
@@ -602,7 +657,7 @@ async function main(): Promise<void> {
       ),
     );
   } else {
-    console.log(formatReport(results, decision, args.model));
+    console.log(formatReport(results, decision, args.model, args.operatorLanguageOff));
   }
 
   process.exit(decision.pass ? 0 : 1);

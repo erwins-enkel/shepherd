@@ -41,6 +41,7 @@
   "emptyherd_extension_prompt": "Working in the browser? Capture any page into a task with the Shepherd Capture extension.",
   "emptyherd_extension_link": "Get it on the Chrome Web Store",
   "error_preview_readonly": "Preview is read-only. Open Shepherd directly (not through the live preview) to make changes.",
+  "error_origin_host_not_allowed": "This host isn't allowed to make changes. Add it to SHEPHERD_ALLOWED_HOSTS (in ~/.shepherd/env) and restart Shepherd.",
   "status_working": "BUSY",
   "status_idle": "IDLE",
   "status_blocked": "BLOCKED",

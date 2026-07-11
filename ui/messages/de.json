@@ -41,6 +41,7 @@
   "emptyherd_extension_prompt": "Du arbeitest im Browser? Erfasse jede Seite mit der Shepherd-Capture-Erweiterung als Aufgabe.",
   "emptyherd_extension_link": "Im Chrome Web Store holen",
   "error_preview_readonly": "Die Vorschau ist schreibgeschützt. Öffne Shepherd direkt (nicht über die Live-Vorschau), um Änderungen vorzunehmen.",
+  "error_origin_host_not_allowed": "Dieser Host darf keine Änderungen vornehmen. Füge ihn zu SHEPHERD_ALLOWED_HOSTS hinzu (in ~/.shepherd/env) und starte Shepherd neu.",
   "status_working": "AKTIV",
   "status_idle": "INAKTIV",
   "status_blocked": "BLOCKIERT",

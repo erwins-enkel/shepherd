@@ -34,6 +34,7 @@ import {
   validateNewProject,
   isAuthorized,
   originAllowed,
+  classifyOrigin,
   safeRepoDir,
   parseTermDims,
   validateSteers,
@@ -628,9 +629,17 @@ function checkOrigin(req: Request): Response | null {
   const method = req.method;
   if (method !== "POST" && method !== "DELETE" && method !== "PUT") return null;
   const previewRange = { base: config.previewPortBase, count: config.previewPortCount };
-  if (!originAllowed(req.headers.get("Origin"), config.allowedOriginHosts, previewRange)) {
-    return json({ error: "forbidden: origin not allowed" }, 403);
-  }
+  const verdict = classifyOrigin(
+    req.headers.get("Origin"),
+    config.allowedOriginHosts,
+    previewRange,
+  );
+  // Distinct bodies so the client can show accurate copy (issue #1645 Fix 3): a preview-port
+  // origin genuinely IS read-only; an un-allowlisted host should be pointed at
+  // SHEPHERD_ALLOWED_HOSTS, not told to "open Shepherd directly" (it already is).
+  if (verdict === "preview-port") return json({ error: "forbidden: origin not allowed" }, 403);
+  if (verdict === "host-not-allowed")
+    return json({ error: "forbidden: origin host not allowed" }, 403);
   return null;
 }
 

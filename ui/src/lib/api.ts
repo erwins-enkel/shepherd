@@ -88,10 +88,16 @@ function flagIfUnauthorized(status: number): boolean {
 }
 
 /** Server's CSRF preview-origin rejection string. The HUD origin guard
- *  (`src/validate.ts` `originAllowed` → `src/server.ts:214` `checkOrigin`) returns
+ *  (`src/validate.ts` `classifyOrigin` → `checkOrigin`) returns
  *  `403 {error:"forbidden: origin not allowed"}` for any mutation from the live-preview
  *  port range — kept in sync here so the matched string stays discoverable. */
 const ORIGIN_BLOCK = "forbidden: origin not allowed";
+
+/** Server's CSRF host-not-allowlisted rejection string. `checkOrigin` returns
+ *  `403 {error:"forbidden: origin host not allowed"}` when the HUD is reached on a host
+ *  absent from `SHEPHERD_ALLOWED_HOSTS` (NOT a preview port). Distinct from {@link ORIGIN_BLOCK}
+ *  so the copy can point the operator at the allowlist instead of blaming the preview (#1645). */
+const ORIGIN_HOST_BLOCK = "forbidden: origin host not allowed";
 
 /** Thrown when a mutation is rejected because it originated from the read-only live
  *  preview (CSRF origin guard). Detect via `isPreviewBlocked`/`instanceof`. */
@@ -113,6 +119,9 @@ function apiError(
   flagIfUnauthorized(status);
   if (status === 403 && body?.error === ORIGIN_BLOCK) {
     return new PreviewBlockedError(m.error_preview_readonly());
+  }
+  if (status === 403 && body?.error === ORIGIN_HOST_BLOCK) {
+    return new Error(m.error_origin_host_not_allowed());
   }
   return new Error(body?.error ?? fallback);
 }

@@ -9,6 +9,7 @@ import {
   validateNewProject,
   isAuthorized,
   originAllowed,
+  classifyOrigin,
   isValidTerminalId,
   expandHome,
   parseTermDims,
@@ -539,6 +540,58 @@ test("originAllowed: chrome-extension origin passes when its ID is allowlisted",
   const id = "bflahkibnmcbijbhelmpjbohpfhlbaig";
   expect(originAllowed(`chrome-extension://${id}`, [...allowedHosts, id])).toBe(true);
   expect(originAllowed(`chrome-extension://${id}`, allowedHosts)).toBe(false);
+});
+
+// ── classifyOrigin (issue #1645 Fix 3) ────────────────────────────────────────
+// originAllowed is now a thin wrapper over classifyOrigin(...) === "allow"; these assert
+// the two rejection reasons stay distinct so the client can show accurate copy.
+
+const previewRange = { base: 8001, count: 16 };
+
+// Absent/empty Origin must classify as "allow" — preserves the curl/CLI bypass
+// (originAllowed's `if (!originHeader) return true`).
+test("classifyOrigin: absent/empty Origin is allow (curl/cli)", () => {
+  expect(classifyOrigin(null, allowedHosts, previewRange)).toBe("allow");
+  expect(classifyOrigin(undefined, allowedHosts, previewRange)).toBe("allow");
+  expect(classifyOrigin("", allowedHosts, previewRange)).toBe("allow");
+});
+
+test("classifyOrigin: allowlisted host is allow", () => {
+  expect(classifyOrigin("http://localhost:7330", allowedHosts, previewRange)).toBe("allow");
+});
+
+// The auto-allowed node's own tailnet host (Fix 2) classifies as allow.
+test("classifyOrigin: folded-in node host is allow", () => {
+  const hosts = [...allowedHosts, "agentnode.example.ts.net"];
+  expect(classifyOrigin("https://agentnode.example.ts.net", hosts, previewRange)).toBe("allow");
+});
+
+// The un-allowlisted-host reason drives the new SHEPHERD_ALLOWED_HOSTS hint copy.
+test("classifyOrigin: non-allowlisted host is host-not-allowed", () => {
+  expect(classifyOrigin("https://other.example.ts.net", allowedHosts, previewRange)).toBe(
+    "host-not-allowed",
+  );
+});
+
+// Preview-port precedence: a preview app on an ALLOWLISTED host is still preview-port,
+// never allow — this is the CSRF invariant that Fix 2 must not weaken.
+test("classifyOrigin: preview-port on an allowlisted host is preview-port (not allow)", () => {
+  const hosts = [...allowedHosts, "agentnode.example.ts.net"];
+  expect(classifyOrigin("https://agentnode.example.ts.net:8001", hosts, previewRange)).toBe(
+    "preview-port",
+  );
+  expect(classifyOrigin("http://localhost:8005", hosts, previewRange)).toBe("preview-port");
+});
+
+// A port just outside the range on a non-allowlisted host is host-not-allowed, not preview-port.
+test("classifyOrigin: out-of-range port on non-allowlisted host is host-not-allowed", () => {
+  expect(classifyOrigin("https://other.example.ts.net:8017", allowedHosts, previewRange)).toBe(
+    "host-not-allowed",
+  );
+});
+
+test("classifyOrigin: malformed Origin is host-not-allowed", () => {
+  expect(classifyOrigin("not-a-url", allowedHosts, previewRange)).toBe("host-not-allowed");
 });
 
 // ── isValidTerminalId ─────────────────────────────────────────────────────────

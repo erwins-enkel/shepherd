@@ -867,26 +867,35 @@ export function safeRepoDir(repoPathRaw: string, repoRoot: string): string | nul
   }
 }
 
+/** Verdict for an incoming CSRF origin check: allowed, rejected because it's a
+ *  preview-port origin, or rejected because its host isn't allowlisted. The two
+ *  rejection reasons let the caller surface distinct copy (issue #1645 Fix 3): a
+ *  genuine preview app is "read-only", while an un-allowlisted HUD host should
+ *  point the operator at SHEPHERD_ALLOWED_HOSTS instead of blaming the preview. */
+export type OriginVerdict = "allow" | "preview-port" | "host-not-allowed";
+
 /**
- * Returns true when the request should be allowed through the CSRF origin check.
+ * Classify an incoming Origin for the CSRF guard (see {@link originAllowed} for the
+ * boolean shorthand). Preserves the historical edges: an absent/empty Origin
+ * (curl/CLI, no browser) is `"allow"`; a malformed Origin is `"host-not-allowed"`.
  *
  * When `previewRange` is supplied, any Origin whose port falls in
- * [base, base + count) is **rejected** even if its hostname is allowlisted —
- * a preview app running on that port shares the HUD's hostname and could
- * otherwise forge `/api` mutations (CSRF via blind cross-origin POST).
- * CLI / curl clients (no Origin header) are always allowed through.
+ * [base, base + count) is `"preview-port"` even if its hostname is allowlisted —
+ * a preview app running on that port shares the HUD's hostname and could otherwise
+ * forge `/api` mutations (CSRF via blind cross-origin POST). This check runs BEFORE
+ * the hostname check so a previewed app can never be reclassified as an allowed host.
  */
-export function originAllowed(
+export function classifyOrigin(
   originHeader: string | null | undefined,
   allowedHosts: string[],
   previewRange?: { base: number; count: number },
-): boolean {
-  if (!originHeader) return true; // no-browser client (curl, CLI)
+): OriginVerdict {
+  if (!originHeader) return "allow"; // no-browser client (curl, CLI)
   let parsed: URL;
   try {
     parsed = new URL(originHeader);
   } catch {
-    return false; // malformed origin
+    return "host-not-allowed"; // malformed origin
   }
 
   // Reject preview-port origins before the hostname check so a previewed app
@@ -900,12 +909,25 @@ export function originAllowed(
     if (parsed.port !== "") {
       const port = Number(parsed.port);
       if (port >= base && port < base + count) {
-        return false; // preview-port origin → reject
+        return "preview-port"; // preview-port origin → reject
       }
     }
   }
 
-  return allowedHosts.includes(parsed.hostname);
+  return allowedHosts.includes(parsed.hostname) ? "allow" : "host-not-allowed";
+}
+
+/**
+ * Returns true when the request should be allowed through the CSRF origin check.
+ * Thin boolean wrapper over {@link classifyOrigin}; CLI / curl clients (no Origin
+ * header) are always allowed through.
+ */
+export function originAllowed(
+  originHeader: string | null | undefined,
+  allowedHosts: string[],
+  previewRange?: { base: number; count: number },
+): boolean {
+  return classifyOrigin(originHeader, allowedHosts, previewRange) === "allow";
 }
 
 const STEER_LABEL_MAX = 60;

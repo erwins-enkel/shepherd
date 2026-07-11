@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test";
 import { SessionService, DRAFT_PR_NOTE } from "../src/service";
+import { operatorLanguageBlock } from "../src/operator-language";
+import { config } from "../src/config";
 
 /** A full-enough Session row for the release-gate path (only the fields the method touches). */
 function sess(over: Record<string, unknown> = {}) {
@@ -103,4 +105,39 @@ test("releasePlanGate steers WITH draft note when draftMode=true", async () => {
   expect(await h.svc.releasePlanGate("s1")).toBe(true);
   const steerText = h.sent.map((s) => s.text).join("");
   expect(steerText).toContain(DRAFT_PR_NOTE);
+});
+
+// #1624: the plan-go steer is a reply()-routed internal steer, so a Codex session at
+// operatorLanguage=de re-carries the <operator-language> block on it; Codex+en and Claude do not.
+test("releasePlanGate re-carries the operator-language block on a Codex steer at de", async () => {
+  const prev = config.operatorLanguage;
+  config.operatorLanguage = "de";
+  try {
+    const h = harness({ session: sess({ agentProvider: "codex" }), gate: { approved: true } });
+    expect(await h.svc.releasePlanGate("s1")).toBe(true);
+    expect(h.sent.map((s) => s.text).join("")).toContain(operatorLanguageBlock("de")!);
+  } finally {
+    config.operatorLanguage = prev;
+  }
+});
+
+test("releasePlanGate carries NO operator-language block for Codex+en or Claude+de", async () => {
+  const prev = config.operatorLanguage;
+  const marker = "<operator-language>";
+  try {
+    config.operatorLanguage = "en";
+    const en = harness({ session: sess({ agentProvider: "codex" }), gate: { approved: true } });
+    expect(await en.svc.releasePlanGate("s1")).toBe(true);
+    expect(en.sent.map((s) => s.text).join("")).not.toContain(marker);
+
+    config.operatorLanguage = "de";
+    const claude = harness({
+      session: sess({ agentProvider: "claude" }),
+      gate: { approved: true },
+    });
+    expect(await claude.svc.releasePlanGate("s1")).toBe(true);
+    expect(claude.sent.map((s) => s.text).join("")).not.toContain(marker);
+  } finally {
+    config.operatorLanguage = prev;
+  }
 });

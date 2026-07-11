@@ -15,6 +15,11 @@
   //   Ext   = MV3 browser extension (extension/). The background service worker
   //           + popup/options page mains are loaded by the browser/crxjs via the
   //           manifest, not statically imported — so they're genuine roots.
+  // Generated codegen output (gen-herdr-types.ts, from the vendored herdr
+  // protocol schema): its ~170 exports are intentionally emitted for the whole
+  // protocol surface, not dead code — exclude from all fallow analyses.
+  "ignorePatterns": ["src/generated/**"],
+
   "entry": [
     "src/index.ts",
     "src/pty-attach.mjs",

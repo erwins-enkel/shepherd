@@ -54,3 +54,7 @@ extension/project.inlang/plugins
 
 # Spike #1043 raw terminal-frame fixtures (byte-exact captures, not formatted source)
 test/fixtures/fullscreen
+
+# herdr protocol codegen output — already formatted by gen-herdr-types.ts;
+# same precedent as ui/src/lib/paraglide above (keeps check:herdr-types honest).
+src/generated

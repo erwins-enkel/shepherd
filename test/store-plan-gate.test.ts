@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import type { PlanGate } from "../src/types";
 import type { VisualBlock } from "../src/visual-blocks";
@@ -53,6 +56,67 @@ test("plan_gate round-trips finalRoundPending + dismissed (legacy rows default f
   expect(s.getPlanGate("s1")?.finalRoundPending).toBe(true);
   expect(s.getPlanGate("s1")?.dismissed).toBe(true);
   expect(s.snapshotPlanGates().s1!.dismissed).toBe(true);
+});
+
+test("plan_gate: summaryCode round-trips (error → sentinel code, non-error → null) (#1628)", () => {
+  const s = new SessionStore(":memory:");
+  s.putPlanGate(
+    g({
+      sessionId: "err",
+      decision: "error",
+      summary: "",
+      summaryCode: "no-verdict",
+      findings: [],
+      round: 0,
+    }),
+  );
+  expect(s.getPlanGate("err")?.summaryCode).toBe("no-verdict");
+  expect(s.getPlanGate("err")?.summary).toBe("");
+  expect(s.snapshotPlanGates()["err"]?.summaryCode).toBe("no-verdict");
+  // A non-error gate carries the reviewer's own summary and no code.
+  s.putPlanGate(
+    g({
+      sessionId: "ok",
+      decision: "approved",
+      approved: true,
+      summary: "looks good",
+      findings: [],
+      round: 0,
+    }),
+  );
+  expect(s.getPlanGate("ok")?.summaryCode).toBeNull();
+  expect(s.getPlanGate("ok")?.summary).toBe("looks good");
+});
+
+test("plan_gate: legacy-prose migration flips known error prose to the code, no-clobber + idempotent (#1628)", () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), "shepherd-pg-")), "test.db");
+  {
+    const s = new SessionStore(dbPath);
+    // Simulate two pre-migration `error` rows (summaryCode still NULL): one bakes the EXACT known
+    // English prose (must migrate), one has a different reviewer message (must NOT be clobbered).
+    const db = (s as unknown as { db: { run: (sql: string) => void } }).db;
+    db.run(
+      `INSERT INTO plan_gates (sessionId, decision, summary, updatedAt) VALUES ('legacy','error','plan reviewer did not produce a verdict',1)`,
+    );
+    db.run(
+      `INSERT INTO plan_gates (sessionId, decision, summary, updatedAt) VALUES ('other','error','some other reviewer message',1)`,
+    );
+    expect(s.getPlanGate("legacy")?.summaryCode).toBeNull(); // not migrated yet (raw insert)
+  }
+  // Re-open → migratePlanGateColumns re-runs the legacy-prose UPDATE.
+  {
+    const s = new SessionStore(dbPath);
+    expect(s.getPlanGate("legacy")?.summaryCode).toBe("no-verdict"); // flipped to the code
+    expect(s.getPlanGate("legacy")?.summary).toBe(""); // prose cleared
+    expect(s.getPlanGate("other")?.summaryCode).toBeNull(); // untouched — no clobber
+    expect(s.getPlanGate("other")?.summary).toBe("some other reviewer message");
+  }
+  // Idempotent: a third open changes nothing and never errors.
+  {
+    const s = new SessionStore(dbPath);
+    expect(s.getPlanGate("legacy")?.summaryCode).toBe("no-verdict");
+    expect(s.getPlanGate("other")?.summary).toBe("some other reviewer message");
+  }
 });
 
 test("repo_config carries planGateEnabled default + setter", () => {

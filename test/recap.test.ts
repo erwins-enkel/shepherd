@@ -1279,14 +1279,20 @@ test("generate: empty diff + landed evidence + fetch failure becomes visible fai
     diff: { ...EMPTY_DIFF, fetchFailed: true },
     currentBranch: async () => "shepherd/x",
     headContainedInBase: async () => "contained",
-    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12" }),
+    landedWorkEvidence: () => ({ kind: "merged_pr", summary: "merged PR #12", pr: 12 }),
   });
 
   await expect(svc.generate(s)).resolves.toBe("error");
   expect(herdr.started.length).toBe(0);
   const r = store.getRecap("s1");
   expect(r?.state).toBe("failed");
-  expect(r?.body).toContain("refreshing the base ref failed");
+  // Coded skip (#1628): no baked English prose — the UI renders per-locale from code + typed params
+  // (evidence kind + PR number, never the English `summary`).
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "base-refresh-failed",
+    params: { evidenceKind: "merged_pr", evidencePr: 12 },
+  });
 });
 
 test("generate: empty diff + fetch failure without landed evidence stays empty", async () => {
@@ -1326,7 +1332,12 @@ test("generate: empty diff + branch mismatch becomes visible metadata failure", 
   expect(herdr.started.length).toBe(0);
   const r = store.getRecap("s1");
   expect(r?.state).toBe("failed");
-  expect(r?.body).toContain("worktree was on `shepherd/other`");
+  // Coded skip (#1628): branch identifiers pass through as typed params, no baked prose.
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "metadata-mismatch",
+    params: { branch: "shepherd/x", current: "shepherd/other" },
+  });
 });
 
 test("generate: empty diff + not-contained ancestry without evidence stays empty", async () => {
@@ -1367,7 +1378,40 @@ test("generate: empty diff + unknown ancestry with landed evidence becomes visib
   expect(herdr.started.length).toBe(0);
   const r = store.getRecap("s1");
   expect(r?.state).toBe("failed");
-  expect(r?.body).toContain("could not verify whether HEAD is already contained");
+  // Coded skip (#1628): merged_pr evidence WITHOUT a pr number → no evidencePr param (UI renders
+  // "merged PR", never "#undefined"); baseRef passes through.
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "ancestry-check-failed",
+    params: { evidenceKind: "merged_pr", baseRef: "origin/main" },
+  });
+});
+
+test("generate: empty diff + not-contained ancestry with evidence → empty-diff-contradicted skip", async () => {
+  const s = makeSession({ status: "idle" });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 200_000,
+    diff: EMPTY_DIFF,
+    currentBranch: async () => "shepherd/x",
+    headContainedInBase: async () => "not-contained",
+    landedWorkEvidence: () => ({ kind: "review", summary: "PR review recorded for this head" }),
+  });
+
+  await expect(svc.generate(s)).resolves.toBe("error");
+  expect(herdr.started.length).toBe(0);
+  const r = store.getRecap("s1");
+  expect(r?.state).toBe("failed");
+  // The fourth skip code; `review` evidence carries no PR number.
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "empty-diff-contradicted",
+    params: { evidenceKind: "review", baseRef: "origin/main" },
+  });
 });
 
 test("generate: empty diff + unknown ancestry without evidence stays empty", async () => {
@@ -1447,7 +1491,11 @@ test("generate: empty diff + null current branch + landed evidence + fetch failu
   expect(herdr.started.length).toBe(0);
   const r = store.getRecap("s1");
   expect(r?.state).toBe("failed");
-  expect(r?.body).toContain("refreshing the base ref failed");
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "base-refresh-failed",
+    params: { evidenceKind: "merged_pr" },
+  });
 });
 
 test("generate: empty diff + null current branch + landed evidence + unknown ancestry fails as uncertain", async () => {
@@ -1469,7 +1517,11 @@ test("generate: empty diff + null current branch + landed evidence + unknown anc
   expect(herdr.started.length).toBe(0);
   const r = store.getRecap("s1");
   expect(r?.state).toBe("failed");
-  expect(r?.body).toContain("could not verify whether HEAD is already contained");
+  expect(r?.body).toBe("");
+  expect(r?.skip).toEqual({
+    code: "ancestry-check-failed",
+    params: { evidenceKind: "merged_pr", baseRef: "origin/main" },
+  });
 });
 
 // ── considerForArchive tests ──────────────────────────────────────────────────────

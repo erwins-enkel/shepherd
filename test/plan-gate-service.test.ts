@@ -602,7 +602,22 @@ test("timeout with no verdict → error gate, reaped, not released", async () =>
   t = 1000 + 11 * 60 * 1000; // exceed default 10m timeout
   await h.svc.tick();
   expect(h.store.gate.decision).toBe("error");
+  // The server-authored error summary is stored as a sentinel code (rendered per-locale in the UI),
+  // never baked English prose in `summary` (#1628).
+  expect(h.store.gate.summaryCode).toBe("no-verdict");
+  expect(h.store.gate.summary).toBe("");
   expect(h.removed).toContain("/wt-detached");
+});
+
+test("approved verdict carries no summaryCode (reviewer text is the summary)", async () => {
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "looks good", body: "", findings: [] }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.decision).toBe("approved");
+  expect(h.store.gate.summaryCode).toBeNull();
+  expect(h.store.gate.summary).toBe("looks good");
 });
 
 // ── FS membrane wrapping ─────────────────────────────────────────────────────────

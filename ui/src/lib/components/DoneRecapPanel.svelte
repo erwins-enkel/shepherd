@@ -4,6 +4,7 @@
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { recapSkipHeadline, recapSkipBody } from "$lib/recap-skip";
   import VisualReview from "./VisualReview.svelte";
 
   let {
@@ -156,11 +157,18 @@
     {:else if recap?.state === "failed"}
       <!-- generation ran but couldn't produce a recap — say so, don't imply it was never tried. -->
       <p class="dr-muted">{m.recap_failed()}</p>
-      {#if recap.headline}
-        <p class="dr-failure-headline">{recap.headline}</p>
-      {/if}
-      {#if recap.body}
-        <p class="dr-failure-body">{recap.body}</p>
+      <!-- A coded skip renders its headline/body per-locale; a legacy row (no code) falls back to
+           the baked prose it persisted. -->
+      {#if recap.skip}
+        <p class="dr-failure-headline">{recapSkipHeadline(recap.skip)}</p>
+        <p class="dr-failure-body">{recapSkipBody(recap.skip)}</p>
+      {:else}
+        {#if recap.headline}
+          <p class="dr-failure-headline">{recap.headline}</p>
+        {/if}
+        {#if recap.body}
+          <p class="dr-failure-body">{recap.body}</p>
+        {/if}
       {/if}
     {:else if predatesRecapFeature}
       <!-- finished before durable recaps existed: name the reason instead of a bare "unavailable". -->

@@ -495,6 +495,7 @@ const recapService: RecapService = new RecapService({
       return {
         kind: "merged_pr",
         summary: `automerge merged PR #${autoMerged.prNumber}`,
+        pr: autoMerged.prNumber,
       };
     }
     const git = prPoller.snapshot()[s.id];
@@ -502,6 +503,7 @@ const recapService: RecapService = new RecapService({
       return {
         kind: "merged_pr",
         summary: `merged PR${git.number ? ` #${git.number}` : ""}`,
+        ...(git.number ? { pr: git.number } : {}),
       };
     }
     const review = store.getReview(s.id);

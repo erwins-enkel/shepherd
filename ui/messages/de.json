@@ -2835,5 +2835,18 @@
   "feat_operator_language_title": "Agenten sprechen deine Sprache",
   "feat_operator_language_body": "Lege in den Einstellungen eine Betreibersprache fest, und Shepherds gestartete Agenten verfassen ihre Statusupdates, Rückfragen, Planerklärungen und Übergaben in dieser Sprache. Code, Befehle, Logs, Commit-Nachrichten und GitHub-Issue-/PR-Texte bleiben in ihrer Originalsprache.",
   "feat_attention_highlight_title": "Karten, die auf dich warten, heben sich ab",
-  "feat_attention_highlight_body": "Wenn ein Agent stoppt und deine Entscheidung braucht (eine Menüauswahl, eine Plan-Review-Entscheidung, ein Halt bei einem Fehler), trägt seine Karte im Herd jetzt einen leichten roten Schimmer. So erkennst du auf einen Blick, wer wartet."
+  "feat_attention_highlight_body": "Wenn ein Agent stoppt und deine Entscheidung braucht (eine Menüauswahl, eine Plan-Review-Entscheidung, ein Halt bei einem Fehler), trägt seine Karte im Herd jetzt einen leichten roten Schimmer. So erkennst du auf einen Blick, wer wartet.",
+  "planpanel_no_verdict": "Der Plan-Prüfer hat kein Urteil abgegeben.",
+  "recap_skip_metadata_mismatch_headline": "Zusammenfassung übersprungen: Sitzungs-Metadaten stimmen nicht überein",
+  "recap_skip_metadata_mismatch_body": "Die Sitzung verweist auf Branch `{branch}`, aber der archivierte Worktree war auf `{current}`. Shepherd hat dem leeren Diff nicht vertraut.",
+  "recap_skip_base_refresh_failed_headline": "Zusammenfassung übersprungen: Aktualisierung der Basis fehlgeschlagen",
+  "recap_skip_base_refresh_failed_body": "Shepherd fand Hinweise auf gelandete Arbeit ({evidence}), aber die Aktualisierung der Basis-Ref schlug fehl, sodass dem leeren Diff nicht vertraut werden konnte.",
+  "recap_skip_ancestry_check_failed_headline": "Zusammenfassung übersprungen: Abstammungsprüfung fehlgeschlagen",
+  "recap_skip_ancestry_check_failed_body": "Shepherd fand Hinweise auf gelandete Arbeit ({evidence}), konnte aber nicht überprüfen, ob HEAD bereits in `{baseRef}` enthalten ist.",
+  "recap_skip_empty_diff_contradicted_headline": "Zusammenfassung übersprungen: leeres Diff widerspricht der Landed-Work-Evidenz",
+  "recap_skip_empty_diff_contradicted_body": "Shepherd fand Hinweise auf gelandete Arbeit ({evidence}), aber HEAD war nicht in `{baseRef}` enthalten, obwohl das Diff leer war.",
+  "recap_skip_evidence_merged_pr": "PR #{pr} gemergt",
+  "recap_skip_evidence_merged_pr_no_number": "PR gemergt",
+  "recap_skip_evidence_review": "PR-Review für diesen Head erfasst",
+  "recap_skip_evidence_existing_recap": "vorhandene Zusammenfassung erfasste geänderte Dateien"
 }

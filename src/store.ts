@@ -6,7 +6,9 @@ import type {
   ReviewVerdict,
   ReviewDecision,
   PlanGate,
+  PlanSummaryCode,
   Recap,
+  RecapSkip,
   DiffFile,
   Signal,
   SignalKind,
@@ -63,6 +65,28 @@ function parseFindings(raw: unknown): string[] {
   } catch {
     return [];
   }
+}
+
+/** Parse a persisted recap `skipReason` JSON column into a RecapSkip. null/absent/garbage → null (a
+ *  legacy failed row keeps rendering its baked headline/body). Trusts the shape loosely: a stored
+ *  `{code, params}` written by putRecap round-trips; anything else collapses to null. */
+function parseSkipReason(raw: string | null | undefined): RecapSkip | null {
+  if (typeof raw !== "string" || !raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed === "object" && typeof parsed.code === "string") {
+      return { code: parsed.code, params: parsed.params ?? {} } as RecapSkip;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+/** Coerce a persisted plan-gate summary code: only the known "no-verdict" sentinel survives; any
+ *  other value (legacy prose lived in `summary`, not here) → null. */
+function coerceSummaryCode(v: string | null): PlanSummaryCode | null {
+  return v === "no-verdict" ? "no-verdict" : null;
 }
 
 /** Coerce a persisted tri-state flag: null/undefined stays null (inherit), else a real boolean. */
@@ -338,6 +362,7 @@ type PlanGateRow = {
   planHash: string | null;
   decision: string;
   summary: string | null;
+  summaryCode: string | null;
   body: string | null;
   findings: string;
   round: number | null;
@@ -363,6 +388,7 @@ type RecapRow = {
   verdict: string | null;
   headline: string | null;
   body: string | null;
+  skipReason: string | null; // JSON of RecapSkip ({code, params}) for a coded failed skip; null otherwise
   openItems: string;
   changedFiles: string;
   blocks: string;
@@ -875,7 +901,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       PRIMARY KEY (repoPath, prNumber))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS plan_gates (
       sessionId TEXT PRIMARY KEY, planHash TEXT NOT NULL DEFAULT '',
-      decision TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      decision TEXT NOT NULL, summary TEXT NOT NULL DEFAULT '', summaryCode TEXT, body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', round INTEGER NOT NULL DEFAULT 0,
       cap INTEGER NOT NULL DEFAULT 3, approved INTEGER NOT NULL DEFAULT 0,
       plan TEXT NOT NULL DEFAULT '', updatedAt INTEGER NOT NULL,
@@ -893,6 +919,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       verdict TEXT,
       headline TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
+      skipReason TEXT,
       openItems TEXT NOT NULL DEFAULT '[]',
       changedFiles TEXT NOT NULL DEFAULT '[]',
       spawnSessionId TEXT NOT NULL DEFAULT '',
@@ -913,6 +940,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }
     if (!recapCols.some((c) => c.name === "pendingDiff")) {
       this.db.run(`ALTER TABLE recaps ADD COLUMN pendingDiff TEXT NOT NULL DEFAULT '[]'`);
+    }
+    // skipReason: JSON RecapSkip ({code, params}) for a coded `failed` skip, rendered per-locale in
+    // the UI. Legacy failed rows predate it (NULL) and keep rendering their baked headline/body prose.
+    if (!recapCols.some((c) => c.name === "skipReason")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN skipReason TEXT`);
     }
     // migrate recaps that predate the base column (legacy rows default to '' — the dedup's
     // legacy guard then never force-regenerates them on base alone).
@@ -2371,6 +2403,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       planHash: r.planHash ?? "",
       decision: r.decision,
       summary: r.summary ?? "",
+      summaryCode: coerceSummaryCode(r.summaryCode),
       body: r.body ?? "",
       findings: parseFindings(r.findings),
       round: r.round ?? 0,
@@ -2394,7 +2427,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getPlanGate(sessionId: string): PlanGate | null {
     const r = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed
               FROM plan_gates WHERE sessionId = ?`,
       )
       .get(sessionId) as PlanGateRow | null;
@@ -2403,10 +2436,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putPlanGate(g: PlanGate): void {
     this.db.run(
-      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `INSERT INTO plan_gates (sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET planHash=excluded.planHash, decision=excluded.decision,
-         summary=excluded.summary, body=excluded.body, findings=excluded.findings,
+         summary=excluded.summary, summaryCode=excluded.summaryCode, body=excluded.body, findings=excluded.findings,
          round=excluded.round, cap=excluded.cap, approved=excluded.approved,
          plan=excluded.plan, updatedAt=excluded.updatedAt, blocks=excluded.blocks,
          answeredQuestionKeys=excluded.answeredQuestionKeys,
@@ -2418,6 +2451,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         g.planHash ?? "",
         g.decision,
         g.summary,
+        g.summaryCode ?? null,
         g.body,
         JSON.stringify(g.findings ?? []),
         g.round ?? 0,
@@ -2443,7 +2477,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
-        `SELECT sessionId, planHash, decision, summary, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed FROM plan_gates`,
+        `SELECT sessionId, planHash, decision, summary, summaryCode, body, findings, round, cap, approved, plan, updatedAt, blocks, answeredQuestionKeys, reviewerProvider, reviewerModel, reviewerEffort, finalRoundPending, dismissed FROM plan_gates`,
       )
       .all() as PlanGateRow[];
     const out: Record<string, PlanGate> = {};
@@ -2488,6 +2522,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       verdict: r.verdict ?? null,
       headline: r.headline ?? "",
       body: r.body ?? "",
+      skip: parseSkipReason(r.skipReason),
       openItems,
       changedFiles,
       blocks,
@@ -2512,7 +2547,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getRecap(sessionId: string): Recap | null {
     const r = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
@@ -2522,12 +2557,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putRecap(recap: Recap): void {
     this.db.run(
-      `INSERT INTO recaps (sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles,
+      `INSERT INTO recaps (sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles,
          blocks, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
          base=excluded.base,
          verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
+         skipReason=excluded.skipReason,
          openItems=excluded.openItems, changedFiles=excluded.changedFiles,
          blocks=excluded.blocks,
          spawnSessionId=excluded.spawnSessionId,
@@ -2541,6 +2577,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         recap.verdict ?? null,
         recap.headline ?? "",
         recap.body ?? "",
+        recap.skip ? JSON.stringify(recap.skip) : null,
         JSON.stringify(recap.openItems ?? []),
         JSON.stringify(recap.changedFiles ?? []),
         JSON.stringify(recap.blocks ?? []),
@@ -2558,7 +2595,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotRecaps(): Record<string, Recap> {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state != 'empty'`,
       )
@@ -2572,7 +2609,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   generatingRecaps(): Recap[] {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
                 pendingDiff, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )
@@ -3356,6 +3393,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // rework. Pre-existing rows backfill to 0 (not final / not dismissed).
     add("finalRoundPending", `finalRoundPending INTEGER NOT NULL DEFAULT 0`);
     add("dismissed", `dismissed INTEGER NOT NULL DEFAULT 0`);
+    // summaryCode: sentinel for a server-authored summary (error → "no-verdict"), rendered per-locale
+    // in the UI. Pre-existing rows backfill to NULL (render their stored `summary` prose verbatim).
+    add("summaryCode", `summaryCode TEXT`);
+    // Migrate legacy `error` rows that baked the English summary in: flip the exact known prose to the
+    // sentinel code + clear the summary so the UI localizes it. Idempotent (after the flip the WHERE
+    // no longer matches) and no-clobber (only the exact prose string, only `error` rows).
+    this.db.run(
+      `UPDATE plan_gates SET summaryCode='no-verdict', summary=''
+         WHERE decision='error' AND summary='plan reviewer did not produce a verdict'`,
+    );
   }
 
   private migrateReviewerSpawnColumns(): void {

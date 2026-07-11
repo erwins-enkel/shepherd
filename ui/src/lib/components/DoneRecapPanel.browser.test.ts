@@ -309,6 +309,52 @@ describe("DoneRecapPanel fail-closed", () => {
       .toBeInTheDocument();
   });
 
+  it("failed recap with a coded skip → renders localized headline + body (evidence w/ PR number)", async () => {
+    recaps.map = {
+      f3: recap({
+        sessionId: "f3",
+        state: "failed",
+        headline: "", // coded skips leave headline/body empty; the UI derives them per-locale
+        body: "",
+        skip: {
+          code: "ancestry-check-failed",
+          params: { evidenceKind: "merged_pr", evidencePr: 12, baseRef: "origin/main" },
+        },
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "f3" }) });
+    await expect
+      .element(page.getByText("Recap skipped: ancestry check failed"))
+      .toBeInTheDocument();
+    await expect
+      .element(
+        page.getByText(
+          "Shepherd found landed-work evidence (merged PR #12), but could not verify whether HEAD is already contained in `origin/main`.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
+  it("failed recap with a coded skip → merged_pr without a PR number renders 'merged PR' (no #undefined)", async () => {
+    recaps.map = {
+      f4: recap({
+        sessionId: "f4",
+        state: "failed",
+        headline: "",
+        body: "",
+        skip: { code: "base-refresh-failed", params: { evidenceKind: "merged_pr" } },
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "f4" }) });
+    await expect
+      .element(
+        page.getByText(
+          "Shepherd found landed-work evidence (merged PR), but refreshing the base ref failed, so the empty diff could not be trusted.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
   it("missing recap row on a recent session → generic unavailable", async () => {
     // no entry in recaps.map; finished after recaps shipped → generic message
     render(DoneRecapPanel, { session: session({ id: "missing" }) });

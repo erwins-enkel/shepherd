@@ -377,12 +377,18 @@ export interface WorkflowRun {
 
 // ── pre-execution plan gate ─────────────────────────────────────────────────
 export type PlanDecision = "approved" | "changes_requested" | "error";
+/** Sentinel for a server-authored plan-gate summary rendered per-locale in the UI (mirrors server
+ *  `PlanSummaryCode`). Only `error` verdicts carry one today. */
+export type PlanSummaryCode = "no-verdict";
 /** A plan-gate verdict (mirrors server `PlanGate`), keyed client-side by session id. */
 export interface PlanGate {
   sessionId: string;
   planHash: string; // sha256 of the reviewed plan; dedups re-reviews of an unchanged plan
   decision: PlanDecision;
-  summary: string; // <=100 char one-liner for the badge tooltip
+  summary: string; // <=100 char one-liner for the badge tooltip; "" when summaryCode is set
+  // Sentinel code for a server-authored summary (error → "no-verdict"), rendered per-locale; when
+  // set, `summary` is "" and the UI renders from the code. Absent → render `summary` verbatim.
+  summaryCode?: PlanSummaryCode | null;
   body: string; // full markdown reviewer write-up
   findings: string[]; // discrete actionable items; [] = nothing to address
   round: number; // adversarial rounds spent on the current plan streak (0 = reset)
@@ -524,13 +530,31 @@ export interface RawAnswer {
 // mirrors server Recap / RecapState / RecapVerdict
 export type RecapState = "generating" | "ready" | "failed" | "empty";
 export type RecapVerdict = "ready" | "parked" | "needs_attention";
+/** Mirrors server RecapSkipCode/RecapEvidenceKind/RecapSkipParams/RecapSkip — declared explicitly
+ *  here (the server's `LandedWorkEvidence` isn't importable from ui/). Kept in lockstep. */
+export type RecapSkipCode =
+  "metadata-mismatch" | "base-refresh-failed" | "ancestry-check-failed" | "empty-diff-contradicted";
+export type RecapEvidenceKind = "merged_pr" | "review" | "existing_recap";
+export interface RecapSkipParams {
+  branch?: string;
+  current?: string;
+  evidenceKind?: RecapEvidenceKind;
+  evidencePr?: number;
+  baseRef?: string;
+}
+export interface RecapSkip {
+  code: RecapSkipCode;
+  params: RecapSkipParams;
+}
 export interface Recap {
   sessionId: string;
   state: RecapState;
   headSha: string;
   verdict: RecapVerdict | null;
-  headline: string;
-  body: string;
+  headline: string; // "" on a coded skip — render the localized headline from `skip`
+  body: string; // "" on a coded skip — render the localized body from `skip`
+  // Sentinel code + params for a `failed` skip rendered per-locale; absent → render headline/body verbatim.
+  skip?: RecapSkip | null;
   openItems: string[];
   changedFiles: string[];
   spawnSessionId: string;

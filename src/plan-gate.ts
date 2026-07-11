@@ -795,6 +795,9 @@ export class PlanGateService {
     const decision = normalizeDecision(raw?.decision);
     const resolved: PlanDecision = raw && decision ? decision : "error";
     const summary = resolveSummary(resolved, raw);
+    // Store a sentinel code (not baked English) for the server-authored `error` summary, so the UI
+    // renders it per-locale (operator-language). Non-error summaries are the reviewer's own text.
+    const summaryCode = resolved === "error" ? "no-verdict" : null;
     // The steer-back fallback must never truncate: pass the UN-clamped verdict summary here,
     // not the (clamped) gate `summary` field above — see resolveFindings's doc comment.
     const rawSummary = raw && typeof raw.summary === "string" ? raw.summary : "";
@@ -805,6 +808,7 @@ export class PlanGateService {
       planHash: f.planHash,
       decision: resolved,
       summary,
+      summaryCode,
       body,
       findings,
       // approved resets the streak; changes_requested/error carry priorRound (finalize()
@@ -1026,9 +1030,10 @@ function normalizeDecision(d: unknown): PlanDecision | null {
   return null;
 }
 
-/** The gate summary: a fixed line for `error`, else the (clamped) verdict summary or "". */
+/** The gate summary: "" for `error` (the UI renders the "no-verdict" sentinel per-locale — see
+ *  buildGate's summaryCode), else the (clamped) verdict summary or "". */
 function resolveSummary(resolved: PlanDecision, raw: RawPlanVerdict | null): string {
-  if (resolved === "error") return "plan reviewer did not produce a verdict";
+  if (resolved === "error") return "";
   return raw && typeof raw.summary === "string" ? raw.summary.slice(0, 100) : "";
 }
 

@@ -386,6 +386,11 @@ export function buildHooksFragment(input: {
  *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
  *    directives don't ride resumes either), so a resumed trimmed session deliberately has
  *    skills off without the notice.
+ *    ONE narrow, deliberate exception (issue #1624): buildClaudeResumeArgv DOES re-pass a
+ *    single `--append-system-prompt` carrying ONLY the `<operator-language>` block (never the
+ *    full directive set) so a compacted/resumed session keeps addressing the operator in their
+ *    language instead of drifting back to English. Empirically verified honored on resume
+ *    (both `-p` and interactive PTY). "en" carries nothing → resume argv stays byte-identical.
  * Measured −6,349 tokens/turn combined in the issue-499 spike. Deliberately NOT
  * `--settings disableAllHooks` — that would kill the operator's global SessionStart hook
  * Shepherd's status pipeline depends on. Interactive spawns are untouched.
@@ -1051,6 +1056,27 @@ const PLAN_GO_STEER_BASE =
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {
   return draftMode ? `${PLAN_GO_STEER_BASE} ${DRAFT_PR_NOTE}` : PLAN_GO_STEER_BASE;
+}
+
+/**
+ * The operator-language directive re-carried as a suffix on an internal steer (#1624). Codex has no
+ * `--append-system-prompt` on resume (buildCodexResumeArgv carries no directive), so the
+ * `<operator-language>` block must re-ride each internal `reply()`-routed steer to persist past the
+ * opening turn — otherwise a compacted/steered Codex session drifts back to English. Claude gets the
+ * block on resume via buildClaudeResumeArgv's append, so its steers carry nothing (→ `""`, keeping
+ * Claude steer text byte-identical). `""` for "en" too (operatorLanguageBlock returns null). Applied
+ * centrally in replyToLive — the single funnel behind reply()/retryHalted — so every internal steer
+ * (autopilot, plan-review/critic, plan-answer, release, preview, retry, build-queue, auto-merge
+ * rebase) picks it up with one injection; operator free-text (operatorReply/broadcast) bypasses
+ * reply() via sendSteerTo and is deliberately excluded.
+ */
+export function operatorLanguageSteerSuffix(
+  provider: AgentProvider,
+  lang: OperatorLanguage,
+): string {
+  if (provider !== "codex") return "";
+  const block = operatorLanguageBlock(lang);
+  return block ? `\n\n${block}` : "";
 }
 
 /**
@@ -2286,6 +2312,12 @@ export class SessionService {
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     ];
+    // Narrow #499 exception (#1624): re-pass ONLY the operator-language block on resume so a
+    // compacted/resumed session keeps addressing the operator in their language. `null` for "en"
+    // → nothing pushed, so the resume argv stays byte-identical for existing operators. Reads the
+    // live config value, exactly like composeDirectives on the spawn path.
+    const olBlock = operatorLanguageBlock(config.operatorLanguage);
+    if (olBlock) argv.push("--append-system-prompt", olBlock);
     this.pushModelFlag(argv, s.model);
     this.pushEffortFlag(argv, s.effort, "claude");
     return argv;
@@ -3905,7 +3937,14 @@ export class SessionService {
   ): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s || !live.has(s.herdrAgentId)) return false; // unknown, or live-in-store / dead-pane
-    await this.sendSteerTo(s, text, signalPayload);
+    // Codex operator-language carrier (#1624): append the block to the delivered PTY text so the
+    // directive persists across steers (Codex has no --append-system-prompt on resume). "" for
+    // Claude/"en", so those steers stay byte-identical. Record the BASE steer text as the `reply`
+    // signal (block excluded, via signalPayload) so the learnings distiller never mines Shepherd's
+    // own directive — mirrors the #1405 epic-notice precedent.
+    const delivered =
+      text + operatorLanguageSteerSuffix(s.agentProvider ?? "claude", config.operatorLanguage);
+    await this.sendSteerTo(s, delivered, signalPayload);
     return true;
   }
 

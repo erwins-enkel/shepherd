@@ -551,6 +551,14 @@ export const config = {
   // preview-unstable (see HERDR_SOCKET_SUPPORTED_PROTOCOLS above), so this stays reversible
   // until the socket driver has soaked.
   herdrSocket: process.env.SHEPHERD_HERDR_SOCKET === "1",
+  // Sub-flag gating ONLY the interactive terminal onto herdr's socket `terminal session control`
+  // stream. Default-OFF interim gate: that stream is a screen-diff/redraw protocol, so xterm builds
+  // no scrollback and never sees the app's mouse mode — which kills mobile swipe + desktop wheel
+  // scrolling (the socket terminal renders, but can't be scrolled). Until socket-native scroll is
+  // built and proven for Claude+Codex (Phase B follow-up), keep the terminal on node-pty even when
+  // `herdrSocket` is on; the socket driver still drives send/steer/browser/usage. Flip on to soak
+  // socket-scroll once it lands.
+  herdrSocketTerminal: process.env.SHEPHERD_HERDR_SOCKET_TERMINAL === "1",
   // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
   // of polling, staged behind two default-off flags so each phase is independently reversible.
   // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned

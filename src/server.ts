@@ -6831,14 +6831,22 @@ export function pruneSocketTerminalFailures(
   for (const [id, t] of m) if (now - t >= ttl) m.delete(id);
 }
 
-/** Picks the socket bridge only when the driver is active, a pane target resolved, and this
- *  terminal hasn't recently failed over the socket path. */
+/** Picks the socket bridge only when the terminal sub-flag is on (interim gate — see
+ *  `config.herdrSocketTerminal`), the driver is active, a pane target resolved, and this terminal
+ *  hasn't recently failed over the socket path. With the sub-flag off the terminal stays on
+ *  node-pty (scrollable) even while the socket driver runs everything else. */
 export function pickTerminalBridgeKind(opts: {
+  herdrSocketTerminal?: boolean;
   herdrSocketActive?: boolean;
   paneTarget?: string;
   recentlyFailed: boolean;
 }): "socket" | "node-pty" {
-  return opts.herdrSocketActive && opts.paneTarget && !opts.recentlyFailed ? "socket" : "node-pty";
+  return opts.herdrSocketTerminal &&
+    opts.herdrSocketActive &&
+    opts.paneTarget &&
+    !opts.recentlyFailed
+    ? "socket"
+    : "node-pty";
 }
 
 /** The /usage refresh handler drives a multi-second ephemeral `claude` scrape and needs a longer
@@ -6952,6 +6960,7 @@ export function serve(deps: AppDeps, port: number) {
           if (prev && prev !== ws) prev.close(PTY_SUPERSEDED_CODE, "superseded");
           const sock = { send: (d: string | Uint8Array) => ws.send(d), close: () => ws.close() };
           const kind = pickTerminalBridgeKind({
+            herdrSocketTerminal: config.herdrSocketTerminal,
             herdrSocketActive: deps.herdrSocketActive,
             paneTarget: attach.paneTarget,
             recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),

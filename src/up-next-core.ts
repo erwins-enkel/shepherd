@@ -71,6 +71,9 @@ export interface EpicUnitInput {
   memberNumbers: number[];
   /** selectEpicCandidates()[0], or null when no child is actionable (suppress the unit). */
   candidate: Issue | null;
+  /** The epic parent's own still-open blockers (GitHub issue dependencies). Non-empty ⇒ the whole
+   *  epic unit is suppressed from Up Next, mirroring the standalone blocked-issue rule. */
+  parentBlockedBy?: number[];
 }
 
 export interface RepoInput {
@@ -140,6 +143,7 @@ function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
   if (hasLabel(labelSet, ACTIVE_LABEL)) return true;
   if (intersects(labelSet, EXCLUDE_LABELS)) return true;
   if (isBotAuthored(issue)) return true;
+  if (issue.blockedBy && issue.blockedBy.length > 0) return true; // dependency-blocked (#1622)
   return false;
 }
 
@@ -172,6 +176,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
   if (hasLabel(parentLabelSet, ACTIVE_LABEL)) return null;
   if (intersects(parentLabelSet, EXCLUDE_LABELS)) return null;
   if (isAssignedToOthers(e.parentAssignees, repo.viewer)) return null; // #824 (keyed on parent)
+  if (e.parentBlockedBy && e.parentBlockedBy.length > 0) return null; // epic parent dependency-blocked
   if (linkedSet.has(c.number)) return null; // the child already has a PR in flight
   return {
     repoPath: repo.repoPath,

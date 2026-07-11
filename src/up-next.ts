@@ -233,7 +233,18 @@ export class UpNextService {
       subIssueNumbers: [],
     };
     const linkedIssueNumbers = (await forge.listOpenPrClosingIssues?.().catch(() => null)) ?? [];
-    const epics = await this.resolveEpics(r.repoPath, openIssues, summaries.summaries);
+    const blockedByOpen =
+      (await forge.listBlockedByOpen?.().catch(() => null)) ?? new Map<number, number[]>();
+    for (const issue of openIssues) {
+      const blockers = blockedByOpen.get(issue.number);
+      if (blockers && blockers.length > 0) issue.blockedBy = blockers;
+    }
+    const epics = await this.resolveEpics(
+      r.repoPath,
+      openIssues,
+      summaries.summaries,
+      blockedByOpen,
+    );
 
     return {
       repoPath: r.repoPath,
@@ -255,6 +266,7 @@ export class UpNextService {
     repoPath: string,
     openIssues: Awaited<ReturnType<GitForge["listIssues"]>>,
     nativeSummaries: Map<number, { total: number; completed: number }>,
+    blockedByOpen: Map<number, number[]>,
   ): Promise<EpicUnitInput[]> {
     const openByNum = new Map(openIssues.map((i) => [i.number, i]));
     const epicParents = new Set<number>();
@@ -276,6 +288,7 @@ export class UpNextService {
         parentAssignees: parent.assignees,
         memberNumbers: epic.children.map((c) => c.number),
         candidate: selectEpicCandidates(epic.children)[0] ?? null,
+        parentBlockedBy: blockedByOpen.get(pn) ?? [],
       });
     }
     return units;

@@ -105,6 +105,10 @@
             })}</span
           >
         {/if}
+        {#if epic.landingRepairing}
+          <!-- Non-actionable: an auto-repair session is live, driving CI back to green. -->
+          <span class="chip-repairing">{m.integrated_epics_auto_repairing()}</span>
+        {/if}
         {#if epic.landingReady === true}
           <button class="gbtn" type="button" onclick={() => (confirming = true)}>
             {m.integrated_epics_land()}
@@ -244,6 +248,21 @@
     border-radius: 2px;
     color: var(--status-warn);
     background: color-mix(in oklab, var(--status-warn) 12%, transparent);
+    text-transform: uppercase;
+  }
+
+  /* Slate "in progress, non-actionable" chip — an auto-repair session is live driving CI back to
+     green. NEVER green (reserved for READY) and NEVER the warn hue (no operator action needed);
+     mirrors the .chip-done slate recipe used elsewhere for quiet/parked states. */
+  .chip-repairing {
+    flex: none;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    padding: 1px 6px;
+    border: 1px solid var(--status-done);
+    border-radius: 2px;
+    color: var(--status-done);
+    background: color-mix(in oklab, var(--status-done) 12%, transparent);
     text-transform: uppercase;
   }
 

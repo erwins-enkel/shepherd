@@ -619,6 +619,12 @@ export interface RundownEpicItem {
   stranded: boolean;
   /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
   pausedReason?: "cap" | "conflict" | "driver";
+  /** The landing PR's CI is terminally failing and needs operator attention (mirrors server
+   *  RundownEpicItem.ciFailing). Not set while a repair session is live — see `repairing`. */
+  ciFailing?: boolean;
+  /** Non-actionable: a capped auto-repair agent session is live, driving this landing's CI back
+   *  to green (mirrors server RundownEpicItem.repairing). Mutually exclusive with `ciFailing`. */
+  repairing?: boolean;
 }
 export interface HerdDigest {
   dayKey: string;
@@ -849,6 +855,11 @@ export interface CompletedEpic {
   landingStranded?: boolean;
   // When the auto-rebase pass is paused and operator action is needed (#1071); null when not paused.
   landingRebasePauseReason?: "cap" | "conflict" | "driver" | null;
+  /** Non-actionable: a capped auto-repair agent session is live and driving this landing PR's CI
+   *  back to green — suppresses the operator's CI-failing surface while genuinely live (mirrors
+   *  server CompletedEpic.landingRepairing). A stuck/finished session falls back to the plain
+   *  CI-failing state instead. */
+  landingRepairing?: boolean;
 }
 
 /** One queued backlog issue behind DrainStatus.queued — a row in the queue popover.

@@ -2,6 +2,7 @@ import { test, expect } from "bun:test";
 import {
   resolveAllowedOriginHosts,
   addOwnHostToAllowlist,
+  addServedHostsToAllowlist,
   SHEPHERD_CAPTURE_EXTENSION_ID,
   SHEPHERD_CAPTURE_UNPACKED_DEV_ID,
 } from "../src/config";
@@ -78,4 +79,47 @@ test("addOwnHostToAllowlist: trims surrounding whitespace", () => {
   const hosts: string[] = [];
   addOwnHostToAllowlist(hosts, "  agentnode.example.ts.net  ");
   expect(hosts).toEqual(["agentnode.example.ts.net"]);
+});
+
+// ── addServedHostsToAllowlist (issue #1645 Fix 2/3) ───────────────────────────
+
+// A Tailscale Service front (served under a different DNS name than the node's own) is folded
+// in — the topology addOwnHostToAllowlist alone doesn't cover.
+test("addServedHostsToAllowlist: folds a Service-fronted host in", () => {
+  const json = JSON.stringify({
+    Services: {
+      "svc:shepherd": {
+        Web: {
+          "shepherd.example.ts.net:443": {
+            Handlers: { "/": { Proxy: "http://localhost:7330" } },
+          },
+        },
+      },
+    },
+  });
+  const hosts = ["localhost", "127.0.0.1"];
+  addServedHostsToAllowlist(hosts, json, 7330);
+  expect(hosts).toEqual(["localhost", "127.0.0.1", "shepherd.example.ts.net"]);
+});
+
+// Dedup delegates to addOwnHostToAllowlist — an already-listed host is not doubled.
+test("addServedHostsToAllowlist: does not double an already-listed host", () => {
+  const json = JSON.stringify({
+    Web: {
+      "shepherd.example.ts.net:443": {
+        Handlers: { "/": { Proxy: "http://localhost:7330" } },
+      },
+    },
+  });
+  const hosts = ["shepherd.example.ts.net"];
+  addServedHostsToAllowlist(hosts, json, 7330);
+  expect(hosts).toEqual(["shepherd.example.ts.net"]);
+});
+
+// Malformed/empty JSON and non-matching serve status are no-ops.
+test("addServedHostsToAllowlist: malformed or empty JSON is a no-op", () => {
+  const hosts = ["localhost"];
+  addServedHostsToAllowlist(hosts, "not json", 7330);
+  addServedHostsToAllowlist(hosts, "", 7330);
+  expect(hosts).toEqual(["localhost"]);
 });

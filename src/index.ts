@@ -14,10 +14,11 @@ import {
   PLAN_REVIEW_CYCLES_MAX,
   DIAGNOSTICS_INTERVAL_MS,
   DIAGNOSTICS_RECHECK_INTERVAL_MS,
-  parseServedPort,
+  findServedPort,
   validatePreviewPortRange,
   validateAgentIngressPort,
   addOwnHostToAllowlist,
+  addServedHostsToAllowlist,
 } from "./config";
 import { SessionStore } from "./store";
 import type {
@@ -386,18 +387,22 @@ let credentialBanner: string | null = null;
 }
 
 // ── preview port range startup validation (hard-fail) ──────────────────────
-// Discover the public served port by parsing `tailscale serve status`; default
-// to 443 when tailscale is unavailable or the mapping isn't found. The parser
-// is pure and injected here so it's testable without tailscale.
+// Discover the public served port AND every served host front from a single
+// `tailscale serve status --json` call; default to 443 / no extra hosts when
+// tailscale is unavailable or no mapping is found. The parsers are pure and
+// injected here so they're testable without tailscale.
 // Also resolve this node's tailnet hostname for split-front preview URL construction.
 {
   let servedPort = 443;
+  let stdout = "";
   try {
-    const { stdout } = await execFileAsync("tailscale", ["serve", "status"], { timeout: 5000 });
-    const parsed = parseServedPort(stdout, config.port);
+    ({ stdout } = await execFileAsync("tailscale", ["serve", "status", "--json"], {
+      timeout: 5000,
+    }));
+    const parsed = findServedPort(stdout, config.port);
     if (parsed !== null) servedPort = parsed;
   } catch {
-    // tailscale not available or not set up — default to 443
+    // tailscale not available or not set up — default to 443, no served hosts
   }
   // Resolve the node's own tailnet hostname (null when tailscale is absent).
   config.previewHost = await resolveNodeHost();
@@ -405,9 +410,14 @@ let credentialBanner: string | null = null;
   // (direct `tailscale serve`, served front host == this node's DNSName) is trusted out of
   // the box — no manual SHEPHERD_ALLOWED_HOSTS. Preview-port origins stay rejected (the
   // guard's preview-range check runs first, independent of hostname) and foreign origins
-  // stay blocked. A Service-fronted HUD uses a different DNS name and still needs a manual
-  // allowlist entry (see deploy/shepherd.service). Issue #1645 Fix 2.
+  // stay blocked. Issue #1645 Fix 2.
   addOwnHostToAllowlist(config.allowedOriginHosts, config.previewHost);
+  // Fold every Tailscale-served host front for this HUD's port — including a Service
+  // front (e.g. `svc:shepherd` → `shepherd.ts.net`), served under a DIFFERENT DNS name
+  // than the node's own — into the allowlist too. Only a non-Tailscale reverse proxy /
+  // custom-DNS front still needs a manual SHEPHERD_ALLOWED_HOSTS entry (see
+  // deploy/shepherd.service). Issue #1645 Fix 2/3.
+  addServedHostsToAllowlist(config.allowedOriginHosts, stdout, config.port);
   validatePreviewPortRange({
     previewPortBase: config.previewPortBase,
     previewPortCount: config.previewPortCount,

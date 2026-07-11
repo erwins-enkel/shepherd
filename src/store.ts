@@ -1913,7 +1913,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // Boolean() (not `?? false`) so this new field adds no cyclomatic branch to the flat,
       // field-count-driven buildSessionRow (keeps it under its complexity cap).
       epicAuthoring: Boolean(input.epicAuthoring),
-      landingRepair: input.landingRepair ?? false,
+      landingRepair: Boolean(input.landingRepair),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -1980,7 +1980,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           s.egressDegraded ? 1 : 0,
           s.research ? 1 : 0,
           Number(s.epicAuthoring), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
-          s.landingRepair ? 1 : 0,
+          Number(s.landingRepair), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           s.createdAt,
           s.updatedAt,
           s.archivedAt,

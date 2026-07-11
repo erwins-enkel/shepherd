@@ -1324,7 +1324,7 @@ export function composeSystemPrompt(
   // non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual-steps,
   // epic-intent notice, build-queue) are suppressed. One precomputed flag keeps the conditions
   // branch-light (complexity cap).
-  const nonCodeMode = opts.research || opts.epicAuthoring || opts.landingRepair;
+  const nonCodeMode = [opts.research, opts.epicAuthoring, opts.landingRepair].some(Boolean);
   if (!nonCodeMode) {
     blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which

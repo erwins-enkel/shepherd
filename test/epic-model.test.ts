@@ -230,3 +230,44 @@ describe("epic-branch divergence warnings (#645)", () => {
     expect(e2.warnings.some((w) => w.includes("epic blocked until fixed"))).toBe(false);
   });
 });
+
+// ── #1447 zero-dependency-edges signal ─────────────────────────────────────
+describe("noDependencyEdges (#1447)", () => {
+  test("≥2 ready children and 0 edges → true", () => {
+    // both children open, unclaimed, no blockers → both ready
+    const e = assembleEpic(input({ blockedBy: new Map() }));
+    expect(e.children.filter((c) => c.state === "ready")).toHaveLength(2);
+    expect(e.noDependencyEdges).toBe(true);
+  });
+
+  test("a surviving edge suppresses it even with ≥2 ready", () => {
+    // 320,322 ready (open, no blocker); 324 blocked_by 320 → 1 real edge → suppressed
+    const e = assembleEpic(
+      input({
+        subIssues: [
+          { number: 320, title: "root", url: "u320", body: "", closed: false, labels: [] },
+          { number: 322, title: "sib", url: "u322", body: "", closed: false, labels: [] },
+          { number: 324, title: "dep", url: "u324", body: "", closed: false, labels: [] },
+        ],
+        blockedBy: new Map([[324, [320]]]),
+      }),
+    );
+    expect(e.children.filter((c) => c.state === "ready").length).toBeGreaterThanOrEqual(2);
+    expect(e.noDependencyEdges).toBe(false);
+  });
+
+  test("fewer than 2 ready children → false (0 edges)", () => {
+    // 320 closed(merged), 322 open+ready → only 1 ready
+    const e = assembleEpic({ ...BASE, blockedBy: new Map() });
+    expect(e.children.filter((c) => c.state === "ready")).toHaveLength(1);
+    expect(e.noDependencyEdges).toBe(false);
+  });
+
+  test("self/outside-epic edges (filtered to 0 real edges) still count as no ordering → true", () => {
+    // 322's only blocker is #999 (outside the epic) → dropped → 0 surviving edges, both ready
+    const e = assembleEpic(input({ blockedBy: new Map([[322, [999]]]) }));
+    expect(e.children.filter((c) => c.state === "ready")).toHaveLength(2);
+    expect(e.warnings.some((w) => w.includes("outside the epic"))).toBe(true);
+    expect(e.noDependencyEdges).toBe(true);
+  });
+});

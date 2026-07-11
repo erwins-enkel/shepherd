@@ -710,6 +710,9 @@ export interface Epic {
   source: EpicSource;
   children: EpicChild[];
   warnings: string[];
+  /** True when the epic has ≥2 `ready` children and 0 dependency edges — surfaced as a
+   *  dedicated translated legibility line on the epic panel (mirrors src/epic-core.ts). */
+  noDependencyEdges?: boolean;
   run: EpicRun;
 }
 export interface EpicSummary {

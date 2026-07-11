@@ -1,18 +1,28 @@
 <script lang="ts">
-  import { AGENT_PROVIDERS, type AgentProvider, type Epic } from "$lib/types";
+  import { AGENT_PROVIDERS, type AgentProvider, type DrainStatus, type Epic } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext, importEpic } from "$lib/api";
-  import { chipFor, progress, stateLabel } from "./epic-panel";
+  import { chipFor, epicHoldLine, progress, stateLabel } from "./epic-panel";
   import { toasts } from "$lib/toasts.svelte";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
   import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
   import { modelOptionLabel } from "$lib/model-guidance";
 
-  let { repoPath, parent, epic }: { repoPath: string; parent: number; epic: Epic } = $props();
+  let {
+    repoPath,
+    parent,
+    epic,
+    drain = null,
+  }: { repoPath: string; parent: number; epic: Epic; drain?: DrainStatus | null } = $props();
 
   const p = $derived(progress(epic.children));
   const running = $derived(epic.run.status === "running");
+  const readyCount = $derived(epic.children.filter((c) => c.state === "ready").length);
+  // Only surface the drain's hold reason when it belongs to THIS epic's run.
+  const holdLine = $derived(
+    epicHoldLine(drain?.epicParent === parent ? drain : null, running, epic.children),
+  );
   const epicProvider = $derived(epic.run.agentProvider ?? null);
   const epicModel = $derived(epic.run.model ?? "default");
   const epicEffort = $derived(epic.run.effort ?? "default");
@@ -98,6 +108,14 @@
 
   {#if epic.warnings.length}
     <p class="warn">{m.epic_warnings({ count: epic.warnings.length })}</p>
+  {/if}
+
+  {#if epic.noDependencyEdges}
+    <p class="warn">{m.epic_warn_no_deps({ count: readyCount })}</p>
+  {/if}
+
+  {#if holdLine}
+    <p class="hold" class:alert={drain?.paused}>{holdLine}</p>
   {/if}
 
   <div class="epic-controls">
@@ -342,6 +360,18 @@
     margin: 0;
     color: var(--color-amber);
     font-size: var(--fs-micro);
+  }
+
+  /* Drain hold reason — muted by default; amber when the drain is genuinely paused
+     (trouble / usage / credits). Token-only per the design system. */
+  .hold {
+    margin: 0;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+  }
+
+  .hold.alert {
+    color: var(--color-amber);
   }
 
   /* ── controls ────────────────────────────────────────────────────────── */

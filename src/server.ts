@@ -160,6 +160,7 @@ import {
   buildRollup,
   computeLandingReady,
   enrichLandingEpics,
+  isLiveRepairSession,
   type CompletedEpic,
 } from "./completed-epic";
 import { repoHasNoCiCached } from "./checks-gate";
@@ -6562,11 +6563,21 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
   // errors must NOT 500 this route; just omit the live fields for that row). Shared helper so the
   // rundown's landing-ready accessor (#1045) computes readiness identically.
+  const nowMs = Date.now();
   await enrichLandingEpics(baseRows, {
     getEpicIntegrationBranch: (repoPath, parent) =>
       deps.store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
-    now: Date.now(),
+    hasLiveRepairSession: (repoPath, integrationBranch) =>
+      deps.store
+        .list()
+        .some(
+          (s) =>
+            s.repoPath === repoPath &&
+            s.baseBranch === integrationBranch &&
+            isLiveRepairSession(s, nowMs),
+        ),
+    now: nowMs,
   });
 
   return json(baseRows);

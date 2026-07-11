@@ -648,8 +648,12 @@ export interface RundownEpicItem {
   pausedReason?: "cap" | "conflict" | "driver";
   /** When true, the landing PR's CI is failing (terminal `checks:"failure"`, and NOT
    *  behind/conflicting — those are the rebase pass's `pausedReason`). A distinct Tier-1 attention
-   *  item: not "ready", not "paused". */
+   *  item: not "ready", not "paused", not "repairing". */
   ciFailing?: boolean;
+  /** When true, a genuinely-live landingRepair session is already fixing this landing's CI —
+   *  non-actionable, so it is NOT `ciFailing` (that item is the backstop for a stuck/finished
+   *  session). A distinct Tier-1 attention item: not "ready", not "paused", not "ciFailing". */
+  repairing?: boolean;
 }
 
 /** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */

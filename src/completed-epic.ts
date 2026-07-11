@@ -1,5 +1,6 @@
 import type { EpicChild } from "./epic-core";
 import type { ChecksState, ForgeKind, PrStatus } from "./forge/types";
+import type { Session } from "./types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 
 export interface CompletedEpicChild {
@@ -50,6 +51,10 @@ export interface CompletedEpic {
   landingStranded?: boolean;
   /** Live, non-persisted: the landing PR's CI is terminally failing (not behind/conflicting). */
   landingCiFailing?: boolean;
+  /** Live, non-persisted: a genuinely-live landingRepair session currently holds this landing's
+   *  integration branch, driving a fix. Non-actionable — suppresses `landingCiFailing` while true
+   *  (a stuck/finished session falls back to `landingCiFailing`, the backstop). */
+  landingRepairing?: boolean;
 }
 
 /** Rec D threshold: surface the "stranded" escalation when an open+ready landing PR has sat
@@ -97,6 +102,24 @@ export function computeLandingStranded(opts: {
   );
 }
 
+/** How long a repair session may hold the landing branch (fence + surface suppression) before it is
+ *  treated as stuck and the operator-facing landingCiFailing surface returns. Bounds a hung session. */
+export const REPAIR_ACTIVE_TTL_MS = 45 * 60 * 1000;
+
+/** True while an epic-landing repair session is GENUINELY working the branch: pushing its fix and
+ *  holding the rebase/land fence. Deliberately excludes blocked/paused/completed/terminal sessions and
+ *  any session past REPAIR_ACTIVE_TTL_MS, so a stuck session releases the fence and reveals
+ *  landingCiFailing (the backstop) instead of pinning the branch forever. */
+export function isLiveRepairSession(s: Session, now: number): boolean {
+  return (
+    s.landingRepair &&
+    (s.status === "running" || s.status === "idle") &&
+    !s.autopilotComplete &&
+    !s.autopilotPaused &&
+    now - s.createdAt < REPAIR_ACTIVE_TTL_MS
+  );
+}
+
 /** Accessors enrichLandingEpics needs, injected so this module stays forge-light (a structural
  *  forge shape, not the full GitForge type). `resolveForge` returns null when the repo has no forge. */
 export interface EnrichLandingDeps {
@@ -104,11 +127,16 @@ export interface EnrichLandingDeps {
   resolveForge: (
     repoPath: string,
   ) => { kind: ForgeKind; prStatus: (headBranch: string) => Promise<PrStatus> } | null | undefined;
+  /** Whether a genuinely-live repair session currently holds this epic's integration branch.
+   *  Callers build it via store.list().some(s => s.repoPath===repoPath && s.baseBranch===branch &&
+   *  isLiveRepairSession(s, now)). */
+  hasLiveRepairSession: (repoPath: string, integrationBranch: string) => boolean;
   now: number;
 }
 
 /** Enrich each OPEN-landing completed epic in `rows` with live landing-PR gate signals
- *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`), mutating in place.
+ *  (`landingChecks`/`landingMergeable`/`landingReady`/`landingStranded`/`landingCiFailing`/
+ *  `landingRepairing`), mutating in place.
  *  Best-effort + fail-safe per row: a missing branch/forge or a forge error simply leaves that
  *  row's live fields undefined — never throws. Shared by GET /api/epics/completed and the rundown's
  *  landing-ready accessor so both compute readiness identically. */
@@ -136,9 +164,14 @@ export async function enrichLandingEpics(
           now: deps.now,
         });
         // A terminally-failing landing PR that is NOT behind/conflicting (those are owned by the
-        // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts).
-        row.landingCiFailing =
+        // rebase pass's landingRebasePauseReason). Surfaced as a distinct Tier-1 item (index.ts) —
+        // UNLESS a genuinely-live repair session is already holding the branch and fixing it, in
+        // which case the non-actionable landingRepairing surface takes over instead.
+        const red =
           pr.checks === "failure" && pr.mergeStateStatus !== "behind" && pr.mergeable !== false;
+        const repairing = red && deps.hasLiveRepairSession(row.repoPath, branch);
+        row.landingRepairing = repairing;
+        row.landingCiFailing = red && !repairing;
       } catch {
         // leave live fields undefined — callers always serve/return the base DB rows
       }

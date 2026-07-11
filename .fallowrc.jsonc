@@ -328,10 +328,10 @@
       {
         "files": ["ui/src/lib/hold-row.ts"],
         "functions": ["rowState"],
-        "maxCyclomatic": 22,
-        "maxCognitive": 19,
+        "maxCyclomatic": 24,
+        "maxCognitive": 22,
         "maxCrap": 1000,
-        "reason": "Single ordered first-match classifier for the plan-gate row (#1561): one branch per rule (R1-R12), deliberately kept as a flat, top-to-bottom precedence chain so the exhaustively-tested rule order stays auditable at a glance. Cyclomatic is rule-count-driven, not nested logic (cognitive 19). Collapsing it into a data-driven rule table would hide the precedence the whole design turns on. Same envelope as src/drain.ts doSpawn (22/19)."
+        "reason": "Single ordered first-match classifier for the plan-gate row (#1561; +R1a for the non-planning Answer CTA, #1610): one branch per rule (R1a, R1-R12), deliberately kept as a flat, top-to-bottom precedence chain so the exhaustively-tested rule order stays auditable at a glance. Cyclomatic is rule-count-driven, not nested logic. Collapsing it into a data-driven rule table would hide the precedence the whole design turns on."
       },
       {
         "files": ["ui/src/lib/components/UnitRow.svelte"],

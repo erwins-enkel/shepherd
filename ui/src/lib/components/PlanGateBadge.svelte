@@ -1,17 +1,13 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import {
-    canShowPlanStallActions,
-    composePlanGateTooltip,
-    planGateChip,
-    planGateStalled,
-  } from "./plan-gate-badge";
+  import { composePlanGateTooltip, planGateChip, planGateStalledNow } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
   import { m } from "$lib/paraglide/messages";
   import { replySession, reviewPlan } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
+  import { clock } from "$lib/now.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surface (UnitRow) passes false so this chip
@@ -38,9 +34,9 @@
   const gate = $derived(planGates.map[session.id]);
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
-  const stalledActionsVisible = $derived(canShowPlanStallActions(session, gate, reviewing));
   const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
-  const stalled = $derived(planGateStalled(chip));
+  const stalled = $derived(planGateStalledNow(session, gate, reviewing, clock.current));
+  const stalledActionsVisible = $derived(stalled);
 
   let open = $state(false);
   let btnEl = $state<HTMLButtonElement>();

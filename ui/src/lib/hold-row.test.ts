@@ -220,6 +220,34 @@ describe("rowState / rowHold fixtures", () => {
     expect(r.line).toBe(holdLine(sh));
     expect(r.action).toBeNull();
   });
+
+  it("18. non-planning + autopilot-paused hold -> server-answer, server line + Answer CTA", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("autopilot-paused");
+    expect(rowState(s, undefined, false, sh)).toBe("server-answer");
+    const r = rowHold(s, undefined, false, sh);
+    expect(r.line).toBe(holdLine(sh));
+    expect(r.action?.kind).toBe("reply");
+    expect(r.action?.label).toBe(m.hold_cta_answer());
+  });
+  it("19. non-planning + blocked-yes-no hold -> server-answer", () => {
+    const s = sess({ planPhase: null, status: "idle" });
+    const sh = hold("blocked-yes-no");
+    expect(rowState(s, undefined, false, sh)).toBe("server-answer");
+    expect(rowHold(s, undefined, false, sh).action?.kind).toBe("reply");
+  });
+  it("20. non-planning + a NON-answerable hold -> passthrough (unchanged)", () => {
+    const s = sess({ planPhase: "executing", status: "idle" });
+    const sh = hold("manual-steps");
+    expect(rowState(s, undefined, false, sh)).toBe("passthrough");
+  });
+  it("21. PLANNING + autopilot-paused hold -> NOT server-answer (planning arm unchanged)", () => {
+    // R1a lives only in the non-planning arm; a planning row with this hold still passes
+    // through R3 (autopilot-paused ∉ PLAN_DOMAIN) → passthrough.
+    const s = sess({ planPhase: "planning", status: "idle" });
+    const sh = hold("autopilot-paused");
+    expect(rowState(s, undefined, false, sh)).toBe("passthrough");
+  });
 });
 
 // One canonical (session, gate, planReviewing, serverHold) tuple per RowState — reused by
@@ -278,6 +306,15 @@ const CASES: Array<{ state: RowState; args: Args }> = [
     ],
   },
   { state: "none", args: [sess({ status: "idle" }), undefined, false, hold("plan-rework")] },
+  {
+    state: "server-answer",
+    args: [
+      sess({ planPhase: "executing", status: "idle" }),
+      undefined,
+      false,
+      hold("autopilot-paused"),
+    ],
+  },
 ];
 
 describe("properties", () => {
@@ -293,6 +330,7 @@ describe("properties", () => {
       "awaiting-rereview",
       "ready",
       "none",
+      "server-answer",
     ];
     expect(new Set(CASES.map((c) => c.state))).toEqual(new Set(allStates));
     for (const { state, args } of CASES) {
@@ -382,5 +420,12 @@ describe("properties", () => {
     );
     expect(withNothingPending.state).toBe("dismissed");
     expect(withNothingPending.action).toBeNull();
+  });
+
+  it("P6 reply only for server-answer", () => {
+    for (const { state, args } of CASES) {
+      const r = rowHold(...args);
+      expect(r.action?.kind === "reply").toBe(state === "server-answer");
+    }
   });
 });

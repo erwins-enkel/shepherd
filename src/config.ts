@@ -554,10 +554,19 @@ export const config = {
   // Sub-flag gating ONLY the interactive terminal onto herdr's socket `terminal session control`
   // stream. Default-OFF interim gate: that stream is a screen-diff/redraw protocol, so xterm builds
   // no scrollback and never sees the app's mouse mode — which kills mobile swipe + desktop wheel
-  // scrolling (the socket terminal renders, but can't be scrolled). Until socket-native scroll is
-  // built and proven for Claude+Codex (Phase B follow-up), keep the terminal on node-pty even when
-  // `herdrSocket` is on; the socket driver still drives send/steer/browser/usage. Flip on to soak
-  // socket-scroll once it lands.
+  // scrolling (the socket terminal renders, but can't be scrolled). In socket mode scroll can only
+  // work if the *app* repaints on a keyboard lever over `terminal.input`.
+  //
+  // Phase B (#1639) probed exactly that on live agents (herdr 0.7.3 — see the reproduced matrix in
+  // test/fixtures/terminal-control/scroll-binding-notes.md, re-run via
+  // `bun scripts/verify-herdr-terminal.ts --scroll`): Claude Code honors PageUp, but **Codex honors
+  // no lever at all** — its off-screen transcript is unreachable in socket mode. So flipping this on
+  // would REGRESS Codex scroll, and node-pty removal (#1622) can't complete while Codex needs it.
+  // The frame-stream transport is therefore not yet good enough to replace node-pty for the terminal.
+  //
+  // So this stays default-OFF: the terminal remains on node-pty (scrollable for BOTH providers) even
+  // when `herdrSocket` is on; the socket driver still drives send/steer/browser/usage. Revisiting the
+  // flip is blocked on a scrollback-preserving / raw-passthrough herdr terminal transport (#1642).
   herdrSocketTerminal: process.env.SHEPHERD_HERDR_SOCKET_TERMINAL === "1",
   // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
   // of polling, staged behind two default-off flags so each phase is independently reversible.

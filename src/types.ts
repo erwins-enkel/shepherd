@@ -453,11 +453,20 @@ export interface DiagnosticsSnapshot {
 // ── pre-execution plan gate ──────────────────────────────────────────────────
 export type PlanDecision = "approved" | "changes_requested" | "error";
 
+/** Sentinel for a server-authored plan-gate summary that must render per-locale in the UI (not
+ *  baked English at write time). Only `error` verdicts carry a code today ("no-verdict"); every
+ *  other summary is the reviewer's own operator-language text, passed through verbatim. */
+export type PlanSummaryCode = "no-verdict";
+
 export interface PlanGate {
   sessionId: string;
   planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan on the auto-path (the manual force path bypasses that dedupe)
   decision: PlanDecision;
   summary: string; // <=100 char one-liner for the badge tooltip
+  // Sentinel code for a server-authored summary (currently only `error` → "no-verdict"), rendered
+  // per-locale in the UI instead of baking English into the row. When set, `summary` is "" and the
+  // UI ignores it; absent (legacy/normal rows) → render `summary` verbatim. See src/plan-gate.ts.
+  summaryCode?: PlanSummaryCode | null;
   body: string; // full markdown reviewer write-up
   findings: string[]; // discrete actionable items; [] = nothing to address
   round: number; // adversarial rounds spent on the current plan streak (0 = reset)
@@ -536,6 +545,35 @@ export interface PrReview {
 export type RecapState = "generating" | "ready" | "failed" | "empty";
 export type RecapVerdict = "ready" | "parked" | "needs_attention";
 
+/** A recap `failed` because Shepherd distrusted an empty diff (see classifyEmptyDiff). Stored as a
+ *  sentinel code (+ params) so the headline/body render per-locale in the UI instead of baking
+ *  English at write time. */
+export type RecapSkipCode =
+  "metadata-mismatch" | "base-refresh-failed" | "ancestry-check-failed" | "empty-diff-contradicted";
+
+/** Kind of landed-work evidence a recap-skip references. Declared explicitly (NOT
+ *  `LandedWorkEvidence["kind"]`, which lives in src/recap.ts and isn't importable from ui/) so the
+ *  UI mirror in ui/src/lib/types.ts stays in lockstep. Kept in sync with LandedWorkEvidence.kind. */
+export type RecapEvidenceKind = "merged_pr" | "review" | "existing_recap";
+
+/** Interpolation params for a recap-skip's localized headline/body. All optional — each code uses
+ *  the subset it needs. Identifiers (branch/baseRef) pass through verbatim; the evidence clause is
+ *  the typed kind (+ optional PR number), localized in the UI, never the authored English summary. */
+export interface RecapSkipParams {
+  branch?: string; // metadata-mismatch: the session row's branch
+  current?: string; // metadata-mismatch: the branch the archived worktree was actually on
+  evidenceKind?: RecapEvidenceKind; // base-refresh-failed / ancestry-check-failed / empty-diff-contradicted
+  evidencePr?: number; // merged_pr evidence: PR number when known (absent → "merged PR" with no #N)
+  baseRef?: string; // ancestry-check-failed / empty-diff-contradicted: the resolved base ref
+}
+
+/** A recap-skip reason: the sentinel code plus its interpolation params. Persisted as one JSON
+ *  column so a failed recap's card renders per-locale. */
+export interface RecapSkip {
+  code: RecapSkipCode;
+  params: RecapSkipParams;
+}
+
 /** A per-session LLM recap. One row per session, keyed by the HEAD it summarizes
  *  (head-keyed dedupe: a new head re-generates). `state` distinguishes in-flight /
  *  done / failed / no-changes. verdict/headline/body/openItems are empty until ready. */
@@ -545,8 +583,12 @@ export interface Recap {
   headSha: string; // the git HEAD this recap summarizes; "" for empty/in-flight w/o head
   base: string; // base branch this recap diffed against (the PR's real base when resolvable); "" for legacy rows. Half of the (headSha, base) dedup key.
   verdict: RecapVerdict | null;
-  headline: string; // <=100 chars; "" until ready
-  body: string; // markdown; "" until ready
+  headline: string; // <=100 chars; "" until ready. Empty on a coded skip (see `skip`) — the UI renders the localized headline from the code.
+  body: string; // markdown; "" until ready. Empty on a coded skip — the UI renders the localized body from the code+params.
+  // Sentinel code + params for a `failed` skip whose card renders per-locale (see classifyEmptyDiff).
+  // When set, headline/body are "" and the UI derives them from this; absent (legacy failed rows,
+  // or genuine spawn failures) → render the stored headline/body verbatim. See src/recap.ts.
+  skip?: RecapSkip | null;
   openItems: string[]; // [] until ready
   changedFiles: string[]; // files changed in the session (captured at gen time; survives worktree teardown)
   spawnSessionId: string; // claude --session-id of the recap spawn (usage + pane resolve)

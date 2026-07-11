@@ -127,15 +127,34 @@ test("livePtyAttach: herdr.list() throws → stored id, no paneTarget (hiccup fa
 
 // ── pickTerminalBridgeKind ───────────────────────────────────────────────────
 
-test("pickTerminalBridgeKind: socket only when all three conditions hold", () => {
+test("pickTerminalBridgeKind: socket only when all conditions hold", () => {
   expect(
-    pickTerminalBridgeKind({ herdrSocketActive: true, paneTarget: "w1:p1", recentlyFailed: false }),
+    pickTerminalBridgeKind({
+      herdrSocketTerminal: true,
+      herdrSocketActive: true,
+      paneTarget: "w1:p1",
+      recentlyFailed: false,
+    }),
   ).toBe("socket");
 });
 
-test("pickTerminalBridgeKind: node-pty when flag is off", () => {
+test("pickTerminalBridgeKind: node-pty when the terminal sub-flag is off (interim gate)", () => {
+  // The default: socket driver active, pane resolved, no recent failure — but the interim
+  // SHEPHERD_HERDR_SOCKET_TERMINAL gate is off, so the terminal stays on scrollable node-pty.
   expect(
     pickTerminalBridgeKind({
+      herdrSocketTerminal: false,
+      herdrSocketActive: true,
+      paneTarget: "w1:p1",
+      recentlyFailed: false,
+    }),
+  ).toBe("node-pty");
+});
+
+test("pickTerminalBridgeKind: node-pty when driver is off", () => {
+  expect(
+    pickTerminalBridgeKind({
+      herdrSocketTerminal: true,
       herdrSocketActive: false,
       paneTarget: "w1:p1",
       recentlyFailed: false,
@@ -146,6 +165,7 @@ test("pickTerminalBridgeKind: node-pty when flag is off", () => {
 test("pickTerminalBridgeKind: node-pty when no paneTarget", () => {
   expect(
     pickTerminalBridgeKind({
+      herdrSocketTerminal: true,
       herdrSocketActive: true,
       paneTarget: undefined,
       recentlyFailed: false,
@@ -155,7 +175,12 @@ test("pickTerminalBridgeKind: node-pty when no paneTarget", () => {
 
 test("pickTerminalBridgeKind: node-pty when recently failed", () => {
   expect(
-    pickTerminalBridgeKind({ herdrSocketActive: true, paneTarget: "w1:p1", recentlyFailed: true }),
+    pickTerminalBridgeKind({
+      herdrSocketTerminal: true,
+      herdrSocketActive: true,
+      paneTarget: "w1:p1",
+      recentlyFailed: true,
+    }),
   ).toBe("node-pty");
 });
 

@@ -81,6 +81,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,
@@ -290,6 +291,7 @@ describe("Viewport task detail tooltip", () => {
       },
       resolvedLaunch: {
         research: false,
+        epicAuthoring: false,
         planGateOptIn: true,
         autopilotOptIn: true,
         storedModel: "opus",

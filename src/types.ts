@@ -67,6 +67,10 @@ export interface Session {
   planPhase: "planning" | "executing" | null;
   /** True for a research-kind task: web research → report PR or GitHub issue; never code-PR-steered. */
   research: boolean;
+  /** True for an epic-authoring task: attended guided shaping → a reviewable EPIC draft; the agent
+   *  writes no GitHub issues (the approve route materializes them). Suppresses the same directives as
+   *  `research`. */
+  epicAuthoring: boolean;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -170,6 +174,8 @@ export interface LaunchUiState {
   researchChecked: boolean;
   planGateChecked: boolean;
   autopilotChecked: boolean;
+  /** "Create EPIC from research" toggle state at submit time; absent on legacy rows. */
+  epicAuthoringChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -231,6 +237,8 @@ export interface CreateSessionInput {
   sandboxProfile?: SandboxProfile | null;
   /** Research task kind; absent → false. */
   research?: boolean;
+  /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */
+  epicAuthoring?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
 }
@@ -261,6 +269,8 @@ export interface RelaunchOverrides {
   launchUiState?: LaunchUiState;
   /** Research task kind override; absent → keep original. */
   research?: boolean;
+  /** Epic-authoring task kind override; absent → keep original. */
+  epicAuthoring?: boolean;
 }
 
 /** Selectable Claude model aliases; absent/"default" means no --model flag.
@@ -747,6 +757,52 @@ export interface BuildStepInput {
   title: string;
   detail?: string;
   status?: BuildStepStatus;
+}
+
+// ── epic authoring draft ──────────────────────────────────────────────────────
+
+/** One child issue in an epic draft, before any GitHub write. `key` is an agent-assigned
+ *  stable temp id (e.g. "c1") used for DAG edges (`blockedBy`) before real issue numbers
+ *  exist; the server resolves it to a real number at materialize time. */
+export interface EpicDraftChild {
+  key: string;
+  title: string;
+  body: string;
+  acceptanceCriteria: string[];
+  /** keys of sibling children this child is blocked by (dependency edges). */
+  blockedBy: string[];
+}
+
+/** The parent (tracking) issue of an epic draft. `body` carries NO epic-dag fence — the
+ *  server appends it with real issue numbers at materialize time (authoring-contract ordering). */
+export interface EpicDraftParent {
+  title: string;
+  body: string;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+}
+
+/** The content an agent PUTs to author/replace an epic draft (no server-owned lifecycle fields). */
+export interface EpicDraftContent {
+  parent: EpicDraftParent;
+  children: EpicDraftChild[];
+}
+
+/** Server-owned materialize lifecycle. `materializing` means a materialize is running in THIS
+ *  process right now (→ concurrent approve 409s); every exit path (success/error/crash) routes
+ *  back to `approved` or `draft`, so it never strands. See src/epic-author.ts + the approve route. */
+export type EpicDraftStatus = "draft" | "materializing" | "approved";
+
+/** A session's full epic draft: the authored content plus the server-owned materialize state.
+ *  Persisted per session; the hard gate is that GitHub issues are created only by the approve
+ *  route's server-side materializer, never by the shaping agent. */
+export interface EpicDraft extends EpicDraftContent {
+  sessionId: string;
+  status: EpicDraftStatus;
+  /** key → real issue number, persisted as each child issue is created (partial-failure resume). */
+  materializedChildren: Record<string, number>;
+  parentNumber: number | null;
+  parentUrl: string | null;
 }
 
 // ── live preview state ────────────────────────────────────────────────────────

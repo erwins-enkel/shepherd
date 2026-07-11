@@ -38,6 +38,21 @@ There is no label, title, or front-matter convention anywhere in Shepherd. If yo
 showing up, it's almost always one of these.
 :::
 
+## Create EPIC from research (guided flow)
+
+If you have a rough idea rather than a worked-out tree, the fastest path is the **guided flow**
+instead of the manual steps below. In **New Task**, check **Create EPIC from research** and describe
+the idea. Shepherd starts an attended shaping session that researches the repo, asks focused
+questions, and drafts the whole epic — parent issue, child issues, acceptance criteria, non-goals and
+the dependency order.
+
+The session **writes nothing to GitHub**. It produces a **reviewable draft** in the session's Epic
+draft panel; you **Approve** to create the issues (and native links), **amend** to ask for changes, or
+**abort** to discard. Only on approval does Shepherd create the parent and children and wire them, and
+the epic is recognized immediately — no manual marker step. The rest of this page documents the
+**manual** contract the guided flow produces for you, and is what you follow when authoring an epic by
+hand or promoting an existing issue.
+
 ## Step 1 — New epic, or promote an existing issue?
 
 Two starting points, same finish line (a parent whose body/links reference real children):

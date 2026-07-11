@@ -24,11 +24,18 @@ test("isAgentIngressRoute: ALLOWS exactly the four agent→server routes", () =>
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(true);
+  // Epic-draft author/inspect (issue #1507) — like queue, PUT + GET are agent routes.
+  expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/epic-draft`))).toBe(true);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/epic-draft`))).toBe(true);
 });
 
 test("isAgentIngressRoute: DENIES everything else (containment property)", () => {
   // The human/autopilot approve gate — NOT an agent action.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/approve`))).toBe(false);
+  // The epic-draft approve gate (the whole #1507 point: agent never triggers GitHub writes).
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/epic-draft/approve`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/epic-draft`))).toBe(false);
+  expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/epic-draft`))).toBe(false);
   // Spawn a new session = full firewall escape; must never be reachable.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions`))).toBe(false);
   // Read/delete a session.

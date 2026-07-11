@@ -15,6 +15,8 @@ import {
   type Steer,
   type BuildStepInput,
   type BuildStepStatus,
+  type EpicDraftContent,
+  type EpicDraftChild,
 } from "./types";
 import { modelCompatibleWithProvider } from "./default-model";
 import { stagingDir } from "./uploads";
@@ -52,6 +54,7 @@ const ALLOWED_KEYS = new Set([
   "autopilotEnabled",
   "sandboxProfile",
   "research",
+  "epicAuthoring",
   "mergeTrainPrs",
   "force", // transport-only: bypass hold gate; not forwarded to CreateSessionInput
 ]);
@@ -612,6 +615,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   autopilotEnabled: boolean | null | undefined;
   sandboxProfile: SandboxProfile | null | undefined;
   research: boolean;
+  epicAuthoring: boolean;
   mergeTrainPrs: number[] | undefined;
 }> {
   const planGateEnabled = validatePlanGateEnabled(obj.planGateEnabled);
@@ -626,6 +630,9 @@ function validateOptions(obj: Record<string, unknown>): Field<{
   const research = validateResearch(obj.research);
   if (!research.ok) return research;
 
+  const epicAuthoring = validateEpicAuthoring(obj.epicAuthoring);
+  if (!epicAuthoring.ok) return epicAuthoring;
+
   const mergeTrainPrs = validateMergeTrainPrs(obj.mergeTrainPrs);
   if (!mergeTrainPrs.ok) return mergeTrainPrs;
 
@@ -634,6 +641,7 @@ function validateOptions(obj: Record<string, unknown>): Field<{
     autopilotEnabled: autopilotEnabled.value,
     sandboxProfile: sandboxProfile.value,
     research: research.value,
+    epicAuthoring: epicAuthoring.value,
     mergeTrainPrs: mergeTrainPrs.value,
   });
 }
@@ -659,13 +667,24 @@ function validateResearch(value: unknown): Field<boolean> {
   return err("research must be a boolean or absent");
 }
 
+/** epicAuthoring — optional plain boolean; absent/undefined → false; null or non-boolean rejected. */
+function validateEpicAuthoring(value: unknown): Field<boolean> {
+  if (value === undefined) return field(false);
+  if (typeof value === "boolean") return field(value);
+  return err("epicAuthoring must be a boolean or absent");
+}
+
 function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined> {
   if (value === undefined) return field(undefined);
   if (value === null || typeof value !== "object" || Array.isArray(value))
     return err("launchUiState must be an object or absent");
   const obj = value as Record<string, unknown>;
   for (const key of Object.keys(obj)) {
-    if (!["researchChecked", "planGateChecked", "autopilotChecked"].includes(key))
+    if (
+      !["researchChecked", "planGateChecked", "autopilotChecked", "epicAuthoringChecked"].includes(
+        key,
+      )
+    )
       return err(`launchUiState unknown key: ${key}`);
   }
   if (typeof obj.researchChecked !== "boolean")
@@ -674,10 +693,16 @@ function validateLaunchUiState(value: unknown): Field<LaunchUiState | undefined>
     return err("launchUiState.planGateChecked must be a boolean");
   if (typeof obj.autopilotChecked !== "boolean")
     return err("launchUiState.autopilotChecked must be a boolean");
+  // epicAuthoringChecked is optional (absent on legacy/most rows); validate only when present.
+  if (obj.epicAuthoringChecked !== undefined && typeof obj.epicAuthoringChecked !== "boolean")
+    return err("launchUiState.epicAuthoringChecked must be a boolean");
   return field({
     researchChecked: obj.researchChecked,
     planGateChecked: obj.planGateChecked,
     autopilotChecked: obj.autopilotChecked,
+    ...(obj.epicAuthoringChecked !== undefined
+      ? { epicAuthoringChecked: obj.epicAuthoringChecked }
+      : {}),
   });
 }
 
@@ -704,6 +729,7 @@ const RELAUNCH_ALLOWED_KEYS = new Set([
   "effort",
   "planGateEnabled",
   "research",
+  "epicAuthoring",
   "images",
   "attachmentNames",
   "launchUiState",
@@ -747,6 +773,7 @@ export function validateRelaunchOverrides(body: unknown, repoRoot: string): Rela
     { key: "effort", apply: () => validateEffort(obj.effort) },
     { key: "planGateEnabled", apply: () => validatePlanGateEnabled(obj.planGateEnabled) },
     { key: "research", apply: () => validateResearch(obj.research) },
+    { key: "epicAuthoring", apply: () => validateEpicAuthoring(obj.epicAuthoring) },
     { key: "repoPath", apply: () => validateRepoPath(obj.repoPath, root) },
     { key: "images", apply: () => validateImages(obj.images, root) },
     {
@@ -1111,6 +1138,75 @@ export function validateBuildStepStatus(body: unknown): BuildStepStatus | null {
   const o = body as Record<string, unknown>;
   if (!(BUILD_STEP_STATUSES as readonly string[]).includes(o.status as string)) return null;
   return o.status as BuildStepStatus;
+}
+
+// Caps for the epic-draft PUT body — bound the structural size (issue creation limits + abuse guard).
+const EPIC_DRAFT_TITLE_MAX = 200; // matches the /api/issues create title cap
+const EPIC_DRAFT_BODY_MAX = 16000; // matches the /api/issues create body cap
+const EPIC_DRAFT_CHILDREN_MAX = 50;
+const EPIC_DRAFT_LIST_MAX = 30; // acceptanceCriteria / nonGoals / blockedBy entries
+const EPIC_DRAFT_KEY_MAX = 64;
+
+/** Coerce an optional string[] field: absent → []; reject a non-array or non-string/oversized item. */
+function stringArrayField(value: unknown, itemMax: number): string[] | null {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > EPIC_DRAFT_LIST_MAX) return null;
+  const out: string[] = [];
+  for (const v of value) {
+    if (typeof v !== "string" || v.length > itemMax) return null;
+    out.push(v);
+  }
+  return out;
+}
+
+function validateEpicDraftChild(value: unknown): EpicDraftChild | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const o = value as Record<string, unknown>;
+  if (typeof o.key !== "string" || o.key.length === 0 || o.key.length > EPIC_DRAFT_KEY_MAX)
+    return null;
+  if (typeof o.title !== "string" || o.title.length > EPIC_DRAFT_TITLE_MAX) return null;
+  const body = o.body === undefined ? "" : o.body;
+  if (typeof body !== "string" || body.length > EPIC_DRAFT_BODY_MAX) return null;
+  const acceptanceCriteria = stringArrayField(o.acceptanceCriteria, EPIC_DRAFT_BODY_MAX);
+  if (acceptanceCriteria === null) return null;
+  const blockedBy = stringArrayField(o.blockedBy, EPIC_DRAFT_KEY_MAX);
+  if (blockedBy === null) return null;
+  return { key: o.key, title: o.title, body, acceptanceCriteria, blockedBy };
+}
+
+/** Structurally validate the draft's parent object (types + size caps), or null on violation. */
+function validateEpicDraftParent(value: unknown): EpicDraftContent["parent"] | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return null;
+  const parent = value as Record<string, unknown>;
+  if (typeof parent.title !== "string" || parent.title.length > EPIC_DRAFT_TITLE_MAX) return null;
+  const body = parent.body === undefined ? "" : parent.body;
+  if (typeof body !== "string" || body.length > EPIC_DRAFT_BODY_MAX) return null;
+  const acceptanceCriteria = stringArrayField(parent.acceptanceCriteria, EPIC_DRAFT_BODY_MAX);
+  if (acceptanceCriteria === null) return null;
+  const nonGoals = stringArrayField(parent.nonGoals, EPIC_DRAFT_BODY_MAX);
+  if (nonGoals === null) return null;
+  return { title: parent.title, body, acceptanceCriteria, nonGoals };
+}
+
+/**
+ * Validate the PUT /api/sessions/:id/epic-draft body into a typed {@link EpicDraftContent}.
+ * STRUCTURAL only (types + size caps); semantic checks (dependency cycles, unknown/self edges,
+ * empty parent title, zero children) are `validateEpicDraft` in epic-author.ts, run by the handler.
+ * Returns null on any structural violation.
+ */
+export function validateEpicDraftBody(body: unknown): EpicDraftContent | null {
+  if (body === null || typeof body !== "object" || Array.isArray(body)) return null;
+  const o = body as Record<string, unknown>;
+  const parent = validateEpicDraftParent(o.parent);
+  if (parent === null) return null;
+  if (!Array.isArray(o.children) || o.children.length > EPIC_DRAFT_CHILDREN_MAX) return null;
+  const children: EpicDraftChild[] = [];
+  for (const c of o.children) {
+    const child = validateEpicDraftChild(c);
+    if (child === null) return null;
+    children.push(child);
+  }
+  return { parent, children };
 }
 
 /** Validate a PATCH body for PUT /api/epic. Returns null on any violation. */

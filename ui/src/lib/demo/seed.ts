@@ -101,6 +101,7 @@ function mkSession(
     sandboxApplied: "standard",
     sandboxDegraded: false,
     research: false,
+    epicAuthoring: false,
     egressApplied: false,
     egressDegraded: false,
     issueNumber: null,

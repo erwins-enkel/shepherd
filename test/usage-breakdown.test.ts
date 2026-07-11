@@ -364,6 +364,7 @@ test("live per-record windowing: 24h reflects only recent record; all reflects b
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
   }).id;
 
   // Patch claudeSessionId into the session via update... we need a workaround.
@@ -443,6 +444,7 @@ test("dedupe: live session also having a snapshot appears once (persisted wins)"
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
   });
 
   // @ts-expect-error accessing internal db for test setup
@@ -505,6 +507,7 @@ test("operational-archetype live session excluded", async () => {
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
   });
 
   // @ts-expect-error accessing internal db for test setup
@@ -742,6 +745,7 @@ function createLiveSession(
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
   });
   // @ts-expect-error accessing internal db for test setup
   store.db.run(`UPDATE sessions SET claudeSessionId = ? WHERE id = ?`, [

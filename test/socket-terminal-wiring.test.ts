@@ -54,6 +54,7 @@ const SESSION: Session = {
   egressApplied: false,
   egressDegraded: false,
   research: false,
+  epicAuthoring: false,
   status: "done",
   lastState: "working",
   createdAt: 0,

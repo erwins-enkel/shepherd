@@ -24,6 +24,39 @@ export interface BuildQueue {
   approvalKind?: "auto" | "operator";
 }
 
+// ── epic authoring draft (issue #1507) ──────────────────────────────────────────
+
+/** One child issue in an epic draft, before any GitHub write. `key` is an agent-assigned temp id
+ *  used for dependency (`blockedBy`) edges before real issue numbers exist. */
+export interface EpicDraftChild {
+  key: string;
+  title: string;
+  body: string;
+  acceptanceCriteria: string[];
+  blockedBy: string[];
+}
+
+export interface EpicDraftParent {
+  title: string;
+  body: string;
+  acceptanceCriteria: string[];
+  nonGoals: string[];
+}
+
+export type EpicDraftStatus = "draft" | "materializing" | "approved";
+
+/** A session's epic draft: the reviewable EPIC structure the operator approves before any GitHub
+ *  write. `materializedChildren`/`parentNumber` are populated by the server-side materializer. */
+export interface EpicDraft {
+  sessionId: string;
+  parent: EpicDraftParent;
+  children: EpicDraftChild[];
+  status: EpicDraftStatus;
+  materializedChildren: Record<string, number>;
+  parentNumber: number | null;
+  parentUrl: string | null;
+}
+
 export interface RepoEntry {
   name: string;
   path: string;
@@ -910,6 +943,8 @@ export interface Session {
   sandboxDegraded: boolean;
   /** Research task kind: web research → report PR or issue; never code-PR-steered. */
   research: boolean;
+  /** Epic-authoring task kind: attended guided shaping → an EPIC draft; writes no GitHub issues. */
+  epicAuthoring: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
   egressApplied: boolean;
   /** True when the egress backend was unavailable — outbound is unrestricted despite autonomous profile. */
@@ -1624,6 +1659,7 @@ export type WsEvent =
   | { event: "automerge:status"; data: AutoMergeStatus }
   | { event: "session:automerge"; data: { id: string; enabled: boolean | null } }
   | { event: "queue:update"; data: BuildQueue }
+  | { event: "session:epic-draft"; data: EpicDraft }
   | { event: "halt:done"; data: { halted: number } }
   | { event: "mergetrain:landed"; data: { repoPath: string } }
   | { event: "draftreconcile:status"; data: DraftReconcileStatus }
@@ -1663,6 +1699,7 @@ export interface LaunchUiState {
   researchChecked: boolean;
   planGateChecked: boolean;
   autopilotChecked: boolean;
+  epicAuthoringChecked?: boolean;
 }
 
 export interface LaunchAttachmentMetadata {
@@ -1715,6 +1752,7 @@ export interface CreateInput {
   autopilotEnabled?: boolean | null; // per-task autopilot override; absent/null → inherit repo default
   sandboxProfile?: SandboxProfile | null; // per-spawn sandbox override; absent → inherit repo default
   research?: boolean; // research task kind; absent → false
+  epicAuthoring?: boolean; // epic-authoring task kind; absent → false (guided EPIC-draft shaping)
   mergeTrainPrs?: number[]; // merge-train participant PR numbers; server marks them "merging" on create
 }
 

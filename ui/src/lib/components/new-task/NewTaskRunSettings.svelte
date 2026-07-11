@@ -19,6 +19,7 @@
   let {
     planGate = $bindable(),
     research = $bindable(),
+    epicAuthoring = $bindable(),
     autopilot = $bindable(),
     agentProvider = $bindable(),
     model = $bindable(),
@@ -39,6 +40,7 @@
   }: {
     planGate: boolean;
     research: boolean;
+    epicAuthoring: boolean;
     autopilot: boolean;
     agentProvider: AgentProvider;
     model: string;
@@ -62,6 +64,9 @@
 
   const provModels = $derived(providerModels(agentProvider));
   const provEfforts = $derived(providerEfforts(agentProvider));
+  // Research and epic-authoring are non-code modes: both disable the plan-gate/autopilot toggles
+  // and the autonomous sandbox (they need open egress, and their deliverable isn't a code PR).
+  const modeLocked = $derived(research || epicAuthoring);
 
   function agentProviderChanged() {
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
@@ -97,6 +102,7 @@
         bind:checked={research}
         onchange={() => {
           if (research) {
+            epicAuthoring = false; // mutually exclusive modes
             planGate = false;
             // pin touched so a later repo switch doesn't re-seed/re-enable plan-gate while research is active
             onPlanGateTouched();
@@ -115,16 +121,44 @@
     />
   </div>
 
+  <!-- Epic-authoring mode (issue #1507): guided shaping → a reviewable EPIC draft. Like research
+       it's a non-code mode that disables plan-gate/autopilot and can't use the autonomous sandbox. -->
+  <div class="pg-row">
+    <label class="plan-gate">
+      <input
+        type="checkbox"
+        bind:checked={epicAuthoring}
+        onchange={() => {
+          if (epicAuthoring) {
+            research = false; // mutually exclusive modes
+            planGate = false;
+            onPlanGateTouched();
+            autopilot = false;
+            onAutopilotTouched();
+            if (sandboxProfile === "autonomous") sandboxProfile = "default";
+          }
+        }}
+      />
+      <span class="pg-label">{m.newtask_epic_authoring_label()}</span>
+    </label>
+    <InfoTip
+      text={m.newtask_epic_authoring_hint()}
+      label={m.newtask_info_aria({ topic: m.newtask_epic_authoring_label() })}
+    />
+  </div>
+
   <!-- Plan gate + Autopilot don't apply to research tasks: while Research is checked
        they render disabled/muted (research-locked) instead of silently re-checkable.
        The Research InfoTip carries the visible reason; this hidden note carries it to
        assistive tech via aria-describedby on both locked inputs. -->
-  {#if research}
-    <span class="sr-only" id="nt-research-locked-note">{m.newtask_research_locked_aria()}</span>
+  {#if modeLocked}
+    <span class="sr-only" id="nt-research-locked-note"
+      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
+    >
   {/if}
 
   <div class="pg-row">
-    <label class="plan-gate" class:research-locked={research} use:coachTarget={"plan-gate"}>
+    <label class="plan-gate" class:research-locked={modeLocked} use:coachTarget={"plan-gate"}>
       <input
         type="checkbox"
         checked={planGate}
@@ -132,8 +166,8 @@
           planGate = e.currentTarget.checked;
           onPlanGateTouched();
         }}
-        disabled={planGateLoading || research}
-        aria-describedby={research ? "nt-research-locked-note" : undefined}
+        disabled={planGateLoading || modeLocked}
+        aria-describedby={modeLocked ? "nt-research-locked-note" : undefined}
       />
       <span class="pg-label">{m.newtask_plan_gate_label()}</span>
     </label>
@@ -152,7 +186,11 @@
        Hide the control in relaunch so it never implies an override it can't honor. -->
   {#if !relaunch}
     <div class="pg-row">
-      <label class="plan-gate" class:research-locked={research} use:coachTarget={"task-autopilot"}>
+      <label
+        class="plan-gate"
+        class:research-locked={modeLocked}
+        use:coachTarget={"task-autopilot"}
+      >
         <input
           type="checkbox"
           checked={autopilot}
@@ -160,8 +198,8 @@
             autopilot = e.currentTarget.checked;
             onAutopilotTouched();
           }}
-          disabled={autopilotLoading || research}
-          aria-describedby={research ? "nt-research-locked-note" : undefined}
+          disabled={autopilotLoading || modeLocked}
+          aria-describedby={modeLocked ? "nt-research-locked-note" : undefined}
         />
         <span class="pg-label">{m.newtask_autopilot_label()}</span>
       </label>
@@ -230,7 +268,7 @@
         <option value="default">{m.newtask_sandbox_default()}</option>
         <option value="trusted">{m.sandbox_profile_trusted()}</option>
         <option value="standard">{m.sandbox_profile_standard()}</option>
-        <option value="autonomous" disabled={research}>{m.sandbox_profile_autonomous()}</option>
+        <option value="autonomous" disabled={modeLocked}>{m.sandbox_profile_autonomous()}</option>
       </select>
       {#if research}
         <span class="pg-hint">{m.newtask_research_sandbox_note()}</span>

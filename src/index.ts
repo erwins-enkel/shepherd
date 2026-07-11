@@ -110,7 +110,7 @@ import {
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
-import { enrichLandingEpics, isLiveRepairSession, type CompletedEpic } from "./completed-epic";
+import { anyLiveRepairSession, enrichLandingEpics, type CompletedEpic } from "./completed-epic";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
@@ -1868,14 +1868,7 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => resolveForge(repoPath),
     hasLiveRepairSession: (repoPath, integrationBranch) =>
-      store
-        .list()
-        .some(
-          (s) =>
-            s.repoPath === repoPath &&
-            s.baseBranch === integrationBranch &&
-            isLiveRepairSession(s, now),
-        ),
+      anyLiveRepairSession(store.list(), repoPath, integrationBranch, now),
     now,
   });
   const readyItems: RundownEpicItem[] = epics

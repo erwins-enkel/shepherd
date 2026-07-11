@@ -120,6 +120,21 @@ export function isLiveRepairSession(s: Session, now: number): boolean {
   );
 }
 
+/** Whether any session in `sessions` is a genuinely-live repair session holding `integrationBranch`
+ *  for `repoPath`. Single source of truth for the fence/surface predicate so the drain pass, the
+ *  rundown, and GET /api/epics/completed can't drift. */
+export function anyLiveRepairSession(
+  sessions: Session[],
+  repoPath: string,
+  integrationBranch: string,
+  now: number,
+): boolean {
+  return sessions.some(
+    (s) =>
+      s.repoPath === repoPath && s.baseBranch === integrationBranch && isLiveRepairSession(s, now),
+  );
+}
+
 /** Accessors enrichLandingEpics needs, injected so this module stays forge-light (a structural
  *  forge shape, not the full GitForge type). `resolveForge` returns null when the repo has no forge. */
 export interface EnrichLandingDeps {
@@ -128,8 +143,7 @@ export interface EnrichLandingDeps {
     repoPath: string,
   ) => { kind: ForgeKind; prStatus: (headBranch: string) => Promise<PrStatus> } | null | undefined;
   /** Whether a genuinely-live repair session currently holds this epic's integration branch.
-   *  Callers build it via store.list().some(s => s.repoPath===repoPath && s.baseBranch===branch &&
-   *  isLiveRepairSession(s, now)). */
+   *  Callers build it via anyLiveRepairSession(store.list(), repoPath, integrationBranch, now). */
   hasLiveRepairSession: (repoPath: string, integrationBranch: string) => boolean;
   now: number;
 }

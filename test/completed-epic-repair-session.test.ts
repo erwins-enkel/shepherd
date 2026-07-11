@@ -1,5 +1,9 @@
 import { describe, expect, it } from "bun:test";
-import { isLiveRepairSession, REPAIR_ACTIVE_TTL_MS } from "../src/completed-epic";
+import {
+  anyLiveRepairSession,
+  isLiveRepairSession,
+  REPAIR_ACTIVE_TTL_MS,
+} from "../src/completed-epic";
 import type { Session } from "../src/types";
 
 // ── isLiveRepairSession ───────────────────────────────────────────────────────
@@ -107,5 +111,34 @@ describe("isLiveRepairSession", () => {
     const createdAt = 0;
     const now = createdAt + REPAIR_ACTIVE_TTL_MS - 1;
     expect(isLiveRepairSession(sess({ createdAt }), now)).toBe(true);
+  });
+});
+
+// ── anyLiveRepairSession ──────────────────────────────────────────────────────
+// The shared fence/surface predicate used verbatim by the drain pass, the rundown, and
+// GET /api/epics/completed. Owns the repoPath + baseBranch filtering (previously duplicated).
+describe("anyLiveRepairSession", () => {
+  it("true when a live repair session matches repoPath AND baseBranch", () => {
+    const sessions = [sess({ repoPath: "/repo", baseBranch: "epic/7" })];
+    expect(anyLiveRepairSession(sessions, "/repo", "epic/7", 0)).toBe(true);
+  });
+
+  it("false when repoPath differs (no cross-repo leak)", () => {
+    const sessions = [sess({ repoPath: "/other", baseBranch: "epic/7" })];
+    expect(anyLiveRepairSession(sessions, "/repo", "epic/7", 0)).toBe(false);
+  });
+
+  it("false when baseBranch differs (no cross-epic leak)", () => {
+    const sessions = [sess({ repoPath: "/repo", baseBranch: "epic/9" })];
+    expect(anyLiveRepairSession(sessions, "/repo", "epic/7", 0)).toBe(false);
+  });
+
+  it("false when the matching session is not live (delegates to isLiveRepairSession)", () => {
+    const sessions = [sess({ repoPath: "/repo", baseBranch: "epic/7", autopilotComplete: true })];
+    expect(anyLiveRepairSession(sessions, "/repo", "epic/7", 0)).toBe(false);
+  });
+
+  it("false on an empty list", () => {
+    expect(anyLiveRepairSession([], "/repo", "epic/7", 0)).toBe(false);
   });
 });

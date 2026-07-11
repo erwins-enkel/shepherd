@@ -23,9 +23,9 @@ import {
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
+  anyLiveRepairSession,
   buildRollup,
   computeLandingReady,
-  isLiveRepairSession,
   type CompletedEpic,
   type CompletedEpicChild,
   type EpicLandingState,
@@ -1443,14 +1443,7 @@ export class DrainService {
   /** True while a genuinely-live repair session (Task 4's isLiveRepairSession) holds this epic's
    *  integration branch. Fences the branch-mutating landing passes and de-dupes a 2nd repair spawn. */
   private hasLiveRepairSession(repoPath: string, integrationBranch: string): boolean {
-    return this.deps.store
-      .list()
-      .some(
-        (s) =>
-          s.repoPath === repoPath &&
-          s.baseBranch === integrationBranch &&
-          isLiveRepairSession(s, this.now()),
-      );
+    return anyLiveRepairSession(this.deps.store.list(), repoPath, integrationBranch, this.now());
   }
 
   /** C's rerun budget is spent and CI is genuinely red: dispatch ONE capped agent repair session that

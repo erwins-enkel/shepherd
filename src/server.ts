@@ -157,10 +157,10 @@ import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
 import {
+  anyLiveRepairSession,
   buildRollup,
   computeLandingReady,
   enrichLandingEpics,
-  isLiveRepairSession,
   type CompletedEpic,
 } from "./completed-epic";
 import { repoHasNoCiCached } from "./checks-gate";
@@ -6569,14 +6569,7 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
       deps.store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
     hasLiveRepairSession: (repoPath, integrationBranch) =>
-      deps.store
-        .list()
-        .some(
-          (s) =>
-            s.repoPath === repoPath &&
-            s.baseBranch === integrationBranch &&
-            isLiveRepairSession(s, nowMs),
-        ),
+      anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
     now: nowMs,
   });
 

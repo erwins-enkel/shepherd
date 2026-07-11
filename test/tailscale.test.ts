@@ -10,14 +10,14 @@ import {
 
 const REALISTIC_STATUS = JSON.stringify({
   Self: {
-    HostName: "backontop",
-    DNSName: "backontop.chicken-beardie.ts.net.",
+    HostName: "agentnode",
+    DNSName: "agentnode.example.ts.net.",
     OS: "linux",
     TailscaleIPs: ["100.64.0.1"],
     Online: true,
   },
   Peers: {},
-  MagicDNSSuffix: "chicken-beardie.ts.net",
+  MagicDNSSuffix: "example.ts.net",
   CurrentTailnet: {},
 });
 
@@ -25,7 +25,7 @@ describe("resolveNodeHost", () => {
   test("parses Self.DNSName and strips trailing dot", async () => {
     const run = async () => ({ stdout: REALISTIC_STATUS });
     const result = await resolveNodeHost(run);
-    expect(result).toBe("backontop.chicken-beardie.ts.net");
+    expect(result).toBe("agentnode.example.ts.net");
   });
 
   test("returns null when runner rejects (tailscale absent / not running)", async () => {
@@ -50,7 +50,7 @@ describe("resolveNodeHost", () => {
 
   test("returns null when Self.DNSName is missing", async () => {
     const run = async () => ({
-      stdout: JSON.stringify({ Self: { HostName: "backontop" } }),
+      stdout: JSON.stringify({ Self: { HostName: "agentnode" } }),
     });
     const result = await resolveNodeHost(run);
     expect(result).toBeNull();

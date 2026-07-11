@@ -18,7 +18,7 @@ const defaultRun: TailscaleRunner = (args) =>
 // ── resolveNodeHost ───────────────────────────────────────────────────────────
 
 /**
- * Returns this node's own Tailscale hostname (e.g. `"backontop.chicken-beardie.ts.net"`)
+ * Returns this node's own Tailscale hostname (e.g. `"agentnode.example.ts.net"`)
  * by parsing `tailscale status --json`.
  *
  * WHY: when Shepherd's HUD is fronted by a Tailscale Service identity (a different
@@ -45,7 +45,7 @@ export async function resolveNodeHost(run: TailscaleRunner = defaultRun): Promis
     ) {
       return null;
     }
-    // Strip trailing dot: "backontop.chicken-beardie.ts.net." → "backontop.chicken-beardie.ts.net"
+    // Strip trailing dot: "agentnode.example.ts.net." → "agentnode.example.ts.net"
     return parsed.Self.DNSName.replace(/\.$/, "");
   } catch {
     return null;

@@ -32,7 +32,7 @@ describe("buildPreviewUrl — loopback branch", () => {
     // Dev must stay on localhost; previewHost must be ignored.
     expect(
       buildPreviewUrl(
-        "backontop.chicken-beardie.ts.net",
+        "agentnode.example.ts.net",
         { protocol: "http:", hostname: "localhost" },
         PORT,
       ),
@@ -44,11 +44,11 @@ describe("buildPreviewUrl — previewHost branch (split-front fix)", () => {
   it("non-loopback + previewHost → https://previewHost:port/", () => {
     expect(
       buildPreviewUrl(
-        "backontop.chicken-beardie.ts.net",
-        { protocol: "https:", hostname: "shepherd.chicken-beardie.ts.net" },
+        "agentnode.example.ts.net",
+        { protocol: "https:", hostname: "shepherd.example.ts.net" },
         PORT,
       ),
-    ).toBe("https://backontop.chicken-beardie.ts.net:8001/");
+    ).toBe("https://agentnode.example.ts.net:8001/");
   });
 
   it("forces https on the previewHost branch even when loc.protocol is http", () => {
@@ -56,42 +56,38 @@ describe("buildPreviewUrl — previewHost branch (split-front fix)", () => {
     // tailscale serve --https (HTTPS-only) → the preview URL must still be https.
     expect(
       buildPreviewUrl(
-        "backontop.chicken-beardie.ts.net",
-        { protocol: "http:", hostname: "shepherd.chicken-beardie.ts.net" },
+        "agentnode.example.ts.net",
+        { protocol: "http:", hostname: "shepherd.example.ts.net" },
         PORT,
       ),
-    ).toBe("https://backontop.chicken-beardie.ts.net:8001/");
+    ).toBe("https://agentnode.example.ts.net:8001/");
   });
 
   it("port is interpolated correctly", () => {
     expect(
       buildPreviewUrl(
-        "backontop.chicken-beardie.ts.net",
-        { protocol: "https:", hostname: "shepherd.chicken-beardie.ts.net" },
+        "agentnode.example.ts.net",
+        { protocol: "https:", hostname: "shepherd.example.ts.net" },
         9999,
       ),
-    ).toBe("https://backontop.chicken-beardie.ts.net:9999/");
+    ).toBe("https://agentnode.example.ts.net:9999/");
   });
 });
 
 describe("buildPreviewUrl — fallback branch", () => {
   it("non-loopback + previewHost null → loc.protocol//loc.hostname:port/", () => {
     expect(
-      buildPreviewUrl(
-        null,
-        { protocol: "https:", hostname: "backontop.chicken-beardie.ts.net" },
-        PORT,
-      ),
-    ).toBe("https://backontop.chicken-beardie.ts.net:8001/");
+      buildPreviewUrl(null, { protocol: "https:", hostname: "agentnode.example.ts.net" }, PORT),
+    ).toBe("https://agentnode.example.ts.net:8001/");
   });
 
   it("non-loopback + previewHost empty string → fallback (NOT https://:8001/)", () => {
     const url = buildPreviewUrl(
       "",
-      { protocol: "https:", hostname: "backontop.chicken-beardie.ts.net" },
+      { protocol: "https:", hostname: "agentnode.example.ts.net" },
       PORT,
     );
-    expect(url).toBe("https://backontop.chicken-beardie.ts.net:8001/");
+    expect(url).toBe("https://agentnode.example.ts.net:8001/");
     // Explicit guard: empty previewHost must never produce `https://:port/`
     expect(url).not.toContain("https://:");
   });

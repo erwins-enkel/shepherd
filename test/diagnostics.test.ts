@@ -390,7 +390,7 @@ describe("DiagnosticsService probes", () => {
             "svc:shepherd": {
               TCP: { "443": { HTTPS: true } },
               Web: {
-                "shepherd.chicken-beardie.ts.net:443": {
+                "shepherd.example.ts.net:443": {
                   Handlers: { "/": { Proxy: "http://localhost:7330" } },
                 },
               },

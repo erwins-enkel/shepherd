@@ -183,7 +183,14 @@
         >
       {/if}
     {:else if epic.landingState === "error"}
-      <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
+      {#if epic.landingPrUrl}
+        <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+        <a class="landing-failed" href={epic.landingPrUrl} target="_blank" rel="noopener noreferrer"
+          >{m.integrated_epics_landing_failed()}</a
+        >
+      {:else}
+        <span class="landing-failed">{m.integrated_epics_landing_failed()}</span>
+      {/if}
     {:else if footerText}
       {#if parentUrl}
         <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
@@ -215,7 +222,8 @@
     color: var(--color-muted);
     text-decoration: underline;
   }
-  /* Quiet warning note — landing PR couldn't be opened (no link yet). */
+  /* Quiet warning note — landing PR failed/unfinalizable. Renders as an anchor to the PR when
+     one exists (e.g. a still-draft pre-warm PR #1664), else a plain span (no link yet). */
   .landing-failed {
     color: var(--status-warn);
     font-size: var(--fs-micro);

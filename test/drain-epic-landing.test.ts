@@ -38,6 +38,8 @@ interface ForgeSpy {
   forge: GitForge;
   openPrCalls: OpenPrInput[];
   prStatusCalls: string[];
+  editPrCalls: { number: number; o: { title?: string; body?: string } }[];
+  markReadyCalls: number[];
 }
 
 function fakeForge(opts: {
@@ -47,9 +49,19 @@ function fakeForge(opts: {
   /** When provided, the forge exposes prChangedPaths (GitHub-like); omit to model a host
    *  without it (Gitea) — detection then degrades to off. */
   prChangedPaths?: (prNumber: number) => Promise<string[]>;
+  /** Present ⇒ forge exposes editPr; the fn may throw to model a refresh failure. */
+  editPr?: (prNumber: number, o: { title?: string; body?: string }) => Promise<void>;
+  /** Present ⇒ forge exposes markReady; the fn may throw to model a promote failure.
+   *  Omit while `hasMarkReady` is true to get a recording no-op spy. */
+  markReady?: (prNumber: number) => Promise<void>;
+  /** Force-omit editPr/markReady from the forge object (model a host that can't finalize). */
+  noEditPr?: boolean;
+  noMarkReady?: boolean;
 }): ForgeSpy {
   const openPrCalls: OpenPrInput[] = [];
   const prStatusCalls: string[] = [];
+  const editPrCalls: { number: number; o: { title?: string; body?: string } }[] = [];
+  const markReadyCalls: number[] = [];
   const forge: GitForge = {
     kind: "github",
     slug: "o/r",
@@ -95,8 +107,24 @@ function fakeForge(opts: {
     listSubIssues: async () => opts.subIssues,
     listBlockedBy: async () => [],
     ...(opts.prChangedPaths ? { prChangedPaths: opts.prChangedPaths } : {}),
+    ...(opts.noEditPr
+      ? {}
+      : {
+          editPr: async (prNumber: number, o: { title?: string; body?: string }) => {
+            editPrCalls.push({ number: prNumber, o });
+            await opts.editPr?.(prNumber, o);
+          },
+        }),
+    ...(opts.noMarkReady
+      ? {}
+      : {
+          markReady: async (prNumber: number) => {
+            markReadyCalls.push(prNumber);
+            await opts.markReady?.(prNumber);
+          },
+        }),
   };
-  return { forge, openPrCalls, prStatusCalls };
+  return { forge, openPrCalls, prStatusCalls, editPrCalls, markReadyCalls };
 }
 
 interface Harness {
@@ -111,6 +139,11 @@ function makeHarness(opts: {
   prStatus?: (head: string) => Promise<PrStatus>;
   openPr?: (o: OpenPrInput) => Promise<PrStatus>;
   prChangedPaths?: (prNumber: number) => Promise<string[]>;
+  editPr?: (prNumber: number, o: { title?: string; body?: string }) => Promise<void>;
+  markReady?: (prNumber: number) => Promise<void>;
+  noEditPr?: boolean;
+  noMarkReady?: boolean;
+  preWarm?: boolean;
   /** Skip recording the running epic_run row (e.g. testing tick() in isolation). */
   noEpicRun?: boolean;
   autoDrainEnabled?: boolean;
@@ -139,7 +172,7 @@ function makeHarness(opts: {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
-    preWarmEpicLandingCi: false,
+    preWarmEpicLandingCi: opts.preWarm ?? false,
     hidden: false,
   });
   if (!opts.noEpicRun) {
@@ -656,5 +689,254 @@ describe("migration-awareness checkpoint at landing-open (#645)", () => {
     expect(row.landingState).toBe("open");
     expect(row.migrationPaths).toEqual(["server/migrations/001.sql"]);
     expect(row.migrationsAckedAt).toBe(null); // detected but NOT acknowledged — yet idle anyway
+  });
+});
+
+describe("classifyLanding — adopt + finalize the pre-warm draft landing PR (#1664)", () => {
+  /** prStatus returning an existing open (optionally draft) landing PR at #num. */
+  const openExisting = (num: number, isDraft: boolean) => async () =>
+    ({
+      state: "open" as const,
+      number: num,
+      url: `https://github.com/o/r/pull/${num}`,
+      isDraft,
+      checks: "none" as const,
+      deployConfigured: false,
+    }) as PrStatus;
+
+  test("adopt a DRAFT (flag on) → editPr with final body (no pre-warm marker) + markReady once → open", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(42, true),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0); // adopted, never opened a 2nd PR
+    expect(h.spy.editPrCalls).toHaveLength(1);
+    expect(h.spy.editPrCalls[0]!.number).toBe(42);
+    // Final rollup body — closes parent + child, NO provisional "Pre-warm draft" marker.
+    expect(h.spy.editPrCalls[0]!.o.body).toContain(`Closes #${PARENT}`);
+    expect(h.spy.editPrCalls[0]!.o.body).toContain("Closes #320");
+    expect(h.spy.editPrCalls[0]!.o.body).not.toContain("Pre-warm draft");
+    expect(h.spy.markReadyCalls).toEqual([42]);
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(42);
+    expect(row.landingPrUrl).toBe("https://github.com/o/r/pull/42");
+  });
+
+  test("manual-undraft (flag on, isDraft false) → editPr STILL called (union), markReady NOT → open", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(43, false),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls).toHaveLength(1); // union via preWarm
+    expect(h.spy.markReadyCalls).toHaveLength(0); // not a draft → never promoted
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(43);
+  });
+
+  test("flag flipped OFF mid-drain, still a DRAFT → editPr STILL called (union via isDraft) + markReady → open", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: false, // operator disabled the flag mid-drain…
+      prStatus: openExisting(44, true), // …but the draft already exists
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls).toHaveLength(1); // union via existing.isDraft
+    expect(h.spy.markReadyCalls).toEqual([44]);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+  });
+
+  test("flag OFF record-failed-gap (non-draft open) → NO editPr, NO markReady → open (success-criterion 4)", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: false,
+      prStatus: openExisting(45, false),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls).toHaveLength(0);
+    expect(h.spy.markReadyCalls).toHaveLength(0);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(45);
+  });
+
+  test("markReady THROWS (draft, refresh ok) → error with PR ref PRESERVED + attempts++; retry succeeds → open (self-heal)", async () => {
+    // console.warn "[drain] markReady failed…" expected on the first tick.
+    let failMarkReady = true;
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(46, true),
+      markReady: async () => {
+        if (failMarkReady) throw new Error("markReady boom");
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls).toHaveLength(1); // body refreshed before the failed promote
+    let row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingPrNumber).toBe(46); // PR ref PRESERVED, not nulled
+    expect(row.landingPrUrl).toBe("https://github.com/o/r/pull/46");
+    expect(row.landingAttempts).toBe(1);
+
+    // Next tick: markReady now succeeds → self-heals to open.
+    failMarkReady = false;
+    await h.drain.tick();
+    row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(46);
+    expect(h.spy.markReadyCalls).toEqual([46, 46]);
+  });
+
+  test("editPr THROWS (draft) → markReady NOT called (coupled) → error with PR ref preserved", async () => {
+    // console.warn "[drain] landing body refresh failed…" expected.
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(47, true),
+      editPr: async () => {
+        throw new Error("editPr boom");
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.markReadyCalls).toHaveLength(0); // coupled: never un-draft onto a stale body
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingPrNumber).toBe(47);
+    expect(row.landingPrUrl).toBe("https://github.com/o/r/pull/47");
+    expect(row.landingAttempts).toBe(1);
+  });
+
+  test("persistent still-draft failure parks at the attempts cap (visible error, not healthy open)", async () => {
+    // console.warn expected on each of the 5 failing ticks.
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(48, true),
+      markReady: async () => {
+        throw new Error("markReady down");
+      },
+    });
+    seedCompleted(h);
+
+    for (let i = 0; i < 5; i++) await h.drain.tick();
+    let row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error");
+    expect(row.landingAttempts).toBe(5);
+    expect(row.landingPrNumber).toBe(48); // still carries the PR ref while parked
+
+    // 6th tick: at the cap → no further forge touch.
+    const editsAtCap = h.spy.editPrCalls.length;
+    await h.drain.tick();
+    expect(h.spy.editPrCalls.length).toBe(editsAtCap);
+    row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingAttempts).toBe(5);
+  });
+
+  test("closed && isDraft → opens a fresh NON-draft landing PR → open", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: async () =>
+        ({
+          state: "closed",
+          number: 49,
+          url: "https://github.com/o/r/pull/49",
+          isDraft: true,
+          checks: "none",
+          deployConfigured: false,
+        }) as PrStatus,
+      openPr: async () => ({
+        state: "open",
+        number: 500,
+        url: "https://github.com/o/r/pull/500",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(1);
+    expect(h.spy.openPrCalls[0]!.draft).toBeFalsy(); // fresh NON-draft landing PR
+    expect(h.spy.editPrCalls).toHaveLength(0); // re-open path, not adoption
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(500);
+  });
+
+  test("closed && NOT draft → terminal none, openPr NOT called", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: async () =>
+        ({
+          state: "closed",
+          number: 51,
+          url: "https://github.com/o/r/pull/51",
+          isDraft: false,
+          checks: "none",
+          deployConfigured: false,
+        }) as PrStatus,
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0);
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingState).toBe("none");
+  });
+
+  test("draft but forge has NO markReady → cannot finalize → error with PR ref preserved", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExisting(52, true),
+      noMarkReady: true, // host can't promote a draft
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.editPrCalls).toHaveLength(1); // body still refreshed
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("error"); // still a draft, never readied → visible error
+    expect(row.landingPrNumber).toBe(52);
   });
 });

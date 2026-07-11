@@ -1,6 +1,7 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
 import { HerdDigestService, dayKeyFor } from "../src/herd-digest";
 import type { HerdSnapshots, MergeTrainState } from "../src/herd-digest";
+import { SessionStore } from "../src/store";
 import type { HerdDigest, RundownEpicItem, Session } from "../src/types";
 import { RUNDOWN_EPICS_CAP } from "../src/rundown-core";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -824,6 +825,69 @@ test("reconcileEpics: unchanged set → no-op (no emit)", async () => {
     landingReadyEpics: async () => [sampleEpic()], // identical
   });
   await svc.reconcileEpics();
+  expect(changes.length).toBe(0);
+});
+
+// Mirrors the exact object literal src/index.ts's landingReadyEpics() emits for a plain ready
+// (non-stranded, non-CI-failing) epic in its `readyItems` .map() — keep in sync with that map.
+const READY_LIVE_SHAPE: RundownEpicItem = {
+  repo: "/repo/a",
+  parent: 7,
+  title: "Epic A",
+  landingPr: 99,
+  stranded: false,
+  ciFailing: false,
+};
+
+test("reconcileEpics: real store round-trip is idempotent for a ready epic (regression)", async () => {
+  // Uses the REAL SessionStore (not the in-memory FakeStore) so the digest's epicsToLand goes
+  // through the actual JSON column + hydrateEpics() round-trip on read — that round-trip is where
+  // the regression lived: hydrateEpics() unconditionally forces a `ciFailing` boolean onto every
+  // hydrated item, so a stored/hydrated ready epic must already carry `ciFailing: false` or every
+  // tick's JSON.stringify comparison against the live (un-hydrated) landingReadyEpics() output
+  // mismatches and reconcileEpics() fires a spurious putHerdDigest + onChange broadcast.
+  const dayKey = dayKeyFor(DAY1);
+  const store = new SessionStore(":memory:");
+  store.putHerdDigest({
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    // The exact shape frozen into epicsToLand at spawn time (landingReadyEpics() output).
+    epicsToLand: [READY_LIVE_SHAPE],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  });
+
+  const changes: HerdDigest[] = [];
+  const svc = new HerdDigestService({
+    store,
+    herdr: makeHerdr() as any,
+    isActive: () => true,
+    onChange: (d) => changes.push(d),
+    snapshots: () => EMPTY_SNAPSHOTS,
+    model: "sonnet",
+    now: () => DAY1,
+    timeoutMs: 300_000,
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/rundown-test-regression",
+    cleanup: () => {},
+    // Nothing changed since spawn: the epic is still open + ready, same shape landingReadyEpics()
+    // emits live on this tick (NOT hydrated — exactly like the real index.ts wiring).
+    landingReadyEpics: async () => [READY_LIVE_SHAPE],
+  });
+
+  await svc.reconcileEpics();
+  // Nothing actually changed → must be a no-op: no rewrite, no WS broadcast.
   expect(changes.length).toBe(0);
 });
 

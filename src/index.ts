@@ -1841,6 +1841,7 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       title: r.parentTitle,
       landingPr: r.landingPrNumber,
       stranded: false, // paused items are not "stranded" (different escalation path)
+      ciFailing: false,
       pausedReason: r.landingRebasePauseReason as "cap" | "conflict" | "driver",
     }));
 
@@ -1876,6 +1877,7 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       title: e.parentTitle,
       landingPr: e.landingPrNumber,
       stranded: e.landingStranded === true,
+      ciFailing: false,
     }));
 
   // CI-failing rows (terminal red, not behind/conflicting): surface as a distinct Tier-1 item. `epics`

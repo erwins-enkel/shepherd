@@ -366,6 +366,99 @@ test("post-first-frame abnormal exit: process dies with no terminal.closed and n
   expect(ws.closed).toBe(true);
 });
 
+test("gone: a pre-first-frame terminal.closed{not found} kills the proc", async () => {
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  const bridge = new SocketPtyBridge("w1:p1", ws, { onGone: () => {} }, { spawn });
+  bridge.open();
+  fake.push(notFoundClosedLine);
+  await tick();
+  fake.resolveExit(0);
+  await tick();
+
+  expect(fake.isKilled()).toBe(true);
+});
+
+test("fallback: a pre-first-frame terminal.closed{other reason} kills the proc", async () => {
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  const bridge = new SocketPtyBridge("w1:p1", ws, { onFallback: () => {} }, { spawn });
+  bridge.open();
+  fake.push(detachedClosedLine);
+  await tick();
+  fake.resolveExit(0);
+  await tick();
+
+  expect(fake.isKilled()).toBe(true);
+});
+
+test("stray frame after pre-first-frame fallback: no onFirstFrame, no ws.send, outcome unchanged", async () => {
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  let fallbackCalls = 0;
+  let firstFrameCalls = 0;
+  const bridge = new SocketPtyBridge(
+    "w1:p1",
+    ws,
+    { onFallback: () => fallbackCalls++, onFirstFrame: () => firstFrameCalls++ },
+    { spawn },
+  );
+  bridge.open();
+  fake.push(detachedClosedLine); // pre-confirm, non-"not found" -> fallback
+  await tick();
+  expect(fallbackCalls).toBe(1);
+
+  const sendsBefore = ws.sends.length;
+  fake.push(frameLines[0]!); // a stray frame still buffered in the killed proc's pipe
+  await tick();
+
+  expect(firstFrameCalls).toBe(0);
+  expect(ws.sends.length).toBe(sendsBefore);
+  expect(fallbackCalls).toBe(1);
+});
+
+test("watchdog cap: an enormous running max latency clamps the armed watchdog at WATCHDOG_CAP_MS", async () => {
+  // Drive a confirmed attach whose first-frame latency is huge, via the injectable clock, so
+  // module-global runningMaxFirstFrameMs is pushed far past what MARGIN * runningMax would allow
+  // (30_000ms cap). A subsequent bridge with no override must arm at the cap, not at
+  // MARGIN * runningMax. No real wall-clock waits: we spy on the global setTimeout to observe
+  // the ms the watchdog is armed with, since MARGIN * runningMax here would be ~4,000,000ms.
+  const hugeFake = makeFakeProc();
+  const hugeSpawn = fakeSpawn(hugeFake);
+  const hugeWs = fakeWs();
+  let t = 0;
+  const clock = (): number => t;
+  const hugeBridge = new SocketPtyBridge("w1:p1", hugeWs, {}, { spawn: hugeSpawn, now: clock });
+  hugeBridge.open();
+  t = 1_000_000; // simulated huge first-frame latency, far beyond WATCHDOG_CAP_MS
+  hugeFake.push(frameLines[0]!);
+  await tick();
+
+  const originalSetTimeout = globalThis.setTimeout;
+  let capturedMs: number | undefined;
+  globalThis.setTimeout = ((fn: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+    if (capturedMs === undefined) capturedMs = ms;
+    return originalSetTimeout(fn, ms, ...args);
+  }) as typeof setTimeout;
+
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  try {
+    // Fresh bridge, no watchdogMs override: the watchdog must be armed at WATCHDOG_CAP_MS
+    // (30_000ms), not MARGIN * runningMax (which would be ~4,000,000ms here).
+    const bridge = new SocketPtyBridge("w1:p2", ws, {}, { spawn });
+    bridge.open();
+  } finally {
+    globalThis.setTimeout = originalSetTimeout;
+  }
+
+  expect(capturedMs).toBe(30_000);
+});
+
 test("post-first-frame normal end: frame then terminal.closed{detached} fires no hook", async () => {
   const fake = makeFakeProc();
   const spawn = fakeSpawn(fake);

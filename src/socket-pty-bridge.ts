@@ -22,6 +22,10 @@ function isRecord(v: unknown): v is Record<string, unknown> {
 // slower prod host self-adjusts instead of false-triggering the herdr → node-pty fallback.
 const SEED_MS = 2000;
 const MARGIN = 4;
+// Ceiling on the adaptive watchdog: without it, one latency outlier permanently widens the
+// watchdog for every future attach (delaying fallback if a broken subcommand hangs without
+// exiting). runningMaxFirstFrameMs only ever grows, so the computed watchdog must be clamped.
+const WATCHDOG_CAP_MS = 30_000;
 
 /** Slowest confirmed first-frame latency seen so far, across every SocketPtyBridge instance in
  *  this process — feeds the adaptive watchdog computation (see SEED_MS/MARGIN above). */
@@ -206,6 +210,7 @@ export class SocketPtyBridge {
   }
 
   private handleFrame(rec: Record<string, unknown>): void {
+    if (this.outcomeFired) return; // stray frame from a killed proc's pipe after an outcome fired
     const bytes = rec["bytes"];
     if (typeof bytes !== "string") return;
     markPtyEvent("out");
@@ -229,6 +234,8 @@ export class SocketPtyBridge {
     const reason = typeof rec["reason"] === "string" ? rec["reason"] : "";
     if (/not found/i.test(reason)) this.fireGone();
     else this.fireFallback();
+    this.proc?.kill(); // pre-confirm: onFallback/onGone hands the ws off or closes it, but nobody
+    // else reaps this proc (unlike the watchdog path) — kill it defensively.
   }
 
   // ── stdin: NDJSON command writer ──────────────────────────────────────────
@@ -248,7 +255,8 @@ export class SocketPtyBridge {
 
   private armWatchdog(): void {
     const watchdogMs =
-      this.watchdogMsOverride ?? Math.max(SEED_MS, MARGIN * runningMaxFirstFrameMs);
+      this.watchdogMsOverride ??
+      Math.min(WATCHDOG_CAP_MS, Math.max(SEED_MS, MARGIN * runningMaxFirstFrameMs));
     this.watchdogTimer = setTimeout(() => {
       this.watchdogTimer = null;
       if (this.confirmed || this.closing) return;

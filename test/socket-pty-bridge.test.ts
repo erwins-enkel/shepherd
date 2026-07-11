@@ -25,11 +25,19 @@ const notFoundClosedLine = badTargetLines[0]!;
  *  test-driven, matching the shape socket-pty-bridge.ts reads. */
 function makeFakeProc() {
   let controller!: ReadableStreamDefaultController<Uint8Array>;
+  let stdoutClosed = false;
   const stdout = new ReadableStream<Uint8Array>({
     start(c) {
       controller = c;
     },
   });
+  // A real subprocess's stdout reaches EOF when it exits, so kill()/resolveExit() close it too
+  // (idempotently). This lets the bridge's watchExit drain the pump before classifying.
+  const closeStdout = (): void => {
+    if (stdoutClosed) return;
+    stdoutClosed = true;
+    controller.close();
+  };
   const stderr = new ReadableStream<Uint8Array>({
     start(c) {
       c.close();
@@ -56,6 +64,7 @@ function makeFakeProc() {
     kill: (): void => {
       killed = true;
       resolveExited(0);
+      closeStdout();
     },
     exited,
   };
@@ -64,16 +73,19 @@ function makeFakeProc() {
     stdinWrites,
     isKilled: () => killed,
     push(line: string): void {
+      if (stdoutClosed) return;
       controller.enqueue(encoder.encode(line.endsWith("\n") ? line : `${line}\n`));
     },
     pushRaw(text: string): void {
+      if (stdoutClosed) return;
       controller.enqueue(encoder.encode(text));
     },
     endStdout(): void {
-      controller.close();
+      closeStdout();
     },
     resolveExit(code = 0): void {
       resolveExited(code);
+      closeStdout();
     },
   };
 }
@@ -407,17 +419,15 @@ test("stray frame after pre-first-frame fallback: no onFirstFrame, no ws.send, o
     { spawn },
   );
   bridge.open();
-  fake.push(detachedClosedLine); // pre-confirm, non-"not found" -> fallback
+  // The pre-confirm terminal.closed (→ fallback) and a stray frame arrive buffered together,
+  // ahead of EOF (as they would in a real pipe). The frame must be ignored because an outcome
+  // already fired.
+  fake.pushRaw(`${detachedClosedLine}\n${frameLines[0]!}\n`);
   await tick();
+
   expect(fallbackCalls).toBe(1);
-
-  const sendsBefore = ws.sends.length;
-  fake.push(frameLines[0]!); // a stray frame still buffered in the killed proc's pipe
-  await tick();
-
   expect(firstFrameCalls).toBe(0);
-  expect(ws.sends.length).toBe(sendsBefore);
-  expect(fallbackCalls).toBe(1);
+  expect(ws.sends.length).toBe(0);
 });
 
 test("watchdog cap: an enormous running max latency clamps the armed watchdog at WATCHDOG_CAP_MS", async () => {
@@ -480,5 +490,31 @@ test("post-first-frame normal end: frame then terminal.closed{detached} fires no
   await tick();
 
   expect(abnormalCalls).toBe(0);
+  expect(ws.closed).toBe(true);
+});
+
+test("exit race: proc.exited resolving before a buffered terminal.closed{not found} is drained still fires onGone", async () => {
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  let goneCalls = 0;
+  let fallbackCalls = 0;
+  const bridge = new SocketPtyBridge(
+    "w1:p1",
+    ws,
+    { onGone: () => goneCalls++, onFallback: () => fallbackCalls++ },
+    { spawn },
+  );
+  bridge.open();
+  // The not-found closed line is enqueued but NOT yet read (no tick between push and exit), then
+  // the process exits. watchExit must drain the pump before classifying, so the buffered gone
+  // line wins — without the drain, the exit would be mis-mapped to a node-pty fallback.
+  fake.push(notFoundClosedLine);
+  fake.resolveExit(0);
+  await tick();
+  await tick();
+
+  expect(goneCalls).toBe(1);
+  expect(fallbackCalls).toBe(0);
   expect(ws.closed).toBe(true);
 });

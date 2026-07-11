@@ -69,6 +69,7 @@ export class SocketPtyBridge {
 
   private proc: Proc | null = null;
   private stdoutBuf = "";
+  private stdoutPump: Promise<void> = Promise.resolve();
   private spawnTime = 0;
   private watchdogTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -149,9 +150,12 @@ export class SocketPtyBridge {
   // ── stdout: line-buffered NDJSON reader ──────────────────────────────────
 
   private pumpStdout(proc: Proc): void {
-    // Deliberately not awaited — this pump runs for the life of the bridge. A broken stream
-    // just ends it; watchExit's proc.exited handling is what closes the socket.
-    void (async () => {
+    // Not awaited here — this pump runs for the life of the bridge. But its promise is stored so
+    // watchExit can DRAIN it before classifying the exit: proc.stdout reaches EOF when the child
+    // exits, so a fast bad-target's trailing terminal.closed{not found} may still be buffered/
+    // unread when proc.exited resolves. Classifying then would mis-map a gone target to node-pty
+    // fallback (see watchExit). A broken stream just ends the pump; watchExit still runs.
+    this.stdoutPump = (async () => {
       for await (const chunk of proc.stdout as ReadableStream<Uint8Array>) {
         this.handleChunk(chunk);
       }
@@ -181,10 +185,23 @@ export class SocketPtyBridge {
         await proc.exited;
       } catch {
         /* treat a rejected exited promise the same as a plain exit */
-      } finally {
-        this.onProcessExit();
       }
+      // Drain every NDJSON line the pump can still deliver before classifying. proc.stdout EOFs
+      // at exit, so awaiting the pump guarantees a trailing terminal.closed is parsed first and
+      // isn't lost to the exit race (which would mis-map gone → node-pty fallback). stdoutPump
+      // never rejects (its catch swallows), and flushStdoutBuf handles a final unterminated line.
+      await this.stdoutPump;
+      this.flushStdoutBuf();
+      this.onProcessExit();
     })();
+  }
+
+  /** Parse a final NDJSON record left in the buffer without a trailing newline (defensive: the
+   *  pinned contract is newline-terminated, but a trailing closed line must never be dropped). */
+  private flushStdoutBuf(): void {
+    const rest = this.stdoutBuf;
+    this.stdoutBuf = "";
+    if (rest.trim() !== "") this.handleLine(rest);
   }
 
   private handleChunk(chunk: Uint8Array): void {

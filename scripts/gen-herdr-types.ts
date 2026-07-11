@@ -49,7 +49,8 @@ const SECTION_PREFIXES = [
 /** Curated method → result-`type` map (brief §C) — VERIFIED, do not add/remove entries. This
  *  literal order is preserved into the generated `HERDR_METHOD_RESULT`. Methods the driver calls
  *  but whose result it ignores (best-effort void: `agent.send`, `agent.rename`, `tab.close`,
- *  `tab.rename`, `pane.close`) are intentionally omitted — they fall back to the full union. */
+ *  `tab.rename`, `pane.close`, `workspace.create`) are intentionally omitted — they fall back to
+ *  the full union. */
 const HERDR_METHOD_RESULT_ENTRIES: readonly { method: string; resultType: string; note: string }[] =
   [
     { method: "ping", resultType: "pong", note: "live-verified" },
@@ -82,11 +83,6 @@ const HERDR_METHOD_RESULT_ENTRIES: readonly { method: string; resultType: string
       method: "workspace.list",
       resultType: "workspace_list",
       note: "live-verified (reads result.workspaces)",
-    },
-    {
-      method: "workspace.create",
-      resultType: "workspace_created",
-      note: "schema workspace_created has workspace+tab+root_pane",
     },
   ];
 

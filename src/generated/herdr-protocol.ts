@@ -2745,7 +2745,6 @@ export const HERDR_METHOD_RESULT = {
   "pane.process_info": "pane_process_info", // live-verified (parseProcs reads result.process_info)
   "tab.create": "tab_created", // driver reads result.tab/result.root_pane; schema tab_created matches
   "workspace.list": "workspace_list", // live-verified (reads result.workspaces)
-  "workspace.create": "workspace_created", // schema workspace_created has workspace+tab+root_pane
 } as const;
 
 export type HerdrResult<M extends HerdrMethod> = M extends keyof typeof HERDR_METHOD_RESULT

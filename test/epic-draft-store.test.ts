@@ -106,17 +106,3 @@ test("setEpicDraftApproved records parent number/url and terminal status", () =>
   expect(reset.status).toBe("draft");
   expect(reset.parentNumber).toBeNull();
 });
-
-test("listEpicDrafts returns all authored drafts", () => {
-  const s = mk();
-  const a = s.create({ ...base });
-  const b = s.create({ ...base, name: "other" });
-  s.replaceEpicDraft(a.id, content);
-  s.replaceEpicDraft(b.id, content);
-  expect(
-    s
-      .listEpicDrafts()
-      .map((d) => d.sessionId)
-      .sort(),
-  ).toEqual([a.id, b.id].sort());
-});

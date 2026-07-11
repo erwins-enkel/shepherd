@@ -4564,12 +4564,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** Every session's epic draft (for UI bootstrap on connect). */
-  listEpicDrafts(): EpicDraft[] {
-    const rows = this.db.query(`SELECT sessionId FROM epic_draft`).all() as { sessionId: string }[];
-    return rows.map((r) => this.getEpicDraft(r.sessionId)!).filter(Boolean);
-  }
-
   /** Return one BuildQueue per session that has ≥1 step, via a single JOIN.
    *  Sessions with no steps are omitted entirely. */
   listBuildQueues(): BuildQueue[] {

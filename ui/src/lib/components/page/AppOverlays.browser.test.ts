@@ -75,6 +75,7 @@ function baseProps(): Props {
     composeAutopilot: null,
     composeSandbox: null,
     composeResearch: false,
+    composeEpicAuthoring: false,
     holdLikely: false,
     onnewclose: vi.fn(),
     onnewclone: vi.fn(),

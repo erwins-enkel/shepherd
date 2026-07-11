@@ -1,4 +1,5 @@
 import type { PlanGate, Session } from "../types";
+import { planStallStatus } from "../plan-status";
 
 /**
  * Which plan-gate chip a session card should show, or "none" to hide it.
@@ -30,10 +31,6 @@ export type PlanGateChip =
   | { kind: "ready" }
   | { kind: "error" }
   | { kind: "planning" };
-
-export function planGateStalled(chip: PlanGateChip): boolean {
-  return chip.kind === "changes" && chip.round >= chip.cap;
-}
 
 export function planGateChip(
   session: Pick<Session, "planPhase">,
@@ -77,6 +74,24 @@ export function canShowPlanStallActions(
     !reviewing &&
     gate?.decision === "changes_requested" &&
     gate.round >= gate.cap,
+  );
+}
+
+/** Whether the badge should read as *genuinely stalled* (amber toning + stall-recovery menu):
+ *  the operator can act now (`canShowPlanStallActions`) AND the rework streak is truly stuck
+ *  (`planStallStatus === "stalled"` — NOT a fresh `final` round the agent is still revising).
+ *  `now` is a ms clock (reactive `clock.current`). Supersedes the old chip-only heuristic that
+ *  toned every at-cap `changes` chip amber, including a live final round (issue #1610). */
+export function planGateStalledNow(
+  session: Pick<Session, "planPhase" | "status">,
+  gate: PlanGate | undefined,
+  reviewing: boolean,
+  now: number,
+): boolean {
+  return (
+    gate != null &&
+    canShowPlanStallActions(session, gate, reviewing) &&
+    planStallStatus(gate, now) === "stalled"
   );
 }
 

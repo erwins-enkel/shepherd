@@ -4,6 +4,7 @@ import {
   canRelease,
   canShowPlanStallActions,
   composePlanGateTooltip,
+  planGateStalledNow,
   type PlanGateTooltipCopy,
 } from "./plan-gate-badge";
 import type { PlanGate, Session } from "$lib/types";
@@ -167,6 +168,73 @@ describe("canShowPlanStallActions", () => {
       false,
     );
     expect(canShowPlanStallActions(actionSess("planning"), stalledGate, true)).toBe(false);
+  });
+});
+
+describe("planGateStalledNow", () => {
+  it("fresh final round, idle → not stalled", () => {
+    expect(
+      planGateStalledNow(
+        actionSess("planning"),
+        gate({ round: 3, cap: 3, finalRoundPending: true, updatedAt: 1_000_000 }),
+        false,
+        1_000_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("fresh final round, running → not stalled", () => {
+    expect(
+      planGateStalledNow(
+        actionSess("planning", "running"),
+        gate({ round: 3, cap: 3, finalRoundPending: true, updatedAt: 1_000_000 }),
+        false,
+        1_000_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("genuine stall (no finalRoundPending), idle → stalled", () => {
+    expect(
+      planGateStalledNow(
+        actionSess("planning"),
+        gate({ round: 3, cap: 3, finalRoundPending: false }),
+        false,
+        1_000_000,
+      ),
+    ).toBe(true);
+  });
+
+  it("timed-out final round, idle → stalled", () => {
+    expect(
+      planGateStalledNow(
+        actionSess("planning"),
+        gate({ round: 3, cap: 3, finalRoundPending: true, updatedAt: 1_000_000 }),
+        false,
+        1_000_000 + 900_001,
+      ),
+    ).toBe(true);
+  });
+
+  it("running at-cap genuine stall → not stalled (agent running)", () => {
+    expect(
+      planGateStalledNow(
+        actionSess("planning", "running"),
+        gate({ round: 3, cap: 3, finalRoundPending: false }),
+        false,
+        1_000_000,
+      ),
+    ).toBe(false);
+  });
+
+  it("below cap → not stalled", () => {
+    expect(
+      planGateStalledNow(actionSess("planning"), gate({ round: 1, cap: 3 }), false, 1_000_000),
+    ).toBe(false);
+  });
+
+  it("no gate → not stalled", () => {
+    expect(planGateStalledNow(actionSess("planning"), undefined, false, 1_000_000)).toBe(false);
   });
 });
 

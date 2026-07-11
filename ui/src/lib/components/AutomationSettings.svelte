@@ -71,6 +71,7 @@
   // Auto-optimize rewrites injected house-rules → moot when Learnings injection is off.
   const lightweightTip = $derived(lightweight ? m.automation_lightweight_unavailable() : undefined);
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
+  const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
   const signoffAuthority = $derived(repoConfig.signoffAuthorityFor(repoPath));
   const signoffHelp = $derived(
@@ -353,6 +354,24 @@
      while drain is genuinely active (on, not epic-suspended, forge repo) —
      visibility is gated inside it via `active` so this template stays flat. -->
 <AutomationDrainFields {repoPath} active={drainRailsActive} />
+<div class={["auto-row", { disabled: lightweight }]}>
+  <div class="auto-meta">
+    <div class="auto-name">☑ {m.automation_prewarm_epic_ci_name()}</div>
+    <div class="auto-desc">{m.automation_prewarm_epic_ci_desc()}</div>
+  </div>
+  <button
+    class={["sw", { on: preWarmEpicCiActive }]}
+    type="button"
+    role="switch"
+    aria-checked={preWarmEpicCiActive}
+    disabled={lightweight}
+    title={lightweightTip}
+    aria-label={m.automation_prewarm_epic_ci_name()}
+    onclick={() => repoConfig.togglePreWarmEpicLandingCi(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
 <div class={["auto-row", { disabled: flags.draftMode }]}>
   <div class="auto-meta">
     <div class="auto-name">

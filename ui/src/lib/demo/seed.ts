@@ -1481,6 +1481,7 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

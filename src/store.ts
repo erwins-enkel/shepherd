@@ -172,6 +172,8 @@ export interface RepoConfig {
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps
    *  (#1061). Default OFF — outbound write gated behind explicit per-repo opt-in (house rule). */
   manualStepsIssueEnabled: boolean;
+  // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
+  preWarmEpicLandingCi: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; never affects sessions/drain).
    *  Default OFF. */
   hidden: boolean;
@@ -519,6 +521,7 @@ type RepoCfgRow = {
   repoMode: string;
   autoOptimizeFlagged: number;
   manualStepsIssueEnabled: number;
+  preWarmEpicLandingCi: number;
   hidden: number;
   previewStartScript: string | null;
   previewStartCommand: string | null;
@@ -671,6 +674,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
       repoMode: "forge",
       autoOptimizeFlagged: false,
       manualStepsIssueEnabled: false,
+      preWarmEpicLandingCi: false,
       hidden: false,
       previewStartScript: null,
       previewStartCommand: null,
@@ -699,6 +703,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     repoMode: r.repoMode === "lightweight" ? "lightweight" : "forge",
     autoOptimizeFlagged: !!r.autoOptimizeFlagged,
     manualStepsIssueEnabled: !!r.manualStepsIssueEnabled,
+    preWarmEpicLandingCi: !!r.preWarmEpicLandingCi,
     hidden: !!r.hidden,
     previewStartScript: r.previewStartScript ?? null,
     previewStartCommand: r.previewStartCommand ?? null,
@@ -730,6 +735,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     cfg.repoMode,
     Number(Boolean(cfg.autoOptimizeFlagged)),
     Number(Boolean(cfg.manualStepsIssueEnabled)),
+    Number(Boolean(cfg.preWarmEpicLandingCi)),
     Number(Boolean(cfg.hidden)),
     cfg.previewStartScript ?? null,
     cfg.previewStartCommand ?? null,
@@ -1295,7 +1301,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-                autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode
+                autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode
          FROM repo_config WHERE repoPath = ?`,
       )
       .get(repoPath) as RepoCfgRow | null;
@@ -1308,8 +1314,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
-          autoOptimizeFlagged, manualStepsIssueEnabled, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
          autoAddressEnabled = excluded.autoAddressEnabled,
@@ -1331,6 +1337,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          repoMode = excluded.repoMode,
          autoOptimizeFlagged = excluded.autoOptimizeFlagged,
          manualStepsIssueEnabled = excluded.manualStepsIssueEnabled,
+         preWarmEpicLandingCi = excluded.preWarmEpicLandingCi,
          hidden = excluded.hidden,
          previewStartScript = excluded.previewStartScript,
          previewStartCommand = excluded.previewStartCommand,
@@ -3318,6 +3325,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // #1061: open a GitHub tracking issue for manual operator steps on merge. Default OFF —
     // outbound write gated behind explicit per-repo opt-in (house rule).
     add("manualStepsIssueEnabled", `manualStepsIssueEnabled INTEGER NOT NULL DEFAULT 0`);
+    // default OFF — opt-in; pre-warm epic landing CI via an early draft landing PR (#1664)
+    add("preWarmEpicLandingCi", `preWarmEpicLandingCi INTEGER NOT NULL DEFAULT 0`);
     // Hidden from the Backlog repos panel (list-only declutter). Default OFF.
     add("hidden", `hidden INTEGER NOT NULL DEFAULT 0`);
     // Local preview launcher metadata. Nullable: absent until first successful script setup.

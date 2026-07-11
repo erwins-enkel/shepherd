@@ -2086,6 +2086,8 @@
   "feat_manual_operator_steps_gate_body": "A PR with an un-acknowledged manual step (anything not marked POST-MERGE) is now held out of auto-merge until you act. Click \"Ack steps\" on the session row to clear the gate; you're nudged via push and the daily rundown. POST-MERGE-only steps never block.",
   "automation_manual_steps_issue_name": "Track manual steps in an issue",
   "automation_manual_steps_issue_desc": "On merge, open a GitHub issue listing the PR's manual operator steps",
+  "automation_prewarm_epic_ci_name": "Pre-warm epic landing CI",
+  "automation_prewarm_epic_ci_desc": "Opens the epic's landing PR early as a draft so each child merge re-runs the landing CI against main. Only helps if this repo's CI runs on draft PRs and re-runs on push; a red draft is visible on GitHub until the epic completes.",
   "herd_owed_title": "Post-merge manual steps you still owe",
   "herd_owed_count": "{count} merged PR(s) still owe post-merge steps",
   "owed_main_hint": "Owed post-merge steps are shown in the herd panel on the left.",

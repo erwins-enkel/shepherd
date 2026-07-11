@@ -2086,6 +2086,8 @@
   "feat_manual_operator_steps_gate_body": "Ein PR mit einem unbestätigten manuellen Schritt (alles, was nicht als POST-MERGE markiert ist) wird jetzt vom Auto-Merge zurückgehalten, bis du handelst. Klicke in der Session-Zeile auf \"Schritte best.\", um die Sperre aufzuheben; du wirst per Push und im täglichen Rundown erinnert. Reine POST-MERGE-Schritte blockieren nie.",
   "automation_manual_steps_issue_name": "Manuelle Schritte als Issue verfolgen",
   "automation_manual_steps_issue_desc": "Beim Merge ein GitHub-Issue mit den manuellen Schritten des PRs öffnen",
+  "automation_prewarm_epic_ci_name": "Epic-Landing-CI vorwärmen",
+  "automation_prewarm_epic_ci_desc": "Öffnet den Landing-PR des Epics frühzeitig als Entwurf, sodass jeder Kind-Merge die Landing-CI erneut gegen main ausführt. Hilft nur, wenn die CI dieses Repos auf Entwurfs-PRs läuft und bei jedem Push neu startet; ein roter Entwurf ist auf GitHub sichtbar, bis das Epic abgeschlossen ist.",
   "herd_owed_title": "Manuelle Schritte nach dem Merge, die noch offen sind",
   "herd_owed_count": "{count} gemergte PR(s) mit offenen Post-Merge-Schritten",
   "owed_main_hint": "Offene Schritte nach dem Merge werden im Herd-Panel links angezeigt.",

@@ -1339,6 +1339,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
   });
 
@@ -1659,6 +1660,23 @@ test("PUT /api/repo-config empty body error message includes autoMergeEnabled", 
   expect(res.status).toBe(400);
   const body = await res.json();
   expect(body.error).toContain("autoMergeEnabled");
+});
+
+// ── preWarmEpicLandingCi repo-config (#1664) ─────────────────────────────────
+
+test("PUT /api/repo-config accepts preWarmEpicLandingCi true → 200 and GET reflects it", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { preWarmEpicLandingCi: true });
+  expect(res.status).toBe(200);
+  expect(deps.store.getRepoConfig(validRepo).preWarmEpicLandingCi).toBe(true);
+});
+
+test("PUT /api/repo-config rejects non-boolean preWarmEpicLandingCi", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const res = await putRepoConfig(app, validRepo, { preWarmEpicLandingCi: "yes" });
+  expect(res.status).toBe(400);
 });
 
 // ── draftMode + signoffAuthority repo-config ─────────────────────────────────

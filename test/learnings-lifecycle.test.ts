@@ -116,6 +116,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     ...o,
   };

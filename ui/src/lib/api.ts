@@ -1787,6 +1787,7 @@ export async function putRepoConfig(
       | "repoMode"
       | "autoOptimizeFlagged"
       | "manualStepsIssueEnabled"
+      | "preWarmEpicLandingCi"
       | "hidden"
       | "previewStartScript"
       | "previewStartCommand"

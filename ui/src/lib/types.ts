@@ -696,6 +696,9 @@ export interface RepoConfig {
   /** On a session PR merge, open a GitHub tracking issue listing the manual operator steps (#1061).
    *  Default off — outbound write gated behind explicit per-repo opt-in. */
   manualStepsIssueEnabled: boolean;
+  /** Opens the epic's landing PR early as a draft during drain so each child merge re-runs
+   *  landing CI against main (#1664). Default off — opt-in. */
+  preWarmEpicLandingCi: boolean;
   /** Hidden from the Backlog repos panel (list-only declutter; sessions/drain unaffected). Default off. */
   hidden: boolean;
   /** Local, non-replicated preview start script path stored by Shepherd. */

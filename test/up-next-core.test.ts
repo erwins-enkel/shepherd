@@ -109,6 +109,23 @@ describe("exclusions", () => {
     const r = [repo({ openIssues: [issue(1), issue(2)], linkedIssueNumbers: [1] })];
     expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([2]);
   });
+  test("standalone issue with an open blocker excluded; empty/undefined blockedBy included (#1622)", () => {
+    const r = [
+      repo({
+        openIssues: [
+          issue(1, { blockedBy: [1642] }),
+          issue(2, { blockedBy: [] }),
+          issue(3), // blockedBy undefined
+        ],
+      }),
+    ];
+    expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([2, 3]);
+  });
+  test("blocked-by exclusion is independent of the `blocked` LABEL path", () => {
+    // #1 has an open blocker but no `blocked` label — must still be excluded via blockedBy alone.
+    const r = [repo({ openIssues: [issue(1, { blockedBy: [99], labels: [] }), issue(2)] })];
+    expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([2]);
+  });
   test("fully-excluded repo emits no section", () => {
     const r = [repo({ openIssues: [issue(1, { labels: ["shepherd:active"] })] })];
     expect(repoSection(r, "/r/a")).toBeUndefined();
@@ -245,6 +262,20 @@ describe("epics as one unit", () => {
       }),
     ];
     expect(repoSection(r, "/r/a")).toBeUndefined();
+  });
+  test("epic unit suppressed when its parent has an open blocker; not when empty (#1622)", () => {
+    const blocked = [
+      repo({
+        epics: [epic({ memberNumbers: [2], candidate: issue(2), parentBlockedBy: [99] })],
+      }),
+    ];
+    expect(repoSection(blocked, "/r/a")).toBeUndefined();
+    const notBlocked = [
+      repo({
+        epics: [epic({ memberNumbers: [2], candidate: issue(2), parentBlockedBy: [] })],
+      }),
+    ];
+    expect(repoSection(notBlocked, "/r/a")!.items.filter((i) => i.kind === "epic")).toHaveLength(1);
   });
 });
 

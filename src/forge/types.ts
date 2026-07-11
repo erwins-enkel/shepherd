@@ -32,6 +32,10 @@ export interface Issue {
    *  getIssue path; absent elsewhere (Gitea has no equivalent). Drives the autonomous-spawn author
    *  trust gate — an absent value fails closed. */
   authorAssociation?: string;
+  /** Numbers of the issue's still-OPEN blockers (GitHub issue dependencies). Populated only by
+   *  consumers that attach it (Up Next, /api/issues) via listBlockedByOpen — absent/empty means
+   *  not blocked. NOT fetched by listIssues (which has no dependency data). */
+  blockedBy?: number[];
 }
 
 export type ForgeKind = "github" | "gitea" | "local";
@@ -494,6 +498,11 @@ export interface GitForge {
   issueId?(issueNumber: number): Promise<number | null>;
   addSubIssue?(parentNumber: number, childNumber: number): Promise<void>;
   addBlockedBy?(issueNumber: number, blockerNumber: number): Promise<void>;
+  /** Batched: one call returning every open issue that has >=1 OPEN blocker, mapped to its
+   *  open-blocker numbers. Distinct from the per-issue listBlockedBy(n) (which returns ALL
+   *  blockers for one issue and is used by the epic pipeline). Optional — hosts without issue
+   *  dependencies (Gitea) omit it; callers must fail open when it's absent. */
+  listBlockedByOpen?(): Promise<Map<number, number[]>>;
   /** Cheap per-parent native sub-issue counts for the backlog epic-badge discovery
    *  (GitHub only; absent → no native-epic discovery, markdown fallback only). Map keyed
    *  by parent issue number; only entries with total > 0 are included. Also returns the

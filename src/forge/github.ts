@@ -136,6 +136,42 @@ function collectClosingIssuesPage(
   };
 }
 
+/** Parse one page of the batched issue-dependency GraphQL response: for every OPEN issue node
+ *  with >=1 still-OPEN blocker, record its open-blocker numbers into `into` (keyed by the
+ *  blocked issue's number); issues with no open blockers are skipped, keeping the map small.
+ *  Returns the page's cursor info. */
+function collectBlockedByOpenPage(
+  out: string,
+  into: Map<number, number[]>,
+): { hasNextPage: boolean; endCursor: string | null } {
+  const json = JSON.parse(out || "{}") as {
+    data?: {
+      repository?: {
+        issues?: {
+          pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
+          nodes?: Array<{
+            number: number;
+            blockedBy?: { nodes?: Array<{ number?: number; state?: string }> };
+          } | null>;
+        };
+      };
+    };
+  };
+  const issues = json.data?.repository?.issues;
+  for (const node of issues?.nodes ?? []) {
+    if (!node) continue;
+    const openBlockers = (node.blockedBy?.nodes ?? [])
+      .filter((b): b is { number: number; state?: string } => typeof b.number === "number")
+      .filter((b) => b.state === "OPEN")
+      .map((b) => b.number);
+    if (openBlockers.length > 0) into.set(node.number, openBlockers);
+  }
+  return {
+    hasNextPage: issues?.pageInfo?.hasNextPage ?? false,
+    endCursor: issues?.pageInfo?.endCursor ?? null,
+  };
+}
+
 /** Runs `gh` with the given args and returns stdout. Injected in tests. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -1939,5 +1975,43 @@ export class GithubForge implements GitForge {
       return [];
     }
     return [...closed];
+  }
+
+  async listBlockedByOpen(): Promise<Map<number, number[]>> {
+    if (graphRateLimit.blocked()) return new Map();
+    // One batched GraphQL query for every open issue's still-open blockers, so Up Next can
+    // hide dependency-blocked issues without an N+1 fan-out. Paginated like
+    // listSubIssueSummaries/listOpenPrClosingIssues; capped to ~200 open issues (matches
+    // listIssues' REST_LIST_CAP). Fail open: no REST fallback exists for this data, so any
+    // failure (rate limit, malformed JSON) yields an empty Map — degraded to no exclusion.
+    const [owner, name] = this.slug.split("/");
+    const query =
+      "query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(states:OPEN, first:100, after:$after, orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{ hasNextPage endCursor }nodes{ number blockedBy(first:20){ nodes{ number state } } }}}}";
+    const result = new Map<number, number[]>();
+    try {
+      let after: string | null = null;
+      for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
+        const args = [
+          "api",
+          "graphql",
+          "-f",
+          `owner=${owner}`,
+          "-f",
+          `name=${name}`,
+          "-f",
+          `query=${query}`,
+        ];
+        // Thread cursor as a raw string (-f): the opaque base64 cursor must not be type-coerced
+        // by gh. Page 1 omits it so $after defaults to null in GraphQL. Matches the sibling
+        // paginators (listSubIssueSummaries / listOpenPrClosingIssues).
+        if (after !== null) args.push("-f", `after=${after}`);
+        const pageInfo = collectBlockedByOpenPage(await this.run(args), result);
+        if (!pageInfo.hasNextPage) break;
+        after = pageInfo.endCursor;
+      }
+    } catch {
+      return new Map();
+    }
+    return result;
   }
 }

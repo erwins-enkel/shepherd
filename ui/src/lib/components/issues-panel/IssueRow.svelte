@@ -143,8 +143,13 @@
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
   {/if}
-  {#if issue.labels.length > 0 || age || issue.author || (showAssignees && issue.assignees.length > 0)}
+  {#if issue.labels.length > 0 || age || issue.author || (showAssignees && issue.assignees.length > 0) || (!isEpicParent && issue.blockedBy?.length)}
     <div class="label-row">
+      {#if !isEpicParent && issue.blockedBy?.length}
+        <span class="blocked-chip"
+          >{m.issuerow_blocked_on({ deps: issue.blockedBy.map((n) => `#${n}`).join(", ") })}</span
+        >
+      {/if}
       {#if showAssignees}
         {#each issue.assignees as login (login)}
           <span class="label-chip assignee" title={m.issuerow_assignee_title({ login })}
@@ -281,6 +286,20 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     padding: 1px 5px;
+  }
+
+  /* "blocked on #N" — standalone (non-epic-parent) issues held back by an open dependency.
+     Uses the semantic blocked token (red); never green, never a raw hex. Mirrors EpicPanel's
+     .deps chip but as its own class since it lives in the label-row, not the epic child list. */
+  .blocked-chip {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    color: var(--status-blocked);
+    border: 1px solid var(--status-blocked);
+    border-radius: 2px;
+    padding: 1px 5px;
+    background: color-mix(in srgb, var(--status-blocked) 14%, transparent);
   }
 
   /* Assignee chip — reuses the label-chip recipe but keeps the login verbatim (logins are

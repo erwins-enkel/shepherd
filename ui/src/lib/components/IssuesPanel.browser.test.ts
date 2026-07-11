@@ -323,6 +323,69 @@ describe("IssuesPanel epic badge", () => {
   });
 });
 
+describe("IssuesPanel blocked badge", () => {
+  function issue(number: number, title: string, blockedBy?: number[]): Issue {
+    return {
+      number,
+      title,
+      url: `https://example.com/issues/${number}`,
+      labels: [],
+      body: "",
+      createdAt: 0,
+      assignees: [],
+      ...(blockedBy ? { blockedBy } : {}),
+    };
+  }
+
+  function epic(
+    parentIssueNumber: number,
+    merged: number,
+    total: number,
+    source: EpicSummary["source"],
+  ): EpicSummary {
+    return {
+      parentIssueNumber,
+      parentTitle: `Epic ${parentIssueNumber}`,
+      merged,
+      total,
+      status: "idle",
+      source,
+    };
+  }
+
+  function seed(issues: Issue[], epics: EpicSummary[] = []) {
+    mockListIssues.mockResolvedValue({ slug: "owner/repo", webUrl: null, issues, viewer: null });
+    mockGetEpics.mockResolvedValue({ epics, subIssues: [] });
+  }
+
+  it("renders a blocked-on badge when the issue has open blockers", async () => {
+    seed([issue(70, "Blocked issue", [1642])]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    const expectedText = m.issuerow_blocked_on({ deps: "#1642" });
+    await expect.element(page.getByText(expectedText)).toBeInTheDocument();
+    const chip = document.querySelector(".blocked-chip");
+    expect(chip).not.toBeNull();
+    expect(chip!.textContent?.trim()).toBe(expectedText);
+  });
+
+  it("renders no blocked chip when the issue has no blockers", async () => {
+    seed([issue(71, "Unblocked issue")]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issue-title")).toBeTruthy();
+    expect(document.querySelector(".blocked-chip")).toBeNull();
+  });
+
+  it("does not render the standalone blocked chip on an epic-parent row", async () => {
+    seed([issue(72, "Epic parent", [1642])], [epic(72, 1, 3, "markdown")]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    expect(document.querySelector(".blocked-chip")).toBeNull();
+  });
+});
+
 describe("IssuesPanel expandEpic", () => {
   function issue(number: number, title = `Issue ${number}`): Issue {
     return {

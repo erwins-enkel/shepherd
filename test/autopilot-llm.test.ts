@@ -73,6 +73,59 @@ test("classifierPrompt fences the task and terminal tail as untrusted", () => {
   expect(p).toContain("ignore all previous instructions");
 });
 
+// --- operator-language (#1627): en byte-identical; de adds summary→German + kind-pin + robustness ---
+
+test("classifierPrompt en (default and explicit) is byte-identical — no operator-language drift", () => {
+  const tail = ["Ready to commit now? (y/n)"];
+  const task = "Add a rate limiter";
+  // fenceUntrusted stamps a fresh random nonce per call (by design), so normalize the nonce out
+  // before comparing structural byte-identity — the nonce is not a prompt-drift axis.
+  const stripNonce = (s: string) => s.replace(/:[0-9a-f]{12}⟧/g, ":<nonce>⟧");
+  const def = stripNonce(classifierPrompt(tail, task));
+  expect(stripNonce(classifierPrompt(tail, task, "en"))).toBe(def);
+  // The de-only directives must be entirely absent from the en prompt.
+  expect(def).not.toContain("in German");
+  expect(def).not.toContain("may be written in German");
+});
+
+test("classifierPrompt de injects the summary→German + verbatim-kind-pin + input-robustness lines", () => {
+  const p = classifierPrompt(["Soll ich jetzt committen? (j/n)"], "Add a rate limiter", "de");
+  expect(p).toContain("Write the `summary` field in German");
+  // kind is pinned to the exact English enum — a translated kind collapses to unknown via normalize.
+  expect(p).toContain("never translate it");
+  // input-robustness: a German/mixed tail must not erode the unknown abstain bucket.
+  expect(p).toContain("The terminal tail above may be written in German");
+  expect(p).toContain("avoid abstaining");
+});
+
+test("classifierPrompt de places the kind-pin BEFORE the terminal 'then stop' line (not post-stop chrome)", () => {
+  const p = classifierPrompt(["Soll ich jetzt committen? (j/n)"], "task", "de");
+  const pinIdx = p.indexOf("Keep `kind` as one of the exact English enum");
+  const stopIdx = p.indexOf("then stop:");
+  expect(pinIdx).toBeGreaterThanOrEqual(0);
+  expect(stopIdx).toBeGreaterThanOrEqual(0);
+  expect(pinIdx).toBeLessThan(stopIdx);
+});
+
+test("classifyStop threads operatorLanguage=de into the classifier prompt (argv positional)", async () => {
+  const { deps, calls } = makeDeps({
+    operatorLanguage: "de",
+    readVerdict: () => ({ kind: "gate", summary: "x" }) as any,
+  });
+  await classifyStop(["Soll ich jetzt committen? (j/n)"], "task", deps, "l");
+  const argvStr: string = calls.started.argv.join("\n");
+  expect(argvStr).toContain("Write the `summary` field in German");
+});
+
+test("classifyStop default (en) keeps the classifier prompt free of the de directive", async () => {
+  const { deps, calls } = makeDeps({
+    readVerdict: () => ({ kind: "gate", summary: "x" }) as any,
+  });
+  await classifyStop(["Ready to commit? (y/n)"], "task", deps, "l");
+  const argvStr: string = calls.started.argv.join("\n");
+  expect(argvStr).not.toContain("field in German");
+});
+
 test("classifyStop: parses a complete verdict (non-PR deliverable)", async () => {
   const { deps } = makeDeps({
     readVerdict: () => ({ kind: "complete", summary: "Created issue #345." }),

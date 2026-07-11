@@ -24,6 +24,7 @@ import type { GitState } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import type { OperatorLanguage } from "./operator-language";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import {
   assembleHerdState,
@@ -140,6 +141,8 @@ export interface HerdDigestServiceDeps {
    *  authoritative not-ready→no-spawn decision lives in generate(). Optional — absent → false. */
   hasOpenLandingEpics?: () => boolean;
   model?: string | null;
+  /** Live operator-language setting, read per spawn (#1586). Absent → "en" (no directive). */
+  operatorLanguage?: () => OperatorLanguage;
   now?: () => number;
   timeoutMs?: number;
   topN?: number;
@@ -159,6 +162,7 @@ export class HerdDigestService {
   private timeoutMs: number;
   private topN: number;
   private model: string | null;
+  private operatorLanguage: () => OperatorLanguage;
 
   private _readVerdict: (cwd: string) => string | null;
   private _readUsage: (cwd: string, spawnSessionId: string) => Promise<SessionUsage | null>;
@@ -175,6 +179,7 @@ export class HerdDigestService {
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.topN = deps.topN ?? RUNDOWN_DEFAULT_TOPN;
     this.model = deps.model ?? "sonnet";
+    this.operatorLanguage = deps.operatorLanguage ?? (() => "en");
     this._readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this._readUsage = deps.readUsage ?? readSessionUsage;
     this._makeTmpDir = deps.makeTmpDir ?? defaultMakeTmpDir;
@@ -339,7 +344,7 @@ export class HerdDigestService {
         })),
       );
 
-      const prompt = buildRundownPrompt(assembled);
+      const prompt = buildRundownPrompt(assembled, this.operatorLanguage());
       const { argv, sessionId: spawnSessionId } = rundownArgv(this.model, prompt);
 
       const cwd = this._makeTmpDir();

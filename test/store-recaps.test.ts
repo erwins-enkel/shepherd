@@ -38,6 +38,40 @@ test("recaps: put→get round-trip (incl. openItems JSON)", () => {
   expect(got?.generatedAt).toBeNull();
 });
 
+test("recaps: skipReason {code, params} round-trips through get/snapshot/generating (#1628)", () => {
+  const s = new SessionStore(":memory:");
+  const skip = {
+    code: "ancestry-check-failed" as const,
+    params: { evidenceKind: "merged_pr" as const, evidencePr: 12, baseRef: "origin/main" },
+  };
+  // A coded failed skip: headline/body empty, the reason carried structurally.
+  s.putRecap(r({ state: "failed", generatedAt: 2000, skip }));
+  expect(s.getRecap("s1")?.skip).toEqual(skip);
+  expect(s.snapshotRecaps()["s1"]?.skip).toEqual(skip);
+
+  // Also round-trips on a generating row (the finalize loop reads it back verbatim).
+  s.putRecap(r({ sessionId: "s2", state: "generating", skip }));
+  const gen = s.generatingRecaps().find((x) => x.sessionId === "s2");
+  expect(gen?.skip).toEqual(skip);
+
+  // Absent skip → null (legacy / non-coded rows keep rendering their headline/body).
+  s.putRecap(r({ sessionId: "s3", state: "ready", verdict: "ready", headline: "done" }));
+  expect(s.getRecap("s3")?.skip).toBeNull();
+});
+
+test("recaps: a row that predates the skipReason column hydrates skip=null (#1628)", () => {
+  const s = new SessionStore(":memory:");
+  // Simulate a legacy failed row written before the column existed by clearing it directly.
+  s.putRecap(
+    r({ state: "failed", headline: "Recap skipped: base refresh failed", generatedAt: 2000 }),
+  );
+  // deno-lint-ignore no-explicit-any -- reach into the private db for the legacy-column simulation
+  (s as any).db.run(`UPDATE recaps SET skipReason = NULL WHERE sessionId = 's1'`);
+  const got = s.getRecap("s1");
+  expect(got?.skip).toBeNull();
+  expect(got?.headline).toBe("Recap skipped: base refresh failed"); // still renders verbatim
+});
+
 test("recaps: upsert overwrites existing row", () => {
   const s = new SessionStore(":memory:");
   s.putRecap(r());

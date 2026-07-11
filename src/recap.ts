@@ -18,7 +18,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
-import type { Session, Recap, AgentProvider } from "./types";
+import type { Session, Recap, AgentProvider, RecapEvidenceKind, RecapSkip } from "./types";
 import type { DiffResult } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { OperatorLanguage } from "./operator-language";
@@ -59,8 +59,11 @@ const DEFAULT_IDLE_THRESHOLD_MS = 120_000;
 type AncestryResult = "contained" | "not-contained" | "unknown";
 
 export interface LandedWorkEvidence {
-  kind: "merged_pr" | "review" | "existing_recap";
+  kind: RecapEvidenceKind; // "merged_pr" | "review" | "existing_recap"
   summary: string;
+  /** PR number for `merged_pr` evidence, when known — carried into a recap-skip's localized body as
+   *  a typed param (never the English `summary` string). Absent → the UI renders "merged PR" w/o #N. */
+  pr?: number;
 }
 
 type EmptyDiffAction =
@@ -119,6 +122,18 @@ function defaultReadTranscript(
   } catch {
     return [];
   }
+}
+
+/** Reduce landed-work evidence to the typed skip params the UI localizes (kind + optional PR
+ *  number) — never the authored English `summary` string, which would embed English in a DE body. */
+function evidenceParams(evidence: LandedWorkEvidence): {
+  evidenceKind: RecapEvidenceKind;
+  evidencePr?: number;
+} {
+  return {
+    evidenceKind: evidence.kind,
+    ...(evidence.pr != null ? { evidencePr: evidence.pr } : {}),
+  };
 }
 
 function defaultReadPlan(worktreePath: string): string {
@@ -321,8 +336,7 @@ export class RecapService {
       state: "empty" | "failed";
       headSha: string;
       base: string;
-      headline?: string;
-      body?: string;
+      skip?: RecapSkip;
     },
   ): void {
     const t = this.now();
@@ -333,8 +347,10 @@ export class RecapService {
       headSha: input.headSha,
       base: input.base,
       verdict: null,
-      headline: input.headline ?? "",
-      body: input.body ?? "",
+      // A coded skip leaves headline/body empty — the UI renders both per-locale from `skip`.
+      headline: "",
+      body: "",
+      skip: input.skip ?? null,
       openItems: [],
       changedFiles: [],
       blocks: [],
@@ -356,7 +372,7 @@ export class RecapService {
   ): Promise<
     | { kind: "empty" }
     | { kind: "landed"; evidence: LandedWorkEvidence }
-    | { kind: "failed"; headline: string; body: string }
+    | { kind: "failed"; skip: RecapSkip }
   > {
     if (!session.isolated || !session.branch) return { kind: "empty" };
 
@@ -364,8 +380,10 @@ export class RecapService {
     if (current && current !== session.branch) {
       return {
         kind: "failed",
-        headline: "Recap skipped: session metadata mismatch",
-        body: `The session row points at branch \`${session.branch}\`, but the archived worktree was on \`${current}\`. Shepherd did not trust the empty diff.`,
+        skip: {
+          code: "metadata-mismatch",
+          params: { branch: session.branch, current },
+        },
       };
     }
 
@@ -375,8 +393,7 @@ export class RecapService {
     if (diff.fetchFailed) {
       return {
         kind: "failed",
-        headline: "Recap skipped: base refresh failed",
-        body: `Shepherd found landed-work evidence (${evidence.summary}), but refreshing the base ref failed, so the empty diff could not be trusted.`,
+        skip: { code: "base-refresh-failed", params: evidenceParams(evidence) },
       };
     }
 
@@ -385,14 +402,18 @@ export class RecapService {
     if (ancestry === "unknown") {
       return {
         kind: "failed",
-        headline: "Recap skipped: ancestry check failed",
-        body: `Shepherd found landed-work evidence (${evidence.summary}), but could not verify whether HEAD is already contained in \`${diff.baseRef}\`.`,
+        skip: {
+          code: "ancestry-check-failed",
+          params: { ...evidenceParams(evidence), baseRef: diff.baseRef },
+        },
       };
     }
     return {
       kind: "failed",
-      headline: "Recap skipped: empty diff contradicted landed-work evidence",
-      body: `Shepherd found landed-work evidence (${evidence.summary}), but HEAD was not contained in \`${diff.baseRef}\` even though the diff was empty.`,
+      skip: {
+        code: "empty-diff-contradicted",
+        params: { ...evidenceParams(evidence), baseRef: diff.baseRef },
+      },
     };
   }
 
@@ -412,8 +433,7 @@ export class RecapService {
         state: "failed",
         headSha: head,
         base,
-        headline: classified.headline,
-        body: classified.body,
+        skip: classified.skip,
       });
       return { kind: "done", result: "error" };
     }

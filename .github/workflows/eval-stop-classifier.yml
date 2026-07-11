@@ -1,0 +1,71 @@
+name: Eval — autopilot stop-classifier
+
+# Live-model eval for the autopilot stop-classifier (issue #1626).
+#
+# workflow_dispatch ONLY — a manual, opt-in, PAID run (one Haiku call per trial, ~54 per
+# run). It is deliberately NOT part of any PR/gated CI: `bun test ./test` stays hermetic and
+# free (it covers only the harness's pure logic, in test/eval-stop-classifier.test.ts). This
+# job exists so anyone with dispatch rights can capture/refresh the baseline reproducibly on
+# ubuntu-latest using the repo's existing ANTHROPIC_API_KEY secret (the same secret the
+# issue-triage workflow uses). Its run log — especially the --json block — is the source the
+# baseline numbers in docs/eval-stop-classifier.md are transcribed from.
+#
+# A recurring nightly is intentionally left OFF (no `schedule:`) so no paid job runs without
+# an explicit human trigger. To opt into a nightly later, add e.g.:
+#   schedule:
+#     - cron: "0 6 * * *"   # 06:00 UTC daily
+# and confirm the added spend is acceptable.
+on:
+  workflow_dispatch:
+    inputs:
+      trials:
+        description: "Trials per fixture (default 5; the ambiguous→unknown fixture pins its own 9)"
+        required: false
+        default: "5"
+      model:
+        description: "Model id (default claude-haiku-4-5 — the CLI 'haiku' snapshot)"
+        required: false
+        default: "claude-haiku-4-5"
+      operator_language_off:
+        description: "#1627 A/B: 'true' forces operator-language OFF everywhere (the *before* leg ≡ #1626 baseline); default 'false' runs the *after* leg (German directive live for de fixtures)"
+        required: false
+        default: "false"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: eval-stop-classifier
+  cancel-in-progress: false
+
+jobs:
+  eval:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install deps
+        run: bun install --frozen-lockfile
+
+      # Human-readable report to the log (exit code reflects pass/fail against the pinned floor).
+      - name: Run eval (report)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }}
+
+      # Machine-readable JSON (per-fixture kind distributions + no-tool/parse-fail counts) —
+      # this is what you copy into docs/eval-stop-classifier.md. `if: always()` so the JSON is
+      # emitted even when the report step exits non-zero (a real gating miss must still be
+      # inspectable for the contingency rule). `|| true` keeps the job's overall status from
+      # being masked by this convenience step.
+      - name: Run eval (JSON for the doc)
+        if: always()
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: bun run eval:stop-classifier --trials "${{ github.event.inputs.trials }}" --model "${{ github.event.inputs.model }}" ${{ github.event.inputs.operator_language_off == 'true' && '--operator-language-off' || '' }} --json || true

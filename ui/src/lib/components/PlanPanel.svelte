@@ -372,8 +372,8 @@
       {#if gate}
         <section class="verdict">
           <div class="micro">{m.planpanel_verdict()}</div>
-          {#if gate.summary}
-            <p class="summary">{gate.summary}</p>
+          {#if gate.summaryCode || gate.summary}
+            <p class="summary">{gate.summaryCode ? m.planpanel_no_verdict() : gate.summary}</p>
           {/if}
           {#if bodyHtml}
             <!-- eslint-disable-next-line svelte/no-at-html-tags -- reviewer markdown, DOMPurify-sanitized above -->

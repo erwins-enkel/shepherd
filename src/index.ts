@@ -495,6 +495,7 @@ const recapService: RecapService = new RecapService({
       return {
         kind: "merged_pr",
         summary: `automerge merged PR #${autoMerged.prNumber}`,
+        pr: autoMerged.prNumber,
       };
     }
     const git = prPoller.snapshot()[s.id];
@@ -502,6 +503,7 @@ const recapService: RecapService = new RecapService({
       return {
         kind: "merged_pr",
         summary: `merged PR${git.number ? ` #${git.number}` : ""}`,
+        ...(git.number ? { pr: git.number } : {}),
       };
     }
     const review = store.getReview(s.id);
@@ -1490,7 +1492,13 @@ const autopilot = new AutopilotService({
     return classifyStop(
       tail,
       taskPrompt,
-      { herdr, provider: env.provider, model: env.model, effort: env.effort },
+      {
+        herdr,
+        provider: env.provider,
+        model: env.model,
+        effort: env.effort,
+        operatorLanguage: config.operatorLanguage,
+      },
       label,
     );
   },
@@ -1868,6 +1876,8 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
 const herdDigestService = new HerdDigestService({
   store,
   herdr,
+  // Live operator-language setting, read per spawn (#1586).
+  operatorLanguage: () => config.operatorLanguage,
   isActive: () => presence.isActive(),
   landingReadyEpics,
   hasOpenLandingEpics: () => store.listEpicCompleted().some((r) => r.landingState === "open"),
@@ -2547,7 +2557,15 @@ const appDeps: AppDeps = {
       return { error: "no-history" as const };
     }
     return recommendPrompt(
-      { tail, taskPrompt: s.prompt, provider, model, label: `recommend ${s.desig}` },
+      {
+        tail,
+        taskPrompt: s.prompt,
+        provider,
+        model,
+        label: `recommend ${s.desig}`,
+        // Live per-call read at the composition root (#1586).
+        operatorLanguage: config.operatorLanguage,
+      },
       { herdr },
     );
   },

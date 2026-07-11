@@ -453,6 +453,18 @@ export const demoState = {
     return rec;
   },
 
+  /** Acknowledge a session's manual operator steps (#1060) — stamp manualStepsAckedAt
+   *  idempotently and emit session:manual-steps so the CTA clears (mirrors the server). */
+  ackManualSteps(id: string): void {
+    const s = find(id);
+    if (!s) return;
+    s.manualStepsAckedAt ??= Date.now(); // COALESCE — keep the first ack time
+    emit({
+      event: "session:manual-steps",
+      data: { id, manualSteps: s.manualSteps, manualStepsAckedAt: s.manualStepsAckedAt },
+    });
+  },
+
   /** Archive every given id that's still merged (the server re-validates, same as
    *  the real API) — clears the herd's "Merged" group. Matches `clearMerged()`'s
    *  `{cleared, leftovers}` in api.ts; each archive emits its own `session:archived`. */

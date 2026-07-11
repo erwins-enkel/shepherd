@@ -230,6 +230,15 @@ const sessionIdMutationRoutes: ReadonlyArray<{
     },
   },
   {
+    // POST /api/sessions/:id/ack-manual-steps
+    method: "POST",
+    pattern: /^\/api\/sessions\/[^/]+\/ack-manual-steps$/,
+    handle: (path) => {
+      demoState.ackManualSteps(seg(path, 3));
+      return json({ ok: true });
+    },
+  },
+  {
     // DELETE /api/sessions/:id  (archive)
     method: "DELETE",
     pattern: /^\/api\/sessions\/[^/]+$/,

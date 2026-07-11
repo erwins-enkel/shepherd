@@ -6,13 +6,14 @@
 // The scenario — the fictional herd the marketing demo shows off:
 //   Two repos: `acme/storefront` (SvelteKit storefront) + `acme/api` (bun API).
 //   One active epic "Checkout v2" on storefront, mid-drain.
-//   Seven sessions spanning states so every lens / badge / panel has a real subject:
+//   Eight sessions spanning states so every lens / badge / panel has a real subject:
 //     coupon         WORKING (hero)   live activity, subagents, growing diff, no PR yet
 //     rounding       READY            PR open, CI green, ready-to-merge
 //     authstore      PLAN GATE        plan-gate verdict awaiting the operator's Go
 //     neon           BLOCKED          autopilot question awaiting an answer
 //     ogimg          MERGING          in the merge train
-//     deps           DONE             recap + merged PR + one owed manual step
+//     deps           DONE             recap + merged PR + one owed (post-merge) manual step
+//     envflag        DONE             merged PR + one un-acked PRE-merge step (#1478 showcase)
 //     checkout-child WORKING (auto)   epic child, drain-spawned
 // Session ids are STABLE + semantic — replay transcripts (Task 5) and the director
 // (Task 6) key off them.
@@ -236,6 +237,33 @@ function buildSessions(): Session[] {
       ],
       manualStepsAckedAt: null,
     }),
+    // ── done: merged, but an un-acked PRE-merge manual step slipped through — the
+    // merged-card "Resolve N step(s)" showcase (#1478). Unlike deps' post-merge step,
+    // this one is `postMerge: false`, so `hasBlockingManualSteps` in UnitRow is true
+    // right up until Ack/Resolve — but the terminal (merged) card hides the moot Ack
+    // CTA and verb-labels the chip instead, routing to the matching Owed record below.
+    mkSession({
+      id: "envflag",
+      desig: "TASK-50",
+      name: "feature-x-rollout",
+      repoPath: STOREFRONT,
+      branch: "shepherd/feature-x-rollout",
+      prompt: "Roll out the new checkout speed test behind a FEATURE_X flag",
+      model: "sonnet",
+      status: "done",
+      issueNumber: 150,
+      lastState: "done",
+      createdAt: NOW - 8 * HOUR,
+      updatedAt: NOW - 70 * MIN,
+      manualSteps: [
+        {
+          id: "envflag-ms-1",
+          text: "Set the FEATURE_X env var in production",
+          postMerge: false,
+        },
+      ],
+      manualStepsAckedAt: null,
+    }),
     // ── working (autopilot): epic child spawned by the drain ────────────────
     mkSession({
       id: "checkout-child",
@@ -381,6 +409,21 @@ function buildGitStates(): Record<string, GitState> {
       deployConfigured: true,
       headSha: "c7d8e9f",
       issueUrl: `${gh(STOREFRONT)}/issues/137`,
+    },
+    // done — merged, but a pre-merge manual step is still un-acked (#1478 showcase).
+    envflag: {
+      kind: "github",
+      state: "merged",
+      number: 520,
+      url: `${gh(STOREFRONT)}/pull/520`,
+      title: "TASK-50: roll out feature X behind env flag",
+      createdAt: NOW - 8 * HOUR,
+      mergeable: true,
+      checks: "success",
+      mergeStateStatus: "clean",
+      deployConfigured: true,
+      headSha: "f1a2b3c",
+      issueUrl: `${gh(STOREFRONT)}/issues/150`,
     },
     // epic child — building; no PR yet.
     "checkout-child": { kind: "github", state: "none", checks: "none", deployConfigured: true },
@@ -1471,10 +1514,13 @@ function buildTodo(): Record<string, { exists: boolean; content: string }> {
 }
 
 /** GET /api/manual-steps/outstanding (Owed lens) — durable post-merge step records.
- *  One row: `deps`'s single owed step (mirrors its `holdStates` entry + `manualSteps`
- *  above). Svelte's `{#each}` silently no-ops on the permissive `{}` fallback
+ *  Two rows: `deps`'s single owed (post-merge) step (mirrors its `holdStates` entry +
+ *  `manualSteps` above), and `envflag`'s un-acked PRE-merge step (#1478 merged-card
+ *  showcase — its `manualSteps`/`gitStates` entries above are the same session/step
+ *  id so the Owed lens shows a real, workable checklist for the "Resolve" chip).
+ *  Svelte's `{#each}` silently no-ops on the permissive `{}` fallback
  *  (`Array.from({})` → `[]`), so this gap never threw — it just left a showcased lens
- *  silently empty instead of showing the one owed step the seed already promises. */
+ *  silently empty instead of showing the owed steps the seed already promises. */
 function buildPostMergeSteps(): PostMergeSteps[] {
   return [
     {
@@ -1495,6 +1541,26 @@ function buildPostMergeSteps(): PostMergeSteps[] {
       trackingIssueNumber: null,
       createdAt: NOW - 45 * MIN,
       updatedAt: NOW - 45 * MIN,
+      clearedAt: null,
+    },
+    {
+      sessionId: "envflag",
+      desig: "TASK-50",
+      repoPath: STOREFRONT,
+      prNumber: 520,
+      prTitle: "TASK-50: roll out feature X behind env flag",
+      steps: [
+        {
+          id: "envflag-ms-1",
+          text: "Set the FEATURE_X env var in production",
+          postMerge: false,
+          doneAt: null,
+        },
+      ],
+      trackingIssueUrl: null,
+      trackingIssueNumber: null,
+      createdAt: NOW - 70 * MIN,
+      updatedAt: NOW - 70 * MIN,
       clearedAt: null,
     },
   ];

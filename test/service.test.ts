@@ -6810,9 +6810,9 @@ test("landingRepairDirective: repair-and-push substance, no PR", () => {
   const sp = composeSystemPrompt(null, false, { landingRepair: true });
   // Anchor on the durable substance from the task brief, not incidental wording.
   expect(sp).toContain("epic LANDING pull request");
-  expect(sp).toContain("already checked out");
-  expect(sp).toContain("drive that branch's CI green");
-  expect(sp).toContain("git push");
+  expect(sp).toContain("scratch branch");
+  expect(sp).toContain("git push origin HEAD:<integration-branch>");
+  expect(sp).toContain("A plain `git push` will NOT work");
   expect(sp).toContain("Do NOT open a pull request");
   expect(sp).toContain("gh pr create");
 });

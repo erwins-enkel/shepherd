@@ -1482,8 +1482,10 @@ export class DrainService {
     const prompt =
       `Repair the failing CI on the landing pull request for epic #${parent} ("${row.parentTitle}"). ` +
       `Landing PR #${prNumber}${row.landingPrUrl ? ` (${row.landingPrUrl})` : ""} targets the epic ` +
-      `integration branch \`${branch}\`, which is your current working branch. Drive its CI green and ` +
-      `push your fix directly to \`${branch}\`; do not open a new pull request.`;
+      `integration branch \`${branch}\`. You are working in a scratch branch cut from \`${branch}\`. ` +
+      `Drive the landing PR's CI green: commit your fix, then publish it by pushing your commit to the ` +
+      `integration branch with \`git push origin HEAD:${branch}\` — this updates the landing PR's head ` +
+      `and re-triggers its CI. Do NOT open a new pull request.`;
     try {
       await this.deps.service.create({
         repoPath,

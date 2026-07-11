@@ -825,13 +825,16 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
       : "Inspect the failing checks — `gh pr checks <n>`, `gh run view`, read the logs — dispatching " +
         "sub-agents to investigate in parallel if it helps.\n";
   return (
-    "You are repairing a RED epic LANDING pull request — the failing integration branch is " +
-    "already checked out as your working branch.\n" +
-    "- Goal: drive that branch's CI green.\n" +
+    "You are repairing a RED epic LANDING pull request — you are working in a scratch branch " +
+    "cut from the epic integration branch (the task prompt names that branch and gives the " +
+    "exact push command).\n" +
+    "- Goal: drive the epic integration branch's CI green.\n" +
     investigate +
     "- Find the cause (code/test/config drift or a gate failure), fix it, and commit.\n" +
-    "- Push the fix DIRECTLY to the current branch — a plain `git push` (the branch tracks the " +
-    "epic integration branch), which updates the open landing PR's head and re-triggers its CI.\n" +
+    "- Publish by pushing your commit to the epic INTEGRATION branch with the " +
+    "`git push origin HEAD:<integration-branch>` command from the task prompt — this updates " +
+    "the open landing PR and re-triggers its CI. A plain `git push` will NOT work (your scratch " +
+    "branch has no upstream).\n" +
     "- Do NOT open a pull request; do NOT run `gh pr create` — there is no child PR for this work.\n" +
     "- When CI is green, or once you have pushed your best fix, you are done."
   );

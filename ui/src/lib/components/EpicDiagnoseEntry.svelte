@@ -45,11 +45,14 @@
       .then(({ repos: r, recentWindowDays }) => {
         repos = r;
         recentRepoWindowDays = recentWindowDays;
-        // Prefer the in-focus repo (initialRepo) when it's still a known repo, else the
-        // most-recently-used non-hidden one, so the picker never opens on a stale/hidden repo.
-        if (!repoPath || !r.some((repo) => repo.path === repoPath)) {
-          repoPath = defaultRepoPath(r.filter((repo) => !repo.hidden)) || r[0]?.path || "";
-        }
+        // initialRepo arrives as the realpath'd form (activeRepo / session.repoPath), but
+        // RepoSelect keys on RepoEntry.path — which differs for a symlinked repo root. Match
+        // on either and canonicalize to .path so a symlinked in-focus repo still preselects.
+        // Fall back to the most-recently-used non-hidden repo when the seed isn't a known
+        // repo, so the picker never opens on a stale/hidden repo.
+        const match = r.find((repo) => repo.path === repoPath || repo.realPath === repoPath);
+        repoPath =
+          match?.path ?? (defaultRepoPath(r.filter((repo) => !repo.hidden)) || r[0]?.path || "");
       })
       .catch(() => {});
   });
@@ -98,6 +101,7 @@
             windowDays={recentRepoWindowDays}
             value={repoPath}
             onchange={(p) => (repoPath = p)}
+            hideHidden
           />
         </div>
 

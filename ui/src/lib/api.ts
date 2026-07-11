@@ -1073,6 +1073,22 @@ export async function rerunWorkflowRun(
   }
 }
 
+/** One-click "Retry CI" for a `ci-red` hold: resolve the PR head's latest failed run server-side
+ *  then rerun its failed jobs. `unsupported` (non-GitHub forge) / `no-run` (nothing to retry) are
+ *  expected outcomes returned as `{ ok:false, reason }` on HTTP 200; a genuine forge/transport
+ *  error throws (non-2xx), so the caller catches it as a generic failure. */
+export async function retryCi(
+  repoPath: string,
+  pr: number,
+): Promise<{ ok: boolean; reason?: "unsupported" | "no-run" }> {
+  const r = await fetch("/api/actions/retry-ci", JSON_POST({ repo: repoPath, pr }));
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+  return (await r.json()) as { ok: boolean; reason?: "unsupported" | "no-run" };
+}
+
 /** Cancel an in-progress GitHub Actions run by repo + runId. Resolves on success. */
 export async function cancelWorkflowRun(repoPath: string, runId: number): Promise<void> {
   const r = await fetch("/api/actions/cancel", JSON_POST({ repo: repoPath, runId }));

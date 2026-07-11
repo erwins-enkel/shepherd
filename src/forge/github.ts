@@ -919,6 +919,54 @@ export class GithubForge implements GitForge {
     return runs;
   }
 
+  /** Resolve the PR head's most-recent FAILED workflow run id (for the retry-ci endpoint).
+   *  Reads the PR head ref + sha, lists failed runs on that branch newest-first, and prefers the
+   *  run matching the PR head sha (the branch may have advanced past the PR head), else the newest
+   *  failed run on the branch. Returns null when the PR/branch can't be resolved or has no failed
+   *  run. A fork-origin PR's runs live in the fork, not this branch, so it resolves to null. */
+  async latestFailedRunForPr(prNumber: number): Promise<number | null> {
+    const prOut = await this.run([
+      "pr",
+      "view",
+      String(prNumber),
+      "--repo",
+      this.slug,
+      "--json",
+      "headRefName,headRefOid",
+    ]).catch(() => null);
+    if (!prOut) return null;
+    const pr = JSON.parse(prOut || "{}") as { headRefName?: string; headRefOid?: string };
+    const branch = pr.headRefName;
+    if (!branch) return null;
+    const listOut = await this.run([
+      "run",
+      "list",
+      "--repo",
+      this.slug,
+      "--branch",
+      branch,
+      "--status",
+      "failure",
+      "--limit",
+      "20",
+      "--json",
+      "databaseId,headSha,createdAt",
+    ]).catch(() => null);
+    if (!listOut) return null;
+    const raw = JSON.parse(listOut || "[]") as Array<{
+      databaseId: number;
+      headSha?: string;
+      createdAt?: string;
+    }>;
+    if (raw.length === 0) return null;
+    const byNewest = [...raw].sort(
+      (a, b) => Date.parse(b.createdAt ?? "") - Date.parse(a.createdAt ?? ""),
+    );
+    const headSha = pr.headRefOid;
+    const atHead = headSha ? byNewest.find((r) => r.headSha === headSha) : undefined;
+    return (atHead ?? byNewest[0])?.databaseId ?? null;
+  }
+
   async rerunWorkflowRun(runId: number, o: { failedOnly: boolean }): Promise<void> {
     const args = ["run", "rerun", String(runId), "--repo", this.slug];
     // `--failed` retries only the failed jobs (+ their dependents) of a failed run;

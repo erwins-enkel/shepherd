@@ -361,6 +361,13 @@ export interface GitForge {
   /** Per-job breakdown for a single run, lazy-loaded when a history row expands.
    *  Optional, same GitHub-only gating as {@link listWorkflowRunHistory}. */
   listRunJobs?(runId: number): Promise<WorkflowJob[]>;
+  /** Resolve the id of a PR head's most recent FAILED workflow run, so a one-click
+   *  "Retry CI" can rerun it (a `ci-red` hold carries only the PR number, not a runId).
+   *  Prefers a run whose headSha matches the PR head, else the newest failed run on the
+   *  head branch; null when none. Optional, same GitHub-only gating as
+   *  {@link rerunWorkflowRun} — pairs with it for the retry-ci endpoint. Note: resolves runs
+   *  on the base repo's head branch, so a fork-origin PR (runs live in the fork) yields null. */
+  latestFailedRunForPr?(prNumber: number): Promise<number | null>;
   prStatus(headBranch: string): Promise<PrStatus>;
   /** The operator's own login on this host (`gh api user`), cached. Drives the
    *  "is the configured reviewer/merger someone *other* than me" decision. Null

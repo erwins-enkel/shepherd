@@ -18,7 +18,7 @@
   import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
   import { STATUS_COLOR, canResume, canRelaunch } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { resumeSession, releasePlanGate, reviewPlan, resumeQuota } from "$lib/api";
+  import { resumeSession, releasePlanGate, reviewPlan, resumeQuota, retryCi } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
@@ -292,6 +292,7 @@
     clearTimeout(armTimer);
     clearTimeout(tipTimer);
     clearTimeout(goArmTimer);
+    clearTimeout(retryArmTimer);
     if (openRow === close) openRow = null;
   });
 
@@ -313,12 +314,25 @@
     goArmed = false;
   }
 
+  // Retry CI also arms on first click (it touches CI), self-disarming after a few seconds — the
+  // same two-step ActionRunRow's rerun uses. Separate from the Go arm (distinct action + copy).
+  let retryArmed = $state(false);
+  let retryArmTimer: ReturnType<typeof setTimeout> | undefined;
+  function disarmRetry() {
+    clearTimeout(retryArmTimer);
+    retryArmed = false;
+  }
+
   let ctaBusy = $state(false);
 
-  // Armed "Go?" swaps in for the plain label; kept in the script so the .u-hold template
-  // stays under the Svelte-template complexity bar (the block lives in the holdSubline snippet).
+  // Armed "Go?" / "Retry CI?" swaps in for the plain label; kept in the script so the .u-hold
+  // template stays under the Svelte-template complexity bar (the block lives in holdSubline).
   const ctaLabel = $derived(
-    holdRow.action?.kind === "go" && goArmed ? m.hold_cta_go_arm() : (holdRow.action?.label ?? ""),
+    holdRow.action?.kind === "go" && goArmed
+      ? m.hold_cta_go_arm()
+      : holdRow.action?.kind === "retry-ci" && retryArmed
+        ? m.hold_cta_retry_ci_arm()
+        : (holdRow.action?.label ?? ""),
   );
 
   function onHoldCta(e: MouseEvent) {
@@ -334,6 +348,15 @@
       }
       disarmGo();
       void doGo();
+    } else if (a.kind === "retry-ci") {
+      if (!retryArmed) {
+        retryArmed = true;
+        clearTimeout(retryArmTimer);
+        retryArmTimer = setTimeout(disarmRetry, 4000);
+        return;
+      }
+      disarmRetry();
+      void doRetryCi();
     } else if (a.kind === "rereview") void doReview();
     else if (a.kind === "resume") void doResume();
     else if (a.kind === "answer") openPlanPanel();
@@ -400,6 +423,29 @@
       if (status !== "resumed") toasts.info(m.hold_cta_resume_failed());
     } catch {
       toasts.info(m.hold_cta_resume_failed());
+    } finally {
+      ctaBusy = false;
+    }
+  }
+
+  // Retry CI: the ci-red hold carries the PR number; the server resolves that PR head's latest
+  // failed run and reruns its failed jobs. `unsupported` (non-GitHub forge) / `no-run` (nothing to
+  // retry) are expected outcomes → transient info; a genuine failure (throw) is a persistent alert.
+  async function doRetryCi() {
+    const pr = hold?.params?.pr;
+    if (ctaBusy || pr == null) return;
+    ctaBusy = true;
+    try {
+      const { ok, reason } = await retryCi(session.repoPath, pr);
+      if (ok) toasts.info(m.hold_cta_retry_ci_started());
+      else if (reason === "unsupported") toasts.info(m.hold_cta_retry_ci_unsupported());
+      else if (reason === "no-run") toasts.info(m.hold_cta_retry_ci_no_run());
+    } catch {
+      toasts.info(m.hold_cta_retry_ci_failed(), {
+        duration: null,
+        alert: true,
+        key: `hold-cta:retry-ci:${session.id}`,
+      });
     } finally {
       ctaBusy = false;
     }

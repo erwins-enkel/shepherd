@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach } from "vitest";
 import { handleApi } from "./router";
 import { demoState } from "./state";
+import { bus } from "./bus";
 
 const REPO = "/demo/acme/storefront";
 const u = (path: string) => new URL(path, "http://localhost");
@@ -67,17 +68,26 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
     expect(one.body.parentIssueNumber).toBe(100);
   });
 
-  it("GET /api/sessions/clear-merged returns the merged, non-archived ids (deps)", async () => {
+  it("GET /api/sessions/clear-merged returns the merged, non-archived ids (deps + envflag)", async () => {
     const { status, body } = await get("/api/sessions/clear-merged");
     expect(status).toBe(200);
-    expect(body).toEqual({ ids: ["deps"], leftovers: 0 });
+    expect(body).toEqual({ ids: ["deps", "envflag"], leftovers: 0 });
   });
 
-  it("the rich scenario seeds seven sessions across two repos", async () => {
+  it("the rich scenario seeds eight sessions across two repos", async () => {
     const { body } = await get("/api/sessions");
-    expect(body).toHaveLength(7);
+    expect(body).toHaveLength(8);
     expect(body.map((s: { id: string }) => s.id).sort()).toEqual(
-      ["authstore", "checkout-child", "coupon", "deps", "neon", "ogimg", "rounding"].sort(),
+      [
+        "authstore",
+        "checkout-child",
+        "coupon",
+        "deps",
+        "envflag",
+        "neon",
+        "ogimg",
+        "rounding",
+      ].sort(),
     );
     expect(new Set(body.map((s: { repoPath: string }) => s.repoPath))).toEqual(
       new Set(["/demo/acme/storefront", "/demo/acme/api"]),
@@ -133,8 +143,11 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect(r.status).toBe(200);
     expect(await r.json()).toEqual({ cleared: ["deps"], leftovers: 0 });
     expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
-    // re-querying the clearable set now returns none — deps is gone, not re-offered.
-    expect((await get("/api/sessions/clear-merged")).body).toEqual({ ids: [], leftovers: 0 });
+    // re-querying the clearable set now returns envflag only — deps is gone, not re-offered.
+    expect((await get("/api/sessions/clear-merged")).body).toEqual({
+      ids: ["envflag"],
+      leftovers: 0,
+    });
   });
 
   it("POST /api/sessions/clear-merged ignores an id that isn't actually merged", async () => {
@@ -282,14 +295,21 @@ describe("session-detail tab GETs never fall back to {}", () => {
 // `ensure_array_like` falls back to `Array.from`, which is `[]` for a plain `{}`), so this
 // gap never THREW — it just left a showcased lens (deps' one real owed step) empty.
 describe("GET /api/manual-steps/outstanding (Owed lens) is populated, never silently empty", () => {
-  it("returns deps' seeded owed step", async () => {
+  it("returns deps' + envflag's seeded owed steps", async () => {
     const { status, body } = await get("/api/manual-steps/outstanding");
     expect(status).toBe(200);
     expect(Array.isArray(body)).toBe(true);
-    expect(body).toHaveLength(1);
-    expect(body[0].sessionId).toBe("deps");
-    expect(body[0].steps).toHaveLength(1);
-    expect(body[0].steps[0].doneAt).toBeNull();
+    expect(body).toHaveLength(2);
+    const byId = new Map(
+      (body as { sessionId: string; steps: { doneAt: number | null }[] }[]).map((r) => [
+        r.sessionId,
+        r,
+      ]),
+    );
+    expect(byId.get("deps")!.steps).toHaveLength(1);
+    expect(byId.get("deps")!.steps[0].doneAt).toBeNull();
+    expect(byId.get("envflag")!.steps).toHaveLength(1);
+    expect(byId.get("envflag")!.steps[0].doneAt).toBeNull();
   });
 
   it("POST .../steps/:stepId ticks the step; dismiss clears the whole record", async () => {
@@ -302,6 +322,33 @@ describe("GET /api/manual-steps/outstanding (Owed lens) is populated, never sile
 
     const dismissRes = await handleApi("POST", u("/api/manual-steps/deps/dismiss"), {});
     expect(dismissRes.status).toBe(200);
-    expect((await get("/api/manual-steps/outstanding")).body).toEqual([]);
+    // deps is cleared; envflag's owed record is untouched and still outstanding.
+    const remaining = (await get("/api/manual-steps/outstanding")).body as { sessionId: string }[];
+    expect(remaining.map((r) => r.sessionId)).toEqual(["envflag"]);
+  });
+});
+
+// #1478 Part 2: the demo router previously had no ack-manual-steps route, so the
+// pre-merge "Ack steps" CTA was a silent no-op in the demo build.
+describe("POST /api/sessions/:id/ack-manual-steps (mirrors the real server handler)", () => {
+  it("stamps manualStepsAckedAt and returns {ok:true}", async () => {
+    expect(demoState.sessions().find((s) => s.id === "envflag")?.manualStepsAckedAt).toBeNull();
+    const r = await handleApi("POST", u("/api/sessions/envflag/ack-manual-steps"), undefined);
+    expect(r.status).toBe(200);
+    expect(await r.json()).toEqual({ ok: true });
+    expect(demoState.sessions().find((s) => s.id === "envflag")?.manualStepsAckedAt).not.toBeNull();
+  });
+
+  it("emits session:manual-steps with a non-null manualStepsAckedAt", async () => {
+    const frames: { event: string; data: unknown }[] = [];
+    const unsub = bus.subscribe((ev) => frames.push(ev));
+    try {
+      await handleApi("POST", u("/api/sessions/envflag/ack-manual-steps"), undefined);
+    } finally {
+      unsub();
+    }
+    const ev = frames.find((f) => f.event === "session:manual-steps");
+    expect(ev).toBeDefined();
+    expect((ev!.data as { manualStepsAckedAt: number | null }).manualStepsAckedAt).not.toBeNull();
   });
 });

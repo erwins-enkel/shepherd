@@ -146,6 +146,19 @@
   const hasBlockingManualSteps = $derived(
     session.manualStepsAckedAt == null && session.manualSteps.some((s) => !s.postMerge),
   );
+  // Terminal (merged/closed) cards no longer have an auto-merge gate to clear, so the
+  // Ack CTA is moot there (#1478). Merged additionally gets a verb label on the count
+  // chip since it's now the actual resolution route (→ Owed lens).
+  const isMerged = $derived(git?.state === "merged");
+  const isTerminal = $derived(git?.state === "merged" || git?.state === "closed");
+  // Verb label on merged cards (the count chip is the resolution route → Owed); neutral count
+  // elsewhere. Extracted from the template to keep it under the complexity bar.
+  const manualStepsChipLabel = $derived(
+    isMerged
+      ? m.unitrow_resolve_manual_steps({ count: session.manualSteps.length })
+      : m.unitrow_manual_steps({ count: session.manualSteps.length }),
+  );
+  const showAckCta = $derived(hasBlockingManualSteps && !isTerminal && !!onackmanualsteps);
   const repoIcon = $derived(projectIcons.iconFor(session.repoPath));
   const repoFiltered = $derived(repoFilter?.has(session.repoPath) ?? false);
   function toggleRepoFilter() {
@@ -769,7 +782,7 @@
               onshowowed?.(session.id);
             }}
           >
-            {m.unitrow_manual_steps({ count: session.manualSteps.length })}
+            {manualStepsChipLabel}
           </button>
         {:else}
           <span
@@ -779,7 +792,7 @@
             {m.unitrow_manual_steps({ count: session.manualSteps.length })}
           </span>
         {/if}
-        {#if hasBlockingManualSteps && onackmanualsteps}
+        {#if showAckCta}
           <button
             type="button"
             class="manual-steps-ack"
@@ -1377,8 +1390,12 @@
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
-  /* "Ack" CTA beside the manual-steps chip — warn-toned, micro, clears the auto-merge gate (#1060) */
+  /* "Ack" CTA beside the manual-steps chip — warn-toned, micro, clears the auto-merge gate (#1060).
+     Raised above the .unit-hit overlay (same pattern as .chip-manual-steps--link above) so it's
+     actually clickable — without this it silently sits under the row's full-card click target. */
   .manual-steps-ack {
+    position: relative;
+    z-index: 1;
     flex: none;
     font-family: var(--font-mono);
     font-size: var(--fs-micro);

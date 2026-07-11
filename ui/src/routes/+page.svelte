@@ -2390,6 +2390,9 @@
       owedFocusNonce += 1; // bump so re-clicking the same session re-fires
     }
     herdFilter = "owed";
+    // Force an on-demand refresh so a click on the chip never shows a client-stale
+    // frozen set (#1478) — the loaded-guarded loads above only fire once.
+    void postMergeStepsStore.load();
   }
 
   // Reports the panel's resolution of a focus click (live scroll+flash, frozen fallback, or a

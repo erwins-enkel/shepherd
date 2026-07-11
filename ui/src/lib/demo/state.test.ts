@@ -68,11 +68,20 @@ describe("demoState.reset() → bootstrap getters", () => {
   });
 });
 
-describe("the rich 7-session scenario is seeded coherently", () => {
-  it("all seven stable session ids are present with the expected states", () => {
+describe("the rich 8-session scenario is seeded coherently", () => {
+  it("all eight stable session ids are present with the expected states", () => {
     const byId = new Map(demoState.sessions().map((s) => [s.id, s]));
     expect([...byId.keys()].sort()).toEqual(
-      ["authstore", "checkout-child", "coupon", "deps", "neon", "ogimg", "rounding"].sort(),
+      [
+        "authstore",
+        "checkout-child",
+        "coupon",
+        "deps",
+        "envflag",
+        "neon",
+        "ogimg",
+        "rounding",
+      ].sort(),
     );
     expect(byId.get("coupon")!.status).toBe("running");
     expect(byId.get("coupon")!.lastState).toBe("working");
@@ -85,6 +94,10 @@ describe("the rich 7-session scenario is seeded coherently", () => {
     expect(byId.get("ogimg")!.mergingSince).not.toBeNull();
     expect(byId.get("deps")!.status).toBe("done");
     expect(byId.get("deps")!.manualSteps.length).toBeGreaterThan(0);
+    expect(byId.get("envflag")!.status).toBe("done");
+    expect(byId.get("envflag")!.manualSteps.length).toBeGreaterThan(0);
+    expect(byId.get("envflag")!.manualSteps[0].postMerge).toBe(false);
+    expect(byId.get("envflag")!.manualStepsAckedAt).toBeNull();
     expect(byId.get("checkout-child")!.autopilotEnabled).toBe(true);
   });
 
@@ -111,6 +124,7 @@ describe("the rich 7-session scenario is seeded coherently", () => {
     expect(git.rounding.checks).toBe("success");
     expect(git.ogimg.state).toBe("open"); // in merge train
     expect(git.deps.state).toBe("merged"); // done
+    expect(git.envflag.state).toBe("merged"); // done, un-acked pre-merge step (#1478)
   });
 
   it("holds cover the blocked question and the owed manual step", () => {
@@ -263,8 +277,8 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(demoState.sessions().find((s) => s.id === "coupon")).toBeUndefined();
   });
 
-  it("mergedClearable returns the merged, non-archived deps session", () => {
-    expect(demoState.mergedClearable()).toEqual({ ids: ["deps"], leftovers: 0 });
+  it("mergedClearable returns the merged, non-archived deps + envflag sessions", () => {
+    expect(demoState.mergedClearable()).toEqual({ ids: ["deps", "envflag"], leftovers: 0 });
   });
 
   it("clearMerged archives the merged ids, emits session:archived, and deps disappears", () => {
@@ -273,7 +287,8 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(events(frames)).toEqual(["session:archived"]);
     expect(result).toEqual({ cleared: ["deps"], leftovers: 0 });
     expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
-    expect(demoState.mergedClearable()).toEqual({ ids: [], leftovers: 0 });
+    // envflag is still merged + un-archived, so it's still offered.
+    expect(demoState.mergedClearable()).toEqual({ ids: ["envflag"], leftovers: 0 });
   });
 
   it("clearMerged skips ids that aren't actually merged", () => {

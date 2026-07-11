@@ -935,6 +935,81 @@ describe("UnitRow manual-steps chip", () => {
     await expect.element(page.getByTitle(m.unitrow_manual_steps_link())).not.toBeInTheDocument();
     await expect.element(page.getByText(m.unitrow_manual_steps({ count: 1 }))).toBeInTheDocument();
   });
+
+  // #1478: on a merged/closed card the auto-merge gate the Ack CTA used to clear no longer
+  // exists, so it must not render there; the count chip becomes the actual resolution route
+  // and gets a verb label on merged cards to read as the action.
+  it("open card: shows the Ack CTA and the neutral count-chip label", async () => {
+    let acked: string | null = null;
+    let shown: string | null = null;
+    render(UnitRow, {
+      session: session({
+        id: "ms3",
+        manualSteps: [{ id: "m1", text: "do a thing", postMerge: false }],
+        manualStepsAckedAt: null,
+      }),
+      git: { state: "open" } as never,
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onackmanualsteps: (id: string) => (acked = id),
+      onshowowed: (id: string) => (shown = id),
+    });
+    const ackBtn = page.getByTitle(m.unitrow_ack_manual_steps());
+    await expect.element(ackBtn).toBeInTheDocument();
+    await ackBtn.click();
+    expect(acked).toBe("ms3");
+    await expect.element(page.getByText(m.unitrow_manual_steps({ count: 1 }))).toBeInTheDocument();
+    expect(shown).toBe(null);
+  });
+
+  it("merged card: hides the Ack CTA and verb-labels the count chip → onshowowed", async () => {
+    let acked: string | null = null;
+    let shown: string | null = null;
+    render(UnitRow, {
+      session: session({
+        id: "ms4",
+        manualSteps: [{ id: "m1", text: "do a thing", postMerge: false }],
+        manualStepsAckedAt: null,
+      }),
+      git: { state: "merged" } as never,
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onackmanualsteps: (id: string) => (acked = id),
+      onshowowed: (id: string) => (shown = id),
+    });
+    await expect.element(page.getByTitle(m.unitrow_ack_manual_steps())).not.toBeInTheDocument();
+    const chip = page.getByText(m.unitrow_resolve_manual_steps({ count: 1 }));
+    await expect.element(chip).toBeInTheDocument();
+    await chip.click();
+    expect(shown).toBe("ms4");
+    expect(acked).toBe(null);
+  });
+
+  it("closed card: hides the Ack CTA and keeps the neutral count-chip label → onshowowed", async () => {
+    let acked: string | null = null;
+    let shown: string | null = null;
+    render(UnitRow, {
+      session: session({
+        id: "ms5",
+        manualSteps: [{ id: "m1", text: "do a thing", postMerge: false }],
+        manualStepsAckedAt: null,
+      }),
+      git: { state: "closed" } as never,
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onackmanualsteps: (id: string) => (acked = id),
+      onshowowed: (id: string) => (shown = id),
+    });
+    await expect.element(page.getByTitle(m.unitrow_ack_manual_steps())).not.toBeInTheDocument();
+    const chip = page.getByText(m.unitrow_manual_steps({ count: 1 }));
+    await expect.element(chip).toBeInTheDocument();
+    await chip.click();
+    expect(shown).toBe("ms5");
+    expect(acked).toBe(null);
+  });
 });
 
 describe("UnitRow stepper bar", () => {

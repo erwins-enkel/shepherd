@@ -639,6 +639,10 @@ export interface RundownEpicItem {
   stranded: boolean;
   /** Present when the auto-rebase pass is paused and operator action is needed (#1071). */
   pausedReason?: "cap" | "conflict" | "driver";
+  /** When true, the landing PR's CI is failing (terminal `checks:"failure"`, and NOT
+   *  behind/conflicting — those are the rebase pass's `pausedReason`). A distinct Tier-1 attention
+   *  item: not "ready", not "paused". */
+  ciFailing?: boolean;
 }
 
 /** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */

@@ -568,7 +568,8 @@ export function buildRundownPrompt(
 
   if (assembled.epics.length > 0) {
     const pausedEpics = assembled.epics.filter((e) => e.pausedReason != null);
-    const readyEpics = assembled.epics.filter((e) => e.pausedReason == null);
+    const readyEpics = assembled.epics.filter((e) => e.pausedReason == null && !e.ciFailing);
+    const ciFailingEpics = assembled.epics.filter((e) => e.ciFailing === true);
     const pauseReasonLabel = (r: "cap" | "conflict" | "driver"): string => {
       if (r === "cap") return "rebase cap exhausted — needs manual rebase/push";
       if (r === "conflict") return "genuine merge conflict — needs operator resolution";
@@ -604,6 +605,17 @@ export function buildRundownPrompt(
             `    - ${e.repo} #${e.parent} "${e.title}"` +
             (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
             (e.stranded ? " [STRANDED — unlanded well past threshold]" : ""),
+        ),
+      );
+    }
+    if (ciFailingEpics.length > 0) {
+      lines.push("  CI failing (landing PR red — needs attention):");
+      lines.push(
+        ...ciFailingEpics.map(
+          (e) =>
+            `    - ${e.repo} #${e.parent} "${e.title}"` +
+            (e.landingPr != null ? ` (landing PR #${e.landingPr})` : "") +
+            " [CI FAILING — needs attention]",
         ),
       );
     }

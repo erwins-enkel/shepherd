@@ -45,7 +45,14 @@ test("herd_digests: put→get round-trip (incl. JSON columns)", () => {
   expect(got?.ciRework).toEqual([{ label: "ci red", pr: 42 }]);
   expect(got?.focusNext).toEqual([{ label: "review migration" }]);
   expect(got?.epicsToLand).toEqual([
-    { repo: "/repo/a", parent: 7, title: "Epic A", landingPr: 99, stranded: true },
+    {
+      repo: "/repo/a",
+      parent: 7,
+      title: "Epic A",
+      landingPr: 99,
+      stranded: true,
+      ciFailing: false,
+    },
   ]);
   expect(got?.attentionFingerprint).toEqual({ s1: ["ci-red", "in-flight"] });
   expect(got?.model).toBe("claude-opus-4-8");

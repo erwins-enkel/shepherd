@@ -38,6 +38,7 @@ import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
+import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
@@ -783,6 +784,9 @@ export class HerdStore {
       case "queue:update":
         this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
         buildQueuesStore.upsert(ev.data);
+        break;
+      case "session:epic-draft":
+        epicDraftsStore.upsert(ev.data);
         break;
       case "post-merge-steps:changed":
         // Durable post-merge steps (#1061): refresh the Owed lens store if it's been opened.

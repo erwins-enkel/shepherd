@@ -64,6 +64,7 @@ function sess(over: Partial<Session> = {}): Session {
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     status: "blocked",
     lastState: "blocked",
     createdAt: 0,

@@ -253,6 +253,7 @@ function session(over: Partial<Session>): Session {
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,

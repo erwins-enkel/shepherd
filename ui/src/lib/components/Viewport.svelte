@@ -61,6 +61,7 @@
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
+  import EpicDraftPanel from "$lib/components/EpicDraftPanel.svelte";
   import SessionRecap from "$lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
@@ -2720,6 +2721,12 @@
       enabled={repoConfig.flags(session.repoPath).buildQueue}
       queue={buildQueue ?? null}
       onbootstrap={(q) => onSeedBuildQueue?.(q)}
+    />
+    <!-- epic draft review (issue #1507): shown for epic-authoring sessions (or when a draft exists) -->
+    <EpicDraftPanel
+      sessionId={session.id}
+      epicAuthoring={session.epicAuthoring}
+      sessionLive={session.status !== "archived" && session.status !== "done"}
     />
   {/if}
 

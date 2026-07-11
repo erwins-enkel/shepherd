@@ -41,6 +41,7 @@ function session(id: string, readyToMerge = false, status: SessionStatus = "runn
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     issueNumber: null,
     lastState: "working",
     createdAt: 0,

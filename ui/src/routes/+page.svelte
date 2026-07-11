@@ -661,6 +661,7 @@
   let composeAutopilot = $state<boolean | null>(null);
   let composeSandbox = $state<SandboxProfile | null>(null);
   let composeResearch = $state(false);
+  let composeEpicAuthoring = $state(false);
   // Re-entrancy guard so a double-invoke while staging is in flight doesn't double-seed.
   let relaunchStaging = $state(false);
   let backlog = $state<BacklogPayload | null>(null);
@@ -1833,6 +1834,7 @@
     composeAutopilot = null;
     composeSandbox = null;
     composeResearch = false;
+    composeEpicAuthoring = false;
   }
 
   // NewProject partial-success warning code → message map. A lookup (not a ternary
@@ -2009,11 +2011,13 @@
       researchChecked: boolean;
       planGateChecked: boolean;
       autopilotChecked: boolean;
+      epicAuthoringChecked?: boolean;
     };
     planGateEnabled: boolean | null;
     autopilotEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
     research: boolean;
+    epicAuthoring: boolean;
     force?: boolean;
   }) {
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere
@@ -2106,6 +2110,7 @@
     composeAutopilot = input.autopilotEnabled ?? null;
     composeSandbox = input.sandboxProfile ?? null;
     composeResearch = input.research ?? false;
+    composeEpicAuthoring = input.epicAuthoring ?? false;
     editHeldId = task.id;
     showNew = true;
   }
@@ -2973,6 +2978,7 @@
   {composeAutopilot}
   {composeSandbox}
   {composeResearch}
+  {composeEpicAuthoring}
   usageLimits={store.usageLimits}
   holdLikely={composeHoldLikely}
   onnewclose={() => {

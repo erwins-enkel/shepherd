@@ -64,6 +64,7 @@ function session(partial: Partial<Session> & { id: string }): Session {
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     issueNumber: null,
     lastState: "",
     createdAt: 0,

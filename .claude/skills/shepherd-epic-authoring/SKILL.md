@@ -52,6 +52,16 @@ Only the **first** fenced dag block in a body is parsed — keep exactly one.
 checklist without `#<n>` issue references, front-matter, or HTML markers. None
 of these exist in Shepherd's parser — don't reach for them.
 
+## Draft-only mode (Shepherd epic-draft flow)
+
+If the system prompt carries an **`<epic-authoring-directive>`** with an epic-draft endpoint
+(`PUT …/api/sessions/<id>/epic-draft`), Shepherd's guided epic-draft flow is driving this session.
+In that mode the hard gate and the GitHub writes are **owned by the server**: follow ONLY the
+decomposition guidance below (Stage 1), emit the draft by PUTting it to that endpoint, then **STOP**.
+Do **not** perform Stages 3–5 (`gh issue create`/`gh issue edit`, the epic-import endpoint) — the
+operator approves the draft in the UI and the server materializes it. The directive is authoritative;
+this skill only lends it the slicing/authoring guidance.
+
 ## Stages
 
 Work the stages in order; track one todo per stage. **Nothing outward (issue

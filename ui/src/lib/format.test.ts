@@ -213,6 +213,7 @@ describe("autopilotBadgeShown", () => {
           isolated: false,
           autopilotEnabled: true,
           research: true,
+          epicAuthoring: false,
         }),
         false,
       ),

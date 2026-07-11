@@ -36,6 +36,7 @@ const s = (id: string, status: any = "running"): Session => ({
   egressApplied: false,
   egressDegraded: false,
   research: false,
+  epicAuthoring: false,
   issueNumber: null,
   lastState: "working",
   createdAt: 0,

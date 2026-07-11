@@ -55,11 +55,13 @@ import type {
   SubagentEntry,
   BuildQueue,
   BuildStepStatus,
+  EpicDraft,
   PullResult,
   RelaunchOverrides,
   Epic,
   EpicRun,
   EpicSummary,
+  EpicDiagnosis,
   Recap,
   CompletedEpic,
   HerdDigest,
@@ -2060,6 +2062,24 @@ export async function approveBuildQueue(sessionId: string): Promise<BuildQueue> 
   return r.json();
 }
 
+/** Read a session's epic draft (issue #1507), or null when none has been authored. */
+export async function getEpicDraft(sessionId: string): Promise<EpicDraft | null> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft`, "epic-draft");
+}
+
+/** Approve an epic draft — the HARD GATE that materializes it into GitHub issues + links.
+ *  Returns the created parent number/url + child numbers. */
+export async function approveEpicDraft(
+  sessionId: string,
+): Promise<{ parentNumber: number; parentUrl: string; childNumbers: Record<string, number> }> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft/approve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "epic-draft approve");
+  return r.json();
+}
+
 /** Current "star us on GitHub?" nudge status. */
 export async function getStarPrompt(): Promise<StarPromptStatus> {
   const r = await fetch("/api/star-prompt");
@@ -2156,6 +2176,13 @@ export async function getEpics(
 
 export async function getEpic(repoPath: string, parent: number): Promise<Epic> {
   return getJson(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, "get epic");
+}
+
+export async function diagnoseEpic(repoPath: string, parent: number): Promise<EpicDiagnosis> {
+  return getJson(
+    `/api/epic/diagnose?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,
+    "diagnose epic",
+  );
 }
 
 export async function updateEpic(

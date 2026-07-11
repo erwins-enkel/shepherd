@@ -108,9 +108,13 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L2474-2491, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L2591-2610, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
-  autonomous firewall would block. It is operator-_created_ (cannot be
+  autonomous firewall would block. The same downgrade applies to an
+  **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
+  open web/repo egress to shape a draft — though unlike research it creates **no
+  GitHub issues itself**: the hard write-gate is that only the server-side approve
+  route materializes the draft. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
   `src/autopilot.ts:24-29`, dispatched at L323). It ingests **untrusted web**

@@ -128,6 +128,58 @@ test("GET /api/issues?repo outside root → 400", async () => {
   expect(res.status).toBe(400);
 });
 
+// ── blockedBy merge (listBlockedByOpen) ───────────────────────────────────
+
+test("GET /api/issues merges blockedBy onto matching issues", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listBlockedByOpen: async () => new Map([[1, [42, 43]]]),
+      }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  const body = await res.json();
+  expect(body.issues).toEqual([{ ...ISSUE, blockedBy: [42, 43] }]);
+});
+
+test("GET /api/issues leaves blockedBy unset for issues absent from the blocked map", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listBlockedByOpen: async () => new Map([[999, [1]]]),
+      }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  const body = await res.json();
+  expect(body.issues).toEqual([ISSUE]);
+});
+
+test("GET /api/issues without listBlockedByOpen (optional) → issues returned unmodified", async () => {
+  const app = makeApp(makeDeps(() => fakeForge())); // fakeForge has no listBlockedByOpen
+  const res = await app.fetch(req(repoDir));
+  const body = await res.json();
+  expect(body.issues).toEqual([ISSUE]);
+});
+
+test("GET /api/issues: a failing listBlockedByOpen fails open — issues still return", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({
+        listBlockedByOpen: async () => {
+          throw new Error("dependency query failed");
+        },
+      }),
+    ),
+  );
+  const res = await app.fetch(req(repoDir));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.issues).toEqual([ISSUE]);
+  expect(body.error).toBeUndefined();
+});
+
 // ── POST /api/issues (handleIssueCreate) ─────────────────────────────────────
 
 function postIssue(

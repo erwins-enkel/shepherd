@@ -131,7 +131,7 @@ import {
   recordSocketAttach,
   recordFallback,
 } from "./terminal-transport-metrics";
-import type { GitForge, GitState, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
+import type { GitForge, GitState, Issue, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
@@ -4961,6 +4961,23 @@ async function handleBranchStatus({ req, parts, url }: Ctx): Promise<Response | 
   return null;
 }
 
+/** Fetch a repo's open issues and, best-effort, attach each one's still-open blockers
+ *  (GitHub issue dependencies) as `blockedBy`. The blocked-map fetch fails open — a missing
+ *  method (Gitea/local) or a forge error yields no annotations, never a failed request. */
+async function listIssuesWithBlockers(forge: GitForge): Promise<Issue[]> {
+  const [issues, blockedByOpen] = await Promise.all([
+    forge.listIssues(),
+    Promise.resolve(forge.listBlockedByOpen?.())
+      .catch(() => null)
+      .then((m) => m ?? new Map<number, number[]>()),
+  ]);
+  for (const i of issues) {
+    const b = blockedByOpen.get(i.number);
+    if (b && b.length > 0) i.blockedBy = b;
+  }
+  return issues;
+}
+
 async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "issues" && !parts[2]) {
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
@@ -4968,10 +4985,11 @@ async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | 
     const forge = deps.resolveForge?.(dir) ?? null;
     if (!forge) return json({ slug: null, webUrl: null, issues: [], viewer: null });
     try {
+      const issues = await listIssuesWithBlockers(forge);
       return json({
         slug: forge.slug,
         webUrl: forge.webUrl ?? null,
-        issues: await forge.listIssues(),
+        issues,
         // The operator's own login, so the UI's "mine & unassigned" filter (#824)
         // knows who "me" is. Cached in the forge, so no per-request gh cost after
         // the first call. null when the host can't resolve it (fail open → show all).

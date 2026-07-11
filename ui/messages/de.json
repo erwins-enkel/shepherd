@@ -2848,5 +2848,8 @@
   "recap_skip_evidence_merged_pr": "PR #{pr} gemergt",
   "recap_skip_evidence_merged_pr_no_number": "PR gemergt",
   "recap_skip_evidence_review": "PR-Review für diesen Head erfasst",
-  "recap_skip_evidence_existing_recap": "vorhandene Zusammenfassung erfasste geänderte Dateien"
+  "recap_skip_evidence_existing_recap": "vorhandene Zusammenfassung erfasste geänderte Dateien",
+  "issuerow_blocked_on": "blockiert durch {deps}",
+  "feat_blocked_issues_title": "Blockierte Issues bleiben dir aus dem Weg",
+  "feat_blocked_issues_body": "Up Next schlägt keine Issues mehr vor, die durch eine offene Abhängigkeit blockiert sind, und das Backlog kennzeichnet sie jetzt mit einem \"blockiert durch #N\"-Badge, damit du siehst, worauf sie warten."
 }

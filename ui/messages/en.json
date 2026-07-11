@@ -2848,5 +2848,8 @@
   "recap_skip_evidence_merged_pr": "merged PR #{pr}",
   "recap_skip_evidence_merged_pr_no_number": "merged PR",
   "recap_skip_evidence_review": "PR review recorded for this head",
-  "recap_skip_evidence_existing_recap": "existing recap recorded changed files"
+  "recap_skip_evidence_existing_recap": "existing recap recorded changed files",
+  "issuerow_blocked_on": "blocked on {deps}",
+  "feat_blocked_issues_title": "Blocked issues stay out of your way",
+  "feat_blocked_issues_body": "Up Next no longer suggests issues that are blocked by an open dependency, and the backlog now flags them with a \"blocked on #N\" badge so you can see what they're waiting on."
 }

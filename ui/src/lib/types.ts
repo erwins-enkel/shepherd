@@ -194,6 +194,9 @@ export interface Issue {
    *  `user.login`). Absent on hosts/paths that don't fetch it. Surfaced as the "by {login}"
    *  row text and drives the author filter. */
   author?: string;
+  /** Numbers of the issue's still-OPEN blockers (GitHub issue dependencies), attached by
+   *  /api/issues. Absent/empty ⇒ not blocked. Drives the "blocked on #N" badge. */
+  blockedBy?: number[];
 }
 
 /** Subset of an Issue attached to a task by reference (body rides out-of-band). */

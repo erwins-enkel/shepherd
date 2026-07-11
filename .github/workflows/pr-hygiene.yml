@@ -5,7 +5,11 @@ name: PR hygiene
 # branches drags their commits + a bloated diff into the PR).
 on:
   pull_request:
-    branches: [main]
+    # Include epic integration branches so epic-child PRs are gated too (the epic
+    # drain needs green CI). The hygiene scripts below are scoped to the PR's real
+    # base via BASE_REF, so they compare against the epic branch — not main — and
+    # don't false-fail on the epic branch's own accumulated commits.
+    branches: [main, "epic/**"]
 
 # Least privilege: these jobs only read git + run local check scripts. Without an
 # explicit block the token inherits the repo/org default (write-all unless the repo
@@ -26,6 +30,15 @@ jobs:
     if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
     # Pinned to GitHub-hosted — public repo, no CI_RUNNER toggle (see ci.yml).
     runs-on: ubuntu-latest
+    # Scope the range-based checks (branch-hygiene, feature-catalog, announcement-
+    # versions — all honour $BASE_REF, default origin/main) to the PR's ACTUAL base.
+    # For a PR targeting main this is origin/main (unchanged). For an epic-child PR
+    # it's the epic integration branch, so the checks measure only the child's own
+    # commits instead of dragging in the epic branch's accumulated history off main.
+    # checkout below is fetch-depth:0, so origin/<base_ref> resolves (as ci.yml's
+    # Fallow audit already relies on).
+    env:
+      BASE_REF: origin/${{ github.base_ref }}
     steps:
       - name: Checkout PR head (the real branch tip, not the merge ref)
         uses: actions/checkout@v7

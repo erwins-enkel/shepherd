@@ -1,8 +1,16 @@
 version: 2
 updates:
   # Bun version updates across all three packages. Bun *security* updates are
-  # unsupported by Dependabot and are disabled at the repo level; daily keeps the
-  # version-update (= effective security-fix) latency to ~1 day.
+  # unsupported by Dependabot and are disabled at the repo level; daily scheduling
+  # keeps the version-update (= effective security-fix) channel fresh.
+  #
+  # `cooldown` is a supply-chain guard: don't open a bump PR until the new version
+  # has aged (compromised npm publishes are near-always yanked within hours). It
+  # applies to *version* updates only — security-update PRs are exempt — but since
+  # bun security updates are disabled here, this does delay the effective security
+  # fix by the cooldown window. 3 days is the deliberate balance (matches the
+  # `minimumReleaseAge` in each bunfig.toml); bump a package manually if a genuine
+  # CVE fix can't wait.
   - package-ecosystem: "bun"
     directories:
       - "/"
@@ -10,6 +18,9 @@ updates:
       - "/extension"
     schedule:
       interval: "daily"
+    cooldown:
+      default-days: 3
+      semver-major-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore(deps)"

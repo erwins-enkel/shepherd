@@ -30,6 +30,7 @@ import {
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
+import { operatorLanguageBlock } from "../src/operator-language";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseTrimAutoContext } from "../src/config";
@@ -2673,6 +2674,55 @@ test("resume omits --model when the session had none", async () => {
     "--settings",
     spawnSettingsOverlay(),
   ]);
+});
+
+// #1624: a "de" operator-language re-carries the <operator-language> block on the Claude resume
+// argv via --append-system-prompt (the one narrow #499 exception). "en" stays byte-identical
+// (asserted by the two byte-identity tests above, which run under the default "en" config).
+test("resume re-appends ONLY the operator-language block when operatorLanguage=de", async () => {
+  const prev = config.operatorLanguage;
+  config.operatorLanguage = "de";
+  try {
+    const store = new SessionStore(":memory:");
+    const calls: any = {};
+    const svc = new SessionService({
+      store,
+      namer: async () => "x",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+        branchExists: () => false,
+      } as any,
+      herdr: {
+        start: async (_n: string, _c: string, argv: string[]) => {
+          calls.argv = argv;
+          return { terminalId: "term_new", agentStatus: "working" } as any;
+        },
+        list: () => [],
+        stop: async () => {},
+        send: () => {},
+      } as any,
+    });
+    const s = resumable(store, { model: null });
+    await svc.resume(s.id);
+    const block = operatorLanguageBlock("de")!;
+    expect(calls.argv).toEqual([
+      "claude",
+      "--dangerously-skip-permissions",
+      "--resume",
+      "abc-123",
+      "--settings",
+      spawnSettingsOverlay(),
+      "--append-system-prompt",
+      block,
+    ]);
+    // carries ONLY the operator-language block — none of the fresh-spawn directive blocks
+    expect(block).toContain("<operator-language>");
+    expect(block).not.toContain("<engineering-posture>");
+  } finally {
+    config.operatorLanguage = prev;
+  }
 });
 
 test("resume uses codex resume --last for codex sessions", async () => {

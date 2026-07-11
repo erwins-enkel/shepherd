@@ -11,6 +11,8 @@
  * (it needs a live herdr daemon + a scratch pane). Run it after bumping herdr:
  *   bun scripts/verify-herdr-terminal.ts
  */
+export {}; // make this a module so top-level await is allowed under tsc
+
 const herdrBin = process.env.HERDR_BIN || "herdr";
 const SCRATCH_LABEL = "__verify_herdr_terminal__";
 

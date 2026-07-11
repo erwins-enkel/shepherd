@@ -41,7 +41,7 @@
       await runDiagnosis();
     } catch {
       toasts.info(m.epic_import_failed(), {
-        duration: null,
+        sticky: true,
         alert: true,
         key: "epic-diag-import-fail",
       });

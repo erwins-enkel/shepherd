@@ -48,7 +48,7 @@
     } catch (e) {
       toasts.info(e instanceof Error ? e.message : m.epicdraft_approve_failed(), {
         key: `epicdraft-approve-${sessionId}`,
-        duration: null,
+        sticky: true,
         alert: true,
       });
     } finally {
@@ -66,7 +66,7 @@
     } catch {
       toasts.info(m.epicdraft_amend_failed(), {
         key: `epicdraft-amend-${sessionId}`,
-        duration: null,
+        sticky: true,
         alert: true,
       });
     }
@@ -82,7 +82,7 @@
     } catch {
       toasts.info(m.epicdraft_abort_failed(), {
         key: `epicdraft-abort-${sessionId}`,
-        duration: null,
+        sticky: true,
         alert: true,
       });
     }

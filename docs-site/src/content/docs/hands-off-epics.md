@@ -11,6 +11,9 @@ intervention** — it only stops on a genuine blocker.
 This page documents the best-practice **automation-pane** settings for that, and what will still
 stop the epic (so hands-off never means unsafe).
 
+> Don't have an epic yet? See [Authoring an epic](/authoring-epics/) to structure one Shepherd
+> recognizes, then come back here to drain it.
+
 > The automation pane holds **repo-wide** defaults — "Repo automation", not this task alone.
 > The "Apply hands-off defaults" button on the Epic panel writes these same repo-wide defaults, so
 > they apply to every task in the repo, not only the epic you launched it from.
@@ -86,8 +89,9 @@ in-flight work running and resumes on its own — and only a few are **terminal*
 
 ## Starting the epic
 
-1. Make sure the epic exists (a parent issue with sub-issues or an `epic-dag` body). See
-   [Concepts & glossary](/reference/glossary/) for the epic model.
+1. Make sure the epic exists (a parent issue with sub-issues or an `epic-dag` body) — see
+   [Authoring an epic](/authoring-epics/) to create one, and [Concepts & glossary](/reference/glossary/)
+   for the epic model.
 2. Open the epic's panel from its issue row.
 3. If it's your first epic, the **Run this epic hands-off** panel offers **Apply hands-off
    defaults** — or set the pane manually per the table above.

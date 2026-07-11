@@ -235,8 +235,10 @@ export class DrainService {
   // same landingAttempts → lose an increment. This set makes the second invocation a
   // no-op; it'll be retried next tick anyway.
   private landingInFlight = new Set<string>();
-  /** repoPath#parent#headSha → count of automatic landing-CI reruns spent on that head (C). */
-  private landingRerunCount = new Map<string, number>();
+  /** Automatic landing-CI reruns (C), keyed `${repoPath}#${parentIssueNumber}` → the current head +
+   *  reruns spent on it. A new head replaces the entry (reset), and a successful/terminal land deletes
+   *  it — so the map stays bounded to live epics, mirroring `landMergeFail`. In-memory (ephemeral). */
+  private landingRerunCount = new Map<string, { head: string; count: number }>();
   // Auto-land (#1044) per-epic merge-error backoff, keyed `${repoPath}#${parentIssueNumber}`:
   // consecutive merge failures on the current landing-PR head + when the epic is blocked until.
   // A new head or a success clears the entry. In-memory (ephemeral); mirrors AutoMergeService.
@@ -1394,14 +1396,16 @@ export class DrainService {
       return;
 
     const head = pr.headSha ?? "";
-    const cntKey = `${repoPath}#${parent}#${head}`;
-    const used = this.landingRerunCount.get(cntKey) ?? 0;
+    const key = `${repoPath}#${parent}`;
+    // A new head resets the budget (new commits = a fresh failure to absorb); same head accumulates.
+    const prior = this.landingRerunCount.get(key);
+    const used = prior && prior.head === head ? prior.count : 0;
     if (used >= LANDING_RERUN_CAP) return; // budget spent on this head → leave to landingCiFailing
 
     const runId = await latestFailedRunForPr(prNumber);
     if (runId == null) return; // fork-origin PR / no failed run resolvable
     await rerunWorkflowRun(runId, { failedOnly: true });
-    this.landingRerunCount.set(cntKey, used + 1);
+    this.landingRerunCount.set(key, { head, count: used + 1 });
     console.warn(
       `[drain] rerunning failed landing CI for ${repoPath}#${parent} (run ${runId}, ${used + 1}/${LANDING_RERUN_CAP})`,
     );
@@ -1507,6 +1511,7 @@ export class DrainService {
       return;
     }
     this.landMergeFail.delete(key); // success clears any backoff
+    this.landingRerunCount.delete(key); // landed → drop the rerun budget entry
     this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", pr);
   }
 
@@ -1535,11 +1540,13 @@ export class DrainService {
     }
     if (live && live.state === "merged") {
       this.landMergeFail.delete(key);
+      this.landingRerunCount.delete(key); // terminal → drop the rerun budget entry
       this.reconcileAutoLand(repoPath, parentIssueNumber, "merged", live);
       return;
     }
     if (live && (live.state === "closed" || live.state === "none")) {
       this.landMergeFail.delete(key);
+      this.landingRerunCount.delete(key); // terminal → drop the rerun budget entry
       this.reconcileAutoLand(repoPath, parentIssueNumber, "none", live);
       return;
     }

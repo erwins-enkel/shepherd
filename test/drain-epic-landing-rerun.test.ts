@@ -387,6 +387,28 @@ describe("rerunRedLandingCiForRepo (C)", () => {
     expect(h.spy.rerunCalls).toHaveLength(CAP + 1);
   });
 
+  test("bounded map: successive heads on one landing keep a SINGLE per-parent entry (not one per head)", async () => {
+    let head = "h1";
+    const h = makeHarness({
+      autoMergeEnabled: true,
+      prStatus: async () => redPr({ headSha: head }),
+      latestFailedRunForPr: async () => 42,
+    });
+    seedOpenLanding(h);
+
+    for (const nextHead of ["h1", "h2", "h3"]) {
+      head = nextHead;
+      await callRerunPass(h);
+    }
+
+    // The old per-head-SHA keying grew one entry per head (would be 3 here) and never evicted; the
+    // per-`repoPath#parent` keying self-replaces on each new head, so the map stays bounded to live
+    // epics. This is the regression guard for the unbounded-growth finding.
+    const map = (h.drain as unknown as { landingRerunCount: Map<string, unknown> })
+      .landingRerunCount;
+    expect(map.size).toBe(1);
+  });
+
   // ── skip cases (no rerun) ────────────────────────────────────────────────────
 
   test("skips: mergeStateStatus=behind (rebase pass's territory)", async () => {

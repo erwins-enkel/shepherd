@@ -803,6 +803,41 @@ export function epicAuthoringDirective(args: {
 }
 
 /**
+ * Injected as the highest-priority directive for an epic-landing-PR REPAIR session
+ * (`landingRepair: true`). Spawned by the drain (Task 5) when an epic's landing PR is RED — the
+ * failing integration branch is already checked out as the working branch. The session's sole job
+ * is to drive that branch's CI green and push the fix straight to it; it opens NO pull request (the
+ * landing PR already exists and its head is the checked-out branch — a plain `git push` is the
+ * entire deliverable). Like research/epicAuthoring it SUPPRESSES the plan-gate, autopilot, and
+ * build-queue blocks (see composeSystemPrompt) — none of those fit a push-only repair with no PR
+ * deliverable. Unlike research/epicAuthoring it is UNATTENDED (auto-spawned by the drain), so it
+ * carries no "ask the operator" clause. Not user-facing chrome (an instruction to the agent), so no
+ * i18n — same precedent as the other spawn-constant directives.
+ *
+ * Provider-adjusted: Claude can fan out investigation to sub-agents (the Task tool); Codex has no
+ * sub-agent capability, so its variant investigates directly. The push/no-PR rules are identical
+ * across providers.
+ */
+function landingRepairDirective(agentProvider: AgentProvider): string {
+  const investigate =
+    agentProvider === "codex"
+      ? "Inspect the failing checks directly — `gh pr checks <n>`, `gh run view`, read the logs.\n"
+      : "Inspect the failing checks — `gh pr checks <n>`, `gh run view`, read the logs — dispatching " +
+        "sub-agents to investigate in parallel if it helps.\n";
+  return (
+    "You are repairing a RED epic LANDING pull request — the failing integration branch is " +
+    "already checked out as your working branch.\n" +
+    "- Goal: drive that branch's CI green.\n" +
+    investigate +
+    "- Find the cause (code/test/config drift or a gate failure), fix it, and commit.\n" +
+    "- Push the fix DIRECTLY to the current branch — a plain `git push` (the branch tracks the " +
+    "epic integration branch), which updates the open landing PR's head and re-triggers its CI.\n" +
+    "- Do NOT open a pull request; do NOT run `gh pr create` — there is no child PR for this work.\n" +
+    "- When CI is green, or once you have pushed your best fix, you are done."
+  );
+}
+
+/**
  * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
  *
  * The build queue is a per-session, ordered, self-revising plan: the agent authors it via a
@@ -1203,6 +1238,7 @@ function primaryDirectiveBlock(
   opts: {
     research?: boolean;
     epicAuthoring?: string | null;
+    landingRepair?: boolean;
     planGate?: "interactive" | "auto";
     operatorLanguage?: OperatorLanguage;
   },
@@ -1215,6 +1251,11 @@ function primaryDirectiveBlock(
   }
   if (opts.research) {
     return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
+  }
+  // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
+  // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
+  if (opts.landingRepair) {
+    return `<landing-repair-directive>\n${landingRepairDirective(agentProvider)}\n</landing-repair-directive>`;
   }
   if (opts.planGate) {
     const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
@@ -1238,6 +1279,9 @@ export function composeSystemPrompt(
     /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
      *  When set it is the primary directive and suppresses the same blocks as `research`. */
     epicAuthoring?: string | null;
+    /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
+     *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
+    landingRepair?: boolean;
     planGate?: "interactive" | "auto";
     buildQueue?: string | null;
     previewHint?: boolean;
@@ -1270,12 +1314,14 @@ export function composeSystemPrompt(
   // house-rules block.
   blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
-  // session (caps at one report-PR/issue) and an epic-authoring session (issue #1507 — its
-  // deliverable is the EPIC, no PR at all), where the block would muddy the deliverable.
-  // Research and epic-authoring are the two non-code modes: both cap at a non-PR deliverable, so the
-  // PR-oriented blocks (single-PR invariant, manual-steps, epic-intent notice, build-queue) are
-  // suppressed. One precomputed flag keeps the conditions branch-light (complexity cap).
-  const nonCodeMode = opts.research || opts.epicAuthoring;
+  // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
+  // deliverable is the EPIC, no PR at all), and a landing-repair session (its deliverable is a push
+  // to the existing landing PR, no new PR), where the block would muddy the deliverable.
+  // Research, epic-authoring, and landing-repair are the three non-code modes: each caps at a
+  // non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual-steps,
+  // epic-intent notice, build-queue) are suppressed. One precomputed flag keeps the conditions
+  // branch-light (complexity cap).
+  const nonCodeMode = opts.research || opts.epicAuthoring || opts.landingRepair;
   if (!nonCodeMode) {
     blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
@@ -2283,6 +2329,7 @@ export class SessionService {
     return composeSystemPrompt(houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
+      landingRepair: input.landingRepair,
       planGate,
       buildQueue,
       previewHint: isolated,
@@ -2615,9 +2662,13 @@ export class SessionService {
    * is a report PR / issue, not a planned-then-implemented code change — so force it off
    * (which also yields planPhase: null). An epic-authoring task (#1507) is the same case: its
    * deliverable is an EPIC draft, not planned code, and it runs its own guided-shaping directive.
+   * A landing-repair task is likewise exempt: it drives an existing red landing PR's CI green and
+   * runs its own repair directive (nonCodeMode already suppresses the plan-gate directive in the
+   * prompt, so the gate machinery must match — and it is drain-spawned/unattended, with no operator
+   * to plan with).
    */
   private resolvePlanGateOn(input: CreateSessionInput, repoConfig: RepoConfig): boolean {
-    if (input.research || input.epicAuthoring) return false;
+    if (input.research || input.epicAuthoring || input.landingRepair) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
 
@@ -2868,6 +2919,7 @@ export class SessionService {
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,
         epicAuthoring: spawnInput.epicAuthoring ?? false,
+        landingRepair: spawnInput.landingRepair ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -2920,6 +2972,7 @@ export class SessionService {
         agentProvider,
         autopilot: spawnInput.autopilotEnabled ?? false,
         research: session.research,
+        landingRepair: session.landingRepair,
         planGate: planGateOn,
         fromIssue: session.issueNumber != null,
       });
@@ -3046,6 +3099,8 @@ export class SessionService {
       // Carry the epic-authoring flag so a relaunch keeps its no-GitHub-write gate directive
       // (buildSpawnArgv re-derives the directive from the spawn input — #1507).
       epicAuthoring: pickOverride(overrides?.epicAuthoring, s.epicAuthoring),
+      // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
+      landingRepair: pickOverride(overrides?.landingRepair, s.landingRepair),
       images,
       attachmentNames,
       launchUiState: overrides?.launchUiState,
@@ -3118,6 +3173,7 @@ export class SessionService {
       autopilotEnabled: s.autopilotEnabled,
       research: s.research,
       epicAuthoring: s.epicAuthoring,
+      landingRepair: s.landingRepair,
       auto: false,
     };
     const composed = await this.composePromptArg(input, s.worktreePath);

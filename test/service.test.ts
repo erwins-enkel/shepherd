@@ -147,6 +147,7 @@ test("createSession: emits session_created telemetry exactly once with primitive
     agentProvider: "claude",
     autopilot: false,
     research: false,
+    landingRepair: false,
     planGate: false,
     fromIssue: false,
   });
@@ -243,6 +244,7 @@ test("createSession: session_created props map each to its own source (distinct-
     agentProvider: "claude",
     autopilot: true,
     research: false,
+    landingRepair: false,
     planGate: true,
     fromIssue: true,
   });
@@ -4403,6 +4405,10 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
   expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
     "<single-pr-invariant>",
   );
+  // Suppressed for a landing-repair deliverable (#1667-derivative): push-only, no PR to invariant-check.
+  expect(composeSystemPrompt(null, false, { landingRepair: true })).not.toContain(
+    "<single-pr-invariant>",
+  );
 });
 
 test("composeSystemPrompt rides the manual-steps notice on code spawns, never on research", () => {
@@ -4426,6 +4432,10 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
   expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
     "<manual-steps-notice>",
   );
+  // Landing repair opens no code PR either — suppressed, same as research.
+  expect(composeSystemPrompt(null, false, { landingRepair: true })).not.toContain(
+    "<manual-steps-notice>",
+  );
 });
 
 test("composeSystemPrompt rides the epic-authoring notice only on epicIntent, never on research", () => {
@@ -4446,6 +4456,9 @@ test("composeSystemPrompt rides the epic-authoring notice only on epicIntent, ne
     "<epic-authoring-notice>",
   );
   expect(composeSystemPrompt(null, false, { research: true, epicIntent: true })).not.toContain(
+    "<epic-authoring-notice>",
+  );
+  expect(composeSystemPrompt(null, false, { landingRepair: true, epicIntent: true })).not.toContain(
     "<epic-authoring-notice>",
   );
 });
@@ -6765,6 +6778,87 @@ test("create non-research: build queue IS pre-approved with buildQueueEnabled + 
     images: [],
   });
   expect(store.getBuildQueue(s.id).approved).toBe(true);
+});
+
+// ── landingRepair task kind ─────────────────────────────────────────────────
+
+test("composeSystemPrompt: landingRepair is the highest-priority directive (suppresses plan-gate, autopilot, build-queue)", () => {
+  const sp = composeSystemPrompt(null, true, {
+    landingRepair: true,
+    planGate: "interactive",
+    buildQueue: "QUEUE",
+  });
+  expect(sp).toContain("<landing-repair-directive>");
+  expect(sp).not.toContain("<autopilot-directive>");
+  expect(sp).not.toContain("<plan-gate-directive>");
+  expect(sp).not.toContain("<build-queue>");
+  expect(sp).not.toContain("<single-pr-invariant>");
+});
+
+test("composeSystemPrompt: a non-landingRepair call with the same opts still carries plan-gate + build-queue", () => {
+  const sp = composeSystemPrompt(null, true, {
+    landingRepair: false,
+    planGate: "interactive",
+    buildQueue: "QUEUE",
+  });
+  expect(sp).not.toContain("<landing-repair-directive>");
+  expect(sp).toContain("<plan-gate-directive>");
+  expect(sp).toContain("<build-queue>");
+});
+
+test("landingRepairDirective: repair-and-push substance, no PR", () => {
+  const sp = composeSystemPrompt(null, false, { landingRepair: true });
+  // Anchor on the durable substance from the task brief, not incidental wording.
+  expect(sp).toContain("epic LANDING pull request");
+  expect(sp).toContain("already checked out");
+  expect(sp).toContain("drive that branch's CI green");
+  expect(sp).toContain("git push");
+  expect(sp).toContain("Do NOT open a pull request");
+  expect(sp).toContain("gh pr create");
+});
+
+test("create landingRepair: persists landingRepair flag; non-landingRepair stays false", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(injectDeps(store, captured) as any);
+  const r = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "repair the landing PR",
+    model: null,
+    images: [],
+    landingRepair: true,
+  });
+  expect(store.get(r.id)?.landingRepair).toBe(true);
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).toContain("<landing-repair-directive>");
+  const n = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "y",
+    model: null,
+    images: [],
+  });
+  expect(store.get(n.id)?.landingRepair).toBe(false);
+});
+
+test("create landingRepair: plan gate forced off even when repo planGateEnabled is true", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(buildQueueDeps(store, captured, { planGateEnabled: true }) as any);
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "repair the landing PR",
+    model: null,
+    images: [],
+    landingRepair: true,
+  });
+  expect(s.planPhase).toBeNull();
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).not.toContain("<plan-gate-directive>");
+  expect(sp).toContain("<landing-repair-directive>");
+  expect(s.landingRepair).toBe(true);
 });
 
 /** A service whose worktree/herdr stubs satisfy the sandbox path (gitCommonDir present),

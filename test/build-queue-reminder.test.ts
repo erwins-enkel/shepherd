@@ -179,6 +179,60 @@ test("plan gate: planning suppresses, then executing nudges once after a post-fl
   expect(h.steers).toEqual([RECONCILE_STEER]);
 });
 
+// ── sweep: #1617 event-driven arming (burst race, boundary, discriminator) ──
+
+test("burst missed by the 15s sweep: markRan (poller 1Hz event) arms where the sweep alone can't", async () => {
+  const h = harness("idle", queue(true, ["pending", "pending", "pending"]));
+  h.state.planPhase = "executing";
+
+  // The agent's herdr-`working` burst falls entirely between two 15s sweeps, so the sweep NEVER
+  // samples "running". This is the pre-fix behavior: sawRunning never arms → a drifted, settled-idle
+  // executing session gets ZERO steers (the #1617 bug).
+  await h.svc.sweep(); // first idle tick → idleSince
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep(); // settled, but sawRunning false → no steer
+  expect(h.steers).toHaveLength(0);
+
+  // The fix: the poller caught the same burst at 1 Hz and emitted session:status "running" →
+  // markRan. Now the settled-idle drifted session nudges exactly once.
+  h.svc.markRan("S");
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  expect(h.steers).toEqual([RECONCILE_STEER]);
+});
+
+test("boundary: armed via markRan but flapping into blocked resets the settle → no steer", async () => {
+  const h = harness("idle", queue(true, ["pending", "pending"]));
+  h.state.planPhase = "executing";
+  h.svc.markRan("S"); // agent ran earlier → armed
+
+  // Its windows are non-idle: every time idle starts to accrue, a `blocked` tick resets it, so the
+  // 120s settle never completes. Arming is real, but the fix must NOT rescue a non-idle session.
+  await h.svc.sweep(); // idle tick → idleSince set
+  h.state.status = "blocked";
+  await h.svc.sweep(); // blocked → resetEpisode wipes idleSince
+  h.state.status = "idle";
+  await h.svc.sweep(); // idle again → settle restarts from now
+  h.state.t += THRESHOLD - 1; // not yet past threshold since the restart
+  await h.svc.sweep();
+  expect(h.steers).toHaveLength(0);
+});
+
+test("never-started discriminator: executing + drifted but never observed running → no steer, no RECONCILE_STEER", async () => {
+  const h = harness("idle", queue(true, ["pending", "pending"]));
+  h.state.planPhase = "executing";
+
+  // No markRan, no running sweep — the agent never worked. sawRunning stays false, so the session is
+  // never nudged and RECONCILE_STEER (whose text assumes work happened) is never sent to it.
+  await h.svc.sweep();
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  h.state.t += THRESHOLD + 1;
+  await h.svc.sweep();
+  expect(h.steers).toHaveLength(0);
+  expect(h.steers).not.toContain(RECONCILE_STEER);
+});
+
 // ── sweep: episode reset + lifetime cap + retry ─────────────────────────────
 
 test("episode reset: re-running between idle episodes allows another steer", async () => {

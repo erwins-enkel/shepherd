@@ -955,6 +955,23 @@ events.subscribe((event, data) => {
   if (status !== "running") prPoller.pollSession(id);
 });
 
+// Build-queue reconcile backstop (#1617): arm the reminder's evidence gate from the poller's 1 Hz
+// `running` transitions, not the reminder's own coarse 15s sweep. A herdr-`working` burst that
+// starts and finishes between two sweeps would otherwise never set `sawRunning` (status is a
+// point-in-time level, not a "recently-active" latch), so a bursty agent's drift would never nudge.
+// Gate to a running transition on an approved, non-empty queue OUTSIDE the plan gate — mirroring the
+// sweep's own guards; arming only on observed-running keeps the worked-vs-never-started discriminator.
+events.subscribe((event, data) => {
+  if (event !== "session:status") return;
+  const { id, status } = data as { id: string; status: string };
+  if (status !== "running") return;
+  const s = store.get(id);
+  if (!s || s.planPhase === "planning") return;
+  const q = store.getBuildQueue(id);
+  if (!q.approved || q.steps.length === 0) return;
+  buildQueueReminder.markRan(id);
+});
+
 // Manual operator steps (#1059): when a session's PR body is (re)fetched, parse any
 // shepherd:manual-steps carrier + `Manual-Step:` trailers and persist them on the session, so the
 // backlog chip + Done recap surface them. Throttled on head SHA so we don't re-`gh pr view` on

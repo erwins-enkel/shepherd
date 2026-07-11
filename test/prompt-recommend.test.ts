@@ -178,3 +178,26 @@ test("recommendPrompt: codex is exempt from the claude api-key guard", async () 
   expect(result).toEqual({ prompt: "go" });
   expect(calls.started).not.toBeNull();
 });
+
+// ─── operator-language injection (issue #1625) ──────────────────────────────
+
+// fenceUntrusted() mints a random per-call nonce; normalize it out before byte-identity.
+const normalizeUntrustedNonce = (s: string): string =>
+  s.replace(/⟦(\/?)UNTRUSTED:([\w ]+):[0-9a-f]+⟧/g, "⟦$1UNTRUSTED:$2:NONCE⟧");
+
+test("en is byte-identical: recommenderPrompt with/without explicit operatorLanguage:'en'", () => {
+  const tail = ["agent: I'm blocked on the failing test"];
+  const task = "Build a login page";
+  const withoutLang = normalizeUntrustedNonce(recommenderPrompt(tail, task));
+  const withEnLang = normalizeUntrustedNonce(recommenderPrompt(tail, task, "en"));
+  expect(withEnLang).toBe(withoutLang);
+  expect(withoutLang).not.toContain("German");
+  expect(withEnLang).not.toContain("German");
+});
+
+test("de: recommenderPrompt appends the German directive, keeps embedded code verbatim", () => {
+  const p = recommenderPrompt(["agent: stuck"], "Build a login page", "de");
+  expect(p).toContain("German");
+  expect(p).toContain("`prompt`");
+  expect(p).toContain("verbatim");
+});

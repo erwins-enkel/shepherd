@@ -51,7 +51,7 @@ secrets out of the membrane entirely.
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
 is watching (`willEgressConfine`, `src/sandbox.ts:565-570`; applied at
-`src/service.ts:1409`): the wrap applies iff the autonomous profile resolves
+`src/service.ts:1882`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -108,19 +108,19 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L1796-1814, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L2474-2491, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
-  `src/autopilot.ts:24-29`, dispatched at L307). It ingests **untrusted web**
+  `src/autopilot.ts:24-29`, dispatched at L323). It ingests **untrusted web**
   content on `trusted`/`standard` with the **network open**, and can
   `gh pr create` / open issues via the bound gh token — so a hijacked research
   agent has **both** readable tokens **and** open egress.
 
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
-  (`src/autopilot.ts:309-313`). The residual is **accepted**.
+  (`src/autopilot.ts:326-330`). The residual is **accepted**.
 
 ## See also
 

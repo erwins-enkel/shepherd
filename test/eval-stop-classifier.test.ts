@@ -229,17 +229,37 @@ test("fixture ids are unique", () => {
   expect(new Set(ids).size).toBe(ids.length);
 });
 
-test("the ambiguous→unknown fixture exists, is gating, and uses T≥9", () => {
-  const amb = FIXTURES.find((f) => f.expectedKind === "unknown");
-  expect(amb).toBeDefined();
-  expect(amb?.gating).toBe(true);
-  expect(amb?.trials ?? 0).toBeGreaterThanOrEqual(9);
+test("every gating ambiguous→unknown fixture uses T≥9 (thick abstain-bucket confidence)", () => {
+  const abstain = FIXTURES.filter((f) => f.expectedKind === "unknown" && f.gating);
+  // Both the English and German abstain fixtures gate (#1627).
+  expect(abstain.length).toBeGreaterThanOrEqual(2);
+  for (const f of abstain) expect(f.trials ?? 0).toBeGreaterThanOrEqual(9);
 });
 
-test("at least one German baseline fixture exists (non-gating), for the #1627 before/after", () => {
+test("German fixtures both gate (the #1627 de path) and keep baseline before/after data", () => {
   const de = FIXTURES.filter((f) => f.lang === "de");
   expect(de.length).toBeGreaterThan(0);
-  for (const f of de) expect(f.gating).toBe(false);
+  // #1627 makes the de path load-bearing: at least one German gating fixture per abstain-critical
+  // bucket, AND at least one German baseline fixture retained for the before/after comparison.
+  const deGating = de.filter((f) => f.gating);
+  const deBaseline = de.filter((f) => !f.gating);
+  expect(deGating.length).toBeGreaterThan(0);
+  expect(deBaseline.length).toBeGreaterThan(0);
+});
+
+test("the German gating fixtures cover gate, question, and the unknown abstain bucket", () => {
+  const deGatingKinds = new Set(
+    FIXTURES.filter((f) => f.gating && f.lang === "de").map((f) => f.expectedKind),
+  );
+  for (const k of ["gate", "question", "unknown"] as AutopilotKind[]) {
+    expect(deGatingKinds).toContain(k);
+  }
+});
+
+test("German gating fixtures run at T≥9 (temperature-1.0 noise band — no 1-trial flips)", () => {
+  for (const f of FIXTURES.filter((f) => f.gating && f.lang === "de")) {
+    expect(f.trials ?? 0).toBeGreaterThanOrEqual(9);
+  }
 });
 
 test("gating English fixtures cover gate, question, finished, complete, and unknown", () => {

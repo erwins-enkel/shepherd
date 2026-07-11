@@ -1490,7 +1490,13 @@ const autopilot = new AutopilotService({
     return classifyStop(
       tail,
       taskPrompt,
-      { herdr, provider: env.provider, model: env.model, effort: env.effort },
+      {
+        herdr,
+        provider: env.provider,
+        model: env.model,
+        effort: env.effort,
+        operatorLanguage: config.operatorLanguage,
+      },
       label,
     );
   },

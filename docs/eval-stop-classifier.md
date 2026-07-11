@@ -5,7 +5,11 @@ quality** of the autopilot stop-classifier (`classifierPrompt` / `normalize`, no
 module `src/autopilot-classify-core.ts`) against a labelled fixture set, so the operator-language
 follow-up (#1627) has a real **before/after** baseline before it touches the prompt.
 
-This issue is the **harness + baseline only** — it makes **no change to `classifierPrompt` prose**.
+Issue #1626 was the **harness + baseline only** — it made **no change to `classifierPrompt` prose**.
+Issue **#1627** (this follow-up) is the first change to touch the prompt: it adds an
+`operatorLanguage` parameter to `classifierPrompt` (German `summary` + input-robustness line, with
+`kind` pinned to the exact English enum) and turns the German fixtures into the load-bearing gate for
+that change. See **[Operator-language A/B (#1627)](#operator-language-ab-1627)** below.
 
 ## What it does
 
@@ -32,10 +36,25 @@ ANTHROPIC_API_KEY=… bun run eval:stop-classifier            # human-readable r
 ANTHROPIC_API_KEY=… bun run eval:stop-classifier --json     # machine-readable (for this doc)
 
 # Flags: --trials N  --model <id>  --temperature <t>  --threshold <0..1>  --filter <substr>  --json
+#        --operator-language-off   (#1627 A/B: force operator-language OFF for every fixture — the
+#                                   *before* leg ≡ #1626 baseline; omit it for the *after* leg)
+```
+
+The two A/B legs (#1627) — run on the same branch/commit for a clean before/after:
+
+```bash
+ANTHROPIC_API_KEY=… bun run eval:stop-classifier --trials 9 --operator-language-off --json   # before
+ANTHROPIC_API_KEY=… bun run eval:stop-classifier --trials 9 --json                            # after
 ```
 
 Or dispatch **`.github/workflows/eval-stop-classifier.yml`** (workflow_dispatch-only, `ubuntu-latest`,
-uses the repo's existing `ANTHROPIC_API_KEY` secret) and read the numbers from its run log.
+uses the repo's existing `ANTHROPIC_API_KEY` secret) and read the numbers from its run log. It takes
+an `operator_language_off` input (`"true"`/`"false"`, default `"false"`) that maps to the
+`--operator-language-off` flag, so both A/B legs are reproducible from CI. **Note:** because
+`workflow_dispatch` inputs are validated against the workflow file on the **default branch**, the
+`operator_language_off` input only becomes dispatchable once this PR merges; before merge, capture the
+_after_ leg by dispatch (default inputs) and use the recorded #1626 German baseline as the _before_,
+or run both legs locally with a key.
 
 The harness's **pure logic** (parse/aggregate/decide + fixture invariants) is unit-tested in
 `test/eval-stop-classifier.test.ts` and runs for free in the normal gated `bun test ./test` — no
@@ -43,14 +62,14 @@ network, no key.
 
 ## Encoded decisions
 
-| Decision         | Value                                                                                       | Rationale                                                                   |
-| ---------------- | ------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Model            | `claude-haiku-4-5` (default)                                                                | The API snapshot for the CLI `haiku` alias that `classifyStop` defaults to. |
-| Temperature      | `1.0` (default)                                                                             | Approximates production nondeterminism (see caveat B).                      |
-| Trials `T`       | `5` default; **`9`** for `ambiguous-unknown`                                                | Odd → majority-decidable; thicker for the most-eroded bucket.               |
-| Per-fixture pass | majority-correct (`> T/2` trials `== expectedKind`)                                         | Tolerates nondeterminism.                                                   |
-| Overall pass     | every **gating** fixture majority-correct **AND** gating accuracy `≥ GATING_ACCURACY_FLOOR` | Coarse catastrophe-catcher.                                                 |
-| German tails     | `gating:false` (baseline, reported not gated)                                               | Baseline mixed-language behavior for #1627's before/after.                  |
+| Decision         | Value                                                                                           | Rationale                                                                   |
+| ---------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Model            | `claude-haiku-4-5` (default)                                                                    | The API snapshot for the CLI `haiku` alias that `classifyStop` defaults to. |
+| Temperature      | `1.0` (default)                                                                                 | Approximates production nondeterminism (see caveat B).                      |
+| Trials `T`       | `5` default; **`9`** for `ambiguous-unknown`                                                    | Odd → majority-decidable; thicker for the most-eroded bucket.               |
+| Per-fixture pass | majority-correct (`> T/2` trials `== expectedKind`)                                             | Tolerates nondeterminism.                                                   |
+| Overall pass     | every **gating** fixture majority-correct **AND** gating accuracy `≥ GATING_ACCURACY_FLOOR`     | Coarse catastrophe-catcher.                                                 |
+| German tails     | **#1627:** gate/question/unknown buckets `gating:true` at `T=9`; spec-first + finished baseline | The de directive is load-bearing, so its buckets gate; see A/B section.     |
 
 ### The pinned threshold (`GATING_ACCURACY_FLOOR`)
 
@@ -68,18 +87,20 @@ kind-distribution baseline below — the overall floor only catches a catastroph
 
 ## Fixture set
 
-| id                       | kind     | gating | lang | T   | intent                                                      |
-| ------------------------ | -------- | ------ | ---- | --- | ----------------------------------------------------------- |
-| `gate-commit-now`        | gate     | ✔      | en   | 5   | "ready to commit?" — proceed-obvious                        |
-| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                           |
-| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                   |
-| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                         |
-| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                         |
-| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown`        |
-| `gate-spec-first`        | gate     | —      | en   | 5   | prompt's own gate exemplar — **known gap** (leans question) |
-| `de-gate-spec`           | gate     | —      | de   | 5   | German tail — baseline mixed-language                       |
-| `de-question-approach`   | question | —      | de   | 5   | German tail — baseline mixed-language                       |
-| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline mixed-language                       |
+| id                       | kind     | gating | lang | T   | intent                                                            |
+| ------------------------ | -------- | ------ | ---- | --- | ----------------------------------------------------------------- |
+| `gate-commit-now`        | gate     | ✔      | en   | 5   | "ready to commit?" — proceed-obvious                              |
+| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                                 |
+| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                         |
+| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                               |
+| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                               |
+| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown`              |
+| `gate-spec-first`        | gate     | —      | en   | 5   | prompt's own gate exemplar — **known gap** (leans question)       |
+| `de-gate-commit`         | gate     | ✔      | de   | 9   | **#1627** German proceed-obvious gate (twin of `gate-commit-now`) |
+| `de-question-approach`   | question | ✔      | de   | 9   | **#1627** German product fork — promoted from baseline            |
+| `de-ambiguous-unknown`   | unknown  | ✔      | de   | 9   | **#1627** abstain bucket under German input — headline datum      |
+| `de-gate-spec`           | gate     | —      | de   | 5   | German twin of the known-gap spec-first — baseline only           |
+| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline before/after datum                         |
 
 `gate-spec-first` started gating and was demoted to baseline per the contingency rule after the first
 run (see **Known gaps** below).
@@ -127,6 +148,59 @@ is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the botto
 > The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
 > (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a
 > gap. `ambiguous-unknown` held majority at `T=9`, so no demotion was needed there.
+
+## Operator-language A/B (#1627)
+
+#1627 makes `classifierPrompt` operator-language-aware: for `operatorLanguage === "de"` it splices in
+two lines — render `summary` in German, and an **input-robustness** line so a German/mixed tail
+doesn't erode the `unknown` abstain bucket — while **pinning `kind` to the exact English enum** (a
+translated kind silently collapses to `unknown` via `normalize`'s `KINDS.includes`). The `"en"` path
+is **byte-identical** to the #1626 prompt (unit-tested).
+
+**The de path gates — it is not observational-only.** Three German fixtures are `gating:true` at
+`T=9`, one per abstain-critical bucket: `de-gate-commit` (new), `de-question-approach` (promoted),
+and `de-ambiguous-unknown` (new — the headline abstain-bucket datum). `de-gate-spec` (German twin of
+the known-gap spec-first exemplar) and `de-finished-pr` stay baseline.
+
+**A/B mechanism.** `--operator-language-off` forces `operatorLanguage="en"` for every fixture (the
+_before_ leg — byte-identical to #1626); omitting it runs the _after_ leg with the German directive
+live for `de` fixtures. English fixtures are `"en"` either way, so the English gating set is unchanged
+across legs (its `ambiguous-unknown` 9/9 abstain is preserved **by construction** — the prompt it
+sees is byte-identical).
+
+- **Before (German fixtures, operator-language OFF)** — the #1626 baseline already recorded it:
+  `de-gate` 4/5, `de-question` 5/5, `de-finished` 5/5 (English prompt against a German tail). Re-run
+  it exactly with `--operator-language-off`.
+- **After (German directive live)** — **PENDING capture.** Run both legs (locally with a key, or via
+  the workflow) and transcribe the `--json` here. The gate: every German gating fixture stays
+  majority-correct at `T=9`, gating accuracy ≥ floor, and `de-ambiguous-unknown` holds `unknown`
+  majority. This eval is **manual/nightly, never a per-PR gate** (paid, keyed, nondeterministic), so
+  the PR declares the after-run as a manual step and must not merge until it is green.
+
+### Noise band (react to signal, not model noise)
+
+At `temperature = 1.0` a single-run `T=5` majority can flip on one trial of sampling noise. So the
+German gating fixtures run at **`T=9`**, and a shift between legs counts as **signal** only when it
+**crosses the majority boundary** OR moves by **≥2 trials**, AND survives a **confirmation re-run**. A
+lone ±1-trial wobble is noise — never reword the directive in response to it.
+
+### Verification split — what the eval does and does NOT cover
+
+- **Input-robustness / abstain half — behaviorally gated.** The eval scores `kind`, and the German
+  gating fixtures exercise it end-to-end against the live model. A regression here fails the gate.
+- **German-`summary` output half — NOT behaviorally verified.** The eval scores `kind` only; it never
+  inspects `summary` language, and the unit tests assert the prompt _contains_ the German-summary
+  instruction, not that the model _obeys_ it. "Summary renders in German" rests on prompt content +
+  the shipped recap precedent (recap already ships the same directive shape for its `body`/`headline`),
+  **not** on measurement. **Do not read an eval PASS as evidence the summary output is correct.**
+
+### Contingency for a German non-hold
+
+If the after-run shows a promoted German fixture below majority (past the noise band), treat it as a
+**finding**, not a reason to silently un-gate: (1) iterate the directive wording and re-run; (2) demote
+to baseline **only** with an explicit justification recorded as a known gap — exactly the treatment
+`gate-spec-first` received. Re-pin `GATING_ACCURACY_FLOOR` only if the adjustment rule
+(`round_down(observed − 0.15)` to 0.05) requires, with a commit note.
 
 ## Fidelity caveats
 

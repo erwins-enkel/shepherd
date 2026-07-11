@@ -623,6 +623,8 @@
   "plangate_review_skipped_stalled": "Couldn't start a plan review right now.",
   "feat_plan_stall_menu_title": "Repair stalled plans from the chip",
   "feat_plan_stall_menu_body": "When a plan review hits its round limit, the plan chip now opens an action menu: open the plan, edit a prepared steer with the review findings, or re-run review after .shepherd-plan.md changes.",
+  "feat_hold_row_answer_title": "Answer blocked sessions from the row",
+  "feat_hold_row_answer_body": "Sessions paused on a question — autopilot paused, or waiting on a yes/no — now show an Answer button right on their row. Click it to jump into the session and reply.",
   "plangate_tip_planning": "Plan review required before execution.",
   "plangate_tip_reviewing": "Plan review is running.",
   "plangate_tip_changes": "Execution waits for an approved revision.",

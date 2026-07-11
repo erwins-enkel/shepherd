@@ -623,6 +623,8 @@
   "plangate_review_skipped_stalled": "Planprüfung konnte gerade nicht gestartet werden.",
   "feat_plan_stall_menu_title": "Gestoppte Pläne direkt am Chip reparieren",
   "feat_plan_stall_menu_body": "Wenn eine Plan-Prüfung ihr Rundenlimit erreicht, öffnet der Plan-Chip jetzt ein Aktionsmenü: Plan öffnen, einen vorbereiteten Steuertext mit Review-Befunden bearbeiten oder nach Änderung von .shepherd-plan.md erneut prüfen.",
+  "feat_hold_row_answer_title": "Blockierte Sitzungen direkt aus der Zeile beantworten",
+  "feat_hold_row_answer_body": "Sitzungen, die auf eine Frage warten – Autopilot pausiert oder Warten auf eine Ja/Nein-Antwort – zeigen jetzt eine Schaltfläche „Antworten“ direkt in ihrer Zeile. Ein Klick öffnet die Sitzung zum Antworten.",
   "plangate_tip_planning": "Planprüfung vor der Ausführung erforderlich.",
   "plangate_tip_reviewing": "Planprüfung läuft.",
   "plangate_tip_changes": "Ausführung wartet auf eine freigegebene Überarbeitung.",

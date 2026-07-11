@@ -1,75 +1,11 @@
 import { test, describe, expect } from "bun:test";
 import {
-  parseServedPort,
   findServedPort,
+  findServedHosts,
   validatePreviewPortRange,
   validateAgentIngressPort,
 } from "../src/config";
 import { originAllowed } from "../src/validate";
-
-// ── parseServedPort ───────────────────────────────────────────────────────────
-
-const SAMPLE_STATUS = `
-# Tailscale Serve Status
-
-https://agentnode.example.ts.net (tailnet only)
-|-- / proxy http://127.0.0.1:7330
-
-https://agentnode.example.ts.net:5191 (tailnet only)
-|-- / proxy http://127.0.0.1:5190
-
-https://agentnode.example.ts.net:5193 (tailnet only)
-|-- / proxy http://127.0.0.1:5192
-`;
-
-test("parseServedPort: finds the port whose target matches localPort", () => {
-  // 127.0.0.1:7330 is targeted by the https mapping on default 443
-  // (the mapping without an explicit port in the URL)
-  expect(parseServedPort(SAMPLE_STATUS, 7330)).toBe(443);
-});
-
-test("parseServedPort: finds explicit port mapping for a different local port", () => {
-  // 5190 → served at :5191
-  expect(parseServedPort(SAMPLE_STATUS, 5190)).toBe(5191);
-  // 5192 → served at :5193
-  expect(parseServedPort(SAMPLE_STATUS, 5192)).toBe(5193);
-});
-
-test("parseServedPort: returns null when no mapping targets the given local port", () => {
-  expect(parseServedPort(SAMPLE_STATUS, 9999)).toBeNull();
-});
-
-test("parseServedPort: handles multiple mappings and returns the correct one", () => {
-  const text = `
-https://host.ts.net:8443 (tailnet only)
-|-- / proxy http://127.0.0.1:8080
-
-https://host.ts.net:9000 (tailnet only)
-|-- / proxy http://127.0.0.1:3000
-`;
-  expect(parseServedPort(text, 8080)).toBe(8443);
-  expect(parseServedPort(text, 3000)).toBe(9000);
-});
-
-test("parseServedPort: returns null for empty text", () => {
-  expect(parseServedPort("", 7330)).toBeNull();
-});
-
-test("parseServedPort: handles missing port (443 implicit) in https URL", () => {
-  const text = `
-https://myhost.ts.net (tailnet only)
-|-- / proxy http://127.0.0.1:4000
-`;
-  expect(parseServedPort(text, 4000)).toBe(443);
-});
-
-test("parseServedPort: target without scheme (just 127.0.0.1:PORT) also matches", () => {
-  const text = `
-https://myhost.ts.net:7777 (tailnet only)
-|-- / proxy 127.0.0.1:5555
-`;
-  expect(parseServedPort(text, 5555)).toBe(7777);
-});
 
 // ── findServedPort ────────────────────────────────────────────────────────────
 
@@ -170,6 +106,101 @@ describe("findServedPort", () => {
     });
     expect(findServedPort(json, 3000)).toBe(8000);
     expect(findServedPort(json, 4000)).toBe(9000);
+  });
+});
+
+// ── findServedHosts ───────────────────────────────────────────────────────────
+
+describe("findServedHosts", () => {
+  test("Service front (Services svc:shepherd → localhost:mainPort) returns the service host", () => {
+    expect(findServedHosts(SERVE_STATUS_JSON_FULL, 7330)).toEqual(["shepherd.example.ts.net"]);
+  });
+
+  test("top-level Web direct-serve mapping (127.0.0.1:mainPort) returns the node host", () => {
+    expect(findServedHosts(SERVE_STATUS_JSON_FULL, 5190)).toEqual(["agentnode.example.ts.net"]);
+  });
+
+  test("negative: handler proxies a different port — excluded", () => {
+    const json = JSON.stringify({
+      Services: {
+        "svc:shepherd": {
+          Web: {
+            "shepherd.example.ts.net:443": {
+              Handlers: { "/": { Proxy: "http://localhost:9999" } },
+            },
+          },
+        },
+      },
+    });
+    expect(findServedHosts(json, 7330)).toEqual([]);
+  });
+
+  test("negative: handler proxies a non-loopback host — excluded (loopback-only matcher)", () => {
+    const json = JSON.stringify({
+      Web: {
+        "shepherd.example.ts.net:443": {
+          Handlers: { "/": { Proxy: "http://10.0.0.5:7330" } },
+        },
+      },
+    });
+    expect(findServedHosts(json, 7330)).toEqual([]);
+  });
+
+  test("bare-host key (no :PORT) matching main port returns the whole key as the host", () => {
+    const json = JSON.stringify({
+      Web: {
+        "shepherd.example.ts.net": {
+          Handlers: { "/": { Proxy: "http://127.0.0.1:7330" } },
+        },
+      },
+    });
+    expect(findServedHosts(json, 7330)).toEqual(["shepherd.example.ts.net"]);
+  });
+
+  test("trailing-dot key: the dot is stripped in the result", () => {
+    const json = JSON.stringify({
+      Web: {
+        "shepherd.example.ts.net.:443": {
+          Handlers: { "/": { Proxy: "http://localhost:7330" } },
+        },
+      },
+    });
+    expect(findServedHosts(json, 7330)).toEqual(["shepherd.example.ts.net"]);
+  });
+
+  test("same host across multiple web maps / handlers is deduped", () => {
+    const json = JSON.stringify({
+      Web: {
+        "shepherd.example.ts.net:443": {
+          Handlers: {
+            "/": { Proxy: "http://localhost:7330" },
+            "/api": { Proxy: "http://127.0.0.1:7330" },
+          },
+        },
+      },
+      Services: {
+        "svc:shepherd": {
+          Web: {
+            "shepherd.example.ts.net:443": {
+              Handlers: { "/": { Proxy: "http://localhost:7330" } },
+            },
+          },
+        },
+      },
+    });
+    expect(findServedHosts(json, 7330)).toEqual(["shepherd.example.ts.net"]);
+  });
+
+  test("negative: malformed JSON returns []", () => {
+    expect(findServedHosts("not json", 7330)).toEqual([]);
+  });
+
+  test("negative: empty string returns []", () => {
+    expect(findServedHosts("", 7330)).toEqual([]);
+  });
+
+  test("negative: missing Services and Web returns []", () => {
+    expect(findServedHosts("{}", 7330)).toEqual([]);
   });
 });
 

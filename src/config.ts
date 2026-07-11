@@ -126,54 +126,6 @@ export function clampCap(n: number, min: number, max: number, fallback: number):
 // previewPortCount is BOTH the range size and the max concurrent previews — a
 // single number, no secondary "max" constant anywhere else.
 
-/**
- * Pure parser: given the text of `tailscale serve status` and the HUD's local
- * listen port, return the public-facing HTTPS port that Tailscale fronts that
- * local port on. Returns null when no matching mapping is found.
- *
- * Example input lines:
- *   https://host.ts.net:5191 (tailnet only)
- *   |-- / proxy http://127.0.0.1:5190
- *
- * The HUD's default mapping has no port (=> 443):
- *   https://host.ts.net (tailnet only)
- *   |-- / proxy http://127.0.0.1:7330
- */
-export function parseServedPort(serveStatusText: string, localPort: number): number | null {
-  const lines = serveStatusText.split("\n");
-  let currentServedPort: number | null = null;
-  for (const line of lines) {
-    const t = line.trim();
-    const served = extractServedPort(t);
-    if (served !== null) {
-      currentServedPort = served;
-    } else if (currentServedPort !== null && isProxyTarget(t, localPort)) {
-      return currentServedPort;
-    }
-  }
-  return null;
-}
-
-/** Extract the public HTTPS port from a `https://...` serve-status header line.
- *  Returns 443 when no explicit port is present, null when the line isn't an
- *  https header.
- *  Note: IPv6 bracket hosts (`[::1]:…`) are intentionally not matched because
- *  Tailscale `serve` always emits `127.0.0.1` + ts.net hostnames. */
-function extractServedPort(line: string): number | null {
-  const m = line.match(/^https:\/\/[^:/]+(?::(\d+))?(?:\s|$)/);
-  if (!m) return null;
-  return m[1] ? Number(m[1]) : 443;
-}
-
-/** True when a `|-- / proxy ...` line targets 127.0.0.1:<localPort>.
- *  Note: `localhost` and IPv6 bracket targets (`[::1]:…`) are intentionally
- *  not matched because Tailscale `serve` always emits `127.0.0.1`. */
-function isProxyTarget(line: string, localPort: number): boolean {
-  if (!line.startsWith("|--")) return false;
-  const m = line.match(/proxy\s+(?:https?:\/\/)?127\.0\.0\.1:(\d+)/);
-  return m !== null && Number(m[1]) === localPort;
-}
-
 const LOOPBACK_RE = /^https?:\/\/(?:localhost|127\.0\.0\.1):(\d+)/;
 
 /** Plain (non-array) object guard — arrays are typeof "object" but malformed here. */
@@ -187,6 +139,14 @@ function publicPortFromKey(key: string): number {
   if (i === -1) return 443;
   const p = Number(key.slice(i + 1));
   return Number.isFinite(p) ? p : 443;
+}
+
+/** Public host from a "host:PORT" web-map key (bare-host keys have no ":PORT" —
+ *  the whole key IS the host); a trailing dot is stripped for parity with
+ *  resolveNodeHost's own hostname normalization. */
+function hostFromKey(key: string): string {
+  const i = key.lastIndexOf(":");
+  return (i === -1 ? key : key.slice(0, i)).replace(/\.$/, "");
 }
 
 /** Candidate web maps: top-level Web + each Services[svc].Web (arrays rejected, fail-closed). */
@@ -224,6 +184,20 @@ function servedPortInWebMap(webMap: Record<string, unknown>, localPort: number):
     }
   }
   return null;
+}
+
+/** Hosts of every web-map entry whose handler targets loopback:localPort. */
+function servedHostsInWebMap(webMap: Record<string, unknown>, localPort: number): string[] {
+  const hosts: string[] = [];
+  for (const [key, entry] of Object.entries(webMap)) {
+    if (!isPlainObject(entry)) continue;
+    const handlers = entry["Handlers"];
+    if (!isPlainObject(handlers)) continue;
+    if (Object.values(handlers).some((handler) => handlerTargetsPort(handler, localPort))) {
+      hosts.push(hostFromKey(key));
+    }
+  }
+  return hosts;
 }
 
 /**
@@ -269,6 +243,36 @@ export function findServedPort(serveStatusJson: string, localPort: number): numb
     if (served !== null) return served;
   }
   return null;
+}
+
+/**
+ * Companion to `findServedPort`: given the same `tailscale serve status --json`
+ * output and the HUD's local listen port, returns every public host name that
+ * fronts that local port — across the top-level `Web` map AND every
+ * `Services[svc].Web` map (a Tailscale Service front, e.g. `svc:shepherd` →
+ * `shepherd.ts.net:443` → `http://localhost:7330`). Reuses the same
+ * `collectWebMaps`/`handlerTargetsPort` matching as `findServedPort` — only a
+ * handler whose `.Proxy` targets loopback:localPort counts, so unrelated
+ * services are excluded.
+ *
+ * Deduped; parsing is fully defensive — any malformed, empty, or non-JSON
+ * input returns `[]` without throwing.
+ */
+export function findServedHosts(serveStatusJson: string, localPort: number): string[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(serveStatusJson);
+  } catch {
+    return [];
+  }
+  if (!isPlainObject(parsed)) return [];
+  const hosts: string[] = [];
+  for (const webMap of collectWebMaps(parsed)) {
+    for (const host of servedHostsInWebMap(webMap, localPort)) {
+      if (!hosts.includes(host)) hosts.push(host);
+    }
+  }
+  return hosts;
 }
 
 export interface PreviewPortRangeParams {
@@ -456,12 +460,31 @@ export function resolveAllowedOriginHosts(envValue: string | undefined): string[
  * the hostname is trusted: preview-port origins are still rejected by the origin
  * guard's preview-range check (it runs before the hostname check), so this does
  * not open preview-forged CSRF. A Service-fronted HUD is served under a DIFFERENT
- * DNS name, so it isn't covered here and still needs a manual allowlist entry.
+ * DNS name; that topology is covered separately by `addServedHostsToAllowlist`.
  * Issue #1645 Fix 2. Exported for tests.
  */
 export function addOwnHostToAllowlist(hosts: string[], host: string | null): void {
   const h = host?.trim();
   if (h && !hosts.includes(h)) hosts.push(h);
+}
+
+/**
+ * Fold every Tailscale-served host front (direct serve AND Service fronts) for
+ * the HUD's local port into an origin allowlist in place — the companion to
+ * `addOwnHostToAllowlist` for the topology that helper doesn't cover (a
+ * Service-fronted HUD served under a different DNS name than the node's own,
+ * e.g. `svc:shepherd` → `shepherd.ts.net`). Delegates host discovery to
+ * `findServedHosts` and dedup to `addOwnHostToAllowlist`. Issue #1645 Fix 2/3.
+ * Exported for tests.
+ */
+export function addServedHostsToAllowlist(
+  hosts: string[],
+  serveStatusJson: string,
+  localPort: number,
+): void {
+  for (const h of findServedHosts(serveStatusJson, localPort)) {
+    addOwnHostToAllowlist(hosts, h);
+  }
 }
 
 export const config = {

@@ -891,6 +891,67 @@ test("reconcileEpics: real store round-trip is idempotent for a ready epic (regr
   expect(changes.length).toBe(0);
 });
 
+// Mirrors the exact object literal src/index.ts's landingReadyEpics() emits for a paused epic in
+// its `pausedItems` .map() — keep in sync with that map.
+const PAUSED_LIVE_SHAPE: RundownEpicItem = {
+  repo: "/repo/a",
+  parent: 7,
+  title: "Epic A",
+  landingPr: 99,
+  stranded: false,
+  ciFailing: false,
+  pausedReason: "cap",
+};
+
+test("reconcileEpics: real store round-trip is idempotent for a paused epic (regression)", async () => {
+  // Same class as the ready-epic regression above, but for the PAUSED case (#1666): hydrateEpics()
+  // never read `pausedReason`, so a stored/hydrated paused epic dropped it and every tick's
+  // JSON.stringify comparison against the live (un-hydrated) landingReadyEpics() output mismatched —
+  // firing a spurious putHerdDigest + onChange broadcast for as long as any paused landing PR sat.
+  const dayKey = dayKeyFor(DAY1);
+  const store = new SessionStore(":memory:");
+  store.putHerdDigest({
+    dayKey,
+    state: "ready",
+    overnight: "",
+    decisions: [],
+    ciRework: [],
+    train: "",
+    focusNext: [],
+    // The exact shape frozen into epicsToLand at spawn time (landingReadyEpics() output).
+    epicsToLand: [PAUSED_LIVE_SHAPE],
+    attentionFingerprint: {},
+    spawnSessionId: "spawn-1",
+    cwd: "/tmp/x",
+    model: "sonnet",
+    spawnedAt: DAY1 - 1000,
+    generatedAt: DAY1 - 1000,
+    updatedAt: DAY1 - 1000,
+  });
+
+  const changes: HerdDigest[] = [];
+  const svc = new HerdDigestService({
+    store,
+    herdr: makeHerdr() as any,
+    isActive: () => true,
+    onChange: (d) => changes.push(d),
+    snapshots: () => EMPTY_SNAPSHOTS,
+    model: "sonnet",
+    now: () => DAY1,
+    timeoutMs: 300_000,
+    readVerdict: () => null,
+    readUsage: async () => null,
+    makeTmpDir: () => "/tmp/rundown-test-paused-regression",
+    cleanup: () => {},
+    // Still paused with the same reason, same shape landingReadyEpics() emits live (NOT hydrated).
+    landingReadyEpics: async () => [PAUSED_LIVE_SHAPE],
+  });
+
+  await svc.reconcileEpics();
+  // Nothing actually changed → must be a no-op: no rewrite, no WS broadcast.
+  expect(changes.length).toBe(0);
+});
+
 test("reconcileEpics: landed/lost readiness shrinks the set", async () => {
   const dayKey = dayKeyFor(DAY1);
   const ready: HerdDigest = {

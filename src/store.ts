@@ -118,6 +118,11 @@ function strOrEmpty(v: string | null | undefined): string {
   return v ?? "";
 }
 
+/** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
+function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
+  return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
+}
+
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
 const DESIG_PREFIX = "TASK-";
 
@@ -2822,6 +2827,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         landingPr: typeof o.landingPr === "number" ? o.landingPr : null,
         stranded: o.stranded === true,
         ciFailing: o.ciFailing === true,
+        pausedReason: coercePauseReason(o.pausedReason),
       });
     }
     return out;

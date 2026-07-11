@@ -16,7 +16,9 @@
     "onboarding:test": "bun run ci/onboarding-harness/run.ts",
     "check:glossary": "node scripts/check-glossary.mjs",
     "check:announcement-versions": "node scripts/check-announcement-versions.mjs",
-    "next-version": "node scripts/next-version.mjs"
+    "next-version": "node scripts/next-version.mjs",
+    "gen:herdr-schema": "bun run scripts/gen-herdr-schema.ts",
+    "gen:herdr-types": "bun run scripts/gen-herdr-types.ts"
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write --cache --cache-strategy content --cache-location .cache/prettier",
@@ -33,6 +35,7 @@
     "eslint-plugin-svelte": "^3.20.0",
     "globals": "^17.7.0",
     "husky": "^9.1.7",
+    "json-schema-to-typescript": "15.0.4",
     "lint-staged": "^17.0.8",
     "prettier": "^3.9.5",
     "prettier-plugin-svelte": "^4.1.1",

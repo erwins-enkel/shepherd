@@ -53,7 +53,9 @@ interface DebounceEntry {
   idleSince: number | null;
   /** true once a reminder fired in the current idle episode (reset when it re-activates). */
   firedThisEpisode: boolean;
-  /** true once we've observed the session actually running since we began tracking it. */
+  /** true once we've observed the session actually running since we began tracking it — set
+   *  either by the 15s sweep sampling `running`, or (reliably) by `markRan`, fed from the poller's
+   *  1 Hz `session:status` running transitions so a sub-15s burst can't slip the gate (#1617). */
   sawRunning: boolean;
   /** lifetime reminders sent to this session (runaway guard). */
   nudgeCount: number;
@@ -73,6 +75,9 @@ export class BuildQueueReminderService {
   private idleThresholdMs: number;
   private maxNudges: number;
   private debounce = new Map<string, DebounceEntry>();
+  /** Per-session last-logged diagnostic tuple, so the #1617 sweep log dedupes on discrete-state
+   *  transitions instead of spamming every 15s tick. Pruned alongside the debounce entry. */
+  private lastDiag = new Map<string, string>();
   /** True while a sweep is in flight. Guards re-entrancy now that `sweep` awaits its steer
    *  (#1567) — see the drop-the-tick rationale on `sweep`. */
   private sweeping = false;
@@ -86,6 +91,21 @@ export class BuildQueueReminderService {
   /** Drop a session's debounce state (call on archive). */
   forget(id: string): void {
     this.debounce.delete(id);
+    this.lastDiag.delete(id);
+  }
+
+  /**
+   * Arm the evidence gate from an observed `running` transition — the RELIABLE arming path, fed by
+   * the poller's 1 Hz `session:status` events (wired in index.ts). The sweep's own 15s sample can
+   * miss a herdr-`working` burst that starts and finishes between ticks — `status` is a
+   * point-in-time level, not a "recently-active" latch (#1617) — so a bursty agent would never set
+   * `sawRunning` via the sweep alone. The caller gates this to a `running` event on an approved,
+   * non-empty queue outside the plan gate (mirroring the sweep's own guards), so here we just record
+   * the evidence. Arming ONLY on observed-running preserves the worked-vs-never-started
+   * discriminator: a never-started session emits no `running` event, so it is never nudged.
+   */
+  markRan(id: string): void {
+    this.entry(id).sawRunning = true;
   }
 
   private entry(id: string): DebounceEntry {
@@ -133,6 +153,9 @@ export class BuildQueueReminderService {
       for (const id of [...this.debounce.keys()]) {
         if (!live.has(id)) this.debounce.delete(id);
       }
+      for (const id of [...this.lastDiag.keys()]) {
+        if (!live.has(id)) this.lastDiag.delete(id);
+      }
     } finally {
       this.sweeping = false; // a thrown store error / rejected steer must not wedge the sweep off
     }
@@ -149,6 +172,7 @@ export class BuildQueueReminderService {
     // No approved queue yet (or none authored) → nothing to reconcile; drop any state.
     if (!q.approved || q.steps.length === 0) {
       this.debounce.delete(id);
+      this.lastDiag.delete(id);
       return;
     }
     const e = this.entry(id);
@@ -157,14 +181,18 @@ export class BuildQueueReminderService {
     // all-pending — no execution step has begun, so all-pending is correct, not drift. Return
     // BEFORE the status switch so planning-phase running never sets sawRunning (readyToNudge
     // ANDs on sawRunning, so this alone suppresses the nudge) and idle time can't accrue toward
-    // a post-gate nudge. NOTE: execution CAN occur while still "planning" (operator manually
-    // steers instead of clicking Go); we suppress there too by design — the PR-open flip to
-    // "executing" (service.advanceToExecutionOnPr) is the deliberate re-arm point, after which
-    // a fresh execution-running tick sets sawRunning and genuine drift nudges normally.
+    // a post-gate nudge. The same guard is mirrored on the markRan arming path (index.ts skips
+    // running events while planning). NOTE: execution CAN occur while still "planning" (operator
+    // manually steers instead of clicking Go); we suppress there too by design — the PR-open flip
+    // to "executing" (service.advanceToExecutionOnPr) is the deliberate re-arm point, after which
+    // a fresh execution-running transition (via markRan or the sweep) sets sawRunning and genuine
+    // drift nudges normally.
     if (planPhase === "planning") {
       this.resetEpisode(e);
       return;
     }
+
+    this.logDiag(id, status, planPhase, e, q, now);
 
     // Only `idle` is eligible. `running` records work-seen; everything else (done/blocked/
     // archived) is skipped without steering. All non-idle states reset the idle episode.
@@ -186,6 +214,33 @@ export class BuildQueueReminderService {
       e.firedThisEpisode = true;
       e.nudgeCount++;
     }
+  }
+
+  /**
+   * Read-only diagnostic (#1617): for an executing, drifted queue, log the gate inputs so the NEXT
+   * live occurrence resolves hypothesis (a) — sawRunning never armed while the agent worked — vs
+   * (e) — status never `idle`. Deduped on the discrete-state tuple so a session parked for hours
+   * logs transitions, not thousands of identical ticks. Purely observational: no control flow
+   * depends on it.
+   */
+  private logDiag(
+    id: string,
+    status: SessionStatus,
+    planPhase: Session["planPhase"],
+    e: DebounceEntry,
+    q: BuildQueue,
+    now: number,
+  ): void {
+    if (planPhase !== "executing" || !isQueueDrifted(q)) return;
+    const ready = this.readyToNudge(e, q, now);
+    const key = `${status}|${e.sawRunning}|${e.idleSince !== null}|${ready}`;
+    if (this.lastDiag.get(id) === key) return;
+    this.lastDiag.set(id, key);
+    const idleMs = e.idleSince === null ? "-" : String(now - e.idleSince);
+    console.log(
+      `[build-queue] reconcile-sweep id=${id} status=${status} planPhase=${planPhase} ` +
+        `sawRunning=${e.sawRunning} idleSinceMs=${idleMs} readyToNudge=${ready}`,
+    );
   }
 
   /** Whether a settled-idle session is eligible for a reconcile nudge this episode. */

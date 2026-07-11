@@ -6,6 +6,12 @@ export type DocsPage = { title: string; path: string; keywords: string };
 
 export const DOCS_PAGES: readonly DocsPage[] = [
   {
+    title: "Authoring an epic",
+    path: "/authoring-epics/",
+    keywords:
+      'step-by-step guide to structuring a github epic that shepherd recognizes and can drain — native sub-issues, the epic-dag fence, and the checklist fallback. what "recognized" means step 1 — new epic, or promote an existing issue? step 2 — split the work into child issues step 3 — create the children first and capture their numbers step 4 — mark the parent (choose one shape) native sub-issues (preferred) epic-dag fence (markdown) checklist (markdown, no dependencies) step 5 — add dependency edges step 6 — import a markdown epic into native links step 7 — verify in shepherd before draining',
+  },
+  {
     title: "Shepherd Capture (browser extension)",
     path: "/capture-extension/",
     keywords:

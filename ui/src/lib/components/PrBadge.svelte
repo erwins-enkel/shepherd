@@ -83,7 +83,7 @@
         m.prbadge_merge_failed({
           reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
         }),
-        { alert: true, duration: null, key: `pr-merge:${sessionId}` },
+        { alert: true, key: `pr-merge:${sessionId}` },
       );
     } finally {
       busy = false;
@@ -105,7 +105,7 @@
         m.prbadge_draft_toggle_failed({
           reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
         }),
-        { alert: true, duration: null, key: `pr-draft:${sessionId}` },
+        { alert: true, key: `pr-draft:${sessionId}` },
       );
     } finally {
       busy = false;

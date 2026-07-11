@@ -124,8 +124,8 @@
   }
 
   // Steering is the product's core risky action: a failed send must not vanish.
-  // Route the failure through a persistent toast (duration: null, stays until
-  // retried or closed) with an inline Retry (retry re-runs send(), so a repeated
+  // Route the failure through a sticky toast (stays until retried or closed) with
+  // an inline Retry (retry re-runs send(), so a repeated
   // failure re-toasts), announced assertively (alert) so a screen-reader
   // operator hears it promptly. Keyed per focused agent so repeated failures
   // collapse into one toast (Retry targets the latest) instead of stacking.
@@ -133,7 +133,7 @@
   function send(text: string) {
     replySession(focusedId, text).catch(() => {
       toasts.info(m.steerbar_send_failed(), {
-        duration: null,
+        sticky: true,
         alert: true,
         key: `steer-fail:${focusedId}`,
         action: { label: m.common_retry(), run: () => send(text) },

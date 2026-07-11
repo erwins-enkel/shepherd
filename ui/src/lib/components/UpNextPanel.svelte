@@ -291,18 +291,16 @@
         toasts.info(m.upnext_held({ count: res.held.length }), { key: "upnext-held" });
       }
       if (res.errors.length > 0) {
-        // Failure must stay until acknowledged — persistent + tone-namespaced dedupe key.
+        // Failure surfaced as a 12s alert — tone-namespaced dedupe key so repeats collapse.
         toasts.info(m.upnext_start_failed({ count: res.errors.length }), {
           key: "upnext-start-failed",
           alert: true,
-          duration: null,
         });
       }
       if (res.created.length === 0 && res.held.length === 0 && res.errors.length === 0) {
         toasts.info(m.upnext_start_failed({ count: items.length }), {
           key: "upnext-start-failed",
           alert: true,
-          duration: null,
         });
       }
       // Clear only the ones we just started; the WS snapshot refresh removes them shortly.
@@ -311,7 +309,6 @@
       toasts.info(m.upnext_start_failed({ count: items.length }), {
         key: "upnext-start-failed",
         alert: true,
-        duration: null,
       });
     } finally {
       starting = false;

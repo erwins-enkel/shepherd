@@ -28,10 +28,9 @@ export async function pullMainAndToast(repoPath: string, branch?: string): Promi
     case "diverged":
       toasts.info(m.toast_update_main_diverged({ branch: b }));
       return;
-    // Genuine unexpected git/network failure: persistent + assertive.
+    // Genuine unexpected git/network failure: assertive 12s toast.
     case "error":
       toasts.info(m.toast_update_main_failed(), {
-        duration: null,
         alert: true,
         key: `update-main:${repoPath}`,
       });

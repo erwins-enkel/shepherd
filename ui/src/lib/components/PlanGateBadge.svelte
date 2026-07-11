@@ -113,7 +113,7 @@
       toasts.info(m.plangate_repair_sent(), { key: `plan-repair:${session.id}` });
     } catch {
       toasts.info(m.plangate_repair_send_failed(), {
-        duration: null,
+        sticky: true,
         alert: true,
         key: `plan-repair:${session.id}`,
         action: { label: m.common_retry(), run: () => sendChanges(draft) },
@@ -135,14 +135,12 @@
         toasts.info(m.plangate_review_skipped_stalled());
       else if (status === "error")
         toasts.info(m.gitrail_review_plan_failed(), {
-          duration: null,
           alert: true,
           key: `review-plan:${session.id}`,
         });
       if (status !== "error") closeMenu();
     } catch {
       toasts.info(m.gitrail_review_plan_failed(), {
-        duration: null,
         alert: true,
         key: `review-plan:${session.id}`,
       });

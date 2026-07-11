@@ -24,6 +24,7 @@
     "src/index.ts",
     "src/pty-attach.mjs",
     "scripts/**/*.ts",
+    "scripts/**/*.mjs",
     "test/**/*.ts",
     "test/**/*.mjs",
     "ui/src/routes/**/+*.ts",

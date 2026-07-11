@@ -66,7 +66,6 @@
       toasts.info(text.length > 0 ? text : m.plugin_action_done());
     } catch {
       toasts.info(m.plugin_action_failed(), {
-        duration: null,
         alert: true,
         key: `plugin-action:${pluginId}:${path}`,
       });

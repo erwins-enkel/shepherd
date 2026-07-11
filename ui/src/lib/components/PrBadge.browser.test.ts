@@ -178,7 +178,7 @@ describe("PrBadge", () => {
     await vi.waitFor(() =>
       expect(info).toHaveBeenCalledWith(
         m.prbadge_merge_failed({ reason: "boom" }),
-        expect.objectContaining({ alert: true, duration: null, key: "pr-merge:s1" }),
+        expect.objectContaining({ alert: true, key: "pr-merge:s1" }),
       ),
     );
   });

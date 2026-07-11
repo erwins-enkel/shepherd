@@ -796,7 +796,7 @@ describe("UnitRow plan-gate hold CTA", () => {
       expect(toasts.items.some((t) => t.text === m.hold_cta_go_failed())).toBe(true),
     );
     const t = toasts.items.find((x) => x.text === m.hold_cta_go_failed())!;
-    expect(t.durationMs).toBeUndefined(); // persistent — no auto-dismiss
+    expect(t.durationMs).toBe(12000); // 12s failure — auto-dismisses
   });
 
   it("ci-red hold: Retry CI arms then reruns via retryCi(repoPath, pr) (#1629)", async () => {
@@ -843,7 +843,7 @@ describe("UnitRow plan-gate hold CTA", () => {
       expect(toasts.items.some((t) => t.text === m.hold_cta_retry_ci_failed())).toBe(true),
     );
     const t = toasts.items.find((x) => x.text === m.hold_cta_retry_ci_failed())!;
-    expect(t.durationMs).toBeUndefined(); // persistent — no auto-dismiss
+    expect(t.durationMs).toBe(12000); // 12s failure — auto-dismisses
   });
 
   it("busy: disables the CTA until the pending release settles", async () => {

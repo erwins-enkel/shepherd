@@ -39,7 +39,7 @@ describe("Toasts mobile inset above the action bar (#810)", () => {
 
   it("insets the banner above the action bar when aboveActionBar is set", async () => {
     await page.viewport(400, 900); // ≤768px → mobile banner block
-    toasts.info("decommissioned", { duration: null });
+    toasts.info("decommissioned", { sticky: true });
     render(Toasts, { aboveActionBar: true });
     await tick();
     // --mobile-actionbar-h (44 + 10 + 2·1 = 56px) + max(--mobile-actionbar-pad 10px, 0) = 66px
@@ -50,7 +50,7 @@ describe("Toasts mobile inset above the action bar (#810)", () => {
 
   it("stays flush to the bottom edge (0px) when no action bar is present", async () => {
     await page.viewport(400, 900);
-    toasts.info("decommissioned", { duration: null });
+    toasts.info("decommissioned", { sticky: true });
     render(Toasts, { aboveActionBar: false });
     await tick();
     expect(toastsBottomPx()).toBe(0); // today's flush behavior; pre-fix value in both states

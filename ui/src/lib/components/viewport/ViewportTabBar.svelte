@@ -100,7 +100,6 @@
     } catch {
       clearPreviewPending(session.id);
       toasts.info(m.viewport_preview_start_failed(), {
-        duration: null,
         alert: true,
         key: `preview-start-fail-${session.id}`,
       });

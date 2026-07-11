@@ -1187,7 +1187,6 @@
       }
       clearStopPending(id);
       toasts.info(m.viewport_preview_stop_failed(), {
-        duration: null,
         alert: true,
         key: `preview-stop-warn-${id}`,
       });
@@ -1228,7 +1227,6 @@
       res = await apiStopPreview(session.id);
     } catch {
       toasts.info(m.viewport_preview_stop_failed(), {
-        duration: null,
         alert: true,
         key: `preview-stop-fail-${unitId}`,
       });
@@ -1239,7 +1237,6 @@
 
     if (res.killed === 0) {
       toasts.info(m.viewport_preview_stop_nothing(), {
-        duration: null,
         alert: true,
         key: `preview-stop-warn-${unitId}`,
       });

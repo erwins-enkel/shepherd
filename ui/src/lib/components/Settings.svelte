@@ -429,10 +429,9 @@
         await saveRoleEffort(role);
       }
     } catch {
-      roleCli[role] = roleCliSaved[role]; // revert; surface a persistent, deduped alert
+      roleCli[role] = roleCliSaved[role]; // revert; surface a 12s, deduped alert
       toasts.info(m.settings_role_model_save_failed(), {
         key: `role-cli-${role}`,
-        duration: null,
         alert: true,
       });
     } finally {
@@ -449,10 +448,9 @@
         roleModelSaved[role] = v;
       }
     } catch {
-      roleModelV[role] = roleModelSaved[role]; // revert; surface a persistent, deduped alert
+      roleModelV[role] = roleModelSaved[role]; // revert; surface a 12s, deduped alert
       toasts.info(m.settings_role_model_save_failed(), {
         key: `role-model-${role}`,
-        duration: null,
         alert: true,
       });
     }
@@ -467,10 +465,9 @@
         roleEffortSaved[role] = v;
       }
     } catch {
-      roleEffortV[role] = roleEffortSaved[role]; // revert; surface a persistent, deduped alert
+      roleEffortV[role] = roleEffortSaved[role]; // revert; surface a 12s, deduped alert
       toasts.info(m.settings_role_model_save_failed(), {
         key: `role-effort-${role}`,
-        duration: null,
         alert: true,
       });
     }
@@ -547,12 +544,11 @@
       prReviewCycles = r.prReviewCyclesCap;
       prReviewCyclesSaved = r.prReviewCyclesCap;
     } catch {
-      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // revert to the last server-confirmed value; surface the failure as a 12s,
       // deduped alert so the no-op never looks like a save.
       prReviewCycles = prReviewCyclesSaved;
       toasts.info(m.settings_pr_review_cycles_save_failed(), {
         key: "pr-review-cycles-cap",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -575,12 +571,11 @@
       planReviewCycles = r.planReviewCyclesCap;
       planReviewCyclesSaved = r.planReviewCyclesCap;
     } catch {
-      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // revert to the last server-confirmed value; surface the failure as a 12s,
       // deduped alert so the no-op never looks like a save.
       planReviewCycles = planReviewCyclesSaved;
       toasts.info(m.settings_plan_review_cycles_save_failed(), {
         key: "plan-review-cycles-cap",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -596,12 +591,11 @@
       defaultModel = r.defaultModel;
       defaultModelSaved = r.defaultModel;
     } catch {
-      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // revert to the last server-confirmed value; surface the failure as a 12s,
       // deduped alert so the no-op never looks like a save.
       defaultModel = defaultModelSaved;
       toasts.info(m.settings_default_model_save_failed(), {
         key: "default-model",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -620,7 +614,6 @@
       defaultEffort = defaultEffortSaved;
       toasts.info(m.settings_default_effort_save_failed(), {
         key: "default-effort",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -639,7 +632,6 @@
       operatorLanguage = operatorLanguageSaved;
       toasts.info(m.settings_operator_language_save_failed(), {
         key: "operator-language",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -658,7 +650,6 @@
       defaultAgentProvider = defaultAgentProviderSaved;
       toasts.info(m.settings_default_agent_provider_save_failed(), {
         key: "default-agent-provider",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -680,11 +671,10 @@
         verifyMsg = "";
       }
     } catch {
-      // revert to the last server-confirmed value; surface the failure persistently.
+      // revert to the last server-confirmed value; surface the failure as a 12s alert.
       authMode = authModeSaved;
       toasts.info(m.settings_auth_mode_save_failed(), {
         key: "auth-mode",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -704,7 +694,6 @@
     } catch {
       toasts.info(m.settings_auth_key_save_failed(), {
         key: "auth-key",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -752,7 +741,6 @@
     } catch {
       toasts.info(m.settings_auth_key_save_failed(), {
         key: "auth-key",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -773,12 +761,11 @@
       extraCreditsCeiling = r.extraCreditsDrainCeiling;
       extraCreditsCeilingSaved = r.extraCreditsDrainCeiling;
     } catch {
-      // revert to the last server-confirmed value; surface the failure as a persistent,
+      // revert to the last server-confirmed value; surface the failure as a 12s,
       // deduped alert so the no-op never looks like a save.
       extraCreditsCeiling = extraCreditsCeilingSaved;
       toasts.info(m.settings_extra_credits_ceiling_save_failed(), {
         key: "extra-credits-ceiling",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -796,7 +783,6 @@
     } catch {
       toasts.info(m.settings_upnext_skip_cli_picker_save_failed(), {
         key: "upnext-skip-cli-picker",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -814,7 +800,6 @@
     } catch {
       toasts.info(m.settings_usage_hold_enabled_save_failed(), {
         key: "usage-hold-enabled",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -832,7 +817,6 @@
     } catch {
       toasts.info(m.settings_fable_available_save_failed(), {
         key: "fable-available",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -849,7 +833,6 @@
     } catch {
       toasts.info(m.settings_tui_fullscreen_save_failed(), {
         key: "tui-fullscreen",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -866,7 +849,6 @@
     } catch {
       toasts.info(m.settings_tui_disable_mouse_save_failed(), {
         key: "tui-disable-mouse",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -883,7 +865,6 @@
     } catch {
       toasts.info(m.settings_reduced_push_save_failed(), {
         key: "reduced-push-mode",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -901,7 +882,6 @@
     } catch {
       toasts.info(m.settings_telemetry_save_failed(), {
         key: "telemetry-consent",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -923,7 +903,6 @@
       usageHoldPct = usageHoldPctSaved;
       toasts.info(m.settings_usage_hold_pct_save_failed(), {
         key: "usage-hold-pct",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -941,7 +920,6 @@
     } catch {
       toasts.info(m.settings_usage_downgrade_enabled_save_failed(), {
         key: "usage-downgrade-enabled",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -963,7 +941,6 @@
       usageDowngradePct = usageDowngradePctSaved;
       toasts.info(m.settings_usage_downgrade_pct_save_failed(), {
         key: "usage-downgrade-pct",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -982,7 +959,6 @@
       usageDowngradeModel = usageDowngradeModelSaved;
       toasts.info(m.settings_usage_downgrade_model_save_failed(), {
         key: "usage-downgrade-model",
-        duration: null,
         alert: true,
       });
     } finally {
@@ -1012,7 +988,10 @@
     } catch {
       // the switch stays in its prior position (state only advances on success);
       // surface the failure so the no-op isn't silent.
-      toasts.info(m.settings_housekeeping_save_failed());
+      toasts.info(m.settings_housekeeping_save_failed(), {
+        alert: true,
+        key: "session-housekeeping",
+      });
     } finally {
       hkBusy = false;
     }

@@ -94,8 +94,8 @@ test("release() never goes below zero (stray release then hold still pauses)", a
   expect(toasts.items.some((t) => t.id === id)).toBe(true);
 });
 
-test("hold() no-ops on a persistent info toast", async () => {
-  const id = toasts.info("failed", { duration: null });
+test("hold() no-ops on a sticky info toast", async () => {
+  const id = toasts.info("failed", { sticky: true });
   toasts.hold(id);
   toasts.release(id);
 
@@ -123,9 +123,25 @@ test("a default-duration info toast carries durationMs", () => {
   expect(toasts.items.find((t) => t.id === id)?.durationMs).toBe(4000);
 });
 
-test("a persistent info toast has no durationMs (no bar)", () => {
-  const id = toasts.info("failed", { duration: null });
+test("a sticky info toast has no durationMs (no bar) and never auto-dismisses", async () => {
+  const id = toasts.info("failed", { sticky: true });
   expect(toasts.items.find((t) => t.id === id)?.durationMs).toBeUndefined();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(toasts.items.some((t) => t.id === id)).toBe(true);
+});
+
+test("a failure info toast (alert) carries durationMs 12000 and auto-dismisses at 12s", async () => {
+  const id = toasts.info("failed", { alert: true });
+  expect(toasts.items.find((t) => t.id === id)?.durationMs).toBe(12000);
+  await vi.advanceTimersByTimeAsync(11_999);
+  expect(toasts.items.some((t) => t.id === id)).toBe(true); // still up just before the window
+  await vi.advanceTimersByTimeAsync(2);
+  expect(toasts.items.some((t) => t.id === id)).toBe(false); // gone after 12s
+});
+
+test("an explicit duration overrides the alert failure default", () => {
+  const id = toasts.info("failed", { alert: true, duration: 3000 });
+  expect(toasts.items.find((t) => t.id === id)?.durationMs).toBe(3000);
 });
 
 test("a keyed refresh bumps armSeq (restarts the bar animation)", () => {

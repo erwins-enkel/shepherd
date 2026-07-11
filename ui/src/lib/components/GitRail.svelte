@@ -513,13 +513,11 @@
       if (status === "skipped") toasts.info(m.gitrail_review_skipped());
       else if (status !== "started")
         toasts.info(m.gitrail_review_failed(), {
-          duration: null,
           alert: true,
           key: `review-pr:${sessionId}`,
         });
     } catch {
       toasts.info(m.gitrail_review_failed(), {
-        duration: null,
         alert: true,
         key: `review-pr:${sessionId}`,
       });
@@ -532,7 +530,7 @@
     try {
       const status = await reviewPlan(sessionId);
       // "started" → bridge to the WS reviewing flag (silent; the indicator is the feedback).
-      // "skipped" while NOT already reviewing → transient note. "error" → persistent toast.
+      // "skipped" while NOT already reviewing → transient note. "error" → 12s failure toast.
       if (status === "started") awaitingPlanReview = true;
       else if (status === "plan-unavailable" && !planGates.isReviewing(sessionId))
         toasts.info(m.gitrail_review_plan_unavailable());
@@ -540,13 +538,11 @@
         toasts.info(m.gitrail_review_plan_skipped());
       else if (status === "error")
         toasts.info(m.gitrail_review_plan_failed(), {
-          duration: null,
           alert: true,
           key: `review-plan:${sessionId}`,
         });
     } catch {
       toasts.info(m.gitrail_review_plan_failed(), {
-        duration: null,
         alert: true,
         key: `review-plan:${sessionId}`,
       });

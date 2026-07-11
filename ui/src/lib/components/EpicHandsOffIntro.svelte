@@ -72,7 +72,6 @@
         await repoConfig.applyHandsOffDefaults(repoPath);
       } catch {
         toasts.info(m.epic_handsoff_apply_failed(), {
-          duration: null,
           alert: true,
           key: "epic-handsoff-apply-fail",
         });
@@ -84,7 +83,6 @@
         } catch {
           // Partial success: repo defaults landed, only the auto-mode switch failed.
           toasts.info(m.epic_handsoff_mode_failed(), {
-            duration: null,
             alert: true,
             key: "epic-handsoff-mode-fail",
           });

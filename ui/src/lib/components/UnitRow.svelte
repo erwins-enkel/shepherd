@@ -370,14 +370,12 @@
       const ok = await releasePlanGate(session.id); // false on 409, no throw; rejects on network error
       if (!ok)
         toasts.info(m.hold_cta_go_failed(), {
-          duration: null,
           alert: true,
           key: `hold-cta:go:${session.id}`,
         });
       // No optimistic hide: the CTA disappears only when the WS gate/planPhase update arrives.
     } catch {
       toasts.info(m.hold_cta_go_failed(), {
-        duration: null,
         alert: true,
         key: `hold-cta:go:${session.id}`,
       });
@@ -398,13 +396,11 @@
         toasts.info(m.plangate_review_skipped_stalled());
       else if (status === "error")
         toasts.info(m.gitrail_review_plan_failed(), {
-          duration: null,
           alert: true,
           key: `hold-cta:review:${session.id}`,
         });
     } catch {
       toasts.info(m.gitrail_review_plan_failed(), {
-        duration: null,
         alert: true,
         key: `hold-cta:review:${session.id}`,
       });
@@ -430,7 +426,7 @@
 
   // Retry CI: the ci-red hold carries the PR number; the server resolves that PR head's latest
   // failed run and reruns its failed jobs. `unsupported` (non-GitHub forge) / `no-run` (nothing to
-  // retry) are expected outcomes → transient info; a genuine failure (throw) is a persistent alert.
+  // retry) are expected outcomes → transient info; a genuine failure (throw) is a 12s alert.
   async function doRetryCi() {
     const pr = hold?.params?.pr;
     if (ctaBusy || pr == null) return;
@@ -442,7 +438,6 @@
       else if (reason === "no-run") toasts.info(m.hold_cta_retry_ci_no_run());
     } catch {
       toasts.info(m.hold_cta_retry_ci_failed(), {
-        duration: null,
         alert: true,
         key: `hold-cta:retry-ci:${session.id}`,
       });

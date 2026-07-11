@@ -2919,5 +2919,7 @@
   "newtask_epic_authoring_hint": "Geführtes Ausarbeiten einer groben Idee zu einem prüfbaren EPIC-Entwurf (übergeordnetes Issue, untergeordnete Issues, Abhängigkeits-DAG). Kein Code; nichts wird auf GitHub geschrieben, bis du den Entwurf genehmigst.",
   "newtask_epic_authoring_locked_aria": "Für EPIC-Authoring-Aufgaben nicht verfügbar.",
   "feat_epic_research_flow_title": "EPIC aus Recherche erstellen",
-  "feat_epic_research_flow_body": "Mach aus einer groben Produktidee ein strukturiertes Epic. Aktiviere „EPIC aus Recherche erstellen“ im Dialog „Neue Aufgabe“: Eine betreute Sitzung arbeitet die Aufgabe aus und schlägt einen prüfbaren Entwurf vor — übergeordnetes Issue, untergeordnete Issues und ihre Abhängigkeitsreihenfolge. Nichts wird auf GitHub geschrieben, bis du genehmigst; dann erstellt Shepherd die Issues und Verknüpfungen, bereit zum Abarbeiten."
+  "feat_epic_research_flow_body": "Mach aus einer groben Produktidee ein strukturiertes Epic. Aktiviere „EPIC aus Recherche erstellen“ im Dialog „Neue Aufgabe“: Eine betreute Sitzung arbeitet die Aufgabe aus und schlägt einen prüfbaren Entwurf vor — übergeordnetes Issue, untergeordnete Issues und ihre Abhängigkeitsreihenfolge. Nichts wird auf GitHub geschrieben, bis du genehmigst; dann erstellt Shepherd die Issues und Verknüpfungen, bereit zum Abarbeiten.",
+  "feat_prewarm_epic_ci_title": "Epic-Landing-CI vorwärmen",
+  "feat_prewarm_epic_ci_body": "Ist die Option aktiviert, öffnet sich der Landing-PR eines Epics jetzt frühzeitig als Entwurf, sodass seine CI schon während des Abarbeitens vorgewärmt läuft, statt beim Abschluss kalt zu starten. Pro Repo in den Automatisierungseinstellungen aktivierbar."
 }

@@ -5,6 +5,12 @@ import type { SubIssueRef } from "./forge/types";
 
 const ACTIVE_LABEL = "shepherd:active"; // mirror src/drain-core.ts
 
+/** The markdown 200-cap / premature-spawn warning assembleEpic emits (resolveMarkdown). Exported so
+ *  the epic-diagnosis passthrough filter can de-dupe it against its structured `truncated-open-list`
+ *  finding without string-duplication. */
+export const MARKDOWN_TRUNCATION_WARNING =
+  "markdown epic: open-issue list truncated at 200 — closed-state of children beyond the cap may be wrong (premature-spawn risk); add native sub-issue links to make gating safe";
+
 export interface AssembleSession {
   id: string;
   issueNumber: number | null;
@@ -90,11 +96,7 @@ function resolveMarkdown(input: AssembleInput): ResolvedGraph {
   const edges = new Map<number, number[]>();
   for (const e of parsed.edges)
     edges.set(e.dependent, [...(edges.get(e.dependent) ?? []), e.blocker]);
-  const warnings = input.openIssuesTruncated
-    ? [
-        "markdown epic: open-issue list truncated at 200 — closed-state of children beyond the cap may be wrong (premature-spawn risk); add native sub-issue links to make gating safe",
-      ]
-    : [];
+  const warnings = input.openIssuesTruncated ? [MARKDOWN_TRUNCATION_WARNING] : [];
   return { order: parsed.order, resolved, edges, warnings };
 }
 

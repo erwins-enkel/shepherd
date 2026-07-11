@@ -151,6 +151,7 @@ function harness(opts: {
         retainClaimSeenArchived = emitted.some((e) => e.event === "session:archived");
       },
       buildEpic: async () => null,
+      diagnoseEpic: async () => null,
       approveEpicNext: () => {},
       tick: async () => {},
     },
@@ -360,6 +361,7 @@ test("concurrent second relaunch of the same id → 409, no double-spawn", async
       queue: async () => [],
       retainClaim: () => {},
       buildEpic: async () => null,
+      diagnoseEpic: async () => null,
       approveEpicNext: () => {},
       tick: async () => {},
     },

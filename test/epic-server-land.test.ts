@@ -74,6 +74,7 @@ function landHarness(resolveForge?: AppDeps["resolveForge"]): {
     queue: async () => [],
     retainClaim: () => {},
     buildEpic: async () => null,
+    diagnoseEpic: async () => null,
     approveEpicNext: () => {},
     tick: async () => {},
   };

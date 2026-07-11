@@ -751,6 +751,27 @@ export interface EpicSummary {
   source: EpicSource;
 }
 
+// ── epic diagnosis (GET /api/epic/diagnose) — mirrors src/epic-diagnosis.ts ──
+export type EpicDiagnosisSeverity = "info" | "warning" | "error";
+export type EpicDiagnosisAction = "import-structure";
+/** One structural finding about an epic's shape. `id` is a stable slug (no-children |
+ *  markdown-source | truncated-open-list | all-parallel | self-dependency |
+ *  outside-epic-dependency | native-body-disagree); `params` feeds message interpolation;
+ *  `action` names an offered remediation when present. */
+export interface EpicDiagnosisFinding {
+  id: string;
+  severity: EpicDiagnosisSeverity;
+  params?: Record<string, string | number>;
+  action?: EpicDiagnosisAction;
+}
+export interface EpicDiagnosis {
+  parentIssueNumber: number;
+  recognized: boolean;
+  source: EpicSource | null;
+  findings: EpicDiagnosisFinding[];
+  additionalWarnings: string[];
+}
+
 /** One child issue in a completed epic record.
  *  Carried inside CompletedEpic; mirrors the server-side CompletedEpicChild shape. */
 export interface CompletedEpicChild {

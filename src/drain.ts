@@ -70,6 +70,10 @@ const EPIC_RECONCILE_TTL_MS = 5 * 60_000;
  *  forge calls. Bounds the cost of a permanently-broken landing (no perpetual retry). */
 const MAX_LANDING_ATTEMPTS = 5;
 
+/** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before we stop and
+ *  leave it to the operator-facing `landingCiFailing` surfacing. A new head resets the budget. */
+const LANDING_RERUN_CAP = 2;
+
 /** Auto-land merge-error guardrails (#1044) — mirror AutoMergeService's per-head cap + backoff.
  *  After this many consecutive merge failures on the SAME landing-PR head, back the epic off so it
  *  stops re-firing forge.merge each tick; one retry per backoff window thereafter. In-memory only
@@ -231,6 +235,8 @@ export class DrainService {
   // same landingAttempts → lose an increment. This set makes the second invocation a
   // no-op; it'll be retried next tick anyway.
   private landingInFlight = new Set<string>();
+  /** repoPath#parent#headSha → count of automatic landing-CI reruns spent on that head (C). */
+  private landingRerunCount = new Map<string, number>();
   // Auto-land (#1044) per-epic merge-error backoff, keyed `${repoPath}#${parentIssueNumber}`:
   // consecutive merge failures on the current landing-PR head + when the epic is blocked until.
   // A new head or a success clears the entry. In-memory (ephemeral); mirrors AutoMergeService.
@@ -1320,6 +1326,88 @@ export class DrainService {
   }
 
   /**
+   * C: auto-rerun the failed CI on a red epic landing PR (flake absorption). Runs each tick between
+   * rebaseStuckLandingPrsForRepo (owns behind/conflict) and autoLandLandingPrsForRepo (lands green).
+   * GitHub-only (rerun API is GitHub-specific), engaged-gated, capped per head, fail-closed, and
+   * `landingInFlight`-serialized (shared key namespace with the other landing passes).
+   * NEVER merges — a rerun that greens is landed by tryAutoLandEpic / the manual CTA; a red one that
+   * exhausts its budget is surfaced by `landingCiFailing` (index.ts).
+   */
+  private async rerunRedLandingCiForRepo(repoPath: string): Promise<void> {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    const er = this.deps.store.getEpicRun(repoPath);
+    const engaged =
+      !cfg.draftMode && (cfg.autoMergeEnabled || cfg.autoDrainEnabled || er?.status === "running");
+    if (!engaged) return;
+    const forge = this.deps.resolveForge(repoPath);
+    if (!forge || forge.kind !== "github") return;
+    // Capability gate (both are optional on GitForge — GitHub-only). Capture locals so TS keeps the
+    // non-undefined narrowing across the awaits below.
+    const latestFailedRunForPr = forge.latestFailedRunForPr;
+    const rerunWorkflowRun = forge.rerunWorkflowRun;
+    if (!latestFailedRunForPr || !rerunWorkflowRun) return;
+
+    const open = this.deps.store
+      .listEpicCompleted(repoPath)
+      .filter((r) => r.landingState === "open" && r.landingPrNumber != null);
+    if (open.length === 0) return;
+
+    for (const row of open) {
+      const parent = row.parentIssueNumber;
+      const key = `${repoPath}#${parent}`;
+      if (this.landingInFlight.has(key)) continue;
+      this.landingInFlight.add(key);
+      try {
+        await this.processRedLandingRerun(
+          repoPath,
+          forge,
+          parent,
+          row.landingPrNumber!,
+          latestFailedRunForPr,
+          rerunWorkflowRun,
+        );
+      } catch (err) {
+        console.warn(`[drain] rerunRedLandingCiForRepo failed for ${key}:`, err);
+      } finally {
+        this.landingInFlight.delete(key);
+      }
+    }
+  }
+
+  /** Process one open landing row: rerun its failed CI iff terminally red, mergeable, not behind,
+   *  not draft, and under the per-head budget. Serialized by the caller via landingInFlight. */
+  private async processRedLandingRerun(
+    repoPath: string,
+    forge: GitForge,
+    parent: number,
+    prNumber: number,
+    latestFailedRunForPr: (prNumber: number) => Promise<number | null>,
+    rerunWorkflowRun: (runId: number, o: { failedOnly: boolean }) => Promise<void>,
+  ): Promise<void> {
+    const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+    if (branch === null) return;
+    const pr = await forge.prStatus(branch);
+    if (pr.state !== "open" || pr.isDraft) return;
+    // Only a TERMINAL failure on an otherwise-mergeable, not-behind PR. behind/conflicting → the rebase
+    // pass; pending/none/success → nothing to rerun.
+    if (pr.checks !== "failure" || pr.mergeStateStatus === "behind" || pr.mergeable === false)
+      return;
+
+    const head = pr.headSha ?? "";
+    const cntKey = `${repoPath}#${parent}#${head}`;
+    const used = this.landingRerunCount.get(cntKey) ?? 0;
+    if (used >= LANDING_RERUN_CAP) return; // budget spent on this head → leave to landingCiFailing
+
+    const runId = await latestFailedRunForPr(prNumber);
+    if (runId == null) return; // fork-origin PR / no failed run resolvable
+    await rerunWorkflowRun(runId, { failedOnly: true });
+    this.landingRerunCount.set(cntKey, used + 1);
+    console.warn(
+      `[drain] rerunning failed landing CI for ${repoPath}#${parent} (run ${runId}, ${used + 1}/${LANDING_RERUN_CAP})`,
+    );
+  }
+
+  /**
    * AUTO-LAND (#1044): opt-in autonomous merge of a completed epic's aggregate landing PR. Runs in
    * {@link tick} alongside {@link ensureLandingPrsForRepo} — the session-less landing PR has no
    * managed session, so it can't ride the session-owned `AutoMergeService`; the drain (which
@@ -2164,6 +2252,9 @@ export class DrainService {
       // internally (automation-engaged check + GitHub-only + DB-gate → zero forge calls in
       // steady state). UNGATED by drain, like its neighbors.
       await this.rebaseStuckLandingPrsForRepo(repoPath);
+      // C: auto-rerun a red (flaky) landing PR's failed CI before the auto-land pass sees it —
+      // GitHub-only, capped per head, never merges. UNGATED like the passes around it.
+      await this.rerunRedLandingCiForRepo(repoPath);
       // #1044: opt-in auto-land of open landing PRs (gated internally on the repo's auto-merge
       // opt-in → zero forge calls when off). UNGATED by drain, like ensureLandingPrsForRepo.
       await this.autoLandLandingPrsForRepo(repoPath);

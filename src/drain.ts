@@ -70,6 +70,13 @@ const EPIC_RECONCILE_TTL_MS = 5 * 60_000;
  *  forge calls. Bounds the cost of a permanently-broken landing (no perpetual retry). */
 const MAX_LANDING_ATTEMPTS = 5;
 
+/** Provisional banner prepended to the body of a #1664 pre-warm DRAFT landing PR — signals the PR
+ *  was opened early to warm CI while the epic is still draining, so its body/child list are not yet
+ *  final (Task 3's completion rebuild uses the plain builder, dropping this marker). Forge data
+ *  authored by Shepherd (like `buildLandingPrBody`), passed verbatim to GitHub — NEVER i18n'd. */
+const PREWARM_DRAFT_NOTICE =
+  "> ⚠️ Pre-warm draft — CI is being warmed while the epic drains; the body and child list are finalized when the epic lands.\n\n";
+
 /** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before we stop and
  *  leave it to the operator-facing `landingCiFailing` surfacing. A new head resets the budget. */
 const LANDING_RERUN_CAP = 2;
@@ -1136,6 +1143,91 @@ export class DrainService {
       } finally {
         this.landingInFlight.delete(key);
       }
+    }
+  }
+
+  /**
+   * #1664 pre-warm pass: open the epic's aggregate landing PR EARLY as a draft — while the epic is
+   * still draining — so its CI is already green (or diagnosable) by the time the epic completes.
+   * Opt-in per repo (`preWarmEpicLandingCi`, default off). GitHub-only + engaged-only (running,
+   * non-draft-mode), matching rebaseStuckLandingPrsForRepo's gate shape.
+   *
+   * LOAD-BEARING invariant: this pass writes NO DB row (no `epic_completed` / `landingState`). The
+   * rebase pass (rebaseStuckLandingPrsForRepo) force-pushes only rows in `listEpicCompleted` with
+   * `landingState:"open"`; a draft with no row is therefore never force-rewritten under still-open
+   * child PRs during the drain. The completion/adoption path (Task 3) is what records the row.
+   *
+   * The ENTIRE body is wrapped in one try/catch: tick() calls the landing passes UNGUARDED (each
+   * guards itself), and the steps below touch the forge (prStatus / buildEpic issue reads /
+   * defaultBranch / openPr) — an unguarded throw would break the whole tick for all later repos.
+   */
+  private async ensureDraftLandingPrForRepo(repoPath: string): Promise<void> {
+    try {
+      // 1. Opt-in gate (no forge).
+      const cfg = this.deps.store.getRepoConfig(repoPath);
+      if (!cfg.preWarmEpicLandingCi) return;
+
+      // 2. Engaged predicate: a running epic, not draft-mode (no forge).
+      const er = this.deps.store.getEpicRun(repoPath);
+      if (cfg.draftMode || er?.status !== "running") return;
+
+      // 3. GitHub-only (matching rebaseStuckLandingPrsForRepo).
+      const forge = this.deps.resolveForge(repoPath);
+      if (!forge || forge.kind !== "github") return;
+
+      // 4. ≥1 integration-merged child — nothing on the branch to pre-warm otherwise (same
+      //    source ensureLandingPr's pre-gate uses).
+      const parent = er.parentIssueNumber;
+      const details = this.deps.store.listEpicIntegratedDetails(repoPath, parent);
+      if (details.length === 0) return;
+
+      // 5. Read the pinned integration branch (READ-ONLY getter — never INSERT a title-drifted
+      //    pin from this path; see the comment at tryAutoLandEpic). Null ⇒ unpinned ⇒ skip.
+      const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
+      if (!branch) return;
+
+      // 6. Serialize per (repo, parent) — shared key namespace with ensureLandingPr et al.
+      const key = `${repoPath}#${parent}`;
+      if (this.landingInFlight.has(key)) return;
+      this.landingInFlight.add(key);
+      try {
+        // 7. Idempotency: prStatus reads `--state all`, so a prior open/merged/CLOSED draft on
+        //    this head all early-return here. A closed draft is NOT re-opened mid-run (respect
+        //    the operator's close; re-open-at-completion is Task 3, not here).
+        const existing = await forge.prStatus(branch);
+        if (existing.state !== "none") return;
+
+        // 8. buildEpic returns null for a repo with no epic structure — guard before use.
+        const epic = await this.buildEpic(repoPath, er);
+        if (!epic) return;
+
+        // 9. Build the PR fields with the shared epic-landing builders.
+        const children = buildRollup(epic.children, details);
+        const defaultBranch = await forge.defaultBranch();
+        const title = buildLandingPrTitle(parent, epic.parentTitle);
+        const baseBody = buildLandingPrBody({
+          parentNumber: parent,
+          parentTitle: epic.parentTitle,
+          integrationBranch: branch,
+          defaultBranch,
+          children,
+        });
+
+        // 10. Prepend the provisional marker (this pass only — the shared builder is unchanged).
+        const body = PREWARM_DRAFT_NOTICE + baseBody;
+
+        // 11. Open the draft. EmptyDiffError ⇒ nothing to pre-warm yet (silent). NO DB row.
+        try {
+          await forge.openPr({ head: branch, base: defaultBranch, title, body, draft: true });
+        } catch (err) {
+          if (err instanceof EmptyDiffError) return;
+          throw err;
+        }
+      } finally {
+        this.landingInFlight.delete(key);
+      }
+    } catch (err) {
+      console.warn(`[drain] ensureDraftLandingPrForRepo failed for ${repoPath}:`, err);
     }
   }
 
@@ -2250,6 +2342,11 @@ export class DrainService {
       } catch (err) {
         console.warn(`[drain] epic reconcile failed for ${repoPath}:`, err);
       }
+      // #1664: pre-warm the epic landing PR as an early draft (opt-in). Placed AFTER reconcile so a
+      // child integrated earlier this tick is already in listEpicIntegratedDetails. Flag-gated +
+      // running-only + GitHub-only; ~1 prStatus/tick per running flagged epic while the draft is
+      // open (NOT zero — unlike the completed-row passes). UNGATED by drain, like its neighbors.
+      await this.ensureDraftLandingPrForRepo(repoPath);
       // UNGATED landing-PR retry: runs for EVERY repo, BEFORE the pump gate, so a completed
       // epic's PR is opened/retried even in a repo with autoDrain off and no running epic.
       // DB-gated internally → zero forge calls in steady state.

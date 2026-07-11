@@ -30,6 +30,8 @@ import {
   type EpicLandingState,
 } from "./completed-epic";
 import { buildLandingPrTitle, buildLandingPrBody } from "./epic-landing";
+import { parseEpicBody } from "./epic-parse";
+import { diagnoseEpic, type EpicDiagnosis } from "./epic-diagnosis";
 import { repoHasNoCiCached } from "./checks-gate";
 import { EmptyDiffError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
@@ -425,6 +427,31 @@ export class DrainService {
     // No swept markers → the probe is already correct; reuse it rather than re-assembling.
     if (liveMismatches.length === recordedMismatches.length) return probe;
     return assembleEpic({ ...base, baseMismatches: liveMismatches });
+  }
+
+  /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). Reuses the
+   *  cached epicStructure + buildEpic (so it does the SAME idempotent branch-pin / base-mismatch
+   *  bookkeeping as buildEpic — deliberately, matching handleEpicGet; no forge/GitHub writes) and
+   *  layers the raw native/body facts the pure diagnosis needs. */
+  async diagnoseEpic(repoPath: string, run: EpicRun): Promise<EpicDiagnosis | null> {
+    const struct = await this.epicStructure(repoPath, run);
+    if (!struct) return null;
+    const epic = await this.buildEpic(repoPath, run); // reuses the just-cached struct
+    if (!epic) return null;
+    const parsedBody = parseEpicBody(struct.parent?.body ?? "");
+    const native = struct.subIssues.length > 0;
+    let openIssuesTruncated = false;
+    if (!native) {
+      const open = await this.listIssues(repoPath);
+      openIssuesTruncated = open.length >= 200;
+    }
+    return diagnoseEpic({
+      epic,
+      subIssues: struct.subIssues,
+      blockedBy: struct.blockedBy,
+      parsedBody,
+      openIssuesTruncated,
+    });
   }
 
   /** #645 (c): list host `epic/*` branches that reference `parentNumber` as a digit-bounded

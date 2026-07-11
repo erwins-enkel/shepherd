@@ -7,6 +7,7 @@ import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import { validateEpicRunPatch } from "../src/validate";
 import type { Epic, EpicChild, EpicRun } from "../src/epic-core";
+import type { EpicDiagnosis } from "../src/epic-diagnosis";
 
 // ── validateEpicRunPatch unit tests ──────────────────────────────────────────
 
@@ -115,6 +116,16 @@ function makeEpic(repoPath: string, parentIssueNumber: number, run: EpicRun): Ep
   };
 }
 
+function makeDiagnosis(parentIssueNumber: number): EpicDiagnosis {
+  return {
+    parentIssueNumber,
+    recognized: true,
+    source: "native",
+    findings: [{ id: "all-parallel", severity: "warning", params: { count: 3 } }],
+    additionalWarnings: [],
+  };
+}
+
 type FakeDrain = NonNullable<AppDeps["drain"]>;
 
 function harness(opts?: {
@@ -133,6 +144,7 @@ function harness(opts?: {
     queue: async () => [],
     retainClaim: () => {},
     buildEpic: async (repoPath, run) => makeEpic(repoPath, run.parentIssueNumber, run),
+    diagnoseEpic: async (_repoPath, run) => makeDiagnosis(run.parentIssueNumber),
     approveEpicNext: () => {},
     tick: async () => {},
   };
@@ -406,6 +418,71 @@ describe("GET /api/epic", () => {
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.parentIssueNumber).toBe(327);
+  });
+});
+
+// ── GET /api/epic/diagnose ────────────────────────────────────────────────────
+
+describe("GET /api/epic/diagnose", () => {
+  test("invalid repo → 400", async () => {
+    const { app } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/diagnose?repo=/nope/not/here&parent=327`),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("non-integer parent → 400", async () => {
+    const { app } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/diagnose?repo=${encRepo(repoDir)}&parent=abc`),
+    );
+    expect(res.status).toBe(400);
+  });
+
+  test("absent parent → 400", async () => {
+    const { app } = harness();
+    const res = await app.fetch(new Request(`http://x/api/epic/diagnose?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(400);
+  });
+
+  test("missing drain → 503", async () => {
+    const store = new SessionStore(":memory:");
+    const deps: AppDeps = {
+      store,
+      service: {} as AppDeps["service"],
+      events: new EventHub(),
+      usageLimits: { limits: () => ({}) } as any,
+      drain: undefined,
+    };
+    const app = makeApp(deps);
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/diagnose?repo=${encRepo(repoDir)}&parent=327`),
+    );
+    expect(res.status).toBe(503);
+  });
+
+  test("diagnoseEpic returning null → 404", async () => {
+    const { app } = harness({
+      drainOverrides: { diagnoseEpic: async () => null },
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/diagnose?repo=${encRepo(repoDir)}&parent=327`),
+    );
+    expect(res.status).toBe(404);
+  });
+
+  test("valid repo + parent → 200 with diagnosis", async () => {
+    const { app } = harness();
+    const res = await app.fetch(
+      new Request(`http://x/api/epic/diagnose?repo=${encRepo(repoDir)}&parent=327`),
+    );
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.parentIssueNumber).toBe(327);
+    expect(body.recognized).toBe(true);
+    expect(body.source).toBe("native");
+    expect(body.findings[0].id).toBe("all-parallel");
   });
 });
 
@@ -1017,6 +1094,7 @@ function completedHarness(opts?: {
     queue: async () => [],
     retainClaim: () => {},
     buildEpic: async (repoPath, run) => makeEpic(repoPath, run.parentIssueNumber, run),
+    diagnoseEpic: async (_repoPath, run) => makeDiagnosis(run.parentIssueNumber),
     approveEpicNext: () => {},
     tick: async () => {},
   };

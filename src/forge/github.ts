@@ -1986,7 +1986,7 @@ export class GithubForge implements GitForge {
     // failure (rate limit, malformed JSON) yields an empty Map — degraded to no exclusion.
     const [owner, name] = this.slug.split("/");
     const query =
-      "query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(states:OPEN, first:100, after:$after){pageInfo{ hasNextPage endCursor }nodes{ number blockedBy(first:20){ nodes{ number state } } }}}}";
+      "query($owner:String!,$name:String!,$after:String){repository(owner:$owner,name:$name){issues(states:OPEN, first:100, after:$after, orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{ hasNextPage endCursor }nodes{ number blockedBy(first:20){ nodes{ number state } } }}}}";
     const result = new Map<number, number[]>();
     try {
       let after: string | null = null;

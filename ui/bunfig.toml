@@ -1,10 +1,3 @@
-# Root `bun test` config. The preload strips the operator's ambient SHEPHERD_* runtime config
-# before any test imports src/config.ts, so the suite is deterministic regardless of whether it
-# runs in CI, a plain shell, or inside a live Shepherd session (dogfooding). See the header of
-# test/setup-test-env.ts for the full rationale.
-[test]
-preload = ["./test/setup-test-env.ts"]
-
 # Supply-chain cooldown: refuse to resolve npm versions published < 3 days ago.
 # Compromised releases are typically yanked within hours, so this filters most
 # such incidents at the resolution layer. Note: only enforced when resolving new

@@ -204,3 +204,35 @@ test("de plan sidecar instructions carry the field-discipline verbatim-fields li
     expect(t).toContain(field);
   }
 });
+
+// Worktree git-stash safety notice (#1632) — a global git-mechanism invariant that must ride
+// EVERY spawn, regardless of learnings / research / plan-gate / autopilot state.
+test("worktree-stash-notice rides every spawn variant", () => {
+  const variants = [
+    composeSystemPrompt(null, false), // plain code spawn, no learnings
+    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false), // with house rules
+    composeSystemPrompt(null, true), // autopilot
+    composeSystemPrompt(null, false, { research: true }), // research
+    composeSystemPrompt(null, true, { planGate: "interactive" }), // plan gate
+  ];
+  for (const p of variants) {
+    expect(p).toContain("<worktree-stash-notice>");
+    expect(p).toContain("refs/stash");
+  }
+});
+
+test("worktree-stash-notice recommends read-only + create/apply, never store or bare stash", () => {
+  const p = composeSystemPrompt(null, false);
+  // Read-only inspection is the primary safe path.
+  expect(p).toContain("git show <ref>:<path>");
+  expect(p).toContain("git diff <ref>");
+  expect(p).toContain("git worktree add");
+  // Safe shelve = create (tracked-only, prints a SHA) + apply <sha>.
+  expect(p).toContain("git stash create");
+  expect(p).toContain("git stash apply <sha>");
+  // `git stash store` writes the shared stack — only ever named as the thing NOT to do.
+  expect(p).toContain("never `git stash store`");
+  expect(p).not.toContain("use `git stash store`");
+  // Bare stash/pop explicitly prohibited.
+  expect(p).toContain("never bare `git stash`");
+});

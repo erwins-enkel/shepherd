@@ -24,6 +24,14 @@ Every PR branch must be cut from the **latest `main`** and kept **linear**:
 
 A branch that merges other branches drags their commits + a bloated diff into the PR. The gate `scripts/check-branch-hygiene.sh` fails any branch with merge commits relative to main; it runs in the **PR hygiene** CI workflow and the pre-push hook. To fix a polluted branch, re-create it off main with just your change (`git checkout -b <branch> origin/main` then cherry-pick / `rebase --onto origin/main`).
 
+## Never `git stash` in a worktree (shared `refs/stash`)
+
+`refs/stash` is a **single stack shared across every worktree of the repo** — there is no per-worktree isolation. A bare `git stash` / `git stash pop` in one session can grab or discard another concurrent session's entry, and `stash@{n}` indices race. So never run bare `git stash` / `git stash pop` (this is also injected into every agent's system prompt as `<worktree-stash-notice>`, so subagents get it too):
+
+- **To inspect or diff base state** without mutating the working tree, use read-only commands: `git show <ref>:<path>`, `git diff <ref>`, or a throwaway `git worktree add`. This is the primary safe path.
+- **If you must shelve local changes**, use `git stash create` (it prints a commit SHA **without** writing the shared `refs/stash` stack, and captures **tracked changes only** — untracked files are not saved), record that SHA yourself, and later restore with `git stash apply <sha>`.
+- **Never `git stash store`** — it writes into the same shared `refs/stash` stack and reproduces the exact collision `git stash create` avoids.
+
 ## Design system (REQUIRED for any UI work)
 
 The UI has a **semantic token layer** (`ui/src/app.css` — `--color-*` surfaces/text/accents, the `--fs-*` type scale, `--status-*`/`--wash-*`) and a live reference page that documents it plus the canonical component recipes: **`/design-system`** (`ui/src/routes/design-system/+page.svelte`). It exists to stop **design drift** — every session re-inventing buttons, spacing and colors. Before authoring any UI:

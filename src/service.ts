@@ -419,6 +419,27 @@ const BRANCH_RENAME_NOTICE =
   "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
 
 /**
+ * Appended to every spawned session's system prompt. `refs/stash` is a single stack shared
+ * across every worktree of a repo (there is no per-worktree isolation), so a bare `git stash`
+ * / `stash pop` in one Shepherd session can grab or discard another concurrent session's entry
+ * — a latent data-loss footgun (issue #1632). A global git-mechanism invariant, not per-repo
+ * learned guidance, so it lives in source and rides every spawn as its own block rather than in
+ * the `<shepherd-house-rules>` block. `git stash store` is deliberately NOT recommended: it
+ * writes into the same shared `refs/stash` stack and reproduces the collision. Not user-facing
+ * chrome (an instruction to the agent), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
+ */
+const WORKTREE_STASH_NOTICE =
+  "Never run bare `git stash` / `git stash pop` in a Shepherd checkout — `refs/stash` is a " +
+  "single stack shared across every worktree of the repo, so concurrent sessions collide (a pop " +
+  "or drop can grab or discard another session's entry). To inspect or diff base state, use " +
+  "read-only commands that don't touch the working tree: `git show <ref>:<path>`, `git diff " +
+  "<ref>`, or a throwaway `git worktree add`. If you must shelve local changes, use `git stash " +
+  "create` (it prints a commit SHA without writing the shared `refs/stash` stack, and captures " +
+  "tracked changes only — untracked files are not saved), record that SHA yourself, and later " +
+  "restore with `git stash apply <sha>` — never `git stash store` (it writes the shared stack " +
+  "and reproduces the collision) and never bare `git stash` / `git stash pop`.";
+
+/**
  * Injected only into trimmed auto (drain) spawns — sessions launched with
  * `--disable-slash-commands` + an `enabledPlugins:false` settings overlay (issue #499,
  * see trimDecision). Without it, CLAUDE.md / memory instructions like "use the superpowers
@@ -1146,6 +1167,12 @@ export function composeSystemPrompt(
   const blocks = houseRules
     ? [posture, untrustedBoundary, research, houseRules, branchNotice]
     : [posture, untrustedBoundary, research, branchNotice];
+  // Worktree git-stash safety (issue #1632): a global git-mechanism invariant (`refs/stash` is
+  // shared across all worktrees of a repo, so concurrent sessions collide), so it rides EVERY
+  // spawn unconditionally — including research and non-isolated sessions, whose shared-checkout
+  // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
+  // house-rules block.
+  blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed only for a
   // research session — which already caps at exactly one report-PR / issue, so the block is
   // redundant there and would muddy that deliverable.

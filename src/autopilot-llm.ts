@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
 import type { AutopilotVerdict, AgentProvider } from "./types";
+import type { OperatorLanguage } from "./operator-language";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import {
@@ -28,6 +29,9 @@ export interface ClassifierDeps {
   provider?: AgentProvider;
   model?: string | null;
   effort?: string | null;
+  /** Operator language for the classifier prompt (issue #1627). "en" (default) → byte-identical
+   *  historical prompt; "de" → `summary` in German with `kind` pinned to the exact English enum. */
+  operatorLanguage?: OperatorLanguage;
   now?: () => number;
   sleep?: (ms: number) => Promise<void>;
   timeoutMs?: number;
@@ -109,6 +113,7 @@ export async function classifyStop(
     provider = "claude",
     model = "haiku",
     effort = null,
+    operatorLanguage = "en",
     now = Date.now,
     sleep = realSleep,
     // Deliberately shorter than the critic's 10m: this is a fast tail-triage on haiku, not a
@@ -131,7 +136,7 @@ export async function classifyStop(
   let terminalId: string | null = null;
   try {
     cwd = makeTmpDir();
-    const prompt = classifierPrompt(tail, taskPrompt);
+    const prompt = classifierPrompt(tail, taskPrompt, operatorLanguage);
     try {
       terminalId = (
         await deps.herdr.start(

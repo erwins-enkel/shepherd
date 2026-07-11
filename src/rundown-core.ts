@@ -19,6 +19,7 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { fenceUntrusted } from "./untrusted";
+import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
 
 export const RUNDOWN_VERDICT_FILE = ".shepherd-rundown.json";
@@ -520,7 +521,10 @@ export function assembleHerdState(input: AssembleInput): AssembledHerdState {
 // ── prompt ───────────────────────────────────────────────────────────────────
 /** The instruction prompt for the rundown spawn. Encodes the triage contract and tells
  *  the agent to Write `.shepherd-rundown.json` as its final action, then stop. */
-export function buildRundownPrompt(assembled: AssembledHerdState): string {
+export function buildRundownPrompt(
+  assembled: AssembledHerdState,
+  operatorLanguage: OperatorLanguage = "en",
+): string {
   const lines = [
     "You are triaging an autonomous-agent fleet for a SINGLE human operator. Your job is to",
     'answer one question: "what needs a human right now?" — across the whole live herd.',
@@ -629,7 +633,7 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
           ...assembledForDump,
           sessions: assembled.sessions.map((s) => {
             const { hold, ...rest } = s;
-            if (hold) return { ...rest, why: renderHold(hold, "en") };
+            if (hold) return { ...rest, why: renderHold(hold, operatorLanguage) };
             return rest;
           }),
         },
@@ -638,6 +642,17 @@ export function buildRundownPrompt(assembled: AssembledHerdState): string {
       ),
     ),
   );
+
+  if (operatorLanguage === "de") {
+    lines.push(
+      "",
+      "Write the operator-facing prose fields `overnight`, `train`, and every `label` in " +
+        "`decisions[]`/`ciRework[]`/`focusNext[]` in German. Keep machine-read fields verbatim — " +
+        "never translate `sessionId` (an opaque id) or `pr` (a number). Reproduce any quoted PR/" +
+        "issue title from the herd state in its original language (GitHub text); write only the " +
+        "surrounding synthesis in German.",
+    );
+  }
 
   return lines.join("\n");
 }

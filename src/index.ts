@@ -1868,6 +1868,8 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
 const herdDigestService = new HerdDigestService({
   store,
   herdr,
+  // Live operator-language setting, read per spawn (#1586).
+  operatorLanguage: () => config.operatorLanguage,
   isActive: () => presence.isActive(),
   landingReadyEpics,
   hasOpenLandingEpics: () => store.listEpicCompleted().some((r) => r.landingState === "open"),
@@ -2547,7 +2549,15 @@ const appDeps: AppDeps = {
       return { error: "no-history" as const };
     }
     return recommendPrompt(
-      { tail, taskPrompt: s.prompt, provider, model, label: `recommend ${s.desig}` },
+      {
+        tail,
+        taskPrompt: s.prompt,
+        provider,
+        model,
+        label: `recommend ${s.desig}`,
+        // Live per-call read at the composition root (#1586).
+        operatorLanguage: config.operatorLanguage,
+      },
       { herdr },
     );
   },

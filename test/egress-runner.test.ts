@@ -6,7 +6,7 @@
  * nft/dnsmasq) and tear it down with SIGKILL, so they are GATED. The suite SKIPS
  * when (a) the host can't do rootless user+net namespaces / lacks the tools, (b)
  * running under CI (no real slirp teardown in any CI job), or (c) a rootless
- * docker daemon's socket is present — because on a host (e.g. `backontop`) whose
+ * docker daemon's socket is present — because on a host (e.g. `agentnode`) whose
  * rootless docker serves the CI runners, churning the real slirp machinery can
  * take out that daemon's shared `slirp4netns` and knock all runners offline
  * (2026-06-12 incident; issue #591). The skip decision lives in

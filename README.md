@@ -489,8 +489,8 @@ for p in $(seq 8001 8016); do tailscale serve --bg --https=$p 127.0.0.1:$p; done
 **Split-front / `previewHost`:** the preview iframe URL is built from the **agent node's own
 tailnet hostname** (server-reported `previewHost`), not the operator's connection host. This means
 the preview works when the HUD is fronted under a different Tailscale identity than the agent node
-— e.g. a Tailscale Service `svc:shepherd` at `:443` while agents run on `backontop`. The slot is
-served at the node, so the iframe correctly targets `https://backontop.<tailnet>.ts.net:<port>`
+— e.g. a Tailscale Service `svc:shepherd` at `:443` while agents run on `agentnode`. The slot is
+served at the node, so the iframe correctly targets `https://agentnode.<tailnet>.ts.net:<port>`
 rather than the Service address. On localhost dev and single-host tailnets behavior is unchanged.
 
 **Scope / precondition:** the operator's browser must be on the tailnet, and tailnet ACLs must

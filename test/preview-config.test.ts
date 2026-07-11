@@ -12,13 +12,13 @@ import { originAllowed } from "../src/validate";
 const SAMPLE_STATUS = `
 # Tailscale Serve Status
 
-https://backontop.chicken-beardie.ts.net (tailnet only)
+https://agentnode.example.ts.net (tailnet only)
 |-- / proxy http://127.0.0.1:7330
 
-https://backontop.chicken-beardie.ts.net:5191 (tailnet only)
+https://agentnode.example.ts.net:5191 (tailnet only)
 |-- / proxy http://127.0.0.1:5190
 
-https://backontop.chicken-beardie.ts.net:5193 (tailnet only)
+https://agentnode.example.ts.net:5193 (tailnet only)
 |-- / proxy http://127.0.0.1:5192
 `;
 
@@ -77,7 +77,7 @@ https://myhost.ts.net:7777 (tailnet only)
 const SERVE_STATUS_JSON_FULL = JSON.stringify({
   TCP: { "5191": { HTTPS: true } },
   Web: {
-    "backontop.chicken-beardie.ts.net:5191": {
+    "agentnode.example.ts.net:5191": {
       Handlers: { "/": { Proxy: "http://127.0.0.1:5190" } },
     },
   },
@@ -85,7 +85,7 @@ const SERVE_STATUS_JSON_FULL = JSON.stringify({
     "svc:shepherd": {
       TCP: { "443": { HTTPS: true } },
       Web: {
-        "shepherd.chicken-beardie.ts.net:443": {
+        "shepherd.example.ts.net:443": {
           Handlers: { "/": { Proxy: "http://localhost:7330" } },
         },
       },

@@ -13,7 +13,7 @@
  *    `tailscale serve --https` is HTTPS-only — there is no HTTP listener on
  *    the slot port. This is the split-front fix: when the HUD is fronted by a
  *    different Tailscale identity (e.g. a Service `svc:shepherd`) than the
- *    agent node (`backontop`), the iframe must target the agent node's OWN
+ *    agent node (`agentnode`), the iframe must target the agent node's OWN
  *    tailnet hostname, not the operator's connection host. Using loc.hostname
  *    in that case would hit a port that serves nothing → ERR_SSL_PROTOCOL_ERROR.
  *

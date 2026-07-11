@@ -943,14 +943,13 @@ describe("GitRail — manual critic-review trigger", () => {
     expect(toastsInfo).toHaveBeenCalledWith(
       m.gitrail_review_failed(),
       expect.objectContaining({
-        duration: null,
         alert: true,
         key: `review-pr:${baseProps.sessionId}`,
       }),
     );
   });
 
-  it("a rejected reviewPr raises the persistent failure toast", async () => {
+  it("a rejected reviewPr raises the failure toast", async () => {
     reviewPrFn.mockRejectedValue(new Error("boom"));
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
@@ -961,7 +960,7 @@ describe("GitRail — manual critic-review trigger", () => {
     await vi.waitFor(() => expect(toastsInfo).toHaveBeenCalledTimes(1));
     expect(toastsInfo).toHaveBeenCalledWith(
       m.gitrail_review_failed(),
-      expect.objectContaining({ duration: null, alert: true }),
+      expect.objectContaining({ alert: true }),
     );
   });
 
@@ -1204,14 +1203,13 @@ describe("GitRail — manual plan-review trigger", () => {
     expect(toastsInfo).toHaveBeenCalledWith(
       m.gitrail_review_plan_failed(),
       expect.objectContaining({
-        duration: null,
         alert: true,
         key: `review-plan:${baseProps.sessionId}`,
       }),
     );
   });
 
-  it("a rejected reviewPlan raises the persistent failure toast", async () => {
+  it("a rejected reviewPlan raises the failure toast", async () => {
     reviewPlanFn.mockRejectedValue(new Error("boom"));
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
@@ -1226,7 +1224,6 @@ describe("GitRail — manual plan-review trigger", () => {
     expect(toastsInfo).toHaveBeenCalledWith(
       m.gitrail_review_plan_failed(),
       expect.objectContaining({
-        duration: null,
         alert: true,
         key: `review-plan:${baseProps.sessionId}`,
       }),

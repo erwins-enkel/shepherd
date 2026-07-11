@@ -1957,9 +1957,8 @@
     resetCompose();
     if (result.archived) toasts.info(m.relaunch_done({ desig: result.session.desig }));
     else
-      // Same persistent + assertive failure toast onrelaunch uses (deduped per id).
+      // Same assertive 12s failure toast onrelaunch uses (deduped per id).
       toasts.info(m.relaunch_archive_failed(), {
-        duration: null,
         alert: true,
         key: `relaunch-fail:${id}`,
       });
@@ -2132,6 +2131,9 @@
           await archiveSession(id, reap);
         } catch {
           toasts.info(m.toast_decommission_failed({ name }), {
+            sticky: true,
+            alert: true,
+            key: `decommission-fail:${id}`,
             action: { label: m.common_retry(), run: () => onarchive(id, reap) },
           });
         }
@@ -2147,10 +2149,10 @@
   // is irreversible and an undo would have to also kill the fresh replacement).
   async function onrelaunch(id: string) {
     const fail = (text: string) =>
-      // Persistent + assertive, deduped per id under a relaunch-fail namespace: a
-      // failure toast must not vanish (unlike the transient success info), and repeated
-      // failures to one card collapse into a single toast rather than stacking.
-      toasts.info(text, { duration: null, alert: true, key: `relaunch-fail:${id}` });
+      // Assertive + deduped per id under a relaunch-fail namespace: the failure lingers
+      // 12s (longer than the transient 4s success info), and repeated failures to one
+      // card collapse into a single toast rather than stacking.
+      toasts.info(text, { alert: true, key: `relaunch-fail:${id}` });
     try {
       const { session, archived } = await relaunchSession(id);
       if (archived) toasts.info(m.relaunch_done({ desig: session.desig }));
@@ -2186,8 +2188,7 @@
   // has already confirmed. The live Herd row arrives via session:new — no manual
   // store mutation needed beyond dropping the row from the Done list on success.
   async function onBringBack(id: string) {
-    const fail = (text: string) =>
-      toasts.info(text, { duration: null, alert: true, key: `restore-fail:${id}` });
+    const fail = (text: string) => toasts.info(text, { alert: true, key: `restore-fail:${id}` });
     try {
       const s = await restoreSession(id);
       doneSessions.remove(id);
@@ -2224,7 +2225,7 @@
     apiHalt().catch(() => {
       toasts.info(m.halt_failed(), {
         alert: true,
-        duration: null, // stay until the operator retries/closes — a failed fleet-halt must not vanish
+        sticky: true, // stay until the operator retries/closes — a failed fleet-halt must not vanish
         key: "halt-done",
         action: { label: m.common_retry(), run: () => haltHerd() },
       });
@@ -2256,7 +2257,6 @@
         toasts.info(text.length > 0 ? text : m.plugin_gear_action_done());
       } catch {
         toasts.info(m.plugin_gear_action_failed(), {
-          duration: null,
           alert: true,
           key: `plugin-gear:${id}`,
         });
@@ -2301,6 +2301,9 @@
       toasts.info(m.toast_cleared_merged({ count: cleared.length }));
     } catch {
       toasts.info(m.toast_clear_merged_failed(), {
+        sticky: true,
+        alert: true,
+        key: "clear-merged-fail",
         action: { label: m.common_retry(), run: () => void runClearMerged(ids) },
       });
     }
@@ -2326,7 +2329,6 @@
       }
       toasts.info(m.integrated_epics_dismiss_failed(), {
         alert: true,
-        duration: null,
         key: `epic-dismiss-fail:${repoPath}#${parent}`,
       });
     }
@@ -2346,7 +2348,6 @@
       }
       toasts.info(m.integrated_epics_ack_migrations_failed(), {
         alert: true,
-        duration: null,
         key: `epic-ack-migrations-fail:${repoPath}#${parent}`,
       });
     }
@@ -2354,15 +2355,14 @@
 
   // Acknowledge a session's manual operator steps (#1060), clearing its auto-merge gate. The
   // server emits session:manual-steps with the fresh ackedAt on success, so the chip/CTA clear
-  // live via the WS handler — no optimistic mutation needed. On failure, a persistent, tone-
-  // namespaced keyed toast (shared store, not transient info) so a flapping failure can't stack.
+  // live via the WS handler — no optimistic mutation needed. On failure, a 12s, tone-
+  // namespaced keyed alert so a flapping failure can't stack.
   async function onAckManualSteps(id: string) {
     try {
       await ackManualSteps(id);
     } catch {
       toasts.info(m.unitrow_ack_manual_steps_failed(), {
         alert: true,
-        duration: null,
         key: `ack-manual-steps-fail:${id}`,
       });
     }
@@ -2414,7 +2414,6 @@
         err instanceof Error && err.message ? err.message : m.integrated_epics_land_failed();
       toasts.info(msg, {
         alert: true,
-        duration: null,
         key: `epic-land-fail:${repoPath}#${parent}`,
       });
     }

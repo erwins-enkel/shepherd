@@ -35,10 +35,10 @@
   }
 
   // One-click fix: run the check's remediation server-side, re-render from the
-  // re-probed snapshot. Fail closed on two levels: a non-2xx surfaces a persistent,
+  // re-probed snapshot. Fail closed on two levels: a non-2xx surfaces a 12s,
   // deduped failure toast (and rethrows so DiagnoseRows clears busy); a 2xx whose
   // re-probe shows the target check STILL not ok (the command exited 0 but didn't
-  // clear it) surfaces a persistent "unresolved" toast — never a green success.
+  // clear it) surfaces a 12s "unresolved" toast — never a green success.
   async function fixCheck(checkId: string) {
     try {
       const snap = await fixDiagnostic(checkId);
@@ -48,14 +48,12 @@
         toasts.info(m.diagnostics_fix_success(), { duration: 3000 });
       } else {
         toasts.info(m.diagnostics_fix_unresolved(), {
-          duration: null,
           alert: true,
           key: `diagnose-fix:${checkId}`,
         });
       }
     } catch {
       toasts.info(m.diagnostics_fix_failed(), {
-        duration: null,
         alert: true,
         key: `diagnose-fix:${checkId}`,
       });

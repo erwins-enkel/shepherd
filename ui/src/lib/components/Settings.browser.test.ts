@@ -385,8 +385,8 @@ describe("Settings diagnose one-click fix toast", () => {
     );
     // The critical assertion: no green "Fixed" toast on an unresolved check.
     expect(toasts.items.some((t) => t.text === m.diagnostics_fix_success())).toBe(false);
-    // And the unresolved toast is persistent (no auto-dismiss) — durationMs unset.
+    // And the unresolved toast is an assertive 12s failure — durationMs set.
     const t = toasts.items.find((x) => x.text === m.diagnostics_fix_unresolved())!;
-    expect(t.durationMs).toBeUndefined();
+    expect(t.durationMs).toBe(12000);
   });
 });

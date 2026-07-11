@@ -660,7 +660,6 @@ export class HerdStore {
     } else if (ev.data.outcome === "error") {
       toasts.info(m.docagent_toast_error({ repo }), {
         key: `doc-agent-error:${ev.data.repoPath}`,
-        duration: null,
         alert: true,
       });
     } else {
@@ -833,7 +832,7 @@ export class HerdStore {
         state === "promote_error"
           ? m.draft_reconcile_promote_error({ desig: detail ?? "" })
           : m.draft_reconcile_enforce_error({ desig: detail ?? "" });
-      const id = toasts.info(text, { key, duration: null, alert: true });
+      const id = toasts.info(text, { key, sticky: true, alert: true });
       this.draftReconcileToastIds.set(sessionId, id);
     } else {
       // state === null: success — clear the alert if one is showing

@@ -69,12 +69,14 @@ test("pullMainAndToast: diverged → benign info that auto-dismisses", async () 
   expect(toasts.items).toHaveLength(0);
 });
 
-test("pullMainAndToast: error → persistent alert toast keyed to repo", async () => {
+test("pullMainAndToast: error → 12s alert toast keyed to repo", async () => {
   vi.mocked(pullRepo).mockResolvedValue({ ok: false, reason: "error" });
   await pullMainAndToast("/repo/a");
   expect(toasts.items).toHaveLength(1);
   expect(toasts.items.find((t) => t.key === "update-main:/repo/a")).toBeDefined();
-  // Persistent: must survive far past any finite default duration
-  await vi.advanceTimersByTimeAsync(120_000);
+  // Assertive failure → 12s window: survives the 4s benign default, then auto-dismisses
+  await vi.advanceTimersByTimeAsync(4_100);
   expect(toasts.items).toHaveLength(1);
+  await vi.advanceTimersByTimeAsync(8_000);
+  expect(toasts.items).toHaveLength(0);
 });

@@ -18,7 +18,7 @@ interface Toast {
   undoLabel?: string;
   /** Window length, fed to the depleting-bar animation. Set for any timed toast
    *  (undo, and info with a finite duration) — drives the depleting countdown
-   *  bar. Unset (undefined) for persistent info toasts, which draw no bar. */
+   *  bar. Unset (undefined) for sticky info toasts, which draw no bar. */
   durationMs?: number;
   /** True while hover/focus has paused an info toast's auto-dismiss; drives the
    *  bar's animation-play-state so it freezes instead of draining. (Info only.) */
@@ -36,14 +36,20 @@ interface Toast {
 }
 
 interface InfoOpts {
-  /** Auto-dismiss delay in ms (default 4000). Pass `null` to stay until the
-   *  operator retries or closes it (use for failures that must not vanish). */
-  duration?: number | null;
+  /** Explicit auto-dismiss delay in ms. Omit to use the severity default: a failure
+   *  (`alert: true`) lasts FAILURE_MS, a plain confirmation DEFAULT_MS. */
+  duration?: number;
   /** An inline action button (e.g. Retry on a failed operation). */
   action?: { label: string; run: () => void };
-  /** Announce assertively (role="alert") rather than politely. For failures
-   *  that must reach a screen-reader operator promptly. */
+  /** Announce assertively (role="alert") rather than politely. For failures that
+   *  must reach a screen-reader operator promptly; also lengthens the default
+   *  auto-dismiss to FAILURE_MS so a failure gets a longer read. */
   alert?: boolean;
+  /** Keep the toast until it is retried, closed, or programmatically dismissed —
+   *  it never auto-dismisses and draws no countdown bar. Reserved for retry-failures
+   *  the operator must act on and tracked status toasts a later event clears. This
+   *  is the ONLY way to persist a toast (a plain failure is `alert` → FAILURE_MS). */
+  sticky?: boolean;
   /** Dedupe key: a repeated info with the same key refreshes the existing toast
    *  instead of stacking another (e.g. repeated failures to one target). */
   key?: string;
@@ -59,6 +65,14 @@ interface UndoOpts {
   /** Dedupe: a new undo toast with the same key re-arms the existing one. */
   key?: string;
 }
+
+// Auto-dismiss lifetimes for info toasts, chosen by two explicit signals:
+//   sticky:true → never auto-dismisses; alert:true → FAILURE_MS; else → DEFAULT_MS.
+// See docs/toast-inventory.md for the policy and the full call-site inventory.
+/** Plain confirmation / notice. */
+const DEFAULT_MS = 4000;
+/** Assertive failure (`alert: true`) — a longer read window than a confirmation. */
+const FAILURE_MS = 12000;
 
 class ToastStore {
   items = $state<Toast[]>([]);
@@ -86,13 +100,23 @@ class ToastStore {
     return `${tone}:${key}`;
   }
 
-  /** Confirmation toast. Auto-dismisses after `duration` ms (default 4000);
-   *  pass `duration: null` for a persistent toast that stays until retried or
-   *  closed. `alert: true` announces it assertively (role="alert"). */
+  /** Confirmation / failure toast. Lifetime by severity: an assertive failure
+   *  (`alert: true`) auto-dismisses after FAILURE_MS, a plain confirmation after
+   *  DEFAULT_MS, an explicit `duration` after that many ms. `sticky: true` keeps it
+   *  until retried, closed, or programmatically dismissed. */
   info(text: string, opts: InfoOpts = {}): number {
-    // Finite duration drives the depleting countdown bar (--ms); persistent
-    // (`null`) toasts leave it undefined so no bar is drawn.
-    const durationMs = opts.duration === null ? undefined : (opts.duration ?? 4000);
+    // Effective lifetime (null ⇒ persistent). Sticky wins; else an explicit
+    // duration; else the severity default (FAILURE_MS failure / DEFAULT_MS confirm).
+    const effective: number | null = opts.sticky
+      ? null
+      : typeof opts.duration === "number"
+        ? opts.duration
+        : opts.alert
+          ? FAILURE_MS
+          : DEFAULT_MS;
+    // A finite lifetime drives the depleting countdown bar (--ms); sticky toasts
+    // leave it undefined so no bar is drawn.
+    const durationMs = effective ?? undefined;
     // Keyed dedupe: a repeated info with the same key refreshes the existing
     // toast (text / action / announcement / timer) instead of stacking another,
     // so e.g. repeated steer failures to one agent collapse to a single toast.
@@ -113,7 +137,7 @@ class ToastStore {
             }
           : t,
       );
-      this.#armInfo(prev, opts.duration);
+      this.#armInfo(prev, effective);
       return prev;
     }
     const id = ++this.#seq;
@@ -132,18 +156,17 @@ class ToastStore {
     ];
     if (opts.action) this.#actions.set(id, opts.action.run);
     if (opts.key !== undefined) this.#keyed.set(this.#kk("info", opts.key), id);
-    this.#armInfo(id, opts.duration);
+    this.#armInfo(id, effective);
     return id;
   }
 
-  /** Arm an info toast's auto-dismiss timer. `null` duration = persistent (stays
-   *  until the operator retries or closes it). */
-  #armInfo(id: number, duration: number | null | undefined) {
-    if (duration === null) {
-      this.#armed.delete(id); // a keyed refresh may turn a timed toast persistent
+  /** Arm an info toast's auto-dismiss timer. `null` = sticky (stays until the
+   *  operator retries/closes it, or it is programmatically dismissed). */
+  #armInfo(id: number, ms: number | null) {
+    if (ms === null) {
+      this.#armed.delete(id); // a keyed refresh may turn a timed toast sticky
       return;
     }
-    const ms = duration ?? 4000;
     this.#armed.set(id, { at: Date.now(), remaining: ms });
     // Keyed refresh landing while held (hovered/focused): don't start a timer
     // under the operator's pointer — release() arms the recorded duration.

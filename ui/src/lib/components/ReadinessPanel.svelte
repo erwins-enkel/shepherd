@@ -183,10 +183,9 @@
       }
     } catch {
       if (rp !== repoPath) return;
-      // Failure must not vanish: persistent (duration: null) + assertive, keyed
-      // per-tone so repeated failures collapse into one toast (house rule).
+      // Assertive failure (alert) → 12s auto-dismiss, keyed per-tone so repeated
+      // failures collapse into one toast instead of stacking.
       toasts.info(m.readiness_adopt_gitignore_error(), {
-        duration: null,
         alert: true,
         key: "adopt-gitignore-fail",
       });

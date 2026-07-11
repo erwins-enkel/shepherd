@@ -29,7 +29,6 @@
 
   function updateFailed() {
     toasts.info(m.epic_update_failed(), {
-      duration: null,
       alert: true,
       key: "epic-update-fail",
     });
@@ -78,7 +77,6 @@
         onclick={() =>
           importEpic(repoPath, parent).catch(() =>
             toasts.info(m.epic_import_failed(), {
-              duration: null,
               alert: true,
               key: "epic-import-fail",
             }),
@@ -127,7 +125,6 @@
         onclick={() =>
           updateEpic(repoPath, parent, { status: "paused" }).catch(() =>
             toasts.info(m.epic_update_failed(), {
-              duration: null,
               alert: true,
               key: "epic-update-fail",
             }),
@@ -143,7 +140,6 @@
         onclick={() =>
           updateEpic(repoPath, parent, { status: "running" }).catch(() =>
             toasts.info(m.epic_update_failed(), {
-              duration: null,
               alert: true,
               key: "epic-update-fail",
             }),
@@ -163,7 +159,6 @@
           mode: epic.run.mode === "auto" ? "attended" : "auto",
         }).catch(() =>
           toasts.info(m.epic_update_failed(), {
-            duration: null,
             alert: true,
             key: "epic-update-fail",
           }),
@@ -179,7 +174,6 @@
         onclick={() =>
           updateEpic(repoPath, parent, { status: "idle" }).catch(() =>
             toasts.info(m.epic_stop_failed(), {
-              duration: null,
               alert: true,
               key: "epic-stop-fail",
             }),
@@ -196,7 +190,6 @@
         onclick={() =>
           approveEpicNext(repoPath, parent).catch(() =>
             toasts.info(m.epic_approve_failed(), {
-              duration: null,
               alert: true,
               key: "epic-approve-fail",
             }),

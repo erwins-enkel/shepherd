@@ -145,6 +145,13 @@ export function assembleEpic(input: AssembleInput): Epic {
 
   warnings.push(...divergenceWarnings(input));
 
+  // Zero-edges legibility signal (#1447): ≥2 ready children and no surviving dependency
+  // edges (post-filter, so self-loop / outside-epic edges — already warned above — don't
+  // count as ordering) → every open child derives to `ready` and drains in parallel.
+  const readyCount = children.filter((c) => c.state === "ready").length;
+  const totalEdges = children.reduce((sum, c) => sum + c.blockedBy.length, 0);
+  const noDependencyEdges = readyCount >= 2 && totalEdges === 0;
+
   return {
     repoPath: input.repoPath,
     parentIssueNumber: input.parent.number,
@@ -152,6 +159,7 @@ export function assembleEpic(input: AssembleInput): Epic {
     source: native ? "native" : "markdown",
     children,
     warnings,
+    noDependencyEdges,
     run: input.run,
   };
 }

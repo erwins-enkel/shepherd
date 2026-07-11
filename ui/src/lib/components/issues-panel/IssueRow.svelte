@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
+  import type { Issue, Steer, EpicSummary, Epic, DrainStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { fitLabels } from "$lib/fit-labels";
   import { relativeAge } from "$lib/format";
@@ -17,6 +17,7 @@
     isExpanded = false,
     epic = undefined,
     repoPath,
+    drain = null,
     bodyPreview = false,
     age = false,
     showAssignees = false,
@@ -33,6 +34,9 @@
     /** Resolved Epic record for the expanded panel (live store value or one-shot fetch). */
     epic?: Epic | undefined;
     repoPath: string;
+    /** This repo's live drain status — forwarded to the expanded EpicPanel so it can
+     *  surface the hold reason. Null when the drain is disabled / unknown. */
+    drain?: DrainStatus | null;
     bodyPreview?: boolean;
     age?: boolean;
     /** Show a chip per assignee login — set only when the "mine & unassigned" filter
@@ -200,7 +204,7 @@
   {#if epicSummary && isExpanded}
     <div data-epic-panel>
       {#if epic}
-        <EpicPanel {repoPath} parent={issue.number} {epic} />
+        <EpicPanel {repoPath} parent={issue.number} {epic} {drain} />
       {:else}
         <div class="muted">{m.common_loading()}</div>
       {/if}

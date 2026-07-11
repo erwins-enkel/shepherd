@@ -45,6 +45,12 @@ export interface Epic {
   source: EpicSource;
   children: EpicChild[];
   warnings: string[];
+  /** True when the epic has ≥2 `ready` children and 0 dependency edges (no native
+   *  `blocked_by`, no `epic-dag`/task-list edges) — every open child derives to `ready`
+   *  and drains in parallel. Surfaced as a dedicated, translated legibility warning on
+   *  the epic panel (NOT appended to `warnings[]`, so it does not affect that count).
+   *  Set once by `assembleEpic`; optional so the many Epic test fixtures stay valid. */
+  noDependencyEdges?: boolean;
   run: EpicRun;
 }
 

@@ -3,7 +3,7 @@
   import { steers } from "$lib/steers.svelte";
   import { repos } from "$lib/repos.svelte";
   import { steerAppliesToRepo } from "$lib/steer-scope";
-  import type { Issue, Steer, EpicSummary, Epic } from "$lib/types";
+  import type { Issue, Steer, EpicSummary, Epic, DrainStatus } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import {
     filterIssues,
@@ -35,6 +35,7 @@
     bodyPreview = false,
     age = false,
     epics = undefined,
+    drain = null,
     expandEpic = null,
   }: {
     repoPath: string;
@@ -47,6 +48,9 @@
     /** Live epic record from the store, keyed `${repoPath}#${parentIssueNumber}`.
      *  When present, WS-pushed updates refresh open panels without a re-fetch. */
     epics?: Record<string, Epic>;
+    /** This repo's live drain status — forwarded to an expanded epic row's panel so it
+     *  can surface the hold reason. Null when disabled / unknown. */
+    drain?: DrainStatus | null;
     /** When set (e.g. from an EPIC badge click), expand that epic's row and scroll
      *  it into view — used to land the user on a specific epic in the backlog. */
     expandEpic?: number | null;
@@ -524,6 +528,7 @@
           {isExpanded}
           epic={epicFor(issue.number)}
           {repoPath}
+          {drain}
           {bodyPreview}
           {age}
           {showAssignees}

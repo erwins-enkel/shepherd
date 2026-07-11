@@ -48,6 +48,7 @@
     bodyPreview
     age
     {epics}
+    drain={drain?.[selectedPath] ?? null}
     expandEpic={target && target.repoPath === selectedPath ? target.issueNumber : null}
   />
 {:else if activeTab === "prs"}

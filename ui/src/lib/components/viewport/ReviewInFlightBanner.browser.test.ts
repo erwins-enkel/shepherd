@@ -129,13 +129,14 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
   it("caps its height in a short pane so the terminal keeps its 4rem reflow floor", async () => {
     planGates.applyReviewing(ID, true);
     for (const l of ["act-1", "act-2"]) planGates.setActivity(ID, l);
-    const { container } = render(ReviewInFlightBanner, props() as never);
-    // The banner is position:absolute; give it a positioned, definite short containing block —
-    // otherwise the % cap resolves against the viewport and the cap is never exercised.
-    const host = container as HTMLElement;
+    render(ReviewInFlightBanner, props() as never);
+    await expect.poll(() => banner()).not.toBeNull();
+    // The banner is position:absolute; make its mount div a positioned, definite short
+    // containing block — otherwise the % cap resolves against the viewport and is never
+    // exercised. (Read the host off the DOM: render()'s typed result varies by version.)
+    const host = banner()!.parentElement as HTMLElement;
     host.style.position = "relative";
     host.style.height = "120px";
-    await expect.poll(() => banner()).not.toBeNull();
     await expect.poll(() => feedLines().length).toBe(2);
     const remPx = parseFloat(getComputedStyle(document.documentElement).fontSize);
     const containerH = host.getBoundingClientRect().height;

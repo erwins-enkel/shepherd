@@ -770,19 +770,23 @@ describe("Viewport review banner — reflow guarantee (no prompt overlap)", () =
     planGates.applyReviewing(id, true);
     planGates.setActivity(id, "read .shepherd-plan.md");
 
-    const { container } = render(Viewport, {
+    render(Viewport, {
       session: session({ id, status: "running", planPhase: "planning" }),
+      activity: activity("read .shepherd-plan.md"),
       previewPort: null,
       openPreviewTick: 0,
     });
-    // Force a SHORT terminal (well above .vp-body's 4rem floor) so the cap has to engage.
-    (container as HTMLElement).style.height = "320px";
-
-    const banner = () => container.querySelector<HTMLElement>(".review-banner");
+    const banner = () => document.querySelector<HTMLElement>(".review-banner");
     await vi.waitFor(() => expect(banner()).not.toBeNull());
-    const mount = container.querySelector<HTMLElement>(".term-mount")!;
+    // Force a SHORT terminal (well above .vp-body's 4rem floor) so the cap has to engage.
+    // Resize the Viewport's mount div (its height:100% root fills it); read it off the DOM
+    // because render()'s typed result varies by version.
+    const host = document.querySelector<HTMLElement>(".viewport")!.parentElement as HTMLElement;
+    host.style.height = "320px";
+
+    const mount = document.querySelector<HTMLElement>(".term-mount")!;
     expect(mount, ".term-mount should render").not.toBeNull();
-    const vpBody = container.querySelector<HTMLElement>(".vp-body")!;
+    const vpBody = document.querySelector<HTMLElement>(".vp-body")!;
     const fourRem = 4 * parseFloat(getComputedStyle(document.documentElement).fontSize);
 
     await vi.waitFor(() => {

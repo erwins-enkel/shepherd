@@ -830,6 +830,23 @@ describe("UnitRow plan-gate hold CTA", () => {
   });
 });
 
+describe("UnitRow answer CTA (non-plan hold)", () => {
+  it("renders an Answer CTA for an autopilot-paused row and click calls onselect", async () => {
+    let selected: string | null = null;
+    render(UnitRow, {
+      session: session({ id: "ap1", planPhase: "executing", status: "idle" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: (id: string) => (selected = id),
+      hold: { code: "autopilot-paused" },
+    });
+    const btn = page.getByTitle(m.hold_cta_answer_reply_title());
+    await expect.element(btn).toBeInTheDocument();
+    await btn.click();
+    expect(selected).toBe("ap1");
+  });
+});
+
 describe("UnitRow manual-steps chip", () => {
   // The chip's text content (the count) bubbles into the accessible name too, so match it
   // precisely by its title attribute rather than the ambiguous role+name (same pattern as the

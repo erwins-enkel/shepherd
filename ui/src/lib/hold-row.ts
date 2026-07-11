@@ -4,7 +4,7 @@ import { planGateChip, type PlanGateChip } from "$lib/components/plan-gate-badge
 import { planQuestionsUnanswered } from "$lib/tab-signal.svelte";
 import type { HoldReason, PlanGate, Session } from "$lib/types";
 
-/** The ten mutually-exclusive presentations a plan-gate row can take. One classifier
+/** The eleven mutually-exclusive presentations a plan-gate row can take. One classifier
  *  decides the state; LINE and ACTION are total maps over it, so the subline can never
  *  contradict the button beside it. */
 export type RowState =
@@ -17,10 +17,11 @@ export type RowState =
   | "question"
   | "awaiting-rereview"
   | "ready"
-  | "none";
+  | "none"
+  | "server-answer";
 
 export interface HoldAction {
-  kind: "go" | "rereview" | "resume" | "answer";
+  kind: "go" | "rereview" | "resume" | "answer" | "reply";
   label: string;
   title: string;
 }
@@ -34,6 +35,11 @@ export interface RowHold {
 /** Plan-domain hold codes — the ONLY server holds this module is allowed to reinterpret.
  *  Any other code passes through untouched (R3). */
 const PLAN_DOMAIN = new Set<HoldReason["code"]>(["plan-rework", "quota-plan", "plan-question"]);
+
+/** Non-plan server holds that get an inline "Answer" CTA (opens the session so the operator
+ *  can reply). These occur OUTSIDE the plan phase, so this is handled in R1's non-planning arm
+ *  — the plan-phase rules R2–R12 are unaffected. */
+const ANSWERABLE = new Set<HoldReason["code"]>(["autopilot-paused", "blocked-yes-no"]);
 
 /** One ordered classifier, first match wins. Reads only `session` (synchronous with the
  *  row) + `gate`/`serverHold` (both async — a missing `gate` degrades to passthrough/none,
@@ -51,7 +57,10 @@ export function rowState(
   const parked = session.status === "idle" || session.status === "done";
   const atCap = chip.kind === "changes" && chip.round >= chip.cap;
 
-  if (session.planPhase !== "planning") return "passthrough"; // R1
+  if (session.planPhase !== "planning") {
+    if (serverHold && ANSWERABLE.has(serverHold.code)) return "server-answer"; // R1a
+    return "passthrough"; // R1
+  }
   if (
     session.status === "blocked" ||
     session.haltReason != null ||
@@ -90,6 +99,7 @@ const LINE: Record<RowState, (ctx: Ctx) => string | null> = {
   passthrough: serverLine,
   dismissed: serverLine,
   none: serverLine,
+  "server-answer": serverLine,
   reviewing: ({ gate }) => {
     const n = gate?.findings?.length ?? 0;
     return n > 0 ? m.hold_reviewing_findings({ count: n }) : m.hold_reviewing_plain();
@@ -125,6 +135,11 @@ const answer = (): HoldAction => ({
   label: m.hold_cta_answer(),
   title: m.hold_cta_answer_title(),
 });
+const reply = (): HoldAction => ({
+  kind: "reply",
+  label: m.hold_cta_answer(),
+  title: m.hold_cta_answer_reply_title(),
+});
 
 const ACTION: Record<RowState, () => HoldAction | null> = {
   passthrough: () => null,
@@ -137,6 +152,7 @@ const ACTION: Record<RowState, () => HoldAction | null> = {
   question: answer,
   "awaiting-rereview": rereview,
   ready: go,
+  "server-answer": reply,
 };
 
 /** Classify the row, then read its line and action off the two total maps. */

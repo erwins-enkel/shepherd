@@ -2798,6 +2798,7 @@
   "hold_cta_rereview_title": "Send the plan back for another review",
   "hold_cta_resume_title": "Resume the stalled plan review",
   "hold_cta_answer_title": "Open the plan to answer its open questions",
+  "hold_cta_answer_reply_title": "Open the session to answer and continue",
   "feat_hold_cta_title": "Act on parked sessions from the row",
   "feat_hold_cta_body": "A parked plan-gate session now explains why it's waiting right on its row — awaiting re-review, plan approved, or review stuck — and offers the matching one-click action (Re-review, Go, Resume, or Answer) without opening the session.",
   "hold_cta_go_failed": "Couldn't start execution. Try again.",

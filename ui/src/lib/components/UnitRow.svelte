@@ -320,6 +320,7 @@
     } else if (a.kind === "rereview") void doReview();
     else if (a.kind === "resume") void doResume();
     else if (a.kind === "answer") openPlanPanel();
+    else if (a.kind === "reply") onselect(session.id);
   }
 
   async function doGo() {

@@ -2010,11 +2010,13 @@
       researchChecked: boolean;
       planGateChecked: boolean;
       autopilotChecked: boolean;
+      epicAuthoringChecked?: boolean;
     };
     planGateEnabled: boolean | null;
     autopilotEnabled: boolean | null;
     sandboxProfile?: SandboxProfile;
     research: boolean;
+    epicAuthoring: boolean;
     force?: boolean;
   }) {
     // Edit-held path persists the new input back onto the still-held task; relaunch-elsewhere

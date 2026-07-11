@@ -204,6 +204,7 @@ test("live rollup contributes hours for an active, non-bucketed session (refresh
       egressApplied: false,
       egressDegraded: false,
       research: false,
+      epicAuthoring: false,
     });
     // @ts-expect-error internal db access for test setup
     store.db.run(`UPDATE sessions SET claudeSessionId = ? WHERE id = ?`, [csid, sess.id]);

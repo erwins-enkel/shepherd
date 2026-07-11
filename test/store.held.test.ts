@@ -18,6 +18,7 @@ const sampleInput: CreateSessionInput = {
   autopilotEnabled: null,
   sandboxProfile: null,
   research: false,
+  epicAuthoring: false,
   mergeTrainPrs: [],
 };
 

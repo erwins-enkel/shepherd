@@ -55,6 +55,7 @@ import type {
   SubagentEntry,
   BuildQueue,
   BuildStepStatus,
+  EpicDraft,
   PullResult,
   RelaunchOverrides,
   Epic,
@@ -2058,6 +2059,24 @@ export async function approveBuildQueue(sessionId: string): Promise<BuildQueue> 
     headers: JSON_HEADERS,
   });
   if (!r.ok) throw await failed(r, "build-queue approve");
+  return r.json();
+}
+
+/** Read a session's epic draft (issue #1507), or null when none has been authored. */
+export async function getEpicDraft(sessionId: string): Promise<EpicDraft | null> {
+  return getJson(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft`, "epic-draft");
+}
+
+/** Approve an epic draft — the HARD GATE that materializes it into GitHub issues + links.
+ *  Returns the created parent number/url + child numbers. */
+export async function approveEpicDraft(
+  sessionId: string,
+): Promise<{ parentNumber: number; parentUrl: string; childNumbers: Record<string, number> }> {
+  const r = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}/epic-draft/approve`, {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) throw await failed(r, "epic-draft approve");
   return r.json();
 }
 

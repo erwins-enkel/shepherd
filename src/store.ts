@@ -21,6 +21,9 @@ import type {
   BuildStepStatus,
   BuildQueue,
   BuildStepInput,
+  EpicDraft,
+  EpicDraftChild,
+  EpicDraftContent,
   ReviewerSpawnRow,
   AgentProvider,
   PrReview,
@@ -55,6 +58,22 @@ import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
+
+/** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
+function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
+  if (typeof raw !== "string" || raw === "") return fallback;
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+/** Tolerantly parse a persisted JSON array-of-strings column (never throws). */
+function safeJsonArray(raw: string | null | undefined): string[] {
+  const v = safeJsonParse<unknown>(raw, []);
+  return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+}
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
 function parseFindings(raw: unknown): string[] {
@@ -233,6 +252,7 @@ type NewSession = Omit<
   | "egressApplied"
   | "egressDegraded"
   | "research"
+  | "epicAuthoring"
   | "haltReason"
   | "haltedAt"
   | "manualSteps"
@@ -259,6 +279,7 @@ type NewSession = Omit<
   egressApplied?: boolean;
   egressDegraded?: boolean;
   research?: boolean;
+  epicAuthoring?: boolean;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -269,7 +290,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
-  research,
+  research, epicAuthoring,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson`;
@@ -315,6 +336,7 @@ type SessionRow = {
   egressApplied: number;
   egressDegraded: number;
   research: number;
+  epicAuthoring: number;
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
@@ -1069,6 +1091,26 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
     this.db.run(`CREATE TABLE IF NOT EXISTS build_queue_state (
       sessionId TEXT PRIMARY KEY, approved INTEGER NOT NULL DEFAULT 0, approvalKind TEXT, updatedAt INTEGER NOT NULL)`);
+    // Epic-authoring draft (issue #1507): one per session. `children`/acceptance/nonGoals are
+    // JSON blobs (replaced wholesale on each PUT — no per-row status like build_queue). `status`
+    // drives the CAS materialize lifecycle; `materializedChildren` (key→number JSON) enables
+    // partial-failure resume.
+    this.db.run(`CREATE TABLE IF NOT EXISTS epic_draft (
+      sessionId TEXT PRIMARY KEY,
+      parentTitle TEXT NOT NULL DEFAULT '',
+      parentBody TEXT NOT NULL DEFAULT '',
+      acceptanceCriteria TEXT NOT NULL DEFAULT '[]',
+      nonGoals TEXT NOT NULL DEFAULT '[]',
+      children TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'draft',
+      materializedChildren TEXT NOT NULL DEFAULT '{}',
+      parentNumber INTEGER,
+      parentUrl TEXT,
+      updatedAt INTEGER NOT NULL)`);
+    // Crash recovery: any row left 'materializing' at boot is orphaned (no materialize survives a
+    // restart — single-process ownership), so revert it to 'draft' (retaining materializedChildren)
+    // so the operator can re-approve and resume. See src/epic-author.ts + the approve route.
+    this.resetOrphanedEpicDraftMaterialize();
     // Scoped, durable per-plugin key/value (issue #1124). Plugins reach this ONLY via
     // ctx.state — they never touch the session schema. Composite PK keeps each plugin's
     // keys isolated; values are plugin-authored JSON strings.
@@ -1845,6 +1887,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       egressApplied: input.egressApplied ?? false,
       egressDegraded: input.egressDegraded ?? false,
       research: input.research ?? false,
+      // Boolean() (not `?? false`) so this new field adds no cyclomatic branch to the flat,
+      // field-count-driven buildSessionRow (keeps it under its complexity cap).
+      epicAuthoring: Boolean(input.epicAuthoring),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -1872,7 +1917,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1910,6 +1955,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           s.egressApplied ? 1 : 0,
           s.egressDegraded ? 1 : 0,
           s.research ? 1 : 0,
+          Number(s.epicAuthoring), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -3177,6 +3223,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("mergingTrainId", `mergingTrainId TEXT`);
     // research task kind: default 0 (false) for pre-existing rows.
     add("research", `research INTEGER NOT NULL DEFAULT 0`);
+    // epic-authoring task kind: default 0 (false) for pre-existing rows.
+    add("epicAuthoring", `epicAuthoring INTEGER NOT NULL DEFAULT 0`);
     add("mergeTrainPrs", `mergeTrainPrs TEXT`);
     add("mergingPrNumber", `mergingPrNumber INTEGER`);
     // halt detection: reason + timestamp; nullable, no default (null = not halted).
@@ -4396,6 +4444,132 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  // ── epic authoring drafts (issue #1507) ────────────────────────────────────
+
+  /** Read a session's epic draft, or null when none has been authored. */
+  getEpicDraft(sessionId: string): EpicDraft | null {
+    const r = this.db.query(`SELECT * FROM epic_draft WHERE sessionId = ?`).get(sessionId) as {
+      sessionId: string;
+      parentTitle: string;
+      parentBody: string;
+      acceptanceCriteria: string;
+      nonGoals: string;
+      children: string;
+      status: string;
+      materializedChildren: string;
+      parentNumber: number | null;
+      parentUrl: string | null;
+    } | null;
+    if (!r) return null;
+    return {
+      sessionId: r.sessionId,
+      parent: {
+        title: r.parentTitle,
+        body: r.parentBody,
+        acceptanceCriteria: safeJsonArray(r.acceptanceCriteria),
+        nonGoals: safeJsonArray(r.nonGoals),
+      },
+      children: safeJsonParse(r.children, []) as EpicDraftChild[],
+      status: r.status as EpicDraft["status"],
+      materializedChildren: safeJsonParse(r.materializedChildren, {}) as Record<string, number>,
+      parentNumber: r.parentNumber,
+      parentUrl: r.parentUrl,
+    };
+  }
+
+  /** Author/replace a session's draft CONTENT. Resets the materialize lifecycle to `draft` and
+   *  clears any prior materialized state (the amend loop re-drafts before approval). */
+  replaceEpicDraft(sessionId: string, content: EpicDraftContent): EpicDraft {
+    this.db.run(
+      `INSERT INTO epic_draft
+         (sessionId, parentTitle, parentBody, acceptanceCriteria, nonGoals, children,
+          status, materializedChildren, parentNumber, parentUrl, updatedAt)
+       VALUES (?,?,?,?,?,?, 'draft', '{}', NULL, NULL, ?)
+       ON CONFLICT(sessionId) DO UPDATE SET
+         parentTitle = excluded.parentTitle, parentBody = excluded.parentBody,
+         acceptanceCriteria = excluded.acceptanceCriteria, nonGoals = excluded.nonGoals,
+         children = excluded.children, status = 'draft', materializedChildren = '{}',
+         parentNumber = NULL, parentUrl = NULL, updatedAt = excluded.updatedAt`,
+      [
+        sessionId,
+        content.parent.title,
+        content.parent.body,
+        JSON.stringify(content.parent.acceptanceCriteria ?? []),
+        JSON.stringify(content.parent.nonGoals ?? []),
+        JSON.stringify(content.children ?? []),
+        Date.now(),
+      ],
+    );
+    return this.getEpicDraft(sessionId)!;
+  }
+
+  /** CAS `draft → materializing`, run BEFORE the first createIssue. Returns true when this call
+   *  won the transition (the caller proceeds); false when the row is absent or not `draft`
+   *  (already materializing/approved — the caller 409s or returns the stored result). */
+  beginEpicDraftMaterialize(sessionId: string): boolean {
+    const { changes } = this.db.run(
+      `UPDATE epic_draft SET status = 'materializing', updatedAt = ?
+       WHERE sessionId = ? AND status = 'draft'`,
+      [Date.now(), sessionId],
+    );
+    return changes > 0;
+  }
+
+  /** Persist a child's real issue number the instant it is created (partial-failure resume). */
+  recordEpicDraftChild(sessionId: string, key: string, number: number): void {
+    this.db.transaction(() => {
+      const row = this.db
+        .query(`SELECT materializedChildren FROM epic_draft WHERE sessionId = ?`)
+        .get(sessionId) as { materializedChildren: string } | null;
+      if (!row) return;
+      const map = safeJsonParse(row.materializedChildren, {}) as Record<string, number>;
+      map[key] = number;
+      this.db.run(
+        `UPDATE epic_draft SET materializedChildren = ?, updatedAt = ? WHERE sessionId = ?`,
+        [JSON.stringify(map), Date.now(), sessionId],
+      );
+    })();
+  }
+
+  /** Persist the parent number/url the instant it is created (resume skips re-creating it). */
+  recordEpicDraftParent(sessionId: string, parentNumber: number, parentUrl: string): void {
+    this.db.run(
+      `UPDATE epic_draft SET parentNumber = ?, parentUrl = ?, updatedAt = ? WHERE sessionId = ?`,
+      [parentNumber, parentUrl, Date.now(), sessionId],
+    );
+  }
+
+  /** On-error transition `materializing → draft`, retaining materializedChildren so an explicit
+   *  retry re-wins the CAS and resumes. */
+  revertEpicDraftToDraft(sessionId: string): void {
+    this.db.run(
+      `UPDATE epic_draft SET status = 'draft', updatedAt = ? WHERE sessionId = ? AND status = 'materializing'`,
+      [Date.now(), sessionId],
+    );
+  }
+
+  /** Boot sweep: revert every orphaned `materializing` row to `draft` (see the table DDL note). */
+  resetOrphanedEpicDraftMaterialize(): void {
+    this.db.run(
+      `UPDATE epic_draft SET status = 'draft', updatedAt = ? WHERE status = 'materializing'`,
+      [Date.now()],
+    );
+  }
+
+  /** Terminal transition `→ approved` with the created parent's number/url. */
+  setEpicDraftApproved(sessionId: string, parentNumber: number, parentUrl: string): void {
+    this.db.run(
+      `UPDATE epic_draft SET status = 'approved', parentNumber = ?, parentUrl = ?, updatedAt = ? WHERE sessionId = ?`,
+      [parentNumber, parentUrl, Date.now(), sessionId],
+    );
+  }
+
+  /** Every session's epic draft (for UI bootstrap on connect). */
+  listEpicDrafts(): EpicDraft[] {
+    const rows = this.db.query(`SELECT sessionId FROM epic_draft`).all() as { sessionId: string }[];
+    return rows.map((r) => this.getEpicDraft(r.sessionId)!).filter(Boolean);
+  }
+
   /** Return one BuildQueue per session that has ≥1 step, via a single JOIN.
    *  Sessions with no steps are omitted entirely. */
   listBuildQueues(): BuildQueue[] {
@@ -4513,6 +4687,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       egressApplied: !!r.egressApplied,
       egressDegraded: !!r.egressDegraded,
       research: !!r.research,
+      epicAuthoring: !!r.epicAuthoring,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),

@@ -42,6 +42,7 @@ function session(
     egressApplied: false,
     egressDegraded: false,
     research: false,
+    epicAuthoring: false,
     issueNumber: null,
     lastState: "working",
     createdAt,

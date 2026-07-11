@@ -61,6 +61,7 @@
     initialAutopilot,
     initialSandboxProfile,
     initialResearch = false,
+    initialEpicAuthoring = false,
     usageLimits = null,
     holdLikely = false,
     fableAvailable = true,
@@ -79,11 +80,13 @@
         researchChecked: boolean;
         planGateChecked: boolean;
         autopilotChecked: boolean;
+        epicAuthoringChecked?: boolean;
       };
       planGateEnabled: boolean | null;
       autopilotEnabled: boolean | null;
       sandboxProfile?: SandboxProfile;
       research: boolean;
+      epicAuthoring: boolean;
       force?: boolean;
     }) => Promise<void> | void;
     onclose?: () => void;
@@ -110,6 +113,7 @@
     initialAutopilot?: boolean | null;
     initialSandboxProfile?: SandboxProfile | null;
     initialResearch?: boolean;
+    initialEpicAuthoring?: boolean;
     usageLimits?: UsageLimits | null;
     holdLikely?: boolean;
     fableAvailable?: boolean;
@@ -198,6 +202,9 @@
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   // svelte-ignore state_referenced_locally
   let research = $state(initialResearch);
+  // Epic-authoring task kind (issue #1507): guided shaping → EPIC draft; mutually exclusive w/ research.
+  // svelte-ignore state_referenced_locally
+  let epicAuthoring = $state(initialEpicAuthoring);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
   // svelte-ignore state_referenced_locally
   let sandboxProfile = $state<"default" | SandboxProfile>(initialSandboxProfile ?? "default");
@@ -686,11 +693,13 @@
           researchChecked: research,
           planGateChecked: planGate,
           autopilotChecked: autopilot,
+          epicAuthoringChecked: epicAuthoring,
         },
         planGateEnabled: planGateFlag(planGateTouched, planGate),
         autopilotEnabled: automationFlag(autopilotTouched, autopilot),
         sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
         research,
+        epicAuthoring,
         force: force || undefined,
       });
     } catch (err) {
@@ -1013,6 +1022,7 @@
       <NewTaskRunSettings
         bind:planGate
         bind:research
+        bind:epicAuthoring
         bind:autopilot
         bind:agentProvider
         bind:model

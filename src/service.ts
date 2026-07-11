@@ -743,6 +743,66 @@ function researchDirective(agentProvider: AgentProvider): string {
 }
 
 /**
+ * Injected as the highest-priority directive for an attended EPIC-AUTHORING task
+ * (`epicAuthoring: true`, issue #1507). The session shapes a rough product idea into a reviewable
+ * EPIC DRAFT and writes NO GitHub issues — the operator reviews the draft in the UI and only the
+ * server-side approve route materializes it. Self-contained: it inlines the decomposition guidance
+ * and the exact JSON draft contract, so it never delegates to the write-mandating epic-authoring
+ * SKILL (whose Create/Import stages call `gh` + the import endpoint). Like the research directive it
+ * SUPPRESSES the plan-gate, autopilot, and build-queue blocks (see composeSystemPrompt).
+ *
+ * The draft endpoint + session id are baked in at spawn (reliability + the write-gate is stated up
+ * front) exactly as buildQueueDirective bakes its endpoint. Agent-facing prompt text, fixed English.
+ */
+export function epicAuthoringDirective(args: {
+  sessionId: string;
+  baseUrl: string;
+  token: string | null;
+  agentProvider: AgentProvider;
+}): string {
+  const { sessionId, baseUrl, token, agentProvider } = args;
+  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const draftUrl = `${baseUrl}/api/sessions/${sessionId}/epic-draft`;
+  const investigate =
+    agentProvider === "codex"
+      ? "Research the repo and its docs directly (read files, run git/gh reads) to ground the scope.\n"
+      : "Research the repo and its docs (read files, dispatch sub-agents) to ground the scope.\n";
+  return (
+    "You are running as an attended EPIC-AUTHORING task — guided shaping of a rough product idea " +
+    "into a reviewable EPIC DRAFT. You do NOT write product code and you do NOT create or edit any " +
+    "GitHub issues yourself.\n" +
+    investigate +
+    "- Shape the work as an epic: decompose it into child issues that are tracer-bullet VERTICAL " +
+    "SLICES — each child a thin end-to-end cut with an observable result, sized to land in a single " +
+    "PR (one child = one PR = one Shepherd session). A child too big for one PR is itself an epic — " +
+    "split it further. Give each child a crisp title, a body stating the goal, and a checkable " +
+    "acceptance criterion. Express ordering with dependency edges (a child's `blockedBy`).\n" +
+    "- You are attended: when a product/requirements decision is unresolved, ask the user ONE " +
+    "focused question at a time. Research discoverable facts from the repo yourself instead of " +
+    "asking.\n" +
+    "- Emit the draft by PUTting this exact JSON to the endpoint below, then STOP and wait for the " +
+    "operator to review it in the UI. Author `parent.body` WITHOUT any epic-dag fence or issue " +
+    "numbers — the server appends the structural marker with real numbers at creation time. `key` " +
+    'is a stable temp id you assign per child (e.g. "c1") used only for `blockedBy` edges:\n\n' +
+    `   curl -s -X PUT${authHeader} \\\n` +
+    `     -H "Content-Type: application/json" \\\n` +
+    `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
+    `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
+    `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
+    `     ${draftUrl}\n` +
+    `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
+    `Inspect the current draft any time with a GET on ${draftUrl}.\n\n` +
+    "- HARD RULE — no GitHub writes: NEVER run `gh issue create`/`gh issue edit`, NEVER call the " +
+    "epic import endpoint, NEVER open a pull request. The operator approves the draft in the UI and " +
+    "a separate SERVER step creates the parent + child issues and wires their links. If an " +
+    "epic-authoring skill is auto-invoked, follow ONLY its decomposition guidance — never its " +
+    "create/edit/import stages.\n" +
+    "- The EPIC is the entire deliverable. Once you have PUT a draft you are satisfied with and " +
+    "answered the operator's questions, STOP — creation happens on approval, not by you."
+  );
+}
+
+/**
  * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
  *
  * The build queue is a per-session, ordered, self-revising plan: the agent authors it via a
@@ -1142,10 +1202,17 @@ function primaryDirectiveBlock(
   autopilotActive: boolean,
   opts: {
     research?: boolean;
+    epicAuthoring?: string | null;
     planGate?: "interactive" | "auto";
     operatorLanguage?: OperatorLanguage;
   },
 ): string | null {
+  // Epic authoring is the highest-priority directive when set: like research it replaces the
+  // plan-gate/autopilot directives (none fit a no-write EPIC-draft deliverable). The pre-baked
+  // directive string (endpoint + session id) is composed by composeDirectives, mirroring buildQueue.
+  if (opts.epicAuthoring) {
+    return `<epic-authoring-directive>\n${opts.epicAuthoring}\n</epic-authoring-directive>`;
+  }
   if (opts.research) {
     return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
   }
@@ -1168,6 +1235,9 @@ export function composeSystemPrompt(
   autopilotActive = false,
   opts: {
     research?: boolean;
+    /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
+     *  When set it is the primary directive and suppresses the same blocks as `research`. */
+    epicAuthoring?: string | null;
     planGate?: "interactive" | "auto";
     buildQueue?: string | null;
     previewHint?: boolean;
@@ -1199,10 +1269,14 @@ export function composeSystemPrompt(
   // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
   // house-rules block.
   blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
-  // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed only for a
-  // research session — which already caps at exactly one report-PR / issue, so the block is
-  // redundant there and would muddy that deliverable.
-  if (!opts.research) {
+  // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
+  // session (caps at one report-PR/issue) and an epic-authoring session (issue #1507 — its
+  // deliverable is the EPIC, no PR at all), where the block would muddy the deliverable.
+  // Research and epic-authoring are the two non-code modes: both cap at a non-PR deliverable, so the
+  // PR-oriented blocks (single-PR invariant, manual-steps, epic-intent notice, build-queue) are
+  // suppressed. One precomputed flag keeps the conditions branch-light (complexity cap).
+  const nonCodeMode = opts.research || opts.epicAuthoring;
+  if (!nonCodeMode) {
     blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
     // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
@@ -1229,8 +1303,8 @@ export function composeSystemPrompt(
   });
   if (primary) blocks.push(primary);
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
-  // but a research session authors no queue — suppress it there too.
-  if (!opts.research && opts.buildQueue != null)
+  // but a research OR epic-authoring session authors no queue — suppress it there too.
+  if (!nonCodeMode && opts.buildQueue != null)
     blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
   // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
   // and have no dedicated worktree, so the hint would be misleading there.
@@ -2196,8 +2270,19 @@ export class SessionService {
           autopilot: autopilotActive && !planGateOn,
         })
       : null;
+    // Epic-authoring directive (#1507): pre-baked with the draft endpoint + session id, mirroring
+    // buildQueue. When set it is the primary directive and suppresses plan-gate/autopilot/build-queue.
+    const epicAuthoring = input.epicAuthoring
+      ? epicAuthoringDirective({
+          sessionId,
+          baseUrl,
+          token: config.token,
+          agentProvider: args.agentProvider,
+        })
+      : null;
     return composeSystemPrompt(houseRules, autopilotActive, {
       research: input.research,
+      epicAuthoring,
       planGate,
       buildQueue,
       previewHint: isolated,
@@ -2513,10 +2598,11 @@ export class SessionService {
       repoConfig.sandboxProfile,
       config.sandboxDefaultProfile,
     );
-    if (input.research && effectiveProfile === "autonomous") {
+    if ((input.research || input.epicAuthoring) && effectiveProfile === "autonomous") {
+      const kind = input.research ? "research" : "epic-authoring";
       console.warn(
-        `[sandbox] research ${sessionId}: downgrading autonomous → standard ` +
-          `(research needs open web egress; the autonomous egress firewall would block web search)`,
+        `[sandbox] ${kind} ${sessionId}: downgrading autonomous → standard ` +
+          `(needs open web/repo egress; the autonomous egress firewall would block web search)`,
       );
       return "standard";
     }
@@ -2527,10 +2613,11 @@ export class SessionService {
    * Resolve whether a create() spawns into the plan gate (#348): a session-level override
    * wins over the repo default. A research task never enters the plan gate — its deliverable
    * is a report PR / issue, not a planned-then-implemented code change — so force it off
-   * (which also yields planPhase: null).
+   * (which also yields planPhase: null). An epic-authoring task (#1507) is the same case: its
+   * deliverable is an EPIC draft, not planned code, and it runs its own guided-shaping directive.
    */
   private resolvePlanGateOn(input: CreateSessionInput, repoConfig: RepoConfig): boolean {
-    if (input.research) return false;
+    if (input.research || input.epicAuthoring) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
 
@@ -2780,6 +2867,7 @@ export class SessionService {
         autopilotEnabled: spawnInput.autopilotEnabled ?? null,
         planPhase: planGateOn ? "planning" : null,
         research: spawnInput.research ?? false,
+        epicAuthoring: spawnInput.epicAuthoring ?? false,
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
@@ -2955,6 +3043,9 @@ export class SessionService {
       // here too or a relaunch under an autopilot-on repo would wrongly auto-approve its queue.
       autopilotEnabled: s.autopilotEnabled,
       research: pickOverride(overrides?.research, s.research),
+      // Carry the epic-authoring flag so a relaunch keeps its no-GitHub-write gate directive
+      // (buildSpawnArgv re-derives the directive from the spawn input — #1507).
+      epicAuthoring: pickOverride(overrides?.epicAuthoring, s.epicAuthoring),
       images,
       attachmentNames,
       launchUiState: overrides?.launchUiState,
@@ -3026,6 +3117,7 @@ export class SessionService {
       planGateEnabled: s.planGateEnabled,
       autopilotEnabled: s.autopilotEnabled,
       research: s.research,
+      epicAuthoring: s.epicAuthoring,
       auto: false,
     };
     const composed = await this.composePromptArg(input, s.worktreePath);

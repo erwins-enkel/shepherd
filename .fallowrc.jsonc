@@ -292,6 +292,14 @@
       },
       {
         "files": ["src/service.ts"],
+        "functions": ["composeSystemPrompt"],
+        "maxCyclomatic": 15,
+        "maxCognitive": 16,
+        "maxCrap": 1000,
+        "reason": "Flat spawn-block assembly; the epic-authoring non-code mode (#1507) adds one branch to the research/epic-authoring suppression flag (collapsed into a single nonCodeMode boolean, so cyclomatic stays at bar). Cognitive is block-count-driven, not nested logic — keep capped until the block assembly is split into per-block helpers."
+      },
+      {
+        "files": ["src/service.ts"],
         "functions": ["replaceAgent"],
         "maxCyclomatic": 18,
         "maxCognitive": 17,

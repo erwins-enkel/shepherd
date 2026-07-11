@@ -259,6 +259,7 @@ test("GET /api/usage/breakdown with usageRollup: active session's units appear i
       egressApplied: false,
       egressDegraded: false,
       research: false,
+      epicAuthoring: false,
     });
     // Patch claudeSessionId directly so the rollup can locate the JSONL.
     // @ts-expect-error accessing internal db for test setup

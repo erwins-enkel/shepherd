@@ -46,6 +46,7 @@ import {
   validateEpicRunPatch,
   type EpicRunPatch,
   validateEgressExtraHosts,
+  validateEpicDraftBody,
 } from "./validate";
 import {
   parseCookie,
@@ -154,6 +155,7 @@ import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
+import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
 import {
   buildRollup,
   computeLandingReady,
@@ -3314,6 +3316,115 @@ async function handleBuildQueue({ req, parts, deps }: Ctx): Promise<Response | n
   if (req.method === "POST" && parts[4] === "steps" && parts[5])
     return postBuildStepStatus(req, deps, id, parts[5]);
   if (req.method === "POST" && parts[4] === "approve") return approveBuildQueue(deps, id);
+  return null;
+}
+
+// PUT /api/sessions/:id/epic-draft — author/replace the epic draft (issue #1507). Structural
+// validation + semantic validation (cycles/edges) before store; emits session:epic-draft.
+async function putEpicDraft(req: Request, deps: AppDeps, id: string): Promise<Response> {
+  const ctErr = requireJsonContentType(req);
+  if (ctErr) return ctErr;
+  const existing = deps.store.getEpicDraft(id);
+  // Only a draft may be (re)authored — a materializing or approved epic is frozen (the amend loop
+  // runs before approval). Guards against a late agent re-PUT racing/overwriting a created epic.
+  if (existing && existing.status !== "draft")
+    return json({ error: `epic draft is ${existing.status}, not editable` }, 409);
+  const content = validateEpicDraftBody(await req.json().catch(() => null));
+  if (content === null) return json({ error: "invalid epic draft" }, 400);
+  const semantic = validateEpicDraft(content);
+  if (!semantic.ok) return json({ error: semantic.error }, 400);
+  const draft = deps.store.replaceEpicDraft(id, content);
+  deps.events?.emit("session:epic-draft", draft);
+  return json(draft);
+}
+
+// POST /api/sessions/:id/epic-draft/approve — the HARD GATE. Materializes the draft into GitHub
+// issues (children first, then the parent with an epic-dag fence, then native links), registers the
+// epic run so Shepherd recognizes it immediately, and marks the draft approved. CAS-guarded against
+// double-submit; resumable across a partial/failed materialize (see src/epic-author.ts).
+// Resolve + guard an approve: returns an early Response (idempotent hit / 4xx) OR the validated
+// context the materialize needs. Extracted so approveEpicDraft stays under the complexity gate.
+function resolveApproveContext(
+  deps: AppDeps,
+  id: string,
+):
+  | { done: Response }
+  | { session: Session; forge: GitForge; value: Parameters<typeof materializeEpicDraft>[1] } {
+  const session = deps.store.get(id);
+  if (!session) return { done: json({ error: "session not found" }, 404) };
+  const draft = deps.store.getEpicDraft(id);
+  if (!draft) return { done: json({ error: "no epic draft to approve" }, 404) };
+  if (draft.status === "approved" && draft.parentNumber != null) {
+    // Idempotent: a repeat approve returns the already-created epic's result.
+    return {
+      done: json({
+        parentNumber: draft.parentNumber,
+        parentUrl: draft.parentUrl ?? "",
+        childNumbers: draft.materializedChildren,
+        importResult: null,
+      }),
+    };
+  }
+  const semantic = validateEpicDraft(draft);
+  if (!semantic.ok) return { done: json({ error: semantic.error }, 400) };
+  const forge = deps.resolveForge?.(session.repoPath) ?? null;
+  if (!forge) return { done: json({ error: "no forge for this repo" }, 400) };
+  if (!forgeSupportsIssueCreation(forge))
+    return { done: json({ error: "issue creation unavailable for this repo" }, 400) };
+  return { session, forge, value: semantic.value };
+}
+
+async function approveEpicDraft(deps: AppDeps, id: string): Promise<Response> {
+  const ctx = resolveApproveContext(deps, id);
+  if ("done" in ctx) return ctx.done;
+  const { session, forge, value } = ctx;
+  const draft = deps.store.getEpicDraft(id)!;
+
+  // CAS draft → materializing BEFORE the first createIssue. Loser (a concurrent approve / WS retry)
+  // gets 409 — only the winner proceeds, so no duplicate issues.
+  if (!deps.store.beginEpicDraftMaterialize(id))
+    return json({ error: "epic materialize already in progress" }, 409);
+
+  try {
+    const result = await materializeEpicDraft(forge, value, {
+      alreadyCreated: draft.materializedChildren,
+      parentNumber: draft.parentNumber,
+      parentUrl: draft.parentUrl,
+      onChildCreated: (key, number) => deps.store.recordEpicDraftChild(id, key, number),
+      onParentCreated: (number, url) => deps.store.recordEpicDraftParent(id, number, url),
+    });
+    // Recognition: a fence in a fresh parent body is not auto-discovered — register the epic run so
+    // buildEpic assembles it (mirrors handleEpicPut). Supersedes any prior run for this repo.
+    let epic: Epic | null = null;
+    if (deps.drain) {
+      deps.store.setEpicRun(defaultEpicRun(session.repoPath, result.parentNumber));
+      epic = await deps.drain.buildEpic(session.repoPath, deps.store.getEpicRun(session.repoPath)!);
+      if (epic) deps.events?.emit("epic:update", epic);
+    }
+    deps.store.setEpicDraftApproved(id, result.parentNumber, result.parentUrl);
+    deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    return json({ ...result, epic });
+  } catch (e) {
+    // On error revert materializing → draft (retaining the persisted partial map) so an explicit
+    // retry re-wins the CAS and resumes. Never leaves the row stuck at materializing.
+    deps.store.revertEpicDraftToDraft(id);
+    deps.events?.emit("session:epic-draft", deps.store.getEpicDraft(id));
+    return json({ error: e instanceof Error ? e.message : "epic materialize failed" }, 500);
+  }
+}
+
+// /api/sessions/:id/epic-draft[/approve]
+// Returns null for any path it doesn't own so other session sub-routes fall through.
+async function handleEpicDraft({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "epic-draft")) return null;
+  const id = parts[2];
+  if (!id) return null;
+  if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
+
+  if (req.method === "GET" && !parts[4]) return json(deps.store.getEpicDraft(id));
+  if (req.method === "PUT" && !parts[4]) return putEpicDraft(req, deps, id);
+  if (req.method === "POST" && parts[4] === "approve" && !parts[5])
+    return approveEpicDraft(deps, id);
   return null;
 }
 
@@ -6673,6 +6784,7 @@ const ROUTE_HANDLERS = [
   handlePush,
   handleSessionHooks,
   handleBuildQueue,
+  handleEpicDraft,
   handleSessions,
   handleExperimentCompare,
   handleSessionGit,
@@ -6792,6 +6904,10 @@ export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (method === "POST" && parts[3] === "queue" && parts[4] === "steps" && parts[5] && !parts[6]) {
     return true;
   }
+  // PUT /api/sessions/<id>/epic-draft (author/replace the epic draft) + GET (inspect). Like queue,
+  // /epic-draft/approve is deliberately EXCLUDED — it is the human write-gate, not an agent action
+  // (the whole point of #1507 is that the agent never triggers the GitHub writes).
+  if ((method === "PUT" || method === "GET") && parts[3] === "epic-draft" && !parts[4]) return true;
   return false;
 }
 

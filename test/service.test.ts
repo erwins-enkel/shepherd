@@ -27,6 +27,7 @@ import {
   PREVIEW_START_STEER,
   PREVIEW_SETUP_STEER,
   buildQueueDirective,
+  epicAuthoringDirective,
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
@@ -232,6 +233,7 @@ test("createSession: session_created props map each to its own source (distinct-
     autopilotEnabled: true,
     planGateEnabled: true,
     research: false,
+    epicAuthoring: false,
     issueRef: { number: 42, url: "https://x/42", title: "t", body: "b" },
   });
 
@@ -414,6 +416,7 @@ test("createSession: codex + research → inline research directive, codex varia
     model: "gpt-5.5",
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   const prompt = codexPrompt(calls.start.argv);
   expect(prompt).toContain("<research-directive>");
@@ -615,6 +618,7 @@ test("createSession: codex + isolated + research + repo-default ON → NO direct
     agentProvider: "codex",
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(hasDirective(calls.start.argv)).toBe(false);
 });
@@ -646,6 +650,7 @@ test("createSession: codex research spawn omits the manual-steps notice", async 
     agentProvider: "codex",
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(hasManualNotice(calls.start.argv)).toBe(false);
 });
@@ -6651,6 +6656,39 @@ test("composeSystemPrompt: a non-research call with the same opts still carries 
   expect(sp).toContain("<build-queue>");
 });
 
+test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses single-PR/plan-gate/build-queue", () => {
+  const directive = epicAuthoringDirective({
+    sessionId: "sess-1",
+    baseUrl: "http://127.0.0.1:7330",
+    token: null,
+    agentProvider: "claude",
+  });
+  const sp = composeSystemPrompt(null, true, {
+    epicAuthoring: directive,
+    planGate: "interactive",
+    buildQueue: "QUEUE",
+  });
+  expect(sp).toContain("<epic-authoring-directive>");
+  expect(sp).not.toContain("<research-directive>");
+  expect(sp).not.toContain("<autopilot-directive>");
+  expect(sp).not.toContain("<plan-gate-directive>");
+  expect(sp).not.toContain("<build-queue>");
+  expect(sp).not.toContain("<single-pr-invariant>");
+});
+
+test("epicAuthoringDirective bakes the draft endpoint and forbids GitHub writes", () => {
+  const d = epicAuthoringDirective({
+    sessionId: "sess-42",
+    baseUrl: "http://127.0.0.1:7330",
+    token: null,
+    agentProvider: "claude",
+  });
+  expect(d).toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");
+  expect(d).toContain("NEVER run `gh issue create`");
+  expect(d).toContain('"blockedBy"');
+  expect(d).not.toContain("epic import endpoint call"); // no write path baked in
+});
+
 test("create research: plan gate forced off even when repo planGateEnabled is true", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
@@ -6662,6 +6700,7 @@ test("create research: plan gate forced off even when repo planGateEnabled is tr
     model: null,
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(s.planPhase).toBeNull();
   const sp = sysPrompt(captured.argv!);
@@ -6681,6 +6720,7 @@ test("create research: persists research flag; non-research stays false", async 
     model: null,
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(store.get(r.id)?.research).toBe(true);
   const n = await svc.create({
@@ -6706,6 +6746,7 @@ test("create research: build queue NOT pre-approved even with buildQueueEnabled 
     model: null,
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(store.getBuildQueue(s.id).approved).toBe(false);
 });
@@ -6787,6 +6828,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
     model: null,
     images: [],
     research: true,
+    epicAuthoring: false,
   });
   expect(s.sandboxApplied).toBe("standard");
   expect(store.get(s.id)?.sandboxApplied).toBe("standard");

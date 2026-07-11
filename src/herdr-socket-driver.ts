@@ -115,10 +115,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     env?: Record<string, string>,
   ): Promise<HerdrAgent> {
     await this.ensureWorkspace(cwd);
-    const created = await this.client.request<{
-      tab?: { tab_id?: string };
-      root_pane?: { pane_id?: string };
-    }>("tab.create", { cwd, label: name, focus: false });
+    const created = await this.client.request("tab.create", { cwd, label: name, focus: false });
     const tabId = created?.tab?.tab_id;
     const rootPaneId = created?.root_pane?.pane_id;
     if (!tabId) throw new Error(`herdr: tab.create returned no tab_id for ${name}`);
@@ -151,7 +148,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
   private async ensureWorkspace(cwd: string): Promise<void> {
     let workspaces: unknown[];
     try {
-      const res = await this.client.request<{ workspaces?: unknown[] }>("workspace.list", {});
+      const res = await this.client.request("workspace.list", {});
       workspaces = res?.workspaces ?? [];
     } catch {
       workspaces = []; // unreachable/error reply → treat as "none", create one
@@ -173,7 +170,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        const res = await this.client.request<{ agent?: unknown }>("agent.start", {
+        const res = await this.client.request("agent.start", {
           name,
           argv: wrapped,
           cwd,

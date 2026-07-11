@@ -2,6 +2,7 @@ import * as net from "node:net";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
 import { HerdrUnavailableError } from "./herdr";
+import type { HerdrMethod, HerdrParams, HerdrResult } from "./generated/herdr-protocol";
 
 /** Hard ceiling on any single socket round trip, mirroring `HERDR_TIMEOUT_MS` in
  *  `herdr.ts` — a request that never gets a reply (dead server, dropped connection
@@ -51,17 +52,17 @@ export class HerdrSocketClient {
    *  connection drops before a response was parsed. Refuses synchronously (throws
    *  `HerdrUnavailableError`, no socket opened) while `maintenance.active` — mirrors
    *  `makeHerdrRunner`/`makeHerdrAsyncRunner` so nothing pokes the socket mid-update. */
-  async request<T = unknown>(
-    method: string,
-    params: object,
+  async request<M extends HerdrMethod>(
+    method: M,
+    params: HerdrParams[M],
     opts?: { timeoutMs?: number },
-  ): Promise<T> {
+  ): Promise<HerdrResult<M>> {
     if (maintenance.active) throw new HerdrUnavailableError();
 
     const id = String(this.nextId++);
     const timeoutMs = opts?.timeoutMs ?? SOCKET_REQUEST_TIMEOUT_MS;
 
-    return new Promise<T>((resolve, reject) => {
+    return new Promise<HerdrResult<M>>((resolve, reject) => {
       let settled = false;
       let buffer = "";
       const socket = net.createConnection(this.socketPath);
@@ -116,7 +117,7 @@ export class HerdrSocketClient {
             const message = typeof res.error.message === "string" ? res.error.message : "";
             reject(new HerdrSocketError(code, message));
           } else {
-            resolve(res.result as T);
+            resolve(res.result as HerdrResult<M>);
           }
         });
       });
@@ -133,7 +134,7 @@ export class HerdrSocketClient {
   }
 
   /** `ping` round trip; surfaces the `pong` result's `version`/`protocol`/`capabilities`. */
-  ping(): Promise<{ version: string; protocol: number; capabilities: Record<string, boolean> }> {
+  ping(): Promise<HerdrResult<"ping">> {
     return this.request("ping", {});
   }
 

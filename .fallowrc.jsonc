@@ -15,6 +15,11 @@
   //   Ext   = MV3 browser extension (extension/). The background service worker
   //           + popup/options page mains are loaded by the browser/crxjs via the
   //           manifest, not statically imported — so they're genuine roots.
+  // Generated codegen output (gen-herdr-types.ts, from the vendored herdr
+  // protocol schema): its ~170 exports are intentionally emitted for the whole
+  // protocol surface, not dead code — exclude from all fallow analyses.
+  "ignorePatterns": ["src/generated/**"],
+
   "entry": [
     "src/index.ts",
     "src/pty-attach.mjs",
@@ -133,6 +138,14 @@
       "**/build/**",
       "**/src/forge/gitea.ts",
       "**/src/forge/github.ts",
+      // SocketHerdrDriver deliberately MIRRORS the CLI HerdrDriver's workspace/
+      // tab/collision-retry start orchestration (startImpl,
+      // startAgentWithCollisionRetry) across a different transport (socket vs
+      // CLI exec) — a genuine parallel implementation, same rationale as the
+      // forge adapters above. Pre-existing (the socket driver shipped earlier);
+      // it only surfaced now because a prior task touched those lines.
+      // Extracting a shared helper would couple the two transports.
+      "**/src/herdr-socket-driver.ts",
       // src/types.ts, src/forge/types.ts and ui/src/lib/types.ts mirror the
       // same wire shapes across the Bun server and the SvelteKit UI, which do
       // not share a build (same rationale as `duplicate-exports: off` above).

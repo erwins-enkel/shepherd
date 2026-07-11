@@ -117,6 +117,9 @@ jobs:
       - name: Docs manifest freshness (command bar Docs group)
         run: cd ui && bun run check:docs-manifest
 
+      - name: herdr protocol types freshness (schema ⇒ regenerated types)
+        run: bun run check:herdr-types
+
       - name: Test (root)
         # server.test.ts creates its temp repo inside repoRoot (default
         # $HOME/Work, absent on the runner). Point it at a writable temp dir.

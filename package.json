@@ -18,7 +18,8 @@
     "check:announcement-versions": "node scripts/check-announcement-versions.mjs",
     "next-version": "node scripts/next-version.mjs",
     "gen:herdr-schema": "bun run scripts/gen-herdr-schema.ts",
-    "gen:herdr-types": "bun run scripts/gen-herdr-types.ts"
+    "gen:herdr-types": "bun run scripts/gen-herdr-types.ts",
+    "gen:herdr-fixtures": "bun run scripts/gen-herdr-fixtures.ts"
   },
   "lint-staged": {
     "*.{ts,js,json,css,html,md,svelte}": "prettier --write --cache --cache-strategy content --cache-location .cache/prettier",

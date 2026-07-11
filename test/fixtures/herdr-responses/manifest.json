@@ -1,0 +1,18 @@
+{
+  "agent.list": {
+    "type": "agent_list",
+    "resultKeys": ["agents", "type"]
+  },
+  "pane.process_info": {
+    "type": "pane_process_info",
+    "resultKeys": ["process_info", "type"]
+  },
+  "ping": {
+    "type": "pong",
+    "resultKeys": ["capabilities", "protocol", "type", "version"]
+  },
+  "workspace.list": {
+    "type": "workspace_list",
+    "resultKeys": ["type", "workspaces"]
+  }
+}

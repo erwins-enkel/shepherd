@@ -73,6 +73,7 @@ export class SocketPtyBridge {
   private closing = false; // close() was called deliberately
   private outcomeFired = false; // one of onFallback/onGone/onAbnormalExit has fired
   private wsClosed = false; // ws.close() has fired
+  private handedOff = false; // onFallback took over the ws (node-pty); we must not close it
 
   constructor(
     private readonly target: string,
@@ -276,7 +277,10 @@ export class SocketPtyBridge {
   private fireFallback(): void {
     if (this.outcomeFired) return;
     this.outcomeFired = true;
-    this.hooks.onFallback?.();
+    if (this.hooks.onFallback) {
+      this.handedOff = true; // caller re-attaches this ws (node-pty); we must not close it
+      this.hooks.onFallback();
+    }
   }
 
   private fireGone(): void {
@@ -292,7 +296,7 @@ export class SocketPtyBridge {
   }
 
   private closeWs(): void {
-    if (this.wsClosed) return;
+    if (this.wsClosed || this.handedOff) return;
     this.wsClosed = true;
     this.ws.close();
   }

@@ -264,7 +264,7 @@ test("gone: a pre-first-frame terminal.closed{not found} fires onGone only", asy
   expect(ws.closed).toBe(true);
 });
 
-test("pre-first-frame fallback: process exits with no frame and no close", async () => {
+test("pre-first-frame fallback: process exits with no frame and no close; ws handed off, not closed", async () => {
   const fake = makeFakeProc();
   const spawn = fakeSpawn(fake);
   const ws = fakeWs();
@@ -277,10 +277,27 @@ test("pre-first-frame fallback: process exits with no frame and no close", async
   await tick();
 
   expect(fallbackCalls).toBe(1);
+  // onFallback means the caller re-attaches this same ws via node-pty — the bridge must not
+  // tear it down underneath the caller (issue #1529).
+  expect(ws.closed).toBe(false);
+});
+
+test("pre-first-frame fallback: no onFallback hook — process exit with no frame still closes ws", async () => {
+  const fake = makeFakeProc();
+  const spawn = fakeSpawn(fake);
+  const ws = fakeWs();
+  const bridge = new SocketPtyBridge("w1:p1", ws, {}, { spawn });
+  bridge.open();
+  fake.endStdout();
+  await tick();
+  fake.resolveExit(1);
+  await tick();
+
+  // no hook means nobody takes over the ws — the bridge must still close it (no leak).
   expect(ws.closed).toBe(true);
 });
 
-test("pre-first-frame fallback: a synchronous spawn throw fires onFallback", () => {
+test("pre-first-frame fallback: a synchronous spawn throw fires onFallback; ws handed off, not closed", () => {
   const ws = fakeWs();
   let fallbackCalls = 0;
   const spawn = (() => {
@@ -290,6 +307,17 @@ test("pre-first-frame fallback: a synchronous spawn throw fires onFallback", () 
   bridge.open();
 
   expect(fallbackCalls).toBe(1);
+  expect(ws.closed).toBe(false);
+});
+
+test("pre-first-frame fallback: no onFallback hook — synchronous spawn throw still closes ws", () => {
+  const ws = fakeWs();
+  const spawn = (() => {
+    throw new Error("spawn ENOENT");
+  }) as unknown as typeof Bun.spawn;
+  const bridge = new SocketPtyBridge("w1:p1", ws, {}, { spawn });
+  bridge.open();
+
   expect(ws.closed).toBe(true);
 });
 

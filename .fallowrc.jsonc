@@ -138,6 +138,14 @@
       "**/build/**",
       "**/src/forge/gitea.ts",
       "**/src/forge/github.ts",
+      // SocketHerdrDriver deliberately MIRRORS the CLI HerdrDriver's workspace/
+      // tab/collision-retry start orchestration (startImpl,
+      // startAgentWithCollisionRetry) across a different transport (socket vs
+      // CLI exec) — a genuine parallel implementation, same rationale as the
+      // forge adapters above. Pre-existing (the socket driver shipped earlier);
+      // it only surfaced now because a prior task touched those lines.
+      // Extracting a shared helper would couple the two transports.
+      "**/src/herdr-socket-driver.ts",
       // src/types.ts, src/forge/types.ts and ui/src/lib/types.ts mirror the
       // same wire shapes across the Bun server and the SvelteKit UI, which do
       // not share a build (same rationale as `duplicate-exports: off` above).

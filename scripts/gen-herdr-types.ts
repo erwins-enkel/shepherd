@@ -31,7 +31,6 @@
 import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { compile } from "json-schema-to-typescript";
-import type { JSONSchema4 } from "json-schema";
 import prettier from "prettier";
 
 const REPO_ROOT = join(import.meta.dir, "..");
@@ -292,7 +291,7 @@ async function main() {
   const raw = expectRecord(JSON.parse(await readFile(SCHEMA_PATH, "utf8")), "<root>");
   const flattened = flattenSchema(raw);
 
-  const jsttOutput = await compile(flattened as JSONSchema4, "HerdrProtocol", {
+  const jsttOutput = await compile(flattened as Parameters<typeof compile>[0], "HerdrProtocol", {
     format: false,
     unreachableDefinitions: true,
     declareExternallyReferenced: true,

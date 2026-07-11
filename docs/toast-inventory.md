@@ -204,7 +204,7 @@ above as one of the 4 sticky / 2 promoted sites.
 | 942  | "Couldn't change the usage downgrade setting. Retry."    | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 964  | "Couldn't change the usage downgrade threshold. Retry."  | duration:null, alert, key | persist(null) | 12s or sticky* |
 | 983  | "Couldn't change the downgrade model. Retry."            | duration:null, alert, key | persist(null) | 12s or sticky* |
-| 1015 | "Couldn't change session cleanup. Retry."                | —                         | 4s            | 4s             |
+| 1015 | "Couldn't change session cleanup. Retry."                | alert, key (added)        | 4s            | 12s (D)        |
 
 ### ui/src/lib/components/settings/SettingsDiagnosePanel.svelte
 

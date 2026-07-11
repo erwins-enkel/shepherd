@@ -59,58 +59,74 @@ network, no key.
 pass by construction). Adjustment rule: **`FLOOR = round_down(observed − 0.15)` to the nearest 0.05**,
 changed only by a deliberate, commit-noted edit.
 
-> **Current value: `0.60` — a conservative PLACEHOLDER.** The repo had no `ANTHROPIC_API_KEY` when the
-> harness was authored, so the first live baseline has **not** been captured yet. Re-pin the floor from
-> the observed gating accuracy per the rule above and fill in the tables below. See the Manual-Step in
-> the PR.
+> **Current value: `0.80`**, pinned from the first live baseline (below): after demoting
+> `gate-spec-first` per the contingency rule, gating accuracy was `33/34 = 0.971` →
+> `round_down(0.971 − 0.15)` to the nearest 0.05 = **0.80**.
 
 The **real regression signal** is (a) per-fixture majority-correctness and (b) the recorded per-fixture
 kind-distribution baseline below — the overall floor only catches a catastrophic collapse.
 
 ## Fixture set
 
-| id                       | kind     | gating | lang | T   | intent                                               |
-| ------------------------ | -------- | ------ | ---- | --- | ---------------------------------------------------- |
-| `gate-spec-first`        | gate     | ✔      | en   | 5   | "shall I write the spec first?" — proceed-obvious    |
-| `gate-commit-now`        | gate     | ✔      | en   | 5   | "ready to commit?" — proceed-obvious                 |
-| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                    |
-| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened            |
-| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                  |
-| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                  |
-| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown` |
-| `de-gate-spec`           | gate     | —      | de   | 5   | German tail — baseline mixed-language                |
-| `de-question-approach`   | question | —      | de   | 5   | German tail — baseline mixed-language                |
-| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline mixed-language                |
+| id                       | kind     | gating | lang | T   | intent                                                      |
+| ------------------------ | -------- | ------ | ---- | --- | ----------------------------------------------------------- |
+| `gate-commit-now`        | gate     | ✔      | en   | 5   | "ready to commit?" — proceed-obvious                        |
+| `question-jwt-vs-cookie` | question | ✔      | en   | 5   | real product fork needing a human                           |
+| `finished-pr-pending`    | finished | ✔      | en   | 5   | code done, PR deliverable, not yet opened                   |
+| `complete-investigation` | complete | ✔      | en   | 5   | research/analysis, no PR to produce                         |
+| `complete-issue-created` | complete | ✔      | en   | 5   | filed a GitHub issue, nothing to PR                         |
+| `ambiguous-unknown`      | unknown  | ✔      | en   | 9   | genuinely ambiguous tail — MUST abstain to `unknown`        |
+| `gate-spec-first`        | gate     | —      | en   | 5   | prompt's own gate exemplar — **known gap** (leans question) |
+| `de-gate-spec`           | gate     | —      | de   | 5   | German tail — baseline mixed-language                       |
+| `de-question-approach`   | question | —      | de   | 5   | German tail — baseline mixed-language                       |
+| `de-finished-pr`         | finished | —      | de   | 5   | German tail — baseline mixed-language                       |
+
+`gate-spec-first` started gating and was demoted to baseline per the contingency rule after the first
+run (see **Known gaps** below).
 
 **Bounded coverage:** the eval samples `T` trials over this **curated** set (~54 calls/run). It is not
 exhaustive over real-world tails — it is a stable measuring stick for #1627, not a coverage guarantee.
 
-## Baseline numbers (PENDING first keyed run)
+## Baseline numbers
 
-Fill these from a live run (`--json`). One row per fixture; `no-tool`/`parse-fail` columns must be
-inspected — a fixture that "passes" only via mechanical failures is **not** a genuine result.
+**First run** — `claude-haiku-4-5`, temperature `1.0`, `bun run eval:stop-classifier --json` (2026-07-11;
+throwaway key). No mechanical failures anywhere (`no-tool` / `parse-fail` all 0), so every `unknown` below
+is a genuine verdict, not a masked miss. `gate-spec-first` is shown at the bottom (demoted — see Known gaps).
 
-| id                  | expected | trials | kind distribution | majority | correct | no-tool | parse-fail |
-| ------------------- | -------- | ------ | ----------------- | -------- | ------- | ------- | ---------- |
-| _…gating…_          |          |        |                   |          |         |         |            |
-| `ambiguous-unknown` | unknown  | 9      |                   |          |         |         |            |
-| _…de baseline…_     |          |        |                   |          |         |         |            |
+| id                       | seg      | expected | T   | kind distribution | majority | correct |
+| ------------------------ | -------- | -------- | --- | ----------------- | -------- | ------- |
+| `gate-commit-now`        | gating   | gate     | 5   | gate:4 finished:1 | gate     | 4/5     |
+| `question-jwt-vs-cookie` | gating   | question | 5   | question:5        | question | 5/5     |
+| `finished-pr-pending`    | gating   | finished | 5   | finished:5        | finished | 5/5     |
+| `complete-investigation` | gating   | complete | 5   | complete:5        | complete | 5/5     |
+| `complete-issue-created` | gating   | complete | 5   | complete:5        | complete | 5/5     |
+| `ambiguous-unknown`      | gating   | unknown  | 9   | **unknown:9**     | unknown  | **9/9** |
+| `de-gate-spec`           | baseline | gate     | 5   | gate:4 question:1 | gate     | 4/5     |
+| `de-question-approach`   | baseline | question | 5   | question:5        | question | 5/5     |
+| `de-finished-pr`         | baseline | finished | 5   | finished:5        | finished | 5/5     |
+| `gate-spec-first`        | baseline | gate     | 5   | question:3 gate:2 | question | 2/5     |
 
-- **Gating accuracy:** _pending_ → re-pin `GATING_ACCURACY_FLOOR` = `round_down(accuracy − 0.15)`.
-- **`ambiguous-unknown`:** record the `unknown` rate explicitly — this is #1627's headline risk.
-- **German baseline:** record each `de-*` distribution — this is the mixed-language before/after datum.
+- **Gating accuracy (after demotion): `33/34 = 97.1%`** → `GATING_ACCURACY_FLOOR` pinned at **0.80**
+  (`round_down(0.971 − 0.15)`). `RESULT: PASS`.
+- **`ambiguous-unknown`: 9/9 `unknown`** — the conservative abstain bucket #1627 most risks eroding is
+  currently rock-solid. This is the headline before/after datum: #1627 must not regress it.
+- **German baseline is strong today:** `de-question` 5/5 and `de-finished` 5/5, `de-gate` 4/5 (one
+  `question`) — mirroring the English `gate` softness rather than a German-specific failure. #1627's
+  output-language / robustness change has a real before/after here.
 
 ### Known current-classifier gaps (contingency rule)
 
-If a **gating** fixture does not reach majority-correct on the baseline run, resolve it (and **record it
-here**) rather than deadlocking the "exits 0 on current code" criterion:
+- **`gate-spec-first` — DEMOTED to non-gating baseline (first run).** Distribution `question:3 gate:2`
+  (2/5 correct). This is the classifier prompt's **own canonical `gate` exemplar** ("shall I write the
+  spec first?"), yet haiku leans `question` — it reads spec-first-vs-dive-in as a methodology fork. The
+  fixture is faithful to the exemplar (not under-specified), so it was **demoted, not revised** — silently
+  rewording it to force `gate` would just game the prompt's own example. It stays in the set (run +
+  reported) as a **known gap** and a prime before/after datum for #1627: watch whether the operator-language
+  / robustness change nudges this toward `gate` (fix) or further toward `question` (regression).
 
-1. **Revise** the fixture _iff_ it is genuinely under-specified/mislabeled.
-2. **Else demote to non-gating baseline** and record it here as a known gap (with its distribution).
-3. **`ambiguous-unknown`** specifically: if it can't hold majority-`unknown` even at `T=9`, demote it and
-   record it here as _the_ headline gap — never silently lower the floor to paper over it.
-
-> _No demotions yet — to be filled after the first baseline run._
+> The contingency rule (applied above): (1) revise a fixture only if genuinely under-specified/mislabeled;
+> (2) else demote to non-gating baseline + record here; (3) never silently lower the floor to paper over a
+> gap. `ambiguous-unknown` held majority at `T=9`, so no demotion was needed there.
 
 ## Fidelity caveats
 

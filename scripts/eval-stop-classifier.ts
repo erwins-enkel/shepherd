@@ -56,14 +56,14 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * rule (see the doc): `FLOOR = round_down(observed - 0.15)` to the nearest 0.05, changed
  * only by a deliberate, commit-noted edit.
  *
- * NOTE: this 0.60 is a conservative PLACEHOLDER pending the first live baseline run (this
- * repo had no `ANTHROPIC_API_KEY` when the harness was authored). Re-pin it from the
- * observed gating accuracy per the rule above, and record the number in the doc.
+ * Pinned from the first live baseline (claude-haiku-4-5, T=5/9, temperature 1.0): after
+ * demoting `gate-spec-first` per the contingency rule, gating accuracy was 33/34 = 0.971 →
+ * `round_down(0.971 - 0.15)` to the nearest 0.05 = 0.80. See docs/eval-stop-classifier.md.
  *
  * The overall floor is only a coarse CATASTROPHE-catcher; the real regression signal is
  * per-fixture majority-correctness + the recorded per-fixture kind-distribution baseline.
  */
-const GATING_ACCURACY_FLOOR = 0.6;
+const GATING_ACCURACY_FLOOR = 0.8;
 
 const ALL_KINDS: AutopilotKind[] = ["gate", "question", "finished", "complete", "unknown"];
 
@@ -109,9 +109,15 @@ export const FIXTURES: Fixture[] = [
       "Shall I write the spec first before implementing? (y/n)",
     ],
     expectedKind: "gate",
-    gating: true,
+    // KNOWN CURRENT-CLASSIFIER GAP (recorded via the contingency rule — see the doc). This is
+    // the classifier prompt's OWN canonical `gate` exemplar ("shall I write the spec first?"),
+    // yet haiku leans `question` (2 gate / 3 question at T=5 on the first baseline) — it reads
+    // spec-first-vs-dive-in as a methodology fork. Faithful to the exemplar, not a mislabel, so
+    // it is DEMOTED to non-gating baseline (kept, run, reported) rather than revised. A prime
+    // before/after datum for #1627.
+    gating: false,
     lang: "en",
-    note: "Proceed-obvious workflow stop — the agent could just start.",
+    note: "Prompt's own gate exemplar — but the classifier splits toward question (known gap).",
   },
   {
     id: "gate-commit-now",

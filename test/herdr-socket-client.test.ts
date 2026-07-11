@@ -41,6 +41,22 @@ function closeServer(server: net.Server | null): Promise<void> {
   });
 }
 
+/** `request()` is now typed strictly against the generated `HerdrMethod`/`HerdrParams` schema
+ *  (see herdr-socket-client.ts), but a couple of tests below deliberately probe the DUMB WIRE
+ *  TRANSPORT itself — connection-per-call semantics — with synthetic, non-schema method names
+ *  ("fast"/"slow"). This cast is the minimal bypass for that: it does not change any production
+ *  typing, only lets these specific tests keep using made-up methods. */
+function rawRequest(
+  client: HerdrSocketClient,
+  method: string,
+  params: unknown,
+): Promise<{ echo: { n: number } }> {
+  return (client.request as unknown as (m: string, p: unknown) => Promise<{ echo: { n: number } }>)(
+    method,
+    params,
+  );
+}
+
 describe("HerdrSocketClient", () => {
   let socketPath: string;
   let server: net.Server | null;
@@ -85,7 +101,7 @@ describe("HerdrSocketClient", () => {
     });
     client = new HerdrSocketClient(socketPath);
 
-    const raw = await client.request<{ type: string }>("ping", {});
+    const raw = await client.request("ping", {});
     expect(raw.type).toBe("pong");
 
     const pong = await client.ping();
@@ -103,8 +119,8 @@ describe("HerdrSocketClient", () => {
     });
     client = new HerdrSocketClient(socketPath);
 
-    const first = await client.request<{ echo: { n: number } }>("fast", { n: 1 });
-    const second = await client.request<{ echo: { n: number } }>("fast", { n: 2 });
+    const first = await rawRequest(client, "fast", { n: 1 });
+    const second = await rawRequest(client, "fast", { n: 2 });
 
     expect(first.echo.n).toBe(1);
     expect(second.echo.n).toBe(2);
@@ -127,8 +143,8 @@ describe("HerdrSocketClient", () => {
     });
     client = new HerdrSocketClient(socketPath);
 
-    const first = client.request<{ echo: { n: number } }>("slow", { n: 1 });
-    const second = client.request<{ echo: { n: number } }>("fast", { n: 2 });
+    const first = rawRequest(client, "slow", { n: 1 });
+    const second = rawRequest(client, "fast", { n: 2 });
 
     const [firstResult, secondResult] = await Promise.all([first, second]);
     expect(firstResult.echo.n).toBe(1);
@@ -145,12 +161,13 @@ describe("HerdrSocketClient", () => {
     });
     client = new HerdrSocketClient(socketPath);
 
-    await expect(client.request("agent.read", {})).rejects.toMatchObject({
+    const params = { target: "agent-1", source: "visible" as const };
+    await expect(client.request("agent.read", params)).rejects.toMatchObject({
       name: "HerdrSocketError",
       code: "not_found",
       message: "no such agent",
     });
-    await expect(client.request("agent.read", {})).rejects.toBeInstanceOf(HerdrSocketError);
+    await expect(client.request("agent.read", params)).rejects.toBeInstanceOf(HerdrSocketError);
   });
 
   test("timeout: unanswered request rejects after timeoutMs", async () => {
@@ -159,7 +176,7 @@ describe("HerdrSocketClient", () => {
     });
     client = new HerdrSocketClient(socketPath);
 
-    await expect(client.request("hang", {}, { timeoutMs: 50 })).rejects.toThrow(/timed out/);
+    await expect(client.request("ping", {}, { timeoutMs: 50 })).rejects.toThrow(/timed out/);
   });
 
   test("closed before response: connection dropped without a reply rejects (not hang)", async () => {

@@ -145,6 +145,7 @@ function makeSession(planPhase: Session["planPhase"]): Session {
     planPhase,
     research: false,
     epicAuthoring: false,
+    landingRepair: false,
     autoMergeEnabled: null,
     autoMergeRebaseCount: 0,
     autoMergeRebaseHead: null,

@@ -747,6 +747,8 @@ export class DrainService {
           migrationPaths: [],
           migrationsAckedAt: null,
           landingRebasePauseReason: null,
+          landingRepairCount: 0,
+          landingRepairHead: null,
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -813,6 +815,8 @@ export class DrainService {
       migrationPaths: row.migrationPaths,
       migrationsAckedAt: row.migrationsAckedAt,
       landingRebasePauseReason: row.landingRebasePauseReason,
+      landingRepairCount: row.landingRepairCount,
+      landingRepairHead: row.landingRepairHead,
     };
     this.deps.emitEpicCompleted?.(completed);
   }

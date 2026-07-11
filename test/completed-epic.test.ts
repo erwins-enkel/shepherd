@@ -329,6 +329,8 @@ describe("enrichLandingEpics", () => {
     migrationPaths: [],
     migrationsAckedAt: null,
     landingRebasePauseReason: null,
+    landingRepairCount: 0,
+    landingRepairHead: null,
     ...over,
   });
 

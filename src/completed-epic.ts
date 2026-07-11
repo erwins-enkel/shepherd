@@ -36,6 +36,11 @@ export interface CompletedEpic {
   // #1071: why the auto-rebase pass paused. null = not paused / rebase not yet attempted.
   // 'cap': cap exhausted; 'conflict': genuine conflict; 'driver': merge driver unavailable.
   landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+  // Landing-repair session counters: lifetime count of repair sessions dispatched for this
+  // landing, and the epic/<#> head SHA recorded at the last repair dispatch (null when none
+  // dispatched yet).
+  landingRepairCount: number;
+  landingRepairHead: string | null;
   /** Live, non-persisted landing-PR gate signals (present only when the landing PR could be fetched). */
   landingChecks?: ChecksState;
   landingMergeable?: boolean | null;

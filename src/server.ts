@@ -6461,6 +6461,8 @@ async function backfillIdleEpic(
       migrationPaths: [],
       migrationsAckedAt: null,
       landingRebasePauseReason: null,
+      landingRepairCount: 0,
+      landingRepairHead: null,
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -6745,6 +6747,8 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         migrationPaths: updatedRow.migrationPaths,
         migrationsAckedAt: updatedRow.migrationsAckedAt,
         landingRebasePauseReason: updatedRow.landingRebasePauseReason,
+        landingRepairCount: updatedRow.landingRepairCount,
+        landingRepairHead: updatedRow.landingRepairHead,
       };
       deps.events?.emit("epic:completed", completed);
     } catch {

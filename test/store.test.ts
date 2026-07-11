@@ -1039,6 +1039,50 @@ test("session: research migration — pre-existing row without column reads as f
   }
 });
 
+test("session: landingRepair defaults false, round-trips via create + get", () => {
+  const s = mk();
+  // absent → false
+  const a = s.create(base);
+  expect(a.landingRepair).toBe(false);
+  expect(s.get(a.id)?.landingRepair).toBe(false);
+  // explicitly true → true
+  const b = s.create({ ...base, herdrAgentId: "t2", landingRepair: true });
+  expect(b.landingRepair).toBe(true);
+  expect(s.get(b.id)?.landingRepair).toBe(true);
+  // explicitly false → false
+  const c = s.create({ ...base, herdrAgentId: "t3", landingRepair: false });
+  expect(c.landingRepair).toBe(false);
+  expect(s.get(c.id)?.landingRepair).toBe(false);
+});
+
+test("session: landingRepair migration — pre-existing row without column reads as false", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-landingrepair-legacy-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Seed a DB without the landingRepair column, simulating a pre-feature DB.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE sessions (
+      id TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL, prompt TEXT NOT NULL,
+      repoPath TEXT NOT NULL, baseBranch TEXT NOT NULL, branch TEXT,
+      worktreePath TEXT NOT NULL, isolated INTEGER NOT NULL,
+      herdrSession TEXT NOT NULL, herdrAgentId TEXT NOT NULL,
+      claudeSessionId TEXT NOT NULL DEFAULT '',
+      model TEXT, status TEXT NOT NULL, lastState TEXT NOT NULL,
+      auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
+      createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
+    raw.run(
+      `INSERT INTO sessions (id, desig, name, prompt, repoPath, baseBranch, worktreePath, isolated, herdrSession, herdrAgentId, status, lastState, createdAt, updatedAt)
+       VALUES ('leg1', 'TASK-01', 'n', 'p', '/r', 'main', '/wt', 1, 'h', 't', 'running', 'idle', 1, 1)`,
+    );
+    raw.close();
+    const store = new SessionStore(dbPath);
+    const s = store.get("leg1")!;
+    expect(s.landingRepair).toBe(false);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test("session: autoMergeEnabled override + rebase count round-trip", () => {
   const store = new SessionStore(":memory:");
   const s = store.create(base);

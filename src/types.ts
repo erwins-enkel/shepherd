@@ -71,6 +71,9 @@ export interface Session {
    *  writes no GitHub issues (the approve route materializes them). Suppresses the same directives as
    *  `research`. */
   epicAuthoring: boolean;
+  /** True for an epic-landing-PR repair session: pushes directly to the epic integration branch and
+   *  never opens a PR. */
+  landingRepair: boolean;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -239,6 +242,8 @@ export interface CreateSessionInput {
   research?: boolean;
   /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */
   epicAuthoring?: boolean;
+  /** Epic-landing-PR repair task kind; absent → false. */
+  landingRepair?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
 }
@@ -271,6 +276,8 @@ export interface RelaunchOverrides {
   research?: boolean;
   /** Epic-authoring task kind override; absent → keep original. */
   epicAuthoring?: boolean;
+  /** Epic-landing-PR repair task kind override; absent → keep original. */
+  landingRepair?: boolean;
 }
 
 /** Selectable Claude model aliases; absent/"default" means no --model flag.

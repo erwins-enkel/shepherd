@@ -1,4 +1,4 @@
-import { describe, expect, it } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import type { DiffFile, DiffHunk } from "../src/types";
 import type { VisualBlock } from "../src/visual-blocks";
 
@@ -36,6 +36,176 @@ describe("parseVisualBlocks", () => {
     expect(parseVisualBlocks("string")).toEqual([]);
     expect(parseVisualBlocks(42)).toEqual([]);
     expect(parseVisualBlocks({ type: "rich-text", id: "1", markdown: "x" })).toEqual([]);
+  });
+
+  it("(A) warns when blocks is present but non-array (mangled blocks field)", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks("nope")).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("[visual-blocks]");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) warns for non-array object", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks({})).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) warns for number as blocks", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks(42)).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(A) stays silent when blocks is undefined (legitimate)", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      expect(parseVisualBlocks(undefined)).toEqual([]);
+      expect(warn).not.toHaveBeenCalled();
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) warns when parseBlock rejects with unknown type", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([{ type: "fancy-thing", id: "block1", markdown: "x" }]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("fancy-thing");
+      expect(msg).toContain("block1");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) warns when parseBlock rejects with invalid enum", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([
+        { type: "callout", id: "c1", tone: "invalid-tone", markdown: "x" },
+      ]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("callout");
+      expect(msg).toContain("c1");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(B) defensive read: warns for non-object item in array without throwing", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks(["string-item", 5, null]);
+      expect(result).toEqual([]);
+      expect(warn.mock.calls.length).toBeGreaterThan(0);
+      // non-object items have no type/id to read — the standard warn shape must still
+      // report a type=/id= pair, using "<none>" for both rather than a distinct message.
+      for (const call of warn.mock.calls) {
+        const msg = call[0] as string;
+        expect(msg).toContain('type="<none>"');
+        expect(msg).toContain('id="<none>"');
+      }
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(C) warns for duplicate id", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const result = parseVisualBlocks([
+        { type: "rich-text", id: "dup", markdown: "first" },
+        { type: "callout", id: "dup", tone: "info", markdown: "second" },
+      ]);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.id).toBe("dup");
+      expect(result[0]!.type).toBe("rich-text");
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("duplicate");
+      expect(msg).toContain("dup");
+      expect(msg).toContain("callout");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) (B)-path: sanitizes type and id containing control characters on a dropped block", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      // "rich-text\n\r" is not a known type (VALIDATORS lookup is exact-match), so this
+      // block is rejected at (B) — its id is never reserved.
+      const result = parseVisualBlocks([
+        { type: "rich-text\n\r", id: "id\x1b[31m", markdown: "x" },
+      ]);
+      expect(result).toEqual([]);
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).not.toContain("\n");
+      expect(msg).not.toContain("\r");
+      expect(msg).not.toContain("\x1b");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) (C)-path: sanitizes duplicate id containing control characters on a real dedup collision", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      // Both blocks validate successfully and share the same (control-character-laden) id —
+      // this is a genuine dedup collision, unlike feeding an already-rejected first block.
+      const result = parseVisualBlocks([
+        { type: "rich-text", id: "id\x1b[31m\n\r", markdown: "first" },
+        { type: "callout", id: "id\x1b[31m\n\r", tone: "info", markdown: "second" },
+      ]);
+      expect(result).toHaveLength(1);
+      expect(result[0]!.type).toBe("rich-text"); // first kept, second (duplicate) dropped
+      expect(warn).toHaveBeenCalledTimes(1);
+      const msg = warn.mock.calls[0]?.[0] as string;
+      expect(msg).toContain("duplicate");
+      expect(msg).not.toContain("\n");
+      expect(msg).not.toContain("\r");
+      expect(msg).not.toContain("\x1b");
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it("(hygiene) clamps very long type/id strings", () => {
+    const warn = spyOn(console, "warn");
+    try {
+      const longType = "a".repeat(200);
+      const longId = "b".repeat(200);
+      const result = parseVisualBlocks([
+        { type: longType, id: longId, markdown: "x" },
+        { type: "callout", id: longId, tone: "info", markdown: "y" },
+      ]);
+      expect(result).toHaveLength(1);
+      for (const call of warn.mock.calls) {
+        const msg = call[0] as string;
+        expect(msg.length).toBeLessThan(300);
+      }
+    } finally {
+      warn.mockRestore();
+    }
   });
 
   it("drops blocks with missing id", () => {
@@ -658,6 +828,117 @@ describe("groundBlocks", () => {
       const result = groundBlocks(blocks, [], []);
       expect(result).toHaveLength(1);
       expect(result[0]).toEqual(blocks[0]);
+    });
+  });
+});
+
+// ── groundBlocks: a translated path/filename is silently dropped, verbatim survives (Task 5,
+// issue #1586) — this is WHY `path`/`filename` are on the VisualBlock verbatim field list in
+// operator-language.ts: if the agent ever "translated" one of these instead of copying it
+// verbatim, grounding can no longer match it back to the real diff and drops it (or the whole
+// block).
+describe("groundBlocks: translated path/filename is dropped", () => {
+  const fooFile: DiffFile = {
+    path: "src/foo.ts",
+    status: "modified",
+    additions: 5,
+    deletions: 2,
+    binary: false,
+    hunks: [],
+  };
+  const barFile: DiffFile = {
+    path: "src/bar.ts",
+    status: "added",
+    additions: 10,
+    deletions: 0,
+    binary: false,
+    hunks: [],
+  };
+  const addedFile = makeAddedFile("src/new.ts", ["const x = 1;"]);
+
+  describe("carrier present (pendingDiff non-empty)", () => {
+    it("file-tree: one entry with a translated (non-matching) path is dropped, verbatim path survives", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "modified" }, // verbatim — survives
+            { path: "src/foo-übersetzt.ts", change: "modified" }, // "translated" — dropped
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(1);
+      expect(blk.entries[0]!.path).toBe("src/foo.ts");
+    });
+
+    it("file-tree: EVERY entry's path is translated (non-matching) → whole block dropped", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [{ path: "src/foo-übersetzt.ts", change: "modified" }],
+        },
+      ]);
+      const result = groundBlocks(blocks, [fooFile], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("diff: a translated (non-matching) path is dropped by joinDiffBlocks; verbatim path survives", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "verbatim — kept" },
+        { type: "diff", id: "d2", path: "src/foo-übersetzt.ts", summary: "translated — dropped" },
+      ]);
+      const result = groundBlocks(blocks, [fooFile, barFile], ["src/foo.ts", "src/bar.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "diff");
+      expect(blk.id).toBe("d1");
+      expect(blk.file).toBe(fooFile);
+    });
+
+    it("code: a translated (non-matching) filename is dropped by joinCodeBlocks", () => {
+      const blocks = parseVisualBlocks([
+        { type: "code", id: "c1", filename: "src/neu.ts" }, // translated filename — never matches
+      ]);
+      const result = groundBlocks(blocks, [addedFile], ["src/new.ts"]);
+      expect(result).toEqual([]);
+    });
+  });
+
+  describe("carrier miss (pendingDiff empty — fallback path)", () => {
+    it("file-tree: entries are filtered against changedFiles; a translated path is dropped, verbatim survives", () => {
+      const blocks = parseVisualBlocks([
+        {
+          type: "file-tree",
+          id: "ft1",
+          entries: [
+            { path: "src/foo.ts", change: "modified" }, // verbatim — matches changedFiles
+            { path: "src/foo-übersetzt.ts", change: "modified" }, // translated — dropped
+          ],
+        },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toHaveLength(1);
+      const blk = asBlock(result[0], "file-tree");
+      expect(blk.entries).toHaveLength(1);
+      expect(blk.entries[0]!.path).toBe("src/foo.ts");
+    });
+
+    it("diff: dropped unconditionally, even with a verbatim path (no real hunks to ground against)", () => {
+      const blocks = parseVisualBlocks([
+        { type: "diff", id: "d1", path: "src/foo.ts", summary: "x" },
+      ]);
+      const result = groundBlocks(blocks, [], ["src/foo.ts"]);
+      expect(result).toEqual([]);
+    });
+
+    it("code: dropped unconditionally, even with a verbatim filename (no real hunks to ground against)", () => {
+      const blocks = parseVisualBlocks([{ type: "code", id: "c1", filename: "src/new.ts" }]);
+      const result = groundBlocks(blocks, [], ["src/new.ts"]);
+      expect(result).toEqual([]);
     });
   });
 });
@@ -2271,5 +2552,93 @@ describe("groundPlanBlocks", () => {
     const blk = result[0]!;
     expect(blk.type).toBe("rich-text");
     expect((blk as unknown as Record<string, unknown>).inferred).toBeUndefined();
+  });
+
+  // ── German operator-language plan sidecar round-trip (Task 4, issue #1586) ──
+  // Proves visualBlockLanguageLine's field rules keep a real German sidecar parseable:
+  // translatable fields carry German prose, machine fields (type/id/tone/change/kind/surface/path)
+  // stay verbatim, and nothing gets silently dropped by parseVisualBlocks or groundPlanBlocks.
+  it("a German plan-blocks fixture round-trips through parseVisualBlocks + groundPlanBlocks with zero drops", () => {
+    const raw = [
+      { type: "rich-text", id: "r1", markdown: "Diese Änderung fügt die Sprachpräferenz hinzu." },
+      {
+        type: "callout",
+        id: "c1",
+        tone: "info",
+        markdown: "Hinweis: die Konfiguration wird pro Betreiber gespeichert.",
+      },
+      {
+        type: "file-tree",
+        id: "ft1",
+        title: "Geplante Dateien",
+        entries: [
+          {
+            path: "src/operator-language.ts",
+            change: "added",
+            note: "Neues Modul für die Sprachdirektive.",
+          },
+          {
+            path: "src/service.ts",
+            change: "modified",
+            note: "Direktive wird hier eingefügt.",
+          },
+        ],
+      },
+      {
+        type: "mermaid",
+        id: "m1",
+        source: "flowchart TD\n  A[Config] --> B[Service]",
+        caption: "Ablauf der Sprachdirektive durch den Service.",
+      },
+      {
+        type: "table",
+        id: "t1",
+        columns: ["Feld", "Beschreibung"],
+        rows: [["operatorLanguage", "Bevorzugte Sprache des Betreibers"]],
+      },
+      {
+        type: "wireframe",
+        id: "w1",
+        surface: "browser",
+        html: "<div>Einstellungen</div>",
+        caption: "Mockup der Spracheinstellung.",
+      },
+      {
+        type: "question-form",
+        id: "qf1",
+        questions: [
+          {
+            id: "q1",
+            prompt: "Welche Sprache soll der Agent standardmäßig verwenden?",
+            kind: "single",
+            options: ["Englisch", "Deutsch"],
+          },
+        ],
+      },
+    ];
+
+    const parsed = parseVisualBlocks(raw);
+    expect(parsed).toHaveLength(raw.length); // zero blocks dropped by the validator stage
+
+    const grounded = groundPlanBlocks(parsed);
+    expect(grounded).toHaveLength(raw.length); // zero blocks dropped by the plan-grounding stage
+
+    // type/id uniqueness + verbatim machine fields survive intact
+    const byId = new Map(grounded.map((b) => [b.id, b]));
+    expect(byId.size).toBe(raw.length); // ids stayed unique
+
+    const callout = asBlock(byId.get("c1"), "callout");
+    expect(callout.tone).toBe("info");
+    expect(callout.markdown).toContain("Betreiber");
+
+    const fileTree = asBlock(byId.get("ft1"), "file-tree");
+    expect(fileTree.entries.map((e) => e.change)).toEqual(["added", "modified"]);
+
+    const questionForm = asBlock(byId.get("qf1"), "question-form");
+    expect(questionForm.questions[0]!.kind).toBe("single");
+    expect(questionForm.questions[0]!.prompt).toContain("Sprache");
+
+    const wireframe = asBlock(byId.get("w1"), "wireframe");
+    expect(wireframe.surface).toBe("browser");
   });
 });

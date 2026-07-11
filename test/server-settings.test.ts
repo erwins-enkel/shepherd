@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, realpathSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, rmSync, realpathSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SessionStore } from "../src/store";
@@ -8,6 +8,7 @@ import { makeApp, type AppDeps } from "../src/server";
 import { config, clampCap, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX } from "../src/config";
 import type { AuthMode } from "../src/auth-mode";
 import { EFFORTS } from "../src/types";
+import { OPERATOR_LANGUAGES, normalizeOperatorLanguage } from "../src/operator-language";
 
 let tmp: string;
 let savedRoot: string;
@@ -23,6 +24,7 @@ let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;
 let savedAuthMode: AuthMode;
+let savedOperatorLanguage: typeof config.operatorLanguage;
 let savedAuthApiKeyHelperPath: string | null;
 let savedHome: string | undefined;
 let savedTuiFullscreen: boolean;
@@ -55,6 +57,7 @@ beforeEach(() => {
   savedDefaultAgentProvider = config.defaultAgentProvider;
   savedExtraCredits = config.extraCreditsDrainCeiling;
   savedAuthMode = config.authMode;
+  savedOperatorLanguage = config.operatorLanguage;
   savedAuthApiKeyHelperPath = config.authApiKeyHelperPath;
   savedTuiFullscreen = config.tuiFullscreen;
   savedTuiDisableMouse = config.tuiDisableMouse;
@@ -89,6 +92,7 @@ afterEach(() => {
   config.defaultAgentProvider = savedDefaultAgentProvider;
   config.extraCreditsDrainCeiling = savedExtraCredits;
   config.authMode = savedAuthMode;
+  config.operatorLanguage = savedOperatorLanguage;
   config.authApiKeyHelperPath = savedAuthApiKeyHelperPath;
   config.tuiFullscreen = savedTuiFullscreen;
   config.tuiDisableMouse = savedTuiDisableMouse;
@@ -901,4 +905,63 @@ test("PUT /api/settings rejects a non-boolean tuiDisableMouse", async () => {
   const { app } = harness();
   const res = await put(app, { tuiDisableMouse: "yes" });
   expect(res.status).toBe(400);
+});
+
+// ── operatorLanguage ─────────────────────────────────────────────────────────
+
+test("GET /api/settings includes operatorLanguage", async () => {
+  config.operatorLanguage = "en";
+  const { app } = harness();
+  const res = await app.fetch(new Request("http://x/api/settings"));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.operatorLanguage).toBe("en");
+});
+
+test("PUT /api/settings sets operatorLanguage to 'de', persists, live-updates, reflected by GET", async () => {
+  config.operatorLanguage = "en";
+  const { app, store } = harness();
+  const res = await put(app, { operatorLanguage: "de" });
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.operatorLanguage).toBe("de");
+  expect(config.operatorLanguage as string).toBe("de"); // live
+  expect(store.getSetting("operatorLanguage")).toBe("de"); // persisted
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.operatorLanguage).toBe("de"); // reflected by a subsequent GET
+});
+
+test("PUT /api/settings rejects an unrecognised operatorLanguage value → 400", async () => {
+  config.operatorLanguage = "en";
+  const { app } = harness();
+  for (const bad of ["fr", "", 42, null, true]) {
+    const res = await put(app, { operatorLanguage: bad });
+    expect(res.status).toBe(400);
+  }
+  expect(config.operatorLanguage).toBe("en"); // unchanged on failure
+});
+
+test("a persisted operatorLanguage row overrides the env seed at boot hydration", () => {
+  // Mirrors the hydration snippet in src/index.ts: a UI-set row wins over whatever
+  // the env seed produced.
+  const store = new SessionStore(":memory:");
+  store.setSetting("operatorLanguage", "de");
+  config.operatorLanguage = "en"; // simulate the env-seeded default having booted first
+  const savedOl = store.getSetting("operatorLanguage");
+  expect(savedOl).not.toBeNull();
+  if (savedOl !== null) {
+    const v = normalizeOperatorLanguage(savedOl);
+    if (v !== null) config.operatorLanguage = v;
+  }
+  expect(config.operatorLanguage).toBe("de"); // the persisted row won
+});
+
+test("OPERATOR_LANGUAGES is set-equal to the UI's Paraglide locales", () => {
+  const settingsPath = join(import.meta.dir, "..", "ui", "project.inlang", "settings.json");
+  const parsed = JSON.parse(readFileSync(settingsPath, "utf8")) as { locales: string[] };
+  const locales = new Set(parsed.locales);
+  const opLangs = new Set(OPERATOR_LANGUAGES as readonly string[]);
+  expect(locales.size).toBe(opLangs.size);
+  for (const l of locales) expect(opLangs.has(l)).toBe(true);
+  for (const l of opLangs) expect(locales.has(l)).toBe(true);
 });

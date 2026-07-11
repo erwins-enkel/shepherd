@@ -8,6 +8,7 @@
     putPlanReviewCyclesCap,
     putDefaultModel,
     putDefaultEffort,
+    putOperatorLanguage,
     putRoleModel,
     putRoleEffort,
     putRoleCli,
@@ -260,6 +261,9 @@
   let defaultEffort = $state("default"); // raw default-effort setting ("default"|<tier>)
   let defaultEffortSaved = "default"; // last server-confirmed value, for revert on failure
   let defaultEffortBusy = $state(false);
+  let operatorLanguage = $state("en"); // language spawned agents use to talk to the operator
+  let operatorLanguageSaved = "en"; // last server-confirmed, for revert on failure
+  let operatorLanguageBusy = $state(false);
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
@@ -621,6 +625,25 @@
       });
     } finally {
       defaultEffortBusy = false;
+    }
+  }
+
+  async function saveOperatorLanguage() {
+    if (operatorLanguageBusy) return;
+    operatorLanguageBusy = true;
+    try {
+      const r = await putOperatorLanguage(operatorLanguage);
+      operatorLanguage = r.operatorLanguage;
+      operatorLanguageSaved = r.operatorLanguage;
+    } catch {
+      operatorLanguage = operatorLanguageSaved;
+      toasts.info(m.settings_operator_language_save_failed(), {
+        key: "operator-language",
+        duration: null,
+        alert: true,
+      });
+    } finally {
+      operatorLanguageBusy = false;
     }
   }
 
@@ -995,6 +1018,17 @@
     }
   }
 
+  // Apply the model / effort / operator-language preference trio from a loaded settings payload.
+  // Extracted from onMount so each added preference doesn't grow that handler's branch count.
+  function applyModelPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
+    defaultModel = s.defaultModel ?? "auto";
+    defaultModelSaved = defaultModel;
+    defaultEffort = s.defaultEffort ?? "default";
+    defaultEffortSaved = defaultEffort;
+    operatorLanguage = s.operatorLanguage ?? "en";
+    operatorLanguageSaved = operatorLanguage;
+  }
+
   onMount(async () => {
     try {
       const s = await getSettings();
@@ -1010,10 +1044,7 @@
       planReviewCyclesMax = s.planReviewCyclesMax;
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
-      defaultModel = s.defaultModel ?? "auto";
-      defaultModelSaved = defaultModel;
-      defaultEffort = s.defaultEffort ?? "default";
-      defaultEffortSaved = defaultEffort;
+      applyModelPrefs(s);
       // Fall back to the seed default per role when a field is absent (e.g. an older backend that
       // predates per-role environments) so the pickers never render blank — a sensible default is
       // always shown.
@@ -1235,6 +1266,20 @@
             {#each EFFORTS as tier (tier)}
               <option value={tier}>{effortLabel(tier)}</option>
             {/each}
+          </select>
+        </div>
+        <div class="rc">
+          <span class="micro">{m.settings_operator_language_title()}</span>
+          <p class="hint">{m.settings_operator_language_hint()}</p>
+          <select
+            class="model-select"
+            bind:value={operatorLanguage}
+            disabled={operatorLanguageBusy}
+            aria-label={m.settings_operator_language_title()}
+            onchange={saveOperatorLanguage}
+          >
+            <option value="en">{m.lang_english()}</option>
+            <option value="de">{m.lang_german()}</option>
           </select>
         </div>
         <div class="rc">

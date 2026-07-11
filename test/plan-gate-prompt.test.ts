@@ -54,3 +54,23 @@ test("reviewerArgv inserts --model when given", () => {
   expect(a[mi + 1]).toBe("opus");
   expect(a[a.length - 1]).toBe("PROMPT"); // prompt still trailing
 });
+
+// ─── operator-language: `de` line for the plan reviewer (Task 6, issue #1586) ────────────────
+
+test("en is byte-identical: planReviewPrompt with/without explicit operatorLanguage:'en'", () => {
+  const withoutLang = planReviewPrompt("task", "plan");
+  const withEnLang = planReviewPrompt("task", "plan", [], null, "en");
+  expect(withEnLang).toBe(withoutLang);
+  expect(withoutLang).not.toContain("German");
+  expect(withEnLang).not.toContain("German");
+});
+
+test("de: planReviewPrompt names summary/body/findings as German-prose fields, keeps decision literal", () => {
+  const p = planReviewPrompt("task", "plan", [], null, "de");
+  expect(p).toContain("German");
+  expect(p).toContain("summary");
+  expect(p).toContain("body");
+  expect(p).toContain("findings");
+  expect(p).toContain("decision");
+  expect(p).toContain('"approve" | "request-changes"');
+});

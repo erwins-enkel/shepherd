@@ -2803,5 +2803,10 @@
   "feat_hold_cta_title": "Act on parked sessions from the row",
   "feat_hold_cta_body": "A parked plan-gate session now explains why it's waiting right on its row — awaiting re-review, plan approved, or review stuck — and offers the matching one-click action (Re-review, Go, Resume, or Answer) without opening the session.",
   "hold_cta_go_failed": "Couldn't start execution. Try again.",
-  "hold_cta_resume_failed": "Couldn't resume the plan review. Try again."
+  "hold_cta_resume_failed": "Couldn't resume the plan review. Try again.",
+  "settings_operator_language_title": "Operator language",
+  "settings_operator_language_hint": "The language Shepherd's agents use to talk to you — status, questions, plans, handoffs. Independent of this interface's language. Code, commands, logs, and GitHub text stay in their original language.",
+  "settings_operator_language_save_failed": "Couldn't save the operator language.",
+  "feat_operator_language_title": "Agents can speak your language",
+  "feat_operator_language_body": "Set an operator language in Settings and Shepherd's spawned agents write their status updates, questions, plan explanations, and handoffs in that language. Code, commands, logs, commit messages, and GitHub issue/PR text stay in their original language."
 }

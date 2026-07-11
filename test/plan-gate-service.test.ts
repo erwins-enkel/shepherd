@@ -1604,3 +1604,69 @@ test("adoptOrphans reaps an approved orphan: stops terminal, completes spawn, re
   expect(h.completedSpawns[0].u.total).toBe(10);
   expect(h.removed).toContain("/wt-detached"); // disposable worktree removed
 });
+
+// ─── resolveFindings un-clamped steer-back guard (Task 6, issue #1586) ───────────────────────
+// resolveSummary clamps the gate's HUD `summary` field to 100 chars; the empty-findings
+// fallback used to steer that SAME clamped (possibly mid-word-truncated) value back into the
+// coding agent. buildGate now feeds resolveFindings the un-clamped verdict summary instead —
+// language-independent, fixes en and de alike.
+
+test("code guard: request-changes + empty findings steers back the FULL un-clamped summary, while the gate's HUD summary stays clamped to 100", async () => {
+  const longSummary = "S".repeat(180); // >100 chars — would previously arrive truncated
+  const h = harness({
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: longSummary,
+      body: "B",
+      findings: [],
+    }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.summary).toBe(longSummary.slice(0, 100));
+  expect(h.store.gate.summary.length).toBe(100); // HUD one-liner stays clamped
+  expect(h.store.gate.findings).toEqual([longSummary]); // steer-back is the FULL, untruncated summary
+  expect(h.store.gate.findings[0].length).toBeGreaterThan(100);
+});
+
+test("code guard: a normal (<=100 char) summary fallback is unaffected", async () => {
+  const h = harness({
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "short one-liner",
+      body: "B",
+      findings: [],
+    }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.summary).toBe("short one-liner");
+  expect(h.store.gate.findings).toEqual(["short one-liner"]);
+});
+
+// ─── operator-language: per-spawn read, not frozen at construction (Task 6, issue #1586) ─────
+
+test("operator-language: reviewer prompt reads operatorLanguage per spawn, not cached at construction", async () => {
+  let lang: "en" | "de" = "en";
+  let calls = 0;
+  const h = harness({
+    operatorLanguage: () => {
+      calls++;
+      return lang;
+    },
+  });
+  const s1 = await h.svc.consider(planningSession() as any);
+  expect(s1).toBe("started");
+  expect(calls).toBe(1);
+  expect(h.started[0].argv.at(-1)).not.toContain("German");
+
+  // Free the inflight slot (mirrors the createDetached-slug test above) so a second begin() can
+  // run on the SAME service instance, then flip the live setting and drive another spawn — a
+  // construction-frozen value would never see this change.
+  h.svc.forget("s1");
+  lang = "de";
+  const s2 = await h.svc.consider(planningSession() as any);
+  expect(s2).toBe("started");
+  expect(calls).toBe(2);
+  expect(h.started[1].argv.at(-1)).toContain("German");
+});

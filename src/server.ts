@@ -183,6 +183,7 @@ import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting, writeApiKeyHelper, clearApiKeyHelper } from "./auth-mode";
+import { normalizeOperatorLanguage } from "./operator-language";
 import {
   type SandboxProfile,
   SANDBOX_PROFILES,
@@ -4280,6 +4281,8 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       extraCreditsDrainCeiling: config.extraCreditsDrainCeiling,
       // auth footing for spawned agents; "subscription" (default) or "api-key".
       authMode: config.authMode,
+      // language agents address the operator in; "en" (default) or "de".
+      operatorLanguage: config.operatorLanguage,
       // whether an apiKeyHelper script is configured; NEVER expose the key or path.
       hasApiKey: config.authApiKeyHelperPath !== null,
       // usage-aware task holding
@@ -4353,6 +4356,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["upnextSkipCliPicker", putUpnextSkipCliPicker],
   ["extraCreditsDrainCeiling", putExtraCreditsDrainCeiling],
   ["authMode", putAuthMode],
+  ["operatorLanguage", putOperatorLanguage],
   ["anthropicApiKey", putAnthropicApiKey],
   ["usageHoldEnabled", putUsageHoldEnabled],
   ["usageHoldPct", putUsageHoldPct],
@@ -4510,6 +4514,15 @@ function putAuthMode(value: unknown, deps: Ctx["deps"]): Response {
   config.authMode = v; // live: next spawn picks it up
   deps.store.setSetting("authMode", v); // persist across restarts
   return json({ authMode: config.authMode, hasApiKey: config.authApiKeyHelperPath !== null });
+}
+
+// Language agents address the operator in; "en" (default, no-op) or "de".
+function putOperatorLanguage(value: unknown, deps: Ctx["deps"]): Response {
+  const v = normalizeOperatorLanguage(typeof value === "string" ? value : undefined);
+  if (v === null) return json({ error: "operatorLanguage must be 'en' or 'de'" }, 400);
+  config.operatorLanguage = v; // live: next spawn picks it up
+  deps.store.setSetting("operatorLanguage", v); // persist across restarts
+  return json({ operatorLanguage: config.operatorLanguage });
 }
 
 // Consent is the only persisted telemetry state. Granting for the first time emits

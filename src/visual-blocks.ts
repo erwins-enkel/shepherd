@@ -139,6 +139,17 @@ export const QUESTION_KINDS: readonly QuestionKind[] = ["single", "multi", "free
 
 // ── parseVisualBlocks ─────────────────────────────────────────────────────────
 
+/** Sanitize a value for logging: coerce to string, clamp length, strip control characters.
+ *  Returns "<none>" for absent/non-string values. Used to prevent LLM-authored strings
+ *  from forging or smearing log lines. */
+function sanitizeForLog(v: unknown): string {
+  if (typeof v !== "string" || v === "") return "<none>";
+  // Clamp to 80 chars and strip C0/C1 control characters (including newlines, ANSI escapes, etc)
+  const clamped = v.substring(0, 80);
+  // eslint-disable-next-line no-control-regex
+  return clamped.replace(/[\x00-\x1f\x7f-\x9f]/g, "");
+}
+
 function validateRichText(r: Record<string, unknown>, id: string): VisualBlock | null {
   if (typeof r.markdown !== "string") return null;
   return { type: "rich-text", id, markdown: r.markdown };
@@ -572,15 +583,40 @@ function parseBlock(item: unknown): VisualBlock | null {
  *  `{#each}` by `block.id`, so a duplicate id would break the keyed-each.
  *  This is the trust boundary — be defensive, drop on any doubt. */
 export function parseVisualBlocks(raw: unknown): VisualBlock[] {
-  if (!Array.isArray(raw)) return [];
+  // (A) warn if blocks field is present but non-array (mangled shape)
+  if (!Array.isArray(raw)) {
+    if (raw !== undefined) {
+      console.warn(
+        `[visual-blocks] blocks field is present but not an array (received ${typeof raw})`,
+      );
+    }
+    return [];
+  }
 
   const result: VisualBlock[] = [];
   const seenIds = new Set<string>();
 
   for (const item of raw) {
     const block = parseBlock(item);
-    if (!block) continue;
-    if (seenIds.has(block.id)) continue; // duplicate id → drop (keyed-each requires unique ids)
+    // (B) warn when parseBlock rejects — log type/id defensively from raw item
+    if (!block) {
+      const itemObj =
+        item && typeof item === "object" && !Array.isArray(item)
+          ? (item as Record<string, unknown>)
+          : undefined;
+      const type = sanitizeForLog(itemObj?.type);
+      const id = sanitizeForLog(itemObj?.id);
+      console.warn(`[visual-blocks] dropped block: type="${type}" id="${id}"`);
+      continue;
+    }
+
+    // (C) warn when duplicate id is detected
+    if (seenIds.has(block.id)) {
+      const type = sanitizeForLog(block.type);
+      const id = sanitizeForLog(block.id);
+      console.warn(`[visual-blocks] dropped duplicate id: type="${type}" id="${id}"`);
+      continue; // duplicate id → drop (keyed-each requires unique ids)
+    }
     seenIds.add(block.id);
     result.push(block);
   }

@@ -21,6 +21,7 @@ import { readActivitySignal } from "./activity-signal";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
+import { type OperatorLanguage } from "./operator-language";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
  *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
@@ -46,6 +47,7 @@ export function planReviewPrompt(
   plan: string,
   priorFindings: string[] = [],
   issueBody?: string | null,
+  operatorLanguage: OperatorLanguage = "en",
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
@@ -78,6 +80,15 @@ export function planReviewPrompt(
     '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": ["<discrete actionable revision>", ...]}',
     'Use "approve" ONLY when the plan is genuinely the best reasonable path and fully satisfies the task — no remaining blocking concerns. Otherwise "request-changes" with at least one finding in "findings". Write the file as your final action, then stop.',
   );
+  if (operatorLanguage === "de") {
+    lines.push(
+      "",
+      "Write `summary`, `body`, and `findings[]` in German (idiomatic operator-facing German). Keep " +
+        '`decision` as the literal enum value ("approve" | "request-changes") — verbatim, never ' +
+        "translate it. Keep code, identifiers, paths, commands, and quoted material in their " +
+        "original language.",
+    );
+  }
   return lines.join("\n");
 }
 
@@ -153,6 +164,8 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   cap?: number | (() => number);
   // optional environment thunk for the reviewer (CLI + model, read per spawn → live settings)
   env?: () => RoleEnvironment;
+  // optional operator-language thunk (read per spawn → live settings; default "en")
+  operatorLanguage?: () => OperatorLanguage;
   now?: () => number;
   timeoutMs?: number; // give up waiting on the verdict file
   /** default: read `.shepherd-plan.md` from the live worktree. */
@@ -306,7 +319,13 @@ export class PlanGateService {
     // gh/network — the sandbox stays airtight). Best-effort: a missing issue / forge / getIssue
     // must never block or throw the review, so any failure degrades to no issue context.
     const issueBody = await this.fetchIssueBody(session);
-    const prompt = planReviewPrompt(session.prompt, plan, prior?.findings ?? [], issueBody);
+    const prompt = planReviewPrompt(
+      session.prompt,
+      plan,
+      prior?.findings ?? [],
+      issueBody,
+      this.deps.operatorLanguage?.() ?? "en",
+    );
     // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
     // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
     const reviewerEnv = this.deps.env?.() ?? {
@@ -759,8 +778,11 @@ export class PlanGateService {
     const decision = normalizeDecision(raw?.decision);
     const resolved: PlanDecision = raw && decision ? decision : "error";
     const summary = resolveSummary(resolved, raw);
+    // The steer-back fallback must never truncate: pass the UN-clamped verdict summary here,
+    // not the (clamped) gate `summary` field above — see resolveFindings's doc comment.
+    const rawSummary = raw && typeof raw.summary === "string" ? raw.summary : "";
     const body = raw && typeof raw.body === "string" ? raw.body : "";
-    const findings = resolveFindings(resolved, normalizeFindings(raw?.findings), summary);
+    const findings = resolveFindings(resolved, normalizeFindings(raw?.findings), rawSummary);
     return {
       sessionId: f.sessionId,
       planHash: f.planHash,
@@ -994,11 +1016,12 @@ function resolveSummary(resolved: PlanDecision, raw: RawPlanVerdict | null): str
 }
 
 /** The gate findings: none for approved/error; else the parsed findings, falling back to the
- *  summary so a request-changes steer-back is never empty. */
-function resolveFindings(resolved: PlanDecision, parsed: string[], summary: string): string[] {
+ *  UN-CLAMPED verdict summary (not the gate's clamped `summary` field) so a request-changes
+ *  steer-back is never empty AND never mid-word-truncated. */
+function resolveFindings(resolved: PlanDecision, parsed: string[], rawSummary: string): string[] {
   if (resolved === "approved" || resolved === "error") return [];
   if (parsed.length) return parsed;
-  return summary ? [summary] : [];
+  return rawSummary ? [rawSummary] : [];
 }
 
 /** Coerce the reviewer's `findings` field to a clean string[] (drops junk, never throws). */

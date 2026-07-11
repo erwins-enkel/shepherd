@@ -564,6 +564,10 @@ export const putDefaultModel = (model: string): Promise<{ defaultModel: string }
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
 
+// Persist the language spawned agents use to talk to the operator ("en" | "de").
+export const putOperatorLanguage = (lang: string): Promise<{ operatorLanguage: string }> =>
+  patchSettings<{ operatorLanguage: string }>({ operatorLanguage: lang });
+
 export const putDefaultAgentProvider = (
   provider: AgentProvider,
 ): Promise<{ defaultAgentProvider: AgentProvider }> =>

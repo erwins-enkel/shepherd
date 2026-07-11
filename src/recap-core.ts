@@ -7,6 +7,7 @@ import type { DiffFileStatus, Recap, RecapVerdict } from "./types";
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
 import { fenceUntrusted } from "./untrusted";
+import { visualBlockLanguageLine, type OperatorLanguage } from "./operator-language";
 
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
 export const RECAP_HEADLINE_MAX = 100;
@@ -101,6 +102,7 @@ export function buildRecapPrompt(input: {
   changedFiles: { path: string; status: DiffFileStatus }[];
   digest: string;
   context: string; // pre-rendered critic verdict / CI / readyToMerge lines (may be "")
+  operatorLanguage?: OperatorLanguage;
 }): string {
   const lines = [
     "You are summarizing a COMPLETED coding session for an operator who will decide whether to merge the work.",
@@ -184,6 +186,17 @@ export function buildRecapPrompt(input: {
     `{"verdict": "ready" | "parked" | "needs_attention", "headline": "<string>", "body": "<markdown>", "openItems": ["<string>", ...], "blocks": [ ... ]}`,
     "Write the file as your final action, then stop.",
   );
+
+  if (input.operatorLanguage === "de") {
+    lines.push(
+      "",
+      "Write the recap prose fields `headline`, `body`, and `openItems[]` in German. Keep " +
+        '`verdict` as the literal enum value ("ready" | "parked" | "needs_attention") — the ' +
+        "operator UI switches on it, never translate it.",
+    );
+    const blockLine = visualBlockLanguageLine("de");
+    if (blockLine) lines.push(blockLine);
+  }
 
   return lines.join("\n");
 }

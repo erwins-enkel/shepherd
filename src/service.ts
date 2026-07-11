@@ -9,6 +9,11 @@ import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { createSerializer, matchAgents, needsAccountRedrive } from "./herdr";
 import { config } from "./config";
+import {
+  operatorLanguageBlock,
+  visualBlockLanguageLine,
+  type OperatorLanguage,
+} from "./operator-language";
 import { findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
@@ -827,6 +832,7 @@ export function buildQueueDirective(args: {
 export function planBlockInstructions(opts: {
   allowQuestionForm: boolean;
   agentProvider?: AgentProvider;
+  operatorLanguage?: OperatorLanguage;
 }): string {
   const lines: string[] = [
     "## Optional visual-plan sidecar",
@@ -885,6 +891,11 @@ export function planBlockInstructions(opts: {
     "- Redact secrets (API keys, tokens, passwords) in any summary/markdown/annotation — use placeholders like `sk-•••` / `<redacted>`.",
   );
 
+  if (opts.operatorLanguage === "de") {
+    const languageLine = visualBlockLanguageLine(opts.operatorLanguage);
+    if (languageLine) lines.push("", "**Operator language:**", languageLine);
+  }
+
   return lines.join("\n");
 }
 
@@ -897,7 +908,10 @@ export function planBlockInstructions(opts: {
  * `planGateDirectiveInteractive("claude")` is byte-identical to the prior
  * `PLAN_GATE_DIRECTIVE_INTERACTIVE` constant — keep it that way (Claude regression).
  */
-function planGateDirectiveInteractive(agentProvider: AgentProvider): string {
+function planGateDirectiveInteractive(
+  agentProvider: AgentProvider,
+  operatorLanguage: OperatorLanguage = "en",
+): string {
   const stopClause =
     agentProvider === "codex"
       ? "Do NOT write or modify ANY code this turn. Your ONLY deliverable right now is the plan file " +
@@ -922,7 +936,7 @@ function planGateDirectiveInteractive(agentProvider: AgentProvider): string {
     "assumptions and resolved decisions.\n" +
     "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
     "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
-    planBlockInstructions({ allowQuestionForm: false, agentProvider })
+    planBlockInstructions({ allowQuestionForm: false, agentProvider, operatorLanguage })
   );
 }
 const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
@@ -933,7 +947,10 @@ const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
  * `planGateDirectiveAuto("claude")` is byte-identical to the prior `PLAN_GATE_DIRECTIVE_AUTO`
  * constant — keep it that way (Claude regression).
  */
-function planGateDirectiveAuto(agentProvider: AgentProvider): string {
+function planGateDirectiveAuto(
+  agentProvider: AgentProvider,
+  operatorLanguage: OperatorLanguage = "en",
+): string {
   const stopClause =
     agentProvider === "codex"
       ? "Do NOT write or modify ANY code this turn. Your ONLY deliverable right now is the plan file " +
@@ -946,7 +963,7 @@ function planGateDirectiveAuto(agentProvider: AgentProvider): string {
     "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
     "are told the plan is approved.\n\n" +
-    planBlockInstructions({ allowQuestionForm: true, agentProvider })
+    planBlockInstructions({ allowQuestionForm: true, agentProvider, operatorLanguage })
   );
 }
 const PLAN_GATE_DIRECTIVE_AUTO = planGateDirectiveAuto("claude");
@@ -1076,16 +1093,21 @@ export function planGoSteer(draftMode: boolean): string {
 function primaryDirectiveBlock(
   agentProvider: AgentProvider,
   autopilotActive: boolean,
-  opts: { research?: boolean; planGate?: "interactive" | "auto" },
+  opts: {
+    research?: boolean;
+    planGate?: "interactive" | "auto";
+    operatorLanguage?: OperatorLanguage;
+  },
 ): string | null {
   if (opts.research) {
     return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
   }
   if (opts.planGate) {
+    const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
     const variant =
       opts.planGate === "auto"
-        ? planGateDirectiveAuto(agentProvider)
-        : planGateDirectiveInteractive(agentProvider);
+        ? planGateDirectiveAuto(agentProvider, operatorLanguage)
+        : planGateDirectiveInteractive(agentProvider, operatorLanguage);
     return `<plan-gate-directive>\n${variant}\n</plan-gate-directive>`;
   }
   if (autopilotActive) {
@@ -1106,12 +1128,17 @@ export function composeSystemPrompt(
     trimmed?: boolean;
     epicIntent?: boolean;
     agentProvider?: AgentProvider;
+    operatorLanguage?: OperatorLanguage;
   } = {},
 ): string {
   // Provider-adjust only the two blocks that name a Claude-only tool/capability (research's
   // "sub-agents", the interactive plan-gate's "AskUserQuestion"). Absent → "claude", so every
   // existing Claude caller is byte-identical.
   const agentProvider = opts.agentProvider ?? "claude";
+  // Absent/"en" → byte-identical to today (operatorLanguageBlock/visualBlockLanguageLine both
+  // return null for "en"). The live value only ever arrives via composeDirectives passing
+  // config.operatorLanguage in opts — never defaulted from config here.
+  const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
   const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
   const untrustedBoundary = `<untrusted-content-boundary>\n${UNTRUSTED_CONTENT_DIRECTIVE}\n</untrusted-content-boundary>`;
   const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
@@ -1143,7 +1170,10 @@ export function composeSystemPrompt(
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
   // directive (none of those fit a report-PR/issue deliverable). See primaryDirectiveBlock.
-  const primary = primaryDirectiveBlock(agentProvider, autopilotActive, opts);
+  const primary = primaryDirectiveBlock(agentProvider, autopilotActive, {
+    ...opts,
+    operatorLanguage,
+  });
   if (primary) blocks.push(primary);
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
   // but a research session authors no queue — suppress it there too.
@@ -1160,7 +1190,10 @@ export function composeSystemPrompt(
   if (opts.trimmed) {
     blocks.push(`<context-trim-notice>\n${CONTEXT_TRIM_NOTICE}\n</context-trim-notice>`);
   }
-  return blocks.join("\n\n");
+  // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
+  // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
+  // or null for "en" — filtered out below so existing "en" callers stay byte-identical.
+  return [...blocks, operatorLanguageBlock(operatorLanguage)].filter(Boolean).join("\n\n");
 }
 
 /**
@@ -2124,6 +2157,10 @@ export class SessionService {
       // operator epic ask, so nothing is lost.
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: args.agentProvider,
+      // The ONE place the live config value enters — never defaulted at any module-level
+      // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
+      // literal "en" default).
+      operatorLanguage: config.operatorLanguage,
     });
   }
 

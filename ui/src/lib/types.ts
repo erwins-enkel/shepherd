@@ -59,6 +59,9 @@ export interface Settings {
   defaultModel: string;
   /** Global default-effort setting ("default"|<tier>); "default" emits no effort flag. */
   defaultEffort: string;
+  /** Language spawned agents use to talk to the operator ("en" | "de"). Independent of the
+   *  interface language — set only from the Settings page. */
+  operatorLanguage: string;
   /** Per-role ENVIRONMENT settings for the helper agents Shepherd spawns: a CLI pair per role.
    *  `<role>Cli` ∈ "inherit" | "claude" | "codex" ("inherit" follows `defaultAgentProvider` +
    *  `defaultModel`); `<role>Model` ∈ "default" | <alias for that CLI>. The Settings UI shows each

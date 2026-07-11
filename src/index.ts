@@ -143,6 +143,7 @@ import { normalizeDefaultEffortSetting } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
 import { normalizeAuthModeSetting } from "./auth-mode";
+import { normalizeOperatorLanguage } from "./operator-language";
 import { EgressWatcher } from "./egress-watch";
 import { detectEgressHostLoopback } from "./egress";
 import { RecapService, type LandedWorkEvidence } from "./recap";
@@ -299,6 +300,12 @@ const savedAm = store.getSetting("authMode");
 if (savedAm !== null) {
   const v = normalizeAuthModeSetting(savedAm);
   if (v !== null) config.authMode = v;
+}
+// a UI-chosen operator language (persisted) overrides the env seed; absent or unrecognised → keep default.
+const savedOl = store.getSetting("operatorLanguage");
+if (savedOl !== null) {
+  const v = normalizeOperatorLanguage(savedOl);
+  if (v !== null) config.operatorLanguage = v;
 }
 // a UI-set telemetry consent (persisted) overrides the env seed; absent or unrecognised → keep default.
 const savedTc = store.getSetting("telemetryConsent");
@@ -463,6 +470,8 @@ const recapService: RecapService = new RecapService({
   herdr,
   // Per-role model thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.recapCli, config.recapModel, config.recapEffort),
+  // Live operator-language setting, read per spawn (#1586).
+  operatorLanguage: () => config.operatorLanguage,
   onChange: (id, recap) => events.emit("session:recap", { id, recap }),
   // Resolve the PR's real base so the recap diff matches the PR. prPoller + resolveForge are
   // declared below; this closure only runs at recap time (well after init), like refreshPr above.
@@ -1158,6 +1167,7 @@ const planGate = new PlanGateService({
   },
   // Per-role plan-reviewer model thunk (read per spawn → live settings).
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
+  operatorLanguage: () => config.operatorLanguage,
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
   onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),

@@ -1994,14 +1994,17 @@ export class GithubForge implements GitForge {
         const args = [
           "api",
           "graphql",
-          "-F",
+          "-f",
           `owner=${owner}`,
-          "-F",
+          "-f",
           `name=${name}`,
           "-f",
           `query=${query}`,
         ];
-        if (after !== null) args.push("-F", `after=${after}`);
+        // Thread cursor as a raw string (-f): the opaque base64 cursor must not be type-coerced
+        // by gh. Page 1 omits it so $after defaults to null in GraphQL. Matches the sibling
+        // paginators (listSubIssueSummaries / listOpenPrClosingIssues).
+        if (after !== null) args.push("-f", `after=${after}`);
         const pageInfo = collectBlockedByOpenPage(await this.run(args), result);
         if (!pageInfo.hasNextPage) break;
         after = pageInfo.endCursor;

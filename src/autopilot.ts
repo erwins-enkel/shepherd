@@ -323,6 +323,12 @@ export class AutopilotService {
         await this.driveSteer(s, s.research ? RESEARCH_PROCEED_STEER : PROCEED_STEER);
         return;
       case "finished":
+        if (s.landingRepair) {
+          // Repair sessions push directly to the epic integration branch and never open a PR.
+          // Always mark complete (even if a PR slipped out) so the drain's branch fence releases.
+          this.markComplete(s, v.summary || COMPLETE_MESSAGE);
+          return;
+        }
         if (this.deps.hasPr(s.id)) return; // PR already open → nothing to do (full-auto rebase is steered by the merge train)
         if (s.research) {
           // Research sessions never open a code PR — mark complete instead of steering open-a-PR.

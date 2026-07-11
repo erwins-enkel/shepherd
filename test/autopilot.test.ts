@@ -1069,6 +1069,65 @@ test("non-research + gate verdict → still gets PROCEED_STEER, not RESEARCH_PRO
   expect(steerEv.steer).not.toBe(RESEARCH_PROCEED_STEER);
 });
 
+// ───────────────────────── landingRepair guard ─────────────────────────
+// A landingRepair session pushes directly to the epic integration branch and never opens a
+// PR. The check runs BEFORE the hasPr early-return (unlike research/normal paths) so a repair
+// session that erroneously opened a PR is still marked complete — never left hanging by the
+// hasPr short-circuit.
+
+test("landingRepair + finished verdict (no PR) → markComplete, no open-PR steer", async () => {
+  const h = harness({
+    session: sess({ landingRepair: true, status: "done" }),
+    verdict: { kind: "finished", summary: "Repair pushed." },
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ complete: "s1", summary: "Repair pushed." });
+  expect(h.state().autopilotComplete).toBe(true);
+  expect(h.state().autopilotPaused).toBe(false);
+});
+
+test("landingRepair + finished + PR already open → still markComplete (ordering regression guard)", async () => {
+  // The load-bearing ordering: the landingRepair branch runs BEFORE hasPr's early-return in
+  // dispatch(), so even if a PR slipped out, the repair session is still marked complete, not
+  // left hanging. fullAuto:true is needed to get PAST the separate eligible() hasPr gate (which
+  // stands non-full-auto sessions down before dispatch runs at all) so this test actually
+  // exercises dispatch()'s internal ordering, not eligible()'s.
+  const h = harness({
+    session: sess({ landingRepair: true, status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    openPr: true,
+    fullAuto: true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events).toContainEqual({ complete: "s1", summary: "done" });
+  expect(h.state().autopilotComplete).toBe(true);
+});
+
+test("landingRepair + finished verdict with empty summary → COMPLETE_MESSAGE fallback", async () => {
+  const h = harness({
+    session: sess({ landingRepair: true, status: "done" }),
+    verdict: { kind: "finished", summary: "" },
+  });
+  await h.svc.onDone("s1");
+  const ev = h.events.find((e) => "complete" in e);
+  expect(ev.summary).toContain("task complete");
+});
+
+// Negative control: guard must not bleed into normal (non-repair) sessions
+test("non-landingRepair + finished + PR already open → early-return (no steer, no markComplete)", async () => {
+  const h = harness({
+    session: sess({ landingRepair: false, status: "done" }),
+    verdict: { kind: "finished", summary: "done" },
+    openPr: true,
+  });
+  await h.svc.onDone("s1");
+  expect(h.events.some((e) => "steer" in e)).toBe(false);
+  expect(h.events.some((e) => "complete" in e)).toBe(false);
+  expect(h.state().autopilotComplete).toBe(false);
+});
+
 // ───────────── merge-train stand-down (don't double-steer the train's rebase) ─────────────
 // While a session is merge-train-marked (mergingSince !== null) the train owns it and steers its
 // own rebase. Autopilot's CI-fix loop (considerCi + reEngageCi) must stand down so two controllers

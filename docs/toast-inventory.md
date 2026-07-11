@@ -27,8 +27,9 @@ screen forever.
 
 ## Reconciliation
 
-`grep -rn "toasts.info(" ui/src` → 182 hits; **167 excluding `*.test.*`** (+1 `toasts.undo`,
-out of scope). The classifier parses each call's own balanced argument list — a fixed
+`grep -rn "toasts.info(" ui/src` → 184 hits; **167 excluding `*.test.*`** (the rest are
+test-only call sites) (+1 `toasts.undo`, out of scope). The classifier parses each call's
+own balanced argument list — a fixed
 window bleeds flags between adjacent calls — and places all 167:
 
 | Bucket                                         | Count   |

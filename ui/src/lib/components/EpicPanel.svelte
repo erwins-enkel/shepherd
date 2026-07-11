@@ -5,6 +5,8 @@
   import { chipFor, epicHoldLine, progress, stateLabel } from "./epic-panel";
   import { toasts } from "$lib/toasts.svelte";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
+  import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { providerModels, modelAvailableForProvider } from "$lib/provider-models";
   import { providerEfforts, effortLabel, effortAvailableForProvider } from "$lib/effort-guidance";
   import { modelOptionLabel } from "$lib/model-guidance";
@@ -26,6 +28,8 @@
   const epicProvider = $derived(epic.run.agentProvider ?? null);
   const epicModel = $derived(epic.run.model ?? "default");
   const epicEffort = $derived(epic.run.effort ?? "default");
+
+  let showDiag = $state(false);
 
   function updateFailed() {
     toasts.info(m.epic_update_failed(), {
@@ -85,6 +89,15 @@
         {m.epic_import()}
       </button>
     {/if}
+    <button
+      class="gbtn"
+      type="button"
+      use:coachTarget={"epic-diagnose"}
+      title={m.epic_diag_open_title()}
+      onclick={() => (showDiag = true)}
+    >
+      {m.epic_diag_open()}
+    </button>
   </div>
 
   <ul class="epic-children">
@@ -234,6 +247,10 @@
     </div>
   </div>
 </div>
+
+{#if showDiag}
+  <EpicDiagnosisModal {repoPath} {parent} onclose={() => (showDiag = false)} />
+{/if}
 
 <style>
   /* ── layout ─────────────────────────────────────────────────────────────── */

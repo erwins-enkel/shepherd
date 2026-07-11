@@ -60,6 +60,7 @@ import type {
   Epic,
   EpicRun,
   EpicSummary,
+  EpicDiagnosis,
   Recap,
   CompletedEpic,
   HerdDigest,
@@ -2156,6 +2157,13 @@ export async function getEpics(
 
 export async function getEpic(repoPath: string, parent: number): Promise<Epic> {
   return getJson(`/api/epic?repo=${encodeURIComponent(repoPath)}&parent=${parent}`, "get epic");
+}
+
+export async function diagnoseEpic(repoPath: string, parent: number): Promise<EpicDiagnosis> {
+  return getJson(
+    `/api/epic/diagnose?repo=${encodeURIComponent(repoPath)}&parent=${parent}`,
+    "diagnose epic",
+  );
 }
 
 export async function updateEpic(

@@ -152,6 +152,7 @@ import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
+import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import {
   buildRollup,
@@ -480,6 +481,8 @@ export interface AppDeps {
     retainClaim(id: string): void;
     /** Assemble the live Epic for a repo's running epic (server routes + pump). */
     buildEpic(repoPath: string, run: EpicRun): Promise<Epic | null>;
+    /** On-demand structural diagnosis for one epic parent (GET /api/epic/diagnose). */
+    diagnoseEpic(repoPath: string, run: EpicRun): Promise<EpicDiagnosis | null>;
     /** Operator approves the next epic-attended spawn for the given repo. */
     approveEpicNext(repoPath: string): void;
     /** Drive one pump cycle across all drain-enabled repos. */
@@ -6132,6 +6135,34 @@ async function handleEpicGet({ req, parts, url, deps }: Ctx): Promise<Response |
   return json(epic);
 }
 
+// GET /api/epic/diagnose?repo=&parent= — structural diagnosis for one epic parent.
+async function handleEpicDiagnose({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (!(
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "epic" &&
+    parts[2] === "diagnose" &&
+    !parts[3]
+  ))
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const parentRaw = url.searchParams.get("parent");
+  const parentNumber = parseInt(parentRaw ?? "", 10);
+  if (!Number.isInteger(parentNumber) || parentNumber <= 0)
+    return json({ error: "parent must be a positive integer" }, 400);
+  if (!deps.drain) return json({ error: "drain unavailable" }, 503);
+  // One epic per repo; ?parent selects/supersedes: use stored run only when it matches the requested parent.
+  const stored = deps.store.getEpicRun(dir);
+  const run =
+    stored && stored.parentIssueNumber === parentNumber
+      ? stored
+      : defaultEpicRun(dir, parentNumber);
+  const diagnosis = await deps.drain.diagnoseEpic(dir, run);
+  if (!diagnosis) return json({ error: "not found" }, 404);
+  return json(diagnosis);
+}
+
 // Kick the drain immediately on epic Start so the first sub-issue session spawns
 // at once and surfaces live in the (push-only) Herd via doSpawn's session:new
 // emit — without this it only appears on the next ~30s sweep. Fire-and-forget,
@@ -6649,6 +6680,7 @@ const ROUTE_HANDLERS = [
   handleEpicApproveNext,
   handleEpicImport,
   handleEpicGet,
+  handleEpicDiagnose,
   handleEpicPut,
   handleRepoConfig,
   handleRepoRoles,

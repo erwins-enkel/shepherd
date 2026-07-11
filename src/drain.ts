@@ -996,7 +996,7 @@ export class DrainService {
     prUrl: string | null;
     attempts: number;
   }> {
-    const { repoPath, parentIssueNumber, parentTitle, landingAttempts } = row;
+    const { repoPath, parentIssueNumber, landingAttempts } = row;
     try {
       // Idempotency guard: prStatus reads `--state all`, so it sees any prior PR whose head
       // is the integration branch (which is only ever the landing PR's head).
@@ -1004,66 +1004,7 @@ export class DrainService {
       if (existing.state === "open") {
         // Reuse — never open a second PR. Covers the open-succeeded/record-failed gap AND the
         // #1664 pre-warm adoption: finalize the early draft from the FINAL rollup.
-        //
-        // A.3 — refresh body from the FINAL rollup. Gated on the UNION (preWarm || existing.isDraft)
-        //       so the flag-off record-failed-gap (non-draft) stays a no-op, but ANY actual draft
-        //       is refreshed even if the operator disabled the flag (or un-drafted) mid-drain.
-        let bodyRefreshed = true;
-        if (preWarm || existing.isDraft === true) {
-          try {
-            const defaultBranch = await forge.defaultBranch();
-            const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
-            const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
-            const body = buildLandingPrBody({
-              parentNumber: parentIssueNumber,
-              parentTitle,
-              integrationBranch,
-              defaultBranch,
-              children,
-            }); // plain builder — NO provisional marker
-            if (forge.editPr && existing.number != null) {
-              await forge.editPr(existing.number, { title, body });
-            }
-            // editPr absent or number null ⇒ nothing to do, bodyRefreshed stays true
-          } catch (err) {
-            console.warn(
-              `[drain] landing body refresh failed for ${repoPath}#${parentIssueNumber}:`,
-              err,
-            );
-            bodyRefreshed = false;
-          }
-        }
-        // A.4 — mark ready exactly once, ONLY for an actual draft, and ONLY if the body refresh
-        //       succeeded (coupled: never un-draft onto a stale body).
-        let readied = false;
-        if (existing.isDraft === true && bodyRefreshed) {
-          if (forge.markReady && existing.number != null) {
-            try {
-              await forge.markReady(existing.number);
-              readied = true;
-            } catch (err) {
-              console.warn(`[drain] markReady failed for ${repoPath}#${parentIssueNumber}:`, err);
-            }
-          }
-        }
-        // Do NOT finalize a still-draft PR to terminal `open`: if it is still a draft and we could
-        // not ready it this tick, return `error`+attempts+1 (carrying the PR ref) so
-        // ensureLandingPrsForRepo retries under the cap and, if persistent, parks it VISIBLY as
-        // `error` rather than a healthy-looking `open` that auto-land skips forever.
-        if (existing.isDraft === true && !readied) {
-          return {
-            state: "error",
-            prNumber: existing.number ?? null,
-            prUrl: existing.url ?? null,
-            attempts: landingAttempts + 1,
-          };
-        }
-        return {
-          state: "open",
-          prNumber: existing.number ?? null,
-          prUrl: existing.url ?? null,
-          attempts: landingAttempts,
-        };
+        return await this.adoptOpenLanding(forge, row, integrationBranch, existing, preWarm);
       }
       if (existing.state === "merged") {
         // Already merged (epic landed) — record as terminal `merged` so the band reads
@@ -1087,28 +1028,7 @@ export class DrainService {
         // a fresh NON-draft landing PR from the final rollup.
       }
       // existing.state === "none" (or a closed pre-warm draft) → no live PR, open one.
-      const defaultBranch = await forge.defaultBranch();
-      const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
-      const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
-      const body = buildLandingPrBody({
-        parentNumber: parentIssueNumber,
-        parentTitle,
-        integrationBranch,
-        defaultBranch,
-        children,
-      });
-      const status = await forge.openPr({
-        head: integrationBranch,
-        base: defaultBranch,
-        title,
-        body,
-      });
-      return {
-        state: "open",
-        prNumber: status.number ?? null,
-        prUrl: status.url ?? null,
-        attempts: landingAttempts,
-      };
+      return await this.openNewLandingPr(forge, row, integrationBranch);
     } catch (err) {
       if (err instanceof EmptyDiffError) {
         // No net diff vs default (already landed, or integrations that net to nothing) —
@@ -1123,6 +1043,181 @@ export class DrainService {
       );
       return { state: "error", prNumber: null, prUrl: null, attempts: landingAttempts + 1 };
     }
+  }
+
+  /**
+   * A.3 sub-step of {@link adoptOpenLanding} (#1664), split out to keep that method under the
+   * fallow complexity gate. Refreshes the existing PR's title/body from the final rollup —
+   * caller already gated the call on `preWarm || existing.isDraft`. Swallows its own errors
+   * (same try/catch + console.warn wording as before the split) and reports success/failure
+   * back to the caller so A.4 stays coupled: never un-draft onto a stale body.
+   */
+  private async refreshLandingBody(
+    forge: GitForge,
+    row: {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      childrenJson: string;
+      landingAttempts: number;
+    },
+    integrationBranch: string,
+    existing: PrStatus,
+  ): Promise<boolean> {
+    const { repoPath, parentIssueNumber, parentTitle } = row;
+    try {
+      const defaultBranch = await forge.defaultBranch();
+      const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
+      const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
+      const body = buildLandingPrBody({
+        parentNumber: parentIssueNumber,
+        parentTitle,
+        integrationBranch,
+        defaultBranch,
+        children,
+      }); // plain builder — NO provisional marker
+      if (forge.editPr && existing.number != null) {
+        await forge.editPr(existing.number, { title, body });
+      }
+      // editPr absent or number null ⇒ nothing to do, refresh counts as successful
+      return true;
+    } catch (err) {
+      console.warn(
+        `[drain] landing body refresh failed for ${repoPath}#${parentIssueNumber}:`,
+        err,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * A.4 sub-step of {@link adoptOpenLanding} (#1664), split out to keep that method under the
+   * fallow complexity gate. Caller already gated the call on `existing.isDraft === true &&
+   * bodyRefreshed`. Swallows its own errors (same try/catch + console.warn wording as before the
+   * split) and reports success back to the caller.
+   */
+  private async markLandingReady(
+    forge: GitForge,
+    repoPath: string,
+    parentIssueNumber: number,
+    existing: PrStatus,
+  ): Promise<boolean> {
+    if (!forge.markReady || existing.number == null) return false;
+    try {
+      await forge.markReady(existing.number);
+      return true;
+    } catch (err) {
+      console.warn(`[drain] markReady failed for ${repoPath}#${parentIssueNumber}:`, err);
+      return false;
+    }
+  }
+
+  /**
+   * Extracted from {@link classifyLanding}'s `existing.state === "open"` branch (#1664) to keep
+   * complexity under the fallow gate. Reuses the existing open PR: refreshes its body from the
+   * final rollup (A.3, delegated to {@link refreshLandingBody}) and marks it ready if it's still
+   * a draft (A.4, delegated to {@link markLandingReady}). MUST be called from inside
+   * classifyLanding's outer try — it does not add its own catch-all; both sub-steps swallow
+   * their own forge-call errors exactly as classifyLanding did before the extraction.
+   */
+  private async adoptOpenLanding(
+    forge: GitForge,
+    row: {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      childrenJson: string;
+      landingAttempts: number;
+    },
+    integrationBranch: string,
+    existing: PrStatus,
+    preWarm: boolean,
+  ): Promise<{
+    state: EpicLandingState;
+    prNumber: number | null;
+    prUrl: string | null;
+    attempts: number;
+  }> {
+    const { repoPath, parentIssueNumber, landingAttempts } = row;
+    // A.3 — refresh body from the FINAL rollup. Gated on the UNION (preWarm || existing.isDraft)
+    //       so the flag-off record-failed-gap (non-draft) stays a no-op, but ANY actual draft
+    //       is refreshed even if the operator disabled the flag (or un-drafted) mid-drain.
+    const bodyRefreshed =
+      preWarm || existing.isDraft === true
+        ? await this.refreshLandingBody(forge, row, integrationBranch, existing)
+        : true;
+    // A.4 — mark ready exactly once, ONLY for an actual draft, and ONLY if the body refresh
+    //       succeeded (coupled: never un-draft onto a stale body).
+    const readied =
+      existing.isDraft === true && bodyRefreshed
+        ? await this.markLandingReady(forge, repoPath, parentIssueNumber, existing)
+        : false;
+    // Do NOT finalize a still-draft PR to terminal `open`: if it is still a draft and we could
+    // not ready it this tick, return `error`+attempts+1 (carrying the PR ref) so
+    // ensureLandingPrsForRepo retries under the cap and, if persistent, parks it VISIBLY as
+    // `error` rather than a healthy-looking `open` that auto-land skips forever.
+    if (existing.isDraft === true && !readied) {
+      return {
+        state: "error",
+        prNumber: existing.number ?? null,
+        prUrl: existing.url ?? null,
+        attempts: landingAttempts + 1,
+      };
+    }
+    return {
+      state: "open",
+      prNumber: existing.number ?? null,
+      prUrl: existing.url ?? null,
+      attempts: landingAttempts,
+    };
+  }
+
+  /**
+   * Extracted from {@link classifyLanding}'s fall-through "no live PR, open one" tail (#1664) to
+   * keep complexity under the fallow gate. Covers `existing.state === "none"` and a closed
+   * pre-warm draft. MUST be called from inside classifyLanding's outer try — it deliberately has
+   * NO try/catch of its own, so an `openPr` throw (including EmptyDiffError) propagates to
+   * classifyLanding's catch and is mapped to `none`/`error` exactly as before the extraction.
+   */
+  private async openNewLandingPr(
+    forge: GitForge,
+    row: {
+      repoPath: string;
+      parentIssueNumber: number;
+      parentTitle: string;
+      childrenJson: string;
+      landingAttempts: number;
+    },
+    integrationBranch: string,
+  ): Promise<{
+    state: EpicLandingState;
+    prNumber: number | null;
+    prUrl: string | null;
+    attempts: number;
+  }> {
+    const { parentIssueNumber, parentTitle, landingAttempts } = row;
+    const defaultBranch = await forge.defaultBranch();
+    const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
+    const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
+    const body = buildLandingPrBody({
+      parentNumber: parentIssueNumber,
+      parentTitle,
+      integrationBranch,
+      defaultBranch,
+      children,
+    });
+    const status = await forge.openPr({
+      head: integrationBranch,
+      base: defaultBranch,
+      title,
+      body,
+    });
+    return {
+      state: "open",
+      prNumber: status.number ?? null,
+      prUrl: status.url ?? null,
+      attempts: landingAttempts,
+    };
   }
 
   /**

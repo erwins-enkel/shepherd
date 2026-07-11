@@ -2,6 +2,7 @@ import type { Issue, GitState } from "./forge/types";
 import type { AgentProvider, SessionStatus, ReviewDecision } from "./types";
 import { signedOff, type SignoffAuthority, type SignoffView } from "./signoff";
 import { checksCleared } from "./checks-gate";
+import { verdictStale } from "./verdict-freshness";
 
 /** Issues carrying this label jump to the head of the drain queue. Fixed (the
  *  per-repo `autoLabel` is configurable, but the priority marker is a constant
@@ -214,9 +215,16 @@ function retireDecision(state: DrainRepoState): DrainDecision | null {
 function troubleHold(state: DrainRepoState): HoldReason | null {
   const blocked = state.autoSessions.find((s) => s.status === "blocked");
   if (blocked) return { code: "blocked", detail: blocked.desig };
-  const cr = state.autoSessions.find((s) => s.reviewDecision === "changes_requested");
+  // A verdict for an OLDER head (rework pushed, PR open at a newer head, re-review pending) is
+  // NOT trouble — the same SHA staleness `readyToRetire` already respects. Suppress it here so a
+  // superseded changes_requested/error doesn't falsely pause the drain (banner "needs changes").
+  const cr = state.autoSessions.find(
+    (s) => s.reviewDecision === "changes_requested" && !verdictStale(s.reviewHeadSha, s.git),
+  );
   if (cr) return { code: "changes_requested", detail: cr.desig };
-  const err = state.autoSessions.find((s) => s.reviewDecision === "error");
+  const err = state.autoSessions.find(
+    (s) => s.reviewDecision === "error" && !verdictStale(s.reviewHeadSha, s.git),
+  );
   return err ? { code: "error", detail: err.desig } : null;
 }
 

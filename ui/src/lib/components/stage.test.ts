@@ -266,6 +266,52 @@ describe("deriveStage — review tint", () => {
     });
     expect(s.review).toBe("none");
   });
+
+  it("verdict changes_requested on a STALE head (open PR at a newer head) → NOT 'changes'", () => {
+    // Rework pushed, PR now at "new"; the verdict reviewed "old" → superseded, don't paint red.
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "new" }),
+      verdict: { ...verdict, decision: "changes_requested", headSha: "old" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("none");
+  });
+
+  it("verdict error on a STALE head → NOT 'error'", () => {
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "new" }),
+      verdict: { ...verdict, decision: "error", headSha: "old" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("none");
+  });
+
+  it("verdict changes_requested at the CURRENT head → still 'changes'", () => {
+    const s = deriveStage({
+      git: git({ state: "open", headSha: "same" }),
+      verdict: { ...verdict, decision: "changes_requested", headSha: "same" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("changes");
+  });
+
+  it("human latestReview changes_requested still tints 'changes' even on a stale critic head", () => {
+    // The forge fact (human requested changes) is independent of critic-verdict staleness.
+    const s = deriveStage({
+      git: git({
+        state: "open",
+        headSha: "new",
+        latestReview: { state: "changes_requested", author: "x", submittedAt: 0 },
+      }),
+      verdict: { ...verdict, decision: "changes_requested", headSha: "old" },
+      reviewing: false,
+      readyToMerge: false,
+    });
+    expect(s.review).toBe("changes");
+  });
 });
 
 describe("deriveStage — derived-ready predicate", () => {

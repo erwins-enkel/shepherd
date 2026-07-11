@@ -594,6 +594,37 @@ test("critic-rework: running + stalled suppresses; dismissed suppresses; idle st
   ).not.toContain("critic-rework");
 });
 
+test("critic-rework: verdict for an OLDER head (rework pushed, PR open at newer head) is suppressed", () => {
+  const review = {
+    decision: "changes_requested",
+    findings: ["f"],
+    headSha: "oldsha",
+    addressRound: 1,
+    addressCap: 3,
+    finalRoundPending: false,
+    updatedAt: NOW,
+  } as any;
+  const staleGit = {
+    kind: "github",
+    state: "open",
+    checks: "pending",
+    headSha: "newsha",
+    deployConfigured: false,
+  } as GitState;
+  // stale: verdict head ≠ the PR's current open head → not active rework
+  expect(
+    classifyAttention(session({ status: "idle" }), { review, git: staleGit }, NOW).signals,
+  ).not.toContain("critic-rework");
+  // live: verdict head === current head → still active rework
+  expect(
+    classifyAttention(
+      session({ status: "idle" }),
+      { review, git: { ...staleGit, headSha: "oldsha" } },
+      NOW,
+    ).signals,
+  ).toContain("critic-rework");
+});
+
 test("classifyAttention + assemble: planning session with same at-cap gate still gets plan-rework + planRound (guard not over-suppressing)", () => {
   // Contrast: planPhase:"planning" with the same gate must still produce plan-rework and planRound.
   const planningSession = session({ planPhase: "planning", status: "idle" });

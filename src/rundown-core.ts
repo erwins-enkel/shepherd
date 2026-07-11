@@ -18,6 +18,7 @@ import type {
 import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
+import { verdictStale } from "./verdict-freshness";
 import { fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
@@ -141,11 +142,19 @@ function planReworkActive(s: Session, gate: PlanGate | undefined): boolean {
   );
 }
 
-/** Critic-side twin of planReworkActive (no planPhase gate — critic rework runs post-PR). */
-function criticReworkActive(s: Session, review: ReviewVerdict | undefined, now: number): boolean {
+/** Critic-side twin of planReworkActive (no planPhase gate — critic rework runs post-PR).
+ *  A verdict for an OLDER head (rework pushed, PR open at a newer head) is stale — the agent
+ *  already delivered, a re-review is pending — so it is not active rework (matches troubleHold). */
+function criticReworkActive(
+  s: Session,
+  review: ReviewVerdict | undefined,
+  git: GitState | undefined,
+  now: number,
+): boolean {
   return (
     review?.decision === "changes_requested" &&
     !review.dismissed &&
+    !verdictStale(review.headSha, git) &&
     !(s.status === "running" && addressStallStatus(review, now) === "stalled")
   );
 }
@@ -168,7 +177,7 @@ const ATTENTION_RULES: Array<{
       Boolean(c.block),
   },
   { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
-  { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, now) },
+  { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, c.git, now) },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
   // auto-merge (#1060). Last in the Tier-1 block so a genuinely-more-urgent co-signal stays the

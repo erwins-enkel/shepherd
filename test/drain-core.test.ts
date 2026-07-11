@@ -243,6 +243,93 @@ describe("computeNext", () => {
     expect(d).toEqual({ kind: "hold", reason: { code: "error", detail: "TASK-09" } });
   });
 
+  // A verdict for an OLDER head (rework pushed, PR open at a newer head, CI/re-review pending) is
+  // stale — not trouble. It must NOT pause the drain; suppression advances computeNext past the
+  // trouble gate so the fleet resumes draining (throughput change, intended).
+  const STALE_GIT: GitState = {
+    kind: "github",
+    state: "open",
+    number: 7,
+    checks: "pending", // CI running on the new head
+    headSha: "newsha",
+    mergeable: null,
+    deployConfigured: false,
+  };
+
+  test("stale changes_requested (rework pushed, CI on newer head) → NOT trouble; drain spawns", () => {
+    const i2 = issue(2);
+    const d = computeNext(
+      state({
+        maxAuto: 2,
+        autoSessions: [
+          autoSession({
+            desig: "TASK-09",
+            reviewDecision: "changes_requested",
+            reviewHeadSha: "oldsha",
+            git: STALE_GIT,
+          }),
+        ],
+        candidates: [i2],
+      }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: i2 });
+  });
+
+  test("stale error verdict → NOT trouble; drain spawns", () => {
+    const i2 = issue(2);
+    const d = computeNext(
+      state({
+        maxAuto: 2,
+        autoSessions: [
+          autoSession({
+            desig: "TASK-09",
+            reviewDecision: "error",
+            reviewHeadSha: "oldsha",
+            git: STALE_GIT,
+          }),
+        ],
+        candidates: [i2],
+      }),
+    );
+    expect(d).toEqual({ kind: "spawn", issue: i2 });
+  });
+
+  test("stale changes_requested at cap (maxAuto=1) → holds as cap, not changes_requested", () => {
+    const d = computeNext(
+      state({
+        maxAuto: 1,
+        autoSessions: [
+          autoSession({
+            desig: "TASK-09",
+            reviewDecision: "changes_requested",
+            reviewHeadSha: "oldsha",
+            git: STALE_GIT,
+          }),
+        ],
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "cap", detail: "1" } });
+  });
+
+  test("changes_requested at the CURRENT head → still holds (not stale)", () => {
+    const liveGit: GitState = { ...STALE_GIT, headSha: "samesha" };
+    const d = computeNext(
+      state({
+        autoSessions: [
+          autoSession({
+            desig: "TASK-09",
+            reviewDecision: "changes_requested",
+            reviewHeadSha: "samesha",
+            git: liveGit,
+          }),
+        ],
+        candidates: [issue(2)],
+      }),
+    );
+    expect(d).toEqual({ kind: "hold", reason: { code: "changes_requested", detail: "TASK-09" } });
+  });
+
   test("dedupe: skips candidates already mapped to a session", () => {
     const i3 = issue(3);
     const d = computeNext(

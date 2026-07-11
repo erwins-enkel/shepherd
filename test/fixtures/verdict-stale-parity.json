@@ -1,0 +1,62 @@
+[
+  {
+    "name": "no git (PR not polled) → not stale",
+    "verdictHeadSha": "aaa",
+    "git": null,
+    "expected": false
+  },
+  {
+    "name": "git open, verdict head absent → not stale",
+    "verdictHeadSha": null,
+    "git": { "state": "open", "headSha": "bbb" },
+    "expected": false
+  },
+  {
+    "name": "git open, current head absent (wire) → not stale",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "open" },
+    "expected": false
+  },
+  {
+    "name": "git open, verdict head empty string (unknown) → not stale",
+    "verdictHeadSha": "",
+    "git": { "state": "open", "headSha": "bbb" },
+    "expected": false
+  },
+  {
+    "name": "git open, current head empty string (unknown) → not stale",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "open", "headSha": "" },
+    "expected": false
+  },
+  {
+    "name": "git open, heads match → not stale (live verdict)",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "open", "headSha": "aaa" },
+    "expected": false
+  },
+  {
+    "name": "git open, verdict head older than current → STALE",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "open", "headSha": "bbb" },
+    "expected": true
+  },
+  {
+    "name": "git merged, heads differ → not stale (not open)",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "merged", "headSha": "bbb" },
+    "expected": false
+  },
+  {
+    "name": "git closed, heads differ → not stale (not open)",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "closed", "headSha": "bbb" },
+    "expected": false
+  },
+  {
+    "name": "git none, heads differ → not stale (not open)",
+    "verdictHeadSha": "aaa",
+    "git": { "state": "none", "headSha": "bbb" },
+    "expected": false
+  }
+]

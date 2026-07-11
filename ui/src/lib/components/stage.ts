@@ -1,4 +1,5 @@
 import type { GitState, ReviewVerdict, ChecksState } from "$lib/types";
+import { verdictStale } from "$lib/verdict-freshness";
 
 /** Pipeline stages, low→high. The agent's furthest-reached stage drives the stepper. */
 export const STAGE_ORDER = ["planning", "implementing", "pr", "review", "ready"] as const;
@@ -57,10 +58,16 @@ function reviewTint(
   git: GitState | undefined,
 ): StageInfo["review"] {
   if (reviewing) return "reviewing";
-  if (verdict?.decision === "changes_requested" || git?.latestReview?.state === "changes_requested")
+  // A critic verdict for an OLDER head (rework pushed, PR open at a newer head, re-review pending)
+  // is stale — don't paint it red. The human forge review (git.latestReview) is a separate fact.
+  const criticStale = verdictStale(verdict?.headSha, git);
+  if (
+    (verdict?.decision === "changes_requested" && !criticStale) ||
+    git?.latestReview?.state === "changes_requested"
+  )
     return "changes";
   if (reviewOk) return "approved";
-  if (verdict?.decision === "error") return "error";
+  if (verdict?.decision === "error" && !criticStale) return "error";
   return "none";
 }
 

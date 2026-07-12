@@ -779,7 +779,9 @@
       const s = await branchStatus(repo, repaired.branch).catch(() => null);
       if (s && repo === repoPath.trim() && repaired.branch === baseBranch) upstream = s;
     } catch (err) {
-      error = m.newtask_init_commit_failed({ reason: reason(err, m.newtask_submit()) });
+      error = m.newtask_init_commit_failed({
+        reason: reason(err, m.newtask_init_commit_unknown_reason()),
+      });
       retry = repairInitialCommit;
     } finally {
       repairingBase = false;

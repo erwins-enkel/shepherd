@@ -3013,5 +3013,6 @@
   "newtask_init_commit_failed": "Initial commit failed: {reason}.",
   "newtask_init_commit_running": "Creating…",
   "feat_initial_commit_repair_title": "Repair empty repos from New Task",
-  "feat_initial_commit_repair_body": "When a selected repo has no initial commit yet, New Task now blocks the doomed launch and offers to create the first empty commit in place so the task can start from a real base."
+  "feat_initial_commit_repair_body": "When a selected repo has no initial commit yet, New Task now blocks the doomed launch and offers to create the first empty commit in place so the task can start from a real base.",
+  "newtask_init_commit_unknown_reason": "Unknown error"
 }

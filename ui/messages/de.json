@@ -2974,5 +2974,7 @@
   "diff_note_no_changes": "keine Textänderungen",
   "diff_view_label": "Diff-Ansicht",
   "diff_view_split": "Geteilt",
-  "diff_view_unified": "Vereinheitlicht"
+  "diff_view_unified": "Vereinheitlicht",
+  "feat_diff_review_title": "Ein schärferer Diff-Tab",
+  "feat_diff_review_body": "Der Diff-Tab der Sitzung nutzt jetzt eine neue Engine: Wechsle zwischen Nebeneinander- und vereinheitlichter Ansicht — mit wortgenauer Hervorhebung innerhalb der Zeile, einer Datei-Seitenleiste zur schnellen Navigation und einklappbarem unverändertem Kontext."
 }

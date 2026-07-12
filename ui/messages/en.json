@@ -2974,5 +2974,7 @@
   "diff_note_no_changes": "no textual changes",
   "diff_view_label": "Diff view",
   "diff_view_split": "Split",
-  "diff_view_unified": "Unified"
+  "diff_view_unified": "Unified",
+  "feat_diff_review_title": "A sharper Diff tab",
+  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context."
 }

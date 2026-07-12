@@ -3,6 +3,7 @@
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { labelChipStyle } from "$lib/label-color";
 
   // showMine: when false the "mine & unassigned" row is NOT rendered (viewer unknown).
   // coachTargets: when true, the trigger carries use:coachTarget={"issue-filters"}.
@@ -10,12 +11,14 @@
   //   (computed by the parent from the raw issue list). selectedAuthor/selectedLabels are
   //   the current selection; the parent owns the state and mutates it via the callbacks.
   //   All optional — omitted (empty) → neither section renders, so existing callers are
-  //   unaffected.
+  //   unaffected. labelColors: name → forge hex (see label-color.ts), used to hue an
+  //   unselected toggle; omitted (empty) → toggles render neutral, as before.
   let {
     showMine,
     coachTargets = false,
     authors = [],
     labels = [],
+    labelColors = {},
     selectedAuthor = null,
     selectedLabels = [],
     onauthor = undefined,
@@ -25,6 +28,7 @@
     coachTargets?: boolean;
     authors?: string[];
     labels?: string[];
+    labelColors?: Record<string, string>;
     selectedAuthor?: string | null;
     selectedLabels?: string[];
     onauthor?: (author: string | null) => void;
@@ -220,9 +224,11 @@
       <div class="label-chips" role="group" aria-labelledby="issue-label-heading-{popoverId}">
         {#each labels as label (label)}
           {@const on = selectedLabels.includes(label)}
+          {@const style = !on ? labelChipStyle(labelColors[label] ?? "") : null}
           <button
             type="button"
-            class={["label-toggle", { on }]}
+            class={["label-toggle", { on, hued: style !== null }]}
+            {style}
             aria-pressed={on}
             onclick={() => ontogglelabel?.(label)}>{label}</button
           >
@@ -445,6 +451,28 @@
     color: var(--color-amber);
     border-color: var(--color-amber);
     background: color-mix(in srgb, var(--color-amber) 14%, transparent);
+  }
+
+  /* Real forge label color (issue: labels-almost-invisible) — sanctioned exception to
+     "accent hues are semantic, not decorative" (see /design-system). Only applied to
+     UNSELECTED toggles (the template only computes a style when !on), so .on's amber
+     "selected" semantic always wins where it applies. */
+  .label-toggle.hued {
+    color: var(--lc-text-d);
+    border-color: var(--lc-border-d);
+    background: var(--lc-fill-d);
+  }
+  :global([data-theme="light"]) .label-toggle.hued {
+    color: var(--lc-text-l);
+    border-color: var(--lc-border-l);
+    background: var(--lc-fill-l);
+  }
+
+  /* A hued toggle pins its own color/border, so the neutral .label-toggle:hover rule
+     (equal specificity, earlier in source) can't tint it — hover would be invisible.
+     Brighten instead: hue-agnostic, works in both themes, needs no extra vars. */
+  .label-toggle.hued:hover {
+    filter: brightness(1.18);
   }
 
   .label-toggle:focus-visible {

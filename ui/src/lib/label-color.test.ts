@@ -27,7 +27,7 @@
  * The exact numbers are re-derived and asserted (and printed to the console) below.
  */
 import { describe, it, expect } from "vitest";
-import { labelChipColors, hexToOklchCH, LABEL_CHIP_THEME } from "./label-color";
+import { labelChipColors, labelChipStyle, hexToOklchCH, LABEL_CHIP_THEME } from "./label-color";
 
 // ── inverse OKLCH → linear sRGB + gamma-encoded sRGB (Ottosson), local to this test ─
 
@@ -193,6 +193,28 @@ describe("labelChipColors", () => {
   });
 });
 
+describe("labelChipStyle", () => {
+  it("returns null for an invalid hex", () => {
+    expect(labelChipStyle("not-a-color")).toBeNull();
+    expect(labelChipStyle("")).toBeNull();
+  });
+
+  it("emits all six --lc-* custom properties for a valid hex", () => {
+    const style = labelChipStyle("#1d76db");
+    expect(style).not.toBeNull();
+    for (const name of [
+      "--lc-text-d",
+      "--lc-border-d",
+      "--lc-fill-d",
+      "--lc-text-l",
+      "--lc-border-l",
+      "--lc-fill-l",
+    ]) {
+      expect(style).toContain(`${name}:`);
+    }
+  });
+});
+
 describe("hexToOklchCH (forward-transform golden matrix)", () => {
   // Expected C/H computed independently once (Ottosson sRGB→OKLab, 6-dp) and pinned
   // here so a regression in any matrix coefficient is caught. Tolerances are generous
@@ -215,7 +237,7 @@ describe("gamut-aware worst-case contrast (WCAG AA, 4.5:1)", () => {
   it(`dark theme: text clears ${WCAG_AA_TEXT}:1 vs --inset (#070a09) over all hues+chromas`, () => {
     const { textL } = LABEL_CHIP_THEME.dark;
     const worst = worstCaseContrast(textL, ROW_BG_DARK);
-     
+
     console.log(
       `[label-color] dark worst-case: ratio=${worst.ratio.toFixed(3)} @ (hue=${worst.hue}, chroma=${worst.chroma.toFixed(4)})`,
     );
@@ -229,7 +251,7 @@ describe("gamut-aware worst-case contrast (WCAG AA, 4.5:1)", () => {
   it(`light theme: text clears ${WCAG_AA_TEXT}:1 vs --inset (#f3f6f4) over all hues+chromas`, () => {
     const { textL } = LABEL_CHIP_THEME.light;
     const worst = worstCaseContrast(textL, ROW_BG_LIGHT);
-     
+
     console.log(
       `[label-color] light worst-case: ratio=${worst.ratio.toFixed(3)} @ (hue=${worst.hue}, chroma=${worst.chroma.toFixed(4)})`,
     );

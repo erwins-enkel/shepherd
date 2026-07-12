@@ -15,6 +15,7 @@
     filterByLabels,
     distinctAuthors,
     distinctLabels,
+    labelColorMap,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -80,6 +81,7 @@
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
   let availableLabels = $derived(distinctLabels(issues));
+  let labelColorsMap = $derived(labelColorMap(issues));
   // Epic summaries for this repo: number → EpicSummary.
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
   let nativeSubIssues = $state<Set<number>>(new Set());
@@ -496,6 +498,7 @@
           coachTargets
           authors={availableAuthors}
           labels={availableLabels}
+          labelColors={labelColorsMap}
           {selectedAuthor}
           selectedLabels={[...selectedLabels]}
           onauthor={pickAuthor}

@@ -122,3 +122,15 @@ export function labelChipColors(hex: string): LabelChipColors | null {
     fillLight: oklchAlpha(light.fillL, c, h, light.fillA),
   };
 }
+
+/** Inline `style=""` custom-property declarations for a hued label chip, or null for an
+ *  invalid hex. Components apply these vars; their CSS picks per theme. Keeps the `--lc-*`
+ *  var names in one place. */
+export function labelChipStyle(hex: string): string | null {
+  const c = labelChipColors(hex);
+  if (!c) return null;
+  return (
+    `--lc-text-d:${c.textDark};--lc-border-d:${c.borderDark};--lc-fill-d:${c.fillDark};` +
+    `--lc-text-l:${c.textLight};--lc-border-l:${c.borderLight};--lc-fill-l:${c.fillLight}`
+  );
+}

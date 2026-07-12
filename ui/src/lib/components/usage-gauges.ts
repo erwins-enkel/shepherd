@@ -226,6 +226,7 @@ export interface ProviderCapacityWindow {
   key: GaugeKey; // "5H" | "WK"
   usedPct: number; // capped 0..100 — drives the bar color
   remainingPct: number; // 100 − usedPct — the "% free"
+  resetAt: number; // raw reset timestamp; consumers decide whether it is usable
 }
 
 export interface ProviderCapacityRow {
@@ -243,7 +244,12 @@ function capPct(v: number): number {
 function capacityWindows(gauges: Gauge[]): ProviderCapacityWindow[] {
   return gauges.map((g) => {
     const usedPct = capPct(g.w.pct);
-    return { key: g.label, usedPct, remainingPct: Math.max(0, 100 - usedPct) };
+    return {
+      key: g.label,
+      usedPct,
+      remainingPct: Math.max(0, 100 - usedPct),
+      resetAt: g.w.resetAt,
+    };
   });
 }
 

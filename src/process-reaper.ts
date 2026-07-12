@@ -680,10 +680,25 @@ export interface ReapMarkedOptions {
  * PPID != 1), and requiring it would make this a no-op in a container where Shepherd is PID 1 and
  * every process reads as PPID-1. It is recorded on the candidate for the log only.
  *
- * LOAD-BEARING INVARIANT: no code path may hard-delete a `sessions` row without archiving it first.
- * Because absent ⇒ spare, a hard-deleted session's marked orphans become permanently unreapable.
- * This holds today — the only `DELETE FROM sessions` (store.ts, pruneArchivedSessions) is scoped to
- * `status = 'archived'`.
+ * LOAD-BEARING TIMING CONSTRAINT — an orphan must be SWEPT BEFORE ITS SESSION ROW IS PRUNED.
+ *
+ * `archived` is the only status that authorises a kill, and `absent` spares. So a marked orphan is
+ * reapable only during the window between its session being archived and its row being deleted.
+ * `pruneArchivedSessions` (store.ts) hard-deletes archived rows — the very rows this sweep depends
+ * on — so once it runs, that session's surviving orphans are unreapable FOREVER. (An earlier
+ * version of this note claimed the invariant was "never hard-delete a row without archiving it
+ * first", and cited the prune as satisfying it. That was backwards: the prune deletes only archived
+ * rows, so it satisfies that phrasing exactly while causing the failure the note meant to exclude.)
+ *
+ * What actually guarantees the ordering is CADENCE, not a rule about deletion:
+ *   - the sweep runs at teardown (SessionService.archive, synchronously after store.archive), then
+ *     hourly;
+ *   - the prune runs at most DAILY (runDailySweep) and only past a retention window
+ *     (SESSION_RETENTION_DAYS = 30, SESSION_RETENTION_KEEP = 250).
+ * So an orphan gets a teardown sweep plus ~24 hourly sweeps before its row is even eligible to be
+ * pruned. The margin is enormous, but it is a MARGIN, not a proof — anything that shortens
+ * retention toward the sweep interval, or lengthens the sweep interval toward retention, erodes it.
+ * Keep the sweep strictly more frequent than the prune.
  *
  * Fails closed throughout: any missing probe, an unreadable environ/stat, or a throwing
  * `sessionStatus` reaps nothing.

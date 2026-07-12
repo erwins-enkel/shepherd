@@ -7,7 +7,7 @@
   import { m } from "$lib/paraglide/messages";
   import {
     filterIssues,
-    hideOthers,
+    hideOthersExceptFlaggedEpics,
     hideActive,
     hideSubIssues,
     hideBlockedIssues,
@@ -103,8 +103,11 @@
   let epicsSettled = $state(false);
   // Compose the assignee filter (#824) → "hide in progress" filter → sub-issue filter → text filter.
   // The mine chip only shows when `viewer` is known, so hideOthers is a no-op
-  // identity otherwise (fail open); hideActive is viewer-agnostic.
-  let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
+  // identity otherwise (fail open); hideActive is viewer-agnostic. Flagged epics (someone
+  // else is working them, #1616) are exempt so their pill stays visible under the filter.
+  let assigneeFiltered = $derived(
+    hideOthersExceptFlaggedEpics(issues, viewer, issuesFilter.hideOthers, epicByNumber),
+  );
   // Expose per-issue assignees on the rows whenever the mine & unassigned filter (#824)
   // isn't hiding others' issues — i.e. when it's toggled off, or fails open because the
   // viewer is unknown. With the filter active, every visible issue is mine-or-unassigned,

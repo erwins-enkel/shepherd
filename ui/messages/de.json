@@ -2998,5 +2998,13 @@
   "heartbeat_legend_error_label": "Fehler",
   "heartbeat_legend_error_desc": "Ein Tool-Aufruf in dieser Slice schlug fehl.",
   "feat_heartbeat_legend_title": "Aktivitäts-Heartbeat erklärt sich beim Hover",
-  "feat_heartbeat_legend_body": "Die amber Aktivitäts-Leiste auf laufenden Session-Karten öffnet auf dem Desktop jetzt beim Hover eine Legende — damit sichtbar wird, was sie zeigt: die Tool-Nutzung des Agents über die letzten 8 Minuten (heller = mehr los, rot = ein Fehler, leer = ruhig)."
+  "feat_heartbeat_legend_body": "Die amber Aktivitäts-Leiste auf laufenden Session-Karten öffnet auf dem Desktop jetzt beim Hover eine Legende — damit sichtbar wird, was sie zeigt: die Tool-Nutzung des Agents über die letzten 8 Minuten (heller = mehr los, rot = ein Fehler, leer = ruhig).",
+  "issuerow_epic_inflight_pill": "{count} in Arbeit · {who}",
+  "issuerow_epic_inflight_pill_plain": "{count} in Arbeit",
+  "issuerow_epic_assigned_pill": "zugewiesen an {who}",
+  "issuerow_epic_authored_pill": "von {who} angelegt",
+  "issuerow_epic_others_notice": "Wird bereits von {who} bearbeitet – du kannst trotzdem starten",
+  "issuerow_epic_owner_notice": "Von {who} angelegt – du kannst trotzdem starten",
+  "feat_epic_in_flight_title": "Sieh, wer schon an einem Epic arbeitet",
+  "feat_epic_in_flight_body": "Das Backlog kennzeichnet jetzt Epics, an denen bereits jemand anderes arbeitet – ein Badge zeigt, wie viele Kinder in Arbeit sind und von wem, dazu ein dezenter Hinweis neben „Start“ – damit du kein Epic startest, das einem Teamkollegen bereits gehört."
 }

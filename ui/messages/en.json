@@ -2998,5 +2998,13 @@
   "heartbeat_legend_error_label": "Error",
   "heartbeat_legend_error_desc": "A tool-use in that slice failed.",
   "feat_heartbeat_legend_title": "Activity heartbeat explains itself on hover",
-  "feat_heartbeat_legend_body": "The amber activity strip on live session cards now opens a legend when you hover it on desktop — so you can see what it tracks: the agent's tool-use over the last 8 minutes (brighter = busier, red = an error, empty = quiet)."
+  "feat_heartbeat_legend_body": "The amber activity strip on live session cards now opens a legend when you hover it on desktop — so you can see what it tracks: the agent's tool-use over the last 8 minutes (brighter = busier, red = an error, empty = quiet).",
+  "issuerow_epic_inflight_pill": "{count} in progress · {who}",
+  "issuerow_epic_inflight_pill_plain": "{count} in progress",
+  "issuerow_epic_assigned_pill": "assigned to {who}",
+  "issuerow_epic_authored_pill": "set up by {who}",
+  "issuerow_epic_others_notice": "Already in progress by {who} — you can still start",
+  "issuerow_epic_owner_notice": "Set up by {who} — you can still start",
+  "feat_epic_in_flight_title": "See who's already on an epic",
+  "feat_epic_in_flight_body": "The backlog now flags epics someone else is already working on — a pill shows how many children are in progress and by whom, plus a soft notice near Start — so you don't start an epic a teammate already owns."
 }

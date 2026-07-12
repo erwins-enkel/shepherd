@@ -2935,5 +2935,11 @@
   "feat_prewarm_epic_ci_title": "Pre-warm epic landing CI",
   "feat_prewarm_epic_ci_body": "When enabled, an epic's landing PR now opens early as a draft so its CI runs warm while the epic still drains, instead of a cold first run at completion. Opt in per repo in Automation settings.",
   "feat_colored_issue_labels_title": "Issue labels in their real colors",
-  "feat_colored_issue_labels_body": "Label chips across the backlog, filters, and prompt sources now render each label's actual color from GitHub, normalized for legibility in both light and dark themes — instead of flat grey."
+  "feat_colored_issue_labels_body": "Label chips across the backlog, filters, and prompt sources now render each label's actual color from GitHub, normalized for legibility in both light and dark themes — instead of flat grey.",
+  "issues_filter_blocked_label": "hide blocked",
+  "issues_filter_blocked_title": "Hide issues with a blocked label (e.g. blocked-upstream)",
+  "issues_filter_all_blocked": "All matching issues are blocked — toggle off to see them",
+  "upnext_hide_blocked": "Hide blocked issues",
+  "feat_hide_blocked_toggle_title": "Hide blocked issues, everywhere",
+  "feat_hide_blocked_toggle_body": "A \"Hide blocked issues\" toggle now works the same way across the backlog, New Task issue picker, and Up Next — on by default, it drops any issue labeled as blocked."
 }

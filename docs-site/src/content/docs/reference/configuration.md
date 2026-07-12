@@ -59,6 +59,24 @@ lines), read by the systemd unit if present.
 
 See [Operating Shepherd](/operating/) for the host-level `/etc/fstab` belt.
 
+## Runaway-orphan reaper
+
+A background sweep ([#1144](https://github.com/erwins-enkel/shepherd/issues/1144))
+that `SIGKILL`s a process only when it both **(a)** carries the archived session's
+`SHEPHERD_SESSION_ID` in its `/proc/<pid>/environ` (provenance — an agent, or a
+descendant that inherited the marker, spawned it) **and (b)** belongs to a session
+whose row is present and `archived` (the agent is definitively done). Attribution is
+by env marker, not working directory, so it survives `cd`, backgrounding, and
+worktree deletion — and an operator's own processes (which never carry the marker)
+can never be candidates. The CPU/age pair below is a performance prefilter that keeps
+the sweep's `/proc/<pid>/environ` reads near zero, **not** a safety floor.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_REAP_RUNAWAY` | `armed` | Reaper mode. `armed` (the default — any unset/unrecognised value) `SIGKILL`s qualifying orphans; `observe` runs every gate but only logs (never signals); `0`/`off` disables the sweep entirely |
+| `SHEPHERD_REAP_RUNAWAY_MIN_CPU` | `0.8` | CPU prefilter: fraction of one core, averaged over the process's whole lifetime, a candidate must have burned before it can be reaped. Clamped to `0.05`–`1` (a set-but-empty value clamps rather than dropping the gate) |
+| `SHEPHERD_REAP_RUNAWAY_MIN_AGE_S` | `300` | Minimum process age (seconds) before a candidate can be reaped — the floor that keeps a freshly restored session's briefly-archived row from being reaped. Clamped to a hard `60`s minimum (up to 24h) |
+
 ## Main agent terminal renderer (research preview)
 
 Every spawned `claude` runs on Claude Code's **classic** renderer by default —

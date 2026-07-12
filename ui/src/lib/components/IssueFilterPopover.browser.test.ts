@@ -61,7 +61,7 @@ describe("IssueFilterPopover", () => {
     expect(triggerBtn()!.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("click trigger opens popover; three rows render when showMine=true", async () => {
+  it("click trigger opens popover; four rows render when showMine=true", async () => {
     render(IssueFilterPopover, { showMine: true });
 
     await expect.poll(() => triggerBtn()).toBeTruthy();
@@ -71,38 +71,39 @@ describe("IssueFilterPopover", () => {
 
     triggerBtn()!.click();
 
-    // After click, aria-expanded should be true and three checkbox rows present.
+    // After click, aria-expanded should be true and four checkbox rows present
+    // (mine + active + subs + blocked).
     await expect.poll(() => isOpen()).toBe(true);
-    expect(checkboxes().length).toBe(3);
+    expect(checkboxes().length).toBe(4);
 
     expect(rowLabels()).toContain(m.issues_filter_mine_label());
     expect(rowLabels()).toContain(m.issues_filter_active_label());
     expect(rowLabels()).toContain(m.issues_filter_subissues_label());
   });
 
-  it("badge reads 2 with showMine=true, hideOthers=true, hideActive=false, hideSubIssues=true", async () => {
-    // Default store: hideOthers=true, hideActive=false, hideSubIssues=true
-    // activeCount = 1 (mine) + 0 (active) + 1 (subs) = 2
+  it("badge reads 3 with showMine=true, hideOthers=true, hideActive=false, hideSubIssues=true", async () => {
+    // Default store: hideOthers=true, hideActive=false, hideSubIssues=true, hideBlocked=true
+    // activeCount = 1 (mine) + 0 (active) + 1 (subs) + 1 (blocked) = 3
     render(IssueFilterPopover, { showMine: true });
 
     await expect.poll(() => triggerBtn()).toBeTruthy();
-    expect(badgeText()).toBe("2");
+    expect(badgeText()).toBe("3");
   });
 
-  it("badge reads 1 (not 2) when showMine=false even with hideOthers=true persisted; mine row absent", async () => {
+  it("badge reads 2 (not 3) when showMine=false even with hideOthers=true persisted; mine row absent", async () => {
     // hideOthers is true (default) but showMine=false → mine doesn't count.
-    // activeCount = 0 (mine excluded) + 0 (active) + 1 (subs) = 1
+    // activeCount = 0 (mine excluded) + 0 (active) + 1 (subs) + 1 (blocked) = 2
     render(IssueFilterPopover, { showMine: false });
 
     await expect.poll(() => triggerBtn()).toBeTruthy();
-    expect(badgeText()).toBe("1");
+    expect(badgeText()).toBe("2");
 
     // Open the popover to verify mine row is absent.
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
 
-    // Only 2 checkboxes: active + subs (no mine).
-    expect(checkboxes().length).toBe(2);
+    // Only 3 checkboxes: active + subs + blocked (no mine).
+    expect(checkboxes().length).toBe(3);
 
     expect(rowLabels()).not.toContain(m.issues_filter_mine_label());
     expect(rowLabels()).toContain(m.issues_filter_active_label());
@@ -119,7 +120,7 @@ describe("IssueFilterPopover", () => {
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
 
-    expect(checkboxes().length).toBe(3);
+    expect(checkboxes().length).toBe(4);
 
     // Find the active checkbox by its row label text, not by checked state.
     const activeLabel = [...(popoverPanel()?.querySelectorAll(".filter-row") ?? [])].find(
@@ -146,7 +147,7 @@ describe("IssueFilterPopover", () => {
     triggerBtn()!.click();
     await expect.poll(() => isOpen()).toBe(true);
 
-    expect(checkboxes().length).toBe(3);
+    expect(checkboxes().length).toBe(4);
 
     // Mine checkbox is first and checked by default (hideOthers=true).
     const mineCheckbox = checkboxes()[0];
@@ -318,7 +319,7 @@ describe("IssueFilterPopover — author + label pickers", () => {
   });
 
   it("active count includes the selected author and every selected label", async () => {
-    // Default store (mine + subs) = 2, + author (1) + labels (2) = 5.
+    // Default store (mine + subs + blocked) = 3, + author (1) + labels (2) = 6.
     await open({
       showMine: true,
       authors: ["kai", "scoop"],
@@ -326,7 +327,7 @@ describe("IssueFilterPopover — author + label pickers", () => {
       labels: ["BUG", "DOCS"],
       selectedLabels: ["BUG", "DOCS"],
     });
-    expect(badgeText()).toBe("5");
+    expect(badgeText()).toBe("6");
   });
 
   it("focus on open still lands on the first boolean checkbox, not a radio, with sections present", async () => {

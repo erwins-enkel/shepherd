@@ -11,6 +11,9 @@ const KEY_ACTIVE = "shepherd:issues-hide-active";
 // "Hide sub-issues" filter: drop native sub-issues (children of an epic). Default ON —
 // absence of the key means "on", so "0" is the value we persist.
 const KEY_SUB = "shepherd:issues-hide-subissues";
+// "Hide blocked" filter: drop issues whose labels mark them blocked (see isBlocked in
+// issues-panel.ts). Default ON — absence of the key means "on", so "0" is the value we persist.
+const KEY_BLOCKED = "shepherd:issues-hide-blocked";
 
 function read(): boolean {
   try {
@@ -39,10 +42,20 @@ function readSub(): boolean {
   }
 }
 
+function readBlocked(): boolean {
+  try {
+    // Default true: only an explicit "0" turns it off.
+    return localStorage.getItem(KEY_BLOCKED) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 class IssuesFilter {
   hideOthers = $state(read());
   hideActive = $state(readActive());
   hideSubIssues = $state(readSub());
+  hideBlocked = $state(readBlocked());
   toggle() {
     this.set(!this.hideOthers);
   }
@@ -75,6 +88,18 @@ class IssuesFilter {
     try {
       if (v) localStorage.removeItem(KEY_SUB);
       else localStorage.setItem(KEY_SUB, "0");
+    } catch {
+      /* private mode / SSR — preference just won't survive reload */
+    }
+  }
+  toggleBlocked() {
+    this.setBlocked(!this.hideBlocked);
+  }
+  setBlocked(v: boolean) {
+    this.hideBlocked = v;
+    try {
+      if (v) localStorage.removeItem(KEY_BLOCKED);
+      else localStorage.setItem(KEY_BLOCKED, "0");
     } catch {
       /* private mode / SSR — preference just won't survive reload */
     }

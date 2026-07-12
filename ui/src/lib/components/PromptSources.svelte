@@ -9,6 +9,7 @@
     hideOthers,
     hideActive,
     hideSubIssues,
+    hideBlockedIssues,
     filterByAuthor,
     filterByLabels,
     distinctAuthors,
@@ -58,7 +59,9 @@
   let selectedAuthor = $state<string | null>(null);
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
-  let availableLabels = $derived(distinctLabels(issues));
+  let availableLabels = $derived(
+    distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
+  );
   let labelColorsMap = $derived(labelColorMap(issues));
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
@@ -73,8 +76,11 @@
       epicParents,
     ),
   );
+  // "Hide blocked" filter, applied AFTER the sub-issue filter and BEFORE the author/label
+  // filters (mirrors IssuesPanel; see hideBlockedIssues in issues-panel.ts).
+  let blockedFiltered = $derived(hideBlockedIssues(subFiltered, issuesFilter.hideBlocked));
   let visibleIssues = $derived(
-    filterByLabels(filterByAuthor(subFiltered, selectedAuthor), selectedLabels),
+    filterByLabels(filterByAuthor(blockedFiltered, selectedAuthor), selectedLabels),
   );
   let allHiddenByAssignee = $derived(
     issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,
@@ -93,6 +99,15 @@
       subFiltered.length === 0 &&
       issuesFilter.hideSubIssues &&
       epicsLoaded,
+  );
+  // The blocked filter emptied the remainder the sub-issue filter left behind.
+  let allHiddenByBlocked = $derived(
+    !allHiddenByAssignee &&
+      !allHiddenByActive &&
+      !allHiddenBySubIssues &&
+      subFiltered.length > 0 &&
+      blockedFiltered.length === 0 &&
+      issuesFilter.hideBlocked,
   );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
@@ -330,6 +345,8 @@
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}
           <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else if allHiddenByBlocked}
+          <div class="muted">{m.issues_filter_all_blocked()}</div>
         {:else if visibleIssues.length === 0}
           <!-- Author/label filters emptied the list (no text search on this tab). -->
           <div class="muted">{m.issues_filter_no_match()}</div>

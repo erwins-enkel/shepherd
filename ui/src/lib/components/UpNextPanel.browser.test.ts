@@ -12,6 +12,7 @@ import type {
 import { m } from "$lib/paraglide/messages";
 import { upNext } from "$lib/up-next.svelte";
 import { getUpNext, startUpNext } from "$lib/api";
+import { issuesFilter } from "$lib/issues-filter.svelte";
 
 // Mock the API so mounting (which kicks upNext.load()) makes no real network call.
 vi.mock("$lib/api", async (importOriginal) => {
@@ -30,7 +31,7 @@ const item = (
   repoPath: string,
   number: number,
   priority = false,
-  opts: { title?: string; createdAt?: number } = {},
+  opts: { title?: string; createdAt?: number; labels?: string[] } = {},
 ): UpNextItem => ({
   repoPath,
   repoSlug: null,
@@ -41,6 +42,7 @@ const item = (
   kind: "feature",
   priority,
   createdAt: opts.createdAt ?? 0,
+  labels: opts.labels ?? [],
   issueRef: {
     number,
     url: `https://example.test/${number}`,
@@ -182,6 +184,7 @@ afterEach(() => {
   upNext.snapshot = null;
   upNext.loadError = false;
   localStorage.removeItem("shepherd.upnext.sort");
+  issuesFilter.setBlocked(true); // restore the default so it never bleeds into other tests
   vi.clearAllMocks();
   fontStyle.remove();
 });
@@ -566,5 +569,106 @@ describe("UpNextPanel load failure", () => {
     render(UpNextPanel, {});
     await expect.element(page.getByText("#2")).toBeInTheDocument();
     await expect.element(page.getByText(m.common_issues_load_failed())).not.toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel hide-blocked filter", () => {
+  // A blocked item in the cross-repo priority section AND one in a per-repo section, across
+  // two repos, so the repo-filtered branch (below) has something to prove independently of
+  // the unfiltered/early-return branch.
+  const blockedSnapshot = (): UpNextSnapshot => ({
+    generatedAt: 1,
+    repoCount: 2,
+    fallback: null,
+    failedRepoCount: 0,
+    sections: [
+      {
+        kind: "priority",
+        repoPath: null,
+        repoSlug: null,
+        repoLabel: null,
+        totalCount: 2,
+        items: [
+          item("~/projects/homeassistant", 1, true),
+          item("~/projects/homeassistant", 2, true, { labels: ["blocked-upstream"] }),
+        ],
+      },
+      {
+        kind: "repo",
+        repoPath: "~/projects/homeassistant",
+        repoSlug: null,
+        repoLabel: "homeassistant",
+        totalCount: 1,
+        items: [item("~/projects/homeassistant", 3, false, { labels: ["blocked"] })],
+      },
+      {
+        kind: "repo",
+        repoPath: "~/projects/car-gas-tracker",
+        repoSlug: null,
+        repoLabel: "car-gas-tracker",
+        totalCount: 1,
+        items: [item("~/projects/car-gas-tracker", 4)],
+      },
+    ],
+  });
+
+  it("hides blocked items by default in the unfiltered (early-return) path", async () => {
+    upNext.snapshot = blockedSnapshot();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    await expect.element(page.getByText("#4")).toBeInTheDocument();
+    await expect.element(page.getByText("#2")).not.toBeInTheDocument();
+    await expect.element(page.getByText("#3")).not.toBeInTheDocument();
+  });
+
+  it("also hides blocked items when a repo filter is active (repo-filtered path)", async () => {
+    // Critical (review point): the blocked filter must apply on BOTH branches of the
+    // `sections` derived, not just the unfiltered early return.
+    upNext.snapshot = blockedSnapshot();
+    render(UpNextPanel, { repoFilter: new Set(["~/projects/homeassistant"]) });
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    await expect.element(page.getByText("#2")).not.toBeInTheDocument();
+    await expect.element(page.getByText("#3")).not.toBeInTheDocument();
+    // The other repo is filtered out entirely, independent of blocked-ness.
+    await expect.element(page.getByText("#4")).not.toBeInTheDocument();
+  });
+
+  it("reveals blocked items when the header toggle is switched off", async () => {
+    upNext.snapshot = blockedSnapshot();
+    render(UpNextPanel, {});
+    await expect.element(page.getByText("#1")).toBeInTheDocument();
+    const btn = document.querySelector<HTMLButtonElement>(".un-blockedbtn")!;
+    expect(btn.getAttribute("aria-pressed")).toBe("true");
+    btn.click();
+    await expect.element(page.getByText("#2")).toBeInTheDocument();
+    await expect.element(page.getByText("#3")).toBeInTheDocument();
+    expect(btn.getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("shows the blocked-filter hint (not 'all caught up') when every queued item is blocked", async () => {
+    // Whole queue hidden by the default-on toggle must read as "hidden by filter", not empty.
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [
+        {
+          kind: "repo",
+          repoPath: "~/projects/homeassistant",
+          repoSlug: null,
+          repoLabel: "homeassistant",
+          totalCount: 1,
+          items: [item("~/projects/homeassistant", 5, false, { labels: ["blocked-upstream"] })],
+        },
+      ],
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.issues_filter_all_blocked())).toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_empty())).not.toBeInTheDocument();
+    // Toggling off reveals the item and clears the hint.
+    document.querySelector<HTMLButtonElement>(".un-blockedbtn")!.click();
+    await expect.element(page.getByText("#5")).toBeInTheDocument();
+    await expect.element(page.getByText(m.issues_filter_all_blocked())).not.toBeInTheDocument();
   });
 });

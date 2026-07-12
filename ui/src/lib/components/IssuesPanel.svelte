@@ -10,6 +10,7 @@
     hideOthers,
     hideActive,
     hideSubIssues,
+    hideBlockedIssues,
     sortEpicsFirst,
     filterByAuthor,
     filterByLabels,
@@ -80,7 +81,9 @@
   let selectedAuthor = $state<string | null>(null);
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
-  let availableLabels = $derived(distinctLabels(issues));
+  let availableLabels = $derived(
+    distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
+  );
   let labelColorsMap = $derived(labelColorMap(issues));
   // Epic summaries for this repo: number → EpicSummary.
   let epicByNumber = $state<Map<number, EpicSummary>>(new Map());
@@ -113,12 +116,15 @@
       epicParentNums,
     ),
   );
+  // "Hide blocked" filter, applied AFTER the sub-issue filter and BEFORE the author/label
+  // filters (see hideBlockedIssues in issues-panel.ts).
+  let blockedFiltered = $derived(hideBlockedIssues(subFiltered, issuesFilter.hideBlocked));
   // Author + label filters (repo-scoped), applied AFTER the toggle filters and BEFORE the
   // text search. Kept as a named intermediate so the empty-state block can attribute a miss
   // to the structured filters (this being empty) vs. the text search (this non-empty but
   // visibleIssues empty).
   let authorLabelFiltered = $derived(
-    filterByLabels(filterByAuthor(subFiltered, selectedAuthor), selectedLabels),
+    filterByLabels(filterByAuthor(blockedFiltered, selectedAuthor), selectedLabels),
   );
 
   // Prune any selected author/label that a refresh removed from the current issue set.
@@ -173,6 +179,15 @@
       subFiltered.length === 0 &&
       issuesFilter.hideSubIssues &&
       epicsLoaded,
+  );
+  // The blocked filter emptied the remainder the sub-issue filter left behind.
+  let allHiddenByBlocked = $derived(
+    !allHiddenByAssignee &&
+      !allHiddenByActive &&
+      !allHiddenBySubIssues &&
+      subFiltered.length > 0 &&
+      blockedFiltered.length === 0 &&
+      issuesFilter.hideBlocked,
   );
   // Set of expanded epic issue numbers (SvelteSet for fine-grained reactivity).
   const expanded = new SvelteSet<number>();
@@ -515,6 +530,8 @@
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}
           <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else if allHiddenByBlocked}
+          <div class="muted">{m.issues_filter_all_blocked()}</div>
         {:else if authorLabelFiltered.length === 0}
           <!-- Structured author/label filters emptied it (even if a search term is also
                present) — a generic filter miss, not the search-specific copy. -->

@@ -12,6 +12,9 @@
   import { onMount } from "svelte";
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
+  import { isBlocked } from "./issues-panel";
+  import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import {
     capacitySuggestedProvider,
     claudeUsageHoldLikely,
@@ -122,21 +125,41 @@
     sortMenuOpen = false;
   }
 
-  const snap = $derived(upNext.snapshot);
+  // Drops "blocked" items (per isBlocked / the shared hide-blocked toggle) from a section
+  // list — re-counting totalCount and dropping sections that empty out, same shape as the
+  // repo-filter step below. Identity (no-op) when the toggle is off.
+  function applyBlocked(list: UpNextSection[]): UpNextSection[] {
+    if (!issuesFilter.hideBlocked) return list;
+    return list
+      .map((s): UpNextSection | null => {
+        const items = s.items.filter((it) => !isBlocked(it.labels));
+        return items.length > 0 ? { ...s, items, totalCount: items.length } : null;
+      })
+      .filter((s): s is UpNextSection => s !== null);
+  }
+
   // The chip-rail repo filter scopes the queue to one repo, identical to the session lenses.
   // Repo sections drop unless they match; the cross-repo priority section keeps only its items
-  // from the active repo (re-counting totalCount so "show all N" stays honest).
-  const sections = $derived.by(() => {
-    const all = snap?.sections ?? [];
-    if (repoFilter.size === 0) return all;
-    return all
+  // from the active repo (re-counting totalCount so "show all N" stays honest). Identity when no
+  // repo chip is active.
+  function applyRepoFilter(list: UpNextSection[]): UpNextSection[] {
+    if (repoFilter.size === 0) return list;
+    return list
       .map((s): UpNextSection | null => {
         if (s.kind === "repo") return s.repoPath != null && repoFilter.has(s.repoPath) ? s : null;
         const items = s.items.filter((it) => repoFilter.has(it.repoPath));
         return items.length > 0 ? { ...s, items, totalCount: items.length } : null;
       })
       .filter((s): s is UpNextSection => s !== null);
-  });
+  }
+
+  const snap = $derived(upNext.snapshot);
+  // Repo-filtered but BEFORE the hide-blocked step, so the empty state can tell "nothing queued"
+  // apart from "everything queued is hidden by the blocked toggle".
+  const sectionsPreBlocked = $derived(applyRepoFilter(snap?.sections ?? []));
+  // The hide-blocked filter is applied on top and runs regardless of whether a repo chip is active,
+  // so blocked issues never leak in the unfiltered view.
+  const sections = $derived(applyBlocked(sectionsPreBlocked));
   // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
   // never-computed snapshot shows loading, not the all-clear.
   const computed = $derived(snap?.generatedAt != null);
@@ -152,6 +175,12 @@
       (upNext.loadError && sections.length === 0),
   );
   const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
+  // The queue is empty ONLY because the (default-on) hide-blocked toggle dropped everything —
+  // surface a "hidden by the blocked filter" hint (same message as IssuesPanel/PromptSources)
+  // instead of the misleading "all caught up".
+  const allHiddenByBlocked = $derived(
+    isEmpty && issuesFilter.hideBlocked && sectionsPreBlocked.length > 0,
+  );
   const updatedAgo = $derived(
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
@@ -419,6 +448,15 @@
       aria-label={m.upnext_refresh()}
       onclick={refresh}>⟳</button
     >
+    <button
+      type="button"
+      class="un-blockedbtn"
+      use:coachTarget={"un-blockedbtn"}
+      aria-pressed={issuesFilter.hideBlocked}
+      title={m.upnext_hide_blocked()}
+      aria-label={m.upnext_hide_blocked()}
+      onclick={() => issuesFilter.toggleBlocked()}>⊘</button
+    >
     <div class="un-sortwrap">
       <button
         bind:this={sortBtn}
@@ -468,7 +506,13 @@
     {:else if isEmpty}
       <div class="un-empty">
         <p class="un-muted">
-          {filteredRepo ? m.upnext_repo_filter_empty({ repo: filteredRepo }) : m.upnext_empty()}
+          {#if allHiddenByBlocked}
+            {m.issues_filter_all_blocked()}
+          {:else if filteredRepo}
+            {m.upnext_repo_filter_empty({ repo: filteredRepo })}
+          {:else}
+            {m.upnext_empty()}
+          {/if}
         </p>
         {#if onbacklog}
           <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}
@@ -582,7 +626,8 @@
     display: inline-flex;
   }
   .un-refresh,
-  .un-sortbtn {
+  .un-sortbtn,
+  .un-blockedbtn {
     flex: none;
     display: inline-flex;
     align-items: center;
@@ -603,18 +648,26 @@
       border-color 0.12s ease;
   }
   .un-refresh:hover:not(:disabled),
-  .un-sortbtn:hover {
+  .un-sortbtn:hover,
+  .un-blockedbtn:hover {
     color: var(--color-amber);
     border-color: var(--color-amber);
   }
   .un-refresh:focus-visible,
-  .un-sortbtn:focus-visible {
+  .un-sortbtn:focus-visible,
+  .un-blockedbtn:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .un-refresh:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+  /* Active (hide-blocked ON) reads the same as hover — amber, matching the "needs
+     attention"/actionable hue used elsewhere in this panel (priority pill, section head). */
+  .un-blockedbtn[aria-pressed="true"] {
+    color: var(--color-amber);
+    border-color: var(--color-amber);
   }
 
   .un-batch {

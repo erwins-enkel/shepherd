@@ -822,6 +822,7 @@ function buildUpNext(): UpNextSnapshot {
     kind,
     priority: false,
     createdAt: NOW - 26 * HOUR,
+    labels: [],
     issueRef: { number, url: `${gh(STOREFRONT)}/issues/${number}`, title, body },
   });
   const apiItem = (number: number, title: string, body: string, kind: Kind): UpNextItem => ({
@@ -834,6 +835,7 @@ function buildUpNext(): UpNextSnapshot {
     kind,
     priority: false,
     createdAt: NOW - 30 * HOUR,
+    labels: [],
     issueRef: { number, url: `${gh(API)}/issues/${number}`, title, body },
   });
   return {

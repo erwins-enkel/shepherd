@@ -618,9 +618,10 @@
     white-space: nowrap;
   }
 
-  /* Single label chip + a "+N" count (labelChips caps inline chips at 1). The group
-     is bounded so the title keeps the row instead of being crushed to a character:
-     it may shrink (min-width:0), the label chip ellipsates, and the count never clips.
+  /* Up to 2 label chips + a "+N" count (labelChips caps inline chips at 2 in the
+     wide pane, 1 below 520px — see the responsive rule below). The group is bounded
+     so the title keeps the row instead of being crushed to a character: it may
+     shrink (min-width:0), the label chips ellipsate, and the count never clips.
      Combined with .row-text's min-width floor, the title can't collapse to nothing. */
   .chips {
     display: flex;

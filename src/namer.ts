@@ -1,3 +1,20 @@
+/**
+ * Label prefix for the transient background namer spawn (`name <desig>`), spawned by
+ * SessionService.refineNameInBackground.
+ *
+ * The trailing SPACE is load-bearing, and this module is why: the slugs generated below are
+ * `[a-z0-9-]` only, so a space-prefixed label can NEVER collide with a real session name. That
+ * is precisely what lets the boot label-reap in index.ts close prior-lifetime orphans with an
+ * EMPTY owned set — every `name `-prefixed pane at boot is an orphan, never a live session.
+ *
+ * Lives here, in this zero-import leaf, rather than in its consumer (service.ts): the spawn site,
+ * the index.ts boot reap and tab-reaper.ts's husk filter all bind to this ONE constant, so a
+ * renamed label can't silently desync the reap from the spawn (#1147) — and tab-reaper.ts gets
+ * the string without pulling in the whole SessionService graph. Same shape as
+ * {@link AUTOPILOT_LABEL} / {@link VERIFY_KEY_LABEL} / {@link DISTILL_LABEL}.
+ */
+export const NAMER_LABEL = "name ";
+
 // Map the accented letters German (and a few neighbours) prompts carry onto their
 // ASCII transliteration BEFORE we strip non-alphanumerics — otherwise "würde"
 // becomes the unreadable "w-rde" instead of "wuerde".

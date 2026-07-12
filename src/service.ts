@@ -34,7 +34,7 @@ import {
   uploadFilename,
   worktreeUploadsDir,
 } from "./uploads";
-import { slugifyManual, isHeuristicNameStrong } from "./namer";
+import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL } from "./namer";
 import {
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
@@ -1098,13 +1098,6 @@ export { PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO };
  * The reconcile service (draft-reconcile.ts) is the backstop that promotes drafts once signed
  * off; this note is the primary, best-effort signal so the agent opens it correctly up front.
  */
-/** Label prefix for the transient background namer spawn (`name <desig>`). The trailing SPACE is
- *  load-bearing: prompt-derived session slugs are `[a-z0-9-]` only, so a space-prefixed label can't
- *  collide with one — which is what makes the boot label-reap in index.ts safe with an EMPTY owned
- *  set. Exported so the spawn site here, that boot reap, and tab-reaper.ts's husk filter all bind to
- *  ONE constant, and renaming the label can't silently desync the reap from the spawn (#1147). */
-export const NAMER_LABEL = "name ";
-
 export const DRAFT_PR_NOTE =
   "This repo runs in draft mode: when you open the pull request, open it as a DRAFT (`gh pr create --draft`). " +
   "Shepherd promotes it to ready-for-review automatically once it's signed off (a human approval and/or the " +

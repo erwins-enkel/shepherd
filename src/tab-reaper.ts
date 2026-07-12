@@ -5,7 +5,7 @@ import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
 import { MERGE_LABEL } from "./merge-suggest";
 import { AUTOPILOT_LABEL } from "./autopilot";
-import { NAMER_LABEL } from "./service";
+import { NAMER_LABEL } from "./namer";
 import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 

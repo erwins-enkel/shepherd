@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { reapTransientByLabel } from "../src/transient-tab-reaper";
 import { AUTOPILOT_LABEL } from "../src/autopilot";
-import { NAMER_LABEL } from "../src/service";
+import { NAMER_LABEL } from "../src/namer";
 import { VERIFY_KEY_LABEL } from "../src/verify-key";
 
 interface FakeAgent {
@@ -84,9 +84,9 @@ test("herdr unavailable (list throws) → best-effort no-op, never throws", asyn
 // EMPTY owned set at boot correct: no such classifier runs at the synchronous boot point, so
 // every match is a prior-lifetime orphan, and a space-prefixed label cannot collide with a slug.
 
-// The three synchronous block-and-clean helpers, bound to the REAL exported constants — the same
-// values their spawn sites use (autopilot.ts / service.ts / verify-key.ts) and the same ones
-// index.ts boot-reaps. Importing them (rather than re-typing the strings here) is what makes the
+// The three synchronous block-and-clean helpers, bound to the REAL exported constants — declared in
+// namer.ts / autopilot.ts / verify-key.ts, used by their spawn sites, and boot-reaped by index.ts.
+// Importing them (rather than re-typing the strings here) is what makes the
 // producer↔reaper binding compile-enforced: renaming a label at its spawn site now moves this
 // test's expectations with it, instead of leaving the reap silently matching a dead prefix.
 const SYNC_HELPERS = [

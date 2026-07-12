@@ -180,6 +180,7 @@ import { join, normalize, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
 import { markPtyEvent } from "./instrument";
+import { execFileSync } from "./instrument";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultModelSetting,
@@ -5036,10 +5037,14 @@ const branchStatusCache = new Map<string, { at: number; value: BranchStatusValue
 // share ONE promise; the entry clears once it settles (success or failure).
 const branchStatusInflight = new Map<string, Promise<BranchStatusValue>>();
 
-/** Clear the in-memory branch-status cache — for use in tests only. */
-export function clearBranchStatusCacheForTests(): void {
+function clearBranchStatusCache(): void {
   branchStatusCache.clear();
   branchStatusInflight.clear();
+}
+
+/** Clear the in-memory branch-status cache — for use in tests only. */
+export function clearBranchStatusCacheForTests(): void {
+  clearBranchStatusCache();
 }
 
 export async function branchStatusCached(
@@ -5117,6 +5122,54 @@ async function listIssuesWithBlockers(forge: GitForge): Promise<Issue[]> {
     if (b && b.length > 0) i.blockedBy = b;
   }
   return issues;
+}
+
+function initEmptyCommit(dir: string, branch: string): { branch: string } {
+  if (!/^(?!-)[A-Za-z0-9._/-]{1,200}$/.test(branch)) throw new Error("invalid branch");
+  try {
+    execFileSync("git", ["rev-parse", "--verify", "--quiet", `${branch}^{commit}`], {
+      cwd: dir,
+      stdio: "pipe",
+    });
+    return { branch };
+  } catch {
+    // no existing base commit; create the minimal root commit below
+  }
+  execFileSync("git", ["checkout", "-B", branch], { cwd: dir, stdio: "pipe" });
+  execFileSync("git", ["commit", "--allow-empty", "-m", "Initial commit"], {
+    cwd: dir,
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: process.env.GIT_AUTHOR_NAME ?? "Shepherd",
+      GIT_AUTHOR_EMAIL: process.env.GIT_AUTHOR_EMAIL ?? "shepherd@local",
+      GIT_COMMITTER_NAME: process.env.GIT_COMMITTER_NAME ?? "Shepherd",
+      GIT_COMMITTER_EMAIL: process.env.GIT_COMMITTER_EMAIL ?? "shepherd@local",
+    },
+    stdio: "pipe",
+  });
+  return { branch };
+}
+
+async function handleRepoInitEmptyCommit({ req, parts }: Ctx): Promise<Response | null> {
+  if (
+    req.method !== "POST" ||
+    parts[0] !== "api" ||
+    parts[1] !== "repos" ||
+    parts[2] !== "init-empty-commit" ||
+    parts[3]
+  )
+    return null;
+  const body = (await req.json().catch(() => ({}))) as { repo?: string; branch?: string };
+  const dir = safeRepoDir(body.repo ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const branch = (body.branch ?? "main").trim() || "main";
+  try {
+    const result = initEmptyCommit(dir, branch);
+    clearBranchStatusCache();
+    return json(result);
+  } catch (e) {
+    return json({ error: e instanceof Error ? e.message : "initial commit failed" }, 422);
+  }
 }
 
 async function handleIssues({ req, parts, url, deps }: Ctx): Promise<Response | null> {
@@ -6932,6 +6985,7 @@ const ROUTE_HANDLERS = [
   handleBranches,
   handleBranchStatus,
   handleRepoWeb,
+  handleRepoInitEmptyCommit,
   handleIssues,
   handleIssueCreate,
   handlePrsList,

@@ -16,6 +16,7 @@ import {
   putRepoConfig,
   listRepos,
   branchStatus,
+  initEmptyCommit,
   getCommands,
   uploadFile,
 } from "$lib/api";
@@ -33,6 +34,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     putRepoConfig: vi.fn(),
     listRepos: vi.fn(),
     branchStatus: vi.fn(),
+    initEmptyCommit: vi.fn(),
     getCommands: vi.fn(),
     uploadFile: vi.fn(),
   };
@@ -49,6 +51,7 @@ const mockGetRepoConfig = vi.mocked(getRepoConfig);
 const mockPutRepoConfig = vi.mocked(putRepoConfig);
 const mockListRepos = vi.mocked(listRepos);
 const mockBranchStatus = vi.mocked(branchStatus);
+const mockInitEmptyCommit = vi.mocked(initEmptyCommit);
 const mockGetCommands = vi.mocked(getCommands);
 const mockUploadFile = vi.mocked(uploadFile);
 
@@ -98,6 +101,7 @@ beforeEach(() => {
   mockPutRepoConfig.mockReset();
   mockListRepos.mockReset();
   mockBranchStatus.mockReset();
+  mockInitEmptyCommit.mockReset();
   mockGetCommands.mockReset();
   mockUploadFile.mockReset();
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
@@ -119,6 +123,7 @@ beforeEach(() => {
     hasUpstream: true,
     localExists: true,
   });
+  mockInitEmptyCommit.mockResolvedValue({ branch: "main" });
 });
 
 let matchMediaSpy: ReturnType<typeof vi.spyOn> | undefined;
@@ -1133,6 +1138,48 @@ describe("NewTask upstream status hint", () => {
     // Give the debounce time to fire and resolve
     await new Promise((r) => setTimeout(r, 600));
     expect(document.querySelector(".nt-upstream")).toBeNull();
+  });
+
+  it("blocks an unborn base branch and repairs it with an initial commit", async () => {
+    mockListBranches
+      .mockResolvedValueOnce({ current: null, branches: [], default: null })
+      .mockResolvedValue({ current: "main", branches: ["main"], default: null });
+    mockBranchStatus
+      .mockResolvedValueOnce({
+        behind: 0,
+        ahead: 0,
+        diverged: false,
+        hasUpstream: false,
+        localExists: false,
+      })
+      .mockResolvedValue({
+        behind: 0,
+        ahead: 0,
+        diverged: false,
+        hasUpstream: false,
+        localExists: true,
+      });
+    mockInitEmptyCommit.mockResolvedValue({ branch: "main" });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: base({ initialRepoPath: "/repo/unborn", onsubmit }) });
+
+    await expect
+      .poll(() => document.querySelector(".nt-base-repair")?.textContent, { timeout: 2000 })
+      .toContain("initial commit");
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    expect(run.disabled).toBe(true);
+
+    document.querySelector<HTMLButtonElement>(".nt-base-repair button")!.click();
+    await expect.poll(() => mockInitEmptyCommit.mock.calls.length).toBe(1);
+    expect(mockInitEmptyCommit).toHaveBeenCalledWith("/repo/unborn", "main");
+    await expect.poll(() => document.querySelector(".nt-base-repair")).toBeNull();
+    expect(run.disabled).toBe(false);
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "do the thing";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    run.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
   });
 });
 

@@ -3007,5 +3007,11 @@
   "issuerow_epic_owner_notice": "Von {who} angelegt – du kannst trotzdem starten",
   "feat_epic_in_flight_title": "Sieh, wer schon an einem Epic arbeitet",
   "feat_epic_in_flight_body": "Das Backlog kennzeichnet jetzt Epics, an denen bereits jemand anderes arbeitet – ein Badge zeigt, wie viele Kinder in Arbeit sind und von wem, dazu ein dezenter Hinweis neben „Start“ – damit du kein Epic startest, das einem Teamkollegen bereits gehört.",
-  "issuerow_epic_assigned_notice": "Zugewiesen an {who} – du kannst trotzdem starten"
+  "issuerow_epic_assigned_notice": "Zugewiesen an {who} – du kannst trotzdem starten",
+  "newtask_base_missing": "Repo hat noch keinen Commit. Initialen Commit erstellen, dann Task starten.",
+  "newtask_init_commit": "Initialen Commit erstellen",
+  "newtask_init_commit_failed": "Initialer Commit fehlgeschlagen: {reason}.",
+  "newtask_init_commit_running": "Wird erstellt…",
+  "feat_initial_commit_repair_title": "Leere Repos in Neue Aufgabe reparieren",
+  "feat_initial_commit_repair_body": "Wenn das ausgewählte Repo noch keinen initialen Commit hat, blockiert Neue Aufgabe jetzt den aussichtslosen Start und bietet an, direkt den ersten leeren Commit zu erstellen, damit die Aufgabe von einer echten Basis starten kann."
 }

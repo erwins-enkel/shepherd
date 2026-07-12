@@ -59,8 +59,12 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 ### Recommended setup for a remote agent
 
 1. Expose the core to the agent's network — prefer **Tailscale serve** over
-   `SHEPHERD_HOST=0.0.0.0`. Add the ts.net hostname to `SHEPHERD_ALLOWED_HOSTS`
-   only if the agent is browser-based (sends `Origin`).
+   `SHEPHERD_HOST=0.0.0.0`. No allowlist step is needed for a Tailscale-served
+   HUD: Shepherd folds every host `tailscale serve status` shows fronting its
+   port (the node's own tailnet name and any Tailscale Service front) into
+   `SHEPHERD_ALLOWED_HOSTS` at startup. Add a hostname manually only for a
+   browser-based agent (one that sends `Origin`) reaching Shepherd through a
+   **non-Tailscale** proxy or custom-DNS front.
 2. Set a shared secret: `SHEPHERD_TOKEN=<random>` and give it to Hermes. The
    server is **gated by default**, and machine clients can't use the browser
    password login — the bearer token is how they authenticate.

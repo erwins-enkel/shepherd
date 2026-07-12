@@ -26,8 +26,15 @@ Tailscale:
 tailscale serve --bg 7330    # → https://<host>.<tailnet>.ts.net proxies to 127.0.0.1:7330
 ```
 
-Add the public hostname to `SHEPHERD_ALLOWED_HOSTS` (the unit ships with the
-Tailscale name). Access control is layered: the network reach is gated by
+A Tailscale-served HUD needs **no allowlist step**: at startup Shepherd folds
+every host that `tailscale serve status` shows fronting its port into the CSRF
+origin allowlist — the node's own tailnet name (a direct `tailscale serve`, as
+above) as well as a Tailscale **Service** front (e.g. `svc:shepherd` →
+`shepherd.ts.net`). Only a front that doesn't appear in `tailscale serve status`
+— a non-Tailscale reverse proxy or custom-DNS name — still needs its hostname
+added to `SHEPHERD_ALLOWED_HOSTS`.
+
+Access control is layered: the network reach is gated by
 **tailnet membership**, and the app itself is gated by a **single-operator
 password**. The password is exchanged for an HMAC-signed session cookie that
 covers every HTTP route plus the live `/events` and `/pty` WebSocket channels.

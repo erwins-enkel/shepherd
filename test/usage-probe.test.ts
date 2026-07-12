@@ -65,7 +65,10 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
     },
   };
 
-  const res = await new HerdrUsageProbe(herdr, "/repo").scrape();
+  // Inject trust deps so the pre-seed never touches the developer's real ~/.claude.json.
+  const res = await new HerdrUsageProbe(herdr, "/repo", undefined, {
+    readTrusted: async () => true,
+  }).scrape();
 
   expect(res).toBeNull();
   // both leftover probes reaped…
@@ -74,6 +77,87 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
   // …real sessions are left alone — the plain one and the "usage-probe"-slugged user session.
   expect(stopped).not.toContain("keep");
   expect(stopped).not.toContain("user");
+});
+
+// ── trust pre-seed (#1075) ───────────────────────────────────────────────────
+// An untrusted cwd makes claude boot into the folder-trust dialog, eating the probe's
+// /usage keystrokes → null scrape. scrape() now pre-seeds trust (read-gated) before
+// spawning. herdr.start is made to throw so each case returns null right after the
+// pre-seed, letting us assert whether trust() ran — without a real PTY.
+
+function throwingHerdr() {
+  return {
+    list: () => [] as HerdrAgent[],
+    start: async () => {
+      throw new Error("start stubbed — return null after pre-seed");
+    },
+    stop: async () => {},
+  };
+}
+
+test("scrape seeds trust once when the cwd is untrusted", async () => {
+  let trustCalls = 0;
+  const res = await new HerdrUsageProbe(throwingHerdr(), "/repo", undefined, {
+    readTrusted: async () => false,
+    trust: async () => {
+      trustCalls++;
+    },
+  }).scrape();
+
+  expect(res).toBeNull();
+  expect(trustCalls).toBe(1); // pre-seed ran before start
+});
+
+test("scrape does not write when the cwd is already trusted", async () => {
+  let trustCalls = 0;
+  await new HerdrUsageProbe(throwingHerdr(), "/repo", undefined, {
+    readTrusted: async () => true,
+    trust: async () => {
+      trustCalls++;
+    },
+  }).scrape();
+
+  expect(trustCalls).toBe(0); // read-gated: no write when already trusted
+});
+
+test("scrape never touches trust in api-key mode", async () => {
+  const prior = config.authMode;
+  try {
+    config.authMode = "api-key";
+    let touched = false;
+    const res = await new HerdrUsageProbe(throwingHerdr(), "/repo", undefined, {
+      readTrusted: async () => {
+        touched = true;
+        return false;
+      },
+      trust: async () => {
+        touched = true;
+      },
+    }).scrape();
+    expect(res).toBeNull();
+    expect(touched).toBe(false); // api-key short-circuit fires before the pre-seed
+  } finally {
+    config.authMode = prior;
+  }
+});
+
+test("scrape returns null (never throws) when the trust read throws", async () => {
+  const res = await new HerdrUsageProbe(throwingHerdr(), "/repo", undefined, {
+    readTrusted: async () => {
+      throw new Error("EACCES");
+    },
+  }).scrape();
+  expect(res).toBeNull(); // best-effort: a trust failure must not reject scrape()
+});
+
+test("scrape returns null (never throws) when the trust write throws", async () => {
+  const res = await new HerdrUsageProbe(throwingHerdr(), "/repo", undefined, {
+    readTrusted: async () => false,
+    trust: async () => {
+      throw new Error("ENOSPC");
+    },
+  }).scrape();
+  expect(res).toBeNull();
 });
 
 // ── awaitUsageFrame: the credits-grace gate ──────────────────────────────────

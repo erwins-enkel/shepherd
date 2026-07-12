@@ -2967,5 +2967,9 @@
   "issuedetails_aria": "Details zu Issue #{number}",
   "issuedetails_no_body": "Keine Beschreibung.",
   "feat_issue_context_menu_title": "Rechtsklick auf ein Issue für Schnellaktionen",
-  "feat_issue_context_menu_body": "Rechtsklick (oder langes Drücken) auf ein Issue im New-Task-Dialog oder im Backlog öffnet es auf der Forge, zeigt eine Detailvorschau oder legt einen deiner Issue-Steers direkt in den Editor — vorausgefüllt und bereit zum Prüfen, nicht gestartet."
+  "feat_issue_context_menu_body": "Rechtsklick (oder langes Drücken) auf ein Issue im New-Task-Dialog oder im Backlog öffnet es auf der Forge, zeigt eine Detailvorschau oder legt einen deiner Issue-Steers direkt in den Editor — vorausgefüllt und bereit zum Prüfen, nicht gestartet.",
+  "diff_files_label": "Dateien",
+  "diff_note_binary": "Binärdatei",
+  "diff_note_truncated": "große Datei – im Terminal ansehen",
+  "diff_note_no_changes": "keine Textänderungen"
 }

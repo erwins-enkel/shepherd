@@ -61,6 +61,23 @@ export function distinctLabels(issues: readonly Issue[]): string[] {
 }
 
 /**
+ * Merge every issue's `labelColors` into one name → hex map, for the filter popover
+ * (which lists distinct label names across the whole backlog and wants a color per
+ * name, not per issue). Simple last-wins merge; issues without `labelColors` (forge
+ * didn't supply them, or a stale payload predating the field) contribute nothing.
+ */
+export function labelColorMap(issues: readonly Issue[]): Record<string, string> {
+  const map: Record<string, string> = {};
+  for (const issue of issues) {
+    if (!issue.labelColors) continue;
+    for (const [name, hex] of Object.entries(issue.labelColors)) {
+      map[name] = hex;
+    }
+  }
+  return map;
+}
+
+/**
  * Narrow an issue list to a single author. Keeps issues whose `author` equals the
  * selected login; a `null` selection is an identity filter (no author chosen). An issue
  * with no author is dropped when a specific author is selected — correct, since it can't

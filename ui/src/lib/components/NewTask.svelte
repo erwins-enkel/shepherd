@@ -19,13 +19,22 @@
     type Issue,
     type IssueRef,
     type AgentProvider,
+    type ProviderTokenConstraint,
     type RepoEntry,
     type SandboxProfile,
     type SlashCommand,
     type Steer,
   } from "$lib/types";
   import { promoDefaultModel } from "$lib/fable-promo";
-  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
+  import {
+    matchSlashTrigger,
+    filterCommands,
+    applyCommandPick,
+    applyMentionPick,
+    commandInvocation,
+    commandInvocationName,
+    commandProviders,
+  } from "$lib/slash";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
@@ -269,8 +278,11 @@
   let allCommands = $state<SlashCommand[]>([]);
   let slashOpen = $state(false);
   let slashQuery = $state("");
+  let slashTrigger = $state<"/" | "$" | "@">("/");
   let slashIndex = $state(0);
   const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+  let providerTokenConstraints = $state<ProviderTokenConstraint[]>([]);
+  const activeProviderConstraint = $derived(providerTokenConstraints[0] ?? null);
 
   /** Default to the most-recently-used repo; fall back to the first in the list. */
   function defaultRepoPath(list: RepoEntry[]): string {
@@ -581,6 +593,7 @@
     if (trigger) {
       slashOpen = true;
       slashQuery = trigger.query;
+      slashTrigger = trigger.trigger;
       slashIndex = 0;
     } else {
       slashOpen = false;
@@ -589,7 +602,19 @@
 
   function onPromptInput() {
     autogrow();
+    pruneProviderConstraints(prompt);
     refreshSlash();
+  }
+
+  function pruneProviderConstraints(text: string) {
+    providerTokenConstraints = providerTokenConstraints.filter((c) => text.includes(c.token));
+  }
+
+  function providerForPick(cmd: SlashCommand, trigger: "/" | "$" | "@"): AgentProvider {
+    const providers = commandProviders(cmd);
+    if ((trigger === "$" || trigger === "@") && providers.includes("codex")) return "codex";
+    if (trigger === "/" && providers.includes("claude")) return "claude";
+    return providers[0] ?? agentProvider;
   }
 
   // Replace the typed `/query` token with the chosen command and hoist it to the
@@ -598,14 +623,54 @@
   // argument. Caret lands past `/name ` so the user can type arguments straight away.
   function pickCommand(cmd: SlashCommand) {
     const caret = promptInput?.selectionStart ?? prompt.length;
-    const start = matchSlashTrigger(prompt, caret)?.start ?? 0;
-    const next = applyCommandPick(prompt, start, caret, cmd.name);
+    const trigger = matchSlashTrigger(prompt, caret);
+    const start = trigger?.start ?? 0;
+    const pickedProvider = providerForPick(cmd, trigger?.trigger ?? "/");
+    agentProvider = pickedProvider;
+    const token = commandInvocation(cmd, pickedProvider);
+    const next =
+      pickedProvider === "codex"
+        ? applyMentionPick(prompt, start, caret, commandInvocationName(cmd))
+        : applyCommandPick(prompt, start, caret, commandInvocationName(cmd));
     prompt = next.value;
+    providerTokenConstraints = [
+      {
+        id: cmd.id ?? `${pickedProvider}:${cmd.name}`,
+        commandId: cmd.id,
+        token,
+        providers: commandProviders(cmd),
+        label: cmd.displayName ?? cmd.name,
+      },
+    ];
     slashOpen = false;
     queueMicrotask(() => {
       autogrow();
       promptInput?.focus();
       promptInput?.setSelectionRange(next.caret, next.caret);
+    });
+  }
+
+  function pickCommandFromSource(cmd: SlashCommand) {
+    const providers = commandProviders(cmd);
+    const provider = providers.includes(agentProvider)
+      ? agentProvider
+      : (providers[0] ?? agentProvider);
+    agentProvider = provider;
+    const token = commandInvocation(cmd, provider);
+    prompt = provider === "codex" ? `${token} ` : `${token} `;
+    providerTokenConstraints = [
+      {
+        id: cmd.id ?? `${provider}:${cmd.name}`,
+        commandId: cmd.id,
+        token,
+        providers,
+        label: cmd.displayName ?? cmd.name,
+      },
+    ];
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+      promptInput?.setSelectionRange(prompt.length, prompt.length);
     });
   }
 
@@ -707,11 +772,27 @@
     submitting = true;
     error = null;
     retry = null;
+    const finalPrompt = prompt.trim();
+    pruneProviderConstraints(finalPrompt);
+    const incompatible = providerTokenConstraints.find(
+      (c) => finalPrompt.includes(c.token) && !c.providers.includes(agentProvider),
+    );
+    if (incompatible) {
+      submitting = false;
+      error = m.newtask_provider_constraint_error({
+        command: incompatible.label,
+        provider:
+          incompatible.providers[0] === "codex"
+            ? m.agent_provider_codex()
+            : m.agent_provider_claude(),
+      });
+      return;
+    }
     try {
       await onsubmit({
         repoPath: repoPath.trim(),
         baseBranch: baseBranch.trim() || "main",
-        prompt: prompt.trim(),
+        prompt: finalPrompt,
         agentProvider,
         model: model !== "default" ? model : null,
         effort: effort !== "default" ? effort : null,
@@ -970,6 +1051,7 @@
           <SlashCommandMenu
             commands={slashMatches}
             activeIndex={slashIndex}
+            provider={slashTrigger === "/" ? agentProvider : "codex"}
             onpick={pickCommand}
             onhover={(i) => (slashIndex = i)}
           />
@@ -1053,6 +1135,7 @@
               promptInput?.setSelectionRange(prompt.length, prompt.length);
             });
           }}
+          onpickcommand={pickCommandFromSource}
           onpickissue={pickIssue}
           onpicksteer={injectSteer}
         />
@@ -1107,6 +1190,7 @@
         {usageLimits}
         {relaunch}
         {fableAvailable}
+        providerConstraint={activeProviderConstraint}
       />
 
       {#if error}

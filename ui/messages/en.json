@@ -3014,5 +3014,12 @@
   "newtask_init_commit_running": "Creating…",
   "feat_initial_commit_repair_title": "Repair empty repos from New Task",
   "feat_initial_commit_repair_body": "When a selected repo has no initial commit yet, New Task now blocks the doomed launch and offers to create the first empty commit in place so the task can start from a real base.",
-  "newtask_init_commit_unknown_reason": "Unknown error"
+  "newtask_init_commit_unknown_reason": "Unknown error",
+  "provider_badge_claude": "Claude",
+  "provider_badge_codex": "Codex",
+  "provider_badge_both": "Both",
+  "newtask_provider_constraint_note": "{command} requires {provider}.",
+  "newtask_provider_constraint_error": "{command} requires {provider}. Remove the token or switch CLI.",
+  "feat_provider_aware_skills_title": "Provider-aware skills",
+  "feat_provider_aware_skills_body": "The New Task and compose pickers now understand Claude slash commands and direct Codex skills. Use / for Claude, $ for Codex, or bare @ as a Codex picker alias; rows show whether they run in Claude, Codex, or both."
 }

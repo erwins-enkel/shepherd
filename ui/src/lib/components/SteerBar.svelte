@@ -8,11 +8,13 @@
   import { m } from "$lib/paraglide/messages";
   import SteerMenu from "$lib/components/SteerMenu.svelte";
   import ControlBar from "$lib/components/ControlBar.svelte";
-  import type { Steer } from "$lib/types";
+  import type { AgentProvider, Steer } from "$lib/types";
 
   let {
     focusedId,
     repoPath,
+    agentProvider = "claude",
+    onbroadcast,
     onretry,
     retryHaltedCount = 0,
     retryReady = false,
@@ -25,6 +27,8 @@
   }: {
     focusedId: string;
     repoPath: string;
+    agentProvider?: AgentProvider;
+    onbroadcast?: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
@@ -39,7 +43,9 @@
   // Only steer-bar-scoped entries render here; issue-scoped ones live on backlog rows.
   // Also gated to steers bound to this session's repo (or universal ones).
   const chips = $derived(
-    steers.list.filter((s) => s.inSteerBar && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+    steers.list.filter(
+      (s) => s.inSteerBar && steerAppliesToRepo(s, repos.nameFor(repoPath), agentProvider),
+    ),
   );
 
   // One-time coachmark: the steer chips are tap-to-send — not obvious on first sight.
@@ -187,6 +193,19 @@
     aria-label={m.steerbar_toolbar_aria()}
     use:fitLabels
   >
+    {#if onbroadcast}
+      <button
+        type="button"
+        class="chip bc"
+        onpointerdown={down}
+        onpointermove={move}
+        onpointercancel={cancel}
+        onpointerup={(e) => tap(e, onbroadcast)}
+        title={m.steerbar_broadcast_aria()}
+        aria-label={m.steerbar_broadcast_aria()}
+        >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
+      >
+    {/if}
     {#if retryReady && retryHaltedCount > 0}
       <button
         type="button"

@@ -6,6 +6,8 @@ import { listCommands } from "../src/commands";
 
 let userClaude: string;
 let repo: string;
+let userHome: string;
+let codexHome: string;
 
 function skill(claudeDir: string, name: string, body: string) {
   mkdirSync(join(claudeDir, "skills", name), { recursive: true });
@@ -20,6 +22,8 @@ function command(claudeDir: string, file: string, body: string) {
 beforeEach(() => {
   userClaude = mkdtempSync(join(tmpdir(), "shepherd-cmds-user-"));
   repo = mkdtempSync(join(tmpdir(), "shepherd-cmds-repo-"));
+  userHome = mkdtempSync(join(tmpdir(), "shepherd-cmds-home-"));
+  codexHome = mkdtempSync(join(tmpdir(), "shepherd-cmds-codex-"));
 
   // user-scope skills
   skill(userClaude, "alpha", "---\nname: alpha-skill\ndescription: Alpha does things\n---\nbody");
@@ -41,12 +45,18 @@ beforeEach(() => {
 afterEach(() => {
   rmSync(userClaude, { recursive: true, force: true });
   rmSync(repo, { recursive: true, force: true });
+  rmSync(userHome, { recursive: true, force: true });
+  rmSync(codexHome, { recursive: true, force: true });
 });
+
+function commands(repoDir: string | null, claude: string) {
+  return listCommands(repoDir, claude, { userHome, codexHome });
+}
 
 /** Names contributed by skills/commands/plugins, with the always-present builtins
  *  filtered out — keeps the file-scan assertions stable as builtins evolve. */
 function nonBuiltin(repoDir: string | null, claude: string) {
-  return listCommands(repoDir, claude)
+  return commands(repoDir, claude)
     .filter((c) => c.scope !== "builtin")
     .map((c) => c.name);
 }
@@ -62,32 +72,40 @@ test("merges user + project commands, sorted by name", () => {
 });
 
 test("skill name comes from front-matter, scope is user", () => {
-  const alpha = listCommands(repo, userClaude).find((c) => c.name === "alpha-skill");
-  expect(alpha).toEqual({ name: "alpha-skill", description: "Alpha does things", scope: "user" });
+  const alpha = commands(repo, userClaude).find((c) => c.name === "alpha-skill");
+  expect(alpha).toMatchObject({
+    name: "alpha-skill",
+    description: "Alpha does things",
+    scope: "user",
+  });
 });
 
 test("skill name falls back to directory, description to first body line", () => {
-  const noname = listCommands(repo, userClaude).find((c) => c.name === "noname");
-  expect(noname).toEqual({ name: "noname", description: "No Front Matter", scope: "user" });
+  const noname = commands(repo, userClaude).find((c) => c.name === "noname");
+  expect(noname).toMatchObject({
+    name: "noname",
+    description: "No Front Matter",
+    scope: "user",
+  });
 });
 
 test("command description falls back to first body line", () => {
-  const bar = listCommands(repo, userClaude).find((c) => c.name === "bar");
-  expect(bar).toEqual({ name: "bar", description: "Do the bar thing", scope: "user" });
+  const bar = commands(repo, userClaude).find((c) => c.name === "bar");
+  expect(bar).toMatchObject({ name: "bar", description: "Do the bar thing", scope: "user" });
 });
 
 test("project shadows user on a name clash", () => {
-  const foo = listCommands(repo, userClaude).find((c) => c.name === "foo");
-  expect(foo).toEqual({ name: "foo", description: "project foo", scope: "project" });
+  const foo = commands(repo, userClaude).find((c) => c.name === "foo");
+  expect(foo).toMatchObject({ name: "foo", description: "project foo", scope: "project" });
 });
 
 test("merge-train is project-scoped", () => {
-  const mt = listCommands(repo, userClaude).find((c) => c.name === "merge-train");
+  const mt = commands(repo, userClaude).find((c) => c.name === "merge-train");
   expect(mt?.scope).toBe("project");
 });
 
 test("non-.md files in commands are ignored", () => {
-  expect(listCommands(repo, userClaude).some((c) => c.name === "ignore")).toBe(false);
+  expect(commands(repo, userClaude).some((c) => c.name === "ignore")).toBe(false);
 });
 
 test("null repoDir → user scope only (no project commands)", () => {
@@ -98,7 +116,7 @@ test("null repoDir → user scope only (no project commands)", () => {
 
 test("missing dirs → builtins only, no throw", () => {
   const missing = join(userClaude, "does-not-exist");
-  const cmds = listCommands(null, missing);
+  const cmds = commands(null, missing);
   expect(cmds.every((c) => c.scope === "builtin")).toBe(true);
   expect(cmds.length).toBeGreaterThan(0);
 });
@@ -106,7 +124,7 @@ test("missing dirs → builtins only, no throw", () => {
 // ── builtins, argument-hint, plugins (the enrichment over #147) ────────────────
 
 test("curated builtins are always present and scoped builtin", () => {
-  const cmds = listCommands(repo, userClaude);
+  const cmds = commands(repo, userClaude);
   const review = cmds.find((c) => c.name === "review");
   expect(review?.scope).toBe("builtin");
   expect(cmds.some((c) => c.name === "security-review" && c.scope === "builtin")).toBe(true);
@@ -118,7 +136,7 @@ test("front-matter argument-hint is surfaced", () => {
     "ticketed.md",
     "---\ndescription: needs a ticket\nargument-hint: <ticket>\n---\n",
   );
-  const cmd = listCommands(null, userClaude).find((c) => c.name === "ticketed");
+  const cmd = commands(null, userClaude).find((c) => c.name === "ticketed");
   expect(cmd?.argumentHint).toBe("<ticket>");
 });
 
@@ -137,7 +155,7 @@ test("installed plugins are scanned, namespaced, and re-rooted from a foreign in
       },
     }),
   );
-  const cmds = listCommands(null, userClaude);
+  const cmds = commands(null, userClaude);
   expect(cmds.find((c) => c.name === "myplugin:deploy")?.scope).toBe("plugin");
   expect(cmds.find((c) => c.name === "myplugin:scan")?.scope).toBe("plugin");
 });
@@ -146,7 +164,7 @@ test("over-long description is truncated with an ellipsis", () => {
   const long = mkdtempSync(join(tmpdir(), "shepherd-cmds-long-"));
   try {
     command(long, "big.md", `---\ndescription: ${"x".repeat(400)}\n---\n`);
-    const big = listCommands(null, long).find((c) => c.name === "big");
+    const big = commands(null, long).find((c) => c.name === "big");
     expect(big!.description.length).toBeLessThanOrEqual(280);
     expect(big!.description.endsWith("…")).toBe(true);
   } finally {

@@ -10,6 +10,7 @@
     AGENT_PROVIDERS,
     CODEX_MODELS,
     type AgentProvider,
+    type ProviderTokenConstraint,
     type SandboxProfile,
     type UsageLimits,
   } from "$lib/types";
@@ -37,6 +38,7 @@
     relaunch,
     holdLikely,
     fableAvailable,
+    providerConstraint = null,
   }: {
     planGate: boolean;
     research: boolean;
@@ -60,6 +62,7 @@
     relaunch: boolean;
     holdLikely: boolean;
     fableAvailable: boolean;
+    providerConstraint?: ProviderTokenConstraint | null;
   } = $props();
 
   const provModels = $derived(providerModels(agentProvider));
@@ -69,6 +72,9 @@
   const modeLocked = $derived(research || epicAuthoring);
 
   function agentProviderChanged() {
+    if (providerConstraint && !providerConstraint.providers.includes(agentProvider)) {
+      agentProvider = providerConstraint.providers[0] ?? "claude";
+    }
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
     }
@@ -227,12 +233,26 @@
       <label class="micro" for="nt-agent-provider">{m.newtask_agent_provider_label()}</label>
       <select id="nt-agent-provider" bind:value={agentProvider} onchange={agentProviderChanged}>
         {#each AGENT_PROVIDERS as provider (provider)}
-          <option value={provider}>
+          <option
+            value={provider}
+            disabled={!!providerConstraint && !providerConstraint.providers.includes(provider)}
+          >
             {provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha()}
           </option>
         {/each}
       </select>
       <ProviderCapacityGauge limits={usageLimits} />
+      {#if providerConstraint}
+        <p class="pg-hint">
+          {m.newtask_provider_constraint_note({
+            command: providerConstraint.label,
+            provider:
+              providerConstraint.providers[0] === "codex"
+                ? m.agent_provider_codex()
+                : m.agent_provider_claude(),
+          })}
+        </p>
+      {/if}
     </div>
 
     <div class="model-field" use:coachTarget={"model-1m-context"}>

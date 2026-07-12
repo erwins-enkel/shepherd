@@ -1,11 +1,28 @@
 import type { SlashCommand } from "./types";
 
+export type CommandTrigger = "/" | "$" | "@";
+
+export function commandProviders(command: SlashCommand): Array<"claude" | "codex"> {
+  return command.providers && command.providers.length > 0 ? command.providers : ["claude"];
+}
+
+export function commandInvocation(command: SlashCommand, provider: "claude" | "codex"): string {
+  return (
+    command.invocations?.[provider] ??
+    (provider === "codex" ? `$${command.name}` : `/${command.name}`)
+  );
+}
+
+export function commandInvocationName(command: SlashCommand): string {
+  return command.invocationName ?? command.name;
+}
+
 /**
- * Detect a slash-command trigger from the text up to the caret. A `/` triggers the
+ * Detect a command/skill trigger from the text up to the caret. `/` and `$` trigger the
  * picker when it begins a new token — at the very start of the prompt, or right after
  * whitespace/newline — followed by zero or more non-space chars up to the caret.
- * Returns the typed query (without the slash) and the index of the `/`, or null when
- * no trigger is active.
+ * Bare `@` opens Shepherd's Codex alias picker, but any non-empty `@...` token is
+ * left untouched for Codex native mentions.
  *
  * The `/` must start a token: `a/foo` (a path, a mid-word slash) does not trigger.
  * Claude only *runs* a slash command when it leads the prompt, so a command typed
@@ -22,11 +39,22 @@ import type { SlashCommand } from "./types";
 export function matchSlashTrigger(
   text: string,
   caret: number,
-): { query: string; start: number } | null {
+): { query: string; start: number; trigger: CommandTrigger } | null {
   const before = text.slice(0, Math.max(0, caret));
-  const m = /(^|\s)\/(\S*)$/.exec(before);
+  const m = /(^|\s)([/$@])(\S*)$/.exec(before);
   if (!m) return null;
-  return { query: m[2]!, start: m.index + m[1]!.length };
+  const trigger = m[2] as CommandTrigger;
+  const query = m[3]!;
+  if (trigger === "@" && query !== "") return null;
+  if (trigger === "$" && isShellVariableToken(query)) return null;
+  return { query, start: m.index + m[1]!.length, trigger };
+}
+
+function isShellVariableToken(query: string): boolean {
+  if (query === "") return false;
+  if (query.startsWith("{")) return true;
+  if (/^[0-9?@$*#!-]/.test(query)) return true;
+  return /^[A-Z_][A-Z0-9_]*/.test(query);
 }
 
 /**
@@ -50,17 +78,37 @@ export function applyCommandPick(
   return { value: lead + rest, caret: lead.length };
 }
 
+/** Replace a `$query` or bare `@` trigger token in place with a Codex `$name` mention. */
+export function applyMentionPick(
+  text: string,
+  start: number,
+  caret: number,
+  name: string,
+): { value: string; caret: number } {
+  const lead = text.slice(0, start);
+  const tail = text.slice(caret);
+  const token = `$${name} `;
+  return { value: lead + token + tail.replace(/^\s+/, ""), caret: lead.length + token.length };
+}
+
 /**
  * Filter commands by the typed query (case-insensitive). Empty query → all.
  * Prefix matches rank above mid-name substring matches; ties keep input order
  * (the list arrives already sorted by name).
  */
-export function filterCommands(commands: SlashCommand[], query: string): SlashCommand[] {
+export function filterCommands(
+  commands: SlashCommand[],
+  query: string,
+  provider?: "claude" | "codex",
+): SlashCommand[] {
   const q = query.toLowerCase();
-  if (!q) return commands;
+  const filtered = provider
+    ? commands.filter((c) => commandProviders(c).includes(provider))
+    : commands;
+  if (!q) return filtered;
   const prefix: SlashCommand[] = [];
   const substr: SlashCommand[] = [];
-  for (const c of commands) {
+  for (const c of filtered) {
     const name = c.name.toLowerCase();
     if (name.startsWith(q)) prefix.push(c);
     else if (name.includes(q)) substr.push(c);

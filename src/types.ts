@@ -338,6 +338,8 @@ export interface Steer {
   /** Allowlist of repo NAMES this steer is bound to (the dir name listRepos enumerates
    *  under repoRoot). Empty/absent = universal (shows on every repo). */
   repos?: string[];
+  /** Optional provider allowlist. Empty/absent = universal. */
+  agentProviders?: AgentProvider[];
 }
 
 // ── git diff review panel ──────────────────────────────────────────────────

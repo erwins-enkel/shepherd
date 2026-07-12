@@ -1133,10 +1133,31 @@ export async function cancelWorkflowRun(repoPath: string, runId: number): Promis
 }
 
 /** Installed slash commands (skills + command files) for the New Task picker. */
-export async function getCommands(repoPath: string): Promise<{ commands: SlashCommand[] }> {
-  const r = await fetch(`/api/commands?repo=${encodeURIComponent(repoPath)}`);
+export type CommandDiscoveryContext =
+  | { kind: "new-task"; repoPath: string; baseBranch?: string | null; agentProvider?: string }
+  | { kind: "session"; sessionId: string }
+  | { kind: "held"; heldTaskId: string }
+  | { kind: "replace"; sessionId: string; handoffMode: "default" | "summarize" };
+
+export interface CommandDiscoveryRequest {
+  repoPath?: string;
+  context?: CommandDiscoveryContext;
+}
+
+export async function fetchCommands(
+  request: CommandDiscoveryRequest,
+): Promise<{ commands: SlashCommand[] }> {
+  const params = new URLSearchParams();
+  if (request.repoPath) params.set("repo", request.repoPath);
+  if (request.context) params.set("context", JSON.stringify(request.context));
+  const qs = params.toString();
+  const r = await fetch(`/api/commands${qs ? `?${qs}` : ""}`);
   if (!r.ok) throw await failed(r, "commands");
   return r.json();
+}
+
+export async function getCommands(repoPath: string): Promise<{ commands: SlashCommand[] }> {
+  return fetchCommands({ repoPath });
 }
 
 const JSON_POST = (body?: unknown): RequestInit => ({

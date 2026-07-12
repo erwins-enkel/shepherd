@@ -999,6 +999,18 @@ function validateSteerRepos(v: unknown): string[] | undefined | null {
   return seen.size === 0 ? undefined : [...seen];
 }
 
+function validateSteerAgentProviders(v: unknown): AgentProvider[] | undefined | null {
+  if (v === undefined || v === null) return undefined;
+  if (!Array.isArray(v)) return null;
+  const out: AgentProvider[] = [];
+  for (const p of v) {
+    if (!(AGENT_PROVIDERS as readonly unknown[]).includes(p)) return null;
+    if (!out.includes(p as AgentProvider)) out.push(p as AgentProvider);
+  }
+  if (out.length === 0 || out.length === AGENT_PROVIDERS.length) return undefined;
+  return out;
+}
+
 /** Validate a steer's required label + text strings. Returns null on any violation. */
 function validateSteerLabelText(
   o: Record<string, unknown>,
@@ -1033,7 +1045,8 @@ function validateSteerItem(it: unknown): Steer | null {
   if (labelText === null || surfaces === null) return null;
   const emoji = validateSteerEmoji(o.emoji);
   const repos = validateSteerRepos(o.repos);
-  if (emoji === null || repos === null) return null;
+  const agentProviders = validateSteerAgentProviders(o.agentProviders);
+  if (emoji === null || repos === null || agentProviders === null) return null;
   const id = typeof o.id === "string" && o.id.length > 0 ? o.id : randomUUID();
   return {
     id,
@@ -1043,6 +1056,7 @@ function validateSteerItem(it: unknown): Steer | null {
     inSteerBar: surfaces.inSteerBar,
     onIssues: surfaces.onIssues,
     ...(repos !== undefined ? { repos } : {}),
+    ...(agentProviders !== undefined ? { agentProviders } : {}),
   };
 }
 

@@ -4,8 +4,14 @@
   import { insertNewlineAt } from "$lib/compose";
   import { getCommands } from "$lib/api";
   import { createDictation } from "$lib/dictation.svelte";
-  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
-  import type { SlashCommand } from "$lib/types";
+  import {
+    matchSlashTrigger,
+    filterCommands,
+    applyCommandPick,
+    applyMentionPick,
+    commandInvocationName,
+  } from "$lib/slash";
+  import type { AgentProvider, SlashCommand } from "$lib/types";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { steers } from "$lib/steers.svelte";
@@ -26,11 +32,13 @@
     onsend,
     onclose,
     repoPath,
+    agentProvider = "claude",
     startDictation = false,
   }: {
     onsend: (text: string) => void;
     onclose: () => void;
     repoPath: string;
+    agentProvider?: AgentProvider;
     // open the overlay already listening (mic entry); typing-only entries pass
     // false so the keyboard comes up without recording
     startDictation?: boolean;
@@ -44,14 +52,17 @@
   let allCommands = $state<SlashCommand[]>([]);
   let slashOpen = $state(false);
   let slashQuery = $state("");
+  let slashTrigger = $state<"/" | "$" | "@">("/");
   let slashIndex = $state(0);
-  const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+  const slashMatches = $derived(
+    slashOpen ? filterCommands(allCommands, slashQuery, agentProvider) : [],
+  );
 
   // Steer chips ignore inSteerBar by design (every steer shows here), but still
   // gate on repo binding — universal steers always show, bound ones only for a
   // matching repo.
   const availableSteers = $derived(
-    steers.list.filter((s) => steerAppliesToRepo(s, repos.nameFor(repoPath))),
+    steers.list.filter((s) => steerAppliesToRepo(s, repos.nameFor(repoPath), agentProvider)),
   );
 
   // Load the slash-command list for this session's repo (its own
@@ -79,6 +90,7 @@
     if (trigger) {
       slashOpen = true;
       slashQuery = trigger.query;
+      slashTrigger = trigger.trigger;
       slashIndex = 0;
     } else {
       slashOpen = false;
@@ -92,7 +104,10 @@
   function pickCommand(cmd: SlashCommand) {
     const caret = ta?.selectionStart ?? value.length;
     const start = matchSlashTrigger(value, caret)?.start ?? 0;
-    const next = applyCommandPick(value, start, caret, cmd.name);
+    const next =
+      agentProvider === "codex"
+        ? applyMentionPick(value, start, caret, commandInvocationName(cmd))
+        : applyCommandPick(value, start, caret, commandInvocationName(cmd));
     value = next.value;
     slashOpen = false;
     queueMicrotask(() => {
@@ -327,6 +342,7 @@
         <SlashCommandMenu
           commands={slashMatches}
           activeIndex={slashIndex}
+          provider={agentProvider === "codex" || slashTrigger !== "/" ? "codex" : "claude"}
           placement="up"
           onpick={pickCommand}
           onhover={(i) => (slashIndex = i)}

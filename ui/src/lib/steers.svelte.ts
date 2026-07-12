@@ -6,7 +6,14 @@ import { getSteers, putSteers } from "./api";
  *  bar chip instead of vanishing from every surface. Mirrors the server normalize();
  *  emoji stays optional (server-side migration assigns legacy defaults). */
 function normalize(s: Steer & { inSteerBar?: boolean; onIssues?: boolean }): Steer {
-  return { ...s, inSteerBar: s.inSteerBar ?? true, onIssues: s.onIssues ?? false };
+  const agentProviders =
+    s.agentProviders && s.agentProviders.length === 1 ? s.agentProviders : undefined;
+  return {
+    ...s,
+    inSteerBar: s.inSteerBar ?? true,
+    onIssues: s.onIssues ?? false,
+    ...(agentProviders ? { agentProviders } : { agentProviders: undefined }),
+  };
 }
 
 // Client cache of the saved canned steers. Loaded once on app start; every

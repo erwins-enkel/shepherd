@@ -3014,5 +3014,12 @@
   "newtask_init_commit_running": "Wird erstellt…",
   "feat_initial_commit_repair_title": "Leere Repos in Neue Aufgabe reparieren",
   "feat_initial_commit_repair_body": "Wenn das ausgewählte Repo noch keinen initialen Commit hat, blockiert Neue Aufgabe jetzt den aussichtslosen Start und bietet an, direkt den ersten leeren Commit zu erstellen, damit die Aufgabe von einer echten Basis starten kann.",
-  "newtask_init_commit_unknown_reason": "Unbekannter Fehler"
+  "newtask_init_commit_unknown_reason": "Unbekannter Fehler",
+  "provider_badge_claude": "Claude",
+  "provider_badge_codex": "Codex",
+  "provider_badge_both": "Beide",
+  "newtask_provider_constraint_note": "{command} benötigt {provider}.",
+  "newtask_provider_constraint_error": "{command} benötigt {provider}. Entferne den Token oder wechsle die CLI.",
+  "feat_provider_aware_skills_title": "Provider-bewusste Skills",
+  "feat_provider_aware_skills_body": "Die Picker in Neuer Task und Compose verstehen jetzt Claude-Slash-Commands und direkte Codex-Skills. Nutze / für Claude, $ für Codex oder ein einzelnes @ als Codex-Picker-Alias; Zeilen zeigen, ob sie in Claude, Codex oder beiden laufen."
 }

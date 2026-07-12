@@ -249,11 +249,27 @@ export interface IssueRef {
  *  "Commands" tab; picking one seeds the prompt with `/<name> `. */
 export type SlashCommandScope = "project" | "user" | "plugin" | "builtin";
 export interface SlashCommand {
+  id?: string;
   name: string;
+  displayName?: string;
   description: string;
   scope: SlashCommandScope;
+  kind?: "skill" | "command";
+  invocationName?: string;
+  sourceNamespace?: string;
+  sourcePath?: string;
+  providers?: AgentProvider[];
+  invocations?: Partial<Record<AgentProvider, string>>;
   /** Front-matter `argument-hint` (e.g. "<ticket>"), shown dimmed after the name. */
   argumentHint?: string;
+}
+
+export interface ProviderTokenConstraint {
+  id: string;
+  commandId?: string;
+  token: string;
+  providers: AgentProvider[];
+  label: string;
 }
 
 export type BlockShape = "menu" | "yes-no" | "awaiting-input" | "stall" | "quota";
@@ -1862,6 +1878,8 @@ export interface Steer {
   /** Allowlist of repo NAMES this steer is bound to (the dir name listRepos enumerates
    *  under repoRoot). Empty/absent = universal (shows on every repo). */
   repos?: string[];
+  /** Optional provider allowlist. Empty/absent = universal. */
+  agentProviders?: AgentProvider[];
 }
 
 // ── git diff review panel ──────────────────────────────────────────────────

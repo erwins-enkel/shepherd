@@ -19,8 +19,7 @@
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
-  import IssueContextMenu from "./IssueContextMenu.svelte";
-  import IssueDetailsPopover from "./IssueDetailsPopover.svelte";
+  import IssueMenuLayer from "./IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "./issue-menu-trigger";
   import { steers } from "$lib/steers.svelte";
   import { repos } from "$lib/repos.svelte";
@@ -86,6 +85,12 @@
     const i = menu?.issue;
     menu = null;
     if (i) onpicksteer?.(i, steer);
+  }
+  function closeMenu() {
+    menu = null;
+  }
+  function closeDetails() {
+    details = null;
   }
 
   let tab = $state<"todo" | "issues" | "commands">("todo");
@@ -444,29 +449,16 @@
   </div>
 </div>
 
-{#if menu}
-  <IssueContextMenu
-    x={menu.x}
-    y={menu.y}
-    number={menu.issue.number}
-    steers={issueActions}
-    canSteer={menu.canSteer}
-    opener={menu.opener}
-    onopenissue={openIssue}
-    ondetails={showDetails}
-    onsteer={pickSteer}
-    onclose={() => (menu = null)}
-  />
-{/if}
-{#if details}
-  <IssueDetailsPopover
-    x={details.x}
-    y={details.y}
-    issue={details.issue}
-    opener={details.opener}
-    onclose={() => (details = null)}
-  />
-{/if}
+<IssueMenuLayer
+  {menu}
+  {details}
+  steers={issueActions}
+  onopenissue={openIssue}
+  onshowdetails={showDetails}
+  onsteer={pickSteer}
+  onclosemenu={closeMenu}
+  onclosedetails={closeDetails}
+/>
 
 {#snippet issueAuthor(login: string | undefined)}
   {#if login}

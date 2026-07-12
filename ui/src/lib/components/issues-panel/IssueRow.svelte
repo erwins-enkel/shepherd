@@ -8,8 +8,7 @@
   import { ACTIVE_LABEL } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
-  import IssueContextMenu from "../IssueContextMenu.svelte";
-  import IssueDetailsPopover from "../IssueDetailsPopover.svelte";
+  import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
@@ -57,16 +56,24 @@
     ontoggleepic: (number: number) => void;
   } = $props();
 
-  // Right-click / long-press context menu + details preview state (this row's issue).
-  let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
-  let details = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
+  // Right-click / long-press context menu + details preview state. Both carry the
+  // issue so <IssueMenuLayer> stays host-agnostic (shared with PromptSources).
+  type MenuState = { issue: Issue; x: number; y: number; opener: HTMLElement; canSteer: boolean };
+  type DetailsState = { issue: Issue; x: number; y: number; opener: HTMLElement };
+  let menu = $state<MenuState | null>(null);
+  let details = $state<DetailsState | null>(null);
 
+  // Trigger opener (mouse right-click / touch long-press). Epic-parent rows omit the
+  // steer items (canSteer), same footgun guard as the disabled quick-launch/+Task.
+  function openMenu(x: number, y: number, node: HTMLElement) {
+    menu = { issue, x, y, opener: node, canSteer: !isEpicParent && oninject != null };
+  }
   // "Show details" lives inside the menu, so the outside-pointerdown dismiss won't
   // close it — close explicitly and carry the ROW as the popover's opener.
   function showDetails() {
     const d = menu;
     menu = null;
-    if (d) details = d;
+    if (d) details = { issue: d.issue, x: d.x, y: d.y, opener: d.opener };
   }
   function openIssue() {
     menu = null;
@@ -75,6 +82,12 @@
   function pickSteer(steer: Steer) {
     menu = null;
     oninject?.(issue, steer);
+  }
+  function closeMenu() {
+    menu = null;
+  }
+  function closeDetails() {
+    details = null;
   }
 
   // Epic-parent rows disable quick-launch + Task: an epic is launched via the epic
@@ -130,7 +143,7 @@
   class:is-epic={isEpicParent}
   id={`epic-issue-row-${issue.number}`}
   use:epicRowClick
-  use:issueMenuTrigger={{ onopen: (x, y, node) => (menu = { x, y, opener: node }) }}
+  use:issueMenuTrigger={{ onopen: openMenu }}
 >
   <div class="issue-top">
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
@@ -251,29 +264,16 @@
   {/if}
 </div>
 
-{#if menu}
-  <IssueContextMenu
-    x={menu.x}
-    y={menu.y}
-    number={issue.number}
-    steers={issueActions}
-    canSteer={!isEpicParent && oninject != null}
-    opener={menu.opener}
-    onopenissue={openIssue}
-    ondetails={showDetails}
-    onsteer={pickSteer}
-    onclose={() => (menu = null)}
-  />
-{/if}
-{#if details}
-  <IssueDetailsPopover
-    x={details.x}
-    y={details.y}
-    {issue}
-    opener={details.opener}
-    onclose={() => (details = null)}
-  />
-{/if}
+<IssueMenuLayer
+  {menu}
+  {details}
+  steers={issueActions}
+  onopenissue={openIssue}
+  onshowdetails={showDetails}
+  onsteer={pickSteer}
+  onclosemenu={closeMenu}
+  onclosedetails={closeDetails}
+/>
 
 <style>
   .issue-row {

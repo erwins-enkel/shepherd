@@ -23,6 +23,10 @@
     onreattach,
     onfullscreen,
     onresume,
+    fontSize,
+    fontAtMin,
+    fontAtMax,
+    onfontstep,
   }: {
     compact: boolean;
     renaming: boolean;
@@ -44,6 +48,11 @@
     onreattach: () => void;
     onfullscreen: () => void;
     onresume: () => void;
+    // experimental terminal font-size stepper (forwarded to RedrawMenu)
+    fontSize: number;
+    fontAtMin: boolean;
+    fontAtMax: boolean;
+    onfontstep: (delta: number) => void;
   } = $props();
 
   // redraw button ref is used only here — local. Its unmount drops the anchor,
@@ -121,6 +130,10 @@
         {onreattach}
         {onfullscreen}
         {onresume}
+        {fontSize}
+        {fontAtMin}
+        {fontAtMax}
+        {onfontstep}
         onclose={() => (redrawOpen = false)}
       />
     {/if}

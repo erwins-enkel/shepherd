@@ -526,6 +526,49 @@ describe("IntegratedEpicRow", () => {
     expect(badge.textContent?.toLowerCase()).toContain("stranded");
   });
 
+  it("landingRepairing: auto-repair chip is rendered (slate, non-actionable)", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: false,
+        landingRepairing: true,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    const chip = await vi.waitFor(() => {
+      const el = document.querySelector(".actions .chip-repairing") as HTMLElement | null;
+      if (!el) throw new Error("no repairing chip");
+      return el;
+    });
+    expect(chip.textContent?.toLowerCase()).toContain("auto-repair");
+  });
+
+  it("no landingRepairing: no auto-repair chip rendered", async () => {
+    render(IntegratedEpicRow, {
+      epic: epic([child({ number: 1 })], {
+        landingState: "open",
+        landingPrNumber: 55,
+        landingPrUrl: "https://github.com/o/r/pull/55",
+        landingReady: true,
+      }),
+      ondismiss: vi.fn(),
+      onackmigrations: vi.fn(),
+      onland: vi.fn(),
+    });
+    (document.querySelector(".row-head") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      if (!document.querySelector(".actions .gbtn")) throw new Error("no actions yet");
+    });
+    expect(document.querySelector(".actions .chip-repairing")).toBeNull();
+  });
+
   it("open+pendingAck: Ack-migrations button NOT rendered; Land button shown; migration warn in confirm step", async () => {
     const onland = vi.fn();
     render(IntegratedEpicRow, {

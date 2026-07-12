@@ -110,7 +110,7 @@ import {
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
 import { listRepos, listReposPathForReal, reconcileRealPathsToRaw } from "./repos";
-import { enrichLandingEpics, type CompletedEpic } from "./completed-epic";
+import { anyLiveRepairSession, enrichLandingEpics, type CompletedEpic } from "./completed-epic";
 import { DistillerService, defaultScratch } from "./distiller";
 import { OptimizerService, defaultOptimizerScratch } from "./optimizer";
 import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
@@ -1867,6 +1867,8 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
     getEpicIntegrationBranch: (repoPath, parent) =>
       store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => resolveForge(repoPath),
+    hasLiveRepairSession: (repoPath, integrationBranch) =>
+      anyLiveRepairSession(store.list(), repoPath, integrationBranch, now),
     now,
   });
   const readyItems: RundownEpicItem[] = epics
@@ -1880,9 +1882,10 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       ciFailing: false,
     }));
 
-  // CI-failing rows (terminal red, not behind/conflicting): surface as a distinct Tier-1 item. `epics`
-  // already excludes paused rows; a red row has landingReady=false so it is not in readyItems either —
-  // so each open row lands under exactly one heading.
+  // CI-failing rows (terminal red, not behind/conflicting, and NOT already claimed by a live repair
+  // session — those surface as repairingItems below instead): surface as a distinct Tier-1 item.
+  // `epics` already excludes paused rows; a red row has landingReady=false so it is not in
+  // readyItems either — so each open row lands under exactly one heading.
   const ciFailingItems: RundownEpicItem[] = epics
     .filter((e) => e.landingState === "open" && e.landingCiFailing === true)
     .map((e) => ({
@@ -1894,7 +1897,27 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
       ciFailing: true,
     }));
 
-  const val: RundownEpicItem[] = [...pausedItems, ...readyItems, ...ciFailingItems];
+  // Repairing rows: a genuinely-live landingRepair session is already fixing this landing's CI —
+  // non-actionable, so surfaced separately from ciFailingItems (mutually exclusive by construction:
+  // enrichLandingEpics sets landingCiFailing=false whenever landingRepairing=true).
+  const repairingItems: RundownEpicItem[] = epics
+    .filter((e) => e.landingState === "open" && e.landingRepairing === true)
+    .map((e) => ({
+      repo: e.repoPath,
+      parent: e.parentIssueNumber,
+      title: e.parentTitle,
+      landingPr: e.landingPrNumber,
+      stranded: false,
+      ciFailing: false,
+      repairing: true,
+    }));
+
+  const val: RundownEpicItem[] = [
+    ...pausedItems,
+    ...readyItems,
+    ...ciFailingItems,
+    ...repairingItems,
+  ];
   epicReadyCache = { key, ts: now, val };
   return val;
 };

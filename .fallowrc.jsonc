@@ -308,6 +308,14 @@
         "reason": "Provider handoff now rehydrates issue context and keeps replacement in-place inside the existing replace orchestration; keep capped until replaceAgent is split by lifecycle stage."
       },
       {
+        "files": ["src/service.ts"],
+        "functions": ["relaunch"],
+        "maxCyclomatic": 21,
+        "maxCognitive": 9,
+        "maxCrap": 1000,
+        "reason": "Provider-handoff relaunch rehydrates each session field via pickOverride(overrides?.x, s.x); #1665 landingRepair adds one override-forwarding branch (field-count-driven, not logic). Keep capped until relaunch is split by lifecycle (mirror of replaceAgent)."
+      },
+      {
         "files": ["src/drain.ts"],
         "functions": ["buildState"],
         "maxCyclomatic": 16,

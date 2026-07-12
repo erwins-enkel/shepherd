@@ -86,6 +86,7 @@ function session(over: Partial<Session> = {}): Session {
     egressDegraded: false,
     research: false,
     epicAuthoring: false,
+    landingRepair: false,
     status: "running",
     lastState: "idle",
     createdAt: 0,

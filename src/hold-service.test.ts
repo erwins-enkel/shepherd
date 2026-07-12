@@ -37,6 +37,7 @@ function makeSession(overrides: Partial<Session> = {}): Session {
     planPhase: null,
     research: false,
     epicAuthoring: false,
+    landingRepair: false,
     autoMergeEnabled: null,
     autoMergeRebaseCount: 0,
     autoMergeRebaseHead: null,

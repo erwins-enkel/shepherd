@@ -157,6 +157,7 @@ import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
 import {
+  anyLiveRepairSession,
   buildRollup,
   computeLandingReady,
   enrichLandingEpics,
@@ -6461,6 +6462,8 @@ async function backfillIdleEpic(
       migrationPaths: [],
       migrationsAckedAt: null,
       landingRebasePauseReason: null,
+      landingRepairCount: 0,
+      landingRepairHead: null,
     };
     deps.store.recordEpicCompleted({
       repoPath: completed.repoPath,
@@ -6560,11 +6563,14 @@ async function handleEpicsCompletedList({ req, parts, url, deps }: Ctx): Promise
   // Enrich open-landing rows with live gate signals (best-effort, fail-safe — forge/network
   // errors must NOT 500 this route; just omit the live fields for that row). Shared helper so the
   // rundown's landing-ready accessor (#1045) computes readiness identically.
+  const nowMs = Date.now();
   await enrichLandingEpics(baseRows, {
     getEpicIntegrationBranch: (repoPath, parent) =>
       deps.store.getEpicIntegrationBranch(repoPath, parent),
     resolveForge: (repoPath) => deps.resolveForge?.(repoPath),
-    now: Date.now(),
+    hasLiveRepairSession: (repoPath, integrationBranch) =>
+      anyLiveRepairSession(deps.store.list(), repoPath, integrationBranch, nowMs),
+    now: nowMs,
   });
 
   return json(baseRows);
@@ -6745,6 +6751,8 @@ async function handleEpicsCompletedLand({ req, parts, deps }: Ctx): Promise<Resp
         migrationPaths: updatedRow.migrationPaths,
         migrationsAckedAt: updatedRow.migrationsAckedAt,
         landingRebasePauseReason: updatedRow.landingRebasePauseReason,
+        landingRepairCount: updatedRow.landingRepairCount,
+        landingRepairHead: updatedRow.landingRepairHead,
       };
       deps.events?.emit("epic:completed", completed);
     } catch {

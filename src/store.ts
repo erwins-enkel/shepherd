@@ -258,6 +258,7 @@ type NewSession = Omit<
   | "egressDegraded"
   | "research"
   | "epicAuthoring"
+  | "landingRepair"
   | "haltReason"
   | "haltedAt"
   | "manualSteps"
@@ -285,6 +286,7 @@ type NewSession = Omit<
   egressDegraded?: boolean;
   research?: boolean;
   epicAuthoring?: boolean;
+  landingRepair?: boolean;
   mergeTrainPrs?: number[];
   launchMetadata?: SessionLaunchMetadata | null;
 };
@@ -295,7 +297,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
-  research, epicAuthoring,
+  research, epicAuthoring, landingRepair,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson`;
@@ -342,6 +344,7 @@ type SessionRow = {
   egressDegraded: number;
   research: number;
   epicAuthoring: number;
+  landingRepair: number;
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
@@ -1733,11 +1736,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
     migrationPaths: string[];
     migrationsAckedAt: number | null;
+    landingRepairCount: number;
+    landingRepairHead: string | null;
   }[] {
     const sql = `SELECT repoPath, parentIssueNumber, parentTitle, completedAt, childrenJson,
                 landingPrNumber, landingPrUrl, landingState, landingAttempts,
                 landingRebaseCount, landingRebaseDriverMisses, landingRebasePauseReason,
-                migrationPathsJson, migrationsAckedAt
+                migrationPathsJson, migrationsAckedAt, landingRepairCount, landingRepairHead
          FROM epic_completed WHERE dismissedAt IS NULL`;
     type Raw = {
       repoPath: string;
@@ -1754,6 +1759,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       landingRebasePauseReason: string | null;
       migrationPathsJson: string | null;
       migrationsAckedAt: number | null;
+      landingRepairCount: number;
+      landingRepairHead: string | null;
     };
     const rows =
       repoPath !== undefined
@@ -1818,6 +1825,22 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `UPDATE epic_completed SET ${sets.join(", ")} WHERE repoPath = ? AND parentIssueNumber = ?`,
       vals,
+    );
+  }
+
+  /** Write the landing-repair session counters onto a completed epic's row: lifetime dispatch
+   *  count + the epic-branch head SHA recorded at the last repair dispatch. Direct UPDATE,
+   *  mirroring {@link setEpicLandingPr}'s style. */
+  setEpicLandingRepairCount(
+    repoPath: string,
+    parentIssueNumber: number,
+    count: number,
+    head: string | null,
+  ): void {
+    this.db.run(
+      `UPDATE epic_completed SET landingRepairCount = ?, landingRepairHead = ?
+       WHERE repoPath = ? AND parentIssueNumber = ?`,
+      [count, head, repoPath, parentIssueNumber],
     );
   }
 
@@ -1895,6 +1918,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // Boolean() (not `?? false`) so this new field adds no cyclomatic branch to the flat,
       // field-count-driven buildSessionRow (keeps it under its complexity cap).
       epicAuthoring: Boolean(input.epicAuthoring),
+      landingRepair: Boolean(input.landingRepair),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -1922,7 +1946,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -1961,6 +1985,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           s.egressDegraded ? 1 : 0,
           s.research ? 1 : 0,
           Number(s.epicAuthoring), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
+          Number(s.landingRepair), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -3232,6 +3257,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("research", `research INTEGER NOT NULL DEFAULT 0`);
     // epic-authoring task kind: default 0 (false) for pre-existing rows.
     add("epicAuthoring", `epicAuthoring INTEGER NOT NULL DEFAULT 0`);
+    // epic-landing-PR repair task kind: default 0 (false) for pre-existing rows.
+    add("landingRepair", `landingRepair INTEGER NOT NULL DEFAULT 0`);
     add("mergeTrainPrs", `mergeTrainPrs TEXT`);
     add("mergingPrNumber", `mergingPrNumber INTEGER`);
     // halt detection: reason + timestamp; nullable, no default (null = not halted).
@@ -3397,6 +3424,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // yet acknowledged.
     add("migrationPathsJson", `migrationPathsJson TEXT`);
     add("migrationsAckedAt", `migrationsAckedAt INTEGER`);
+    // Landing-repair session counters: lifetime dispatch count + the epic-branch head SHA
+    // recorded at the last repair dispatch. Mirrors landingRebaseCount / landingPrUrl's
+    // nullable-TEXT handling.
+    add("landingRepairCount", `landingRepairCount INTEGER NOT NULL DEFAULT 0`);
+    add("landingRepairHead", `landingRepairHead TEXT`);
   }
 
   private migrateReviewColumns(): void {
@@ -4689,6 +4721,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       egressDegraded: !!r.egressDegraded,
       research: !!r.research,
       epicAuthoring: !!r.epicAuthoring,
+      landingRepair: !!r.landingRepair,
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),

@@ -329,6 +329,8 @@ describe("enrichLandingEpics", () => {
     migrationPaths: [],
     migrationsAckedAt: null,
     landingRebasePauseReason: null,
+    landingRepairCount: 0,
+    landingRepairHead: null,
     ...over,
   });
 
@@ -340,6 +342,7 @@ describe("enrichLandingEpics", () => {
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
       resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
+      hasLiveRepairSession: () => false,
       now: EPIC_LANDING_STRANDED_MS + 1, // completed long ago → stranded
     });
     expect(rows[0]?.landingReady).toBe(true);
@@ -356,6 +359,7 @@ describe("enrichLandingEpics", () => {
         kind: "local",
         prStatus: async () => prStatus({ checks: "failure" }),
       }),
+      hasLiveRepairSession: () => false,
       now: EPIC_LANDING_STRANDED_MS + 1,
     });
     expect(rows[0]?.landingReady).toBe(false);
@@ -367,6 +371,7 @@ describe("enrichLandingEpics", () => {
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
       resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
+      hasLiveRepairSession: () => false,
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();
@@ -377,6 +382,7 @@ describe("enrichLandingEpics", () => {
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => null,
       resolveForge: () => ({ kind: "local", prStatus: async () => prStatus() }),
+      hasLiveRepairSession: () => false,
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();
@@ -387,6 +393,7 @@ describe("enrichLandingEpics", () => {
     await enrichLandingEpics(rows, {
       getEpicIntegrationBranch: () => "epic/7",
       resolveForge: () => null,
+      hasLiveRepairSession: () => false,
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();
@@ -402,6 +409,7 @@ describe("enrichLandingEpics", () => {
           throw new Error("network");
         },
       }),
+      hasLiveRepairSession: () => false,
       now: 0,
     });
     expect(rows[0]?.landingReady).toBeUndefined();

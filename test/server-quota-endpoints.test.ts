@@ -50,6 +50,7 @@ const SESSION: Session = {
   egressDegraded: false,
   research: false,
   epicAuthoring: false,
+  landingRepair: false,
   status: "done", // idle so quotaBlockReason can fire
   lastState: "working",
   createdAt: 0,

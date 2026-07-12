@@ -52,6 +52,16 @@ describe("RundownPanel epics-to-land (#1045)", () => {
     expect(document.querySelector(".rd-epic-stranded")).not.toBeNull();
   });
 
+  it("renders a repairing sub-label when the epic's landing PR has a live auto-repair session", async () => {
+    herdDigest.digest = digest({
+      epicsToLand: [epicItem({ repairing: true })],
+    });
+    render(RundownPanel, {});
+    await expect.element(page.getByText("Docs site", { exact: false })).toBeInTheDocument();
+    expect(document.querySelector(".rd-epic-repairing")).not.toBeNull();
+    expect(document.querySelector(".rd-epic-stranded")).toBeNull();
+  });
+
   it("clicking an epic item fires onepicland(repo, parent)", async () => {
     herdDigest.digest = digest({ epicsToLand: [epicItem()] });
     const onepicland = vi.fn();

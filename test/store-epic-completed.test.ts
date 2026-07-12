@@ -476,6 +476,39 @@ test("setEpicLandingRebaseState partial update — driverMisses only, preserves 
   expect(row.landingRebasePauseReason).toBe("cap"); // preserved
 });
 
+// ── setEpicLandingRepairCount ───────────────────────────────────────────────
+
+test("fresh recordEpicCompleted defaults repair columns (0/null)", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRepairCount).toBe(0);
+  expect(row.landingRepairHead).toBe(null);
+});
+
+test("setEpicLandingRepairCount writes both fields", () => {
+  const s = new SessionStore(":memory:");
+  s.recordEpicCompleted({
+    repoPath: "/r",
+    parentIssueNumber: 10,
+    parentTitle: "E",
+    completedAt: 1,
+    childrenJson: "[]",
+  });
+
+  s.setEpicLandingRepairCount("/r", 10, 1, "abc123");
+
+  const row = s.listEpicCompleted()[0]!;
+  expect(row.landingRepairCount).toBe(1);
+  expect(row.landingRepairHead).toBe("abc123");
+});
+
 test("listEpicRuns returns all persisted epic_run rows", () => {
   const s = new SessionStore(":memory:");
   expect(s.listEpicRuns()).toEqual([]);

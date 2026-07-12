@@ -142,6 +142,8 @@
                 {#if e.landingPr != null}&nbsp;· {m.prbadge_open({ number: e.landingPr })}{/if}
                 {#if e.stranded}<span class="rd-epic-stranded">{m.rundown_epic_stranded()}</span
                   >{/if}
+                {#if e.repairing}<span class="rd-epic-repairing">{m.rundown_epic_repairing()}</span
+                  >{/if}
               </button>
             </li>
           {/each}
@@ -341,6 +343,15 @@
     text-transform: uppercase;
     letter-spacing: 0.04em;
     color: var(--color-red);
+  }
+  /* Non-actionable: an auto-repair session is live driving CI back to green. Slate, same tone
+     as the IntegratedEpicLanding .chip-repairing recipe — never red/warn (no action needed). */
+  .rd-epic-repairing {
+    margin-left: 6px;
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--status-done);
   }
 
   /* Focus-next is the headline shortlist — give its heading a touch more presence. */

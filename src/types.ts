@@ -71,6 +71,9 @@ export interface Session {
    *  writes no GitHub issues (the approve route materializes them). Suppresses the same directives as
    *  `research`. */
   epicAuthoring: boolean;
+  /** True for an epic-landing-PR repair session: pushes directly to the epic integration branch and
+   *  never opens a PR. */
+  landingRepair: boolean;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -239,6 +242,8 @@ export interface CreateSessionInput {
   research?: boolean;
   /** Epic-authoring task kind; absent → false. Attended guided shaping → EPIC draft, no code PR. */
   epicAuthoring?: boolean;
+  /** Epic-landing-PR repair task kind; absent → false. */
+  landingRepair?: boolean;
   /** PR numbers selected for this TRAIN session; absent → null. */
   mergeTrainPrs?: number[];
 }
@@ -271,6 +276,8 @@ export interface RelaunchOverrides {
   research?: boolean;
   /** Epic-authoring task kind override; absent → keep original. */
   epicAuthoring?: boolean;
+  /** Epic-landing-PR repair task kind override; absent → keep original. */
+  landingRepair?: boolean;
 }
 
 /** Selectable Claude model aliases; absent/"default" means no --model flag.
@@ -641,8 +648,12 @@ export interface RundownEpicItem {
   pausedReason?: "cap" | "conflict" | "driver";
   /** When true, the landing PR's CI is failing (terminal `checks:"failure"`, and NOT
    *  behind/conflicting — those are the rebase pass's `pausedReason`). A distinct Tier-1 attention
-   *  item: not "ready", not "paused". */
+   *  item: not "ready", not "paused", not "repairing". */
   ciFailing?: boolean;
+  /** When true, a genuinely-live landingRepair session is already fixing this landing's CI —
+   *  non-actionable, so it is NOT `ciFailing` (that item is the backstop for a stuck/finished
+   *  session). A distinct Tier-1 attention item: not "ready", not "paused", not "ciFailing". */
+  repairing?: boolean;
 }
 
 /** The LLM-authored verdict the rundown spawn writes to `.shepherd-rundown.json`. */

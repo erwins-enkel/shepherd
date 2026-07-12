@@ -23,6 +23,7 @@ import {
 import { selectEpicCandidates, type Epic, type EpicRun } from "./epic-core";
 import { detectMigrationPaths } from "./epic-migrations";
 import {
+  anyLiveRepairSession,
   buildRollup,
   computeLandingReady,
   type CompletedEpic,
@@ -73,6 +74,12 @@ const MAX_LANDING_ATTEMPTS = 5;
 /** Per-head-SHA budget of automatic failed-CI reruns for a red epic landing PR before we stop and
  *  leave it to the operator-facing `landingCiFailing` surfacing. A new head resets the budget. */
 const LANDING_RERUN_CAP = 2;
+
+/** One lifetime agent-repair attempt per epic landing PR (durable via `landingRepairCount`). Once
+ *  C's rerun budget is spent and CI is still terminally red, the drain dispatches a single capped
+ *  repair session that pushes directly to the pinned integration branch. Exhausted ⇒ fall back to
+ *  the operator-facing `landingCiFailing` surface. */
+const LANDING_REPAIR_CAP = 1;
 
 /** Auto-land merge-error guardrails (#1044) — mirror AutoMergeService's per-head cap + backoff.
  *  After this many consecutive merge failures on the SAME landing-PR head, back the epic off so it
@@ -158,6 +165,7 @@ export interface DrainDeps {
     | "listEpicCompleted"
     | "setEpicLandingPr"
     | "setEpicLandingRebaseState"
+    | "setEpicLandingRepairCount"
     | "setEpicMigrationPaths"
     | "recordEpicBaseMismatch"
     | "clearEpicBaseMismatch"
@@ -239,6 +247,11 @@ export class DrainService {
    *  reruns spent on it. A new head replaces the entry (reset), and a successful/terminal land deletes
    *  it — so the map stays bounded to live epics, mirroring `landMergeFail`. In-memory (ephemeral). */
   private landingRerunCount = new Map<string, { head: string; count: number }>();
+  /** Landing-repair spawn back-off, keyed `${repoPath}#${parentIssueNumber}` → timestamp of the last
+   *  FAILED spawn. A hold/egress/transient refusal must NOT permanently burn the one lifetime attempt
+   *  (`landingRepairCount`) — it backs off SPAWN_FAIL_COOLDOWN_MS and retries; only a SUCCESSFUL
+   *  spawn increments the durable count (and clears this entry). In-memory (ephemeral). */
+  private repairSpawnCooldown = new Map<string, number>();
   // Auto-land (#1044) per-epic merge-error backoff, keyed `${repoPath}#${parentIssueNumber}`:
   // consecutive merge failures on the current landing-PR head + when the epic is blocked until.
   // A new head or a success clears the entry. In-memory (ephemeral); mirrors AutoMergeService.
@@ -747,6 +760,8 @@ export class DrainService {
           migrationPaths: [],
           migrationsAckedAt: null,
           landingRebasePauseReason: null,
+          landingRepairCount: 0,
+          landingRepairHead: null,
         };
         this.deps.store.recordEpicCompleted({
           repoPath: completed.repoPath,
@@ -813,6 +828,8 @@ export class DrainService {
       migrationPaths: row.migrationPaths,
       migrationsAckedAt: row.migrationsAckedAt,
       landingRebasePauseReason: row.landingRebasePauseReason,
+      landingRepairCount: row.landingRepairCount,
+      landingRepairHead: row.landingRepairHead,
     };
     this.deps.emitEpicCompleted?.(completed);
   }
@@ -1262,6 +1279,9 @@ export class DrainService {
     branch: string,
     defaultBranch: string,
   ): Promise<void> {
+    // A live repair session owns this branch — never --force-with-lease over its commits. Before the
+    // cap check so a live session doesn't get a spurious pauseReason:"cap" write.
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
     // Cap check: if we've already used the full budget, pause.
     if (row.landingRebaseCount >= this.deps.rebaseCap) {
       this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "cap" });
@@ -1367,6 +1387,7 @@ export class DrainService {
           row.landingPrNumber!,
           latestFailedRunForPr,
           rerunWorkflowRun,
+          row,
         );
       } catch (err) {
         console.warn(`[drain] rerunRedLandingCiForRepo failed for ${key}:`, err);
@@ -1385,9 +1406,13 @@ export class DrainService {
     prNumber: number,
     latestFailedRunForPr: (prNumber: number) => Promise<number | null>,
     rerunWorkflowRun: (runId: number, o: { failedOnly: boolean }) => Promise<void>,
+    row: { landingRepairCount: number; parentTitle: string; landingPrUrl: string | null },
   ): Promise<void> {
     const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parent);
     if (branch === null) return;
+    // A live repair session owns this branch: don't rerun CI on the commits it is pushing, and don't
+    // dispatch a second repair session. (Also fences rebase/auto-land — see those passes.)
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
     const pr = await forge.prStatus(branch);
     if (pr.state !== "open" || pr.isDraft) return;
     // Only a TERMINAL failure on an otherwise-mergeable, not-behind PR. behind/conflicting → the rebase
@@ -1400,7 +1425,11 @@ export class DrainService {
     // A new head resets the budget (new commits = a fresh failure to absorb); same head accumulates.
     const prior = this.landingRerunCount.get(key);
     const used = prior && prior.head === head ? prior.count : 0;
-    if (used >= LANDING_RERUN_CAP) return; // budget spent on this head → leave to landingCiFailing
+    if (used >= LANDING_RERUN_CAP) {
+      // Rerun budget spent + CI still terminally red: escalate to ONE capped agent repair session.
+      await this.maybeDispatchLandingRepair(repoPath, parent, prNumber, pr, branch, row);
+      return;
+    }
 
     const runId = await latestFailedRunForPr(prNumber);
     if (runId == null) return; // fork-origin PR / no failed run resolvable
@@ -1409,6 +1438,73 @@ export class DrainService {
     console.warn(
       `[drain] rerunning failed landing CI for ${repoPath}#${parent} (run ${runId}, ${used + 1}/${LANDING_RERUN_CAP})`,
     );
+  }
+
+  /** True while a genuinely-live repair session (Task 4's isLiveRepairSession) holds this epic's
+   *  integration branch. Fences the branch-mutating landing passes and de-dupes a 2nd repair spawn. */
+  private hasLiveRepairSession(repoPath: string, integrationBranch: string): boolean {
+    return anyLiveRepairSession(this.deps.store.list(), repoPath, integrationBranch, this.now());
+  }
+
+  /** C's rerun budget is spent and CI is genuinely red: dispatch ONE capped agent repair session that
+   *  pushes directly to the epic integration branch. Cap-exhausted / auto-drain-off / a recent spawn
+   *  refusal all fall back to landingCiFailing (the operator backstop). NOT via doSpawn — that stamps
+   *  ACTIVE_LABEL on the closed epic issue; use service.create directly (mirrors research spawns). */
+  private async maybeDispatchLandingRepair(
+    repoPath: string,
+    parent: number,
+    prNumber: number,
+    pr: PrStatus,
+    branch: string,
+    row: { landingRepairCount: number; parentTitle: string; landingPrUrl: string | null },
+  ): Promise<void> {
+    const cfg = this.deps.store.getRepoConfig(repoPath);
+    if (!cfg.autoDrainEnabled) return; // spawning respects the drain toggle → else the landingCiFailing backstop
+    if (row.landingRepairCount >= LANDING_REPAIR_CAP) return; // one lifetime attempt spent → backstop
+    if (this.hasLiveRepairSession(repoPath, branch)) return; // de-dupe (belt-and-suspenders w/ the fence)
+    const key = `${repoPath}#${parent}`;
+    const lastFail = this.repairSpawnCooldown.get(key);
+    if (lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) return; // recent refusal
+    const head = pr.headSha ?? "";
+    const cfgModel = drainSpawnModel(
+      resolveDefaultModelSetting(cfg.defaultModel, config.defaultModel),
+    );
+    const cfgEffort = drainSpawnEffort(
+      resolveDefaultEffortSetting(cfg.defaultEffort, config.defaultEffort),
+    );
+    const prompt =
+      `Repair the failing CI on the landing pull request for epic #${parent} ("${row.parentTitle}"). ` +
+      `Landing PR #${prNumber}${row.landingPrUrl ? ` (${row.landingPrUrl})` : ""} targets the epic ` +
+      `integration branch \`${branch}\`. You are working in a scratch branch cut from \`${branch}\`. ` +
+      `Drive the landing PR's CI green: commit your fix, then publish it by pushing your commit to the ` +
+      `integration branch with \`git push origin HEAD:${branch}\` — this updates the landing PR's head ` +
+      `and re-triggers its CI. Do NOT open a new pull request.`;
+    try {
+      await this.deps.service.create({
+        repoPath,
+        baseBranch: branch,
+        prompt,
+        model: cfgModel,
+        effort: cfgEffort,
+        images: [],
+        auto: true,
+        landingRepair: true,
+      });
+      // Increment ONLY on a successful spawn; record the head so the attempt is observable (head-advance).
+      this.deps.store.setEpicLandingRepairCount(repoPath, parent, row.landingRepairCount + 1, head);
+      this.repairSpawnCooldown.delete(key);
+      console.warn(
+        `[drain] dispatched landing-repair session for ${repoPath}#${parent} (landing PR #${prNumber}, head ${head})`,
+      );
+    } catch (err) {
+      // Refusal (hold/egress/transient): back off, DO NOT increment — the lifetime attempt is not burned.
+      this.repairSpawnCooldown.set(key, this.now());
+      // Log only the error message, never the error object: a create/auth failure can carry the
+      // provider apiKey in its request config, and passing `err` to the logger trips CodeQL's
+      // js/clear-text-logging. The message string alone is off that taint path.
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[drain] landing-repair spawn for ${repoPath}#${parent} failed: ${reason}`);
+    }
   }
 
   /**
@@ -1484,6 +1580,8 @@ export class DrainService {
     // from this path). Matches the manual land endpoint + band enrichment. Null ⇒ unpinned ⇒ skip.
     const branch = this.deps.store.getEpicIntegrationBranch(repoPath, parentIssueNumber);
     if (branch === null) return;
+    // A live repair session owns this branch — don't merge (deleteBranch:true) out from under it.
+    if (this.hasLiveRepairSession(repoPath, branch)) return;
     let pr: PrStatus;
     try {
       pr = await forge.prStatus(branch);

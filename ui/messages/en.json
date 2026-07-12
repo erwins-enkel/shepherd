@@ -3007,5 +3007,11 @@
   "issuerow_epic_owner_notice": "Set up by {who} — you can still start",
   "feat_epic_in_flight_title": "See who's already on an epic",
   "feat_epic_in_flight_body": "The backlog now flags epics someone else is already working on — a pill shows how many children are in progress and by whom, plus a soft notice near Start — so you don't start an epic a teammate already owns.",
-  "issuerow_epic_assigned_notice": "Assigned to {who} — you can still start"
+  "issuerow_epic_assigned_notice": "Assigned to {who} — you can still start",
+  "newtask_base_missing": "Repo has no commit yet. Create the initial commit, then run the task.",
+  "newtask_init_commit": "Create initial commit",
+  "newtask_init_commit_failed": "Initial commit failed: {reason}.",
+  "newtask_init_commit_running": "Creating…",
+  "feat_initial_commit_repair_title": "Repair empty repos from New Task",
+  "feat_initial_commit_repair_body": "When a selected repo has no initial commit yet, New Task now blocks the doomed launch and offers to create the first empty commit in place so the task can start from a real base."
 }

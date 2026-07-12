@@ -1125,7 +1125,7 @@
   .card {
     position: relative;
     margin: auto;
-    width: min(520px, 92vw);
+    width: min(760px, 92vw);
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     padding: 16px;

@@ -389,18 +389,29 @@
 {/snippet}
 
 {#snippet labelChips(ordered: string[], colors: Record<string, string> | undefined)}
-  {#each ordered.slice(0, 1) as lbl (lbl)}
+  {#each ordered.slice(0, 2) as lbl, idx (lbl)}
     {@const style = chipStyle(lbl, colors)}
     <span
       class="chip"
+      class:chip-2={idx === 1}
       class:active={lbl === ACTIVE_LABEL}
       class:hued={style !== null}
       {style}
       title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}>{lbl}</span
     >
   {/each}
+  <!-- Two "+N" counters, one per regime (toggled by the pane-width media query in
+       <style>): the wide regime shows 2 chips so it hides ordered[2..]; the narrow
+       regime shows 1 chip so it hides ordered[1..]. Each title lists ONLY the labels
+       it actually hides — the wide counter must start at slice(2), or it would
+       over-list ordered[1], which is itself a visible chip when wide. -->
+  {#if ordered.length > 2}
+    <span class="chip chip-more more-wide" title={ordered.slice(2).join(", ")}>
+      {m.promptsources_more_labels({ count: ordered.length - 2 })}
+    </span>
+  {/if}
   {#if ordered.length > 1}
-    <span class="chip chip-more" title={ordered.slice(1).join(", ")}>
+    <span class="chip chip-more more-narrow" title={ordered.slice(1).join(", ")}>
       {m.promptsources_more_labels({ count: ordered.length - 1 })}
     </span>
   {/if}
@@ -607,9 +618,10 @@
     white-space: nowrap;
   }
 
-  /* Single label chip + a "+N" count (labelChips caps inline chips at 1). The group
-     is bounded so the title keeps the row instead of being crushed to a character:
-     it may shrink (min-width:0), the label chip ellipsates, and the count never clips.
+  /* Up to 2 label chips + a "+N" count (labelChips caps inline chips at 2 in the
+     wide pane, 1 below 520px — see the responsive rule below). The group is bounded
+     so the title keeps the row instead of being crushed to a character: it may
+     shrink (min-width:0), the label chips ellipsate, and the count never clips.
      Combined with .row-text's min-width floor, the title can't collapse to nothing. */
   .chips {
     display: flex;
@@ -667,5 +679,26 @@
        never be the thing that gets clipped when the row is tight. */
     flex-shrink: 0;
     max-width: none;
+  }
+
+  /* Responsive label cap: show 2 chips by default (the pane is now 760px wide),
+     falling back to 1 chip + a "+N" count when the pane is narrower than 520px.
+     The pane width is min(760px, 92vw) on desktop and 100vw on the mobile
+     full-bleed sheet, so "pane < 520" is exactly "viewport < 520" — a viewport
+     media query is equivalent to a container query here WITHOUT establishing
+     inline-size containment on the NewTask card (which would make it a containing
+     block for any position:fixed/absolute descendant). If the card-width formula
+     or the 768px mobile breakpoint changes, revisit this 519.98px threshold. */
+  .more-narrow {
+    display: none;
+  }
+  @media (max-width: 519.98px) {
+    .chip-2,
+    .more-wide {
+      display: none;
+    }
+    .more-narrow {
+      display: inline-block;
+    }
   }
 </style>

@@ -2986,5 +2986,11 @@
   "diff_view_split": "Geteilt",
   "diff_view_unified": "Vereinheitlicht",
   "feat_diff_review_title": "Ein schärferer Diff-Tab",
-  "feat_diff_review_body": "Der Diff-Tab der Sitzung nutzt jetzt eine neue Engine: Wechsle zwischen Nebeneinander- und vereinheitlichter Ansicht — mit wortgenauer Hervorhebung innerhalb der Zeile, einer Datei-Seitenleiste zur schnellen Navigation und einklappbarem unverändertem Kontext."
+  "feat_diff_review_body": "Der Diff-Tab der Sitzung nutzt jetzt eine neue Engine: Wechsle zwischen Nebeneinander- und vereinheitlichter Ansicht — mit wortgenauer Hervorhebung innerhalb der Zeile, einer Datei-Seitenleiste zur schnellen Navigation und einklappbarem unverändertem Kontext.",
+  "newtask_base_missing": "Repo hat noch keinen Commit. Initialen Commit erstellen, dann Task starten.",
+  "newtask_init_commit": "Initialen Commit erstellen",
+  "newtask_init_commit_failed": "Initialer Commit fehlgeschlagen: {reason}.",
+  "newtask_init_commit_running": "Wird erstellt…",
+  "feat_initial_commit_repair_title": "Leere Repos in Neue Aufgabe reparieren",
+  "feat_initial_commit_repair_body": "Wenn das ausgewählte Repo noch keinen initialen Commit hat, blockiert Neue Aufgabe jetzt den aussichtslosen Start und bietet an, direkt den ersten leeren Commit zu erstellen, damit die Aufgabe von einer echten Basis starten kann."
 }

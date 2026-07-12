@@ -777,6 +777,26 @@ test("GET /api/branches?repo=<validRepo> → 200 with branches + current", async
   expect("current" in body).toBe(true);
 });
 
+test("POST /api/repos/init-empty-commit creates an initial commit", async () => {
+  execFileSync("git", ["init", "-q", "-b", "main"], { cwd: validRepo });
+  const app = harness();
+  const res = await app.fetch(
+    new Request("http://x/api/repos/init-empty-commit", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ repo: validRepo, branch: "main" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ branch: "main" });
+  const sha = execFileSync("git", ["rev-parse", "--verify", "main^{commit}"], {
+    cwd: validRepo,
+  })
+    .toString()
+    .trim();
+  expect(sha).toMatch(/^[0-9a-f]{40}$/);
+});
+
 test("GET /api/branches?repo=/etc → 400", async () => {
   const app = harness();
   const res = await app.fetch(new Request("http://x/api/branches?repo=/etc"));

@@ -727,6 +727,19 @@ export async function branchStatus(
   return r.json();
 }
 
+export async function initEmptyCommit(
+  repoPath: string,
+  branch: string,
+): Promise<{ branch: string }> {
+  const r = await fetch("/api/repos/init-empty-commit", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ repo: repoPath, branch }),
+  });
+  if (!r.ok) throw await failed(r, "init empty commit");
+  return r.json();
+}
+
 export async function getTodo(repoPath: string): Promise<{ exists: boolean; content: string }> {
   const r = await fetch(`/api/todo?repo=${encodeURIComponent(repoPath)}`);
   if (!r.ok) throw await failed(r, "todo get");

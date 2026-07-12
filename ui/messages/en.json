@@ -2986,5 +2986,11 @@
   "diff_view_split": "Split",
   "diff_view_unified": "Unified",
   "feat_diff_review_title": "A sharper Diff tab",
-  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context."
+  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context.",
+  "newtask_base_missing": "Repo has no commit yet. Create the initial commit, then run the task.",
+  "newtask_init_commit": "Create initial commit",
+  "newtask_init_commit_failed": "Initial commit failed: {reason}.",
+  "newtask_init_commit_running": "Creating…",
+  "feat_initial_commit_repair_title": "Repair empty repos from New Task",
+  "feat_initial_commit_repair_body": "When a selected repo has no initial commit yet, New Task now blocks the doomed launch and offers to create the first empty commit in place so the task can start from a real base."
 }

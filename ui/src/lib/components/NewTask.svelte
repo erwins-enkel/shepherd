@@ -6,6 +6,7 @@
     listBranches,
     pickBaseBranch,
     branchStatus,
+    initEmptyCommit,
     getCommands,
     getEpics,
     uploadFile,
@@ -29,6 +30,7 @@
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import MicButton from "./MicButton.svelte";
+  import BaseRepairNotice from "./new-task/BaseRepairNotice.svelte";
   import NewTaskRunSettings from "./new-task/NewTaskRunSettings.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -244,6 +246,11 @@
     localExists: boolean;
   } | null>(null);
   let upstreamLoading = $state(false);
+  let repairingBase = $state(false);
+  let branchStatusGeneration = 0;
+  const baseMissing = $derived(
+    upstream != null && branches.length === 0 && !upstream.localExists && !upstream.hasUpstream,
+  );
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let images = $state<{ path: string; name: string }[]>(initialImages ? [...initialImages] : []);
@@ -355,6 +362,7 @@
   $effect(() => {
     const rp = repoPath,
       b = baseBranch;
+    const generation = branchStatusGeneration;
     upstream = null;
     if (!rp || !b) {
       upstreamLoading = false;
@@ -365,13 +373,23 @@
     const t = setTimeout(() => {
       branchStatus(rp, b)
         .then((s) => {
-          if (!cancelled && rp === repoPath && b === baseBranch) {
+          if (
+            !cancelled &&
+            generation === branchStatusGeneration &&
+            rp === repoPath &&
+            b === baseBranch
+          ) {
             upstream = s;
             upstreamLoading = false;
           }
         })
         .catch(() => {
-          if (!cancelled && rp === repoPath && b === baseBranch) {
+          if (
+            !cancelled &&
+            generation === branchStatusGeneration &&
+            rp === repoPath &&
+            b === baseBranch
+          ) {
             upstream = null;
             upstreamLoading = false;
           }
@@ -743,9 +761,35 @@
     }
   }
 
+  async function repairInitialCommit() {
+    if (!repoPath.trim() || repairingBase) return;
+    repairingBase = true;
+    branchStatusGeneration += 1;
+    error = null;
+    retry = null;
+    const repo = repoPath.trim();
+    const branch = baseBranch.trim() || "main";
+    try {
+      const repaired = await initEmptyCommit(repo, branch);
+      baseBranch = repaired.branch;
+      upstream = { behind: 0, ahead: 0, diverged: false, hasUpstream: false, localExists: true };
+      const b = await listBranches(repo).catch(() => null);
+      if (repo !== repoPath.trim()) return;
+      if (b) branches = b.branches;
+      const s = await branchStatus(repo, repaired.branch).catch(() => null);
+      if (s && repo === repoPath.trim() && repaired.branch === baseBranch) upstream = s;
+    } catch (err) {
+      error = m.newtask_init_commit_failed({ reason: reason(err, m.newtask_submit()) });
+      retry = repairInitialCommit;
+    } finally {
+      repairingBase = false;
+      upstreamLoading = false;
+    }
+  }
+
   async function submit(e: Event, force = false) {
     e.preventDefault();
-    if (!prompt.trim() || !repoPath.trim() || submitting) return;
+    if (!prompt.trim() || !repoPath.trim() || submitting || repairingBase || baseMissing) return;
     // A mid-recording submit sends the prompt as it stands: stop the mic and discard the
     // clip so nothing is uploaded while (or after) the task spawns. Closing the dialog is
     // covered by MicButton's own unmount teardown.
@@ -1036,6 +1080,8 @@
         <span class="nt-upstream micro"
           >{m.newtask_upstream_behind({ count: upstream.behind })}</span
         >
+      {:else if baseMissing}
+        <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
       {/if}
 
       <NewTaskRunSettings
@@ -1076,7 +1122,7 @@
           <button
             class="run run-hold"
             type="button"
-            disabled={submitting}
+            disabled={submitting || repairingBase || baseMissing}
             onclick={(e) => submit(e, false)}
           >
             <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
@@ -1084,7 +1130,7 @@
           <button
             class="run run-anyway"
             type="button"
-            disabled={submitting}
+            disabled={submitting || repairingBase || baseMissing}
             onclick={(e) => submit(e, true)}
           >
             <span>{m.newtask_submit_anyway()}</span>
@@ -1094,7 +1140,7 @@
         <button
           class="run"
           type="submit"
-          disabled={submitting}
+          disabled={submitting || repairingBase || baseMissing}
           title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
         >
           <span

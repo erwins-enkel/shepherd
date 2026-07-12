@@ -18,6 +18,11 @@ export interface Issue {
   body: string;
   url: string;
   labels: string[];
+  /** Label name → hex color (`#rrggbb`) from the forge, when available. Additive/optional:
+   *  `labels` stays the authoritative membership list; this is presentational metadata keyed
+   *  by name (forge label names are unique per issue). Absent/partial ⇒ UI falls back to a
+   *  neutral chip. Populated by the issue-LIST display paths only. */
+  labelColors?: Record<string, string>;
   createdAt: number;
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  UI's "mine & unassigned" filter (#824); filtering is purely client-side. */

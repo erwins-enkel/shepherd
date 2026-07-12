@@ -63,6 +63,27 @@ function isNoCommitsBetween(text: string): boolean {
   return text.toLowerCase().includes("no commits between");
 }
 
+/** Normalize a forge-supplied hex color (with or without a leading `#`) to `#rrggbb`
+ *  lowercase. Returns undefined for anything that isn't exactly 6 hex digits. */
+function normalizeHex(c: string): string | undefined {
+  const s = c.trim().replace(/^#/, "");
+  return /^[0-9a-fA-F]{6}$/.test(s) ? `#${s.toLowerCase()}` : undefined;
+}
+
+/** Build a name→`#rrggbb` map from a list of labels carrying an optional forge color,
+ *  skipping any label with a missing/invalid color. Returns undefined (not `{}`) when
+ *  no label contributed a color, so callers can omit the field entirely. */
+function labelColorsFrom(
+  labels: Array<{ name?: string | null; color?: string | null }>,
+): Record<string, string> | undefined {
+  const labelColors: Record<string, string> = {};
+  for (const l of labels) {
+    const c = l.color ? normalizeHex(l.color) : undefined;
+    if (l.name && c) labelColors[l.name] = c;
+  }
+  return Object.keys(labelColors).length ? labelColors : undefined;
+}
+
 function mapGraphqlPrReviewState(state: string | null | undefined): PrReviewMeta["state"] {
   return GRAPHQL_PR_REVIEW_STATES[(state ?? "").toUpperCase()] ?? "none";
 }
@@ -268,7 +289,7 @@ interface RestIssue {
   title?: string;
   body?: string | null;
   html_url?: string;
-  labels?: Array<{ name?: string | null }> | null;
+  labels?: Array<{ name?: string | null; color?: string | null }> | null;
   created_at?: string;
   author_association?: string | null;
   assignees?: Array<{ login?: string | null }> | null;
@@ -399,12 +420,14 @@ export class GithubForge implements GitForge {
 
   private mapRestIssue(i: RestIssue): Issue {
     const ts = Date.parse(i.created_at ?? "");
+    const labelColors = labelColorsFrom(i.labels ?? []);
     return {
       number: i.number,
       title: i.title ?? "",
       body: i.body ?? "",
       url: i.html_url ?? `https://github.com/${this.slug}/issues/${i.number}`,
       labels: (i.labels ?? []).map((l) => l.name).filter((n): n is string => !!n),
+      ...(labelColors ? { labelColors } : {}),
       createdAt: Number.isFinite(ts) ? ts : Date.now(),
       assignees: (i.assignees ?? [])
         .map((a) => a.login ?? undefined)
@@ -617,19 +640,21 @@ export class GithubForge implements GitForge {
       title: string;
       body?: string;
       url: string;
-      labels?: Array<{ name: string }>;
+      labels?: Array<{ name: string; color?: string }>;
       createdAt?: string;
       assignees?: Array<{ login: string }>;
       author?: { login?: string } | null;
     }>;
     return raw.map((i) => {
       const ts = Date.parse(i.createdAt ?? "");
+      const labelColors = labelColorsFrom(i.labels ?? []);
       return {
         number: i.number,
         title: i.title,
         body: i.body ?? "",
         url: i.url,
         labels: (i.labels ?? []).map((l) => l.name),
+        ...(labelColors ? { labelColors } : {}),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         assignees: (i.assignees ?? []).map((a) => a.login),
         author: i.author?.login,

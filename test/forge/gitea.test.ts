@@ -337,6 +337,51 @@ test("GiteaForge.listIssues: maps gitea issues, filters out PRs via type=issues"
   expect(calls[0]!.headers.get("Authorization")).toBe("token secret");
 });
 
+test("GiteaForge.listIssues: threads labelColors, handling both #-prefixed and bare hex", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
+      json: [
+        {
+          number: 3,
+          title: "Bug",
+          body: "desc",
+          html_url: "https://git.example.com/team/proj/issues/3",
+          labels: [
+            { name: "bug", color: "#d73a4a" },
+            { name: "p1", color: "00ff00" },
+            { name: "no-color" },
+          ],
+          created_at: GITEA_ISSUE_CREATED_AT,
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.labels).toEqual(["bug", "p1", "no-color"]);
+  expect(issues[0]!.labelColors).toEqual({ bug: "#d73a4a", p1: "#00ff00" });
+});
+
+test("GiteaForge.listIssues: no label carries a color → labelColors omitted", async () => {
+  const { fn } = fakeFetch({
+    "GET /api/v1/repos/team/proj/issues?state=open&type=issues&limit=200": {
+      json: [
+        {
+          number: 3,
+          title: "Bug",
+          body: "desc",
+          html_url: "https://git.example.com/team/proj/issues/3",
+          labels: [{ name: "bug" }],
+          created_at: GITEA_ISSUE_CREATED_AT,
+        },
+      ],
+    },
+  });
+  const forge = new GiteaForge("team/proj", CFG, fn);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.labelColors).toBeUndefined();
+});
+
 test("GiteaForge.currentUser: returns the authenticated login (#824)", async () => {
   const { fn, calls } = fakeFetch({
     "GET /api/v1/user": { json: { login: "octogit" } },

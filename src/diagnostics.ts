@@ -17,6 +17,12 @@ import { parseGitVersion, gitVersionAtLeast, MIN_GIT_MAJOR, MIN_GIT_MINOR } from
 import { compareSemver } from "./herdr-update";
 import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
+import { readCodexAuthMode } from "./codex-auth";
+import {
+  resolveRoleEnvironment,
+  CHATGPT_INCOMPATIBLE_CODEX_MODELS,
+  type CodexAuthMode,
+} from "./default-model";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -109,6 +115,9 @@ export interface DiagnosticsDeps {
   /** Returns true when at least one configured repo has repoMode "lightweight".
    *  Default `() => false` (no extra git capability warning unless opted in). */
   anyLightweightRepo?: () => boolean;
+  /** Detect the Codex CLI auth mode (chatgpt / apikey / unknown). Default reads
+   *  `~/.codex/auth.json`. Injected in tests to exercise the codex_model_auth check. */
+  readCodexAuthMode?: () => CodexAuthMode;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -248,6 +257,7 @@ export class DiagnosticsService {
   private runRemediation: (cmd: string) => Promise<void>;
   private anyForgeRepo: () => boolean;
   private anyLightweightRepo: () => boolean;
+  private detectCodexAuthMode: () => CodexAuthMode;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -292,6 +302,50 @@ export class DiagnosticsService {
     this.runRemediation = deps.runRemediation ?? defaultRunRemediation;
     this.anyForgeRepo = deps.anyForgeRepo ?? (() => true);
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
+    this.detectCodexAuthMode = deps.readCodexAuthMode ?? readCodexAuthMode;
+  }
+
+  /**
+   * Warn when a live-configured Codex role/global model would be rejected by the operator's
+   * ChatGPT-account Codex login (the class behind silent recap failures). Returns the warning
+   * check, or null when it does not apply (not chatgpt auth, or no configured model is
+   * blocklisted) — so the check only surfaces as a real advisory, never as `ok` noise. Enumerates
+   * the live per-role cli/model pairs + the global default; each is resolved UNCLAMPED
+   * (authMode "unknown") to see the model that WOULD be spawned without the guard.
+   */
+  private codexModelAuthCheck(): DiagnosticCheck | null {
+    if (this.detectCodexAuthMode() !== "chatgpt") return null;
+    const pairs: Array<[string, string]> = [
+      [config.recapCli, config.recapModel],
+      [config.namerCli, config.namerModel],
+      [config.autopilotCli, config.autopilotModel],
+      [config.criticCli, config.criticModel],
+      [config.docAgentCli, config.docAgentModel],
+      ["inherit", "default"], // the global default (defaultAgentProvider/defaultModel)
+    ];
+    const hit = pairs.some(([cli, model]) => {
+      const env = resolveRoleEnvironment(
+        cli,
+        model,
+        config.defaultAgentProvider,
+        config.defaultModel,
+        config.fableAvailable,
+        "default",
+        "unknown",
+      );
+      return (
+        env.provider === "codex" &&
+        env.model !== null &&
+        CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(env.model)
+      );
+    });
+    return hit
+      ? {
+          id: "codex_model_auth",
+          state: "warning",
+          hintKey: "diagnostics_hint_codex_model_chatgpt_incompatible",
+        }
+      : null;
   }
 
   /** Parse a (major.minor.patch) out of arbitrary `--version` output; null if none. */
@@ -536,6 +590,10 @@ export class DiagnosticsService {
         },
       });
     }
+    // Codex model↔auth advisory: only added when a configured codex model is chatgpt-incompatible,
+    // so it never surfaces as `ok` noise. Synchronous + local, so run resolves the precomputed check.
+    const codexAuth = this.codexModelAuthCheck();
+    if (codexAuth) list.push({ run: async () => codexAuth, onTimeout: codexAuth });
     return list;
   }
 

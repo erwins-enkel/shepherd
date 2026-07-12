@@ -144,10 +144,12 @@ import {
   normalizeFableAvailable,
   normalizeRoleCli,
   normalizeRoleModelToken,
-  resolveRoleEnvironment,
+  resolveRoleEnvWithAuth,
   spawnModelForAvailability,
+  CHATGPT_INCOMPATIBLE_CODEX_MODELS,
   type RoleEnvironment,
 } from "./default-model";
+import { readCodexAuthMode } from "./codex-auth";
 import { normalizeDefaultEffortSetting } from "./default-effort";
 import { shouldDowngrade } from "./usage-downgrade";
 import { normalizeAgentProvider } from "./agent-provider";
@@ -591,14 +593,28 @@ function usageDowngradeModel(): string | null {
 // in the usage-downgrade so role agents are covered too (they bypass service.create/pushModelFlag).
 // The downgrade target is a Claude model setting, so it only overrides a Claude-resolved role.
 function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
-  const env = resolveRoleEnvironment(
-    cli,
-    model,
-    config.defaultAgentProvider,
-    config.defaultModel,
-    config.fableAvailable,
-    effort,
+  // resolveRoleEnvWithAuth reads the live Codex auth mode per spawn (auth can change at runtime) and
+  // clamps a ChatGPT-account-incompatible codex model to the account default before it can be spawned.
+  const env = resolveRoleEnvWithAuth(
+    {
+      roleCli: cli,
+      roleModel: model,
+      globalProvider: config.defaultAgentProvider,
+      globalModelSetting: config.defaultModel,
+      fableAvailable: config.fableAvailable,
+      roleEffort: effort,
+    },
+    readCodexAuthMode,
   );
+  // Observability: the clamp is otherwise silent. Warn exactly when it dropped a pinned codex model.
+  if (
+    env.provider === "codex" &&
+    env.model === null &&
+    CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(model)
+  )
+    console.warn(
+      `[role-env] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
+    );
   const dg = usageDowngradeModel();
   if (dg !== null && env.provider === "claude")
     return { provider: "claude", model: dg, effort: env.effort };

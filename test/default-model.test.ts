@@ -1,9 +1,15 @@
-import { test, expect, describe } from "bun:test";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, test, expect, describe } from "bun:test";
 import {
   normalizeDefaultModelSetting,
   normalizeRepoDefaultModelSetting,
   resolveDefaultModelSetting,
   resolveRoleEnvironment,
+  resolveRoleEnvWithAuth,
+  clampCodexModelForAuth,
+  CHATGPT_INCOMPATIBLE_CODEX_MODELS,
   normalizeRoleCli,
   normalizeRoleModelToken,
   drainSpawnModel,
@@ -12,6 +18,7 @@ import {
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
 } from "../src/default-model";
+import { readCodexAuthMode } from "../src/codex-auth";
 import { MODELS } from "../src/types";
 
 describe("normalizeDefaultModelSetting", () => {
@@ -343,4 +350,105 @@ describe("normalizeFableAvailable", () => {
   test('"nonsense" → null', () => expect(normalizeFableAvailable("nonsense")).toBeNull());
   test("undefined → null", () => expect(normalizeFableAvailable(undefined)).toBeNull());
   test("42 → null", () => expect(normalizeFableAvailable(42)).toBeNull());
+});
+
+describe("clampCodexModelForAuth", () => {
+  const blocked = [...CHATGPT_INCOMPATIBLE_CODEX_MODELS][0]!;
+
+  test("codex + chatgpt + blocklisted model → null (use account default)", () => {
+    expect(clampCodexModelForAuth(blocked, "codex", "chatgpt")).toBeNull();
+  });
+  test("codex + chatgpt + non-blocklisted model → unchanged", () => {
+    expect(clampCodexModelForAuth("gpt-5.5", "codex", "chatgpt")).toBe("gpt-5.5");
+  });
+  test("codex + apikey → unchanged even for a blocklisted model", () => {
+    expect(clampCodexModelForAuth(blocked, "codex", "apikey")).toBe(blocked);
+  });
+  test("codex + unknown → unchanged (fail-open)", () => {
+    expect(clampCodexModelForAuth(blocked, "codex", "unknown")).toBe(blocked);
+  });
+  test("claude provider is never clamped", () => {
+    expect(clampCodexModelForAuth(blocked, "claude", "chatgpt")).toBe(blocked);
+  });
+  test("null model stays null", () => {
+    expect(clampCodexModelForAuth(null, "codex", "chatgpt")).toBeNull();
+  });
+});
+
+describe("resolveRoleEnvironment codexAuthMode clamp", () => {
+  const blocked = [...CHATGPT_INCOMPATIBLE_CODEX_MODELS][0]!;
+
+  test("explicit codex role + blocklisted model under chatgpt → model null", () => {
+    expect(
+      resolveRoleEnvironment("codex", blocked, "claude", "opus", true, "default", "chatgpt"),
+    ).toEqual({ provider: "codex", model: null, effort: null });
+  });
+  test("same config under apikey → model unchanged", () => {
+    expect(
+      resolveRoleEnvironment("codex", blocked, "claude", "opus", true, "default", "apikey"),
+    ).toEqual({ provider: "codex", model: blocked, effort: null });
+  });
+  test("inherit/global branch also clamps a codex global default", () => {
+    expect(
+      resolveRoleEnvironment("inherit", "default", "codex", blocked, true, "default", "chatgpt"),
+    ).toEqual({ provider: "codex", model: null, effort: null });
+  });
+  test("omitted authMode defaults to unknown → no clamp (backward-compatible)", () => {
+    expect(resolveRoleEnvironment("codex", blocked, "claude", "opus", true, "default")).toEqual({
+      provider: "codex",
+      model: blocked,
+      effort: null,
+    });
+  });
+});
+
+describe("resolveRoleEnvWithAuth (real reader→resolver seam)", () => {
+  const blocked = [...CHATGPT_INCOMPATIBLE_CODEX_MODELS][0]!;
+  let dirs: string[] = [];
+  afterEach(() => {
+    for (const d of dirs) rmSync(d, { recursive: true, force: true });
+    dirs = [];
+  });
+  function chatgptAuthDir(): string {
+    const dir = mkdtempSync(join(tmpdir(), "roleenv-auth-"));
+    dirs.push(dir);
+    writeFileSync(
+      join(dir, "auth.json"),
+      JSON.stringify({ tokens: { access_token: "abc" }, OPENAI_API_KEY: null }),
+    );
+    return dir;
+  }
+
+  test("a recap-shaped codex role resolves to model null when the injected reader detects chatgpt", () => {
+    const dir = chatgptAuthDir();
+    expect(
+      resolveRoleEnvWithAuth(
+        {
+          roleCli: "codex",
+          roleModel: blocked,
+          globalProvider: "claude",
+          globalModelSetting: "opus",
+          fableAvailable: true,
+          roleEffort: "low",
+        },
+        () => readCodexAuthMode(dir),
+      ),
+    ).toEqual({ provider: "codex", model: null, effort: "low" });
+  });
+
+  test("with an injected apikey reader the same role keeps its pinned model", () => {
+    expect(
+      resolveRoleEnvWithAuth(
+        {
+          roleCli: "codex",
+          roleModel: blocked,
+          globalProvider: "claude",
+          globalModelSetting: "opus",
+          fableAvailable: true,
+          roleEffort: "low",
+        },
+        () => "apikey",
+      ),
+    ).toEqual({ provider: "codex", model: blocked, effort: "low" });
+  });
 });

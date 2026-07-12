@@ -131,6 +131,39 @@ export function resolveDefaultModelSetting(
   return globalSetting;
 }
 
+/** How the operator's Codex CLI is authenticated. Some Codex models are rejected (HTTP 400) under
+ *  a ChatGPT-account login but work with an API key, so a role/main spawn resolution must know the
+ *  auth mode to avoid pinning a doomed model. `unknown` = undetermined (missing/unreadable
+ *  `~/.codex/auth.json`, or a non-Codex host) → fail-open, never clamp. Detected structurally in
+ *  `src/codex-auth.ts` (tokens present + no API key ⇒ chatgpt), not by any single JSON field. */
+export type CodexAuthMode = "chatgpt" | "apikey" | "unknown";
+
+/** Codex models known to be rejected (HTTP 400 "… not supported when using Codex with a ChatGPT
+ *  account") under a ChatGPT-account login. Deliberately a BLOCKLIST of empirically-confirmed bad
+ *  models, not an allowlist: fail-open, so a new/unknown model is never wrongly blocked. Extend as
+ *  more are confirmed; `src/codex-auth.ts`'s pane-tail capture makes a not-yet-listed one
+ *  diagnosable rather than silent. */
+export const CHATGPT_INCOMPATIBLE_CODEX_MODELS = new Set<string>(["gpt-5.3-codex"]);
+
+/** Auth-aware model clamp, orthogonal to {@link modelCompatibleWithProvider} (which stays a pure
+ *  model↔provider check). Returns `null` — "drop the --model flag, use the provider's own default"
+ *  — only for a Codex model that a ChatGPT-account login is known to reject; otherwise the model is
+ *  returned unchanged. `unknown`/`apikey` never clamp (fail-open). Pure. */
+export function clampCodexModelForAuth(
+  model: string | null,
+  provider: AgentProvider,
+  authMode: CodexAuthMode,
+): string | null {
+  if (
+    provider === "codex" &&
+    authMode === "chatgpt" &&
+    model !== null &&
+    CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(model)
+  )
+    return null;
+  return model;
+}
+
 /** A resolved per-role spawn environment: which CLI to launch, which model flag (null = the
  *  provider's own default, no --model), and which effort flag (null/undefined = no --effort).
  *  `effort` is OPTIONAL — several call sites fall back to a `{ provider, model }` literal without
@@ -181,13 +214,16 @@ export function resolveRoleEnvironment(
   globalModelSetting: string,
   fableAvailable: boolean,
   roleEffort: string | null | undefined,
+  codexAuthMode: CodexAuthMode = "unknown",
 ): RoleEnvironment {
   const effort = normalizeEffort(roleEffort);
   const cli = normalizeRoleCli(roleCli);
   if (cli === null || cli === "inherit") {
+    // Clamp the global default too — a codex global default can itself be chatgpt-incompatible.
+    const model = spawnModelForAvailability(drainSpawnModel(globalModelSetting), fableAvailable);
     return {
       provider: globalProvider,
-      model: spawnModelForAvailability(drainSpawnModel(globalModelSetting), fableAvailable),
+      model: clampCodexModelForAuth(model, globalProvider, codexAuthMode),
       effort,
     };
   }
@@ -195,5 +231,35 @@ export function resolveRoleEnvironment(
   if (token === "default") return { provider: cli, model: null, effort };
   // Clamp: the stored model must belong to the chosen provider, else fall back to its default.
   if (!modelCompatibleWithProvider(token, cli)) return { provider: cli, model: null, effort };
-  return { provider: cli, model: spawnModelForAvailability(token, fableAvailable), effort };
+  const model = spawnModelForAvailability(token, fableAvailable);
+  // Auth-aware clamp: a codex model rejected by a ChatGPT-account login falls back to its default.
+  return { provider: cli, model: clampCodexModelForAuth(model, cli, codexAuthMode), effort };
+}
+
+/** Args for {@link resolveRoleEnvWithAuth} — the per-role setting triple plus the global fallback. */
+export interface RoleEnvArgs {
+  roleCli: string | null | undefined;
+  roleModel: string | null | undefined;
+  globalProvider: AgentProvider;
+  globalModelSetting: string;
+  fableAvailable: boolean;
+  roleEffort: string | null | undefined;
+}
+
+/** Testable role-env seam: reads the Codex auth mode via the INJECTED `readAuth` thunk and feeds it
+ *  into {@link resolveRoleEnvironment}. This is the unit the wiring in `src/index.ts` delegates to,
+ *  so the auth-read → resolve → clamp path is coverable without booting the server. */
+export function resolveRoleEnvWithAuth(
+  args: RoleEnvArgs,
+  readAuth: () => CodexAuthMode,
+): RoleEnvironment {
+  return resolveRoleEnvironment(
+    args.roleCli,
+    args.roleModel,
+    args.globalProvider,
+    args.globalModelSetting,
+    args.fableAvailable,
+    args.roleEffort,
+    readAuth(),
+  );
 }

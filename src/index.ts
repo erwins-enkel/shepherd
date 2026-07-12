@@ -808,7 +808,14 @@ const sweepRunawayOrphans = (ids?: Set<string>) => {
 };
 
 deferredStarts.push(() => {
-  sweepRunawayOrphans();
+  // Deferred off the synchronous boot path (same as the #1133 orphan reap above): the sweep is a
+  // host-wide /proc enumeration — a readdir plus a comm + stat read per pid, and an fd-table walk
+  // for every hot, old survivor — and it runs on Bun's single loop. Nothing about it is urgent at
+  // boot (it is the safety net; teardown already swept these), so it must not sit inline ahead of
+  // the server accepting connections.
+  void Promise.resolve()
+    .then(() => sweepRunawayOrphans())
+    .catch((err) => console.warn("[reap-runaway] boot sweep failed:", err));
   setInterval(() => sweepRunawayOrphans(), 60 * 60 * 1000);
 });
 

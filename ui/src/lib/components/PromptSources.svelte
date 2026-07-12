@@ -100,6 +100,15 @@
       issuesFilter.hideSubIssues &&
       epicsLoaded,
   );
+  // The blocked filter emptied the remainder the sub-issue filter left behind.
+  let allHiddenByBlocked = $derived(
+    !allHiddenByAssignee &&
+      !allHiddenByActive &&
+      !allHiddenBySubIssues &&
+      subFiltered.length > 0 &&
+      blockedFiltered.length === 0 &&
+      issuesFilter.hideBlocked,
+  );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
   // null = TODO.md presence not yet resolved for this repo; hide the tab until known.
@@ -336,6 +345,8 @@
           <div class="muted">{m.issues_filter_all_in_progress()}</div>
         {:else if allHiddenBySubIssues}
           <div class="muted">{m.issues_filter_all_sub_issues()}</div>
+        {:else if allHiddenByBlocked}
+          <div class="muted">{m.issues_filter_all_blocked()}</div>
         {:else if visibleIssues.length === 0}
           <!-- Author/label filters emptied the list (no text search on this tab). -->
           <div class="muted">{m.issues_filter_no_match()}</div>

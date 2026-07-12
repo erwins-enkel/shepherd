@@ -17,6 +17,7 @@
   import { theme } from "$lib/theme.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
+  import { labelChipStyle } from "$lib/label-color";
   // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
   // widgets compute SVG geometry from props — a static copy would drift. Import the
   // real components via PluginUIRenderer so the showcase exercises the actual dispatch path.
@@ -135,6 +136,29 @@ input, select, textarea {
   color: var(--color-muted);
 }
 /* state colors come from the accent/status tokens, applied to color + border */`;
+
+  // Real forge label colors (GitHub's default "bug"/"good first issue"/"enhancement"
+  // palette) run through the same labelChipStyle() every issue label chip uses — see
+  // the "Sanctioned exception" note below.
+  const demoLabelStyle = labelChipStyle("#d73a4a");
+  const demoLabelStyle2 = labelChipStyle("#7057ff");
+  const demoLabelStyle3 = labelChipStyle("#a2eeef");
+
+  const labelChipMarkup = `import { labelChipStyle } from "$lib/label-color";
+
+<span class="label-chip" class:hued={style !== null} style={style}>bug</span>
+
+/* dark default; light theme overrides via the ancestor selector */
+.label-chip.hued {
+  color: var(--lc-text-d);
+  border-color: var(--lc-border-d);
+  background: var(--lc-fill-d);
+}
+:global([data-theme="light"]) .label-chip.hued {
+  color: var(--lc-text-l);
+  border-color: var(--lc-border-l);
+  background: var(--lc-fill-l);
+}`;
 
   const statusChipMarkup = `<span class="status-chip info"><span class="dot"></span>PR #42</span>
 <span class="status-chip ready"><span class="dot"></span>CI passing</span>
@@ -846,6 +870,33 @@ input, select, textarea {
         so a lone 6px chip is never stranded between 2px siblings.
       </li>
     </ul>
+
+    <p class="when">
+      <strong>Sanctioned exception — issue label chips render the real forge color.</strong> Rule 4
+      above ("accent hues are semantic, not decorative") governs Shepherd's OWN chrome — states
+      Shepherd itself defines (READY, running, blocked). Issue labels are the opposite: they are
+      <em>data</em>, not chrome — a label's color is whatever the forge (GitHub, etc.) assigned it,
+      the same way an avatar's color is whoever the person is. This is the ONLY place raw
+      data-driven color is allowed into chip chrome; nowhere else may a hex/rgba literal stand in
+      for a semantic token.
+    </p>
+    <p class="when">
+      The raw forge hex is never used verbatim (a fully-saturated yellow or navy label is unreadable
+      against a near-black or near-white row). Instead it is normalized through OKLCH (<code
+        >label-color.ts</code
+      >): the source hue and chroma are preserved, but lightness is substituted for a fixed
+      per-theme constant (<code>LABEL_CHIP_THEME</code>), so every label — regardless of hue —
+      clears WCAG AA (4.5:1) text contrast in both themes (verified by a gamut-aware worst-case test
+      over every hue/chroma the browser can actually paint). The tunable knobs (text/border
+      lightness, fill lightness + alpha, per theme) live in that one constant, not scattered across
+      components.
+    </p>
+    <div class="demo">
+      <span class="label-chip-demo" style={demoLabelStyle}>bug</span>
+      <span class="label-chip-demo" style={demoLabelStyle2}>good first issue</span>
+      <span class="label-chip-demo" style={demoLabelStyle3}>enhancement</span>
+    </div>
+    <pre><code>{labelChipMarkup}</code></pre>
   </section>
 
   <section class="panel">
@@ -1266,6 +1317,25 @@ input, select, textarea {
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
+  }
+  /* Issue label chip demo — mirrors IssueRow's .label-chip.hued recipe: --lc-* vars
+     (from labelChipStyle()) drive dark-default color/border/fill, overridden per theme
+     via the ancestor [data-theme="light"] selector. See the "Sanctioned exception" note
+     in the Badges & chips section above. */
+  .label-chip-demo {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    border-radius: 2px;
+    padding: 1px 5px;
+    color: var(--lc-text-d);
+    border: 1px solid var(--lc-border-d);
+    background: var(--lc-fill-d);
+  }
+  :global([data-theme="light"]) .label-chip-demo {
+    color: var(--lc-text-l);
+    border-color: var(--lc-border-l);
+    background: var(--lc-fill-l);
   }
   /* Status chip — 6px chip-row control; distinct from the 2px .chip color swatch above */
   .status-chip {

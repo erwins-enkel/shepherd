@@ -4,6 +4,7 @@
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { labelChipStyle } from "$lib/label-color";
   import {
     hideOthers,
     hideActive,
@@ -12,6 +13,7 @@
     filterByLabels,
     distinctAuthors,
     distinctLabels,
+    labelColorMap,
     ACTIVE_LABEL,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
@@ -57,6 +59,7 @@
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
   let availableLabels = $derived(distinctLabels(issues));
+  let labelColorsMap = $derived(labelColorMap(issues));
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
   // Toggle-filtered set (mine → active → sub-issue), BEFORE the author/label filters.
@@ -105,6 +108,11 @@
     labels.includes(ACTIVE_LABEL)
       ? [ACTIVE_LABEL, ...labels.filter((l) => l !== ACTIVE_LABEL)]
       : labels;
+
+  // Inline `--lc-*` style vars for a label chip's real forge color, or null for the
+  // system ACTIVE_LABEL (stays semantic amber) / a missing/invalid color (neutral chip).
+  const chipStyle = (lbl: string, colors: Record<string, string> | undefined): string | null =>
+    lbl === ACTIVE_LABEL ? null : labelChipStyle(colors?.[lbl] ?? "");
 
   // Resolve TODO.md eagerly per repo (independent of the active tab) so the To-Do
   // tab is hidden outright when the repo has no TODO.md, and the panel opens on
@@ -309,6 +317,7 @@
             showMine={viewer != null}
             authors={availableAuthors}
             labels={availableLabels}
+            labelColors={labelColorsMap}
             {selectedAuthor}
             selectedLabels={[...selectedLabels]}
             onauthor={pickAuthor}
@@ -337,7 +346,7 @@
               {@render issueAuthor(i.author)}
               <span class="chips">
                 <span class="chip chip-epic">{m.promptsources_epic_tag()}</span>
-                {@render labelChips(ordered)}
+                {@render labelChips(ordered, i.labelColors)}
               </span>
             </div>
           {:else}
@@ -346,7 +355,7 @@
               <span class="row-text">{i.title}</span>
               {@render issueAuthor(i.author)}
               {#if ordered.length > 0}
-                <span class="chips">{@render labelChips(ordered)}</span>
+                <span class="chips">{@render labelChips(ordered, i.labelColors)}</span>
               {/if}
             </button>
           {/if}
@@ -362,11 +371,14 @@
   {/if}
 {/snippet}
 
-{#snippet labelChips(ordered: string[])}
+{#snippet labelChips(ordered: string[], colors: Record<string, string> | undefined)}
   {#each ordered.slice(0, 1) as lbl (lbl)}
+    {@const style = chipStyle(lbl, colors)}
     <span
       class="chip"
       class:active={lbl === ACTIVE_LABEL}
+      class:hued={style !== null}
+      {style}
       title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}>{lbl}</span
     >
   {/each}
@@ -613,6 +625,21 @@
     color: var(--status-running);
     border-color: var(--status-running);
     background: color-mix(in srgb, var(--status-running) 14%, transparent);
+  }
+
+  /* Real forge label color (issue: labels-almost-invisible) — sanctioned exception to
+     "accent hues are semantic, not decorative" (see /design-system). Never coexists with
+     .active: the snippet only computes a style for non-active labels, so the semantic
+     amber rule above always wins where it applies. */
+  .chip.hued {
+    color: var(--lc-text-d);
+    border-color: var(--lc-border-d);
+    background: var(--lc-fill-d);
+  }
+  :global([data-theme="light"]) .chip.hued {
+    color: var(--lc-text-l);
+    border-color: var(--lc-border-l);
+    background: var(--lc-fill-l);
   }
 
   .chip-more {

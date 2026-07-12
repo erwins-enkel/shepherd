@@ -1,5 +1,6 @@
 import { mapGiteaActionStatus, mapStatusState } from "./checks";
 import { classifyPr } from "./pr-kind";
+import { labelColorsFrom } from "./labels";
 import { mapBounded } from "../map-bounded";
 import type {
   ChecksState,
@@ -126,19 +127,21 @@ export class GiteaForge implements GitForge {
       title: string;
       body?: string;
       html_url: string;
-      labels?: Array<{ name: string }>;
+      labels?: Array<{ name: string; color?: string }>;
       created_at?: string;
       assignees?: Array<{ login?: string }> | null;
       user?: { login?: string } | null;
     }>;
     return (raw ?? []).map((i) => {
       const ts = Date.parse(i.created_at ?? "");
+      const labelColors = labelColorsFrom(i.labels ?? []);
       return {
         number: i.number,
         title: i.title,
         body: i.body ?? "",
         url: i.html_url,
         labels: (i.labels ?? []).map((l) => l.name),
+        ...(labelColors ? { labelColors } : {}),
         createdAt: Number.isFinite(ts) ? ts : Date.now(),
         // Gitea serializes a user's canonical name as `login` (matches the PR-author
         // mapping above); drop any null/unnamed assignee defensively.

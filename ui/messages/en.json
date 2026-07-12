@@ -2933,5 +2933,7 @@
   "feat_epic_research_flow_title": "Create EPIC from research",
   "feat_epic_research_flow_body": "Turn a rough product idea into a structured epic. Check \"Create EPIC from research\" in New Task and an attended session shapes the work, then proposes a reviewable draft — parent issue, child issues and their dependency order. Nothing is written to GitHub until you approve; then Shepherd creates the issues and links, ready to drain.",
   "feat_prewarm_epic_ci_title": "Pre-warm epic landing CI",
-  "feat_prewarm_epic_ci_body": "When enabled, an epic's landing PR now opens early as a draft so its CI runs warm while the epic still drains, instead of a cold first run at completion. Opt in per repo in Automation settings."
+  "feat_prewarm_epic_ci_body": "When enabled, an epic's landing PR now opens early as a draft so its CI runs warm while the epic still drains, instead of a cold first run at completion. Opt in per repo in Automation settings.",
+  "feat_colored_issue_labels_title": "Issue labels in their real colors",
+  "feat_colored_issue_labels_body": "Label chips across the backlog, filters, and prompt sources now render each label's actual color from GitHub, normalized for legibility in both light and dark themes — instead of flat grey."
 }

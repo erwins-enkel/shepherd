@@ -219,6 +219,9 @@ export interface Issue {
   body: string;
   url: string;
   labels: string[];
+  /** Label name → hex color (`#rrggbb`) from the forge, when available. Additive/optional;
+   *  `labels` stays authoritative. Absent/partial ⇒ neutral chip fallback. */
+  labelColors?: Record<string, string>;
   createdAt: number;
   /** GitHub/Gitea logins assigned to the issue (empty when unassigned). Drives the
    *  "mine & unassigned" filter (#824). */

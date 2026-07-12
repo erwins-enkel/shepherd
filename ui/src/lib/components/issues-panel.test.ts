@@ -14,6 +14,7 @@ import {
   sortEpicsFirst,
   distinctAuthors,
   distinctLabels,
+  labelColorMap,
   filterByAuthor,
   filterByLabels,
   ACTIVE_LABEL,
@@ -244,6 +245,27 @@ describe("distinctLabels", () => {
     } as unknown as Issue;
     expect(() => distinctLabels([stale])).not.toThrow();
     expect(distinctLabels([stale])).toEqual([]);
+  });
+});
+
+describe("labelColorMap", () => {
+  it("merges labelColors across issues, last-wins on a name clash", () => {
+    const a = { ...issue(1, "A", "", ["bug", "enhancement"]), labelColors: { bug: "#ff0000" } };
+    const b = {
+      ...issue(2, "B", "", ["enhancement"]),
+      labelColors: { enhancement: "#00ff00", bug: "#0000ff" },
+    };
+    expect(labelColorMap([a, b])).toEqual({ bug: "#0000ff", enhancement: "#00ff00" });
+  });
+
+  it("skips issues without labelColors", () => {
+    const withColors = { ...issue(1, "A", "", ["bug"]), labelColors: { bug: "#ff0000" } };
+    const withoutColors = issue(2, "B", "", ["enhancement"]);
+    expect(labelColorMap([withColors, withoutColors])).toEqual({ bug: "#ff0000" });
+  });
+
+  it("returns an empty object for issues with no labelColors at all", () => {
+    expect(labelColorMap([issue(1, "A"), issue(2, "B")])).toEqual({});
   });
 });
 

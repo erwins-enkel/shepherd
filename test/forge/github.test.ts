@@ -164,6 +164,67 @@ test("GithubForge.listIssues: parses gh issue list output (incl. assignee logins
   ]);
 });
 
+test("GithubForge.listIssues: maps label color into labelColors (name→#rrggbb); colorless labels contribute nothing", async () => {
+  const issuesJson = JSON.stringify([
+    {
+      number: 1,
+      title: "Fix crash",
+      body: "boom",
+      url: "u1",
+      labels: [{ name: "bug", color: "d73a4a" }, { name: "no-color" }],
+      createdAt: ISSUE_CREATED_AT,
+    },
+  ]);
+  const { run } = fakeRunner({ "issue list": issuesJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.labels).toEqual(["bug", "no-color"]);
+  expect(issues[0]!.labelColors).toEqual({ bug: "#d73a4a" });
+});
+
+test("GithubForge.listIssues: no label carries a color → labelColors omitted", async () => {
+  const issuesJson = JSON.stringify([
+    {
+      number: 1,
+      title: "T",
+      body: "",
+      url: "u1",
+      labels: [{ name: "bug" }],
+      createdAt: ISSUE_CREATED_AT,
+    },
+  ]);
+  const { run } = fakeRunner({ "issue list": issuesJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const issues = await forge.listIssues();
+  expect(issues[0]!.labelColors).toBeUndefined();
+});
+
+test("GithubForge.listIssues: REST fallback maps label color into labelColors (name→#rrggbb)", async () => {
+  const run = async (args: string[]): Promise<string> => {
+    if (args.includes("repos/o/r/issues")) {
+      return JSON.stringify([
+        {
+          number: 1,
+          title: "Issue 1",
+          body: "body",
+          html_url: "https://github.com/o/r/issues/1",
+          labels: [{ name: "bug", color: "D73A4A" }, { name: "no-color" }],
+          created_at: ISSUE_CREATED_AT,
+        },
+      ]);
+    }
+    return "[]";
+  };
+  blockGraphql();
+  try {
+    const issues = await new GithubForge("o/r", {}, run).listIssues();
+    expect(issues[0]!.labels).toEqual(["bug", "no-color"]);
+    expect(issues[0]!.labelColors).toEqual({ bug: "#d73a4a" });
+  } finally {
+    unblockGraphql();
+  }
+});
+
 test("GithubForge.listIssues: requests the assignees field from gh (#824)", async () => {
   const { run, calls } = fakeRunner({ "issue list": ISSUES_JSON });
   const forge = new GithubForge("o/r", { deployWorkflow: "deploy.yml" }, run);

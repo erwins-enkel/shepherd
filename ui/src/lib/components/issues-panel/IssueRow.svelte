@@ -4,6 +4,7 @@
   import { fitLabels } from "$lib/fit-labels";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
+  import { labelChipStyle } from "$lib/label-color";
   import { ACTIVE_LABEL } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
@@ -158,9 +159,13 @@
         {/each}
       {/if}
       {#each issue.labels as label (label)}
+        {@const style =
+          label !== ACTIVE_LABEL ? labelChipStyle(issue.labelColors?.[label] ?? "") : null}
         <span
           class="label-chip"
           class:active={label === ACTIVE_LABEL}
+          class:hued={style !== null}
+          {style}
           title={label === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
           >{label}</span
         >
@@ -323,6 +328,22 @@
     color: var(--status-running);
     border-color: var(--status-running);
     background: color-mix(in srgb, var(--status-running) 14%, transparent);
+  }
+
+  /* Real forge label color (issue: labels-almost-invisible) — sanctioned exception to
+     "accent hues are semantic, not decorative" (see /design-system). Never coexists with
+     .active: labelChipStyle is only computed for non-active labels, so the semantic amber
+     rule above always wins where it applies. Vars come from labelChipStyle(); dark is the
+     default, [data-theme="light"] overrides. */
+  .label-chip.hued {
+    color: var(--lc-text-d);
+    border-color: var(--lc-border-d);
+    background: var(--lc-fill-d);
+  }
+  :global([data-theme="light"]) .label-chip.hued {
+    color: var(--lc-text-l);
+    border-color: var(--lc-border-l);
+    background: var(--lc-fill-l);
   }
 
   .body-preview {

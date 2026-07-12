@@ -2933,5 +2933,7 @@
   "feat_epic_research_flow_title": "EPIC aus Recherche erstellen",
   "feat_epic_research_flow_body": "Mach aus einer groben Produktidee ein strukturiertes Epic. Aktiviere „EPIC aus Recherche erstellen“ im Dialog „Neue Aufgabe“: Eine betreute Sitzung arbeitet die Aufgabe aus und schlägt einen prüfbaren Entwurf vor — übergeordnetes Issue, untergeordnete Issues und ihre Abhängigkeitsreihenfolge. Nichts wird auf GitHub geschrieben, bis du genehmigst; dann erstellt Shepherd die Issues und Verknüpfungen, bereit zum Abarbeiten.",
   "feat_prewarm_epic_ci_title": "Epic-Landing-CI vorwärmen",
-  "feat_prewarm_epic_ci_body": "Ist die Option aktiviert, öffnet sich der Landing-PR eines Epics jetzt frühzeitig als Entwurf, sodass seine CI schon während des Abarbeitens vorgewärmt läuft, statt beim Abschluss kalt zu starten. Pro Repo in den Automatisierungseinstellungen aktivierbar."
+  "feat_prewarm_epic_ci_body": "Ist die Option aktiviert, öffnet sich der Landing-PR eines Epics jetzt frühzeitig als Entwurf, sodass seine CI schon während des Abarbeitens vorgewärmt läuft, statt beim Abschluss kalt zu starten. Pro Repo in den Automatisierungseinstellungen aktivierbar.",
+  "feat_colored_issue_labels_title": "Issue-Labels in ihren echten Farben",
+  "feat_colored_issue_labels_body": "Label-Chips im Backlog, in den Filtern und bei den Prompt-Quellen zeigen jetzt die echte Farbe des Labels aus GitHub, angepasst für Lesbarkeit in hellem und dunklem Theme — statt einheitlichem Grau."
 }

@@ -19,7 +19,7 @@ import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { Session, Recap, AgentProvider, RecapEvidenceKind, RecapSkip } from "./types";
-import type { DiffResult } from "./types";
+import type { DiffFile, DiffResult } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { OperatorLanguage } from "./operator-language";
 import type { ActivityEntry } from "./activity";
@@ -165,6 +165,19 @@ export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
   return r.status === "ok"
     ? { status: "parsed", value: r.value, repaired: r.repaired }
     : { status: "unparseable", raw: text }; // carry bytes so tick() can log WHY it failed
+}
+
+/**
+ * Recap's diff visual block renders via `hunks`, never the raw `patch` text (that's the
+ * session-endpoint-only wire shape — see toSessionDiff in diff.ts). Strip it before the
+ * files land in the pendingDiff carrier so a stored/reconstructed recap block never ships
+ * both representations.
+ */
+export function stripPatchForRecap(files: DiffFile[]): DiffFile[] {
+  return files.map(({ patch, ...f }) => {
+    void patch; // intentionally dropped — recap keeps `hunks` only
+    return f as DiffFile;
+  });
 }
 
 /** Bounded, single-line snippet of a raw verdict for diagnostic logs (recap content is agent
@@ -710,7 +723,10 @@ export class RecapService {
       };
       this.deps.store.putRecap(row);
       this.deps.onChange(id, row);
-      this.deps.store.setRecapPendingDiff(id, diff.files);
+      // Recap renders diff blocks via `hunks`, never `patch` — strip it before it lands
+      // in the pendingDiff carrier so the stored/reconstructed block never carries both
+      // representations (the session endpoint is the only consumer of raw `patch`).
+      this.deps.store.setRecapPendingDiff(id, stripPatchForRecap(diff.files));
 
       return "started";
     } finally {

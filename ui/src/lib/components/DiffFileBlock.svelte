@@ -18,7 +18,7 @@
     renamed: "R",
   };
 
-  const flatLines = $derived(file.hunks.flatMap((h) => h.lines));
+  const flatLines = $derived((file.hunks ?? []).flatMap((h) => h.lines));
 
   // lazily highlight the first time this file is expanded (one Shiki call per
   // file). The highlighter (and Shiki) is dynamically imported here so it stays
@@ -57,7 +57,7 @@
   // pair each line with its highlighted HTML by global index (null until highlighted)
   const hunksView = $derived.by(() => {
     let i = 0;
-    return file.hunks.map((h) => ({
+    return (file.hunks ?? []).map((h) => ({
       header: h.header,
       lines: h.lines.map((line) => {
         const lineHtml = html ? (html[i] ?? null) : null;

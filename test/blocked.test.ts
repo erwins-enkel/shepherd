@@ -222,6 +222,58 @@ test("classic menu fixture still classifies as menu with 3 options (no regressio
   expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3"]);
 });
 
+// ── Width robustness of the fullscreen zero-space guard (#1054) ───────────────
+//
+// The zero-space accept rule (src/blocked.ts:91) admits a packed option
+// ("2.Yes, allow all edits…") only when its first VISIBLE line is a non-digit-
+// leading label WITH internal whitespace. #1054 asks whether a narrow terminal can
+// wrap that option so its first line becomes a spaceless token ("2.Yes,") — dropping
+// the option and mis-classifying the menu.
+//
+// The two committed REAL captures bracket the production width range and both keep
+// the full menu (asserted above): classic-menu.txt is a real 27-col CLASSIC frame
+// where option 2 keeps its delimiter space ("2. Yes, allow all edits"), and
+// fullscreen-menu.txt is the real 54-col FULLSCREEN frame ("2.Yes, allow all edits
+// during this session", zero-space, one line).
+//
+// A genuine NARROW fullscreen capture was infeasible in the headless context: herdr
+// exposes no absolute column control, so a real narrow frame needs an interactively
+// width-sized client driving a live claude to a permission menu. Per #1054's "driven
+// by fixtures, not assumption", no synthetic width fixture is committed; instead the
+// guard's accept boundary is characterized directly against the REAL captured
+// option-2 label and its exact prefixes.
+//
+// Break-width derivation: "   2.Yes, allow all edits during this session" word-wraps
+// at spaces. Its first line strips to the spaceless "   2.Yes," (9 cols: 3 indent +
+// "2.Yes,") only when the pane is narrower than "   2.Yes, allow" (15 cols) — a
+// ~9–14-col window, far below any production-reachable terminal/herdr-pane width (a
+// fullscreen Claude Code TUI is degenerate near ~14 cols). So the hazard is real but
+// UNREACHABLE and the guard needs no change.
+
+const REAL_OPT2_LABEL = "Yes, allow all edits during this session"; // from fullscreen-menu.txt
+const menuWithOpt2FirstLine = (firstLine: string) =>
+  [" ❯ 1. Yes", `   2.${firstLine}`, "   3. No"].join("\n");
+
+test("zero-space guard holds while the wrapped first line keeps internal whitespace (all reachable widths)", () => {
+  // Every prefix of the real 54-col label that still contains a space keeps the menu.
+  for (const firstLine of [REAL_OPT2_LABEL, "Yes, allow all edits", "Yes, allow"]) {
+    const r = classifyBlocked(menuWithOpt2FirstLine(firstLine));
+    expect(r.shape).toBe("menu");
+    expect(r.options.map((o) => o.send)).toEqual(["1", "2", "3"]);
+    expect(r.options.some((o) => o.label.includes("Yes,"))).toBe(true);
+  }
+});
+
+test("zero-space guard boundary: a spaceless first line drops the option (only at ~9–14 cols, production-unreachable)", () => {
+  // "2.Yes," / "2.Yes" lose internal whitespace, so the guard rejects the zero-space
+  // form (the same rule that blocks "2.5 GB" / "1.tsx"). This wrap occurs only below
+  // ~15 cols — unreachable in production. The assertion pins the boundary so a future
+  // guard change that shifts it is caught.
+  for (const firstLine of ["Yes,", "Yes"]) {
+    expect(classifyBlocked(menuWithOpt2FirstLine(firstLine)).shape).toBe("awaiting-input");
+  }
+});
+
 test("decimal false-positive guard: '1.5 GB' / '2.5 GB' does not classify as menu", () => {
   const tail = ["Available space: 1.5 GB", "Used space: 2.5 GB"].join("\n");
   const r = classifyBlocked(tail);

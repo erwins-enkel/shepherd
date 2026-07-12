@@ -230,6 +230,7 @@ class RepoConfigStore {
   buildQueue = $state<Record<string, boolean>>({}); // agent-authored build queue (default off)
   autoOptimize = $state<Record<string, boolean>>({}); // auto-optimize flagged rules (default off)
   manualStepsIssue = $state<Record<string, boolean>>({}); // GitHub tracking issue on merge (default off, #1061)
+  preWarmEpicLandingCi = $state<Record<string, boolean>>({}); // pre-warm epic landing CI via early draft PR (default off, #1664)
   hidden = $state<Record<string, boolean>>({}); // hidden from the Backlog repos panel (optimistic overlay over payload; default off)
   planGate = $state<Record<string, boolean>>({}); // pre-execution plan gate (default off)
   draftMode = $state<Record<string, boolean>>({}); // open PRs as drafts (default off; mutually exclusive with autoMerge)
@@ -265,6 +266,10 @@ class RepoConfigStore {
     this.buildQueue = { ...this.buildQueue, [repoPath]: c.buildQueueEnabled };
     this.autoOptimize = { ...this.autoOptimize, [repoPath]: c.autoOptimizeFlagged };
     this.manualStepsIssue = { ...this.manualStepsIssue, [repoPath]: c.manualStepsIssueEnabled };
+    this.preWarmEpicLandingCi = {
+      ...this.preWarmEpicLandingCi,
+      [repoPath]: c.preWarmEpicLandingCi,
+    };
     this.hidden = { ...this.hidden, [repoPath]: c.hidden };
     this.planGate = { ...this.planGate, [repoPath]: c.planGateEnabled };
     this.draftMode = { ...this.draftMode, [repoPath]: c.draftMode };
@@ -353,6 +358,7 @@ class RepoConfigStore {
         | "buildQueueEnabled"
         | "autoOptimizeFlagged"
         | "manualStepsIssueEnabled"
+        | "preWarmEpicLandingCi"
         | "hidden"
         | "planGateEnabled"
         | "draftMode"
@@ -588,6 +594,15 @@ class RepoConfigStore {
     });
   }
 
+  async togglePreWarmEpicLandingCi(repoPath: string) {
+    const prev = this.preWarmEpicLandingCi[repoPath];
+    const next = !this.preWarmEpicLandingCiOn(repoPath);
+    this.preWarmEpicLandingCi = { ...this.preWarmEpicLandingCi, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { preWarmEpicLandingCi: next }, () => {
+      this.preWarmEpicLandingCi = { ...this.preWarmEpicLandingCi, [repoPath]: prev };
+    });
+  }
+
   async togglePlanGate(repoPath: string) {
     const prev = this.planGate[repoPath];
     const next = !this.isPlanGateEnabled(repoPath);
@@ -655,6 +670,10 @@ class RepoConfigStore {
 
   manualStepsIssueOn(repoPath: string): boolean {
     return this.manualStepsIssue[repoPath] ?? false;
+  }
+
+  preWarmEpicLandingCiOn(repoPath: string): boolean {
+    return this.preWarmEpicLandingCi[repoPath] ?? false;
   }
 
   autoOptimizeOn(repoPath: string): boolean {

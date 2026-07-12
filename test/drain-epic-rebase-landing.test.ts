@@ -175,6 +175,7 @@ function makeHarness(opts: {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
   });
 

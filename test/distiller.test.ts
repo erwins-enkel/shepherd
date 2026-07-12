@@ -329,6 +329,7 @@ test("consider does nothing when learnings disabled for the repo", async () => {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
   });
   const { deps, started } = mkDeps(store, { rules: [] });
@@ -371,6 +372,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
         repoMode: "forge",
         autoOptimizeFlagged: false,
         manualStepsIssueEnabled: false,
+        preWarmEpicLandingCi: false,
         hidden: false,
       }),
       incrementLearningIneffective: (id: string, signals: string[]) => {

@@ -592,6 +592,7 @@ function defaultRepoConfig() {
     repoMode: "forge" as const,
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
   };
 }

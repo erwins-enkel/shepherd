@@ -2090,6 +2090,8 @@
   "feat_manual_operator_steps_gate_body": "Ein PR mit einem unbestätigten manuellen Schritt (alles, was nicht als POST-MERGE markiert ist) wird jetzt vom Auto-Merge zurückgehalten, bis du handelst. Klicke in der Session-Zeile auf \"Schritte best.\", um die Sperre aufzuheben; du wirst per Push und im täglichen Rundown erinnert. Reine POST-MERGE-Schritte blockieren nie.",
   "automation_manual_steps_issue_name": "Manuelle Schritte als Issue verfolgen",
   "automation_manual_steps_issue_desc": "Beim Merge ein GitHub-Issue mit den manuellen Schritten des PRs öffnen",
+  "automation_prewarm_epic_ci_name": "Epic-Landing-CI vorwärmen",
+  "automation_prewarm_epic_ci_desc": "Öffnet den Landing-PR des Epics frühzeitig als Entwurf, sodass jeder Kind-Merge die Landing-CI erneut gegen main ausführt. Hilft nur, wenn die CI dieses Repos auf Entwurfs-PRs läuft und bei jedem Push neu startet; ein roter Entwurf ist auf GitHub sichtbar, bis das Epic abgeschlossen ist.",
   "herd_owed_title": "Manuelle Schritte nach dem Merge, die noch offen sind",
   "herd_owed_count": "{count} gemergte PR(s) mit offenen Post-Merge-Schritten",
   "owed_main_hint": "Offene Schritte nach dem Merge werden im Herd-Panel links angezeigt.",
@@ -2929,5 +2931,7 @@
   "newtask_epic_authoring_hint": "Geführtes Ausarbeiten einer groben Idee zu einem prüfbaren EPIC-Entwurf (übergeordnetes Issue, untergeordnete Issues, Abhängigkeits-DAG). Kein Code; nichts wird auf GitHub geschrieben, bis du den Entwurf genehmigst.",
   "newtask_epic_authoring_locked_aria": "Für EPIC-Authoring-Aufgaben nicht verfügbar.",
   "feat_epic_research_flow_title": "EPIC aus Recherche erstellen",
-  "feat_epic_research_flow_body": "Mach aus einer groben Produktidee ein strukturiertes Epic. Aktiviere „EPIC aus Recherche erstellen“ im Dialog „Neue Aufgabe“: Eine betreute Sitzung arbeitet die Aufgabe aus und schlägt einen prüfbaren Entwurf vor — übergeordnetes Issue, untergeordnete Issues und ihre Abhängigkeitsreihenfolge. Nichts wird auf GitHub geschrieben, bis du genehmigst; dann erstellt Shepherd die Issues und Verknüpfungen, bereit zum Abarbeiten."
+  "feat_epic_research_flow_body": "Mach aus einer groben Produktidee ein strukturiertes Epic. Aktiviere „EPIC aus Recherche erstellen“ im Dialog „Neue Aufgabe“: Eine betreute Sitzung arbeitet die Aufgabe aus und schlägt einen prüfbaren Entwurf vor — übergeordnetes Issue, untergeordnete Issues und ihre Abhängigkeitsreihenfolge. Nichts wird auf GitHub geschrieben, bis du genehmigst; dann erstellt Shepherd die Issues und Verknüpfungen, bereit zum Abarbeiten.",
+  "feat_prewarm_epic_ci_title": "Epic-Landing-CI vorwärmen",
+  "feat_prewarm_epic_ci_body": "Ist die Option aktiviert, öffnet sich der Landing-PR eines Epics jetzt frühzeitig als Entwurf, sodass seine CI schon während des Abarbeitens vorgewärmt läuft, statt beim Abschluss kalt zu starten. Pro Repo in den Automatisierungseinstellungen aktivierbar."
 }

@@ -42,6 +42,7 @@ const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   repoMode: "forge",
   autoOptimizeFlagged: false,
   manualStepsIssueEnabled: false,
+  preWarmEpicLandingCi: false,
   hidden: false,
   previewStartScript: null,
   previewStartCommand: null,

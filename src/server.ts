@@ -1227,6 +1227,7 @@ const REPO_CFG_BOOL_FIELDS = [
   "draftMode",
   "autoOptimizeFlagged",
   "manualStepsIssueEnabled",
+  "preWarmEpicLandingCi",
   "hidden",
 ] as const;
 
@@ -1243,6 +1244,7 @@ type RepoCfgBody = {
   draftMode?: unknown;
   autoOptimizeFlagged?: unknown;
   manualStepsIssueEnabled?: unknown;
+  preWarmEpicLandingCi?: unknown;
   hidden?: unknown;
   signoffAuthority?: unknown;
   sandboxProfile?: unknown;
@@ -1341,6 +1343,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
       draftMode?: boolean;
       autoOptimizeFlagged?: boolean;
       manualStepsIssueEnabled?: boolean;
+      preWarmEpicLandingCi?: boolean;
       hidden?: boolean;
       signoffAuthority?: "human" | "critic" | "either";
       sandboxProfile?: SandboxProfile;
@@ -1423,6 +1426,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
     draftMode: body.draftMode as boolean | undefined,
     autoOptimizeFlagged: body.autoOptimizeFlagged as boolean | undefined,
     manualStepsIssueEnabled: body.manualStepsIssueEnabled as boolean | undefined,
+    preWarmEpicLandingCi: body.preWarmEpicLandingCi as boolean | undefined,
     hidden: body.hidden as boolean | undefined,
     signoffAuthority,
     sandboxProfile,

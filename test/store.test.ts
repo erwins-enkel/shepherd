@@ -229,6 +229,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -256,6 +257,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -283,6 +285,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -310,6 +313,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
@@ -337,11 +341,22 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,
     previewOpenMode: "ask",
   });
+});
+
+test("repo_config: preWarmEpicLandingCi defaults off, round-trips through set/getRepoConfig (#1664)", () => {
+  const store = new SessionStore(":memory:");
+  expect(store.getRepoConfig("/repo/prewarm").preWarmEpicLandingCi).toBe(false);
+  store.setRepoConfig("/repo/prewarm", {
+    ...store.getRepoConfig("/repo/prewarm"),
+    preWarmEpicLandingCi: true,
+  });
+  expect(store.getRepoConfig("/repo/prewarm").preWarmEpicLandingCi).toBe(true);
 });
 
 test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, persist round-trip", () => {
@@ -377,6 +392,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
     previewStartScript: null,
     previewStartCommand: null,

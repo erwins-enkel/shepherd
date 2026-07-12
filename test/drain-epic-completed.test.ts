@@ -110,6 +110,7 @@ function makeHarness(opts: HarnessOpts): Harness {
     repoMode: "forge",
     autoOptimizeFlagged: false,
     manualStepsIssueEnabled: false,
+    preWarmEpicLandingCi: false,
     hidden: false,
   });
   store.setEpicRun({

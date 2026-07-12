@@ -433,6 +433,7 @@
               {selectedPath}
               {onissue}
               {onquick}
+              {oninject}
               {onpr}
               {onlaunchtrain}
               {onadopt}

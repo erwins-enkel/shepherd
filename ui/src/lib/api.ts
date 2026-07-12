@@ -1133,18 +1133,18 @@ export async function cancelWorkflowRun(repoPath: string, runId: number): Promis
 }
 
 /** Installed slash commands (skills + command files) for the New Task picker. */
-export type CommandDiscoveryContext =
+type CommandDiscoveryContext =
   | { kind: "new-task"; repoPath: string; baseBranch?: string | null; agentProvider?: string }
   | { kind: "session"; sessionId: string }
   | { kind: "held"; heldTaskId: string }
   | { kind: "replace"; sessionId: string; handoffMode: "default" | "summarize" };
 
-export interface CommandDiscoveryRequest {
+interface CommandDiscoveryRequest {
   repoPath?: string;
   context?: CommandDiscoveryContext;
 }
 
-export async function fetchCommands(
+async function fetchCommands(
   request: CommandDiscoveryRequest,
 ): Promise<{ commands: SlashCommand[] }> {
   const params = new URLSearchParams();

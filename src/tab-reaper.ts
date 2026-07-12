@@ -4,6 +4,9 @@ import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
 import { MERGE_LABEL } from "./merge-suggest";
+import { AUTOPILOT_LABEL } from "./autopilot";
+import { NAMER_LABEL } from "./namer";
+import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 
 export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
@@ -20,11 +23,17 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *
  *  **Collision-proof markers** (space-prefix or underscore): {@link PROBE_NAME},
  *  {@link DISTILL_LABEL} and {@link OPTIMIZE_LABEL} contain underscores; every other helper uses a space-prefixed
- *  label (`"review "`, `"name "`, `"plan-review "`, `"pr-critic "`, `"recap "`,
- *  `"autopilot "`) or a multi-word exact phrase (`"verify api key"`). User sessions use
- *  prompt-derived `[a-z0-9-]` slugs — no spaces, no underscores — so none of these labels
- *  is reachable by a slug. Exception: `"rundown"` (exact, no space) relies on the
- *  liveness gate instead.
+ *  label ({@link NAMER_LABEL}, {@link AUTOPILOT_LABEL}, and the still-inline `"review "`,
+ *  `"plan-review "`, `"pr-critic "`, `"recap "`) or a multi-word exact phrase
+ *  ({@link VERIFY_KEY_LABEL}). User sessions use prompt-derived `[a-z0-9-]` slugs — no spaces,
+ *  no underscores — so none of these labels is reachable by a slug. Exception: `"rundown"`
+ *  (exact, no space) relies on the liveness gate instead.
+ *
+ *  Labels are named by CONSTANT wherever one exists, never spelled out as a string here: a
+ *  renamed label would otherwise leave this comment describing a dead value — the same
+ *  producer↔consumer desync the constants themselves exist to prevent (#1147). The remaining
+ *  quoted literals above/below are the labels still inlined at their spawn sites; if one of
+ *  those gains a constant, reference it here too.
  *
  *  The distiller and optimizer each spawn under a UNIQUE per-run name of the form
  *  `__distill__<8hex>` / `__optimize__<8hex>` (prefixes `DISTILL_LABEL` / `OPTIMIZE_LABEL`),
@@ -32,19 +41,19 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  produce, so the prefix match stays collision-proof. The per-pane liveness check remains
  *  the actual safety gate.
  *
- *  Helpers covered:
- *  - `__usage_probe__`   — usage probe (PROBE_NAME)
- *  - `__distill__<hex>`  — distiller (DISTILL_LABEL prefix, unique per run)
- *  - `__optimize__<hex>` — rule optimizer (OPTIMIZE_LABEL prefix, unique per run)
- *  - `__merge__<hex>`    — background merge-suggestion pass (MERGE_LABEL prefix, unique per run)
+ *  Helpers covered (named by constant where one exists — see the note above):
+ *  - {@link PROBE_NAME}        — usage probe
+ *  - {@link DISTILL_LABEL}`<hex>`  — distiller (prefix match, unique per run)
+ *  - {@link OPTIMIZE_LABEL}`<hex>` — rule optimizer (prefix match, unique per run)
+ *  - {@link MERGE_LABEL}`<hex>`    — background merge-suggestion pass (prefix, unique per run)
+ *  - {@link NAMER_LABEL}`<desig>`  — background LLM namer (namer.ts)
+ *  - {@link AUTOPILOT_LABEL}`<id>` — autopilot stop-classifier (autopilot-llm.ts)
+ *  - {@link VERIFY_KEY_LABEL}      — API-key verifier (verify-key.ts)
  *  - `review <desig>`    — critic / code-review spawns
- *  - `name <desig>`      — background LLM namer
  *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
  *  - `pr-critic <repo>#<n>` — standalone PR critic (standalone-critic.ts)
  *  - `recap <desig>`     — recap generator (recap.ts)
- *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
- *  - `autopilot <id>`    — autopilot LLM (autopilot-llm.ts)
- *  - `verify api key`    — API-key verifier (verify-key.ts) */
+ *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated */
 export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
@@ -52,13 +61,13 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith(OPTIMIZE_LABEL) ||
     label.startsWith(MERGE_LABEL) ||
     label === "rundown" ||
-    label === "verify api key" ||
+    label === VERIFY_KEY_LABEL ||
     label.startsWith("review ") ||
-    label.startsWith("name ") ||
+    label.startsWith(NAMER_LABEL) ||
     label.startsWith("plan-review ") ||
     label.startsWith("pr-critic ") ||
     label.startsWith("recap ") ||
-    label.startsWith("autopilot ")
+    label.startsWith(AUTOPILOT_LABEL)
   );
 }
 

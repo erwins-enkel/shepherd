@@ -86,7 +86,8 @@ import { ReviewService } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle } from "./plan-gate";
-import { AutopilotService } from "./autopilot";
+import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
+import { NAMER_LABEL } from "./namer";
 import { DrainService } from "./drain";
 import { SessionRouter, type SessionConsumer } from "./session-router";
 import { AutoMergeService } from "./automerge";
@@ -157,7 +158,7 @@ import { readSnapshot, isStalled, DEFAULT_STALL } from "./stall";
 import { jsonlPathFor } from "./usage";
 import { detectPendingAuthUrl, detectLoginAuthUrl } from "./auth-url";
 import { readTranscriptTail } from "./activity";
-import { verifyApiKey } from "./verify-key";
+import { verifyApiKey, VERIFY_KEY_LABEL } from "./verify-key";
 import { releaseHeldTasks } from "./held-release";
 import { snapshotSessionUsage } from "./usage-snapshot";
 import { hasCommittedChanges } from "./diff";
@@ -2070,9 +2071,9 @@ deferredStarts.push(() => {
   // (never rejects), and the thunk must stay `() => void` — `deferredStarts` is consumed
   // synchronously, so an async thunk would trip `no-misused-promises`. Boot need not block on
   // this best-effort orphan cleanup.
-  void reapTransientByLabel(herdr, "name ", new Set(), "[namer]");
-  void reapTransientByLabel(herdr, "autopilot ", new Set(), "[autopilot]");
-  void reapTransientByLabel(herdr, "verify api key", new Set(), "[verify-key]");
+  void reapTransientByLabel(herdr, NAMER_LABEL, new Set(), "[namer]");
+  void reapTransientByLabel(herdr, AUTOPILOT_LABEL, new Set(), "[autopilot]");
+  void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo

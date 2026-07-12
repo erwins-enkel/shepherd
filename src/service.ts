@@ -34,7 +34,7 @@ import {
   uploadFilename,
   worktreeUploadsDir,
 } from "./uploads";
-import { slugifyManual, isHeuristicNameStrong } from "./namer";
+import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL } from "./namer";
 import {
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
@@ -3524,7 +3524,7 @@ export class SessionService {
   private async refineNameInBackground(session: Session, herd?: string): Promise<void> {
     const raw = await this.deps.refineName!({
       taskText: session.prompt,
-      label: `name ${session.desig}`,
+      label: `${NAMER_LABEL}${session.desig}`,
     });
     if (!raw) return;
     const slug = this.uniqueName(raw, herd);

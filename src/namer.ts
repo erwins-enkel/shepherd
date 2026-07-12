@@ -1,3 +1,26 @@
+/**
+ * Label prefix for the transient background namer spawn (`name <desig>`), spawned by
+ * SessionService.refineNameInBackground.
+ *
+ * The trailing SPACE is load-bearing, and this module is why: the slugs generated below are
+ * `[a-z0-9-]` only, so a space-prefixed label can NEVER collide with a real session name. That
+ * is precisely what lets the boot label-reap in index.ts close prior-lifetime orphans with an
+ * EMPTY owned set — every `name `-prefixed pane at boot is an orphan, never a live session.
+ *
+ * Declared HERE, in the module that owns that slug rule, rather than in its consumer
+ * (service.ts): the spawn site, the index.ts boot reap and tab-reaper.ts's husk filter all bind
+ * to this ONE constant, so a renamed label can't silently desync the reap from the spawn (#1147).
+ * Each sibling helper label is declared in its own producer the same way — AUTOPILOT_LABEL in
+ * autopilot.ts, VERIFY_KEY_LABEL in verify-key.ts, DISTILL_LABEL/OPTIMIZE_LABEL/MERGE_LABEL in
+ * distiller.ts/optimizer.ts/merge-suggest.ts.
+ *
+ * NOTE: this placement is about single-source-of-truth, NOT import weight. tab-reaper.ts still
+ * reaches the SessionService graph transitively (tab-reaper → autopilot → service, for
+ * DRAFT_PR_NOTE), and already value-imports distiller/optimizer/merge-suggest. Don't read a
+ * dependency-isolation guarantee into it that isn't there.
+ */
+export const NAMER_LABEL = "name ";
+
 // Map the accented letters German (and a few neighbours) prompts carry onto their
 // ASCII transliteration BEFORE we strip non-alphanumerics — otherwise "würde"
 // becomes the unreadable "w-rde" instead of "wuerde".

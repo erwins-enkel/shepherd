@@ -5,6 +5,12 @@ import type { HerdrDriver } from "./herdr";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 
+/** Label for the transient API-key verifier spawn. A multi-word phrase with SPACES, so it can't
+ *  collide with an `[a-z0-9-]` session slug — which is what lets the boot label-reap in index.ts
+ *  close prior-lifetime orphans with an EMPTY owned set. Exported so the spawn site here, that
+ *  boot reap, and tab-reaper.ts's husk filter all bind to ONE constant (#1147). */
+export const VERIFY_KEY_LABEL = "verify api key";
+
 /**
  * Token the verify agent must write to {@link VERIFY_FILE}. Distinctive + unlikely
  * to appear in benign pane chatter — so its presence in the file is unambiguous proof
@@ -144,7 +150,7 @@ export async function verifyApiKey(deps: VerifyKeyDeps): Promise<VerifyKeyResult
     cwd = makeTmpDir();
     try {
       terminalId = (
-        await deps.herdr.start("verify api key", cwd, verifyArgv(), apiKeyPassthroughEnv(false))
+        await deps.herdr.start(VERIFY_KEY_LABEL, cwd, verifyArgv(), apiKeyPassthroughEnv(false))
       ).terminalId;
     } catch {
       return { ok: false, reason: "spawn-failed" };

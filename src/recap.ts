@@ -217,7 +217,7 @@ export interface RecapServiceDeps {
     | "list"
     | "setRecapPendingDiff"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "paneForegroundProcs" | "readAsync">;
   onChange: (id: string, recap: Recap | null) => void;
   // optional environment thunk (CLI + model, read per spawn → live settings)
   env?: () => RoleEnvironment;
@@ -755,7 +755,7 @@ export class RecapService {
       }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      if (action === "finalize-null") this.logUnproducedVerdict(r, read, elapsed, finished);
+      if (action === "finalize-null") await this.logUnproducedVerdict(r, read, elapsed, finished);
 
       // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
@@ -769,28 +769,48 @@ export class RecapService {
   /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a
    *  black hole (no log, raw discarded), so an intermittent malformed write was undiagnosable —
    *  surface WHY before finalizing. Extracted from tick() to keep its cognitive complexity in bound. */
-  private logUnproducedVerdict(
+  private async logUnproducedVerdict(
     r: Recap,
     read: VerdictRead<unknown>,
     elapsed: number,
     finished: boolean,
-  ): void {
+  ): Promise<void> {
     const spawn = this.deps.store
       .listReviewerSpawns()
       .find((s) => s.reviewerSessionId === r.spawnSessionId);
+    const paneId = this.resolveTerminal(r.cwd);
     const ctx =
       `spawn=${r.spawnSessionId || "<none>"} cwd=${r.cwd || "<none>"} model=${r.model ?? "<default>"} ` +
       `provider=${spawn?.reviewerProvider ?? "<unknown>"} effort=${spawn?.reviewerEffort ?? "<default>"} ` +
-      `elapsed=${Math.round(elapsed / 1000)}s pane=${this.resolveTerminal(r.cwd) ? "present" : "absent"} ` +
+      `elapsed=${Math.round(elapsed / 1000)}s pane=${paneId ? "present" : "absent"} ` +
       `finished=${finished}`;
     if (read.status === "unparseable") {
       console.warn(
         `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. ${ctx} snippet: ${recapSnippet(read.raw)}`,
       );
-    } else {
-      console.warn(
-        `[recap] ${r.sessionId}: no verdict file (spawn exited or hard timeout) — agent produced nothing. ${ctx}`,
-      );
+      return;
+    }
+    // No verdict file — capture the spawn's terminal tail (best-effort) so the reason is diagnosable
+    // instead of a black hole: a chatgpt-account-incompatible codex model prints its 400
+    // ("… not supported when using Codex with a ChatGPT account") here before exiting. The pane may
+    // already be reaped (husk gone) → empty tail, unchanged behaviour.
+    const tail = paneId ? await this.readPaneTail(paneId) : "";
+    console.warn(
+      `[recap] ${r.sessionId}: no verdict file (spawn exited or hard timeout) — agent produced nothing. ${ctx}${
+        tail ? ` pane-tail: ${tail}` : ""
+      }`,
+    );
+  }
+
+  /** Best-effort, bounded tail of a spawn's terminal buffer for diagnostics. Takes the LAST ~300
+   *  chars (a CLI error appears at the end, unlike recapSnippet's head slice). Never throws. */
+  private async readPaneTail(paneId: string): Promise<string> {
+    try {
+      const buf = await this.deps.herdr.readAsync(paneId, "recent", 20);
+      const oneLine = buf.replace(/\s+/g, " ").trim();
+      return oneLine.length > 300 ? `…${oneLine.slice(-300)}` : oneLine;
+    } catch {
+      return "";
     }
   }
 

@@ -190,6 +190,8 @@ type FakeHerdr = {
   procsOverride: Map<string, string[]>;
   /** Default procs for any pane not in procsOverride (default ['zsh'] = shell-only husk). */
   defaultProcs: string[];
+  /** Terminal-buffer text returned by readAsync (the finalize-null pane-tail capture). */
+  readBuffer: string;
   start: (
     label: string,
     cwd: string,
@@ -199,6 +201,7 @@ type FakeHerdr = {
   stop: (id: string) => Promise<void>;
   list: () => FakePaneEntry[];
   paneForegroundProcs: (paneId: string) => Promise<string[]>;
+  readAsync: (paneId: string, source?: "visible" | "recent", lines?: number) => Promise<string>;
 };
 
 function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["zsh"]): FakeHerdr {
@@ -208,6 +211,7 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
     livePanes,
     procsOverride: new Map(),
     defaultProcs,
+    readBuffer: "",
     start: async (label, cwd, argv, env) => {
       const tid = `tid-${h.started.length + 1}`;
       h.started.push({ label, cwd, argv, env });
@@ -217,6 +221,7 @@ function makeHerdr(livePanes: FakePaneEntry[] = [], defaultProcs: string[] = ["z
     stop: async (id) => void h.stopped.push(id),
     list: () => h.livePanes,
     paneForegroundProcs: async (paneId: string) => h.procsOverride.get(paneId) ?? h.defaultProcs,
+    readAsync: async () => h.readBuffer,
   };
   return h;
 }
@@ -649,6 +654,40 @@ test("tick no verdict logs Codex recap spawn context without prompt text", async
   expect(msg).toContain("effort=high");
   expect(msg).toContain("pane=present");
   expect(msg).not.toContain("do the thing");
+});
+
+test("tick no verdict captures the codex pane tail (400) so the failure is diagnosable", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-codex-400",
+    spawnSessionId: "sp-400",
+    model: "gpt-5.3-codex",
+    spawnedAt: 1_000,
+  });
+  const store = makeStore([], [rec]);
+  const herdr = makeHerdr([{ cwd: "/tmp/recap-codex-400", terminalId: "t-400" }]);
+  herdr.readBuffer =
+    'codex\nERROR: {"status":400,"message":"The \'gpt-5.3-codex\' model is not supported when using Codex with a ChatGPT account."}\n';
+  const warnings: string[] = [];
+  const prevWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+  try {
+    const svc = buildSvc({
+      store,
+      herdr,
+      nowFn: () => 400_000,
+      timeoutMs: 300_000,
+      verdictRead: { status: "absent" },
+    });
+    await svc.tick();
+  } finally {
+    console.warn = prevWarn;
+  }
+
+  const msg = warnings.join("\n");
+  expect(msg).toContain("pane-tail:");
+  expect(msg).toContain("not supported when using Codex with a ChatGPT account");
+  expect(store.getRecap("s1")?.state).toBe("failed");
 });
 
 test("tick unparseable: garbage verdict → state 'failed'", async () => {
@@ -1119,6 +1158,7 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
     livePanes: [],
     procsOverride: new Map(),
     defaultProcs: ["zsh"],
+    readBuffer: "",
     start: async () => {
       throw new Error("herdr start failed");
     },
@@ -1126,6 +1166,7 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
     list: () => herdr.livePanes,
     paneForegroundProcs: async (paneId: string) =>
       herdr.procsOverride.get(paneId) ?? herdr.defaultProcs,
+    readAsync: async () => herdr.readBuffer,
   };
 
   const svc = buildSvc({

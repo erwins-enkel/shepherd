@@ -2171,6 +2171,7 @@
   "diagnostics_hint_codex_ok": "Codex CLI is available.",
   "diagnostics_hint_codex_missing": "Codex CLI not found in PATH. Install Codex or Claude Code to run agent sessions.",
   "diagnostics_hint_codex_optional": "Codex CLI is optional because Claude Code is available. Install it if you want both agent runtimes.",
+  "diagnostics_hint_codex_model_chatgpt_incompatible": "A configured Codex model isn't supported by your ChatGPT-account Codex login and is being replaced with the account default. Pick a supported model, or sign in to Codex with an API key.",
   "taskid_button_title": "Actions for {desig} — copy ID or get a prompt recommendation",
   "taskid_menu_label": "Task ID actions",
   "taskid_copy": "Copy ID",

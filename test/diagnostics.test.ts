@@ -10,6 +10,7 @@ import {
   DIAGNOSTICS_INTERVAL_MS,
   DIAGNOSTICS_RECHECK_INTERVAL_MS,
   GH_PROBE_ATTEMPTS,
+  config,
 } from "../src/config";
 import type { DiagnosticState } from "../src/types";
 import { REMEDIATIONS } from "../src/remediations";
@@ -63,6 +64,9 @@ function healthyDeps(): DiagnosticsDeps {
           },
         },
       }),
+    // Pin the Codex auth mode so the codex_model_auth advisory is deterministically absent here
+    // (it must not depend on the test host's real ~/.codex/auth.json).
+    readCodexAuthMode: () => "unknown",
   };
 }
 
@@ -1003,5 +1007,58 @@ describe("nextDiagnosticsDelay", () => {
     const ok = nextDiagnosticsDelay("ok", DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS);
     expect(err).toBeLessThan(warn);
     expect(warn).toBe(ok);
+  });
+});
+
+describe("codex_model_auth advisory", () => {
+  // Save/restore the live role config the check enumerates (see hold-gate/drain test precedent).
+  function withRecap(
+    cli: typeof config.recapCli,
+    model: typeof config.recapModel,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    const savedCli = config.recapCli;
+    const savedModel = config.recapModel;
+    config.recapCli = cli;
+    config.recapModel = model;
+    return fn().finally(() => {
+      config.recapCli = savedCli;
+      config.recapModel = savedModel;
+    });
+  }
+
+  it("warns when a blocklisted codex model is configured under chatgpt auth", async () => {
+    await withRecap("codex", "gpt-5.3-codex", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readCodexAuthMode: () => "chatgpt",
+      });
+      const c = byId((await svc.check(0)).checks, "codex_model_auth");
+      expect(c.state).toBe("warning");
+      expect(c.hintKey).toBe("diagnostics_hint_codex_model_chatgpt_incompatible");
+      assertPure(c);
+    });
+  });
+
+  it("does NOT warn under apikey auth (the model is supported there)", async () => {
+    await withRecap("codex", "gpt-5.3-codex", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readCodexAuthMode: () => "apikey",
+      });
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "codex_model_auth")).toBeUndefined();
+    });
+  });
+
+  it("does NOT warn for a compatible codex model under chatgpt auth", async () => {
+    await withRecap("codex", "gpt-5.5", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readCodexAuthMode: () => "chatgpt",
+      });
+      const checks = (await svc.check(0)).checks;
+      expect(checks.find((c) => c.id === "codex_model_auth")).toBeUndefined();
+    });
   });
 });

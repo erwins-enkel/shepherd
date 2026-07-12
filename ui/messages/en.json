@@ -2772,7 +2772,7 @@
   "newtask_provider_capacity_window_5h": "5h",
   "newtask_provider_capacity_window_week": "Weekly",
   "newtask_provider_capacity_free": "{pct}% free",
-  "newtask_provider_capacity_free_until": "{pct}% free til {time}",
+  "newtask_provider_capacity_free_until": "{pct}% free until {time}",
   "newtask_provider_capacity_unavailable": "No usage-window data",
   "feat_provider_capacity_gauge_title": "Compare Coding CLI capacity before you pick",
   "feat_provider_capacity_gauge_body": "The New Task form now shows Claude Code and Codex side by side with their remaining usage room below the Coding CLI selector, so you can choose the provider with the most headroom before you start a run.",

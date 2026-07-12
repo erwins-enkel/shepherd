@@ -2290,6 +2290,8 @@
   "feat_upnext_body": "Eine neue oberste Ansicht reiht noch nicht begonnene GitHub-Issues über all deine Repos in eine flache Warteschlange — Priorität zuerst. Sieh das Lohnenswerteste zum Starten und starte eine Session dafür — oder mehrere — mit einem Klick.",
   "feat_up_next_sort_title": "Als Nächstes frei sortieren",
   "feat_up_next_sort_body": "Als Nächstes kann jetzt zwischen Empfehlung, neueste, älteste und Titel A-Z/Z-A wechseln. Priorisierte Arbeit bleibt zuerst gruppiert, und deine Sortierung wird gemerkt.",
+  "feat_newtask_wider_title": "Geräumigerer Neue-Aufgabe-Editor",
+  "feat_newtask_wider_body": "Das Fenster „Neue Aufgabe“ ist jetzt breiter und gibt dem Prompt und der Liste „Übernehmen aus“ mehr Platz. Issue-Zeilen zeigen mehr vom Titel und bis zu zwei Labels auf einen Blick statt einem.",
   "feat_epic_stall_legibility_title": "Sehen, worauf ein Epic wartet",
   "feat_epic_stall_legibility_body": "Das Epic-Panel warnt jetzt, wenn ein Epic keine Reihenfolge hat (sodass alle Teilaufgaben parallel laufen), und nennt bei einem angehaltenen Zug den Grund — welche Teilaufgabe oder welches Gate neue Starts blockiert, statt nur eingefroren zu wirken.",
   "feat_herd_resizable_title": "Herd-Seitenleiste anpassen",

@@ -2290,6 +2290,8 @@
   "feat_upnext_body": "A new top-level lens ranks un-started GitHub issues across all your repos into one flat queue, priority-first. See the single most worthwhile thing to start next and spawn a session on it — or several — in one click.",
   "feat_up_next_sort_title": "Sort Up Next your way",
   "feat_up_next_sort_body": "Up Next now lets you switch between recommended ranking, newest, oldest, and title A-Z/Z-A order. Priority work stays grouped first, and your sort choice is remembered.",
+  "feat_newtask_wider_title": "Roomier New Task composer",
+  "feat_newtask_wider_body": "The New Task pane is now wider, giving the prompt and the Seed From issues list more room. Issue rows show more of the title, and up to two labels at a glance instead of one.",
   "feat_epic_stall_legibility_title": "See why an epic is waiting",
   "feat_epic_stall_legibility_body": "The epic panel now warns when an epic has no dependency order (so every child drains in parallel) and, when a train holds, spells out why — which child or gate is blocking new starts instead of just looking frozen.",
   "feat_herd_resizable_title": "Resize the Herd sidebar",

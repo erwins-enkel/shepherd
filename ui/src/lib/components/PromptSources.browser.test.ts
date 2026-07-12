@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
 import "../../app.css";
 import type { Issue, SlashCommand } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
@@ -187,5 +188,71 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     expect(document.querySelector(".ps-body .ps-filter-bar .cmd-filter")).not.toBeNull();
 
     assertStickyCovers();
+  });
+});
+
+describe("PromptSources label chips (responsive 1↔2 cap)", () => {
+  // Issue with 3 labels → wide shows 2 chips + "+1", narrow shows 1 chip + "+2".
+  const threeLabelIssue = () => ({
+    ...issue(1),
+    title: "Three label issue",
+    labels: ["enhancement", "reliability", "perf"],
+  });
+
+  const shown = (el: Element | null) =>
+    !!el && getComputedStyle(el as HTMLElement).display !== "none";
+  // Real label chips (excludes the "+N" more-counters).
+  const visibleChips = () =>
+    [...document.querySelectorAll(".ps-body .row .chip:not(.chip-more)")].filter(shown);
+  const moreWide = () => document.querySelector<HTMLElement>(".ps-body .row .more-wide");
+  const moreNarrow = () => document.querySelector<HTMLElement>(".ps-body .row .more-narrow");
+
+  afterEach(async () => {
+    // Restore a wide viewport so a leaked narrow width can't perturb the layout
+    // assertions in the sticky-cover suite (which measures element rects).
+    await page.viewport(1024, 768);
+  });
+
+  it("wide pane (≥520px): 2 chips + '+1', narrow counter hidden", async () => {
+    await page.viewport(900, 800);
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [threeLabelIssue()],
+      viewer: null,
+    });
+
+    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
+
+    // Two visible label chips (default/wide regime).
+    await expect.poll(() => visibleChips().length).toBe(2);
+    // Wide "+N" counts the labels beyond the 2 shown (len - 2 = 1); narrow one hidden.
+    expect(shown(moreWide())).toBe(true);
+    expect(moreWide()!.textContent).toContain(m.promptsources_more_labels({ count: 1 }));
+    expect(shown(moreNarrow())).toBe(false);
+  });
+
+  it("narrow pane (<520px): 1 chip + '+2', 2nd chip + wide counter hidden", async () => {
+    await page.viewport(400, 800);
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [threeLabelIssue()],
+      viewer: null,
+    });
+
+    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
+
+    // The media-query fallback: only 1 chip visible; the 2nd chip is in the DOM but hidden.
+    await expect.poll(() => visibleChips().length).toBe(1);
+    const chip2 = document.querySelector(".ps-body .row .chip-2");
+    expect(chip2).not.toBeNull();
+    expect(shown(chip2)).toBe(false);
+    // Narrow "+N" counts labels beyond the 1 shown (len - 1 = 2); wide one hidden.
+    expect(shown(moreWide())).toBe(false);
+    expect(shown(moreNarrow())).toBe(true);
+    expect(moreNarrow()!.textContent).toContain(m.promptsources_more_labels({ count: 2 }));
   });
 });

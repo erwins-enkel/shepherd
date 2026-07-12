@@ -14,7 +14,6 @@
     focusedId,
     repoPath,
     agentProvider = "claude",
-    onbroadcast,
     onretry,
     retryHaltedCount = 0,
     retryReady = false,
@@ -28,7 +27,6 @@
     focusedId: string;
     repoPath: string;
     agentProvider?: AgentProvider;
-    onbroadcast?: () => void;
     onretry?: () => void;
     retryHaltedCount?: number;
     retryReady?: boolean;
@@ -193,19 +191,6 @@
     aria-label={m.steerbar_toolbar_aria()}
     use:fitLabels
   >
-    {#if onbroadcast}
-      <button
-        type="button"
-        class="chip bc"
-        onpointerdown={down}
-        onpointermove={move}
-        onpointercancel={cancel}
-        onpointerup={(e) => tap(e, onbroadcast)}
-        title={m.steerbar_broadcast_aria()}
-        aria-label={m.steerbar_broadcast_aria()}
-        >⌁<span class="bc-label">{m.steerbar_broadcast()}</span></button
-      >
-    {/if}
     {#if retryReady && retryHaltedCount > 0}
       <button
         type="button"

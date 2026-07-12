@@ -2957,7 +2957,6 @@
       focusedId={session.id}
       repoPath={session.repoPath}
       agentProvider={effectiveAgentProvider}
-      onbroadcast={() => onbroadcast?.()}
       onretry={() => onretry?.()}
       {retryHaltedCount}
       {retryReady}

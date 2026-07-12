@@ -16,7 +16,7 @@ export const ACTIVE_LABEL = "shepherd:active";
  * `unblocked`/`unblock-me` (no boundary before "blocked" there). No `g` flag: `.test()`
  * stays stateless, so the shared instance is safe to reuse across calls.
  */
-export const BLOCKED_LABEL_RE = /\bblocked/i;
+const BLOCKED_LABEL_RE = /\bblocked/i;
 
 /**
  * Whether an issue's labels mark it blocked (any label matching {@link BLOCKED_LABEL_RE}).

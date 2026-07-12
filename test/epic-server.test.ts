@@ -853,6 +853,72 @@ describe("GET /api/epics", () => {
     expect(body.epics[0].source).toBe("markdown");
   });
 
+  // "someone else is working this" flags: in-flight children (viewer-excluded) + assigned + authored
+  test("epic summary carries inFlight/inFlightBy/assignedOthers/authoredByOther, viewer-excluded", async () => {
+    const forge: any = {
+      listIssues: async () => [
+        {
+          number: 16,
+          title: "Operator language",
+          body: "- [ ] #24\n- [ ] #25",
+          url: "",
+          labels: [],
+          createdAt: 0,
+          assignees: ["scoop", "kai"], // kai is the viewer → excluded
+          author: "scoop", // non-viewer author → authoredByOther
+        },
+        { number: 24, title: "child a", body: "", url: "", labels: [], createdAt: 0 },
+        { number: 25, title: "child b", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => ({
+        summaries: new Map(),
+        subIssueNumbers: [],
+        childrenByParent: new Map(),
+      }),
+      // #24 has a scoop PR (counts); #25 only the viewer's own PR (excluded)
+      listOpenPrLinkedIssues: async () =>
+        new Map([
+          [24, [{ prNumber: 300, author: "scoop" }]],
+          [25, [{ prNumber: 301, author: "kai" }]],
+        ]),
+      currentUser: async () => "kai",
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const epic = body.epics.find((e: any) => e.parentIssueNumber === 16);
+    expect(epic).toBeTruthy();
+    expect(epic.inFlight).toBe(1); // only #24's non-viewer PR counts
+    expect(epic.inFlightBy).toEqual(["scoop"]);
+    expect(epic.assignedOthers).toEqual(["scoop"]); // kai (viewer) dropped
+    expect(epic.authoredByOther).toBe("scoop");
+  });
+
+  // native children (from childrenByParent) also feed the in-flight count
+  test("epic summary counts native in-flight children via childrenByParent", async () => {
+    const forge: any = {
+      listIssues: async () => [
+        // native parent: no markdown body, discovered via summaries
+        { number: 50, title: "Native Epic", body: "", url: "", labels: [], createdAt: 0 },
+      ],
+      listSubIssueSummaries: async () => ({
+        summaries: new Map([[50, { total: 2, completed: 0 }]]),
+        subIssueNumbers: [61, 62],
+        childrenByParent: new Map([[50, [61, 62]]]),
+      }),
+      listSubIssues: async () => [],
+      listOpenPrLinkedIssues: async () => new Map([[61, [{ prNumber: 400, author: "scoop" }]]]),
+      currentUser: async () => "kai",
+    };
+    const { app } = harness({ resolveForge: () => forge });
+    const res = await app.fetch(new Request(`http://x/api/epics?repo=${encRepo(repoDir)}`));
+    const body = await res.json();
+    const epic = body.epics.find((e: any) => e.parentIssueNumber === 50);
+    expect(epic.inFlight).toBe(1);
+    expect(epic.inFlightBy).toEqual(["scoop"]);
+  });
+
   // native parent absent from the visible listIssues set → NOT surfaced. IssuesPanel renders an
   // epic badge only on a matching visible issue row, so an out-of-window summary could never be
   // displayed; surfacing it would only emit an unused row.

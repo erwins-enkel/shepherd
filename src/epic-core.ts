@@ -1,4 +1,4 @@
-import type { Issue } from "./forge/types";
+import type { Issue, LinkedPr } from "./forge/types";
 import type { AgentProvider } from "./types";
 
 export type EpicSource = "native" | "markdown";
@@ -96,4 +96,50 @@ export function selectEpicCandidates(children: EpicChild[]): Issue[] {
       // runner — they carry no assignee data and are not assignee-filtered (#824).
       assignees: [],
     }));
+}
+
+/** "Someone else is already working / owns this epic" flags for the backlog epic row (#1616),
+ *  all resolved against the viewer so nothing here ever points at the operator's own work. */
+export interface EpicOthersFlags {
+  /** How many of the epic's children have an OPEN PR authored by someone other than the
+   *  viewer (the viewer's own in-flight PRs are excluded from the COUNT, not just the names).
+   *  0 → no pill. */
+  inFlight: number;
+  /** Distinct non-viewer authors of those in-flight child PRs, sorted — the pill's "by …". */
+  inFlightBy: string[];
+  /** Parent assignees other than the viewer, sorted (the "assigned to X" signal). */
+  assignedOthers: string[];
+  /** Parent author when it isn't the viewer, else null — the only tell for a freshly-created,
+   *  unassigned epic with no child PRs yet. */
+  authoredByOther: string | null;
+}
+
+/** Pure derivation of {@link EpicOthersFlags} from an epic's child numbers + the repo's
+ *  open-PR→author map + the parent's assignees/author, all relative to `viewer`. `viewer`
+ *  null (host can't resolve "me") fails open — every non-empty author/assignee counts as
+ *  "other" (matching the #824 fail-open convention). Any OPEN PR qualifies as in-flight
+ *  (incl. drafts / bot authors), so the UI copy says "in progress", not "in review". */
+export function computeEpicOthersFlags(input: {
+  childNumbers: number[];
+  linked: Map<number, LinkedPr[]>;
+  assignees: string[];
+  author: string | null;
+  viewer: string | null;
+}): EpicOthersFlags {
+  const { childNumbers, linked, assignees, author, viewer } = input;
+  const inFlightAuthors = new Set<string>();
+  let inFlight = 0;
+  for (const num of new Set(childNumbers)) {
+    const prs = (linked.get(num) ?? []).filter((p) => p.author && p.author !== viewer);
+    if (prs.length === 0) continue;
+    inFlight++;
+    for (const p of prs) inFlightAuthors.add(p.author);
+  }
+  const assignedOthers = [...new Set(assignees.filter((a) => a && a !== viewer))].sort();
+  return {
+    inFlight,
+    inFlightBy: [...inFlightAuthors].sort(),
+    assignedOthers,
+    authoredByOther: author && author !== viewer ? author : null,
+  };
 }

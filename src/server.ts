@@ -179,8 +179,7 @@ import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
 import { homedir } from "node:os";
 import type { ServerWebSocket } from "bun";
-import { markPtyEvent } from "./instrument";
-import { execFileSync } from "./instrument";
+import { execFileSync, markPtyEvent } from "./instrument";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
   normalizeDefaultModelSetting,

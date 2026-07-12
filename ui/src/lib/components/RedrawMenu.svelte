@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { tick } from "svelte";
   import { m } from "$lib/paraglide/messages";
 
   // Small anchored, non-blocking popover listing the terminal-redraw repair
@@ -15,6 +16,13 @@
     onfullscreen,
     onresume,
     onclose,
+    // Experimental terminal font-size stepper. Optional with defaults so the menu
+    // renders standalone and the existing render() test sites keep type-checking;
+    // Viewport always passes real values.
+    fontSize = 13,
+    fontAtMin = false,
+    fontAtMax = false,
+    onfontstep = () => {},
   }: {
     // the ↔ button that opened the menu — the popover right-aligns under it,
     // and focus returns here on close
@@ -28,9 +36,26 @@
     onfullscreen: () => void;
     onresume: () => void;
     onclose: () => void;
+    fontSize?: number;
+    fontAtMin?: boolean;
+    fontAtMax?: boolean;
+    onfontstep?: (delta: number) => void;
   } = $props();
 
   let el = $state<HTMLDivElement>();
+
+  // Stepper button refs: when a step reaches a bound the just-clicked button
+  // disables and would drop focus to <body>; we redirect focus to the still-
+  // enabled sibling to keep the roving-focus contract + focus ring intact.
+  let decBtn = $state<HTMLButtonElement>();
+  let incBtn = $state<HTMLButtonElement>();
+  async function step(delta: number) {
+    const clicked = delta > 0 ? incBtn : decBtn;
+    const sibling = delta > 0 ? decBtn : incBtn;
+    onfontstep(delta);
+    await tick(); // let the new fontAtMin/fontAtMax prop apply the disable
+    if (clicked?.disabled) sibling?.focus();
+  }
 
   // Right-align under the anchor button, clamped inside the viewport (same
   // clamp approach as CardMenu); measured by the effect below once mounted.
@@ -151,6 +176,42 @@
     <span class="rm-label">{m.redrawmenu_resume()}</span>
     <span class="rm-hint">{m.redrawmenu_resume_hint()}</span>
   </button>
+  <!-- experimental terminal-output font-size stepper. The −/+ buttons are
+       .rm-item so they join items() roving focus + the disabled-at-bound
+       styling; the readout between them is a non-focusable live region. -->
+  <div class="rm-step-row" role="group" aria-label={m.redrawmenu_textsize_label()}>
+    <span class="rm-step-labels">
+      <span class="rm-label">{m.redrawmenu_textsize_label()}</span>
+      <span class="rm-hint">{m.redrawmenu_textsize_experimental()}</span>
+    </span>
+    <span class="rm-step-controls">
+      <button
+        class="rm-item rm-step"
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        bind:this={decBtn}
+        disabled={fontAtMin}
+        aria-label={m.redrawmenu_textsize_decrease()}
+        onclick={() => step(-1)}
+      >
+        A−
+      </button>
+      <span class="rm-step-readout" aria-live="polite">{fontSize}</span>
+      <button
+        class="rm-item rm-step"
+        type="button"
+        role="menuitem"
+        tabindex="-1"
+        bind:this={incBtn}
+        disabled={fontAtMax}
+        aria-label={m.redrawmenu_textsize_increase()}
+        onclick={() => step(1)}
+      >
+        A+
+      </button>
+    </span>
+  </div>
 </div>
 
 <style>
@@ -214,5 +275,51 @@
     color: var(--color-faint);
     font-size: var(--fs-micro);
     line-height: 1.35;
+  }
+
+  /* Font-size stepper row: label column on the left, the −/readout/+ controls on
+     the right. A top divider separates it from the action items above. */
+  .rm-step-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    margin-top: 1px;
+    padding: 3px 11px 3px;
+    border-top: 1px solid var(--color-line);
+  }
+  .rm-step-labels {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+  }
+  .rm-step-controls {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  /* .rm-step overrides the full-width column .rm-item into a compact, centered
+     inline button with a 44×44 touch target (hover/focus/disabled inherit from
+     the .rm-item rules above). */
+  .rm-step {
+    flex-direction: row;
+    align-items: center;
+    justify-content: center;
+    width: auto;
+    min-width: 44px;
+    min-height: 44px;
+    padding: 0 6px;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    line-height: 1;
+  }
+  .rm-step-readout {
+    min-width: 3ch;
+    text-align: center;
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+    font-variant-numeric: tabular-nums;
   }
 </style>

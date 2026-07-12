@@ -21,7 +21,8 @@
   import { hotterGauge, gaugeColor } from "./usage-gauges";
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
-  import { tick } from "svelte";
+  import { terminalFontSize, FONT_MIN, FONT_MAX } from "$lib/terminal-font-size.svelte";
+  import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import {
     getSessionUsage,
@@ -317,6 +318,26 @@
   // mirror the live terminal so the theme effect can repaint it without
   // recreating it (recreating would tear down the PTY socket)
   let termRef = $state<Terminal | undefined>();
+  // mirror the FitAddon too, so the live font-size effect can reflow (fit) the
+  // terminal after changing fontSize without recreating it
+  let fitRef = $state<FitAddon | undefined>();
+
+  // Per-device terminal-font default — the SINGLE source of the 11/12.5 literal
+  // (referenced by terminal creation, the remeasure metrics check, the live
+  // font-size effect and the wrench-menu readout) so the three sites can't drift.
+  const termFontDefault = $derived(mobile || touch ? 11 : 12.5);
+  // Effective font size shown/adjusted in the wrench menu: the pinned preference,
+  // or the per-device default until the user opts in. Reactive — feeds only the
+  // UI + the live effect below, never the terminal-creation effect.
+  const effectiveFontSize = $derived(terminalFontSize.size ?? termFontDefault);
+  // A+ / A− step. Snaps to an integer on the step itself (up → ceil-ward, down →
+  // floor-ward) so desktop stepping from the fractional 12.5 default can't produce
+  // permanently fractional sizes (12.5 → 13/12, then a clean ±1). Store clamps.
+  function stepTerminalFont(delta: number) {
+    const base = terminalFontSize.size ?? termFontDefault;
+    const next = delta > 0 ? Math.floor(base) + 1 : Math.ceil(base) - 1;
+    terminalFontSize.set(next);
+  }
 
   // Installed slash-command names (lowercased) for the terminal link provider, which
   // linkifies command tokens Claude suggests in its output so a tap pastes them into
@@ -1463,9 +1484,14 @@
     // theme.resolved (which would recreate the whole terminal — and its PTY —
     // on every theme switch). Live updates are handled by the effect below.
     const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
+    // Initial font size: the persisted preference (read UNTRACKED so a later
+    // wrench-menu step never re-keys this effect → never recreates the terminal /
+    // PTY), else the per-device default. Live changes are applied in place by the
+    // dedicated effect below.
+    const initialFont = untrack(() => terminalFontSize.size) ?? termFontDefault;
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
-      fontSize: mobile || touch ? 11 : 12.5,
+      fontSize: initialFont,
       theme: xtermTheme(initialTheme),
       minimumContrastRatio: xtermMinContrast(initialTheme),
       cursorBlink: true,
@@ -1483,6 +1509,7 @@
     termRef = term;
 
     const fit = new FitAddon();
+    fitRef = fit;
     term.loadAddon(fit);
     // Linkify URLs in the terminal so they're tappable — on a phone a plain-text
     // URL can't be opened at all (no text-selection affordance inside xterm's
@@ -1633,7 +1660,7 @@
     // runs at most once and never in the common warm case (term tab active + font
     // cached at open), where the original measurement was already correct.
     let disposed = false;
-    const remeasureFont = `${mobile || touch ? 11 : 12.5}px 'JetBrains Mono'`;
+    const remeasureFont = `${initialFont}px 'JetBrains Mono'`;
     let metricsFixed = el.offsetParent !== null && (document.fonts?.check(remeasureFont) ?? true);
     const remeasure = () => {
       if (metricsFixed || disposed || !el || el.offsetParent === null) return; // needs visible
@@ -2050,6 +2077,7 @@
       c.close();
       conn = undefined;
       termRef = undefined;
+      fitRef = undefined;
       term.dispose();
     };
   });
@@ -2063,6 +2091,30 @@
     term.options.theme = xtermTheme(resolved);
     term.options.minimumContrastRatio = xtermMinContrast(resolved, highContrast);
     term.refresh(0, Math.max(0, term.rows - 1));
+  });
+
+  // Live-apply the terminal font size (wrench-menu stepper). Mirrors the theme
+  // effect: mutate the option in place — never recreate the terminal/PTY.
+  // Setting term.options.fontSize makes xterm's CharSizeService re-measure the
+  // cell (it watches fontSize), but ONLY when the mount is visible; a hidden
+  // measure is invalid. If the mount is hidden we store the option and return
+  // before fit.fit() (the same 2-col poison guard as refit()) — but the deferred
+  // visibility/ResizeObserver refit() calls fit.fit() alone, which does NOT
+  // re-trigger a CharSizeService measure, so it would reflow against stale cell
+  // metrics. We rely on the invariant that the ONLY font-size trigger is the
+  // wrench menu, which renders on the terminal tab only → the mount is always
+  // visible at change time, so this hidden branch is effectively unreachable for
+  // user-driven changes.
+  $effect(() => {
+    const size = terminalFontSize.size ?? termFontDefault;
+    const term = termRef;
+    const fit = fitRef;
+    if (!term || !fit) return;
+    if (term.options.fontSize === size) return;
+    term.options.fontSize = size;
+    if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+    fit.fit();
+    conn?.resize(term.cols, term.rows);
   });
 
   // Phone: horizontal swipe over the pane pages through *all* live agents —
@@ -2637,6 +2689,10 @@
       onreattach={redrawReattach}
       onfullscreen={redrawFullscreen}
       onresume={redrawResume}
+      fontSize={effectiveFontSize}
+      fontAtMin={effectiveFontSize <= FONT_MIN}
+      fontAtMax={effectiveFontSize >= FONT_MAX}
+      onfontstep={stepTerminalFont}
     />
   </div>
 

@@ -107,4 +107,90 @@ describe("RedrawMenu", () => {
 
     await expect.poll(() => document.activeElement).toBe(anchor);
   });
+
+  // ---- experimental font-size stepper ----
+
+  it("steps the font size down / up via A− / A+", async () => {
+    const onfontstep = vi.fn();
+    render(RedrawMenu, {
+      props: {
+        anchor,
+        live: true,
+        resuming: false,
+        ...handlers(),
+        fontSize: 13,
+        fontAtMin: false,
+        fontAtMax: false,
+        onfontstep,
+      },
+    });
+
+    await page.getByRole("menuitem", { name: m.redrawmenu_textsize_decrease() }).click();
+    await page.getByRole("menuitem", { name: m.redrawmenu_textsize_increase() }).click();
+
+    expect(onfontstep).toHaveBeenNthCalledWith(1, -1);
+    expect(onfontstep).toHaveBeenNthCalledWith(2, 1);
+  });
+
+  it("shows the current size and disables the bound-hitting button", async () => {
+    render(RedrawMenu, {
+      props: {
+        anchor,
+        live: true,
+        resuming: false,
+        ...handlers(),
+        fontSize: 24,
+        fontAtMin: false,
+        fontAtMax: true,
+        onfontstep: vi.fn(),
+      },
+    });
+
+    await expect.element(page.getByText("24")).toBeVisible();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.redrawmenu_textsize_increase() }))
+      .toBeDisabled();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.redrawmenu_textsize_decrease() }))
+      .not.toBeDisabled();
+  });
+
+  it("redirects focus to the enabled sibling when a step disables the clicked button", async () => {
+    const h = handlers();
+    const onfontstep = vi.fn(() => {
+      // simulate the parent (Viewport) clamping at FONT_MAX after this step:
+      // A+ becomes disabled, so step()'s post-tick focus redirect must fire.
+      // (runs on click, after `screen` is initialized)
+      void screen.rerender({
+        anchor,
+        live: true,
+        resuming: false,
+        ...h,
+        fontSize: 24,
+        fontAtMin: false,
+        fontAtMax: true,
+        onfontstep,
+      });
+    });
+    const screen = await render(RedrawMenu, {
+      props: {
+        anchor,
+        live: true,
+        resuming: false,
+        ...h,
+        fontSize: 23,
+        fontAtMin: false,
+        fontAtMax: false,
+        onfontstep,
+      },
+    });
+    await expect.poll(activeText).toContain(m.redrawmenu_nudge());
+
+    await page.getByRole("menuitem", { name: m.redrawmenu_textsize_increase() }).click();
+
+    // A+ just disabled → focus must land on the still-enabled A−, never <body>
+    await expect
+      .poll(() => document.activeElement?.getAttribute("aria-label"))
+      .toBe(m.redrawmenu_textsize_decrease());
+  });
 });

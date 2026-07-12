@@ -20,6 +20,21 @@ export const PROCEED_STEER = [
   "requirements decision that only the user can make.",
 ].join("\n");
 
+/**
+ * Label prefix for the transient stop-classifier spawn (`autopilot <id>`).
+ *
+ * The trailing SPACE is load-bearing: prompt-derived session slugs are `[a-z0-9-]` only, so no
+ * real session can collide with a space-prefixed label — which is what makes the boot label-reap
+ * in index.ts safe with an EMPTY owned set (every match at boot is a prior-lifetime orphan). An
+ * `autopilot <id>` pane is ONLY ever this classifier, never a live/re-adoptable session (#1147).
+ *
+ * Exported (rather than inlined at the spawn sites) so the producer here, the boot reap in
+ * index.ts and the husk-sweep filter in tab-reaper.ts all bind to ONE constant — renaming the
+ * label can no longer silently desync the reap from the spawn. Same rationale as
+ * {@link DISTILL_LABEL} / {@link OPTIMIZE_LABEL} / {@link MERGE_LABEL}.
+ */
+export const AUTOPILOT_LABEL = "autopilot ";
+
 /** Proceed steer for a RESEARCH session in autopilot — like PROCEED_STEER but with NO
  *  pull-request framing; research delivers a report PR or a GitHub issue, never a code PR. */
 export const RESEARCH_PROCEED_STEER = [
@@ -409,7 +424,7 @@ export class AutopilotService {
     }
     this.authPending.delete(id); // null / non-auth block ⇒ no OAuth pending
     if (!block || !STEERABLE_SHAPES.has(block.shape)) return;
-    await this.consider(id, block.tail, `autopilot ${id}`);
+    await this.consider(id, block.tail, `${AUTOPILOT_LABEL}${id}`);
   }
 
   /** session:status "done" handler — agent exited / idled. Read its tail and classify;
@@ -443,7 +458,7 @@ export class AutopilotService {
     } catch {
       // empty tail still classifies (→ likely "unknown" → surface), which is safe
     }
-    await this.consider(id, tail, `autopilot ${id}`);
+    await this.consider(id, tail, `${AUTOPILOT_LABEL}${id}`);
   }
 
   /** session:status "running" handler. A paused→running or complete→running transition is the

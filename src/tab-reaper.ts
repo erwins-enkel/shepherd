@@ -4,6 +4,9 @@ import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
 import { MERGE_LABEL } from "./merge-suggest";
+import { AUTOPILOT_LABEL } from "./autopilot";
+import { NAMER_LABEL } from "./service";
+import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 
 export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
@@ -52,13 +55,13 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith(OPTIMIZE_LABEL) ||
     label.startsWith(MERGE_LABEL) ||
     label === "rundown" ||
-    label === "verify api key" ||
+    label === VERIFY_KEY_LABEL ||
     label.startsWith("review ") ||
-    label.startsWith("name ") ||
+    label.startsWith(NAMER_LABEL) ||
     label.startsWith("plan-review ") ||
     label.startsWith("pr-critic ") ||
     label.startsWith("recap ") ||
-    label.startsWith("autopilot ")
+    label.startsWith(AUTOPILOT_LABEL)
   );
 }
 

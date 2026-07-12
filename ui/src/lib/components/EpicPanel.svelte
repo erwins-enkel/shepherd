@@ -39,6 +39,21 @@
   const epicModel = $derived(epic.run.model ?? "default");
   const epicEffort = $derived(epic.run.effort ?? "default");
 
+  // Soft "someone else owns this" notice next to Start — worded to match the flag tier so a
+  // pure assignment (no in-flight PR) isn't overstated as work already in progress.
+  const othersNotice = $derived.by(() => {
+    if (!othersFlag) return "";
+    const who = othersFlag.who.join(", ");
+    switch (othersFlag.tier) {
+      case "inflight":
+        return m.issuerow_epic_others_notice({ who });
+      case "assigned":
+        return m.issuerow_epic_assigned_notice({ who });
+      default:
+        return m.issuerow_epic_owner_notice({ who });
+    }
+  });
+
   let showDiag = $state(false);
 
   function updateFailed() {
@@ -141,9 +156,7 @@
 
   {#if othersFlag}
     <p class="others-notice">
-      <span class="others-glyph" aria-hidden="true">⚠</span>{othersFlag.tier === "authored"
-        ? m.issuerow_epic_owner_notice({ who: othersFlag.who.join(", ") })
-        : m.issuerow_epic_others_notice({ who: othersFlag.who.join(", ") })}
+      <span class="others-glyph" aria-hidden="true">⚠</span>{othersNotice}
     </p>
   {/if}
 

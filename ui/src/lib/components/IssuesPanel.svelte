@@ -110,8 +110,9 @@
   );
   // Expose per-issue assignees on the rows whenever the mine & unassigned filter (#824)
   // isn't hiding others' issues — i.e. when it's toggled off, or fails open because the
-  // viewer is unknown. With the filter active, every visible issue is mine-or-unassigned,
-  // so an assignee chip would be redundant.
+  // viewer is unknown. With the filter active, the only assigned-to-others rows still visible
+  // are flagged epics kept by the exemption (#1616) — and those surface their owner via the
+  // epic pill ("assigned to X"), not a chip — so keeping the chip hidden stays correct.
   let showAssignees = $derived(!issuesFilter.hideOthers || viewer == null);
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
   let epicParentNums = $derived(new Set(epicByNumber.keys()));

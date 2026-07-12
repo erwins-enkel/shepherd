@@ -3006,5 +3006,6 @@
   "issuerow_epic_others_notice": "Already in progress by {who} — you can still start",
   "issuerow_epic_owner_notice": "Set up by {who} — you can still start",
   "feat_epic_in_flight_title": "See who's already on an epic",
-  "feat_epic_in_flight_body": "The backlog now flags epics someone else is already working on — a pill shows how many children are in progress and by whom, plus a soft notice near Start — so you don't start an epic a teammate already owns."
+  "feat_epic_in_flight_body": "The backlog now flags epics someone else is already working on — a pill shows how many children are in progress and by whom, plus a soft notice near Start — so you don't start an epic a teammate already owns.",
+  "issuerow_epic_assigned_notice": "Assigned to {who} — you can still start"
 }

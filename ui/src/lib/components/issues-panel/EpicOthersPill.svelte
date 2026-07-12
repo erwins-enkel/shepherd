@@ -22,10 +22,22 @@
         return m.issuerow_epic_authored_pill({ who });
     }
   });
+  // Tooltip mirrors the tier so an "assigned to X" pill doesn't hover as "already in progress".
+  const title = $derived.by(() => {
+    if (!flag) return "";
+    switch (flag.tier) {
+      case "inflight":
+        return m.issuerow_epic_others_notice({ who });
+      case "assigned":
+        return m.issuerow_epic_assigned_notice({ who });
+      default:
+        return m.issuerow_epic_owner_notice({ who });
+    }
+  });
 </script>
 
 {#if flag}
-  <span class="others-pill" title={m.issuerow_epic_others_notice({ who })}>{label}</span>
+  <span class="others-pill" {title}>{label}</span>
 {/if}
 
 <style>

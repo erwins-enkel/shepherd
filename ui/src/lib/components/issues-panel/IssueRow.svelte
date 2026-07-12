@@ -10,6 +10,7 @@
   import EpicPanel from "../EpicPanel.svelte";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
+  import EpicOthersPill from "./EpicOthersPill.svelte";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
   // Tier-1 <template> complexity bar (#855). The row owns all its nested conditionals
@@ -95,9 +96,9 @@
   const isEpicParent = $derived(!!epicSummary);
 
   // "Someone else is already working / owns this epic" (#1616): null on non-epic rows and on
-  // the operator's own epics (the server excludes the viewer). Drives the pill + soft notice.
+  // the operator's own epics (the server excludes the viewer). Drives the collapsed-row pill
+  // (EpicOthersPill) + the soft notice next to Start (forwarded to EpicPanel).
   const othersFlag = $derived(epicFlagForOthers(epicSummary));
-  const othersWho = $derived(othersFlag ? othersFlag.who.join(", ") : "");
 
   // Badge count: prefer the live/fetched Epic's authoritative (native-first) child counts
   // over the list summary, which is markdown-first and can go stale after an epic is
@@ -189,18 +190,9 @@
     {/if}
     <!-- Collapsed-row signal that this epic is someone else's. The launch-point reassurance
          ("you can still start") lives in EpicPanel next to Start, the only epic launch path —
-         so the row carries just the pill, no duplicate notice. -->
-    {#if othersFlag}
-      <span class="others-pill" title={m.issuerow_epic_others_notice({ who: othersWho })}
-        >{#if othersFlag.tier === "inflight"}{othersWho
-            ? m.issuerow_epic_inflight_pill({ count: othersFlag.inFlight, who: othersWho })
-            : m.issuerow_epic_inflight_pill_plain({
-                count: othersFlag.inFlight,
-              })}{:else if othersFlag.tier === "assigned"}{m.issuerow_epic_assigned_pill({
-            who: othersWho,
-          })}{:else}{m.issuerow_epic_authored_pill({ who: othersWho })}{/if}</span
-      >
-    {/if}
+         so the row carries just the pill, no duplicate notice. Extracted into a child so the
+         tier→copy branching doesn't inflate this row's <template> complexity. -->
+    <EpicOthersPill flag={othersFlag} />
   </div>
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
@@ -377,19 +369,6 @@
     border-radius: 2px;
     padding: 1px 5px;
     background: color-mix(in srgb, var(--status-blocked) 14%, transparent);
-  }
-
-  /* "Someone else is already working / owns this epic" pill (#1616). Amber running/in-progress
-     token so it reads as one signal with the EPIC badge, not a competing hue. */
-  .others-pill {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.04em;
-    color: var(--status-running);
-    border: 1px solid var(--status-running);
-    border-radius: 2px;
-    padding: 1px 5px;
-    background: color-mix(in srgb, var(--status-running) 14%, transparent);
-    white-space: nowrap;
   }
 
   /* Assignee chip — reuses the label-chip recipe but keeps the login verbatim (logins are

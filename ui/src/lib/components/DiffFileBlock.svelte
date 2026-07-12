@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DiffFile } from "$lib/types";
   import { theme, type Resolved } from "$lib/theme.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let { file }: { file: DiffFile } = $props();
 
@@ -86,11 +87,11 @@
 
   {#if open}
     {#if file.binary}
-      <p class="note">binary file</p>
+      <p class="note">{m.diff_note_binary()}</p>
     {:else if file.truncated}
-      <p class="note">large file — view in terminal</p>
+      <p class="note">{m.diff_note_truncated()}</p>
     {:else if flatLines.length === 0}
-      <p class="note">no textual changes</p>
+      <p class="note">{m.diff_note_no_changes()}</p>
     {:else}
       <!-- long diff lines scroll horizontally (overflow-x); opt out of the mobile
            page-swipe so a sideways drag scrolls the code instead of paging agents -->

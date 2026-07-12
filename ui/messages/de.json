@@ -2971,5 +2971,8 @@
   "diff_files_label": "Dateien",
   "diff_note_binary": "Binärdatei",
   "diff_note_truncated": "große Datei – im Terminal ansehen",
-  "diff_note_no_changes": "keine Textänderungen"
+  "diff_note_no_changes": "keine Textänderungen",
+  "diff_view_label": "Diff-Ansicht",
+  "diff_view_split": "Geteilt",
+  "diff_view_unified": "Vereinheitlicht"
 }

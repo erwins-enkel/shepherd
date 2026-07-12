@@ -408,6 +408,22 @@ export function parseHour(raw: string | undefined, def: number): number {
   return Number.isInteger(n) && n >= 0 && n <= 23 ? n : def;
 }
 
+/** Mode for the runaway-orphan reaper (issue #1144). Mirrors `ReapMarkedOptions["mode"]`. */
+type ReapRunawayMode = "armed" | "observe" | "off";
+
+/**
+ * `SHEPHERD_REAP_RUNAWAY`: `0`/`off` disables the sweep entirely; `observe` runs every gate but
+ * never signals (log-only). Anything else — including unset — is `armed`, the default: the sweep
+ * is safe to arm because a candidate must carry an agent-spawned env marker AND belong to an
+ * archived session before it can be touched.
+ */
+function normalizeReapRunaway(raw: string | undefined): ReapRunawayMode {
+  const v = raw?.trim().toLowerCase();
+  if (v === "0" || v === "off") return "off";
+  if (v === "observe") return "observe";
+  return "armed";
+}
+
 // The HUD's main listen port. Extracted so the agent-ingress port can default
 // relative to it (mainPort + 1) — a custom SHEPHERD_PORT shifts both in lockstep.
 const mainPort = Number(process.env.SHEPHERD_PORT ?? 7330);
@@ -656,6 +672,19 @@ export const config = {
   // on, with this flag as the kill switch. UI-configurable + persisted; set
   // SHEPHERD_SESSION_HOUSEKEEPING=0 to seed it off on a fresh DB.
   sessionHousekeepingEnabled: process.env.SHEPHERD_SESSION_HOUSEKEEPING !== "0",
+  // Runaway-orphan reaper (issue #1144). SIGKILLs a process that (a) carries this session's
+  // SHEPHERD_SESSION_ID in its /proc/<pid>/environ (provenance — an agent spawned it) AND (b) whose
+  // session row is present and `archived` (terminality — the agent is definitively done), once it has
+  // burned `reapRunawayMinCpu` of a core over `reapRunawayMinAgeS`. Safety comes from provenance ∧
+  // terminality; the CPU/age pair is a PERFORMANCE prefilter that keeps the sweep's /proc/<pid>/environ
+  // reads (which take the target's mmap lock) near zero — NOT a safety floor.
+  //   armed (default) → SIGKILL · observe → log-only · off → the sweep never runs.
+  reapRunaway: normalizeReapRunaway(process.env.SHEPHERD_REAP_RUNAWAY),
+  // Fraction of ONE core, averaged over the process's whole lifetime (incl. reaped children).
+  reapRunawayMinCpu: Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_CPU ?? 0.8),
+  // Minimum process age before it can be reaped. Also what makes the benign `restore()` race
+  // (agent respawned before the row flips off `archived`) unreachable — keep it comfortably > 0.
+  reapRunawayMinAgeS: Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_AGE_S ?? 300),
   // LLM session naming: after a session is created with the instant heuristic name,
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.

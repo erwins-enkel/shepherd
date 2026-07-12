@@ -7493,3 +7493,90 @@ test("learnings: disabled repo records nothing and archive is a reward no-op", a
   expect(store.getLearning(a.id)!.injectedCount).toBe(0);
   expect(store.getLearning(a.id)!.helpfulCount).toBe(0);
 });
+
+// ── #1144: runaway-orphan reap at teardown ───────────────────────────────────
+
+/** Minimal SessionService wired for archive(); records reapRunaway calls. */
+function archiveHarness(isolated: boolean) {
+  const store = new SessionStore(":memory:");
+  const sweeps: Set<string>[] = [];
+  const removed: string[] = [];
+  const service = new SessionService({
+    store,
+    namer: async () => "n",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({
+        worktreePath: isolated ? "/wt/n" : "/repo",
+        branch: isolated ? "shepherd/n" : null,
+        isolated,
+      }),
+      remove: (p: string) => removed.push(p),
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "t1",
+        cwd: "/",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      stop: async () => {},
+      list: () => [],
+    } as any,
+    reapRunaway: (ids: Set<string>) => sweeps.push(ids),
+  } as any);
+  return { store, service, sweeps, removed };
+}
+
+test("#1144: archive() reaps runaways for a NON-isolated session — its only teardown reap", async () => {
+  // The bug this closes: `reapOrphansUnder` hangs off worktree.remove(), which teardown calls only
+  // `if (s.isolated)`. A non-isolated session's worktreePath IS the shared repo root, so it got NO
+  // teardown reap at all. The marker-based sweep is cwd-blind, so it can safely serve both.
+  const { store, service, sweeps, removed } = archiveHarness(false);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  } as any);
+  await service.archive(s.id);
+  expect(removed).toEqual([]); // non-isolated ⇒ worktree.remove() never runs, as before
+  expect(sweeps).toEqual([new Set([s.id])]);
+  expect(store.get(s.id)!.status).toBe("archived"); // swept AFTER archive ⇒ terminality sees it
+});
+
+test("#1144: archiveMany sweeps ONCE for the batch, not once per session", async () => {
+  // The sweep enumerates every pid on the host. N sessions must not mean N host-wide /proc walks
+  // on the event loop.
+  const { service, sweeps } = archiveHarness(true);
+  const a = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const b = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "b",
+    model: null,
+    images: [],
+  } as any);
+  const c = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "c",
+    model: null,
+    images: [],
+  } as any);
+  const { cleared } = await service.archiveMany([a.id, b.id, c.id]);
+  expect(cleared).toHaveLength(3);
+  expect(sweeps).toHaveLength(1);
+  expect(sweeps[0]).toEqual(new Set([a.id, b.id, c.id]));
+});

@@ -924,3 +924,21 @@ describe("parseSandboxProfile (config helper)", () => {
     expect(parseSandboxProfile("nonsense")).toBe("trusted");
   });
 });
+
+describe("#1144 session marker survives the membrane", () => {
+  test("SHEPHERD_SESSION_ID rides --setenv into the bwrap argv (past --clearenv)", () => {
+    // House rule: env set OUTSIDE the sandbox is stripped by --clearenv. The runaway reaper
+    // (#1144) attributes an orphan by reading SHEPHERD_SESSION_ID from its /proc/<pid>/environ,
+    // so if the marker did not survive into the sandbox, EVERY membrane-spawned agent's leaks
+    // would be unattributable and silently unreapable. Assert it is actually in the argv.
+    const f = buildMembraneFlags(
+      fakeMembrane({ extraEnv: { SHEPHERD_SESSION_ID: "sess-abc" } }),
+      detDeps,
+    );
+    expect(f).toContain("--clearenv");
+    const i = f.indexOf("SHEPHERD_SESSION_ID");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(f[i - 1]).toBe("--setenv");
+    expect(f[i + 1]).toBe("sess-abc");
+  });
+});

@@ -49,6 +49,7 @@ import {
   apiKeyPassthroughEnv,
 } from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
+import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
@@ -165,6 +166,14 @@ export interface ServiceDeps {
   copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
+  /**
+   * Reap runaway orphans the agent left behind, for the sessions just archived (issue #1144).
+   * Called at the END of teardown, after `store.archive`, so the reaper's terminality gate sees
+   * `archived`. This is the ONLY teardown reap a NON-isolated session gets: `reapOrphansUnder`
+   * hangs off `worktree.remove()`, which teardown calls only `if (s.isolated)` — that hole IS the
+   * bug #1144 tracks. Absent in tests that skip it.
+   */
+  reapRunaway?: (ids: Set<string>) => void;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
   preview?: Pick<PreviewService, "devPortFor">;
   /** Fast-poll one session's PR (= prPoller.pollSession), to nudge merge detection
@@ -2069,7 +2078,14 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
-          extraEnv: { ...passthroughEnv, ...rendererEnv, ...patchEnv },
+          // SESSION_MARKER_ENV rides the membrane's --setenv loop so it survives bwrap's
+          // --clearenv (see sandbox.ts). Last, so nothing above can shadow it.
+          extraEnv: {
+            ...passthroughEnv,
+            ...rendererEnv,
+            ...patchEnv,
+            [SESSION_MARKER_ENV]: ctx.sessionId,
+          },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
@@ -2091,7 +2107,18 @@ export class SessionService {
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there. patchEnv LAST.
-    const spawnEnv = { ...apiKeyPassthrough, ...rendererEnv, ...patchEnv };
+    //
+    // SESSION_MARKER_ENV (issue #1144) stamps the session id on the agent and — by inheritance —
+    // on every process it ever spawns. /proc/<pid>/environ is fixed at exec, so the marker survives
+    // `cd`, backgrounding, PID-1 reparenting and worktree deletion: it is what lets the runaway
+    // reaper attribute an orphan to a session without guessing from its cwd. Stamped on BOTH paths
+    // (here for trusted, and on membrane.extraEnv above for sandboxed) so they stay uniform.
+    const spawnEnv = {
+      ...apiKeyPassthrough,
+      ...rendererEnv,
+      ...patchEnv,
+      [SESSION_MARKER_ENV]: ctx.sessionId,
+    };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
@@ -4597,8 +4624,15 @@ export class SessionService {
     removeEgressTmp(id);
     this.attributeLearningReward(s);
     this.deps.store.archive(id);
+    // AFTER store.archive, so the reaper's terminality gate sees `archived`. Suppressed under
+    // archiveMany, which sweeps ONCE for the whole batch — a per-id call there would mean N
+    // host-wide /proc enumerations on the event loop.
+    if (!this.bulkArchiving) this.deps.reapRunaway?.(new Set([id]));
     return reaped;
   }
+
+  /** Set only while `archiveMany` is draining its loop — see the sweep call in `archive`. */
+  private bulkArchiving = false;
 
   /**
    * Startup reconcile: remove any orphaned `shepherd-egress/<id>` temp dir whose id is
@@ -4627,17 +4661,25 @@ export class SessionService {
   async archiveMany(ids: string[]): Promise<{ cleared: string[]; leftovers: number }> {
     const cleared: string[] = [];
     let leftovers = 0;
-    for (const id of ids) {
-      const s = this.deps.store.get(id);
-      if (!s) continue;
-      const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
-      try {
-        leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
-        cleared.push(id);
-      } catch {
-        // skip this one; its row stays active and gets no archived event
+    // The runaway sweep enumerates every pid on the host, so it must run ONCE for the batch, not
+    // once per id — hence the suppress-then-sweep-once dance (see `archive`).
+    this.bulkArchiving = true;
+    try {
+      for (const id of ids) {
+        const s = this.deps.store.get(id);
+        if (!s) continue;
+        const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
+        try {
+          leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
+          cleared.push(id);
+        } catch {
+          // skip this one; its row stays active and gets no archived event
+        }
       }
+    } finally {
+      this.bulkArchiving = false;
     }
+    if (cleared.length > 0) this.deps.reapRunaway?.(new Set(cleared));
     return { cleared, leftovers };
   }
 }

@@ -100,7 +100,7 @@ import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
-import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
+import { ProcessReaper, reapDeletedWorktreeOrphans, reapMarkedOrphans } from "./process-reaper";
 import {
   sweepClaudeTmp,
   compileCacheDir,
@@ -625,6 +625,8 @@ const service = new SessionService({
     : undefined,
   events,
   reaper: new ProcessReaper(),
+  // #1144: reap what the agent left burning, for the ids just archived. Defined below.
+  reapRunaway: (ids) => sweepRunawayOrphans(ids),
   preview: previewService,
   // Fast-poll a queue member to surface its merge promptly when the train session
   // archives before the 120s PR sweep credits it (the merge-train completion race).
@@ -732,6 +734,55 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
 
 deferredStarts.push(() => {
   fireTmpSweep("boot");
+});
+
+/**
+ * #1144: SIGKILL processes an agent left burning a core after its session was archived.
+ *
+ * Attribution is by ENV MARKER, not cwd: every agent spawn carries SHEPHERD_SESSION_ID, every
+ * descendant inherits it, and /proc/<pid>/environ survives `cd`, backgrounding, PID-1 reparenting
+ * and worktree deletion. So this catches the two leaks #1143's cwd sweeps structurally cannot —
+ * an orphan that chdir'd out of the worktree, and a NON-isolated session's orphan (whose "worktree"
+ * IS the shared repo root, which we must never sweep by cwd). An operator's own hot processes never
+ * carry the marker, so they can never be candidates.
+ *
+ * Runs at teardown (via SessionService.reapRunaway), on boot, and hourly as the safety net for a
+ * leak that was still under the age floor when its session was archived.
+ */
+const sweepRunawayOrphans = (ids?: Set<string>) => {
+  if (maintenance.active) return; // a sync /proc sweep must not run mid-update
+  try {
+    const { reaped, observed } = reapMarkedOrphans({
+      ids,
+      mode: config.reapRunaway,
+      minCpu: config.reapRunawayMinCpu,
+      minAgeS: config.reapRunawayMinAgeS,
+      // MUST throw rather than report "absent" if the store is ever unreadable: "absent" is a
+      // positive claim that no such session exists HERE (which is how a second Shepherd instance's
+      // live sessions are spared), so a failed read must never be mistaken for one.
+      sessionStatus: (id) => {
+        const s = store.get(id);
+        if (!s) return "absent";
+        return s.status === "archived" ? "archived" : "live";
+      },
+    });
+    for (const c of observed) {
+      const pct = Math.round(c.cpuFraction * 100);
+      const mins = Math.round(c.ageSeconds / 60);
+      console.warn(
+        `[reap-runaway] ${config.reapRunaway === "armed" ? "killed" : "would kill"} pid ${c.pid} ` +
+          `(${c.comm}) session=${c.sessionId} cpu=${pct}% age=${mins}m ppid=${c.ppid} cwd=${c.cwd}`,
+      );
+    }
+    if (reaped > 0) console.warn(`[reap-runaway] reaped ${reaped} runaway orphan(s)`);
+  } catch (err) {
+    console.warn("[reap-runaway] sweep failed:", err);
+  }
+};
+
+deferredStarts.push(() => {
+  sweepRunawayOrphans();
+  setInterval(() => sweepRunawayOrphans(), 60 * 60 * 1000);
 });
 
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The

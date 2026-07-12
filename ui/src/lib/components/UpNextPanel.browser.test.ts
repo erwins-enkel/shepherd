@@ -644,4 +644,31 @@ describe("UpNextPanel hide-blocked filter", () => {
     await expect.element(page.getByText("#3")).toBeInTheDocument();
     expect(btn.getAttribute("aria-pressed")).toBe("false");
   });
+
+  it("shows the blocked-filter hint (not 'all caught up') when every queued item is blocked", async () => {
+    // Whole queue hidden by the default-on toggle must read as "hidden by filter", not empty.
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [
+        {
+          kind: "repo",
+          repoPath: "~/projects/homeassistant",
+          repoSlug: null,
+          repoLabel: "homeassistant",
+          totalCount: 1,
+          items: [item("~/projects/homeassistant", 5, false, { labels: ["blocked-upstream"] })],
+        },
+      ],
+    };
+    render(UpNextPanel, {});
+    await expect.element(page.getByText(m.issues_filter_all_blocked())).toBeInTheDocument();
+    await expect.element(page.getByText(m.upnext_empty())).not.toBeInTheDocument();
+    // Toggling off reveals the item and clears the hint.
+    document.querySelector<HTMLButtonElement>(".un-blockedbtn")!.click();
+    await expect.element(page.getByText("#5")).toBeInTheDocument();
+    await expect.element(page.getByText(m.issues_filter_all_blocked())).not.toBeInTheDocument();
+  });
 });

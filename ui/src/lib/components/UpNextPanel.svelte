@@ -138,24 +138,28 @@
       .filter((s): s is UpNextSection => s !== null);
   }
 
-  const snap = $derived(upNext.snapshot);
   // The chip-rail repo filter scopes the queue to one repo, identical to the session lenses.
   // Repo sections drop unless they match; the cross-repo priority section keeps only its items
-  // from the active repo (re-counting totalCount so "show all N" stays honest). The hide-blocked
-  // filter is applied on BOTH branches — the early return must not skip it, or blocked issues
-  // leak whenever no repo chip is active.
-  const sections = $derived.by(() => {
-    const all = snap?.sections ?? [];
-    if (repoFilter.size === 0) return applyBlocked(all);
-    const repoFiltered = all
+  // from the active repo (re-counting totalCount so "show all N" stays honest). Identity when no
+  // repo chip is active.
+  function applyRepoFilter(list: UpNextSection[]): UpNextSection[] {
+    if (repoFilter.size === 0) return list;
+    return list
       .map((s): UpNextSection | null => {
         if (s.kind === "repo") return s.repoPath != null && repoFilter.has(s.repoPath) ? s : null;
         const items = s.items.filter((it) => repoFilter.has(it.repoPath));
         return items.length > 0 ? { ...s, items, totalCount: items.length } : null;
       })
       .filter((s): s is UpNextSection => s !== null);
-    return applyBlocked(repoFiltered);
-  });
+  }
+
+  const snap = $derived(upNext.snapshot);
+  // Repo-filtered but BEFORE the hide-blocked step, so the empty state can tell "nothing queued"
+  // apart from "everything queued is hidden by the blocked toggle".
+  const sectionsPreBlocked = $derived(applyRepoFilter(snap?.sections ?? []));
+  // The hide-blocked filter is applied on top and runs regardless of whether a repo chip is active,
+  // so blocked issues never leak in the unfiltered view.
+  const sections = $derived(applyBlocked(sectionsPreBlocked));
   // Empty ("all caught up") only once the server has actually produced a snapshot; a null/
   // never-computed snapshot shows loading, not the all-clear.
   const computed = $derived(snap?.generatedAt != null);
@@ -171,6 +175,12 @@
       (upNext.loadError && sections.length === 0),
   );
   const isEmpty = $derived(computed && !loadFailed && sections.length === 0);
+  // The queue is empty ONLY because the (default-on) hide-blocked toggle dropped everything —
+  // surface a "hidden by the blocked filter" hint (same message as IssuesPanel/PromptSources)
+  // instead of the misleading "all caught up".
+  const allHiddenByBlocked = $derived(
+    isEmpty && issuesFilter.hideBlocked && sectionsPreBlocked.length > 0,
+  );
   const updatedAgo = $derived(
     snap?.generatedAt != null ? formatAgo(clock.current - snap.generatedAt) : null,
   );
@@ -496,7 +506,13 @@
     {:else if isEmpty}
       <div class="un-empty">
         <p class="un-muted">
-          {filteredRepo ? m.upnext_repo_filter_empty({ repo: filteredRepo }) : m.upnext_empty()}
+          {#if allHiddenByBlocked}
+            {m.issues_filter_all_blocked()}
+          {:else if filteredRepo}
+            {m.upnext_repo_filter_empty({ repo: filteredRepo })}
+          {:else}
+            {m.upnext_empty()}
+          {/if}
         </p>
         {#if onbacklog}
           <button type="button" class="un-backlog-link" onclick={() => onbacklog?.()}

@@ -11,6 +11,31 @@ import type { Issue } from "$lib/types";
 export const ACTIVE_LABEL = "shepherd:active";
 
 /**
+ * Matches a `blocked` word at a word boundary, case-insensitive — e.g. `blocked`,
+ * `blocked-upstream`, `status/blocked`, `S: blocked`, `kind:blocked`. Does NOT match
+ * `unblocked`/`unblock-me` (no boundary before "blocked" there). No `g` flag: `.test()`
+ * stays stateless, so the shared instance is safe to reuse across calls.
+ */
+export const BLOCKED_LABEL_RE = /\bblocked/i;
+
+/**
+ * Whether an issue's labels mark it blocked (any label matching {@link BLOCKED_LABEL_RE}).
+ * The `?? []` guard tolerates a stale payload that predates the `labels` field.
+ */
+export function isBlocked(labels: readonly string[]): boolean {
+  return (labels ?? []).some((l) => BLOCKED_LABEL_RE.test(l));
+}
+
+/**
+ * Narrow an issue list to hide "blocked" issues (labeled with a blocked-word label —
+ * see {@link isBlocked}). Fails open — returns every issue unchanged — when `on` is false.
+ */
+export function hideBlockedIssues(issues: readonly Issue[], on: boolean): Issue[] {
+  if (!on) return [...issues];
+  return issues.filter((issue) => !isBlocked(issue.labels));
+}
+
+/**
  * Narrow an issue list by a free-text query (the panel's search field).
  * Case-insensitive substring match against number (with or without a leading
  * `#`), title, body, and labels. A blank/whitespace query is an identity
@@ -49,12 +74,22 @@ export function distinctAuthors(issues: readonly Issue[]): string[] {
  * governs it, so it doesn't belong in the categorization picker). Source for the label
  * filter's toggle chips — computed from the RAW list for the same reason as
  * {@link distinctAuthors}.
+ *
+ * `opts.excludeBlocked` additionally skips any blocked-word label (per {@link isBlocked}) —
+ * the dedicated "hide blocked" toggle already governs those. Default false: unchanged
+ * behaviour for existing callers.
  */
-export function distinctLabels(issues: readonly Issue[]): string[] {
+export function distinctLabels(
+  issues: readonly Issue[],
+  opts?: { excludeBlocked?: boolean },
+): string[] {
+  const excludeBlocked = opts?.excludeBlocked ?? false;
   const seen = new Set<string>();
   for (const issue of issues) {
     for (const label of issue.labels ?? []) {
-      if (label !== ACTIVE_LABEL) seen.add(label);
+      if (label === ACTIVE_LABEL) continue;
+      if (excludeBlocked && isBlocked([label])) continue;
+      seen.add(label);
     }
   }
   return [...seen].sort((a, b) => a.toLowerCase().localeCompare(b.toLowerCase()));

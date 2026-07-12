@@ -17,6 +17,8 @@ import {
   labelColorMap,
   filterByAuthor,
   filterByLabels,
+  isBlocked,
+  hideBlockedIssues,
   ACTIVE_LABEL,
 } from "./issues-panel";
 import type { Issue } from "$lib/types";
@@ -352,5 +354,67 @@ describe("sortEpicsFirst", () => {
   it("returns all issues when every issue is an epic parent", () => {
     const parents = new Set<number>([122, 100, 117, 90]);
     expect(sortEpicsFirst(all, parents)).toEqual(all);
+  });
+});
+
+describe("isBlocked", () => {
+  it.each([
+    "blocked",
+    "blocked-upstream",
+    "blocked-by-net",
+    "Blocked-Upstream",
+    "status/blocked",
+    "S: blocked",
+    "kind:blocked",
+  ])("matches label %j", (label) => {
+    expect(isBlocked([label])).toBe(true);
+  });
+
+  it.each(["unblocked", "needs-unblock", "unblock-me"])("does not match label %j", (label) => {
+    expect(isBlocked([label])).toBe(false);
+  });
+
+  it("returns false when no label matches", () => {
+    expect(isBlocked(["enhancement", "bug"])).toBe(false);
+  });
+
+  it("returns false for an empty labels array", () => {
+    expect(isBlocked([])).toBe(false);
+  });
+});
+
+describe("hideBlockedIssues", () => {
+  const plain = issue(1, "Plain", "", ["bug"]);
+  const blocked = issue(2, "Blocked", "", ["blocked-upstream"]);
+  const all = [plain, blocked];
+
+  it("when on, drops blocked issues and keeps the rest", () => {
+    expect(hideBlockedIssues(all, true)).toEqual([plain]);
+  });
+
+  it("when off, is an identity filter — returns all issues", () => {
+    const result = hideBlockedIssues(all, false);
+    expect(result).toEqual(all);
+    expect(result).not.toBe(all);
+  });
+});
+
+describe("distinctLabels with excludeBlocked", () => {
+  const list = [
+    issue(1, "A", "", ["enhancement", "blocked-upstream", ACTIVE_LABEL]),
+    issue(2, "B", "", ["Bug", "status/blocked"]),
+  ];
+
+  it("omits blocked-word labels when excludeBlocked is true", () => {
+    expect(distinctLabels(list, { excludeBlocked: true })).toEqual(["Bug", "enhancement"]);
+  });
+
+  it("keeps blocked-word labels when excludeBlocked is absent (existing behaviour)", () => {
+    expect(distinctLabels(list)).toEqual([
+      "blocked-upstream",
+      "Bug",
+      "enhancement",
+      "status/blocked",
+    ]);
   });
 });

@@ -406,6 +406,15 @@ export function parseSandboxProfile(v: string | undefined): SandboxProfile {
   return isSandboxProfile(v) ? v : "trusted";
 }
 
+/**
+ * Parse a kill-switch env var (issue #740): default ON when unset; only an explicit `"0"` turns it
+ * off. The inverse of the `=== "1"` opt-in form — for a capability that has soaked and now ships on
+ * by default, keeping `<VAR>=0` as the operator's code-free revert. Exported for tests.
+ */
+export function parseKillSwitch(raw: string | undefined): boolean {
+  return raw !== "0";
+}
+
 /** Parse an hour-of-day env (0–23 integer); empty/missing/out-of-range falls back to `def`. Exported
  *  for tests. Guards the empty string explicitly — `Number("")` is `0`, which would otherwise pass as
  *  a valid midnight hour. */
@@ -630,15 +639,17 @@ export const config = {
   // when `herdrSocket` is on; the socket driver still drives send/steer/browser/usage. Revisiting the
   // flip is blocked on a scrollback-preserving / raw-passthrough herdr terminal transport (#1642).
   herdrSocketTerminal: process.env.SHEPHERD_HERDR_SOCKET_TERMINAL === "1",
-  // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top
-  // of polling, staged behind two default-off flags so each phase is independently reversible.
-  // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned
-  // agents + ingest + observe (no signal wiring) — to verify reachability, latency, and
-  // session correlation (incl. under the sandboxed/egress profile) before trusting the path.
-  hooksIngest: process.env.SHEPHERD_HOOKS_INGEST === "1",
+  // Push-based agent-info ingestion via Claude Code hooks (issue #704), additive on top of polling.
+  // Phase 0: inject PostToolUse/PostToolUseFailure/Notification HTTP hooks into spawned agents +
+  // ingest + observe (no signal wiring) — reachability, latency, and session correlation (incl.
+  // under the sandboxed/egress profile). DEFAULT ON as of #740 (post-soak): fresh installs inherit
+  // observe-only ingestion; it's additive + fail-open (an unreachable/hung endpoint times out per
+  // the hook's 5s budget → polling). SHEPHERD_HOOKS_INGEST=0 is the kill switch.
+  hooksIngest: parseKillSwitch(process.env.SHEPHERD_HOOKS_INGEST),
   // Phase 1: feed received hook events into the poller (the single owner of signal state).
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
-  // Staged after Phase 0 has confirmed the live payload shape (see issue #704).
+  // Still OPT-IN (=== "1"): #740 flipped only ingest on. Promoting signals to default awaits
+  // confirmed soak of the #711 netns transport (autonomous/egress) it would consume events over.
   hooksSignals: process.env.SHEPHERD_HOOKS_SIGNALS === "1",
   // PR-gated AI doc agent (issue #882, epic #875 Phase 3). Opt-in soak flag, mirroring
   // SHEPHERD_HOOKS_INGEST→HOOKS_SIGNALS: default-off and reversible. This is now Phase-0

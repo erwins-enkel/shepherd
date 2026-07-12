@@ -101,6 +101,29 @@ Opt-in, default-off. Configurable from the Settings panel (persisted in the SQLi
 | --- | --- | --- |
 | `SHEPHERD_UPNEXT_SKIP_CLI_PICKER` | `0` (off) | Set `1` to make Up Next quick-start launch with the operator's default coding CLI instead of opening the "Choose coding CLI" picker, even when more than one CLI is ready. Default off preserves the picker behavior. |
 
+## Push-based hook ingestion
+
+Shepherd injects Claude Code lifecycle **hooks** into each spawned agent that POST to a restricted
+loopback ingress, giving the HUD push updates (tool activity, notifications, sub-agent roster,
+turn-`Stop` timing) **on top of** the 1 s poller — never instead of it. The path is **fail-open**:
+each hook is synchronous with a 5 s budget, so an unreachable or hung endpoint (e.g. an
+autonomous/egress agent whose netns route is down) simply times out and the poller stays
+authoritative.
+
+Two independent stages, each an env override on a code default:
+
+- **Ingest** (`SHEPHERD_HOOKS_INGEST`) — injection + ingest route + ring-buffer/logging + the
+  sub-agent roster fan-out. Observe-only: it never mutates session status. **Default on** as of the
+  post-soak flip; set `SHEPHERD_HOOKS_INGEST=0` to disable (the kill switch).
+- **Signals** (`SHEPHERD_HOOKS_SIGNALS`) — feed matched hook events into the poller's signal
+  pipeline. Still **opt-in**; meaningful only when ingest is also on (with ingest off, no events
+  arrive to feed, and Shepherd warns and treats signals as off).
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_HOOKS_INGEST` | `1` (on) | Inject observe-only lifecycle hooks into spawned agents (ingest route, ring buffer/logging, sub-agent roster fan-out). No status consumption; additive + fail-open. Set `0` to disable entirely (kill switch) |
+| `SHEPHERD_HOOKS_SIGNALS` | `0` (off) | Set `1` to forward matched hook events into the poller's signal pipeline. Meaningful only when `SHEPHERD_HOOKS_INGEST` is also on |
+
 ## Documentation automation (PR-gated doc agent)
 
 Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)

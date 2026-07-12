@@ -80,34 +80,55 @@ function baseGuidance(
       detail: model === "inherit" ? m.model_guidance_inherit() : m.model_guidance_default(),
     };
 
-  if (provider === "claude") {
-    switch (model) {
-      case "fable":
-        return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable() };
-      case "opus":
-        return { costTier: "high", tag: "strong", detail: m.model_guidance_claude_opus() };
-      case "opus[1m]":
-        return {
-          costTier: "premium",
-          tag: "longContext",
-          detail: m.model_guidance_claude_opus_1m(),
-        };
-      case "sonnet":
-        return { costTier: "standard", tag: "balanced", detail: m.model_guidance_claude_sonnet() };
-      case "sonnet[1m]":
-        return {
-          costTier: "high",
-          tag: "longContext",
-          detail: m.model_guidance_claude_sonnet_1m(),
-        };
-      case "haiku":
-        return { costTier: "low", tag: "budget", detail: m.model_guidance_claude_haiku() };
-    }
-  }
+  if (provider === "claude") return claudeGuidance(model);
+  return codexGuidance(model);
+}
 
+function claudeGuidance(model: string): {
+  costTier: CostTier;
+  tag: ModelTag;
+  detail: string;
+} {
+  switch (model) {
+    case "fable":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_claude_fable() };
+    case "opus":
+      return { costTier: "high", tag: "strong", detail: m.model_guidance_claude_opus() };
+    case "opus[1m]":
+      return {
+        costTier: "premium",
+        tag: "longContext",
+        detail: m.model_guidance_claude_opus_1m(),
+      };
+    case "sonnet":
+      return { costTier: "standard", tag: "balanced", detail: m.model_guidance_claude_sonnet() };
+    case "sonnet[1m]":
+      return {
+        costTier: "high",
+        tag: "longContext",
+        detail: m.model_guidance_claude_sonnet_1m(),
+      };
+    case "haiku":
+      return { costTier: "low", tag: "budget", detail: m.model_guidance_claude_haiku() };
+    default:
+      return { costTier: "standard", tag: "balanced", detail: m.model_guidance_unknown() };
+  }
+}
+
+function codexGuidance(model: string): {
+  costTier: CostTier;
+  tag: ModelTag;
+  detail: string;
+} {
   switch (model) {
     case "gpt-5.5":
       return { costTier: "premium", tag: "max", detail: m.model_guidance_codex_55() };
+    case "gpt-5.6-sol":
+      return { costTier: "premium", tag: "max", detail: m.model_guidance_codex_56_sol() };
+    case "gpt-5.6-terra":
+      return { costTier: "high", tag: "balanced", detail: m.model_guidance_codex_56_terra() };
+    case "gpt-5.6-luna":
+      return { costTier: "low", tag: "budget", detail: m.model_guidance_codex_56_luna() };
     case "gpt-5.4":
       return { costTier: "high", tag: "strong", detail: m.model_guidance_codex_54() };
     case "gpt-5.3-codex":

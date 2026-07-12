@@ -408,6 +408,13 @@ describe("UpNextPanel provider picker", () => {
     providerSelect().value = "codex";
     providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
     const model = document.querySelector<HTMLSelectElement>("#mcp-model")!;
+    await expect
+      .poll(() =>
+        Array.from(model.options)
+          .map((o) => o.value)
+          .slice(0, 5),
+      )
+      .toEqual(["default", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"]);
     await expect.poll(() => Array.from(model.options).map((o) => o.value)).toContain("gpt-5.4");
     model.value = "gpt-5.4";
     model.dispatchEvent(new Event("change", { bubbles: true }));

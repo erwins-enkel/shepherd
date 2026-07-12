@@ -106,6 +106,9 @@ describe("modelCompatibleWithProvider", () => {
 
   test("Codex accepts curated aliases and safe future aliases", () => {
     expect(modelCompatibleWithProvider("gpt-5.5", "codex")).toBe(true);
+    expect(modelCompatibleWithProvider("gpt-5.6-sol", "codex")).toBe(true);
+    expect(modelCompatibleWithProvider("gpt-5.6-terra", "codex")).toBe(true);
+    expect(modelCompatibleWithProvider("gpt-5.6-luna", "codex")).toBe(true);
     expect(modelCompatibleWithProvider("gpt-5.6-codex", "codex")).toBe(true);
   });
 
@@ -360,6 +363,9 @@ describe("clampCodexModelForAuth", () => {
   });
   test("codex + chatgpt + non-blocklisted model → unchanged", () => {
     expect(clampCodexModelForAuth("gpt-5.5", "codex", "chatgpt")).toBe("gpt-5.5");
+    expect(clampCodexModelForAuth("gpt-5.6-sol", "codex", "chatgpt")).toBe("gpt-5.6-sol");
+    expect(clampCodexModelForAuth("gpt-5.6-terra", "codex", "chatgpt")).toBe("gpt-5.6-terra");
+    expect(clampCodexModelForAuth("gpt-5.6-luna", "codex", "chatgpt")).toBe("gpt-5.6-luna");
   });
   test("codex + apikey → unchanged even for a blocklisted model", () => {
     expect(clampCodexModelForAuth(blocked, "codex", "apikey")).toBe(blocked);

@@ -169,6 +169,21 @@ test("codex model accepted and passed through when provider is codex", () => {
   if (r.ok) expect(r.value.model).toBe("gpt-5.5");
 });
 
+test("verified curated GPT-5.6 Codex model accepted when provider is codex", () => {
+  const r = validateCreate(
+    {
+      repoPath: validRepo,
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: "codex",
+      model: "gpt-5.6-sol",
+    },
+    root,
+  );
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value.model).toBe("gpt-5.6-sol");
+});
+
 test("future-looking safe codex model accepted when provider is codex", () => {
   const r = validateCreate(
     {

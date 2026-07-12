@@ -3,6 +3,7 @@ import { parseUsageFrame, type UsageProbe } from "./usage-limits";
 import { config } from "./config";
 import { compileCacheDir } from "./tmp-sweep";
 import { isApiKeyMode } from "./spawn-auth";
+import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "./claude-trust";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const decoder = new TextDecoder();
@@ -61,11 +62,24 @@ export async function awaitUsageFrame(
  * `/usage` makes no model call (zero token cost).
  */
 export class HerdrUsageProbe implements UsageProbe {
+  private readTrusted: () => Promise<boolean>;
+  private trust: () => Promise<void>;
+
   constructor(
     private herdr: Pick<HerdrDriver, "start" | "stop" | "list">,
     private cwd: string = config.repoRoot,
     private helperPath = new URL("./pty-attach.mjs", import.meta.url).pathname,
-  ) {}
+    // Trust pre-seed, injectable for tests. Defaults resolve the SAME `.claude.json`
+    // Claude reads (config-dir-aware, see claude-trust.ts) and target this probe's cwd.
+    deps: {
+      readTrusted?: () => Promise<boolean>;
+      trust?: () => Promise<void>;
+    } = {},
+  ) {
+    const configPath = claudeConfigPath(process.env.HOME ?? "", config.claudeDir);
+    this.readTrusted = deps.readTrusted ?? (() => readRepoRootTrusted(configPath, this.cwd));
+    this.trust = deps.trust ?? (() => trustRepoRoot(configPath, this.cwd));
+  }
 
   /**
    * Close every lingering probe agent (and its herdr tab/pane). Probes run under the reserved
@@ -93,6 +107,19 @@ export class HerdrUsageProbe implements UsageProbe {
     // Reap leftovers from any prior run that didn't clean up after itself, so probe tabs can't
     // accumulate in herdr over time.
     await this.sweep();
+
+    // Pre-seed folder trust so claude boots straight to the REPL. An untrusted cwd makes claude
+    // open the "Do you trust the files in this folder?" dialog (NOT suppressed by
+    // --dangerously-skip-permissions), which eats our /usage keystrokes → null scrape (#1075).
+    // Read-gated so we write at most once per cwd. Best-effort: a trust read/write failure
+    // (EACCES/ENOSPC, malformed config, race) must NEVER reject scrape() — calibrate()
+    // (usage-limits.ts) awaits it unguarded, so a rejection would surface as a refresh-route 500.
+    // On failure we fall through to the spawn; an untrusted folder then just yields the usual null.
+    try {
+      if (!(await this.readTrusted())) await this.trust();
+    } catch (err) {
+      console.warn("[usage-probe] trust pre-seed failed; continuing", err);
+    }
 
     let terminalId: string;
     try {

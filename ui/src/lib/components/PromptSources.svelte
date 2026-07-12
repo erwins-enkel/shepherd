@@ -9,6 +9,7 @@
     hideOthers,
     hideActive,
     hideSubIssues,
+    hideBlockedIssues,
     filterByAuthor,
     filterByLabels,
     distinctAuthors,
@@ -58,7 +59,9 @@
   let selectedAuthor = $state<string | null>(null);
   const selectedLabels = new SvelteSet<string>();
   let availableAuthors = $derived(distinctAuthors(issues));
-  let availableLabels = $derived(distinctLabels(issues));
+  let availableLabels = $derived(
+    distinctLabels(issues, { excludeBlocked: issuesFilter.hideBlocked }),
+  );
   let labelColorsMap = $derived(labelColorMap(issues));
   let assigneeFiltered = $derived(hideOthers(issues, viewer, issuesFilter.hideOthers));
   let activeFiltered = $derived(hideActive(assigneeFiltered, issuesFilter.hideActive));
@@ -73,8 +76,11 @@
       epicParents,
     ),
   );
+  // "Hide blocked" filter, applied AFTER the sub-issue filter and BEFORE the author/label
+  // filters (mirrors IssuesPanel; see hideBlockedIssues in issues-panel.ts).
+  let blockedFiltered = $derived(hideBlockedIssues(subFiltered, issuesFilter.hideBlocked));
   let visibleIssues = $derived(
-    filterByLabels(filterByAuthor(subFiltered, selectedAuthor), selectedLabels),
+    filterByLabels(filterByAuthor(blockedFiltered, selectedAuthor), selectedLabels),
   );
   let allHiddenByAssignee = $derived(
     issues.length > 0 && assigneeFiltered.length === 0 && viewer != null && issuesFilter.hideOthers,

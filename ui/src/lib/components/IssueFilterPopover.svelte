@@ -58,6 +58,7 @@
     (showMine && issuesFilter.hideOthers ? 1 : 0) +
       (issuesFilter.hideActive ? 1 : 0) +
       (issuesFilter.hideSubIssues ? 1 : 0) +
+      (issuesFilter.hideBlocked ? 1 : 0) +
       (selectedAuthor != null ? 1 : 0) +
       selectedLabels.length,
   );
@@ -185,6 +186,17 @@
     <span class="row-text">
       <span class="row-label">{m.issues_filter_subissues_label()}</span>
       <span class="row-desc">{m.issues_filter_subissues_title()}</span>
+    </span>
+  </label>
+  <label class="filter-row">
+    <input
+      type="checkbox"
+      checked={issuesFilter.hideBlocked}
+      onchange={() => issuesFilter.toggleBlocked()}
+    />
+    <span class="row-text">
+      <span class="row-label">{m.issues_filter_blocked_label()}</span>
+      <span class="row-desc">{m.issues_filter_blocked_title()}</span>
     </span>
   </label>
 

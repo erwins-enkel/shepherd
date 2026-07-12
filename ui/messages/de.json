@@ -2935,5 +2935,8 @@
   "feat_prewarm_epic_ci_title": "Epic-Landing-CI vorwärmen",
   "feat_prewarm_epic_ci_body": "Ist die Option aktiviert, öffnet sich der Landing-PR eines Epics jetzt frühzeitig als Entwurf, sodass seine CI schon während des Abarbeitens vorgewärmt läuft, statt beim Abschluss kalt zu starten. Pro Repo in den Automatisierungseinstellungen aktivierbar.",
   "feat_colored_issue_labels_title": "Issue-Labels in ihren echten Farben",
-  "feat_colored_issue_labels_body": "Label-Chips im Backlog, in den Filtern und bei den Prompt-Quellen zeigen jetzt die echte Farbe des Labels aus GitHub, angepasst für Lesbarkeit in hellem und dunklem Theme — statt einheitlichem Grau."
+  "feat_colored_issue_labels_body": "Label-Chips im Backlog, in den Filtern und bei den Prompt-Quellen zeigen jetzt die echte Farbe des Labels aus GitHub, angepasst für Lesbarkeit in hellem und dunklem Theme — statt einheitlichem Grau.",
+  "issues_filter_blocked_label": "blockierte ausblenden",
+  "issues_filter_blocked_title": "Issues mit einem blocked-Label ausblenden (z. B. blocked-upstream)",
+  "issues_filter_all_blocked": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten"
 }

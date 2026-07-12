@@ -16,8 +16,15 @@ _lowest-friction Svelte-native fit_, **`@git-diff-view/svelte`** consumes our
 existing structured `DiffResult` almost verbatim. A near-identical-stack
 reference implementation already exists in the wild — **PaperMC's `diffs.dev`**
 (SvelteKit + Svelte 5 + Tailwind 4 + Shiki + jsdiff + virtua) — proving the
-approach works in exactly our stack. Do a half-day spike of each before
-committing; **no code was changed for this report.**
+approach works in exactly our stack.
+
+**Update — the Pierre spike was run** (see _Spike_ below). A throwaway preview
+renders live `@pierre/diffs` inside a pixel-faithful Shepherd session-view frame,
+across DARK/LIGHT × SPLIT/UNIFIED, fed a real repo diff. It **works**, and it
+settles this report's central open question: **theming across the Shadow-DOM
+boundary is solved** by injecting our existing Shepherd Shiki themes. Option A is
+now materially de-risked. **No product code changed — the spike is a standalone
+harness, and this report file remains the entire diff.**
 
 ---
 
@@ -90,14 +97,15 @@ Shiki reuse, virtualization, and a file sidebar.
   BYO accept/reject UI, line selection, token-hover callbacks, custom fonts.
 - **Fit:** it's literally what was asked for, and the annotations framework is a
   standout for **agent review UX** (attach an agent's rationale to a line).
-- **The catch — Shadow DOM:** it renders via CSS Grid **inside Shadow DOM** to
-  minimize nodes. That _isolates_ it from `app.css` `--color-*` tokens, so our
-  design-token theming can't cascade in. Mitigation: it "adapts to Shiki
-  themes," and we already have `shepherd-dark`/`shepherd-light` Shiki
-  themes — we'd theme it by **passing those in**, not via our token cascade.
-  Needs validation that light/dark switching and our exact palette come through
-  cleanly. No first-party Svelte wrapper → drive the vanilla API from a Svelte
-  action/component.
+- **The catch — Shadow DOM (now validated, see _Spike_):** it renders via CSS
+  Grid **inside Shadow DOM** to minimize nodes. That _isolates_ it from `app.css`
+  `--color-*` tokens, so our design-token theming can't cascade in. **Confirmed
+  fix:** register our existing `shepherd-dark`/`shepherd-light` Shiki themes and
+  pass `theme: { dark, light }` + `setThemeType()` — both modes reproduce our
+  palette exactly. The surrounding chrome (tabs, rail, headers) still uses our
+  tokens normally; only the diff body themes via injection. No first-party Svelte
+  wrapper → drive the vanilla API from a Svelte action/component, and render into
+  a `<diffs-container>` host (not a bare `<div>` — see _Spike_ #2).
 
 ### Option B — Adopt `@git-diff-view/svelte` (best Svelte-native fit)
 
@@ -144,11 +152,15 @@ we already ship.
 
 Whatever we pick has to clear these house-rule gates:
 
-1. **Design tokens / Shadow DOM.** Option A's Shadow DOM is the biggest unknown:
-   it bypasses `app.css`. Options B/D/E render to light DOM and honor
-   `--color-*`/`--fs-*` directly. Any adopted component must render as one of
-   our themes in _both_ light and dark, and must not introduce raw hex — for A
-   that means proving the Shiki-theme bridge; for B it's native.
+1. **Design tokens / Shadow DOM.** Option A renders in Shadow DOM and bypasses
+   `app.css`; Options B/D/E render to light DOM and honor `--color-*`/`--fs-*`
+   directly. Any adopted component must render as one of our themes in _both_
+   light and dark, with no raw hex — for B/D/E that's native, and **for A the
+   Shiki-theme bridge is proven** (see _Spike_ #1): our `shepherd-dark`/
+   `shepherd-light` themes injected into Pierre match the tab exactly. The catch
+   is that the theming path is Pierre's Shiki-theme API, not our CSS cascade, so
+   any future token change to the diff palette must be mirrored into those two
+   theme objects (as it already must for today's `highlight.ts`).
 2. **i18n.** New chrome (view toggle, sidebar labels, "expand context", comment
    affordances, empty/error states) must route through Paraglide (`en.json` +
    `de.json`, `check:i18n` gate). Note: today's `DiffFileBlock.svelte` already
@@ -177,34 +189,106 @@ Whatever we pick has to clear these house-rule gates:
 
 ---
 
+## Spike: a working `@pierre/diffs` preview
+
+To de-risk Option A, I stood up a throwaway standalone Vite app that renders live
+`@pierre/diffs` inside a pixel-faithful Shepherd session-view frame (real
+`app.css` tokens, the tab strip, a file rail), fed it a real 6-file repo diff,
+and wired DARK/LIGHT × SPLIT/UNIFIED toggles. It renders faithfully — split
+side-by-side with word-level intra-line highlights, collapsed-context
+separators, per-file cards, Shepherd's palette in both themes. **It was a
+standalone harness; no product code changed.** It answered the report's central
+question and surfaced three non-obvious integration gotchas plus one real cost:
+
+1. **Shadow-DOM theming is solved — via Shiki theme injection.** Pierre renders
+   in Shadow DOM, so our `--color-*`/`--fs-*` tokens cannot cascade in (confirmed:
+   the diff body's light-DOM `textContent` is empty — everything lives in shadow
+   roots). But `registerCustomTheme("shepherd-dark", …)` + `registerCustomTheme(
+"shepherd-light", …)` with our existing theme objects, passed as
+   `theme: { dark: "shepherd-dark", light: "shepherd-light" }` and switched with
+   `setThemeType()`, reproduces our exact palette in both modes. **The deciding
+   "can we theme it?" question is answered YES.**
+2. **The host must be `<diffs-container>`, not a plain `<div>`.** Pierre's full
+   layout stylesheet — including the split CSS Grid — is adopted only into the
+   shadow root of its registered `<diffs-container>` custom element (auto-defined
+   when you `import { FileDiff }`). Render into a bare `<div>` and you get theme
+   colors but the layout CSS is missing, so **split silently collapses to a
+   stacked single column.** This cost the most debugging; it's a one-line fix
+   once known (`document.createElement("diffs-container")`).
+3. **Split needs `overflow: "wrap"`.** The side-by-side grid only activates under
+   the selector `[data-diff-type="split"][data-overflow="wrap"]`; with
+   `overflow: "scroll"` it falls back to stacked. Wrap also removes horizontal
+   scrollbars — arguably what we want for a diff tab anyway.
+4. **Line annotations need slot wiring — budget for it.** Pierre's annotation
+   framework (the agent-review differentiator) _does_ fire `renderAnnotation(…)`,
+   but line-alignment relies on its slot mechanism; a naive `lineAnnotations` pass
+   appends the cards at the **bottom of the file**, not beside the target line.
+   Getting agent notes to sit next to the code they describe — the entire point —
+   is genuine engineering, so scope it as a phase, not a checkbox.
+
+**Working config for whoever implements Option A:**
+
+```js
+import { FileDiff, parsePatchFiles, registerCustomTheme } from "@pierre/diffs";
+registerCustomTheme("shepherd-dark", async () => SHEPHERD_DARK); // objects from highlight.ts
+registerCustomTheme("shepherd-light", async () => SHEPHERD_LIGHT);
+const host = document.createElement("diffs-container"); // NOT a <div> (gotcha #2)
+const fd = new FileDiff({
+  theme: { dark: "shepherd-dark", light: "shepherd-light" }, // gotcha #1
+  themeType,
+  diffStyle, // "split" | "unified"
+  lineDiffType: "word",
+  diffIndicators: "bars",
+  overflow: "wrap", // gotcha #3 — required for side-by-side split
+});
+fd.render({ fileDiff: parsePatchFiles(patch)[0].files[i], fileContainer: host });
+```
+
+Net: **Option A's one true blocker (theming across the shadow boundary) is gone.**
+The two setup gotchas are one-liners once documented here; annotations (#4) are
+the only part that needs real work — and they're exactly the agent-review
+differentiator, so that cost buys the thing that makes this better than a generic
+viewer.
+
+---
+
 ## Recommendation & next steps
 
-1. **Two-prong spike (≈half a day each), decision-gated:**
-   - **`@pierre/diffs`** — mount the vanilla renderer in a throwaway Svelte
-     component, feed one real session's diff, and answer the deciding question:
-     **can Shadow DOM + Shiki-theme injection reproduce our exact light/dark
-     palette?** If yes, it's the fanciest, most on-brand-with-the-request path
-     and unlocks agent annotations.
-   - **`@git-diff-view/svelte`** — serialize `DiffResult → { oldFile, newFile,
-hunks }`, render with `@git-diff-view/shiki`, confirm tokens/theming apply
-     natively. This is the low-risk baseline.
-2. **Compare on:** theming fidelity, effort to reach split+word-diff+sidebar,
-   large-diff behavior, and how cleanly per-line agent annotations attach.
-3. **Then pick:** `@pierre/diffs` if the Shadow-DOM/theming spike passes and we
-   want the review-first ceiling; otherwise `@git-diff-view/svelte`.
+1. **Pierre spike — done (passed).** The theming blocker is resolved and the
+   render is faithful (see _Spike_). Remaining validation before committing to A
+   is the **annotation slot wiring** (#4) — the one open engineering risk — plus
+   a look at large-diff behavior without windowing.
+2. **Still worth a short `@git-diff-view/svelte` spike** as the low-risk
+   comparison: serialize `DiffResult → { oldFile, newFile, hunks }`, render with
+   `@git-diff-view/shiki`, confirm light-DOM tokens/theming apply natively and how
+   its widget system handles per-line comments. It renders to light DOM, so it
+   sidesteps A's shadow-boundary theming entirely — the trade is Pierre's
+   review-first ceiling vs git-diff-view's simpler Svelte-native fit.
+3. **Then pick:** `@pierre/diffs` for the review-first ceiling (annotations are
+   the differentiator, and theming is proven), or `@git-diff-view/svelte` if we
+   want the lightest-touch Svelte-native integration and can forgo Pierre's
+   richer annotation/merge-conflict surface.
 4. **Explicitly reject:** embedding hunk (terminal-only) and copying diffs.dev
    (unlicensed) — use both as UX/architecture references only.
 
 ## Open questions
 
 - Fancy-viewer priority: **side-by-side + word-diff** only, or the full
-  review-first experience (sidebar + line annotations)? Scopes A-vs-B/D.
+  review-first experience (sidebar + line annotations)? Scopes A-vs-B/D. Note the
+  spike shows split + word-diff + rail are essentially free with Pierre; the
+  incremental cost is almost entirely in annotations (_Spike_ #4).
 - Is **per-line agent annotation** (rationale/tool-call linkage) in scope, or a
-  later phase? It's the main reason to prefer `@pierre/diffs` over a plain swap.
+  later phase? It's the main reason to prefer `@pierre/diffs` — and per _Spike_
+  #4 it's the one part that needs real slot-wiring work, so answering this sizes
+  the whole effort.
 - Do we ever hit single files big enough to _need_ virtualization, given the
   2000-line/file server cap? If never, Option A/B's lack of windowing is moot.
 - Confirm `@pierre/diffs` repo-level license (package says Apache-2.0; repo root
   has no LICENSE) before adoption.
+
+_(Resolved by the spike: "can Shadow DOM + Shiki-theme injection reproduce our
+exact light/dark palette?" — **yes**, via `registerCustomTheme` + `theme:{dark,
+light}`.)_
 
 ---
 

@@ -7497,11 +7497,12 @@ test("learnings: disabled repo records nothing and archive is a reward no-op", a
 // ── #1144: runaway-orphan reap at teardown ───────────────────────────────────
 
 /** Minimal SessionService wired for archive(); records reapRunaway calls. */
-function archiveHarness(isolated: boolean) {
+function archiveHarness(isolated: boolean, beforeArchive?: () => Promise<void>) {
   const store = new SessionStore(":memory:");
   const sweeps: Set<string>[] = [];
   const removed: string[] = [];
   const service = new SessionService({
+    beforeArchive,
     store,
     namer: async () => "n",
     worktree: {
@@ -7579,4 +7580,40 @@ test("#1144: archiveMany sweeps ONCE for the batch, not once per session", async
   expect(cleared).toHaveLength(3);
   expect(sweeps).toHaveLength(1);
   expect(sweeps[0]).toEqual(new Set([a.id, b.id, c.id]));
+});
+
+test("#1144: an archive() that interleaves with archiveMany's awaits is still swept", async () => {
+  // archive() awaits (herdr.stop, the 15s beforeArchive window), so a timer-driven archive
+  // (automerge / drain / merge-teardown) can land mid-batch. A boolean "suppress while bulk"
+  // would drop that id's sweep entirely — it is not in `cleared`, so the post-batch sweep would
+  // miss it too, and the session's runaway would survive until the hourly tick (or forever, if
+  // its row were later pruned). The deferred-id set must catch it.
+  let interloper: string | null = null;
+  let fired = false;
+  const h = archiveHarness(true, async () => {
+    // Runs inside archiveMany's first archive(), i.e. mid-batch.
+    if (fired) return;
+    fired = true;
+    await h.service.archive(interloper!);
+  });
+  const a = await h.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const x = await h.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "x",
+    model: null,
+    images: [],
+  } as any);
+  interloper = x.id;
+
+  const { cleared } = await h.service.archiveMany([a.id]);
+  expect(cleared).toEqual([a.id]); // the interloper is NOT in `cleared`…
+  expect(h.sweeps).toHaveLength(1); // …still exactly one host-wide sweep…
+  expect(h.sweeps[0]).toEqual(new Set([a.id, x.id])); // …and it covers BOTH ids.
 });

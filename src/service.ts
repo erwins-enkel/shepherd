@@ -4624,15 +4624,23 @@ export class SessionService {
     removeEgressTmp(id);
     this.attributeLearningReward(s);
     this.deps.store.archive(id);
-    // AFTER store.archive, so the reaper's terminality gate sees `archived`. Suppressed under
-    // archiveMany, which sweeps ONCE for the whole batch — a per-id call there would mean N
-    // host-wide /proc enumerations on the event loop.
-    if (!this.bulkArchiving) this.deps.reapRunaway?.(new Set([id]));
+    // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
+    // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive
+    // window), so a timer-driven archive (automerge / drain / merge-teardown) can interleave with
+    // archiveMany's loop. A boolean "suppress" would drop that id's sweep entirely — it is not in
+    // `cleared`, so the post-batch sweep would miss it too. Collecting the id instead means every
+    // archived session is swept exactly once, in one host-wide /proc enumeration.
+    if (this.pendingRunawayIds) this.pendingRunawayIds.add(id);
+    else this.deps.reapRunaway?.(new Set([id]));
     return reaped;
   }
 
-  /** Set only while `archiveMany` is draining its loop — see the sweep call in `archive`. */
-  private bulkArchiving = false;
+  /**
+   * Non-null only while `archiveMany` is draining. Every id archived in that window — the batch's
+   * own, and any that interleaves from a concurrent caller — lands here and is swept once at the
+   * end. See the deferral in `archive`.
+   */
+  private pendingRunawayIds: Set<string> | null = null;
 
   /**
    * Startup reconcile: remove any orphaned `shepherd-egress/<id>` temp dir whose id is
@@ -4662,8 +4670,11 @@ export class SessionService {
     const cleared: string[] = [];
     let leftovers = 0;
     // The runaway sweep enumerates every pid on the host, so it must run ONCE for the batch, not
-    // once per id — hence the suppress-then-sweep-once dance (see `archive`).
-    this.bulkArchiving = true;
+    // once per id — hence the defer-then-sweep-once dance (see `archive`). Nesting is possible in
+    // principle, so an already-open collector is reused rather than clobbered.
+    const outer = this.pendingRunawayIds;
+    const pending = outer ?? new Set<string>();
+    this.pendingRunawayIds = pending;
     try {
       for (const id of ids) {
         const s = this.deps.store.get(id);
@@ -4677,9 +4688,12 @@ export class SessionService {
         }
       }
     } finally {
-      this.bulkArchiving = false;
+      // Only the OUTERMOST archiveMany closes the collector and sweeps.
+      if (!outer) this.pendingRunawayIds = null;
     }
-    if (cleared.length > 0) this.deps.reapRunaway?.(new Set(cleared));
+    // Sweeps every id archived during the window — the batch's own AND any concurrent archive that
+    // interleaved with our awaits (those are not in `cleared`, so they'd otherwise be missed).
+    if (!outer && pending.size > 0) this.deps.reapRunaway?.(pending);
     return { cleared, leftovers };
   }
 }

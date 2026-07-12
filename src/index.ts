@@ -100,7 +100,12 @@ import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
-import { ProcessReaper, reapDeletedWorktreeOrphans, reapMarkedOrphans } from "./process-reaper";
+import {
+  ProcessReaper,
+  reapDeletedWorktreeOrphans,
+  reapMarkedOrphans,
+  SESSION_MARKER_ENV,
+} from "./process-reaper";
 import {
   sweepClaudeTmp,
   compileCacheDir,
@@ -172,6 +177,18 @@ import {
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 
 const execFileAsync = promisify(execFile);
+
+// Scrub any INHERITED session marker before anything can spawn (issue #1144).
+//
+// The marker means "an agent of session <id> spawned this process". If Shepherd itself is launched
+// from inside an agent session (an agent restarting the server, a dev run from a session shell), it
+// inherits that id in its own process.env — and hands it, by plain env inheritance, to every child
+// it spawns. The aux/satellite agents (critic, distiller, doc-agent, plan-gate) pass no marker of
+// their own precisely so that they stay unmarked and are ALWAYS spared; a stale inherited one would
+// silently mark them with a real session id, and once that session archived the reaper would treat
+// a live critic's background work as a runaway. Delete it once, here, at the top of boot: the
+// server is not an agent's child in any sense the reaper should honour.
+delete process.env[SESSION_MARKER_ENV];
 
 startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
 logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync calls
@@ -752,7 +769,7 @@ deferredStarts.push(() => {
 const sweepRunawayOrphans = (ids?: Set<string>) => {
   if (maintenance.active) return; // a sync /proc sweep must not run mid-update
   try {
-    const { reaped, observed } = reapMarkedOrphans({
+    const { reaped, observed, killed } = reapMarkedOrphans({
       ids,
       mode: config.reapRunaway,
       minCpu: config.reapRunawayMinCpu,
@@ -766,12 +783,22 @@ const sweepRunawayOrphans = (ids?: Set<string>) => {
         return s.status === "archived" ? "archived" : "live";
       },
     });
+    // Log per candidate from what ACTUALLY happened, never from `observed` alone: an armed sweep
+    // can still skip a kill (pid recycled between scan and kill, or the process already exited),
+    // and claiming "killed" for those would contradict the `reaped` total below.
+    const killedPids = new Set(killed.map((c) => c.pid));
     for (const c of observed) {
+      const verb =
+        config.reapRunaway !== "armed"
+          ? "would kill"
+          : killedPids.has(c.pid)
+            ? "killed"
+            : "skipped";
       const pct = Math.round(c.cpuFraction * 100);
       const mins = Math.round(c.ageSeconds / 60);
       console.warn(
-        `[reap-runaway] ${config.reapRunaway === "armed" ? "killed" : "would kill"} pid ${c.pid} ` +
-          `(${c.comm}) session=${c.sessionId} cpu=${pct}% age=${mins}m ppid=${c.ppid} cwd=${c.cwd}`,
+        `[reap-runaway] ${verb} pid ${c.pid} (${c.comm}) session=${c.sessionId} ` +
+          `cpu=${pct}% age=${mins}m ppid=${c.ppid} cwd=${c.cwd}`,
       );
     }
     if (reaped > 0) console.warn(`[reap-runaway] reaped ${reaped} runaway orphan(s)`);

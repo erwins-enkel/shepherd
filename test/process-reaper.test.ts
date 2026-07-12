@@ -776,6 +776,25 @@ test("#1144: a pid recycled between scan and kill is NOT killed (starttime finge
   );
   expect(r.reaped).toBe(0);
   expect(k.killed).toEqual([]);
+  // It WAS a candidate — it just wasn't killed. Callers must log from `killed`, not `observed`,
+  // or the per-candidate lines would claim a kill that never happened and contradict `reaped`.
+  expect(r.observed).toHaveLength(1);
+  expect(r.killed).toEqual([]);
+});
+
+test("#1144: `killed` excludes a candidate whose killPid throws (it must not be logged as killed)", () => {
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        killPid: () => {
+          throw new Error("ESRCH"); // already exited between the re-check and the kill
+        },
+      }),
+    }),
+  );
+  expect(r.observed).toHaveLength(1);
+  expect(r.killed).toEqual([]);
+  expect(r.reaped).toBe(0);
 });
 
 // ── enumeration + gate ordering ──────────────────────────────────────────────

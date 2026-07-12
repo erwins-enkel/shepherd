@@ -118,6 +118,13 @@ export function clampCap(n: number, min: number, max: number, fallback: number):
   return Math.min(max, Math.max(min, Math.round(n)));
 }
 
+// As clampCap, but WITHOUT the integer rounding — for ratio knobs (e.g. a CPU fraction, where
+// clampCap would round 0.8 to 1). Same forgiving contract: non-finite falls back, else snap.
+export function clampFraction(n: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 // ── preview-port range ─────────────────────────────────────────────────────
 // Single source of truth for the preview-port range; consumed by both the slot
 // allocator (future PreviewService) and checkOrigin (origin hardening). The range
@@ -681,10 +688,25 @@ export const config = {
   //   armed (default) → SIGKILL · observe → log-only · off → the sweep never runs.
   reapRunaway: normalizeReapRunaway(process.env.SHEPHERD_REAP_RUNAWAY),
   // Fraction of ONE core, averaged over the process's whole lifetime (incl. reaped children).
-  reapRunawayMinCpu: Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_CPU ?? 0.8),
-  // Minimum process age before it can be reaped. Also what makes the benign `restore()` race
-  // (agent respawned before the row flips off `archived`) unreachable — keep it comfortably > 0.
-  reapRunawayMinAgeS: Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_AGE_S ?? 300),
+  // CLAMPED, not just defaulted: `Number("")` is 0, so an env var that is merely SET-BUT-EMPTY
+  // would otherwise silently drop the gate to "any marked process of an archived session".
+  reapRunawayMinCpu: clampFraction(
+    Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_CPU ?? 0.8),
+    0.05,
+    1,
+    0.8,
+  ),
+  // Minimum process age before it can be reaped. This floor is what makes the benign `restore()`
+  // race unreachable — restore SPAWNS the agent before `store.unarchive` flips the row off
+  // `archived`, so a live agent's row briefly reads archived. Clamped to a hard >= 60s minimum:
+  // `Number("")` is 0, and a 0 floor would open exactly that window (and reap the freshly
+  // respawned agent's own children). A comment cannot enforce this; the clamp does.
+  reapRunawayMinAgeS: clampCap(
+    Number(process.env.SHEPHERD_REAP_RUNAWAY_MIN_AGE_S ?? 300),
+    60,
+    24 * 60 * 60,
+    300,
+  ),
   // LLM session naming: after a session is created with the instant heuristic name,
   // a transient haiku agent comprehends the prompt and renames it in the background.
   // Default on; set SHEPHERD_LLM_NAMING=0 to keep the pure-heuristic name.

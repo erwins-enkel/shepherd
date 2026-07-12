@@ -5,7 +5,13 @@ import { join } from "node:path";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { makeApp, type AppDeps } from "../src/server";
-import { config, clampCap, PR_REVIEW_CYCLES_MIN, PR_REVIEW_CYCLES_MAX } from "../src/config";
+import {
+  config,
+  clampCap,
+  clampFraction,
+  PR_REVIEW_CYCLES_MIN,
+  PR_REVIEW_CYCLES_MAX,
+} from "../src/config";
 import type { AuthMode } from "../src/auth-mode";
 import { EFFORTS } from "../src/types";
 import { OPERATOR_LANGUAGES, normalizeOperatorLanguage } from "../src/operator-language";
@@ -964,4 +970,29 @@ test("OPERATOR_LANGUAGES is set-equal to the UI's Paraglide locales", () => {
   expect(locales.size).toBe(opLangs.size);
   for (const l of locales) expect(opLangs.has(l)).toBe(true);
   for (const l of opLangs) expect(locales.has(l)).toBe(true);
+});
+
+// ── #1144: runaway-reaper knob clamping ──────────────────────────────────────
+
+/** Exactly how config.ts reads these knobs: `Number(process.env.X ?? <default>)`. */
+const asEnv = (raw: string | undefined, def: number) => Number(raw ?? def);
+
+test("#1144: an empty SHEPHERD_REAP_RUNAWAY_MIN_AGE_S cannot disarm the age floor", () => {
+  // `Number("")` is 0 — a SET-BUT-EMPTY env var slips past `??`, which only catches undefined. A 0
+  // age floor would open the benign restore() race (restore SPAWNS the agent before store.unarchive
+  // flips the row off `archived`), letting the sweep reap a freshly-respawned agent's own children.
+  // The clamp, not a comment, is what prevents it.
+  expect(asEnv("", 300)).toBe(0); // the trap itself
+  expect(clampCap(asEnv("", 300), 60, 24 * 60 * 60, 300)).toBe(60); // …snapped to the floor
+  expect(clampCap(asEnv(undefined, 300), 60, 24 * 60 * 60, 300)).toBe(300);
+  expect(clampCap(asEnv("nonsense", 300), 60, 24 * 60 * 60, 300)).toBe(300); // NaN ⇒ fallback
+  expect(clampCap(asEnv("99999999", 300), 60, 24 * 60 * 60, 300)).toBe(24 * 60 * 60);
+});
+
+test("#1144: the CPU fraction clamps WITHOUT rounding (clampCap would round 0.8 → 1)", () => {
+  expect(clampFraction(asEnv("", 0.8), 0.05, 1, 0.8)).toBe(0.05); // empty ⇒ floor, not 0
+  expect(clampFraction(asEnv(undefined, 0.8), 0.05, 1, 0.8)).toBe(0.8); // default survives intact
+  expect(clampCap(asEnv(undefined, 0.8), 0.05, 1, 0.8)).toBe(1); // …which clampCap would ROUND away
+  expect(clampFraction(asEnv("nonsense", 0.8), 0.05, 1, 0.8)).toBe(0.8);
+  expect(clampFraction(asEnv("5", 0.8), 0.05, 1, 0.8)).toBe(1);
 });

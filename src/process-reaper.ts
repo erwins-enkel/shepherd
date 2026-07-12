@@ -767,10 +767,17 @@ function scanPid(pid: number, ctx: SweepContext): Scanned | null {
 
 export function reapMarkedOrphans(opts: ReapMarkedOptions): {
   reaped: number;
+  /** Everything that cleared every gate — in `observe` mode, what WOULD have been killed. */
   observed: RunawayCandidate[];
+  /**
+   * The subset actually SIGKILLed. Strictly ⊆ `observed`, and smaller whenever the pid-recycle
+   * guard fired or `killPid` threw — so callers must log from THIS, not from `observed`, or their
+   * per-candidate lines will claim kills that never happened and contradict `reaped`.
+   */
+  killed: RunawayCandidate[];
 } {
   const { sessionStatus, ids, mode, minCpu, minAgeS, probes = defaultProbes } = opts;
-  const none = { reaped: 0, observed: [] as RunawayCandidate[] };
+  const none = { reaped: 0, observed: [] as RunawayCandidate[], killed: [] as RunawayCandidate[] };
   if (mode === "off") return none;
 
   // Fail closed: without every probe the gates can't be established, so reap nothing.
@@ -798,7 +805,7 @@ export function reapMarkedOrphans(opts: ReapMarkedOptions): {
   };
 
   const observed: RunawayCandidate[] = [];
-  let reaped = 0;
+  const killed: RunawayCandidate[] = [];
 
   for (const pid of listPids()) {
     const hit = scanPid(pid, ctx);
@@ -813,13 +820,13 @@ export function reapMarkedOrphans(opts: ReapMarkedOptions): {
 
     try {
       probes.killPid(pid, "SIGKILL");
-      reaped++;
+      killed.push(hit.candidate);
     } catch {
       /* best-effort: the process may have exited between the re-check and here */
     }
   }
 
-  return { reaped, observed };
+  return { reaped: killed.length, observed, killed };
 }
 
 // ── batched port scan ─────────────────────────────────────────────────────────

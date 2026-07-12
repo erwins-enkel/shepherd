@@ -5,10 +5,10 @@ const entry = {
   // menu: open on the forge, preview details, or inject an issue steer into the composer
   // (pre-filled, not launched). No targetId — the menu is anchored to a transient
   // right-click, so there's no always-present element to point a coachmark at; surface
-  // via the What's-New drawer only. 1.42.x is the latest released line, so this ships in
-  // 1.43.0 (bun run next-version).
+  // via the What's-New drawer only. 1.43.0 is the latest released line, so this ships in
+  // 1.44.0 (bun run next-version).
   id: "issue-context-menu",
-  sinceVersion: "1.43.0",
+  sinceVersion: "1.44.0",
   titleKey: "feat_issue_context_menu_title",
   bodyKey: "feat_issue_context_menu_body",
 } satisfies FeatureAnnouncement;

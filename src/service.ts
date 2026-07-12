@@ -4689,11 +4689,28 @@ export class SessionService {
       }
     } finally {
       // Only the OUTERMOST archiveMany closes the collector and sweeps.
-      if (!outer) this.pendingRunawayIds = null;
+      //
+      // The sweep MUST run in the `finally`, not after the try/finally. `store.get` and
+      // `reaper.detect` above sit outside the inner try/catch, so a throw from either escapes the
+      // loop — and every id already archived earlier in this batch has DEFERRED its own teardown
+      // sweep into `pending` rather than running it. Sweeping after the try/finally would clear the
+      // collector and then never reach the call, silently downgrading those sessions to the hourly
+      // net (up to an hour of a leaked core). Deferring a sweep only makes sense if the deferred
+      // sweep is guaranteed to happen.
+      if (!outer) {
+        this.pendingRunawayIds = null;
+        // Never let the sweep mask the original exception on the throwing path.
+        if (pending.size > 0) {
+          try {
+            // Covers every id archived during the window — the batch's own AND any concurrent
+            // archive that interleaved with our awaits (those are not in `cleared`).
+            this.deps.reapRunaway?.(pending);
+          } catch (err) {
+            console.warn("[reap-runaway] batch sweep failed:", err);
+          }
+        }
+      }
     }
-    // Sweeps every id archived during the window — the batch's own AND any concurrent archive that
-    // interleaved with our awaits (those are not in `cleared`, so they'd otherwise be missed).
-    if (!outer && pending.size > 0) this.deps.reapRunaway?.(pending);
     return { cleared, leftovers };
   }
 }

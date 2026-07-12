@@ -7617,3 +7617,39 @@ test("#1144: an archive() that interleaves with archiveMany's awaits is still sw
   expect(h.sweeps).toHaveLength(1); // …still exactly one host-wide sweep…
   expect(h.sweeps[0]).toEqual(new Set([a.id, x.id])); // …and it covers BOTH ids.
 });
+
+test("#1144: a mid-batch throw still sweeps the ids already archived in that batch", async () => {
+  // `store.get` / `reaper.detect` sit OUTSIDE archiveMany's inner try/catch, so a throw from
+  // either escapes the loop. Every id archived earlier in the batch has deferred its teardown
+  // sweep into the collector rather than running it — so if the sweep didn't run on the throwing
+  // path, those sessions would silently fall back to the hourly net (up to an hour of a leaked
+  // core). Deferring a sweep is only safe if the deferred sweep is guaranteed to happen.
+  const { service, sweeps, store } = archiveHarness(true);
+  const a = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const b = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "b",
+    model: null,
+    images: [],
+  } as any);
+
+  // archiveMany calls store.get(id) at the TOP of its loop, OUTSIDE the inner try/catch — so this
+  // throws from there, escaping the loop. (Throwing from inside archive() instead would just be
+  // swallowed by the inner catch and the id skipped, which is the already-handled path.)
+  const realGet = store.get.bind(store);
+  (store as any).get = (id: string) => {
+    if (id === b.id) throw new Error("boom");
+    return realGet(id);
+  };
+
+  await expect(service.archiveMany([a.id, b.id])).rejects.toThrow("boom");
+  // `a` was already archived and its sweep deferred — it must still be swept.
+  expect(sweeps).toEqual([new Set([a.id])]);
+});

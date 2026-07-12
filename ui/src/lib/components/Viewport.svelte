@@ -326,15 +326,21 @@
   // (referenced by terminal creation, the remeasure metrics check, the live
   // font-size effect and the wrench-menu readout) so the three sites can't drift.
   const termFontDefault = $derived(mobile || touch ? 11 : 12.5);
-  // Effective font size shown/adjusted in the wrench menu: the pinned preference,
-  // or the per-device default until the user opts in. Reactive — feeds only the
-  // UI + the live effect below, never the terminal-creation effect.
-  const effectiveFontSize = $derived(terminalFontSize.size ?? termFontDefault);
-  // A+ / A− step. Snaps to an integer on the step itself (up → ceil-ward, down →
-  // floor-ward) so desktop stepping from the fractional 12.5 default can't produce
-  // permanently fractional sizes (12.5 → 13/12, then a clean ±1). Store clamps.
+  // Effective size for the wrench-menu UI (readout + A−/A+ bound gating) and the
+  // step base: the pinned preference, or the per-device default ROUNDED to an
+  // integer. Rounding here keeps the readout an integer — a fresh desktop user
+  // never sees the fractional 12.5 (nor its overflow of the readout box) — and
+  // lets stepping move a clean ±1 from the shown number. The ACTUAL xterm size
+  // when unset stays the true termFontDefault (12.5/11) — see the creation +
+  // live-apply effects — so default terminal rendering is unchanged; the ≤0.5px
+  // gap exists only in the never-touched state and closes the moment the user
+  // steps. Never feeds the terminal-creation effect.
+  const effectiveFontSize = $derived(terminalFontSize.size ?? Math.round(termFontDefault));
+  // A+ / A− step. Snaps to an integer (up → floor+1, down → ceil−1) so stepping
+  // can never produce a fractional size; from the rounded default it is a clean
+  // ±1 off the shown readout. Store clamps to [FONT_MIN, FONT_MAX].
   function stepTerminalFont(delta: number) {
-    const base = terminalFontSize.size ?? termFontDefault;
+    const base = terminalFontSize.size ?? Math.round(termFontDefault);
     const next = delta > 0 ? Math.floor(base) + 1 : Math.ceil(base) - 1;
     terminalFontSize.set(next);
   }

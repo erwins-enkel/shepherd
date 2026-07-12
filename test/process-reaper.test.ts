@@ -4,7 +4,11 @@ import {
   leftoverKey,
   scanClaudeAliveByWorktree,
   reapDeletedWorktreeOrphans,
+  reapMarkedOrphans,
+  USER_HZ,
+  type CpuStat,
   type ReaperProbes,
+  type ReapMarkedOptions,
 } from "../src/process-reaper";
 import { jsonlPathFor } from "../src/usage";
 
@@ -494,4 +498,335 @@ test("reapDeletedWorktreeOrphans: spares a deleted cwd that isn't a shepherd wor
   );
   expect(reaped).toBe(0);
   expect(k.killed).toEqual([]);
+});
+
+// ── #1144: resource-gated reaper for MARKED orphans ──────────────────────────
+//
+// Safety here is provenance ∧ terminality. The regressions below are the ones that bit during
+// design review: an agent's in-flight `cargo build &` is PPID-1 but NOT abandoned; a second
+// Shepherd instance's live session must not be reaped; a `while true` supervisor hides its burn in
+// cutime/cstime. Each has a named test.
+
+const MARKED = "sess-archived";
+const HZ = USER_HZ;
+
+/** A /proc/<pid>/stat sample: `cpu` = fraction of one core burned over `ageS`, split as asked. */
+function cpuStat(
+  over: {
+    ageS?: number;
+    cpu?: number;
+    childCpu?: number;
+    starttime?: number;
+    uptime?: number;
+  } = {},
+): CpuStat {
+  const ageS = over.ageS ?? 600; // 10 min — comfortably past the 5-min floor
+  const uptime = over.uptime ?? 100_000;
+  const own = (over.cpu ?? 1) * ageS * HZ; // ticks of own CPU
+  const child = (over.childCpu ?? 0) * ageS * HZ; // ticks accrued from reaped children
+  return {
+    utime: own,
+    stime: 0,
+    cutime: child,
+    cstime: 0,
+    starttime: over.starttime ?? (uptime - ageS) * HZ,
+  };
+}
+
+/** Probes for a single hot, marked, non-listening orphan at ORPHAN_PID. Override as needed. */
+function markedProbes(over: Partial<ReaperProbes> = {}): ReaperProbes {
+  return makeProbes({
+    listPids: () => [ORPHAN_PID],
+    commForPid: () => "yes",
+    environForPid: () => ({ SHEPHERD_SESSION_ID: MARKED }),
+    cpuStatForPid: () => cpuStat(),
+    uptimeSeconds: () => 100_000,
+    ppidForPid: () => 1,
+    portsForPid: () => [],
+    ...over,
+  });
+}
+
+const reapOpts = (over: Partial<ReapMarkedOptions> = {}): ReapMarkedOptions => ({
+  sessionStatus: () => "archived",
+  mode: "armed",
+  minCpu: 0.8,
+  minAgeS: 300,
+  ...over,
+});
+
+test("#1144 gap 2: a marked orphan of an ARCHIVED session is SIGKILLed", () => {
+  const k = killSpy();
+  const r = reapMarkedOrphans(reapOpts({ probes: markedProbes({ killPid: k.killPid }) }));
+  expect(r.reaped).toBe(1);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
+  expect(r.observed[0]!.sessionId).toBe(MARKED);
+});
+
+test("#1144 gap 1: cwd is irrelevant — an orphan that chdir'd out to $HOME is still reaped", () => {
+  // The whole point of provenance: the marker survives `cd`. A cwd-based sweep could never see this.
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({ cwdForPid: () => "/home/u", killPid: k.killPid }),
+    }),
+  );
+  expect(r.reaped).toBe(1);
+  expect(r.observed[0]!.cwd).toBe("/home/u");
+});
+
+test("#1144: an UNMARKED hot process (operator's rust-analyzer / nohup bench) is NEVER a candidate", () => {
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        commForPid: () => "rust-analyzer",
+        environForPid: () => ({ PATH: "/usr/bin" }), // no marker
+        killPid: k.killPid,
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(r.observed).toEqual([]);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144: an unreadable environ is spared (fail closed)", () => {
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({ probes: markedProbes({ environForPid: () => null, killPid: k.killPid }) }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+// ── terminality: the in-flight-build regressions ─────────────────────────────
+
+test("#1144 REGRESSION: an agent's in-flight `cargo build &` (live session) is SPARED", () => {
+  // PPID-1 but NOT abandoned: a one-shot Bash tool call reparents its background job to PID 1 the
+  // moment that call's shell exits, while the agent is still working and tailing the log.
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      sessionStatus: () => "live",
+      probes: markedProbes({ commForPid: () => "cargo", killPid: k.killPid }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144 REGRESSION: a second instance's session (row ABSENT here) is SPARED", () => {
+  // SHEPHERD_DB/SHEPHERD_PORT make two Shepherds on one host supported. Reaping on "absent" would
+  // let instance A SIGKILL instance B's LIVE session's work.
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({ sessionStatus: () => "absent", probes: markedProbes({ killPid: k.killPid }) }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144: a throwing sessionStatus (store unavailable) kills nothing", () => {
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      sessionStatus: () => {
+        throw new Error("store closed");
+      },
+      probes: markedProbes({ killPid: k.killPid }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144: `ids` scopes the sweep — a marked orphan outside the set is spared", () => {
+  const k = killSpy();
+  const inSet = reapMarkedOrphans(
+    reapOpts({ ids: new Set([MARKED]), probes: markedProbes({ killPid: k.killPid }) }),
+  );
+  expect(inSet.reaped).toBe(1);
+  const outOfSet = reapMarkedOrphans(
+    reapOpts({ ids: new Set(["other"]), probes: markedProbes({ killPid: k.killPid }) }),
+  );
+  expect(outOfSet.reaped).toBe(0);
+});
+
+// ── the supervisor busy-loop (cutime/cstime) ─────────────────────────────────
+
+test("#1144 REGRESSION: a `while true` supervisor shell is reaped via cutime/cstime", () => {
+  // The shell sits blocked in wait(): its OWN utime/stime are ~0 while each short-lived child burns
+  // a core and dies under the age floor. Only the reaped-children columns reveal the burn.
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        commForPid: () => "bash",
+        cpuStatForPid: () => cpuStat({ cpu: 0.01, childCpu: 0.99 }),
+        killPid: k.killPid,
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(1);
+  expect(k.killed).toEqual([{ pid: ORPHAN_PID, signal: "SIGKILL" }]);
+});
+
+test("#1144: that same supervisor would be MISSED if cutime/cstime were dropped (guards the fix)", () => {
+  // Same process, but with the children's CPU erased — proving the columns are load-bearing and a
+  // future "simplification" that drops them silently reintroduces the leak.
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        commForPid: () => "bash",
+        cpuStatForPid: () => ({ ...cpuStat({ cpu: 0.01, childCpu: 0.99 }), cutime: 0, cstime: 0 }),
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+});
+
+// ── spares ───────────────────────────────────────────────────────────────────
+
+test("#1144: git-family comms are spared, incl. the 15-char-truncated `git-pack-object`", () => {
+  // /proc/<pid>/comm truncates at TASK_COMM_LEN-1 = 15, so `git-pack-objects` (16) can never match
+  // an exact entry — the `git-` prefix rule is what covers it. `git gc --auto` is detached by
+  // gc.autoDetach, INHERITS the marker, is non-listening and pegs a core from birth; SIGKILLing it
+  // strands a stale gc.pid lock and the repo is then never gc'd.
+  for (const comm of ["git", "git-gc", "git-repack", "git-maintenance", "git-pack-object"]) {
+    const k = killSpy();
+    const r = reapMarkedOrphans(
+      reapOpts({ probes: markedProbes({ commForPid: () => comm, killPid: k.killPid }) }),
+    );
+    expect({ comm, reaped: r.reaped }).toEqual({ comm, reaped: 0 });
+    expect(k.killed).toEqual([]);
+  }
+});
+
+test("#1144: a LISTENING marked process (an agent-started dev server) is spared", () => {
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        commForPid: () => "vite",
+        portsForPid: () => [5174],
+        killPid: k.killPid,
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144: below the CPU threshold, and under the age floor even at 100%, are spared", () => {
+  const quiet = reapMarkedOrphans(
+    reapOpts({ probes: markedProbes({ cpuStatForPid: () => cpuStat({ cpu: 0.2 }) }) }),
+  );
+  expect(quiet.reaped).toBe(0);
+  const young = reapMarkedOrphans(
+    reapOpts({ probes: markedProbes({ cpuStatForPid: () => cpuStat({ ageS: 60, cpu: 1 }) }) }),
+  );
+  expect(young.reaped).toBe(0);
+});
+
+test("#1144: the agent itself, and the shepherd server's own pid, are spared", () => {
+  for (const comm of ["claude", "codex"]) {
+    const r = reapMarkedOrphans(reapOpts({ probes: markedProbes({ commForPid: () => comm }) }));
+    expect(r.reaped).toBe(0);
+  }
+  const self = reapMarkedOrphans(
+    reapOpts({ probes: markedProbes({ listPids: () => [process.pid] }) }),
+  );
+  expect(self.reaped).toBe(0);
+});
+
+test("#1144: a missing probe reaps nothing (fail closed)", () => {
+  // makeProbes() omits every #1144 probe.
+  const r = reapMarkedOrphans(reapOpts({ probes: makeProbes() }));
+  expect(r.reaped).toBe(0);
+});
+
+test("#1144: mode `observe` logs the candidate but never kills; `off` does nothing at all", () => {
+  const k = killSpy();
+  const obs = reapMarkedOrphans(
+    reapOpts({ mode: "observe", probes: markedProbes({ killPid: k.killPid }) }),
+  );
+  expect(obs.reaped).toBe(0);
+  expect(obs.observed).toHaveLength(1); // still surfaced for the log
+  expect(k.killed).toEqual([]);
+
+  const off = reapMarkedOrphans(
+    reapOpts({ mode: "off", probes: markedProbes({ killPid: k.killPid }) }),
+  );
+  expect(off.observed).toEqual([]);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1144: a pid recycled between scan and kill is NOT killed (starttime fingerprint)", () => {
+  const k = killSpy();
+  let call = 0;
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        // 1st read: the candidate. 2nd (pre-kill re-check): a different process on the same pid.
+        cpuStatForPid: () => (++call === 1 ? cpuStat() : cpuStat({ starttime: 999 })),
+        killPid: k.killPid,
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+  // It WAS a candidate — it just wasn't killed. Callers must log from `killed`, not `observed`,
+  // or the per-candidate lines would claim a kill that never happened and contradict `reaped`.
+  expect(r.observed).toHaveLength(1);
+  expect(r.killed).toEqual([]);
+});
+
+test("#1144: `killed` excludes a candidate whose killPid throws (it must not be logged as killed)", () => {
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        killPid: () => {
+          throw new Error("ESRCH"); // already exited between the re-check and the kill
+        },
+      }),
+    }),
+  );
+  expect(r.observed).toHaveLength(1);
+  expect(r.killed).toEqual([]);
+  expect(r.reaped).toBe(0);
+});
+
+// ── enumeration + gate ordering ──────────────────────────────────────────────
+
+test("#1144: a candidate whose cwd is UNREADABLE is still found (no cwd dependency)", () => {
+  // scanProcs() silently drops such pids; this sweep enumerates /proc directly, so it must not.
+  const k = killSpy();
+  const r = reapMarkedOrphans(
+    reapOpts({ probes: markedProbes({ cwdForPid: () => null, killPid: k.killPid }) }),
+  );
+  expect(r.reaped).toBe(1);
+  expect(r.observed[0]!.cwd).toBeNull();
+});
+
+test("#1144: environ is read LAST — an idle process never has its mmap lock taken", () => {
+  // Reading environ goes through access_remote_vm and takes the TARGET's mmap lock, so it can block
+  // on a stalled process. On a host of mostly-idle pids it must never be reached.
+  const environReads: number[] = [];
+  const IDLE = ORPHAN_PID + 1;
+  const r = reapMarkedOrphans(
+    reapOpts({
+      probes: markedProbes({
+        listPids: () => [ORPHAN_PID, IDLE],
+        commForPid: (pid) => (pid === IDLE ? "chrome" : "yes"),
+        cpuStatForPid: (pid) => (pid === IDLE ? cpuStat({ cpu: 0 }) : cpuStat()),
+        environForPid: (pid) => {
+          environReads.push(pid);
+          return { SHEPHERD_SESSION_ID: MARKED };
+        },
+      }),
+    }),
+  );
+  expect(r.reaped).toBe(1);
+  expect(environReads).toEqual([ORPHAN_PID]); // the idle chrome was never touched
 });

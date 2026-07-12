@@ -49,6 +49,7 @@ import {
   apiKeyPassthroughEnv,
 } from "./spawn-auth";
 import type { Leftover, ProcessReaper } from "./process-reaper";
+import { SESSION_MARKER_ENV } from "./process-reaper";
 import type { PreviewService } from "./preview";
 import type { TelemetryService } from "./telemetry";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
@@ -165,6 +166,14 @@ export interface ServiceDeps {
   copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
   reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
+  /**
+   * Reap runaway orphans the agent left behind, for the sessions just archived (issue #1144).
+   * Called at the END of teardown, after `store.archive`, so the reaper's terminality gate sees
+   * `archived`. This is the ONLY teardown reap a NON-isolated session gets: `reapOrphansUnder`
+   * hangs off `worktree.remove()`, which teardown calls only `if (s.isolated)` — that hole IS the
+   * bug #1144 tracks. Absent in tests that skip it.
+   */
+  reapRunaway?: (ids: Set<string>) => void;
   /** Live preview service; provides devPortFor for stopPreview. Absent → stopPreview returns not_found. */
   preview?: Pick<PreviewService, "devPortFor">;
   /** Fast-poll one session's PR (= prPoller.pollSession), to nudge merge detection
@@ -2069,7 +2078,14 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
-          extraEnv: { ...passthroughEnv, ...rendererEnv, ...patchEnv },
+          // SESSION_MARKER_ENV rides the membrane's --setenv loop so it survives bwrap's
+          // --clearenv (see sandbox.ts). Last, so nothing above can shadow it.
+          extraEnv: {
+            ...passthroughEnv,
+            ...rendererEnv,
+            ...patchEnv,
+            [SESSION_MARKER_ENV]: ctx.sessionId,
+          },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
@@ -2091,7 +2107,18 @@ export class SessionService {
     // credential-less mirror dir. The membrane case masks creds in place (keeping
     // the operator's real ~/.claude customizations), so it needs no env override.
     // The egress branch is always willWrap, so this is undefined there. patchEnv LAST.
-    const spawnEnv = { ...apiKeyPassthrough, ...rendererEnv, ...patchEnv };
+    //
+    // SESSION_MARKER_ENV (issue #1144) stamps the session id on the agent and — by inheritance —
+    // on every process it ever spawns. /proc/<pid>/environ is fixed at exec, so the marker survives
+    // `cd`, backgrounding, PID-1 reparenting and worktree deletion: it is what lets the runaway
+    // reaper attribute an orphan to a session without guessing from its cwd. Stamped on BOTH paths
+    // (here for trusted, and on membrane.extraEnv above for sandboxed) so they stay uniform.
+    const spawnEnv = {
+      ...apiKeyPassthrough,
+      ...rendererEnv,
+      ...patchEnv,
+      [SESSION_MARKER_ENV]: ctx.sessionId,
+    };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).
     if (egressOn && egressAllowlist && egressDnsLog) {
@@ -4597,8 +4624,23 @@ export class SessionService {
     removeEgressTmp(id);
     this.attributeLearningReward(s);
     this.deps.store.archive(id);
+    // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
+    // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive
+    // window), so a timer-driven archive (automerge / drain / merge-teardown) can interleave with
+    // archiveMany's loop. A boolean "suppress" would drop that id's sweep entirely — it is not in
+    // `cleared`, so the post-batch sweep would miss it too. Collecting the id instead means every
+    // archived session is swept exactly once, in one host-wide /proc enumeration.
+    if (this.pendingRunawayIds) this.pendingRunawayIds.add(id);
+    else this.deps.reapRunaway?.(new Set([id]));
     return reaped;
   }
+
+  /**
+   * Non-null only while `archiveMany` is draining. Every id archived in that window — the batch's
+   * own, and any that interleaves from a concurrent caller — lands here and is swept once at the
+   * end. See the deferral in `archive`.
+   */
+  private pendingRunawayIds: Set<string> | null = null;
 
   /**
    * Startup reconcile: remove any orphaned `shepherd-egress/<id>` temp dir whose id is
@@ -4627,15 +4669,46 @@ export class SessionService {
   async archiveMany(ids: string[]): Promise<{ cleared: string[]; leftovers: number }> {
     const cleared: string[] = [];
     let leftovers = 0;
-    for (const id of ids) {
-      const s = this.deps.store.get(id);
-      if (!s) continue;
-      const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
-      try {
-        leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
-        cleared.push(id);
-      } catch {
-        // skip this one; its row stays active and gets no archived event
+    // The runaway sweep enumerates every pid on the host, so it must run ONCE for the batch, not
+    // once per id — hence the defer-then-sweep-once dance (see `archive`). Nesting is possible in
+    // principle, so an already-open collector is reused rather than clobbered.
+    const outer = this.pendingRunawayIds;
+    const pending = outer ?? new Set<string>();
+    this.pendingRunawayIds = pending;
+    try {
+      for (const id of ids) {
+        const s = this.deps.store.get(id);
+        if (!s) continue;
+        const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
+        try {
+          leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
+          cleared.push(id);
+        } catch {
+          // skip this one; its row stays active and gets no archived event
+        }
+      }
+    } finally {
+      // Only the OUTERMOST archiveMany closes the collector and sweeps.
+      //
+      // The sweep MUST run in the `finally`, not after the try/finally. `store.get` and
+      // `reaper.detect` above sit outside the inner try/catch, so a throw from either escapes the
+      // loop — and every id already archived earlier in this batch has DEFERRED its own teardown
+      // sweep into `pending` rather than running it. Sweeping after the try/finally would clear the
+      // collector and then never reach the call, silently downgrading those sessions to the hourly
+      // net (up to an hour of a leaked core). Deferring a sweep only makes sense if the deferred
+      // sweep is guaranteed to happen.
+      if (!outer) {
+        this.pendingRunawayIds = null;
+        // Never let the sweep mask the original exception on the throwing path.
+        if (pending.size > 0) {
+          try {
+            // Covers every id archived during the window — the batch's own AND any concurrent
+            // archive that interleaved with our awaits (those are not in `cleared`).
+            this.deps.reapRunaway?.(pending);
+          } catch (err) {
+            console.warn("[reap-runaway] batch sweep failed:", err);
+          }
+        }
       }
     }
     return { cleared, leftovers };

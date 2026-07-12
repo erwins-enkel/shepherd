@@ -7493,3 +7493,163 @@ test("learnings: disabled repo records nothing and archive is a reward no-op", a
   expect(store.getLearning(a.id)!.injectedCount).toBe(0);
   expect(store.getLearning(a.id)!.helpfulCount).toBe(0);
 });
+
+// ── #1144: runaway-orphan reap at teardown ───────────────────────────────────
+
+/** Minimal SessionService wired for archive(); records reapRunaway calls. */
+function archiveHarness(isolated: boolean, beforeArchive?: () => Promise<void>) {
+  const store = new SessionStore(":memory:");
+  const sweeps: Set<string>[] = [];
+  const removed: string[] = [];
+  const service = new SessionService({
+    beforeArchive,
+    store,
+    namer: async () => "n",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({
+        worktreePath: isolated ? "/wt/n" : "/repo",
+        branch: isolated ? "shepherd/n" : null,
+        isolated,
+      }),
+      remove: (p: string) => removed.push(p),
+    } as any,
+    herdr: {
+      start: async () => ({
+        terminalId: "t1",
+        cwd: "/",
+        agent: "claude",
+        agentStatus: "working",
+        paneId: "p",
+        tabId: "t",
+        workspaceId: "w",
+      }),
+      stop: async () => {},
+      list: () => [],
+    } as any,
+    reapRunaway: (ids: Set<string>) => sweeps.push(ids),
+  } as any);
+  return { store, service, sweeps, removed };
+}
+
+test("#1144: archive() reaps runaways for a NON-isolated session — its only teardown reap", async () => {
+  // The bug this closes: `reapOrphansUnder` hangs off worktree.remove(), which teardown calls only
+  // `if (s.isolated)`. A non-isolated session's worktreePath IS the shared repo root, so it got NO
+  // teardown reap at all. The marker-based sweep is cwd-blind, so it can safely serve both.
+  const { store, service, sweeps, removed } = archiveHarness(false);
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "p",
+    model: null,
+    images: [],
+  } as any);
+  await service.archive(s.id);
+  expect(removed).toEqual([]); // non-isolated ⇒ worktree.remove() never runs, as before
+  expect(sweeps).toEqual([new Set([s.id])]);
+  expect(store.get(s.id)!.status).toBe("archived"); // swept AFTER archive ⇒ terminality sees it
+});
+
+test("#1144: archiveMany sweeps ONCE for the batch, not once per session", async () => {
+  // The sweep enumerates every pid on the host. N sessions must not mean N host-wide /proc walks
+  // on the event loop.
+  const { service, sweeps } = archiveHarness(true);
+  const a = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const b = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "b",
+    model: null,
+    images: [],
+  } as any);
+  const c = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "c",
+    model: null,
+    images: [],
+  } as any);
+  const { cleared } = await service.archiveMany([a.id, b.id, c.id]);
+  expect(cleared).toHaveLength(3);
+  expect(sweeps).toHaveLength(1);
+  expect(sweeps[0]).toEqual(new Set([a.id, b.id, c.id]));
+});
+
+test("#1144: an archive() that interleaves with archiveMany's awaits is still swept", async () => {
+  // archive() awaits (herdr.stop, the 15s beforeArchive window), so a timer-driven archive
+  // (automerge / drain / merge-teardown) can land mid-batch. A boolean "suppress while bulk"
+  // would drop that id's sweep entirely — it is not in `cleared`, so the post-batch sweep would
+  // miss it too, and the session's runaway would survive until the hourly tick (or forever, if
+  // its row were later pruned). The deferred-id set must catch it.
+  let interloper: string | null = null;
+  let fired = false;
+  const h = archiveHarness(true, async () => {
+    // Runs inside archiveMany's first archive(), i.e. mid-batch.
+    if (fired) return;
+    fired = true;
+    await h.service.archive(interloper!);
+  });
+  const a = await h.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const x = await h.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "x",
+    model: null,
+    images: [],
+  } as any);
+  interloper = x.id;
+
+  const { cleared } = await h.service.archiveMany([a.id]);
+  expect(cleared).toEqual([a.id]); // the interloper is NOT in `cleared`…
+  expect(h.sweeps).toHaveLength(1); // …still exactly one host-wide sweep…
+  expect(h.sweeps[0]).toEqual(new Set([a.id, x.id])); // …and it covers BOTH ids.
+});
+
+test("#1144: a mid-batch throw still sweeps the ids already archived in that batch", async () => {
+  // `store.get` / `reaper.detect` sit OUTSIDE archiveMany's inner try/catch, so a throw from
+  // either escapes the loop. Every id archived earlier in the batch has deferred its teardown
+  // sweep into the collector rather than running it — so if the sweep didn't run on the throwing
+  // path, those sessions would silently fall back to the hourly net (up to an hour of a leaked
+  // core). Deferring a sweep is only safe if the deferred sweep is guaranteed to happen.
+  const { service, sweeps, store } = archiveHarness(true);
+  const a = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "a",
+    model: null,
+    images: [],
+  } as any);
+  const b = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "b",
+    model: null,
+    images: [],
+  } as any);
+
+  // archiveMany calls store.get(id) at the TOP of its loop, OUTSIDE the inner try/catch — so this
+  // throws from there, escaping the loop. (Throwing from inside archive() instead would just be
+  // swallowed by the inner catch and the id skipped, which is the already-handled path.)
+  const realGet = store.get.bind(store);
+  (store as any).get = (id: string) => {
+    if (id === b.id) throw new Error("boom");
+    return realGet(id);
+  };
+
+  await expect(service.archiveMany([a.id, b.id])).rejects.toThrow("boom");
+  // `a` was already archived and its sweep deferred — it must still be swept.
+  expect(sweeps).toEqual([new Set([a.id])]);
+});

@@ -100,7 +100,12 @@ import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
 import { UpNextService, buildUpNextRepos } from "./up-next";
-import { ProcessReaper, reapDeletedWorktreeOrphans } from "./process-reaper";
+import {
+  ProcessReaper,
+  reapDeletedWorktreeOrphans,
+  reapMarkedOrphans,
+  SESSION_MARKER_ENV,
+} from "./process-reaper";
 import {
   sweepClaudeTmp,
   compileCacheDir,
@@ -172,6 +177,18 @@ import {
 import { fetchGithubRateLimit } from "./forge/github-rate-limit";
 
 const execFileAsync = promisify(execFile);
+
+// Scrub any INHERITED session marker before anything can spawn (issue #1144).
+//
+// The marker means "an agent of session <id> spawned this process". If Shepherd itself is launched
+// from inside an agent session (an agent restarting the server, a dev run from a session shell), it
+// inherits that id in its own process.env — and hands it, by plain env inheritance, to every child
+// it spawns. The aux/satellite agents (critic, distiller, doc-agent, plan-gate) pass no marker of
+// their own precisely so that they stay unmarked and are ALWAYS spared; a stale inherited one would
+// silently mark them with a real session id, and once that session archived the reaper would treat
+// a live critic's background work as a runaway. Delete it once, here, at the top of boot: the
+// server is not an agent's child in any sense the reaper should honour.
+delete process.env[SESSION_MARKER_ENV];
 
 startLoopLagSampler(); // no-op unless SHEPHERD_PROFILE_LOOP=1
 logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync calls
@@ -625,6 +642,8 @@ const service = new SessionService({
     : undefined,
   events,
   reaper: new ProcessReaper(),
+  // #1144: reap what the agent left burning, for the ids just archived. Defined below.
+  reapRunaway: (ids) => sweepRunawayOrphans(ids),
   preview: previewService,
   // Fast-poll a queue member to surface its merge promptly when the train session
   // archives before the 120s PR sweep credits it (the merge-train completion race).
@@ -732,6 +751,72 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
 
 deferredStarts.push(() => {
   fireTmpSweep("boot");
+});
+
+/**
+ * #1144: SIGKILL processes an agent left burning a core after its session was archived.
+ *
+ * Attribution is by ENV MARKER, not cwd: every agent spawn carries SHEPHERD_SESSION_ID, every
+ * descendant inherits it, and /proc/<pid>/environ survives `cd`, backgrounding, PID-1 reparenting
+ * and worktree deletion. So this catches the two leaks #1143's cwd sweeps structurally cannot —
+ * an orphan that chdir'd out of the worktree, and a NON-isolated session's orphan (whose "worktree"
+ * IS the shared repo root, which we must never sweep by cwd). An operator's own hot processes never
+ * carry the marker, so they can never be candidates.
+ *
+ * Runs at teardown (via SessionService.reapRunaway), on boot, and hourly as the safety net for a
+ * leak that was still under the age floor when its session was archived.
+ */
+const sweepRunawayOrphans = (ids?: Set<string>) => {
+  if (maintenance.active) return; // a sync /proc sweep must not run mid-update
+  try {
+    const { reaped, observed, killed } = reapMarkedOrphans({
+      ids,
+      mode: config.reapRunaway,
+      minCpu: config.reapRunawayMinCpu,
+      minAgeS: config.reapRunawayMinAgeS,
+      // MUST throw rather than report "absent" if the store is ever unreadable: "absent" is a
+      // positive claim that no such session exists HERE (which is how a second Shepherd instance's
+      // live sessions are spared), so a failed read must never be mistaken for one.
+      sessionStatus: (id) => {
+        const s = store.get(id);
+        if (!s) return "absent";
+        return s.status === "archived" ? "archived" : "live";
+      },
+    });
+    // Log per candidate from what ACTUALLY happened, never from `observed` alone: an armed sweep
+    // can still skip a kill (pid recycled between scan and kill, or the process already exited),
+    // and claiming "killed" for those would contradict the `reaped` total below.
+    const killedPids = new Set(killed.map((c) => c.pid));
+    for (const c of observed) {
+      const verb =
+        config.reapRunaway !== "armed"
+          ? "would kill"
+          : killedPids.has(c.pid)
+            ? "killed"
+            : "skipped";
+      const pct = Math.round(c.cpuFraction * 100);
+      const mins = Math.round(c.ageSeconds / 60);
+      console.warn(
+        `[reap-runaway] ${verb} pid ${c.pid} (${c.comm}) session=${c.sessionId} ` +
+          `cpu=${pct}% age=${mins}m ppid=${c.ppid} cwd=${c.cwd}`,
+      );
+    }
+    if (reaped > 0) console.warn(`[reap-runaway] reaped ${reaped} runaway orphan(s)`);
+  } catch (err) {
+    console.warn("[reap-runaway] sweep failed:", err);
+  }
+};
+
+deferredStarts.push(() => {
+  // Deferred off the synchronous boot path (same as the #1133 orphan reap above): the sweep is a
+  // host-wide /proc enumeration — a readdir plus a comm + stat read per pid, and an fd-table walk
+  // for every hot, old survivor — and it runs on Bun's single loop. Nothing about it is urgent at
+  // boot (it is the safety net; teardown already swept these), so it must not sit inline ahead of
+  // the server accepting connections.
+  void Promise.resolve()
+    .then(() => sweepRunawayOrphans())
+    .catch((err) => console.warn("[reap-runaway] boot sweep failed:", err));
+  setInterval(() => sweepRunawayOrphans(), 60 * 60 * 1000);
 });
 
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The

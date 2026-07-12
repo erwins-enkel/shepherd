@@ -10,6 +10,7 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onRetry: vi.fn(),
     onNextNeedsYou: vi.fn(),
     onLearnings: vi.fn(),
+    onDiagnoseEpic: vi.fn(),
     hasSessions: true,
     retryReady: true,
     otherNeedsYouCount: 1,
@@ -29,6 +30,7 @@ describe("buildCommands — availability", () => {
       "usage",
       "learnings",
       "retry",
+      "diagnose-epic",
       "next-needs-you",
     ]);
   });
@@ -49,11 +51,11 @@ describe("buildCommands — availability", () => {
     expect(ids(ctx({ hasLearnings: false }))).not.toContain("learnings");
   });
 
-  it("always offers New task, Settings and Usage", () => {
+  it("always offers New task, Settings, Usage and Diagnose epic", () => {
     const bare = ids(
       ctx({ hasSessions: false, retryReady: false, otherNeedsYouCount: 0, hasLearnings: false }),
     );
-    expect(bare).toEqual(["new-task", "settings", "usage"]);
+    expect(bare).toEqual(["new-task", "settings", "usage", "diagnose-epic"]);
   });
 });
 
@@ -67,6 +69,7 @@ describe("buildCommands — run() wiring", () => {
     byId["usage"].run();
     byId["learnings"].run();
     byId["retry"].run();
+    byId["diagnose-epic"].run();
     byId["next-needs-you"].run();
     expect(c.onNewTask).toHaveBeenCalledOnce();
     expect(c.onBroadcast).toHaveBeenCalledOnce();
@@ -74,6 +77,7 @@ describe("buildCommands — run() wiring", () => {
     expect(c.onUsage).toHaveBeenCalledOnce();
     expect(c.onLearnings).toHaveBeenCalledOnce();
     expect(c.onRetry).toHaveBeenCalledOnce();
+    expect(c.onDiagnoseEpic).toHaveBeenCalledOnce();
     expect(c.onNextNeedsYou).toHaveBeenCalledOnce();
   });
 

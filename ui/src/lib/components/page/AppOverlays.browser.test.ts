@@ -110,6 +110,8 @@ function baseProps(): Props {
     oncommandbarlens: vi.fn(),
     showRetry: false,
     onretryclose: vi.fn(),
+    showEpicDiagnose: false,
+    onepicdiagnoseclose: vi.fn(),
     clearMergedSessions: null,
     clearMergedLeftovers: 0,
     onclearmergedclose: vi.fn(),

@@ -279,6 +279,9 @@
     return unsub;
   });
   let showRetry = $state(false);
+  // Epic-diagnosis entry (command bar → arbitrary parent #, #1657). Defaults its repo
+  // picker to the in-focus repo when the herd is filtered to exactly one.
+  let showEpicDiagnose = $state(false);
   // "clear all merged" confirm modal: the merged sessions to clear + their total
   // leftover subprocess count (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
@@ -1782,6 +1785,7 @@
       onRetry: () => (showRetry = true),
       onNextNeedsYou: () => selectNextNeedsYou(),
       onLearnings: openLearnings,
+      onDiagnoseEpic: () => (showEpicDiagnose = true),
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,
@@ -3125,6 +3129,9 @@
   }}
   {showRetry}
   onretryclose={() => (showRetry = false)}
+  {showEpicDiagnose}
+  epicDiagnoseInitialRepo={activeRepo ?? undefined}
+  onepicdiagnoseclose={() => (showEpicDiagnose = false)}
   {clearMergedSessions}
   {clearMergedLeftovers}
   onclearmergedclose={() => (clearMergedSessions = null)}

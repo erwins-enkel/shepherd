@@ -2992,5 +2992,6 @@
   "newtask_init_commit_failed": "Initialer Commit fehlgeschlagen: {reason}.",
   "newtask_init_commit_running": "Wird erstellt…",
   "feat_initial_commit_repair_title": "Leere Repos in Neue Aufgabe reparieren",
-  "feat_initial_commit_repair_body": "Wenn das ausgewählte Repo noch keinen initialen Commit hat, blockiert Neue Aufgabe jetzt den aussichtslosen Start und bietet an, direkt den ersten leeren Commit zu erstellen, damit die Aufgabe von einer echten Basis starten kann."
+  "feat_initial_commit_repair_body": "Wenn das ausgewählte Repo noch keinen initialen Commit hat, blockiert Neue Aufgabe jetzt den aussichtslosen Start und bietet an, direkt den ersten leeren Commit zu erstellen, damit die Aufgabe von einer echten Basis starten kann.",
+  "newtask_init_commit_unknown_reason": "Unbekannter Fehler"
 }

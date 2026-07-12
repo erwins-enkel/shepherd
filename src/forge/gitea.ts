@@ -1,5 +1,6 @@
 import { mapGiteaActionStatus, mapStatusState } from "./checks";
 import { classifyPr } from "./pr-kind";
+import { labelColorsFrom } from "./labels";
 import { mapBounded } from "../map-bounded";
 import type {
   ChecksState,
@@ -58,27 +59,6 @@ function isGiteaNoChanges(text: string): boolean {
     text.includes("no commits between") ||
     text.includes("has no changes")
   );
-}
-
-/** Normalize a forge-supplied hex color (with or without a leading `#`) to `#rrggbb`
- *  lowercase. Returns undefined for anything that isn't exactly 6 hex digits. */
-function normalizeHex(c: string): string | undefined {
-  const s = c.trim().replace(/^#/, "");
-  return /^[0-9a-fA-F]{6}$/.test(s) ? `#${s.toLowerCase()}` : undefined;
-}
-
-/** Build a name→`#rrggbb` map from a list of labels carrying an optional forge color,
- *  skipping any label with a missing/invalid color. Returns undefined (not `{}`) when
- *  no label contributed a color, so callers can omit the field entirely. */
-function labelColorsFrom(
-  labels: Array<{ name?: string | null; color?: string | null }>,
-): Record<string, string> | undefined {
-  const labelColors: Record<string, string> = {};
-  for (const l of labels) {
-    const c = l.color ? normalizeHex(l.color) : undefined;
-    if (l.name && c) labelColors[l.name] = c;
-  }
-  return Object.keys(labelColors).length ? labelColors : undefined;
 }
 
 /** Gitea/Forgejo forge driven through the /api/v1 REST API (API-compatible). */

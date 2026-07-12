@@ -276,6 +276,27 @@ describe("NewTask provider-aware command picker", () => {
     expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
     await expect.element(page.getByText("codex-skill requires Codex.")).toBeVisible();
   });
+
+  it("selecting a both-provider skill does not lock or explain the provider", async () => {
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("shared-skill", ["claude", "codex"])],
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/shared-skill" }) });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "$shared";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$shared-skill")).toBeVisible();
+    await page.getByText("$shared-skill").click();
+
+    await expect.poll(() => promptField.value).toBe("$shared-skill ");
+    expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
+    expect(page.getByText("shared-skill requires Codex.").query()).toBeNull();
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#nt-agent-provider option"),
+    );
+    expect(options.every((option) => !option.disabled)).toBe(true);
+  });
 });
 
 describe("NewTask task attachments", () => {

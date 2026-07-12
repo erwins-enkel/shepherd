@@ -625,6 +625,7 @@
     const caret = promptInput?.selectionStart ?? prompt.length;
     const trigger = matchSlashTrigger(prompt, caret);
     const start = trigger?.start ?? 0;
+    const providers = commandProviders(cmd);
     const pickedProvider = providerForPick(cmd, trigger?.trigger ?? "/");
     agentProvider = pickedProvider;
     const token = commandInvocation(cmd, pickedProvider);
@@ -633,15 +634,18 @@
         ? applyMentionPick(prompt, start, caret, commandInvocationName(cmd))
         : applyCommandPick(prompt, start, caret, commandInvocationName(cmd));
     prompt = next.value;
-    providerTokenConstraints = [
-      {
-        id: cmd.id ?? `${pickedProvider}:${cmd.name}`,
-        commandId: cmd.id,
-        token,
-        providers: commandProviders(cmd),
-        label: cmd.displayName ?? cmd.name,
-      },
-    ];
+    providerTokenConstraints =
+      providers.length === 1
+        ? [
+            {
+              id: cmd.id ?? `${pickedProvider}:${cmd.name}`,
+              commandId: cmd.id,
+              token,
+              providers,
+              label: cmd.displayName ?? cmd.name,
+            },
+          ]
+        : [];
     slashOpen = false;
     queueMicrotask(() => {
       autogrow();
@@ -657,16 +661,19 @@
       : (providers[0] ?? agentProvider);
     agentProvider = provider;
     const token = commandInvocation(cmd, provider);
-    prompt = provider === "codex" ? `${token} ` : `${token} `;
-    providerTokenConstraints = [
-      {
-        id: cmd.id ?? `${provider}:${cmd.name}`,
-        commandId: cmd.id,
-        token,
-        providers,
-        label: cmd.displayName ?? cmd.name,
-      },
-    ];
+    prompt = `${token} `;
+    providerTokenConstraints =
+      providers.length === 1
+        ? [
+            {
+              id: cmd.id ?? `${provider}:${cmd.name}`,
+              commandId: cmd.id,
+              token,
+              providers,
+              label: cmd.displayName ?? cmd.name,
+            },
+          ]
+        : [];
     queueMicrotask(() => {
       autogrow();
       promptInput?.focus();

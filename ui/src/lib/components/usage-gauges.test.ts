@@ -320,8 +320,8 @@ describe("providerCapacityRows", () => {
       {
         provider: "claude",
         windows: [
-          { key: "5H", usedPct: 30, remainingPct: 70 },
-          { key: "WK", usedPct: 60, remainingPct: 40 },
+          { key: "5H", usedPct: 30, remainingPct: 70, resetAt: 0 },
+          { key: "WK", usedPct: 60, remainingPct: 40, resetAt: 0 },
         ],
         available: true,
         stale: false,
@@ -329,8 +329,8 @@ describe("providerCapacityRows", () => {
       {
         provider: "codex",
         windows: [
-          { key: "5H", usedPct: 20, remainingPct: 80 },
-          { key: "WK", usedPct: 80, remainingPct: 20 },
+          { key: "5H", usedPct: 20, remainingPct: 80, resetAt: 0 },
+          { key: "WK", usedPct: 80, remainingPct: 20, resetAt: 0 },
         ],
         available: true,
         stale: false,

@@ -123,12 +123,14 @@ export function formatTokenLabel(tokens: number): string {
 }
 
 /** Reset timestamp → short local label, e.g. "21:30" (today) or "Jun 6". */
-export function formatReset(ts: number, nowMs: number): string {
+export function formatReset(ts: number, nowMs: number, opts: { withTime?: boolean } = {}): string {
   const d = new Date(ts);
   const sameDay = new Date(nowMs).toDateString() === d.toDateString();
-  return sameDay
-    ? d.toTimeString().slice(0, 5)
-    : d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  if (sameDay) return d.toTimeString().slice(0, 5);
+  if (opts.withTime) {
+    return `${d.getDate()}.${d.getMonth() + 1}. ${d.toTimeString().slice(0, 5)}`;
+  }
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
 /**

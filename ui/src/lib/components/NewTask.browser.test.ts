@@ -153,7 +153,12 @@ const base = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-function capacityLimits(codexWindows: { session5h?: boolean; week?: boolean } = {}) {
+const FUTURE_CAPACITY_RESET = new Date(2100, 6, 18, 20, 0).getTime();
+
+function capacityLimits(
+  codexWindows: { session5h?: boolean; week?: boolean } = {},
+  resetAt = FUTURE_CAPACITY_RESET,
+) {
   const codex = {
     provider: "codex" as const,
     kind: "tokens" as const,
@@ -162,12 +167,12 @@ function capacityLimits(codexWindows: { session5h?: boolean; week?: boolean } = 
     weekTokens: 9_000,
     updatedAt: 123,
     stale: false,
-    session5h: codexWindows.session5h === false ? null : { pct: 20, resetAt: 0 },
-    week: codexWindows.week === false ? null : { pct: 80, resetAt: 0 },
+    session5h: codexWindows.session5h === false ? null : { pct: 20, resetAt },
+    week: codexWindows.week === false ? null : { pct: 80, resetAt },
   };
   return {
-    session5h: { pct: 30, resetAt: 0 },
-    week: { pct: 60, resetAt: 0 },
+    session5h: { pct: 30, resetAt },
+    week: { pct: 60, resetAt },
     perModelWeek: [],
     credits: null,
     stale: false,
@@ -177,8 +182,8 @@ function capacityLimits(codexWindows: { session5h?: boolean; week?: boolean } = 
       {
         provider: "claude" as const,
         kind: "limits" as const,
-        session5h: { pct: 30, resetAt: 0 },
-        week: { pct: 60, resetAt: 0 },
+        session5h: { pct: 30, resetAt },
+        week: { pct: 60, resetAt },
         perModelWeek: [],
         credits: null,
         stale: false,
@@ -372,18 +377,23 @@ describe("NewTask provider capacity gauge", () => {
     expect(claudeWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
       m.newtask_provider_capacity_window_5h(),
     );
-    expect(claudeWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 70 }));
+    expect(claudeWins[0]?.textContent).toContain(
+      m.newtask_provider_capacity_free_until({ pct: 70, time: "18.7. 20:00" }),
+    );
     expect(claudeWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
       m.newtask_provider_capacity_window_week(),
     );
-    expect(claudeWins[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 40 }));
+    expect(claudeWins[1]?.textContent).toContain(
+      m.newtask_provider_capacity_free_until({ pct: 40, time: "18.7. 20:00" }),
+    );
 
     // Meter exposes provider + full window name + free% to assistive tech.
     expect(claudeWins[0]?.querySelector('[role="meter"]')?.getAttribute("aria-valuetext")).toBe(
-      m.newtask_provider_capacity_meter_window_aria({
+      m.newtask_provider_capacity_meter_window_aria_until({
         provider: m.agent_provider_claude(),
         window: m.usage_limits_window_5h(),
         free: 70,
+        time: "18.7. 20:00",
       }),
     );
 
@@ -393,11 +403,38 @@ describe("NewTask provider capacity gauge", () => {
     expect(codexWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
       m.newtask_provider_capacity_window_5h(),
     );
-    expect(codexWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 80 }));
+    expect(codexWins[0]?.textContent).toContain(
+      m.newtask_provider_capacity_free_until({ pct: 80, time: "18.7. 20:00" }),
+    );
     expect(codexWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
       m.newtask_provider_capacity_window_week(),
     );
-    expect(codexWins[1]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 20 }));
+    expect(codexWins[1]?.textContent).toContain(
+      m.newtask_provider_capacity_free_until({ pct: 20, time: "18.7. 20:00" }),
+    );
+  });
+
+  it("falls back to plain free text when resetAt is unusable", async () => {
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo",
+        usageLimits: capacityLimits({}, 0),
+      }),
+    });
+
+    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
+    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
+    const claudeWins = providers[0]!.querySelectorAll<HTMLElement>(".pcap-window");
+
+    expect(claudeWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 70 }));
+    expect(claudeWins[0]?.textContent).not.toContain("til");
+    expect(claudeWins[0]?.querySelector('[role="meter"]')?.getAttribute("aria-valuetext")).toBe(
+      m.newtask_provider_capacity_meter_window_aria({
+        provider: m.agent_provider_claude(),
+        window: m.usage_limits_window_5h(),
+        free: 70,
+      }),
+    );
   });
 
   it("shows Codex as unavailable when rollout limits are missing", async () => {
@@ -431,6 +468,7 @@ describe("NewTask provider capacity gauge", () => {
     const wins = Array.from(document.querySelectorAll<HTMLElement>(".pcap-window"));
     for (const win of wins) {
       expect(win.scrollWidth).toBeLessThanOrEqual(win.clientWidth);
+      expect(win.querySelector<HTMLElement>(".pcap-bar")!.clientWidth).toBeGreaterThan(48);
     }
   });
 });

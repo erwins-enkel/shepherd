@@ -2948,5 +2948,13 @@
   "issues_filter_all_blocked": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten",
   "upnext_hide_blocked": "Blockierte Issues ausblenden",
   "feat_hide_blocked_toggle_title": "Blockierte Issues überall ausblenden",
-  "feat_hide_blocked_toggle_body": "Ein \"Blockierte Issues ausblenden\"-Schalter funktioniert jetzt einheitlich im Backlog, im Issue-Picker von Neue Aufgabe und in Als Nächstes — standardmäßig aktiv, blendet er jedes als blockiert markierte Issue aus."
+  "feat_hide_blocked_toggle_body": "Ein \"Blockierte Issues ausblenden\"-Schalter funktioniert jetzt einheitlich im Backlog, im Issue-Picker von Neue Aufgabe und in Als Nächstes — standardmäßig aktiv, blendet er jedes als blockiert markierte Issue aus.",
+  "issuemenu_aria": "Aktionen für Issue #{number}",
+  "issuemenu_open": "Issue öffnen",
+  "issuemenu_details": "Details anzeigen",
+  "issuemenu_inject_aria": "Steer einfügen: {label}",
+  "issuedetails_aria": "Details zu Issue #{number}",
+  "issuedetails_no_body": "Keine Beschreibung.",
+  "feat_issue_context_menu_title": "Rechtsklick auf ein Issue für Schnellaktionen",
+  "feat_issue_context_menu_body": "Rechtsklick (oder langes Drücken) auf ein Issue im New-Task-Dialog oder im Backlog öffnet es auf der Forge, zeigt eine Detailvorschau oder legt einen deiner Issue-Steers direkt in den Editor — vorausgefüllt und bereit zum Prüfen, nicht gestartet."
 }

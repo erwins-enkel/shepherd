@@ -2,7 +2,7 @@
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getTodo, listIssues, getCommands } from "$lib/api";
-  import type { Issue, SlashCommand } from "$lib/types";
+  import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { labelChipStyle } from "$lib/label-color";
   import {
@@ -19,11 +19,18 @@
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
+  import IssueContextMenu from "./IssueContextMenu.svelte";
+  import IssueDetailsPopover from "./IssueDetailsPopover.svelte";
+  import { issueMenuTrigger } from "./issue-menu-trigger";
+  import { steers } from "$lib/steers.svelte";
+  import { repos } from "$lib/repos.svelte";
+  import { steerAppliesToRepo } from "$lib/steer-scope";
 
   let {
     repoPath,
     onpick,
     onpickissue,
+    onpicksteer = undefined,
     allowIssues = true,
     epicParents = new Set(),
     nativeSubIssues = new Set(),
@@ -32,11 +39,54 @@
     repoPath: string;
     onpick: (prompt: string) => void;
     onpickissue: (issue: Issue) => void;
+    /** Inject an issue-scoped steer into the composer (append + attach the issue),
+     *  from the row's right-click / long-press context menu. Never spawns. */
+    onpicksteer?: (issue: Issue, steer: Steer) => void;
     allowIssues?: boolean;
     epicParents?: Set<number>;
     nativeSubIssues?: Set<number>;
     epicsLoaded?: boolean;
   } = $props();
+
+  // Issue-scoped steers (same set the backlog shows as quick buttons), gated to the
+  // steers bound to this repo (or universal ones). Offered as inject actions in the
+  // per-row context menu.
+  const issueActions = $derived(
+    steers.list.filter((s) => s.onIssues && steerAppliesToRepo(s, repos.nameFor(repoPath))),
+  );
+
+  // Right-click / long-press context menu + details preview state. Only one of each is
+  // open at a time (opening a second requires a pointerdown that dismisses the first).
+  let menu = $state<{
+    issue: Issue;
+    x: number;
+    y: number;
+    opener: HTMLElement;
+    canSteer: boolean;
+  } | null>(null);
+  let details = $state<{ issue: Issue; x: number; y: number; opener: HTMLElement } | null>(null);
+
+  function openMenu(issue: Issue, canSteer: boolean, x: number, y: number, node: HTMLElement) {
+    menu = { issue, x, y, opener: node, canSteer };
+  }
+  // "Show details" is a menu item (inside the menu), so the outside-pointerdown
+  // dismiss won't close the menu — close it explicitly and carry the ROW as the
+  // popover's opener so focus returns to the row when the popover closes.
+  function showDetails() {
+    const d = menu;
+    menu = null;
+    if (d) details = { issue: d.issue, x: d.x, y: d.y, opener: d.opener };
+  }
+  function openIssue() {
+    const i = menu?.issue;
+    menu = null;
+    if (i) window.open(i.url, "_blank", "noopener");
+  }
+  function pickSteer(steer: Steer) {
+    const i = menu?.issue;
+    menu = null;
+    if (i) onpicksteer?.(i, steer);
+  }
 
   let tab = $state<"todo" | "issues" | "commands">("todo");
   let todos = $state<string[]>([]);
@@ -357,7 +407,12 @@
             <!-- Epic-parent tracking issue: not pickable as a manual task (it would
                  collide with the Epic Runner). Shown disabled with an EPIC tag + hint;
                  epics launch via the epic panel's Start control. -->
-            <div class="row row-epic" aria-disabled="true" title={m.promptsources_epic_hint()}>
+            <div
+              class="row row-epic"
+              aria-disabled="true"
+              title={m.promptsources_epic_hint()}
+              use:issueMenuTrigger={{ onopen: (x, y, node) => openMenu(i, false, x, y, node) }}
+            >
               <span class="issue-num">#{i.number}</span>
               <span class="row-text">{i.title}</span>
               {@render issueAuthor(i.author)}
@@ -367,7 +422,14 @@
               </span>
             </div>
           {:else}
-            <button class="row" type="button" onclick={() => onpickissue(i)}>
+            <button
+              class="row"
+              type="button"
+              onclick={() => onpickissue(i)}
+              use:issueMenuTrigger={{
+                onopen: (x, y, node) => openMenu(i, onpicksteer != null, x, y, node),
+              }}
+            >
               <span class="issue-num">#{i.number}</span>
               <span class="row-text">{i.title}</span>
               {@render issueAuthor(i.author)}
@@ -381,6 +443,30 @@
     {/if}
   </div>
 </div>
+
+{#if menu}
+  <IssueContextMenu
+    x={menu.x}
+    y={menu.y}
+    number={menu.issue.number}
+    steers={issueActions}
+    canSteer={menu.canSteer}
+    opener={menu.opener}
+    onopenissue={openIssue}
+    ondetails={showDetails}
+    onsteer={pickSteer}
+    onclose={() => (menu = null)}
+  />
+{/if}
+{#if details}
+  <IssueDetailsPopover
+    x={details.x}
+    y={details.y}
+    issue={details.issue}
+    opener={details.opener}
+    onclose={() => (details = null)}
+  />
+{/if}
 
 {#snippet issueAuthor(login: string | undefined)}
   {#if login}

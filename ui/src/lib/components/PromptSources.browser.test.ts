@@ -50,8 +50,18 @@ function issue(n: number): Issue {
   };
 }
 
-function command(n: number): SlashCommand {
-  return { name: `command-${n}`, description: `Description for command ${n}`, scope: "project" };
+function command(n: number, providers?: SlashCommand["providers"]): SlashCommand {
+  return {
+    name: `command-${n}`,
+    description: `Description for command ${n}`,
+    scope: "project",
+    providers,
+    invocations: providers
+      ? (Object.fromEntries(
+          providers.map((p) => [p, p === "codex" ? `$command-${n}` : `/command-${n}`]),
+        ) as SlashCommand["invocations"])
+      : undefined,
+  };
 }
 
 // Asserts the sticky .ps-filter-bar cleanly covers the rows scrolling behind it:
@@ -188,6 +198,32 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     expect(document.querySelector(".ps-body .ps-filter-bar .cmd-filter")).not.toBeNull();
 
     assertStickyCovers();
+  });
+
+  it("Commands tab: fallback picker uses a Codex invocation for Codex-only commands", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+    });
+    mockGetCommands.mockResolvedValue({
+      commands: [command(1, ["codex"])],
+    });
+    const onpick = vi.fn();
+
+    render(PromptSources, { repoPath: "/repo", onpick, onpickissue: noop });
+
+    const commandsTab = [...document.querySelectorAll<HTMLButtonElement>(".tabs .tab")].find(
+      (b) => b.textContent?.trim() === m.promptsources_commands_tab(),
+    );
+    expect(commandsTab).toBeTruthy();
+    commandsTab!.click();
+
+    await expect.poll(() => document.querySelector(".ps-body .row")).not.toBeNull();
+    (document.querySelector(".ps-body .row") as HTMLButtonElement).click();
+
+    expect(onpick).toHaveBeenCalledWith("$command-1 ");
   });
 });
 

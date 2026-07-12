@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { matchSlashTrigger, filterCommands, applyCommandPick, applyMentionPick } from "./slash";
+import {
+  matchSlashTrigger,
+  filterCommands,
+  applyCommandPick,
+  applyMentionPick,
+  commandInvocationProvider,
+} from "./slash";
 import type { SlashCommand } from "./types";
 
 const cmd = (name: string, providers: SlashCommand["providers"] = ["claude"]): SlashCommand => ({
@@ -145,5 +151,16 @@ describe("filterCommands", () => {
   it("filters to the requested provider", () => {
     const rows = [cmd("claude-only", ["claude"]), cmd("codex-only", ["codex"])];
     expect(filterCommands(rows, "", "codex").map((c) => c.name)).toEqual(["codex-only"]);
+  });
+});
+
+describe("commandInvocationProvider", () => {
+  it("keeps a preferred provider when the row supports it", () => {
+    expect(commandInvocationProvider(cmd("shared", ["claude", "codex"]), "codex")).toBe("codex");
+    expect(commandInvocationProvider(cmd("shared", ["claude", "codex"]), "claude")).toBe("claude");
+  });
+
+  it("falls back to the row's actual provider when the preferred provider is incompatible", () => {
+    expect(commandInvocationProvider(cmd("codex-only", ["codex"]), "claude")).toBe("codex");
   });
 });

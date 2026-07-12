@@ -5,7 +5,7 @@
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { labelChipStyle } from "$lib/label-color";
-  import { commandInvocation, commandProviders } from "$lib/slash";
+  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
   import {
     hideOthers,
     hideActive,
@@ -380,7 +380,9 @@
             class="row"
             type="button"
             onclick={() =>
-              onpickcommand ? onpickcommand(c) : onpick(commandInvocation(c, "claude") + " ")}
+              onpickcommand
+                ? onpickcommand(c)
+                : onpick(commandInvocation(c, commandInvocationProvider(c)) + " ")}
           >
             <span class="row-marker">{marker(c)}</span>
             <span class="cmd-name">{c.name}</span>

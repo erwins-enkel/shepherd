@@ -1,7 +1,7 @@
 <script lang="ts">
   import type { SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { commandInvocation, commandProviders } from "$lib/slash";
+  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
 
   let {
     commands,
@@ -54,7 +54,9 @@
           onmousemove={() => onhover(i)}
         >
           <div class="sc-line">
-            <span class="sc-name">{commandInvocation(cmd, provider)}</span>
+            <span class="sc-name"
+              >{commandInvocation(cmd, commandInvocationProvider(cmd, provider))}</span
+            >
             {#if cmd.argumentHint}<span class="sc-hint">{cmd.argumentHint}</span>{/if}
             <!-- raw source tag, matching the Commands-tab chip convention -->
             {#if cmd.scope !== "project"}<span class="sc-scope">{cmd.scope}</span>{/if}

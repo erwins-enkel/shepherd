@@ -13,6 +13,15 @@ export function commandInvocation(command: SlashCommand, provider: "claude" | "c
   );
 }
 
+export function commandInvocationProvider(
+  command: SlashCommand,
+  preferred?: "claude" | "codex",
+): "claude" | "codex" {
+  const providers = commandProviders(command);
+  if (preferred && providers.includes(preferred)) return preferred;
+  return providers[0] ?? "claude";
+}
+
 export function commandInvocationName(command: SlashCommand): string {
   return command.invocationName ?? command.name;
 }

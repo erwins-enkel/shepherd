@@ -63,8 +63,9 @@ gh auth login       # GitHub integration (PR list, merge, redeploy)
 
 # remote access via Tailscale
 tailscale serve --bg 7330
-# then add the tailnet hostname to SHEPHERD_ALLOWED_HOSTS
-# (in ~/.shepherd/env or deploy/shepherd.service)
+# no allowlist step needed — Shepherd auto-trusts every Tailscale-served
+# host fronting its port. Only a non-Tailscale proxy / custom-DNS front
+# needs its hostname in SHEPHERD_ALLOWED_HOSTS (in ~/.shepherd/env).
 ```
 
 The HUD is gated by a **single-operator password**: the first time you open it

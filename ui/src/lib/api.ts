@@ -983,6 +983,16 @@ export async function listIssues(repoPath: string): Promise<{
   return r.json();
 }
 
+export async function getRepoWeb(repoPath: string): Promise<{
+  slug: string | null;
+  webUrl: string | null;
+  kind: ForgeKind | null;
+}> {
+  const r = await fetch(`/api/repo-web?repo=${encodeURIComponent(repoPath)}`);
+  if (!r.ok) throw await failed(r, "repo web");
+  return r.json();
+}
+
 export async function listPullRequests(
   repoPath: string,
 ): Promise<{ slug: string | null; webUrl: string | null; prs: PullRequest[] }> {

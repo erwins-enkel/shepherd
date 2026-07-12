@@ -2986,5 +2986,8 @@
   "diff_view_split": "Split",
   "diff_view_unified": "Unified",
   "feat_diff_review_title": "A sharper Diff tab",
-  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context."
+  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context.",
+  "repo_chip_open_github": "Open GitHub Repo-Webpage",
+  "feat_repo_chip_github_link_title": "Open GitHub from a repo chip",
+  "feat_repo_chip_github_link_body": "Right-click or hold a GitHub-backed repo chip and open the repository page directly from the herd header."
 }

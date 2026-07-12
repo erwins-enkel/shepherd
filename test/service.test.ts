@@ -34,7 +34,7 @@ import {
 import { operatorLanguageBlock } from "../src/operator-language";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
-import { config, parseTrimAutoContext } from "../src/config";
+import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
 import { MAX_IMAGES } from "../src/validate";
 import { stubBaseRef } from "./helpers/base-ref";
 
@@ -5669,6 +5669,14 @@ test("parseTrimAutoContext: default on; false/0/off (case-insensitive) turn it o
   expect(parseTrimAutoContext("0")).toBe(false);
   expect(parseTrimAutoContext("off")).toBe(false);
   expect(parseTrimAutoContext("Off")).toBe(false);
+});
+
+test("parseKillSwitch: default on; only an explicit '0' turns it off (#740)", () => {
+  expect(parseKillSwitch(undefined)).toBe(true); // unset → on
+  expect(parseKillSwitch("")).toBe(true); // set-but-empty → on
+  expect(parseKillSwitch("1")).toBe(true);
+  expect(parseKillSwitch("true")).toBe(true);
+  expect(parseKillSwitch("0")).toBe(false); // the kill switch
 });
 
 test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits the key", () => {

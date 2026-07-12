@@ -26,6 +26,9 @@ export interface UpNextItem {
   kind: UpNextKind;
   priority: boolean;
   createdAt: number;
+  /** The issue's labels (standalone) or the parent epic's labels (epic unit) — used by the
+   *  UI's client-side hide-blocked display filter (isBlocked in issues-panel.ts). */
+  labels: string[];
   /** Present iff this row represents an epic unit (the parent it rolls up). */
   epicParent?: { number: number; title: string };
   /** Payload for SessionService.create()'s issueRef on Start. */
@@ -163,6 +166,7 @@ function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): 
     kind: classifyKind(labelSet),
     priority: hasLabel(labelSet, PRIORITY_LABEL),
     createdAt: issue.createdAt,
+    labels: issue.labels,
     issueRef: { number: issue.number, url: issue.url, title: issue.title, body: issue.body },
   };
 }
@@ -188,6 +192,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
     kind: "epic",
     priority: hasLabel(parentLabelSet, PRIORITY_LABEL),
     createdAt: e.parentCreatedAt,
+    labels: e.parentLabels,
     epicParent: { number: e.parentNumber, title: e.parentTitle },
     issueRef: { number: c.number, url: c.url, title: c.title, body: c.body },
   };

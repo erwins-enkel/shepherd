@@ -1571,6 +1571,9 @@ export interface UpNextItem {
   kind: UpNextKind;
   priority: boolean;
   createdAt: number;
+  /** The issue's labels (standalone) or the parent epic's labels (epic unit) — used by the
+   *  hide-blocked display filter (isBlocked in issues-panel.ts). */
+  labels: string[];
   epicParent?: { number: number; title: string };
   issueRef: { number: number; url: string; title: string; body: string };
 }

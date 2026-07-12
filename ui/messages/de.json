@@ -2938,5 +2938,8 @@
   "feat_colored_issue_labels_body": "Label-Chips im Backlog, in den Filtern und bei den Prompt-Quellen zeigen jetzt die echte Farbe des Labels aus GitHub, angepasst für Lesbarkeit in hellem und dunklem Theme — statt einheitlichem Grau.",
   "issues_filter_blocked_label": "blockierte ausblenden",
   "issues_filter_blocked_title": "Issues mit einem blocked-Label ausblenden (z. B. blocked-upstream)",
-  "issues_filter_all_blocked": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten"
+  "issues_filter_all_blocked": "Alle passenden Issues sind blockiert — zum Anzeigen ausschalten",
+  "upnext_hide_blocked": "Blockierte Issues ausblenden",
+  "feat_hide_blocked_toggle_title": "Blockierte Issues überall ausblenden",
+  "feat_hide_blocked_toggle_body": "Ein \"Blockierte Issues ausblenden\"-Schalter funktioniert jetzt einheitlich im Backlog, im Issue-Picker von Neue Aufgabe und in Als Nächstes — standardmäßig aktiv, blendet er jedes als blockiert markierte Issue aus."
 }

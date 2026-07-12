@@ -74,6 +74,30 @@ describe("classification", () => {
   });
 });
 
+describe("labels", () => {
+  test("standalone item carries the issue's labels", () => {
+    const r = [repo({ openIssues: [issue(1, { labels: ["blocked-upstream", "bug"] })] })];
+    expect(repoSection(r, "/r/a")!.items[0]!.labels).toEqual(["blocked-upstream", "bug"]);
+  });
+  test("epic unit carries the PARENT's labels, not the candidate child's", () => {
+    const r = [
+      repo({
+        openIssues: [issue(1), issue(2)],
+        epics: [
+          epic({
+            parentNumber: 100,
+            memberNumbers: [2],
+            parentLabels: ["blocked-upstream", "epic"],
+            candidate: issue(2, { labels: ["unrelated-child-label"] }),
+          }),
+        ],
+      }),
+    ];
+    const epicRow = repoSection(r, "/r/a")!.items.find((i) => i.kind === "epic")!;
+    expect(epicRow.labels).toEqual(["blocked-upstream", "epic"]);
+  });
+});
+
 describe("exclusions", () => {
   test("shepherd:active is excluded", () => {
     const r = [repo({ openIssues: [issue(1, { labels: ["shepherd:active"] }), issue(2)] })];
@@ -374,6 +398,7 @@ function makeItem(repoPath: string, num: number): UpNextItem {
     kind: "feature",
     priority: false,
     createdAt: num,
+    labels: [],
     issueRef: { number: num, url: `https://x/${num}`, title: `t${num}`, body: "" },
   };
 }

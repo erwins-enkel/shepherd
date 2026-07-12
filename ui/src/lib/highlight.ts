@@ -9,7 +9,7 @@ import { langFromPath } from "./diff";
 // Hand-tuned themes matching the HUD palette (Shiki needs concrete hex, not
 // CSS vars). Each mirrors app.css --ink/--muted/--amber/--green/--blue/--red
 // for its [data-theme] block.
-const SHEPHERD_DARK = {
+export const SHEPHERD_DARK = {
   name: "shepherd-dark",
   type: "dark" as const,
   colors: { "editor.background": "#0f1413", "editor.foreground": "#c4d0cb" },
@@ -30,7 +30,7 @@ const SHEPHERD_DARK = {
 };
 
 // Light counterpart — mirrors app.css [data-theme="light"] tokens.
-const SHEPHERD_LIGHT = {
+export const SHEPHERD_LIGHT = {
   name: "shepherd-light",
   type: "light" as const,
   colors: { "editor.background": "#f7f9f8", "editor.foreground": "#2b3633" },

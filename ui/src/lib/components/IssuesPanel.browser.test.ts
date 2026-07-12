@@ -1320,3 +1320,82 @@ describe("IssuesPanel soft refresh (backlogRefresh)", () => {
       .toBeInTheDocument();
   });
 });
+
+describe("IssuesPanel issue context menu (inject steer, Surface B)", () => {
+  const issueSteer: Steer = {
+    id: "st1",
+    label: "Fix it",
+    text: "/fix please",
+    inSteerBar: false,
+    onIssues: true,
+  };
+  beforeEach(() => {
+    steers.list = [issueSteer];
+  });
+  afterEach(() => {
+    steers.list = [];
+  });
+
+  async function renderWithIssue(extra: Record<string, unknown>) {
+    mockListIssues.mockResolvedValue({
+      slug: "o/r",
+      webUrl: null,
+      viewer: null,
+      issues: [
+        {
+          number: 55,
+          title: "Add widget",
+          body: "the widget body",
+          url: "https://gh/o/r/issues/55",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "bob",
+        },
+      ],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, ...extra });
+    await expect.poll(() => document.querySelector(".issue-row")).not.toBeNull();
+  }
+
+  // A mouse pointerdown pins lastPointerType away from "touch" so the contextmenu opens.
+  function rightClickRow() {
+    const row = document.querySelector<HTMLElement>(".issue-row")!;
+    window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse" }));
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }),
+    );
+  }
+
+  it("picking a steer calls oninject(issue, steer) once — opens the dialog pre-seeded, no spawn", async () => {
+    const oninject = vi.fn();
+    const onquick = vi.fn();
+    const onnewtask = vi.fn();
+    await renderWithIssue({ oninject, onquick, onnewtask });
+
+    rightClickRow();
+    await expect.poll(() => document.querySelector(".issue-menu")).not.toBeNull();
+    await page
+      .getByRole("menuitem", { name: m.issuemenu_inject_aria({ label: "Fix it" }) })
+      .click();
+
+    // The page handler seeds composeIssue/composePrompt + showNew from exactly these args.
+    expect(oninject).toHaveBeenCalledTimes(1);
+    expect(oninject).toHaveBeenCalledWith(expect.objectContaining({ number: 55 }), issueSteer);
+    // Inject != execute: neither the quick-launch (spawn) nor the +Task path fired.
+    expect(onquick).not.toHaveBeenCalled();
+    expect(onnewtask).not.toHaveBeenCalled();
+  });
+
+  it("omits steer items when oninject is not provided (Open + Details still shown)", async () => {
+    await renderWithIssue({}); // no oninject
+    rightClickRow();
+    await expect.poll(() => document.querySelector(".issue-menu")).not.toBeNull();
+
+    expect(page.getByRole("menuitem", { name: m.issuemenu_open() }).query()).not.toBeNull();
+    expect(
+      page.getByRole("menuitem", { name: m.issuemenu_inject_aria({ label: "Fix it" }) }).query(),
+    ).toBeNull();
+  });
+});

@@ -8,6 +8,9 @@
   import { ACTIVE_LABEL } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
+  import IssueContextMenu from "../IssueContextMenu.svelte";
+  import IssueDetailsPopover from "../IssueDetailsPopover.svelte";
+  import { issueMenuTrigger } from "../issue-menu-trigger";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
   // Tier-1 <template> complexity bar (#855). The row owns all its nested conditionals
@@ -25,6 +28,7 @@
     issueActions,
     onnewtask,
     onquick = undefined,
+    oninject = undefined,
     ontoggleepic,
   }: {
     issue: Issue;
@@ -46,8 +50,32 @@
     issueActions: Steer[];
     onnewtask: (issue: Issue) => void;
     onquick?: (issue: Issue, action: Steer) => void;
+    /** Inject an issue-scoped steer: open the New Task dialog pre-seeded with the
+     *  steer's prompt + this issue attached (does NOT spawn). From the row's
+     *  right-click / long-press context menu. Omitted → no steer items in the menu. */
+    oninject?: (issue: Issue, steer: Steer) => void;
     ontoggleepic: (number: number) => void;
   } = $props();
+
+  // Right-click / long-press context menu + details preview state (this row's issue).
+  let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
+  let details = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
+
+  // "Show details" lives inside the menu, so the outside-pointerdown dismiss won't
+  // close it — close explicitly and carry the ROW as the popover's opener.
+  function showDetails() {
+    const d = menu;
+    menu = null;
+    if (d) details = d;
+  }
+  function openIssue() {
+    menu = null;
+    window.open(issue.url, "_blank", "noopener");
+  }
+  function pickSteer(steer: Steer) {
+    menu = null;
+    oninject?.(issue, steer);
+  }
 
   // Epic-parent rows disable quick-launch + Task: an epic is launched via the epic
   // panel's Start, not by spawning a manual session against the parent tracking issue.
@@ -102,6 +130,7 @@
   class:is-epic={isEpicParent}
   id={`epic-issue-row-${issue.number}`}
   use:epicRowClick
+  use:issueMenuTrigger={{ onopen: (x, y, node) => (menu = { x, y, opener: node }) }}
 >
   <div class="issue-top">
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
@@ -221,6 +250,30 @@
     </div>
   {/if}
 </div>
+
+{#if menu}
+  <IssueContextMenu
+    x={menu.x}
+    y={menu.y}
+    number={issue.number}
+    steers={issueActions}
+    canSteer={!isEpicParent && oninject != null}
+    opener={menu.opener}
+    onopenissue={openIssue}
+    ondetails={showDetails}
+    onsteer={pickSteer}
+    onclose={() => (menu = null)}
+  />
+{/if}
+{#if details}
+  <IssueDetailsPopover
+    x={details.x}
+    y={details.y}
+    {issue}
+    opener={details.opener}
+    onclose={() => (details = null)}
+  />
+{/if}
 
 <style>
   .issue-row {

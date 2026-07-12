@@ -16,6 +16,7 @@
     selectedPath,
     onissue,
     onquick = undefined,
+    oninject = undefined,
     onpr,
     onlaunchtrain,
     onadopt,
@@ -28,6 +29,7 @@
     selectedPath: string;
     onissue: (repoPath: string, issue: Issue) => void;
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
+    oninject?: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
     onadopt: (repoPath: string, prompt: string) => void;
@@ -45,6 +47,7 @@
       onissue(selectedPath, issue);
     }}
     onquick={onquick ? (issue, action) => onquick(selectedPath, issue, action) : undefined}
+    oninject={oninject ? (issue, steer) => oninject(selectedPath, issue, steer) : undefined}
     bodyPreview
     age
     {epics}

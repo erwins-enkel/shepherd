@@ -219,12 +219,18 @@ question and surfaced three non-obvious integration gotchas plus one real cost:
    the selector `[data-diff-type="split"][data-overflow="wrap"]`; with
    `overflow: "scroll"` it falls back to stacked. Wrap also removes horizontal
    scrollbars — arguably what we want for a diff tab anyway.
-4. **Line annotations need slot wiring — budget for it.** Pierre's annotation
-   framework (the agent-review differentiator) _does_ fire `renderAnnotation(…)`,
-   but line-alignment relies on its slot mechanism; a naive `lineAnnotations` pass
-   appends the cards at the **bottom of the file**, not beside the target line.
-   Getting agent notes to sit next to the code they describe — the entire point —
-   is genuine engineering, so scope it as a phase, not a checkbox.
+4. **Line annotations line-align out of the box — _with the same `<diffs-container>`
+   host fix._** Pierre's annotation framework (the agent-review differentiator)
+   fires `renderAnnotation(…)` and projects each note into a
+   `<slot name="annotation-<side>-<lineNumber>">` it emits at the target line.
+   That slot is positioned by the same layout stylesheet as #2 — so with a bare
+   `<div>` host the notes float to the **bottom of the file**, but with a
+   `<diffs-container>` host they sit **inline, beside the exact line**, in both
+   split (in the correct column) and unified, surviving theme/layout toggles
+   (verified in the preview). So the _rendering_ is free; the genuine work left is
+   **product-side**: sourcing the agent's per-line rationale / tool-call linkage,
+   comment threads, and persistence. That's the phase to scope — not the
+   mechanics of getting a card next to a line.
 
 **Working config for whoever implements Option A:**
 
@@ -232,7 +238,7 @@ question and surfaced three non-obvious integration gotchas plus one real cost:
 import { FileDiff, parsePatchFiles, registerCustomTheme } from "@pierre/diffs";
 registerCustomTheme("shepherd-dark", async () => SHEPHERD_DARK); // objects from highlight.ts
 registerCustomTheme("shepherd-light", async () => SHEPHERD_LIGHT);
-const host = document.createElement("diffs-container"); // NOT a <div> (gotcha #2)
+const host = document.createElement("diffs-container"); // NOT a <div> (gotchas #2 + #4)
 const fd = new FileDiff({
   theme: { dark: "shepherd-dark", light: "shepherd-light" }, // gotcha #1
   themeType,
@@ -240,24 +246,34 @@ const fd = new FileDiff({
   lineDiffType: "word",
   diffIndicators: "bars",
   overflow: "wrap", // gotcha #3 — required for side-by-side split
+  renderAnnotation, // (a) => HTMLElement — projected into the per-line slot (#4)
 });
-fd.render({ fileDiff: parsePatchFiles(patch)[0].files[i], fileContainer: host });
+fd.render({
+  fileDiff: parsePatchFiles(patch)[0].files[i],
+  fileContainer: host,
+  lineAnnotations: [{ side: "additions", lineNumber: 405, metadata }], // #4
+});
 ```
 
-Net: **Option A's one true blocker (theming across the shadow boundary) is gone.**
-The two setup gotchas are one-liners once documented here; annotations (#4) are
-the only part that needs real work — and they're exactly the agent-review
-differentiator, so that cost buys the thing that makes this better than a generic
-viewer.
+Net: **all three of Option A's would-be blockers collapse to one root fix.**
+Theming across the shadow boundary is solved by injecting our Shiki themes; split
+side-by-side (#3) and line-aligned annotations (#4) both come free once the host
+is a `<diffs-container>` (#2) rather than a `<div>`. What's genuinely left is
+**product engineering, not Pierre mechanics**: a thin Svelte wrapper around the
+vanilla API, the file sidebar (build from our `DiffResult`), and — for the
+review-first payoff — sourcing agent rationale / tool-call linkage to feed
+`lineAnnotations`. The rendering substrate is proven end-to-end.
 
 ---
 
 ## Recommendation & next steps
 
-1. **Pierre spike — done (passed).** The theming blocker is resolved and the
-   render is faithful (see _Spike_). Remaining validation before committing to A
-   is the **annotation slot wiring** (#4) — the one open engineering risk — plus
-   a look at large-diff behavior without windowing.
+1. **Pierre spike — done (passed).** Theming, split, and **line-aligned
+   annotations** all render correctly in the preview (see _Spike_) — the whole
+   substrate is proven. The only rendering unknown left is large-diff behavior
+   without windowing (likely moot given the 2000-line/file server cap). The real
+   remaining work is product-side: a Svelte wrapper, the sidebar, and feeding
+   agent rationale into `lineAnnotations`.
 2. **Still worth a short `@git-diff-view/svelte` spike** as the low-risk
    comparison: serialize `DiffResult → { oldFile, newFile, hunks }`, render with
    `@git-diff-view/shiki`, confirm light-DOM tokens/theming apply natively and how
@@ -275,12 +291,14 @@ viewer.
 
 - Fancy-viewer priority: **side-by-side + word-diff** only, or the full
   review-first experience (sidebar + line annotations)? Scopes A-vs-B/D. Note the
-  spike shows split + word-diff + rail are essentially free with Pierre; the
-  incremental cost is almost entirely in annotations (_Spike_ #4).
+  spike shows split + word-diff + rail + line-aligned annotation _rendering_ are
+  all essentially free with Pierre; the incremental cost is the product-side
+  data (what fills the notes), not the diff UI.
 - Is **per-line agent annotation** (rationale/tool-call linkage) in scope, or a
-  later phase? It's the main reason to prefer `@pierre/diffs` — and per _Spike_
-  #4 it's the one part that needs real slot-wiring work, so answering this sizes
-  the whole effort.
+  later phase? It's the main reason to prefer `@pierre/diffs`. The _rendering_ is
+  done (_Spike_ #4); the open question is the **data**: where the per-line agent
+  reasoning comes from (tool-call spans? plan steps?) and whether notes are
+  read-only or a comment thread. That sourcing is what sizes the effort.
 - Do we ever hit single files big enough to _need_ virtualization, given the
   2000-line/file server cap? If never, Option A/B's lack of windowing is moot.
 - Confirm `@pierre/diffs` repo-level license (package says Apache-2.0; repo root

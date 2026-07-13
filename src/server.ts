@@ -5080,6 +5080,19 @@ async function handleBranchStatus({ req, parts, url }: Ctx): Promise<Response | 
   return null;
 }
 
+async function handleRepoWeb({ req, parts, url, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "repo-web" || parts[2])
+    return null;
+  const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
+  if (!dir) return json({ error: "invalid repo" }, 400);
+  const forge = deps.resolveForge?.(dir) ?? null;
+  return json({
+    slug: forge?.slug ?? null,
+    webUrl: forge?.webUrl ?? null,
+    kind: forge?.kind ?? null,
+  });
+}
+
 /** Fetch a repo's open issues and, best-effort, attach each one's still-open blockers
  *  (GitHub issue dependencies) as `blockedBy`. The blocked-map fetch fails open — a missing
  *  method (Gitea/local) or a forge error yields no annotations, never a failed request. */
@@ -6845,6 +6858,7 @@ const ROUTE_HANDLERS = [
   handleFsDirs,
   handleBranches,
   handleBranchStatus,
+  handleRepoWeb,
   handleIssues,
   handleIssueCreate,
   handlePrsList,

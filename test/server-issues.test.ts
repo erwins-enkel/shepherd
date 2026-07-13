@@ -62,6 +62,31 @@ function req(repo: string): Request {
   return new Request(`http://localhost/api/issues?repo=${encodeURIComponent(repo)}`);
 }
 
+function repoWebReq(repo: string): Request {
+  return new Request(`http://localhost/api/repo-web?repo=${encodeURIComponent(repo)}`);
+}
+
+test("GET /api/repo-web resolves lightweight forge link metadata", async () => {
+  const app = makeApp(
+    makeDeps(() =>
+      fakeForge({ kind: "github", webUrl: "https://github.com/team/proj" } as Partial<GitForge>),
+    ),
+  );
+  const res = await app.fetch(repoWebReq(repoDir));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    slug: "team/proj",
+    webUrl: "https://github.com/team/proj",
+    kind: "github",
+  });
+});
+
+test("GET /api/repo-web?repo outside root → 400", async () => {
+  const app = makeApp(makeDeps(() => fakeForge()));
+  const res = await app.fetch(repoWebReq("/etc"));
+  expect(res.status).toBe(400);
+});
+
 test("GET /api/issues resolves via the forge → {slug, issues}", async () => {
   const app = makeApp(makeDeps(() => fakeForge()));
   const res = await app.fetch(req(repoDir));

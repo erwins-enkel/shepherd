@@ -3,22 +3,32 @@ import { tick } from "svelte";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { DrainStatus, QueuedItem } from "$lib/types";
+import type { DrainStatus, ForgeKind, QueuedItem } from "$lib/types";
 import type { RepoChip } from "./queue-strip";
 import { m } from "$lib/paraglide/messages";
 
 // getDrainQueue is only exercised by the inline-expand interaction; stub it so no
 // network call fires. Preserve the rest of $lib/api so the import graph resolves.
 const getDrainQueueFn = vi.fn(async (): Promise<QueuedItem[]> => []);
+const getRepoWebFn = vi.fn(
+  async (): Promise<{ slug: string | null; webUrl: string | null; kind: ForgeKind | null }> => ({
+    slug: null,
+    webUrl: null,
+    kind: null,
+  }),
+);
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
-  return { ...actual, getDrainQueue: getDrainQueueFn };
+  return { ...actual, getDrainQueue: getDrainQueueFn, getRepoWeb: getRepoWebFn };
 });
 
 const { default: RepoSwitcher } = await import("./RepoSwitcher.svelte");
 
 afterEach(() => {
   vi.useRealTimers();
+  getDrainQueueFn.mockClear();
+  getRepoWebFn.mockClear();
+  getRepoWebFn.mockResolvedValue({ slug: null, webUrl: null, kind: null });
 });
 
 function drain(partial: Partial<DrainStatus> & { repoPath: string }): DrainStatus {
@@ -307,7 +317,12 @@ describe("RepoSwitcher — filter rail", () => {
     ).toContain(m.repo_chip_remove_filter());
   });
 
-  it("arrow / home / end keys rove focus between the two menu items", async () => {
+  it("shows a GitHub repo webpage link when the lazy repo lookup resolves to GitHub", async () => {
+    getRepoWebFn.mockResolvedValueOnce({
+      slug: "owner/alpha",
+      webUrl: "https://github.com/owner/alpha",
+      kind: "github",
+    });
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
       repoFilter: new Set<string>(),
@@ -317,21 +332,89 @@ describe("RepoSwitcher — filter rail", () => {
     alpha.dispatchEvent(
       new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
     );
+
+    await vi.waitFor(() => {
+      const link = page.getByRole("menuitem", { name: m.repo_chip_open_github() }).element();
+      expect(link).toBeTruthy();
+    });
+
+    const link = page
+      .getByRole("menuitem", { name: m.repo_chip_open_github() })
+      .element() as HTMLAnchorElement;
+    expect(getRepoWebFn).toHaveBeenCalledWith("/repo/alpha");
+    expect(link.href).toBe("https://github.com/owner/alpha");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener");
+
+    const allowed = link.dispatchEvent(
+      new MouseEvent("click", { bubbles: true, cancelable: true }),
+    );
+    expect(allowed).toBe(true);
     await tick();
+    expect(document.querySelector(".rs-menu"), "menu closes after opening GitHub").toBeNull();
+  });
+
+  it("omits the repo webpage link for non-GitHub or missing-url forge metadata", async () => {
+    for (const result of [
+      { slug: "owner/alpha", webUrl: "https://gitea.example/owner/alpha", kind: "gitea" as const },
+      { slug: null, webUrl: null, kind: "local" as const },
+      { slug: "owner/alpha", webUrl: null, kind: "github" as const },
+    ]) {
+      getRepoWebFn.mockResolvedValueOnce(result);
+      const { unmount } = await render(RepoSwitcher, {
+        chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+        repoFilter: new Set<string>(),
+        onrepofilter: () => {},
+      });
+      const alpha = document.querySelector(".rs-chip") as HTMLElement;
+      alpha.dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+      await tick();
+      await tick();
+
+      expect(page.getByRole("menuitem", { name: m.repo_chip_open_github() }).query()).toBeNull();
+      unmount();
+      document.body.innerHTML = "";
+    }
+  });
+
+  it("arrow / home / end keys rove focus between all menu items", async () => {
+    getRepoWebFn.mockResolvedValueOnce({
+      slug: "owner/alpha",
+      webUrl: "https://github.com/owner/alpha",
+      kind: "github",
+    });
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await vi.waitFor(() =>
+      expect(
+        page.getByRole("menuitem", { name: m.repo_chip_open_github() }).query(),
+      ).not.toBeNull(),
+    );
 
     const items = [...document.querySelectorAll<HTMLElement>(".rs-menu-item")];
-    expect(items.length).toBe(2);
+    expect(items.length).toBe(3);
     // The open effect focuses the first item.
     expect(document.activeElement).toBe(items[0]);
 
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     expect(document.activeElement).toBe(items[1]);
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
-    expect(document.activeElement).toBe(items[0]);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
+    expect(document.activeElement).toBe(items[2]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    expect(document.activeElement).toBe(items[1]);
+    expect(document.activeElement).toBe(items[2]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     expect(document.activeElement).toBe(items[0]);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
+    expect(document.activeElement).toBe(items[2]);
 
     // Escape still closes.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

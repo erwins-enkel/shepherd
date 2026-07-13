@@ -1,6 +1,8 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { RepoChip } from "./queue-strip";
+  import { getRepoWeb } from "$lib/api";
+  import type { ForgeKind } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { basename } from "./learnings-drawer";
   import { projectIcons } from "$lib/projectIcons.svelte";
@@ -127,6 +129,12 @@
   // Pinning is a secondary action: click keeps filtering, while right-click,
   // touch long-press, or mouse/stylus hold opens this anchored menu.
   let menu = $state<{ chip: RepoChip; x: number; y: number; opener: HTMLElement } | null>(null);
+  let menuRepoWeb = $state<{
+    repoPath: string;
+    slug: string | null;
+    webUrl: string | null;
+    kind: ForgeKind | null;
+  } | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
   let menuPos = $state<{ left: number; top: number } | null>(null);
 
@@ -155,7 +163,17 @@
 
   function openPinMenu(chip: RepoChip, x: number, y: number, opener: HTMLElement): boolean {
     menu = { chip, x, y, opener };
+    menuRepoWeb = { repoPath: chip.repoPath, slug: null, webUrl: null, kind: null };
     menuPos = null;
+    getRepoWeb(chip.repoPath)
+      .then((r) => {
+        if (menu?.chip.repoPath !== chip.repoPath) return;
+        menuRepoWeb = { repoPath: chip.repoPath, ...r };
+      })
+      .catch(() => {
+        if (menu?.chip.repoPath !== chip.repoPath) return;
+        menuRepoWeb = { repoPath: chip.repoPath, slug: null, webUrl: null, kind: null };
+      });
     return true;
   }
 
@@ -219,6 +237,7 @@
 
   function closeMenu() {
     menu = null;
+    menuRepoWeb = null;
     menuPos = null;
     holdFired = false;
   }
@@ -251,7 +270,7 @@
     const left = Math.min(current.x, window.innerWidth - r.width - margin);
     const top = Math.min(current.y, window.innerHeight - r.height - margin);
     menuPos = { left: Math.max(margin, left), top: Math.max(margin, top) };
-    node.querySelector<HTMLButtonElement>(".rs-menu-item")?.focus();
+    node.querySelector<HTMLElement>(".rs-menu-item")?.focus();
   });
 
   $effect(() => {
@@ -265,9 +284,9 @@
       // Roving focus across the menu items (they are tabindex="-1", so Arrow/Home/End — not Tab —
       // move between them). preventDefault so these keys don't scroll the page instead.
       if (!menuEl) return;
-      const items = [...menuEl.querySelectorAll<HTMLButtonElement>(".rs-menu-item")];
+      const items = [...menuEl.querySelectorAll<HTMLElement>(".rs-menu-item")];
       if (items.length === 0) return;
-      const idx = items.indexOf(document.activeElement as HTMLButtonElement);
+      const idx = items.indexOf(document.activeElement as HTMLElement);
       let next = -1;
       if (e.key === "ArrowDown") next = idx < 0 ? 0 : (idx + 1) % items.length;
       else if (e.key === "ArrowUp")
@@ -391,6 +410,20 @@
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
     </button>
+    {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
+      <a
+        class="rs-menu-item"
+        role="menuitem"
+        tabindex="-1"
+        href={menuRepoWeb.webUrl}
+        target="_blank"
+        rel="noopener"
+        onclick={() => closeMenu()}
+      >
+        <span class="rs-menu-icon" aria-hidden="true">↗</span>{m.repo_chip_open_github()}
+      </a>
+    {/if}
     <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={commitFilter}>
       <span class="rs-menu-icon" aria-hidden="true">{menuFiltered ? "⊖" : "⊕"}</span>{menuFiltered
         ? m.repo_chip_remove_filter()
@@ -577,6 +610,7 @@
     font: inherit;
     font-size: var(--fs-base);
     text-align: left;
+    text-decoration: none;
     cursor: pointer;
   }
   .rs-menu-item:hover,

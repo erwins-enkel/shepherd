@@ -46,23 +46,23 @@
   // slash and manifest paths a leading one — strip one so the join never doubles up.
   const docUrl = (path: string) => DOCS_URL.replace(/\/$/, "") + path;
 
-  // Row unions the three navigation targets. `oid` (assigned when the flat option
-  // list is built) is a row's index within the SELECTABLE-only sequence — group
-  // header rows are never part of it, so the roving cursor structurally skips them.
-  // `hl` holds the indices within the row's PRIMARY text that the query matched, for
-  // highlighting; empty when there is no query or the match landed outside the primary.
+  // Row unions the navigation and action targets. `rank` is comparable across every kind
+  // for a typed query; `oid` (assigned only after groups are relevance-ordered) is the row's
+  // index within the SELECTABLE-only sequence, so roving navigation skips group headers.
   type Row =
     | {
         kind: "session";
         id: string;
         title: string;
+        designation: string;
         repoPath: string;
         repoName: string | null;
         status: string;
         hl: number[];
-        // Surfaced via a `prompt` (description) substring while the title itself did not
-        // match — drives the "matches description" affordance so the row isn't unexplained.
+        designationHl: number[];
+        repoHl: number[];
         promptMatch: boolean;
+        rank: number;
       }
     | {
         kind: "repo";
@@ -74,12 +74,44 @@
         name: string;
         display: string;
         hl: number[];
+        displayHl: number[];
         hasLiveSession: boolean;
+        rank: number;
       }
-    | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[] }
-    | { kind: "command"; id: string; label: string; run: () => void }
-    | { kind: "doc"; title: string; url: string };
+    | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[]; rank: number }
+    | { kind: "command"; id: string; label: string; run: () => void; hl: number[]; rank: number }
+    | { kind: "doc"; title: string; url: string; hl: number[]; rank: number };
   type OptRow = Row & { oid: number };
+
+  type MatchSource =
+    | "title"
+    | "designation"
+    | "session-repo"
+    | "repo-name"
+    | "repo-display";
+  type FieldMatch = { source: MatchSource; rank: number; positions: number[] };
+
+  function bestFieldMatch(
+    query: string,
+    fields: { source: MatchSource; text: string; penalty?: number }[],
+  ): FieldMatch | null {
+    let best: FieldMatch | null = null;
+    for (const field of fields) {
+      const result = fuzzyScore(query, field.text);
+      if (result === null) continue;
+      const match = {
+        source: field.source,
+        rank: result.score - (field.penalty ?? 0),
+        positions: result.positions,
+      };
+      if (best === null || match.rank > best.rank) best = match;
+    }
+    return best;
+  }
+
+  function isPresent<T>(value: T | null): value is T {
+    return value !== null;
+  }
 
   let filter = $state(untrack(() => initialFilter) ?? "");
   let activeIdx = $state(0);
@@ -118,44 +150,53 @@
 
   const autopilotPausedLabel = $derived(m.session_autopilot_paused_label().toLocaleUpperCase());
 
-  // Fuzzy-match + rank, per group. The fuzzy matcher runs only over the SHORT display
-  // fields (title/desig/repo name) so a short query can't subsequence-match nearly every
-  // long prompt; the haystack starts with the primary text so matched positions below its
-  // length map straight onto the highlighted primary. A blank query scores every row 0, so
-  // the sort promotes needs-input sessions first and then falls back to recency.
-  // (updatedAt / lastUsedAt are the last-activity signals; lenses keep their fixed order.)
+  // Match each short visible field independently: a query can never start in a title and
+  // finish in a designation/repository. Long prompt text remains substring-only and ranks
+  // below every visible compact fuzzy match. A blank query gives every primary field rank 0,
+  // preserving needs-input + recency as the session ordering signals.
   const sessionRows = $derived<Row[]>(
     sessions
       .map((s) => {
         const title = s.name || s.desig;
-        const repoName = repos.nameFor(s.repoPath) ?? "";
+        const repoName = repos.nameFor(s.repoPath);
+        const match = bestFieldMatch(q, [
+          { source: "title", text: title },
+          { source: "designation", text: s.desig, penalty: 100 },
+          { source: "session-repo", text: repoName ?? "", penalty: 100 },
+        ]);
+        const promptMatch = match === null && q !== "" && s.prompt.toLowerCase().includes(q);
+        if (match === null && !promptMatch) return null;
         return {
           s,
           title,
-          res: fuzzyScore(q, title + " " + s.desig + " " + repoName),
-          // `prompt` (description) is matched by a contiguous SUBSTRING, not fuzzily —
-          // selective enough to stay useful over long prompts.
-          promptMatch: q !== "" && s.prompt.toLowerCase().includes(q),
+          repoName,
+          match,
+          promptMatch,
+          rank: match?.rank ?? 500,
         };
       })
-      .filter((e) => e.res !== null || e.promptMatch)
+      .filter(isPresent)
       .sort(
         (a, b) =>
-          (b.res?.score ?? 0) - (a.res?.score ?? 0) ||
+          b.rank - a.rank ||
           Number(needsInputIds.has(b.s.id)) - Number(needsInputIds.has(a.s.id)) ||
           b.s.updatedAt - a.s.updatedAt,
       )
-      .map(({ s, title, res, promptMatch }) => ({
+      .map(({ s, title, repoName, match, promptMatch, rank }): Row => ({
         kind: "session",
         id: s.id,
         title,
+        designation: s.desig,
         repoPath: s.repoPath,
-        repoName: repos.nameFor(s.repoPath),
+        repoName,
         status: s.autopilotPaused
           ? autopilotPausedLabel
           : statusLabel(displayStatus(s, workingBlocked)),
-        hl: (res?.positions ?? []).filter((p) => p < title.length),
+        hl: match?.source === "title" ? match.positions : [],
+        designationHl: match?.source === "designation" ? match.positions : [],
+        repoHl: match?.source === "session-repo" ? match.positions : [],
         promptMatch,
+        rank,
       })),
   );
 
@@ -169,17 +210,28 @@
   );
   const repoRows = $derived<Row[]>(
     repos.entries
-      .map((r) => ({ r, res: fuzzyScore(q, r.name + " " + r.display) }))
-      .filter((e) => e.res !== null)
-      .sort((a, b) => b.res!.score - a.res!.score || (b.r.lastUsedAt ?? 0) - (a.r.lastUsedAt ?? 0))
-      .map(({ r, res }) => ({
+      .map((r) => {
+        const match = bestFieldMatch(q, [
+          { source: "repo-name", text: r.name },
+          { source: "repo-display", text: r.display, penalty: 100 },
+        ]);
+        return match === null ? null : { r, match };
+      })
+      .filter(isPresent)
+      .sort(
+        (a, b) =>
+          b.match.rank - a.match.rank || (b.r.lastUsedAt ?? 0) - (a.r.lastUsedAt ?? 0),
+      )
+      .map(({ r, match }): Row => ({
         kind: "repo",
         path: r.path,
         realPath: r.realPath,
         name: r.name,
         display: r.display,
-        hl: res!.positions.filter((p) => p < r.name.length),
+        hl: match.source === "repo-name" ? match.positions : [],
+        displayHl: match.source === "repo-display" ? match.positions : [],
         hasLiveSession: liveRepoPaths.has(r.realPath),
+        rank: match.rank,
       })),
   );
 
@@ -187,56 +239,90 @@
     LENSES.map((l, i) => ({ l, i, label: l.label(), res: fuzzyScore(q, l.label()) }))
       .filter((e) => e.res !== null)
       .sort((a, b) => b.res!.score - a.res!.score || a.i - b.i)
-      .map(({ l, label, res }) => ({
+      .map(({ l, label, res }): Row => ({
         kind: "lens",
         lens: l.id,
         label,
         icon: lensGlyph[l.id],
         hl: res!.positions, // the whole label is the primary text
+        rank: res!.score,
       })),
   );
 
   // Commands + Docs are search-driven, so they stay hidden until the user types: with an
   // empty query every command (≤6) and doc (~14) would match and flood the bar on open,
   // burying the recency-ordered sessions/repos/lenses that make it a quick-switcher.
-  // Commands match on label + optional localized keyword synonyms; docs on their title +
-  // the generated keyword haystack (description + headings), so non-title queries resolve.
-  // These match by SUBSTRING (not the fuzzy scorer used for the navigation groups): their
-  // keyword haystacks are long free text, over which a short fuzzy subsequence would match
-  // nearly everything and flood the bar.
+  // Labels/titles use the same compact scorer as navigation rows. Long keyword haystacks stay
+  // substring-only at rank 500, so synonyms remain discoverable without outranking visible text.
   const commandRows = $derived<Row[]>(
     q === ""
       ? []
       : commands
-          .filter((c) => (c.label() + " " + (c.keywords?.() ?? "")).toLowerCase().includes(q))
-          .map((c) => ({ kind: "command", id: c.id, label: c.label(), run: c.run })),
+          .map((c, order) => {
+            const label = c.label();
+            const result = fuzzyScore(q, label);
+            const keywordMatch = result === null && (c.keywords?.() ?? "").toLowerCase().includes(q);
+            if (result === null && !keywordMatch) return null;
+            return { c, order, label, result, rank: result?.score ?? 500 };
+          })
+          .filter(isPresent)
+          .sort((a, b) => b.rank - a.rank || a.order - b.order)
+          .map(({ c, label, result, rank }): Row => ({
+            kind: "command",
+            id: c.id,
+            label,
+            run: c.run,
+            hl: result?.positions ?? [],
+            rank,
+          })),
   );
 
   const docRows = $derived<Row[]>(
     q === ""
       ? []
-      : DOCS_PAGES.filter((d) => (d.title.toLowerCase() + " " + d.keywords).includes(q)).map(
-          (d) => ({ kind: "doc", title: d.title, url: docUrl(d.path) }),
-        ),
+      : DOCS_PAGES.map((d, order) => {
+          const result = fuzzyScore(q, d.title);
+          const keywordMatch = result === null && d.keywords.includes(q);
+          if (result === null && !keywordMatch) return null;
+          return { d, order, result, rank: result?.score ?? 500 };
+        })
+          .filter(isPresent)
+          .sort((a, b) => b.rank - a.rank || a.order - b.order)
+          .map(({ d, result, rank }): Row => ({
+            kind: "doc",
+            title: d.title,
+            url: docUrl(d.path),
+            hl: result?.positions ?? [],
+            rank,
+          })),
   );
 
-  // Non-empty groups, each row tagged with its global selectable index (`oid`).
-  // Headers are rendered separately and carry no oid — so ArrowUp/Down (which walk
-  // oids) and Enter (which acts on options[activeIdx]) can never land on one.
+  // Typed queries order groups by their strongest row. Blank queries retain the established
+  // Sessions → Repositories → Lenses order. Global option ids are assigned only after that
+  // final group order, so Arrow/Enter/Alt+digit always target the rendered sequence.
   const groups = $derived.by(() => {
-    let i = 0;
-    const build = (key: string, label: string, rows: Row[]) => ({
+    const build = (key: string, label: string, rows: Row[], order: number) => ({
       key,
       label,
-      rows: rows.map((r): OptRow => ({ ...r, oid: i++ })),
+      rows,
+      rank: rows.reduce((max, row) => Math.max(max, row.rank), Number.NEGATIVE_INFINITY),
+      order,
     });
-    return [
-      build("sessions", m.commandbar_group_sessions(), sessionRows),
-      build("repos", m.commandbar_group_repos(), repoRows),
-      build("lenses", m.commandbar_group_lenses(), lensRows),
-      build("commands", m.commandbar_group_commands(), commandRows),
-      build("docs", m.commandbar_group_docs(), docRows),
+    const ranked = [
+      build("sessions", m.commandbar_group_sessions(), sessionRows, 0),
+      build("repos", m.commandbar_group_repos(), repoRows, 1),
+      build("lenses", m.commandbar_group_lenses(), lensRows, 2),
+      build("commands", m.commandbar_group_commands(), commandRows, 3),
+      build("docs", m.commandbar_group_docs(), docRows, 4),
     ].filter((g) => g.rows.length > 0);
+    if (q !== "") ranked.sort((a, b) => b.rank - a.rank || a.order - b.order);
+
+    let oid = 0;
+    return ranked.map(({ key, label, rows }) => ({
+      key,
+      label,
+      rows: rows.map((row): OptRow => ({ ...row, oid: oid++ })),
+    }));
   });
 
   const options = $derived<OptRow[]>(groups.flatMap((g) => g.rows));
@@ -444,14 +530,20 @@
               >
               <b class="cb-primary">{@render primary(row.title, row.hl)}</b>
               <span class="cb-sub">
-                {#if row.repoName}{row.repoName} ·
+                {#if row.designationHl.length > 0}{@render primary(
+                    row.designation,
+                    row.designationHl,
+                  )} ·
+                {/if}{#if row.repoName}{@render primary(row.repoName, row.repoHl)} ·
                 {/if}{row.status}{#if row.promptMatch && row.hl.length === 0}
                   · {m.commandbar_prompt_match()}{/if}
               </span>
             {:else if row.kind === "repo"}
               <span class="cb-ic" aria-hidden="true">{projectIcons.iconFor(row.path) ?? "▣"}</span>
               <b class="cb-primary">{@render primary(row.name, row.hl)}</b>
-              <span class="cb-sub">{row.display} · {m.commandbar_repo_affordance()}</span>
+              <span class="cb-sub"
+                >{@render primary(row.display, row.displayHl)} · {m.commandbar_repo_affordance()}</span
+              >
               {#if row.hasLiveSession}
                 <!-- Secondary-action hint. Separate non-shrinking element so a long
                      display path truncates .cb-sub, never this discoverability cue. -->
@@ -462,10 +554,10 @@
               <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
             {:else if row.kind === "command"}
               <span class="cb-ic" aria-hidden="true">⌘</span>
-              <b class="cb-primary">{row.label}</b>
+              <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
             {:else}
               <span class="cb-ic" aria-hidden="true">📄</span>
-              <b class="cb-primary">{row.title}</b>
+              <b class="cb-primary">{@render primary(row.title, row.hl)}</b>
               <span class="cb-sub">{m.commandbar_docs_affordance()}</span>
             {/if}
             <!-- Digit jump-hint, first ten rows only, revealed while Alt is held. Decorative

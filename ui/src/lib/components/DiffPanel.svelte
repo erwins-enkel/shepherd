@@ -166,7 +166,7 @@
       <div class="review-banner review-banner-panel" role="note">
         <span class="review-chip">{m.viewport_diff_annotation_review()}</span>
         <ul class="review-list">
-          {#each generalFindings as finding (finding)}
+          {#each generalFindings as finding, i (i)}
             <li>{finding}</li>
           {/each}
         </ul>

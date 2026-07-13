@@ -2089,7 +2089,12 @@ async function sessionDiffAnnotationsRead(id: string, deps: AppDeps): Promise<Re
   try {
     const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
     const diff = await computeDiff(s.worktreePath, base, s.branch); // structured hunks (not toSessionDiff)
-    const transcriptPath = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
+    // spawnAccountDir MUST be passed: a spawn-account session writes its JSONL under
+    // <account>/projects (see src/usage.ts) — omitting it resolves a nonexistent path and
+    // silently yields no agent notes. Matches poller/recap/reaper.
+    const transcriptPath = s.claudeSessionId
+      ? jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)
+      : "";
     const findings = deps.store.getReview(id)?.findings ?? [];
     return json({
       notes: buildDiffNotes({

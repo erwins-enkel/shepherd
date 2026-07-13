@@ -185,7 +185,7 @@
         <div class="review-banner" role="note">
           <span class="review-chip">{m.viewport_diff_annotation_review()}</span>
           <ul class="review-list">
-            {#each reviewFindings.get(file.path) ?? [] as finding (finding)}
+            {#each reviewFindings.get(file.path) ?? [] as finding, i (i)}
               <li>{finding}</li>
             {/each}
           </ul>

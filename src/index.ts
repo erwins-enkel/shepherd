@@ -1315,7 +1315,8 @@ const planGate = new PlanGateService({
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   operatorLanguage: () => config.operatorLanguage,
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
-  onReviewing: (id, reviewing) => events.emit("session:plangate-reviewing", { id, reviewing }),
+  onReviewing: (id, reviewing, env) =>
+    events.emit("session:plangate-reviewing", { id, reviewing, env }),
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
@@ -2643,7 +2644,7 @@ const appDeps: AppDeps = {
   },
   planGateCache: {
     snapshot: () => planGate.snapshot(),
-    reviewing: () => planGate.reviewingIds(),
+    reviewing: () => planGate.reviewingInflight(),
   },
   planGate: {
     consider: (s, opts) => planGate.consider(s, opts),

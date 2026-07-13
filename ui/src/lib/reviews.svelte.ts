@@ -1,4 +1,4 @@
-import type { ReviewVerdict, PlanGate, RepoConfig, SandboxProfile } from "./types";
+import type { ReviewVerdict, PlanGate, ReviewerEnv, RepoConfig, SandboxProfile } from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import type { RepoConfigResponse } from "./api";
@@ -132,17 +132,26 @@ export class PlanGateStore {
   map = $state<Record<string, PlanGate>>({});
   // session ids whose plan reviewer is currently in flight; driven by `session:plangate-reviewing`
   reviewing = $state<Record<string, boolean>>({});
+  // reviewer env (CLI + model + effort) of the in-flight plan reviewer, keyed by session id; carried
+  // on the `session:plangate-reviewing` start signal (+ bootstrap). Surfaced on the in-flight
+  // "Reviewing…" button so the operator sees which coding CLI/model is doing the review — even on
+  // the FIRST review, before a gate (and thus its reviewer* fields) exists.
+  reviewerEnv = $state<Record<string, ReviewerEnv>>({});
   // rolling live-activity feed (last MAX_ACTIVITY_LINES) of the in-flight plan reviewer; driven
   // by `session:plangate-activity`, surfaced in the review-in-flight banner preview. Same
   // staleness invariant as ReviewsStore: reset on both ends of a reviewing transition and wiped
   // on bootstrap so no line from a prior run or from before a reconnect leaks into a later preview.
   activity = $state<Record<string, string[]>>({});
 
-  /** Bootstrap from a GET /api/plan-gates snapshot + GET /api/plan-gates/inflight ids,
-   *  so a reload mid-review still shows verdicts and the in-flight indicator. */
-  bootstrap(map: Record<string, PlanGate>, inflightIds: string[]) {
+  /** Bootstrap from a GET /api/plan-gates snapshot + GET /api/plan-gates/inflight,
+   *  so a reload mid-review still shows verdicts, the in-flight indicator, AND which
+   *  CLI/model is doing each review. */
+  bootstrap(map: Record<string, PlanGate>, inflight: Array<{ id: string } & ReviewerEnv>) {
     this.map = map;
-    this.reviewing = Object.fromEntries(inflightIds.map((id) => [id, true]));
+    this.reviewing = Object.fromEntries(inflight.map(({ id }) => [id, true]));
+    this.reviewerEnv = Object.fromEntries(
+      inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
+    );
     // Snapshot carries no historical activity → wipe any stale feed; it rebuilds from
     // `session:plangate-activity` within ~1 tick. Covers load() (which calls through here).
     this.activity = {};
@@ -151,7 +160,7 @@ export class PlanGateStore {
   /** Re-fetch the snapshot + in-flight ids from the server (best-effort). */
   async load() {
     let map: Record<string, PlanGate> = {};
-    let inflight: string[] = [];
+    let inflight: Array<{ id: string } & ReviewerEnv> = [];
     try {
       map = await getPlanGates();
     } catch {
@@ -171,7 +180,17 @@ export class PlanGateStore {
     this.applyReviewing(id, false);
   }
 
-  applyReviewing(id: string, on: boolean) {
+  applyReviewing(id: string, on: boolean, env?: ReviewerEnv) {
+    // Env cache write runs BEFORE the transition guard below: a redundant `true` (bootstrap-then-WS
+    // interleave on reload, or a re-emitted signal) doesn't transition `reviewing`, but must still
+    // refresh the identity. On end (`false`) drop it so a stale env can't linger past the run.
+    if (on) {
+      if (env) this.reviewerEnv = { ...this.reviewerEnv, [id]: env };
+    } else if (id in this.reviewerEnv) {
+      const copy = { ...this.reviewerEnv };
+      delete copy[id];
+      this.reviewerEnv = copy;
+    }
     if (!!this.reviewing[id] === on) return;
     // Reset the feed on both ends of a transition (start = fresh empty run, end = stale tail).
     this.clearActivity(id);
@@ -181,6 +200,12 @@ export class PlanGateStore {
       delete copy[id];
       this.reviewing = copy;
     }
+  }
+
+  /** The in-flight reviewer's env (CLI + model + effort) for a session, or null when none is
+   *  known (no review running, or a run whose env hasn't arrived yet). */
+  reviewerEnvFor(id: string): ReviewerEnv | null {
+    return this.reviewerEnv[id] ?? null;
   }
 
   /** Append the in-flight plan reviewer's latest tool-use summary to its bounded rolling feed

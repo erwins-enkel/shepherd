@@ -199,6 +199,9 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     });
     expect(status).toBe("started");
     expect(events(frames)).toEqual(["session:plangate-reviewing"]);
+    // Carries a concrete non-null reviewer env so the preview shows the real CLI · model · effort.
+    const frame = frames[0];
+    expect(frame.event === "session:plangate-reviewing" && frame.data.env?.provider).toBeTruthy();
   });
 
   it("reviewPlan returns plan-unavailable without a reviewing latch when no plan gate exists", () => {

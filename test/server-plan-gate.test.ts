@@ -63,13 +63,17 @@ test("GET /api/plan-gates returns {} when planGateCache is absent", async () => 
   expect(await res.json()).toEqual({});
 });
 
-test("GET /api/plan-gates/inflight returns in-flight session ids", async () => {
+test("GET /api/plan-gates/inflight returns in-flight reviews with their reviewer env", async () => {
+  const inflight = [
+    { id: "sess-1", provider: "claude" as const, model: "opus", effort: "high" },
+    { id: "sess-2", provider: null, model: null, effort: null },
+  ];
   const { app } = harness({
-    planGateCache: { snapshot: () => ({}), reviewing: () => ["sess-1", "sess-2"] },
+    planGateCache: { snapshot: () => ({}), reviewing: () => inflight },
   });
   const res = await app.fetch(new Request("http://x/api/plan-gates/inflight"));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual(["sess-1", "sess-2"]);
+  expect(await res.json()).toEqual(inflight);
 });
 
 test("GET /api/plan-gates/inflight returns [] when planGateCache is absent", async () => {

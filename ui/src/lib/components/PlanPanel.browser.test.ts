@@ -94,6 +94,7 @@ afterEach(() => {
   // Clean up any seeded plan gate entries.
   planGates.map = {};
   planGates.reviewing = {};
+  planGates.reviewerEnv = {};
   vi.mocked(reviewPlan).mockReset();
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
   vi.unstubAllGlobals();
@@ -469,6 +470,32 @@ describe("PlanPanel release state", () => {
     expect(vi.mocked(reviewPlan)).toHaveBeenCalledWith(id);
     // The in-flight indicator appears (the "started" bridge to the WS reviewing flag).
     await expect.element(page.getByText(m.planpanel_reviewing())).toBeVisible();
+  });
+
+  it("shows the reviewer CLI · model · effort on the in-flight button", async () => {
+    const id = "s-reviewing-env";
+    planGates.applyReviewing(id, true, { provider: "claude", model: "opus", effort: "high" });
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect
+      .element(page.getByText(m.planpanel_reviewing_env({ env: "Claude Code · opus · High" })))
+      .toBeVisible();
+  });
+
+  it("falls back to plain Reviewing… when the in-flight reviewer provider is null", async () => {
+    const id = "s-reviewing-null-provider";
+    // An adopted-orphan run can carry a null provider; the button must never surface "unavailable".
+    planGates.applyReviewing(id, true, { provider: null, model: "opus", effort: "high" });
+
+    render(PlanPanel, {
+      props: { session: session({ id }), onclose: vi.fn() },
+    });
+
+    await expect.element(page.getByText(m.planpanel_reviewing())).toBeVisible();
+    expect(document.querySelector(".review")?.textContent).not.toContain("unavailable");
   });
 
   it("explains the required plan artifact in the planning/no-gate empty state", async () => {

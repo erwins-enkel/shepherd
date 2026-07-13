@@ -242,7 +242,22 @@ export const demoState = {
   /** Trigger an on-demand plan review — seeded plan gates simulate a reviewer, no gate is unavailable. */
   reviewPlan(id: string): "started" | "plan-unavailable" {
     if (!world.planGates[id]) return "plan-unavailable";
-    emit({ event: "session:plangate-reviewing", data: { id, reviewing: true } });
+    // Carry a concrete non-null reviewer env so the in-flight "Reviewing…" button shows the real
+    // CLI · model · effort triple in the demo/preview (reflecting the session's own env), not the
+    // bare fallback — which is what makes the mobile-wrap behavior visible in the browser preview.
+    const s = find(id);
+    emit({
+      event: "session:plangate-reviewing",
+      data: {
+        id,
+        reviewing: true,
+        env: {
+          provider: s?.agentProvider ?? "claude",
+          model: s?.model ?? "opus",
+          effort: s?.effort ?? "high",
+        },
+      },
+    });
     return "started";
   },
 

@@ -111,6 +111,25 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
 });
+test("begin carries the reviewer env on the reviewing:true signal + reviewingInflight()", async () => {
+  const reviewingEvents: any[] = [];
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
+    onReviewing: (id: string, r: boolean, env?: unknown) => reviewingEvents.push([id, r, env]),
+  });
+  await h.svc.consider({ ...planningSession(), effort: "high" } as any);
+  // The start signal carries CLI + model + the resolved effort (env.effort null → session.effort).
+  expect(reviewingEvents).toContainEqual([
+    "s1",
+    true,
+    { provider: "codex", model: "gpt-5.5", effort: "high" },
+  ]);
+  // The inflight bootstrap snapshot exposes the same env for a mid-review reload.
+  expect(h.svc.reviewingInflight()).toEqual([
+    { id: "s1", provider: "codex", model: "gpt-5.5", effort: "high" },
+  ]);
+});
+
 test("consider: env.effort overrides session.effort (issue #1418)", async () => {
   const h = harness({ env: () => ({ provider: "claude", model: null, effort: "high" }) });
   await h.svc.consider({ ...planningSession(), effort: "low" } as any);

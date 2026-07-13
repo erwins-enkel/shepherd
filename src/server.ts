@@ -379,7 +379,14 @@ export interface AppDeps {
    *  tests that skip it. The parallel of reviewCache for the pre-execution plan gate. */
   planGateCache?: {
     snapshot(): Record<string, import("./types").PlanGate>;
-    reviewing?(): string[];
+    /** In-flight plan reviews with their reviewer env (CLI + model + effort), so a reload
+     *  mid-review restores which coding CLI/model is doing the review — not just that one runs. */
+    reviewing?(): Array<{
+      id: string;
+      provider: import("./types").AgentProvider | null;
+      model: string | null;
+      effort: string | null;
+    }>;
   };
   /** Trigger an adversarial plan review for a session on demand (the /review-plan route).
    *  Wired to PlanGateService.consider in index.ts; absent in tests that don't exercise it. */

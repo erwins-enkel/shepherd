@@ -579,7 +579,7 @@ export class HerdStore {
         if (ev.data.planPhase) this.patchSession(ev.data.id, { planPhase: ev.data.planPhase });
         return true;
       case "session:plangate-reviewing":
-        planGates.applyReviewing(ev.data.id, ev.data.reviewing);
+        planGates.applyReviewing(ev.data.id, ev.data.reviewing, ev.data.env);
         return true;
       case "session:plangate-activity":
         planGates.setActivity(ev.data.id, ev.data.summary);

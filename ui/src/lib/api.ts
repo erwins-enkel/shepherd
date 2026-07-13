@@ -35,6 +35,7 @@ import type {
   ProjectIcons,
   ReviewVerdict,
   PlanGate,
+  ReviewerEnv,
   RepoConfig,
   PostMergeSteps,
   RepoRoles,
@@ -1630,8 +1631,9 @@ export async function getPlanGates(): Promise<Record<string, PlanGate>> {
   return getJson("/api/plan-gates", "plan-gates");
 }
 
-/** Session ids with a plan review currently in flight (bootstrap for the reviewing indicator). */
-export async function getPlanGatesInflight(): Promise<string[]> {
+/** In-flight plan reviews with their reviewer env (bootstrap for the reviewing indicator + the
+ *  CLI/model identity shown on the in-flight button). */
+export async function getPlanGatesInflight(): Promise<Array<{ id: string } & ReviewerEnv>> {
   return getJson("/api/plan-gates/inflight", "plan-gates inflight");
 }
 

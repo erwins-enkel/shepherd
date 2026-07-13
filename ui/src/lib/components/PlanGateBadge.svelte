@@ -5,6 +5,7 @@
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { environmentLabel } from "$lib/reviewer-env";
   import { replySession, reviewPlan, isPlanReviewError } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { clock } from "$lib/now.svelte";
@@ -42,6 +43,20 @@
   const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
   const stalled = $derived(planGateStalledNow(session, gate, reviewing, clock.current));
   const stalledActionsVisible = $derived(stalled);
+  // Reviewer identity (CLI · model · effort) for the in-flight run — carried on the reviewing signal
+  // (+ bootstrap); falls back to the persisted gate fields. Surfaced only in the tooltip here (the
+  // dense chip label stays short). Null when no real provider is resolved → plain reviewing tip.
+  const liveReviewEnv = $derived(planGates.reviewerEnvFor(session.id));
+  const reviewProvider = $derived(liveReviewEnv?.provider ?? gate?.reviewerProvider ?? null);
+  const reviewerIdentity = $derived(
+    reviewProvider
+      ? environmentLabel(
+          reviewProvider,
+          liveReviewEnv?.provider ? liveReviewEnv.model : gate?.reviewerModel,
+          liveReviewEnv?.provider ? liveReviewEnv.effort : gate?.reviewerEffort,
+        )
+      : null,
+  );
 
   let open = $state(false);
   let btnEl = $state<HTMLButtonElement>();
@@ -69,7 +84,9 @@
       {
         fallback: m.plangate_title(),
         planning: m.plangate_tip_planning(),
-        reviewing: m.plangate_tip_reviewing(),
+        reviewing: reviewerIdentity
+          ? m.plangate_tip_reviewing_env({ env: reviewerIdentity })
+          : m.plangate_tip_reviewing(),
         changes: m.plangate_tip_changes(),
         changesStalled: m.plangate_tip_changes_stalled(),
         ready: m.plangate_tip_ready(),

@@ -7,6 +7,7 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { signedOff } from "./signoff";
 import { checksCleared } from "./checks-gate";
 import { DRAFT_PR_NOTE } from "./service";
+import { resumeThenSteer } from "./resume-then-steer";
 
 /**
  * Agent-facing steer templates. NOT UI chrome — never i18n'd (they are typed into the
@@ -315,16 +316,11 @@ export class AutopilotService {
     await this.driveSteer(s, EMPTY_COMPLETION_STEER);
   }
 
-  /** Send `text` into the session, resuming an exited pane first. Returns whether the steer
-   *  landed; does NOT bump the step (the caller decides whether the attempt counts). */
-  private async sendSteer(s: Session, text: string): Promise<boolean> {
-    if (!this.deps.paneAlive(s.id) || this.deps.deferSteer?.(s.id)) {
-      // Not live, OR a herdr-restored account husk to re-drive first (Locus B) so the steer lands on the
-      // re-driven pane, not the wrong-account husk. resume() resolves falsy when it can't (archived /
-      // no pinned session id) — then there's nothing to do.
-      if (!(await this.deps.resume(s.id))) return false;
-    }
-    return await this.deps.steer(s.id, text);
+  /** Send `text` into the session, resuming an exited pane first (shared with the plan gate via
+   *  resumeThenSteer). Returns whether the steer landed; does NOT bump the step (the caller decides
+   *  whether the attempt counts). */
+  private sendSteer(s: Session, text: string): Promise<boolean> {
+    return resumeThenSteer(s.id, text, this.deps);
   }
 
   /** Steer `text` into the session and bump the step on a landed steer. Best-effort —

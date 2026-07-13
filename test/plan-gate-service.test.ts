@@ -70,6 +70,11 @@ function harness(over: any = {}) {
     // no bwrap on test hosts: degrade to passthrough so existing argv assertions hold
     detectBackend: () => null,
     reply: async () => true,
+    // Default: pane live (Claude idles at its prompt) → resumeThenSteer skips resume and delivers
+    // via `reply`, preserving every pre-existing test's behavior. Codex-exit tests override paneAlive.
+    paneAlive: () => true,
+    resume: async () => ({}),
+    deferSteer: () => false,
     async release() {},
     onChange() {},
     onReviewing() {},
@@ -516,6 +521,109 @@ test("request-changes sub-cap but the steer can't land → stall signal, round h
   expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalates instead of going silent
   expect(h.store.gate.round).toBe(0); // round did not advance (nothing delivered)
 });
+
+// ── resume-before-steer: findings must reach an EXITED (Codex) planner ─────────
+test("codex planner exited (pane dead) → resume THEN steer, findings land, round advances", async () => {
+  const resumed: string[] = [];
+  const steers: string[] = [];
+  let alive = false; // Codex exits after writing the plan → pane is not a live agent
+  const h = harness({
+    cap: 5,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix A"],
+    }),
+    paneAlive: () => alive,
+    resume: async (id: string) => {
+      resumed.push(id);
+      alive = true; // revived → now steerable
+      return {};
+    },
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(resumed).toEqual(["s1"]); // the exited pane was resumed FIRST
+  expect(steers.length).toBe(1); // then the findings were steered into the revived agent
+  expect(steers[0]).toContain("fix A");
+  expect(h.store.gate.round).toBe(1); // delivered → round advanced (the plan can now be revised)
+});
+test("codex planner exited but resume refused (non-isolated) → no steer, round held, escalates", async () => {
+  const steers: string[] = [];
+  const signals: any[] = [];
+  const h = harness({
+    cap: 5,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    paneAlive: () => false, // pane exited
+    resume: async () => null, // the wiring refuses a non-isolated Codex resume (sibling-corruption guard)
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: { addSignal: (s: any) => signals.push(s) },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(steers.length).toBe(0); // resume refused → never steered into a dead pane
+  expect(signals.some((s) => s.kind === "stall")).toBe(true); // escalated to the operator
+  expect(h.store.gate.round).toBe(0); // round held
+});
+test("claude planner live at prompt → steer WITHOUT a needless resume", async () => {
+  const resumed: string[] = [];
+  const h = harness({
+    cap: 5,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix"],
+    }),
+    paneAlive: () => true, // Claude idles live at its prompt
+    resume: async (id: string) => {
+      resumed.push(id);
+      return {};
+    },
+    reply: () => true,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(resumed).toEqual([]); // live pane → never resumed (byte-identical to pre-change behavior)
+  expect(h.store.gate.round).toBe(1);
+});
+test("resume() reset during an in-flight review is not clobbered by finalize (live round wins)", async () => {
+  // Begin a review while the gate is AT the cap (round 5); the reviewer captures priorRound=5.
+  let liveGate: any = {
+    planHash: "OLD", // differs from hash("PLAN TEXT") so consider() does not dedupe
+    decision: "changes_requested",
+    approved: false,
+    round: 5,
+    findings: ["x"],
+  };
+  const h = harness({
+    cap: 5,
+    readVerdict: () => ({ decision: "request-changes", summary: "no", body: "B", findings: ["x"] }),
+    reply: () => true, // paneAlive default true → delivers directly
+    store: { getPlanGate: () => liveGate },
+  });
+  await h.svc.consider(planningSession() as any); // f.priorRound = 5 captured here
+  // Operator resume() mid-review resets the live round to 0.
+  liveGate = { ...liveGate, round: 0, finalRoundPending: false, dismissed: false };
+  await h.svc.tick(); // finalize
+  // With the fix, finalize reads the LIVE round (0) → delivered → 1; the stale priorRound (5, at cap)
+  // does not resurrect. Without the fix this would be 5 (held at cap → falsely stalled).
+  expect(h.store.gate.round).toBe(1);
+});
+
 const lastPrompt = (h: ReturnType<typeof harness>): string => {
   const argv = h.started[0].argv;
   return argv[argv.length - 1];

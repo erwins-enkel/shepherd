@@ -22,46 +22,53 @@
   const round = $derived(addressRoundInfo(verdict, clock.current));
   const activity = $derived(reviews.activityFor(sessionId));
 
+  type CriticView = { cls: string; label: string; title: string; dot: boolean };
+
+  // Streak label/title split out so the `view` dispatcher below stays under the
+  // complexity gate (the round branch carried most of the nested ternaries).
+  function roundView(r: NonNullable<typeof round>): CriticView {
+    const label =
+      r.status === "stalled"
+        ? m.criticbadge_stalled()
+        : r.status === "final"
+          ? m.criticbadge_final()
+          : m.criticbadge_round({ round: r.round, cap: r.cap });
+    const title =
+      r.status === "stalled"
+        ? m.criticbadge_stalled_title({ cap: r.cap })
+        : r.status === "final"
+          ? m.criticbadge_final_title()
+          : m.criticbadge_round_title({ round: r.round, cap: r.cap });
+    return {
+      cls: `streak-${r.status}${reviewing ? " critic-reviewing" : ""}`,
+      label,
+      title,
+      dot: reviewing,
+    };
+  }
+
+  function reviewingView(): CriticView {
+    return {
+      cls: "critic-reviewing",
+      label: m.criticbadge_reviewing(),
+      title: activity
+        ? m.criticbadge_reviewing_activity_title({ activity })
+        : m.criticbadge_reviewing_title(),
+      dot: true,
+    };
+  }
+
   // Which visual state renders, and its class / label / tooltip text / dot.
-  const view = $derived.by(() => {
-    if (round) {
-      const label =
-        round.status === "stalled"
-          ? m.criticbadge_stalled()
-          : round.status === "final"
-            ? m.criticbadge_final()
-            : m.criticbadge_round({ round: round.round, cap: round.cap });
-      const title =
-        round.status === "stalled"
-          ? m.criticbadge_stalled_title({ cap: round.cap })
-          : round.status === "final"
-            ? m.criticbadge_final_title()
-            : m.criticbadge_round_title({ round: round.round, cap: round.cap });
-      return {
-        cls: `streak-${round.status}${reviewing ? " critic-reviewing" : ""}`,
-        label,
-        title,
-        dot: reviewing,
-      };
-    }
-    if (chip.kind === "reviewing") {
-      return {
-        cls: "critic-reviewing",
-        label: m.criticbadge_reviewing(),
-        title: activity
-          ? m.criticbadge_reviewing_activity_title({ activity })
-          : m.criticbadge_reviewing_title(),
-        dot: true,
-      };
-    }
-    if (chip.kind === "verdict") {
+  const view = $derived.by((): CriticView | null => {
+    if (round) return roundView(round);
+    if (chip.kind === "reviewing") return reviewingView();
+    if (chip.kind === "verdict")
       return {
         cls: `critic-${chip.decision}`,
         label: chip.label,
         title: verdict!.summary || m.criticbadge_title(),
         dot: false,
       };
-    }
     return null;
   });
 

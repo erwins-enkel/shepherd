@@ -11,6 +11,7 @@
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import InfoTip from "$lib/components/InfoTip.svelte";
   import { untrack } from "svelte";
 
   // Read/upload browser of the session's scratchpad subtree (#1164, #1258). Click a directory to
@@ -238,21 +239,30 @@
   ondragleave={handleDragLeave}
   ondrop={handleDrop}
 >
-  <div class="seg-row" role="group" aria-label={m.files_source_switch_aria()}>
-    <button
-      type="button"
-      class="seg-btn"
-      class:seg-active={source === "scratchpad"}
-      aria-pressed={source === "scratchpad"}
-      onclick={() => switchSource("scratchpad")}>{m.files_source_scratchpad()}</button
-    >
-    <button
-      type="button"
-      class="seg-btn"
-      class:seg-active={source === "worktree"}
-      aria-pressed={source === "worktree"}
-      onclick={() => switchSource("worktree")}>{m.files_source_worktree()}</button
-    >
+  <div class="seg-row">
+    <div class="seg-tabs" role="group" aria-label={m.files_source_switch_aria()}>
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={source === "scratchpad"}
+        aria-pressed={source === "scratchpad"}
+        onclick={() => switchSource("scratchpad")}>{m.files_source_scratchpad()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={source === "worktree"}
+        aria-pressed={source === "worktree"}
+        onclick={() => switchSource("worktree")}>{m.files_source_worktree()}</button
+      >
+    </div>
+    <div class="seg-tip">
+      <InfoTip
+        text={m.files_source_difference_tip()}
+        label={m.newtask_info_aria({ topic: m.files_source_switch_aria() })}
+        prominent={true}
+      />
+    </div>
   </div>
   {#if dragOver}
     <!-- Whole-tab drop overlay; sits over (not inside) the scroll wrapper so it always covers the
@@ -422,8 +432,22 @@
   }
   .seg-row {
     display: flex;
+    align-items: stretch;
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
+  }
+  .seg-tabs {
+    display: flex;
+    flex: 1;
+    min-width: 0;
+  }
+  .seg-tip {
+    flex: 0 0 36px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-left: 1px solid var(--color-line);
+    background: var(--color-inset);
   }
   .seg-btn {
     flex: 1;

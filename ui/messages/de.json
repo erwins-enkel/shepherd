@@ -3087,5 +3087,6 @@
   "command_source_codex_home": "Codex-Home",
   "command_source_system": "System",
   "feat_codex_discovery_title": "Codex-Skills in der Command-Discovery",
-  "feat_codex_discovery_body": "Der Prompt-Picker versteht jetzt Codex-Skills, einschließlich installierter Plugin-Skills wie $github:yeet, während installierte Codex-Plugins als Browsing-Inventar erscheinen."
+  "feat_codex_discovery_body": "Der Prompt-Picker versteht jetzt Codex-Skills, einschließlich installierter Plugin-Skills wie $github:yeet, während installierte Codex-Plugins als Browsing-Inventar erscheinen.",
+  "files_source_difference_tip": "Das Scratchpad enthält zusätzliche Dateien dieser Sitzung und bleibt vom Repository getrennt. Der Worktree ist der Projektordner des Agenten mit seinen Änderungen; hier kannst du ihn nur durchsuchen und Dateien daraus herunterladen."
 }

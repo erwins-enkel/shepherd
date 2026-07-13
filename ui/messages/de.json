@@ -3151,5 +3151,6 @@
   "settings_distiller_interval_hint": "Wähle {min}–{max} ganze Tage. Manuelle Läufe werden nie verzögert.",
   "settings_distiller_interval_save_failed": "Das Distiller-Intervall konnte nicht gespeichert werden.",
   "feat_distiller_provider_cadence_title": "Kosten des Learnings-Distillers steuern",
-  "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen."
+  "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen.",
+  "settings_cli_defaults_title": "Globale Standards"
 }

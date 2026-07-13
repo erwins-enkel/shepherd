@@ -3151,5 +3151,6 @@
   "settings_distiller_interval_hint": "Choose {min}–{max} whole days. Manual runs are never delayed.",
   "settings_distiller_interval_save_failed": "Could not save the Distiller interval.",
   "feat_distiller_provider_cadence_title": "Control Learnings Distiller cost",
-  "feat_distiller_provider_cadence_body": "Choose the Distiller CLI, model, effort, and the days between automatic runs."
+  "feat_distiller_provider_cadence_body": "Choose the Distiller CLI, model, effort, and the days between automatic runs.",
+  "settings_cli_defaults_title": "Global defaults"
 }

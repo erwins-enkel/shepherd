@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Settings as SettingsPayload, DiagnosticCheck } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
@@ -165,8 +165,135 @@ const saveBtn = () => page.getByRole("button", { name: m.settings_auth_key_save(
 const keyInput = () => page.getByRole("textbox", { name: m.settings_auth_key_label() });
 
 function mountCodingAgents() {
-  render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
+  return render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
+
+// During this RED step the disclosure does not exist yet, so keep the fallback for the
+// current flat layout. Once present, API-key tests must open Claude Code before touching
+// controls that intentionally remain mounted but hidden inside the collapsed section.
+async function mountClaudeApiKeySettings() {
+  await mountCodingAgents();
+  const disclosure = page.getByRole("button", {
+    name: m.settings_cli_claude_title(),
+    exact: true,
+  });
+  if (disclosure.query()?.getAttribute("aria-expanded") === "false") {
+    await disclosure.click();
+  }
+}
+
+const codingSectionNames = () => [
+  m.settings_cli_defaults_title(),
+  m.settings_cli_claude_title(),
+  m.settings_cli_codex_title(),
+  m.settings_role_models_title(),
+];
+
+function codingSectionButton(name: string) {
+  return page.getByRole("button", { name, exact: true });
+}
+
+function requiredCodingSectionButton(name: string) {
+  const disclosure = codingSectionButton(name);
+  const button = disclosure.query() as HTMLButtonElement | null;
+  expect(button, `missing Coding CLI disclosure button named "${name}"`).not.toBeNull();
+  return { disclosure, button: button! };
+}
+
+function controlledSection(button: HTMLElement): HTMLElement {
+  const id = button.getAttribute("aria-controls");
+  expect(id, "disclosure has aria-controls").toBeTruthy();
+  const content = document.getElementById(id!);
+  expect(content, `controlled content #${id} stays mounted`).not.toBeNull();
+  return content!;
+}
+
+function expectInitialCodingSectionState() {
+  const names = codingSectionNames();
+  for (const [index, name] of names.entries()) {
+    const { button } = requiredCodingSectionButton(name);
+    const expanded = index === 0;
+    expect(button.getAttribute("aria-expanded")).toBe(String(expanded));
+    expect(controlledSection(button).hidden).toBe(!expanded);
+  }
+}
+
+describe("Settings Coding CLI sections", () => {
+  it("renders the four named disclosures in order with only Global defaults open", async () => {
+    await mountCodingAgents();
+
+    const names = codingSectionNames();
+    const buttons: HTMLElement[] = [];
+    for (const name of names) {
+      buttons.push(requiredCodingSectionButton(name).button);
+    }
+
+    const panel = document.getElementById("settings-panel-codingAgents");
+    expect(panel).not.toBeNull();
+    expect(Array.from(panel!.querySelectorAll("button[aria-controls]"))).toEqual(buttons);
+
+    for (const [index, button] of buttons.entries()) {
+      const expanded = index === 0;
+      expect(button.getAttribute("aria-expanded")).toBe(String(expanded));
+      expect(controlledSection(button).hidden).toBe(!expanded);
+    }
+  });
+
+  it("click toggles a collapsed section without replacing its controlled content", async () => {
+    await mountCodingAgents();
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_claude_title());
+    const content = controlledSection(button);
+    expect(content.hidden).toBe(true);
+
+    await disclosure.click();
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(content.id)).toBe(content);
+    expect(content.hidden).toBe(false);
+
+    await disclosure.click();
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
+    expect(document.getElementById(content.id)).toBe(content);
+    expect(content.hidden).toBe(true);
+  });
+
+  it("native Enter and Space button interaction toggles a focused disclosure", async () => {
+    await mountCodingAgents();
+    const { button } = requiredCodingSectionButton(m.settings_cli_codex_title());
+    button.focus();
+    expect(document.activeElement).toBe(button);
+
+    await userEvent.keyboard("{Enter}");
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+
+    await userEvent.keyboard(" ");
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("preserves an expanded section while switching Settings tabs", async () => {
+    await mountCodingAgents();
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
+    await disclosure.click();
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+
+    await page.getByRole("tab", { name: m.settings_tab_session() }).click();
+    await page.getByRole("tab", { name: m.settings_tab_coding_agents() }).click();
+
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+    expect(controlledSection(button).hidden).toBe(false);
+  });
+
+  it("resets to only Global defaults open after Settings is remounted", async () => {
+    const first = await mountCodingAgents();
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_codex_title());
+    await disclosure.click();
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+
+    await first.unmount();
+    await mountCodingAgents();
+
+    expectInitialCodingSectionState();
+  });
+});
 
 describe("Settings default coding environment", () => {
   it("loads the saved model for the selected Codex CLI", async () => {
@@ -235,7 +362,7 @@ describe("Settings default coding environment", () => {
 describe("Settings api-key verify", () => {
   it("verify → OK renders the verified line", async () => {
     mockVerify.mockResolvedValue({ ok: true });
-    mountCodingAgents();
+    await mountClaudeApiKeySettings();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -249,7 +376,7 @@ describe("Settings api-key verify", () => {
       reason: "not-authenticated",
       detail: "invalid x-api-key",
     });
-    mountCodingAgents();
+    await mountClaudeApiKeySettings();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -266,7 +393,7 @@ describe("Settings api-key verify", () => {
 
   it("verify throw → fail-closed (renders FAILED, never OK)", async () => {
     mockVerify.mockRejectedValue(new Error("boom"));
-    mountCodingAgents();
+    await mountClaudeApiKeySettings();
 
     await expect.element(verifyBtn()).toBeInTheDocument();
     await verifyBtn().click();
@@ -283,7 +410,7 @@ describe("Settings api-key verify", () => {
     mockGetSettings.mockResolvedValue(settings({ hasApiKey: false }));
     mockPutKey.mockResolvedValue({ hasApiKey: true });
     mockVerify.mockResolvedValue({ ok: true });
-    mountCodingAgents();
+    await mountClaudeApiKeySettings();
 
     await expect.element(keyInput()).toBeInTheDocument();
     await keyInput().fill("sk-ant-test");

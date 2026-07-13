@@ -3057,5 +3057,9 @@
   "herd_help_merging": "The Merge train is landing these pull requests for you, one after another — no manual merging. As each lands it moves to Merged.",
   "herd_help_merged": "These pull requests have landed on your main branch — done. Shepherd tears down their worktrees; any leftover manual steps show up on the Owed lens.",
   "feat_herd_stage_help_title": "Understand every board stage",
-  "feat_herd_stage_help_body": "Every stage on the Herd now has a small \"i\" that explains what it means, what Shepherd is doing for you, and what happens next — from Working through Reviewing to Merged. Hover it (or tap on mobile). New here? The empty board also shows how work flows end to end."
+  "feat_herd_stage_help_body": "Every stage on the Herd now has a small \"i\" that explains what it means, what Shepherd is doing for you, and what happens next — from Working through Reviewing to Merged. Hover it (or tap on mobile). New here? The empty board also shows how work flows end to end.",
+  "viewport_diff_annotation_agent": "Agent",
+  "viewport_diff_annotation_review": "Review",
+  "feat_diff_annotations_title": "Agent notes in the Diff tab",
+  "feat_diff_annotations_body": "The Diff tab now shows the agent's own reasoning inline, anchored to the lines its edits produced, plus any code-review findings as banners on the files they concern — so the why behind a change lives next to the change."
 }

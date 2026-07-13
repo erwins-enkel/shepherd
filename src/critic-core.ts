@@ -340,7 +340,7 @@ function isPathShaped(token: string): boolean {
  * `files` set carried on InFlight, so it never touches the poll loop). For each finding, parse a
  * leading `<path>: ` token (stripping an optional `:<line>` suffix on the path) and DROP it iff:
  *   `files` is non-empty AND the leading token is path-shaped AND it does NOT correspond to any
- *   changed file (see `correspondsToChangedFile`: exact, trailing-segment, or basename match).
+ *   changed file (via `attributeFinding` → `matchChangedFile`: exact, trailing-segment, or basename match).
  * Findings with no parseable path prefix are KEPT (unattributed → never drop something we can't
  * attribute). Note this means a finding prefixed with an extensionless path (`Makefile: ...`,
  * `Dockerfile: ...`, `LICENSE: ...`) is NOT path-shaped per isPathShaped, so it is treated as
@@ -356,35 +356,65 @@ export function scopeFindings(
   const kept: string[] = [];
   const dropped: string[] = [];
   for (const f of findings) {
-    // Leading token = everything up to the first ": ". No ": " → unattributed → keep.
-    const sep = f.indexOf(": ");
-    if (sep < 0) {
-      kept.push(f);
-      continue;
-    }
-    // Strip an optional `:<line>` (or `:<line>:<col>`) suffix so "src/a.ts:42: ..." → "src/a.ts".
-    const token = f.slice(0, sep).replace(/:\d+(?::\d+)?$/, "");
-    if (!isPathShaped(token)) {
-      kept.push(f); // prose prefix (e.g. "Note", "Nit") → not a path → keep
-      continue;
-    }
-    if (correspondsToChangedFile(token, files)) kept.push(f);
-    else dropped.push(f); // path-shaped + provably outside the diff → drop
+    // Reuse the shared classifier so the drop rule can never drift from the Diff-tab
+    // routing (#1699). DROP iff provably outside the diff; keep matched + unattributed —
+    // byte-identical to the pre-refactor per-finding logic.
+    if (attributeFinding(f, files).attribution === "out-of-diff") dropped.push(f);
+    else kept.push(f);
   }
   return { kept, dropped };
 }
 
-/** Does a path-shaped finding token correspond to a file actually changed in the diff? The critic
- *  is instructed to prefix the full repo-relative path, but it sometimes uses just the basename
+/** How a critic finding relates to the diff's changed-file set (`files`), used by BOTH the scope
+ *  backstop (`scopeFindings` drops `out-of-diff`) and the Diff tab's annotation routing (#1699,
+ *  which surfaces `out-of-diff` in the panel banner instead of dropping). Sharing one classifier
+ *  keeps the two consumers from drifting. */
+export type FindingAttribution = "matched" | "unattributed" | "out-of-diff";
+
+export interface AttributedFinding {
+  attribution: FindingAttribution;
+  /** `matched` → the corresponding `DiffFile.path` (NOT the raw token, so a basename/trailing
+   *  token keys the right file); `out-of-diff` → the raw path token; `unattributed` → "". */
+  path: string;
+  /** `matched`/`out-of-diff` → the finding with its `<path>: ` prefix stripped; `unattributed`
+   *  → the whole finding (there is no path prefix to strip). */
+  text: string;
+}
+
+/**
+ * Classify a single critic finding against the diff's changed-file set. Parses a leading
+ * `<path>: ` token (stripping an optional `:<line>[:<col>]` suffix). A finding with no `": "`
+ * separator, or whose leading token is not path-shaped (prose like "Note: "/"Nit: ", or an
+ * extensionless path like `Makefile: `), is `unattributed`. A path-shaped token that corresponds
+ * to a changed file (exact, trailing-segment, or basename match — see `matchChangedFile`) is
+ * `matched`; one that provably does not is `out-of-diff`. PURE. Callers with an empty `files` set
+ * should short-circuit before calling (an empty set would classify every path-shaped finding as
+ * `out-of-diff`).
+ */
+export function attributeFinding(finding: string, files: string[]): AttributedFinding {
+  const sep = finding.indexOf(": ");
+  if (sep < 0) return { attribution: "unattributed", path: "", text: finding };
+  // Strip an optional `:<line>` (or `:<line>:<col>`) suffix so "src/a.ts:42: ..." → "src/a.ts".
+  const token = finding.slice(0, sep).replace(/:\d+(?::\d+)?$/, "");
+  if (!isPathShaped(token)) return { attribution: "unattributed", path: "", text: finding };
+  const text = finding.slice(sep + 2); // everything after the "<path>: " prefix
+  const matched = matchChangedFile(token, files);
+  return matched
+    ? { attribution: "matched", path: matched, text }
+    : { attribution: "out-of-diff", path: token, text };
+}
+
+/** The changed file a path-shaped finding token corresponds to, or null. The critic is instructed
+ *  to prefix the full repo-relative path, but it sometimes uses just the basename
  *  (`Viewport.svelte:`) or a trailing slice (`components/Viewport.svelte:`). Match on any of:
  *  exact equality, the token being a trailing path-segment of a changed file, OR a bare basename
- *  match. Erring toward correspondence (KEEP) is the safe direction — a missed drop only wastes a
- *  round, whereas a false drop hides a real in-diff finding. The cost is that a basename shared by
- *  an unrelated changed file (`index.ts`) won't drop; acceptable given the prompt asks for full
- *  paths and this is only a fallback. */
-function correspondsToChangedFile(token: string, files: string[]): boolean {
+ *  match — returning the first such changed-file path. Erring toward correspondence (a match) is
+ *  the safe direction — a missed drop only wastes a round, whereas a false drop hides a real
+ *  in-diff finding. The cost is that a basename shared by an unrelated changed file (`index.ts`)
+ *  matches; acceptable given the prompt asks for full paths and this is only a fallback. */
+function matchChangedFile(token: string, files: string[]): string | null {
   const base = baseName(token);
-  return files.some((f) => f === token || f.endsWith("/" + token) || baseName(f) === base);
+  return files.find((f) => f === token || f.endsWith("/" + token) || baseName(f) === base) ?? null;
 }
 
 function baseName(p: string): string {

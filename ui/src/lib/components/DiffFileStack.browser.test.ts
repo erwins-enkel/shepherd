@@ -124,6 +124,52 @@ describe("DiffFileStack", () => {
     });
   });
 
+  it("shows a per-file review banner independent of lazy-mount + noteKind, escaping markup (#1699)", async () => {
+    vi.stubGlobal("IntersectionObserver", NoopIO);
+    const reviewFindings = new Map<string, string[]>([
+      [TEXT_PATH, ["a real per-file finding"]], // renderable file, NOT lazy-mounted (no scrollToPath)
+      ["logo.png", ["<img src=x onerror=alert(1)> binary finding"]], // binary note-card file
+    ]);
+    const { container } = await render(DiffFileStack, {
+      files,
+      diffStyle: "split" as "split" | "unified",
+      reviewFindings,
+    });
+
+    // Lazy-mount independence: no scrollToPath → no Pierre host, yet the banner still shows.
+    expect(host(), "no Pierre host mounted (lazy)").toBeNull();
+    const banners = container.querySelectorAll(".review-banner");
+    expect(banners.length, "one banner per file with findings").toBe(2);
+    expect(document.body.textContent).toContain("a real per-file finding");
+    expect(document.body.textContent).toContain(m.viewport_diff_annotation_review());
+
+    // noteKind independence: the banner shows on the binary note-card file too.
+    const binarySection = container.querySelector('[data-diff-path="logo.png"]');
+    expect(
+      binarySection?.querySelector(".review-banner"),
+      "banner on a binary note-card file",
+    ).toBeTruthy();
+
+    // XSS: finding markup renders as literal text, no element injected.
+    expect(document.body.textContent).toContain("<img src=x onerror=alert(1)> binary finding");
+    expect(
+      container.querySelector(".review-banner img"),
+      "no injected element from finding markup",
+    ).toBeNull();
+  });
+
+  it("renders no review banner when a file has no findings (#1699)", async () => {
+    vi.stubGlobal("IntersectionObserver", NoopIO);
+    const { container } = await render(DiffFileStack, {
+      files,
+      diffStyle: "split" as "split" | "unified",
+      reviewFindings: new Map<string, string[]>(),
+    });
+    expect(container.querySelectorAll(".review-banner").length, "no banners without findings").toBe(
+      0,
+    );
+  });
+
   it("renders an added-file (/dev/null) synthesized patch as a Pierre host, not a note card", async () => {
     vi.stubGlobal("IntersectionObserver", NoopIO);
     const addedFiles: DiffFile[] = [

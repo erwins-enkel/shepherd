@@ -31,6 +31,7 @@ import type {
   StarPromptStatus,
   Steer,
   DiffResult,
+  DiffAnnotationsResult,
   ProjectIcons,
   ReviewVerdict,
   PlanGate,
@@ -770,6 +771,15 @@ export async function getActivity(id: string): Promise<ActivityEntry[]> {
 export async function getDiff(id: string): Promise<DiffResult> {
   const r = await fetch(`/api/sessions/${id}/diff`);
   if (!r.ok) throw await failed(r, "diff");
+  return r.json();
+}
+
+/** Per-line Diff-tab annotations (#1699). Best-effort chrome — the caller fetches it on diff-load
+ *  + manual refresh (NOT on the 15s poll) and tolerates failure (renders the diff without notes).
+ *  The server already degrades to `{ notes: [] }` on any internal error. */
+export async function getDiffAnnotations(id: string): Promise<DiffAnnotationsResult> {
+  const r = await fetch(`/api/sessions/${id}/diff/annotations`);
+  if (!r.ok) throw await failed(r, "diff annotations");
   return r.json();
 }
 

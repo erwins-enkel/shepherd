@@ -27,21 +27,23 @@
   import type { DiffLineAnnotation, FileDiff, FileDiffOptions } from "@pierre/diffs";
   import { theme } from "$lib/theme.svelte";
   import { registerShepherdThemes, parseFilePatch } from "$lib/pierre-diff";
+  import { m } from "$lib/paraglide/messages";
 
-  type Annotation = DiffLineAnnotation;
+  // Metadata carried on each agent annotation (#1699). Threaded as Pierre's `LAnnotation` generic
+  // so `renderAnnotation` can read `a.metadata`; the wrapper hardcoded `<undefined>` before.
+  type Meta = { text: string; tool: string };
+  type Annotation = DiffLineAnnotation<Meta>;
 
   let {
     patch,
     signature,
     diffStyle,
     lineAnnotations = [],
-    renderAnnotation,
   }: {
     patch: string;
     signature: string;
     diffStyle: "split" | "unified";
     lineAnnotations?: Annotation[];
-    renderAnnotation?: (a: Annotation) => HTMLElement | undefined;
   } = $props();
 
   // Wrapper the `<diffs-container>` host is appended into (by Pierre).
@@ -49,8 +51,41 @@
 
   // Non-reactive instance state (deliberately plain `let`, not `$state`: these
   // drive the external Pierre lib, never the template).
-  let fd: FileDiff | undefined; // the FileDiff instance (fd.options is the live options source of truth)
+  let fd: FileDiff<Meta> | undefined; // the FileDiff instance (fd.options is the live options source of truth)
   let lastSignature: string | undefined; // content-gate: skip re-render when unchanged
+  // Whether the current `fd` has completed its first `render()`. Plain `let` (NOT $state): the
+  // late-arrival annotations effect reads it as a guard but must not re-run when it flips — it
+  // re-runs only when `lineAnnotations` changes. Guards against calling `rerender()` pre-render.
+  let hasRendered = false;
+  // Cheap content key of the annotations already applied to `fd`, so the late-arrival effect skips
+  // a redundant `setLineAnnotations`+`rerender` when the array reference changes but the CONTENT
+  // is identical (a fresh `[]` from `?? []` on every annotations refresh is the common case).
+  let lastAnnoKey: string | undefined;
+
+  // Stable content key: same annotations (side/line/text) → same string, regardless of reference.
+  function annoKey(annos: Annotation[]): string {
+    return annos.map((a) => `${a.side}:${a.lineNumber}:${a.metadata?.text ?? ""}`).join("|");
+  }
+
+  // Stable, in-component annotation renderer (#1699). Pierre captures `renderAnnotation` ONCE at
+  // FileDiff construction (not reactively), so it must be one stable reference present before the
+  // first render — hence a local const, not a per-file prop from DiffFileStack. Builds the agent
+  // card with TEXT NODES ONLY: `metadata.text` is verbatim, untrusted agent/transcript content, so
+  // innerHTML/template-string HTML would be a stored-XSS vector in the review surface.
+  function renderAnnotation(a: Annotation): HTMLElement | undefined {
+    if (!a.metadata) return undefined;
+    const card = document.createElement("div");
+    card.className = "diff-anno";
+    const chip = document.createElement("span");
+    chip.className = "diff-anno-chip";
+    chip.textContent = a.metadata.tool; // tool name (e.g. "Edit") — pass-through data, not translated
+    chip.title = m.viewport_diff_annotation_agent();
+    const body = document.createElement("span");
+    body.className = "diff-anno-text";
+    body.textContent = a.metadata.text; // VERBATIM — textContent only (never innerHTML)
+    card.append(chip, body);
+    return card;
+  }
   // Render-generation counter: every (re-)render bumps it and captures the value;
   // after each `await` a stale generation bails, so a rapid prop change or teardown
   // can never interleave two `render()` calls on the same host.
@@ -64,7 +99,7 @@
     const { FileDiff } = await import("@pierre/diffs");
     await registerShepherdThemes();
     if (fd) return; // another call won the race while we awaited
-    const options: FileDiffOptions<undefined> = {
+    const options: FileDiffOptions<Meta> = {
       theme: { dark: "shepherd-dark", light: "shepherd-light" },
       themeType: theme.resolved,
       diffStyle,
@@ -83,6 +118,7 @@
   // insert the `<diffs-container>` host itself on first render.
   async function renderContent(): Promise<void> {
     const myGen = ++gen;
+    hasRendered = false; // a fresh render is in flight — block the late-arrival effect until it lands
     await ensureInit();
     if (myGen !== gen || !fd || !root) return;
     const meta = await parseFilePatch(patch);
@@ -90,6 +126,8 @@
     if (meta == null) return; // empty/invalid patch — nothing to render
     fd.render({ fileDiff: meta, containerWrapper: root, lineAnnotations });
     lastSignature = signature;
+    lastAnnoKey = annoKey(lineAnnotations); // the render carried these; the effect diffs against it
+    hasRendered = true;
   }
 
   // Content reaction: (re-)render only when the signature actually changes.
@@ -105,6 +143,21 @@
   $effect(() => {
     const resolved = theme.resolved;
     fd?.setThemeType(resolved);
+  });
+
+  // Late-arrival annotations (#1699): the Diff-tab annotations are fetched separately from (and
+  // usually AFTER) the diff, so a file's first render often runs with `[]`. When `lineAnnotations`
+  // later changes, push it into the live instance WITHOUT a re-parse. GUARDED by `hasRendered` so
+  // `rerender()` is never called before the first `render()` (which is invalid) — before then, the
+  // current `lineAnnotations` is already carried into `renderContent`'s `fd.render(...)` call.
+  $effect(() => {
+    const annos = lineAnnotations; // reactive dep
+    const key = annoKey(annos);
+    if (!fd || !hasRendered) return; // pre-render: the initial render() already carries annos
+    if (key === lastAnnoKey) return; // unchanged content (e.g. a fresh empty array) → no-op
+    lastAnnoKey = key;
+    fd.setLineAnnotations(annos);
+    fd.rerender();
   });
 
   // View reaction: toggle split↔unified. `setOptions` replaces options wholesale,
@@ -127,6 +180,8 @@
   $effect(() => {
     return () => {
       gen++;
+      hasRendered = false;
+      lastAnnoKey = undefined;
       fd?.cleanUp();
       fd = undefined;
     };
@@ -140,5 +195,33 @@
      the shadow DOM (app tokens can't cascade in). The wrapper needs no chrome. */
   .pierre-diff {
     display: block;
+  }
+
+  /* Agent annotation card (#1699). `:global` because the node is built imperatively in
+     `renderAnnotation` (Svelte scoping only tags template elements). It's a LIGHT-DOM node Pierre
+     slots into its shadow host, so `:root` design tokens still inherit — no raw literals. */
+  :global(.diff-anno) {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 5px 12px;
+    margin: 2px 0;
+    background: var(--color-inset);
+    border-left: 2px solid var(--color-blue);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    color: var(--color-ink);
+  }
+  :global(.diff-anno-chip) {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-blue);
+  }
+  :global(.diff-anno-text) {
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
   }
 </style>

@@ -264,11 +264,7 @@ describe("GitRail — PR actions menu", () => {
     expect(open).not.toHaveBeenCalled();
 
     await page.getByRole("menuitem", { name: m.prbadge_open_pr() }).click();
-    expect(open).toHaveBeenCalledWith(
-      openPrState.url,
-      "_blank",
-      "noopener,noreferrer",
-    );
+    expect(open).toHaveBeenCalledWith(openPrState.url, "_blank", "noopener,noreferrer");
     open.mockRestore();
   });
 
@@ -328,10 +324,10 @@ describe("GitRail — PR actions menu", () => {
     await markReady.click();
 
     await expect.element(markReady).toBeVisible();
-    expect(toastsInfo).toHaveBeenCalledWith(
-      m.prbadge_draft_toggle_failed({ reason: "boom" }),
-      { alert: true, key: "pr-draft:sess-1" },
-    );
+    expect(toastsInfo).toHaveBeenCalledWith(m.prbadge_draft_toggle_failed({ reason: "boom" }), {
+      alert: true,
+      key: "pr-draft:sess-1",
+    });
   });
 });
 

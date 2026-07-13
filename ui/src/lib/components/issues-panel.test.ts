@@ -20,8 +20,10 @@ import {
   isBlocked,
   hideBlockedIssues,
   ACTIVE_LABEL,
+  epicFlagForOthers,
+  hideOthersExceptFlaggedEpics,
 } from "./issues-panel";
-import type { Issue } from "$lib/types";
+import type { Issue, EpicSummary } from "$lib/types";
 
 function issue(
   number: number,
@@ -416,5 +418,90 @@ describe("distinctLabels with excludeBlocked", () => {
       "enhancement",
       "status/blocked",
     ]);
+  });
+});
+
+function summary(over: Partial<EpicSummary> = {}): EpicSummary {
+  return {
+    parentIssueNumber: 16,
+    parentTitle: "Epic",
+    total: 5,
+    merged: 0,
+    status: "idle",
+    source: "markdown",
+    inFlight: 0,
+    inFlightBy: [],
+    assignedOthers: [],
+    authoredByOther: null,
+    ...over,
+  };
+}
+
+describe("epicFlagForOthers", () => {
+  it("returns null for a non-epic row (no summary)", () => {
+    expect(epicFlagForOthers(undefined)).toBeNull();
+  });
+
+  it("returns null when nothing flags the epic", () => {
+    expect(epicFlagForOthers(summary())).toBeNull();
+  });
+
+  it("inflight tier wins with count + authors", () => {
+    const flag = epicFlagForOthers(summary({ inFlight: 5, inFlightBy: ["scoop"] }));
+    expect(flag).toEqual({ tier: "inflight", inFlight: 5, who: ["scoop"] });
+  });
+
+  it("assigned tier when there are non-viewer assignees but no in-flight", () => {
+    const flag = epicFlagForOthers(summary({ assignedOthers: ["scoop", "ada"] }));
+    expect(flag).toEqual({ tier: "assigned", inFlight: 0, who: ["scoop", "ada"] });
+  });
+
+  it("authored tier as the last resort (fresh unassigned epic)", () => {
+    const flag = epicFlagForOthers(summary({ authoredByOther: "scoop" }));
+    expect(flag).toEqual({ tier: "authored", inFlight: 0, who: ["scoop"] });
+  });
+
+  it("precedence: in-flight beats assigned beats authored", () => {
+    const flag = epicFlagForOthers(
+      summary({
+        inFlight: 2,
+        inFlightBy: ["scoop"],
+        assignedOthers: ["ada"],
+        authoredByOther: "x",
+      }),
+    );
+    expect(flag?.tier).toBe("inflight");
+  });
+});
+
+describe("hideOthersExceptFlaggedEpics", () => {
+  const epicByNumber = new Map<number, EpicSummary>([
+    [16, summary({ parentIssueNumber: 16, inFlight: 3, inFlightBy: ["scoop"] })],
+  ]);
+
+  it("keeps a flagged epic assigned to others (would be hidden by plain hideOthers)", () => {
+    const rows = [issue(16, "Epic", "", [], ["scoop"])]; // assigned to scoop, viewer is kai
+    const kept = hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber);
+    expect(kept.map((i) => i.number)).toEqual([16]);
+    // plain hideOthers would drop it
+    expect(hideOthers(rows, "kai", true).map((i) => i.number)).toEqual([]);
+  });
+
+  it("still hides a non-epic issue assigned only to others", () => {
+    const rows = [issue(99, "Plain", "", [], ["scoop"])];
+    expect(hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber)).toEqual([]);
+  });
+
+  it("keeps mine + unassigned rows unchanged", () => {
+    const rows = [issue(1, "Mine", "", [], ["kai"]), issue(2, "Unassigned", "", [], [])];
+    expect(
+      hideOthersExceptFlaggedEpics(rows, "kai", true, epicByNumber).map((i) => i.number),
+    ).toEqual([1, 2]);
+  });
+
+  it("is an identity filter when disabled or viewer unknown", () => {
+    const rows = [issue(99, "Plain", "", [], ["scoop"])];
+    expect(hideOthersExceptFlaggedEpics(rows, "kai", false, epicByNumber)).toHaveLength(1);
+    expect(hideOthersExceptFlaggedEpics(rows, null, true, epicByNumber)).toHaveLength(1);
   });
 });

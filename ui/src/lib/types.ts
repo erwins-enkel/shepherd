@@ -800,6 +800,18 @@ export interface EpicSummary {
   merged: number;
   status: EpicRunStatus;
   source: EpicSource;
+  // ── "someone else is already working / owns this epic" signals (server: computeEpicOthersFlags) ──
+  // NOTE: emitted by the /api/epics inline literal (src/server.ts), which has NO server-side
+  // EpicSummary type — nothing cross-checks these names at compile time; keep them in sync.
+  // Optional so older payloads / UI test fixtures stay valid; the server always populates them.
+  /** Children with an OPEN PR by a non-viewer (viewer's own excluded from the count). 0 → no pill. */
+  inFlight?: number;
+  /** Distinct non-viewer authors of those in-flight child PRs — the pill's "by …". */
+  inFlightBy?: string[];
+  /** Parent assignees other than the viewer. */
+  assignedOthers?: string[];
+  /** Parent author when it isn't the viewer, else null — the tell for a fresh, unassigned epic. */
+  authoredByOther?: string | null;
 }
 
 // ── epic diagnosis (GET /api/epic/diagnose) — mirrors src/epic-diagnosis.ts ──

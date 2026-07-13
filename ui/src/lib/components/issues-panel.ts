@@ -1,7 +1,36 @@
 /**
  * Pure logic extracted from IssuesPanel.svelte — unit-testable without a DOM.
  */
-import type { Issue } from "$lib/types";
+import type { Issue, EpicSummary } from "$lib/types";
+
+/** Which "someone else is working / owns this epic" signal (#1616) fired, highest-priority first. */
+export type EpicOthersTier = "inflight" | "assigned" | "authored";
+
+export interface EpicOthersFlag {
+  tier: EpicOthersTier;
+  /** In-flight child count (only meaningful for the "inflight" tier; 0 otherwise). */
+  inFlight: number;
+  /** Who to name on the pill/notice — PR authors (inflight), assignees, or the lone author. */
+  who: string[];
+}
+
+/**
+ * Derive the epic-ownership flag from an {@link EpicSummary}'s server-computed fields (already
+ * viewer-excluded, so nothing here ever points at the operator's own work). Precedence:
+ * in-flight children → parent assigned to others → parent authored by another. Returns null when
+ * the epic isn't flagged (or `summary` is absent — a non-epic row). The `?? …` guards tolerate an
+ * older payload predating these optional fields.
+ */
+export function epicFlagForOthers(summary: EpicSummary | undefined): EpicOthersFlag | null {
+  if (!summary) return null;
+  const inFlight = summary.inFlight ?? 0;
+  if (inFlight > 0) return { tier: "inflight", inFlight, who: summary.inFlightBy ?? [] };
+  const assigned = summary.assignedOthers ?? [];
+  if (assigned.length > 0) return { tier: "assigned", inFlight: 0, who: assigned };
+  if (summary.authoredByOther)
+    return { tier: "authored", inFlight: 0, who: [summary.authoredByOther] };
+  return null;
+}
 
 /**
  * Label the drain stamps on an issue claimed by a running session (mirrors
@@ -159,6 +188,27 @@ export function hideOthers(
   return issues.filter((issue) => {
     const assignees = issue.assignees ?? [];
     return assignees.length === 0 || assignees.includes(viewer);
+  });
+}
+
+/**
+ * Like {@link hideOthers}, but never drops a **flagged epic parent** (#1616): an epic that others
+ * are working on (in-flight children / parent assigned to others / authored by another) stays
+ * visible with its pill even when the "mine & unassigned" filter would hide an assigned-to-others
+ * row. The base assignee rule is unchanged for every non-flagged issue. `epicByNumber` maps a
+ * parent issue number to its summary; a row absent from it (a plain issue) is filtered normally.
+ */
+export function hideOthersExceptFlaggedEpics(
+  issues: readonly Issue[],
+  viewer: string | null,
+  enabled: boolean,
+  epicByNumber: ReadonlyMap<number, EpicSummary>,
+): Issue[] {
+  if (!enabled || viewer == null) return [...issues];
+  return issues.filter((issue) => {
+    const assignees = issue.assignees ?? [];
+    if (assignees.length === 0 || assignees.includes(viewer)) return true;
+    return epicFlagForOthers(epicByNumber.get(issue.number)) != null;
   });
 }
 

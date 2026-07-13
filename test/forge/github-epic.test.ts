@@ -194,10 +194,35 @@ describe("GithubForge listSubIssueSummaries", () => {
     const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
     // subIssueNumbers: only node 7 has a non-null parent
     expect(result.subIssueNumbers).toEqual([7]);
+    // childrenByParent: node 7 grouped under its parent #3; parent-less nodes absent
+    expect(result.childrenByParent?.get(3)).toEqual([7]);
+    expect(result.childrenByParent?.size).toBe(1);
     // summaries map: only nodes with total>0; node 7 has null subIssuesSummary so excluded
     expect(result.summaries.get(7)).toBeUndefined();
     expect(result.summaries.get(10)).toEqual({ total: 2, completed: 1 });
     expect(result.summaries.get(15)).toEqual({ total: 4, completed: 0 });
+  });
+
+  test("childrenByParent: multiple children of one parent are grouped together", async () => {
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          issues: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { number: 24, subIssuesSummary: null, parent: { number: 16 } },
+              { number: 25, subIssuesSummary: null, parent: { number: 16 } },
+              { number: 26, subIssuesSummary: null, parent: { number: 99 } },
+            ],
+          },
+        },
+      },
+    });
+    const { run } = sequenceRunner([page]);
+    const result = await new GithubForge("o/r", {} as never, run).listSubIssueSummaries!();
+    expect(result.childrenByParent?.get(16)).toEqual([24, 25]);
+    expect(result.childrenByParent?.get(99)).toEqual([26]);
+    expect(result.subIssueNumbers).toEqual([24, 25, 26]);
   });
 
   test("collectSubIssueSummaryPage: node with parent AND total>0 appears in both summaries and subIssueNumbers", async () => {
@@ -221,6 +246,85 @@ describe("GithubForge listSubIssueSummaries", () => {
     expect(result.subIssueNumbers).toEqual([42]);
     expect(result.summaries.get(42)).toEqual({ total: 3, completed: 1 });
     expect(result.summaries.size).toBe(1);
+  });
+});
+
+describe("GithubForge listOpenPrLinkedIssues", () => {
+  test("maps each closed issue to the open PR's number + author", async () => {
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                number: 200,
+                author: { login: "scoop" },
+                closingIssuesReferences: { nodes: [{ number: 10 }, { number: 11 }] },
+              },
+              {
+                number: 201,
+                author: { login: "kai" },
+                closingIssuesReferences: { nodes: [{ number: 10 }] },
+              },
+              { number: 202, author: { login: "ada" }, closingIssuesReferences: { nodes: [] } },
+            ],
+          },
+        },
+      },
+    });
+    const { run, calls } = sequenceRunner([page]);
+    const linked = await new GithubForge("o/r", {} as never, run).listOpenPrLinkedIssues!();
+    expect(linked.get(10)).toEqual([
+      { prNumber: 200, author: "scoop" },
+      { prNumber: 201, author: "kai" },
+    ]);
+    expect(linked.get(11)).toEqual([{ prNumber: 200, author: "scoop" }]);
+    expect(linked.has(202)).toBe(false); // PR 202 closes nothing
+    // The extended query selects the PR number + author.
+    const q = calls[0]!.join(" ");
+    expect(q).toContain("author{login}");
+    expect(q).toContain("closingIssuesReferences");
+  });
+
+  test("missing author login degrades to empty string, not a throw", async () => {
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              { number: 5, author: null, closingIssuesReferences: { nodes: [{ number: 3 }] } },
+            ],
+          },
+        },
+      },
+    });
+    const { run } = sequenceRunner([page]);
+    const linked = await new GithubForge("o/r", {} as never, run).listOpenPrLinkedIssues!();
+    expect(linked.get(3)).toEqual([{ prNumber: 5, author: "" }]);
+  });
+
+  test("listOpenPrClosingIssues delegates: still returns just the closed-issue numbers", async () => {
+    const page = JSON.stringify({
+      data: {
+        repository: {
+          pullRequests: {
+            pageInfo: { hasNextPage: false, endCursor: null },
+            nodes: [
+              {
+                number: 200,
+                author: { login: "scoop" },
+                closingIssuesReferences: { nodes: [{ number: 10 }, { number: 11 }] },
+              },
+            ],
+          },
+        },
+      },
+    });
+    const { run } = sequenceRunner([page]);
+    const closed = await new GithubForge("o/r", {} as never, run).listOpenPrClosingIssues!();
+    expect(closed.sort((a, b) => a - b)).toEqual([10, 11]);
   });
 });
 

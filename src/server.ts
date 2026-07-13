@@ -132,7 +132,15 @@ import {
   recordSocketAttach,
   recordFallback,
 } from "./terminal-transport-metrics";
-import type { GitForge, GitState, Issue, MergeMethod, PrStatus, WorkflowRun } from "./forge/types";
+import type {
+  GitForge,
+  GitState,
+  Issue,
+  LinkedPr,
+  MergeMethod,
+  PrStatus,
+  WorkflowRun,
+} from "./forge/types";
 import { DEPENDABOT_REBASE_COMMAND, EmptyDiffError } from "./forge/types";
 import { buildIssueUrl } from "./forge";
 import type { GithubRateLimitPayload } from "./forge/github-rate-limit";
@@ -153,6 +161,7 @@ import type { SessionActivity } from "./activity-signal";
 import type { DrainStatus, QueuedItem } from "./drain";
 import { ACTIVE_LABEL } from "./drain-core";
 import type { Epic, EpicRun, EpicSource } from "./epic-core";
+import { computeEpicOthersFlags } from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
@@ -5987,7 +5996,19 @@ function mergeEpicRunPatch(
 // list is truncated (>=200) OR the candidate has no markdown body, a native
 // listSubIssues call is made to avoid undercounting capped issues.
 
-type IssueHint = { body?: string; title?: string; number?: number };
+// `assignees`/`author` ride along from the full `Issue` objects `listIssues()` already
+// returns (this type just narrows them) — exposing them here is pure type-plumbing at zero
+// network cost, so the epic-summary route can flag an epic as "someone else's": parent
+// assigned to a non-viewer, or authored by a non-viewer (the tell for a freshly-created
+// epic that has no child PRs yet). Both optional — candidates outside the open-issue window
+// carry no hint and simply lack these signals.
+type IssueHint = {
+  body?: string;
+  title?: string;
+  number?: number;
+  assignees?: string[];
+  author?: string;
+};
 
 /** Collect epic-candidate map from open issues + any stored run parent.
  *  Keys are parent issue numbers; values are the issue hint (may be undefined
@@ -6081,14 +6102,21 @@ type NativeSummaryMap = Map<number, { total: number; completed: number }>;
 /** Best-effort fetch of native sub-issue summaries (GitHub only; one bounded forge call that
  *  internally pages up to MAX_SUMMARY_PAGES GraphQL requests). Returns an empty map on any error
  *  so discovery degrades to markdown-only. Also surfaces native sub-issue child numbers. */
-async function fetchNativeSummaries(
-  forge: GitForge,
-): Promise<{ summaries: NativeSummaryMap; subIssueNumbers: number[] }> {
+async function fetchNativeSummaries(forge: GitForge): Promise<{
+  summaries: NativeSummaryMap;
+  subIssueNumbers: number[];
+  childrenByParent: Map<number, number[]>;
+}> {
   try {
     // The method catches internally today; this guard keeps discovery alive if that changes.
-    return (await forge.listSubIssueSummaries?.()) ?? { summaries: new Map(), subIssueNumbers: [] };
+    const r = await forge.listSubIssueSummaries?.();
+    return {
+      summaries: r?.summaries ?? new Map(),
+      subIssueNumbers: r?.subIssueNumbers ?? [],
+      childrenByParent: r?.childrenByParent ?? new Map(),
+    };
   } catch {
-    return { summaries: new Map(), subIssueNumbers: [] };
+    return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
   }
 }
 
@@ -6157,6 +6185,9 @@ async function buildEpicSummaries(
   storedRun: EpicRun | null,
   openNumbers: Set<number>,
   openTruncated: boolean,
+  childrenByParent: Map<number, number[]>,
+  linked: Map<number, LinkedPr[]>,
+  viewer: string | null,
 ) {
   const result = [];
   for (const [parentNumber, issueHint] of candidates) {
@@ -6170,12 +6201,26 @@ async function buildEpicSummaries(
     );
     if (!resolved) continue; // markdown probe threw — skip this candidate
     const status = storedRun?.parentIssueNumber === parentNumber ? storedRun.status : "idle";
+    // "Someone else is working this" flags. Child numbers = markdown members ∪ native children
+    // (either source may be empty); computeEpicOthersFlags excludes the viewer's own PRs.
+    const childNumbers = [
+      ...parseEpicBody(issueHint?.body ?? "").members,
+      ...(childrenByParent.get(parentNumber) ?? []),
+    ];
+    const flags = computeEpicOthersFlags({
+      childNumbers,
+      linked,
+      assignees: issueHint?.assignees ?? [],
+      author: issueHint?.author ?? null,
+      viewer,
+    });
     result.push({
       parentIssueNumber: parentNumber,
       parentTitle: issueHint?.title ?? `#${parentNumber}`,
       ...resolved.counts,
       status,
       source: resolved.source,
+      ...flags,
     });
   }
   return result;
@@ -6218,7 +6263,15 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
   }
 
   // Fetch native sub-issue summaries cheaply (one bounded forge call, ≤2 GraphQL pages, GitHub only).
-  const { summaries: nativeSummaries, subIssueNumbers } = await fetchNativeSummaries(forge);
+  const {
+    summaries: nativeSummaries,
+    subIssueNumbers,
+    childrenByParent,
+  } = await fetchNativeSummaries(forge);
+  // Open-PR→author map (TTL-cached; +1 bounded call/repo) + the viewer, for the "someone else
+  // is working this" pill. Both best-effort: an empty map / null viewer just softens the pill.
+  const linked = await cachedLinkedPrs(dir, forge);
+  const viewer = (await forge.currentUser?.()) ?? null;
 
   // openNumbers: a member absent from the open set is considered closed (markdown fallback).
   // openTruncated: listIssues caps at 200; when true the open set may be incomplete so
@@ -6237,6 +6290,9 @@ async function handleEpicsList({ req, parts, url, deps }: Ctx): Promise<Response
     storedRun,
     openNumbers,
     openTruncated,
+    childrenByParent,
+    linked,
+    viewer,
   );
   const subIssues = collectSubIssueNumbers(candidates, subIssueNumbers, openNumbers);
   return json({ epics: result, subIssues });
@@ -6414,6 +6470,23 @@ async function cachedListIssues(
   const issues = await forge.listIssues();
   completedEpicsIssueCache.set(repo, { issues, ts: now });
   return issues;
+}
+
+// Short-TTL per-repo cache for the open-PR→{prNumber,author} map that feeds the epic-summary
+// "in progress" pill. Unlike Up Next's 15-min amortized cycle, /api/epics is uncached and
+// recomputed on every overview/backlog poll, so without this the extra GraphQL call would land
+// on each poll; the TTL mirrors COMPLETED_EPICS_LIST_TTL_MS. Best-effort — a forge without the
+// method (Gitea/Local) or a failure caches an empty map and the pill degrades to the
+// assignee/author signals.
+const epicLinkedPrCache = new Map<string, { linked: Map<number, LinkedPr[]>; ts: number }>();
+
+async function cachedLinkedPrs(repo: string, forge: GitForge): Promise<Map<number, LinkedPr[]>> {
+  const hit = epicLinkedPrCache.get(repo);
+  const now = Date.now();
+  if (hit && now - hit.ts < COMPLETED_EPICS_LIST_TTL_MS) return hit.linked;
+  const linked = (await forge.listOpenPrLinkedIssues?.().catch(() => null)) ?? new Map();
+  epicLinkedPrCache.set(repo, { linked, ts: now });
+  return linked;
 }
 
 // Auto-dismiss: a completed epic whose parent is confidently closed (absent from a complete

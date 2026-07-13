@@ -43,6 +43,15 @@ export interface Issue {
   blockedBy?: number[];
 }
 
+/** An open PR linked to an issue (via `closingIssuesReferences`), reduced to the PR's
+ *  number + author login. Carried per closed-issue number by {@link GitForge.listOpenPrLinkedIssues};
+ *  drives the epic-summary "in progress · by {author}" signal (#1616). Author is "" when the
+ *  forge omits it. */
+export interface LinkedPr {
+  prNumber: number;
+  author: string;
+}
+
 export type ForgeKind = "github" | "gitea" | "local";
 export type MergeMethod = "merge" | "squash" | "rebase";
 
@@ -515,6 +524,12 @@ export interface GitForge {
   listSubIssueSummaries?(): Promise<{
     summaries: Map<number, { total: number; completed: number }>;
     subIssueNumbers: number[];
+    /** Native sub-issue child numbers grouped by their parent issue number — the same
+     *  `parent{number}` field already selected for `subIssueNumbers`, kept per-parent so
+     *  the epic-summary route can map in-flight children to their epic (#1616) without a
+     *  per-parent `listSubIssues` probe. Optional so existing callers/fakes that predate it
+     *  stay valid; GithubForge always populates it. */
+    childrenByParent?: Map<number, number[]>;
   }>;
   /** Issue numbers that an OPEN pull request would close (GraphQL `closingIssuesReferences`,
    *  GitHub only). Catches UI-linked PRs and `Closes #N`/`Fixes #N` bodies alike. Used by
@@ -523,6 +538,13 @@ export interface GitForge {
    *  without it, or a transient failure, yields an empty set and the exclusion degrades to
    *  `shepherd:active`-only. Optional: only hosts with the GraphQL field implement it. */
   listOpenPrClosingIssues?(): Promise<number[]>;
+  /** Like {@link listOpenPrClosingIssues} but keyed by closed-issue number and carrying the
+   *  open PR's number + author — the epic-summary route's "someone else is already working
+   *  this" signal (the pill's "by {author}"). Same single bounded query
+   *  (`closingIssuesReferences`), extended with `number author{login}`; capped to the ~200
+   *  newest open PRs (`MAX_SUMMARY_PAGES`) so repos above that undercount. Best-effort:
+   *  failure/rate-limit yields an empty map. Optional: GitHub only. */
+  listOpenPrLinkedIssues?(): Promise<Map<number, LinkedPr[]>>;
   /** Open PRs for this repo as full poll-grade PrStatus objects keyed by head
    *  branch name, fetched in ONE `gh pr list --state open` call — the per-repo
    *  batch the PrPoller matches sessions against locally (collapsing N× per-branch

@@ -384,6 +384,66 @@ describe("IssuesPanel blocked badge", () => {
     await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
     expect(document.querySelector(".blocked-chip")).toBeNull();
   });
+
+  it("renders the in-flight pill on an epic others are working (#1616)", async () => {
+    seed(
+      [issue(80, "Operator language")],
+      [
+        {
+          parentIssueNumber: 80,
+          parentTitle: "Operator language",
+          merged: 0,
+          total: 5,
+          status: "idle",
+          source: "markdown",
+          inFlight: 5,
+          inFlightBy: ["scoop"],
+          assignedOthers: [],
+          authoredByOther: "scoop",
+        },
+      ],
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
+    expect(document.querySelector(".others-pill")!.textContent).toContain(
+      m.issuerow_epic_inflight_pill({ count: 5, who: "scoop" }),
+    );
+  });
+
+  it("renders an authored pill for a fresh epic set up by someone else", async () => {
+    seed(
+      [issue(82, "Fresh epic")],
+      [
+        {
+          parentIssueNumber: 82,
+          parentTitle: "Fresh epic",
+          merged: 0,
+          total: 3,
+          status: "idle",
+          source: "markdown",
+          inFlight: 0,
+          inFlightBy: [],
+          assignedOthers: [],
+          authoredByOther: "scoop",
+        },
+      ],
+    );
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
+    expect(document.querySelector(".others-pill")!.textContent).toContain(
+      m.issuerow_epic_authored_pill({ who: "scoop" }),
+    );
+  });
+
+  it("renders no pill when the epic isn't flagged for others", async () => {
+    seed([issue(81, "My own epic")], [epic(81, 0, 3, "markdown")]);
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".epic-badge")).toBeTruthy();
+    expect(document.querySelector(".others-pill")).toBeNull();
+  });
 });
 
 describe("IssuesPanel expandEpic", () => {

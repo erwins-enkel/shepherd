@@ -25,6 +25,7 @@ import type {
   GitForge,
   Issue,
   IssueComment,
+  LinkedPr,
   MergeInput,
   MergeMethod,
   MergeStateStatus,
@@ -74,11 +75,13 @@ const MAX_SUMMARY_PAGES = 2;
 
 /** Parse one page of the sub-issue-summary GraphQL response: record every node with
  *  total > 0 into `intoSummaries` (keyed by issue number), add every node with a non-null
- *  parent to `intoSubIssues`, and return the page's cursor info. */
+ *  parent to `intoSubIssues` and into `intoChildrenByParent` (keyed by parent number), and
+ *  return the page's cursor info. */
 function collectSubIssueSummaryPage(
   out: string,
   intoSummaries: Map<number, { total: number; completed: number }>,
   intoSubIssues: Set<number>,
+  intoChildrenByParent: Map<number, number[]>,
 ): { hasNextPage: boolean; endCursor: string | null } {
   const json = JSON.parse(out) as {
     data?: {
@@ -103,6 +106,9 @@ function collectSubIssueSummaryPage(
     }
     if (node.parent != null) {
       intoSubIssues.add(node.number);
+      const siblings = intoChildrenByParent.get(node.parent.number) ?? [];
+      siblings.push(node.number);
+      intoChildrenByParent.set(node.parent.number, siblings);
     }
   }
   return {
@@ -111,26 +117,39 @@ function collectSubIssueSummaryPage(
   };
 }
 
-/** Parse one page of the open-PR closingIssuesReferences GraphQL response: add every closed
- *  issue number into `into`, and return the page's cursor info. */
-function collectClosingIssuesPage(
+/** Parse one page of the open-PR closingIssuesReferences GraphQL response: for every open PR,
+ *  push its {prNumber, author} onto each issue number it would close (keyed by that issue
+ *  number in `into`), and return the page's cursor info. The numbers-only
+ *  `listOpenPrClosingIssues` derives its result from `into.keys()`. */
+function collectLinkedIssuesPage(
   out: string,
-  into: Set<number>,
+  into: Map<number, LinkedPr[]>,
 ): { hasNextPage: boolean; endCursor: string | null } {
   const json = JSON.parse(out || "{}") as {
     data?: {
       repository?: {
         pullRequests?: {
           pageInfo?: { hasNextPage?: boolean; endCursor?: string | null };
-          nodes?: Array<{ closingIssuesReferences?: { nodes?: Array<{ number?: number }> } }>;
+          nodes?: Array<{
+            number?: number;
+            author?: { login?: string } | null;
+            closingIssuesReferences?: { nodes?: Array<{ number?: number }> };
+          }>;
         };
       };
     };
   };
   const prs = json.data?.repository?.pullRequests;
-  for (const n of prs?.nodes ?? [])
+  for (const n of prs?.nodes ?? []) {
+    if (typeof n.number !== "number") continue;
+    const author = n.author?.login ?? "";
     for (const ref of n.closingIssuesReferences?.nodes ?? [])
-      if (typeof ref.number === "number") into.add(ref.number);
+      if (typeof ref.number === "number") {
+        const linked = into.get(ref.number) ?? [];
+        linked.push({ prNumber: n.number, author });
+        into.set(ref.number, linked);
+      }
+  }
   return {
     hasNextPage: prs?.pageInfo?.hasNextPage ?? false,
     endCursor: prs?.pageInfo?.endCursor ?? null,
@@ -1910,8 +1929,10 @@ export class GithubForge implements GitForge {
   async listSubIssueSummaries(): Promise<{
     summaries: Map<number, { total: number; completed: number }>;
     subIssueNumbers: number[];
+    childrenByParent: Map<number, number[]>;
   }> {
-    if (graphRateLimit.blocked()) return { summaries: new Map(), subIssueNumbers: [] };
+    if (graphRateLimit.blocked())
+      return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
     // No this.apiVersion header: subIssuesSummary is GA on GraphQL (no preview header needed).
     // Do NOT add the X-GitHub-Api-Version header here — it was required only for the
     // REST sub_issues endpoints above.
@@ -1922,6 +1943,7 @@ export class GithubForge implements GitForge {
       "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){issues(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number subIssuesSummary{total completed} parent{number}}}}}";
     const summaries = new Map<number, { total: number; completed: number }>();
     const subIssueSet = new Set<number>();
+    const childrenByParent = new Map<number, number[]>();
     try {
       let endCursor: string | null = null;
       for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
@@ -1937,26 +1959,40 @@ export class GithubForge implements GitForge {
         ];
         // Thread cursor explicitly; page 1 omits it so $endCursor defaults to null in GraphQL.
         if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
-        const pageInfo = collectSubIssueSummaryPage(await this.run(args), summaries, subIssueSet);
+        const pageInfo = collectSubIssueSummaryPage(
+          await this.run(args),
+          summaries,
+          subIssueSet,
+          childrenByParent,
+        );
         if (!pageInfo.hasNextPage) break;
         endCursor = pageInfo.endCursor;
       }
     } catch {
       // Best-effort; degrade to markdown-only discovery rather than failing the route.
-      return { summaries: new Map(), subIssueNumbers: [] };
+      return { summaries: new Map(), subIssueNumbers: [], childrenByParent: new Map() };
     }
-    return { summaries, subIssueNumbers: [...subIssueSet] };
+    return { summaries, subIssueNumbers: [...subIssueSet], childrenByParent };
   }
 
+  /** Numbers-only view of {@link listOpenPrLinkedIssues} for Up Next (#1169), which only needs
+   *  "does an open PR close this issue?". Delegates to the one linked-issues query so the two
+   *  callers share a single fetch/parse path. */
   async listOpenPrClosingIssues(): Promise<number[]> {
-    if (graphRateLimit.blocked()) return [];
-    // Issues an open PR would close (UI-linked + `Closes #N` bodies). Paginated like
-    // listSubIssueSummaries; capped to ~200 open PRs. Best-effort — any failure yields []
-    // and Up Next falls back to the shepherd:active exclusion alone.
+    return [...(await this.listOpenPrLinkedIssues()).keys()];
+  }
+
+  async listOpenPrLinkedIssues(): Promise<Map<number, LinkedPr[]>> {
+    if (graphRateLimit.blocked()) return new Map();
+    // Issues an open PR would close (UI-linked + `Closes #N` bodies), mapped to the PR's
+    // number + author. Paginated like listSubIssueSummaries; capped to ~200 newest open PRs
+    // (MAX_SUMMARY_PAGES) — a repo above that undercounts linked PRs. Best-effort — any
+    // failure yields an empty map (Up Next falls back to the shepherd:active exclusion; the
+    // epic pill falls back to the assignee/author signals).
     const [owner, name] = this.slug.split("/");
     const query =
-      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{closingIssuesReferences(first:20){nodes{number}}}}}}";
-    const closed = new Set<number>();
+      "query($owner:String!,$name:String!,$endCursor:String){repository(owner:$owner,name:$name){pullRequests(states:OPEN,first:100,after:$endCursor,orderBy:{field:CREATED_AT,direction:DESC}){pageInfo{hasNextPage endCursor}nodes{number author{login} closingIssuesReferences(first:20){nodes{number}}}}}}";
+    const linked = new Map<number, LinkedPr[]>();
     try {
       let endCursor: string | null = null;
       for (let page = 0; page < MAX_SUMMARY_PAGES; page++) {
@@ -1971,15 +2007,15 @@ export class GithubForge implements GitForge {
           `query=${query}`,
         ];
         if (endCursor !== null) args.push("-f", `endCursor=${endCursor}`);
-        const pageInfo = collectClosingIssuesPage(await this.run(args), closed);
+        const pageInfo = collectLinkedIssuesPage(await this.run(args), linked);
         if (!pageInfo.hasNextPage) break;
         endCursor = pageInfo.endCursor;
       }
     } catch (err) {
-      if (isRateLimitError(err)) return [];
-      return [];
+      if (isRateLimitError(err)) return new Map();
+      return new Map();
     }
-    return [...closed];
+    return linked;
   }
 
   async listBlockedByOpen(): Promise<Map<number, number[]>> {

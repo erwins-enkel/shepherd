@@ -5,11 +5,12 @@
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { labelChipStyle } from "$lib/label-color";
-  import { ACTIVE_LABEL } from "../issues-panel";
+  import { ACTIVE_LABEL, epicFlagForOthers } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
+  import EpicOthersPill from "./EpicOthersPill.svelte";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
   // Tier-1 <template> complexity bar (#855). The row owns all its nested conditionals
@@ -93,6 +94,11 @@
   // Epic-parent rows disable quick-launch + Task: an epic is launched via the epic
   // panel's Start, not by spawning a manual session against the parent tracking issue.
   const isEpicParent = $derived(!!epicSummary);
+
+  // "Someone else is already working / owns this epic" (#1616): null on non-epic rows and on
+  // the operator's own epics (the server excludes the viewer). Drives the collapsed-row pill
+  // (EpicOthersPill) + the soft notice next to Start (forwarded to EpicPanel).
+  const othersFlag = $derived(epicFlagForOthers(epicSummary));
 
   // Badge count: prefer the live/fetched Epic's authoritative (native-first) child counts
   // over the list summary, which is markdown-first and can go stale after an epic is
@@ -182,6 +188,11 @@
           : m.epic_badge({ merged: counts.merged, total: counts.total })}</button
       >
     {/if}
+    <!-- Collapsed-row signal that this epic is someone else's. The launch-point reassurance
+         ("you can still start") lives in EpicPanel next to Start, the only epic launch path —
+         so the row carries just the pill, no duplicate notice. Extracted into a child so the
+         tier→copy branching doesn't inflate this row's <template> complexity. -->
+    <EpicOthersPill flag={othersFlag} />
   </div>
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
@@ -256,7 +267,7 @@
   {#if epicSummary && isExpanded}
     <div data-epic-panel>
       {#if epic}
-        <EpicPanel {repoPath} parent={issue.number} {epic} {drain} />
+        <EpicPanel {repoPath} parent={issue.number} {epic} {drain} {othersFlag} />
       {:else}
         <div class="muted">{m.common_loading()}</div>
       {/if}

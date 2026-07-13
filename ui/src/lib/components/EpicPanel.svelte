@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { updateEpic, approveEpicNext, importEpic } from "$lib/api";
   import { chipFor, epicHoldLine, progress, stateLabel } from "./epic-panel";
+  import type { EpicOthersFlag } from "./issues-panel";
   import { toasts } from "$lib/toasts.svelte";
   import EpicHandsOffIntro from "./EpicHandsOffIntro.svelte";
   import EpicDiagnosisModal from "./EpicDiagnosisModal.svelte";
@@ -16,7 +17,16 @@
     parent,
     epic,
     drain = null,
-  }: { repoPath: string; parent: number; epic: Epic; drain?: DrainStatus | null } = $props();
+    othersFlag = null,
+  }: {
+    repoPath: string;
+    parent: number;
+    epic: Epic;
+    drain?: DrainStatus | null;
+    /** "Someone else is already working / owns this epic" (#1616), from the row's summary;
+     *  null when it's the operator's own epic. Surfaces a soft notice next to Start. */
+    othersFlag?: EpicOthersFlag | null;
+  } = $props();
 
   const p = $derived(progress(epic.children));
   const running = $derived(epic.run.status === "running");
@@ -28,6 +38,21 @@
   const epicProvider = $derived(epic.run.agentProvider ?? null);
   const epicModel = $derived(epic.run.model ?? "default");
   const epicEffort = $derived(epic.run.effort ?? "default");
+
+  // Soft "someone else owns this" notice next to Start — worded to match the flag tier so a
+  // pure assignment (no in-flight PR) isn't overstated as work already in progress.
+  const othersNotice = $derived.by(() => {
+    if (!othersFlag) return "";
+    const who = othersFlag.who.join(", ");
+    switch (othersFlag.tier) {
+      case "inflight":
+        return m.issuerow_epic_others_notice({ who });
+      case "assigned":
+        return m.issuerow_epic_assigned_notice({ who });
+      default:
+        return m.issuerow_epic_owner_notice({ who });
+    }
+  });
 
   let showDiag = $state(false);
 
@@ -127,6 +152,12 @@
 
   {#if holdLine}
     <p class="hold" class:alert={drain?.paused}>{holdLine}</p>
+  {/if}
+
+  {#if othersFlag}
+    <p class="others-notice">
+      <span class="others-glyph" aria-hidden="true">⚠</span>{othersNotice}
+    </p>
   {/if}
 
   <div class="epic-controls">
@@ -382,6 +413,22 @@
 
   .hold.alert {
     color: var(--color-amber);
+  }
+
+  /* Soft, non-blocking "someone else is already working / owns this epic" notice (#1616),
+     right above Start so it's visible at the launch point. Never intercepts — you can still
+     start. Amber running/in-progress token, dimmed toward muted. */
+  .others-notice {
+    margin: 0;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: var(--fs-micro);
+    color: color-mix(in oklab, var(--status-running) 80%, var(--color-muted));
+  }
+
+  .others-glyph {
+    color: var(--status-running);
   }
 
   /* ── controls ────────────────────────────────────────────────────────── */

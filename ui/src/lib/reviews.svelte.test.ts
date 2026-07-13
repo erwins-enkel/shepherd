@@ -269,10 +269,31 @@ test("planGates.load wipes any stale feed, even for a still-in-flight id", async
   planGates.applyReviewing("p9", true);
   planGates.setActivity("p9", "line before resync");
   vi.mocked(getPlanGates).mockResolvedValue({});
-  vi.mocked(getPlanGatesInflight).mockResolvedValue(["p9"]);
+  vi.mocked(getPlanGatesInflight).mockResolvedValue([
+    { id: "p9", provider: "claude", model: "opus", effort: "high" },
+  ]);
   await planGates.load();
   expect(planGates.isReviewing("p9")).toBe(true);
   expect(planGates.activityFeed("p9")).toEqual([]);
+});
+
+test("planGates.applyReviewing caches reviewer env and refreshes on a redundant true", () => {
+  planGates.applyReviewing("pe", true, { provider: "claude", model: "opus", effort: "high" });
+  expect(planGates.reviewerEnvFor("pe")).toEqual({
+    provider: "claude",
+    model: "opus",
+    effort: "high",
+  });
+  // A redundant `true` (no transition) must still refresh the identity.
+  planGates.applyReviewing("pe", true, { provider: "codex", model: "gpt-5.5", effort: "low" });
+  expect(planGates.reviewerEnvFor("pe")).toEqual({
+    provider: "codex",
+    model: "gpt-5.5",
+    effort: "low",
+  });
+  // End clears it.
+  planGates.applyReviewing("pe", false);
+  expect(planGates.reviewerEnvFor("pe")).toBeNull();
 });
 
 test("repoConfig.isEnabled returns true for unknown repo (default-on)", () => {

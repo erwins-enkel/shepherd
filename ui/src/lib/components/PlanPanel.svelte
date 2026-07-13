@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { AgentProvider, Session } from "$lib/types";
+  import type { Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
   import {
     dismissQuota,
@@ -18,8 +18,7 @@
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
-  import { modelLabel } from "$lib/model-label";
-  import { effortLabel } from "$lib/effort-guidance";
+  import { environmentLabel } from "$lib/reviewer-env";
   import { DOCS_URL } from "$lib/build-info";
   import VisualReview from "./VisualReview.svelte";
 
@@ -55,31 +54,27 @@
   const planReviewBlock = $derived(canTriggerPlanReview(session, gate, reviewing));
   let envOpen = $state(false);
 
-  function providerLabel(provider: AgentProvider): string {
-    return provider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
-  }
-
-  function environmentLabel(
-    provider: AgentProvider | null | undefined,
-    model: string | null | undefined,
-    effort: string | null | undefined,
-  ): string {
-    if (!provider) {
-      const parts: string[] = [m.planpanel_env_unavailable()];
-      if (model) parts.push(modelLabel(model));
-      if (effort) parts.push(effortLabel(effort));
-      return parts.join(" · ");
-    }
-    const modelText = model ? modelLabel(model) : m.newtask_model_default();
-    const effortText = effort ? effortLabel(effort) : m.effort_default();
-    return `${providerLabel(provider)} · ${modelText} · ${effortText}`;
-  }
-
   const planEnv = $derived(
     environmentLabel(session.agentProvider ?? "claude", session.model, session.effort),
   );
-  const reviewEnv = $derived(
-    environmentLabel(gate?.reviewerProvider, gate?.reviewerModel, gate?.reviewerEffort),
+  // Live reviewer env for the in-flight run — carried on the reviewing signal (+ bootstrap), so the
+  // CLI/model identity is known before a gate exists (notably the FIRST review). Prefer it when its
+  // provider resolved to a real CLI; else fall back to the persisted gate fields (a finished/prior
+  // round, or an adopted-orphan run whose CLI couldn't be resolved).
+  const liveReviewEnv = $derived(planGates.reviewerEnvFor(session.id));
+  const reviewProvider = $derived(liveReviewEnv?.provider ?? gate?.reviewerProvider ?? null);
+  const reviewModel = $derived(liveReviewEnv?.provider ? liveReviewEnv.model : gate?.reviewerModel);
+  const reviewEffort = $derived(
+    liveReviewEnv?.provider ? liveReviewEnv.effort : gate?.reviewerEffort,
+  );
+  const reviewEnv = $derived(environmentLabel(reviewProvider, reviewModel, reviewEffort));
+  // In-flight button identity: shows the reviewer triple ONLY when a real (non-null) provider is
+  // known, so an adopted-orphan {provider:null,…} or the pre-first-verdict bridge window falls back
+  // to a plain "Reviewing…" rather than surfacing an ugly "unavailable · <model>" string. Composed
+  // here (not inline in the template) so the branch lives in the script, keeping the <template>
+  // synthetic complexity under the Tier-1 Svelte bar (.fallowrc.jsonc).
+  const reviewingButtonLabel = $derived(
+    reviewProvider ? m.planpanel_reviewing_env({ env: reviewEnv }) : m.planpanel_reviewing(),
   );
 
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
@@ -460,7 +455,9 @@
               }}
             >
               {#if inFlight}
-                <span class="rev-dot" aria-hidden="true"></span>{m.planpanel_reviewing()}
+                <span class="rev-dot" aria-hidden="true"></span><span class="rev-text"
+                  >{reviewingButtonLabel}</span
+                >
               {:else}
                 {m.planpanel_review_now()}
               {/if}
@@ -762,6 +759,9 @@
     gap: 8px;
     justify-content: flex-end;
     margin-top: 2px;
+    /* Let the in-flight Review button (which now carries the CLI·model·effort triple) drop to its
+       own line instead of pushing the row past the sheet on a narrow (~320px) phone. */
+    flex-wrap: wrap;
   }
   .quota-actions {
     display: flex;
@@ -812,6 +812,16 @@
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    /* When in-flight the label is the full CLI·model·effort triple. Cap it to the row and let the
+       text WRAP (not truncate) so the identity the operator asked to see stays fully legible at
+       ~320px; the dot stays pinned (flex-shrink:0 below). */
+    max-width: 100%;
+    min-width: 0;
+    flex-wrap: wrap;
+  }
+  .rev-text {
+    min-width: 0;
+    overflow-wrap: anywhere;
   }
   .quota-btn.primary {
     border-color: var(--color-amber);
@@ -824,6 +834,7 @@
     height: 6px;
     border-radius: 50%;
     background: var(--color-amber);
+    flex-shrink: 0;
     /* functional status motion — exempt from the reduced-motion blanket (app.css) */
     animation: pp-pulse 1.1s ease-in-out infinite !important;
   }

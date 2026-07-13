@@ -3061,5 +3061,9 @@
   "viewport_diff_annotation_agent": "Agent",
   "viewport_diff_annotation_review": "Review",
   "feat_diff_annotations_title": "Agent notes in the Diff tab",
-  "feat_diff_annotations_body": "The Diff tab now shows the agent's own reasoning inline, anchored to the lines its edits produced, plus any code-review findings as banners on the files they concern — so the why behind a change lives next to the change."
+  "feat_diff_annotations_body": "The Diff tab now shows the agent's own reasoning inline, anchored to the lines its edits produced, plus any code-review findings as banners on the files they concern — so the why behind a change lives next to the change.",
+  "plangate_tip_reviewing_env": "Plan review is running · {env}",
+  "planpanel_reviewing_env": "Reviewing · {env}",
+  "feat_plan_reviewer_env_title": "See who's reviewing your plan",
+  "feat_plan_reviewer_env_body": "When a Plan Gate review is running, the Reviewing button now shows which coding CLI, model, and effort are doing the review — so you know exactly who's checking your plan before execution."
 }

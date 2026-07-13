@@ -3061,5 +3061,9 @@
   "viewport_diff_annotation_agent": "Agent",
   "viewport_diff_annotation_review": "Prüfung",
   "feat_diff_annotations_title": "Agenten-Notizen im Diff-Tab",
-  "feat_diff_annotations_body": "Der Diff-Tab zeigt jetzt die Begründung des Agenten direkt inline — verankert an den Zeilen, die seine Änderungen erzeugt haben — sowie Code-Review-Befunde als Banner an den betroffenen Dateien. So steht das Warum direkt neben der Änderung."
+  "feat_diff_annotations_body": "Der Diff-Tab zeigt jetzt die Begründung des Agenten direkt inline — verankert an den Zeilen, die seine Änderungen erzeugt haben — sowie Code-Review-Befunde als Banner an den betroffenen Dateien. So steht das Warum direkt neben der Änderung.",
+  "plangate_tip_reviewing_env": "Planprüfung läuft · {env}",
+  "planpanel_reviewing_env": "Prüfe Plan · {env}",
+  "feat_plan_reviewer_env_title": "Sieh, wer deinen Plan prüft",
+  "feat_plan_reviewer_env_body": "Während eine Plan-Gate-Prüfung läuft, zeigt der Prüfen-Button jetzt an, welche Coding-CLI, welches Modell und welcher Aufwand die Prüfung durchführen — so weißt du genau, wer deinen Plan vor der Ausführung kontrolliert."
 }

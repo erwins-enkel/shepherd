@@ -473,6 +473,17 @@ export interface PlanGate {
   updatedAt: number;
 }
 
+/** The plan reviewer's resolved CLI + model + effort for the currently in-flight run. Carried on
+ *  the `session:plangate-reviewing` start signal (and the `/api/plan-gates/inflight` bootstrap) so
+ *  the UI can show which coding CLI/model is doing the review before a gate — and thus its
+ *  `reviewer*` fields — exists (notably the first review). `provider: null` for legacy /
+ *  restart-adopted reviews whose CLI couldn't be resolved. */
+export type ReviewerEnv = {
+  provider: AgentProvider | null;
+  model: string | null;
+  effort: string | null;
+};
+
 // ── visual recap blocks ──────────────────────────────────────────────────────
 // mirrors server VisualBlock union (Phase 1: rich-text + callout; file-tree + diff; Phase 2: code + more)
 export type CalloutTone = "info" | "decision" | "risk" | "warning" | "success";
@@ -1696,7 +1707,11 @@ export type WsEvent =
       // Emitted two ways: a fresh verdict carries `gate`; a phase flip carries `planPhase`.
       data: { id: string; gate?: PlanGate; planPhase?: "planning" | "executing" };
     }
-  | { event: "session:plangate-reviewing"; data: { id: string; reviewing: boolean } }
+  | {
+      event: "session:plangate-reviewing";
+      // `env` carries the reviewer CLI/model/effort on the start (reviewing:true) signal; absent on end.
+      data: { id: string; reviewing: boolean; env?: ReviewerEnv };
+    }
   | { event: "session:plangate-activity"; data: { id: string; summary: string } }
   | { event: "learnings:update"; data: { pending: number } }
   | {

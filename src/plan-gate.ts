@@ -166,8 +166,12 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
   release: (sessionId: string) => Promise<void>;
   onChange: (id: string, gate: PlanGate) => void;
-  /** Fired when a plan review starts (true) and when it ends (false) for a session. */
-  onReviewing?: (id: string, reviewing: boolean) => void;
+  /** Fired when a plan review starts (true) and when it ends (false) for a session. On the
+   *  start (`true`) transition it carries the reviewer's CLI + model + effort so the UI can show
+   *  *which* coding CLI/model is doing the review before a verdict — and thus the gate's
+   *  `reviewer*` fields — exists (notably the FIRST review, where no gate is present). Absent on
+   *  the end (`false`) signal. */
+  onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnvSignal) => void;
   /**
    * Fired each tick a plan reviewer is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read plan"). Surfaced live in the UI review-in-flight banner
@@ -207,6 +211,15 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
 }
+
+/** The reviewer's resolved CLI + model + effort for the currently in-flight run — carried on the
+ *  reviewing=true signal (and the inflight bootstrap snapshot) so the UI can surface which coding
+ *  CLI/model is doing the review even before a gate exists. */
+export type ReviewerEnvSignal = {
+  provider: AgentProvider | null;
+  model: string | null;
+  effort: string | null;
+};
 
 interface PlanInFlight {
   sessionId: string;
@@ -473,7 +486,11 @@ export class PlanGateService {
       reviewerEffort,
       spawnedAt: this.now(),
     });
-    this.deps.onReviewing?.(session.id, true);
+    this.deps.onReviewing?.(session.id, true, {
+      provider: reviewerEnv.provider,
+      model: reviewerEnv.model,
+      effort: reviewerEffort,
+    });
     return "started";
   }
 
@@ -516,8 +533,13 @@ export class PlanGateService {
         await this.reapOrphanSpawn(sp);
         continue;
       }
-      this.inflight.set(id, await this.buildAdoptedInflight(sp, s, prior));
-      this.deps.onReviewing?.(id, true);
+      const adopted = await this.buildAdoptedInflight(sp, s, prior);
+      this.inflight.set(id, adopted);
+      this.deps.onReviewing?.(id, true, {
+        provider: adopted.reviewerProvider,
+        model: adopted.reviewerModel,
+        effort: adopted.reviewerEffort,
+      });
     }
   }
 
@@ -843,6 +865,18 @@ export class PlanGateService {
   /** Session ids with a plan review currently in flight (for client bootstrap). */
   reviewingIds(): string[] {
     return [...this.inflight.keys()];
+  }
+
+  /** In-flight plan reviews with their reviewer env — the client bootstrap snapshot so a reload
+   *  mid-review restores which CLI/model is doing the review, not just that one is running. Distinct
+   *  from `reviewingIds()`, which stays a bare `string[]` for the herd/upnext consumer. */
+  reviewingInflight(): Array<{ id: string } & ReviewerEnvSignal> {
+    return [...this.inflight.values()].map((f) => ({
+      id: f.sessionId,
+      provider: f.reviewerProvider,
+      model: f.reviewerModel,
+      effort: f.reviewerEffort,
+    }));
   }
 
   /** Worktree paths of plan reviews currently owned in-memory — the GC sweep must spare

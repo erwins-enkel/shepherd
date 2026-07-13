@@ -2989,5 +2989,14 @@
   "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context.",
   "repo_chip_open_github": "Open GitHub Repo-Webpage",
   "feat_repo_chip_github_link_title": "Open GitHub from a repo chip",
-  "feat_repo_chip_github_link_body": "Right-click or hold a GitHub-backed repo chip and open the repository page directly from the herd header."
+  "feat_repo_chip_github_link_body": "Right-click or hold a GitHub-backed repo chip and open the repository page directly from the herd header.",
+  "heartbeat_pop_intro": "The agent's tool-use over the last 8 minutes (each cell ≈ 20 s). An empty strip means the session has gone quiet.",
+  "heartbeat_legend_active_label": "Active",
+  "heartbeat_legend_active_desc": "Tool-use in that ~20 s slice — brighter means busier.",
+  "heartbeat_legend_idle_label": "Idle",
+  "heartbeat_legend_idle_desc": "No activity in that slice.",
+  "heartbeat_legend_error_label": "Error",
+  "heartbeat_legend_error_desc": "A tool-use in that slice failed.",
+  "feat_heartbeat_legend_title": "Activity heartbeat explains itself on hover",
+  "feat_heartbeat_legend_body": "The amber activity strip on live session cards now opens a legend when you hover it on desktop — so you can see what it tracks: the agent's tool-use over the last 8 minutes (brighter = busier, red = an error, empty = quiet)."
 }

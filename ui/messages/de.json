@@ -2989,5 +2989,14 @@
   "feat_diff_review_body": "Der Diff-Tab der Sitzung nutzt jetzt eine neue Engine: Wechsle zwischen Nebeneinander- und vereinheitlichter Ansicht — mit wortgenauer Hervorhebung innerhalb der Zeile, einer Datei-Seitenleiste zur schnellen Navigation und einklappbarem unverändertem Kontext.",
   "repo_chip_open_github": "GitHub-Repo-Webseite öffnen",
   "feat_repo_chip_github_link_title": "GitHub über einen Repo-Chip öffnen",
-  "feat_repo_chip_github_link_body": "Rechtsklicke oder halte einen GitHub-Repo-Chip gedrückt, um die Repository-Seite direkt aus dem Herdenkopf zu öffnen."
+  "feat_repo_chip_github_link_body": "Rechtsklicke oder halte einen GitHub-Repo-Chip gedrückt, um die Repository-Seite direkt aus dem Herdenkopf zu öffnen.",
+  "heartbeat_pop_intro": "Die Tool-Nutzung des Agents über die letzten 8 Minuten (jede Zelle ≈ 20 s). Eine leere Leiste heißt, die Session ist verstummt.",
+  "heartbeat_legend_active_label": "Aktiv",
+  "heartbeat_legend_active_desc": "Tool-Nutzung in dieser ~20-s-Slice — heller heißt mehr los.",
+  "heartbeat_legend_idle_label": "Leise",
+  "heartbeat_legend_idle_desc": "Keine Aktivität in dieser Slice.",
+  "heartbeat_legend_error_label": "Fehler",
+  "heartbeat_legend_error_desc": "Ein Tool-Aufruf in dieser Slice schlug fehl.",
+  "feat_heartbeat_legend_title": "Aktivitäts-Heartbeat erklärt sich beim Hover",
+  "feat_heartbeat_legend_body": "Die amber Aktivitäts-Leiste auf laufenden Session-Karten öffnet auf dem Desktop jetzt beim Hover eine Legende — damit sichtbar wird, was sie zeigt: die Tool-Nutzung des Agents über die letzten 8 Minuten (heller = mehr los, rot = ein Fehler, leer = ruhig)."
 }

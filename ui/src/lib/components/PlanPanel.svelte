@@ -68,10 +68,14 @@
     liveReviewEnv?.provider ? liveReviewEnv.effort : gate?.reviewerEffort,
   );
   const reviewEnv = $derived(environmentLabel(reviewProvider, reviewModel, reviewEffort));
-  // In-flight button identity: rendered ONLY when a real (non-null) provider is known, so an
-  // adopted-orphan {provider:null,…} or the pre-first-verdict bridge window falls back to a plain
-  // "Reviewing…" rather than surfacing an ugly "unavailable · <model>" string.
-  const reviewingEnvLabel = $derived(reviewProvider ? reviewEnv : null);
+  // In-flight button identity: shows the reviewer triple ONLY when a real (non-null) provider is
+  // known, so an adopted-orphan {provider:null,…} or the pre-first-verdict bridge window falls back
+  // to a plain "Reviewing…" rather than surfacing an ugly "unavailable · <model>" string. Composed
+  // here (not inline in the template) so the branch lives in the script, keeping the <template>
+  // synthetic complexity under the Tier-1 Svelte bar (.fallowrc.jsonc).
+  const reviewingButtonLabel = $derived(
+    reviewProvider ? m.planpanel_reviewing_env({ env: reviewEnv }) : m.planpanel_reviewing(),
+  );
 
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
   // agent-authored — the planning agent and the reviewer ingest untrusted input (issue
@@ -452,9 +456,7 @@
             >
               {#if inFlight}
                 <span class="rev-dot" aria-hidden="true"></span><span class="rev-text"
-                  >{reviewingEnvLabel
-                    ? m.planpanel_reviewing_env({ env: reviewingEnvLabel })
-                    : m.planpanel_reviewing()}</span
+                  >{reviewingButtonLabel}</span
                 >
               {:else}
                 {m.planpanel_review_now()}

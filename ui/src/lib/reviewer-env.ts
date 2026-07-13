@@ -3,8 +3,9 @@ import { modelLabel } from "$lib/model-label";
 import { effortLabel } from "$lib/effort-guidance";
 import type { AgentProvider } from "$lib/types";
 
-/** Localized CLI label for an agent provider (Claude Code / Codex). */
-export function providerLabel(provider: AgentProvider): string {
+/** Localized CLI label for an agent provider (Claude Code / Codex). Internal to this module —
+ *  callers compose the full env via {@link environmentLabel}. */
+function providerLabel(provider: AgentProvider): string {
   return provider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
 }
 

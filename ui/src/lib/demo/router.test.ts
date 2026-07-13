@@ -234,6 +234,13 @@ describe("session-detail tab GETs never fall back to {}", () => {
     expect(status).toBe(200);
     expect(Array.isArray(body.files)).toBe(true);
     expect(body.files.length).toBeGreaterThan(0);
+    // Every file carries a synthesized `patch` — the Diff tab renders from it, so a
+    // missing patch would make the demo show "no textual changes" for every file.
+    for (const f of body.files) {
+      expect(typeof f.patch).toBe("string");
+      expect(f.patch.startsWith("diff --git ")).toBe(true);
+      expect(f.patch).toContain("@@ ");
+    }
     // an unseeded session still gets a valid DiffResult, not {} (files would be undefined)
     const empty = await get("/api/sessions/rounding/diff");
     expect(Array.isArray(empty.body.files)).toBe(true);

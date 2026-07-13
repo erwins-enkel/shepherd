@@ -50,6 +50,8 @@ import type {
   StarPromptStatus,
   ActivityEntry,
   DiffResult,
+  DiffFile,
+  DiffHunk,
   ScratchListing,
   SessionUsage,
   SlashCommand,
@@ -1304,11 +1306,52 @@ function buildActivityEntries(): Record<string, ActivityEntry[]> {
   };
 }
 
+const DIFF_PREFIX = { add: "+", del: "-", ctx: " " } as const;
+
+/** Synthesize one hunk's unified-diff text from its structured lines, recomputing
+ *  the `@@ -a,b +c,d @@` counts from the actual lines (the fixtures' authored headers
+ *  are illustrative and needn't match): old side = ctx+del, new side = ctx+add.
+ *  Preserves any trailing section label after the original header. */
+function hunkToPatch(h: DiffHunk): string {
+  const oldCount = h.lines.filter((l) => l.kind !== "add").length;
+  const newCount = h.lines.filter((l) => l.kind !== "del").length;
+  const oldStart = h.lines.find((l) => l.oldNo != null)?.oldNo ?? 0;
+  const newStart = h.lines.find((l) => l.newNo != null)?.newNo ?? 0;
+  const body = h.lines.map((l) => DIFF_PREFIX[l.kind] + l.content);
+  const section = h.header.replace(/^@@[^@]*@@/, "").trim();
+  const head = `@@ -${oldStart},${oldCount} +${newStart},${newCount} @@${section ? " " + section : ""}`;
+  return [head, ...body].join("\n");
+}
+
+/** Build a valid single-file unified patch from a demo DiffFile's structured hunks, so
+ *  the Diff tab (which renders from `patch`) has something to show. The real server
+ *  attaches `patch` in `toSessionDiff`; the demo mock serves fixtures directly, so we
+ *  synthesize it here (else every demo file reads as "no textual changes"). */
+function patchFromFile(f: DiffFile): string {
+  const path = f.path;
+  const old = f.oldPath ?? path;
+  const lines: string[] = [`diff --git a/${old} b/${path}`];
+  if (f.status === "added") {
+    lines.push("new file mode 100644", "index 0000000..1111111", "--- /dev/null", `+++ b/${path}`);
+  } else if (f.status === "deleted") {
+    lines.push(
+      "deleted file mode 100644",
+      "index 1111111..0000000",
+      `--- a/${old}`,
+      "+++ /dev/null",
+    );
+  } else {
+    lines.push("index 1111111..2222222 100644", `--- a/${old}`, `+++ b/${path}`);
+  }
+  for (const h of f.hunks ?? []) lines.push(hunkToPatch(h));
+  return lines.join("\n") + "\n";
+}
+
 /** GET /api/sessions/:id/diff — coupon's growing diff (hero, no PR yet) + a small one for
  *  its epic-child sibling. A session with no seeded entry falls back to a valid empty
  *  DiffResult in state.ts (base/head filled from the session, `files: []` — never `{}`). */
 function buildDiffs(): Record<string, DiffResult> {
-  return {
+  const diffs: Record<string, DiffResult> = {
     coupon: {
       base: "main",
       baseRef: "origin/main",
@@ -1393,6 +1436,12 @@ function buildDiffs(): Record<string, DiffResult> {
       ],
     },
   };
+  // Attach a synthesized `patch` per file (the Diff tab renders from it); the demo
+  // mock bypasses the server's toSessionDiff that normally supplies it.
+  for (const d of Object.values(diffs)) {
+    d.files = d.files.map((f) => ({ ...f, patch: patchFromFile(f) }));
+  }
+  return diffs;
 }
 
 /** GET /api/sessions/:id/scratchpad (root listing) — only sessions with

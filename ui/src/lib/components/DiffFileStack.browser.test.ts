@@ -33,6 +33,20 @@ index 1111111..2222222 100644
 
 const TEXT_PATH = "src/greet.ts";
 
+// An added-file patch in the exact shape the demo fixtures synthesize (seed.ts
+// patchFromFile): `new file mode` + `--- /dev/null`. Guards that this format parses
+// and renders a Pierre host (the modified-file TEXT_PATCH covers the other branch).
+const ADDED_PATCH = `diff --git a/src/New.svelte b/src/New.svelte
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/src/New.svelte
+@@ -0,0 +1,2 @@
++<script lang="ts">
++</script>
+`;
+const ADDED_PATH = "src/New.svelte";
+
 const files: DiffFile[] = [
   {
     path: TEXT_PATH,
@@ -108,5 +122,32 @@ describe("DiffFileStack", () => {
     await vi.waitFor(() => {
       expect(host(), "Pierre host present after scrollToPath").toBeTruthy();
     });
+  });
+
+  it("renders an added-file (/dev/null) synthesized patch as a Pierre host, not a note card", async () => {
+    vi.stubGlobal("IntersectionObserver", NoopIO);
+    const addedFiles: DiffFile[] = [
+      {
+        path: ADDED_PATH,
+        status: "added",
+        additions: 2,
+        deletions: 0,
+        binary: false,
+        patch: ADDED_PATCH,
+      },
+    ];
+    const { component } = await render(DiffFileStack, {
+      files: addedFiles,
+      diffStyle: "unified" as "split" | "unified",
+    });
+
+    await (component as { scrollToPath: (p: string) => Promise<void> }).scrollToPath(ADDED_PATH);
+
+    // A parse failure would leave no host (the file would show no diff); assert the
+    // added-file patch format actually parsed and rendered.
+    await vi.waitFor(() => {
+      expect(host(), "Pierre host present for added-file patch").toBeTruthy();
+    });
+    expect(document.body.textContent).not.toContain(m.diff_note_no_changes());
   });
 });

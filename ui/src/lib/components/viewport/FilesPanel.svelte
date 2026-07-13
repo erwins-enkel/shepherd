@@ -46,8 +46,16 @@
     }
   }
 
-  const ariaSort = (key: "name" | "created") =>
-    sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none";
+  // Sort state is announced through the header button's aria-label (the rows are interactive
+  // <a>/<button> elements, so a real ARIA grid with row/cell roles would strip their semantics;
+  // aria-sort without that grid context is ignored by AT anyway). When a column is active the
+  // label also states the current direction.
+  const sortLabel = (key: "name" | "created") => {
+    const base = key === "name" ? m.files_sort_name_aria() : m.files_sort_created_aria();
+    if (sortKey !== key) return base;
+    const dir = sortDir === "asc" ? m.files_sort_dir_asc() : m.files_sort_dir_desc();
+    return m.files_sort_active({ label: base, dir });
+  };
 
   const hasCreated = (e: ScratchEntry): e is ScratchEntry & { createdMs: number } =>
     e.createdMs != null && Number.isFinite(e.createdMs);
@@ -330,13 +338,13 @@
           {/if}
         </div>
       {:else if listing}
-        <div class="list-head" role="row">
+        <div class="list-head">
           <span class="hcell" aria-hidden="true"></span>
-          <span class="hcell" role="columnheader" aria-sort={ariaSort("name")}>
+          <span class="hcell">
             <button
               type="button"
               class="col-btn"
-              aria-label={m.files_sort_name_aria()}
+              aria-label={sortLabel("name")}
               onclick={() => toggleSort("name")}
             >
               {m.files_col_name()}{#if sortKey === "name"}<span class="arrow" aria-hidden="true"
@@ -344,11 +352,11 @@
                 >{/if}
             </button>
           </span>
-          <span class="hcell hcreated" role="columnheader" aria-sort={ariaSort("created")}>
+          <span class="hcell hcreated">
             <button
               type="button"
               class="col-btn"
-              aria-label={m.files_sort_created_aria()}
+              aria-label={sortLabel("created")}
               onclick={() => toggleSort("created")}
             >
               {m.files_col_created()}{#if sortKey === "created"}<span

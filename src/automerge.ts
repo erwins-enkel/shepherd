@@ -147,6 +147,7 @@ export class AutoMergeService {
       checks: git?.checks ?? ("none" as const),
       noCi: git?.noCi ?? false,
       mergeable: git?.mergeable ?? null,
+      mergeStateStatus: git?.mergeStateStatus,
       number: git?.number ?? null,
       headSha: git?.headSha ?? null,
       humanApproved: git?.latestReview?.state === "approved",

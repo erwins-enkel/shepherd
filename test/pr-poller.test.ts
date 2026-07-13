@@ -34,6 +34,32 @@ test("gitStateChanged: false when running-checks only reorders (set-equal)", () 
   ).toBe(false);
 });
 
+test("gitStateChanged: true when reviewerStates or reviewBlock changes", () => {
+  const prev = openGit({
+    checks: "success",
+    latestReview: { state: "changes_requested", author: "scoop", submittedAt: 1 },
+  });
+  expect(
+    gitStateChanged(prev, {
+      ...prev,
+      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+    }),
+  ).toBe(true);
+  expect(
+    gitStateChanged(
+      {
+        ...prev,
+        reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+      },
+      {
+        ...prev,
+        reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      },
+    ),
+  ).toBe(true);
+});
+
 const baseSession = {
   name: "x",
   prompt: "x",

@@ -9,6 +9,8 @@ import { isMerging } from "./merge-train";
  *  - ciFailed: open PR whose CI checks failed (`open` + `failure`) — done, needs a look
  *  - reviewerRunning: a critic run is in flight for the session
  *  - reworkRunning: the task agent is actively addressing plan-gate or critic requested changes
+ *  - needsRework: the configured reviewer has active requested changes on an idle green PR.
+ *  - branchProtectionBlocked: the forge reports protected-branch merge blocked after checks clear.
  *  - draftAwaitingSignoff: open DRAFT PR, CI green (`open` + `success` + `isDraft`) AND
  *    the agent is not actively in the loop — parked, awaiting human sign-off before merge.
  *    Never reads as the green "Your turn" state; rendered in slate (parked, not actionable).
@@ -30,7 +32,7 @@ import { isMerging } from "./merge-train";
  *
  *  First-match precedence (terminal states win; reviewing/rework beat the CI/merge stages
  *  as the later in-flight stage):
- *    merged > merging > ready > reviewerRunning > reworkRunning > ciRunning > ciFailed >
+ *    merged > merging > needsRework > branchProtectionBlocked > ready > reviewerRunning > reworkRunning > ciRunning > ciFailed >
  *    draftAwaitingSignoff > (waitingOnReviewer | waitingOnMerger | awaitingMerge) > active.
  *  A draft outranks the handed-off groups: a green idle DRAFT is awaiting sign-off
  *  regardless of who the roles file names. An open PR with `none` checks (no CI reported
@@ -49,6 +51,8 @@ type Stage =
   | "ready"
   | "reviewerRunning"
   | "reworkRunning"
+  | "needsRework"
+  | "branchProtectionBlocked"
   | "ciRunning"
   | "ciFailed"
   | "draftAwaitingSignoff"
@@ -120,12 +124,32 @@ function terminalStage(
 ): Stage | null {
   if (g?.state === "merged") return "merged";
   if (isMerging(s, now)) return "merging";
+  const idleOpenCleared = isIdleOpenCleared(s, g, isReviewing, isReworkRunning);
+  if (idleOpenCleared && g.reviewBlock) return "needsRework";
+  if (idleOpenCleared && !g.reviewBlock && g.mergeStateStatus === "blocked")
+    return "branchProtectionBlocked";
   if (s.readyToMerge) return "ready";
   if (isReviewing(s.id)) return "reviewerRunning";
   if (isReworkRunning(s)) return "reworkRunning";
   if (g?.state === "open" && g.checks === "pending") return "ciRunning";
   if (g?.state === "open" && g.checks === "failure") return "ciFailed";
   return null;
+}
+
+function isIdleOpenCleared(
+  s: Session,
+  g: GitState | undefined,
+  isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
+): g is GitState & { state: "open" } {
+  return (
+    g?.state === "open" &&
+    checksCleared(g.checks, g.noCi) &&
+    s.status !== "running" &&
+    s.status !== "blocked" &&
+    !isReviewing(s.id) &&
+    !isReworkRunning(s)
+  );
 }
 
 /** Bucket a green, idle (handed-off) PR: a draft awaits sign-off; otherwise a foreign
@@ -171,6 +195,8 @@ const STAGE_ORDER = [
   "ciFailed",
   "reviewerRunning",
   "reworkRunning",
+  "needsRework",
+  "branchProtectionBlocked",
   "waitingOnReviewer",
   "waitingOnMerger",
   "draftAwaitingSignoff",
@@ -197,6 +223,8 @@ export function partitionSessions(
   ciFailed: Session[];
   reviewerRunning: Session[];
   reworkRunning: Session[];
+  needsRework: Session[];
+  branchProtectionBlocked: Session[];
   draftAwaitingSignoff: Session[];
   waitingOnReviewer: Session[];
   waitingOnMerger: Session[];
@@ -211,6 +239,8 @@ export function partitionSessions(
     ciFailed: [],
     reviewerRunning: [],
     reworkRunning: [],
+    needsRework: [],
+    branchProtectionBlocked: [],
     draftAwaitingSignoff: [],
     waitingOnReviewer: [],
     waitingOnMerger: [],

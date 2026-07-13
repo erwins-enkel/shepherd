@@ -36,7 +36,7 @@ const epic = (children: EpicChild[], p: Partial<Epic> = {}): Epic => ({
   ...p,
 });
 
-const noCues = { ciFailed: 0, ready: 0, blocked: 0 };
+const noCues = { ciFailed: 0, needsRework: 0, branchProtectionBlocked: 0, ready: 0, blocked: 0 };
 
 afterEach(() => {
   document.body.innerHTML = "";
@@ -98,12 +98,14 @@ describe("EpicGroupHeader", () => {
     render(EpicGroupHeader, {
       epic: epic([child("running", 1)]),
       collapsed: true,
-      cues: { ciFailed: 2, ready: 3, blocked: 1 },
+      cues: { ciFailed: 2, needsRework: 4, branchProtectionBlocked: 5, ready: 3, blocked: 1 },
       ontoggle: () => {},
     });
     // each chip = leading aria-hidden glyph + count, so textContent ends with the count
     expect(document.querySelector(".cue-ci")?.textContent).toContain("2");
     expect(document.querySelector(".cue-ready")?.textContent).toContain("3");
+    expect(document.querySelector(".cue-needs-rework")?.textContent).toContain("4");
+    expect(document.querySelector(".cue-branch-blocked")?.textContent).toContain("5");
     expect(document.querySelector(".cue-blocked")?.textContent).toContain("1");
     expect(document.querySelector(".cue-blocked")?.getAttribute("title")).toContain("1");
   });
@@ -114,7 +116,7 @@ describe("EpicGroupHeader", () => {
     render(EpicGroupHeader, {
       epic: epic([child("running", 1)]),
       collapsed: true,
-      cues: { ciFailed: 1, ready: 0, blocked: 1 },
+      cues: { ciFailed: 1, needsRework: 0, branchProtectionBlocked: 0, ready: 0, blocked: 1 },
       ontoggle: () => {},
     });
     const ciGlyph = document.querySelector(".cue-ci .cue-glyph")?.textContent;
@@ -133,7 +135,7 @@ describe("EpicGroupHeader", () => {
     render(EpicGroupHeader, {
       epic: epic([child("running", 1)]),
       collapsed: false,
-      cues: { ciFailed: 0, ready: 2, blocked: 0 },
+      cues: { ciFailed: 0, needsRework: 0, branchProtectionBlocked: 0, ready: 2, blocked: 0 },
       ontoggle: () => {},
     });
     expect(document.querySelector(".cue-ci")).toBeNull();

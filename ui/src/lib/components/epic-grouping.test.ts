@@ -284,27 +284,42 @@ test("ordering: within a group, members come back in STAGE_ORDER lifecycle order
   expect(groups[0].sessions.map((s) => s.id)).toEqual(["a", "r", "m"]);
 });
 
-test("ordering: reworkRunning sits after reviewerRunning and before waiting-on-reviewer", () => {
-  const e = epic("/r", 100, [1, 2, 3]);
+test("ordering: review-blocked and branch-blocked sit before waiting-on-reviewer", () => {
+  const e = epic("/r", 100, [1, 2, 3, 4, 5]);
   const epics = { [key("/r", 100)]: e };
   const active = new Set([key("/r", 100)]);
 
   const wait = session("wait", "/r", 1, "idle");
   const rework = session("rework", "/r", 2, "running");
   const review = session("review", "/r", 3, "running");
+  const needs = session("needs", "/r", 4, "idle");
+  const branch = session("branch", "/r", 5, "idle");
 
   const { groups } = groupSessionsByEpic(
-    [wait, rework, review],
+    [wait, rework, review, needs, branch],
     epics,
     active,
-    { wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" } },
+    {
+      wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" },
+      needs: {
+        ...git("open", "success"),
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      },
+      branch: { ...git("open", "success"), mergeStateStatus: "blocked" },
+    },
     (id) => id === "review",
     now,
     (s) => s.id === "rework",
   );
 
   expect(groups).toHaveLength(1);
-  expect(groups[0].sessions.map((s) => s.id)).toEqual(["review", "rework", "wait"]);
+  expect(groups[0].sessions.map((s) => s.id)).toEqual([
+    "review",
+    "rework",
+    "needs",
+    "branch",
+    "wait",
+  ]);
 });
 
 test("issueNumber == null never groups", () => {

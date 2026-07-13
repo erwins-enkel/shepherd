@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import UnitRow from "./UnitRow.svelte";
 import { projectIcons } from "$lib/projectIcons.svelte";
-import type { HoldReason, PlanGate, Session } from "$lib/types";
+import type { GitState, HoldReason, PlanGate, Session } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import type { ReviewVerdict } from "$lib/types";
 
@@ -109,6 +109,15 @@ const baseGate: PlanGate = {
   updatedAt: Date.now(),
 };
 
+const openGreenGit = (over: Partial<GitState> = {}): GitState => ({
+  kind: "github",
+  state: "open",
+  checks: "success",
+  number: 7,
+  deployConfigured: false,
+  ...over,
+});
+
 beforeEach(() => {
   reviews.reviewing = {};
   reviews.map = {};
@@ -157,6 +166,32 @@ describe("UnitRow merging badge", () => {
     });
     await expect.element(page.getByText("READY")).toBeInTheDocument();
     await expect.element(page.getByText("MERGING")).not.toBeInTheDocument();
+  });
+
+  it("shows Changes requested instead of READY for a ready review-blocked session", async () => {
+    render(UnitRow, {
+      session: session({ id: "c", readyToMerge: true, status: "idle" }),
+      git: openGreenGit({
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText("Changes requested by scoop")).toBeInTheDocument();
+    await expect.element(page.getByText("READY")).not.toBeInTheDocument();
+  });
+
+  it("shows Merge blocked instead of READY after checks clear", async () => {
+    render(UnitRow, {
+      session: session({ id: "d", readyToMerge: true, status: "idle" }),
+      git: openGreenGit({ mergeStateStatus: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await expect.element(page.getByText("Merge blocked")).toBeInTheDocument();
+    await expect.element(page.getByText("READY")).not.toBeInTheDocument();
   });
 });
 

@@ -1,8 +1,9 @@
 import { test, expect } from "bun:test";
-import { GithubForge } from "../../src/forge/github";
+import { GithubForge, reviewerStatesFromReviews } from "../../src/forge/github";
 import { graphRateLimit } from "../../src/forge/rate-limit";
-import { EmptyDiffError } from "../../src/forge/types";
-import type { PullRequest, PrStatus } from "../../src/forge/types";
+import { CRITIC_REVIEW_MARKER, EmptyDiffError } from "../../src/forge/types";
+import type { PullRequest, PrReviewerState, PrStatus } from "../../src/forge/types";
+import type { GhReview } from "../../src/forge/github";
 
 // A recording fake `gh` runner. Returns canned stdout keyed by the subcommand.
 function fakeRunner(responses: Record<string, string>) {
@@ -45,6 +46,64 @@ const ISSUES_JSON = JSON.stringify([
     // no assignees key → maps to []
   },
 ]);
+
+function review(author: string, state: string, submittedAt: string, body = ""): GhReview {
+  return { author: { login: author }, state, submittedAt, body };
+}
+
+test("reviewerStatesFromReviews: changes requested creates a per-reviewer state", () => {
+  expect(
+    reviewerStatesFromReviews([review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z")]),
+  ).toEqual({
+    scoop: { state: "changes_requested", latestAt: Date.parse("2026-01-01T00:00:00Z") },
+  });
+});
+
+test("reviewerStatesFromReviews: approval clears prior requested changes", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+      review("scoop", "APPROVED", "2026-01-01T01:00:00Z"),
+    ]),
+  ).toEqual({ scoop: { state: "approved", latestAt: Date.parse("2026-01-01T01:00:00Z") } });
+});
+
+test("reviewerStatesFromReviews: later comment does not clear requested changes", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+      review("scoop", "COMMENTED", "2026-01-01T01:00:00Z"),
+    ]),
+  ).toEqual({
+    scoop: { state: "changes_requested", latestAt: Date.parse("2026-01-01T00:00:00Z") },
+  });
+});
+
+test("reviewerStatesFromReviews: dismissed clears requested changes", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+      review("scoop", "DISMISSED", "2026-01-01T01:00:00Z"),
+    ]),
+  ).toEqual({});
+});
+
+test("reviewerStatesFromReviews: replay is chronological, not payload-order dependent", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "APPROVED", "2026-01-01T01:00:00Z"),
+      review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z"),
+    ]),
+  ).toEqual({ scoop: { state: "approved", latestAt: Date.parse("2026-01-01T01:00:00Z") } });
+});
+
+test("reviewerStatesFromReviews: critic reviews are ignored", () => {
+  expect(
+    reviewerStatesFromReviews([
+      review("scoop", "CHANGES_REQUESTED", "2026-01-01T00:00:00Z", CRITIC_REVIEW_MARKER),
+    ]),
+  ).toEqual({});
+});
 
 test("GithubForge.listBacklogCounts: parses counts, CI rollup and PR-kind split", async () => {
   const graphql = JSON.stringify({
@@ -2102,12 +2161,16 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       mergeStateStatus: "clean",
       isDraft: false,
       checks: "success",
+      runningChecks: undefined,
       headSha: "aaa111",
       baseRefName: "main",
       latestReview: {
         state: "approved",
         author: "bob",
         submittedAt: Date.parse("2026-01-01T00:00:00Z"),
+      },
+      reviewerStates: {
+        bob: { state: "approved", latestAt: Date.parse("2026-01-01T00:00:00Z") },
       },
       requestedReviewers: ["carol"],
       deployConfigured: false,
@@ -2125,9 +2188,11 @@ const EXPECTED_STATUSES: Map<string, PrStatus> = new Map([
       mergeStateStatus: "dirty",
       isDraft: true,
       checks: "none",
+      runningChecks: undefined,
       headSha: "bbb222",
       baseRefName: "main",
       latestReview: undefined,
+      reviewerStates: {} as Record<string, PrReviewerState>,
       requestedReviewers: [],
       deployConfigured: false,
     },

@@ -198,6 +198,65 @@ test("operator-parked ready wins over green CI (awaitingMerge)", () => {
   expect(ready.map((s) => s.id)).toEqual(["r"]);
 });
 
+test("idle green PR with reviewBlock lands in needsRework", () => {
+  const list = [session("r", false, "idle")];
+  const p = partitionSessions(list, {
+    r: {
+      ...git("open", "success"),
+      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+    },
+  });
+  expect(p.needsRework.map((s) => s.id)).toEqual(["r"]);
+  expect(p.waitingOnReviewer).toHaveLength(0);
+});
+
+test("readyToMerge plus idle reviewBlock is shown as changes requested", () => {
+  const list = [session("r", true, "idle")];
+  const p = partitionSessions(list, {
+    r: {
+      ...git("open", "success"),
+      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+    },
+  });
+  expect(p.needsRework.map((s) => s.id)).toEqual(["r"]);
+  expect(p.ready).toHaveLength(0);
+});
+
+test("readyToMerge plus reviewBlock remains ready while a review is running", () => {
+  const list = [session("r", true, "idle")];
+  const p = partitionSessions(
+    list,
+    {
+      r: {
+        ...git("open", "success"),
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      },
+    },
+    (id) => id === "r",
+  );
+  expect(p.ready.map((s) => s.id)).toEqual(["r"]);
+  expect(p.needsRework).toHaveLength(0);
+});
+
+test("cleared branch-protection block lands in branchProtectionBlocked", () => {
+  const list = [session("b", false, "idle")];
+  const p = partitionSessions(list, {
+    b: { ...git("open", "success"), mergeStateStatus: "blocked" },
+  });
+  expect(p.branchProtectionBlocked.map((s) => s.id)).toEqual(["b"]);
+});
+
+test("pending and failing checks outrank branch-protection blocked", () => {
+  const list = [session("pending", false, "idle"), session("failed", false, "idle")];
+  const p = partitionSessions(list, {
+    pending: { ...git("open", "pending"), mergeStateStatus: "blocked" },
+    failed: { ...git("open", "failure"), mergeStateStatus: "blocked" },
+  });
+  expect(p.ciRunning.map((s) => s.id)).toEqual(["pending"]);
+  expect(p.ciFailed.map((s) => s.id)).toEqual(["failed"]);
+  expect(p.branchProtectionBlocked).toHaveLength(0);
+});
+
 test("a session under review lands in the reviewerRunning group", () => {
   const list = [session("a"), session("rv"), session("b")];
   const { active, reviewerRunning } = partitionSessions(list, {}, (id) => id === "rv");
@@ -257,17 +316,33 @@ test("idle changes-requested with failed CI stays in ciFailed, not reworkRunning
 test("flattenByStage places reworkRunning after reviewerRunning and before waiting groups", () => {
   const list = [
     session("wait", false, "idle"),
+    session("branch", false, "idle"),
+    session("needs", false, "idle"),
     session("rework"),
     session("review"),
     session("active"),
   ];
   const p = partitionSessions(
     list,
-    { wait: gitHandoff("reviewer", "scoop") },
+    {
+      wait: gitHandoff("reviewer", "scoop"),
+      needs: {
+        ...git("open", "success"),
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      },
+      branch: { ...git("open", "success"), mergeStateStatus: "blocked" },
+    },
     (id) => id === "review",
     (s) => s.id === "rework",
   );
-  expect(flattenByStage(p).map((s) => s.id)).toEqual(["active", "review", "rework", "wait"]);
+  expect(flattenByStage(p).map((s) => s.id)).toEqual([
+    "active",
+    "review",
+    "rework",
+    "needs",
+    "branch",
+    "wait",
+  ]);
 });
 
 test("reviewing wins over pending CI when both apply", () => {

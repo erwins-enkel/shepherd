@@ -1,4 +1,4 @@
-import type { ChecksState, PrStatus } from "./forge/types";
+import type { ChecksState, MergeStateStatus, PrStatus } from "./forge/types";
 import type { ReviewDecision } from "./types";
 import type { ManualStep } from "./manual-steps";
 import { signedOff, type SignoffAuthority } from "./signoff";
@@ -29,6 +29,8 @@ export interface MergeSessionView {
   noCi: boolean;
   /** null = host still computing; treat as not-yet-mergeable. */
   mergeable: boolean | null;
+  /** GitHub branch-protection merge state; absent on forges that do not supply it. */
+  mergeStateStatus?: MergeStateStatus;
   number: number | null;
   headSha: string | null;
   /** false = up-to-date; true = behind main (rebase); null = unknown (never merge). */
@@ -107,6 +109,7 @@ function readyExceptManualSteps(
   if (s.mergeBlocked) return false; // backed off after repeated merge failures → skip, try siblings
   if (s.state !== "open" || !checksCleared(s.checks, s.noCi) || s.mergeable !== true || !s.number)
     return false;
+  if (s.mergeStateStatus === "blocked") return false;
   if (s.behind !== false) return false; // true=stale, null=unknown → not now
   if (draftMode && !signedOff(authority, signoffView(s))) return false; // backstop: never merge an unsigned draft
   if (s.reviewDecision === "changes_requested" || s.reviewDecision === "error") return false;

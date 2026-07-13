@@ -33,6 +33,7 @@ import type {
   OpenPrSnapshot,
   PostReviewInput,
   PrComment,
+  PrReviewerState,
   PrReviewMeta,
   PrStatus,
   PullRequest,
@@ -215,7 +216,7 @@ const defaultRunner: GhRunner = (args) =>
     }
   });
 
-interface GhReview {
+export interface GhReview {
   author?: { login?: string } | null;
   state?: string | null; // APPROVED | CHANGES_REQUESTED | COMMENTED | PENDING | DISMISSED
   body?: string | null;
@@ -226,6 +227,13 @@ const REVIEW_STATE: Record<string, "approved" | "changes_requested" | "commented
   APPROVED: "approved",
   CHANGES_REQUESTED: "changes_requested",
   COMMENTED: "commented",
+};
+
+const REVIEWER_REPLAY_STATE: Record<string, PrReviewerState["state"] | "dismissed"> = {
+  APPROVED: "approved",
+  CHANGES_REQUESTED: "changes_requested",
+  COMMENTED: "commented",
+  DISMISSED: "dismissed",
 };
 
 /** Newest human review (critic-marked + non-terminal states excluded). */
@@ -242,6 +250,36 @@ function latestHumanReview(reviews: GhReview[] | undefined): PrStatus["latestRev
     best = { state, author: r.author?.login ?? "", submittedAt: ts };
   }
   return best;
+}
+
+/** Latest terminal human review state per reviewer. Unlike latestHumanReview(),
+ *  this replay treats DISMISSED as a clearing event and keeps COMMENTED neutral. */
+export function reviewerStatesFromReviews(
+  reviews: GhReview[] | undefined,
+): PrStatus["reviewerStates"] {
+  if (!reviews) return undefined;
+  const states: NonNullable<PrStatus["reviewerStates"]> = {};
+  const ordered = [...reviews]
+    .map((r) => ({ review: r, ts: Date.parse(r.submittedAt ?? "") }))
+    .filter(({ review, ts }) => {
+      if (!Number.isFinite(ts)) return false;
+      if ((review.body ?? "").includes(CRITIC_REVIEW_MARKER)) return false;
+      return !!REVIEWER_REPLAY_STATE[review.state ?? ""];
+    })
+    .sort((a, b) => a.ts - b.ts);
+  for (const { review, ts } of ordered) {
+    const author = review.author?.login ?? "";
+    if (!author) continue;
+    const state = REVIEWER_REPLAY_STATE[review.state ?? ""];
+    if (!state) continue;
+    if (state === "dismissed") {
+      delete states[author];
+      continue;
+    }
+    if (state === "commented" && states[author]?.state === "changes_requested") continue;
+    states[author] = { state, latestAt: ts };
+  }
+  return states;
 }
 
 interface GhPr {
@@ -1059,6 +1097,7 @@ export class GithubForge implements GitForge {
       headSha: pr.headRefOid,
       baseRefName: pr.baseRefName,
       latestReview: latestHumanReview(pr.reviews),
+      reviewerStates: reviewerStatesFromReviews(pr.reviews),
       requestedReviewers: (pr.reviewRequests ?? [])
         .map((r) => r.login)
         .filter((l): l is string => !!l),

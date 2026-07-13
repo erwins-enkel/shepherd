@@ -43,6 +43,7 @@
   import UnitRowRight from "./unit-row/UnitRowRight.svelte";
   import { rowHold } from "$lib/hold-row";
   import { holdAwaitsOperator } from "$lib/hold";
+  import { checksCleared } from "$lib/checks-cleared";
   import {
     REVEAL_PX,
     snapOffset,
@@ -317,6 +318,17 @@
   });
 
   const reviewing = $derived(reviews.isReviewing(session.id));
+  const idleOpenCleared = $derived(
+    git?.state === "open" &&
+      checksCleared(git.checks, git.noCi) &&
+      session.status !== "running" &&
+      session.status !== "blocked" &&
+      !reviewing,
+  );
+  const changesRequested = $derived(idleOpenCleared && !!git?.reviewBlock);
+  const branchProtectionBlocked = $derived(
+    idleOpenCleared && !git?.reviewBlock && git?.mergeStateStatus === "blocked",
+  );
 
   // plan-gate row state. NOTE: `reviewing` above is the CRITIC store (reviews.isReviewing) —
   // this is the PLAN-GATE reviewer flag, a DIFFERENT store. Do not reuse the name `reviewing`.
@@ -479,7 +491,12 @@
     [
       `u-repo-${session.id}`,
       `u-sub-${session.id}`,
-      isMerging(session, nowMs) || session.readyToMerge ? `u-status-${session.id}` : null,
+      changesRequested ||
+      branchProtectionBlocked ||
+      isMerging(session, nowMs) ||
+      session.readyToMerge
+        ? `u-status-${session.id}`
+        : null,
     ]
       .filter(Boolean)
       .join(" "),

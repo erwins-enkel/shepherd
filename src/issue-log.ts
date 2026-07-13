@@ -44,7 +44,14 @@ export function issueLogEntries(
   // the full condition so a stale/hand-rolled GitState can't comment early. An
   // auto-inferred handoff (no roles.json) is excluded — the outward comment is
   // opt-in to explicitly-configured roles (see module doc).
-  if (
+  if (git.state === "open" && checksCleared(git.checks, git.noCi ?? false) && git.reviewBlock) {
+    const key = `changes-requested:${git.number}`;
+    if (!alreadyLogged(key))
+      out.push({
+        key,
+        body: stamp(`⚠️ Changes requested on PR #${git.number} by @${git.reviewBlock.reviewer}.`),
+      });
+  } else if (
     git.state === "open" &&
     checksCleared(git.checks, git.noCi ?? false) &&
     git.handoff &&

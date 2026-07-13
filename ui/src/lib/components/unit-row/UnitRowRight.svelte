@@ -11,6 +11,7 @@
   import AutopilotBadge from "../AutopilotBadge.svelte";
   import { repoConfig } from "$lib/reviews.svelte";
   import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { checksCleared } from "$lib/checks-cleared";
 
   let {
     session,
@@ -87,6 +88,18 @@
         : quotaKind === "error"
           ? m.unitrow_quota_error()
           : m.unitrow_quota_plan(),
+  );
+
+  const idleOpenCleared = $derived(
+    git?.state === "open" &&
+      checksCleared(git.checks, git.noCi) &&
+      session.status !== "running" &&
+      session.status !== "blocked" &&
+      !reviewing,
+  );
+  const changesRequested = $derived(idleOpenCleared && !!git?.reviewBlock);
+  const branchProtectionBlocked = $derived(
+    idleOpenCleared && !git?.reviewBlock && git?.mergeStateStatus === "blocked",
   );
 </script>
 
@@ -214,7 +227,26 @@
       >{m.session_sandbox_unconfined_label()}</span
     >
   {/if}
-  {#if isMerging(session, nowMs)}
+  {#if changesRequested}
+    <span
+      class="badge attention"
+      id="u-status-{session.id}"
+      use:statusTip={{
+        text: m.unitrow_changes_requested_title({
+          reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
+        }),
+      }}
+      >{m.unitrow_changes_requested({
+        reviewer: git?.reviewBlock?.reviewer ?? m.unitrow_unknown_reviewer(),
+      })}</span
+    >
+  {:else if branchProtectionBlocked}
+    <span
+      class="badge attention"
+      id="u-status-{session.id}"
+      use:statusTip={{ text: m.unitrow_merge_blocked_title() }}>{m.unitrow_merge_blocked()}</span
+    >
+  {:else if isMerging(session, nowMs)}
     <span
       class="badge merging"
       id="u-status-{session.id}"
@@ -298,6 +330,9 @@
     text-transform: uppercase;
     color: var(--color-muted);
     white-space: nowrap;
+  }
+  .attention {
+    color: var(--color-amber);
   }
 
   /* PREVIEW: an actionable, navigational badge — opens the live app pane. Blue is

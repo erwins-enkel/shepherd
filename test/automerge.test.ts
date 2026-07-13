@@ -100,6 +100,29 @@ test("ready PR → forge.merge called with squash + delete-branch, then archived
   expect(order).toEqual(["note", "archive"]);
 });
 
+test("mergeStateStatus blocked from prCache prevents merge", async () => {
+  const merge = mock(async () => {});
+  const d = deps({
+    prCache: {
+      snapshot: () => ({
+        s1: {
+          state: "open",
+          checks: "success",
+          mergeable: true,
+          mergeStateStatus: "blocked",
+          number: 7,
+          headSha: "h1",
+        },
+      }),
+    } as any,
+    resolveForge: () =>
+      ({ kind: "github", mergeMethod: "squash", merge, closeIssue: mock(async () => {}) }) as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+  expect(merge).not.toHaveBeenCalled();
+});
+
 test("behind → steers a rebase + bumps the counter, does NOT merge", async () => {
   const reply = mock(() => true);
   const setState = mock(() => {});

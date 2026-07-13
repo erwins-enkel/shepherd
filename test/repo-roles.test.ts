@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { annotateHandoff, computeHandoff, parseRoles, normalizeLogin } from "../src/repo-roles";
 import type { GitForge, GitState, PrStatus } from "../src/forge/types";
 import { makeApp, type AppDeps } from "../src/server";
@@ -37,6 +38,16 @@ test("foreign reviewer with no approval → waiting on the reviewer", () => {
   const r = computeHandoff({ reviewer: "scoop", merger: "scoop" }, "kai", undefined);
   expect(r.handoff).toBe("reviewer");
   expect(r.handoffWho).toBe("scoop");
+});
+
+test("foreign reviewer requested changes → self handoff, not passive waiting", () => {
+  const r = computeHandoff({ reviewer: "scoop", merger: "scoop" }, "kai", undefined, [], {
+    reviewer: "scoop",
+    state: "changes_requested",
+    latestAt: 1,
+  });
+  expect(r.handoff).toBe("self");
+  expect(r.handoffWho).toBeNull();
 });
 
 test("foreign reviewer once approved falls through to the merger", () => {
@@ -128,6 +139,80 @@ test("normalizeLogin trims, drops a leading @, empties to null", () => {
   expect(normalizeLogin("  @scoop ")).toBe("scoop");
   expect(normalizeLogin("")).toBeNull();
   expect(normalizeLogin(42)).toBeNull();
+});
+
+function repoWithRoles(roles: { reviewer: string | null; merger: string | null }): string {
+  const dir = mkdtempSync(join(config.repoRoot, "shepherd-roles-git-"));
+  execFileSync("git", ["-C", dir, "init", "-b", "main"], { stdio: "ignore" });
+  execFileSync("git", ["-C", dir, "config", "user.email", "test@example.com"], {
+    stdio: "ignore",
+  });
+  execFileSync("git", ["-C", dir, "config", "user.name", "Test"], { stdio: "ignore" });
+  mkdirSync(join(dir, ".shepherd"));
+  writeFileSync(join(dir, ".shepherd", "roles.json"), `${JSON.stringify(roles)}\n`);
+  execFileSync("git", ["-C", dir, "add", ".shepherd/roles.json"], { stdio: "ignore" });
+  execFileSync("git", ["-C", dir, "commit", "-m", "roles"], { stdio: "ignore" });
+  return dir;
+}
+
+test("annotateHandoff stamps reviewBlock only for the configured reviewer", () => {
+  const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
+  try {
+    const g = annotateHandoff(
+      gitState({
+        checks: "success",
+        reviewerStates: {
+          scoop: { state: "changes_requested", latestAt: 1 },
+          alice: { state: "changes_requested", latestAt: 2 },
+        },
+      }),
+      dir,
+      "kai",
+    );
+    expect(g.reviewBlock).toEqual({ reviewer: "scoop", state: "changes_requested", latestAt: 1 });
+    expect(g.handoff).toBeUndefined();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("annotateHandoff preserves previous reviewerStates when a fallback payload has none", () => {
+  const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
+  try {
+    const prev = gitState({
+      number: 7,
+      checks: "success",
+      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+    });
+    const g = annotateHandoff(gitState({ number: 7, checks: "success" }), dir, "kai", prev);
+    expect(g.reviewerStates).toEqual(prev.reviewerStates);
+    expect(g.reviewBlock).toEqual(prev.reviewBlock);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("annotateHandoff clears previous reviewBlock when a fresh empty replay arrives", () => {
+  const dir = repoWithRoles({ reviewer: "scoop", merger: "scoop" });
+  try {
+    const prev = gitState({
+      number: 7,
+      checks: "success",
+      reviewerStates: { scoop: { state: "changes_requested", latestAt: 1 } },
+      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+    });
+    const g = annotateHandoff(
+      gitState({ number: 7, checks: "success", reviewerStates: {} }),
+      dir,
+      "kai",
+      prev,
+    );
+    expect(g.reviewBlock).toBeUndefined();
+    expect(g.handoff).toBe("reviewer");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("PUT /api/repo-roles: push failure → 502 generic pushError, raw error not leaked (CodeQL #14)", async () => {

@@ -335,12 +335,16 @@
   // g.sessions directly via displayStatus (it's not a partition bucket).
   function cuesFor(g: { key: string; sessions: Session[] }): {
     ciFailed: number;
+    needsRework: number;
+    branchProtectionBlocked: number;
     ready: number;
     blocked: number;
   } {
     const p = groupParts.get(g.key);
     return {
       ciFailed: p?.ciFailed.length ?? 0,
+      needsRework: p?.needsRework.length ?? 0,
+      branchProtectionBlocked: p?.branchProtectionBlocked.length ?? 0,
       ready: p?.ready.length ?? 0,
       blocked: g.sessions.filter((s) => displayStatus(s, workingBlocked) === "blocked").length,
     };
@@ -441,6 +445,22 @@
         sessions: partition.reworkRunning,
         headClass: "rework-head",
         countLabel: m.herd_rework_running_group({ count: partition.reworkRunning.length }),
+        withPreview: true,
+      },
+      partition.needsRework.length > 0 && {
+        key: "needs-rework",
+        sessions: partition.needsRework,
+        headClass: "needs-rework-head",
+        countLabel: m.herd_changes_requested_group({ count: partition.needsRework.length }),
+        withPreview: true,
+      },
+      partition.branchProtectionBlocked.length > 0 && {
+        key: "branch-protection-blocked",
+        sessions: partition.branchProtectionBlocked,
+        headClass: "branch-blocked-head",
+        countLabel: m.herd_merge_blocked_group({
+          count: partition.branchProtectionBlocked.length,
+        }),
         withPreview: true,
       },
       partition.waitingOnReviewer.length > 0 && {

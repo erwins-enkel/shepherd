@@ -266,13 +266,22 @@ test("railOrder mirrors the template across ≥2 groups + rest over ≥2 stages"
 test("railOrder places reworkRunning after reviewerRunning and before waiting groups", () => {
   const list = [
     session("wait", false, "idle"),
+    session("branch", false, "idle"),
+    session("needs", false, "idle"),
     session("rework"),
     session("review"),
     session("active"),
   ];
   const order = railOrder(
     list,
-    { wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" } },
+    {
+      wait: { ...git("open", "success"), handoff: "reviewer", handoffWho: "scoop" },
+      needs: {
+        ...git("open", "success"),
+        reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+      },
+      branch: { ...git("open", "success"), mergeStateStatus: "blocked" },
+    },
     (id) => id === "review",
     1000,
     "all",
@@ -283,7 +292,7 @@ test("railOrder places reworkRunning after reviewerRunning and before waiting gr
     (s) => s.id === "rework",
   );
 
-  expect(order).toEqual(["active", "review", "rework", "wait"]);
+  expect(order).toEqual(["active", "review", "rework", "needs", "branch", "wait"]);
 });
 
 test("cycleId steps down and up through the order", () => {

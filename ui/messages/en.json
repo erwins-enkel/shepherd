@@ -3065,5 +3065,16 @@
   "plangate_tip_reviewing_env": "Plan review is running · {env}",
   "planpanel_reviewing_env": "Reviewing · {env}",
   "feat_plan_reviewer_env_title": "See who's reviewing your plan",
-  "feat_plan_reviewer_env_body": "When a Plan Gate review is running, the Reviewing button now shows which coding CLI, model, and effort are doing the review — so you know exactly who's checking your plan before execution."
+  "feat_plan_reviewer_env_body": "When a Plan Gate review is running, the Reviewing button now shows which coding CLI, model, and effort are doing the review — so you know exactly who's checking your plan before execution.",
+  "herd_changes_requested_group": "Changes requested ({count})",
+  "herd_merge_blocked_group": "Merge blocked ({count})",
+  "unitrow_changes_requested": "Changes requested by {reviewer}",
+  "unitrow_changes_requested_title": "PR changes requested by {reviewer}",
+  "unitrow_merge_blocked": "Merge blocked",
+  "unitrow_merge_blocked_title": "Branch protection is blocking merge after checks cleared",
+  "unitrow_unknown_reviewer": "unknown reviewer",
+  "feat_review_block_cues_title": "Review blocks are visible on session cards",
+  "feat_review_block_cues_body": "When the configured human reviewer requests changes, the session card and herd groups now show Changes requested instead of quietly waiting on that reviewer.",
+  "epic_group_cue_changes_requested": "{count} with requested changes",
+  "epic_group_cue_merge_blocked": "{count} merge blocked"
 }

@@ -2,7 +2,7 @@ import { execFileSync } from "./instrument";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { rmSync } from "node:fs";
-import type { GitState, PrStatus } from "./forge/types";
+import type { GitState, PrReviewBlock, PrReviewerState, PrStatus } from "./forge/types";
 import { checksCleared, repoHasNoCiCached } from "./checks-gate";
 
 /** Per-repo responsibility config, committed to `.shepherd/roles.json` at the repo
@@ -56,20 +56,39 @@ export function computeHandoff(
   me: string | null,
   latestReview: PrStatus["latestReview"],
   requestedReviewers: string[] = [],
+  reviewBlock?: PrReviewBlock,
 ): { handoff: HandoffRole; handoffWho: string | null; inferred: boolean } {
   // GitHub logins are case-insensitive, so compare folded — else a free-text
   // entry whose casing differs from the operator's own login would mis-read as
   // "someone else" and show "waiting on yourself".
   const meLc = me?.toLowerCase() ?? null;
-  if (roles.reviewer || roles.merger) {
-    const reviewerIsOther = !!roles.reviewer && roles.reviewer.toLowerCase() !== meLc;
-    const mergerIsOther = !!roles.merger && roles.merger.toLowerCase() !== meLc;
-    const reviewApproved = latestReview?.state === "approved";
-    if (reviewerIsOther && !reviewApproved)
-      return { handoff: "reviewer", handoffWho: roles.reviewer, inferred: false };
-    if (mergerIsOther) return { handoff: "merger", handoffWho: roles.merger, inferred: false };
+  if (roles.reviewer || roles.merger)
+    return configuredHandoff(roles, meLc, latestReview, reviewBlock);
+  return inferredHandoff(meLc, latestReview, requestedReviewers);
+}
+
+function configuredHandoff(
+  roles: RepoRoles,
+  meLc: string | null,
+  latestReview: PrStatus["latestReview"],
+  reviewBlock?: PrReviewBlock,
+): { handoff: HandoffRole; handoffWho: string | null; inferred: false } {
+  const reviewerIsOther = !!roles.reviewer && roles.reviewer.toLowerCase() !== meLc;
+  const mergerIsOther = !!roles.merger && roles.merger.toLowerCase() !== meLc;
+  if (reviewerIsOther && reviewBlock?.state === "changes_requested")
     return { handoff: "self", handoffWho: null, inferred: false };
-  }
+  const reviewApproved = latestReview?.state === "approved";
+  if (reviewerIsOther && !reviewApproved)
+    return { handoff: "reviewer", handoffWho: roles.reviewer, inferred: false };
+  if (mergerIsOther) return { handoff: "merger", handoffWho: roles.merger, inferred: false };
+  return { handoff: "self", handoffWho: null, inferred: false };
+}
+
+function inferredHandoff(
+  meLc: string | null,
+  latestReview: PrStatus["latestReview"],
+  requestedReviewers: string[],
+): { handoff: HandoffRole; handoffWho: string | null; inferred: boolean } {
   // Fully unconfigured: infer a merger from the PR. Foreign = login != me (folded).
   const foreign = (login: string): boolean => login.toLowerCase() !== meLc;
   const lowestForeignRequestedReviewer =
@@ -141,27 +160,66 @@ function readRolesFromRef(repoPath: string): RepoRoles {
   return EMPTY;
 }
 
+function stateForReviewer(
+  reviewerStates: Record<string, PrReviewerState> | undefined,
+  reviewer: string | null,
+): { login: string; state: PrReviewerState } | null {
+  if (!reviewer || !reviewerStates) return null;
+  const reviewerLc = reviewer.toLowerCase();
+  for (const [login, state] of Object.entries(reviewerStates)) {
+    if (login.toLowerCase() === reviewerLc) return { login, state };
+  }
+  return null;
+}
+
 /** Annotate a GitState with `handoff`/`handoffWho` (+ `handoffInferred` when the
  *  handoff was auto-inferred from the PR's reviewers rather than configured roles).
  *  Always returns a clean state (any stale handoff is stripped first), so re-running
  *  it after a role change correctly clears a no-longer-applicable waiting state. Only
  *  an open + green PR carries a handoff (the only point the herd consults it);
  *  everything else is returned without one. */
-export function annotateHandoff(state: GitState, repoPath: string, me: string | null): GitState {
+export function annotateHandoff(
+  state: GitState,
+  repoPath: string,
+  me: string | null,
+  prev?: GitState,
+): GitState {
   // Stamp noCi on EVERY state (the poller + on-demand /git chokepoint) so all downstream gates can
   // read git.noCi without re-deriving it. A no-CI repo (GitHub + zero workflows) treats a terminal
   // checks:"none" as cleared — see checks-gate.ts.
   const noCi = repoHasNoCiCached(state.kind, repoPath);
-  const base: GitState = { ...state, noCi };
+  const preservedReviewerStates =
+    state.reviewerStates ??
+    (state.state === "open" && prev?.state === "open" && prev.number === state.number
+      ? prev.reviewerStates
+      : undefined);
+  const base: GitState = {
+    ...state,
+    reviewerStates: preservedReviewerStates,
+    noCi,
+  };
   delete base.handoff; // drop any stale handoff so a role change clears it
   delete base.handoffWho;
   delete base.handoffInferred;
+  delete base.reviewBlock;
+  const roles = readRepoRoles(repoPath);
+  const scoped = stateForReviewer(base.reviewerStates, roles.reviewer);
+  const reviewBlock =
+    scoped?.state.state === "changes_requested"
+      ? ({
+          reviewer: scoped.login,
+          state: "changes_requested",
+          latestAt: scoped.state.latestAt,
+        } as const)
+      : undefined;
+  if (reviewBlock) base.reviewBlock = reviewBlock;
   if (base.state !== "open" || !checksCleared(base.checks, noCi)) return base;
   const { handoff, handoffWho, inferred } = computeHandoff(
-    readRepoRoles(repoPath),
+    roles,
     me,
     base.latestReview,
     base.requestedReviewers,
+    reviewBlock,
   );
   if (handoff === "self") return base;
   const next = handoffWho ? { ...base, handoff, handoffWho } : { ...base, handoff };

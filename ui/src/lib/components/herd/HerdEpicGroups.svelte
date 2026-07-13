@@ -22,6 +22,8 @@
     collapsedKeys: Set<string>;
     cuesFor: (g: { key: string; sessions: import("$lib/types").Session[] }) => {
       ciFailed: number;
+      needsRework: number;
+      branchProtectionBlocked: number;
       ready: number;
       blocked: number;
     };

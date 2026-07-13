@@ -7,8 +7,9 @@
     worktreeDownloadUrl,
     ApiError,
   } from "$lib/api";
-  import type { ScratchListing } from "$lib/types";
+  import type { ScratchEntry, ScratchListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { relativeAge } from "$lib/format";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { untrack } from "svelte";
 
@@ -22,6 +23,60 @@
   let listing = $state<ScratchListing | null>(null);
   let loading = $state(false);
   let error = $state(false);
+
+  // Sort state for the two clickable columns. Default = dirs-first + name-ascending (the
+  // server's own order). `now` anchors the relative-age labels; refreshed on each load so
+  // ages don't drift while the panel sits open. Sorting is client-side over the one loaded
+  // directory — no refetch.
+  let sortKey = $state<"name" | "created">("name");
+  let sortDir = $state<"asc" | "desc">("asc");
+  let now = $state(Date.now());
+
+  function resetSort() {
+    sortKey = "name";
+    sortDir = "asc";
+  }
+
+  function toggleSort(key: "name" | "created") {
+    if (sortKey === key) {
+      sortDir = sortDir === "asc" ? "desc" : "asc";
+    } else {
+      sortKey = key;
+      sortDir = key === "created" ? "desc" : "asc"; // creation date defaults to newest-first
+    }
+  }
+
+  const ariaSort = (key: "name" | "created") =>
+    sortKey === key ? (sortDir === "asc" ? "ascending" : "descending") : "none";
+
+  const hasCreated = (e: ScratchEntry): e is ScratchEntry & { createdMs: number } =>
+    e.createdMs != null && Number.isFinite(e.createdMs);
+
+  const byName = (a: ScratchEntry, b: ScratchEntry, dir: "asc" | "desc") => {
+    const r = a.name.localeCompare(b.name);
+    return dir === "asc" ? r : -r;
+  };
+
+  // Missing `createdMs` sorts last regardless of direction; equal dates fall back to name (unflipped).
+  const byCreated = (a: ScratchEntry, b: ScratchEntry, dir: "asc" | "desc") => {
+    const am = !hasCreated(a);
+    const bm = !hasCreated(b);
+    if (am !== bm) return am ? 1 : -1;
+    if (!am && !bm) {
+      const d = a.createdMs! - b.createdMs!;
+      if (d !== 0) return dir === "asc" ? d : -d;
+    }
+    return a.name.localeCompare(b.name);
+  };
+
+  // Directories always group above files; the active column orders within each group.
+  const sortedEntries = $derived.by(() => {
+    const es = listing?.entries ?? [];
+    return [...es].sort((a, b) => {
+      if (a.type !== b.type) return a.type === "dir" ? -1 : 1;
+      return sortKey === "created" ? byCreated(a, b, sortDir) : byName(a, b, sortDir);
+    });
+  });
 
   type UploadStatus = {
     id: number;
@@ -42,6 +97,7 @@
         source === "worktree"
           ? await getWorktreeListing(sessionId, path || undefined)
           : await getScratchpadListing(sessionId, path || undefined);
+      now = Date.now(); // anchor relative-age labels to load time
     } catch {
       error = true;
     } finally {
@@ -54,6 +110,7 @@
     source = s;
     uploads = []; // upload statuses belong to the scratchpad session
     listing = null; // avoid a stale-source listing flashing under the new source's labels/hrefs
+    resetSort(); // each source starts at the default sort
     void browse(""); // reset to root and reload from the new source
   }
 
@@ -71,6 +128,7 @@
       listing = null;
       error = false;
       uploads = [];
+      resetSort();
       void browse("");
     });
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
@@ -243,6 +301,21 @@
       {/if}
     {/each}
 
+    <!-- Created cell shared by every row type; guards a missing/non-finite createdMs (stat
+         failure / older payload) so it never renders "NaNs". -->
+    {#snippet createdCell(e: ScratchEntry)}
+      {@const c = hasCreated(e) ? e.createdMs : null}
+      {#if c !== null}
+        <span class="created" title={new Date(c).toLocaleString()}>{relativeAge(c, now)}</span>
+      {:else}
+        <span
+          class="created empty"
+          title={m.files_created_unknown()}
+          aria-label={m.files_created_unknown()}>—</span
+        >
+      {/if}
+    {/snippet}
+
     <!-- File list; the whole .files tab is the drop zone (see handlers above) -->
     <div class="list">
       {#if loading && !listing}
@@ -257,17 +330,49 @@
           {/if}
         </div>
       {:else if listing}
-        {#each listing.entries as e (e.path)}
+        <div class="list-head" role="row">
+          <span class="hcell" aria-hidden="true"></span>
+          <span class="hcell" role="columnheader" aria-sort={ariaSort("name")}>
+            <button
+              type="button"
+              class="col-btn"
+              aria-label={m.files_sort_name_aria()}
+              onclick={() => toggleSort("name")}
+            >
+              {m.files_col_name()}{#if sortKey === "name"}<span class="arrow" aria-hidden="true"
+                  >{sortDir === "asc" ? "▲" : "▼"}</span
+                >{/if}
+            </button>
+          </span>
+          <span class="hcell hcreated" role="columnheader" aria-sort={ariaSort("created")}>
+            <button
+              type="button"
+              class="col-btn"
+              aria-label={m.files_sort_created_aria()}
+              onclick={() => toggleSort("created")}
+            >
+              {m.files_col_created()}{#if sortKey === "created"}<span
+                  class="arrow"
+                  aria-hidden="true">{sortDir === "asc" ? "▲" : "▼"}</span
+                >{/if}
+            </button>
+          </span>
+          <span class="hcell" aria-hidden="true"></span>
+        </div>
+        {#each sortedEntries as e (e.path)}
           {#if e.linkOutside}
             <div class="row link-outside" aria-disabled="true" title={m.files_link_outside_title()}>
               <span class="ico" aria-hidden="true">↗</span>
               <span class="nm">{e.name}</span>
+              {@render createdCell(e)}
+              <span class="trail" aria-hidden="true"></span>
             </div>
           {:else if e.type === "dir"}
             <button type="button" class="row" onclick={() => browse(e.path)}>
               <span class="ico" aria-hidden="true">▸</span>
               <span class="nm">{e.name}</span>
-              <span class="chev" aria-hidden="true">›</span>
+              {@render createdCell(e)}
+              <span class="chev trail" aria-hidden="true">›</span>
             </button>
           {:else}
             <!-- eslint-disable svelte/no-navigation-without-resolve -- server API download endpoint, not an app route -->
@@ -279,7 +384,8 @@
             >
               <span class="ico" aria-hidden="true">▢</span>
               <span class="nm">{e.name}</span>
-              <span class="dl" aria-hidden="true">↓</span>
+              {@render createdCell(e)}
+              <span class="dl trail" aria-hidden="true">↓</span>
             </a>
             <!-- eslint-enable svelte/no-navigation-without-resolve -->
           {/if}
@@ -447,11 +553,54 @@
     color: var(--color-muted);
   }
   .list {
+    /* Shared 4-track row grid: leading icon | name (flex) | created (fixed, right-aligned) |
+       trailing affordance (chevron / download / empty for linkOutside). Fixed created + trailing
+       widths keep the header labels aligned over the row cells. */
+    --files-cols: 1.1rem minmax(0, 1fr) 4.75rem 1.1rem;
     border: 1px solid var(--color-line);
     background: var(--color-inset);
     border-radius: 2px;
     display: flex;
     flex-direction: column;
+  }
+  .list-head {
+    display: grid;
+    grid-template-columns: var(--files-cols);
+    align-items: center;
+    gap: 9px;
+    padding: 6px 11px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .hcell {
+    min-width: 0;
+  }
+  .hcreated {
+    justify-self: end;
+  }
+  .col-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: transparent;
+    border: 0;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.04em;
+    color: var(--color-muted);
+    cursor: pointer;
+  }
+  .col-btn:hover {
+    color: var(--color-ink-bright);
+  }
+  .col-btn:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 1px var(--color-amber);
+    border-radius: 2px;
+  }
+  .arrow {
+    color: var(--color-amber);
+    font-size: 0.85em;
   }
   .placeholder {
     padding: 14px 12px;
@@ -473,7 +622,8 @@
     font-style: italic;
   }
   .row {
-    display: flex;
+    display: grid;
+    grid-template-columns: var(--files-cols);
     align-items: center;
     gap: 9px;
     background: transparent;
@@ -511,10 +661,19 @@
     background: transparent;
   }
   .nm {
-    flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+  .created {
+    justify-self: end;
+    color: var(--color-muted);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+  .created.empty {
+    color: var(--color-faint);
   }
   .chev,
   .dl {
@@ -527,6 +686,9 @@
 
   @media (max-width: 768px) {
     .row {
+      min-height: 44px;
+    }
+    .col-btn {
       min-height: 44px;
     }
     .upload-btn {

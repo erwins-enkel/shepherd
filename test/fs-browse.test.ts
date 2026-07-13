@@ -1,5 +1,13 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, writeFileSync, symlinkSync, rmSync, realpathSync } from "node:fs";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  symlinkSync,
+  rmSync,
+  realpathSync,
+  promises as fsp,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveInRoot, listDir } from "../src/fs-browse";
@@ -59,7 +67,13 @@ test('listDir: onEscape "mark" surfaces an out-pointing symlink as non-navigable
   const l = await listDir(root, "", { onEscape: "mark" });
   expect(l).not.toBeNull();
   expect(l!.entries).toEqual([
-    { name: "escapee", type: "file", path: "escapee", linkOutside: true },
+    {
+      name: "escapee",
+      type: "file",
+      path: "escapee",
+      createdMs: expect.any(Number),
+      linkOutside: true,
+    },
   ]);
 });
 
@@ -69,6 +83,40 @@ test('listDir: onEscape "mark" also marks an out-pointing symlink to a directory
   const l = await listDir(root, "", { onEscape: "mark" });
   expect(l).not.toBeNull();
   expect(l!.entries).toEqual([
-    { name: "escapee-dir", type: "dir", path: "escapee-dir", linkOutside: true },
+    {
+      name: "escapee-dir",
+      type: "dir",
+      path: "escapee-dir",
+      createdMs: expect.any(Number),
+      linkOutside: true,
+    },
   ]);
+});
+
+test("listDir: populates createdMs (birthtime or mtime fallback) for files and dirs", async () => {
+  writeFileSync(join(root, "a.txt"), "x");
+  mkdirSync(join(root, "sub"));
+  const l = await listDir(root, "");
+  expect(l).not.toBeNull();
+  const a = l!.entries.find((e) => e.name === "a.txt")!;
+  const sub = l!.entries.find((e) => e.name === "sub")!;
+  expect(typeof a.createdMs).toBe("number");
+  expect(a.createdMs!).toBeGreaterThan(0);
+  expect(typeof sub.createdMs).toBe("number");
+  expect(sub.createdMs!).toBeGreaterThan(0);
+});
+
+test("listDir: a stat failure keeps the entry, just without createdMs (never drops it)", async () => {
+  writeFileSync(join(root, "a.txt"), "x");
+  mkdirSync(join(root, "sub"));
+  // Force every per-entry stat to throw; a non-symlink file/dir must still be surfaced.
+  const spy = spyOn(fsp, "stat").mockRejectedValue(new Error("boom"));
+  try {
+    const l = await listDir(root, "");
+    expect(l).not.toBeNull();
+    expect(l!.entries.map((e) => e.name)).toEqual(["sub", "a.txt"]);
+    for (const e of l!.entries) expect(e.createdMs).toBeUndefined();
+  } finally {
+    spy.mockRestore();
+  }
 });

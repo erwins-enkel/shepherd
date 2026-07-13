@@ -14,8 +14,20 @@ export interface BrowseEntry {
   type: "file" | "dir";
   /** Path relative to the root, forward-slash separated, no leading slash. */
   path: string;
+  /**
+   * Creation date in epoch ms — birth time (`birthtimeMs`) when the filesystem records it,
+   * else the modified time (`mtimeMs`) fallback. Omitted only when the entry's `stat` failed
+   * (the entry is still surfaced). NOTE: files in a git worktree are all written at checkout,
+   * so their birth times cluster and per-file values there are near-uniform.
+   */
+  createdMs?: number;
   /** true when this entry is a symlink that resolves OUTSIDE the root (only set in onEscape:"mark"). */
   linkOutside?: boolean;
+}
+
+/** Creation date (epoch ms) from a stat: birth time when recorded, else modified-time fallback. */
+function createdMsFromStat(st: { birthtimeMs: number; mtimeMs: number }): number {
+  return st.birthtimeMs > 0 ? st.birthtimeMs : st.mtimeMs;
 }
 
 export interface BrowseListing {
@@ -100,22 +112,36 @@ async function classifySymlinkTarget(
   opts?: BrowseOptions,
 ): Promise<BrowseEntry | null> {
   if (within(real, rootReal)) {
-    let isDir: boolean;
+    let st;
     try {
-      isDir = (await fsp.stat(abs)).isDirectory();
+      st = await fsp.stat(abs);
     } catch {
       return null;
     }
-    return { name: dirent.name, type: isDir ? "dir" : "file", path: relFromRoot(rootReal, abs) };
+    return {
+      name: dirent.name,
+      type: st.isDirectory() ? "dir" : "file",
+      path: relFromRoot(rootReal, abs),
+      createdMs: createdMsFromStat(st),
+    };
   }
   if (opts?.onEscape === "mark") {
     let type: "file" | "dir" = "file";
+    let createdMs: number | undefined;
     try {
-      type = (await fsp.stat(abs)).isDirectory() ? "dir" : "file";
+      const st = await fsp.stat(abs);
+      type = st.isDirectory() ? "dir" : "file";
+      createdMs = createdMsFromStat(st);
     } catch {
-      // best-effort — default to "file" on throw
+      // best-effort — default to "file" and omit createdMs on throw
     }
-    return { name: dirent.name, type, path: relFromRoot(rootReal, abs), linkOutside: true };
+    return {
+      name: dirent.name,
+      type,
+      path: relFromRoot(rootReal, abs),
+      createdMs,
+      linkOutside: true,
+    };
   }
   // else ("drop" / default): never surface an entry that escapes the root
   return null;
@@ -145,11 +171,18 @@ async function classifyDirent(
     return classifySymlinkTarget(dirent, abs, real, rootReal, opts);
   }
 
-  if (dirent.isDirectory()) {
-    // No realpath/stat — a non-symlink child of an in-root dir is provably in-root.
-    return { name: dirent.name, type: "dir", path: relFromRoot(rootReal, abs) };
-  } else if (dirent.isFile()) {
-    return { name: dirent.name, type: "file", path: relFromRoot(rootReal, abs) };
+  if (dirent.isDirectory() || dirent.isFile()) {
+    // No realpath needed — a non-symlink child of an in-root dir is provably in-root. We do
+    // stat it for the creation date; a stat failure must NOT drop the entry (it never did
+    // before), so `createdMs` is simply omitted in that case.
+    const type = dirent.isDirectory() ? "dir" : "file";
+    let createdMs: number | undefined;
+    try {
+      createdMs = createdMsFromStat(await fsp.stat(abs));
+    } catch {
+      // keep surfacing the entry without a creation date
+    }
+    return { name: dirent.name, type, path: relFromRoot(rootReal, abs), createdMs };
   }
   // else: sockets/fifos/devices are not surfaced
   return null;

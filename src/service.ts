@@ -36,10 +36,13 @@ import {
 } from "./uploads";
 import { slugifyManual, isHeuristicNameStrong, NAMER_LABEL } from "./namer";
 import {
+  clampCodexModelForAuth,
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
   spawnModelForAvailability,
+  type CodexAuthMode,
 } from "./default-model";
+import { readCodexAuthMode } from "./codex-auth";
 import { effortForSpawn } from "./default-effort";
 import {
   isApiKeyMode,
@@ -213,6 +216,8 @@ export interface ServiceDeps {
    *  Codex main sessions bypass pushModelFlag, so they are not downgraded. Wired from src/index.ts
    *  off usageLimits + config; absent in tests → no downgrade. Consumed by pushModelFlag. */
   usageDowngrade?: () => string | null;
+  /** Live Codex auth mode. Read per resolution/spawn because login mode can change at runtime. */
+  readCodexAuthMode?: () => CodexAuthMode;
   /** Per-session DNS-drop watcher; absent in tests that don't care → no-op. */
   egressWatcher?: Pick<EgressWatcher, "start" | "stop">;
   /** Best-effort pre-teardown hook (recap generation) — runs while the worktree still
@@ -1427,12 +1432,26 @@ function reconcileRelaunchModel(
   overrideModel: string | null | undefined,
   originalModel: string | null,
   provider: AgentProvider,
+  authMode: CodexAuthMode,
+  authPolicy: "error" | "clamp" = "error",
 ): string | null {
   const model = pickOverride(overrideModel, originalModel);
-  if (modelCompatibleWithProvider(model, provider)) return model;
-  if (overrideModel != null && overrideModel !== "default")
-    throw new Error(`model "${overrideModel}" is not valid for provider ${provider}`);
-  return null;
+  if (!modelCompatibleWithProvider(model, provider)) {
+    if (overrideModel != null && overrideModel !== "default")
+      throw new Error(`model "${overrideModel}" is not valid for provider ${provider}`);
+    return null;
+  }
+  if (
+    model !== null &&
+    clampCodexModelForAuth(model, provider, authMode) === null &&
+    overrideModel != null &&
+    overrideModel !== "default" &&
+    authPolicy === "error"
+  )
+    throw new Error(
+      `model "${overrideModel}" is not supported when using Codex with a ChatGPT account`,
+    );
+  return model;
 }
 
 /** Renderer env for the MAIN session spawn. Default: pin the classic renderer. The
@@ -2282,6 +2301,10 @@ export class SessionService {
     if (spawnModel) argv.push("--model", spawnModel);
   }
 
+  private codexAuthMode(): CodexAuthMode {
+    return this.deps.readCodexAuthMode?.() ?? readCodexAuthMode();
+  }
+
   /**
    * Push the reasoning-effort flag for `provider`, or nothing when effort is unset/unsupported.
    * The value is clamped/translated by `effortForSpawn` (Codex: no xhigh/max → high; Claude:
@@ -2435,7 +2458,8 @@ export class SessionService {
     const { input, sessionId, promptArg, planGateOn, isolated, baseUrl } = args;
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
     const argv = ["codex", "--no-alt-screen", "--dangerously-bypass-approvals-and-sandbox"];
-    if (input.model) argv.push("--model", input.model);
+    const model = clampCodexModelForAuth(input.model, "codex", this.codexAuthMode());
+    if (model) argv.push("--model", model);
     this.pushEffortFlag(argv, input.effort, "codex");
     // Codex divergence (preserved from the prior call-site gating): the autopilot directive stands
     // down on a non-isolated session, and the per-session toggle counts. Research/plan-gate precedence
@@ -2482,7 +2506,12 @@ export class SessionService {
       "--no-alt-screen",
       "--dangerously-bypass-approvals-and-sandbox",
     ];
-    if (model) argv.push("--model", model);
+    const spawnModel = clampCodexModelForAuth(model, "codex", this.codexAuthMode());
+    if (model !== null && spawnModel === null)
+      console.warn(
+        `[resume] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
+      );
+    if (spawnModel) argv.push("--model", spawnModel);
     this.pushEffortFlag(argv, effort, "codex");
     return argv;
   }
@@ -2789,6 +2818,7 @@ export class SessionService {
     opts: { planGateOn?: boolean } = {},
   ): Promise<{
     agentProvider: AgentProvider;
+    resolvedInput: CreateSessionInput;
     spawnInput: CreateSessionInput;
     repoConfig: RepoConfig;
     planGateOn: boolean;
@@ -2797,12 +2827,19 @@ export class SessionService {
   }> {
     const agentProvider = input.agentProvider ?? config.defaultAgentProvider;
     const model = modelForProviderOrDefault(input.model, agentProvider);
-    const spawnInput = model === input.model ? input : { ...input, model };
+    const resolvedInput = model === input.model ? input : { ...input, model };
     if (input.model && model === null) {
       console.warn(
         `[spawn] dropping model "${input.model}" because it is not valid for ${agentProvider}; using provider default`,
       );
     }
+    const spawnModel = clampCodexModelForAuth(model, agentProvider, this.codexAuthMode());
+    const spawnInput =
+      spawnModel === model ? resolvedInput : { ...resolvedInput, model: spawnModel };
+    if (model !== null && spawnModel === null)
+      console.warn(
+        `[spawn] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
+      );
 
     const repoConfig = this.deps.store.getRepoConfig(spawnInput.repoPath);
     // Plan gate (#348): provider-agnostic (TASK-413) — Codex now enters the gate too; its directive
@@ -2838,7 +2875,15 @@ export class SessionService {
             trim,
             baseUrl,
           );
-    return { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv };
+    return {
+      agentProvider,
+      resolvedInput,
+      spawnInput,
+      repoConfig,
+      planGateOn,
+      profileOverride,
+      argv,
+    };
   }
 
   /** Fail-closed author-trust gate for AUTONOMOUS issue spawns. No-op for operator-initiated
@@ -2908,8 +2953,15 @@ export class SessionService {
         injectionHits,
         attachments,
       } = await this.composePromptArg(input, wt.worktreePath);
-      const { agentProvider, spawnInput, repoConfig, planGateOn, profileOverride, argv } =
-        await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
+      const {
+        agentProvider,
+        resolvedInput,
+        spawnInput,
+        repoConfig,
+        planGateOn,
+        profileOverride,
+        argv,
+      } = await this.resolveCreateLaunch(input, wt, promptArg, sessionId, claudeSessionId);
       // Auto-refuse surfaces as a throw so the create() caller (route 4xx / drain catch) sees it.
       const outcome = await this.prepareSpawnOrThrow(argv, {
         sessionId,
@@ -2939,7 +2991,7 @@ export class SessionService {
         egressDegraded: outcome.egressDegraded,
         claudeSessionId: agentProvider === "claude" ? claudeSessionId : "",
         agentProvider,
-        model: spawnInput.model,
+        model: resolvedInput.model,
         effort: spawnInput.effort ?? null,
         auto: spawnInput.auto ?? false,
         issueNumber: spawnInput.issueRef?.number ?? null,
@@ -2953,7 +3005,7 @@ export class SessionService {
         mergeTrainPrs: spawnInput.mergeTrainPrs,
         launchMetadata: this.buildLaunchMetadata({
           input,
-          spawnInput,
+          spawnInput: resolvedInput,
           attachments,
           branch: wt.branch,
           agentProvider,
@@ -3087,6 +3139,7 @@ export class SessionService {
     originalId: string,
     issueRef?: IssueRef,
     overrides?: RelaunchOverrides,
+    authPolicy: "error" | "clamp" = "error",
   ): Promise<Session> {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
@@ -3106,7 +3159,13 @@ export class SessionService {
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
     const effectiveProvider = overrides?.agentProvider ?? s.agentProvider ?? "claude";
-    const model = reconcileRelaunchModel(overrides?.model, s.model, effectiveProvider);
+    const model = reconcileRelaunchModel(
+      overrides?.model,
+      s.model,
+      effectiveProvider,
+      this.codexAuthMode(),
+      authPolicy,
+    );
 
     // Apply overrides over the original: an ABSENT field keeps the original's value;
     // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
@@ -3240,7 +3299,7 @@ export class SessionService {
         // poller re-captures the new session's id (restore derives fresh regardless).
         providerSessionId: "",
         agentProvider,
-        model: launch.spawnInput.model,
+        model: launch.resolvedInput.model,
         // Mirror the create path (#1418): persist the effort actually spawned with, so a later
         // resume of this same row (post-crash) re-emits the effort the operator chose here rather
         // than reverting to whatever was stored before the replace.
@@ -3372,11 +3431,16 @@ export class SessionService {
 
     // Spawn the sibling WITHOUT an issue link; passing no `images` key makes relaunch auto-carry
     // the original's uploads so the variant runs the same task with the same attachments.
-    const variant = await this.relaunch(originalId, undefined, {
-      agentProvider: opts.agentProvider,
-      model: opts.model,
-      effort: opts.effort,
-    });
+    const variant = await this.relaunch(
+      originalId,
+      undefined,
+      {
+        agentProvider: opts.agentProvider,
+        model: opts.model,
+        effort: opts.effort,
+      },
+      "clamp",
+    );
     // Force auto-merge OFF on the variant (relaunch carries the original's setting). Autopilot
     // stays as carried so the variant still runs the task hands-off — but auto-merge must not land
     // its PR into base before the read-only comparison reads it, which would make

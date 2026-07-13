@@ -1061,4 +1061,25 @@ describe("codex_model_auth advisory", () => {
       expect(checks.find((c) => c.id === "codex_model_auth")).toBeUndefined();
     });
   });
+
+  it("warns for a blocklisted per-repo or epic Codex model under chatgpt auth", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readCodexAuthMode: () => "chatgpt",
+      configuredCodexModels: () => ["gpt-5.3-codex"],
+    });
+    const c = byId((await svc.check(0)).checks, "codex_model_auth");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_codex_model_chatgpt_incompatible");
+  });
+
+  it("does NOT warn for configured Codex models under apikey auth", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readCodexAuthMode: () => "apikey",
+      configuredCodexModels: () => ["gpt-5.3-codex"],
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "codex_model_auth")).toBeUndefined();
+  });
 });

@@ -140,6 +140,7 @@ import { preflightHerdr } from "./preflight";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
+  modelForProviderOrDefault,
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRoleCli,
@@ -631,6 +632,7 @@ const telemetry = new TelemetryService({
 
 const service = new SessionService({
   store,
+  readCodexAuthMode,
   worktree,
   herdr,
   resolveForge,
@@ -1757,6 +1759,7 @@ events.subscribe((event, data) => {
 // core (computeNext) with side effects here; driven off the same poller events.
 const drain = new DrainService({
   store,
+  readCodexAuthMode,
   service,
   resolveForge,
   prCache: prPoller, // has snapshot()
@@ -2465,6 +2468,18 @@ const diagnostics = new DiagnosticsService({
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "lightweight"),
+  configuredCodexModels: () => [
+    ...(config.defaultAgentProvider === "codex"
+      ? listRepos(config.repoRoot).map((r) => {
+          const setting = store.getRepoConfig(r.path).defaultModel;
+          return drainSpawnModel(setting === "inherit" ? config.defaultModel : setting);
+        })
+      : []),
+    ...store
+      .listEpicRuns()
+      .filter((run) => run.agentProvider === "codex")
+      .map((run) => modelForProviderOrDefault(run.model ?? null, "codex")),
+  ],
 });
 // Adaptive background re-check (NOT a fixed setInterval): each tick probes, pushes the
 // snapshot, then re-arms itself with a delay chosen from that snapshot — 60s while the
@@ -2587,6 +2602,7 @@ deferredStarts.push(() => {
 const appDeps: AppDeps = {
   store,
   service,
+  readCodexAuthMode,
   telemetry,
   learnings: learningsSvc,
   repoConfig: repoConfigSvc,

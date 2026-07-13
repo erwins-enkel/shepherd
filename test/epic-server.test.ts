@@ -131,6 +131,7 @@ type FakeDrain = NonNullable<AppDeps["drain"]>;
 function harness(opts?: {
   drainOverrides?: Partial<FakeDrain>;
   resolveForge?: AppDeps["resolveForge"];
+  authMode?: "chatgpt" | "apikey" | "unknown";
 }): { app: ReturnType<typeof makeApp>; store: SessionStore; emitted: unknown[] } {
   const store = new SessionStore(":memory:");
   const emitted: unknown[] = [];
@@ -158,6 +159,7 @@ function harness(opts?: {
     usageLimits: { limits: () => ({}) } as any,
     drain,
     resolveForge: opts?.resolveForge,
+    readCodexAuthMode: () => opts?.authMode ?? "unknown",
   };
   return { app: makeApp(deps), store, emitted };
 }
@@ -256,6 +258,44 @@ describe("PUT /api/epic", () => {
       model: "gpt-5.5",
       effort: "high",
     });
+  });
+
+  test("explicit blocked Codex model is rejected under ChatGPT auth", async () => {
+    const { app, store } = harness({ authMode: "chatgpt" });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ agentProvider: "codex", model: "gpt-5.3-codex" }),
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: 'model "gpt-5.3-codex" is not supported when using Codex with a ChatGPT account',
+    });
+    expect(store.getEpicRun(repoDir)).toBeNull();
+  });
+
+  test("an existing blocked epic model remains stored across unrelated patches", async () => {
+    const { app, store } = harness({ authMode: "chatgpt" });
+    store.setEpicRun({
+      repoPath: repoDir,
+      parentIssueNumber: 327,
+      mode: "auto",
+      status: "idle",
+      agentProvider: "codex",
+      model: "gpt-5.3-codex",
+      effort: null,
+    });
+    const res = await app.fetch(
+      new Request(`http://x/api/epic?repo=${encRepo(repoDir)}&parent=327`, {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ mode: "attended" }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    expect(store.getEpicRun(repoDir)?.model).toBe("gpt-5.3-codex");
   });
 
   test("explicit agentProvider null clears model and effort to inherit", async () => {

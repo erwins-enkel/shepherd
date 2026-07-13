@@ -96,10 +96,13 @@ const LANDING_REPAIR_CAP = 1;
 const LAND_MERGE_ERROR_CAP = 3;
 const LAND_MERGE_BACKOFF_MS = 300_000;
 import {
+  clampCodexModelForAuth,
   drainSpawnModel,
   modelForProviderOrDefault,
   resolveDefaultModelSetting,
+  type CodexAuthMode,
 } from "./default-model";
+import { readCodexAuthMode } from "./codex-auth";
 import { drainSpawnEffort, resolveDefaultEffortSetting } from "./default-effort";
 import {
   resolveProfile,
@@ -214,6 +217,8 @@ export interface DrainDeps {
    *  with an FS backend, so a drain-spawned autonomous session is refused-loud when egress
    *  is unavailable. */
   detectEgressBackend?: () => EgressBackend;
+  /** Live Codex auth mode; read per model resolution because login mode can change at runtime. */
+  readCodexAuthMode?: () => CodexAuthMode;
   /** #1071: maximum genuine rebase attempts (cap budget). Wired from config.autoMergeRebaseCap
    *  in index.ts; injected directly so tests can set a small cap without touching global config. */
   rebaseCap: number;
@@ -329,6 +334,26 @@ export class DrainService {
    *  (not `?? real()`) since the seam legitimately returns null. */
   private detectEgressBackend(): EgressBackend {
     return this.deps.detectEgressBackend ? this.deps.detectEgressBackend() : detectEgressBackend();
+  }
+
+  private clampCodexModel(model: string | null, provider: "claude" | "codex"): string | null {
+    return clampCodexModelForAuth(
+      model,
+      provider,
+      this.deps.readCodexAuthMode?.() ?? readCodexAuthMode(),
+    );
+  }
+
+  private resolvedSpawnModel(
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    repoDefaultModel: string,
+  ): string | null {
+    const settings = decision.epicProviderSettings;
+    const provider = settings?.agentProvider ?? config.defaultAgentProvider;
+    const model = settings
+      ? modelForProviderOrDefault(settings.model, settings.agentProvider)
+      : drainSpawnModel(resolveDefaultModelSetting(repoDefaultModel, config.defaultModel));
+    return this.clampCodexModel(model, provider);
   }
 
   /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). */
@@ -1725,8 +1750,9 @@ export class DrainService {
     const lastFail = this.repairSpawnCooldown.get(key);
     if (lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) return; // recent refusal
     const head = pr.headSha ?? "";
-    const cfgModel = drainSpawnModel(
-      resolveDefaultModelSetting(cfg.defaultModel, config.defaultModel),
+    const cfgModel = this.clampCodexModel(
+      drainSpawnModel(resolveDefaultModelSetting(cfg.defaultModel, config.defaultModel)),
+      config.defaultAgentProvider,
     );
     const cfgEffort = drainSpawnEffort(
       resolveDefaultEffortSetting(cfg.defaultEffort, config.defaultEffort),
@@ -2340,9 +2366,7 @@ export class DrainService {
         baseBranch: base,
         prompt,
         ...(epicSettings ? { agentProvider: epicSettings.agentProvider } : {}),
-        model: epicSettings
-          ? modelForProviderOrDefault(epicSettings.model, epicSettings.agentProvider)
-          : drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+        model: this.resolvedSpawnModel(decision, rc.defaultModel),
         effort: epicSettings
           ? epicSettings.effort
           : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),

@@ -14,6 +14,7 @@ import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { CreateSessionInput } from "../src/types";
 import { epicIntegrationBranch } from "../src/epic-branch";
+import { config } from "../src/config";
 
 const REPO = "/repo";
 const PARENT = 327;
@@ -131,6 +132,8 @@ function makeHarness(opts: {
   autoMergeEnabled?: boolean;
   prStatus?: (branch: string) => Promise<PrStatus>;
   createThrows?: boolean;
+  repoDefaultModel?: string;
+  authMode?: "chatgpt" | "apikey" | "unknown";
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -149,7 +152,7 @@ function makeHarness(opts: {
     autoLabel: "shepherd:auto",
     usageCeilingPct: 80,
     sandboxProfile: "trusted",
-    defaultModel: "inherit",
+    defaultModel: opts.repoDefaultModel ?? "inherit",
     defaultEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
@@ -159,7 +162,6 @@ function makeHarness(opts: {
     preWarmEpicLandingCi: false,
     hidden: false,
   });
-
   const spy = fakeForge({ prStatus: opts.prStatus });
   const createCalls: CreateCall[] = [];
   const repairCountCalls: RepairCountCall[] = [];
@@ -202,6 +204,7 @@ function makeHarness(opts: {
     dropPrCache: () => {},
     emitEpic: () => {},
     emitEpicCompleted: () => {},
+    readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
     rebaseLandingBranch: async () => {
       harness.rebaseSeamCalls += 1;
@@ -359,6 +362,30 @@ describe("landing-repair: dispatch", () => {
     expect(input.issueRef).toBeUndefined(); // never stamp the closed epic issue
     // Durable count incremented ONLY on a successful spawn, recording the PR head.
     expect(h.repairCountCalls).toEqual([{ count: 1, head: "h1" }]);
+  });
+
+  test("ChatGPT auth clamps a blocked Codex repo default for landing repair", async () => {
+    const prior = config.defaultAgentProvider;
+    const priorModel = config.defaultModel;
+    config.defaultAgentProvider = "codex";
+    config.defaultModel = "gpt-5.3-codex";
+    try {
+      const h = makeHarness({
+        autoDrainEnabled: true,
+        prStatus: async () => redPr(),
+        repoDefaultModel: "gpt-5.3-codex",
+        authMode: "chatgpt",
+      });
+      seedOpenLanding(h);
+      spendRerunBudget(h);
+
+      await callRerunPass(h);
+
+      expect(h.createCalls[0]?.input.model).toBeNull();
+    } finally {
+      config.defaultAgentProvider = prior;
+      config.defaultModel = priorModel;
+    }
   });
 
   test("cap exhausted: landingRepairCount already 1 → no service.create", async () => {

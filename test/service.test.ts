@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, spyOn } from "bun:test";
 import {
   mkdtempSync,
   mkdirSync,
@@ -252,7 +252,7 @@ test("createSession: session_created props map each to its own source (distinct-
 
 // Build a SessionService whose worktree.create yields the given `isolated`, capturing the
 // spawned argv. Used by the codex-autopilot directive tests below.
-function codexHarness(isolated: boolean) {
+function codexHarness(isolated: boolean, authMode: "chatgpt" | "apikey" | "unknown" = "unknown") {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -283,6 +283,7 @@ function codexHarness(isolated: boolean) {
       },
       list: () => [],
     } as any,
+    readCodexAuthMode: () => authMode,
   });
   return { store, service, calls };
 }
@@ -358,6 +359,44 @@ test("createSession: codex provider starts interactive codex; spawn argv carries
   expect(s.claudeSessionId).toBe("");
   expect(store.get(s.id)?.agentProvider).toBe("codex");
   expect(store.get(s.id)?.model).toBe("gpt-5.5");
+});
+
+test("createSession: ChatGPT auth omits a blocked Codex model but preserves model intent", async () => {
+  const { store, service, calls } = codexHarness(true, "chatgpt");
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "flatten it",
+      agentProvider: "codex",
+      model: "gpt-5.3-codex",
+      images: [],
+    });
+
+    expect(calls.start.argv).not.toContain("--model");
+    expect(s.model).toBe("gpt-5.3-codex");
+    expect(store.get(s.id)?.model).toBe("gpt-5.3-codex");
+    expect(warn).toHaveBeenCalledWith(
+      '[spawn] codex model "gpt-5.3-codex" unsupported by ChatGPT-account auth — using account default',
+    );
+  } finally {
+    warn.mockRestore();
+  }
+});
+
+test("createSession: API-key auth preserves a blocklisted Codex model", async () => {
+  const { service, calls } = codexHarness(true, "apikey");
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "flatten it",
+    agentProvider: "codex",
+    model: "gpt-5.3-codex",
+    images: [],
+  });
+  expect(calls.start.argv).toContain("gpt-5.3-codex");
+  expect(s.model).toBe("gpt-5.3-codex");
 });
 
 test("createSession: codex spawn emits -c model_reasoning_effort, clamping max → high (#1417)", async () => {
@@ -2778,6 +2817,37 @@ test("resume uses codex resume --last for codex sessions", async () => {
   ]);
 });
 
+test("resume: ChatGPT auth omits a blocked legacy Codex model without changing stored intent", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls, { authMode: "chatgpt" });
+  const s = resumable(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    model: "gpt-5.3-codex",
+  });
+
+  await svc.resume(s.id);
+
+  expect(calls.start).not.toContain("--model");
+  expect(store.get(s.id)?.model).toBe("gpt-5.3-codex");
+});
+
+test("resume: API-key auth re-emits a blocklisted stored Codex model", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = makeRestoreSvc(store, calls, { authMode: "apikey" });
+  const s = resumable(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    model: "gpt-5.3-codex",
+  });
+
+  await svc.resume(s.id);
+
+  expect(calls.start).toContain("gpt-5.3-codex");
+});
+
 // ── reasoning effort persists across resume (issue #1417) ────────────────────────────────────
 test("resume re-emits the persisted --effort for a Claude session", async () => {
   const store = new SessionStore(":memory:");
@@ -3006,7 +3076,11 @@ function archivedWithSession(
 function makeRestoreSvc(
   store: SessionStore,
   calls: Record<string, unknown>,
-  opts: { startFails?: boolean; restoreExistingThrows?: unknown } = {},
+  opts: {
+    startFails?: boolean;
+    restoreExistingThrows?: unknown;
+    authMode?: "chatgpt" | "apikey" | "unknown";
+  } = {},
 ) {
   return new SessionService({
     store,
@@ -3032,6 +3106,7 @@ function makeRestoreSvc(
       stop: async () => {},
       send: () => {},
     } as any,
+    readCodexAuthMode: () => opts.authMode ?? "unknown",
   });
 }
 
@@ -5877,7 +5952,10 @@ test("resume of an auto session re-applies the trim: flag + plugin-off overlay",
 /** A relaunch-service harness: real store, mocked worktree/herdr/reaper.
  *  `create` makes a worktree at /wt/<name>; `archive` removes it + stops the agent.
  *  Returns the service plus a record of started/stopped/removed for assertions. */
-function relaunchHarness(store: SessionStore) {
+function relaunchHarness(
+  store: SessionStore,
+  authMode: "chatgpt" | "apikey" | "unknown" = "unknown",
+) {
   const calls: {
     started: { name: string; cwd: string; argv: string[] }[];
     stopped: string[];
@@ -5925,6 +6003,7 @@ function relaunchHarness(store: SessionStore) {
         src: i,
         copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
       })),
+    readCodexAuthMode: () => authMode,
   });
   return { service, calls, breakOverride, breakStart };
 }
@@ -6122,6 +6201,32 @@ test("relaunch does NOT archive the original", async () => {
   expect(calls.removed).not.toContain("/wt/orig"); // original worktree left in place
 });
 
+test("relaunch: ChatGPT auth clamps a carried Codex model but preserves it on the new session", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "chatgpt");
+  const orig = originalSession(store, {
+    agentProvider: "codex",
+    claudeSessionId: "",
+    model: "gpt-5.3-codex",
+  });
+
+  const fresh = await service.relaunch(orig.id);
+
+  expect(calls.started[0]!.argv).not.toContain("--model");
+  expect(fresh.model).toBe("gpt-5.3-codex");
+});
+
+test("relaunch: explicit blocked Codex override is a clear error under ChatGPT auth", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "chatgpt");
+  const orig = originalSession(store, { agentProvider: "codex", claudeSessionId: "" });
+
+  await expect(service.relaunch(orig.id, undefined, { model: "gpt-5.3-codex" })).rejects.toThrow(
+    'model "gpt-5.3-codex" is not supported when using Codex with a ChatGPT account',
+  );
+  expect(calls.started).toHaveLength(0);
+});
+
 test("replaceAgent swaps provider in the same session and worktree", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls } = relaunchHarness(store);
@@ -6168,6 +6273,26 @@ test("replaceAgent swaps provider in the same session and worktree", async () =>
   expect(calls.removed).toEqual([]);
 });
 
+test("replaceAgent: ChatGPT auth clamps and warns while preserving the Codex model choice", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "chatgpt");
+  const orig = originalSession(store, { agentProvider: "claude" });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  try {
+    const replaced = await service.replaceAgent(orig.id, {
+      agentProvider: "codex",
+      model: "gpt-5.3-codex",
+    });
+    expect(calls.started[0]!.argv).not.toContain("--model");
+    expect(replaced.model).toBe("gpt-5.3-codex");
+    expect(warn).toHaveBeenCalledWith(
+      '[spawn] codex model "gpt-5.3-codex" unsupported by ChatGPT-account auth — using account default',
+    );
+  } finally {
+    warn.mockRestore();
+  }
+});
+
 test("replaceAgent threads effort onto the spawned Claude argv (#1418)", async () => {
   const store = new SessionStore(":memory:");
   const { service, calls } = relaunchHarness(store);
@@ -6201,7 +6326,21 @@ test("startVariant threads effort onto the relaunched spawn (#1418)", async () =
   expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
 });
 
-test("startComparison threads effort into the created CreateSessionInput (#1418)", async () => {
+test("startVariant: ChatGPT auth clamps and preserves an explicit blocked Codex model", async () => {
+  const store = new SessionStore(":memory:");
+  const { service, calls } = relaunchHarness(store, "chatgpt");
+  const orig = originalSession(store, { agentProvider: "claude" });
+
+  const { variant } = await service.startVariant(orig.id, {
+    agentProvider: "codex",
+    model: "gpt-5.3-codex",
+  });
+
+  expect(calls.started[0]!.argv).not.toContain("--model");
+  expect(variant.model).toBe("gpt-5.3-codex");
+});
+
+test("startComparison clamps a blocked Codex model while preserving intent and effort", async () => {
   const store = new SessionStore(":memory:");
   const calls: { start?: { name: string; cwd: string; argv: string[] } } = {};
   const service = new SessionService({
@@ -6224,6 +6363,7 @@ test("startComparison threads effort into the created CreateSessionInput (#1418)
       },
       list: () => [],
     } as any,
+    readCodexAuthMode: () => "chatgpt",
   });
 
   const v1 = store.create({
@@ -6251,12 +6391,18 @@ test("startComparison threads effort into the created CreateSessionInput (#1418)
   });
   store.setExperiment(v2.id, { experimentId: "exp-1", role: "variant" });
 
-  const created = await service.startComparison("exp-1", { model: "opus", effort: "high" });
+  const created = await service.startComparison("exp-1", {
+    agentProvider: "codex",
+    model: "gpt-5.3-codex",
+    effort: "high",
+  });
 
   expect(created.effort).toBe("high");
+  expect(created.model).toBe("gpt-5.3-codex");
   const argv = calls.start!.argv;
-  expect(argv).toContain("--effort");
-  expect(argv[argv.indexOf("--effort") + 1]).toBe("high");
+  expect(argv).not.toContain("--model");
+  expect(argv).toContain("-c");
+  expect(argv[argv.indexOf("-c") + 1]).toBe("model_reasoning_effort=high");
 });
 
 test("replaceAgent preserves an executing plan phase instead of resurrecting Codex plan-gate", async () => {

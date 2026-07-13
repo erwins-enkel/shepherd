@@ -190,8 +190,11 @@ import {
   resolveDefaultModelSetting,
   normalizeRoleCli,
   normalizeRoleModelToken,
+  clampCodexModelForAuth,
   modelCompatibleWithProvider,
+  type CodexAuthMode,
 } from "./default-model";
+import { readCodexAuthMode } from "./codex-auth";
 import {
   normalizeDefaultEffortSetting,
   normalizeRepoDefaultEffortSetting,
@@ -249,6 +252,8 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Live Codex auth mode; optional for tests and read on demand in production. */
+  readCodexAuthMode?: () => CodexAuthMode;
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
    *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
    *  so the many test `makeDeps()` builders need no change; wired to the real
@@ -6025,6 +6030,18 @@ function mergedEpicRunAgentProvider(base: EpicRun, patch: EpicRunPatch): AgentPr
     : (base.agentProvider ?? null);
 }
 
+function incompatibleEpicModelForAuth(
+  base: EpicRun,
+  patch: EpicRunPatch,
+  authMode: CodexAuthMode,
+): string | null {
+  if (!patchHas(patch, "model") || typeof patch.model !== "string") return null;
+  const provider = mergedEpicRunAgentProvider(base, patch);
+  return provider === "codex" && clampCodexModelForAuth(patch.model, provider, authMode) === null
+    ? patch.model
+    : null;
+}
+
 function inheritedEpicProviderSettings(
   patch: EpicRunPatch,
 ): Pick<EpicRun, "agentProvider" | "model" | "effort"> | null {
@@ -6453,10 +6470,13 @@ function kickDrainOnEpicStart(
   void drain.tick().catch((err) => console.warn("[epic] start tick:", err));
 }
 
+function isEpicPutRequest(req: Request, parts: string[]): boolean {
+  return req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2];
+}
+
 // PUT /api/epic?repo=&parent= — patch the EpicRun settings, re-assemble, emit.
 async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response | null> {
-  if (!(req.method === "PUT" && parts[0] === "api" && parts[1] === "epic" && !parts[2]))
-    return null;
+  if (!isEpicPutRequest(req, parts)) return null;
   const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
   if (!dir) return json({ error: "invalid repo" }, 400);
   const parentRaw = url.searchParams.get("parent");
@@ -6473,6 +6493,18 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     storedForPut && storedForPut.parentIssueNumber === parentNumber
       ? storedForPut
       : defaultEpicRun(dir, parentNumber);
+  const incompatibleModel = incompatibleEpicModelForAuth(
+    base,
+    patch,
+    deps.readCodexAuthMode?.() ?? readCodexAuthMode(),
+  );
+  if (incompatibleModel)
+    return json(
+      {
+        error: `model "${incompatibleModel}" is not supported when using Codex with a ChatGPT account`,
+      },
+      400,
+    );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
   deps.store.setEpicRun(merged);

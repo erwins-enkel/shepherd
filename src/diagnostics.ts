@@ -118,6 +118,8 @@ export interface DiagnosticsDeps {
   /** Detect the Codex CLI auth mode (chatgpt / apikey / unknown). Default reads
    *  `~/.codex/auth.json`. Injected in tests to exercise the codex_model_auth check. */
   readCodexAuthMode?: () => CodexAuthMode;
+  /** Additional live Codex models configured outside role/global settings (repo defaults, epics). */
+  configuredCodexModels?: () => readonly (string | null)[];
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -258,6 +260,7 @@ export class DiagnosticsService {
   private anyForgeRepo: () => boolean;
   private anyLightweightRepo: () => boolean;
   private detectCodexAuthMode: () => CodexAuthMode;
+  private configuredCodexModels: () => readonly (string | null)[];
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -303,6 +306,7 @@ export class DiagnosticsService {
     this.anyForgeRepo = deps.anyForgeRepo ?? (() => true);
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
     this.detectCodexAuthMode = deps.readCodexAuthMode ?? readCodexAuthMode;
+    this.configuredCodexModels = deps.configuredCodexModels ?? (() => []);
   }
 
   /**
@@ -310,8 +314,9 @@ export class DiagnosticsService {
    * ChatGPT-account Codex login (the class behind silent recap failures). Returns the warning
    * check, or null when it does not apply (not chatgpt auth, or no configured model is
    * blocklisted) — so the check only surfaces as a real advisory, never as `ok` noise. Enumerates
-   * the live per-role cli/model pairs + the global default; each is resolved UNCLAMPED
-   * (authMode "unknown") to see the model that WOULD be spawned without the guard.
+   * the live per-role cli/model pairs + global default, then the injected repo/epic settings.
+   * Role/global pairs are resolved UNCLAMPED (authMode "unknown") to see the model that WOULD be
+   * spawned without the guard.
    */
   private codexModelAuthCheck(): DiagnosticCheck | null {
     if (this.detectCodexAuthMode() !== "chatgpt") return null;
@@ -323,7 +328,7 @@ export class DiagnosticsService {
       [config.docAgentCli, config.docAgentModel],
       ["inherit", "default"], // the global default (defaultAgentProvider/defaultModel)
     ];
-    const hit = pairs.some(([cli, model]) => {
+    const roleOrGlobalHit = pairs.some(([cli, model]) => {
       const env = resolveRoleEnvironment(
         cli,
         model,
@@ -339,6 +344,10 @@ export class DiagnosticsService {
         CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(env.model)
       );
     });
+    const configuredHit = this.configuredCodexModels().some(
+      (model) => model !== null && CHATGPT_INCOMPATIBLE_CODEX_MODELS.has(model),
+    );
+    const hit = roleOrGlobalHit || configuredHit;
     return hit
       ? {
           id: "codex_model_auth",

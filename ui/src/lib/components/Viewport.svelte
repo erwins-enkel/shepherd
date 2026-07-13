@@ -1608,7 +1608,7 @@
           return;
         }
         const { text, colAt } = lineTextWithColumns(line, linkCell);
-        const found = findCommandLinks(text, knownCommands);
+        const found = findCommandLinks(text, knownCommands, effectiveAgentProvider);
         if (found.length === 0) {
           callback(undefined);
           return;

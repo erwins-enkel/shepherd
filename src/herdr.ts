@@ -246,8 +246,9 @@ export function parseAgents(result: unknown): HerdrAgent[] {
 }
 
 /** Maps a `tab list` reply to `HerdrTab[]`. Shared by the sync `tabs()` and async
- *  `tabsAsync()` so both parse the `result.tabs[]` shape identically. */
-export function parseTabs(parsed: unknown): HerdrTab[] {
+ *  `tabsAsync()` so both parse the `result.tabs[]` shape identically. Internal — not
+ *  exported (fallow flags an unused export; the parsers used cross-module are exported). */
+function parseTabs(parsed: unknown): HerdrTab[] {
   const tabs = (parsed as { result?: { tabs?: Record<string, string>[] } })?.result?.tabs ?? [];
   return tabs.map((t) => ({
     tabId: t.tab_id ?? "",

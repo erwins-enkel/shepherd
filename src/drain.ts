@@ -344,6 +344,18 @@ export class DrainService {
     );
   }
 
+  private resolvedSpawnModel(
+    decision: Extract<DrainDecision, { kind: "spawn" }>,
+    repoDefaultModel: string,
+  ): string | null {
+    const settings = decision.epicProviderSettings;
+    const provider = settings?.agentProvider ?? config.defaultAgentProvider;
+    const model = settings
+      ? modelForProviderOrDefault(settings.model, settings.agentProvider)
+      : drainSpawnModel(resolveDefaultModelSetting(repoDefaultModel, config.defaultModel));
+    return this.clampCodexModel(model, provider);
+  }
+
   /** Fetch and cache the epic's structure (parent issue + sub-issues + blocked-by maps). */
   private async epicStructure(repoPath: string, run: EpicRun): Promise<EpicStructure | null> {
     const key = `${repoPath}:${run.parentIssueNumber}`;
@@ -2349,16 +2361,12 @@ export class DrainService {
       // wins over the global default; when both are unset ("inherit"/"auto") they
       // fall back to no --model flag (Claude's own default). The Fable promo is a
       // client-only UI concern and is NEVER applied to autonomous spawns.
-      const provider = epicSettings?.agentProvider ?? config.defaultAgentProvider;
-      const selectedModel = epicSettings
-        ? modelForProviderOrDefault(epicSettings.model, epicSettings.agentProvider)
-        : drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel));
       session = await this.deps.service.create({
         repoPath,
         baseBranch: base,
         prompt,
         ...(epicSettings ? { agentProvider: epicSettings.agentProvider } : {}),
-        model: this.clampCodexModel(selectedModel, provider),
+        model: this.resolvedSpawnModel(decision, rc.defaultModel),
         effort: epicSettings
           ? epicSettings.effort
           : drainSpawnEffort(resolveDefaultEffortSetting(rc.defaultEffort, config.defaultEffort)),

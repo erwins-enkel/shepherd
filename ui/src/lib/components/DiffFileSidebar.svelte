@@ -4,6 +4,7 @@
   // horizontally-scrollable chip strip (CSS-only; one markup). Purely a
   // files -> rows mapping + selection callback — no business logic.
   import type { DiffFile } from "$lib/types";
+  import { pathParts } from "$lib/diff-path";
   import { m } from "$lib/paraglide/messages";
 
   let {
@@ -48,7 +49,12 @@
           <span class="glyph status-{file.status}" aria-hidden="true">
             {STATUS_GLYPH[file.status]}
           </span>
-          <span class="path">{label(file)}</span>
+          <span class="path"
+            >{#each pathParts(file) as part, i (i)}{#if i > 0}<span class="arrow" aria-hidden="true"
+                  >&nbsp;→&nbsp;</span
+                >{/if}<span class="dir">{part.dir}</span><span class="name">{part.name}</span
+              >{/each}</span
+          >
           <span class="counts">
             <span class="add">+{file.additions}</span>
             <span class="del">−{file.deletions}</span>
@@ -126,11 +132,30 @@
   .status-modified {
     color: var(--color-amber);
   }
+  /* Filename never shrinks (always fully visible); the muted directory prefix
+     ellipsis-collapses when the rail is tight. */
   .path {
     flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: baseline;
+    overflow: hidden;
+  }
+  .dir {
+    flex: 0 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    color: var(--color-muted);
+  }
+  .name {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+  .arrow {
+    flex: 0 0 auto;
+    color: var(--color-faint);
   }
   .counts {
     flex-shrink: 0;

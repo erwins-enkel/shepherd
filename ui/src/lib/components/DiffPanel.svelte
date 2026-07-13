@@ -228,8 +228,12 @@
   }
   /* Sidebar root is <nav class="sidebar">; stack root is <div class="stack">.
      Both stretch to the content height (default align-items). */
+  /* Proportional cap, no px floor: the panel lives in the desktop grid's 1fr
+     region (min ~469px at a 769px viewport, where the 768px chip-strip breakpoint
+     hasn't engaged), so a fixed floor would eat >1/3 there. 30% keeps the diff
+     stack at ≥70% (> 2/3); capped so wide panels don't waste rail width. */
   .content > :global(.sidebar) {
-    flex: 0 0 220px;
+    flex: 0 0 min(30%, 320px);
   }
   .content > :global(.stack) {
     flex: 1;

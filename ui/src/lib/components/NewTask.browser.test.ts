@@ -509,7 +509,9 @@ describe("NewTask task attachments", () => {
       new PointerEvent("pointerenter", { bubbles: true, pointerType: "mouse" }),
     );
 
-    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).not.toBeNull();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
     expect(document.querySelector<HTMLImageElement>(".attachment-preview img")?.src).toContain(
       "blob:attachment-preview-1",
     );
@@ -520,7 +522,9 @@ describe("NewTask task attachments", () => {
     await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
 
     triggerEl.focus();
-    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).not.toBeNull();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
     triggerEl.blur();
     await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
   });
@@ -535,7 +539,9 @@ describe("NewTask task attachments", () => {
       name: m.newtask_preview_image_aria({ name: "mobile.png" }),
     });
     await trigger.click();
-    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).not.toBeNull();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
     await trigger.click();
     await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
 

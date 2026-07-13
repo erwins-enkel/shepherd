@@ -88,16 +88,13 @@
         if (!coarse) return;
         e.preventDefault();
         open = !open;
-      }}
-    >{name}</button>
+      }}>{name}</button
+    >
   {:else}
     <span class="chip-name">{name}</span>
   {/if}
-  <button
-    type="button"
-    class="chip-x"
-    onclick={onremove}
-    aria-label={m.newtask_remove_image_aria()}>✕</button
+  <button type="button" class="chip-x" onclick={onremove} aria-label={m.newtask_remove_image_aria()}
+    >✕</button
   >
 </span>
 

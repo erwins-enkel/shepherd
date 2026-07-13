@@ -357,6 +357,14 @@
   // global merged count (rest + grouped) — drives clear-merged enablement
   const mergedCount = $derived(partition.merged.length + mergedAbove);
 
+  // Phone-only lifecycle accordion. The stable key makes "Your turn" the default
+  // without coupling the open state to the groups' live ordering. null closes all
+  // named lifecycle groups; unheaded active rows remain visible.
+  let mobileOpenPartitionKey = $state<string | null>("awaiting-merge");
+  function toggleMobilePartitionGroup(key: string) {
+    mobileOpenPartitionKey = mobileOpenPartitionKey === key ? null : key;
+  }
+
   // The waiting-on-* group headers name the responsible person when the whole
   // group shares one (the common case: one repo, one merger). The herd can span
   // repos, so a mixed group falls back to a name-less header.
@@ -682,7 +690,14 @@
       />
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
       {#each partitionGroups as grp (grp.key)}
-        <HerdGroup ctx={rowCtx} {...grp} help={groupHelp[grp.key] ?? null} />
+        <HerdGroup
+          ctx={rowCtx}
+          {...grp}
+          help={groupHelp[grp.key] ?? null}
+          collapsible={flow && !!grp.headClass && grp.sessions.length > 0}
+          expanded={!flow || mobileOpenPartitionKey === grp.key}
+          ontoggle={() => toggleMobilePartitionGroup(grp.key)}
+        />
       {/each}
     {/if}
     {#if filter !== "done" && filter !== "rundown" && filter !== "owed"}

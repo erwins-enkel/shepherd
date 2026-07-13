@@ -3115,5 +3115,7 @@
   "settings_default_environment_title": "Standard-Coding-Umgebung",
   "settings_default_environment_hint": "Wähle CLI und Modell für neue Aufgaben und unbeaufsichtigte Arbeit. Shepherd merkt sich je ein Modell für Claude Code und Codex.",
   "feat_default_coding_environment_title": "Standard-CLI und -Modell wählen",
-  "feat_default_coding_environment_body": "Die Einstellungen merken sich jetzt getrennte Standardmodelle für Claude Code und Codex. Neue Aufgaben und unbeaufsichtigte Starts verwenden das zur ausgewählten Coding-CLI gehörende Modell."
+  "feat_default_coding_environment_body": "Die Einstellungen merken sich jetzt getrennte Standardmodelle für Claude Code und Codex. Neue Aufgaben und unbeaufsichtigte Starts verwenden das zur ausgewählten Coding-CLI gehörende Modell.",
+  "feat_mobile_herd_accordion_title": "Lebenszyklus-Gruppen mobil einklappen",
+  "feat_mobile_herd_accordion_body": "Die Herd-Liste auf dem Smartphone hält jetzt höchstens eine benannte Lebenszyklus-Gruppe offen. „Du bist dran“ ist standardmäßig geöffnet; tippe auf eine größere Gruppenzeile, um den Bereich zu wechseln oder zu schließen, während aktive Sessions sichtbar bleiben."
 }

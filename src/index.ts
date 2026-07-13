@@ -1300,10 +1300,28 @@ const planGate = new PlanGateService({
   resolveForge,
   // Plugin onSpawn hooks fire for reviewer-style aux spawns too (issue #1205); no-op until loadAll.
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
-  // Defer while a herdr-restored account pane still needs a re-drive: return false so the plan-gate
-  // round holds (retries next cycle) instead of steering findings into the wrong-account husk. The
-  // poller heals it within ~1 tick (Locus A); shouldDeferSteer clears once healed or degraded.
-  reply: async (id, text) => (service.shouldDeferSteer(id) ? false : await service.reply(id, text)),
+  // Raw steer, delivered THROUGH resumeThenSteer (paneAlive/resume/deferSteer below): findings now
+  // revive an exited planner before landing rather than holding the round on a dead pane. This is
+  // what makes a Codex planner (which exits after its turn) actually receive the findings and revise.
+  reply: (id, text) => service.reply(id, text),
+  // Whether the planning session is still a live agent (mirrors autopilot.paneAlive).
+  paneAlive: (id) => {
+    const s = store.get(id);
+    return !!s && matchAgent(s, herdr.list()) !== null;
+  },
+  // Resume an exited planning pane so the findings land — EXCEPT a NON-isolated Codex session:
+  // `codex resume --last` is cwd-scoped and would resume/steer a SIBLING codex session (the exact
+  // constraint autopilot enforces at eligibility). Returning null there makes resumeThenSteer report
+  // the steer undelivered, so applyChangesRequested escalates to the operator instead of corrupting
+  // a sibling. Claude / isolated Codex resume normally.
+  resume: (id) => {
+    const s = store.get(id);
+    if (s && (s.agentProvider ?? "claude") === "codex" && !s.isolated) return null;
+    return service.resume(id);
+  },
+  // Defer + re-drive a herdr-restored account pane first (Locus A) so the steer lands on the healed
+  // pane, not the wrong-account husk; resumeThenSteer resumes it rather than dropping the round.
+  deferSteer: (id) => service.shouldDeferSteer(id),
   // Discards releasePlanGate's boolean: the plan-gate DI contract is "release it", not "was it
   // releasable" — a no-op release (not planning / not approved) is not an error here.
   release: async (id) => {

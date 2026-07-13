@@ -22,6 +22,7 @@ import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
+import { resumeThenSteer } from "./resume-then-steer";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
  *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
@@ -159,9 +160,20 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Resolve the forge for a repo so begin() can fetch the originating issue's body as UNTRUSTED
    *  reviewer context. Optional + optional-chained: absence ⇒ no issue context (never blocks). */
   resolveForge?: (repoPath: string) => GitForge | null;
-  /** Steer reviewer findings into the live planning agent's PTY (SessionService.reply).
-   *  Async since #1567 — resolves true only when the steer reached a live pane. */
+  /** Deliver reviewer findings into the planning agent's live PTY (SessionService.reply). Async
+   *  since #1567 — resolves true only when the steer reached a live pane. Called THROUGH
+   *  resumeThenSteer (paneAlive/resume/deferSteer below) so an exited Codex planner is revived first. */
   reply: (sessionId: string, text: string) => Promise<boolean>;
+  /** Whether the planning session's herdr pane is currently a live agent (matchAgent). A Codex
+   *  planner EXITS after its turn, so findings must resume it before steering; Claude idles live. */
+  paneAlive: (sessionId: string) => boolean;
+  /** Resume an exited planning session so findings can land (SessionService.resume; async — the
+   *  awaited result decides, truthy = resumed). The wiring refuses a NON-isolated Codex session
+   *  (returns falsy): `codex resume --last` is cwd-scoped and would resume a sibling, so such a
+   *  planner escalates to the operator instead of being auto-resumed. */
+  resume: (sessionId: string) => unknown;
+  /** Defer + re-drive first while a herdr-restored account pane needs it (SessionService.shouldDeferSteer). */
+  deferSteer?: (sessionId: string) => boolean;
   /** Release an APPROVED autonomous (auto/autopilot) session into execution (SessionService.releasePlanGate).
    *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
   release: (sessionId: string) => Promise<void>;
@@ -679,6 +691,20 @@ export class PlanGateService {
     if (s.auto || autopilotReleases) await this.deps.release(f.sessionId);
   }
 
+  /** Deliver the reviewer's findings to the planning agent, RESUMING an exited pane first so the
+   *  steer actually lands. Claude idles live at its prompt (steers directly); Codex exits after its
+   *  turn, so without the resume-first the findings would vanish and the plan would never be revised
+   *  — the core "rework does nothing" cause. Mirrors autopilot.sendSteer via the shared helper.
+   *  Returns whether the steer reached the agent. */
+  private steerFindings(sessionId: string, findings: string[]): Promise<boolean> {
+    return resumeThenSteer(sessionId, planSteerText(findings), {
+      paneAlive: this.deps.paneAlive,
+      deferSteer: this.deps.deferSteer,
+      resume: this.deps.resume,
+      steer: this.deps.reply,
+    });
+  }
+
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop
    *  steering and escalate to the operator. Execution stays gated until the plan is approved. */
   private async applyChangesRequested(f: PlanInFlight, gate: PlanGate): Promise<void> {
@@ -693,17 +719,21 @@ export class PlanGateService {
     // persisted + surfaced; only the streak-advancing and signal side effects are suppressed. A
     // forced review of a CHANGED plan (hash differs) is a real revision and falls through below.
     if (f.forced && prior && prior.planHash === f.planHash) {
-      gate.round = f.priorRound;
+      gate.round = prior.round; // live round (not the begin-time snapshot) — an operator reset wins
       gate.finalRoundPending = prior.finalRoundPending;
       this.deps.store.putPlanGate(gate);
       this.deps.onChange(f.sessionId, gate);
       return;
     }
-    const priorRound = f.priorRound;
+    // Carry the LIVE gate's round, not the begin-time snapshot: an operator resume()/dismiss() that
+    // reset the round WHILE this review was in flight must win over this finalize, not be clobbered
+    // back to the pre-reset value (the reviewer captured f.priorRound before the reset).
+    const priorRound = prior?.round ?? f.priorRound;
     let delivered = false;
     if (priorRound < this.cap) {
       try {
-        delivered = await this.deps.reply(f.sessionId, planSteerText(gate.findings));
+        // resume-before-steer: revive an exited (Codex) planner so the findings actually land.
+        delivered = await this.steerFindings(f.sessionId, gate.findings);
       } catch (err) {
         console.warn(`[plan-gate] steer failed for ${f.sessionId}:`, err);
       }
@@ -814,9 +844,10 @@ export class PlanGateService {
       summaryCode,
       body,
       findings,
-      // approved resets the streak; changes_requested/error carry priorRound (finalize()
-      // overwrites it for changes_requested once the steer outcome is known).
-      round: resolved === "approved" ? 0 : f.priorRound,
+      // approved resets the streak; changes_requested/error carry the LIVE round (not the begin-time
+      // snapshot) so an operator resume()/dismiss() reset during the review isn't clobbered — the
+      // `error` path persists this directly; applyChangesRequested recomputes it for changes_requested.
+      round: resolved === "approved" ? 0 : (live?.round ?? f.priorRound),
       cap: this.cap, // surface the live cap so the UI badge need not mirror it
       approved: resolved === "approved",
       plan: f.plan,
@@ -865,7 +896,8 @@ export class PlanGateService {
     const reset = { ...gate, round: 0, finalRoundPending: false, dismissed: false };
     this.deps.store.putPlanGate(reset);
     this.deps.onChange(session.id, reset);
-    return await this.deps.reply(session.id, planSteerText(gate.findings));
+    // resume-before-steer: revive an exited (Codex) planner so the re-delivered findings land.
+    return await this.steerFindings(session.id, gate.findings);
   }
 
   /**

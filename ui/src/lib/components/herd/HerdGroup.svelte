@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
   import UnitRow from "../UnitRow.svelte";
+  import InfoTip from "../InfoTip.svelte";
 
   export type HerdRowCtx = {
     selectedId: string | null;
@@ -43,6 +44,9 @@
     aboveLabel?: string | null;
     action?: ActionDef | null;
     withPreview?: boolean;
+    // Optional stage explainer: a right-aligned "i" that opens a tooltip describing what
+    // this lifecycle stage means, what Shepherd does automatically, and what happens next.
+    help?: { text: string; label: string } | null;
     ctx: HerdRowCtx;
   };
 
@@ -53,6 +57,7 @@
     aboveLabel = null,
     action = null,
     withPreview = false,
+    help = null,
     ctx,
   }: HerdGroupProps = $props();
 </script>
@@ -61,13 +66,22 @@
   <div class="{headClass} micro">
     {#if countLabel}{countLabel}{/if}
     {#if aboveLabel}<span class="above">{aboveLabel}</span>{/if}
-    {#if action}
-      <button
-        type="button"
-        class="{action.class} micro"
-        title={action.title}
-        onclick={action.onclick}>{action.label}</button
-      >
+    {#if action || help}
+      <!-- right-aligned cluster: the optional bulk action, then the stage-explainer "i"
+           (kept rightmost for a consistent target across every header). -->
+      <span class="head-right">
+        {#if action}
+          <button
+            type="button"
+            class="{action.class} micro"
+            title={action.title}
+            onclick={action.onclick}>{action.label}</button
+          >
+        {/if}
+        {#if help}
+          <InfoTip text={help.text} label={help.label} prominent />
+        {/if}
+      </span>
     {/if}
   </div>
 {/if}
@@ -174,9 +188,17 @@
     border-top: 1px solid color-mix(in srgb, var(--color-blue) 30%, var(--color-line));
   }
 
+  /* right-aligned cluster holding the optional bulk action + the stage-explainer "i".
+     Owns the `margin-left:auto` so the action buttons no longer need their own. */
+  .head-right {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+  }
+
   /* right-aligned action in the ready-to-merge group header */
   .merge-train {
-    margin-left: auto;
     border: 0;
     background: none;
     font-family: inherit;
@@ -195,7 +217,6 @@
 
   /* right-aligned bulk action in the merged group header */
   .clear-merged {
-    margin-left: auto;
     border: 0;
     background: none;
     font-family: inherit;

@@ -27,6 +27,35 @@
     {m.emptyherd_spawn()}
   </button>
 
+  <!-- Lifecycle overview: teaches the pipeline up front, before the user has any sessions to
+       host the per-stage header tooltips. Condensed happy-path; reuses the shared stage
+       strings so the empty state and the board headers never drift. -->
+  <section class="flow">
+    <h3 class="flow-heading micro">{m.emptyherd_flow_heading()}</h3>
+    <ol class="flow-list">
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_active()}</span>
+        <span class="flow-desc">{m.herd_help_active()}</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_ci_running()}</span>
+        <span class="flow-desc">{m.herd_help_ci_running()}</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_reviewing()}</span>
+        <span class="flow-desc">{m.herd_help_reviewing()}</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_your_turn()}</span>
+        <span class="flow-desc">{m.herd_help_your_turn()}</span>
+      </li>
+      <li class="flow-step">
+        <span class="flow-stage micro">{m.herd_stage_name_merged()}</span>
+        <span class="flow-desc">{m.herd_help_merged()}</span>
+      </li>
+    </ol>
+  </section>
+
   <dl class="verbs">
     <div class="verb">
       <dt class="micro">{m.emptyherd_verb_decommission_term()}</dt>
@@ -133,6 +162,39 @@
   }
   .spawn span {
     font-size: var(--fs-base);
+  }
+
+  /* Lifecycle overview — a compact, numbered happy-path. Mirrors the .verbs block. */
+  .flow {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    border-top: 1px solid var(--color-line);
+    padding-top: 16px;
+  }
+  .flow-heading {
+    margin: 0;
+    color: var(--color-muted);
+  }
+  .flow-list {
+    margin: 0;
+    padding: 0 0 0 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .flow-step {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+  .flow-stage {
+    color: var(--color-muted);
+  }
+  .flow-desc {
+    color: var(--color-faint);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
   }
 
   .verbs {

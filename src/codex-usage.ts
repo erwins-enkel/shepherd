@@ -230,6 +230,38 @@ function toLimitWindow(w: RolloutLimitWindow | null | undefined, now: number): L
   return { pct: Math.max(0, Math.min(100, Math.round(w.used_percent))), resetAt };
 }
 
+type WindowBucket = "session5h" | "week";
+
+const UNKNOWN_WINDOW_DURATIONS_WARNED = new Set<number>();
+
+function bucketForWindow(
+  w: RolloutLimitWindow,
+  positionalFallback: WindowBucket,
+): WindowBucket | null {
+  if (typeof w.window_minutes !== "number") return positionalFallback;
+  if (Math.abs(w.window_minutes - 300) <= 1) return "session5h";
+  if (Math.abs(w.window_minutes - 10080) <= 1) return "week";
+  if (!UNKNOWN_WINDOW_DURATIONS_WARNED.has(w.window_minutes)) {
+    UNKNOWN_WINDOW_DURATIONS_WARNED.add(w.window_minutes);
+    console.warn(`[codex-usage] ignoring unrecognized rate-limit window: ${w.window_minutes}m`);
+  }
+  return null;
+}
+
+function assignLimitWindow(
+  out: { session5h: LimitWindow | null; week: LimitWindow | null },
+  w: RolloutLimitWindow | null | undefined,
+  positionalFallback: WindowBucket,
+  now: number,
+): void {
+  if (!w) return;
+  const bucket = bucketForWindow(w, positionalFallback);
+  if (!bucket) return;
+  const limit = toLimitWindow(w, now);
+  if (!limit) return;
+  out[bucket] = limit;
+}
+
 function readFileTail(path: string, maxBytes: number): string {
   const st = statSync(path);
   const start = Math.max(0, st.size - maxBytes);
@@ -263,8 +295,13 @@ function rateLimitsFromEvent(obj: RolloutTokenCountEvent, now: number): CodexRat
   if (obj.type !== "event_msg" || obj.payload?.type !== "token_count") return null;
   const rl = obj.payload.rate_limits;
   if (!rl) return null;
-  const session5h = toLimitWindow(rl.primary, now);
-  const week = toLimitWindow(rl.secondary, now);
+  const windows: { session5h: LimitWindow | null; week: LimitWindow | null } = {
+    session5h: null,
+    week: null,
+  };
+  assignLimitWindow(windows, rl.primary, "session5h", now);
+  assignLimitWindow(windows, rl.secondary, "week", now);
+  const { session5h, week } = windows;
   if (!session5h && !week) return null;
   return {
     session5h,
@@ -279,7 +316,9 @@ function rateLimitsFromEvent(obj: RolloutTokenCountEvent, now: number): CodexRat
 /**
  * Extract the most recent rate-limit windows from one rollout JSONL file's content. Codex appends a
  * `{type:"event_msg", payload:{type:"token_count", rate_limits:{primary,secondary}}}` line on each
- * turn; `primary` is the 5h window, `secondary` the weekly. The last such line is the current state.
+ * turn. Codex has emitted both positional primary=5h/secondary=weekly and duration-labelled
+ * primary=weekly shapes; prefer `window_minutes` when present and fall back to position only for
+ * older duration-less rollouts. The last such line is the current state.
  *
  * This is a line-based scan, which assumes the JSONL invariant of one complete JSON object per line
  * (Codex writes exactly that) — a pretty-printed, multi-line object would not parse. The pre-filter

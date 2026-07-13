@@ -143,6 +143,21 @@ function assertControlsWithin(cell: HTMLElement) {
     // overflow, so nothing paints left of the cell's origin.
     const cellRect = cell.getBoundingClientRect();
     expect(getComputedStyle(rail!).overflowX, "mobile rail scrolls horizontally").toBe("auto");
+    const expectedTouchHeight = Number.parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+    );
+    const touchButtons = rail!.querySelectorAll<HTMLElement>(
+      "button.gbtn, button.verdict-chip, button.ready-toggle",
+    );
+    expect(expectedTouchHeight, "mobile actionbar height token").toBeGreaterThan(0);
+    expect(touchButtons.length, "mobile rail has touch buttons").toBeGreaterThan(0);
+    for (const button of touchButtons) {
+      const label =
+        button.getAttribute("aria-label") || button.textContent?.trim() || button.className;
+      expect(button.getBoundingClientRect().height, `${label} uses mobile touch height`).toBe(
+        expectedTouchHeight,
+      );
+    }
     const tallest = Math.max(...[...controls].map((c) => c.getBoundingClientRect().height));
     const railH = rail!.getBoundingClientRect().height;
     expect(railH, "rail stays a single row (no vertical stacking)").toBeLessThanOrEqual(
@@ -233,6 +248,41 @@ describe("GitRail — controls stay within the cell", () => {
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
     assertControlsWithin(h);
+  });
+
+  it("mobile rail buttons share the actionbar touch height with a verdict present", async () => {
+    const sessionId = "touch-height";
+    const verdict: ReviewVerdict = {
+      sessionId,
+      headSha: "deadbeef",
+      decision: "commented",
+      summary: "Ready to merge.",
+      body: "No findings.",
+      findings: [],
+      addressRound: 0,
+      addressCap: 2,
+      finalRoundPending: false,
+      finalRoundTimeoutMs: 900000,
+      updatedAt: Date.now(),
+    };
+    reviews.apply({ id: sessionId, review: verdict });
+
+    try {
+      gitStateFn.mockResolvedValue(openPrState);
+      await page.viewport(400, 900);
+      const h = host(360);
+      const screen = await render(GitRail, {
+        target: h,
+        props: { ...baseProps, sessionId, mobile: true },
+      });
+      await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+      await vi.waitFor(() =>
+        expect(h.querySelector("button.verdict-chip"), "verdict button present").not.toBeNull(),
+      );
+      assertControlsWithin(h);
+    } finally {
+      reviews.drop(sessionId);
+    }
   });
 
   // ── none state ────────────────────────────────────────────────────────────

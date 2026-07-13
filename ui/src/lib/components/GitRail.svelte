@@ -1004,7 +1004,7 @@
     margin-left: auto;
   }
   .rail.mobile :global(.gbtn) {
-    min-height: 40px;
+    min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
     font-size: var(--fs-base);
   }
@@ -1013,12 +1013,12 @@
      rendered at ~half height (23px) in muted text, indistinguishable from the
      passive list badge. On touch (no hover affordance) the happy "✓ REVIEWED"
      chip then read as a status label, not a button, so findings were effectively
-     unreachable on mobile/fold. Match it to the sibling controls: a real ≥40px
+     unreachable on mobile/fold. Match it to the sibling controls: a full-height
      tap target that obviously invites a tap. Scoped to button.verdict-chip so the
      non-interactive reviewing <span> (no prior findings) isn't blown up into a
-     40px button-looking element that does nothing on tap. */
+     full-height button-looking element that does nothing on tap. */
   .rail.mobile :global(button.verdict-chip) {
-    min-height: 40px;
+    min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
     font-size: var(--fs-base);
     display: inline-flex;

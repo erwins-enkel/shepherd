@@ -3815,10 +3815,10 @@
     padding-left: 8px;
     border-left: 1px solid var(--color-line);
   }
-  /* the strip's GitRail always renders its ≥44px touch variant — match it so the
+  /* the strip's GitRail uses the shared actionbar touch height — match it so the
      cluster doesn't sit half-height beside the rail buttons */
   .strip-controls .ap-toggle {
-    min-height: 44px;
+    min-height: var(--mobile-actionbar-hit);
     padding: 6px 9px;
   }
 

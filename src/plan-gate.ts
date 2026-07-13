@@ -132,6 +132,24 @@ export function reviewerArgv(
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_CAP = 5;
 
+/** Zeroed usage for a completed reviewer whose transcript yields no totals — notably a Codex
+ *  role spawn (`codex exec` writes no Claude JSONL) or a half-written transcript. Recording
+ *  completion with zeros rather than skipping it keeps `reviewer_spawns.completedAt` honest: the
+ *  review DID finish and apply a verdict; only per-run token attribution is unavailable. Mirrors
+ *  review.ts's zeroedUsage. */
+const ZEROED_USAGE: SessionUsage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  total: 0,
+  messageCount: 0,
+  lastActivity: null,
+  byModel: {},
+  fullRecaches: 0,
+  sidechainCount: 0,
+};
+
 /** The reviewer's verdict JSON, as written to PLAN_VERDICT_FILE — untyped fields are coerced
  *  in finalize() (Task 6). Mirrors review.ts's RawVerdict. */
 export interface RawPlanVerdict {
@@ -601,7 +619,13 @@ export class PlanGateService {
     void this.deps.herdr.stop(terminalId).catch(() => {});
     try {
       const usage = await this.readUsage(sp.worktreePath, sp.reviewerSessionId);
-      if (usage) this.deps.store.completeReviewerSpawn(sp.reviewerSessionId, usage, this.now());
+      // Always complete the row (zeros when no transcript, e.g. a Codex exec) so it isn't
+      // re-listed as an orphan every boot and its completion is recorded.
+      this.deps.store.completeReviewerSpawn(
+        sp.reviewerSessionId,
+        usage ?? ZEROED_USAGE,
+        this.now(),
+      );
     } catch (err) {
       console.warn(`[plan-gate] orphan usage capture failed for ${sp.reviewerSessionId}:`, err);
     }
@@ -675,12 +699,19 @@ export class PlanGateService {
       else if (gate.decision === "changes_requested") await this.applyChangesRequested(f, gate);
       else this.applyError(f, gate); // timeout / unparseable verdict
       // Persist the reviewer's token total for exact cost attribution (issue #502). Best-effort:
-      // a missing/half-written transcript leaves the spawn row's totals null rather than
-      // stranding finalize. Safe to read before the `finally`'s worktree removal: the transcript
+      // a missing/half-written transcript (or a Codex exec, which writes none) completes the row
+      // with zeroed totals rather than stranding finalize or leaving `completedAt` null. Safe to
+      // read before the `finally`'s worktree removal: the transcript
       // lives under ~/.claude/projects (keyed by worktree path), not inside the worktree itself.
       try {
         const usage = await this.readUsage(f.worktreePath, f.reviewerSessionId);
-        if (usage) this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
+        // Complete the row even when usage is null (Codex exec writes no transcript) so
+        // `completedAt` reflects that the review finished — not a silent 0/N gap.
+        this.deps.store.completeReviewerSpawn(
+          f.reviewerSessionId,
+          usage ?? ZEROED_USAGE,
+          this.now(),
+        );
       } catch (err) {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }

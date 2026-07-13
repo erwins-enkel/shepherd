@@ -83,12 +83,7 @@
     | { kind: "doc"; title: string; url: string; hl: number[]; rank: number };
   type OptRow = Row & { oid: number };
 
-  type MatchSource =
-    | "title"
-    | "designation"
-    | "session-repo"
-    | "repo-name"
-    | "repo-display";
+  type MatchSource = "title" | "designation" | "session-repo" | "repo-name" | "repo-display";
   type FieldMatch = { source: MatchSource; rank: number; positions: number[] };
 
   function bestFieldMatch(
@@ -218,10 +213,7 @@
         return match === null ? null : { r, match };
       })
       .filter(isPresent)
-      .sort(
-        (a, b) =>
-          b.match.rank - a.match.rank || (b.r.lastUsedAt ?? 0) - (a.r.lastUsedAt ?? 0),
-      )
+      .sort((a, b) => b.match.rank - a.match.rank || (b.r.lastUsedAt ?? 0) - (a.r.lastUsedAt ?? 0))
       .map(({ r, match }): Row => ({
         kind: "repo",
         path: r.path,
@@ -261,7 +253,8 @@
           .map((c, order) => {
             const label = c.label();
             const result = fuzzyScore(q, label);
-            const keywordMatch = result === null && (c.keywords?.() ?? "").toLowerCase().includes(q);
+            const keywordMatch =
+              result === null && (c.keywords?.() ?? "").toLowerCase().includes(q);
             if (result === null && !keywordMatch) return null;
             return { c, order, label, result, rank: result?.score ?? 500 };
           })

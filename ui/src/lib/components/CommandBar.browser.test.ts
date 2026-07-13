@@ -498,9 +498,7 @@ describe("CommandBar — Commands group", () => {
 
   it("puts a stronger command match ahead of weaker navigation groups", async () => {
     const run = vi.fn();
-    const commands: Command[] = [
-      { id: "new-task", label: () => m.commandbar_cmd_new_task(), run },
-    ];
+    const commands: Command[] = [{ id: "new-task", label: () => m.commandbar_cmd_new_task(), run }];
     const { onclose, onselectsession } = renderBar({
       sessions: [session({ id: "fuzzy", name: "n-e-w" })],
       commands,
@@ -526,9 +524,7 @@ describe("CommandBar — Commands group", () => {
 
   it("keeps an exact session title ahead of a prefix command match", async () => {
     const run = vi.fn();
-    const commands: Command[] = [
-      { id: "new-task", label: () => m.commandbar_cmd_new_task(), run },
-    ];
+    const commands: Command[] = [{ id: "new-task", label: () => m.commandbar_cmd_new_task(), run }];
     const { onselectsession } = renderBar({
       sessions: [session({ id: "exact", name: "new" })],
       commands,

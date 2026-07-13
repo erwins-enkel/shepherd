@@ -5,7 +5,7 @@
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
   import { m } from "$lib/paraglide/messages";
-  import { replySession, reviewPlan } from "$lib/api";
+  import { replySession, reviewPlan, isPlanReviewError } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { clock } from "$lib/now.svelte";
 
@@ -133,12 +133,13 @@
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(session.id))
         toasts.info(m.plangate_review_skipped_stalled());
-      else if (status === "error")
+      else if (isPlanReviewError(status))
         toasts.info(m.gitrail_review_plan_failed(), {
           alert: true,
           key: `review-plan:${session.id}`,
         });
-      if (status !== "error") closeMenu();
+      // keep the menu open on any error so the operator can retry; close on success/no-op
+      if (!isPlanReviewError(status)) closeMenu();
     } catch {
       toasts.info(m.gitrail_review_plan_failed(), {
         alert: true,

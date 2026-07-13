@@ -18,7 +18,14 @@
   import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
   import { STATUS_COLOR, canResume, canRelaunch } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
-  import { resumeSession, releasePlanGate, reviewPlan, resumeQuota, retryCi } from "$lib/api";
+  import {
+    resumeSession,
+    releasePlanGate,
+    reviewPlan,
+    isPlanReviewError,
+    resumeQuota,
+    retryCi,
+  } from "$lib/api";
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
@@ -407,7 +414,7 @@
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(session.id))
         toasts.info(m.plangate_review_skipped_stalled());
-      else if (status === "error")
+      else if (isPlanReviewError(status))
         toasts.info(m.gitrail_review_plan_failed(), {
           alert: true,
           key: `hold-cta:review:${session.id}`,

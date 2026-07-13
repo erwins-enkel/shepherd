@@ -496,6 +496,30 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
   });
 
+  it("names a busy agent host when the reviewer spawn fails", async () => {
+    const id = "s-review-error-spawn";
+    vi.mocked(reviewPlan).mockResolvedValue("error-spawn");
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_failed_spawn())).toBeVisible();
+  });
+
+  it("names the review workspace when worktree creation fails", async () => {
+    const id = "s-review-error-worktree";
+    vi.mocked(reviewPlan).mockResolvedValue("error-worktree");
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_failed_worktree())).toBeVisible();
+  });
+
+  it("names the missing API key when the reviewer fails closed", async () => {
+    const id = "s-review-error-auth";
+    vi.mocked(reviewPlan).mockResolvedValue("error-auth");
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_failed_auth())).toBeVisible();
+  });
+
   it("renders no status note when the chip is hidden", () => {
     const id = "s-none";
     render(PlanPanel, {

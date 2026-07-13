@@ -34,7 +34,9 @@ const gitStateFn = vi.fn(async () => openPrState);
 const reviewPrFn = vi.fn(async () => "started" as "started" | "skipped" | "error");
 // reviewPlanFn drives the manual plan-review trigger handler; same resolution options.
 const reviewPlanFn = vi.fn(
-  async () => "started" as "started" | "skipped" | "plan-unavailable" | "error",
+  async () =>
+    "started" as
+      "started" | "skipped" | "plan-unavailable" | "error-spawn" | "error-worktree" | "error-auth",
 );
 
 vi.mock("$lib/api", async (importOriginal) => {
@@ -1239,9 +1241,9 @@ describe("GitRail — manual plan-review trigger", () => {
     expect(toastsInfo, "no toast when button disabled").not.toHaveBeenCalled();
   });
 
-  // 7. "error" status AND rejected → persistent keyed toast
-  it("'error' status raises the persistent, keyed failure toast", async () => {
-    reviewPlanFn.mockResolvedValue("error");
+  // 7. any error-* status AND rejected → persistent keyed toast
+  it("an error-* status raises the persistent, keyed failure toast", async () => {
+    reviewPlanFn.mockResolvedValue("error-spawn");
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);

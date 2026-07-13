@@ -26,9 +26,12 @@ import { type OperatorLanguage } from "./operator-language";
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
  *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
  *  plugin-abort during spawn, or an unchanged plan on the auto-path); the plan artifact is
- *  unavailable (`"plan-unavailable"`); or a spawn attempt failed (`"error"`). The review-plan route
- *  relays this so the UI can distinguish a no-op from a real error or an unusable `.shepherd-plan.md`. */
-export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
+ *  unavailable (`"plan-unavailable"`); or a spawn attempt failed with a specific cause —
+ *  `"error-spawn"` (herdr couldn't start/register the reviewer), `"error-worktree"` (the review
+ *  worktree couldn't be created), or `"error-auth"` (api-key mode with no key configured). The
+ *  review-plan route relays this so the UI can name the cause instead of a generic failure. */
+export type PlanReviewTrigger =
+  "started" | "skipped" | "plan-unavailable" | "error-spawn" | "error-worktree" | "error-auth";
 
 /** Whether a settle edge should re-drive `consider()`. `done` always re-considers (first
  *  draft + any settle); `idle` re-considers ONLY when a prior gate already requested changes
@@ -375,7 +378,7 @@ export class PlanGateService {
       );
     } catch (err) {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
-      return "error";
+      return "error-worktree";
     }
 
     // forget() (session archived) may have fired during either await above (getIssue OR the slow
@@ -397,7 +400,7 @@ export class PlanGateService {
         "[plan-gate] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
       this.deps.worktree.remove(wt.worktreePath);
-      return "error";
+      return "error-auth";
     }
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. An
     // abortSpawn cleanly skips this plan review (worktree reaped); "skipped" — a deliberate
@@ -433,7 +436,7 @@ export class PlanGateService {
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);
       this.deps.worktree.remove(wt.worktreePath);
-      return "error";
+      return "error-spawn";
     }
     const blocks = this.readPlanBlocks(session.worktreePath);
     // Observe-only telemetry for #804: how often the live planning agent actually emits a usable

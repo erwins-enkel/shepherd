@@ -18,7 +18,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     getReviews: vi.fn(async () => ({})),
     getReviewingIds: vi.fn(async () => []),
     releasePlanGate: vi.fn(async () => true),
-    reviewPlan: vi.fn(async () => "started" as const),
+    reviewPlan: vi.fn(async (): Promise<import("$lib/api").PlanReviewTrigger> => "started"),
     resumeQuota: vi.fn(async () => ({ status: "resumed" as const })),
     retryCi: vi.fn(
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
@@ -733,6 +733,34 @@ describe("UnitRow plan-gate hold CTA", () => {
     await expect
       .element(page.getByRole("button", { name: m.hold_cta_rereview() }))
       .toBeInTheDocument();
+  });
+
+  it("Re-review CTA raises the failure toast on any error-* trigger outcome", async () => {
+    const id = "hc-review-err";
+    vi.mocked(reviewPlan).mockReset().mockResolvedValue("error-worktree");
+    planGates.map = {
+      [id]: {
+        ...baseGate,
+        sessionId: id,
+        decision: "changes_requested",
+        round: 1,
+        cap: 3,
+        dismissed: false,
+        blocks: [],
+        approved: false,
+      },
+    };
+    render(UnitRow, {
+      session: session({ id, status: "idle", planPhase: "planning" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+    await page.getByRole("button", { name: m.hold_cta_rereview() }).click();
+    await vi.waitFor(() => expect(reviewPlan).toHaveBeenCalledWith(id));
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.gitrail_review_plan_failed())).toBe(true),
+    );
   });
 
   it("ready + Go arm: first click arms (Go?, no call yet), second click releases the gate", async () => {

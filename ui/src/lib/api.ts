@@ -1692,13 +1692,21 @@ export async function releasePlanGate(id: string): Promise<boolean> {
 
 /** Outcome of an on-demand plan review trigger: a reviewer spawned, the request was a silent
  *  no-op (plan unchanged / already approved), the plan artifact is unavailable, or a spawn attempt
- *  failed. Mirrors the server's PlanReviewTrigger so the UI can distinguish a dedupe from a
- *  genuine error. */
-export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | "error";
+ *  failed with a specific cause. Mirrors the server's PlanReviewTrigger so the UI can distinguish a
+ *  dedupe from a genuine error and name that error. */
+export type PlanReviewError = "error-spawn" | "error-worktree" | "error-auth";
+export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | PlanReviewError;
+
+/** Type guard: true for any failed-spawn outcome. The compact entry points (rail, hold-row, badge
+ *  menu) show one generic failure toast for all three causes; only PlanPanel narrows on the guard
+ *  to name the specific cause. */
+export function isPlanReviewError(s: PlanReviewTrigger): s is PlanReviewError {
+  return s === "error-spawn" || s === "error-worktree" || s === "error-auth";
+}
 
 /** Trigger an on-demand plan review (202). Fire-and-forget; verdict returns via WS.
  *  Returns the trigger outcome so the caller can tell a real review from a silent dedupe
- *  ("skipped") and a genuine spawn failure ("error"). */
+ *  ("skipped") and a genuine spawn failure (any `error-*` code, via `isPlanReviewError`). */
 export async function reviewPlan(id: string): Promise<PlanReviewTrigger> {
   const r = await fetch(`/api/sessions/${id}/review-plan`, JSON_POST());
   if (!r.ok) throw await failed(r, "review-plan");

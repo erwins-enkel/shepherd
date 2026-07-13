@@ -1,7 +1,14 @@
 <script lang="ts">
   import type { AgentProvider, Session } from "$lib/types";
   import { planGates } from "$lib/reviews.svelte";
-  import { dismissQuota, releasePlanGate, resumeQuota, reviewPlan } from "$lib/api";
+  import {
+    dismissQuota,
+    releasePlanGate,
+    resumeQuota,
+    reviewPlan,
+    isPlanReviewError,
+    type PlanReviewError,
+  } from "$lib/api";
   import {
     canRelease,
     canShowPlanStallActions,
@@ -117,7 +124,7 @@
   // that it couldn't start. Auto-dismissed so it can't go stale between clicks.
   // null = no note (fresh page, or a real review is/was in flight). The cause is not guessed from the
   // cached gate — `force` makes any "unchanged/approved" claim false, and a plugin abort is unknowable.
-  let outcome = $state<"skipped" | "error" | null>(null);
+  let outcome = $state<"skipped" | PlanReviewError | null>(null);
   // Persistent while the current planning state has no usable `.shepherd-plan.md` artifact.
   // Unlike `outcome`, this must not auto-dismiss: it explains why Review cannot start.
   let planUnavailable = $state(false);
@@ -180,10 +187,10 @@
       if (status === "started") awaitingReview = true;
       else if (status === "plan-unavailable" && !reviewing) planUnavailable = true;
       else if (status === "skipped" && !reviewing) outcome = "skipped";
-      else if (status === "error") outcome = "error";
+      else if (isPlanReviewError(status)) outcome = status; // name the specific cause
     } catch {
       // The trigger request itself failed (network / non-2xx) — surface it like a spawn failure.
-      outcome = "error";
+      outcome = "error-spawn";
     } finally {
       busy = false;
     }
@@ -394,8 +401,12 @@
         <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
       {:else if outcome === "skipped"}
         <p class="note" role="status">{m.planpanel_review_nothing_to_review()}</p>
-      {:else if outcome === "error"}
-        <p class="note err" role="alert">{m.planpanel_review_failed()}</p>
+      {:else if outcome === "error-spawn"}
+        <p class="note err" role="alert">{m.planpanel_review_failed_spawn()}</p>
+      {:else if outcome === "error-worktree"}
+        <p class="note err" role="alert">{m.planpanel_review_failed_worktree()}</p>
+      {:else if outcome === "error-auth"}
+        <p class="note err" role="alert">{m.planpanel_review_failed_auth()}</p>
       {/if}
 
       {#if statusNote}

@@ -40,6 +40,7 @@
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
   import MicButton from "./MicButton.svelte";
   import BaseRepairNotice from "./new-task/BaseRepairNotice.svelte";
+  import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import NewTaskRunSettings from "./new-task/NewTaskRunSettings.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -48,6 +49,12 @@
   import { m } from "$lib/paraglide/messages";
   import { recentRepos } from "$lib/recentRepos";
   import type { UsageLimits } from "$lib/types";
+
+  type TaskAttachment = {
+    path: string;
+    name: string;
+    previewFile?: File;
+  };
 
   let {
     onsubmit,
@@ -262,7 +269,7 @@
   );
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
-  let images = $state<{ path: string; name: string }[]>(initialImages ? [...initialImages] : []);
+  let images = $state<TaskAttachment[]>(initialImages ? [...initialImages] : []);
   let dragging = $state(false);
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
@@ -526,7 +533,11 @@
     try {
       for (const f of uploads) {
         const path = await uploadFile(f);
-        images.push({ path, name: f.name });
+        images.push({
+          path,
+          name: f.name,
+          ...(f.type.startsWith("image/") ? { previewFile: f } : {}),
+        });
       }
     } catch (err) {
       if (isPreviewBlocked(err)) {
@@ -1102,15 +1113,12 @@
       {#if images.length > 0}
         <div class="chips">
           {#each images as img (img.path)}
-            <span class="chip">
-              <span class="chip-name">{img.name}</span>
-              <button
-                type="button"
-                class="chip-x"
-                onclick={() => removeUpload(img.path)}
-                aria-label={m.newtask_remove_image_aria()}>✕</button
-              >
-            </span>
+            <AttachmentChip
+              name={img.name}
+              previewFile={img.previewFile}
+              coarse={coarse.current}
+              onremove={() => removeUpload(img.path)}
+            />
           {/each}
         </div>
       {/if}
@@ -1621,32 +1629,6 @@
     flex-wrap: wrap;
     gap: 6px;
     margin-top: 6px;
-  }
-  .chip {
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-    max-width: 100%;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    padding: 3px 7px;
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-  }
-  .chip-name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    max-width: 22ch;
-  }
-  .chip-x {
-    background: transparent;
-    border: 0;
-    color: var(--color-muted);
-    cursor: pointer;
-    font: inherit;
-    line-height: 1;
   }
   .relaunch-note {
     display: flex;

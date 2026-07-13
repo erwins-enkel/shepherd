@@ -3092,5 +3092,8 @@
   "newtask_provider_constraint_title": "CLI availability",
   "newtask_provider_constraint_body": "Shepherd selected {provider} and disabled incompatible CLIs while this token is in the prompt.",
   "feat_provider_availability_card_title": "Single-CLI skill notices",
-  "feat_provider_availability_card_body": "New Task now shows a blue CLI-availability card when a picked command, skill, or plugin token only runs in one coding CLI, so the forced provider choice is visible before launch."
+  "feat_provider_availability_card_body": "New Task now shows a blue CLI-availability card when a picked command, skill, or plugin token only runs in one coding CLI, so the forced provider choice is visible before launch.",
+  "newtask_preview_image_aria": "Preview attached image {name}",
+  "feat_newtask_image_preview_title": "Preview images before starting a task",
+  "feat_newtask_image_preview_body": "Hover or focus an image attachment's filename to check it before launch. On mobile, tap the filename to toggle the preview."
 }

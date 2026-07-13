@@ -2,11 +2,13 @@
   import type { SessionStatus } from "$lib/types";
   import { STATUS_COLOR, statusLabel } from "$lib/format";
   import { m } from "$lib/paraglide/messages";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
   let {
     status,
     ready = false,
     merging = false,
-  }: { status: SessionStatus; ready?: boolean; merging?: boolean } = $props();
+    tip = false,
+  }: { status: SessionStatus; ready?: boolean; merging?: boolean; tip?: boolean } = $props();
   // ready overrides status: a green ✓ reads as "parked, actionable-complete".
   // The check (green) is reserved for readyToMerge; a `done`/WAITING session is
   // NOT complete (it's parked for the operator's next steer), so its pip is the
@@ -22,17 +24,45 @@
   // Non-color cue: the pip is otherwise color-only, so carry the status word as
   // an accessible label/tooltip for the dot states.
   const label = $derived(m.statuspip_status_aria({ status: statusLabel(status) }));
+  // In `tip` mode the tooltip text follows the visual override precedence
+  // (merging > ready > status) so it matches the pip's colour rather than
+  // blindly echoing the underlying status word.
+  const tipText = $derived(merging ? m.status_merging_tip() : ready ? m.status_ready_tip() : label);
+  const tipParam = $derived(tip ? { text: tipText } : null);
 </script>
 
 {#if merging}
-  <span class="pip pulse" style="--c:{color}" role="img" aria-label={label} title={label}></span>
+  <span
+    class="pip pulse"
+    style="--c:{color}"
+    role="img"
+    aria-label={tip ? tipText : label}
+    title={tip ? undefined : label}
+    use:statusTip={tipParam}
+  ></span>
 {:else if ready}
-  <span class="pip check" style="--c:{color}" aria-hidden="true">✓</span>
+  <!-- ready ✓: aria-hidden by default (the READY badge carries the label); in tip
+       mode it becomes a labelled, tooltipped chip so its meaning is reachable. -->
+  <span
+    class="pip check"
+    style="--c:{color}"
+    aria-hidden={tip ? undefined : true}
+    role={tip ? "img" : undefined}
+    aria-label={tip ? tipText : undefined}
+    use:statusTip={tipParam}>✓</span
+  >
 {:else if status === "blocked"}
   <!-- blocked: a filled red alarm badge — loud enough to catch the eye in a long
        list, and the `!` glyph keeps a non-color cue (WCAG 1.4.1) so it never
        reads as just a red dot vs. a green `done` dot for colorblind users -->
-  <span class="pip badge" style="--c:{color}" role="img" aria-label={label} title={label}>!</span>
+  <span
+    class="pip badge"
+    style="--c:{color}"
+    role="img"
+    aria-label={tip ? tipText : label}
+    title={tip ? undefined : label}
+    use:statusTip={tipParam}>!</span
+  >
 {:else}
   <span
     class="pip"
@@ -40,8 +70,9 @@
     class:hollow
     style="--c:{color}"
     role="img"
-    aria-label={label}
-    title={label}
+    aria-label={tip ? tipText : label}
+    title={tip ? undefined : label}
+    use:statusTip={tipParam}
   ></span>
 {/if}
 

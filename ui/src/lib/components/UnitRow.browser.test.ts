@@ -651,7 +651,7 @@ describe("UnitRow quota-stalled badge", () => {
     await expect.element(page.getByText(m.unitrow_quota_plan())).not.toBeInTheDocument();
   });
 
-  it("badge has the correct title for accessibility", async () => {
+  it("badge exposes its explanation to assistive tech (aria-description)", async () => {
     render(UnitRow, {
       session: session({ id: "qb4", status: "blocked" }),
       selected: false,
@@ -659,7 +659,11 @@ describe("UnitRow quota-stalled badge", () => {
       onselect: () => {},
       quotaKind: "plan",
     });
-    await expect.element(page.getByTitle(m.unitrow_quota_title())).toBeInTheDocument();
+    // The plan-gate fallback chip is a styled statusTip tooltip in the card, so its
+    // explanation is exposed via aria-description (not a native title).
+    const chip = page.getByText(m.unitrow_quota_plan());
+    await expect.element(chip).toBeInTheDocument();
+    await expect.element(chip).toHaveAttribute("aria-description", m.unitrow_quota_title());
   });
 
   it("opens the stalled-plan menu from the Plan stalled quota chip", async () => {

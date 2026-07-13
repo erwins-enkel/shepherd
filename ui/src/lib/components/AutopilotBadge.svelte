@@ -2,16 +2,29 @@
   import type { Session } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { codexAutopilotUnavailable } from "$lib/format";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
 
-  let { session, repoAutopilotDefault }: { session: Session; repoAutopilotDefault: boolean } =
-    $props();
+  // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
+  let {
+    session,
+    repoAutopilotDefault,
+    tip = false,
+  }: { session: Session; repoAutopilotDefault: boolean; tip?: boolean } = $props();
+
+  const pausedTitle = $derived(
+    m.session_autopilot_paused_title({ question: session.autopilotQuestion ?? "" }),
+  );
+  const completeTitle = $derived(
+    m.session_autopilot_complete_title({ summary: session.autopilotQuestion ?? "" }),
+  );
 </script>
 
 <!-- Keep in sync with autopilotBadgeShown() in $lib/format — both must list the same states or card status-badge suppression desyncs. -->
 {#if session.autopilotPaused}
   <span
     class="ap-paused"
-    title={m.session_autopilot_paused_title({ question: session.autopilotQuestion ?? "" })}
+    title={tip ? undefined : pausedTitle}
+    use:statusTip={tip ? { text: pausedTitle } : null}
     role="img"
     aria-label={m.session_autopilot_paused_label()}
   >
@@ -20,7 +33,8 @@
 {:else if session.autopilotComplete}
   <span
     class="ap-complete"
-    title={m.session_autopilot_complete_title({ summary: session.autopilotQuestion ?? "" })}
+    title={tip ? undefined : completeTitle}
+    use:statusTip={tip ? { text: completeTitle } : null}
     role="img"
     aria-label={m.session_autopilot_complete_label()}
   >
@@ -29,7 +43,8 @@
 {:else if codexAutopilotUnavailable(session, repoAutopilotDefault)}
   <span
     class="ap-unavailable"
-    title={m.session_autopilot_unavailable_title()}
+    title={tip ? undefined : m.session_autopilot_unavailable_title()}
+    use:statusTip={tip ? { text: m.session_autopilot_unavailable_title() } : null}
     role="img"
     aria-label={m.session_autopilot_unavailable_label()}
   >

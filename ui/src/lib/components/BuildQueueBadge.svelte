@@ -2,13 +2,21 @@
   import { buildQueues } from "$lib/buildQueues.svelte";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
   import type { Session, GitState } from "$lib/types";
 
+  // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
   let {
     sessionId,
     planPhase,
     git,
-  }: { sessionId: string; planPhase: Session["planPhase"]; git?: GitState } = $props();
+    tip = false,
+  }: {
+    sessionId: string;
+    planPhase: Session["planPhase"];
+    git?: GitState;
+    tip?: boolean;
+  } = $props();
 
   const queue = $derived(buildQueues.map[sessionId] ?? null);
   const total = $derived(queue?.steps.length ?? 0);
@@ -39,9 +47,10 @@
     <span
       class="queue-badge queue-badge--stale"
       role="img"
-      title={m.queuebadge_stale_title({ total })}
+      title={tip ? undefined : m.queuebadge_stale_title({ total })}
       aria-label={m.queuebadge_stale_aria({ total })}
       use:coachTarget={"build-queue-progress"}
+      use:statusTip={tip ? { text: m.queuebadge_stale_title({ total }) } : null}
     >
       <span class="queue-label">⚠ {total}</span>
     </span>
@@ -50,9 +59,10 @@
       class="queue-badge"
       role="img"
       style="--queue-pct: {pct}%"
-      title={m.queuebadge_title({ resolved, total })}
+      title={tip ? undefined : m.queuebadge_title({ resolved, total })}
       aria-label={m.queuebadge_aria({ resolved, total })}
       use:coachTarget={"build-queue-progress"}
+      use:statusTip={tip ? { text: m.queuebadge_title({ resolved, total }) } : null}
     >
       <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
     </span>

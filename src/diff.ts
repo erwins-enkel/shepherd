@@ -111,14 +111,23 @@ interface ParseState {
   lineCount: number; // add/del/ctx lines accumulated for cur
   totalLines: number; // global tally across all files
   capped: boolean; // true once MAX_TOTAL_LINES is reached
+  rawBuf: string[]; // raw lines for cur, from its "diff --git" header on; feeds cur.patch
 }
 
-/** Seal cur into files, marking truncated when over per-file cap. */
+/**
+ * Seal cur into files, marking truncated when over per-file cap. Sets `patch` to the
+ * losslessly-buffered raw diff block, but only for files a client can actually use it
+ * for (not truncated, not binary, has at least one body line) — binary/truncated files
+ * skip Pierre rendering downstream, so there's no point shipping their raw bytes.
+ */
 function finishFile(state: ParseState): void {
   if (!state.cur) return;
   if (state.lineCount > MAX_FILE_LINES) {
     state.cur.truncated = true;
     state.cur.hunks = [];
+  }
+  if (!state.cur.truncated && !state.cur.binary && state.lineCount > 0) {
+    state.cur.patch = state.rawBuf.join("\n");
   }
   state.files.push(state.cur);
 }
@@ -134,9 +143,13 @@ function handleDiffLine(state: ParseState, raw: string): void {
     state.hunk = null;
     state.lineCount = 0;
     state.cur = startFile(raw);
+    state.rawBuf = [raw];
     return;
   }
   if (!state.cur) return;
+  // Buffer the raw line for cur.patch. Skipped once globally capped — those files are
+  // truncated anyway, so there's no point holding onto their (large) raw text.
+  if (!state.capped) state.rawBuf.push(raw);
   if (applyFileHeader(state.cur, raw)) return;
 
   if (raw.startsWith("@@")) {
@@ -193,10 +206,22 @@ export function parseUnifiedDiff(text: string): DiffFile[] {
     lineCount: 0,
     totalLines: 0,
     capped: false,
+    rawBuf: [],
   };
   for (const raw of text.split("\n")) handleDiffLine(state, raw);
   finishFile(state);
   return state.files;
+}
+
+/** Session-wire shape: send raw `patch`, drop the redundant structured `hunks`. */
+export function toSessionDiff(result: DiffResult): DiffResult {
+  return {
+    ...result,
+    files: result.files.map(({ hunks, ...f }) => {
+      void hunks; // intentionally dropped from the wire shape; see doc comment above
+      return f as DiffFile;
+    }),
+  };
 }
 
 const REMOTE = "origin";

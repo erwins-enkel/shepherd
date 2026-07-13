@@ -1874,7 +1874,8 @@ export interface DiffFile {
   deletions: number;
   binary: boolean;
   truncated?: boolean; // hunks dropped because the file exceeded the line cap
-  hunks: DiffHunk[]; // empty when binary or truncated
+  hunks?: DiffHunk[]; // empty when binary or truncated; omitted on the session wire (patch sent instead)
+  patch?: string; // raw git patch block for this file; session-endpoint only, omitted for binary/truncated
 }
 
 export interface DiffResult {

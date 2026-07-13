@@ -2967,5 +2967,14 @@
   "issuedetails_aria": "Details for issue #{number}",
   "issuedetails_no_body": "No description.",
   "feat_issue_context_menu_title": "Right-click an issue for quick actions",
-  "feat_issue_context_menu_body": "Right-click (or long-press) an issue in the New Task dialog or the backlog to open it on the forge, preview its details, or drop one of your issue steers straight into the composer — pre-filled and ready to review, not launched."
+  "feat_issue_context_menu_body": "Right-click (or long-press) an issue in the New Task dialog or the backlog to open it on the forge, preview its details, or drop one of your issue steers straight into the composer — pre-filled and ready to review, not launched.",
+  "diff_files_label": "Files",
+  "diff_note_binary": "binary file",
+  "diff_note_truncated": "large file — view in terminal",
+  "diff_note_no_changes": "no textual changes",
+  "diff_view_label": "Diff view",
+  "diff_view_split": "Split",
+  "diff_view_unified": "Unified",
+  "feat_diff_review_title": "A sharper Diff tab",
+  "feat_diff_review_body": "The session Diff tab now renders through a new engine: switch between side-by-side and unified views, with word-level intra-line highlighting, a file sidebar for quick navigation, and collapsible unchanged context."
 }

@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { DiffFile } from "$lib/types";
   import { theme, type Resolved } from "$lib/theme.svelte";
+  import { m } from "$lib/paraglide/messages";
 
   let { file }: { file: DiffFile } = $props();
 
@@ -18,7 +19,7 @@
     renamed: "R",
   };
 
-  const flatLines = $derived(file.hunks.flatMap((h) => h.lines));
+  const flatLines = $derived((file.hunks ?? []).flatMap((h) => h.lines));
 
   // lazily highlight the first time this file is expanded (one Shiki call per
   // file). The highlighter (and Shiki) is dynamically imported here so it stays
@@ -57,7 +58,7 @@
   // pair each line with its highlighted HTML by global index (null until highlighted)
   const hunksView = $derived.by(() => {
     let i = 0;
-    return file.hunks.map((h) => ({
+    return (file.hunks ?? []).map((h) => ({
       header: h.header,
       lines: h.lines.map((line) => {
         const lineHtml = html ? (html[i] ?? null) : null;
@@ -86,11 +87,11 @@
 
   {#if open}
     {#if file.binary}
-      <p class="note">binary file</p>
+      <p class="note">{m.diff_note_binary()}</p>
     {:else if file.truncated}
-      <p class="note">large file — view in terminal</p>
+      <p class="note">{m.diff_note_truncated()}</p>
     {:else if flatLines.length === 0}
-      <p class="note">no textual changes</p>
+      <p class="note">{m.diff_note_no_changes()}</p>
     {:else}
       <!-- long diff lines scroll horizontally (overflow-x); opt out of the mobile
            page-swipe so a sideways drag scrolls the code instead of paging agents -->

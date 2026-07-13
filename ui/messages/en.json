@@ -3027,7 +3027,7 @@
   "provider_badge_claude": "Claude",
   "provider_badge_codex": "Codex",
   "provider_badge_both": "Both",
-  "newtask_provider_constraint_note": "{command} requires {provider}.",
+  "newtask_provider_constraint_note": "{command} is only available in {provider}.",
   "newtask_provider_constraint_error": "{command} requires {provider}. Remove the token or switch CLI.",
   "feat_provider_aware_skills_title": "Provider-aware skills",
   "feat_provider_aware_skills_body": "The New Task and compose pickers now understand Claude slash commands and direct Codex skills. Use / for Claude, $ for Codex, or bare @ as a Codex picker alias; rows show whether they run in Claude, Codex, or both.",
@@ -3088,5 +3088,9 @@
   "command_source_system": "System",
   "feat_codex_discovery_title": "Codex skills in command discovery",
   "feat_codex_discovery_body": "The prompt picker now understands Codex skills, including installed plugin skills such as $github:yeet, while installed Codex plugins appear as a browsing-only inventory.",
-  "files_source_difference_tip": "Scratchpad contains supplementary files for this session and stays separate from the repository. Worktree is the agent's project directory and changes; you can only browse and download it here."
+  "files_source_difference_tip": "Scratchpad contains supplementary files for this session and stays separate from the repository. Worktree is the agent's project directory and changes; you can only browse and download it here.",
+  "newtask_provider_constraint_title": "CLI availability",
+  "newtask_provider_constraint_body": "Shepherd selected {provider} and disabled incompatible CLIs while this token is in the prompt.",
+  "feat_provider_availability_card_title": "Single-CLI skill notices",
+  "feat_provider_availability_card_body": "New Task now shows a blue CLI-availability card when a picked command, skill, or plugin token only runs in one coding CLI, so the forced provider choice is visible before launch."
 }

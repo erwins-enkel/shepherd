@@ -80,6 +80,10 @@
     }
   }
 
+  function providerLabel(provider: AgentProvider | undefined): string {
+    return provider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
+  }
+
   $effect(() => {
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
       model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
@@ -242,18 +246,27 @@
         {/each}
       </select>
       <ProviderCapacityGauge limits={usageLimits} />
-      {#if providerConstraint}
-        <p class="pg-hint">
+    </div>
+
+    {#if providerConstraint}
+      <div class="provider-constraint-callout" role="status">
+        <div class="provider-callout-head constraint-head">
+          <span>{m.newtask_provider_constraint_title()}</span>
+          <span class="constraint-badge">{providerLabel(providerConstraint.providers[0])}</span>
+        </div>
+        <p>
           {m.newtask_provider_constraint_note({
             command: providerConstraint.label,
-            provider:
-              providerConstraint.providers[0] === "codex"
-                ? m.agent_provider_codex()
-                : m.agent_provider_claude(),
+            provider: providerLabel(providerConstraint.providers[0]),
           })}
         </p>
-      {/if}
-    </div>
+        <p>
+          {m.newtask_provider_constraint_body({
+            provider: providerLabel(providerConstraint.providers[0]),
+          })}
+        </p>
+      </div>
+    {/if}
 
     <div class="model-field" use:coachTarget={"model-1m-context"}>
       <label class="micro" for="nt-model">{m.newtask_model_label()}</label>
@@ -355,6 +368,19 @@
     width: 100%;
     box-sizing: border-box;
   }
+  .provider-constraint-callout {
+    flex: 1 0 100%;
+    border: 1px solid color-mix(in srgb, var(--color-blue) 52%, var(--color-line));
+    background: color-mix(in srgb, var(--color-blue) 13%, transparent);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-meta);
+    line-height: 1.35;
+    margin: 0;
+    padding: 10px 12px;
+    border-radius: 2px;
+    width: 100%;
+    box-sizing: border-box;
+  }
   .provider-callout-head {
     display: flex;
     align-items: center;
@@ -365,9 +391,20 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
   }
+  .constraint-head {
+    color: var(--color-blue);
+  }
   .alpha-badge {
     border: 1px solid color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
     color: var(--color-amber);
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+  }
+  .constraint-badge {
+    border: 1px solid color-mix(in srgb, var(--color-blue) 62%, var(--color-line));
+    color: var(--color-blue);
     padding: 1px 6px;
     border-radius: 2px;
     font-size: var(--fs-micro);
@@ -377,7 +414,14 @@
     margin: 0;
     color: var(--color-ink);
   }
+  .provider-constraint-callout p {
+    margin: 0;
+    color: var(--color-ink);
+  }
   .provider-callout p + p {
+    margin-top: 5px;
+  }
+  .provider-constraint-callout p + p {
     margin-top: 5px;
   }
   .opts-row {

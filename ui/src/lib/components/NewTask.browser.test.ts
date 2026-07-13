@@ -274,7 +274,19 @@ describe("NewTask provider-aware command picker", () => {
 
     await expect.poll(() => promptField.value).toBe("$codex-skill ");
     expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
-    await expect.element(page.getByText("codex-skill requires Codex.")).toBeVisible();
+    await expect.element(page.getByText(m.newtask_provider_constraint_title())).toBeVisible();
+    await expect.element(page.getByText("codex-skill is only available in Codex.")).toBeVisible();
+    await expect
+      .element(
+        page.getByText(
+          "Shepherd selected Codex and disabled incompatible CLIs while this token is in the prompt.",
+        ),
+      )
+      .toBeVisible();
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#nt-agent-provider option"),
+    );
+    expect(options.find((option) => option.value === "claude")?.disabled).toBe(true);
   });
 
   it("selecting a both-provider skill does not lock or explain the provider", async () => {
@@ -291,7 +303,8 @@ describe("NewTask provider-aware command picker", () => {
 
     await expect.poll(() => promptField.value).toBe("$shared-skill ");
     expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
-    expect(page.getByText("shared-skill requires Codex.").query()).toBeNull();
+    expect(page.getByText(m.newtask_provider_constraint_title()).query()).toBeNull();
+    expect(page.getByText("shared-skill is only available in Codex.").query()).toBeNull();
     const options = Array.from(
       document.querySelectorAll<HTMLOptionElement>("#nt-agent-provider option"),
     );

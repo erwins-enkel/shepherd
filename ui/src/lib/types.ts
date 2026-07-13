@@ -1920,6 +1920,32 @@ export interface DiffResult {
   files: DiffFile[];
 }
 
+/** One Diff-tab annotation (#1699). Mirrors the server `DiffNote`. `kind:"agent"` carries a line
+ *  anchor (`side`+`lineNumber`) + the tool; `kind:"review"` is file-level (`path`) or panel-level
+ *  (`path:""`), no anchor. `text` is VERBATIM agent/critic content — the client renders it as text
+ *  only (never HTML). (Named `DiffNote`, not `DiffAnnotation` — the latter is a visual-block type.) */
+export interface DiffNote {
+  path: string;
+  kind: "agent" | "review";
+  text: string;
+  side?: "additions" | "deletions";
+  lineNumber?: number;
+  tool?: string;
+}
+
+export interface DiffAnnotationsResult {
+  notes: DiffNote[];
+}
+
+/** An agent annotation in the shape `@pierre/diffs`' `DiffLineAnnotation<{text,tool}>` expects,
+ *  derived from a `DiffNote`. Kept as a structural match so the diff components need not import
+ *  Pierre's types (PierreDiff's `Annotation` type is assignable from this). */
+export interface DiffAgentAnnotation {
+  side: "additions" | "deletions";
+  lineNumber: number;
+  metadata: { text: string; tool: string };
+}
+
 export type LearningStatus = "proposed" | "active" | "promoted" | "dismissed" | "retired";
 
 /** What an evidence signal was captured from (mirrors server `SignalKind`):

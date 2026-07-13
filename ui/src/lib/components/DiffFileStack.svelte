@@ -12,7 +12,7 @@
   // Pierre's async render settles to correct any estimate delta.
   import { tick } from "svelte";
   import { SvelteSet, SvelteMap } from "svelte/reactivity";
-  import type { DiffFile } from "$lib/types";
+  import type { DiffFile, DiffAgentAnnotation } from "$lib/types";
   import { fileSignature, estimateHeight } from "$lib/pierre-diff";
   import { m } from "$lib/paraglide/messages";
   import PierreDiff from "./PierreDiff.svelte";
@@ -20,10 +20,16 @@
   let {
     files,
     diffStyle,
+    agentAnnotations,
+    reviewFindings,
     onvisible,
   }: {
     files: DiffFile[];
     diffStyle: "split" | "unified";
+    // #1699: per-file agent annotations (→ Pierre) and review findings (→ per-file banner). Maps
+    // default to empty so the component renders exactly as before when no annotations are supplied.
+    agentAnnotations?: Map<string, DiffAgentAnnotation[]>;
+    reviewFindings?: Map<string, string[]>;
     onvisible?: (path: string) => void;
   } = $props();
 
@@ -171,6 +177,21 @@
         </span>
       </header>
 
+      <!-- Per-file review banner (#1699). Placed in the ALWAYS-rendered part of the section (before
+           the note/body branch), so it shows regardless of the IntersectionObserver lazy-mount
+           (rendered) or noteKind (binary/truncated/no-changes) — a finding on an off-screen or
+           note-card file still surfaces. Text is verbatim data via {text} (auto-escaped), no HTML. -->
+      {#if reviewFindings?.get(file.path)?.length}
+        <div class="review-banner" role="note">
+          <span class="review-chip">{m.viewport_diff_annotation_review()}</span>
+          <ul class="review-list">
+            {#each reviewFindings.get(file.path) ?? [] as finding (finding)}
+              <li>{finding}</li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
+
       {#if note !== null}
         <p class="note">
           {#if note === "binary"}{m.diff_note_binary()}
@@ -179,7 +200,12 @@
         </p>
       {:else if rendered.has(file.path)}
         <div class="body" data-swipe-ignore>
-          <PierreDiff patch={file.patch ?? ""} signature={fileSignature(file)} {diffStyle} />
+          <PierreDiff
+            patch={file.patch ?? ""}
+            signature={fileSignature(file)}
+            {diffStyle}
+            lineAnnotations={agentAnnotations?.get(file.path) ?? []}
+          />
         </div>
       {/if}
     </section>
@@ -248,6 +274,36 @@
     padding: 8px 12px;
     color: var(--color-muted);
     font-size: var(--fs-meta);
+  }
+
+  /* Per-file review banner (#1699) — critic findings for this file. Amber (attention) accent per
+     the semantic-hue rule; verbatim finding text via {text} interpolation, never {@html}. */
+  .review-banner {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 12px;
+    background: var(--color-inset);
+    border-bottom: 1px solid var(--color-line);
+    border-left: 2px solid var(--color-amber);
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+  }
+  .review-chip {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-amber);
+  }
+  .review-list {
+    margin: 0;
+    padding-left: 1.1em;
+    list-style: disc;
+  }
+  .review-list li {
+    overflow-wrap: anywhere;
   }
   .body {
     padding: 4px 0;

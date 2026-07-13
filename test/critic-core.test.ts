@@ -6,6 +6,7 @@ import {
   scopeBackstop,
   shouldSkipForPatchId,
   scopeFindings,
+  attributeFinding,
   normalizeDecision,
   normalizeFindings,
   buildVerdictCore,
@@ -241,6 +242,53 @@ test("scopeFindings strips a :line suffix on the path token before matching", ()
   const { kept, dropped } = scopeFindings(["src/a.ts:42: out-of-line"], ["src/a.ts"]);
   expect(kept).toEqual(["src/a.ts:42: out-of-line"]);
   expect(dropped).toEqual([]);
+});
+
+// ── attributeFinding (pure, shared by scopeFindings + the Diff-tab #1699) ───
+
+test("attributeFinding classifies matched / unattributed / out-of-diff", () => {
+  const files = ["ui/src/lib/components/Viewport.svelte", "src/a.ts"];
+  // full path → matched, keyed to the DiffFile.path, prefix stripped
+  expect(attributeFinding("src/a.ts: real bug", files)).toEqual({
+    attribution: "matched",
+    path: "src/a.ts",
+    text: "real bug",
+  });
+  // basename prefix → matched on the right file (not a bespoke exact match)
+  expect(attributeFinding("Viewport.svelte: x", files)).toEqual({
+    attribution: "matched",
+    path: "ui/src/lib/components/Viewport.svelte",
+    text: "x",
+  });
+  // trailing-segment prefix → matched
+  expect(attributeFinding("lib/components/Viewport.svelte: y", files).attribution).toBe("matched");
+  // no ": " → unattributed, whole finding kept as text
+  expect(attributeFinding("does not satisfy the task", files)).toEqual({
+    attribution: "unattributed",
+    path: "",
+    text: "does not satisfy the task",
+  });
+  // prose prefix (not path-shaped) → unattributed
+  expect(attributeFinding("Note: something", files).attribution).toBe("unattributed");
+  // path-shaped but not in the diff → out-of-diff (scopeFindings drops; the Diff tab surfaces)
+  expect(attributeFinding("src/z.ts: gone", files)).toEqual({
+    attribution: "out-of-diff",
+    path: "src/z.ts",
+    text: "gone",
+  });
+  // :line suffix is stripped before matching
+  expect(attributeFinding("src/a.ts:42: at a line", files).attribution).toBe("matched");
+});
+
+test("scopeFindings drops exactly the out-of-diff attributions (parity with attributeFinding)", () => {
+  const files = ["src/a.ts", "src/b.ts"];
+  const findings = ["src/a.ts: in", "src/x.ts: out", "just a note", "Nit: prose"];
+  const { kept, dropped } = scopeFindings(findings, files);
+  // every dropped finding is out-of-diff; every kept one is not — the shared-classifier invariant
+  for (const f of dropped) expect(attributeFinding(f, files).attribution).toBe("out-of-diff");
+  for (const f of kept) expect(attributeFinding(f, files).attribution).not.toBe("out-of-diff");
+  expect(kept).toEqual(["src/a.ts: in", "just a note", "Nit: prose"]);
+  expect(dropped).toEqual(["src/x.ts: out"]);
 });
 
 // ── normalizeDecision / normalizeFindings (pure) ────────────────────────────

@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { getDiff } from "$lib/api";
+  import { getDiff, getDiffAnnotations } from "$lib/api";
   import { pollWhileVisible } from "$lib/visibility";
   import { diffTotals } from "$lib/diff";
   import { diffView } from "$lib/diff-view.svelte";
-  import type { DiffResult } from "$lib/types";
+  import { SvelteMap } from "svelte/reactivity";
+  import type { DiffResult, DiffAgentAnnotation } from "$lib/types";
   import DiffFileSidebar from "$lib/components/DiffFileSidebar.svelte";
   import DiffFileStack from "$lib/components/DiffFileStack.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -18,7 +19,16 @@
   // Stack instance handle — we only call its exported scrollToPath.
   let stackRef = $state<{ scrollToPath: (path: string) => Promise<void> }>();
 
+  // Per-line annotations (#1699), fetched SEPARATELY from the diff (see loadAnnotations) so the
+  // heavier transcript-parse/anchoring can never block or break the diff. Agent notes → per-file
+  // Pierre annotations; review findings → per-file banner (path) or panel banner (path "").
+  // Stable SvelteMaps (already reactive → no $state wrap); mutated in place, never reassigned.
+  const agentByPath = new SvelteMap<string, DiffAgentAnnotation[]>();
+  const reviewByPath = new SvelteMap<string, string[]>();
+  let generalFindings = $state<string[]>([]);
+
   let alive = true;
+  // Diff-only fetch — this is what the 15s poll and the initial load call.
   function load() {
     const id = sessionId; // the session this request is for
     getDiff(id)
@@ -35,6 +45,43 @@
       });
   }
 
+  // Annotations fetch — separate from the poll (best-effort chrome). Called on initial load and on
+  // manual refresh ONLY, never by the 15s poll. Failure degrades to no annotations (diff unaffected).
+  function loadAnnotations() {
+    const id = sessionId;
+    getDiffAnnotations(id)
+      .then(({ notes }) => {
+        if (!alive || id !== sessionId) return;
+        // Repopulate the stable reactive maps in place (clear + set) — never reassign the ref.
+        agentByPath.clear();
+        reviewByPath.clear();
+        const general: string[] = [];
+        for (const n of notes) {
+          if (n.kind === "agent" && n.lineNumber != null && n.side) {
+            (agentByPath.get(n.path) ?? agentByPath.set(n.path, []).get(n.path)!).push({
+              side: n.side,
+              lineNumber: n.lineNumber,
+              metadata: { text: n.text, tool: n.tool ?? "" },
+            });
+          } else if (n.kind === "review") {
+            if (n.path === "") general.push(n.text);
+            else
+              (reviewByPath.get(n.path) ?? reviewByPath.set(n.path, []).get(n.path)!).push(n.text);
+          }
+        }
+        generalFindings = general;
+      })
+      .catch(() => {
+        if (!alive || id !== sessionId) return; // keep the diff; just no annotations
+      });
+  }
+
+  // Diff + annotations together (initial load and manual refresh).
+  function refresh() {
+    load();
+    loadAnnotations();
+  }
+
   // fetch on session change + poll every 15s while this panel is mounted (tab active)
   $effect(() => {
     // eslint-disable-next-line @typescript-eslint/no-unused-expressions -- reactive dep
@@ -43,9 +90,12 @@
     loaded = false;
     failed = false;
     activePath = undefined;
+    agentByPath.clear();
+    reviewByPath.clear();
+    generalFindings = [];
     alive = true;
-    load();
-    const stop = pollWhileVisible(load, 15000); // skip hidden-tab ticks; refresh on return
+    refresh();
+    const stop = pollWhileVisible(load, 15000); // diff only — annotations are not polled
     return () => {
       alive = false;
       stop();
@@ -101,7 +151,7 @@
         </button>
       </div>
     {/if}
-    <button class="refresh" type="button" onclick={load} aria-label={m.diff_refresh()}>↻</button>
+    <button class="refresh" type="button" onclick={refresh} aria-label={m.diff_refresh()}>↻</button>
   </div>
 
   {#if !loaded}
@@ -109,11 +159,26 @@
   {:else if failed}
     <p class="msg">{m.diff_error()}</p>
   {:else if result && result.files.length}
+    {#if generalFindings.length}
+      <!-- Panel-level review banner (#1699): non-file-specific critic findings (e.g. the headline
+           "does not satisfy the task" verdict) that can't attach to a file. Text is verbatim data
+           rendered via {text} interpolation (auto-escaped) — never {@html}. -->
+      <div class="review-banner review-banner-panel" role="note">
+        <span class="review-chip">{m.viewport_diff_annotation_review()}</span>
+        <ul class="review-list">
+          {#each generalFindings as finding (finding)}
+            <li>{finding}</li>
+          {/each}
+        </ul>
+      </div>
+    {/if}
     <div class="content">
       <DiffFileSidebar files={result.files} {activePath} onselect={handleSelect} />
       <DiffFileStack
         files={result.files}
         diffStyle={diffView.resolved}
+        agentAnnotations={agentByPath}
+        reviewFindings={reviewByPath}
         onvisible={(p) => (activePath = p)}
         bind:this={stackRef}
       />
@@ -256,5 +321,36 @@
     margin: 0;
     padding: 8px 10px;
     font-size: var(--fs-base);
+  }
+
+  /* Review banner (#1699) — critic findings. Amber (attention) accent per the semantic-hue rule.
+     The panel variant sits above the file stack for non-file-specific findings. */
+  .review-banner {
+    display: flex;
+    gap: 8px;
+    align-items: baseline;
+    padding: 6px 10px;
+    background: var(--color-inset);
+    border-bottom: 1px solid var(--color-line);
+    border-left: 2px solid var(--color-amber);
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    flex-shrink: 0;
+  }
+  .review-chip {
+    flex-shrink: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: var(--color-amber);
+  }
+  .review-list {
+    margin: 0;
+    padding-left: 1.1em;
+    list-style: disc;
+  }
+  .review-list li {
+    overflow-wrap: anywhere;
   }
 </style>

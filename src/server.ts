@@ -91,6 +91,7 @@ import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
 import { listBranches } from "./branches";
 import { computeDiff, toSessionDiff } from "./diff";
+import { buildDiffNotes } from "./diff-annotations";
 import { resolveDiffBase } from "./diff-base";
 import { sessionTokens, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
@@ -2076,6 +2077,33 @@ async function sessionDiffRead(id: string, deps: AppDeps): Promise<Response> {
   }
 }
 
+// Per-line Diff-tab annotations (#1699): agent reasoning anchored to changed lines (from the
+// transcript) + Critic findings routed to per-file / panel banners. Best-effort chrome — a
+// sibling of /diff so its heavier computation (transcript parse + anchoring) can never block or
+// break the diff itself. The client fetches it on diff-load + manual refresh, NOT on the 15s poll.
+// Uses the SAME base the tab renders; findings are already scope-filtered at critic time, so the
+// builder re-routes (never re-drops). Any failure degrades to an empty list, never a tab error.
+async function sessionDiffAnnotationsRead(id: string, deps: AppDeps): Promise<Response> {
+  const s = deps.store.get(id);
+  if (!s) return json({ error: "not found" }, 404);
+  try {
+    const { base } = await resolveDiffBase(s, deps.prCache, deps.resolveForge);
+    const diff = await computeDiff(s.worktreePath, base, s.branch); // structured hunks (not toSessionDiff)
+    const transcriptPath = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
+    const findings = deps.store.getReview(id)?.findings ?? [];
+    return json({
+      notes: buildDiffNotes({
+        files: diff.files,
+        worktreePath: s.worktreePath,
+        transcriptPath,
+        findings,
+      }),
+    });
+  } catch {
+    return json({ notes: [] });
+  }
+}
+
 async function sessionRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
@@ -2127,6 +2155,9 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
+  // annotations must precede the bare `diff` check (which matches parts[3]==="diff" regardless).
+  if (parts[3] === "diff" && parts[4] === "annotations")
+    return sessionDiffAnnotationsRead(parts[2], deps);
   if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);
   // leftover subprocesses/proxies that would survive this session's close
   if (parts[3] === "leftovers") return json(deps.service.leftovers(parts[2]));

@@ -3057,5 +3057,9 @@
   "herd_help_merging": "Der Merge-Train landet diese Pull Requests nacheinander für dich – kein manuelles Mergen. Sobald einer landet, wandert er zu „Gemergt“.",
   "herd_help_merged": "Diese Pull Requests sind auf deinem Main-Branch gelandet – fertig. Shepherd baut ihre Worktrees ab; übrige manuelle Schritte erscheinen in der Owed-Lens.",
   "feat_herd_stage_help_title": "Jede Board-Phase verstehen",
-  "feat_herd_stage_help_body": "Jede Phase in der Herd hat jetzt ein kleines „i“, das erklärt, was sie bedeutet, was Shepherd gerade für dich erledigt und was als Nächstes kommt – von „In Arbeit“ über „Review läuft“ bis „Gemergt“. Fahr mit der Maus drüber (oder tippe am Handy). Neu dabei? Das leere Board zeigt außerdem, wie die Arbeit von Anfang bis Ende fließt."
+  "feat_herd_stage_help_body": "Jede Phase in der Herd hat jetzt ein kleines „i“, das erklärt, was sie bedeutet, was Shepherd gerade für dich erledigt und was als Nächstes kommt – von „In Arbeit“ über „Review läuft“ bis „Gemergt“. Fahr mit der Maus drüber (oder tippe am Handy). Neu dabei? Das leere Board zeigt außerdem, wie die Arbeit von Anfang bis Ende fließt.",
+  "viewport_diff_annotation_agent": "Agent",
+  "viewport_diff_annotation_review": "Prüfung",
+  "feat_diff_annotations_title": "Agenten-Notizen im Diff-Tab",
+  "feat_diff_annotations_body": "Der Diff-Tab zeigt jetzt die Begründung des Agenten direkt inline — verankert an den Zeilen, die seine Änderungen erzeugt haben — sowie Code-Review-Befunde als Banner an den betroffenen Dateien. So steht das Warum direkt neben der Änderung."
 }

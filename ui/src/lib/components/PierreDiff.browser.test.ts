@@ -149,3 +149,129 @@ describe("PierreDiff", () => {
     expect(appliedColorScheme(), "theme still light after toggle").toBe("light");
   });
 });
+
+// ── #1699 per-line annotations ──────────────────────────────────────────────
+// These read the REAL DOM Pierre produces and pin the @pierre/diffs API/behaviour the
+// metadata-generic + late-arrival + two-paths design bet on (treated as assumptions, gated here).
+
+type Anno = {
+  side: "additions" | "deletions";
+  lineNumber: number;
+  metadata: { text: string; tool: string };
+};
+// PATCH's only added line is new-side line 2 (`return \`hello ${name}\``).
+function anno(text: string, lineNumber = 2): Anno {
+  return { side: "additions", lineNumber, metadata: { text, tool: "Edit" } };
+}
+function annoCard(): Element | null {
+  return host()?.querySelector(".diff-anno") ?? null;
+}
+function annoWrapper(): HTMLElement | null {
+  return host()?.querySelector("[data-annotation-slot]") ?? null;
+}
+
+describe("PierreDiff annotations (#1699)", () => {
+  it("HARD GATE: setLineAnnotations/rerender are public and a late-set annotation renders + survives a re-render", async () => {
+    // The metadata-generic + late-arrival fixes bet on these APIs. Fail LOUDLY if a bump breaks them.
+    expect(typeof FileDiff.prototype.setLineAnnotations, "setLineAnnotations is public").toBe(
+      "function",
+    );
+    expect(typeof FileDiff.prototype.rerender, "rerender is public").toBe("function");
+
+    const screen = await render(PierreDiff, {
+      patch: PATCH,
+      signature: "sig-anno-1",
+      diffStyle: "split" as "split" | "unified",
+      lineAnnotations: [] as Anno[],
+    });
+    await vi.waitFor(() => expect(diffTypeMarker()).toBe("split"));
+    expect(annoCard(), "no annotation before one arrives").toBeNull();
+
+    // Late arrival: annotations set AFTER the first render must appear (setLineAnnotations+rerender).
+    await screen.rerender({
+      patch: PATCH,
+      signature: "sig-anno-1",
+      diffStyle: "split",
+      lineAnnotations: [anno("why this line changed")],
+    });
+    await vi.waitFor(() => {
+      const card = annoCard();
+      expect(card, "annotation card rendered").toBeTruthy();
+      expect(card!.textContent).toContain("why this line changed");
+      expect(
+        annoWrapper()?.assignedSlot ?? null,
+        "wrapper is slotted (line-anchored)",
+      ).not.toBeNull();
+    });
+
+    // A subsequent re-render (diffStyle toggle) must PRESERVE the annotation.
+    await screen.rerender({
+      patch: PATCH,
+      signature: "sig-anno-1",
+      diffStyle: "unified",
+      lineAnnotations: [anno("why this line changed")],
+    });
+    await vi.waitFor(() => expect(diffTypeMarker()).toBe("single"));
+    expect(annoCard()?.textContent, "annotation preserved across rerender").toContain(
+      "why this line changed",
+    );
+  });
+
+  it("LINE-0 OBSERVED: FileDiff DOES honor a file-level (lineNumber:0) slot — banner path kept regardless", async () => {
+    // Observed-behaviour guard (the plan's stated fallback). Planning ASSUMED FileDiff drops
+    // lineNumber:0; this test found it actually renders it (a slot `annotation-additions-0` above
+    // the first hunk). That does NOT change the architecture: review findings STILL route through
+    // the Svelte banner, not a line-0 Pierre annotation, because the banner also covers
+    // binary/truncated/no-changes files (which have NO Pierre host at all) and the panel-level
+    // general findings, and is token/i18n-native. This test documents the reality; it is not a gate
+    // on a redesign. If a future @pierre/diffs bump STOPS honouring line 0, this flips to a plain
+    // pass — the banner path is unaffected either way.
+    await render(PierreDiff, {
+      patch: PATCH,
+      signature: "sig-anno-0",
+      diffStyle: "split" as "split" | "unified",
+      lineAnnotations: [anno("file level note", 0)],
+    });
+    await vi.waitFor(() => expect(diffTypeMarker()).toBe("split"));
+    await vi.waitFor(() => {
+      expect(
+        annoWrapper()?.assignedSlot ?? null,
+        "line-0 annotation IS slotted (Pierre honors file-level)",
+      ).not.toBeNull();
+    });
+  });
+
+  it("XSS: verbatim annotation text with markup renders as literal text, not HTML", async () => {
+    const payload = `<img src=x onerror=alert(1)><script>bad()</script>`;
+    await render(PierreDiff, {
+      patch: PATCH,
+      signature: "sig-anno-xss",
+      diffStyle: "split" as "split" | "unified",
+      lineAnnotations: [anno(payload)],
+    });
+    await vi.waitFor(() => expect(annoCard(), "card rendered").toBeTruthy());
+    const card = annoCard()!;
+    expect(card.textContent, "raw markup preserved as text").toContain(payload);
+    expect(card.querySelector("img, script"), "no element injected from the payload").toBeNull();
+  });
+
+  it("does not re-render Pierre when annotations stay empty (no pre-render / no-op rerender)", async () => {
+    const rerenderSpy = vi.spyOn(FileDiff.prototype, "rerender");
+    const screen = await render(PierreDiff, {
+      patch: PATCH,
+      signature: "sig-anno-empty",
+      diffStyle: "split" as "split" | "unified",
+      lineAnnotations: [] as Anno[],
+    });
+    await vi.waitFor(() => expect(diffTypeMarker()).toBe("split"));
+    // A fresh empty array (as `?? []` yields on every annotations refresh) must NOT trigger rerender.
+    await screen.rerender({
+      patch: PATCH,
+      signature: "sig-anno-empty",
+      diffStyle: "split",
+      lineAnnotations: [],
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    expect(rerenderSpy.mock.calls.length, "no rerender for unchanged-empty annotations").toBe(0);
+  });
+});

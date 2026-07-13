@@ -3087,5 +3087,6 @@
   "command_source_codex_home": "Codex home",
   "command_source_system": "System",
   "feat_codex_discovery_title": "Codex skills in command discovery",
-  "feat_codex_discovery_body": "The prompt picker now understands Codex skills, including installed plugin skills such as $github:yeet, while installed Codex plugins appear as a browsing-only inventory."
+  "feat_codex_discovery_body": "The prompt picker now understands Codex skills, including installed plugin skills such as $github:yeet, while installed Codex plugins appear as a browsing-only inventory.",
+  "files_source_difference_tip": "Scratchpad contains supplementary files for this session and stays separate from the repository. Worktree is the agent's project directory and changes; you can only browse and download it here."
 }

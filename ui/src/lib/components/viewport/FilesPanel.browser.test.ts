@@ -176,6 +176,23 @@ async function clickWorktreeSegButton() {
 }
 
 describe("FilesPanel — source switch (scratchpad/worktree)", () => {
+  it("provides a shared explanation of the two file sources", async () => {
+    render(FilesPanel, { sessionId: "sess-source-info" });
+    await waitForPanel();
+
+    await expect
+      .element(
+        page.getByRole("button", {
+          name: m.newtask_info_aria({ topic: m.files_source_switch_aria() }),
+        }),
+      )
+      .toBeInTheDocument();
+    expect(document.querySelector(".info-tooltip")?.textContent?.trim()).toBe(
+      "Scratchpad contains supplementary files for this session and stays separate from the repository. Worktree is the agent's project directory and changes; you can only browse and download it here.",
+    );
+    expect(mockWorktreeListing).not.toHaveBeenCalled();
+  });
+
   it("defaults to scratchpad and fetches scratchpad listing", async () => {
     render(FilesPanel, { sessionId: "sess-6" });
     await waitForPanel();

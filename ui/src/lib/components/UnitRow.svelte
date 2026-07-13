@@ -761,7 +761,7 @@
 
     {#if live}
       <div class="u-activity">
-        <HeartbeatStrip {activity} {nowMs} />
+        <HeartbeatStrip {activity} {nowMs} onactivate={() => onselect(session.id)} />
       </div>
     {/if}
 

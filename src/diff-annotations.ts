@@ -116,12 +116,14 @@ function clampReason(text: string): string {
 }
 
 /** One extracted edit operation: the file it targeted (repo-relative), the tool, the new text to
- *  anchor, and the turn's reasoning. Exported for the extractor's test. */
+ *  anchor, the turn's reasoning, and the id of the turn it came from (so `buildAgentNotes` can cap
+ *  a turn's reasoning to one note per file). Exported for the extractor's test. */
 export interface TranscriptEdit {
   path: string; // repo-relative (worktree prefix stripped)
   tool: string; // "Edit" | "MultiEdit" | "Write"
   newString: string;
   reasoning: string;
+  turnId: string; // the assistant message.id this edit's turn came from
 }
 
 const EDIT_TOOLS = new Set(["Edit", "MultiEdit", "Write"]);
@@ -184,15 +186,16 @@ function editNewStrings(tool: string, input: Record<string, unknown>): string[] 
 }
 
 /** The edit ops a single turn contributes: each edit tool × each of its new-text strings, tagged
- *  with the turn's reasoning (thinking preferred over text). Edits outside the worktree are skipped. */
-function turnEdits(turn: Turn, worktreePath: string): TranscriptEdit[] {
+ *  with the turn's reasoning (thinking preferred over text) and its `turnId`. Edits outside the
+ *  worktree are skipped. */
+function turnEdits(turn: Turn, worktreePath: string, turnId: string): TranscriptEdit[] {
   const reasoning = (turn.think.join(" ") || turn.text.join(" ")).trim();
   const ops: TranscriptEdit[] = [];
   for (const e of turn.edits) {
     const path = relPath(e.input.file_path, worktreePath);
     if (path === null) continue;
     for (const newString of editNewStrings(e.tool, e.input))
-      ops.push({ path, tool: e.tool, newString, reasoning });
+      ops.push({ path, tool: e.tool, newString, reasoning, turnId });
   }
   return ops;
 }
@@ -218,35 +221,54 @@ export function parseTranscriptEdits(text: string, worktreePath: string): Transc
     }
     addBlocksToTurn(turn, parsed.content);
   }
-  return order.flatMap((id) => turnEdits(turns.get(id)!, worktreePath));
+  return order.flatMap((id) => turnEdits(turns.get(id)!, worktreePath, id));
 }
 
 /** Build the agent-span notes: anchor each extracted edit against its diff file's new-side lines,
  *  dropping trivial reasoning, unanchorable edits, per-line/text duplicates, and anything beyond
  *  the per-file cap. PURE. */
+type RowsCache = Map<string, { no: number; content: string; isAdd: boolean }[]>;
+
+/** The changed line an edit anchors to in its diff file, or null (no renderable file, or an
+ *  ambiguous / out-of-diff signature). Caches each file's new-side rows across edits. */
+function anchorEditLine(
+  e: TranscriptEdit,
+  byPath: Map<string, DiffFile>,
+  cache: RowsCache,
+): number | null {
+  const file = byPath.get(e.path);
+  if (!file || file.binary || file.truncated) return null;
+  let rows = cache.get(e.path);
+  if (!rows) {
+    rows = newSideLines(file);
+    cache.set(e.path, rows);
+  }
+  return anchorEdit(e.newString, rows);
+}
+
 export function buildAgentNotes(edits: TranscriptEdit[], files: DiffFile[]): DiffNote[] {
   const byPath = new Map(files.map((f) => [f.path, f]));
-  const rowsCache = new Map<string, { no: number; content: string; isAdd: boolean }[]>();
+  const rowsCache: RowsCache = new Map();
   const perFileCount = new Map<string, number>();
   const seen = new Set<string>();
+  // One note per (turn, file): a turn's reasoning is turn-level, not per-edit — repeating the same
+  // paragraph on every line a turn touched duplicates text and over-claims per-line specificity, so
+  // a turn's reasoning is anchored to the FIRST line it successfully anchors on each file.
+  const turnFileAnnotated = new Set<string>();
   const notes: DiffNote[] = [];
   for (const e of edits) {
     const reason = clampReason(e.reasoning);
     if (reason.length < MIN_REASON_LEN) continue; // trivial/empty → drop
-    const file = byPath.get(e.path);
-    if (!file || file.binary || file.truncated) continue; // no anchorable hunks
-    let rows = rowsCache.get(e.path);
-    if (!rows) {
-      rows = newSideLines(file);
-      rowsCache.set(e.path, rows);
-    }
-    const line = anchorEdit(e.newString, rows);
+    const turnFile = `${e.turnId} ${e.path}`;
+    if (turnFileAnnotated.has(turnFile)) continue; // this turn already annotated this file
+    const line = anchorEditLine(e, byPath, rowsCache);
     if (line === null) continue;
     const dedupe = `${e.path} ${line} ${reason}`;
     if (seen.has(dedupe)) continue;
     const count = perFileCount.get(e.path) ?? 0;
     if (count >= PER_FILE_AGENT_CAP) continue;
     seen.add(dedupe);
+    turnFileAnnotated.add(turnFile);
     perFileCount.set(e.path, count + 1);
     notes.push({
       path: e.path,

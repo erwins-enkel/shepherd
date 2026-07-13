@@ -135,8 +135,15 @@ test("buildAgentNotes anchors a note and drops trivial reasoning", () => {
       tool: "Edit",
       newString: "const distinctiveThing = 1;",
       reasoning: "This introduces the distinctive thing to fix the bug.",
+      turnId: "t1",
     },
-    { path: "src/a.ts", tool: "Edit", newString: "const distinctiveThing = 1;", reasoning: "ok" }, // trivial → drop
+    {
+      path: "src/a.ts",
+      tool: "Edit",
+      newString: "const distinctiveThing = 1;",
+      reasoning: "ok",
+      turnId: "t2",
+    }, // trivial → drop
   ];
   const notes = buildAgentNotes(edits, files);
   expect(notes).toHaveLength(1);
@@ -161,6 +168,7 @@ test("buildAgentNotes enforces the per-file cap", () => {
     tool: "Edit",
     newString: l.content,
     reasoning: `A sufficiently long reasoning string number ${i} for the gate.`,
+    turnId: `t${i}`, // distinct turns → the per-(turn,file) dedupe doesn't collapse them
   }));
   expect(buildAgentNotes(edits, files)).toHaveLength(8); // PER_FILE_AGENT_CAP
 });
@@ -175,9 +183,52 @@ test("buildAgentNotes skips binary/truncated files", () => {
       tool: "Write",
       newString: "whatever content long enough",
       reasoning: "A long enough reasoning string here.",
+      turnId: "t1",
     },
   ];
   expect(buildAgentNotes(edits, files)).toEqual([]);
+});
+
+test("buildAgentNotes emits ONE note per (turn, file) — no duplicated reasoning across a turn's anchors", () => {
+  const files = [
+    file("src/a.ts", [
+      { kind: "add", content: "firstDistinctiveEditLine();" },
+      { kind: "add", content: "secondDistinctiveEditLine();" },
+    ]),
+    file("src/b.ts", [{ kind: "add", content: "otherFileDistinctiveLine();" }]),
+  ];
+  const reasoning = "One turn-level paragraph that edited several unrelated spots at once.";
+  // A single turn (turnId "t1") edits two lines of a.ts + one line of b.ts.
+  const edits: TranscriptEdit[] = [
+    {
+      path: "src/a.ts",
+      tool: "Edit",
+      newString: "firstDistinctiveEditLine();",
+      reasoning,
+      turnId: "t1",
+    },
+    {
+      path: "src/a.ts",
+      tool: "Edit",
+      newString: "secondDistinctiveEditLine();",
+      reasoning,
+      turnId: "t1",
+    },
+    {
+      path: "src/b.ts",
+      tool: "Edit",
+      newString: "otherFileDistinctiveLine();",
+      reasoning,
+      turnId: "t1",
+    },
+  ];
+  const notes = buildAgentNotes(edits, files);
+  // One note per file the turn touched (a.ts anchored once at its FIRST line, b.ts once) — the
+  // reasoning is NOT repeated on a.ts's second edited line.
+  expect(notes.map((n) => [n.path, n.lineNumber])).toEqual([
+    ["src/a.ts", 1],
+    ["src/b.ts", 1],
+  ]);
 });
 
 // ── buildReviewNotes (pure) — routing, never re-drops ───────────────────────

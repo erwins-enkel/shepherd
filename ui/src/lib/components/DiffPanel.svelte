@@ -3,6 +3,7 @@
   import { pollWhileVisible } from "$lib/visibility";
   import { diffTotals } from "$lib/diff";
   import { diffView } from "$lib/diff-view.svelte";
+  import { fileSignature } from "$lib/pierre-diff";
   import { SvelteMap } from "svelte/reactivity";
   import type { DiffResult, DiffAgentAnnotation } from "$lib/types";
   import DiffFileSidebar from "$lib/components/DiffFileSidebar.svelte";
@@ -28,8 +29,16 @@
   let generalFindings = $state<string[]>([]);
 
   let alive = true;
-  // Diff-only fetch — this is what the 15s poll and the initial load call.
-  function load() {
+  // Content signature of the currently-shown diff (join of per-file signatures). When it changes
+  // across a poll the agent-anchored line numbers have shifted, so the persisted line annotations
+  // would mis-anchor — we clear them and re-fetch (see load()).
+  let lastDiffSig: string | undefined;
+
+  // Diff fetch — the 15s poll (forceAnnotations=false) and initial/manual load (true) all call this.
+  // When the diff CONTENT changes, agent notes anchored to the old line numbers are dropped
+  // immediately (prevent mis-anchoring) and re-fetched. `forceAnnotations` additionally re-fetches
+  // on an unchanged diff (manual refresh) so new critic findings surface without a content change.
+  function load(forceAnnotations = false) {
     const id = sessionId; // the session this request is for
     getDiff(id)
       .then((r) => {
@@ -37,6 +46,14 @@
         result = r;
         loaded = true;
         failed = false;
+        const sig = r.files.map(fileSignature).join(",");
+        if (sig !== lastDiffSig) {
+          lastDiffSig = sig;
+          agentByPath.clear(); // line numbers shifted → old anchors are stale; drop before re-fetch
+          loadAnnotations();
+        } else if (forceAnnotations) {
+          loadAnnotations();
+        }
       })
       .catch(() => {
         if (!alive || id !== sessionId) return;
@@ -76,10 +93,10 @@
       });
   }
 
-  // Diff + annotations together (initial load and manual refresh).
+  // Diff + annotations (initial load and manual refresh). `load(true)` re-fetches annotations even
+  // when the diff content is unchanged, so the button also refreshes critic findings.
   function refresh() {
-    load();
-    loadAnnotations();
+    load(true);
   }
 
   // fetch on session change + poll every 15s while this panel is mounted (tab active)
@@ -93,9 +110,11 @@
     agentByPath.clear();
     reviewByPath.clear();
     generalFindings = [];
+    lastDiffSig = undefined;
     alive = true;
     refresh();
-    const stop = pollWhileVisible(load, 15000); // diff only — annotations are not polled
+    // Poll the diff only; load() re-fetches annotations itself when the diff content changes.
+    const stop = pollWhileVisible(() => load(), 15000);
     return () => {
       alive = false;
       stop();

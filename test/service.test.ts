@@ -252,10 +252,7 @@ test("createSession: session_created props map each to its own source (distinct-
 
 // Build a SessionService whose worktree.create yields the given `isolated`, capturing the
 // spawned argv. Used by the codex-autopilot directive tests below.
-function codexHarness(
-  isolated: boolean,
-  authMode: "chatgpt" | "apikey" | "unknown" = "unknown",
-) {
+function codexHarness(isolated: boolean, authMode: "chatgpt" | "apikey" | "unknown" = "unknown") {
   const store = new SessionStore(":memory:");
   const calls: any = {};
   const service = new SessionService({
@@ -6224,9 +6221,7 @@ test("relaunch: explicit blocked Codex override is a clear error under ChatGPT a
   const { service, calls } = relaunchHarness(store, "chatgpt");
   const orig = originalSession(store, { agentProvider: "codex", claudeSessionId: "" });
 
-  await expect(
-    service.relaunch(orig.id, undefined, { model: "gpt-5.3-codex" }),
-  ).rejects.toThrow(
+  await expect(service.relaunch(orig.id, undefined, { model: "gpt-5.3-codex" })).rejects.toThrow(
     'model "gpt-5.3-codex" is not supported when using Codex with a ChatGPT account',
   );
   expect(calls.started).toHaveLength(0);

@@ -2834,7 +2834,8 @@ export class SessionService {
       );
     }
     const spawnModel = clampCodexModelForAuth(model, agentProvider, this.codexAuthMode());
-    const spawnInput = spawnModel === model ? resolvedInput : { ...resolvedInput, model: spawnModel };
+    const spawnInput =
+      spawnModel === model ? resolvedInput : { ...resolvedInput, model: spawnModel };
     if (model !== null && spawnModel === null)
       console.warn(
         `[spawn] codex model "${model}" unsupported by ChatGPT-account auth — using account default`,
@@ -2874,7 +2875,15 @@ export class SessionService {
             trim,
             baseUrl,
           );
-    return { agentProvider, resolvedInput, spawnInput, repoConfig, planGateOn, profileOverride, argv };
+    return {
+      agentProvider,
+      resolvedInput,
+      spawnInput,
+      repoConfig,
+      planGateOn,
+      profileOverride,
+      argv,
+    };
   }
 
   /** Fail-closed author-trust gate for AUTONOMOUS issue spawns. No-op for operator-initiated

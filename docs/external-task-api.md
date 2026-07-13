@@ -129,7 +129,10 @@ Once a task exists, an external agent can also drive it:
 - `POST /api/broadcast` — send the same text to many sessions at once.
 - `DELETE /api/sessions/:id` — archive (end) the session.
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,
-  `/activity`, `/usage` for inspection.
+  `/activity`, `/usage` for inspection. `GET /api/sessions/:id/diff/annotations`
+  returns best-effort per-line Diff-tab annotations (agent reasoning anchored to
+  changed lines plus routed critic findings) as `{ "notes": [...] }`; it degrades
+  to an empty list on any error rather than failing.
 - `GET /api/sessions/:id/scratchpad[?path=]` — browse a live session's own
   scratchpad subtree; `GET /api/sessions/:id/scratchpad/download?path=`
   streams a single file. Paths are relative to the scratchpad root and

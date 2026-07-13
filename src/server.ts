@@ -190,8 +190,11 @@ import {
   resolveDefaultModelSetting,
   normalizeRoleCli,
   normalizeRoleModelToken,
+  clampCodexModelForAuth,
   modelCompatibleWithProvider,
+  type CodexAuthMode,
 } from "./default-model";
+import { readCodexAuthMode } from "./codex-auth";
 import {
   normalizeDefaultEffortSetting,
   normalizeRepoDefaultEffortSetting,
@@ -249,6 +252,8 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Live Codex auth mode; optional for tests and read on demand in production. */
+  readCodexAuthMode?: () => CodexAuthMode;
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
    *  granted (config.telemetryConsent === "granted") and DO_NOT_TRACK isn't set. Optional
    *  so the many test `makeDeps()` builders need no change; wired to the real
@@ -6473,6 +6478,23 @@ async function handleEpicPut({ req, parts, url, deps }: Ctx): Promise<Response |
     storedForPut && storedForPut.parentIssueNumber === parentNumber
       ? storedForPut
       : defaultEpicRun(dir, parentNumber);
+  const effectiveProvider = mergedEpicRunAgentProvider(base, patch);
+  if (
+    patchHas(patch, "model") &&
+    typeof patch.model === "string" &&
+    effectiveProvider === "codex" &&
+    clampCodexModelForAuth(
+      patch.model,
+      effectiveProvider,
+      deps.readCodexAuthMode?.() ?? readCodexAuthMode(),
+    ) === null
+  )
+    return json(
+      {
+        error: `model "${patch.model}" is not supported when using Codex with a ChatGPT account`,
+      },
+      400,
+    );
   const merged = mergeEpicRunPatch(base, patch);
   if (merged === null) return json({ error: "invalid epic run patch" }, 400);
   deps.store.setEpicRun(merged);

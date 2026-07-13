@@ -158,6 +158,8 @@ function makeHarness(
     omitCloseIssue?: boolean;
     omitGetIssue?: boolean;
     createImpl?: () => Promise<void>;
+    repoDefaultModel?: string;
+    authMode?: "chatgpt" | "apikey" | "unknown";
     // Epic support
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
@@ -180,7 +182,7 @@ function makeHarness(
     autoLabel: "shepherd:auto",
     usageCeilingPct: opts.usageCeilingPct ?? 80,
     sandboxProfile: "trusted",
-    defaultModel: "inherit",
+    defaultModel: opts.repoDefaultModel ?? "inherit",
     defaultEffort: "inherit",
     previewOpenMode: "ask",
     egressExtraHosts: [],
@@ -190,7 +192,6 @@ function makeHarness(
     preWarmEpicLandingCi: false,
     hidden: false,
   });
-
   const forgeRec: ForgeRec = {
     merges: [],
     links: [],
@@ -294,6 +295,7 @@ function makeHarness(
     dropPrCache: (id) => dropped.push(id),
     emitEpic: (epic) => epics.push(epic),
     emitSessionNew: (s) => sessionNews.push(s),
+    readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
   });
   harness.drain = drain;
@@ -333,6 +335,26 @@ test("spawn fills to cap: 3 labeled issues, maxAuto 2 → creates exactly 2 auto
   }
   // last status holds on cap
   expect(h.statuses.at(-1)?.inFlight).toBe(2);
+});
+
+test("ChatGPT auth clamps a blocked Codex repo default before drain create", async () => {
+  const prior = config.defaultAgentProvider;
+  const priorModel = config.defaultModel;
+  config.defaultAgentProvider = "codex";
+  config.defaultModel = "gpt-5.3-codex";
+  try {
+    const h = makeHarness({
+      issues: [issue(1)],
+      maxAuto: 1,
+      repoDefaultModel: "gpt-5.3-codex",
+      authMode: "chatgpt",
+    });
+    await h.drain.pump(REPO);
+    expect(h.creates[0]?.model).toBeNull();
+  } finally {
+    config.defaultAgentProvider = prior;
+    config.defaultModel = priorModel;
+  }
 });
 
 test("spawn emits session:new for the created session (UI session list is push-only)", async () => {

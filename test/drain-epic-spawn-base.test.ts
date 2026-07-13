@@ -109,6 +109,7 @@ function makeHarness(
     listSubIssuesImpl?: (parentNumber: number) => Promise<SubIssueRef[]>;
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
     noEnsureBranch?: boolean;
+    authMode?: "chatgpt" | "apikey" | "unknown";
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -195,6 +196,7 @@ function makeHarness(
     emitArchived: () => {},
     dropPrCache: () => {},
     emitEpic: (epic) => epics.push(epic),
+    readCodexAuthMode: () => opts.authMode ?? "unknown",
     rebaseCap: 5,
   });
 
@@ -284,6 +286,43 @@ describe("epic-child spawns base on the integration branch", () => {
       effort: "high",
       issueRef: { number: CHILD },
     });
+  });
+
+  test("ChatGPT auth clamps a blocked Codex epic model before child create", async () => {
+    const subIssues: SubIssueRef[] = [
+      { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+    ];
+    const h = makeHarness({
+      authMode: "chatgpt",
+      listIssuesImpl: async () => [],
+      getIssueImpl: async (n) =>
+        n === PARENT
+          ? ({
+              number: PARENT,
+              title: "EFI cluster",
+              body: "epic body",
+              url: "u327",
+              labels: [],
+              createdAt: 0,
+              assignees: [],
+            } as Issue)
+          : null,
+      listSubIssuesImpl: async () => subIssues,
+      listBlockedByImpl: async () => [],
+    });
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+      agentProvider: "codex",
+      model: "gpt-5.3-codex",
+      effort: "high",
+    });
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates[0]).toMatchObject({ agentProvider: "codex", model: null });
   });
 
   test("running epic on a forge WITHOUT ensureBranch: falls back to main, never the epic branch", async () => {

@@ -1562,8 +1562,46 @@ function buildRepoConfig(): Record<string, DemoRepoConfig> {
  *  small, plausible set for both demo repos. */
 function buildSlashCommands(): Record<string, SlashCommand[]> {
   const commands: SlashCommand[] = [
-    { name: "test", description: "Run the test suite", scope: "project" },
-    { name: "lint", description: "Run lint + typecheck", scope: "project" },
+    {
+      name: "test",
+      description: "Run the test suite",
+      scope: "project",
+      kind: "command",
+      providers: ["claude"],
+      invocations: { claude: "/test" },
+    },
+    {
+      name: "lint",
+      description: "Run lint + typecheck",
+      scope: "project",
+      kind: "command",
+      providers: ["claude"],
+      invocations: { claude: "/lint" },
+    },
+    {
+      name: "domain-modeling",
+      description: "Build and sharpen the project domain model",
+      scope: "user",
+      kind: "skill",
+      providers: ["codex"],
+      invocations: { codex: "$domain-modeling" },
+    },
+    {
+      name: "github:yeet",
+      description: "Publish local changes through the GitHub plugin",
+      scope: "plugin",
+      kind: "skill",
+      providers: ["codex"],
+      invocations: { codex: "$github:yeet" },
+    },
+    {
+      name: "github",
+      description: "GitHub workflows plugin",
+      scope: "plugin",
+      kind: "plugin",
+      providers: ["codex"],
+      invocations: {},
+    },
   ];
   return { [STOREFRONT]: commands, [API]: commands };
 }

@@ -19,6 +19,14 @@ function command(claudeDir: string, file: string, body: string) {
   writeFileSync(join(claudeDir, "commands", file), body);
 }
 
+function codexSkill(skillsDir: string, dir: string, name: string, description: string) {
+  mkdirSync(join(skillsDir, dir), { recursive: true });
+  writeFileSync(
+    join(skillsDir, dir, "SKILL.md"),
+    `---\nname: ${name}\ndescription: ${description}\n---\nbody`,
+  );
+}
+
 beforeEach(() => {
   userClaude = mkdtempSync(join(tmpdir(), "shepherd-cmds-user-"));
   repo = mkdtempSync(join(tmpdir(), "shepherd-cmds-repo-"));
@@ -158,6 +166,54 @@ test("installed plugins are scanned, namespaced, and re-rooted from a foreign in
   const cmds = commands(null, userClaude);
   expect(cmds.find((c) => c.name === "myplugin:deploy")?.scope).toBe("plugin");
   expect(cmds.find((c) => c.name === "myplugin:scan")?.scope).toBe("plugin");
+});
+
+test("provider option scans only Codex skill roots", () => {
+  codexSkill(join(userHome, ".agents", "skills"), "shared", "shared", "home shared");
+  codexSkill(join(repo, ".agents", "skills"), "repo", "repo-only", "repo skill");
+
+  const cmds = listCommands(repo, userClaude, { userHome, codexHome, provider: "codex" });
+
+  expect(cmds.map((c) => c.name)).toEqual(["repo-only", "shared"]);
+  expect(cmds.every((c) => c.providers.includes("codex"))).toBe(true);
+  expect(cmds.find((c) => c.name === "repo-only")).toMatchObject({
+    scope: "project",
+    kind: "skill",
+    invocations: { codex: "$repo-only" },
+  });
+});
+
+test("Codex installed plugin cache exposes browsing inventory and namespaced skills", () => {
+  const pluginRoot = join(codexHome, "plugins", "cache", "mkt", "github");
+  const versionRoot = join(pluginRoot, "1.0.0");
+  mkdirSync(join(versionRoot, ".codex-plugin"), { recursive: true });
+  writeFileSync(join(pluginRoot, ".codex-remote-plugin-install.json"), '{"schema_version":1}');
+  writeFileSync(
+    join(versionRoot, ".codex-plugin", "plugin.json"),
+    JSON.stringify({
+      name: "github",
+      description: "GitHub plugin",
+      skills: "./skills/",
+      interface: { shortDescription: "GitHub workflows" },
+    }),
+  );
+  codexSkill(join(versionRoot, "skills"), "yeet", "yeet", "Publish changes");
+
+  const cmds = listCommands(null, userClaude, { userHome, codexHome, provider: "codex" });
+
+  expect(cmds.find((c) => c.name === "github")).toMatchObject({
+    description: "GitHub workflows",
+    scope: "plugin",
+    kind: "plugin",
+    providers: ["codex"],
+    invocations: {},
+  });
+  expect(cmds.find((c) => c.name === "github:yeet")).toMatchObject({
+    description: "Publish changes",
+    scope: "plugin",
+    kind: "skill",
+    invocations: { codex: "$github:yeet" },
+  });
 });
 
 test("over-long description is truncated with an ellipsis", () => {

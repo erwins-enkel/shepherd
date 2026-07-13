@@ -19,7 +19,7 @@ export interface SlashCommand {
   displayName: string;
   description: string;
   scope: SlashCommandScope;
-  kind: "skill" | "command";
+  kind: "skill" | "command" | "plugin";
   invocationName: string;
   sourceNamespace: string;
   sourcePath?: string;
@@ -211,6 +211,7 @@ function readCodexSkill(
   path: string,
   sourceNamespace: string,
   disabled: Set<string>,
+  prefix = "",
 ): SlashCommand | null {
   if (isDisabledSkill(path, disabled)) return null;
   let text: string;
@@ -220,8 +221,9 @@ function readCodexSkill(
     return null;
   }
   const { fm } = parseFrontmatter(text);
-  const name = fm.name?.trim();
-  if (!name) return null;
+  const bare = fm.name?.trim();
+  if (!bare) return null;
+  const name = prefix + bare;
   let description = fm.description?.trim() || "";
   if (description.length > MAX_DESC)
     description = description.slice(0, MAX_DESC - 1).trimEnd() + "…";
@@ -230,7 +232,11 @@ function readCodexSkill(
     name,
     displayName: name,
     description,
-    scope: sourceNamespace.startsWith("codex:repo") ? "project" : "user",
+    scope: sourceNamespace.startsWith("codex:repo")
+      ? "project"
+      : sourceNamespace.startsWith("codex:plugin")
+        ? "plugin"
+        : "user",
     kind: "skill",
     invocationName: name,
     sourceNamespace,
@@ -245,12 +251,116 @@ function collectCodexSkillRoot(
   sourceNamespace: string,
   disabled: Set<string>,
   out: SlashCommand[],
+  prefix = "",
 ) {
   for (const entry of safeReaddir(root)) {
     const md = join(root, entry, "SKILL.md");
     if (!existsSync(md)) continue;
-    const cmd = readCodexSkill(md, sourceNamespace, disabled);
+    const cmd = readCodexSkill(md, sourceNamespace, disabled, prefix);
     if (cmd) out.push(cmd);
+  }
+}
+
+interface CodexPluginManifest {
+  name?: string;
+  version?: string;
+  description?: string;
+  skills?: string;
+  interface?: {
+    displayName?: string;
+    shortDescription?: string;
+  };
+}
+
+function readJson(path: string): unknown | null {
+  try {
+    return JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function pluginVersionRoot(pluginRoot: string): string | null {
+  const versions = safeReaddir(pluginRoot)
+    .map((entry) => join(pluginRoot, entry))
+    .filter((dir) => {
+      try {
+        return statSync(dir).isDirectory() && existsSync(join(dir, ".codex-plugin", "plugin.json"));
+      } catch {
+        return false;
+      }
+    })
+    .sort((a, b) => a.localeCompare(b));
+  return versions.at(-1) ?? null;
+}
+
+function codexPluginDescription(manifest: CodexPluginManifest | null, fallback: string): string {
+  const description =
+    manifest?.interface?.shortDescription?.trim() || manifest?.description?.trim() || fallback;
+  return description.length > MAX_DESC
+    ? description.slice(0, MAX_DESC - 1).trimEnd() + "…"
+    : description;
+}
+
+function codexPluginSkillsDir(
+  versionRoot: string,
+  manifest: CodexPluginManifest | null,
+): string | null {
+  if (typeof manifest?.skills !== "string") return null;
+  return join(versionRoot, manifest.skills.replace(/^\.\//, ""));
+}
+
+function collectCodexPlugin(
+  pluginRoot: string,
+  pluginEntry: string,
+  marketplace: string,
+  disabled: Set<string>,
+  out: SlashCommand[],
+) {
+  if (!existsSync(join(pluginRoot, ".codex-remote-plugin-install.json"))) return;
+  const versionRoot = pluginVersionRoot(pluginRoot);
+  if (!versionRoot) return;
+  const manifest = readJson(
+    join(versionRoot, ".codex-plugin", "plugin.json"),
+  ) as CodexPluginManifest | null;
+  const pluginName = manifest?.name?.trim() || pluginEntry;
+  out.push({
+    id: `codex:plugin:${marketplace}:${pluginName}`,
+    name: pluginName,
+    displayName: pluginName,
+    description: codexPluginDescription(manifest, pluginName),
+    scope: "plugin",
+    kind: "plugin",
+    invocationName: pluginName,
+    sourceNamespace: `codex:plugin:${marketplace}:${pluginName}`,
+    sourcePath: versionRoot,
+    providers: ["codex"],
+    invocations: {},
+  });
+  const skillsDir = codexPluginSkillsDir(versionRoot, manifest);
+  if (!skillsDir) return;
+  collectCodexSkillRoot(
+    skillsDir,
+    `codex:plugin:${marketplace}:${pluginName}`,
+    disabled,
+    out,
+    `${pluginName}:`,
+  );
+}
+
+function collectCodexPlugins(codexHome: string, disabled: Set<string>, out: SlashCommand[]) {
+  const cacheDir = join(codexHome, "plugins", "cache");
+  for (const marketplace of safeReaddir(cacheDir)) {
+    const marketplaceDir = join(cacheDir, marketplace);
+    for (const pluginEntry of safeReaddir(marketplaceDir)) {
+      collectCodexPlugin(
+        join(marketplaceDir, pluginEntry),
+        pluginEntry,
+        marketplace,
+        disabled,
+        out,
+      );
+    }
   }
 }
 
@@ -333,33 +443,38 @@ function collectPlugins(
 export function listCommands(
   repoDir: string | null,
   userClaudeDir: string,
-  opts: { userHome?: string; codexHome?: string } = {},
+  opts: { userHome?: string; codexHome?: string; provider?: AgentProvider } = {},
 ): SlashCommand[] {
   const out = new Map<string, SlashCommand>();
-  for (const b of BUILTINS)
-    out.set(b.name, {
-      id: `claude:builtin:${b.name}`,
-      name: b.name,
-      displayName: b.name,
-      description: b.description,
-      scope: "builtin",
-      kind: "command",
-      invocationName: b.name,
-      sourceNamespace: "claude:builtin",
-      providers: ["claude"],
-      invocations: { claude: `/${b.name}` },
-    });
-  collectPlugins(userClaudeDir, repoDir, out);
-  collect(userClaudeDir, "user", out);
-  if (repoDir) collect(join(repoDir, ".claude"), "project", out);
+  if (opts.provider !== "codex") {
+    for (const b of BUILTINS)
+      out.set(b.name, {
+        id: `claude:builtin:${b.name}`,
+        name: b.name,
+        displayName: b.name,
+        description: b.description,
+        scope: "builtin",
+        kind: "command",
+        invocationName: b.name,
+        sourceNamespace: "claude:builtin",
+        providers: ["claude"],
+        invocations: { claude: `/${b.name}` },
+      });
+    collectPlugins(userClaudeDir, repoDir, out);
+    collect(userClaudeDir, "user", out);
+    if (repoDir) collect(join(repoDir, ".claude"), "project", out);
+  }
   const rows = [...out.values()];
-  const codexHome = opts.codexHome ?? codexHomeDefault();
-  const userHome = opts.userHome ?? homedir();
-  const disabled = disabledSkillPaths(codexHome);
-  if (repoDir)
-    collectCodexSkillRoot(join(repoDir, ".agents", "skills"), "codex:repo", disabled, rows);
-  collectCodexSkillRoot(join(userHome, ".agents", "skills"), "codex:user", disabled, rows);
-  collectCodexSkillRoot(join(codexHome, "skills", ".system"), "codex:system", disabled, rows);
-  collectCodexSkillRoot("/etc/codex/skills", "codex:admin", disabled, rows);
+  if (opts.provider !== "claude") {
+    const codexHome = opts.codexHome ?? codexHomeDefault();
+    const userHome = opts.userHome ?? homedir();
+    const disabled = disabledSkillPaths(codexHome);
+    if (repoDir)
+      collectCodexSkillRoot(join(repoDir, ".agents", "skills"), "codex:repo", disabled, rows);
+    collectCodexSkillRoot(join(userHome, ".agents", "skills"), "codex:user", disabled, rows);
+    collectCodexSkillRoot(join(codexHome, "skills", ".system"), "codex:system", disabled, rows);
+    collectCodexSkillRoot("/etc/codex/skills", "codex:admin", disabled, rows);
+    collectCodexPlugins(codexHome, disabled, rows);
+  }
   return mergeEquivalentRows(rows).sort((a, b) => a.name.localeCompare(b.name));
 }

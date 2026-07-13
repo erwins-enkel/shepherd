@@ -225,6 +225,47 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
 
     expect(onpick).toHaveBeenCalledWith("$command-1 ");
   });
+
+  it("Commands tab: browsing-only Codex plugin rows are disabled", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: null,
+    });
+    mockGetCommands.mockResolvedValue({
+      commands: [
+        {
+          name: "github",
+          description: "GitHub workflows",
+          scope: "plugin",
+          kind: "plugin",
+          providers: ["codex"],
+          invocations: {},
+        },
+      ],
+    });
+    const onpick = vi.fn();
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      agentProvider: "codex",
+      onpick,
+      onpickissue: noop,
+    });
+
+    const commandsTab = [...document.querySelectorAll<HTMLButtonElement>(".tabs .tab")].find(
+      (b) => b.textContent?.trim() === m.promptsources_commands_tab(),
+    );
+    expect(commandsTab).toBeTruthy();
+    commandsTab!.click();
+
+    await expect.poll(() => document.querySelector(".ps-body .row.disabled")).not.toBeNull();
+    const row = document.querySelector<HTMLButtonElement>(".ps-body .row.disabled");
+    expect(row?.disabled).toBe(true);
+    row!.click();
+    expect(onpick).not.toHaveBeenCalled();
+  });
 });
 
 describe("PromptSources label chips (responsive 1↔2 cap)", () => {

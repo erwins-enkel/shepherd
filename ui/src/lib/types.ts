@@ -254,7 +254,7 @@ export interface SlashCommand {
   displayName?: string;
   description: string;
   scope: SlashCommandScope;
-  kind?: "skill" | "command";
+  kind?: "skill" | "command" | "plugin";
   invocationName?: string;
   sourceNamespace?: string;
   sourcePath?: string;

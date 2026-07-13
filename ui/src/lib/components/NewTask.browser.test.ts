@@ -1369,6 +1369,17 @@ describe("NewTask Codex model picker", () => {
     expect(modelSelect().disabled).toBe(false);
   });
 
+  it("loads commands with the active codex provider", async () => {
+    const repoPath = "/repo/codex-commands";
+    render(NewTask, {
+      props: base({ initialRepoPath: repoPath, defaultAgentProvider: "codex" }),
+    });
+
+    await expect
+      .poll(() => mockGetCommands.mock.calls.some((call) => call[1]?.provider === "codex"))
+      .toBe(true);
+  });
+
   it("submits the selected codex model", async () => {
     const repoPath = "/repo/codex-model";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());

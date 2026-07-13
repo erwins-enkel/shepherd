@@ -3,6 +3,7 @@
   import type { RepoEntry } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import { commandInsertable, commandProviders } from "$lib/slash";
   import { onMount } from "svelte";
 
   // Slug rule mirrors src/validate.ts PROJECT_SLUG_RE exactly.
@@ -77,8 +78,9 @@
 
   onMount(async () => {
     try {
-      const { commands } = await getCommands("");
+      const { commands } = await getCommands("", { provider: "claude" });
       kickoffCommands = commands
+        .filter((c) => commandProviders(c).includes("claude") && commandInsertable(c, "claude"))
         .map((c) => c.name.split(":").pop() ?? c.name)
         .filter((n) => KICKOFF_COMMANDS.has(n));
     } catch {

@@ -152,6 +152,14 @@ describe("filterCommands", () => {
     const rows = [cmd("claude-only", ["claude"]), cmd("codex-only", ["codex"])];
     expect(filterCommands(rows, "", "codex").map((c) => c.name)).toEqual(["codex-only"]);
   });
+
+  it("excludes provider rows that do not expose an invocation", () => {
+    const rows = [
+      cmd("codex-skill", ["codex"]),
+      { ...cmd("codex-plugin", ["codex"]), kind: "plugin" as const, invocations: {} },
+    ];
+    expect(filterCommands(rows, "", "codex").map((c) => c.name)).toEqual(["codex-skill"]);
+  });
 });
 
 describe("commandInvocationProvider", () => {

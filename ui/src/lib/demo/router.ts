@@ -49,7 +49,12 @@ const bootstrapGetRoutes: Record<string, GetHandler> = {
   // Done lens (#Task 8): archived sessions, distinct from the live `sessions` list.
   "/api/sessions/done": () => json(demoState.doneSessions()),
   "/api/repo-config": (url) => json(demoState.repoConfig(repoParam(url))),
-  "/api/commands": (url) => json(demoState.commands(repoParam(url))),
+  "/api/commands": (url) => {
+    const provider = url.searchParams.get("provider");
+    if (provider && provider !== "claude" && provider !== "codex")
+      return json({ error: "invalid provider" }, 400);
+    return json(demoState.commands(repoParam(url), provider === "codex" ? "codex" : "claude"));
+  },
   "/api/todo": (url) => json(demoState.todo(repoParam(url))),
   // Owed lens (#Task 8): durable post-merge step records — outstanding only. Svelte's
   // `{#each}` silently no-ops on the old `{}` fallback, so this gap never threw; it

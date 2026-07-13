@@ -3076,5 +3076,16 @@
   "feat_review_block_cues_title": "Review blocks are visible on session cards",
   "feat_review_block_cues_body": "When the configured human reviewer requests changes, the session card and herd groups now show Changes requested instead of quietly waiting on that reviewer.",
   "epic_group_cue_changes_requested": "{count} with requested changes",
-  "epic_group_cue_merge_blocked": "{count} merge blocked"
+  "epic_group_cue_merge_blocked": "{count} merge blocked",
+  "command_kind_command": "Command",
+  "command_kind_skill": "Skill",
+  "command_kind_plugin": "Plugin",
+  "command_scope_project": "Project",
+  "command_scope_user": "User",
+  "command_scope_plugin": "Plugin",
+  "command_scope_builtin": "Built-in",
+  "command_source_codex_home": "Codex home",
+  "command_source_system": "System",
+  "feat_codex_discovery_title": "Codex skills in command discovery",
+  "feat_codex_discovery_body": "The prompt picker now understands Codex skills, including installed plugin skills such as $github:yeet, while installed Codex plugins appear as a browsing-only inventory."
 }

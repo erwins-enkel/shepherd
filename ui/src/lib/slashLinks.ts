@@ -78,7 +78,12 @@ function nameOk(name: string, known: Set<string>): boolean {
  *   findCommandLinks("/home/moe/x", new Set())     → []   (followed by "/": path)
  *   findCommandLinks("/My_Skill", set(["my_skill"]))→ [{ ... name: "My_Skill" }] (A)
  */
-export function findCommandLinks(line: string, known: Set<string>): CommandLink[] {
+export function findCommandLinks(
+  line: string,
+  known: Set<string>,
+  provider: "claude" | "codex" = "claude",
+): CommandLink[] {
+  if (provider === "codex") return [];
   const out: CommandLink[] = [];
   for (const m of line.matchAll(TOKEN)) {
     const slash = m.index;

@@ -280,7 +280,12 @@
   let slashQuery = $state("");
   let slashTrigger = $state<"/" | "$" | "@">("/");
   let slashIndex = $state(0);
-  const slashMatches = $derived(slashOpen ? filterCommands(allCommands, slashQuery) : []);
+  const commandProvider = $derived(
+    slashOpen ? (slashTrigger === "/" ? "claude" : "codex") : agentProvider,
+  );
+  const slashMatches = $derived(
+    slashOpen ? filterCommands(allCommands, slashQuery, commandProvider) : [],
+  );
   let providerTokenConstraints = $state<ProviderTokenConstraint[]>([]);
   const activeProviderConstraint = $derived(providerTokenConstraints[0] ?? null);
 
@@ -469,16 +474,17 @@
   // .claude/commands + .claude/skills layer on top of the global/user/plugin ones.
   $effect(() => {
     const rp = repoPath;
+    const provider = commandProvider;
     if (!rp) {
       allCommands = [];
       return;
     }
-    getCommands(rp)
+    getCommands(rp, { provider })
       .then((r) => {
-        if (rp === repoPath) allCommands = r.commands;
+        if (rp === repoPath && provider === commandProvider) allCommands = r.commands;
       })
       .catch(() => {
-        if (rp === repoPath) allCommands = [];
+        if (rp === repoPath && provider === commandProvider) allCommands = [];
       });
   });
 
@@ -1058,7 +1064,7 @@
           <SlashCommandMenu
             commands={slashMatches}
             activeIndex={slashIndex}
-            provider={slashTrigger === "/" ? agentProvider : "codex"}
+            provider={commandProvider}
             onpick={pickCommand}
             onhover={(i) => (slashIndex = i)}
           />
@@ -1131,6 +1137,7 @@
           {epicParents}
           {nativeSubIssues}
           {epicsLoaded}
+          {agentProvider}
           allowIssues={!relaunch}
           onpick={(p) => {
             prompt = p;

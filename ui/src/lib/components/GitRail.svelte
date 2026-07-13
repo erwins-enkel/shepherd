@@ -1,6 +1,7 @@
 <script lang="ts">
   import {
     gitState,
+    setPrDraftState,
     openPr,
     mergePr,
     redeploy,
@@ -374,6 +375,29 @@
     }
   }
 
+  async function doTogglePrDraft(draft: boolean): Promise<boolean> {
+    busy = true;
+    err = null;
+    retry = null;
+    try {
+      git = await setPrDraftState(sessionId, draft);
+      toasts.info(draft ? m.prbadge_marked_draft() : m.prbadge_marked_ready(), {
+        key: `pr-draft:${sessionId}`,
+      });
+      return true;
+    } catch (e) {
+      toasts.info(
+        m.prbadge_draft_toggle_failed({
+          reason: e instanceof Error ? e.message : m.prbadge_unknown_error(),
+        }),
+        { alert: true, key: `pr-draft:${sessionId}` },
+      );
+      return false;
+    } finally {
+      busy = false;
+    }
+  }
+
   const mergeBlocked = $derived(
     !git ||
       git.mergeable === false ||
@@ -650,6 +674,7 @@
         {planReviewLabel}
         {planReviewBlockedReason}
         {startPr}
+        togglePrDraft={doTogglePrDraft}
         {doMerge}
         {doRedeploy}
         {toggleReview}

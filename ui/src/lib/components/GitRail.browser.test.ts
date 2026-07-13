@@ -24,6 +24,10 @@ const openPrState: GitState = {
 // gitStateFn is a vi.fn() whose implementation we swap per describe block so
 // each state suite gets its own mocked GitState without re-importing the module.
 const gitStateFn = vi.fn(async () => openPrState);
+const setPrDraftStateFn = vi.fn(async (_id: string, draft: boolean) => ({
+  ...openPrState,
+  isDraft: draft,
+}));
 
 // Preserve the real module (the wider graph — reviews store, AutomationPanel —
 // pulls other named exports like getRepoConfig/getReviews) and override only the
@@ -44,6 +48,7 @@ vi.mock("$lib/api", async (importOriginal) => {
   return {
     ...actual,
     gitState: gitStateFn,
+    setPrDraftState: setPrDraftStateFn,
     openPr: vi.fn(),
     mergePr: vi.fn(),
     redeploy: vi.fn(),
@@ -92,6 +97,11 @@ async function render(
 // line high (no vertical stacking) with no squished-to-zero controls.
 let fontStyle: HTMLStyleElement;
 beforeEach(() => {
+  setPrDraftStateFn.mockClear();
+  setPrDraftStateFn.mockImplementation(async (_id: string, draft: boolean) => ({
+    ...openPrState,
+    isDraft: draft,
+  }));
   fontStyle = document.createElement("style");
   fontStyle.textContent = `:root { --font-mono: ui-monospace, monospace; }
     *, *::before, *::after { box-sizing: border-box; }
@@ -196,22 +206,24 @@ const baseProps = {
 };
 
 describe("GitRail — shortened issue & PR labels", () => {
-  // The rail drops the #number from the visible label (Issue ↗ / PR ↗) to save
-  // horizontal space, keeping the external-link ↗ and stashing the full
-  // reference in the title + aria-label. These fail on the pre-change markup
-  // (no title attr; visible text still carried the number).
-  it("PR link: short visible text, ↗ kept, full ref in title + accessible name", async () => {
+  // The PR control now discloses an action menu, so only the explicit menu item
+  // keeps the external-link arrow. The issue control remains a direct link.
+  it("PR menu trigger: short visible text, no ↗, full ref in title + accessible name", async () => {
     gitStateFn.mockResolvedValue(openPrState);
     await page.viewport(600, 900);
     const h = host(600);
     const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
-    // accessible name (aria-label) carries the full reference…
-    await expect.element(screen.getByRole("link", { name: "PR #12345" })).toBeVisible();
-    // …and so does the hover tooltip…
+    await expect
+      .element(
+        screen.getByRole("button", {
+          name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+        }),
+      )
+      .toBeVisible();
     await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
-    // …but the rail's VISIBLE text is the short form with the arrow, no number.
     const rail = h.querySelector<HTMLElement>(".rail")!;
-    expect(rail.textContent).toContain("PR ↗");
+    expect(rail.textContent).toContain("PR");
+    expect(rail.textContent).not.toContain("PR ↗");
     expect(rail.textContent).not.toContain("#12345");
   });
 
@@ -231,6 +243,95 @@ describe("GitRail — shortened issue & PR labels", () => {
     const rail = h.querySelector<HTMLElement>(".rail")!;
     expect(rail.textContent).toContain("Issue ↗");
     expect(rail.textContent).not.toContain("#855");
+  });
+});
+
+describe("GitRail — PR actions menu", () => {
+  beforeEach(() => {
+    toastsInfo.mockClear();
+  });
+
+  it("opens the PR URL only from the explicit menu action", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    const open = vi.spyOn(window, "open").mockImplementation(() => null);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+
+    const trigger = screen.getByRole("button", {
+      name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+    });
+    await trigger.click();
+    expect(open).not.toHaveBeenCalled();
+
+    await page.getByRole("menuitem", { name: m.prbadge_open_pr() }).click();
+    expect(open).toHaveBeenCalledWith(
+      openPrState.url,
+      "_blank",
+      "noopener,noreferrer",
+    );
+    open.mockRestore();
+  });
+
+  it("sets a draft PR Ready for Review and refreshes the next menu", async () => {
+    gitStateFn.mockResolvedValue({ ...openPrState, isDraft: true });
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const trigger = screen.getByRole("button", {
+      name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+    });
+
+    await trigger.click();
+    await page.getByRole("menuitem", { name: m.prbadge_mark_ready() }).click();
+    expect(setPrDraftStateFn).toHaveBeenCalledWith("sess-1", false);
+    expect(toastsInfo).toHaveBeenCalledWith(m.prbadge_marked_ready(), {
+      key: "pr-draft:sess-1",
+    });
+
+    await trigger.click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_mark_draft() }))
+      .toBeVisible();
+  });
+
+  it("sets a ready PR back to Draft and refreshes the next menu", async () => {
+    gitStateFn.mockResolvedValue({ ...openPrState, isDraft: false });
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const trigger = screen.getByRole("button", {
+      name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+    });
+
+    await trigger.click();
+    await page.getByRole("menuitem", { name: m.prbadge_mark_draft() }).click();
+    expect(setPrDraftStateFn).toHaveBeenCalledWith("sess-1", true);
+    expect(toastsInfo).toHaveBeenCalledWith(m.prbadge_marked_draft(), {
+      key: "pr-draft:sess-1",
+    });
+
+    await trigger.click();
+    await expect
+      .element(page.getByRole("menuitem", { name: m.prbadge_mark_ready() }))
+      .toBeVisible();
+  });
+
+  it("keeps the menu open when changing Draft state fails", async () => {
+    gitStateFn.mockResolvedValue({ ...openPrState, isDraft: true });
+    setPrDraftStateFn.mockRejectedValueOnce(new Error("boom"));
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    const trigger = screen.getByRole("button", {
+      name: m.prbadge_button_title({ label: m.prbadge_open({ number: 12345 }) }),
+    });
+
+    await trigger.click();
+    const markReady = page.getByRole("menuitem", { name: m.prbadge_mark_ready() });
+    await markReady.click();
+
+    await expect.element(markReady).toBeVisible();
+    expect(toastsInfo).toHaveBeenCalledWith(
+      m.prbadge_draft_toggle_failed({ reason: "boom" }),
+      { alert: true, key: "pr-draft:sess-1" },
+    );
   });
 });
 
@@ -630,9 +731,9 @@ describe("GitRail — forge-error fallback (no silent-empty rail)", () => {
     )!;
     retry.click();
     await vi.waitFor(() => {
-      const link = h.querySelector<HTMLAnchorElement>("a.status-chip.info");
-      expect(link, "PR link rendered after retry").not.toBeNull();
-      expect(link!.getAttribute("href")).toBe(openPrState.url);
+      const trigger = h.querySelector<HTMLButtonElement>("button.status-chip.info");
+      expect(trigger, "PR menu trigger rendered after retry").not.toBeNull();
+      expect(trigger!.getAttribute("aria-haspopup")).toBe("menu");
     });
     expect(h.querySelector(".err"), "error cleared after successful retry").toBeNull();
   });

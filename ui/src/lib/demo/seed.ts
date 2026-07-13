@@ -1453,14 +1453,26 @@ function buildScratchpad(): Record<string, ScratchListing> {
       path: "",
       parent: null,
       entries: [
-        { name: "notes.md", type: "file", path: "notes.md" },
-        { name: "pricing-api-response.json", type: "file", path: "pricing-api-response.json" },
+        { name: "notes.md", type: "file", path: "notes.md", createdMs: NOW - 2 * HOUR },
+        {
+          name: "pricing-api-response.json",
+          type: "file",
+          path: "pricing-api-response.json",
+          createdMs: NOW - 40 * MIN,
+        },
       ],
     },
     "checkout-child": {
       path: "",
       parent: null,
-      entries: [{ name: "shipping-rates.json", type: "file", path: "shipping-rates.json" }],
+      entries: [
+        {
+          name: "shipping-rates.json",
+          type: "file",
+          path: "shipping-rates.json",
+          createdMs: NOW - 3 * DAY,
+        },
+      ],
     },
   };
 }

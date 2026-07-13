@@ -200,6 +200,9 @@ export interface ScratchEntry {
   name: string;
   type: "file" | "dir";
   path: string;
+  /** Creation date in epoch ms — birth time when the filesystem records it, else modified-time
+   *  fallback. Omitted when the server's stat failed (the entry is still surfaced). */
+  createdMs?: number;
   /** true when this entry is a symlink resolving outside the root (worktree view only);
    *  rendered as a disabled, non-navigable row. */
   linkOutside?: boolean;

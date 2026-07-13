@@ -239,3 +239,62 @@ describe("FilesPanel — source switch (scratchpad/worktree)", () => {
     expect(row.tagName).not.toBe("BUTTON");
   });
 });
+
+describe("FilesPanel — Created column and sorting", () => {
+  const rowNames = () =>
+    Array.from(document.querySelectorAll(".list .row .nm")).map((n) => n.textContent?.trim());
+
+  // A dir + files with varied creation times, plus one file with no createdMs.
+  const now = Date.now();
+  const HOUR = 3_600_000;
+  const mixedListing = {
+    path: "",
+    parent: null as string | null,
+    entries: [
+      { name: "zzz-dir", type: "dir" as const, path: "zzz-dir", createdMs: now - 5 * HOUR },
+      { name: "aaa-dir", type: "dir" as const, path: "aaa-dir", createdMs: now - 1 * HOUR },
+      { name: "b.txt", type: "file" as const, path: "b.txt", createdMs: now - 2 * HOUR },
+      { name: "a.txt", type: "file" as const, path: "a.txt", createdMs: now - 4 * HOUR },
+      { name: "c.txt", type: "file" as const, path: "c.txt" }, // no createdMs
+    ],
+  };
+
+  it("renders a Created cell per row and an em-dash for a missing createdMs", async () => {
+    mockListing.mockResolvedValue(mixedListing);
+    render(FilesPanel, { sessionId: "sess-c1" });
+    await waitForPanel();
+
+    await expect.poll(() => document.querySelectorAll(".list .row .created").length).toBe(5);
+    // The entry without createdMs renders the guarded em-dash, never "NaNs".
+    const empties = Array.from(document.querySelectorAll(".created.empty")).map((e) =>
+      e.textContent?.trim(),
+    );
+    expect(empties).toEqual(["—"]);
+    expect(document.querySelector(".list")?.textContent).not.toContain("NaN");
+  });
+
+  it("defaults to name-ascending with directories grouped first", async () => {
+    mockListing.mockResolvedValue(mixedListing);
+    render(FilesPanel, { sessionId: "sess-c2" });
+    await waitForPanel();
+
+    await expect.poll(() => rowNames().length).toBe(5);
+    expect(rowNames()).toEqual(["aaa-dir", "zzz-dir", "a.txt", "b.txt", "c.txt"]);
+  });
+
+  it("sorts by Created (newest first), keeps dirs grouped, puts missing dates last, and toggles", async () => {
+    mockListing.mockResolvedValue(mixedListing);
+    render(FilesPanel, { sessionId: "sess-c3" });
+    await waitForPanel();
+    await expect.poll(() => rowNames().length).toBe(5);
+
+    // First Created click → descending (newest first): dirs first by date desc, then files
+    // by date desc, missing-date file last.
+    await page.getByRole("button", { name: m.files_sort_created_aria() }).click();
+    await expect.poll(() => rowNames()).toEqual(["aaa-dir", "zzz-dir", "b.txt", "a.txt", "c.txt"]);
+
+    // Second click → ascending: dirs oldest-first, files oldest-first, missing still last.
+    await page.getByRole("button", { name: m.files_sort_created_aria() }).click();
+    await expect.poll(() => rowNames()).toEqual(["zzz-dir", "aaa-dir", "a.txt", "b.txt", "c.txt"]);
+  });
+});

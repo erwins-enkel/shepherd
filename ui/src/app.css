@@ -453,3 +453,71 @@ button {
     animation: none;
   }
 }
+
+/* ── Status-chip tooltip / dialog ────────────────────────────────────────────
+   Surfaces for the session-card status chips (see $lib/actions/statusTip). The
+   `statusTip` action appends its popover to <body>, so these must be global (not
+   component-scoped). Modeled on InfoTip's `.info-tooltip`: native top-layer
+   popover, position:fixed + inset:auto + margin:0 so Floating UI drives left/top.
+   No base `display`, so a closed popover keeps the UA `display:none` (never
+   visible / layout-participating); an explicit guard restates that for clarity. */
+.status-tip[popover],
+.status-tip-dialog[popover] {
+  position: fixed;
+  inset: auto;
+  margin: 0;
+  width: max-content;
+  max-width: min(260px, 90vw);
+  padding: 8px 10px;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  box-shadow: var(--shadow-popover);
+  color: var(--color-ink);
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  font-weight: 400;
+  line-height: 1.5;
+  /* Reset the chip's uppercase / letter-spacing so the explanation reads as prose. */
+  text-transform: none;
+  letter-spacing: normal;
+  white-space: normal;
+}
+.status-tip[popover]:not(:popover-open),
+.status-tip-dialog[popover]:not(:popover-open) {
+  display: none;
+}
+
+/* Actionable dialog (critic Open PR): a click-pinned column of explanation + link. */
+.status-tip-dialog[popover]:popover-open {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.status-tip-action {
+  align-self: flex-start;
+  color: var(--color-blue);
+  font-size: var(--fs-meta);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.status-tip-action:hover,
+.status-tip-action:focus-visible {
+  color: var(--color-ink-bright);
+}
+
+/* Entrance animation — suppressed by the global reduced-motion blanket above. */
+@keyframes status-tip-in {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.status-tip[popover]:popover-open,
+.status-tip-dialog[popover]:popover-open {
+  animation: status-tip-in 120ms ease-out;
+}

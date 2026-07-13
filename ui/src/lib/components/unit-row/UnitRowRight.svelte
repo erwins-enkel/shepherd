@@ -10,6 +10,7 @@
   import PlanGateBadge from "../PlanGateBadge.svelte";
   import AutopilotBadge from "../AutopilotBadge.svelte";
   import { repoConfig } from "$lib/reviews.svelte";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
 
   let {
     session,
@@ -67,6 +68,26 @@
     }
     choosePreview(previewOpenMode);
   }
+
+  // Per-kind explanatory tooltip for the quota-stall chip.
+  const quotaTip = $derived(
+    quotaKind === "rework"
+      ? m.unitrow_quota_rework_tip()
+      : quotaKind === "review"
+        ? m.unitrow_quota_review_tip()
+        : quotaKind === "error"
+          ? m.unitrow_quota_error_tip()
+          : m.unitrow_quota_title(),
+  );
+  const quotaLabel = $derived(
+    quotaKind === "rework"
+      ? m.unitrow_quota_rework()
+      : quotaKind === "review"
+        ? m.unitrow_quota_review()
+        : quotaKind === "error"
+          ? m.unitrow_quota_error()
+          : m.unitrow_quota_plan(),
+  );
 </script>
 
 <div class="u-right">
@@ -123,10 +144,10 @@
       >
     </span>
   {/if}
-  <ResearchBadge {session} />
+  <ResearchBadge {session} tip />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
-  <CriticBadge sessionId={session.id} />
-  <BuildQueueBadge sessionId={session.id} planPhase={session.planPhase} {git} />
+  <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
+  <BuildQueueBadge sessionId={session.id} planPhase={session.planPhase} {git} tip />
   <PlanGateBadge
     {session}
     allowView={false}
@@ -134,20 +155,21 @@
     fallbackLabel={quotaKind === "plan" ? m.unitrow_quota_plan() : null}
     fallbackTitle={quotaKind === "plan" ? m.unitrow_quota_title() : null}
     {openPanelTick}
+    tip
   />
   {#if quotaKind && quotaKind !== "plan"}
     <span
       class="badge quota-stalled"
       role="img"
-      title={m.unitrow_quota_title()}
-      aria-label={m.unitrow_quota_title()}
-      >{#if quotaKind === "rework"}{m.unitrow_quota_rework()}{:else if quotaKind === "review"}{m.unitrow_quota_review()}{:else if quotaKind === "error"}{m.unitrow_quota_error()}{:else}{m.unitrow_quota_plan()}{/if}</span
+      aria-label={quotaLabel}
+      use:statusTip={{ text: quotaTip }}>{quotaLabel}</span
     >
   {/if}
   <!-- REVIEWING (in-flight critic) outranks the autopilot badge -->
   {#if !reviewing}<AutopilotBadge
       {session}
       repoAutopilotDefault={repoConfig.isAutopilotEnabled(session.repoPath)}
+      tip
     />{/if}
   <!-- Sandbox state: degraded/unconfined are warnings (amber); confined profiles
        are quiet informational badges (slate). Trusted-manual renders nothing. -->
@@ -156,14 +178,15 @@
       class="badge sandbox-warn"
       role="img"
       aria-label={m.session_sandbox_degraded_label()}
-      title={m.session_sandbox_degraded_title()}>{m.session_sandbox_degraded_label()}</span
+      use:statusTip={{ text: m.session_sandbox_degraded_title() }}
+      >{m.session_sandbox_degraded_label()}</span
     >
   {:else if session.sandboxApplied === "autonomous" && session.egressDegraded}
     <span
       class="badge sandbox-warn"
       role="img"
       aria-label={m.session_sandbox_egress_degraded_label()}
-      title={m.session_sandbox_egress_degraded_title()}
+      use:statusTip={{ text: m.session_sandbox_egress_degraded_title() }}
       >{m.session_sandbox_egress_degraded_label()}</span
     >
   {:else if session.sandboxApplied === "autonomous"}
@@ -171,27 +194,36 @@
       class="badge sandbox"
       role="img"
       aria-label={m.session_sandbox_autonomous_label()}
-      title={m.session_sandbox_autonomous_title()}>{m.session_sandbox_autonomous_label()}</span
+      use:statusTip={{ text: m.session_sandbox_autonomous_title() }}
+      >{m.session_sandbox_autonomous_label()}</span
     >
   {:else if session.sandboxApplied === "standard"}
     <span
       class="badge sandbox"
       role="img"
       aria-label={m.session_sandbox_standard_label()}
-      title={m.session_sandbox_standard_title()}>{m.session_sandbox_standard_label()}</span
+      use:statusTip={{ text: m.session_sandbox_standard_title() }}
+      >{m.session_sandbox_standard_label()}</span
     >
   {:else if session.sandboxApplied === "trusted" && session.auto}
     <span
       class="badge sandbox-warn"
       role="img"
       aria-label={m.session_sandbox_unconfined_label()}
-      title={m.session_sandbox_unconfined_title()}>{m.session_sandbox_unconfined_label()}</span
+      use:statusTip={{ text: m.session_sandbox_unconfined_title() }}
+      >{m.session_sandbox_unconfined_label()}</span
     >
   {/if}
   {#if isMerging(session, nowMs)}
-    <span class="badge merging" id="u-status-{session.id}">{m.status_merging()}</span>
+    <span
+      class="badge merging"
+      id="u-status-{session.id}"
+      use:statusTip={{ text: m.status_merging_tip() }}>{m.status_merging()}</span
+    >
   {:else if session.readyToMerge}
-    <span class="badge" id="u-status-{session.id}">{m.status_ready_to_merge()}</span>
+    <span class="badge" id="u-status-{session.id}" use:statusTip={{ text: m.status_ready_tip() }}
+      >{m.status_ready_to_merge()}</span
+    >
   {/if}
   <span class="elapsed" bind:this={elapsedEl}>{elapsed(session.createdAt, nowMs)}</span>
 </div>

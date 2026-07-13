@@ -139,3 +139,53 @@ describe("CriticBadge streak label", () => {
     expect(streak, "streak-final rendered").not.toBeNull();
   });
 });
+
+describe("CriticBadge tip mode (card) — Open PR dialog + URL safety", () => {
+  const dialogOpen = () => document.querySelector(".status-tip-dialog:popover-open");
+
+  it("no tip → keeps the native title, no dialog", async () => {
+    reviews.map = { s1: v({ addressRound: 0, decision: "changes_requested", summary: "bad" }) };
+    render(CriticBadge, { sessionId: "s1" });
+    const badge = page.getByText(/CHANGES/).element();
+    await expect.element(page.getByText(/CHANGES/)).toBeInTheDocument();
+    expect(badge.getAttribute("title")).toBe("bad");
+    expect(document.querySelector("button.critic-trigger")).toBeNull();
+  });
+
+  it("verdict-url only (safe) → clicking opens a role=dialog whose Open PR anchor targets verdict.url", async () => {
+    reviews.map = {
+      s1: v({ addressRound: 0, decision: "changes_requested", url: "https://verdict/pr/1" }),
+    };
+    render(CriticBadge, { sessionId: "s1", tip: true });
+    const btn = document.querySelector("button.critic-trigger") as HTMLButtonElement;
+    expect(btn, "actionable trigger is a raised button").not.toBeNull();
+    expect(getComputedStyle(btn).zIndex).toBe("1");
+    btn.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(dialogOpen()).not.toBeNull());
+    const link = dialogOpen()!.querySelector("a.status-tip-action") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("https://verdict/pr/1");
+    expect(link.getAttribute("target")).toBe("_blank");
+    expect(link.getAttribute("rel")).toBe("noopener noreferrer");
+  });
+
+  it("non-http(s) verdict url + no git.url → the Open-PR action is omitted (explain-only span)", async () => {
+    reviews.map = {
+      s1: v({ addressRound: 0, decision: "changes_requested", url: "javascript:alert(1)" }),
+    };
+    render(CriticBadge, { sessionId: "s1", tip: true });
+    await expect.element(page.getByText(/CHANGES/)).toBeInTheDocument();
+    expect(document.querySelector("button.critic-trigger"), "no dialog trigger").toBeNull();
+  });
+
+  it("unsafe verdict url but safe git.url → falls back to git.url", async () => {
+    reviews.map = {
+      s1: v({ addressRound: 0, decision: "changes_requested", url: "data:text/html,x" }),
+    };
+    render(CriticBadge, { sessionId: "s1", tip: true, prUrl: "https://git/pr/9" });
+    const btn = document.querySelector("button.critic-trigger") as HTMLButtonElement;
+    expect(btn).not.toBeNull();
+    btn.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
+    await vi.waitFor(() => expect(dialogOpen()).not.toBeNull());
+    expect(dialogOpen()!.querySelector("a")!.getAttribute("href")).toBe("https://git/pr/9");
+  });
+});

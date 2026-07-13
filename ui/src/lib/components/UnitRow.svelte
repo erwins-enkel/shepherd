@@ -685,6 +685,7 @@
         status={dStatus}
         ready={session.readyToMerge}
         merging={isMerging(session, nowMs)}
+        tip
       />
     </div>
 

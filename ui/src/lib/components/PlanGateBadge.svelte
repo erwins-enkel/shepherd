@@ -8,6 +8,7 @@
   import { replySession, reviewPlan, isPlanReviewError } from "$lib/api";
   import { toasts } from "$lib/toasts.svelte";
   import { clock } from "$lib/now.svelte";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surface (UnitRow) passes false so this chip
@@ -20,6 +21,7 @@
     fallbackLabel = null,
     fallbackTitle = null,
     openPanelTick = 0,
+    tip = false,
   }: {
     session: Session;
     allowView?: boolean;
@@ -29,6 +31,9 @@
     fallbackTitle?: string | null;
     // monotonic tick bumped by the row's "Answer" hold CTA → opens PlanPanel directly
     openPanelTick?: number;
+    // `tip` (Herd card only): the quota="plan" fallback swaps its native title for
+    // the styled statusTip tooltip.
+    tip?: boolean;
   } = $props();
 
   const gate = $derived(planGates.map[session.id]);
@@ -48,7 +53,10 @@
   // PlanGateMenu instead of the panel when the chip is stalled.
   let lastPanelTick = 0;
   $effect(() => {
-    if (openPanelTick > 0 && openPanelTick !== lastPanelTick) {
+    // Guard on chip.kind !== "none": the quota="plan" fallback branch renders only
+    // when chip.kind === "none", and there is no plan to view then — so a tick bump
+    // in the fallback state must never mount a PlanPanel.
+    if (openPanelTick > 0 && openPanelTick !== lastPanelTick && chip.kind !== "none") {
       open = true; // open PlanPanel directly — NOT toggle()
     }
     lastPanelTick = openPanelTick;
@@ -187,9 +195,10 @@
 {:else if fallbackLabel}
   <span
     class="pg-badge pg-changes pg-stalled pg-fallback"
-    title={fallbackTitle ?? fallbackLabel}
+    title={tip ? undefined : (fallbackTitle ?? fallbackLabel)}
     role="img"
-    aria-label={fallbackTitle ?? fallbackLabel}>{fallbackLabel}</span
+    aria-label={fallbackTitle ?? fallbackLabel}
+    use:statusTip={tip ? { text: fallbackTitle ?? fallbackLabel } : null}>{fallbackLabel}</span
   >
 {/if}
 

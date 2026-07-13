@@ -1,8 +1,10 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
 
-  let { session }: { session: Session } = $props();
+  // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
+  let { session, tip = false }: { session: Session; tip?: boolean } = $props();
 </script>
 
 {#if session.research}
@@ -10,7 +12,8 @@
     class="research-badge"
     role="img"
     aria-label={m.research_badge_label()}
-    title={m.research_badge_title()}
+    title={tip ? undefined : m.research_badge_title()}
+    use:statusTip={tip ? { text: m.research_badge_title() } : null}
   >
     {m.research_badge_label()}
   </span>

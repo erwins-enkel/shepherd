@@ -185,3 +185,71 @@ describe("PlanGateBadge stalled menu", () => {
     await expect.element(page.getByRole("menu", { name: m.plangate_menu_label() })).toBeVisible();
   });
 });
+
+describe("PlanGateBadge tip mode (card) — single instance, fallback + openPanelTick guard", () => {
+  const FL = m.unitrow_quota_plan();
+  const FT = m.unitrow_quota_title();
+
+  it("quota=plan fallback (no gate) → one tipped chip: aria-description, no title, no PlanPanel", async () => {
+    const id = "pg-fb";
+    planGates.map = {};
+    render(PlanGateBadge, {
+      props: {
+        session: session({ id, planPhase: null }),
+        allowView: false,
+        fallbackLabel: FL,
+        fallbackTitle: FT,
+        tip: true,
+      },
+    });
+    await expect.element(page.getByText(FL)).toBeInTheDocument();
+    const chips = document.querySelectorAll(".pg-badge");
+    expect(chips.length, "exactly one plan-gate element").toBe(1);
+    const chip = chips[0] as HTMLElement;
+    await vi.waitFor(() => expect(chip.getAttribute("aria-description")).toBe(FT));
+    expect(chip.hasAttribute("title")).toBe(false);
+    expect(document.querySelector('[role="dialog"]'), "no PlanPanel in fallback").toBeNull();
+  });
+
+  it("openPanelTick in the fallback state never mounts a PlanPanel (chip.kind guard)", async () => {
+    const id = "pg-tick";
+    planGates.map = {};
+    // openPanelTick > 0 on mount → the effect fires; the chip.kind !== "none" guard
+    // must block it because the fallback renders only when chip.kind === "none".
+    render(PlanGateBadge, {
+      props: {
+        session: session({ id, planPhase: null }),
+        allowView: false,
+        fallbackLabel: FL,
+        fallbackTitle: FT,
+        tip: true,
+        openPanelTick: 1,
+      },
+    });
+    await expect.element(page.getByText(FL)).toBeInTheDocument();
+    await new Promise((r) => setTimeout(r, 40));
+    expect(
+      document.querySelector('[role="dialog"]'),
+      "guard blocks PlanPanel in fallback",
+    ).toBeNull();
+  });
+
+  it("combined: an active (stalled) gate wins over the fallback — interactive menu, no fallback chip", async () => {
+    const id = "pg-both";
+    planGates.map = { [id]: gate(id) };
+    render(PlanGateBadge, {
+      props: {
+        session: session({ id }),
+        allowView: false,
+        labelOverride: FL,
+        fallbackLabel: FL,
+        fallbackTitle: FT,
+        tip: true,
+      },
+    });
+    // interactive button (not a fallback span) renders and opens its menu
+    expect(document.querySelector(".pg-fallback"), "fallback tooltip chip not rendered").toBeNull();
+    await page.getByRole("button", { name: FL }).click();
+    await expect.element(page.getByRole("menu", { name: m.plangate_menu_label() })).toBeVisible();
+  });
+});

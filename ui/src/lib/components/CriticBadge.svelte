@@ -3,49 +3,209 @@
   import { criticChip, addressRoundInfo } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { firstSafeHttpUrl } from "$lib/url";
+  import { anchorPopover } from "$lib/floating-anchor";
 
-  let { sessionId }: { sessionId: string } = $props();
+  // `tip` (Herd card only): swap the native title for the styled tooltip, and —
+  // when a safe PR URL resolves — offer an Open-PR click-pinned dialog. `prUrl`
+  // is the git.url fallback; the verdict's own url is preferred.
+  let {
+    sessionId,
+    tip = false,
+    prUrl = undefined,
+  }: { sessionId: string; tip?: boolean; prUrl?: string } = $props();
+
   const reviewing = $derived(reviews.isReviewing(sessionId));
   const verdict = $derived(reviews.map[sessionId]);
   const chip = $derived(criticChip(verdict, reviewing));
   const round = $derived(addressRoundInfo(verdict, clock.current));
-  // latest tool-use of the in-flight critic (its own claude session) — shows what it's
-  // doing right now; falls back to the generic line until the first tool-use lands.
   const activity = $derived(reviews.activityFor(sessionId));
+
+  type CriticView = { cls: string; label: string; title: string; dot: boolean };
+
+  // Streak label/title split out so the `view` dispatcher below stays under the
+  // complexity gate (the round branch carried most of the nested ternaries).
+  function roundView(r: NonNullable<typeof round>): CriticView {
+    const label =
+      r.status === "stalled"
+        ? m.criticbadge_stalled()
+        : r.status === "final"
+          ? m.criticbadge_final()
+          : m.criticbadge_round({ round: r.round, cap: r.cap });
+    const title =
+      r.status === "stalled"
+        ? m.criticbadge_stalled_title({ cap: r.cap })
+        : r.status === "final"
+          ? m.criticbadge_final_title()
+          : m.criticbadge_round_title({ round: r.round, cap: r.cap });
+    return {
+      cls: `streak-${r.status}${reviewing ? " critic-reviewing" : ""}`,
+      label,
+      title,
+      dot: reviewing,
+    };
+  }
+
+  function reviewingView(): CriticView {
+    return {
+      cls: "critic-reviewing",
+      label: m.criticbadge_reviewing(),
+      title: activity
+        ? m.criticbadge_reviewing_activity_title({ activity })
+        : m.criticbadge_reviewing_title(),
+      dot: true,
+    };
+  }
+
+  // Which visual state renders, and its class / label / tooltip text / dot.
+  const view = $derived.by((): CriticView | null => {
+    if (round) return roundView(round);
+    if (chip.kind === "reviewing") return reviewingView();
+    if (chip.kind === "verdict")
+      return {
+        cls: `critic-${chip.decision}`,
+        label: chip.label,
+        title: verdict!.summary || m.criticbadge_title(),
+        dot: false,
+      };
+    return null;
+  });
+
+  // Prefer the verdict's own PR url; fall back to git.url. Only a safe http(s) URL
+  // enables the dialog — otherwise the chip is explanation-only.
+  const openPrUrl = $derived(tip ? firstSafeHttpUrl(verdict?.url, prUrl) : null);
+
+  // Dual-surface state for the actionable case — only one of tip / dialog is ever open.
+  let surface = $state<"none" | "tip" | "dialog">("none");
+  let btnEl = $state<HTMLButtonElement | null>(null);
+  let tipEl = $state<HTMLElement | null>(null);
+  let dialogEl = $state<HTMLElement | null>(null);
+  let linkEl = $state<HTMLAnchorElement | null>(null);
+  const dialogId = $props.id();
+
+  // Show / anchor whichever surface is active.
+  $effect(() => {
+    const el = surface === "tip" ? tipEl : surface === "dialog" ? dialogEl : null;
+    if (!btnEl || !el) return;
+    try {
+      el.showPopover();
+    } catch {
+      return;
+    }
+    if (surface === "dialog") linkEl?.focus();
+    return anchorPopover(btnEl, el, 6);
+  });
+
+  // Dismiss on Esc / outside pointerdown / scroll / resize; return focus to the chip.
+  $effect(() => {
+    if (surface === "none") return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") close();
+    }
+    function onDown(e: PointerEvent) {
+      const t = e.target as Node;
+      if (btnEl?.contains(t) || tipEl?.contains(t) || dialogEl?.contains(t)) return;
+      close();
+    }
+    function onScroll() {
+      close();
+    }
+    const tid = setTimeout(() => {
+      window.addEventListener("keydown", onKey);
+      window.addEventListener("pointerdown", onDown, true);
+      window.addEventListener("scroll", onScroll, { capture: true, passive: true });
+      window.addEventListener("resize", onScroll, { passive: true });
+    }, 0);
+    return () => {
+      clearTimeout(tid);
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("pointerdown", onDown, true);
+      window.removeEventListener("scroll", onScroll, true);
+      window.removeEventListener("resize", onScroll);
+    };
+  });
+
+  function close() {
+    if (surface === "dialog") btnEl?.focus();
+    surface = "none";
+  }
+  function onEnter(e: PointerEvent) {
+    if (e.pointerType === "touch" || surface === "dialog") return;
+    surface = "tip";
+  }
+  function onLeave(e: PointerEvent) {
+    if (e.pointerType === "touch") return;
+    if (surface === "tip") surface = "none";
+  }
+  function onFocus() {
+    if (surface !== "dialog") surface = "tip";
+  }
+  function onBlur() {
+    if (surface === "tip") surface = "none";
+  }
+  function onClick(e: MouseEvent) {
+    e.stopPropagation();
+    surface = "dialog"; // real activation → the click-pinned dialog with the link
+  }
 </script>
 
-{#if round}
-  <!-- auto-address streak active: the compact streak label takes over the whole pill,
-       replacing the reviewing/verdict word (no middot suffix, no two-line wrap) -->
-  <span
-    class="critic-badge streak-{round.status}"
-    class:critic-reviewing={reviewing}
-    title={round.status === "stalled"
-      ? m.criticbadge_stalled_title({ cap: round.cap })
-      : round.status === "final"
-        ? m.criticbadge_final_title()
-        : m.criticbadge_round_title({ round: round.round, cap: round.cap })}
-  >
-    {#if reviewing}<span class="rev-dot" aria-hidden="true"></span>{/if}{round.status === "stalled"
-      ? m.criticbadge_stalled()
-      : round.status === "final"
-        ? m.criticbadge_final()
-        : m.criticbadge_round({ round: round.round, cap: round.cap })}
-  </span>
-{:else if chip.kind === "reviewing"}
-  <span
-    class="critic-badge critic-reviewing"
-    title={activity
-      ? m.criticbadge_reviewing_activity_title({ activity })
-      : m.criticbadge_reviewing_title()}
-  >
-    <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-  </span>
-{:else if chip.kind === "verdict"}
-  <span
-    class="critic-badge critic-{chip.decision}"
-    title={verdict!.summary || m.criticbadge_title()}>{chip.label}</span
-  >
+{#if view}
+  {#snippet content()}
+    {#if view.dot}<span class="rev-dot" aria-hidden="true"></span>{/if}{view.label}
+  {/snippet}
+
+  {#if !tip}
+    <span class="critic-badge {view.cls}" title={view.title}>{@render content()}</span>
+  {:else if !openPrUrl}
+    <span
+      class="critic-badge {view.cls}"
+      role="img"
+      aria-label={view.label}
+      use:statusTip={{ text: view.title }}>{@render content()}</span
+    >
+  {:else}
+    <!-- Actionable: hover shows the explanation (role=tooltip), click opens a
+         click-pinned role=dialog with the explanation + Open PR link. -->
+    <button
+      bind:this={btnEl}
+      type="button"
+      class="critic-badge critic-trigger {view.cls}"
+      aria-label={view.label}
+      aria-haspopup="dialog"
+      aria-expanded={surface === "dialog"}
+      aria-controls={surface === "dialog" ? dialogId : undefined}
+      onpointerenter={onEnter}
+      onpointerleave={onLeave}
+      onfocus={onFocus}
+      onblur={onBlur}
+      onclick={onClick}>{@render content()}</button
+    >
+    <div class="status-tip" role="tooltip" popover="manual" bind:this={tipEl}>{view.title}</div>
+    <div
+      id={dialogId}
+      class="status-tip-dialog"
+      role="dialog"
+      aria-label={view.label}
+      popover="manual"
+      bind:this={dialogEl}
+    >
+      <span>{view.title}</span>
+      <!-- eslint-disable svelte/no-navigation-without-resolve -- external, validated http(s) PR URL -->
+      <a
+        bind:this={linkEl}
+        class="status-tip-action"
+        href={openPrUrl}
+        target="_blank"
+        rel="noopener noreferrer"
+        onclick={(e) => {
+          e.stopPropagation();
+          close();
+        }}>{m.criticbadge_open_pr()} ↗</a
+      >
+      <!-- eslint-enable svelte/no-navigation-without-resolve -->
+    </div>
+  {/if}
 {/if}
 
 <style>
@@ -58,6 +218,24 @@
     border-radius: 2px;
     white-space: nowrap;
     color: var(--color-muted);
+  }
+  /* Button variant reset (mirrors PrBadge's .as-button) for the actionable trigger. */
+  .critic-trigger {
+    position: relative;
+    z-index: 1;
+    appearance: none;
+    margin: 0;
+    font-family: inherit;
+    line-height: inherit;
+    background: transparent;
+    cursor: pointer;
+  }
+  .critic-trigger:hover {
+    background: var(--color-hover);
+  }
+  .critic-trigger:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .critic-changes_requested {
     border-color: var(--color-amber);

@@ -6,8 +6,10 @@
 
   let {
     autoMerge = {},
+    onselect,
   }: {
     autoMerge?: Record<string, AutoMergeStatus>;
+    onselect?: (id: string) => void;
   } = $props();
   const mergeRows = $derived(activeMergeTrain(autoMerge));
 </script>
@@ -19,11 +21,28 @@
       {#each mergeRows as s (s.repoPath)}
         {@const label = mergeTrainLabel(s.state)}
         {@const attention = mergeTrainIsAttention(s.state!)}
-        <li class="qs-row" class:paused={attention}>
-          <span class="qs-repo">{basename(s.repoPath)}</span>
-          <span class={["qs-mt-state", { "qs-pause": attention }]}
-            >{s.detail ? `${label} (${s.detail})` : label}</span
-          >
+        {@const sessionId = s.sessionId}
+        <li>
+          {#if sessionId}
+            <button
+              type="button"
+              class="qs-row qs-link"
+              class:paused={attention}
+              onclick={() => onselect?.(sessionId)}
+            >
+              <span class="qs-repo">{basename(s.repoPath)}</span>
+              <span class={["qs-mt-state", { "qs-pause": attention }]}
+                >{s.detail ? `${label} (${s.detail})` : label}</span
+              >
+            </button>
+          {:else}
+            <span class="qs-row" class:paused={attention}>
+              <span class="qs-repo">{basename(s.repoPath)}</span>
+              <span class={["qs-mt-state", { "qs-pause": attention }]}
+                >{s.detail ? `${label} (${s.detail})` : label}</span
+              >
+            </span>
+          {/if}
         </li>
       {/each}
     </ul>
@@ -78,6 +97,24 @@
     color: var(--color-muted);
     white-space: nowrap;
   }
+  .qs-link {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    border-radius: 2px;
+    background: transparent;
+    font-family: inherit;
+    font-weight: inherit;
+    line-height: inherit;
+    cursor: pointer;
+  }
+  .qs-link:hover .qs-repo {
+    color: var(--color-amber);
+  }
+  .qs-link:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
   .qs-repo {
     color: var(--color-ink-bright);
     font-weight: 500;
@@ -112,6 +149,12 @@
       overflow: visible;
       text-overflow: clip;
       max-width: none;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .qs-link {
+      min-height: 44px;
     }
   }
 </style>

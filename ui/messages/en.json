@@ -3095,5 +3095,7 @@
   "feat_provider_availability_card_body": "New Task now shows a blue CLI-availability card when a picked command, skill, or plugin token only runs in one coding CLI, so the forced provider choice is visible before launch.",
   "newtask_preview_image_aria": "Preview attached image {name}",
   "feat_newtask_image_preview_title": "Preview images before starting a task",
-  "feat_newtask_image_preview_body": "Hover or focus an image attachment's filename to check it before launch. On mobile, tap the filename to toggle the preview."
+  "feat_newtask_image_preview_body": "Hover or focus an image attachment's filename to check it before launch. On mobile, tap the filename to toggle the preview.",
+  "feat_automerge_session_jump_title": "Jump from Full-auto merge",
+  "feat_automerge_session_jump_body": "Click any active Full-auto merge entry to jump straight to its task and terminal. Shepherd clears filters that would hide it and follows the task into the right repository."
 }

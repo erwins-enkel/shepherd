@@ -3095,5 +3095,7 @@
   "feat_provider_availability_card_body": "Neue Aufgabe zeigt jetzt eine blaue CLI-Verfügbarkeitskarte, wenn ein gewählter Command-, Skill- oder Plugin-Token nur in einer Coding-CLI läuft, damit die erzwungene Provider-Wahl vor dem Start sichtbar ist.",
   "newtask_preview_image_aria": "Vorschau des angehängten Bildes {name}",
   "feat_newtask_image_preview_title": "Bilder vor dem Task-Start prüfen",
-  "feat_newtask_image_preview_body": "Fahre mit der Maus über den Dateinamen eines Bildanhangs oder fokussiere ihn, um das Bild vor dem Start zu prüfen. Tippe auf Mobilgeräten auf den Dateinamen, um die Vorschau ein- oder auszublenden."
+  "feat_newtask_image_preview_body": "Fahre mit der Maus über den Dateinamen eines Bildanhangs oder fokussiere ihn, um das Bild vor dem Start zu prüfen. Tippe auf Mobilgeräten auf den Dateinamen, um die Vorschau ein- oder auszublenden.",
+  "feat_automerge_session_jump_title": "Aus Voll-Auto-Merge springen",
+  "feat_automerge_session_jump_body": "Klicke auf einen aktiven Voll-Auto-Merge-Eintrag, um direkt zu seinem Task und Terminal zu springen. Shepherd entfernt Filter, die ihn verbergen würden, und folgt dem Task ins richtige Repository."
 }

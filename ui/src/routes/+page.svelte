@@ -1300,6 +1300,17 @@
     if (toDetail && mobile.current) mobileScreen = "detail";
   }
 
+  // A global session jump must leave the target visible in the herd, even when a lens or
+  // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
+  function jumpToSession(id: string) {
+    showBacklog = false;
+    herdFilter = "all";
+    statusFilter = null;
+    const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
+    if (repoPath) followFilterToRepo(repoPath);
+    selectUnit(id);
+  }
+
   // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens
   // (back to the full list so the session row is visible) and select it via the same
   // selectUnit a rail click uses.
@@ -2580,7 +2591,7 @@
         onrepofilter={applyRepoFilter}
         onpinrepo={setPinnedRepo}
       />
-      <QueueStrip autoMerge={store.autoMerge} />
+      <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
     </header>
   {/if}
 
@@ -3101,16 +3112,7 @@
   oncommandbarsession={(id) => {
     showCommandBar = false;
     demoCommandFilter = "";
-    showBacklog = false;
-    // A ⌘K session jump must land the session VISIBLE + highlighted in the herd list, which
-    // narrows by both the lens filter AND the sticky repo/status filters. Reset both stickies
-    // (herdFilter → all, statusFilter → null) and follow the repo filter onto the session's
-    // repo so a filter on a different repo/status can't strand it out of the list.
-    herdFilter = "all";
-    statusFilter = null;
-    const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
-    if (repoPath) followFilterToRepo(repoPath);
-    selectUnit(id);
+    jumpToSession(id);
   }}
   oncommandbarrepo={(path) => {
     showCommandBar = false;

@@ -8,6 +8,8 @@ import type { HerdrState, SessionStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
 
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
+
 export interface HerdrAgent {
   agent: string;
   agentStatus: HerdrState;
@@ -385,6 +387,11 @@ export class HerdrDriver implements IHerdrDriver {
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
+    // Read-back retry knobs (issue: reviewer-spawn resolve race). `agent start` returning
+    // does not guarantee the agent is in `agent list` yet — a short registration lag. Poll
+    // a few times before giving up; injectable so tests run without real delay.
+    private resolveAttempts = 5,
+    private resolveDelayMs = 100,
   ) {}
 
   list(): HerdrAgent[] {
@@ -514,13 +521,44 @@ export class HerdrDriver implements IHerdrDriver {
    * concurrent spawns can't race the workspace/tab orchestration (the async yield points
    * removed the implicit mutual exclusion the blocking sync path had).
    */
-  start(
+  async start(
     name: string,
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
   ): Promise<HerdrAgent> {
-    return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
+    // The workspace/tab orchestration is serialized (concurrent spawns must not race it);
+    // it returns the freshly-created tab id. The read-back that resolves the started agent
+    // is a pure `agent list` read, so it runs OUTSIDE the serializer — a retry there must
+    // not hold the start mutex, or it would stall every other queued spawn. Roll back the
+    // orphan tab if the agent never registers.
+    const tabId = await this.serializeStart(() => this.startImpl(name, cwd, argv, env));
+    try {
+      return await this.resolveStartedAgent(tabId, cwd);
+    } catch (err) {
+      await this.closeTab(tabId);
+      throw err;
+    }
+  }
+
+  /** Resolve the just-started agent from `agent list`, matching the unique tab we created
+   *  for it (`tabId`) — deterministic, unlike the old cwd match (two sessions sharing a cwd
+   *  could alias). The CLI `agent start` output exposes no terminal id, so a list read is the
+   *  only handle. An empty match means the agent isn't registered YET (a propagation lag, not
+   *  a slow list), so poll a bounded number of times. On exhaustion, warn distinctly — a
+   *  bounded retry masks transient staleness but not herdr-health decay (orphan accumulation
+   *  that eventually starves registration), so the signal must stay visible. The socket driver
+   *  reads terminal_id straight from the `agent.start` reply and needs none of this. */
+  private async resolveStartedAgent(tabId: string, cwd: string): Promise<HerdrAgent> {
+    for (let attempt = 0; attempt < this.resolveAttempts; attempt++) {
+      const match = (await this.listAsync()).find((a) => a.tabId === tabId);
+      if (match) return match;
+      if (attempt < this.resolveAttempts - 1) await sleep(this.resolveDelayMs);
+    }
+    console.warn(
+      `[herdr] agent resolve exhausted after ${this.resolveAttempts} attempts for tab ${tabId} (cwd ${cwd})`,
+    );
+    throw new Error(`herdr: started agent not found for tab ${tabId} (cwd ${cwd})`);
   }
 
   private async startImpl(
@@ -528,7 +566,7 @@ export class HerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
-  ): Promise<HerdrAgent> {
+  ): Promise<string> {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     await this.ensureWorkspace(cwd);
     // Give each agent its OWN tab so its pane spans the full herdr window width.
@@ -546,9 +584,10 @@ export class HerdrDriver implements IHerdrDriver {
     const rootPaneId: string | undefined = created?.result?.root_pane?.pane_id;
     if (!tabId) throw new Error(`herdr: tab create returned no tab_id for ${name}`);
 
-    // Anything after `tab create` can throw (agent start fails, or the resolve below
-    // finds nothing). The tab already exists, so on ANY failure we must close it —
-    // otherwise it lingers forever as an empty husk with no claude in it.
+    // `agent start` can fail (e.g. name-taken exhaustion). The tab already exists, so on
+    // failure we must close it — otherwise it lingers forever as an empty husk with no
+    // claude in it. The read-back that resolves the agent runs in start() (outside the
+    // serializer); its own rollback lives there.
     try {
       // Byte-identical spawn to the socket path — see `buildWrappedArgv`.
       const wrapped = buildWrappedArgv(argv, env);
@@ -567,13 +606,7 @@ export class HerdrDriver implements IHerdrDriver {
         }
       }
 
-      // NOTE: the CLI `agent start` output exposes no terminal id, so the just-started agent
-      // is resolved by its unique worktree cwd; ambiguous only if two sessions share a cwd
-      // (e.g. two non-git cwd-fallbacks on the same repoPath). The socket path (SocketHerdrDriver)
-      // is strictly more reliable — it reads terminal_id straight from the `agent.start` reply.
-      const match = (await this.listAsync()).filter((a) => a.cwd === cwd).at(-1);
-      if (!match) throw new Error(`herdr: started agent not found for cwd ${cwd}`);
-      return match;
+      return tabId;
     } catch (err) {
       await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;

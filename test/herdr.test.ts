@@ -31,7 +31,7 @@ const FIXTURE = JSON.stringify({
         cwd: "/wt/a",
         name: "flatten",
         pane_id: "p1",
-        tab_id: "t1",
+        tab_id: "t_new",
         terminal_id: "term_a",
         workspace_id: "w1",
       },
@@ -191,7 +191,7 @@ test("stop closes the WHOLE tab backing a terminal id (not just its pane)", asyn
     return FIXTURE;
   });
   await d.stop("term_a");
-  expect(calls.at(-1)).toEqual(["tab", "close", "t1"]);
+  expect(calls.at(-1)).toEqual(["tab", "close", "t_new"]);
 });
 
 test("stop is a no-op for an unknown terminal id", async () => {
@@ -210,6 +210,170 @@ test("start rolls back its orphan tab when agent start fails", async () => {
   });
   await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow();
   expect(calls).toContainEqual(["tab", "close", "t_new"]);
+});
+
+// ── read-back resolve: registration staleness, tab-keying, exhaustion (reviewer-spawn race) ──
+
+const EMPTY_LIST = JSON.stringify({ result: { type: "agent_list", agents: [] } });
+
+test("start: resolve retries until the agent registers (registration staleness)", async () => {
+  // `agent start` can return before the agent shows up in `agent list` — the read-back must
+  // poll, not fail on the first empty read. Delay 0 keeps the test instant.
+  let listCalls = 0;
+  const runner = (args: string[]): string => {
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") return "{}";
+    if (args[0] === "agent" && args[1] === "list") {
+      listCalls++;
+      return listCalls < 3 ? EMPTY_LIST : FIXTURE; // empty twice, then the agent (tab t_new)
+    }
+    return "{}";
+  };
+  const d = new HerdrDriver(runner, async (a) => runner(a), 5, 0);
+  const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
+  expect(agent.terminalId).toBe("term_a");
+  expect(listCalls).toBeGreaterThanOrEqual(3); // it polled past the empty reads
+});
+
+test("start: resolve is keyed by the created tab, not cwd (no cwd-collision aliasing)", async () => {
+  // Two agents share cwd /wt/a; only the one in the tab we created (t_new) is ours. The old
+  // cwd `.at(-1)` match could return the wrong (stale) sibling; the tab match cannot.
+  const TWO_AT_SAME_CWD = JSON.stringify({
+    result: {
+      type: "agent_list",
+      agents: [
+        // ours — in the tab we just created
+        {
+          agent: "claude",
+          agent_status: "working",
+          cwd: "/wt/a",
+          name: "flatten",
+          pane_id: "p1",
+          tab_id: "t_new",
+          terminal_id: "term_ours",
+          workspace_id: "w1",
+        },
+        // a stale sibling at the same cwd, listed LAST (so `.at(-1)` would have picked it)
+        {
+          agent: "claude",
+          agent_status: "done",
+          cwd: "/wt/a",
+          name: "stale",
+          pane_id: "p9",
+          tab_id: "t_old",
+          terminal_id: "term_stale",
+          workspace_id: "w1",
+        },
+      ],
+    },
+  });
+  const runner = (args: string[]): string => {
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") return "{}";
+    if (args[0] === "agent" && args[1] === "list") return TWO_AT_SAME_CWD;
+    return "{}";
+  };
+  const d = new HerdrDriver(runner, async (a) => runner(a), 5, 0);
+  const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
+  expect(agent.terminalId).toBe("term_ours"); // the created tab, not the stale sibling
+});
+
+test("start: resolve exhaustion warns distinctly and rolls back the orphan tab", async () => {
+  const calls: string[][] = [];
+  const runner = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") return "{}";
+    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST; // never registers
+    return "{}";
+  };
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => {
+    warnings.push(a.map(String).join(" "));
+  };
+  try {
+    const d = new HerdrDriver(runner, async (a) => runner(a), 3, 0);
+    await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow(
+      /started agent not found for tab t_new/,
+    );
+  } finally {
+    console.warn = origWarn;
+  }
+  // distinct exhaustion signal (herdr-health), not a silent first-try success
+  expect(
+    warnings.some((w) => w.includes("agent resolve exhausted after 3 attempts for tab t_new")),
+  ).toBe(true);
+  expect(calls).toContainEqual(["tab", "close", "t_new"]); // orphan tab rolled back
+});
+
+test("start: the read-back runs OUTSIDE the serializer — a slow resolve doesn't block the next start", async () => {
+  // If the resolve were inside serializeStart, start #2's orchestration could not begin until
+  // start #1's retry finished. Here #1's agent registers only AFTER #2 completes, yet #2 still
+  // finishes first — proving the read-back holds no start mutex. (Old in-mutex code deadlocks.)
+  let tabSeq = 0;
+  let p2done = false;
+  const makeTabCreate = (): string => {
+    const id = `t_new${++tabSeq}`;
+    return JSON.stringify({
+      result: {
+        type: "tab_created",
+        tab: { tab_id: id, workspace_id: "w1" },
+        root_pane: { pane_id: `pr${tabSeq}`, tab_id: id },
+      },
+    });
+  };
+  const listReply = (): string => {
+    const agents: Record<string, string>[] = [
+      {
+        agent: "claude",
+        agent_status: "working",
+        cwd: "/wt/b",
+        name: "two",
+        pane_id: "p2",
+        tab_id: "t_new2",
+        terminal_id: "term_2",
+        workspace_id: "w1",
+      },
+    ];
+    if (p2done)
+      agents.unshift({
+        agent: "claude",
+        agent_status: "working",
+        cwd: "/wt/a",
+        name: "one",
+        pane_id: "p1",
+        tab_id: "t_new1",
+        terminal_id: "term_1",
+        workspace_id: "w1",
+      });
+    return JSON.stringify({ result: { type: "agent_list", agents } });
+  };
+  const runner = (args: string[]): string => {
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return makeTabCreate();
+    if (args[0] === "agent" && args[1] === "start") return "{}";
+    if (args[0] === "agent" && args[1] === "list") return listReply();
+    return "{}";
+  };
+  const d = new HerdrDriver(runner, async (a) => runner(a), 20, 20); // #1 keeps polling ~for a while
+  const order: string[] = [];
+  const p1 = d.start("one", "/wt/a", ["claude", "go"]).then((a) => {
+    order.push("p1");
+    return a;
+  });
+  const p2 = d.start("two", "/wt/b", ["claude", "go"]).then((a) => {
+    p2done = true; // #1's agent becomes resolvable only now
+    order.push("p2");
+    return a;
+  });
+  const [a1, a2] = await Promise.all([p1, p2]);
+  expect(a2.terminalId).toBe("term_2");
+  expect(a1.terminalId).toBe("term_1");
+  expect(order[0]).toBe("p2"); // #2 finished before #1's retry — resolve is not serialized
 });
 
 const TAB_LIST = JSON.stringify({
@@ -757,7 +921,7 @@ const POST_EVICT_LIST = JSON.stringify({
         cwd: "/wt/a",
         name: "review TASK-504",
         pane_id: "p_new",
-        tab_id: "tab_started",
+        tab_id: "t_new",
         terminal_id: "term_started",
         workspace_id: "w1",
       },

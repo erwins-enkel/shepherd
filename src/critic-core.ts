@@ -340,7 +340,7 @@ function isPathShaped(token: string): boolean {
  * `files` set carried on InFlight, so it never touches the poll loop). For each finding, parse a
  * leading `<path>: ` token (stripping an optional `:<line>` suffix on the path) and DROP it iff:
  *   `files` is non-empty AND the leading token is path-shaped AND it does NOT correspond to any
- *   changed file (see `correspondsToChangedFile`: exact, trailing-segment, or basename match).
+ *   changed file (via `attributeFinding` → `matchChangedFile`: exact, trailing-segment, or basename match).
  * Findings with no parseable path prefix are KEPT (unattributed → never drop something we can't
  * attribute). Note this means a finding prefixed with an extensionless path (`Makefile: ...`,
  * `Dockerfile: ...`, `LICENSE: ...`) is NOT path-shaped per isPathShaped, so it is treated as

@@ -1048,6 +1048,18 @@ describe("Viewport mobile page-swipe scoping", () => {
     }
   });
 
+  it("uses the shared actionbar touch height for the autopilot toggle", async () => {
+    const { container } = await renderMobile(vi.fn());
+    const toggle = container.querySelector<HTMLElement>(".strip-controls .ap-toggle");
+    expect(toggle, "autopilot toggle should render").not.toBeNull();
+    const expectedTouchHeight = getComputedStyle(document.documentElement)
+      .getPropertyValue("--mobile-actionbar-hit")
+      .trim();
+
+    expect(expectedTouchHeight, "mobile actionbar height token").not.toBe("");
+    expect(getComputedStyle(toggle!).minHeight).toBe(expectedTouchHeight);
+  });
+
   it("does NOT page when a drag starts on a [data-swipe-ignore] surface inside the body", async () => {
     const onnavigate = vi.fn();
     const { container } = await renderMobile(onnavigate);

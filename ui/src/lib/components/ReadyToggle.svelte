@@ -14,7 +14,7 @@
   }: {
     sessionId: string;
     ready?: boolean;
-    // touch layout: enlargement so the toggle matches the ≥40px
+    // touch layout: enlarge to --mobile-actionbar-hit so the toggle matches its
     // .gbtn / .verdict-chip siblings instead of rendering half-height next to them.
     mobile?: boolean;
   } = $props();
@@ -53,12 +53,12 @@
     border-color: var(--color-amber);
     color: var(--color-amber);
   }
-  /* touch rail: match the ≥40px .gbtn / button.verdict-chip siblings so the
+  /* touch rail: match the full-height .gbtn / button.verdict-chip siblings so the
      toggle isn't a half-height odd-one-out beside the Reviewed chip */
   .ready-toggle.mobile {
     display: inline-flex;
     align-items: center;
-    min-height: 40px;
+    min-height: var(--mobile-actionbar-hit);
     padding: 6px 14px;
     font-size: var(--fs-base);
   }

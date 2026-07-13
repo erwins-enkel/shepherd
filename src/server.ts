@@ -2578,7 +2578,8 @@ function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
 // Mirrors /review-pr → reviewTrigger.force: this is a manual click, so it passes `force: true`
 // to bypass the unchanged-plan dedupe (an operator re-clicking on an identical plan should still
 // re-review). `status` tells the caller what happened: a reviewer actually spawned ("started"),
-// the plan artifact is unavailable ("plan-unavailable"), a spawn attempt failed ("error"), or
+// the plan artifact is unavailable ("plan-unavailable"), a spawn attempt failed with a specific
+// cause ("error-spawn" | "error-worktree" | "error-auth"), or
 // nothing happened ("skipped" — a review is already in flight, the gate is already approved, or
 // the session has left the plan phase; the route can't distinguish which), so the UI can explain
 // the outcome without mislabelling a failure as a no-op.

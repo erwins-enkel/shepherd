@@ -164,11 +164,11 @@ test("plan-gate: api-key mode (passthrough host) — apiKeyHelper + CLAUDE_CONFI
   });
 });
 
-test("plan-gate: api-key without a configured key fails closed → 'error', no spawn, reaped", async () => {
+test("plan-gate: api-key without a configured key fails closed → 'error-auth', no spawn, reaped", async () => {
   await withAuth("api-key", null, async () => {
     const h = harness();
     const status = await h.svc.consider(planningSession() as any);
-    expect(status).toBe("error");
+    expect(status).toBe("error-auth");
     expect(h.started.length).toBe(0);
     expect(h.removed).toEqual(["/wt-detached"]);
   });
@@ -258,7 +258,7 @@ test("consider re-reviews an error verdict even when the plan hash is unchanged"
   expect(status).toBe("started");
   expect(h.started.length).toBe(1); // an error verdict is retried, not deduped away
 });
-test("consider reports 'error' (not a dedupe) when the reviewer fails to spawn", async () => {
+test("consider reports 'error-spawn' (not a dedupe) when the reviewer fails to spawn", async () => {
   const h = harness({
     herdr: {
       start: async () => {
@@ -268,9 +268,24 @@ test("consider reports 'error' (not a dedupe) when the reviewer fails to spawn",
     },
   });
   const status = await h.svc.consider(planningSession() as any);
-  expect(status).toBe("error"); // UI shows a failure note, not "plan unchanged"
+  expect(status).toBe("error-spawn"); // UI shows a failure note, not "plan unchanged"
   expect(h.started.length).toBe(0);
   expect(h.removed).toEqual(["/wt-detached"]); // the detached worktree is reaped on failure
+});
+
+test("consider reports 'error-worktree' when the review worktree can't be created", async () => {
+  const h = harness({
+    worktree: {
+      createDetached: async () => {
+        throw new Error("wt boom");
+      },
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  const status = await h.svc.consider(planningSession() as any);
+  expect(status).toBe("error-worktree");
+  expect(h.started.length).toBe(0); // never reached the spawn
 });
 test("consider won't double-spawn while one is in flight", async () => {
   const h = harness();

@@ -10,9 +10,7 @@ import { toasts } from "$lib/toasts.svelte";
 
 const api = vi.hoisted(() => ({
   replySession: vi.fn(async () => {}),
-  reviewPlan: vi.fn(
-    async (): Promise<"started" | "skipped" | "plan-unavailable" | "error"> => "skipped",
-  ),
+  reviewPlan: vi.fn(async (): Promise<import("$lib/api").PlanReviewTrigger> => "skipped"),
   releasePlanGate: vi.fn(async () => true),
 }));
 
@@ -169,5 +167,21 @@ describe("PlanGateBadge stalled menu", () => {
 
     await vi.waitFor(() => expect(api.reviewPlan).toHaveBeenCalledWith(id));
     expect(toasts.items.some((t) => t.text === m.plangate_review_started())).toBe(true);
+  });
+
+  it("on an error-* outcome: raises the failure toast and keeps the menu open to retry", async () => {
+    const id = "s-review-error";
+    api.reviewPlan.mockResolvedValue("error-spawn");
+    planGates.map = { [id]: gate(id) };
+
+    render(PlanGateBadge, { props: { session: session({ id }) } });
+
+    await page.getByRole("button", { name: m.plangate_changes({ round: 3, cap: 3 }) }).click();
+    await page.getByRole("menuitem", { name: m.plangate_menu_rereview() }).click();
+
+    await vi.waitFor(() => expect(api.reviewPlan).toHaveBeenCalledWith(id));
+    expect(toasts.items.some((t) => t.text === m.gitrail_review_plan_failed())).toBe(true);
+    // the menu must NOT close on error — the operator can retry in place
+    await expect.element(page.getByRole("menu", { name: m.plangate_menu_label() })).toBeVisible();
   });
 });

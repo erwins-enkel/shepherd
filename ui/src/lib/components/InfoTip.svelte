@@ -8,7 +8,15 @@
   // never reserves vertical space inline (the point: keep dense forms compact,
   // especially on phones). Text-only content — no interactive children — so it is
   // a non-blocking role="tooltip" and warrants no scrim (exempt per CLAUDE.md).
-  let { text, label }: { text: string; label: string } = $props();
+  //
+  // `prominent` bumps the resting glyph one step brighter (muted → ink) for hosts where
+  // the icon must actively invite discovery — e.g. the Herd stage headers, where a
+  // newcomer needs to notice the affordance. Default off: every existing site is unchanged.
+  let {
+    text,
+    label,
+    prominent = false,
+  }: { text: string; label: string; prominent?: boolean } = $props();
 
   // SSR-stable, per-instance id for the aria-describedby wiring.
   const tooltipId = $props.id();
@@ -98,7 +106,7 @@
 
 <button
   bind:this={btnEl}
-  class={["info", { open }]}
+  class={["info", { open, prominent }]}
   type="button"
   aria-label={label}
   aria-describedby={tooltipId}
@@ -137,9 +145,20 @@
     line-height: 1;
     cursor: help;
     touch-action: manipulation;
+    /* The "i" glyph and tooltip prose must render verbatim even when a host header
+       applies uppercase / letter-spacing (e.g. the Herd's `.micro` group headers) —
+       otherwise the lowercase "i" would render as "I", diverging from every other site. */
+    text-transform: none;
+    letter-spacing: normal;
     transition:
       color 0.12s,
       border-color 0.12s;
+  }
+  /* Discovery-forward resting state (opt-in): brighter glyph + border so the affordance
+     reads as intentional, without the loudness of the hover state. */
+  .info.prominent {
+    color: var(--color-ink);
+    border-color: var(--color-faint);
   }
   .info:hover,
   .info.open {
@@ -167,6 +186,10 @@
     font: inherit;
     font-size: var(--fs-meta);
     line-height: 1.5;
+    /* Prose, not chrome: neutralize any inherited uppercase/tracking from the host
+       (e.g. a `.micro` header) so the explanation reads as a normal sentence. */
+    text-transform: none;
+    letter-spacing: normal;
   }
 
   /* Entrance animation. The global blanket in app.css suppresses this under

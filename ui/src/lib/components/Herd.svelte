@@ -527,6 +527,63 @@
       },
     ].filter(Boolean) as PartitionGroupEntry[],
   );
+
+  // Per-stage explainer content for the group-header "i" tooltips (issue: self-explanatory
+  // Herd). Group keys are hyphenated, but Paraglide accessors can't contain hyphens, so this
+  // maps each key to its underscore message keys explicitly (mirroring the `herd_*_group`
+  // label names). A `$derived` so copy re-resolves on locale change; the aria-label reuses
+  // the shared `newtask_info_aria` ("Explain: {topic}"). The headerless `active` group never
+  // renders a tooltip, but is included so the map is the single source for every stage.
+  const groupHelp = $derived<Record<string, { text: string; label: string }>>({
+    active: {
+      text: m.herd_help_active(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_active() }),
+    },
+    "ci-running": {
+      text: m.herd_help_ci_running(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_ci_running() }),
+    },
+    "ci-failed": {
+      text: m.herd_help_ci_failed(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_ci_failed() }),
+    },
+    "reviewer-running": {
+      text: m.herd_help_reviewing(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_reviewing() }),
+    },
+    "rework-running": {
+      text: m.herd_help_rework(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_rework() }),
+    },
+    "waiting-reviewer": {
+      text: m.herd_help_waiting_reviewer(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_waiting_reviewer() }),
+    },
+    "waiting-merger": {
+      text: m.herd_help_waiting_merger(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_waiting_merger() }),
+    },
+    "draft-signoff": {
+      text: m.herd_help_draft_signoff(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_draft_signoff() }),
+    },
+    "awaiting-merge": {
+      text: m.herd_help_your_turn(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_your_turn() }),
+    },
+    ready: {
+      text: m.herd_help_ready(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_ready() }),
+    },
+    merging: {
+      text: m.herd_help_merging(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_merging() }),
+    },
+    merged: {
+      text: m.herd_help_merged(),
+      label: m.newtask_info_aria({ topic: m.herd_stage_name_merged() }),
+    },
+  });
 </script>
 
 <div class="panel bracket" class:flow>
@@ -605,7 +662,7 @@
       />
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
       {#each partitionGroups as grp (grp.key)}
-        <HerdGroup ctx={rowCtx} {...grp} />
+        <HerdGroup ctx={rowCtx} {...grp} help={groupHelp[grp.key] ?? null} />
       {/each}
     {/if}
     {#if filter !== "done" && filter !== "rundown" && filter !== "owed"}

@@ -775,3 +775,32 @@ describe("Herd rework-running group", () => {
     expect(rendered).toEqual(["active", "ci", "review", "rework", "wait"]);
   });
 });
+
+describe("Herd stage-explainer info icon", () => {
+  it("renders a stage-help 'i' in a lifecycle header, in the right-aligned cluster", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "rdy", readyToMerge: true })],
+      git: { rdy: openPr },
+    });
+    // The reused newtask_info_aria ("Explain: {topic}") identifies the button by stage name.
+    await expect
+      .element(page.getByRole("button", { name: "Explain: Ready to merge" }))
+      .toBeInTheDocument();
+    // It sits inside the ready header's right-aligned cluster (rightmost affordance).
+    const info = document.querySelector(".ready-head .head-right .info");
+    expect(info).toBeTruthy();
+  });
+
+  it("renders the 'i' glyph verbatim (not uppercased by the header's .micro transform)", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "rdy", readyToMerge: true })],
+      git: { rdy: openPr },
+    });
+    const info = document.querySelector(".ready-head .info") as HTMLElement | null;
+    expect(info).toBeTruthy();
+    // Without the text-transform:none reset the lowercase "i" would render as "I".
+    expect(getComputedStyle(info!).textTransform).toBe("none");
+  });
+});

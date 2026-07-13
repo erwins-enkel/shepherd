@@ -448,6 +448,12 @@
   // bare shell with no affordance (the in-terminal overlay only shows once the PTY
   // closes for good). A verifiably-alive claude (server /proc sweep) hides it.
   const resumable = $derived(canResume(session, claudeAlive));
+  const effectiveAgentProvider = $derived(
+    session.agentProvider ??
+      (session as Session & { launch?: { agent?: { provider?: Session["agentProvider"] } } }).launch
+        ?.agent?.provider ??
+      "claude",
+  );
   // a11y: the fold button's aria-controls points at the tab switcher — the always-
   // mounted primary region it collapses (the git rail + build queue come and go with
   // the fold, so they can't carry a stable controlled-region id). Per-session id so
@@ -2950,6 +2956,7 @@
     <SteerBar
       focusedId={session.id}
       repoPath={session.repoPath}
+      agentProvider={effectiveAgentProvider}
       onretry={() => onretry?.()}
       {retryHaltedCount}
       {retryReady}
@@ -2987,6 +2994,7 @@
       onsend={sendComposed}
       onclose={() => (composeOpen = false)}
       repoPath={session.repoPath}
+      agentProvider={effectiveAgentProvider}
       startDictation={composeDictate}
     />
   {/if}

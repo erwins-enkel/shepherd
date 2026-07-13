@@ -1134,7 +1134,10 @@ export async function cancelWorkflowRun(repoPath: string, runId: number): Promis
 
 /** Installed slash commands (skills + command files) for the New Task picker. */
 export async function getCommands(repoPath: string): Promise<{ commands: SlashCommand[] }> {
-  const r = await fetch(`/api/commands?repo=${encodeURIComponent(repoPath)}`);
+  const params = new URLSearchParams();
+  if (repoPath) params.set("repo", repoPath);
+  const qs = params.toString();
+  const r = await fetch(`/api/commands${qs ? `?${qs}` : ""}`);
   if (!r.ok) throw await failed(r, "commands");
   return r.json();
 }

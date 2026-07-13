@@ -5,6 +5,7 @@
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { labelChipStyle } from "$lib/label-color";
+  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
   import {
     hideOthers,
     hideActive,
@@ -28,6 +29,7 @@
   let {
     repoPath,
     onpick,
+    onpickcommand,
     onpickissue,
     onpicksteer = undefined,
     allowIssues = true,
@@ -37,6 +39,7 @@
   }: {
     repoPath: string;
     onpick: (prompt: string) => void;
+    onpickcommand?: (cmd: SlashCommand) => void;
     onpickissue: (issue: Issue) => void;
     /** Inject an issue-scoped steer into the composer (append + attach the issue),
      *  from the row's right-click / long-press context menu. Never spawns. */
@@ -297,6 +300,16 @@
     if (selectedLabels.has(label)) selectedLabels.delete(label);
     else selectedLabels.add(label);
   }
+
+  function providerBadge(cmd: SlashCommand): string {
+    const providers = commandProviders(cmd);
+    if (providers.length > 1) return m.provider_badge_both();
+    return providers[0] === "codex" ? m.provider_badge_codex() : m.provider_badge_claude();
+  }
+
+  function marker(cmd: SlashCommand): string {
+    return commandProviders(cmd).includes("claude") ? "/" : "$";
+  }
 </script>
 
 <div class="ps-wrap">
@@ -362,11 +375,19 @@
       {#if filteredCommands.length === 0}
         <div class="muted">{m.promptsources_no_commands()}</div>
       {:else}
-        {#each filteredCommands as c (c.scope + ":" + c.name)}
-          <button class="row" type="button" onclick={() => onpick("/" + c.name + " ")}>
-            <span class="row-marker">/</span>
+        {#each filteredCommands as c (c.id ?? c.scope + ":" + c.name)}
+          <button
+            class="row"
+            type="button"
+            onclick={() =>
+              onpickcommand
+                ? onpickcommand(c)
+                : onpick(commandInvocation(c, commandInvocationProvider(c)) + " ")}
+          >
+            <span class="row-marker">{marker(c)}</span>
             <span class="cmd-name">{c.name}</span>
             <span class="row-text cmd-desc">{c.description}</span>
+            <span class="chip">{providerBadge(c)}</span>
             {#if c.scope === "user"}<span class="chip">user</span>{/if}
           </button>
         {/each}

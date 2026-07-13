@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import { getCommands, getVoiceStatus, transcribeAudio } from "$lib/api";
 import { m } from "$lib/paraglide/messages";
+import type { SlashCommand } from "$lib/types";
 
 // Mock the API so the compose sheet renders deterministically with no network. Mocking
 // getVoiceStatus/transcribeAudio also lets the tests prove that a discarded recording is
@@ -101,6 +102,24 @@ const base = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+function slashCommand(name: string, providers: SlashCommand["providers"]): SlashCommand {
+  return {
+    id: `test:${name}`,
+    name,
+    displayName: name,
+    description: `${name} description`,
+    scope: "project",
+    kind: "skill",
+    invocationName: name,
+    sourceNamespace: providers?.includes("codex") ? "codex:repo" : "claude:repo",
+    providers,
+    invocations: {
+      ...(providers?.includes("claude") ? { claude: `/${name}` } : {}),
+      ...(providers?.includes("codex") ? { codex: `$${name}` } : {}),
+    },
+  };
+}
+
 const micBtn = () => page.getByRole("button", { name: m.composebar_dictate_aria() });
 const stopBtn = () => page.getByRole("button", { name: m.composebar_dictate_stop_aria() });
 const field = () => page.getByRole("textbox", { name: m.composebar_input_aria() });
@@ -174,5 +193,21 @@ describe("ComposeBar dictation (shared controller wiring)", () => {
     expect(rec.stopped).toBeGreaterThan(0);
     expect(onclose).toHaveBeenCalled();
     expect(mockTranscribeAudio).not.toHaveBeenCalled();
+  });
+});
+
+describe("ComposeBar provider-aware command picker", () => {
+  it("filters to Codex commands and inserts a dollar mention in place", async () => {
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("claude-only", ["claude"]), slashCommand("codex-only", ["codex"])],
+    });
+    render(ComposeBar, base({ agentProvider: "codex" }));
+
+    await field().fill("use $cod");
+    await expect.element(page.getByText("$codex-only")).toBeVisible();
+    expect(page.getByText("/claude-only").query()).toBeNull();
+    await page.getByText("$codex-only").click();
+
+    await expect.element(field()).toHaveValue("use $codex-only ");
   });
 });

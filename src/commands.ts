@@ -1,5 +1,8 @@
 import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { createHash } from "node:crypto";
+import type { AgentProvider } from "./types";
 
 /** Where a discovered slash command came from — drives the row badge and dedupe
  *  precedence (project > user > plugin > builtin). Skills are folded into
@@ -11,9 +14,17 @@ export type SlashCommandScope = "project" | "user" | "plugin" | "builtin";
  *  file (`.claude/commands/<name>.md`), an installed plugin command/skill, or a
  *  built-in — invokable from the prompt as `/<name>`. */
 export interface SlashCommand {
+  id: string;
   name: string;
+  displayName: string;
   description: string;
   scope: SlashCommandScope;
+  kind: "skill" | "command";
+  invocationName: string;
+  sourceNamespace: string;
+  sourcePath?: string;
+  providers: AgentProvider[];
+  invocations: Partial<Record<AgentProvider, string>>;
   /** Front-matter `argument-hint` (e.g. "<ticket>"), shown dimmed after the name. */
   argumentHint?: string;
 }
@@ -74,6 +85,7 @@ function readCommand(
   fallbackName: string,
   scope: SlashCommand["scope"],
   prefix = "",
+  kind: SlashCommand["kind"] = "command",
 ): SlashCommand | null {
   let text: string;
   try {
@@ -88,7 +100,21 @@ function readCommand(
   if (description.length > MAX_DESC)
     description = description.slice(0, MAX_DESC - 1).trimEnd() + "…";
   const argumentHint = fm["argument-hint"]?.trim() || undefined;
-  return { name: prefix + bare, description, scope, argumentHint };
+  const name = prefix + bare;
+  return {
+    id: `claude:${scope}:${name}`,
+    name,
+    displayName: name,
+    description,
+    scope,
+    kind,
+    invocationName: name,
+    sourceNamespace: `claude:${scope}`,
+    sourcePath: path,
+    providers: ["claude"],
+    invocations: { claude: `/${name}` },
+    argumentHint,
+  };
 }
 
 function safeReaddir(dir: string): string[] {
@@ -112,7 +138,7 @@ function collect(
   for (const entry of safeReaddir(skillsDir)) {
     const md = join(skillsDir, entry, "SKILL.md");
     if (!existsSync(md)) continue;
-    const cmd = readCommand(md, entry, scope, prefix);
+    const cmd = readCommand(md, entry, scope, prefix, "skill");
     if (cmd) out.set(cmd.name, cmd);
   }
   const cmdsDir = join(claudeDir, "commands");
@@ -143,6 +169,119 @@ const BUILTINS: ReadonlyArray<{ name: string; description: string }> = [
   },
   { name: "pr-comments", description: "Get comments from a GitHub pull request" },
 ];
+
+type CodexConfig = { skills?: { config?: Array<{ path?: unknown; enabled?: unknown }> } };
+
+function commandContentHash(path: string): string | undefined {
+  try {
+    return createHash("sha256")
+      .update(readFileSync(path, "utf8").replace(/\r\n/g, "\n"))
+      .digest("hex");
+  } catch {
+    return undefined;
+  }
+}
+
+function codexHomeDefault(): string {
+  return process.env.CODEX_HOME || join(homedir(), ".codex");
+}
+
+function disabledSkillPaths(codexHome: string): Set<string> {
+  let parsed: CodexConfig;
+  try {
+    parsed = Bun.TOML.parse(readFileSync(join(codexHome, "config.toml"), "utf8")) as CodexConfig;
+  } catch {
+    return new Set();
+  }
+  const out = new Set<string>();
+  for (const entry of parsed.skills?.config ?? []) {
+    if (typeof entry.path !== "string" || entry.enabled !== false) continue;
+    out.add(resolve(entry.path));
+    out.add(resolve(entry.path, "SKILL.md"));
+  }
+  return out;
+}
+
+function isDisabledSkill(path: string, disabled: Set<string>): boolean {
+  const skillPath = resolve(path);
+  return disabled.has(skillPath) || disabled.has(resolve(skillPath, ".."));
+}
+
+function readCodexSkill(
+  path: string,
+  sourceNamespace: string,
+  disabled: Set<string>,
+): SlashCommand | null {
+  if (isDisabledSkill(path, disabled)) return null;
+  let text: string;
+  try {
+    text = readFileSync(path, "utf8");
+  } catch {
+    return null;
+  }
+  const { fm } = parseFrontmatter(text);
+  const name = fm.name?.trim();
+  if (!name) return null;
+  let description = fm.description?.trim() || "";
+  if (description.length > MAX_DESC)
+    description = description.slice(0, MAX_DESC - 1).trimEnd() + "…";
+  return {
+    id: `${sourceNamespace}:${name}`,
+    name,
+    displayName: name,
+    description,
+    scope: sourceNamespace.startsWith("codex:repo") ? "project" : "user",
+    kind: "skill",
+    invocationName: name,
+    sourceNamespace,
+    sourcePath: path,
+    providers: ["codex"],
+    invocations: { codex: `$${name}` },
+  };
+}
+
+function collectCodexSkillRoot(
+  root: string,
+  sourceNamespace: string,
+  disabled: Set<string>,
+  out: SlashCommand[],
+) {
+  for (const entry of safeReaddir(root)) {
+    const md = join(root, entry, "SKILL.md");
+    if (!existsSync(md)) continue;
+    const cmd = readCodexSkill(md, sourceNamespace, disabled);
+    if (cmd) out.push(cmd);
+  }
+}
+
+function mergeEquivalentRows(rows: SlashCommand[]): SlashCommand[] {
+  const out: SlashCommand[] = [];
+  for (const row of rows) {
+    if (row.providers.length !== 1) {
+      out.push(row);
+      continue;
+    }
+    const hash = row.sourcePath ? commandContentHash(row.sourcePath) : undefined;
+    const match =
+      hash &&
+      out.find(
+        (existing) =>
+          existing.kind === row.kind &&
+          existing.name === row.name &&
+          existing.sourcePath &&
+          commandContentHash(existing.sourcePath) === hash,
+      );
+    if (!match || match.providers.includes(row.providers[0]!)) {
+      out.push(row);
+      continue;
+    }
+    match.providers = [...match.providers, row.providers[0]!].sort();
+    match.invocations = { ...match.invocations, ...row.invocations };
+    match.id = `both:${match.kind}:${match.name}:${hash.slice(0, 12)}`;
+    match.sourceNamespace = `${match.sourceNamespace}+${row.sourceNamespace}`;
+  }
+  return out;
+}
 
 /** Re-root an absolute installPath under the local `~/.claude`. installPath is
  *  stored verbatim and may carry another machine's `$HOME` (settings sync across
@@ -191,12 +330,36 @@ function collectPlugins(
  *  autocomplete. Built in precedence order (lowest first, each later source
  *  shadowing earlier on a name clash): builtin → plugin → user → project. Sorted
  *  by name. `repoDir` null → no project layer. */
-export function listCommands(repoDir: string | null, userClaudeDir: string): SlashCommand[] {
+export function listCommands(
+  repoDir: string | null,
+  userClaudeDir: string,
+  opts: { userHome?: string; codexHome?: string } = {},
+): SlashCommand[] {
   const out = new Map<string, SlashCommand>();
   for (const b of BUILTINS)
-    out.set(b.name, { name: b.name, description: b.description, scope: "builtin" });
+    out.set(b.name, {
+      id: `claude:builtin:${b.name}`,
+      name: b.name,
+      displayName: b.name,
+      description: b.description,
+      scope: "builtin",
+      kind: "command",
+      invocationName: b.name,
+      sourceNamespace: "claude:builtin",
+      providers: ["claude"],
+      invocations: { claude: `/${b.name}` },
+    });
   collectPlugins(userClaudeDir, repoDir, out);
   collect(userClaudeDir, "user", out);
   if (repoDir) collect(join(repoDir, ".claude"), "project", out);
-  return [...out.values()].sort((a, b) => a.name.localeCompare(b.name));
+  const rows = [...out.values()];
+  const codexHome = opts.codexHome ?? codexHomeDefault();
+  const userHome = opts.userHome ?? homedir();
+  const disabled = disabledSkillPaths(codexHome);
+  if (repoDir)
+    collectCodexSkillRoot(join(repoDir, ".agents", "skills"), "codex:repo", disabled, rows);
+  collectCodexSkillRoot(join(userHome, ".agents", "skills"), "codex:user", disabled, rows);
+  collectCodexSkillRoot(join(codexHome, "skills", ".system"), "codex:system", disabled, rows);
+  collectCodexSkillRoot("/etc/codex/skills", "codex:admin", disabled, rows);
+  return mergeEquivalentRows(rows).sort((a, b) => a.name.localeCompare(b.name));
 }

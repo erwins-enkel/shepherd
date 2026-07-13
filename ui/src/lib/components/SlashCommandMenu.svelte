@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
 
   let {
     commands,
@@ -8,6 +9,7 @@
     onpick,
     onhover,
     placement = "down",
+    provider = "claude",
   }: {
     commands: SlashCommand[];
     activeIndex: number;
@@ -16,6 +18,7 @@
     // "down" anchors below the field (New Task modal); "up" anchors above it,
     // for the compose bar pinned to the bottom of the viewport.
     placement?: "up" | "down";
+    provider?: "claude" | "codex";
   } = $props();
 
   // Keep the highlighted row in view as the user arrows through the list.
@@ -24,6 +27,12 @@
     const row = listEl?.children[activeIndex] as HTMLElement | undefined;
     row?.scrollIntoView({ block: "nearest" });
   });
+
+  function providerBadge(cmd: SlashCommand): string {
+    const providers = commandProviders(cmd);
+    if (providers.length > 1) return m.provider_badge_both();
+    return providers[0] === "codex" ? m.provider_badge_codex() : m.provider_badge_claude();
+  }
 </script>
 
 <div class="sc-panel" class:up={placement === "up"} role="presentation">
@@ -31,7 +40,7 @@
     <div class="sc-empty">{m.slash_menu_empty()}</div>
   {:else}
     <ul class="sc-list" bind:this={listEl} role="listbox" aria-label={m.slash_menu_label()}>
-      {#each commands as cmd, i (cmd.scope + ":" + cmd.name)}
+      {#each commands as cmd, i (cmd.id ?? cmd.scope + ":" + cmd.name)}
         <li
           class="sc-row"
           class:active={i === activeIndex}
@@ -45,10 +54,13 @@
           onmousemove={() => onhover(i)}
         >
           <div class="sc-line">
-            <span class="sc-name">/{cmd.name}</span>
+            <span class="sc-name"
+              >{commandInvocation(cmd, commandInvocationProvider(cmd, provider))}</span
+            >
             {#if cmd.argumentHint}<span class="sc-hint">{cmd.argumentHint}</span>{/if}
             <!-- raw source tag, matching the Commands-tab chip convention -->
             {#if cmd.scope !== "project"}<span class="sc-scope">{cmd.scope}</span>{/if}
+            <span class="sc-provider">{providerBadge(cmd)}</span>
           </div>
           {#if cmd.description}<div class="sc-desc">{cmd.description}</div>{/if}
         </li>
@@ -123,6 +135,14 @@
     text-transform: uppercase;
     color: var(--color-slate);
     border: 1px solid var(--color-faint);
+    border-radius: 2px;
+    padding: 0 4px;
+  }
+  .sc-provider {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    border: 1px solid var(--color-line-bright);
     border-radius: 2px;
     padding: 0 4px;
   }

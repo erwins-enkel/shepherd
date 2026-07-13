@@ -9,7 +9,14 @@
   import EmojiPicker from "$lib/components/EmojiPicker.svelte";
   import SlashCommandMenu from "$lib/components/SlashCommandMenu.svelte";
   import { getCommands } from "$lib/api";
-  import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
+  import {
+    matchSlashTrigger,
+    filterCommands,
+    applyCommandPick,
+    applyMentionPick,
+    commandInvocationName,
+    commandProviders,
+  } from "$lib/slash";
   import type { Steer, SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
 
@@ -45,6 +52,7 @@
   // at a time, so a single set of menu state covers the whole list).
   let slashFor = $state<string | null>(null);
   let slashQuery = $state("");
+  let slashTrigger = $state<"/" | "$" | "@">("/");
   let slashIndex = $state(0);
   // the textarea currently driving the menu, for caret reads + post-pick refocus
   let activeTa: HTMLTextAreaElement | null = null;
@@ -105,6 +113,7 @@
     if (trigger) {
       slashFor = s.id;
       slashQuery = trigger.query;
+      slashTrigger = trigger.trigger;
       slashIndex = 0;
     } else if (slashFor === s.id) {
       slashFor = null;
@@ -138,9 +147,21 @@
   function pickCommand(s: Steer, cmd: SlashCommand) {
     const ta = activeTa;
     const caret = ta?.selectionStart ?? s.text.length;
-    const start = matchSlashTrigger(s.text, caret)?.start ?? 0;
-    const next = applyCommandPick(s.text, start, caret, cmd.name);
+    const trigger = matchSlashTrigger(s.text, caret);
+    const start = trigger?.start ?? 0;
+    const providers = commandProviders(cmd);
+    const provider =
+      (trigger?.trigger === "$" || trigger?.trigger === "@") && providers.includes("codex")
+        ? "codex"
+        : providers.includes("claude")
+          ? "claude"
+          : providers[0]!;
+    const next =
+      provider === "codex"
+        ? applyMentionPick(s.text, start, caret, commandInvocationName(cmd))
+        : applyCommandPick(s.text, start, caret, commandInvocationName(cmd));
     s.text = next.value;
+    s.agentProviders = providers.length === 1 ? providers : undefined;
     slashFor = null;
     saved = false;
     queueMicrotask(() => {
@@ -307,6 +328,7 @@
             <SlashCommandMenu
               commands={slashMatches}
               activeIndex={slashIndex}
+              provider={slashTrigger === "/" ? "claude" : "codex"}
               placement="down"
               onpick={(cmd) => pickCommand(s, cmd)}
               onhover={(i) => (slashIndex = i)}

@@ -3,7 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import type { Issue, RepoConfig, RepoEntry, Steer } from "$lib/types";
+import type { Issue, RepoConfig, RepoEntry, SlashCommand, Steer } from "$lib/types";
 import type { UsageLimits } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { steers } from "$lib/steers.svelte";
@@ -201,6 +201,24 @@ function capacityLimits(
   } satisfies UsageLimits;
 }
 
+function slashCommand(name: string, providers: SlashCommand["providers"]): SlashCommand {
+  return {
+    id: `test:${name}`,
+    name,
+    displayName: name,
+    description: `${name} description`,
+    scope: "project",
+    kind: "skill",
+    invocationName: name,
+    sourceNamespace: providers?.includes("codex") ? "codex:repo" : "claude:repo",
+    providers,
+    invocations: {
+      ...(providers?.includes("claude") ? { claude: `/${name}` } : {}),
+      ...(providers?.includes("codex") ? { codex: `$${name}` } : {}),
+    },
+  };
+}
+
 describe("NewTask initialImages seed", () => {
   it("renders a removable chip per seeded attachment", async () => {
     render(NewTask, {
@@ -238,6 +256,46 @@ describe("NewTask initialImages seed", () => {
 
     expect(page.getByText("a.png").query()).toBeNull();
     await expect.element(page.getByText("b.png")).toBeInTheDocument();
+  });
+});
+
+describe("NewTask provider-aware command picker", () => {
+  it("selecting a Codex skill from $ inserts a mention and switches CLI", async () => {
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("codex-skill", ["codex"])],
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/codex-skill" }) });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "$cod";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$codex-skill")).toBeVisible();
+    await page.getByText("$codex-skill").click();
+
+    await expect.poll(() => promptField.value).toBe("$codex-skill ");
+    expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
+    await expect.element(page.getByText("codex-skill requires Codex.")).toBeVisible();
+  });
+
+  it("selecting a both-provider skill does not lock or explain the provider", async () => {
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("shared-skill", ["claude", "codex"])],
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/shared-skill" }) });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "$shared";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$shared-skill")).toBeVisible();
+    await page.getByText("$shared-skill").click();
+
+    await expect.poll(() => promptField.value).toBe("$shared-skill ");
+    expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
+    expect(page.getByText("shared-skill requires Codex.").query()).toBeNull();
+    const options = Array.from(
+      document.querySelectorAll<HTMLOptionElement>("#nt-agent-provider option"),
+    );
+    expect(options.every((option) => !option.disabled)).toBe(true);
   });
 });
 

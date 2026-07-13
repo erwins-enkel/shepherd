@@ -39,7 +39,9 @@
         s.inSteerBar &&
         (!s.repos?.length ||
           (selectedSessions.length > 0 &&
-            selectedSessions.every((sess) => steerAppliesToRepo(s, repos.nameFor(sess.repoPath))))),
+            selectedSessions.every((sess) =>
+              steerAppliesToRepo(s, repos.nameFor(sess.repoPath), sess.agentProvider ?? "claude"),
+            ))),
     ),
   );
 

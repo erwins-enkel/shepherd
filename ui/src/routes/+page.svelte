@@ -997,6 +997,7 @@
         repoPath,
         baseBranch,
         prompt: cmd,
+        agentProvider: action.agentProviders?.length === 1 ? action.agentProviders[0] : undefined,
         model: null,
         force: true,
         issueRef: {

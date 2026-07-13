@@ -75,7 +75,9 @@ const { planGates, reviews, repoConfig } = await import("$lib/reviews.svelte");
 const { pullMainAndToast } = await import("$lib/pull-offer");
 
 const mounted: Array<{ unmount: () => void | Promise<void> }> = [];
-async function render(...args: Parameters<typeof rawRender>): ReturnType<typeof rawRender> {
+async function render(
+  ...args: Parameters<typeof rawRender>
+): Promise<Awaited<ReturnType<typeof rawRender>>> {
   const result = await rawRender(...args);
   mounted.push(result);
   return result;

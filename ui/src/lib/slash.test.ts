@@ -1,24 +1,43 @@
 import { describe, it, expect } from "vitest";
-import { matchSlashTrigger, filterCommands, applyCommandPick } from "./slash";
+import {
+  matchSlashTrigger,
+  filterCommands,
+  applyCommandPick,
+  applyMentionPick,
+  commandInvocationProvider,
+} from "./slash";
 import type { SlashCommand } from "./types";
 
-const cmd = (name: string): SlashCommand => ({ name, description: "", scope: "user" });
+const cmd = (name: string, providers: SlashCommand["providers"] = ["claude"]): SlashCommand => ({
+  id: `test:${providers.join("+")}:${name}`,
+  name,
+  displayName: name,
+  description: "",
+  scope: "user",
+  kind: "skill",
+  invocationName: name,
+  sourceNamespace: `test:${providers.join("+")}`,
+  providers,
+  invocations: Object.fromEntries(
+    providers.map((p) => [p, p === "codex" ? `$${name}` : `/${name}`]),
+  ) as SlashCommand["invocations"],
+});
 
 describe("matchSlashTrigger", () => {
   it("triggers on a leading slash at the caret", () => {
-    expect(matchSlashTrigger("/cre", 4)).toEqual({ query: "cre", start: 0 });
+    expect(matchSlashTrigger("/cre", 4)).toEqual({ query: "cre", start: 0, trigger: "/" });
   });
 
   it("triggers with an empty query right after the slash", () => {
-    expect(matchSlashTrigger("/", 1)).toEqual({ query: "", start: 0 });
+    expect(matchSlashTrigger("/", 1)).toEqual({ query: "", start: 0, trigger: "/" });
   });
 
   it("triggers when the slash starts a token after a space (mid-text)", () => {
-    expect(matchSlashTrigger("fix /foo", 8)).toEqual({ query: "foo", start: 4 });
+    expect(matchSlashTrigger("fix /foo", 8)).toEqual({ query: "foo", start: 4, trigger: "/" });
   });
 
   it("triggers when the slash starts a token after a newline", () => {
-    expect(matchSlashTrigger("ctx\n/sha", 8)).toEqual({ query: "sha", start: 4 });
+    expect(matchSlashTrigger("ctx\n/sha", 8)).toEqual({ query: "sha", start: 4, trigger: "/" });
   });
 
   it("does not trigger once a space ends the command token", () => {
@@ -32,11 +51,34 @@ describe("matchSlashTrigger", () => {
 
   it("uses the text before the caret, not the whole string", () => {
     // caret sits inside the slash token even though more text follows
-    expect(matchSlashTrigger("/foobar", 4)).toEqual({ query: "foo", start: 0 });
+    expect(matchSlashTrigger("/foobar", 4)).toEqual({ query: "foo", start: 0, trigger: "/" });
   });
 
   it("does not trigger on empty input", () => {
     expect(matchSlashTrigger("", 0)).toBeNull();
+  });
+
+  it("triggers Codex skill mentions from dollar tokens", () => {
+    expect(matchSlashTrigger("use $front", 10)).toEqual({
+      query: "front",
+      start: 4,
+      trigger: "$",
+    });
+  });
+
+  it("triggers the Codex alias only for a bare at sign", () => {
+    expect(matchSlashTrigger("use @", 5)).toEqual({ query: "", start: 4, trigger: "@" });
+    expect(matchSlashTrigger("use @file", 9)).toBeNull();
+    expect(matchSlashTrigger("use @file.txt", 13)).toBeNull();
+    expect(matchSlashTrigger("use @dir/file", 13)).toBeNull();
+    expect(matchSlashTrigger("use @foo", 8)).toBeNull();
+  });
+
+  it("suppresses shell variable dollar tokens", () => {
+    expect(matchSlashTrigger("echo $HOME", 10)).toBeNull();
+    expect(matchSlashTrigger("echo ${HOME}", 12)).toBeNull();
+    expect(matchSlashTrigger("echo $1", 7)).toBeNull();
+    expect(matchSlashTrigger("echo $?", 7)).toBeNull();
   });
 });
 
@@ -68,6 +110,22 @@ describe("applyCommandPick", () => {
   });
 });
 
+describe("applyMentionPick", () => {
+  it("replaces a dollar query in place with the exact Codex mention", () => {
+    expect(applyMentionPick("use $fro please", 4, 8, "frontmatter-name")).toEqual({
+      value: "use $frontmatter-name please",
+      caret: 22,
+    });
+  });
+
+  it("replaces a bare at alias in place with a dollar mention", () => {
+    expect(applyMentionPick("use @", 4, 5, "frontmatter-name")).toEqual({
+      value: "use $frontmatter-name ",
+      caret: 22,
+    });
+  });
+});
+
 describe("filterCommands", () => {
   const list = [cmd("deploy"), cmd("create_plan"), cmd("git:commit"), cmd("review")];
 
@@ -88,5 +146,21 @@ describe("filterCommands", () => {
 
   it("drops non-matches", () => {
     expect(filterCommands(list, "zzz")).toEqual([]);
+  });
+
+  it("filters to the requested provider", () => {
+    const rows = [cmd("claude-only", ["claude"]), cmd("codex-only", ["codex"])];
+    expect(filterCommands(rows, "", "codex").map((c) => c.name)).toEqual(["codex-only"]);
+  });
+});
+
+describe("commandInvocationProvider", () => {
+  it("keeps a preferred provider when the row supports it", () => {
+    expect(commandInvocationProvider(cmd("shared", ["claude", "codex"]), "codex")).toBe("codex");
+    expect(commandInvocationProvider(cmd("shared", ["claude", "codex"]), "claude")).toBe("claude");
+  });
+
+  it("falls back to the row's actual provider when the preferred provider is incompatible", () => {
+    expect(commandInvocationProvider(cmd("codex-only", ["codex"]), "claude")).toBe("codex");
   });
 });

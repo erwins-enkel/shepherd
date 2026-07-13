@@ -12,7 +12,8 @@ function longDraft(sessionId: string): EpicDraft {
       title: "Keep long epic drafts reviewable",
       body: Array.from(
         { length: 80 },
-        (_, i) => `Section ${i + 1}\nDetailed research finding that must remain readable before approval.`,
+        (_, i) =>
+          `Section ${i + 1}\nDetailed research finding that must remain readable before approval.`,
       ).join("\n\n"),
       acceptanceCriteria: ["The complete draft can be reviewed."],
       nonGoals: ["Collapsible sections"],

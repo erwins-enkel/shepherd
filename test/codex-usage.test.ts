@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -131,6 +131,80 @@ test("parseCodexRateLimits reads the latest primary/secondary windows", () => {
     checkedAt: NOW,
     filesScanned: 0,
     latestEventAt: Date.parse("2026-06-25T15:59:00.000Z"),
+  });
+});
+
+test("parseCodexRateLimits classifies a real weekly-only primary window as weekly", () => {
+  const content = readFileSync(
+    join(import.meta.dir, "fixtures", "codex-usage", "weekly-primary-rollout.jsonl"),
+    "utf8",
+  );
+
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
+    session5h: null,
+    week: { pct: 3, resetAt: 1784487529 * 1000 },
+  });
+});
+
+test("parseCodexRateLimits handles reordered weekly-primary and 5h-secondary windows", () => {
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const content = JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      rate_limits: {
+        primary: { used_percent: 17, window_minutes: 10080, resets_at: resetSec + 600 },
+        secondary: { used_percent: 41, window_minutes: 300, resets_at: resetSec },
+      },
+    },
+  });
+
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
+    session5h: { pct: 41, resetAt: resetSec * 1000 },
+    week: { pct: 17, resetAt: (resetSec + 600) * 1000 },
+  });
+});
+
+test("parseCodexRateLimits ignores unknown present durations", () => {
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const content = JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      rate_limits: {
+        primary: { used_percent: 17, window_minutes: 60, resets_at: resetSec },
+        secondary: null,
+      },
+    },
+  });
+
+  const originalWarn = console.warn;
+  const warnings: string[] = [];
+  console.warn = (msg) => warnings.push(String(msg));
+  try {
+    expect(parseCodexRateLimits(content, NOW)).toBeNull();
+  } finally {
+    console.warn = originalWarn;
+  }
+  expect(warnings).toEqual(["[codex-usage] ignoring unrecognized rate-limit window: 60m"]);
+});
+
+test("parseCodexRateLimits lets the later same-bucket known duration win", () => {
+  const resetSec = Math.floor(NOW / 1000) + 3600;
+  const content = JSON.stringify({
+    type: "event_msg",
+    payload: {
+      type: "token_count",
+      rate_limits: {
+        primary: { used_percent: 17, window_minutes: 10080, resets_at: resetSec },
+        secondary: { used_percent: 23, window_minutes: 10079, resets_at: resetSec + 600 },
+      },
+    },
+  });
+
+  expect(parseCodexRateLimits(content, NOW)).toMatchObject({
+    session5h: null,
+    week: { pct: 23, resetAt: (resetSec + 600) * 1000 },
   });
 });
 

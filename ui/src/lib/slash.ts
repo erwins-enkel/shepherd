@@ -13,6 +13,11 @@ export function commandInvocation(command: SlashCommand, provider: "claude" | "c
   );
 }
 
+export function commandInsertable(command: SlashCommand, provider: "claude" | "codex"): boolean {
+  if (command.invocations) return Boolean(command.invocations[provider]);
+  return commandProviders(command).includes(provider);
+}
+
 export function commandInvocationProvider(
   command: SlashCommand,
   preferred?: "claude" | "codex",
@@ -112,7 +117,9 @@ export function filterCommands(
 ): SlashCommand[] {
   const q = query.toLowerCase();
   const filtered = provider
-    ? commands.filter((c) => commandProviders(c).includes(provider))
+    ? commands.filter(
+        (c) => commandProviders(c).includes(provider) && commandInsertable(c, provider),
+      )
     : commands;
   if (!q) return filtered;
   const prefix: SlashCommand[] = [];

@@ -352,17 +352,19 @@
   let knownCommands = $state<Set<string>>(new Set());
   $effect(() => {
     const rp = session.repoPath;
+    const provider = effectiveAgentProvider;
     if (!rp) {
       knownCommands = new Set();
       return;
     }
-    getCommands(rp)
+    getCommands(rp, { provider })
       .then((r) => {
-        if (rp === session.repoPath)
+        if (rp === session.repoPath && provider === effectiveAgentProvider)
           knownCommands = new Set(r.commands.map((c) => c.name.toLowerCase()));
       })
       .catch(() => {
-        if (rp === session.repoPath) knownCommands = new Set();
+        if (rp === session.repoPath && provider === effectiveAgentProvider)
+          knownCommands = new Set();
       });
   });
 
@@ -1606,7 +1608,7 @@
           return;
         }
         const { text, colAt } = lineTextWithColumns(line, linkCell);
-        const found = findCommandLinks(text, knownCommands);
+        const found = findCommandLinks(text, knownCommands, effectiveAgentProvider);
         if (found.length === 0) {
           callback(undefined);
           return;

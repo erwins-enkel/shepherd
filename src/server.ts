@@ -77,6 +77,7 @@ import {
 import { resolveDefaultBranch, fastForwardDefaultBranch } from "./pull";
 import { analyzeReadiness } from "./readiness";
 import { listCommands } from "./commands";
+import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { scratchpadHasFiles } from "./tmp-sweep";
 import {
@@ -5880,7 +5881,16 @@ function handleCommands({ req, parts, url }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "commands" && !parts[2]) {
     // invalid/absent repo → null dir → user-scope commands only (still useful)
     const dir = safeRepoDir(url.searchParams.get("repo") ?? "", config.repoRoot);
-    return json({ commands: listCommands(dir, join(homedir(), ".claude")) });
+    const provider = url.searchParams.get("provider") ?? "claude";
+    if (provider === "claude" || provider === "codex")
+      return json({
+        commands: listCommands(dir, join(homedir(), ".claude"), {
+          provider,
+          userHome: homedir(),
+          codexHome: codexHome(),
+        }),
+      });
+    return json({ error: "invalid provider" }, 400);
   }
   return null;
 }

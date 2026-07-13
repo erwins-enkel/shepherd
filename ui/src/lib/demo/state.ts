@@ -138,8 +138,13 @@ export const demoState = {
   repoConfig: (repoPath: string): DemoRepoConfig | Record<string, never> =>
     world.repoConfig[repoPath] ?? {},
   /** GET /api/commands?repo= — installed slash commands, [] for an unrecognized repoPath. */
-  commands: (repoPath: string): { commands: SlashCommand[] } => ({
-    commands: world.slashCommands[repoPath] ?? [],
+  commands: (
+    repoPath: string,
+    provider: "claude" | "codex" = "claude",
+  ): { commands: SlashCommand[] } => ({
+    commands: (world.slashCommands[repoPath] ?? []).filter((c) =>
+      (c.providers ?? ["claude"]).includes(provider),
+    ),
   }),
   /** GET /api/todo?repo= — {exists:false} for an unrecognized repoPath. */
   todo: (repoPath: string): { exists: boolean; content: string } =>

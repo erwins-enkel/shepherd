@@ -93,6 +93,14 @@ test("GET /api/usage/limits returns limits + projections", async () => {
   });
 });
 
+test("GET /api/commands rejects invalid provider", async () => {
+  const res = await harness().fetch(
+    new Request(`http://x/api/commands?repo=${encodeURIComponent(validRepo)}&provider=mixed`),
+  );
+  expect(res.status).toBe(400);
+  expect(await res.json()).toEqual({ error: "invalid provider" });
+});
+
 test("POST /api/usage/refresh calls refreshUsage and returns its fresh limits", async () => {
   const fresh = {
     session5h: { pct: 80, resetAt: 123 },

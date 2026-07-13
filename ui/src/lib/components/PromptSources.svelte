@@ -5,7 +5,12 @@
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { labelChipStyle } from "$lib/label-color";
-  import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
+  import {
+    commandInsertable,
+    commandInvocation,
+    commandInvocationProvider,
+    commandProviders,
+  } from "$lib/slash";
   import {
     hideOthers,
     hideActive,
@@ -33,6 +38,7 @@
     onpickissue,
     onpicksteer = undefined,
     allowIssues = true,
+    agentProvider = "claude",
     epicParents = new Set(),
     nativeSubIssues = new Set(),
     epicsLoaded = false,
@@ -45,6 +51,7 @@
      *  from the row's right-click / long-press context menu. Never spawns. */
     onpicksteer?: (issue: Issue, steer: Steer) => void;
     allowIssues?: boolean;
+    agentProvider?: "claude" | "codex";
     epicParents?: Set<number>;
     nativeSubIssues?: Set<number>;
     epicsLoaded?: boolean;
@@ -223,18 +230,19 @@
 
   $effect(() => {
     const rp = repoPath;
+    const provider = agentProvider;
     const t = tab;
     if (!rp || t === "todo") return; // todo is loaded eagerly above
     loading = true;
     if (t === "commands") {
-      getCommands(rp)
+      getCommands(rp, { provider })
         .then((r) => {
-          if (rp !== repoPath || t !== tab) return;
+          if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
           commands = r.commands;
           loading = false;
         })
         .catch(() => {
-          if (rp !== repoPath || t !== tab) return;
+          if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
           commands = [];
           loading = false;
         });
@@ -308,7 +316,21 @@
   }
 
   function marker(cmd: SlashCommand): string {
-    return commandProviders(cmd).includes("claude") ? "/" : "$";
+    const provider = commandInvocationProvider(cmd, agentProvider);
+    if (!commandInsertable(cmd, provider)) return "@";
+    return provider === "claude" ? "/" : "$";
+  }
+
+  function commandRowClass(cmd: SlashCommand): string {
+    const provider = commandInvocationProvider(cmd, agentProvider);
+    return commandInsertable(cmd, provider) ? "row" : "row disabled";
+  }
+
+  function pickCommand(cmd: SlashCommand) {
+    const provider = commandInvocationProvider(cmd, agentProvider);
+    if (!commandInsertable(cmd, provider)) return;
+    if (onpickcommand) onpickcommand(cmd);
+    else onpick(commandInvocation(cmd, provider) + " ");
   }
 </script>
 
@@ -377,12 +399,10 @@
       {:else}
         {#each filteredCommands as c (c.id ?? c.scope + ":" + c.name)}
           <button
-            class="row"
+            class={commandRowClass(c)}
             type="button"
-            onclick={() =>
-              onpickcommand
-                ? onpickcommand(c)
-                : onpick(commandInvocation(c, commandInvocationProvider(c)) + " ")}
+            disabled={!commandInsertable(c, commandInvocationProvider(c, agentProvider))}
+            onclick={() => pickCommand(c)}
           >
             <span class="row-marker">{marker(c)}</span>
             <span class="cmd-name">{c.name}</span>
@@ -630,6 +650,16 @@
   .row:hover {
     background: var(--color-panel);
     color: var(--color-ink-bright);
+  }
+
+  .row.disabled {
+    color: var(--color-faint);
+    cursor: default;
+  }
+
+  .row.disabled:hover {
+    background: transparent;
+    color: var(--color-faint);
   }
 
   /* Epic-parent rows are listed but not selectable — muted, no hover affordance. */

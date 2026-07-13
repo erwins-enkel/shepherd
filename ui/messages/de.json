@@ -3076,5 +3076,16 @@
   "feat_review_block_cues_title": "Review-Blocker sind auf Session-Karten sichtbar",
   "feat_review_block_cues_body": "Wenn der konfigurierte menschliche Reviewer Änderungen anfordert, zeigen Session-Karte und Herd-Gruppen jetzt Änderungen angefordert, statt still auf diesen Reviewer zu warten.",
   "epic_group_cue_changes_requested": "{count} mit angeforderten Änderungen",
-  "epic_group_cue_merge_blocked": "{count} Merge blockiert"
+  "epic_group_cue_merge_blocked": "{count} Merge blockiert",
+  "command_kind_command": "Befehl",
+  "command_kind_skill": "Skill",
+  "command_kind_plugin": "Plugin",
+  "command_scope_project": "Projekt",
+  "command_scope_user": "User",
+  "command_scope_plugin": "Plugin",
+  "command_scope_builtin": "Eingebaut",
+  "command_source_codex_home": "Codex-Home",
+  "command_source_system": "System",
+  "feat_codex_discovery_title": "Codex-Skills in der Command-Discovery",
+  "feat_codex_discovery_body": "Der Prompt-Picker versteht jetzt Codex-Skills, einschließlich installierter Plugin-Skills wie $github:yeet, während installierte Codex-Plugins als Browsing-Inventar erscheinen."
 }

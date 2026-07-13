@@ -293,6 +293,15 @@ describe("session-detail tab GETs never fall back to {}", () => {
     const cmds = await get(`/api/commands?repo=${repo}`);
     expect(Array.isArray(cmds.body.commands)).toBe(true);
     expect(cmds.body.commands.length).toBeGreaterThan(0);
+    expect(
+      cmds.body.commands.every((c: { providers?: string[] }) =>
+        (c.providers ?? ["claude"]).includes("claude"),
+      ),
+    ).toBe(true);
+    const codexCmds = await get(`/api/commands?repo=${repo}&provider=codex`);
+    expect(codexCmds.body.commands.some((c: { name: string }) => c.name === "github:yeet")).toBe(
+      true,
+    );
     const todo = await get(`/api/todo?repo=${repo}`);
     expect(todo.body).toEqual({ exists: false, content: "" });
   });

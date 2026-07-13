@@ -1,8 +1,11 @@
 import { describe, it, expect } from "vitest";
 import { findCommandLinks } from "./slashLinks";
 
-const names = (line: string, known: Set<string> = new Set()) =>
-  findCommandLinks(line, known).map((l) => l.name);
+const names = (
+  line: string,
+  known: Set<string> = new Set(),
+  provider: "claude" | "codex" = "claude",
+) => findCommandLinks(line, known, provider).map((l) => l.name);
 
 describe("findCommandLinks", () => {
   describe("hits — boundary chars", () => {
@@ -94,6 +97,16 @@ describe("findCommandLinks", () => {
   describe("known command overrides path-prefix denylist", () => {
     it('"/dev" linkifies when it is an installed command', () => {
       expect(names("/dev", new Set(["dev"]))).toEqual(["dev"]);
+    });
+  });
+
+  describe("codex provider", () => {
+    it("does not speculatively link arbitrary slash names", () => {
+      expect(names("try /review", new Set(), "codex")).toEqual([]);
+    });
+
+    it("does not make slash paste targets for known codex skills", () => {
+      expect(names("use /github:yeet", new Set(["github:yeet"]), "codex")).toEqual([]);
     });
   });
 });

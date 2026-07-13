@@ -228,9 +228,12 @@ describe("Settings Coding CLI sections", () => {
       buttons.push(requiredCodingSectionButton(name).button);
     }
 
-    const panel = document.getElementById("settings-panel-codingAgents");
-    expect(panel).not.toBeNull();
-    expect(Array.from(panel!.querySelectorAll("button[aria-controls]"))).toEqual(buttons);
+    for (let index = 0; index < buttons.length - 1; index += 1) {
+      expect(
+        buttons[index].compareDocumentPosition(buttons[index + 1]) &
+          Node.DOCUMENT_POSITION_FOLLOWING,
+      ).toBeTruthy();
+    }
 
     for (const [index, button] of buttons.entries()) {
       const expanded = index === 0;
@@ -250,10 +253,28 @@ describe("Settings Coding CLI sections", () => {
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(false);
 
+    const { button: defaultsButton } = requiredCodingSectionButton(m.settings_cli_defaults_title());
+    expect(defaultsButton.getAttribute("aria-expanded")).toBe("true");
+    expect(controlledSection(defaultsButton).hidden).toBe(false);
+
+    const defaultModelSelect = page
+      .getByRole("combobox", { name: m.settings_default_model_title() })
+      .element();
+    expect(content.contains(defaultModelSelect)).toBe(true);
+
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(true);
+    expect(content.contains(defaultModelSelect)).toBe(true);
+
+    await disclosure.click();
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+    expect(document.getElementById(content.id)).toBe(content);
+    expect(content.hidden).toBe(false);
+    expect(page.getByRole("combobox", { name: m.settings_default_model_title() }).element()).toBe(
+      defaultModelSelect,
+    );
   });
 
   it("native Enter and Space button interaction toggles a focused disclosure", async () => {

@@ -1016,6 +1016,18 @@
     }
   }
 
+  // Inject an issue steer from a backlog row's right-click / long-press menu: open the
+  // New Task dialog pre-seeded with the steer's prompt + the issue attached. Unlike
+  // onquickissue this does NOT spawn — the operator reviews and hits Run. Mirrors the
+  // PR-review seed path (composePrompt + open the dialog).
+  function oninjectissue(repoPath: string, issue: Issue, steer: Steer) {
+    composeRepoPath = repoPath;
+    composeIssue = issue;
+    composePrompt = steer.text;
+    showBacklog = false;
+    showNew = true;
+  }
+
   // Merge-train shortcut (Ready-to-merge group header): spawn a new session that
   // works through the PRs of every ready-to-merge session, suggesting a merge
   // order. A merge train is per-repo, so when ready PRs span repos we scope to
@@ -2648,6 +2660,7 @@
               mobile={true}
               {onissue}
               onquick={onquickissue}
+              oninject={oninjectissue}
               {onpr}
               {onadopt}
               {onlaunchtrain}
@@ -2834,6 +2847,7 @@
             mobile={false}
             {onissue}
             onquick={onquickissue}
+            oninject={oninjectissue}
             {onpr}
             {onadopt}
             {onlaunchtrain}
@@ -3142,6 +3156,7 @@
   {inTrainPrs}
   {onissue}
   onquick={onquickissue}
+  oninject={oninjectissue}
   {onpr}
   {onadopt}
   {onlaunchtrain}

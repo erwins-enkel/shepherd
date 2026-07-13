@@ -21,6 +21,7 @@
     type RepoEntry,
     type SandboxProfile,
     type SlashCommand,
+    type Steer,
   } from "$lib/types";
   import { promoDefaultModel } from "$lib/fable-promo";
   import { matchSlashTrigger, filterCommands, applyCommandPick } from "$lib/slash";
@@ -529,6 +530,23 @@
     }
   }
 
+  // Inject an issue-scoped steer from PromptSources' per-row context menu: attach the
+  // issue and APPEND the steer's text to the prompt. This matches the backlog
+  // quick-launch payload but does NOT spawn — the dialog stays open for review/edit.
+  // On an empty prompt we set it to the steer text alone (no `#N title` template,
+  // unlike pickIssue): the steer text IS the intended prompt and the issue rides
+  // out-of-band via issueRef, so a title line would be redundant.
+  function injectSteer(issue: Issue, steer: Steer) {
+    issueRef = issue;
+    const t = steer.text;
+    prompt = prompt.trim() ? `${prompt}\n${t}` : t;
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+      promptInput?.setSelectionRange(prompt.length, prompt.length);
+    });
+  }
+
   // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
   // iOS Safari has no usable resize handle, so auto-grow is how the field gets bigger.
   function autogrow() {
@@ -990,6 +1008,7 @@
             });
           }}
           onpickissue={pickIssue}
+          onpicksteer={injectSteer}
         />
       {/if}
 

@@ -183,6 +183,7 @@
     inTrainPrs,
     onissue,
     onquick,
+    oninject,
     onpr,
     onadopt,
     onlaunchtrain,
@@ -314,6 +315,7 @@
     inTrainPrs: Set<string>;
     onissue: (repoPath: string, issue: Issue) => void;
     onquick: (repoPath: string, issue: Issue, action: Steer) => void;
+    oninject: (repoPath: string, issue: Issue, steer: Steer) => void;
     onpr: (repoPath: string, pr: PullRequest) => void;
     onadopt: (repoPath: string, prompt: string) => void;
     onlaunchtrain: (repoPath: string, prs: PullRequest[]) => void;
@@ -623,6 +625,7 @@
     {mobile}
     {onissue}
     {onquick}
+    {oninject}
     {onpr}
     {onadopt}
     {onlaunchtrain}

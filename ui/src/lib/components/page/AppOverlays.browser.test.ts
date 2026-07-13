@@ -122,6 +122,7 @@ function baseProps(): Props {
     inTrainPrs: new Set<string>(),
     onissue: vi.fn(),
     onquick: vi.fn(),
+    oninject: vi.fn(),
     onpr: vi.fn(),
     onadopt: vi.fn(),
     onlaunchtrain: vi.fn(),

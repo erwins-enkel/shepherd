@@ -3,9 +3,10 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
-import type { Issue, RepoConfig, RepoEntry } from "$lib/types";
+import type { Issue, RepoConfig, RepoEntry, Steer } from "$lib/types";
 import type { UsageLimits } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import { steers } from "$lib/steers.svelte";
 import {
   listIssues,
   getEpics,
@@ -1891,5 +1892,113 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
     // Backward enters at the LAST visible repo.
     altChord("BracketLeft");
     await expect.poll(() => selectedRepo()).toBe("vis2");
+  });
+});
+
+describe("NewTask issue steer inject (context menu)", () => {
+  const issueSteer: Steer = {
+    id: "st1",
+    label: "Fix it",
+    text: "/fix please",
+    inSteerBar: false,
+    onIssues: true,
+  };
+
+  beforeEach(() => {
+    steers.list = [issueSteer];
+    mockListIssues.mockResolvedValue({
+      slug: "o/r",
+      webUrl: "https://gh/o/r",
+      viewer: null,
+      issues: [
+        {
+          number: 55,
+          title: "Add widget",
+          body: "the widget body",
+          url: "https://gh/o/r/issues/55",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+          author: "bob",
+        },
+      ],
+    });
+  });
+  afterEach(() => {
+    steers.list = [];
+  });
+
+  // Right-click the (only) issue row and wait for the context menu to open. A mouse
+  // pointerdown first pins lastPointerType away from "touch" so the contextmenu opens.
+  async function openIssueMenu() {
+    await page.getByRole("button", { name: m.promptsources_issues_tab(), exact: true }).click();
+    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBe(1);
+    const row = document.querySelector<HTMLElement>(".ps-body .row")!;
+    window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse" }));
+    row.dispatchEvent(
+      new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }),
+    );
+    await expect.poll(() => document.querySelector(".issue-menu")).not.toBeNull();
+  }
+
+  it("picking a steer injects its text into an EMPTY prompt (no #N template) and does NOT spawn", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo" } });
+    await openIssueMenu();
+
+    await page
+      .getByRole("menuitem", { name: m.issuemenu_inject_aria({ label: "Fix it" }) })
+      .click();
+
+    const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => prompt.value).toBe("/fix please");
+    // Injected, not launched.
+    expect(onsubmit).not.toHaveBeenCalled();
+    // The issue got attached as a reference (rides out-of-band, not dumped in the prompt).
+    await expect
+      .poll(() => document.querySelector(".issue-ref-link")?.textContent?.trim())
+      .toBe("#55 Add widget");
+  });
+
+  it("picking a steer APPENDS its text to a non-empty prompt", async () => {
+    render(NewTask, {
+      props: { onsubmit: vi.fn(), initialRepoPath: "/repo", initialPrompt: "draft" },
+    });
+    await openIssueMenu();
+
+    await page
+      .getByRole("menuitem", { name: m.issuemenu_inject_aria({ label: "Fix it" }) })
+      .click();
+
+    const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => prompt.value).toBe("draft\n/fix please");
+  });
+
+  it("Show details closes the menu and opens the details popover with the issue body", async () => {
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await openIssueMenu();
+
+    await page.getByRole("menuitem", { name: m.issuemenu_details() }).click();
+
+    await expect.poll(() => document.querySelector(".issue-menu")).toBeNull();
+    const pop = await vi.waitFor(() => {
+      const el = document.querySelector(".issue-details");
+      if (!el) throw new Error("popover not yet open");
+      return el;
+    });
+    expect(pop.textContent).toContain("the widget body");
+  });
+
+  it("Open issue opens the forge URL in a new tab (no spawn)", async () => {
+    const onsubmit = vi.fn();
+    const openSpy = vi.spyOn(window, "open").mockReturnValue(null);
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo" } });
+    await openIssueMenu();
+
+    await page.getByRole("menuitem", { name: m.issuemenu_open() }).click();
+
+    expect(openSpy).toHaveBeenCalledWith("https://gh/o/r/issues/55", "_blank", "noopener");
+    expect(onsubmit).not.toHaveBeenCalled();
+    openSpy.mockRestore();
   });
 });

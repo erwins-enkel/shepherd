@@ -26,6 +26,7 @@
     mobile,
     onissue,
     onquick = undefined,
+    oninject = undefined,
     onpr,
     onadopt,
     onlaunchtrain,
@@ -52,6 +53,9 @@
     /** Quick-launch an issue with the configured standard command, skipping the
      *  New Task dialog. Omitted → no quick button is shown on the issues. */
     onquick?: (repoPath: string, issue: Issue, action: Steer) => void;
+    /** Inject an issue steer: open the New Task dialog pre-seeded with the steer's
+     *  prompt + the issue attached (does NOT spawn). Omitted → no steer items. */
+    oninject?: (repoPath: string, issue: Issue, steer: Steer) => void;
     /** Open a review task seeded with a PR (PRs tab → New Task). */
     onpr: (repoPath: string, pr: PullRequest) => void;
     /** Seed a New Task with the AI-readiness install prescription (Readiness tab). */
@@ -366,6 +370,7 @@
             {selectedPath}
             {onissue}
             {onquick}
+            {oninject}
             {onpr}
             {onlaunchtrain}
             {onadopt}
@@ -428,6 +433,7 @@
               {selectedPath}
               {onissue}
               {onquick}
+              {oninject}
               {onpr}
               {onlaunchtrain}
               {onadopt}

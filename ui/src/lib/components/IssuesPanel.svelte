@@ -34,6 +34,7 @@
     repoPath,
     onnewtask,
     onquick = undefined,
+    oninject = undefined,
     bodyPreview = false,
     age = false,
     epics = undefined,
@@ -45,6 +46,9 @@
     /** Quick-launch: spawn a session with the picked issue action's prompt + this
      *  issue, skipping the New Task dialog. Omitted → no action buttons are shown. */
     onquick?: (issue: Issue, action: Steer) => void;
+    /** Inject an issue steer into the New Task dialog (pre-seed prompt + attach issue,
+     *  no spawn), from the row's right-click / long-press menu. Omitted → no steer items. */
+    oninject?: (issue: Issue, steer: Steer) => void;
     bodyPreview?: boolean;
     age?: boolean;
     /** Live epic record from the store, keyed `${repoPath}#${parentIssueNumber}`.
@@ -555,6 +559,7 @@
           {issueActions}
           {onnewtask}
           {onquick}
+          {oninject}
           ontoggleepic={toggleEpic}
         />
       {/each}

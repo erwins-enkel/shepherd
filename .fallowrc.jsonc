@@ -270,10 +270,10 @@
       {
         "files": ["ui/src/lib/components/NewTask.svelte"],
         "functions": ["<template>"],
-        "maxCyclomatic": 50,
-        "maxCognitive": 60,
+        "maxCyclomatic": 55,
+        "maxCognitive": 65,
         "maxCrap": 20000,
-        "reason": "Codex provider path adds one task-composer branch above the Tier-1 Svelte template cyclomatic bar; keep capped until NewTask is split further (#855)."
+        "reason": "Codex provider routing plus the empty-repo repair path keep the task composer above the Tier-1 Svelte template bar; keep capped until NewTask is split further (#855)."
       },
       {
         "files": ["ui/src/lib/components/Settings.svelte"],

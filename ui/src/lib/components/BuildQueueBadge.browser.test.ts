@@ -1,11 +1,30 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { BuildQueue, BuildStep, BuildStepStatus, GitState } from "$lib/types";
+import type { BuildQueue, BuildStep, BuildStepStatus, GitState, Session } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
 
 const { default: BuildQueueBadge } = await import("./BuildQueueBadge.svelte");
 const { buildQueues } = await import("$lib/buildQueues.svelte");
+const { buildQueueCollapse } = await import("$lib/build-queue-collapse.svelte");
+
+type BadgeProps = {
+  sessionId: string;
+  planPhase: Session["planPhase"];
+  git?: GitState;
+  tip?: boolean;
+  selected?: boolean;
+  onselect?: (id: string) => void;
+};
+
+function renderBadge(props: BadgeProps) {
+  return render(BuildQueueBadge, {
+    selected: true,
+    onselect: () => {},
+    ...props,
+  });
+}
 
 const step = (status: BuildStepStatus, id: string): BuildStep => ({
   id,
@@ -31,6 +50,7 @@ const git = (state: GitState["state"]): GitState => ({
 
 beforeEach(() => {
   buildQueues.map = {};
+  buildQueueCollapse.set(false);
 });
 
 afterEach(() => {
@@ -42,12 +62,12 @@ describe("BuildQueueBadge", () => {
     buildQueues.map = {
       s1: queue(false, [step("done", "1"), step("pending", "2")]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     expect(document.querySelector(".queue-badge")).toBeNull();
   });
 
   it("renders nothing when there is no queue for the session", async () => {
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     expect(document.querySelector(".queue-badge")).toBeNull();
   });
 
@@ -55,7 +75,7 @@ describe("BuildQueueBadge", () => {
     buildQueues.map = {
       s1: queue(true, []),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     expect(document.querySelector(".queue-badge")).toBeNull();
   });
 
@@ -70,7 +90,7 @@ describe("BuildQueueBadge", () => {
         step("pending", "5"),
       ]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expect.element(page.getByText("4/5")).toBeInTheDocument();
   });
 
@@ -85,7 +105,7 @@ describe("BuildQueueBadge", () => {
         step("pending", "5"),
       ]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     const badge = document.querySelector(".queue-badge") as HTMLElement;
     expect(badge).not.toBeNull();
     expect(badge.style.getPropertyValue("--queue-pct")).toBe("80%");
@@ -101,7 +121,7 @@ describe("BuildQueueBadge", () => {
         step("done", "5"),
       ]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expect.element(page.getByText("5/5")).toBeInTheDocument();
     const badge = document.querySelector(".queue-badge") as HTMLElement;
     expect(badge.style.getPropertyValue("--queue-pct")).toBe("100%");
@@ -117,8 +137,58 @@ describe("BuildQueueBadge", () => {
         step("done", "5"),
       ]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expect.element(page.getByText("5/5")).toBeInTheDocument();
+  });
+
+  it("selected badge toggles the queue while the styled tooltip is enabled", async () => {
+    buildQueues.map = {
+      s1: queue(true, [step("done", "1"), step("pending", "2")]),
+    };
+    const onselect = vi.fn();
+    const toggle = vi.spyOn(buildQueueCollapse, "toggle");
+    renderBadge({
+      sessionId: "s1",
+      planPhase: "executing",
+      selected: true,
+      onselect,
+      tip: true,
+    });
+
+    const progressAria = m.queuebadge_aria({ resolved: 1, total: 2 });
+    const collapseName = `${m.buildqueue_collapse_aria()}. ${progressAria}`;
+    const expandName = `${m.buildqueue_expand_aria()}. ${progressAria}`;
+
+    const expandedButton = page.getByRole("button", { name: collapseName });
+    await expect.element(expandedButton).toHaveAttribute("aria-expanded", "true");
+    await expect.element(expandedButton).toHaveAttribute("aria-controls", "bqp-content-s1");
+    await expandedButton.click();
+    expect(toggle).toHaveBeenCalledOnce();
+    expect(buildQueueCollapse.collapsed).toBe(true);
+
+    const collapsedButton = page.getByRole("button", { name: expandName });
+    await expect.element(collapsedButton).toHaveAttribute("aria-expanded", "false");
+    await collapsedButton.click();
+    expect(buildQueueCollapse.collapsed).toBe(false);
+    expect(onselect).not.toHaveBeenCalled();
+  });
+
+  it("unselected badge selects its session and forces the queue open", async () => {
+    buildQueues.map = {
+      s1: queue(true, [step("done", "1"), step("pending", "2")]),
+    };
+    buildQueueCollapse.set(true);
+    const onselect = vi.fn();
+    renderBadge({ sessionId: "s1", planPhase: "executing", selected: false, onselect });
+
+    const name = `${m.buildqueue_expand_aria()}. ${m.queuebadge_aria({ resolved: 1, total: 2 })}`;
+    const button = page.getByRole("button", { name });
+    await expect.element(button).not.toHaveAttribute("aria-controls");
+    await button.click();
+
+    expect(onselect).toHaveBeenCalledOnce();
+    expect(onselect).toHaveBeenCalledWith("s1");
+    expect(buildQueueCollapse.collapsed).toBe(false);
   });
 });
 
@@ -137,43 +207,53 @@ describe("BuildQueueBadge — drifted (working but unreported)", () => {
 
   it("executing + no git + all pending → drifted (git not consulted)", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expectDrifted();
+  });
+
+  it("drifted badge uses the same toggle interaction", async () => {
+    buildQueues.map = { s1: queue(true, allPending) };
+    renderBadge({ sessionId: "s1", planPhase: "executing", selected: true });
+
+    const name = `${m.buildqueue_collapse_aria()}. ${m.queuebadge_stale_aria({ total: 3 })}`;
+    await page.getByRole("button", { name }).click();
+
+    expect(buildQueueCollapse.collapsed).toBe(true);
   });
 
   it("planPhase null (gate off) + no git + all pending → drifted", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: null });
+    renderBadge({ sessionId: "s1", planPhase: null });
     await expectDrifted();
   });
 
   it("planning + open PR + all pending → drifted", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "planning", git: git("open") });
+    renderBadge({ sessionId: "s1", planPhase: "planning", git: git("open") });
     await expectDrifted();
   });
 
   it("planning + merged PR + all pending → NOT drifted (resolved PR)", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "planning", git: git("merged") });
+    renderBadge({ sessionId: "s1", planPhase: "planning", git: git("merged") });
     await expectNotDrifted();
   });
 
   it("planning + closed PR + all pending → NOT drifted", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "planning", git: git("closed") });
+    renderBadge({ sessionId: "s1", planPhase: "planning", git: git("closed") });
     await expectNotDrifted();
   });
 
   it("planning + no git + all pending → NOT drifted (degrade closed)", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "planning" });
+    renderBadge({ sessionId: "s1", planPhase: "planning" });
     await expectNotDrifted();
   });
 
   it('planning + git state "none" + all pending → NOT drifted', async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "planning", git: git("none") });
+    renderBadge({ sessionId: "s1", planPhase: "planning", git: git("none") });
     await expectNotDrifted();
   });
 
@@ -181,7 +261,7 @@ describe("BuildQueueBadge — drifted (working but unreported)", () => {
     buildQueues.map = {
       s1: queue(true, [step("active", "1"), step("pending", "2"), step("pending", "3")]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expectNotDrifted();
   });
 
@@ -189,14 +269,14 @@ describe("BuildQueueBadge — drifted (working but unreported)", () => {
     buildQueues.map = {
       s1: queue(true, [step("done", "1"), step("pending", "2"), step("pending", "3")]),
     };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expectNotDrifted();
     await expect.element(page.getByText("1/3")).toBeInTheDocument();
   });
 
   it("clears automatically once a step becomes active", async () => {
     buildQueues.map = { s1: queue(true, allPending) };
-    render(BuildQueueBadge, { sessionId: "s1", planPhase: "executing" });
+    renderBadge({ sessionId: "s1", planPhase: "executing" });
     await expectDrifted();
 
     buildQueues.map = {

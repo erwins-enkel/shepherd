@@ -3097,5 +3097,7 @@
   "feat_newtask_image_preview_title": "Preview images before starting a task",
   "feat_newtask_image_preview_body": "Hover or focus an image attachment's filename to check it before launch. On mobile, tap the filename to toggle the preview.",
   "feat_automerge_session_jump_title": "Jump from Full-auto merge",
-  "feat_automerge_session_jump_body": "Click any active Full-auto merge entry to jump straight to its task and terminal. Shepherd clears filters that would hide it and follows the task into the right repository."
+  "feat_automerge_session_jump_body": "Click any active Full-auto merge entry to jump straight to its task and terminal. Shepherd clears filters that would hide it and follows the task into the right repository.",
+  "feat_build_queue_progress_toggle_title": "Open the build queue from progress",
+  "feat_build_queue_progress_toggle_body": "Click a session's progress badge to select it and open its build queue above the terminal. Click the selected session's badge again to collapse or expand the queue."
 }

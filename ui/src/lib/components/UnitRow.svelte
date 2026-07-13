@@ -766,6 +766,8 @@
 
     <UnitRowRight
       {session}
+      {selected}
+      {onselect}
       {git}
       {nowMs}
       {ondecommission}

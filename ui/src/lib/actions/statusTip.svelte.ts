@@ -4,6 +4,8 @@ import { anchorPopover } from "$lib/floating-anchor";
 export interface StatusTipParams {
   /** The explanation text shown in the tooltip and exposed to AT via aria-describedby. */
   text: string;
+  /** Set false for actionable controls whose delegated click handler must run. */
+  stopClickPropagation?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -21,6 +23,8 @@ let uid = 0;
  *    hover) — dismissed by outside-click / Esc / scroll.
  *  - every open path is idempotent and `click` never toggles, so a touch tap's
  *    `focus`→`click` sequence can't flash it shut.
+ * Click propagation is stopped by default so read-only chips never select their
+ * row; actionable controls can opt out while retaining the same explanation.
  *
  * The explanation is exposed to assistive tech via `aria-description` (a string —
  * always valid, no dangling IDREF, present from mount), so screen readers announce
@@ -34,6 +38,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
 ) => {
   let pop: HTMLDivElement | null = null;
   let text = "";
+  let stopClickPropagation = true;
   let open = false;
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
@@ -106,7 +111,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     hide();
   }
   function onClick(e: MouseEvent) {
-    e.stopPropagation(); // reveal the explanation, never select the row
+    if (stopClickPropagation) e.stopPropagation(); // read-only chips never select the row
     show();
     if (e.detail > 0) pinned = true; // genuine pointer click pins; keyboard (detail 0) does not
   }
@@ -114,8 +119,9 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     if (e.key === "Escape") hide();
   }
 
-  function enable(nextText: string) {
-    text = nextText;
+  function enable(next: StatusTipParams) {
+    text = next.text;
+    stopClickPropagation = next.stopClickPropagation ?? true;
     if (pop) pop.textContent = text;
     // Expose the explanation to assistive tech directly (no referenced element).
     node.setAttribute("aria-description", text);
@@ -156,11 +162,11 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     node.style.zIndex = "";
   }
 
-  if (params?.text) enable(params.text);
+  if (params?.text) enable(params);
 
   return {
     update(next: StatusTipParams | null | undefined) {
-      if (next?.text) enable(next.text);
+      if (next?.text) enable(next);
       else teardown();
     },
     destroy() {

@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { buildQueueCollapse } from "$lib/build-queue-collapse.svelte";
   import type { Session, GitState } from "$lib/types";
 
   // `tip` (Herd card only): swap the native title for the styled statusTip tooltip.
@@ -10,11 +11,15 @@
     sessionId,
     planPhase,
     git,
+    selected,
+    onselect,
     tip = false,
   }: {
     sessionId: string;
     planPhase: Session["planPhase"];
     git?: GitState;
+    selected: boolean;
+    onselect: (id: string) => void;
     tip?: boolean;
   } = $props();
 
@@ -40,32 +45,57 @@
       (queue?.steps.every((s) => s.status === "pending") ?? false) &&
       working,
   );
+  const expanded = $derived(selected && !buildQueueCollapse.collapsed);
+  const actionLabel = $derived(
+    expanded ? m.buildqueue_collapse_aria() : m.buildqueue_expand_aria(),
+  );
+  const contentId = $derived(`bqp-content-${sessionId}`);
+
+  function activate(e: MouseEvent) {
+    e.stopPropagation();
+    if (selected) {
+      buildQueueCollapse.toggle();
+      return;
+    }
+    onselect(sessionId);
+    buildQueueCollapse.set(false);
+  }
 </script>
 
 {#if queue?.approved && total > 0}
   {#if drifted}
-    <span
+    <button
+      type="button"
       class="queue-badge queue-badge--stale"
-      role="img"
+      onclick={activate}
       title={tip ? undefined : m.queuebadge_stale_title({ total })}
-      aria-label={m.queuebadge_stale_aria({ total })}
+      aria-expanded={expanded}
+      aria-controls={selected ? contentId : undefined}
+      aria-label={`${actionLabel}. ${m.queuebadge_stale_aria({ total })}`}
       use:coachTarget={"build-queue-progress"}
-      use:statusTip={tip ? { text: m.queuebadge_stale_title({ total }) } : null}
+      use:statusTip={tip
+        ? { text: m.queuebadge_stale_title({ total }), stopClickPropagation: false }
+        : null}
     >
       <span class="queue-label">⚠ {total}</span>
-    </span>
+    </button>
   {:else}
-    <span
+    <button
+      type="button"
       class="queue-badge"
-      role="img"
       style="--queue-pct: {pct}%"
+      onclick={activate}
       title={tip ? undefined : m.queuebadge_title({ resolved, total })}
-      aria-label={m.queuebadge_aria({ resolved, total })}
+      aria-expanded={expanded}
+      aria-controls={selected ? contentId : undefined}
+      aria-label={`${actionLabel}. ${m.queuebadge_aria({ resolved, total })}`}
       use:coachTarget={"build-queue-progress"}
-      use:statusTip={tip ? { text: m.queuebadge_title({ resolved, total }) } : null}
+      use:statusTip={tip
+        ? { text: m.queuebadge_title({ resolved, total }), stopClickPropagation: false }
+        : null}
     >
       <span class="queue-label">{m.queuebadge_label({ resolved, total })}</span>
-    </span>
+    </button>
   {/if}
 {/if}
 
@@ -82,17 +112,25 @@
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font-weight: 600;
+    font-family: inherit;
+    margin: 0;
     padding: 1px 6px;
     border: 1px solid var(--color-amber);
     border-radius: 2px;
     color: var(--color-amber);
     white-space: nowrap;
     overflow: hidden;
+    cursor: pointer;
     background: linear-gradient(
       to right,
       color-mix(in srgb, var(--color-amber) 22%, transparent) var(--queue-pct),
       transparent var(--queue-pct)
     );
+  }
+
+  .queue-badge:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
   /* STALE (drifted): agent is working but hasn't posted step status, so every

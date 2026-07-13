@@ -15,6 +15,8 @@
 
   let {
     session,
+    selected,
+    onselect,
     git,
     nowMs,
     ondecommission,
@@ -33,6 +35,8 @@
     elapsedEl = $bindable(),
   }: {
     session: Session;
+    selected: boolean;
+    onselect: (id: string) => void;
     git?: GitState;
     nowMs: number;
     ondecommission?: (id: string) => void;
@@ -160,7 +164,14 @@
   <ResearchBadge {session} tip />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
-  <BuildQueueBadge sessionId={session.id} planPhase={session.planPhase} {git} tip />
+  <BuildQueueBadge
+    sessionId={session.id}
+    planPhase={session.planPhase}
+    {git}
+    {selected}
+    {onselect}
+    tip
+  />
   <PlanGateBadge
     {session}
     allowView={false}

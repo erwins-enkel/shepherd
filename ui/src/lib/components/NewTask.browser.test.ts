@@ -127,6 +127,8 @@ beforeEach(() => {
 });
 
 let matchMediaSpy: ReturnType<typeof vi.spyOn> | undefined;
+let createObjectUrlSpy: ReturnType<typeof vi.spyOn> | undefined;
+let revokeObjectUrlSpy: ReturnType<typeof vi.spyOn> | undefined;
 function mockPointer(coarse: boolean) {
   const real = window.matchMedia.bind(window);
   matchMediaSpy = vi.spyOn(window, "matchMedia").mockImplementation((query: string) => {
@@ -149,6 +151,10 @@ function mockPointer(coarse: boolean) {
 afterEach(async () => {
   matchMediaSpy?.mockRestore();
   matchMediaSpy = undefined;
+  createObjectUrlSpy?.mockRestore();
+  createObjectUrlSpy = undefined;
+  revokeObjectUrlSpy?.mockRestore();
+  revokeObjectUrlSpy = undefined;
   overwriteGetLocale(() => "en");
   await page.viewport(1280, 900);
   document.body.innerHTML = "";
@@ -235,6 +241,9 @@ describe("NewTask initialImages seed", () => {
     // Each seeded chip carries its own remove control.
     const removers = page.getByRole("button", { name: m.newtask_remove_image_aria() }).all();
     expect(removers.length).toBe(2);
+    expect(
+      page.getByRole("button", { name: m.newtask_preview_image_aria({ name: "a.png" }) }).query(),
+    ).toBeNull();
   });
 
   it("renders no chips when initialImages is omitted", async () => {
@@ -313,6 +322,21 @@ describe("NewTask provider-aware command picker", () => {
 });
 
 describe("NewTask task attachments", () => {
+  async function upload(files: File[]) {
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(files.length);
+  }
+
+  function mockObjectUrls() {
+    let next = 0;
+    createObjectUrlSpy = vi
+      .spyOn(URL, "createObjectURL")
+      .mockImplementation(() => `blob:attachment-preview-${++next}`);
+    revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
+  }
+
   it("shows file/image attach copy and the keyboard paste-image hint", async () => {
     mockPointer(false);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
@@ -431,6 +455,142 @@ describe("NewTask task attachments", () => {
     await expect.element(page.getByText("drop.pdf")).toBeInTheDocument();
     await expect.element(page.getByText("drop.txt")).toBeInTheDocument();
     await expect.element(page.getByText("drop.md")).toBeInTheDocument();
+  });
+
+  it("previews only fresh image files and preserves the mixed attachment payload", async () => {
+    mockObjectUrls();
+    mockPointer(false);
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/attachments" }) });
+
+    await upload([
+      new File(["png"], "shot.png", { type: "image/png" }),
+      new File(["notes"], "notes.txt", { type: "text/plain" }),
+    ]);
+
+    await expect
+      .element(
+        page.getByRole("button", { name: m.newtask_preview_image_aria({ name: "shot.png" }) }),
+      )
+      .toBeVisible();
+    expect(
+      page
+        .getByRole("button", { name: m.newtask_preview_image_aria({ name: "notes.txt" }) })
+        .query(),
+    ).toBeNull();
+    expect(page.getByText("notes.txt").element().closest("button")).toBeNull();
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "use both attachments";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      images: ["/staged/shot.png", "/staged/notes.txt"],
+      attachmentNames: ["shot.png", "notes.txt"],
+    });
+  });
+
+  it("opens an image preview on desktop hover and keyboard focus", async () => {
+    mockObjectUrls();
+    mockPointer(false);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+    await upload([new File(["png"], "shot.png", { type: "image/png" })]);
+
+    const trigger = page.getByRole("button", {
+      name: m.newtask_preview_image_aria({ name: "shot.png" }),
+    });
+    await expect.element(trigger).toBeVisible();
+    const triggerEl = trigger.element() as HTMLButtonElement;
+    triggerEl.dispatchEvent(
+      new PointerEvent("pointerenter", { bubbles: true, pointerType: "mouse" }),
+    );
+
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    expect(document.querySelector<HTMLImageElement>(".attachment-preview img")?.src).toContain(
+      "blob:attachment-preview-1",
+    );
+
+    triggerEl.dispatchEvent(
+      new PointerEvent("pointerleave", { bubbles: true, pointerType: "mouse" }),
+    );
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+
+    triggerEl.focus();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    triggerEl.blur();
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+  });
+
+  it("toggles an image preview on touch and dismisses it outside", async () => {
+    mockObjectUrls();
+    mockPointer(true);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+    await upload([new File(["png"], "mobile.png", { type: "image/png" })]);
+
+    const trigger = page.getByRole("button", {
+      name: m.newtask_preview_image_aria({ name: "mobile.png" }),
+    });
+    await trigger.click();
+    await expect
+      .poll(() => document.querySelector(".attachment-preview:popover-open"))
+      .not.toBeNull();
+    await trigger.click();
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+
+    await trigger.click();
+    document.body.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    await expect.poll(() => document.querySelector(".attachment-preview:popover-open")).toBeNull();
+  });
+
+  it("dismisses an image preview on Escape, scroll, and resize", async () => {
+    mockObjectUrls();
+    mockPointer(true);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
+    await upload([new File(["png"], "dismiss.png", { type: "image/png" })]);
+
+    const trigger = page.getByRole("button", {
+      name: m.newtask_preview_image_aria({ name: "dismiss.png" }),
+    });
+    const isOpen = () => document.querySelector(".attachment-preview:popover-open");
+
+    await trigger.click();
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    await expect.poll(isOpen).toBeNull();
+
+    await trigger.click();
+    window.dispatchEvent(new Event("scroll"));
+    await expect.poll(isOpen).toBeNull();
+
+    await trigger.click();
+    window.dispatchEvent(new Event("resize"));
+    await expect.poll(isOpen).toBeNull();
+  });
+
+  it("revokes image preview URLs on attachment removal and dialog teardown", async () => {
+    mockObjectUrls();
+    const screen = await render(NewTask, {
+      props: base({ initialRepoPath: "/repo/attachments" }),
+    });
+    await upload([
+      new File(["a"], "a.png", { type: "image/png" }),
+      new File(["b"], "b.png", { type: "image/png" }),
+    ]);
+    await expect.poll(() => createObjectUrlSpy?.mock.calls.length).toBe(2);
+
+    await page.getByRole("button", { name: m.newtask_remove_image_aria() }).first().click();
+    await expect.poll(() => revokeObjectUrlSpy?.mock.calls.length).toBe(1);
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:attachment-preview-1");
+
+    await screen.unmount();
+    expect(revokeObjectUrlSpy).toHaveBeenCalledWith("blob:attachment-preview-2");
   });
 });
 

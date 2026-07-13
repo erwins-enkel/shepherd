@@ -99,7 +99,7 @@ import {
   clampCodexModelForAuth,
   drainSpawnModel,
   modelForProviderOrDefault,
-  resolveDefaultModelSetting,
+  resolveProviderDefaultModelSetting,
   type CodexAuthMode,
 } from "./default-model";
 import { readCodexAuthMode } from "./codex-auth";
@@ -352,7 +352,14 @@ export class DrainService {
     const provider = settings?.agentProvider ?? config.defaultAgentProvider;
     const model = settings
       ? modelForProviderOrDefault(settings.model, settings.agentProvider)
-      : drainSpawnModel(resolveDefaultModelSetting(repoDefaultModel, config.defaultModel));
+      : drainSpawnModel(
+          resolveProviderDefaultModelSetting(
+            repoDefaultModel,
+            provider,
+            config.defaultModel,
+            config.defaultCodexModel,
+          ),
+        );
     return this.clampCodexModel(model, provider);
   }
 
@@ -1751,7 +1758,14 @@ export class DrainService {
     if (lastFail !== undefined && this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) return; // recent refusal
     const head = pr.headSha ?? "";
     const cfgModel = this.clampCodexModel(
-      drainSpawnModel(resolveDefaultModelSetting(cfg.defaultModel, config.defaultModel)),
+      drainSpawnModel(
+        resolveProviderDefaultModelSetting(
+          cfg.defaultModel,
+          config.defaultAgentProvider,
+          config.defaultModel,
+          config.defaultCodexModel,
+        ),
+      ),
       config.defaultAgentProvider,
     );
     const cfgEffort = drainSpawnEffort(

@@ -1521,13 +1521,17 @@ describe("NewTask Codex model picker", () => {
   const providerSelect = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
   const modelSelect = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
 
-  it("shows codex models and normalizes a claude model when Codex is selected", async () => {
+  it("shows codex models and uses the configured Codex default", async () => {
     render(NewTask, {
-      props: base({ defaultAgentProvider: "codex", defaultModel: "opus" }),
+      props: base({
+        defaultAgentProvider: "codex",
+        defaultModel: "opus",
+        defaultCodexModel: "gpt-5.4",
+      }),
     });
 
     await expect.poll(() => providerSelect().value).toBe("codex");
-    await expect.poll(() => modelSelect().value).toBe("gpt-5.5");
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
     const options = Array.from(modelSelect().options).map((o) => o.value);
     expect(options).toContain("gpt-5.5");
     expect(options.slice(0, 5)).toEqual([
@@ -1553,6 +1557,24 @@ describe("NewTask Codex model picker", () => {
       .toBe(true);
   });
 
+  it("switching CLI restores each configured default", async () => {
+    render(NewTask, {
+      props: base({
+        defaultAgentProvider: "claude",
+        defaultModel: "opus",
+        defaultCodexModel: "gpt-5.4",
+      }),
+    });
+
+    await expect.poll(() => modelSelect().value).toBe("opus");
+    providerSelect().value = "codex";
+    providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
+    providerSelect().value = "claude";
+    providerSelect().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSelect().value).toBe("opus");
+  });
+
   it("submits the selected codex model", async () => {
     const repoPath = "/repo/codex-model";
     mockGetRepoConfig.mockResolvedValue(confirmedRepoConfig());
@@ -1567,6 +1589,30 @@ describe("NewTask Codex model picker", () => {
     modelSelect().value = "gpt-5.4";
     modelSelect().dispatchEvent(new Event("change", { bubbles: true }));
 
+    await fillPromptAndClickRun();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]?.[0]).toMatchObject({
+      agentProvider: "codex",
+      model: "gpt-5.4",
+    });
+  });
+
+  it("ignores an incompatible repo override and submits the configured Codex default", async () => {
+    const repoPath = "/repo/codex-repo-override";
+    mockGetRepoConfig.mockResolvedValue({ ...confirmedRepoConfig(), defaultModel: "opus" });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: repoPath,
+        defaultAgentProvider: "codex",
+        defaultModel: "sonnet",
+        defaultCodexModel: "gpt-5.4",
+      },
+    });
+
+    await expect.poll(() => modelSelect().value).toBe("gpt-5.4");
     await fillPromptAndClickRun();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);

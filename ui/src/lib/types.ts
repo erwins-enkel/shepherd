@@ -90,6 +90,8 @@ export interface Settings {
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
+  /** Raw Codex default-model setting (default|<curated Codex alias>). */
+  defaultCodexModel: string;
   /** Global default-effort setting ("default"|<tier>); "default" emits no effort flag. */
   defaultEffort: string;
   /** Language spawned agents use to talk to the operator ("en" | "de"). Independent of the

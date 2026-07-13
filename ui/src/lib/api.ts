@@ -574,6 +574,9 @@ export const putPlanReviewCyclesCap = (cap: number): Promise<{ planReviewCyclesC
 export const putDefaultModel = (model: string): Promise<{ defaultModel: string }> =>
   patchSettings<{ defaultModel: string }>({ defaultModel: model });
 
+export const putDefaultCodexModel = (model: string): Promise<{ defaultCodexModel: string }> =>
+  patchSettings<{ defaultCodexModel: string }>({ defaultCodexModel: model });
+
 export const putDefaultEffort = (effort: string): Promise<{ defaultEffort: string }> =>
   patchSettings<{ defaultEffort: string }>({ defaultEffort: effort });
 

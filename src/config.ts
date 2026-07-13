@@ -2,6 +2,7 @@ import { dirname, join } from "node:path";
 import { resolveNodeBin } from "./node-bin";
 import { loadForgeMap } from "./forge/load-config";
 import {
+  normalizeDefaultCodexModelSetting,
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRoleCli,
@@ -786,6 +787,10 @@ export const config = {
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds
   // a fresh DB; absent/invalid → "auto".
   defaultModel: normalizeDefaultModelSetting(process.env.SHEPHERD_DEFAULT_MODEL) ?? "auto",
+  // Provider-specific Codex default. Existing installs seed to the picker's historical first
+  // choice; "default" means no --model flag and lets Codex choose.
+  defaultCodexModel:
+    normalizeDefaultCodexModelSetting(process.env.SHEPHERD_DEFAULT_CODEX_MODEL) ?? "gpt-5.5",
   // Global default reasoning-effort setting ("default" | <tier>). "default" = emit no effort flag.
   // Applies to the New Task picker and drain/autopilot auto-spawns. Env seeds a fresh DB;
   // absent/invalid → "default". Persisted + UI-configurable. No "auto" tier (effort has no promo).

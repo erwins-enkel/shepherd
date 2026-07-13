@@ -25,6 +25,7 @@ let savedHk: boolean;
 let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
+let savedDefaultCodexModel: string;
 const ROLE_BASES = ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
@@ -53,6 +54,7 @@ beforeEach(() => {
   savedPrCap = config.prReviewCyclesCap;
   savedPlanCap = config.planReviewCyclesCap;
   savedDefaultModel = config.defaultModel;
+  savedDefaultCodexModel = config.defaultCodexModel;
   savedRoleEnvs = {};
   const cfg = config as unknown as Record<string, string>;
   for (const role of ROLE_BASES) {
@@ -89,6 +91,7 @@ afterEach(() => {
   config.prReviewCyclesCap = savedPrCap;
   config.planReviewCyclesCap = savedPlanCap;
   config.defaultModel = savedDefaultModel;
+  config.defaultCodexModel = savedDefaultCodexModel;
   const cfg = config as unknown as Record<string, string>;
   for (const role of ROLE_BASES) {
     cfg[`${role}Cli`] = savedRoleEnvs[`${role}Cli`]!;
@@ -110,13 +113,17 @@ afterEach(() => {
   rmSync(tmp, { recursive: true, force: true });
 });
 
-function harness(): { app: ReturnType<typeof makeApp>; store: SessionStore } {
+function harness(opts: { codexAuthMode?: "chatgpt" | "apikey" | "unknown" } = {}): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+} {
   const store = new SessionStore(":memory:");
   const deps: AppDeps = {
     store,
     events: new EventHub(),
     service: {} as any,
     usageLimits: { limits: () => ({}) } as any,
+    readCodexAuthMode: () => opts.codexAuthMode ?? "unknown",
   };
   return { app: makeApp(deps), store };
 }
@@ -391,6 +398,13 @@ test("GET /api/settings includes defaultModel (raw, unresolved)", async () => {
   expect(body.defaultModel).toBe("opus");
 });
 
+test("GET /api/settings includes the provider-specific Codex default model", async () => {
+  config.defaultCodexModel = "gpt-5.4";
+  const { app } = harness();
+  const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(body.defaultCodexModel).toBe("gpt-5.4");
+});
+
 test("GET /api/settings includes defaultAgentProvider", async () => {
   config.defaultAgentProvider = "codex";
   const { app } = harness();
@@ -430,6 +444,40 @@ test("PUT /api/settings rejects an unknown defaultModel value", async () => {
   const res = await put(app, { defaultModel: "gpt9" });
   expect(res.status).toBe(400);
   expect(config.defaultModel).toBe("auto"); // unchanged on failure
+});
+
+test("PUT /api/settings sets and persists defaultCodexModel", async () => {
+  const { app, store } = harness();
+  config.defaultCodexModel = "gpt-5.5";
+  const res = await put(app, { defaultCodexModel: "gpt-5.4" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).defaultCodexModel).toBe("gpt-5.4");
+  expect(config.defaultCodexModel).toBe("gpt-5.4");
+  expect(store.getSetting("defaultCodexModel")).toBe("gpt-5.4");
+});
+
+test("PUT /api/settings accepts provider default and rejects invalid Codex models", async () => {
+  const { app } = harness();
+  config.defaultCodexModel = "gpt-5.5";
+  const accepted = await put(app, { defaultCodexModel: "default" });
+  expect(accepted.status).toBe(200);
+  expect(config.defaultCodexModel).toBe("default");
+  const rejected = await put(app, { defaultCodexModel: "opus" });
+  expect(rejected.status).toBe(400);
+  expect(config.defaultCodexModel).toBe("default");
+});
+
+test("GET and PUT resolve a ChatGPT-incompatible Codex model to provider default", async () => {
+  const { app, store } = harness({ codexAuthMode: "chatgpt" });
+  config.defaultCodexModel = "gpt-5.3-codex";
+  const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(got.defaultCodexModel).toBe("default");
+
+  const res = await put(app, { defaultCodexModel: "gpt-5.3-codex" });
+  expect(res.status).toBe(200);
+  expect((await res.json()).defaultCodexModel).toBe("default");
+  expect(config.defaultCodexModel).toBe("default");
+  expect(store.getSetting("defaultCodexModel")).toBe("default");
 });
 
 // ── per-role environment settings (cli + model) for the six roles ──

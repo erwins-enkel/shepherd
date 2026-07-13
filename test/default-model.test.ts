@@ -3,6 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, test, expect, describe } from "bun:test";
 import {
+  normalizeDefaultCodexModelSetting,
   normalizeDefaultModelSetting,
   normalizeRepoDefaultModelSetting,
   resolveDefaultModelSetting,
@@ -17,9 +18,10 @@ import {
   normalizeFableAvailable,
   modelCompatibleWithProvider,
   modelForProviderOrDefault,
+  resolveProviderDefaultModelSetting,
 } from "../src/default-model";
 import { readCodexAuthMode } from "../src/codex-auth";
-import { MODELS } from "../src/types";
+import { CODEX_MODELS, MODELS } from "../src/types";
 
 describe("normalizeDefaultModelSetting", () => {
   test("accepts 'auto'", () => {
@@ -58,6 +60,44 @@ describe("normalizeDefaultModelSetting", () => {
 
   test("returns null for object", () => {
     expect(normalizeDefaultModelSetting({})).toBeNull();
+  });
+});
+
+describe("normalizeDefaultCodexModelSetting", () => {
+  test("accepts 'default' and each curated Codex model", () => {
+    expect(normalizeDefaultCodexModelSetting("default")).toBe("default");
+    for (const model of CODEX_MODELS) {
+      expect(normalizeDefaultCodexModelSetting(model)).toBe(model);
+    }
+  });
+
+  test("rejects Claude models, auto, unknown values, and wrong types", () => {
+    expect(normalizeDefaultCodexModelSetting("opus")).toBeNull();
+    expect(normalizeDefaultCodexModelSetting("auto")).toBeNull();
+    expect(normalizeDefaultCodexModelSetting("gpt-6-unknown")).toBeNull();
+    expect(normalizeDefaultCodexModelSetting(null)).toBeNull();
+  });
+});
+
+describe("resolveProviderDefaultModelSetting", () => {
+  test("inherits the selected provider's saved model", () => {
+    expect(resolveProviderDefaultModelSetting("inherit", "claude", "opus", "gpt-5.4")).toBe("opus");
+    expect(resolveProviderDefaultModelSetting("inherit", "codex", "opus", "gpt-5.4")).toBe(
+      "gpt-5.4",
+    );
+  });
+
+  test("uses a compatible repo override", () => {
+    expect(resolveProviderDefaultModelSetting("haiku", "claude", "opus", "gpt-5.4")).toBe("haiku");
+    expect(resolveProviderDefaultModelSetting("default", "codex", "opus", "gpt-5.4")).toBe(
+      "default",
+    );
+  });
+
+  test("falls back to the selected provider's saved model for an incompatible override", () => {
+    expect(resolveProviderDefaultModelSetting("opus", "codex", "sonnet", "gpt-5.4")).toBe(
+      "gpt-5.4",
+    );
   });
 });
 

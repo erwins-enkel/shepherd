@@ -141,6 +141,7 @@ import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
   modelForProviderOrDefault,
+  normalizeDefaultCodexModelSetting,
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRoleCli,
@@ -275,6 +276,10 @@ const savedDm = store.getSetting("defaultModel");
 if (savedDm !== null) {
   const v = normalizeDefaultModelSetting(savedDm);
   if (v !== null) config.defaultModel = v;
+}
+const savedDcm = store.getSetting("defaultCodexModel");
+if (savedDcm !== null) {
+  config.defaultCodexModel = normalizeDefaultCodexModelSetting(savedDcm) ?? "default";
 }
 const savedDe = store.getSetting("defaultEffort");
 if (savedDe !== null) {
@@ -594,6 +599,8 @@ function usageDowngradeModel(): string | null {
 // in the usage-downgrade so role agents are covered too (they bypass service.create/pushModelFlag).
 // The downgrade target is a Claude model setting, so it only overrides a Claude-resolved role.
 function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
+  const globalModelSetting =
+    config.defaultAgentProvider === "codex" ? config.defaultCodexModel : config.defaultModel;
   // resolveRoleEnvWithAuth reads the live Codex auth mode per spawn (auth can change at runtime) and
   // clamps a ChatGPT-account-incompatible codex model to the account default before it can be spawned.
   const env = resolveRoleEnvWithAuth(
@@ -601,7 +608,7 @@ function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
       roleCli: cli,
       roleModel: model,
       globalProvider: config.defaultAgentProvider,
-      globalModelSetting: config.defaultModel,
+      globalModelSetting,
       fableAvailable: config.fableAvailable,
       roleEffort: effort,
     },

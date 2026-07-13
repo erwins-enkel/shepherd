@@ -523,6 +523,7 @@
     {usageLimits}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
+    defaultCodexModel={settings?.defaultCodexModel}
     defaultEffort={newTaskDefaultEffort}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}

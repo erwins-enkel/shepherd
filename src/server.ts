@@ -184,14 +184,15 @@ import type { ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
 import {
+  normalizeDefaultCodexModelSetting,
+  clampCodexModelForAuth,
   normalizeDefaultModelSetting,
   normalizeFableAvailable,
   normalizeRepoDefaultModelSetting,
   drainSpawnModel,
-  resolveDefaultModelSetting,
+  resolveProviderDefaultModelSetting,
   normalizeRoleCli,
   normalizeRoleModelToken,
-  clampCodexModelForAuth,
   modelCompatibleWithProvider,
   type CodexAuthMode,
 } from "./default-model";
@@ -1084,6 +1085,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       // orchestration stays the auto epic-runner's job (documented v1 scoping, #1169).
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
+      const provider = choice?.agentProvider ?? config.defaultAgentProvider;
       const input: CreateSessionInput = {
         repoPath: it.dir,
         baseBranch: base,
@@ -1094,7 +1096,14 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
         model:
           choice && "model" in choice
             ? (choice.model ?? null)
-            : drainSpawnModel(resolveDefaultModelSetting(rc.defaultModel, config.defaultModel)),
+            : drainSpawnModel(
+                resolveProviderDefaultModelSetting(
+                  rc.defaultModel,
+                  provider,
+                  config.defaultModel,
+                  config.defaultCodexModel,
+                ),
+              ),
         effort:
           choice && "effort" in choice
             ? choice.effort
@@ -4462,6 +4471,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       previewHost: config.previewHost,
       // raw configured default model; "auto" = unset/seed; client resolves promo itself.
       defaultModel: config.defaultModel,
+      defaultCodexModel: resolvedCodexSetting(config.defaultCodexModel, deps),
       defaultEffort: config.defaultEffort,
       // per-role ENVIRONMENT SETTINGs, a pair per role: `<role>Cli` ("inherit" | "claude" | "codex";
       // "inherit" follows defaultAgentProvider + defaultModel) and `<role>Model` ("default" | <alias>
@@ -4545,6 +4555,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
+  ["defaultCodexModel", putDefaultCodexModel],
   ["defaultEffort", putDefaultEffort],
   ["criticCli", makeRoleCliPatch("critic")],
   ["criticModel", makeRoleModelPatch("critic")],
@@ -4641,6 +4652,21 @@ function putDefaultModel(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultModel = v; // live: next drain spawn picks it up
   deps.store.setSetting("defaultModel", v); // persist across restarts
   return json({ defaultModel: config.defaultModel });
+}
+
+function putDefaultCodexModel(value: unknown, deps: Ctx["deps"]): Response {
+  const normalized = normalizeDefaultCodexModelSetting(value);
+  if (normalized === null) return json({ error: "unknown Codex model" }, 400);
+  const v = resolvedCodexSetting(normalized, deps);
+  config.defaultCodexModel = v;
+  deps.store.setSetting("defaultCodexModel", v);
+  return json({ defaultCodexModel: config.defaultCodexModel });
+}
+
+function resolvedCodexSetting(value: string, deps: Ctx["deps"]): string {
+  const model = value === "default" ? null : value;
+  const authMode = (deps.readCodexAuthMode ?? readCodexAuthMode)();
+  return clampCodexModelForAuth(model, "codex", authMode) ?? "default";
 }
 
 function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {

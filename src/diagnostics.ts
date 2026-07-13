@@ -366,14 +366,16 @@ export class DiagnosticsService {
       [config.autopilotCli, config.autopilotModel],
       [config.criticCli, config.criticModel],
       [config.docAgentCli, config.docAgentModel],
-      ["inherit", "default"], // the global default (defaultAgentProvider/defaultModel)
+      ["inherit", "default"], // the global default provider and its matching model
     ];
     const roleOrGlobalHit = pairs.some(([cli, model]) => {
+      const globalModelSetting =
+        config.defaultAgentProvider === "codex" ? config.defaultCodexModel : config.defaultModel;
       const env = resolveRoleEnvironment(
         cli,
         model,
         config.defaultAgentProvider,
-        config.defaultModel,
+        globalModelSetting,
         config.fableAvailable,
         "default",
         "unknown",

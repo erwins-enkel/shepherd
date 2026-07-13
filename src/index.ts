@@ -1673,7 +1673,12 @@ const autopilot = new AutopilotService({
         body: s.prompt,
       });
       const me = (await forge.currentUser?.()) ?? null;
-      const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, s.repoPath, me);
+      const git: GitState = annotateHandoff(
+        { kind: forge.kind, ...status },
+        s.repoPath,
+        me,
+        prPoller.get(s.id),
+      );
       prPoller.set(s.id, git);
       events.emit("session:git", { id: s.id, git });
     } catch (err) {

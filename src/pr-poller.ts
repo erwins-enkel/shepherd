@@ -80,6 +80,17 @@ function sameSet(a: string[] | undefined, b: string[] | undefined): boolean {
   return as.every((v, i) => v === bs[i]);
 }
 
+function stableJson(v: unknown): string {
+  if (!v || typeof v !== "object") return JSON.stringify(v ?? null);
+  return JSON.stringify(
+    Object.fromEntries(
+      Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+        a.toLowerCase().localeCompare(b.toLowerCase()),
+      ),
+    ),
+  );
+}
+
 /** True when a freshly polled PR state differs from the cached one in any field
  *  the UI renders (status, CI/merge-eligibility, review, handoff) — i.e. worth
  *  pushing a session:git update. Exported for unit testing. */
@@ -96,8 +107,10 @@ export function gitStateChanged(prev: GitState | undefined, git: GitState): bool
     prev.headSha !== git.headSha ||
     prev.baseRefName !== git.baseRefName ||
     prev.latestReview?.submittedAt !== git.latestReview?.submittedAt ||
+    stableJson(prev.reviewerStates) !== stableJson(git.reviewerStates) ||
     prev.handoff !== git.handoff ||
-    prev.handoffWho !== git.handoffWho
+    prev.handoffWho !== git.handoffWho ||
+    stableJson(prev.reviewBlock) !== stableJson(git.reviewBlock)
   );
 }
 
@@ -402,7 +415,7 @@ export class PrPoller implements PrCache {
 
     // Who's up (open+green): computed from .shepherd/roles.json + the operator's
     // login, so the herd can show "waiting on scoop" instead of "your turn".
-    const git = annotateHandoff(raw, s.repoPath, me);
+    const git = annotateHandoff(raw, s.repoPath, me, prev);
     this.trackTransient(s.id, git);
     if (gitStateChanged(prev, git)) {
       this.cache.set(s.id, git);

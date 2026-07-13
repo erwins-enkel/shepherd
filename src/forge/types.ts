@@ -143,6 +143,17 @@ export interface PrReview {
   submittedAt: number; // epoch ms
 }
 
+export interface PrReviewerState {
+  state: "approved" | "changes_requested" | "commented";
+  latestAt: number | null; // epoch ms when the terminal state was submitted
+}
+
+export interface PrReviewBlock {
+  reviewer: string;
+  state: "changes_requested";
+  latestAt: number | null;
+}
+
 /** An open PR surfaced in the backlog PRs tab. Lighter than PrStatus: it is a
  *  list row across all forge repos, not one session's live git state. */
 export interface PullRequest {
@@ -203,6 +214,9 @@ export interface PrStatus {
   headSha?: string;
   /** Newest *human* PR review (critic-marked reviews excluded), or undefined. */
   latestReview?: PrReview;
+  /** Latest terminal human review state per reviewer, critic-marked reviews excluded.
+   *  Unscoped forge data; server role annotation turns this into `reviewBlock`. */
+  reviewerStates?: Record<string, PrReviewerState>;
   /** GitHub logins with a pending review request on the PR (teams/bots without a
    *  login are dropped). Drives merger auto-inference when the repo has no
    *  `.shepherd/roles.json`. Optional: a cached payload predating the field ⇒ treat as `[]`. */
@@ -240,6 +254,8 @@ export interface GitState extends PrStatus {
    *  `.shepherd/roles.json`); suppresses the outward issue-log comment, which
    *  stays opt-in to explicitly-configured roles. */
   handoffInferred?: boolean;
+  /** Role-scoped active requested-changes block for the configured reviewer. */
+  reviewBlock?: PrReviewBlock;
   /** Web URL of the backlog issue this session was spawned for (session.issueNumber),
    *  or absent when the session has no linked issue or the repo has no web forge
    *  (LocalForge). Lets GitRail surface an "open issue" link. */

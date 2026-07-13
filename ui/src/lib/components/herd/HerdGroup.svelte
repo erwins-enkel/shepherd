@@ -178,6 +178,16 @@
     border-top: 1px solid color-mix(in srgb, var(--color-slate) 30%, var(--color-line));
   }
 
+  .needs-rework-head,
+  .branch-blocked-head {
+    display: flex;
+    align-items: center;
+    padding: 10px 8px 6px;
+    margin-top: 6px;
+    color: var(--color-amber);
+    border-top: 1px solid color-mix(in srgb, var(--color-amber) 30%, var(--color-line));
+  }
+
   /* blue section header for the landed "merged PR" group */
   .merged-head {
     display: flex;

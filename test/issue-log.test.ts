@@ -30,6 +30,23 @@ test("open+green+reviewer handoff → one waiting entry naming the reviewer", ()
   ]);
 });
 
+test("open+green+reviewBlock → one changes-requested entry, not passive waiting", () => {
+  const e = issueLogEntries(
+    open({
+      handoff: "reviewer",
+      handoffWho: "scoop",
+      reviewBlock: { reviewer: "scoop", state: "changes_requested", latestAt: 1 },
+    }),
+    never,
+  );
+  expect(e).toEqual([
+    {
+      key: "changes-requested:7",
+      body: stamped("⚠️ Changes requested on PR #7 by @scoop."),
+    },
+  ]);
+});
+
 test("open+green+merger handoff → one waiting entry naming the merger", () => {
   const e = issueLogEntries(open({ handoff: "merger", handoffWho: "scoop" }), never);
   expect(e).toEqual([{ key: "waiting:7", body: stamped("⏸️ Waiting on @scoop to merge PR #7.") }]);

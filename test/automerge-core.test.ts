@@ -46,6 +46,11 @@ test("open+green+mergeable+current → merge (critic off)", () => {
   expect(d).toEqual({ kind: "merge", sessionId: "s1", prNumber: 7, headSha: "h1" });
 });
 
+test("open+green+mergeable but branch-protection blocked → hold", () => {
+  const d = computeMerge(state([sess({ mergeStateStatus: "blocked" })]));
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
 test("no-CI repo (noCi + checks:none) → merge", () => {
   // A GitHub repo with zero workflows reports checks:"none" forever; with noCi it's mergeable.
   const d = computeMerge(state([sess({ checks: "none", noCi: true })]));

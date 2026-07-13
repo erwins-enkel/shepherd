@@ -364,6 +364,11 @@ export interface PrStatus {
     author: string;
     submittedAt: number;
   };
+  /** Latest terminal human review state per reviewer, critic reviews excluded. */
+  reviewerStates?: Record<
+    string,
+    { state: "approved" | "changes_requested" | "commented"; latestAt: number | null }
+  >;
   /** true = PR is a draft / not ready-for-review. Absent ⇒ treat as false. */
   isDraft?: boolean;
 }
@@ -930,6 +935,12 @@ export interface GitState extends PrStatus {
   handoff?: "reviewer" | "merger";
   /** The login to display for {@link handoff} (e.g. "scoop"). */
   handoffWho?: string;
+  /** Role-scoped active requested-changes block for the configured reviewer. */
+  reviewBlock?: {
+    reviewer: string;
+    state: "changes_requested";
+    latestAt: number | null;
+  };
   /** Web URL of the backlog issue this session was spawned for, or absent when the
    *  session has no linked issue or the repo has no web forge (local mode). */
   issueUrl?: string;

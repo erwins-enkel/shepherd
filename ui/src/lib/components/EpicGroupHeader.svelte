@@ -15,7 +15,13 @@
     collapsed: boolean;
     // per-stage tallies derived from the group's children; each chip renders
     // only when its count > 0, so a collapsed group still signals attention
-    cues: { ciFailed: number; ready: number; blocked: number };
+    cues: {
+      ciFailed: number;
+      needsRework: number;
+      branchProtectionBlocked: number;
+      ready: number;
+      blocked: number;
+    };
     ontoggle: () => void;
     // an epic badge was clicked → open the backlog on this repo, scrolled to the epic
     onepic?: (repoPath: string, issueNumber: number) => void;
@@ -65,6 +71,22 @@
         title={m.epic_group_cue_ready({ count: cues.ready })}
         aria-label={m.epic_group_cue_ready({ count: cues.ready })}
         ><span class="cue-glyph" aria-hidden="true">✓</span>{cues.ready}</span
+      >
+    {/if}
+    {#if cues.needsRework > 0}
+      <span
+        class="cue cue-needs-rework"
+        title={m.epic_group_cue_changes_requested({ count: cues.needsRework })}
+        aria-label={m.epic_group_cue_changes_requested({ count: cues.needsRework })}
+        ><span class="cue-glyph" aria-hidden="true">!</span>{cues.needsRework}</span
+      >
+    {/if}
+    {#if cues.branchProtectionBlocked > 0}
+      <span
+        class="cue cue-branch-blocked"
+        title={m.epic_group_cue_merge_blocked({ count: cues.branchProtectionBlocked })}
+        aria-label={m.epic_group_cue_merge_blocked({ count: cues.branchProtectionBlocked })}
+        ><span class="cue-glyph" aria-hidden="true">!</span>{cues.branchProtectionBlocked}</span
       >
     {/if}
     {#if cues.blocked > 0}
@@ -184,6 +206,10 @@
   /* Ready to merge — green (the reserved actionable-complete hue). */
   .cue-ready {
     color: var(--color-green);
+  }
+  .cue-needs-rework,
+  .cue-branch-blocked {
+    color: var(--color-amber);
   }
   /* Needs you / blocked — the canonical blocked status token (--status-blocked). */
   .cue-blocked {

@@ -1552,11 +1552,12 @@ function repushHandoff(deps: AppDeps, dir: string, me: string | null): void {
     if (s.repoPath !== dir) continue;
     const prev = snap[s.id];
     if (!prev) continue;
-    const updated = annotateHandoff(prev, dir, me);
+    const updated = annotateHandoff(prev, dir, me, prev);
     if (
       updated.handoff !== prev.handoff ||
       updated.handoffWho !== prev.handoffWho ||
-      updated.handoffInferred !== prev.handoffInferred
+      updated.handoffInferred !== prev.handoffInferred ||
+      JSON.stringify(updated.reviewBlock ?? null) !== JSON.stringify(prev.reviewBlock ?? null)
     ) {
       deps.prCache.set(s.id, updated);
       deps.events.emit("session:git", { id: s.id, git: updated });
@@ -3559,7 +3560,13 @@ async function forgeOpenPr(
     throw err;
   }
   const me = (await forge.currentUser?.()) ?? null;
-  const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
+  const prev = deps.prCache?.get(session.id);
+  const git: GitState = annotateHandoff(
+    { kind: forge.kind, ...status },
+    session.repoPath,
+    me,
+    prev,
+  );
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
   return json(status);
@@ -3627,7 +3634,13 @@ async function forgeMerge(
   }
   const status = await forge.prStatus(head);
   const me = (await forge.currentUser?.()) ?? null;
-  const git: GitState = annotateHandoff({ kind: forge.kind, ...status }, session.repoPath, me);
+  const prev = deps.prCache?.get(session.id);
+  const git: GitState = annotateHandoff(
+    { kind: forge.kind, ...status },
+    session.repoPath,
+    me,
+    prev,
+  );
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
   return json(status);
@@ -3647,10 +3660,12 @@ async function refreshSessionGit(
   deps: AppDeps,
 ): Promise<GitState> {
   const me = (await forge.currentUser?.()) ?? null;
+  const prev = deps.prCache?.get(session.id);
   const git: GitState = annotateHandoff(
     { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
     session.repoPath,
     me,
+    prev,
   );
   deps.prCache?.set(session.id, git);
   deps.events.emit("session:git", { id: session.id, git });
@@ -3756,6 +3771,7 @@ async function resolveGitState(
       { kind: forge.kind, ...(await forge.prStatus(session.branch ?? "")) },
       session.repoPath,
       me,
+      prev,
     ),
   );
   // No PR for the stored branch: the agent may have renamed the worktree branch out
@@ -3770,6 +3786,7 @@ async function resolveGitState(
           { kind: forge.kind, ...(await forge.prStatus(live)) },
           session.repoPath,
           me,
+          prev,
         ),
       );
     }

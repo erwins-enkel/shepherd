@@ -3065,5 +3065,16 @@
   "plangate_tip_reviewing_env": "Planprüfung läuft · {env}",
   "planpanel_reviewing_env": "Prüfe Plan · {env}",
   "feat_plan_reviewer_env_title": "Sieh, wer deinen Plan prüft",
-  "feat_plan_reviewer_env_body": "Während eine Plan-Gate-Prüfung läuft, zeigt der Prüfen-Button jetzt an, welche Coding-CLI, welches Modell und welcher Aufwand die Prüfung durchführen — so weißt du genau, wer deinen Plan vor der Ausführung kontrolliert."
+  "feat_plan_reviewer_env_body": "Während eine Plan-Gate-Prüfung läuft, zeigt der Prüfen-Button jetzt an, welche Coding-CLI, welches Modell und welcher Aufwand die Prüfung durchführen — so weißt du genau, wer deinen Plan vor der Ausführung kontrolliert.",
+  "herd_changes_requested_group": "Änderungen angefordert ({count})",
+  "herd_merge_blocked_group": "Merge blockiert ({count})",
+  "unitrow_changes_requested": "Änderungen angefordert von {reviewer}",
+  "unitrow_changes_requested_title": "PR-Änderungen angefordert von {reviewer}",
+  "unitrow_merge_blocked": "Merge blockiert",
+  "unitrow_merge_blocked_title": "Branch Protection blockiert den Merge, nachdem die Checks grün sind",
+  "unitrow_unknown_reviewer": "unbekannter Reviewer",
+  "feat_review_block_cues_title": "Review-Blocker sind auf Session-Karten sichtbar",
+  "feat_review_block_cues_body": "Wenn der konfigurierte menschliche Reviewer Änderungen anfordert, zeigen Session-Karte und Herd-Gruppen jetzt Änderungen angefordert, statt still auf diesen Reviewer zu warten.",
+  "epic_group_cue_changes_requested": "{count} mit angeforderten Änderungen",
+  "epic_group_cue_merge_blocked": "{count} Merge blockiert"
 }

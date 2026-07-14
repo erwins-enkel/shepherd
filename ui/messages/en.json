@@ -646,7 +646,7 @@
   "planpanel_review_plan_unavailable": "Review did not start because .shepherd-plan.md is missing, empty, or unreadable.",
   "planpanel_review_nothing_to_review": "Couldn't start a plan review right now.",
   "planpanel_review_failed": "Couldn't start the review. Please try again.",
-  "planpanel_review_failed_spawn": "Couldn't start the reviewer — the agent host is busy. Try again in a moment.",
+  "planpanel_review_failed_spawn": "Reviewer launch failed. Try again; if the problem continues, check Shepherd's logs.",
   "planpanel_review_failed_worktree": "Couldn't create the review workspace. Check disk space and git, then retry.",
   "planpanel_review_failed_auth": "Review needs an API key, but none is configured.",
   "planpanel_status_ready": "Plan approved. Start execution when ready.",

@@ -523,12 +523,13 @@ describe("PlanPanel release state", () => {
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
   });
 
-  it("names a busy agent host when the reviewer spawn fails", async () => {
+  it("reports reviewer launch failure without claiming host saturation", async () => {
     const id = "s-review-error-spawn";
     vi.mocked(reviewPlan).mockResolvedValue("error-spawn");
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
     await page.getByRole("button", { name: m.planpanel_review_now() }).click();
     await expect.element(page.getByText(m.planpanel_review_failed_spawn())).toBeVisible();
+    expect(m.planpanel_review_failed_spawn().toLowerCase()).not.toContain("busy");
   });
 
   it("names the review workspace when worktree creation fails", async () => {

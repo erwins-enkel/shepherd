@@ -8,8 +8,6 @@ import type { HerdrState, SessionStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
 
-const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
-
 export interface HerdrAgent {
   agent: string;
   agentStatus: HerdrState;
@@ -245,9 +243,8 @@ export function parseAgents(result: unknown): HerdrAgent[] {
   }));
 }
 
-/** Maps a `tab list` reply to `HerdrTab[]`. Shared by the sync `tabs()` and async
- *  `tabsAsync()` so both parse the `result.tabs[]` shape identically. Internal — not
- *  exported (fallow flags an unused export; the parsers used cross-module are exported). */
+/** Maps a `tab list` reply to `HerdrTab[]`. Internal — not exported (fallow flags an
+ *  unused export; the parsers used cross-module are exported). */
 function parseTabs(parsed: unknown): HerdrTab[] {
   const tabs = (parsed as { result?: { tabs?: Record<string, string>[] } })?.result?.tabs ?? [];
   return tabs.map((t) => ({
@@ -261,10 +258,9 @@ function parseTabs(parsed: unknown): HerdrTab[] {
 /**
  * Maps a single herdr `AgentInfo` object (the `result.agent` of an `agent.start`
  * `agent_started` reply) to one `HerdrAgent`, using the SAME field mapping as
- * `parseAgents`' per-item map. The socket `start` (issue #1553) resolves its started
- * agent straight from this reply — `agent_started.agent` carries `terminal_id`/`tab_id`/…
- * directly (confirmed against live herdr 0.7.3), so it needs no post-start re-list, unlike
- * the CLI path whose `agent start` output exposes no terminal id.
+ * `parseAgents`' per-item map. Both start transports resolve their started agent straight
+ * from this reply — `agent_started.agent` carries `terminal_id`/`tab_id`/… directly
+ * (confirmed against live herdr 0.7.3), so no post-start re-list is needed.
  */
 export function parseAgentInfo(agent: unknown): HerdrAgent {
   const a = (agent ?? {}) as Record<string, string>;
@@ -400,11 +396,6 @@ export class HerdrDriver implements IHerdrDriver {
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
-    // Read-back retry knobs (issue: reviewer-spawn resolve race). `agent start` returning
-    // does not guarantee the agent is in `agent list` yet — a short registration lag. Poll
-    // a few times before giving up; injectable so tests run without real delay.
-    private resolveAttempts = 5,
-    private resolveDelayMs = 100,
   ) {}
 
   list(): HerdrAgent[] {
@@ -423,13 +414,6 @@ export class HerdrDriver implements IHerdrDriver {
   /** Every tab in the workspace — including husks with no live agent (`tab list`). */
   tabs(): HerdrTab[] {
     return parseTabs(JSON.parse(this.runner(["tab", "list"])));
-  }
-
-  /** Async sibling of `tabs()` — same shape via `asyncRunner` so it never blocks the loop.
-   *  Used by resolveStartedAgent to tell a genuine spawn failure (tab gone) from a role
-   *  `exec` that already exited or a lagging registration (tab husk still present). */
-  async tabsAsync(): Promise<HerdrTab[]> {
-    return parseTabs(JSON.parse(await this.asyncRunner(["tab", "list"])));
   }
 
   /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
@@ -499,7 +483,7 @@ export class HerdrDriver implements IHerdrDriver {
     tabId: string,
     cwd: string,
     wrapped: string[],
-  ): Promise<void> {
+  ): Promise<HerdrAgent> {
     const agentStartArgs = [
       "agent",
       "start",
@@ -515,8 +499,12 @@ export class HerdrDriver implements IHerdrDriver {
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        await this.asyncRunner(agentStartArgs);
-        return;
+        const parsed = JSON.parse(await this.asyncRunner(agentStartArgs));
+        const agent = parseAgentInfo(parsed?.result?.agent);
+        if (!agent.terminalId || agent.tabId !== tabId) {
+          throw new Error(`herdr: agent start returned an invalid agent for tab ${tabId}`);
+        }
+        return agent;
       } catch (err) {
         if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) {
           // Non-name-taken error → propagate immediately; or attempts exhausted → propagate
@@ -527,6 +515,7 @@ export class HerdrDriver implements IHerdrDriver {
         for (const sq of squatters) await this.closeTab(sq.tabId);
       }
     }
+    throw new Error(`herdr: agent start exhausted retries for ${name}`);
   }
 
   /**
@@ -540,62 +529,7 @@ export class HerdrDriver implements IHerdrDriver {
     argv: string[],
     env?: Record<string, string>,
   ): Promise<HerdrAgent> {
-    // The workspace/tab orchestration is serialized (concurrent spawns must not race it);
-    // it returns the freshly-created tab id. The read-back that resolves the started agent
-    // is a pure `agent list` read, so it runs OUTSIDE the serializer — a retry there must
-    // not hold the start mutex, or it would stall every other queued spawn. Roll back the
-    // orphan tab if the agent never registers.
-    const tabId = await this.serializeStart(() => this.startImpl(name, cwd, argv, env));
-    try {
-      return await this.resolveStartedAgent(tabId, cwd);
-    } catch (err) {
-      await this.closeTab(tabId);
-      throw err;
-    }
-  }
-
-  /** Resolve the just-started agent from `agent list`, matching the unique tab we created
-   *  for it (`tabId`) — deterministic, unlike the old cwd match (two sessions sharing a cwd
-   *  could alias). The CLI `agent start` output exposes no terminal id, so a list read is the
-   *  only handle for a LIVE agent. Poll a bounded number of times for a registration lag.
-   *
-   *  A miss is NOT automatically a failure. `agent start` returning without throwing means the
-   *  spawn happened; a non-interactive role spawn (`codex exec`) runs to completion and EXITS,
-   *  which drops it from `agent list` while its tab husk lingers (`tab list`), and under load a
-   *  live agent's registration can lag past the poll window. Either way the review already ran
-   *  (or is running) and may have written its verdict — treating that as `error-spawn` would
-   *  wrongly delete its worktree. So on exhaustion decide by TAB existence, not agent liveness:
-   *    - tab still present ⇒ started; return a handle with an EMPTY terminal id (a completed
-   *      exec has no live terminal; `herdr.stop("")` is a safe no-op and callers re-derive a
-   *      live terminal by cwd where needed; the husk is reaped by the hourly orphan-tab sweep).
-   *      Do NOT close the tab here — a running-but-unregistered agent would be killed.
-   *    - tab gone ⇒ genuine failure (herdr never kept the tab) ⇒ throw.
-   *  The socket driver reads terminal_id straight from the `agent.start` reply and needs none of this. */
-  private async resolveStartedAgent(tabId: string, cwd: string): Promise<HerdrAgent> {
-    for (let attempt = 0; attempt < this.resolveAttempts; attempt++) {
-      const match = (await this.listAsync()).find((a) => a.tabId === tabId);
-      if (match) return match;
-      if (attempt < this.resolveAttempts - 1) await sleep(this.resolveDelayMs);
-    }
-    if ((await this.tabsAsync()).some((t) => t.tabId === tabId)) {
-      console.warn(
-        `[herdr] agent not in list but tab ${tabId} present — treating exec spawn as started (cwd ${cwd})`,
-      );
-      return {
-        agent: "",
-        agentStatus: "done",
-        cwd,
-        name: "",
-        paneId: "",
-        tabId,
-        terminalId: "",
-        workspaceId: "",
-      };
-    }
-    console.warn(
-      `[herdr] agent resolve exhausted and tab ${tabId} gone after ${this.resolveAttempts} attempts (cwd ${cwd})`,
-    );
-    throw new Error(`herdr: started agent not found and tab gone for tab ${tabId} (cwd ${cwd})`);
+    return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
   }
 
   private async startImpl(
@@ -603,7 +537,7 @@ export class HerdrDriver implements IHerdrDriver {
     cwd: string,
     argv: string[],
     env?: Record<string, string>,
-  ): Promise<string> {
+  ): Promise<HerdrAgent> {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     await this.ensureWorkspace(cwd);
     // Give each agent its OWN tab so its pane spans the full herdr window width.
@@ -623,8 +557,7 @@ export class HerdrDriver implements IHerdrDriver {
 
     // `agent start` can fail (e.g. name-taken exhaustion). The tab already exists, so on
     // failure we must close it — otherwise it lingers forever as an empty husk with no
-    // claude in it. The read-back that resolves the agent runs in start() (outside the
-    // serializer); its own rollback lives there.
+    // claude in it.
     try {
       // Byte-identical spawn to the socket path — see `buildWrappedArgv`.
       const wrapped = buildWrappedArgv(argv, env);
@@ -633,7 +566,9 @@ export class HerdrDriver implements IHerdrDriver {
       // was running), resolve the squatter(s) by name from `list()`, close their tabs
       // (which both kills the orphan via --die-with-parent and synchronously releases the
       // name), then retry. Bounded at 3 total attempts.
-      await this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
+      // Capture the authoritative handle before root-pane cleanup: a fast role can already be
+      // absent from agent.list, and closing the remaining shell pane can remove the whole tab.
+      const agent = await this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
 
       if (rootPaneId) {
         try {
@@ -643,7 +578,7 @@ export class HerdrDriver implements IHerdrDriver {
         }
       }
 
-      return tabId;
+      return agent;
     } catch (err) {
       await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;

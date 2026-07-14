@@ -63,6 +63,23 @@ const TAB_CREATE = JSON.stringify({
   },
 });
 
+const AGENT_STARTED = JSON.stringify({
+  result: {
+    type: "agent_started",
+    agent: {
+      agent: "codex",
+      agent_status: "working",
+      cwd: "/wt/a",
+      name: "flatten",
+      pane_id: "p_started",
+      tab_id: "t_new",
+      terminal_id: "term_started",
+      workspace_id: "w1",
+    },
+    argv: ["codex", "exec", "go"],
+  },
+});
+
 test("list surfaces the agent name (empty when herdr omits it)", async () => {
   const d = mkDriver(() => FIXTURE);
   const a = d.list();
@@ -83,6 +100,7 @@ const WORKSPACE_LIST_EMPTY = JSON.stringify({
 function reply(args: string[], workspaceList: string): string {
   if (args[0] === "workspace" && args[1] === "list") return workspaceList;
   if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+  if (args[0] === "agent" && args[1] === "start") return AGENT_STARTED;
   return FIXTURE;
 }
 
@@ -97,7 +115,7 @@ test("start gives each agent its own full-width tab, not a shared split pane", a
     "--dangerously-skip-permissions",
     "go",
   ]);
-  expect(agent.terminalId).toBe("term_a");
+  expect(agent.terminalId).toBe("term_started");
   // 0) a workspace already exists, so we only check for one — no create
   expect(calls[0]).toEqual(["workspace", "list"]);
   expect(calls.some((c) => c[0] === "workspace" && c[1] === "create")).toBe(false);
@@ -212,7 +230,23 @@ test("start rolls back its orphan tab when agent start fails", async () => {
   expect(calls).toContainEqual(["tab", "close", "t_new"]);
 });
 
-// ── read-back resolve: registration staleness, tab-keying, exhaustion (reviewer-spawn race) ──
+test("start rejects an invalid agent-start handle and rolls back its tab", async () => {
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    if (args[0] === "agent" && args[1] === "start") {
+      return JSON.stringify({
+        result: { agent: { terminal_id: "term_wrong", tab_id: "t_wrong" } },
+      });
+    }
+    return reply(args, WORKSPACE_LIST);
+  });
+
+  await expect(d.start("flatten", "/wt/a", ["codex", "exec", "go"])).rejects.toThrow(
+    "herdr: agent start returned an invalid agent for tab t_new",
+  );
+  expect(calls).toContainEqual(["tab", "close", "t_new"]);
+});
 
 const EMPTY_LIST = JSON.stringify({ result: { type: "agent_list", agents: [] } });
 const EMPTY_TABS = JSON.stringify({ result: { type: "tab_list", tabs: [] } });
@@ -220,190 +254,35 @@ const TAB_LIST_WITH_NEW = JSON.stringify({
   result: { type: "tab_list", tabs: [{ tab_id: "t_new", label: "flatten", workspace_id: "w1" }] },
 });
 
-test("start: resolve retries until the agent registers (registration staleness)", async () => {
-  // `agent start` can return before the agent shows up in `agent list` — the read-back must
-  // poll, not fail on the first empty read. Delay 0 keeps the test instant.
-  let listCalls = 0;
+test("start: captures agent start reply before root-pane close can remove the tab", async () => {
+  const calls: string[][] = [];
+  let tabPresent = false;
   const runner = (args: string[]): string => {
+    calls.push(args);
     if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
-    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
-    if (args[0] === "agent" && args[1] === "start") return "{}";
-    if (args[0] === "agent" && args[1] === "list") {
-      listCalls++;
-      return listCalls < 3 ? EMPTY_LIST : FIXTURE; // empty twice, then the agent (tab t_new)
+    if (args[0] === "tab" && args[1] === "create") {
+      tabPresent = true;
+      return TAB_CREATE;
+    }
+    if (args[0] === "agent" && args[1] === "start") return AGENT_STARTED;
+    if (args[0] === "pane" && args[1] === "close") {
+      tabPresent = false; // the fast role pane is gone, so closing root removes the whole tab
+      return "{}";
+    }
+    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST;
+    if (args[0] === "tab" && args[1] === "list") {
+      return tabPresent ? TAB_LIST_WITH_NEW : EMPTY_TABS;
     }
     return "{}";
   };
-  const d = new HerdrDriver(runner, async (a) => runner(a), 5, 0);
-  const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
-  expect(agent.terminalId).toBe("term_a");
-  expect(listCalls).toBeGreaterThanOrEqual(3); // it polled past the empty reads
-});
+  const d = new HerdrDriver(runner, async (a) => runner(a));
 
-test("start: resolve is keyed by the created tab, not cwd (no cwd-collision aliasing)", async () => {
-  // Two agents share cwd /wt/a; only the one in the tab we created (t_new) is ours. The old
-  // cwd `.at(-1)` match could return the wrong (stale) sibling; the tab match cannot.
-  const TWO_AT_SAME_CWD = JSON.stringify({
-    result: {
-      type: "agent_list",
-      agents: [
-        // ours — in the tab we just created
-        {
-          agent: "claude",
-          agent_status: "working",
-          cwd: "/wt/a",
-          name: "flatten",
-          pane_id: "p1",
-          tab_id: "t_new",
-          terminal_id: "term_ours",
-          workspace_id: "w1",
-        },
-        // a stale sibling at the same cwd, listed LAST (so `.at(-1)` would have picked it)
-        {
-          agent: "claude",
-          agent_status: "done",
-          cwd: "/wt/a",
-          name: "stale",
-          pane_id: "p9",
-          tab_id: "t_old",
-          terminal_id: "term_stale",
-          workspace_id: "w1",
-        },
-      ],
-    },
-  });
-  const runner = (args: string[]): string => {
-    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
-    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
-    if (args[0] === "agent" && args[1] === "start") return "{}";
-    if (args[0] === "agent" && args[1] === "list") return TWO_AT_SAME_CWD;
-    return "{}";
-  };
-  const d = new HerdrDriver(runner, async (a) => runner(a), 5, 0);
-  const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
-  expect(agent.terminalId).toBe("term_ours"); // the created tab, not the stale sibling
-});
-
-test("start: resolve exhaustion AND tab gone warns distinctly and rolls back the orphan tab", async () => {
-  // The agent never registers AND its tab is gone → a genuine spawn failure (herdr never kept
-  // the tab). Only then does resolveStartedAgent throw and start() roll the orphan tab back.
-  const calls: string[][] = [];
-  const runner = (args: string[]): string => {
-    calls.push(args);
-    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
-    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
-    if (args[0] === "agent" && args[1] === "start") return "{}";
-    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST; // never registers
-    if (args[0] === "tab" && args[1] === "list") return EMPTY_TABS; // tab is gone too
-    return "{}";
-  };
-  const warnings: string[] = [];
-  const origWarn = console.warn;
-  console.warn = (...a: unknown[]) => {
-    warnings.push(a.map(String).join(" "));
-  };
-  try {
-    const d = new HerdrDriver(runner, async (a) => runner(a), 3, 0);
-    await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow(
-      /started agent not found and tab gone for tab t_new/,
-    );
-  } finally {
-    console.warn = origWarn;
-  }
-  // distinct exhaustion signal (herdr-health), not a silent first-try success
-  expect(
-    warnings.some((w) => w.includes("agent resolve exhausted and tab t_new gone after 3 attempts")),
-  ).toBe(true);
-  expect(calls).toContainEqual(["tab", "close", "t_new"]); // orphan tab rolled back
-});
-
-test("start: agent never registers but its tab persists (exec spawn exited) → returns started, no rollback", async () => {
-  // A non-interactive `codex exec` runs to completion and EXITS, dropping it from `agent list`
-  // while its tab husk lingers. That is a successful spawn that already ran (and may have written
-  // its verdict), NOT a failure — throwing error-spawn here would wrongly delete its worktree.
-  // resolveStartedAgent must return a started handle (empty terminal id) and NOT roll back the
-  // tab (a running-but-unregistered agent would be killed by the close).
-  const calls: string[][] = [];
-  const runner = (args: string[]): string => {
-    calls.push(args);
-    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
-    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
-    if (args[0] === "agent" && args[1] === "start") return "{}";
-    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST; // never in the live list
-    if (args[0] === "tab" && args[1] === "list") return TAB_LIST_WITH_NEW; // but the tab husk persists
-    return "{}";
-  };
-  const d = new HerdrDriver(runner, async (a) => runner(a), 3, 0);
   const agent = await d.start("flatten", "/wt/a", ["codex", "exec", "go"]);
-  expect(agent.tabId).toBe("t_new");
-  expect(agent.terminalId).toBe(""); // completed exec has no live terminal; herdr.stop("") is a no-op
-  expect(calls).not.toContainEqual(["tab", "close", "t_new"]); // NOT rolled back
-});
 
-test("start: the read-back runs OUTSIDE the serializer — a slow resolve doesn't block the next start", async () => {
-  // If the resolve were inside serializeStart, start #2's orchestration could not begin until
-  // start #1's retry finished. Here #1's agent registers only AFTER #2 completes, yet #2 still
-  // finishes first — proving the read-back holds no start mutex. (Old in-mutex code deadlocks.)
-  let tabSeq = 0;
-  let p2done = false;
-  const makeTabCreate = (): string => {
-    const id = `t_new${++tabSeq}`;
-    return JSON.stringify({
-      result: {
-        type: "tab_created",
-        tab: { tab_id: id, workspace_id: "w1" },
-        root_pane: { pane_id: `pr${tabSeq}`, tab_id: id },
-      },
-    });
-  };
-  const listReply = (): string => {
-    const agents: Record<string, string>[] = [
-      {
-        agent: "claude",
-        agent_status: "working",
-        cwd: "/wt/b",
-        name: "two",
-        pane_id: "p2",
-        tab_id: "t_new2",
-        terminal_id: "term_2",
-        workspace_id: "w1",
-      },
-    ];
-    if (p2done)
-      agents.unshift({
-        agent: "claude",
-        agent_status: "working",
-        cwd: "/wt/a",
-        name: "one",
-        pane_id: "p1",
-        tab_id: "t_new1",
-        terminal_id: "term_1",
-        workspace_id: "w1",
-      });
-    return JSON.stringify({ result: { type: "agent_list", agents } });
-  };
-  const runner = (args: string[]): string => {
-    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
-    if (args[0] === "tab" && args[1] === "create") return makeTabCreate();
-    if (args[0] === "agent" && args[1] === "start") return "{}";
-    if (args[0] === "agent" && args[1] === "list") return listReply();
-    return "{}";
-  };
-  const d = new HerdrDriver(runner, async (a) => runner(a), 20, 20); // #1 keeps polling ~for a while
-  const order: string[] = [];
-  const p1 = d.start("one", "/wt/a", ["claude", "go"]).then((a) => {
-    order.push("p1");
-    return a;
-  });
-  const p2 = d.start("two", "/wt/b", ["claude", "go"]).then((a) => {
-    p2done = true; // #1's agent becomes resolvable only now
-    order.push("p2");
-    return a;
-  });
-  const [a1, a2] = await Promise.all([p1, p2]);
-  expect(a2.terminalId).toBe("term_2");
-  expect(a1.terminalId).toBe("term_1");
-  expect(order[0]).toBe("p2"); // #2 finished before #1's retry — resolve is not serialized
+  expect(agent).toMatchObject({ terminalId: "term_started", tabId: "t_new" });
+  expect(tabPresent).toBe(false);
+  expect(calls.some((c) => c[0] === "agent" && c[1] === "list")).toBe(false);
+  expect(calls.some((c) => c[0] === "tab" && c[1] === "list")).toBe(false);
 });
 
 const TAB_LIST = JSON.stringify({
@@ -940,25 +819,6 @@ const SQUATTER_LIST = JSON.stringify({
   },
 });
 
-// Agent list after the squatter is evicted: the freshly started agent appears at /wt/a
-const POST_EVICT_LIST = JSON.stringify({
-  result: {
-    type: "agent_list",
-    agents: [
-      {
-        agent: "claude",
-        agent_status: "working",
-        cwd: "/wt/a",
-        name: "review TASK-504",
-        pane_id: "p_new",
-        tab_id: "t_new",
-        terminal_id: "term_started",
-        workspace_id: "w1",
-      },
-    ],
-  },
-});
-
 function makeNameTakenError(): Error {
   return Object.assign(new Error("herdr CLI error"), { stderr: NAME_TAKEN_JSON });
 }
@@ -966,9 +826,6 @@ function makeNameTakenError(): Error {
 test("start: single collision then success — squatter tab closed, agent returned", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
-  // list() returns squatter on first call (during eviction), then the fresh agent
-  let listCallCount = 0;
-
   const runner = (args: string[]) => {
     calls.push(args);
     if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
@@ -976,12 +833,10 @@ test("start: single collision then success — squatter tab closed, agent return
     if (args[0] === "agent" && args[1] === "start") {
       agentStartAttempts++;
       if (agentStartAttempts === 1) throw makeNameTakenError();
-      return "{}";
+      return AGENT_STARTED;
     }
     if (args[0] === "agent" && args[1] === "list") {
-      listCallCount++;
-      // first list() call is during eviction (resolves squatter), second is the final resolve
-      return listCallCount === 1 ? SQUATTER_LIST : POST_EVICT_LIST;
+      return SQUATTER_LIST;
     }
     if (args[0] === "tab" && args[1] === "close") return "{}";
     if (args[0] === "pane" && args[1] === "close") return "{}";
@@ -1002,8 +857,6 @@ test("start: single collision then success — squatter tab closed, agent return
 test("start: two collisions then success — bounded retry recovers, squatter evicted each time", async () => {
   const calls: string[][] = [];
   let agentStartAttempts = 0;
-  let listCallCount = 0;
-
   const runner = (args: string[]) => {
     calls.push(args);
     if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
@@ -1011,12 +864,10 @@ test("start: two collisions then success — bounded retry recovers, squatter ev
     if (args[0] === "agent" && args[1] === "start") {
       agentStartAttempts++;
       if (agentStartAttempts < 3) throw makeNameTakenError();
-      return "{}";
+      return AGENT_STARTED;
     }
     if (args[0] === "agent" && args[1] === "list") {
-      listCallCount++;
-      // first two list() calls are squatter evictions; third is final resolve
-      return listCallCount < 3 ? SQUATTER_LIST : POST_EVICT_LIST;
+      return SQUATTER_LIST;
     }
     if (args[0] === "tab" && args[1] === "close") return "{}";
     if (args[0] === "pane" && args[1] === "close") return "{}";

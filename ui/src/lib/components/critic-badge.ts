@@ -44,13 +44,15 @@ export type AddressStatus = "round" | "final" | "stalled";
  * Auto-address streak state for the badge, or null when no streak is in progress.
  * The cap comes off the verdict (`addressCap`) — the server's live value — so the badge
  * math never drifts from a hardcoded mirror.
- *  - "round":   below the cap, agent addressing findings, more rounds left (blue). Also
- *               covers a transient error verdict that holds the streak with no findings.
+ * The badge paints these on a severity ladder (hue climbs with the rung; the separate pulsing
+ * dot — not the hue — is what reports that the critic is re-reviewing right now):
+ *  - "round":   below the cap, agent addressing findings, more rounds left (amber = in progress).
+ *               Also covers a transient error verdict that holds the streak with no findings.
  *  - "final":   cap-th steer just delivered (`finalRoundPending`), agent addressing the
- *               last allowed round (dimmed). Escalates to "stalled" after the verdict's
- *               `finalRoundTimeoutMs` if no re-review lands (agent abandoned it).
+ *               last allowed round (warn = caution, last chance). Escalates to "stalled" after
+ *               the verdict's `finalRoundTimeoutMs` if no re-review lands (agent abandoned it).
  *  - "stalled": cap reached and that final round already failed re-review, OR the pending
- *               final round timed out → needs a human (orange).
+ *               final round timed out → needs a human (blocked red).
  * `now` is the current time (ms); pass a reactive clock so the timeout escalation is live.
  */
 export function addressRoundInfo(

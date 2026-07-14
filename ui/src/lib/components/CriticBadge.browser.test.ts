@@ -115,7 +115,7 @@ describe("CriticBadge streak label", () => {
 
   it("verdict + final round → FINAL REVIEW streak label with streak-final class", async () => {
     // addressRound === addressCap, findings present, finalRoundPending true, updatedAt recent
-    // → addressRoundInfo returns status "final" (dim).
+    // → addressRoundInfo returns status "final" (warn — caution, last chance).
     reviews.map = {
       s1: v({
         addressRound: 5,
@@ -134,9 +134,119 @@ describe("CriticBadge streak label", () => {
     await expect.element(page.getByText(/FINAL REVIEW/)).toBeInTheDocument();
     // verdict word replaced, not appended
     expect(page.getByText(/CHANGES/).elements().length, "no CHANGES text").toBe(0);
-    // badge carries the dim class
+    // badge carries the warn (final-rung) class — resolved colors are asserted in the ladder suite
     const streak = document.querySelector(".streak-final");
     expect(streak, "streak-final rendered").not.toBeNull();
+  });
+});
+
+/**
+ * The grey-in-orange FINAL REVIEW bug shipped WITH the correct `.streak-final` class applied — the
+ * class was never the defect, the resolved border-color was (`.critic-reviewing`'s amber leaking
+ * through underneath a state that only recolored its text). So these assert computed style, not
+ * classes; a class assertion here would be regression-proof against nothing.
+ *
+ * Expected values are resolved from the tokens via a probe element rather than hardcoded as hex, so
+ * a palette retune in app.css can't fail these for the wrong reason.
+ */
+describe("CriticBadge streak ladder — resolved colors", () => {
+  /** Computed rgb() a token resolves to in the live stylesheet. */
+  function token(name: string): string {
+    const probe = document.createElement("span");
+    probe.style.color = `var(${name})`;
+    document.body.appendChild(probe);
+    const c = getComputedStyle(probe).color;
+    probe.remove();
+    return c;
+  }
+
+  const badge = () => document.querySelector(".critic-badge") as HTMLElement;
+  // border is `1px solid` on all four sides, so the top side speaks for the whole box.
+  const ink = (el: HTMLElement) => {
+    const s = getComputedStyle(el);
+    return { color: s.color, border: s.borderTopColor };
+  };
+
+  const roundVerdict = (extra: Partial<ReviewVerdict> = {}) =>
+    v({ addressRound: 2, addressCap: 5, ...extra });
+  const finalVerdict = () =>
+    v({
+      addressRound: 5,
+      addressCap: 5,
+      finalRoundPending: true,
+      findings: ["x"],
+      updatedAt: Date.now() - 1_000, // recent → "final", not yet timed out into "stalled"
+    });
+  const stalledVerdict = () =>
+    v({ addressRound: 5, addressCap: 5, finalRoundPending: false, findings: ["x"] });
+
+  it("final: warn text AND warn border — the border no longer leaks amber", async () => {
+    reviews.map = { s1: finalVerdict() };
+    render(CriticBadge, { sessionId: "s1" });
+    await expect.element(page.getByText(/FINAL REVIEW/)).toBeInTheDocument();
+
+    const warn = token("--status-warn");
+    const { color, border } = ink(badge());
+    expect(color, "final text is --status-warn").toBe(warn);
+    expect(border, "final border is --status-warn, not amber").toBe(warn);
+    expect(border, "border hue agrees with text hue").toBe(color);
+  });
+
+  it("final + reviewing: still warn on both — the exact cascade that produced grey-in-orange", async () => {
+    reviews.map = { s1: finalVerdict() };
+    reviews.reviewing = { s1: true }; // adds .critic-reviewing, whose amber border leaked before
+    render(CriticBadge, { sessionId: "s1" });
+    await expect.element(page.getByText(/FINAL REVIEW/)).toBeInTheDocument();
+
+    const warn = token("--status-warn");
+    const { color, border } = ink(badge());
+    expect(color, "text stays --status-warn under .critic-reviewing").toBe(warn);
+    expect(border, "border is NOT the reviewing amber").toBe(warn);
+    expect(border).not.toBe(token("--color-amber"));
+    // and it is certainly not the old recessive faint text
+    expect(color).not.toBe(token("--color-faint"));
+  });
+
+  it("stalled: blocked-red text AND border", async () => {
+    reviews.map = { s1: stalledVerdict() };
+    render(CriticBadge, { sessionId: "s1" });
+    await expect.element(page.getByText(/STALLED REVIEW/)).toBeInTheDocument();
+
+    const blocked = token("--status-blocked");
+    const { color, border } = ink(badge());
+    expect(color, "stalled text is --status-blocked").toBe(blocked);
+    expect(border, "stalled border is --status-blocked").toBe(blocked);
+  });
+
+  it("round keeps amber (in-progress), and agrees with its border while reviewing", async () => {
+    reviews.map = { s1: roundVerdict() };
+    reviews.reviewing = { s1: true };
+    render(CriticBadge, { sessionId: "s1" });
+    await expect.element(page.getByText(/REVIEW 2\/5/)).toBeInTheDocument();
+
+    const amber = token("--color-amber");
+    const { color, border } = ink(badge());
+    expect(color, "round stays amber = in progress").toBe(amber);
+    expect(border, "reviewing border agrees with the amber text").toBe(amber);
+  });
+
+  it("stalled + reviewing: the pulsing dot stays AMBER, never red", async () => {
+    // Reachable in practice: addressStallStatus escalates to "stalled" on the finalRoundTimeoutMs
+    // clock while a re-review is still in flight, and roundView still sets dot: true. A dot that
+    // followed currentColor would pulse RED here — DESIGN.md forbids a pulsing subordinate red
+    // (that loudest red is reserved for the blocked-agent pip; Four-Light Rule).
+    reviews.map = { s1: stalledVerdict() };
+    reviews.reviewing = { s1: true };
+    render(CriticBadge, { sessionId: "s1" });
+    await expect.element(page.getByText(/STALLED REVIEW/)).toBeInTheDocument();
+
+    const dot = document.querySelector(".rev-dot") as HTMLElement;
+    expect(dot, "running dot rendered while re-reviewing a stalled streak").not.toBeNull();
+    expect(getComputedStyle(dot).backgroundColor, "dot is amber (running), not red").toBe(
+      token("--color-amber"),
+    );
+    // the pill itself is still red — hue (severity) and dot (running) are orthogonal axes
+    expect(getComputedStyle(badge()).color).toBe(token("--status-blocked"));
   });
 });
 

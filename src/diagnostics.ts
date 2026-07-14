@@ -245,6 +245,10 @@ function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
   });
 }
 
+/** The hintKey the `claude_trust` check emits when untrusted. Shared by the check emission and
+ *  the `fix()` code-fix dispatch guard so a rename can't silently break dispatch (they must agree). */
+const CLAUDE_TRUST_UNTRUSTED_HINT = "diagnostics_hint_claude_trust_untrusted";
+
 /** Resolve the claude folder-trust deps for the `claude_trust` check + code fix (#1683),
  *  applying test overrides. Kept out of the constructor so its config-dir resolution and
  *  fallbacks don't inflate the constructor's complexity. Defaults target the SAME
@@ -567,7 +571,7 @@ export class DiagnosticsService {
           : {
               id: "claude_trust",
               state: "warning",
-              hintKey: "diagnostics_hint_claude_trust_untrusted",
+              hintKey: CLAUDE_TRUST_UNTRUSTED_HINT,
               fixActionKey: "diagnostics_fix_action_claude_trust",
             },
       );
@@ -710,7 +714,7 @@ export class DiagnosticsService {
     const snapshot = await this.current(now);
     const check = snapshot.checks.find((c) => c.id === checkId);
     if (!check) throw new Error(`unknown check ${checkId}`);
-    if (check.hintKey === "diagnostics_hint_claude_trust_untrusted") {
+    if (check.hintKey === CLAUDE_TRUST_UNTRUSTED_HINT) {
       if (!(await this.readClaudeTrusted())) await this.trustClaude(); // read-gated seed
       return this.check(now); // forced re-probe reflects the fix
     }

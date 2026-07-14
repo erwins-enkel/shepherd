@@ -309,7 +309,12 @@ function epicBlock(epic: EpicContext): string[] {
   // Three states, and they must not be conflated (see EpicBaseDelta):
   //   - KNOWN-CURRENT: git ran and the base has NO net content difference from this branch's fork
   //     point. The whole stale-tree apparatus is moot — the tree IS current with the base, so
-  //     VERIFY's grep-and-conclude rule is sound as written and must NOT be overridden.
+  //     VERIFY's grep-and-conclude rule is sound as written and must NOT be overridden. NOTE this
+  //     does NOT mean "no sibling has ever merged", and the prompt must not say so: a child spawned
+  //     off an already-up-to-date integration tip (the common healthy case — resolveSpawnBase bases
+  //     each child on the branch AS IT STANDS) also lands here, with its siblings' work merged
+  //     BEFORE the fork and therefore already present in its tree. All we established is that the
+  //     base holds no content the tree lacks.
   //   - KNOWN-STALE: base content the tree cannot see → the full block.
   //   - UNKNOWN (null): the collection failed. Stay conservative — assume the tree may be stale.
   //
@@ -327,7 +332,7 @@ function epicBlock(epic: EpicContext): string[] {
   // ignorance; the conservative stale-tree machinery below still ships, because "may be stale" is
   // the safe assumption, but it is never dressed up as fact.
   const header = knownCurrent
-    ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. The base carries NO content your fork point does not already have${known!.commits.length ? " (commits have landed on it, but their net diff against your fork point is empty — e.g. a revert pair)" : " (nothing has merged into it since this branch forked — you are its first child)"}, so your worktree is CURRENT with the base. Further children are STILL IN FLIGHT.`
+    ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. The base carries NO content your fork point does not already have${known!.commits.length ? " (commits have landed on it, but their net diff against your fork point is empty — e.g. a revert pair)" : " (nothing has merged into it since this branch forked)"}, so your worktree is CURRENT with the base — any sibling work that merged BEFORE you forked is already in your tree. Further children are STILL IN FLIGHT.`
     : known
       ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children have ALREADY MERGED into that base, and further children are STILL IN FLIGHT.`
       : `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children MAY ALREADY HAVE MERGED into that base — the delta could NOT be enumerated here, so treat this as unknown, not as established fact. Further children are STILL IN FLIGHT.`;

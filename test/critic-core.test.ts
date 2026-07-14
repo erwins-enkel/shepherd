@@ -632,11 +632,12 @@ test("#1757 the truncation notice is emitted OUTSIDE the fence (it is shepherd's
   }
 });
 
-test("#1757 first child of an epic: no false 'siblings already merged', and no stale-tree machinery", () => {
-  // git ran and found NOTHING merged since the fork — the epic's first child. Claiming siblings
-  // have merged would be false, the tree IS current with the base, and VERIFY's grep-and-conclude
-  // rule is therefore sound as written and must NOT be overridden. It still gets the epic framing
-  // (don't demand whole-epic completeness).
+test("#1757 tree current with the base: no stale-tree machinery, and no 'first child' inference", () => {
+  // An empty delta establishes ONE thing: the base holds no content this tree lacks. It does NOT
+  // establish that no sibling ever merged — a child spawned off an already-up-to-date integration
+  // tip (the common healthy case) lands here too, with its siblings' work merged BEFORE the fork and
+  // therefore already IN its tree. So the prompt must claim only what git showed. The stale-tree
+  // apparatus is moot either way: VERIFY's grep-and-conclude rule is sound as written here.
   const p = reviewPrompt("BASE", "task", [], [], null, {
     ...EPIC,
     delta: { paths: [], pathsTruncated: 0, commits: [], commitsTruncated: 0 },
@@ -644,7 +645,10 @@ test("#1757 first child of an epic: no false 'siblings already merged', and no s
   expect(p).toContain("EPIC CONTEXT");
   expect(p).toContain("your worktree is CURRENT with the base");
   expect(p).toContain("nothing has merged into it since this branch forked");
+  expect(p).toContain("merged BEFORE you forked is already in your tree");
   expect(p).toContain("Incompleteness versus the whole epic is NOT a finding");
+  // the unwarranted inference must NOT appear — an empty delta does not make this the first child
+  expect(p).not.toContain("first child");
   // ...and none of the apparatus that only makes sense for a stale tree:
   expect(p).not.toContain("ALREADY MERGED");
   expect(p).not.toContain("OVERRIDES the VERIFY rule");

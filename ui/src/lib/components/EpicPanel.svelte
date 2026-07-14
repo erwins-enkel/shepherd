@@ -442,19 +442,23 @@
 
   .run-settings {
     display: flex;
-    align-items: end;
+    align-items: center;
     gap: 6px;
     flex-wrap: wrap;
   }
 
+  /* Caption reads as an inline prefix on the control's own line — baseline, not
+     centre, so it sits on the select's text rather than mid-box. */
   .mini-field {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 96px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
   }
 
   .micro {
+    flex: none;
+    white-space: nowrap;
     color: var(--color-faint);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
@@ -463,6 +467,7 @@
 
   select {
     min-height: 24px;
+    min-width: 96px;
     max-width: 180px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
@@ -526,10 +531,19 @@
     color: var(--color-amber);
   }
 
-  @media (max-width: 768px) {
+  /* Condition mirrors the global mobile control branch in app.css — phone
+     landscape is short-wide, so a width-only query would leave these controls
+     desktop-sized while app.css had already bumped their font to 16px. */
+  @media (max-width: 768px), (max-height: 600px) {
+    /* 44px is the tap-target floor — buttons and the inline selects beside them
+       move together, else the taller control breaks the shared control line. */
     .gbtn {
-      min-height: 40px;
+      min-height: 44px;
       padding: 2px 14px;
+    }
+
+    select {
+      min-height: 44px;
     }
   }
 </style>

@@ -301,3 +301,16 @@ test("#1757 no warning on a branch-capable forge (and none for existing callers 
   expect(supported.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
   expect(omitted.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
 });
+
+test("#1757 an UNRESOLVABLE forge does not warn (that would assert something we never checked)", () => {
+  // `integrationBranchSupported` is false ONLY for a forge that resolved and genuinely lacks
+  // ensureBranch. A missing forge is a different, unknown condition — the warning states a specific
+  // fact ("this forge cannot create branches"), so asserting it when we couldn't even ask would
+  // tell the operator something untrue. Drain maps no-forge → true (silent).
+  const e = assembleEpic({
+    ...BASE,
+    subIssues: [{ number: 320, title: "EFI", url: "u320", body: "", closed: false, labels: [] }],
+    integrationBranchSupported: true,
+  });
+  expect(e.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
+});

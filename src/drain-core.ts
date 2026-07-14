@@ -297,7 +297,12 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // children, and every sibling would fail identically, so pausing new spawns is exactly right.
   // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
   // cooldown-fresh (see Drain.buildState), so this self-heals: it lapses, the spawn retries.
-  if (state.epicIntegrationBranch && state.epicBaseUnavailable) {
+  //
+  // The marker must name THIS epic's branch. The failure map is keyed per repo+issue, not per epic,
+  // so a failure recorded for epic A survives its cooldown window into a DIFFERENT epic started in
+  // the same repo minutes later — holding epic B while the banner names epic A's branch. Comparing
+  // the two makes a stale cross-epic marker inert (and it ages out of the map on its own).
+  if (state.epicIntegrationBranch && state.epicBaseUnavailable === state.epicIntegrationBranch) {
     return {
       kind: "hold",
       reason: { code: "epic_base_unavailable", detail: state.epicBaseUnavailable },

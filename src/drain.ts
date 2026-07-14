@@ -55,6 +55,15 @@ const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
  *  window; a persistent one stops churning. */
 const SPAWN_FAIL_COOLDOWN_MS = 5 * 60_000;
 
+/** #1757: can this forge create the epic integration branch? A forge that resolves but lacks
+ *  `ensureBranch` (Gitea/local) genuinely cannot — that drives the operator-facing
+ *  NO_INTEGRATION_BRANCH_WARNING. An ABSENT forge is a different, unknown condition (we couldn't
+ *  ask), so it reports `true` (no warning): the warning states a specific fact about the forge, and
+ *  asserting it when no forge resolved would be telling the operator something untrue. */
+function forgeCanEnsureBranch(forge: GitForge | null | undefined): boolean {
+  return forge ? forge.ensureBranch != null : true;
+}
+
 /** #1757: `forge.ensureBranch` THREW while resolving an epic child's spawn base, so the integration
  *  branch could not be ensured. Thrown by resolveSpawnBase and caught (typed) in doSpawn, which
  *  records `epicBase` on the spawn-failure entry so the drain can surface an `epic_base_unavailable`
@@ -490,7 +499,12 @@ export class DrainService {
       // #1757: a forge without ensureBranch (Gitea/local) cannot create the integration branch, so
       // every child of this epic degrades onto the default branch. The epic still progresses, but
       // not the way the epic model implies — surface it as a warning instead of a console.warn.
-      integrationBranchSupported: this.deps.resolveForge(repoPath)?.ensureBranch != null,
+      //
+      // An UNRESOLVABLE forge is NOT the same thing (epicStructure can serve a cached build after
+      // the forge is gone), and the warning asserts a specific, checkable fact — "this forge cannot
+      // create branches". Claiming that when we simply couldn't ask would be a false statement to
+      // the operator, so no-forge stays silent (true) rather than warning for the wrong reason.
+      integrationBranchSupported: forgeCanEnsureBranch(this.deps.resolveForge(repoPath)),
     };
     // Self-heal orphaned base-mismatch markers (#645). The marker is only cleared inside the
     // retire path (doRetire → epicChildBaseBlocked), which re-runs only while the child PR is

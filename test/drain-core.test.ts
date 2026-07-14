@@ -806,3 +806,33 @@ describe("computeNext: epic_base_unavailable (#1757)", () => {
     expect(d.kind).toBe("retire");
   });
 });
+
+describe("computeNext: epic_base_unavailable is scoped to the epic that failed (#1757)", () => {
+  test("a marker from a DIFFERENT epic does not hold this one", () => {
+    // The spawn-failure map is keyed per repo+issue, not per epic, so a failure recorded while
+    // epic A was running survives its cooldown window into an epic B started in the same repo
+    // minutes later. Without this check, epic B is paused and the banner names epic A's branch.
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/2-beta",
+        epicBaseUnavailable: "epic/1-alpha", // stale, from the previous epic
+      }),
+    );
+    expect(d.kind).toBe("spawn");
+  });
+
+  test("a marker for THIS epic still holds", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/2-beta",
+        epicBaseUnavailable: "epic/2-beta",
+      }),
+    );
+    expect(d).toEqual({
+      kind: "hold",
+      reason: { code: "epic_base_unavailable", detail: "epic/2-beta" },
+    });
+  });
+});

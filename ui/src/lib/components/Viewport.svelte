@@ -63,6 +63,8 @@
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
   import EpicDraftPanel from "$lib/components/EpicDraftPanel.svelte";
+  import EpicDraftModal from "$lib/components/EpicDraftModal.svelte";
+  import { epicDrafts } from "$lib/epic-draft.svelte";
   import SessionRecap from "$lib/components/SessionRecap.svelte";
   import ViewportTermBanners from "./viewport/ViewportTermBanners.svelte";
   import ReviewInFlightBanner from "./viewport/ReviewInFlightBanner.svelte";
@@ -444,6 +446,23 @@
   // the fold only applies on the compact layout (it's the mobile space-saver);
   // desktop keeps its own git-actions disclosure untouched.
   const headerFolded = $derived(compact && headerCollapsed);
+
+  // Epic-draft review dialog. Opened from the EpicDraftPanel bar, hosted DOWN THE FILE outside the
+  // .viewport root: .viewport takes a transform mid-swipe, which would become the containing block
+  // for the dialog's position:fixed backdrop and drag it along with the pane.
+  let epicDraftOpen = $state(false);
+  let epicDraftShownFor = $state<string | null>(null);
+  $effect(() => {
+    // Session switch → close. This component is reused across j/k + swipe navigation, so an open
+    // dialog would otherwise survive the switch still pointing at the PREVIOUS session's draft.
+    if (epicDraftShownFor !== session.id) {
+      epicDraftShownFor = session.id;
+      epicDraftOpen = false;
+      return;
+    }
+    // Draft went away (session archived / draft discarded) → no orphan overlay.
+    if (!epicDrafts.get(session.id)) epicDraftOpen = false;
+  });
 
   // a parked (idle/done) session whose provider process is actually gone can be
   // brought back — surface a header Resume button so the user isn't stranded at a
@@ -2792,13 +2811,18 @@
       queue={buildQueue ?? null}
       onbootstrap={(q) => onSeedBuildQueue?.(q)}
     />
-    <!-- epic draft review (issue #1507): shown for epic-authoring sessions (or when a draft exists) -->
-    <EpicDraftPanel
-      sessionId={session.id}
-      epicAuthoring={session.epicAuthoring}
-      sessionLive={session.status !== "archived" && session.status !== "done"}
-    />
   {/if}
+
+  <!-- epic draft review (issue #1507): a one-line bar — the draft itself opens in EpicDraftModal, so
+       the terminal keeps the column. Deliberately OUTSIDE the !headerFolded gate: it takes `folded`
+       and decides for itself, because a draft awaiting review must survive the fold (headerCollapsed
+       is persisted, so a folded phone operator would otherwise have no path to approve or abort). -->
+  <EpicDraftPanel
+    sessionId={session.id}
+    epicAuthoring={session.epicAuthoring}
+    folded={headerFolded}
+    onreview={() => (epicDraftOpen = true)}
+  />
 
   <!-- terminal (stays mounted across tab switches) -->
   <div
@@ -3036,6 +3060,18 @@
     </div>
   {/if}
 </div>
+
+<!-- Modal surfaces live OUT HERE, as siblings of .viewport rather than children of it: .viewport
+     carries a transform while a swipe is in flight (style:transform above), and a transformed
+     ancestor becomes the containing block for position:fixed — a dialog nested inside would be
+     dragged along with the pane instead of staying pinned to the viewport. -->
+{#if epicDraftOpen}
+  <EpicDraftModal
+    sessionId={session.id}
+    sessionLive={session.status !== "archived" && session.status !== "done"}
+    onclose={() => (epicDraftOpen = false)}
+  />
+{/if}
 
 {#if leftovers.length > 0}
   <LeftoverDialog

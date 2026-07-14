@@ -36,6 +36,8 @@ const { default: Viewport } = await import("./Viewport.svelte");
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
 // Dynamic import for same reason: recaps.svelte imports $lib/api via getRecaps.
 const { recaps } = await import("$lib/recaps.svelte");
+// Dynamic import for same reason: epic-draft.svelte imports $lib/api via getEpicDraft.
+const { epicDrafts } = await import("$lib/epic-draft.svelte");
 import { toasts } from "$lib/toasts.svelte";
 import { m } from "$lib/paraglide/messages";
 import type {
@@ -45,6 +47,7 @@ import type {
   PlanGate,
   ReviewVerdict,
   SessionActivity,
+  EpicDraft,
 } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -1375,6 +1378,116 @@ describe("Viewport phone back glyph", () => {
     const glyph = back!.textContent?.trim();
     expect(glyph, "phone back glyph is the list glyph").toBe("☰");
     expect(glyph, "phone back glyph must not be the left chevron").not.toBe("‹");
+  });
+});
+
+// ── epic-draft review dialog: COMPOSITION, not the component in isolation ────
+// EpicDraftModal is a position:fixed overlay. `.viewport` takes a transform while a swipe is in
+// flight (style:transform, keyed on the truthiness of swipeX), and a transformed ancestor becomes
+// the containing block for position:fixed — so a dialog nested INSIDE .viewport would be dragged
+// along with the pane instead of staying pinned. Mounting the modal standalone can never catch
+// that: it always looks fine. Neither can a computed-transform check at rest (there is no
+// transform), nor `leftwardDrag` (its touchend zeroes swipeX AND commits a session switch, which
+// closes the dialog). So: assert structural non-containment, then HOLD a drag open and measure.
+describe("Viewport epic-draft review dialog", () => {
+  beforeEach(() => localStorage.removeItem("shepherd-vp-header-collapsed"));
+
+  function draft(sessionId: string): EpicDraft {
+    return {
+      sessionId,
+      parent: {
+        title: "Epic under review",
+        body: "Long enough to need the dialog's own scroller.",
+        acceptanceCriteria: ["Reviewable."],
+        nonGoals: [],
+      },
+      children: [
+        {
+          key: "c1",
+          title: "First slice",
+          body: "A vertical slice.",
+          acceptanceCriteria: ["Verifiable."],
+          blockedBy: [],
+        },
+      ],
+      status: "draft",
+      materializedChildren: {},
+      parentNumber: null,
+      parentUrl: null,
+    };
+  }
+
+  async function openDialog(sessionId: string, mobile = false) {
+    epicDrafts.upsert(draft(sessionId));
+    const r = await render(Viewport, {
+      session: session({ id: sessionId, epicAuthoring: true }),
+      mobile,
+      // onnavigate is what makes canSwitch true — without it the swipe listeners never bind and
+      // the transform never appears, which would quietly hollow out the mid-drag test below.
+      switchOrder: [sessionId, "other"],
+      onnavigate: vi.fn(),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+    const cta = r.container.querySelector<HTMLButtonElement>(".edp-cta");
+    expect(cta, "the draft bar should offer a way into the review dialog").not.toBeNull();
+    cta!.click();
+    await tick();
+    return r;
+  }
+
+  it("renders the dialog OUTSIDE .viewport, so no transformed ancestor can capture it", async () => {
+    const { container } = await openDialog("epic-compose-1");
+
+    const viewport = container.querySelector<HTMLElement>(".viewport");
+    const overlay = document.querySelector<HTMLElement>(".overlay");
+    expect(viewport).not.toBeNull();
+    expect(overlay, "the review dialog should be open").not.toBeNull();
+
+    // THE assertion. A transform check here would pass even when nested (none at rest).
+    expect(viewport!.contains(overlay!), "dialog must not be a .viewport descendant").toBe(false);
+  });
+
+  it("holds its viewport position while .viewport carries a live swipe transform", async () => {
+    const { container } = await openDialog("epic-compose-2", true);
+
+    const viewport = container.querySelector<HTMLElement>(".viewport")!;
+    const overlay = document.querySelector<HTMLElement>(".overlay")!;
+    const before = overlay.getBoundingClientRect();
+
+    // Hand-dispatched touches on .vp-body deliberately BYPASS hit-testing: in the real app the open
+    // overlay covers .vp-body, so the [data-swipe-page] allow-list would never arm a swipe under an
+    // open dialog and a user cannot reach this state. That is exactly why the events are synthetic —
+    // do NOT "simplify" this into leftwardDrag(), and do not drop the missing touchend: the drag has
+    // to stay UNCOMMITTED or swipeX resets to 0 (transform gone) and onnavigate fires (dialog gone).
+    const body = container.querySelector(".vp-body")!;
+    const mount = body.querySelector(".term-mount") ?? body;
+    mount.dispatchEvent(fakeTouch("touchstart", 300, 100));
+    mount.dispatchEvent(fakeTouch("touchmove", 60, 100));
+    await tick();
+
+    expect(
+      getComputedStyle(viewport).transform,
+      "the pane must actually be transformed, or this proves nothing",
+    ).not.toBe("none");
+
+    const after = overlay.getBoundingClientRect();
+    expect(after.left).toBe(before.left);
+    expect(after.top).toBe(before.top);
+  });
+
+  it("closes when the Viewport is reused for another session", async () => {
+    const { rerender, container } = await openDialog("epic-compose-3");
+    expect(document.querySelector(".overlay")).not.toBeNull();
+
+    // j/k + swipe reuse this component: a surviving dialog would point at the PREVIOUS draft.
+    await rerender({ session: session({ id: "epic-compose-other", epicAuthoring: true }) });
+    await tick();
+
+    expect(
+      container.querySelector(".overlay"),
+      "dialog must not survive a session switch",
+    ).toBeNull();
   });
 });
 

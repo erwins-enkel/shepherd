@@ -1601,9 +1601,12 @@ test("a review of a CHANGED plan resets answeredQuestionKeys", async () => {
   expect(h.store.gate.answeredQuestionKeys).toEqual([]); // new question set ⇒ reset
 });
 
-// ── F3: a sub-cap forced re-review must not spend a rework round ───────────────
+// ── #1759: a sub-cap forced re-review DELIVERS and spends a rework round ───────
+// It used to hold the round and steer nothing on an unchanged plan (the old "F3" hold). That froze
+// `round` below the cap — which advances only on a DELIVERED steer — so the at-cap Resume CTA could
+// never be reached and RE-REVIEW was guaranteed inert: the session had no exit.
 
-test("F3: sub-cap forced re-review of an unchanged plan holds round + finalRoundPending, no steer, no stall", async () => {
+test("#1759: sub-cap forced re-review of an unchanged plan steers the fresh findings and advances the round", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const steers: string[] = [];
   const signals: any[] = [];
@@ -1633,14 +1636,15 @@ test("F3: sub-cap forced re-review of an unchanged plan holds round + finalRound
   });
   expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
   await h.svc.tick();
-  expect(steers.length).toBe(0); // no re-steer of findings the agent already holds
-  expect(h.store.gate.round).toBe(1); // held at priorRound — no advance
-  expect(h.store.gate.finalRoundPending).toBe(false); // unchanged
-  expect(signals.length).toBe(0); // no stall row
-  expect(h.store.gate.decision).toBe("changes_requested"); // fresh verdict still persisted
+  expect(steers.length).toBe(1); // the operator's click means "send these to the agent"
+  expect(steers[0]).toContain("fix A"); // the fresh verdict's findings
+  expect(h.store.gate.round).toBe(2); // priorRound(1) advanced — the click bought a real round
+  expect(h.store.gate.finalRoundPending).toBe(false); // sub-cap
+  expect(signals.length).toBe(0); // sub-cap delivered steer → no stall row
+  expect(h.store.gate.decision).toBe("changes_requested");
 });
 
-test("F3: sub-cap forced review of a CHANGED plan advances the round and steers", async () => {
+test("#1759: sub-cap forced review of a CHANGED plan advances the round and steers", async () => {
   const oldHash = await PlanGateService.hashPlan("OLD PLAN");
   const steers: string[] = [];
   const h = harness({
@@ -1667,9 +1671,40 @@ test("F3: sub-cap forced review of a CHANGED plan advances the round and steers"
   expect(h.store.gate.round).toBe(2); // priorRound(1) advanced
 });
 
+test("#1759: forced re-review of an unchanged plan at cap-1 crosses the cap → the Resume CTA's gate shape", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const steers: string[] = [];
+  const h = harness({
+    cap: 3,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix A"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: {
+      getPlanGate: () => ({ planHash: hash, approved: false, round: 2, findings: ["fix A"] }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(steers.length).toBe(1);
+  // The escape the issue says doesn't exist: repeated forced clicks now REACH the cap, and this is
+  // the exact gate shape canShowPlanStallActions(), hold-row's `atCap` (R7 → quota → Resume) and
+  // quotaBlockReason()'s plan arm each key off. Asserted here on the row; the three consumers are
+  // unchanged and separately tested.
+  expect(h.store.gate.decision).toBe("changes_requested");
+  expect(h.store.gate.round).toBeGreaterThanOrEqual(h.store.gate.cap);
+});
+
 // ── force: stall-signal guards (learnings-corpus protection) ──────────────────
 
-test("forced at-cap re-entry of an unchanged plan writes no stall row (F3 preempts)", async () => {
+test("forced at-cap re-entry of an unchanged plan writes no stall row (guard #1)", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const steers: string[] = [];
   const signals: any[] = [];
@@ -1694,8 +1729,47 @@ test("forced at-cap re-entry of an unchanged plan writes no stall row (F3 preemp
   await h.svc.consider(planningSession() as any, { force: true });
   await h.svc.tick();
   expect(signals.length).toBe(0); // repeat-clickable at the cap must not spam the distiller
-  expect(steers.length).toBe(0);
+  expect(steers.length).toBe(0); // the at-cap hold: no steer once the budget is spent
   expect(h.store.gate.round).toBe(1);
+});
+
+test("#1759: forced at-cap re-review CLEARS a pending final round (planStallStatus final → stalled)", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const steers: string[] = [];
+  const h = harness({
+    cap: 2,
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["again"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+    store: {
+      // The cap-th steer landed and the agent is (nominally) revising: finalRoundPending is TRUE.
+      getPlanGate: () => ({
+        planHash: hash,
+        approved: false,
+        round: 2,
+        finalRoundPending: true,
+        findings: ["again"],
+      }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any, { force: true });
+  await h.svc.tick();
+  expect(steers.length).toBe(0); // at-cap hold — still no steer
+  expect(h.store.gate.round).toBe(2); // round still held
+  // The flag is RECOMPUTED, never carried: it means "the cap-th steer just landed", and no steer
+  // landed on THIS verdict. So a forced at-cap re-review clears it, flipping planStallStatus from
+  // "final" to "stalled" — the recovery menu surfaces at once instead of after
+  // PLAN_FINAL_ROUND_TIMEOUT_MS. Uniform with every other at-cap re-review; pinned here so the
+  // behaviour is enforced, not inherited from a seed that never set the flag.
+  expect(h.store.gate.finalRoundPending).toBe(false);
 });
 
 test("forced CHANGED-plan crossing the cap writes exactly one stall row", async () => {

@@ -263,6 +263,51 @@ describe("CommandBar — fuzzy matching", () => {
     // …yet the option still reads as the full, untouched title.
     await expect.element(page.getByRole("option").first()).toHaveTextContent("newer");
   });
+
+  it("does not stitch one fuzzy match across separate session fields", async () => {
+    renderBar({
+      sessions: [session({ id: "cross", name: "ne", desig: "w", repoPath: "/repos/none" })],
+    });
+
+    await page.getByRole("combobox").fill("new");
+
+    expect(page.getByRole("option", { name: /^ne\b/ }).elements()).toHaveLength(0);
+  });
+
+  it("rejects a long-gap fuzzy title match in the command bar", async () => {
+    renderBar({
+      sessions: [session({ id: "wide", name: "attachment-hover-preview" })],
+    });
+
+    await page.getByRole("combobox").fill("new");
+
+    expect(page.getByRole("option", { name: /attachment-hover-preview/ }).elements()).toHaveLength(
+      0,
+    );
+  });
+
+  it("shows a designation when it is the winning session field", async () => {
+    renderBar({
+      sessions: [session({ id: "desig", name: "alpha", desig: "TASK-99" })],
+    });
+
+    await page.getByRole("combobox").fill("task-99");
+
+    await expect.element(page.getByRole("option", { name: /alpha/ })).toHaveTextContent("TASK-99");
+  });
+
+  it("highlights the repository name when it is the winning session field", async () => {
+    renderBar({
+      sessions: [session({ id: "repo", name: "zeta", repoPath: "/repos/alpha" })],
+    });
+
+    await page.getByRole("combobox").fill("alpha");
+
+    const row = page.getByRole("option", { name: /zeta/ });
+    await expect.element(row).toBeVisible();
+    expect(row.element().querySelector(".cb-sub mark.cb-hl")?.textContent).toBe("alpha");
+    expect(page.getByRole("option", { name: /alpha/ }).elements()).toHaveLength(2);
+  });
 });
 
 describe("CommandBar — selection", () => {
@@ -449,6 +494,47 @@ describe("CommandBar — Commands group", () => {
     await page.getByRole("option", { name: /Broadcast/ }).click();
     expect(run).toHaveBeenCalledTimes(1);
     expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("puts a stronger command match ahead of weaker navigation groups", async () => {
+    const run = vi.fn();
+    const commands: Command[] = [{ id: "new-task", label: () => m.commandbar_cmd_new_task(), run }];
+    const { onclose, onselectsession } = renderBar({
+      sessions: [session({ id: "fuzzy", name: "n-e-w" })],
+      commands,
+    });
+
+    await page.getByRole("combobox").fill("new");
+
+    const first = page.getByRole("option").first();
+    await expect.element(first).toHaveTextContent(m.commandbar_cmd_new_task());
+    expect(document.querySelector(".cb-group")?.textContent).toBe(m.commandbar_group_commands());
+    expect(
+      page
+        .getByRole("option", { name: new RegExp(m.commandbar_cmd_new_task()) })
+        .element()
+        .querySelector("mark.cb-hl")?.textContent,
+    ).toBe("New");
+
+    await userEvent.keyboard("{Enter}");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+    expect(onselectsession).not.toHaveBeenCalled();
+  });
+
+  it("keeps an exact session title ahead of a prefix command match", async () => {
+    const run = vi.fn();
+    const commands: Command[] = [{ id: "new-task", label: () => m.commandbar_cmd_new_task(), run }];
+    const { onselectsession } = renderBar({
+      sessions: [session({ id: "exact", name: "new" })],
+      commands,
+    });
+
+    await page.getByRole("combobox").fill("new");
+    await userEvent.keyboard("{Enter}");
+
+    expect(onselectsession).toHaveBeenCalledWith("exact");
+    expect(run).not.toHaveBeenCalled();
   });
 
   it("surfaces a learnings-style command via its keyword synonyms and runs it on activation", async () => {

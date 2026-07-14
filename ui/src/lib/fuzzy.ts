@@ -1,48 +1,91 @@
-/** Result of a successful fuzzy match: a relevance `score` (higher is better) and the
- *  indices in the ORIGINAL `text` that the query matched — the latter drive match
- *  highlighting, so they must line up with the un-lowercased string. */
+export type FuzzyKind = "empty" | "exact" | "prefix" | "substring" | "fuzzy";
+
+/** Result of a successful fuzzy match: a relevance `score` (higher is better), its
+ *  confidence `kind`, and the indices in the ORIGINAL `text` that the query matched —
+ *  the latter drive match highlighting, so they must line up with the un-lowercased string. */
 export interface FuzzyResult {
   score: number;
   positions: number[];
+  kind: FuzzyKind;
+  span: number;
 }
 
 const BASE = 1; // every consumed query char
 const BOUNDARY_BONUS = 10; // match at index 0 or right after a separator (prefixes win)
 const CONSEC_BONUS = 5; // match adjacent to the previous one (contiguous runs win)
 const SEPARATOR = /[\s\-_/.]/;
+const TIER_BASE: Record<Exclude<FuzzyKind, "empty">, number> = {
+  exact: 4000,
+  prefix: 3000,
+  substring: 2000,
+  fuzzy: 1000,
+};
+const QUALITY_LIMIT = 250;
+
+function findAlignment(
+  query: string,
+  text: string,
+): { positions: number[]; quality: number } | null {
+  // Compare case-insensitively per character against the ORIGINAL text — not a pre-lowercased
+  // copy — so `positions` index the original string. Lowercasing the whole haystack can shift
+  // indices when a char's lowercase form has a different length (e.g. "İ" → "i̇"), which would
+  // misplace the highlight.
+  const positions: number[] = [];
+  let quality = 0;
+  let qi = 0;
+  let prev = -2; // guarantees the first match is never counted as "consecutive"
+  for (let ti = 0; ti < text.length && qi < query.length; ti++) {
+    if (text[ti].toLowerCase() === query[qi]) {
+      let bonus = BASE;
+      if (ti === 0 || SEPARATOR.test(text[ti - 1])) bonus += BOUNDARY_BONUS;
+      if (ti === prev + 1) bonus += CONSEC_BONUS;
+      quality += bonus;
+      positions.push(ti);
+      prev = ti;
+      qi++;
+    }
+  }
+  return qi === query.length ? { positions, quality } : null;
+}
+
+function matchKind(
+  start: number,
+  span: number,
+  queryLength: number,
+  textLength: number,
+): Exclude<FuzzyKind, "empty"> {
+  if (span !== queryLength) return "fuzzy";
+  if (start !== 0) return "substring";
+  return span === textLength ? "exact" : "prefix";
+}
 
 /**
  * Case-insensitive fuzzy subsequence match with relevance scoring.
  *
  * Returns `null` when `query` is not a subsequence of `text` (all query chars must appear in
- * order). An empty query matches everything with score 0 and no positions — callers rely on
- * this to preserve their default (unfiltered) ordering.
+ * order), or when a non-contiguous match spans too much unrelated text to be useful. An empty
+ * query matches everything with score 0 and no positions — callers rely on this to preserve
+ * their default (unfiltered) ordering.
  *
  * Matching is greedy left-to-right: each query char binds to the earliest remaining occurrence.
  * This is not an optimal alignment (a DP would find the highest-scoring one), but it is simple,
  * allocation-light, and more than adequate for the short strings a command bar searches.
  */
 export function fuzzyScore(query: string, text: string): FuzzyResult | null {
-  if (query.length === 0) return { score: 0, positions: [] };
+  if (query.length === 0) return { score: 0, positions: [], kind: "empty", span: 0 };
   const q = query.toLowerCase();
-  // Compare case-insensitively per character against the ORIGINAL text — not a pre-lowercased
-  // copy — so `positions` index the original string. Lowercasing the whole haystack can shift
-  // indices when a char's lowercase form has a different length (e.g. "İ" → "i̇"), which would
-  // misplace the highlight.
-  const positions: number[] = [];
-  let score = 0;
-  let qi = 0;
-  let prev = -2; // guarantees the first match is never counted as "consecutive"
-  for (let ti = 0; ti < text.length && qi < q.length; ti++) {
-    if (text[ti].toLowerCase() === q[qi]) {
-      let bonus = BASE;
-      if (ti === 0 || SEPARATOR.test(text[ti - 1])) bonus += BOUNDARY_BONUS;
-      if (ti === prev + 1) bonus += CONSEC_BONUS;
-      score += bonus;
-      positions.push(ti);
-      prev = ti;
-      qi++;
-    }
-  }
-  return qi === q.length ? { score, positions } : null;
+  const alignment = findAlignment(q, text);
+  if (alignment === null) return null;
+
+  const { positions } = alignment;
+  const span = positions.at(-1)! - positions[0] + 1;
+  const kind = matchKind(positions[0], span, q.length, text.length);
+
+  if (kind === "fuzzy" && span > Math.max(q.length * 3, q.length + 2)) return null;
+
+  const quality = Math.max(
+    -QUALITY_LIMIT,
+    Math.min(QUALITY_LIMIT, alignment.quality - (span - q.length)),
+  );
+  return { score: TIER_BASE[kind] + quality, positions, kind, span };
 }

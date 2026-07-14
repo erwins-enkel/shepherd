@@ -168,16 +168,10 @@ function mountCodingAgents() {
   return render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
 
-// During this RED step the disclosure does not exist yet, so keep the fallback for the
-// current flat layout. Once present, API-key tests must open Claude Code before touching
-// controls that intentionally remain mounted but hidden inside the collapsed section.
 async function mountClaudeApiKeySettings() {
   await mountCodingAgents();
-  const disclosure = page.getByRole("button", {
-    name: m.settings_cli_claude_title(),
-    exact: true,
-  });
-  if (disclosure.query()?.getAttribute("aria-expanded") === "false") {
+  const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_claude_title());
+  if (button.getAttribute("aria-expanded") === "false") {
     await disclosure.click();
   }
 }

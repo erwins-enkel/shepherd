@@ -341,9 +341,17 @@
     inputEl?.focus({ preventScroll: true });
   });
 
-  // Keep the cursor in range if an async update (WS poll) shrinks the option list.
+  // Keep the cursor in range if an async update (WS poll) shrinks the option list — and keep it
+  // ANCHORED to an armed row. `oid` is re-assigned on every re-derive of `groups`, so a session
+  // arriving/leaving while a row is armed shifts every oid: the red "Confirm decommission?" row
+  // would stay armed while Enter fired whatever now sat at the stale activeIdx. Re-anchoring (or
+  // disarming, when the armed row is gone from the list entirely) keeps the armed row, the cursor
+  // and the next Enter on the same option. Both branches are guarded, so they converge.
   $effect(() => {
     if (activeIdx > options.length - 1) activeIdx = Math.max(0, options.length - 1);
+    if (armedRow) {
+      if (armedRow.oid !== activeIdx) activeIdx = armedRow.oid;
+    } else if (armedId !== null) disarm();
   });
 
   function stableKey(row: OptRow): string {
@@ -767,11 +775,14 @@
     outline: 1.5px solid var(--color-amber);
     outline-offset: -1.5px;
   }
-  /* Armed destructive row — the same red arm treatment Viewport's .decom.armed uses. Wins over
-     .kbd-active's background (arming also moves the cursor here, so both classes are on). */
+  /* Armed destructive row — the same red arm treatment Viewport's .decom.armed uses. Declares the
+     WHOLE ring, not just its color: the outline otherwise comes from .kbd-active, and the arm must
+     stay legible even in the transient frame where a live list re-derive has moved the cursor off
+     this row (the effect above re-anchors it, but the affordance can't depend on that). */
   .cb-row.armed {
     color: var(--color-red);
-    outline-color: var(--color-red);
+    outline: 1.5px solid var(--color-red);
+    outline-offset: -1.5px;
     background: color-mix(in srgb, var(--color-red) 12%, transparent);
   }
 

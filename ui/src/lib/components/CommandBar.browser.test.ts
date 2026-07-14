@@ -874,3 +874,88 @@ describe("CommandBar — destructive command two-step arm", () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+describe("CommandBar — armed row survives a live option-list change", () => {
+  it("re-anchors the cursor when a WS session update shifts every row's oid", async () => {
+    // `oid` is re-assigned on every re-derive of the groups, so a session arriving while a row is
+    // armed shifts them all. Without re-anchoring, the red "Confirm decommission?" row would stay
+    // armed while Enter fired whatever now sat at the stale activeIdx.
+    const run = vi.fn();
+    const { commands } = seedDestructive(run);
+    const onselectsession = vi.fn();
+    const { rerender } = await render(CommandBar, {
+      sessions: [session({ id: "s1", name: "decom-one", updatedAt: 10 })],
+      workingBlocked: {},
+      commands,
+      onselectsession,
+      onselectrepo: vi.fn(),
+      onfilterrepo: vi.fn(),
+      onselectlens: vi.fn(),
+      onclose: vi.fn(),
+    });
+
+    await page.getByRole("combobox").fill("decom");
+    await decomRow().click();
+    expect(document.querySelector(".cb-row.armed")!.getAttribute("aria-selected")).toBe("true");
+
+    // A newer session lands (WS): it sorts ahead in the Sessions group and shifts the command
+    // row's oid.
+    await rerender({
+      sessions: [
+        session({ id: "s1", name: "decom-one", updatedAt: 10 }),
+        session({ id: "s2", name: "decom-two", updatedAt: 99 }),
+      ],
+    });
+
+    // Cursor followed the armed row rather than staying on the (now different) stale index.
+    await vi.waitFor(() => {
+      const armed = document.querySelector(".cb-row.armed")!;
+      expect(armed.getAttribute("aria-selected")).toBe("true");
+      expect(page.getByRole("combobox").element().getAttribute("aria-activedescendant")).toBe(
+        armed.id,
+      );
+    });
+
+    await pastDwell();
+    await userEvent.keyboard("{Enter}");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onselectsession).not.toHaveBeenCalled();
+  });
+
+  it("disarms when the armed command leaves the list entirely", async () => {
+    const { commands, run } = seedDestructive();
+    const { rerender } = await render(CommandBar, {
+      sessions: [session({ id: "s1", name: "decom-one" })],
+      workingBlocked: {},
+      commands,
+      onselectsession: vi.fn(),
+      onselectrepo: vi.fn(),
+      onfilterrepo: vi.fn(),
+      onselectlens: vi.fn(),
+      onclose: vi.fn(),
+    });
+
+    await page.getByRole("combobox").fill("decom");
+    await decomRow().click();
+    expect(document.querySelector(".cb-row.armed")).not.toBeNull();
+
+    // The selected session went away server-side → the page stops offering the verb.
+    await rerender({ commands: [] });
+    await vi.waitFor(() => expect(srText()).toBe(""));
+
+    // The verb comes back (a new session is selected). The arm must NOT have survived its absence:
+    // a stale armedId (whose dwell has long since elapsed) would treat the very next activation as
+    // the CONFIRM, decommissioning on a single click with no confirmation at all.
+    await rerender({ commands });
+    // waitFor, not a bare querySelector: the restored props flush asynchronously, and probing the
+    // DOM before that lands would read the pre-rerender row and pass vacuously.
+    await vi.waitFor(() => {
+      expect(document.querySelectorAll(".cb-row")).toHaveLength(2);
+      expect(document.querySelector(".cb-row.armed")).toBeNull();
+    });
+
+    await decomRow().click();
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM); // arms afresh, does not fire
+    expect(run).not.toHaveBeenCalled();
+  });
+});

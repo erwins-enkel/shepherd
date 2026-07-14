@@ -34,6 +34,7 @@ test("focus reports and terminal query replies are NOT operator input", () => {
   expect(isOperatorKeystroke("\x1b[>0;10;1c")).toBe(false); // DA2
   expect(isOperatorKeystroke("\x1b[12;3R")).toBe(false); // cursor position (DSR)
   expect(isOperatorKeystroke("\x1b[?12;3R")).toBe(false); // cursor position (DECXCPR)
+  expect(isOperatorKeystroke("\x1b[0n")).toBe(false); // DSR-5 status reply
   expect(isOperatorKeystroke("\x1b[?2026;2$y")).toBe(false); // DECRPM
   expect(isOperatorKeystroke("\x1b[8;40;120t")).toBe(false); // XTWINOPS
   expect(isOperatorKeystroke("\x1b]11;rgb:1e1e/1e1e/2e2e\x07")).toBe(false); // OSC, BEL-terminated
@@ -49,6 +50,7 @@ test("typed bytes batched after a reply still count as operator input", () => {
   // The non-typing patterns are anchored through their terminators (no greedy `.*`),
   // so a reply can't swallow real input that arrives in the same frame.
   expect(isOperatorKeystroke("\x1b[12;3Rx")).toBe(true);
+  expect(isOperatorKeystroke("\x1b[0nx")).toBe(true);
   expect(isOperatorKeystroke("\x1b[<35;12;5Ma")).toBe(true);
   expect(isOperatorKeystroke("\x1b]11;rgb:1e1e/1e1e/2e2e\x07hi")).toBe(true);
 });

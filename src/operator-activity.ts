@@ -46,7 +46,8 @@ const NON_TYPING = new RegExp(
     "\\x1b\\[M[\\s\\S]{3}", // X10/default mouse report (button + col + row as raw bytes)
     "\\x1b\\[[IO]", // focus in / focus out
     "\\x1b\\[[?>]\\d*(?:;\\d+)*c", // Device Attributes reply
-    "\\x1b\\[\\??\\d+;\\d+R", // cursor-position reply: DSR and DECXCPR (`?` form)
+    "\\x1b\\[\\??\\d+;\\d+R", // cursor-position reply: DSR-6 and DECXCPR (`?` form)
+    "\\x1b\\[\\d*n", // DSR-5 status reply (`\x1b[0n`) — same deviceStatus handler as DSR-6
     "\\x1b\\[\\?\\d+;\\d+\\$y", // DECRPM reply
     "\\x1b\\[\\d+;\\d+;\\d+t", // XTWINOPS report
     "\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)", // OSC reply (BEL- or ST-terminated)

@@ -27,42 +27,72 @@ function sanitizeVersion(v: string | null | undefined): string {
   return clean || "unknown";
 }
 
+/** The two installers that can update the codex on PATH. Which one actually
+ *  WORKS is a property of the host, not something either side can know up front
+ *  — see {@link buildUpdateScript}. */
+export type CodexUpdateChannel = "npm" | "codex";
+
+/** Marker the script emits once the on-PATH version has ADVANCED, naming the
+ *  channel that did it. This is the ONLY attribution of a winning channel:
+ *  shepherd's own `ok` (a compareSemver against the last known version) says
+ *  THAT we converged, never BY WHAT. Parsed into the channel memo. */
+export const CONVERGED_MARKER = `${CODEX_UPDATE_LOG_PREFIX} converged via channel=`;
+
 /**
  * The shell program shepherd spawns as a managed child. Extracted + exported
  * so its sequencing is unit-testable without a live codex release.
  *
- * Updates via codex's own **`codex update`** subcommand (`<codexBin> update`),
- * which is install-kind aware: on an npm install it reruns `npm install -g
- * @openai/codex`; on a standalone install it reruns the standalone installer,
- * repointing the on-PATH `~/.local/bin/codex`. It therefore updates the SAME
- * binary shepherd re-reads to verify — closing the npm/standalone mismatch that
- * made `npm install -g` update a shadowed copy while the on-PATH codex stayed put
- * (issue #1560). `codex update` is NON-destructive (swaps the binary on disk;
- * running codex panes keep their loaded build, only new sessions pick it up), so
- * there is no handoff, no server restart, and no recovery branch.
+ * There are two ways to update codex, and **which one works is a property of the
+ * host**:
+ * - **`codex update`** (`<codexBin> update`) — codex's own updater. It is
+ *   install-kind aware and re-runs whichever installer it believes owns it, so on a
+ *   standalone install it repoints the on-PATH `~/.local/bin/codex` where a blind
+ *   `npm install -g` would have updated a shadowed copy and left the on-PATH codex
+ *   put (issue #1560).
+ * - **`npm install -g @openai/codex`** — updates the npm-global copy.
+ *
+ * Neither is universally right. `codex update` SELF-SELECTS its channel, and that
+ * choice can miss the install actually on PATH: on a host whose on-PATH `codex` is
+ * a wrapper resolving to the npm-global copy, `codex update` may run `bun install
+ * -g`, succeed, exit 0 — and change nothing the operator runs. Success therefore
+ * cannot be read off the exit code; only a re-read `codex --version` that ADVANCED
+ * proves an update landed.
+ *
+ * So the script **tries a channel, verifies, and falls back to the other one** —
+ * and shepherd REMEMBERS which one won (`preferred`, the channel memo), so the
+ * next update leads with it. Steady state is therefore ONE installer run per
+ * update on every host shape; the fallback fires only when the memo misses (a host
+ * that changed channels), which rewrites the memo. With no memo yet, the order is
+ * `codex update` then npm — the historical order, so a fresh host is never worse
+ * off than before.
  *
  * Safety rails baked into the script:
- * - **Probe first.** We only invoke `codex update` if `codex --help` advertises
- *   the subcommand. A codex too old to have it would otherwise treat `update` as
- *   an interactive prompt; `--help` just prints help and exits, never runs an agent.
- * - **npm fallback gated on non-advancement.** If the subcommand is absent OR the
- *   version did not advance (`after == before`), fall back to `npm install -g
- *   @openai/codex`. Gating on the version — not the exit code — means an old codex
- *   that silently no-ops still falls back, so old-npm hosts never regress.
+ * - **Probe first.** `codex update` is only ever invoked if `codex --help`
+ *   advertises the subcommand. A codex too old to have it would otherwise treat
+ *   `update` as an interactive prompt; `--help` just prints help and exits, never
+ *   runs an agent. When absent, npm is the only channel — including as a fallback.
+ * - **Advancement, never exit code, decides.** A channel counts as the winner only
+ *   if `codex --version` moved. An installer that no-ops while exiting 0 falls
+ *   through to the other channel, so old/odd hosts never silently stall.
  * - **`export CODEX_NON_INTERACTIVE=1`** so the standalone installer path runs unattended.
  *
  * Every run appends ONE delimited block to `logPath` (default
  * ~/.shepherd/codex-update.log) via `tee -a`: a `=== codex-update <UTC> <from> ->
  * <to> ===` header, on-PATH diagnostics (resolved path, symlink target, all
  * `codex` on PATH — surfaces the documented PATH-duplicate non-convergence mode),
- * the step markers, raw updater output, and the post-update version. The script
- * writes this file itself so the record is COMPLETE even if shepherd crashes.
+ * the per-channel step markers (`channel=<ch> (source=memo|default|fallback)`), raw
+ * updater output, the `converged via channel=` verdict, and the post-update
+ * version. The script writes this file itself so the record is COMPLETE even if
+ * shepherd crashes.
+ *
+ * @param preferred channel to try FIRST (the memo); null → historical order.
  */
 export function buildUpdateScript(
   logPath: string,
   from: string | null | undefined,
   to: string | null | undefined,
   codexBin: string,
+  preferred: CodexUpdateChannel | null = null,
 ): string {
   const f = sanitizeVersion(from);
   const t = sanitizeVersion(to);
@@ -71,14 +101,18 @@ export function buildUpdateScript(
   const q = `'${logPath.replace(/'/g, "'\\''")}'`;
   const cx = `'${codexBin.replace(/'/g, "'\\''")}'`;
   const P = CODEX_UPDATE_LOG_PREFIX;
+  // `preferred` is a closed union, never interpolated from an external string.
+  const pref = preferred === "npm" || preferred === "codex" ? preferred : "";
+  const readVersion = `"$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1`;
   return [
     `LOG=${q}`,
     `CX=${cx}`,
+    `PREF='${pref}'`,
     'mkdir -p "$(dirname "$LOG")"',
     "{",
     `  echo "=== codex-update $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
     "  export CODEX_NON_INTERACTIVE=1",
-    `  before="$("$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)"`,
+    `  before="$(${readVersion})"`,
     `  cxpath="$(command -v "$CX" 2>/dev/null || echo '<not found>')"`,
     `  echo "${P} on-PATH codex: $cxpath"`,
     `  echo "${P} symlink target: $(readlink "$cxpath" 2>/dev/null || echo '<none>')"`,
@@ -86,20 +120,51 @@ export function buildUpdateScript(
     // reveals PATH duplicates — the documented cause of a non-converging update.
     `  dups="$(type -a codex 2>/dev/null || true)"`,
     `  echo "${P} codex on PATH:" $dups`,
+    // Probe once: a codex without the subcommand leaves npm as the ONLY channel,
+    // so it must never appear in the order — not even as the fallback.
     `  if "$CX" --help 2>/dev/null | grep -qE '^[[:space:]]+update[[:space:]]'; then`,
-    `    echo '${P} running codex update'`,
-    `    "$CX" update; rc=$?`,
-    `    echo "${P} codex update exited rc=$rc"`,
     "    has_update=1",
     "  else",
     `    echo '${P} codex update subcommand not present; using npm'`,
     "    has_update=0",
     "  fi",
-    `  after="$("$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1)"`,
-    `  if [ "$has_update" -eq 0 ] || [ "$after" = "$before" ]; then`,
-    `    echo '${P} falling back to npm install -g @openai/codex'`,
-    "    npm install -g @openai/codex; rc=$?",
-    `    echo "${P} npm install exited rc=$rc"`,
+    // Channel order: memo first when we have one and it is runnable, else the
+    // historical order (codex update, then npm).
+    `  if [ "$has_update" -eq 0 ]; then order='npm'; src='default'`,
+    `  elif [ "$PREF" = 'npm' ]; then order='npm codex'; src='memo'`,
+    `  elif [ "$PREF" = 'codex' ]; then order='codex npm'; src='memo'`,
+    `  else order='codex npm'; src='default'; fi`,
+    "  winner=''",
+    `  after="$before"`,
+    "  step=0",
+    "  for ch in $order; do",
+    "    step=$((step+1))",
+    `    if [ "$step" -eq 1 ]; then s="$src"; else s='fallback'; fi`,
+    `    echo "${P} channel=$ch (source=$s)"`,
+    `    if [ "$ch" = 'codex' ]; then`,
+    `      "$CX" update; rc=$?`,
+    `      echo "${P} codex update exited rc=$rc"`,
+    "    else",
+    "      npm install -g @openai/codex; rc=$?",
+    `      echo "${P} npm install exited rc=$rc"`,
+    "    fi",
+    // Drop bash's cached command→path table before re-reading. `$CX` is normally
+    // the BARE name `codex`, whose path bash hashed on the `before` read; an
+    // installer that drops codex into an EARLIER PATH dir (a standalone installer
+    // repointing ~/.local/bin) would otherwise be re-read through the stale hashed
+    // path and look like it did not advance. The winner test now decides what gets
+    // memoized, so a false negative here would be persisted.
+    "    hash -r 2>/dev/null || true",
+    `    after="$(${readVersion})"`,
+    // The ONLY success test: did the codex we actually run move? An installer
+    // that exits 0 but updates some other copy is not a winner.
+    `    if [ "$after" != "$before" ]; then winner="$ch"; break; fi`,
+    `    echo "${P} channel=$ch did not advance codex ($before)"`,
+    "  done",
+    `  if [ -n "$winner" ]; then`,
+    `    echo "${CONVERGED_MARKER}$winner"`,
+    "  else",
+    `    echo '${P} did not converge'`,
     "  fi",
     `  echo "${P} codex --version now: $("$CX" --version 2>/dev/null || echo '<unreadable>')"`,
     '} 2>&1 | tee -a "$LOG"',
@@ -148,9 +213,14 @@ export interface CodexUpdateDeps {
   /**
    * Run the update child, streaming each output line to onLine, resolving when
    * it exits. The AbortSignal fires on watchdog timeout — the default kills the
-   * child. Default: spawn `bash -lc <buildUpdateScript>`.
+   * child. `preferred` is the channel memo (null → historical order). Default:
+   * spawn `bash -lc <buildUpdateScript>`.
    */
-  runUpdate?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  runUpdate?: (
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ) => Promise<void>;
   /** each log line streamed from the running update; default: no-op */
   onLog?: (line: string) => void;
   /** the recomputed status after the update settles; default: no-op */
@@ -160,13 +230,19 @@ export interface CodexUpdateDeps {
   /** inject point for tests; resolve the on-PATH codex for the stuck-update
    *  diagnostic. Default: a pure PATH scan of `config.codexBin`. */
   resolveOnPathBinary?: () => string | null;
+  /** the channel memo: which installer last ADVANCED the on-PATH codex. Tried
+   *  first on the next update. null → no memo yet (historical order). */
+  readChannel?: () => CodexUpdateChannel | null;
+  /** persist the winning channel. Called ONLY on a converged run that named its
+   *  winner — see {@link CodexUpdateService.settleUpdate}. */
+  writeChannel?: (channel: CodexUpdateChannel) => void;
   /** watchdog ceiling before a hung update is force-killed (default 5min) */
   watchdogMs?: number;
 }
 
 /**
  * Tracks whether a newer @openai/codex (the OpenAI Codex CLI, one of Shepherd's
- * agent runtimes) is published on npm and, on demand, runs `codex update` for the
+ * agent runtimes) is published on npm and, on demand, updates it for the
  * operator. It surfaces a badge keyed off `updateAvailable`.
  *
  * Modelled on {@link HerdrUpdateService}: the check parses the installed version
@@ -174,22 +250,36 @@ export interface CodexUpdateDeps {
  * fail-safe — any error (binary missing, network down, malformed payload) yields
  * updateAvailable:false, so a broken check can never raise a false badge.
  *
- * `apply()` spawns `codex update` (with an npm fallback) as a managed child of
- * shepherd (no shepherd restart). Because the update is non-destructive, running
- * codex panes are not interrupted. Success is determined by whether a re-read
- * `codex --version` ADVANCED past the prior version — channel-agnostic, so a
- * standalone update whose version differs from npm-latest still counts. The
- * terminal result is emitted via onDone; a non-converged update carries the
- * on-PATH binary so the modal can explain which install is stuck.
+ * `apply()` spawns {@link buildUpdateScript} as a managed child of shepherd (no
+ * shepherd restart). That script tries the two installers — `codex update` and
+ * `npm install -g @openai/codex` — in the order given by the **channel memo**
+ * (`readChannel`), stopping at the first one that actually moves the on-PATH
+ * version; neither channel is inherently "the primary", and with a memo of `npm`
+ * the run may never invoke `codex update` at all. Because the update is
+ * non-destructive, running codex panes are not interrupted.
+ *
+ * Success is determined by whether a re-read `codex --version` ADVANCED past the
+ * prior version — channel-agnostic, so a standalone update whose version differs
+ * from npm-latest still counts. On success the winning channel is persisted via
+ * `writeChannel` so the next update leads with it (one installer run, not a
+ * try-fail-retry). The terminal result is emitted via onDone; a non-converged
+ * update carries the on-PATH binary so the modal can explain which install is
+ * stuck.
  */
 export class CodexUpdateService {
   private versionRunner: () => string;
   private fetchLatest: () => Promise<{ version: string }>;
-  private runUpdate: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  private runUpdate: (
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ) => Promise<void>;
   private onLog: (line: string) => void;
   private onStatus: (status: CodexUpdateStatus) => void;
   private onDone: (result: CodexUpdateResult) => void;
   private resolveOnPathBinary: () => string | null;
+  private readChannel: () => CodexUpdateChannel | null;
+  private writeChannel: (channel: CodexUpdateChannel) => void;
   private watchdogMs: number;
   private last: CodexUpdateStatus | null = null;
   private applying = false;
@@ -201,25 +291,51 @@ export class CodexUpdateService {
     this.fetchLatest =
       deps.fetchLatest ??
       (() => fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string }>));
-    this.runUpdate = deps.runUpdate ?? ((onLine, signal) => this.defaultRunUpdate(onLine, signal));
+    this.runUpdate =
+      deps.runUpdate ??
+      ((onLine, signal, preferred) => this.defaultRunUpdate(onLine, signal, preferred));
     this.onLog = deps.onLog ?? (() => {});
     this.onStatus = deps.onStatus ?? (() => {});
     this.onDone = deps.onDone ?? (() => {});
     this.resolveOnPathBinary =
       deps.resolveOnPathBinary ?? (() => defaultResolveOnPath(config.codexBin));
+    this.readChannel = deps.readChannel ?? (() => null);
+    this.writeChannel = deps.writeChannel ?? (() => {});
     this.watchdogMs = deps.watchdogMs ?? 5 * 60 * 1000;
+  }
+
+  /** Read the channel memo, degrading a throwing store (locked SQLite) to null.
+   *  The memo only picks which installer we TRY FIRST — it is an optimisation,
+   *  never a precondition — so a failed read must cost us the head start, not the
+   *  update: null simply restores the historical order (`codex update`, then npm),
+   *  and the cross-fallback still converges. Mirrors the write side. */
+  private readChannelSafe(): CodexUpdateChannel | null {
+    try {
+      return this.readChannel();
+    } catch (err) {
+      console.warn(
+        `[codex-update] could not read the channel memo, using the default order: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
   }
 
   /** Spawn `bash -lc <script>` in shepherd's own process tree (NOT detached —
    *  there is no shepherd restart to outlive), stream stdout+stderr to onLine,
    *  resolve on exit. The signal (watchdog) force-kills a hung child. */
-  private defaultRunUpdate(onLine: (line: string) => void, signal: AbortSignal): Promise<void> {
+  private defaultRunUpdate(
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ): Promise<void> {
     return new Promise((resolve) => {
       const script = buildUpdateScript(
         config.codexUpdateLogPath,
         this.last?.current,
         this.last?.latest,
         config.codexBin,
+        preferred,
       );
       const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
       const kill = () => child.kill("SIGKILL");
@@ -288,21 +404,37 @@ export class CodexUpdateService {
     return { started: true };
   }
 
-  /** Run the update, streaming lines to onLog, and capture the login-shell codex
-   *  path the script logs (`command -v` under `bash -lc`). Returns that path (the
-   *  binary actually resolved on PATH), or null if the line wasn't emitted. */
-  private async runUpdateCapturingPath(signal: AbortSignal): Promise<string | null> {
-    const marker = `${CODEX_UPDATE_LOG_PREFIX} on-PATH codex:`;
-    let onPathFromLog: string | null = null;
-    await this.runUpdate((line) => {
-      const at = line.indexOf(marker);
-      if (at !== -1) {
-        const val = line.slice(at + marker.length).trim();
-        onPathFromLog = val && val !== "<not found>" ? val : null;
-      }
-      this.onLog(line);
-    }, signal);
-    return onPathFromLog;
+  /** Run the update, streaming lines to onLog, and scrape the two markers only
+   *  the script can report: the login-shell codex path (`command -v` under `bash
+   *  -lc` — the AUTHORITATIVE resolution) and the channel that converged. Either
+   *  is null if its line never arrived (an injected runUpdate, a truncated
+   *  stream); a null channel means the run is NOT attributable and must not touch
+   *  the memo. */
+  private async runUpdateCapturingPath(
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ): Promise<{ onPath: string | null; channel: CodexUpdateChannel | null }> {
+    const pathMarker = `${CODEX_UPDATE_LOG_PREFIX} on-PATH codex:`;
+    let onPath: string | null = null;
+    let channel: CodexUpdateChannel | null = null;
+    await this.runUpdate(
+      (line) => {
+        const at = line.indexOf(pathMarker);
+        if (at !== -1) {
+          const val = line.slice(at + pathMarker.length).trim();
+          onPath = val && val !== "<not found>" ? val : null;
+        }
+        const ch = line.indexOf(CONVERGED_MARKER);
+        if (ch !== -1) {
+          const val = line.slice(ch + CONVERGED_MARKER.length).trim();
+          if (val === "npm" || val === "codex") channel = val;
+        }
+        this.onLog(line);
+      },
+      signal,
+      preferred,
+    );
+    return { onPath, channel };
   }
 
   /** Background body of apply(): run the update under a watchdog, decide success
@@ -319,8 +451,14 @@ export class CodexUpdateService {
       // Run the update; capture the login-shell-resolved codex path the script
       // logs (the AUTHORITATIVE resolution — a standalone ~/.local/bin/codex may be
       // on PATH only via a shell profile Node's process.env.PATH doesn't reflect).
-      const onPathFromLog = await this.runUpdateCapturingPath(ctrl.signal);
-      result = this.settleUpdate(from, to, onPathFromLog, ctrl.signal.aborted);
+      // Read the memo HERE, not inside the spawn: it only picks which installer we
+      // try first, so a throwing store degrades to the historical order (null) —
+      // it must never cancel an update that would otherwise have run.
+      const { onPath, channel } = await this.runUpdateCapturingPath(
+        ctrl.signal,
+        this.readChannelSafe(),
+      );
+      result = this.settleUpdate(from, to, onPath, channel, ctrl.signal.aborted);
     } catch (err) {
       // runUpdate itself threw (e.g. spawn failed) — re-read the actual version
       // so we don't claim the target either.
@@ -348,13 +486,36 @@ export class CodexUpdateService {
     from: string | null,
     to: string | null,
     onPathFromLog: string | null,
+    channel: CodexUpdateChannel | null,
     aborted: boolean,
   ): CodexUpdateResult {
     // Re-read once: it decides success AND is the version every failure branch
     // reports as "what we're actually on" (never the target we did not reach).
     const after = this.actualVersion(from);
+    // A force-killed run proves nothing: return BEFORE the memo write below, so a
+    // later refactor cannot start memoizing a channel from a killed update.
     if (aborted) return { ok: false, from, to: after, error: "codex update timed out" };
     const ok = !!after && !!from && compareSemver(after, from) > 0;
+    // Memo the winner ONLY when we converged AND the script named the channel that
+    // did it. `ok` is our own compareSemver verdict — it says THAT codex advanced,
+    // never BY WHAT — so with no marker there is nothing to attribute and we leave
+    // the memo untouched (never cleared, never guessed). A non-converged run never
+    // writes, so a failure cannot poison a good memo.
+    //
+    // The memo is BOOKKEEPING, not the outcome: codex is already updated on disk by
+    // now. A throwing store (SQLite locked) must therefore never turn a converged
+    // update into a reported failure — it only costs us the optimisation on the
+    // next run, so swallow it and keep the verdict.
+    if (ok && channel) {
+      try {
+        this.writeChannel(channel);
+      } catch (err) {
+        console.warn(
+          `[codex-update] converged via ${channel} but could not persist the channel memo: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     const onPathBinary = ok ? null : (onPathFromLog ?? this.resolveOnPathBinary());
     this.last = {
       current: after,

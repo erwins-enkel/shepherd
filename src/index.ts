@@ -2469,10 +2469,20 @@ setInterval(timerTask("herdr-update", checkHerdrUpdate), 6 * 60 * 60 * 1000);
 // panes keep their loaded build), so apply() never interrupts a session. Codex (the
 // agent runtime) ships frequently, but a 6h cadence — the same as herdr — is plenty
 // for a badge the operator applies manually.
+const CODEX_UPDATE_CHANNEL_KEY = "codexUpdateChannel";
 const codexUpdates = new CodexUpdateService({
   onLog: (line) => events.emit("codex-update:log", { line }),
   onStatus: (status) => events.emit("codex-update:status", status),
   onDone: (result) => events.emit("codex-update:done", result),
+  // Channel memo: which installer last ADVANCED the on-PATH codex. `codex update`
+  // self-selects its channel and can miss the install actually on PATH, so the
+  // only way to know which one works is to have watched one work. Persisting it
+  // makes the next update a single installer run instead of a try-fail-retry.
+  readChannel: () => {
+    const saved = store.getSetting(CODEX_UPDATE_CHANNEL_KEY);
+    return saved === "npm" || saved === "codex" ? saved : null;
+  },
+  writeChannel: (channel) => store.setSetting(CODEX_UPDATE_CHANNEL_KEY, channel),
 });
 const checkCodexUpdate = async () =>
   events.emit("codex-update:status", await codexUpdates.check(Date.now()));

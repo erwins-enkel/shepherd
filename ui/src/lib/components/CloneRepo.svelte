@@ -48,7 +48,9 @@
   });
 
   // Not-yet-cloned repos that match the filter, grouped by owner with the user's own
-  // account first, then the teams/orgs they belong to (alphabetical).
+  // account first, then the teams/orgs they belong to (alphabetical). Repos inside a
+  // group are alphabetical too — the server returns them most-recently-pushed first,
+  // which is unscannable in a long list.
   const groups = $derived.by(() => {
     const q = query.trim().toLowerCase();
     const visible = repos.filter(
@@ -70,7 +72,11 @@
       }
       return a.localeCompare(b);
     });
-    return owners.map((owner) => ({ owner, isSelf: owner === login, repos: byOwner[owner] }));
+    return owners.map((owner) => ({
+      owner,
+      isSelf: owner === login,
+      repos: byOwner[owner].sort((a, b) => a.name.localeCompare(b.name)),
+    }));
   });
 
   const hasVisible = $derived(groups.length > 0);

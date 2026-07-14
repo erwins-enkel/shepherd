@@ -667,9 +667,6 @@
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
-  /* clickable "ⓘ" — small circular affordance that toggles the long explanation */
-  /* the revealed long-form explanation: a quiet tonal-step note (panel over the
-     popover's inset ground) with a full hairline border — no accent stripe */
   .auto-desc {
     font-size: var(--fs-meta);
     color: var(--color-muted);

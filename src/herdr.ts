@@ -311,6 +311,13 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
   ];
 }
 
+/** A headless Codex role shares its tab's process lifetime with the initial shell pane.
+ * Closing that pane immediately after `agent start` can terminate the role before it writes its
+ * file-based result, so transient `codex exec` runs deliberately retain it. */
+export function isHeadlessCodexExec(argv: string[]): boolean {
+  return argv[0] === "codex" && argv[1] === "exec";
+}
+
 /**
  * A promise-chain serializer (issue #1553): runs each submitted async fn only after the
  * prior one settles, restoring the mutual exclusion the blocking sync `execFileSync` path
@@ -570,7 +577,7 @@ export class HerdrDriver implements IHerdrDriver {
       // absent from agent.list, and closing the remaining shell pane can remove the whole tab.
       const agent = await this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
 
-      if (rootPaneId) {
+      if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {
           await this.asyncRunner(["pane", "close", rootPaneId]);
         } catch {

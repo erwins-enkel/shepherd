@@ -3,6 +3,7 @@ import {
   HerdrDriver,
   buildWrappedArgv,
   createSerializer,
+  isHeadlessCodexExec,
   isNameTakenError,
   parseAgentInfo,
   parseAgents,
@@ -129,7 +130,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
         cwd,
         buildWrappedArgv(argv, env),
       );
-      if (rootPaneId) {
+      if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {
           await this.client.request("pane.close", { pane_id: rootPaneId });
         } catch {

@@ -7335,10 +7335,24 @@ export function pickTerminalBridgeKind(opts: {
     : "node-pty";
 }
 
-/** The /usage refresh handler drives a multi-second ephemeral `claude` scrape and needs a longer
- *  idle window than Bun's 10s default (see the fetch handler). */
-const isSlowScrapeRequest = (req: Request, url: URL): boolean =>
-  req.method === "POST" && url.pathname === "/api/usage/refresh";
+/** Per-route idle budget (seconds) for the handful of routes that legitimately outrun Bun's 10s
+ *  default; `null` leaves a route on that default. Applied per-request via `server.timeout` in the
+ *  fetch handler — deliberately NOT a global `idleTimeout`, which would make every route hold a
+ *  stalled socket for the same window (and would cap /usage/refresh below its own budget).
+ *
+ *  - /usage/refresh drives an ephemeral `claude` scrape (~24s worst case: boot + week wait + credits
+ *    grace); a reset connection there shows a false "Retry" on the gauge.
+ *  - epic-draft/approve materializes the epic into GitHub: one createIssue per child + the parent +
+ *    one native sub-issue link each + buildEpic — ~25 sequential round-trips for a 12-child epic,
+ *    which blows past 10s. Bun then severs the socket while the handler keeps running to completion,
+ *    so the operator saw a bogus failure for an approve that had actually succeeded. 255 is Bun's
+ *    ceiling for both `idleTimeout` and `server.timeout`. */
+export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
+  if (req.method !== "POST") return null;
+  if (url.pathname === "/api/usage/refresh") return 60;
+  if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
+  return null;
+};
 
 export function serve(deps: AppDeps, port: number) {
   const app = makeApp(deps);
@@ -7402,10 +7416,10 @@ export function serve(deps: AppDeps, port: number) {
           ? undefined
           : new Response("upgrade failed", { status: 500 });
       }
-      // /usage refresh drives an ephemeral claude scrape (~24s worst case: boot + week wait +
-      // credits grace); lift Bun's 10s idle timeout for just this request so a slow scrape can't
-      // reset the connection into a false "Retry" on the gauge. Insurance — other endpoints unchanged.
-      if (isSlowScrapeRequest(req, url)) server.timeout(req, 60);
+      // Lift Bun's 10s idle timeout for the known-slow routes (see slowRequestTimeoutSec) so a long
+      // handler can't have its connection reset out from under it. Other endpoints unchanged.
+      const slowSec = slowRequestTimeoutSec(req, url);
+      if (slowSec !== null) server.timeout(req, slowSec);
       return app.fetch(req);
     },
     websocket: {

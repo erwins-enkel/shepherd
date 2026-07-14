@@ -3124,5 +3124,6 @@
   "feat_mobile_herd_accordion_title": "Lebenszyklus-Gruppen mobil einklappen",
   "feat_mobile_herd_accordion_body": "Die Herd-Liste auf dem Smartphone hält jetzt höchstens eine benannte Lebenszyklus-Gruppe offen. „Du bist dran“ ist standardmäßig geöffnet; tippe auf eine größere Gruppenzeile, um den Bereich zu wechseln oder zu schließen, während aktive Sessions sichtbar bleiben.",
   "feat_review_job_model_title": "Sieh, welches Modell prüft",
-  "feat_review_job_model_body": "Das Review-Banner im Terminal zeigt jetzt Coding-CLI, Modell und Aufwand von Plan-Gate- und PR-Critic-Jobs, damit ihre Umgebung klar von der Task-Session unterscheidbar ist."
+  "feat_review_job_model_body": "Das Review-Banner im Terminal zeigt jetzt Coding-CLI, Modell und Aufwand von Plan-Gate- und PR-Critic-Jobs, damit ihre Umgebung klar von der Task-Session unterscheidbar ist.",
+  "epicdraft_approve_in_progress": "Epic wird noch erstellt — das dauert etwas. Es erscheint hier, sobald es fertig ist."
 }

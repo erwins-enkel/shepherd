@@ -25,10 +25,15 @@ const execFileAsync = promisify(execFile);
  *  its merge base is the fork point — any path NOT listed has base content identical to what the
  *  child's tree already shows. Both lists are capped; the `*Truncated` counts are surfaced in the
  *  prompt so a capped list can never be mistaken for a complete one (issue #1757). */
-/*  EMPTY vs NULL are DIFFERENT and must stay so: an empty delta is KNOWLEDGE (git ran; nothing has
- *  merged into the base since this branch forked — the epic's first child), so the block says that
- *  and skips the stale-tree machinery entirely, since the tree IS current with the base. A NULL
- *  delta is IGNORANCE (the collection failed), where the block stays conservative. */
+/*  EMPTY vs NULL are DIFFERENT and must stay so: an empty delta is KNOWLEDGE (git ran; the base
+ *  holds no content this tree lacks), so the block says exactly that and skips the stale-tree
+ *  machinery, since the tree IS current with the base. A NULL delta is IGNORANCE (the collection
+ *  failed), where the block stays conservative and hedges.
+ *
+ *  An empty delta does NOT mean "no sibling has ever merged" — do not infer that here or in the
+ *  prompt. A child spawned off an already-up-to-date integration tip (the common healthy case;
+ *  resolveSpawnBase bases each child on the branch AS IT STANDS) has an empty delta with its
+ *  siblings' work merged BEFORE the fork and therefore already present in its tree. */
 export interface EpicBaseDelta {
   paths: string[];
   pathsTruncated: number;
@@ -102,10 +107,10 @@ export async function defaultCollectBaseDelta(
       commits = []; // subjects are context-only; their absence must not lose the path list
     }
     // NB: an EMPTY result is returned as an empty delta, NOT null — the two mean different things
-    // and drive different prompts. Empty is KNOWLEDGE ("nothing has merged into the base since this
-    // branch forked" — the epic's first child), and the block then says so and skips the
-    // tree-is-stale machinery entirely. Null is IGNORANCE (git failed), where the block must stay
-    // conservative and tell the critic to enumerate the delta itself.
+    // and drive different prompts. Empty is KNOWLEDGE ("the base holds no content this tree lacks"),
+    // and the block then says exactly that and skips the tree-is-stale machinery entirely. It does
+    // NOT license "no sibling has ever merged" — see EpicBaseDelta. Null is IGNORANCE (git failed),
+    // where the block must stay conservative and tell the critic to enumerate the delta itself.
     return {
       paths: allPaths.slice(0, DELTA_PATH_CAP).map((p) => clip(p, DELTA_PATH_CLIP)),
       pathsTruncated: Math.max(0, allPaths.length - DELTA_PATH_CAP),

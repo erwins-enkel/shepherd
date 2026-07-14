@@ -148,6 +148,13 @@ export function buildUpdateScript(
     "      npm install -g @openai/codex; rc=$?",
     `      echo "${P} npm install exited rc=$rc"`,
     "    fi",
+    // Drop bash's cached command→path table before re-reading. `$CX` is normally
+    // the BARE name `codex`, whose path bash hashed on the `before` read; an
+    // installer that drops codex into an EARLIER PATH dir (a standalone installer
+    // repointing ~/.local/bin) would otherwise be re-read through the stale hashed
+    // path and look like it did not advance. The winner test now decides what gets
+    // memoized, so a false negative here would be persisted.
+    "    hash -r 2>/dev/null || true",
     `    after="$(${readVersion})"`,
     // The ONLY success test: did the codex we actually run move? An installer
     // that exits 0 but updates some other copy is not a winner.
@@ -230,7 +237,7 @@ export interface CodexUpdateDeps {
 
 /**
  * Tracks whether a newer @openai/codex (the OpenAI Codex CLI, one of Shepherd's
- * agent runtimes) is published on npm and, on demand, runs `codex update` for the
+ * agent runtimes) is published on npm and, on demand, updates it for the
  * operator. It surfaces a badge keyed off `updateAvailable`.
  *
  * Modelled on {@link HerdrUpdateService}: the check parses the installed version
@@ -238,13 +245,21 @@ export interface CodexUpdateDeps {
  * fail-safe — any error (binary missing, network down, malformed payload) yields
  * updateAvailable:false, so a broken check can never raise a false badge.
  *
- * `apply()` spawns `codex update` (with an npm fallback) as a managed child of
- * shepherd (no shepherd restart). Because the update is non-destructive, running
- * codex panes are not interrupted. Success is determined by whether a re-read
- * `codex --version` ADVANCED past the prior version — channel-agnostic, so a
- * standalone update whose version differs from npm-latest still counts. The
- * terminal result is emitted via onDone; a non-converged update carries the
- * on-PATH binary so the modal can explain which install is stuck.
+ * `apply()` spawns {@link buildUpdateScript} as a managed child of shepherd (no
+ * shepherd restart). That script tries the two installers — `codex update` and
+ * `npm install -g @openai/codex` — in the order given by the **channel memo**
+ * (`readChannel`), stopping at the first one that actually moves the on-PATH
+ * version; neither channel is inherently "the primary", and with a memo of `npm`
+ * the run may never invoke `codex update` at all. Because the update is
+ * non-destructive, running codex panes are not interrupted.
+ *
+ * Success is determined by whether a re-read `codex --version` ADVANCED past the
+ * prior version — channel-agnostic, so a standalone update whose version differs
+ * from npm-latest still counts. On success the winning channel is persisted via
+ * `writeChannel` so the next update leads with it (one installer run, not a
+ * try-fail-retry). The terminal result is emitted via onDone; a non-converged
+ * update carries the on-PATH binary so the modal can explain which install is
+ * stuck.
  */
 export class CodexUpdateService {
   private versionRunner: () => string;
@@ -443,7 +458,21 @@ export class CodexUpdateService {
     // never BY WHAT — so with no marker there is nothing to attribute and we leave
     // the memo untouched (never cleared, never guessed). A non-converged run never
     // writes, so a failure cannot poison a good memo.
-    if (ok && channel) this.writeChannel(channel);
+    //
+    // The memo is BOOKKEEPING, not the outcome: codex is already updated on disk by
+    // now. A throwing store (SQLite locked) must therefore never turn a converged
+    // update into a reported failure — it only costs us the optimisation on the
+    // next run, so swallow it and keep the verdict.
+    if (ok && channel) {
+      try {
+        this.writeChannel(channel);
+      } catch (err) {
+        console.warn(
+          `[codex-update] converged via ${channel} but could not persist the channel memo: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
     const onPathBinary = ok ? null : (onPathFromLog ?? this.resolveOnPathBinary());
     this.last = {
       current: after,

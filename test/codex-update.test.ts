@@ -1,6 +1,13 @@
 import { test, expect } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -162,6 +169,53 @@ exit 0
     codexUpdateRan: existsSync(codexRan),
     npmInstallRan: existsSync(npmRan),
     installed: readFileSync(version, "utf8").trim(),
+    converged: /converged via channel=(\w+)/.exec(stdout)?.[1] ?? null,
+  };
+}
+
+/**
+ * The PATH-shadowing shape: `codex update` installs a NEW codex into an EARLIER
+ * PATH directory (what a standalone installer repointing ~/.local/bin does) while
+ * the old one stays put. bash hashes `codex`→old-path when it execs the updater,
+ * so a naive re-read goes back to the OLD binary and reads the OLD version — the
+ * update looks like a no-op. Without `hash -r` this test fails on both counts:
+ * npm gets run as a pointless fallback, and `codex` is memoized as a loser.
+ */
+function runScriptShadowing() {
+  const root = mkdtempSync(join(tmpdir(), "codex-shadow-"));
+  const early = join(root, "early"); // wins PATH once populated
+  const late = join(root, "late"); // holds the current (old) codex
+  mkdirSync(early);
+  mkdirSync(late);
+  const npmRan = join(root, "npm-install.ran");
+  const codexRan = join(root, "codex-update.ran");
+
+  writeFileSync(
+    join(late, "codex"),
+    `#!/bin/bash
+case "$1" in
+  --version) echo "codex-cli ${BEFORE}" ;;                       # this copy never moves
+  --help)    echo "Usage: codex [COMMAND]"; echo "  update   Update codex" ;;
+  update)    touch '${codexRan}'
+             printf '#!/bin/bash\\necho "codex-cli ${AFTER}"\\n' > '${early}/codex'
+             chmod 755 '${early}/codex' ;;                       # …the NEW one lands earlier on PATH
+esac
+exit 0
+`,
+  );
+  writeFileSync(join(late, "npm"), `#!/bin/bash\ntouch '${npmRan}'\nexit 0\n`);
+  chmodSync(join(late, "codex"), 0o755);
+  chmodSync(join(late, "npm"), 0o755);
+
+  const script = buildUpdateScript(join(root, "log"), BEFORE, AFTER, "codex", "codex");
+  const stdout = execFileSync("bash", ["-c", script], {
+    encoding: "utf8",
+    env: { PATH: `${early}:${late}:/usr/bin:/bin`, HOME: root },
+  });
+  return {
+    stdout,
+    codexUpdateRan: existsSync(codexRan),
+    npmInstallRan: existsSync(npmRan),
     converged: /converged via channel=(\w+)/.exec(stdout)?.[1] ?? null,
   };
 }
@@ -530,4 +584,39 @@ test("memo: an unknown channel name in the marker is ignored, not persisted", as
   svc.apply();
   await settle();
   expect(memoWrites).toEqual([]);
+});
+
+test("memo: a throwing store cannot rewrite a converged outcome into a failure", async () => {
+  // The memo is bookkeeping — codex is already updated on disk. A locked SQLite
+  // must cost us the optimisation, never the verdict (and never the onStatus emit).
+  const statuses: unknown[] = [];
+  const dones: CodexUpdateResult[] = [];
+  const svc = new CodexUpdateService({
+    versionRunner: (() => {
+      let n = 0;
+      return () => `@openai/codex ${++n === 1 ? "0.142.2" : "0.142.4"}`;
+    })(),
+    fetchLatest: async () => ({ version: "0.142.4" }),
+    runUpdate: emitting(`${CONVERGED_MARKER}npm`),
+    writeChannel: () => {
+      throw new Error("database is locked");
+    },
+    onStatus: (s) => statuses.push(s),
+    onDone: (r) => dones.push(r),
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: true, to: "0.142.4" });
+  expect(dones[0]?.error).toBeUndefined();
+  expect(statuses).toHaveLength(1); // the status emit still happened
+});
+
+test("harness: a winner that lands codex EARLIER on PATH is still seen (bash hash)", () => {
+  // bash hashes `codex`→path on the `before` read. A standalone installer that
+  // drops a NEW codex into an earlier PATH dir would be re-read through the stale
+  // hashed path and look like a no-op — and that false negative would be memoized.
+  const r = runScriptShadowing();
+  expect(r.converged).toBe("codex");
+  expect(r.npmInstallRan).toBe(false); // must NOT fall through to the npm fallback
 });

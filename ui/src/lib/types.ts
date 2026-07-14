@@ -119,6 +119,12 @@ export interface Settings {
   autopilotCli: string;
   autopilotModel: string;
   autopilotEffort: string;
+  distillerCli?: string;
+  distillerModel?: string;
+  distillerEffort?: string;
+  distillerIntervalDays?: number;
+  distillerIntervalDaysMin?: number;
+  distillerIntervalDaysMax?: number;
   /** Default interactive agent provider for newly spawned task sessions. */
   defaultAgentProvider?: AgentProvider;
   /** When true, Up Next quick-start launches with the default coding CLI without opening the

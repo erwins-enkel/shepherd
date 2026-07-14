@@ -108,6 +108,8 @@ export const GH_PROBE_RETRY_DELAY_MS = 250;
 // process GROUP is SIGKILLed (see diagnostics.ts runRemediation) so no reparented
 // grandchild survives to flip a later probe green behind a reported failure.
 export const REMEDIATION_TIMEOUT_MS = 120_000;
+export const DISTILLER_INTERVAL_DAYS_MIN = 1;
+export const DISTILLER_INTERVAL_DAYS_MAX = 14;
 // module-local seed defaults, used by the config seeds + boot-override fallbacks only.
 const PR_REVIEW_CYCLES_DEFAULT = 3;
 const PLAN_REVIEW_CYCLES_DEFAULT = 5;
@@ -668,6 +670,19 @@ export const config = {
   docAgentCli: normalizeRoleCli(process.env.SHEPHERD_DOC_AGENT_CLI) ?? "inherit",
   docAgentModel: normalizeRoleModelToken(process.env.SHEPHERD_DOC_AGENT_MODEL) ?? "default",
   docAgentEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DOC_AGENT_EFFORT) ?? "low",
+  // Per-role environment for the Learnings Distiller. Inherit is intentionally the default so
+  // it follows the operator's global provider/model/effort selection.
+  distillerCli: normalizeRoleCli(process.env.SHEPHERD_DISTILLER_CLI) ?? "inherit",
+  distillerModel: normalizeRoleModelToken(process.env.SHEPHERD_DISTILLER_MODEL) ?? "default",
+  distillerEffort:
+    normalizeDefaultEffortSetting(process.env.SHEPHERD_DISTILLER_EFFORT) ?? "default",
+  // Automatic runs are throttled per repository; 1 preserves the historic daily behavior.
+  distillerIntervalDays: clampCap(
+    Number(process.env.SHEPHERD_DISTILLER_INTERVAL_DAYS ?? 1),
+    DISTILLER_INTERVAL_DAYS_MIN,
+    DISTILLER_INTERVAL_DAYS_MAX,
+    1,
+  ),
   // Local hour (0–23) at/after which the doc agent's nightly cadence sweep evaluates each doc-tree
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.

@@ -6,9 +6,10 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Signal, SignalKind } from "./types";
 import { sanitizeScopeGlobs } from "./house-rules";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
+import type { RoleEnvironment } from "./default-model";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
@@ -92,6 +93,8 @@ export interface DistillerDeps {
     | "listLearnings"
     | "listActiveLearnings"
     | "getRepoConfig"
+    | "getSetting"
+    | "setSetting"
     | "incrementLearningIneffective"
     | "accrueProposedEvidence"
     | "mergeLearning"
@@ -102,11 +105,13 @@ export interface DistillerDeps {
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
   model?: string | null;
+  environment?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number;
   windowMs?: number; // how far back to read signals (default 60d)
   minSignals?: number; // threshold for consider() (default 5)
   maxConcurrent?: number; // max simultaneous distill runs (default 3)
+  intervalDays?: () => number;
   writeSignals?: (
     dir: string,
     signals: Signal[],
@@ -188,7 +193,17 @@ export class DistillerService {
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return;
     const signals = this.recentLearningSignals(repoPath);
     if (signals.length < this.minSignals) return;
+    if (!this.intervalElapsed(repoPath)) return;
     await this.enqueueOrBegin(repoPath, signals);
+  }
+
+  private intervalElapsed(repoPath: string): boolean {
+    const saved = this.deps.store.getSetting?.(`distiller:last-run:${repoPath}`);
+    if (saved === null || saved === undefined) return true;
+    const lastRun = Number(saved);
+    if (!Number.isFinite(lastRun)) return true;
+    const intervalDays = this.deps.intervalDays?.() ?? 1;
+    return this.now() - lastRun >= intervalDays * 24 * 60 * 60 * 1000;
   }
 
   /** Force a distill run regardless of the signal threshold (manual trigger).
@@ -216,8 +231,13 @@ export class DistillerService {
 
   private async begin(repoPath: string, signals: Signal[]): Promise<void> {
     const { dir } = this.deps.scratch.create();
+    const environment = this.deps.environment?.() ?? {
+      provider: "claude" as const,
+      model: this.deps.model ?? null,
+      effort: null,
+    };
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(environment.provider)) {
       console.warn(
         "[distill] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
@@ -247,7 +267,9 @@ export class DistillerService {
     // Read-only distiller — the shared `writer-ro` transient-agent shape. The input is untrusted
     // agent/repo text; see buildTransientAgentArgv for the flag-order + isolation rationale.
     const { argv, sessionId } = buildTransientAgentArgv("writer-ro", {
-      model: this.deps.model ?? null,
+      provider: environment.provider,
+      model: environment.model,
+      effort: environment.effort,
       prompt: distillPrompt(),
     });
     const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
@@ -267,8 +289,14 @@ export class DistillerService {
     this.inflight.set(repoPath, entry);
     try {
       entry.terminalId = (
-        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
+        await this.deps.herdr.start(
+          agentName,
+          dir,
+          argv,
+          environment.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined,
+        )
       ).terminalId;
+      this.deps.store.setSetting?.(`distiller:last-run:${repoPath}`, String(this.now()));
     } catch (err) {
       this.inflight.delete(repoPath); // release the reservation
       if (err instanceof HerdrUnavailableError) {

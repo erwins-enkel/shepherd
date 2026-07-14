@@ -26,7 +26,15 @@ let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
 let savedDefaultCodexModel: string;
-const ROLE_BASES = ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const;
+const ROLE_BASES = [
+  "critic",
+  "planner",
+  "recap",
+  "docAgent",
+  "namer",
+  "autopilot",
+  "distiller",
+] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;
@@ -412,6 +420,18 @@ test("GET /api/settings includes defaultAgentProvider", async () => {
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.defaultAgentProvider).toBe("codex");
+});
+
+test("GET and PUT persist the bounded Distiller interval", async () => {
+  const { app, store } = harness();
+  const initial = await (await app.fetch(new Request("http://x/api/settings"))).json();
+  expect(initial.distillerIntervalDaysMin).toBe(1);
+  expect(initial.distillerIntervalDaysMax).toBe(14);
+
+  const res = await put(app, { distillerIntervalDays: 20 });
+  expect(res.status).toBe(200);
+  expect((await res.json()).distillerIntervalDays).toBe(14);
+  expect(store.getSetting("distillerIntervalDays")).toBe("14");
 });
 
 test("PUT /api/settings sets defaultModel, persists, leaves repoRoot intact", async () => {

@@ -3143,5 +3143,12 @@
   "planpanel_review_at_cap": "Re-reviewing at the rework cap. The reviewer can still approve the plan, but if it requests changes again those findings will not be sent to the planning agent. Use “Resume with findings” to reset the budget and re-send them.",
   "planpanel_review_at_cap_no_resume": "Re-reviewing at the rework cap. The reviewer can still approve the plan. If it requests changes instead, those findings will not be sent to the planning agent — “Resume with findings” then appears here to reset the budget and re-send them.",
   "drain_paused_epic_base": "Paused: can't create epic branch {branch}",
-  "epic_hold_epic_base_unavailable": "Paused: the epic branch {branch} could not be created on the forge. Retrying — no child can be started until it exists."
+  "epic_hold_epic_base_unavailable": "Paused: the epic branch {branch} could not be created on the forge. Retrying — no child can be started until it exists.",
+  "settings_role_model_distiller_title": "Learnings Distiller",
+  "settings_role_model_distiller_hint": "Finds recurring lessons from repository signals.",
+  "settings_distiller_interval_label": "Days between automatic runs",
+  "settings_distiller_interval_hint": "Choose {min}–{max} whole days. Manual runs are never delayed.",
+  "settings_distiller_interval_save_failed": "Could not save the Distiller interval.",
+  "feat_distiller_provider_cadence_title": "Control Learnings Distiller cost",
+  "feat_distiller_provider_cadence_body": "Choose the Distiller CLI, model, effort, and the days between automatic runs."
 }

@@ -3143,5 +3143,12 @@
   "planpanel_review_at_cap": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben, aber falls er erneut Änderungen verlangt, werden diese Befunde nicht an den Planungs-Agenten gesendet. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden.",
   "planpanel_review_at_cap_no_resume": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden.",
   "drain_paused_epic_base": "Pausiert: Epic-Branch {branch} nicht erstellbar",
-  "epic_hold_epic_base_unavailable": "Pausiert: Der Epic-Branch {branch} konnte auf der Forge nicht erstellt werden. Wird erneut versucht — bis dahin kann kein Child starten."
+  "epic_hold_epic_base_unavailable": "Pausiert: Der Epic-Branch {branch} konnte auf der Forge nicht erstellt werden. Wird erneut versucht — bis dahin kann kein Child starten.",
+  "settings_role_model_distiller_title": "Learnings-Distiller",
+  "settings_role_model_distiller_hint": "Findet wiederkehrende Erkenntnisse aus Repository-Signalen.",
+  "settings_distiller_interval_label": "Tage zwischen automatischen Läufen",
+  "settings_distiller_interval_hint": "Wähle {min}–{max} ganze Tage. Manuelle Läufe werden nie verzögert.",
+  "settings_distiller_interval_save_failed": "Das Distiller-Intervall konnte nicht gespeichert werden.",
+  "feat_distiller_provider_cadence_title": "Kosten des Learnings-Distillers steuern",
+  "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen."
 }

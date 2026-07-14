@@ -13,6 +13,7 @@
     putRoleModel,
     putRoleEffort,
     putRoleCli,
+    putDistillerIntervalDays,
     putDefaultAgentProvider,
     putUpnextSkipCliPicker,
     putAuthMode,
@@ -271,11 +272,24 @@
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
+  let distillerIntervalDays = $state(1);
+  let distillerIntervalDaysSaved = 1;
+  let distillerIntervalDaysMin = $state(1);
+  let distillerIntervalDaysMax = $state(14);
+  let distillerIntervalBusy = $state(false);
   // Per-role ENVIRONMENT overrides (plan reviewer, PR critic, recap, doc-agent, namer, autopilot).
   // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
   // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
   // mirror the server defaults so the pickers read sensibly before load() resolves.
-  const ROLE_BASES = ["planner", "critic", "docAgent", "recap", "namer", "autopilot"] as const;
+  const ROLE_BASES = [
+    "planner",
+    "critic",
+    "docAgent",
+    "recap",
+    "distiller",
+    "namer",
+    "autopilot",
+  ] as const;
   type RoleBase = (typeof ROLE_BASES)[number];
   const ROLE_CLI_SEED: Record<RoleBase, string> = {
     planner: "inherit",
@@ -284,6 +298,7 @@
     recap: "claude",
     namer: "claude",
     autopilot: "claude",
+    distiller: "inherit",
   };
   const ROLE_MODEL_SEED: Record<RoleBase, string> = {
     planner: "default",
@@ -292,6 +307,7 @@
     recap: "sonnet",
     namer: "haiku",
     autopilot: "haiku",
+    distiller: "default",
   };
   // Per-role reasoning-effort tier ("default"|<tier>), orthogonal to CLI/model — always shown.
   const ROLE_EFFORT_SEED: Record<RoleBase, string> = {
@@ -301,6 +317,7 @@
     recap: "low",
     namer: "low",
     autopilot: "low",
+    distiller: "default",
   };
   let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
   let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
@@ -315,9 +332,10 @@
     recap: false,
     namer: false,
     autopilot: false,
+    distiller: false,
   });
   // Foreground (content) roles vs. collapsed classifiers (constant-cadence, kept cheap).
-  const ROLE_PRIMARY: RoleBase[] = ["planner", "critic", "docAgent", "recap"];
+  const ROLE_PRIMARY: RoleBase[] = ["planner", "critic", "docAgent", "recap", "distiller"];
   const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
 
   function roleTitle(role: RoleBase): string {
@@ -334,6 +352,8 @@
         return m.settings_role_model_namer_title();
       case "autopilot":
         return m.settings_role_model_autopilot_title();
+      case "distiller":
+        return m.settings_role_model_distiller_title();
     }
   }
   function roleHint(role: RoleBase): string {
@@ -350,6 +370,8 @@
         return m.settings_role_model_namer_hint();
       case "autopilot":
         return m.settings_role_model_autopilot_hint();
+      case "distiller":
+        return m.settings_role_model_distiller_hint();
     }
   }
   // Display label for a CLI/provider (the CLI dropdown options + the effective line).
@@ -469,6 +491,31 @@
         key: `role-effort-${role}`,
         alert: true,
       });
+    }
+  }
+
+  async function saveDistillerInterval() {
+    if (distillerIntervalBusy) return;
+    distillerIntervalBusy = true;
+    const value = Math.min(
+      distillerIntervalDaysMax,
+      Math.max(
+        distillerIntervalDaysMin,
+        Math.round(Number(distillerIntervalDays)) || distillerIntervalDaysMin,
+      ),
+    );
+    try {
+      const r = await putDistillerIntervalDays(value);
+      distillerIntervalDays = r.distillerIntervalDays;
+      distillerIntervalDaysSaved = r.distillerIntervalDays;
+    } catch {
+      distillerIntervalDays = distillerIntervalDaysSaved;
+      toasts.info(m.settings_distiller_interval_save_failed(), {
+        key: "distiller-interval",
+        alert: true,
+      });
+    } finally {
+      distillerIntervalBusy = false;
     }
   }
   let authMode = $state("subscription"); // how spawned agents authenticate
@@ -1027,6 +1074,13 @@
     operatorLanguageSaved = operatorLanguage;
   }
 
+  function applyDistillerPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
+    distillerIntervalDays = s.distillerIntervalDays ?? 1;
+    distillerIntervalDaysSaved = distillerIntervalDays;
+    distillerIntervalDaysMin = s.distillerIntervalDaysMin ?? 1;
+    distillerIntervalDaysMax = s.distillerIntervalDaysMax ?? 14;
+  }
+
   onMount(async () => {
     try {
       const s = await getSettings();
@@ -1043,6 +1097,7 @@
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
       applyModelPrefs(s);
+      applyDistillerPrefs(s);
       // Fall back to the seed default per role when a field is absent (e.g. an older backend that
       // predates per-role environments) so the pickers never render blank — a sensible default is
       // always shown.
@@ -1370,6 +1425,28 @@
             model={roleGuidanceModel(role)}
             context={roleGuidanceContext(role)}
           />
+          {#if role === "distiller"}
+            <label class="cycles">
+              <span class="cycles-label">{m.settings_distiller_interval_label()}</span>
+              <input
+                class="num"
+                type="number"
+                min={distillerIntervalDaysMin}
+                max={distillerIntervalDaysMax}
+                step="1"
+                disabled={distillerIntervalBusy}
+                bind:value={distillerIntervalDays}
+                aria-label={m.settings_distiller_interval_label()}
+                onchange={saveDistillerInterval}
+              />
+            </label>
+            <p class="hint">
+              {m.settings_distiller_interval_hint({
+                min: distillerIntervalDaysMin,
+                max: distillerIntervalDaysMax,
+              })}
+            </p>
+          {/if}
         </div>
       {/snippet}
 

@@ -25,6 +25,10 @@ const execFileAsync = promisify(execFile);
  *  its merge base is the fork point — any path NOT listed has base content identical to what the
  *  child's tree already shows. Both lists are capped; the `*Truncated` counts are surfaced in the
  *  prompt so a capped list can never be mistaken for a complete one (issue #1757). */
+/*  EMPTY vs NULL are DIFFERENT and must stay so: an empty delta is KNOWLEDGE (git ran; nothing has
+ *  merged into the base since this branch forked — the epic's first child), so the block says that
+ *  and skips the stale-tree machinery entirely, since the tree IS current with the base. A NULL
+ *  delta is IGNORANCE (the collection failed), where the block stays conservative. */
 export interface EpicBaseDelta {
   paths: string[];
   pathsTruncated: number;
@@ -97,7 +101,11 @@ export async function defaultCollectBaseDelta(
     } catch {
       commits = []; // subjects are context-only; their absence must not lose the path list
     }
-    if (!allPaths.length && !commits.length) return null; // nothing merged since the fork
+    // NB: an EMPTY result is returned as an empty delta, NOT null — the two mean different things
+    // and drive different prompts. Empty is KNOWLEDGE ("nothing has merged into the base since this
+    // branch forked" — the epic's first child), and the block then says so and skips the
+    // tree-is-stale machinery entirely. Null is IGNORANCE (git failed), where the block must stay
+    // conservative and tell the critic to enumerate the delta itself.
     return {
       paths: allPaths.slice(0, DELTA_PATH_CAP).map((p) => clip(p, DELTA_PATH_CLIP)),
       pathsTruncated: Math.max(0, allPaths.length - DELTA_PATH_CAP),
@@ -255,7 +263,9 @@ export function prReviewPrompt(
  *  Truncation is always stated, so a capped list can never be mistaken for a complete one. */
 function epicDeltaLines(epic: EpicContext, sha: string): string[] {
   const delta = epic.delta;
-  if (!delta || (!delta.paths.length && !delta.commits.length)) {
+  // Only reached for a NONEMPTY delta or an UNKNOWN one (null): epicBlock returns early on a
+  // known-empty delta, so we never tell the critic to enumerate a delta we already know is empty.
+  if (!delta) {
     return [
       "",
       `Enumerate what your tree cannot see with \`git diff --name-only HEAD...${sha}\` (three-dot, so any path NOT listed is identical to what your tree already shows) and \`git log --oneline HEAD..${sha}\`. That path list is a CANDIDATE set, not a reading list — read only the paths bearing on identifiers this PR's diff actually introduces or relies on.`,
@@ -294,13 +304,30 @@ function epicDeltaLines(epic: EpicContext, sha: string): string[] {
 }
 
 function epicBlock(epic: EpicContext): string[] {
+  // Three states, and they must not be conflated (see EpicBaseDelta):
+  //   - KNOWN-EMPTY delta: git ran and nothing has merged into the base since this branch forked —
+  //     i.e. the epic's FIRST child. Saying "siblings have ALREADY MERGED" would be false, and the
+  //     whole stale-tree apparatus is moot: the tree IS current with the base, so VERIFY's
+  //     grep-and-conclude rule is sound as written and must NOT be overridden.
+  //   - KNOWN-NONEMPTY delta: siblings did merge → the full block.
+  //   - UNKNOWN (null): the collection failed. Stay conservative — assume the tree may be stale.
+  const known = epic.delta ?? null;
+  const knownEmpty = !!known && !known.paths.length && !known.commits.length;
   const lines = [
     "",
     "EPIC CONTEXT — this PR is ONE CHILD of a multi-PR epic:",
-    `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children have ALREADY MERGED into that base, and further children are STILL IN FLIGHT.`,
+    knownEmpty
+      ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. NOTHING has merged into that base since this branch forked (you are its first child), so your worktree is current with the base — but further children are STILL IN FLIGHT.`
+      : `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children have ALREADY MERGED into that base, and further children are STILL IN FLIGHT.`,
     "- Judge this PR against ITS OWN task only. Incompleteness versus the whole epic is NOT a finding, and work another child owns is not this PR's to do.",
-    "- Your checked-out worktree is this child's branch, which has NOT been rebased onto the base. Sibling work merged into the base after this branch forked is ABSENT from the tree: `Read`, `Glob` and `Grep` cannot see it.",
   ];
+  // Nothing merged since the fork → the tree is not missing anything, so the base-inspection
+  // machinery (and its override of the VERIFY grep rule) would be noise at best and misleading at
+  // worst. Stop here: the epic-scope judging rule above is the whole point for a first child.
+  if (knownEmpty) return lines;
+  lines.push(
+    "- Your checked-out worktree is this child's branch, which has NOT been rebased onto the base. Sibling work merged into the base after this branch forked is ABSENT from the tree: `Read`, `Glob` and `Grep` cannot see it.",
+  );
   if (epic.baseSha) {
     const sha = epic.baseSha;
     lines.push(

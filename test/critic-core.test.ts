@@ -625,3 +625,56 @@ test("#1757 the truncation notice is emitted OUTSIDE the fence (it is shepherd's
     expect(p.slice(open, close)).not.toContain(notice(n));
   }
 });
+
+test("#1757 first child of an epic: no false 'siblings already merged', and no stale-tree machinery", () => {
+  // git ran and found NOTHING merged since the fork — the epic's first child. Claiming siblings
+  // have merged would be false, the tree IS current with the base, and VERIFY's grep-and-conclude
+  // rule is therefore sound as written and must NOT be overridden. It still gets the epic framing
+  // (don't demand whole-epic completeness).
+  const p = reviewPrompt("BASE", "task", [], [], null, {
+    ...EPIC,
+    delta: { paths: [], pathsTruncated: 0, commits: [], commitsTruncated: 0 },
+  });
+  expect(p).toContain("EPIC CONTEXT");
+  expect(p).toContain("NOTHING has merged into that base since this branch forked");
+  expect(p).toContain("Incompleteness versus the whole epic is NOT a finding");
+  // ...and none of the apparatus that only makes sense for a stale tree:
+  expect(p).not.toContain("ALREADY MERGED");
+  expect(p).not.toContain("OVERRIDES the VERIFY rule");
+  expect(p).not.toContain("Enumerate what your tree cannot see");
+  expect(p).not.toContain("git show");
+});
+
+test("#1757 UNKNOWN delta (collection failed) stays conservative — enumerate + override", () => {
+  // null != empty: git failed, so we do NOT know the tree is current. Assume it may be stale.
+  const p = reviewPrompt("BASE", "task", [], [], null, { ...EPIC, delta: null });
+  expect(p).toContain("ALREADY MERGED");
+  expect(p).toContain("Enumerate what your tree cannot see");
+  expect(p).toContain("OVERRIDES the VERIFY rule");
+});
+
+test("#1757 defaultCollectBaseDelta reports an EMPTY delta (not null) when nothing merged", async () => {
+  // The first-child case must be distinguishable from a git failure — same return type, different
+  // meaning, different prompt.
+  const repo = mkdtempSync(join(tmpdir(), "shepherd-delta-empty-"));
+  const git = (...args: string[]) =>
+    Bun.spawnSync(["git", ...args], { cwd: repo, env: { ...process.env, GIT_CONFIG_GLOBAL: "" } });
+  git("init", "-q", "-b", "main");
+  git("config", "user.email", "t@t");
+  git("config", "user.name", "T");
+  writeFileSync(join(repo, "shared.ts"), "export const a = 1;\n");
+  git("add", "-A");
+  git("commit", "-qm", "base");
+  const baseSha = new TextDecoder().decode(git("rev-parse", "HEAD").stdout).trim();
+
+  // child forks from the base tip; NOTHING lands on the base afterwards
+  git("checkout", "-q", "-b", "child");
+  writeFileSync(join(repo, "child.ts"), "export const c = 2;\n");
+  git("add", "-A");
+  git("commit", "-qm", "child work");
+
+  const delta = await defaultCollectBaseDelta(repo, baseSha);
+  expect(delta).not.toBeNull(); // NOT null — null means "we couldn't tell"
+  expect(delta!.paths).toEqual([]);
+  expect(delta!.commits).toEqual([]);
+});

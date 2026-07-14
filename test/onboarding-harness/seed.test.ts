@@ -110,6 +110,12 @@ describe("seedInstance", () => {
     expect(/systemctl stop[^\n]*\|\|\s*true/.test(step)).toBe(false);
     expect(step).toContain('systemctl list-unit-files "$u"');
     expect(/systemctl stop[^\n]*\|\|[\s\S]*exit 1/.test(step)).toBe(true);
+
+    // …and LEGIBLE: the stop must keep its stderr (only stdout is dropped), or systemd's own
+    // reason (job timed out / failed to connect to bus / …) is lost and the FATAL says only
+    // "exit 124". seedInstance propagates stderr into the thrown baseline error, so that
+    // reason is what a human debugging a red nightly actually reads.
+    expect(/timeout 120 systemctl stop "\$u" >\/dev\/null(?! ?2>&1)/.test(step)).toBe(true);
   });
 
   it("the herdr stub is a CHECKED baseline step (a failure aborts the seed)", async () => {

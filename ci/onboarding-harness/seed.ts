@@ -61,7 +61,9 @@ const PROFILES = ["default", "shep-onb"];
  *  function exists to close, degrading back to a flaky nightly. So we separate the one benign
  *  case from real failures: `systemctl list-unit-files` (0 present / 1 absent) gates the stop, an
  *  absent unit is skipped, and a present unit that will not stop fails this CHECKED baseline step
- *  loudly. `reset-failed` keeps its `|| true` — it is pure cosmetics.
+ *  loudly — and legibly: the stop keeps its stderr (only stdout is dropped), so systemd's own
+ *  reason rides along into the error seedInstance throws. `reset-failed` keeps its `|| true` — it
+ *  is pure cosmetics.
  *
  *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8 non-Arch
  *  scenarios). Runs as root — `driver.exec` → `incus exec` is root by default, which
@@ -85,8 +87,11 @@ function archKeyringRefresh(): string {
     '    systemctl list-unit-files "$u" >/dev/null 2>&1 || continue',
     // The unit exists, so a stop MUST succeed. Anything else — a 120s timeout (124), a bus
     // error — means a writer may still be live, and rebuilding the keyring under it would
-    // silently re-enter the #1738 race. Fail the (checked) baseline step instead.
-    '    timeout 120 systemctl stop "$u" >/dev/null 2>&1 || ' +
+    // silently re-enter the #1738 race. Fail the (checked) baseline step instead. stdout is
+    // dropped but stderr is NOT: systemd's own reason (job timed out / failed to connect to
+    // bus / …) is the diagnostic, and seedInstance propagates it into the thrown baseline
+    // error — so the failure is legible, not just loud.
+    '    timeout 120 systemctl stop "$u" >/dev/null || ' +
       '{ rc=$?; echo "FATAL: could not stop $u (exit $rc); refusing to rebuild the keyring ' +
       'while a writer may still be running" >&2; exit 1; }',
     "  done",

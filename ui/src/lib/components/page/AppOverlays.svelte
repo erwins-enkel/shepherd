@@ -29,6 +29,7 @@
     BacklogPayload,
     DeployState,
     Issue,
+    Leftover,
     PluginUpdatesStatus,
     PullRequest,
     SandboxProfile,
@@ -52,6 +53,7 @@
   import type { Command } from "$lib/command-registry";
   import type { HerdFilter } from "$lib/components/herd-partition";
   import RetryDialog from "$lib/components/RetryDialog.svelte";
+  import DecomLeftovers from "$lib/components/page/DecomLeftovers.svelte";
   import EpicDiagnoseEntry from "$lib/components/EpicDiagnoseEntry.svelte";
   import ClearMergedDialog from "$lib/components/ClearMergedDialog.svelte";
   import MergeTrainConfirmDialog from "$lib/components/MergeTrainConfirmDialog.svelte";
@@ -168,6 +170,9 @@
     oncommandbarfilterrepo,
     oncommandbarlens,
     commandBarInitialFilter = undefined,
+    decomLeftovers,
+    ondecomleftoverclose,
+    ondecomleftoverconfirm,
     showRetry,
     onretryclose,
     showEpicDiagnose,
@@ -299,6 +304,13 @@
     /** Demo-only scripted-showcase seed, forwarded verbatim to CommandBar's
      *  `initialFilter` (see $lib/demo/showcase.ts). Absent on the real ⌘K path. */
     commandBarInitialFilter?: string;
+    /** Leftover subprocesses the ⌘K Decommission probe turned up; [] when none (or not probing).
+     *  Mirrors Viewport's own LeftoverDialog — the command-bar verb must reap like the button. */
+    decomLeftovers: Leftover[];
+    /** Dismissed without picking: decommission anyway, reaping nothing. */
+    ondecomleftoverclose: () => void;
+    /** Confirmed with the chosen leftovers to reap. */
+    ondecomleftoverconfirm: (keys: string[]) => void;
     showRetry: boolean;
     onretryclose: () => void;
     showEpicDiagnose: boolean;
@@ -603,6 +615,12 @@
     initialFilter={commandBarInitialFilter}
   />
 {/if}
+
+<DecomLeftovers
+  leftovers={decomLeftovers}
+  onclose={ondecomleftoverclose}
+  onconfirm={ondecomleftoverconfirm}
+/>
 
 {#if showRetry}
   <RetryDialog sessions={store.sessions} onclose={onretryclose} />

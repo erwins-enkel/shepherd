@@ -11,6 +11,8 @@ function ctx(overrides: Partial<CommandCtx> = {}): CommandCtx {
     onNextNeedsYou: vi.fn(),
     onLearnings: vi.fn(),
     onDiagnoseEpic: vi.fn(),
+    onDecommission: vi.fn(),
+    decommissionDesig: "TASK-07",
     hasSessions: true,
     retryReady: true,
     otherNeedsYouCount: 1,
@@ -32,7 +34,12 @@ describe("buildCommands — availability", () => {
       "retry",
       "diagnose-epic",
       "next-needs-you",
+      "decommission",
     ]);
+  });
+
+  it("hides Decommission when no visible session is selected", () => {
+    expect(ids(ctx({ decommissionDesig: null }))).not.toContain("decommission");
   });
 
   it("hides Broadcast when there are no sessions", () => {
@@ -53,9 +60,39 @@ describe("buildCommands — availability", () => {
 
   it("always offers New task, Settings, Usage and Diagnose epic", () => {
     const bare = ids(
-      ctx({ hasSessions: false, retryReady: false, otherNeedsYouCount: 0, hasLearnings: false }),
+      ctx({
+        hasSessions: false,
+        retryReady: false,
+        otherNeedsYouCount: 0,
+        hasLearnings: false,
+        decommissionDesig: null,
+      }),
     );
     expect(bare).toEqual(["new-task", "settings", "usage", "diagnose-epic"]);
+  });
+});
+
+describe("buildCommands — Decommission", () => {
+  const decom = (c: CommandCtx) => buildCommands(c).find((x) => x.id === "decommission")!;
+
+  it("names the target session in both the label and the spoken confirm sentence", () => {
+    const cmd = decom(ctx({ decommissionDesig: "TASK-07" }));
+    expect(cmd.label()).toContain("TASK-07");
+    expect(cmd.confirmAria?.()).toContain("TASK-07");
+  });
+
+  it("is the only two-step (destructive) verb — it alone carries confirmLabel", () => {
+    const twoStep = buildCommands(ctx())
+      .filter((c) => c.confirmLabel)
+      .map((c) => c.id);
+    expect(twoStep).toEqual(["decommission"]);
+    expect(decom(ctx()).confirmLabel!().length).toBeGreaterThan(0);
+  });
+
+  it("run() decommissions via the context callback", () => {
+    const c = ctx();
+    decom(c).run();
+    expect(c.onDecommission).toHaveBeenCalledOnce();
   });
 });
 

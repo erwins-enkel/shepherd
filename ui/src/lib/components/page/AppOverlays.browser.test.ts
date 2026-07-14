@@ -109,6 +109,9 @@ function baseProps(): Props {
     oncommandbarfilterrepo: vi.fn(),
     oncommandbarlens: vi.fn(),
     showRetry: false,
+    decomLeftovers: [],
+    ondecomleftoverclose: vi.fn(),
+    ondecomleftoverconfirm: vi.fn(),
     onretryclose: vi.fn(),
     showEpicDiagnose: false,
     onepicdiagnoseclose: vi.fn(),
@@ -245,5 +248,23 @@ describe("AppOverlays — command bar wiring", () => {
     // Commands are query-gated, so type to reveal the forwarded verb.
     await page.getByRole("combobox").fill("probe");
     await expect.element(page.getByRole("option", { name: /Probe verb/ })).toBeVisible();
+  });
+
+  it("pops LeftoverDialog for the leftovers the ⌘K decommission probe turned up", async () => {
+    // The command-bar verb must reap like Viewport's button does — a decommission that silently
+    // orphans a running dev server is exactly what the dialog exists to prevent.
+    const props = baseProps();
+    props.decomLeftovers = [
+      { kind: "process", name: "vite", port: 5173, key: "vite:5173", pid: 42 },
+    ];
+    render(AppOverlays, props);
+    await expect.element(page.getByText("vite")).toBeVisible();
+  });
+
+  it("renders no LeftoverDialog when the probe came back empty", async () => {
+    const props = baseProps();
+    props.decomLeftovers = [];
+    render(AppOverlays, props);
+    expect(page.getByText("vite").elements()).toHaveLength(0);
   });
 });

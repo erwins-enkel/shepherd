@@ -18,6 +18,13 @@ export type Command = {
   label: () => string;
   /** Optional localized synonyms, space-joined — searched alongside the label. */
   keywords?: () => string;
+  /** Present ⇒ the verb is DESTRUCTIVE and two-step: the first activation arms the row (which
+   *  then renders this string) and only a second one runs it. */
+  confirmLabel?: () => string;
+  /** The armed state spoken by the command bar's polite live region. Names the target, which the
+   *  short visible `confirmLabel` drops — a screen-reader user would otherwise lose the
+   *  designation the replaced row label carried. Only meaningful alongside `confirmLabel`. */
+  confirmAria?: () => string;
   /** Perform the verb (mutates page state, e.g. opens an overlay). */
   run: () => void;
 };
@@ -37,6 +44,13 @@ export type CommandCtx = {
   /** Opens the epic-diagnosis entry (repo + arbitrary parent #) — reaches the fully
    *  unrecognized would-be epic that has no on-screen EpicPanel/Diagnose button (#1657). */
   onDiagnoseEpic: () => void;
+  /** Decommission the current session (the page closes over the selected id). */
+  onDecommission: () => void;
+  /** Designation of the session Decommission would target, or null when the verb is unavailable:
+   *  no selection, or a lens where the selected session isn't on screen (Done has its own
+   *  selection space; the panel-only lenses render no session list at all). A destructive verb
+   *  must never name a target the operator can't see. */
+  decommissionDesig: string | null;
   /** store.sessions.length > 0 — Broadcast needs at least one session. */
   hasSessions: boolean;
   /** haltedCount > 0 && usageBelow — mirrors SteerBar's retry chip visibility. */
@@ -51,6 +65,8 @@ export type CommandCtx = {
 /** The verbs available right now, in display order. Filters out any whose availability
  *  predicate is false, so the caller can render the result directly. */
 export function buildCommands(ctx: CommandCtx): Command[] {
+  // Narrowed before the label closures so `desig` is a plain string inside them.
+  const desig = ctx.decommissionDesig;
   const all: { available: boolean; cmd: Command }[] = [
     {
       available: true,
@@ -121,6 +137,19 @@ export function buildCommands(ctx: CommandCtx): Command[] {
         label: () => m.commandbar_cmd_next_needs_you(),
         keywords: () => m.commandbar_cmd_next_needs_you_kw(),
         run: ctx.onNextNeedsYou,
+      },
+    },
+    {
+      // Last: the only destructive verb. `desig` is non-null exactly when this is available, so
+      // the `?? ""` fallback in the closures is unreachable.
+      available: desig !== null,
+      cmd: {
+        id: "decommission",
+        label: () => m.commandbar_cmd_decommission({ desig: desig ?? "" }),
+        keywords: () => m.commandbar_cmd_decommission_kw(),
+        confirmLabel: () => m.commandbar_cmd_decommission_confirm(),
+        confirmAria: () => m.commandbar_cmd_decommission_confirm_aria({ desig: desig ?? "" }),
+        run: ctx.onDecommission,
       },
     },
   ];

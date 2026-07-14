@@ -79,7 +79,20 @@
         rank: number;
       }
     | { kind: "lens"; lens: HerdFilter; label: string; icon: string; hl: number[]; rank: number }
-    | { kind: "command"; id: string; label: string; run: () => void; hl: number[]; rank: number }
+    | {
+        kind: "command";
+        id: string;
+        label: string;
+        run: () => void;
+        // Both are non-null only for a destructive (two-step) verb: `confirmLabel` is the armed
+        // row's visible text, `confirmAria` the sentence the live region speaks (it names the
+        // target, which the short visible label drops). The bar has no session context of its
+        // own, so both ride along on the row.
+        confirmLabel: (() => string) | null;
+        confirmAria: (() => string) | null;
+        hl: number[];
+        rank: number;
+      }
     | { kind: "doc"; title: string; url: string; hl: number[]; rank: number };
   type OptRow = Row & { oid: number };
 
@@ -265,6 +278,8 @@
             id: c.id,
             label,
             run: c.run,
+            confirmLabel: c.confirmLabel ?? null,
+            confirmAria: c.confirmAria ?? null,
             hl: result?.positions ?? [],
             rank,
           })),
@@ -326,9 +341,17 @@
     inputEl?.focus({ preventScroll: true });
   });
 
-  // Keep the cursor in range if an async update (WS poll) shrinks the option list.
+  // Keep the cursor in range if an async update (WS poll) shrinks the option list — and keep it
+  // ANCHORED to an armed row. `oid` is re-assigned on every re-derive of `groups`, so a session
+  // arriving/leaving while a row is armed shifts every oid: the red "Confirm decommission?" row
+  // would stay armed while Enter fired whatever now sat at the stale activeIdx. Re-anchoring (or
+  // disarming, when the armed row is gone from the list entirely) keeps the armed row, the cursor
+  // and the next Enter on the same option. Both branches are guarded, so they converge.
   $effect(() => {
     if (activeIdx > options.length - 1) activeIdx = Math.max(0, options.length - 1);
+    if (armedRow) {
+      if (armedRow.oid !== activeIdx) activeIdx = armedRow.oid;
+    } else if (armedId !== null) disarm();
   });
 
   function stableKey(row: OptRow): string {
@@ -368,11 +391,66 @@
     return out;
   }
 
+  // ── two-step arm for destructive commands (rows carrying a `confirmLabel`) ──
+  // The first activation arms the row; only a second one runs it. Three things make this hold:
+  //  1. `repeat` — forwarded from every keyboard activation path. A held Enter/Alt+digit would
+  //     otherwise arm and fire within ~30ms (OS repeat interval), defeating the guard entirely.
+  //     Rejecting inside selectOption covers all paths (input, row Enter, row Space, Alt+digit)
+  //     by construction rather than by three remembered guards at the call sites.
+  //  2. ARM_DWELL_MS — a confirm arriving implausibly fast is dropped. NOT a key-repeat defense
+  //     (the OS repeat delay is ~500ms, well past it): this is the double-click/double-fire guard.
+  //  3. arming moves the cursor onto the armed row — rows have no hover handler, so a click never
+  //     touches activeIdx, and a following Enter would otherwise fire options[activeIdx]: a
+  //     DIFFERENT, unarmed command.
+  const ARM_MS = 3000;
+  const ARM_DWELL_MS = 300;
+  let armedId = $state<string | null>(null);
+  let armedAt = 0;
+  let armTimer: ReturnType<typeof setTimeout> | undefined;
+  // The armed row, for the sighted label swap + the live region's spoken sentence.
+  const armedRow = $derived(options.find((o) => o.kind === "command" && o.id === armedId) ?? null);
+
+  // Imperative, never an $effect: arming WRITES activeIdx, so an effect watching activeIdx to
+  // disarm would re-run on the arm itself and clear it on the spot. Called from exactly the three
+  // things that invalidate an arm — query change, cursor move, and the timeout.
+  function disarm() {
+    clearTimeout(armTimer);
+    armedId = null;
+  }
+  $effect(() => () => clearTimeout(armTimer));
+
+  /** Runs an activation past the arm gate. True ⇒ the activation was CONSUMED (the row armed, or a
+   *  confirm landed inside the dwell) and the caller must not run the verb. False ⇒ carry on:
+   *  either the row isn't destructive, or this is a legitimate confirm (and the arm is cleared). */
+  function armGate(row: OptRow): boolean {
+    if (row.kind !== "command" || !row.confirmLabel) return false;
+    if (armedId !== row.id) {
+      armedId = row.id;
+      armedAt = Date.now();
+      activeIdx = row.oid; // keep cursor, armed row and the next Enter on the same row
+      // Pull focus back to the combobox. Arming by CLICK leaves focus on the row (a tabindex="-1"
+      // div), which both breaks the aria-activedescendant pattern the bar follows — focus belongs
+      // on the input, the cursor is virtual — and strands the operator: keystrokes would go to the
+      // row, so neither `oninput` (disarm-on-type) nor onKey's arrows (disarm-on-move) could fire,
+      // leaving Esc or the 3s timeout as the only ways out. The cursor is already pinned to the
+      // armed row, so the next Enter still confirms it.
+      inputEl?.focus({ preventScroll: true });
+      clearTimeout(armTimer);
+      armTimer = setTimeout(disarm, ARM_MS);
+      return true;
+    }
+    if (Date.now() - armedAt < ARM_DWELL_MS) return true; // too fast to be a deliberate confirm
+    disarm();
+    return false;
+  }
+
   // `secondary` (a modifier held with Enter/click) picks a row's secondary verb. Today
   // only repo rows have one — filter the session list to that repo — and only when it has
   // a live session; every other row (and a session-less repo) ignores the modifier and
   // runs its primary action.
-  function selectOption(row: OptRow, secondary = false) {
+  function selectOption(row: OptRow, secondary = false, repeat = false) {
+    // A held key can neither arm nor confirm (and can't run a non-destructive verb twice either).
+    if (repeat || armGate(row)) return;
     if (row.kind === "session") onselectsession(row.id);
     else if (row.kind === "repo") {
       // Filter keys on realPath (matches session.repoPath / herd repoFilter); backlog
@@ -401,11 +479,13 @@
     switch (e.key) {
       case "ArrowDown":
         e.preventDefault();
+        disarm(); // moving off the armed row abandons the arm
         activeIdx = Math.min(activeIdx + 1, options.length - 1);
         scrollActiveIntoView();
         break;
       case "ArrowUp":
         e.preventDefault();
+        disarm();
         activeIdx = Math.max(activeIdx - 1, 0);
         scrollActiveIntoView();
         break;
@@ -413,7 +493,7 @@
         e.preventDefault();
         const row = options[activeIdx];
         // Shift / Cmd / Ctrl + Enter fires the row's secondary action (repo → filter).
-        if (row) selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey);
+        if (row) selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey, e.repeat);
         break;
       }
       // Escape is handled by use:dialog (focus-trap + onclose).
@@ -429,13 +509,16 @@
   // +page's own Alt+1-9 session-switch bails on anyOverlayOpen() (which includes the command
   // bar), so there is no double action. keydown/keyup both carry the live modifier via
   // getModifierState; window blur resets it so a held Alt can't stick when focus leaves the tab.
+  // The `altHeld` refresh and the preventDefault stay UNCONDITIONAL on an auto-repeat: bailing
+  // early would let a held Alt+1 type the macOS Option-glyph (¡) into the search field. Only the
+  // activation is repeat-guarded (inside selectOption).
   function onWindowKeydown(e: KeyboardEvent) {
     altHeld = e.getModifierState("Alt");
     const jump = jumpDigitIndex(e);
     if (jump !== null) {
       e.preventDefault();
       const row = options[jump];
-      if (row) selectOption(row);
+      if (row) selectOption(row, false, e.repeat);
     }
   }
   function onWindowKeyup(e: KeyboardEvent) {
@@ -489,7 +572,10 @@
       aria-controls="cb-listbox"
       aria-autocomplete="list"
       aria-activedescendant={options.length ? `cb-opt-${activeIdx}` : undefined}
-      oninput={() => (activeIdx = 0)}
+      oninput={() => {
+        disarm(); // a changed query re-ranks the list — the armed row may not even survive it
+        activeIdx = 0;
+      }}
       onkeydown={onKey}
     />
 
@@ -507,14 +593,21 @@
             id={`cb-opt-${row.oid}`}
             class="cb-row"
             class:kbd-active={row.oid === activeIdx}
+            class:armed={row.kind === "command" && row.id === armedId}
             role="option"
             aria-selected={row.oid === activeIdx}
             aria-keyshortcuts={row.oid < 10 ? `Alt+${HINT_LABELS[row.oid]}` : undefined}
             tabindex="-1"
             onclick={(e) => selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey)}
             onkeydown={(e) => {
-              if (e.key === "Enter") selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey);
-              else if (e.key === " ") selectOption(row);
+              // Clicking a tabindex="-1" row focuses it, so keys can land HERE rather than on the
+              // input's onKey. armGate now pulls focus back on arm, so the armed row's next key
+              // goes to the input — but a row can hold focus from any other click, and Space only
+              // ever activates here. The repeat forwarding therefore stays on both keys: it's the
+              // guard that makes a held key unable to arm or confirm from whichever path it takes.
+              if (e.key === "Enter")
+                selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey, e.repeat);
+              else if (e.key === " ") selectOption(row, false, e.repeat);
             }}
           >
             {#if row.kind === "session"}
@@ -546,8 +639,15 @@
               <span class="cb-ic" aria-hidden="true">{row.icon}</span>
               <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
             {:else if row.kind === "command"}
-              <span class="cb-ic" aria-hidden="true">⌘</span>
-              <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
+              <span class="cb-ic" aria-hidden="true">{row.id === armedId ? "✕" : "⌘"}</span>
+              {#if row.id === armedId && row.confirmLabel}
+                <!-- Armed: the confirm string replaces the label. Rendered plain — the fuzzy
+                     positions index the LABEL, so highlighting them here would mark the wrong
+                     characters. The announcement rides the live region below, not this swap. -->
+                <b class="cb-primary">{row.confirmLabel()}</b>
+              {:else}
+                <b class="cb-primary">{@render primary(row.label, row.hl)}</b>
+              {/if}
             {:else}
               <span class="cb-ic" aria-hidden="true">📄</span>
               <b class="cb-primary">{@render primary(row.title, row.hl)}</b>
@@ -568,6 +668,16 @@
     <div class="cb-empty" class:filled={options.length === 0} role="status" aria-live="polite">
       {options.length === 0 ? m.commandbar_no_matches() : ""}
     </div>
+
+    <!-- Armed-state announcement. Its own VISUALLY-HIDDEN region, deliberately: rows are
+         aria-activedescendant options that never take focus, so mutating the active row's text is
+         not reliably announced — while routing it through the visible .cb-empty above would
+         duplicate copy already on the row and shift the list. The spoken sentence names the target
+         (the short visible confirm label drops it). Same sr-only + polite-status pattern as
+         TaskIdButton / RepoSwitcher (there is no .sr-only util in app.css). -->
+    <span class="sr-only" role="status" aria-live="polite">
+      {armedRow?.kind === "command" ? (armedRow.confirmAria?.() ?? "") : ""}
+    </span>
   </div>
 </div>
 
@@ -672,6 +782,16 @@
     outline: 1.5px solid var(--color-amber);
     outline-offset: -1.5px;
   }
+  /* Armed destructive row — the same red arm treatment Viewport's .decom.armed uses. Declares the
+     WHOLE ring, not just its color: the outline otherwise comes from .kbd-active, and the arm must
+     stay legible even in the transient frame where a live list re-derive has moved the cursor off
+     this row (the effect above re-anchors it, but the affordance can't depend on that). */
+  .cb-row.armed {
+    color: var(--color-red);
+    outline: 1.5px solid var(--color-red);
+    outline-offset: -1.5px;
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
+  }
 
   .cb-ic {
     flex-shrink: 0;
@@ -738,6 +858,19 @@
      owns margin-left:auto and the badge just follows it flush. */
   .cb-kbd:not(.cb-hint + .cb-kbd) {
     margin-left: auto;
+  }
+
+  /* visually-hidden live region (no .sr-only util in app.css) */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
   }
 
   .cb-empty {

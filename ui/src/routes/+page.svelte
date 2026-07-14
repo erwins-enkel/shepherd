@@ -8,6 +8,7 @@
     listSessions,
     createSession,
     archiveSession,
+    getLeftovers,
     relaunchSession,
     restoreSession,
     stageRelaunchImages,
@@ -57,6 +58,7 @@
     HeldTask,
     Issue,
     IssueRef,
+    Leftover,
     OwedFocusSnapshot,
     PluginUpdatesStatus,
     PullRequest,
@@ -1819,6 +1821,15 @@
       onNextNeedsYou: () => selectNextNeedsYou(),
       onLearnings: openLearnings,
       onDiagnoseEpic: () => (showEpicDiagnose = true),
+      onDecommission: () => {
+        if (selectedId) commandDecommission(selectedId);
+      },
+      // Offered only where the operator can SEE the session it would destroy. The Done lens has
+      // its own selection space (doneSelectedId), so selectedId there is a stale leftover from the
+      // lens they came from; the panel-only lenses render no session list at all (shownSessions
+      // returns [] — the rail shows a panel and the main area a hint), so the selected session is
+      // invisible in both panes. Either way the verb would name a target that isn't on screen.
+      decommissionDesig: herdFilter === "done" || panelOnlyLens ? null : (selected?.desig ?? null),
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,
@@ -2181,6 +2192,31 @@
         }
       },
     });
+  }
+
+  // ⌘K Decommission runs the SAME leftover probe as Viewport's decommission button: still-running
+  // subprocesses (dev servers, `tailscale serve`) would otherwise be silently orphaned by a verb
+  // that reads identical to the on-screen one. Empty probe (or a failed one — a probe error must
+  // never block the close) falls straight through to the deferred archive; anything found pops
+  // LeftoverDialog so the operator can pick what to reap, exactly as the button does.
+  let decomLeftovers = $state<Leftover[]>([]);
+  let decomLeftoverTarget = $state<string | null>(null);
+
+  async function commandDecommission(id: string) {
+    const found = await getLeftovers(id).catch(() => [] as Leftover[]);
+    if (found.length === 0) {
+      onarchive(id);
+      return;
+    }
+    decomLeftoverTarget = id;
+    decomLeftovers = found;
+  }
+
+  function finishCommandDecommission(reap?: string[]) {
+    const target = decomLeftoverTarget;
+    decomLeftovers = [];
+    decomLeftoverTarget = null;
+    if (target) onarchive(target, reap);
   }
 
   // Relaunch a task: spawn a fresh replacement carrying the original's prompt +
@@ -3153,6 +3189,9 @@
     showBacklog = false;
     herdFilter = lens;
   }}
+  {decomLeftovers}
+  ondecomleftoverclose={() => finishCommandDecommission()}
+  ondecomleftoverconfirm={(keys) => finishCommandDecommission(keys)}
   {showRetry}
   onretryclose={() => (showRetry = false)}
   {showEpicDiagnose}

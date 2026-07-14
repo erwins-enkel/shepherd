@@ -845,14 +845,27 @@ describe("CommandBar — destructive command two-step arm", () => {
     renderBar({ commands });
     await page.getByRole("combobox").fill("decom");
 
-    await decomRow().click();
-    await decomRow().click(); // immediate second click — inside the dwell
-    expect(run).not.toHaveBeenCalled();
-    // Still armed, so a deliberate confirm afterwards works.
-    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
-    await pastDwell();
-    await decomRow().click();
-    expect(run).toHaveBeenCalledTimes(1);
+    // The guard is `Date.now() - armedAt < ARM_DWELL_MS` (CommandBar.svelte), so freeze the clock
+    // rather than racing it: a back-to-back click PAIR is only "inside the dwell" if the runner
+    // dispatches both within 300ms of wall time, which a contended CI runner does not — the second
+    // click then lands legitimately past the dwell and confirms. Pinning Date.now() asserts the
+    // guard's logic instead of the machine's speed. The other dwell tests wait 320ms to get PAST
+    // the window, so they fail safe and stay on the real clock.
+    const t0 = Date.now();
+    const now = vi.spyOn(Date, "now").mockReturnValue(t0);
+    try {
+      await decomRow().click();
+      await decomRow().click(); // second click, still at t0 — inside the dwell
+      expect(run).not.toHaveBeenCalled();
+      // Still armed, so a deliberate confirm afterwards works.
+      await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+
+      now.mockReturnValue(t0 + 320); // past the dwell
+      await decomRow().click();
+      expect(run).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it("disarms on typing and on moving the cursor", async () => {

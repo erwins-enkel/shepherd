@@ -9,6 +9,7 @@
   import { chipRailVisible, chipHasTelemetry, pausedText } from "./queue-strip";
   import RepoChipTelemetry from "./repo-switcher/RepoChipTelemetry.svelte";
   import { longPress } from "./longpress";
+  import AutomationPanel from "./AutomationPanel.svelte";
 
   let {
     chips,
@@ -137,6 +138,15 @@
   } | null>(null);
   let menuEl = $state<HTMLDivElement | null>(null);
   let menuPos = $state<{ left: number; top: number } | null>(null);
+  // Automation stays in the shared panel, while this component owns the
+  // chip-context-menu entry point and the selected repo's anchoring state.
+  let automation = $state<{
+    chip: RepoChip;
+    left: number;
+    top: number;
+    opener: HTMLElement;
+  } | null>(null);
+  let automationAnchor = $state<HTMLDivElement | null>(null);
 
   function repoLabel(chip: RepoChip): string {
     return basename(chip.repoPath);
@@ -259,6 +269,31 @@
     closeMenu();
   }
 
+  function openAutomation() {
+    if (!menu) return;
+    // AutomationPanel is right-aligned to its positioned parent. Put that parent
+    // on the click's right edge when there is room, otherwise let the panel open
+    // back toward the viewport instead of overflowing past the right edge.
+    const panelWidth = 320;
+    const gap = 8;
+    const opensRight = menu.x + panelWidth + gap <= window.innerWidth - gap;
+    automation = {
+      chip: menu.chip,
+      left: opensRight ? menu.x + panelWidth + gap : menu.x,
+      top: menu.y,
+      opener: menu.opener,
+    };
+    closeMenu();
+  }
+
+  function closeAutomation() {
+    const opener = automation?.opener;
+    automation = null;
+    queueMicrotask(() => {
+      if (opener?.isConnected) opener.focus();
+    });
+  }
+
   $effect(() => () => clearHold());
 
   $effect(() => {
@@ -312,6 +347,25 @@
       queueMicrotask(() => {
         if (opener?.isConnected && document.activeElement === document.body) opener.focus();
       });
+    };
+  });
+
+  $effect(() => {
+    const current = automation;
+    if (!current) return;
+    function onKeydown(e: KeyboardEvent) {
+      if (e.key === "Escape") closeAutomation();
+    }
+    function onPointer(e: Event) {
+      if (automationAnchor && !automationAnchor.contains(e.target as Node)) closeAutomation();
+    }
+    window.addEventListener("keydown", onKeydown);
+    window.addEventListener("pointerdown", onPointer, true);
+    window.addEventListener("scroll", closeAutomation, true);
+    return () => {
+      window.removeEventListener("keydown", onKeydown);
+      window.removeEventListener("pointerdown", onPointer, true);
+      window.removeEventListener("scroll", closeAutomation, true);
     };
   });
 </script>
@@ -410,6 +464,15 @@
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
     </button>
+    <button
+      class="rs-menu-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={openAutomation}
+    >
+      <span class="rs-menu-icon" aria-hidden="true">⚙</span>{m.repo_chip_automation_settings()}
+    </button>
     {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
       <a
@@ -429,6 +492,23 @@
         ? m.repo_chip_remove_filter()
         : m.repo_chip_add_filter()}
     </button>
+  </div>
+{/if}
+
+{#if automation}
+  <!-- The shared panel becomes a blocking sheet only on coarse pointers; its
+       desktop form remains the same anchored, non-modal popover as the rail. -->
+  <div class="rs-auto-scrim scrim" aria-hidden="true"></div>
+  <div
+    class="rs-auto-anchor"
+    bind:this={automationAnchor}
+    style="left:{automation.left}px;top:{automation.top}px"
+  >
+    <AutomationPanel
+      repoPath={automation.chip.repoPath}
+      drain={automation.chip.drain}
+      onClose={closeAutomation}
+    />
   </div>
 {/if}
 
@@ -626,6 +706,21 @@
     flex-shrink: 0;
   }
 
+  /* A zero-size fixed anchor lets AutomationPanel keep its established desktop
+     positioning and viewport clamp while this context menu supplies the origin. */
+  .rs-auto-anchor {
+    position: fixed;
+    z-index: 60;
+    width: 0;
+    height: 0;
+  }
+  /* Desktop is a non-modal anchored popover. On touch, AutomationPanel becomes
+     a full-screen blocking sheet and this shared scrim supplies the required
+     dim + blur backdrop. */
+  .rs-auto-scrim {
+    display: none;
+  }
+
   /* Coarse pointers: ≥44px tap targets on the chips (mirrors the QueueStrip /
      TopBar coarse-pointer pattern). */
   @media (pointer: coarse) {
@@ -637,6 +732,10 @@
     /* The menu is reached via long-press on touch, so its items are tap targets too. */
     .rs-menu-item {
       min-height: 44px;
+    }
+    .rs-auto-scrim {
+      display: block;
+      z-index: 50;
     }
   }
 </style>

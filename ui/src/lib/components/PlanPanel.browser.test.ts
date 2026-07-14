@@ -753,3 +753,40 @@ describe("PlanPanel visual blocks", () => {
     expect(document.querySelector(".plan-blocks-caption")).toBeNull();
   });
 });
+
+// ── #1759: an at-cap re-review must not read as a landed round ────────────────
+
+describe("PlanPanel at-cap re-review", () => {
+  it("warns that an at-cap re-review's findings won't reach the agent, and offers Resume", async () => {
+    const id = "s-atcap-note";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 3, cap: 3, approved: false }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+
+    // A REAL run started (never a failure note) — but the operator is told its findings won't be
+    // steered back, and Resume (which does deliver) stays on offer.
+    await expect.element(page.getByText(m.planpanel_review_at_cap())).toBeVisible();
+    expect(document.querySelector(".note.err")).toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
+      .toBeVisible();
+  });
+
+  it("tells the operator a sub-cap re-review spends a rework round", async () => {
+    const id = "s-spend";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 1, cap: 3, approved: false }),
+    };
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_review_now() }))
+      .toHaveAttribute("title", m.plangate_review_spends_round({ round: 1, cap: 3 }));
+  });
+});

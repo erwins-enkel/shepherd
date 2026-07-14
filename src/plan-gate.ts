@@ -24,15 +24,32 @@ import { fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 
-/** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
- *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
- *  plugin-abort during spawn, or an unchanged plan on the auto-path); the plan artifact is
- *  unavailable (`"plan-unavailable"`); or a spawn attempt failed with a specific cause —
- *  `"error-spawn"` (herdr couldn't start/register the reviewer), `"error-worktree"` (the review
- *  worktree couldn't be created), or `"error-auth"` (api-key mode with no key configured). The
- *  review-plan route relays this so the UI can name the cause instead of a generic failure. */
+/** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`, or
+ *  `"started-at-cap"` — see below); the request was a no-op (`"skipped"` — not planning, a review
+ *  already in flight/starting, a tombstone or plugin-abort during spawn, or an unchanged plan on the
+ *  auto-path); the plan artifact is unavailable (`"plan-unavailable"`); or a spawn attempt failed
+ *  with a specific cause — `"error-spawn"` (herdr couldn't start/register the reviewer),
+ *  `"error-worktree"` (the review worktree couldn't be created), or `"error-auth"` (api-key mode with
+ *  no key configured). The review-plan route relays this so the UI can name the cause instead of a
+ *  generic failure.
+ *
+ *  `"started-at-cap"` is a REAL run (treat it as started everywhere a spawn matters — the reviewing
+ *  indicator, the WS bridge, the not-a-failure check) that carries one extra fact: the rework streak
+ *  is already at/over the cap, so if this verdict comes back `request-changes` its findings will NOT
+ *  be steered to the planning agent (applyChangesRequested's at-cap hold) — the operator needs Resume
+ *  instead. It can still legitimately come back `approve` and release the gate, which is why the run
+ *  is allowed. Without this, an inert at-cap re-review is indistinguishable from a round that landed
+ *  (issue #1759). Client-side, anything that only asks "did a run start?" must go through
+ *  `planReviewStarted` (ui/src/lib/api.ts) rather than `=== "started"` — GitRail's plan-review check
+ *  is fail-closed and inverted, so a raw comparison would read an at-cap run as a spawn failure. */
 export type PlanReviewTrigger =
-  "started" | "skipped" | "plan-unavailable" | "error-spawn" | "error-worktree" | "error-auth";
+  | "started"
+  | "started-at-cap"
+  | "skipped"
+  | "plan-unavailable"
+  | "error-spawn"
+  | "error-worktree"
+  | "error-auth";
 
 /** Whether a settle edge should re-drive `consider()`. `done` always re-considers (first
  *  draft + any settle); `idle` re-considers ONLY when a prior gate already requested changes
@@ -323,7 +340,7 @@ export class PlanGateService {
   }
 
   /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
-   *  Returns `"started"` iff a reviewer actually spawned; `"skipped"` for a no-op — not planning,
+   *  Returns `"started"` (or `"started-at-cap"`) iff a reviewer actually spawned; `"skipped"` for a no-op — not planning,
    *  a review already in flight/starting, an already-`approved` gate, an unchanged plan on the
    *  auto-path, a `forget()` tombstone abort mid-fetch, or a plugin `onSpawn` refusal;
    *  `"plan-unavailable"` when the plan artifact is missing/unreadable/empty; or `"error"` if a
@@ -527,7 +544,7 @@ export class PlanGateService {
       model: reviewerEnv.model,
       effort: reviewerEffort,
     });
-    return "started";
+    return startedStatus(prior, this.cap);
   }
 
   /** Re-adopt plan reviews that were in flight when the server last stopped. The `inflight`
@@ -1010,6 +1027,18 @@ export class PlanGateService {
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
   }
+}
+
+/** Which "a reviewer spawned" status a just-launched run reports. A run starting on an already-at-cap
+ *  rework streak will NOT re-steer its findings if it comes back `request-changes`
+ *  (applyChangesRequested's at-cap hold), so it says so at the trigger rather than reading as an
+ *  ordinary landed round (#1759) — the operator needs Resume. Predicated on the PRE-review row, the
+ *  same value that hold governs; an operator Resume landing mid-review resets the round and delivery
+ *  happens after all, so the UI note is transient and the gate stays authoritative. Free function (not
+ *  a method) to keep begin()'s cyclomatic count under the Fallow bar. */
+function startedStatus(prior: PlanGate | null, cap: number): PlanReviewTrigger {
+  const atCap = prior?.decision === "changes_requested" && prior.round >= cap;
+  return atCap ? "started-at-cap" : "started";
 }
 
 /** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */

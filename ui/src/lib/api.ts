@@ -1737,9 +1737,20 @@ export async function releasePlanGate(id: string): Promise<boolean> {
 /** Outcome of an on-demand plan review trigger: a reviewer spawned, the request was a silent
  *  no-op (plan unchanged / already approved), the plan artifact is unavailable, or a spawn attempt
  *  failed with a specific cause. Mirrors the server's PlanReviewTrigger so the UI can distinguish a
- *  dedupe from a genuine error and name that error. */
+ *  dedupe from a genuine error and name that error.
+ *
+ *  `"started-at-cap"` is a real run whose findings will NOT be re-steered to the planning agent if it
+ *  requests changes — the rework streak is already at the cap, so the operator needs Resume (#1759).
+ *  Everything that only asks "did a run start?" must go through `planReviewStarted`. */
 export type PlanReviewError = "error-spawn" | "error-worktree" | "error-auth";
-export type PlanReviewTrigger = "started" | "skipped" | "plan-unavailable" | PlanReviewError;
+export type PlanReviewTrigger =
+  "started" | "started-at-cap" | "skipped" | "plan-unavailable" | PlanReviewError;
+
+/** True for every outcome in which a reviewer actually spawned. Use this instead of `=== "started"`
+ *  so an at-cap run isn't mistaken for a no-op or a failure (GitRail's fail-closed check inverts it). */
+export function planReviewStarted(s: PlanReviewTrigger): boolean {
+  return s === "started" || s === "started-at-cap";
+}
 
 /** Type guard: true for any failed-spawn outcome. The compact entry points (rail, hold-row, badge
  *  menu) show one generic failure toast for all three causes; only PlanPanel narrows on the guard

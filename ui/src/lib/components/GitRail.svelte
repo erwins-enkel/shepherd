@@ -9,6 +9,7 @@
     reviewPr,
     reviewPlan,
     isPlanReviewError,
+    planReviewStarted,
   } from "$lib/api";
   import type { DrainStatus, GitState, Session, SessionStatus } from "$lib/types";
   import { toasts } from "$lib/toasts.svelte";
@@ -554,10 +555,14 @@
     if (planReviewing) return; // already in flight — consider() would skip
     try {
       const status = await reviewPlan(sessionId);
-      // "started" → bridge to the WS reviewing flag (silent; the indicator is the feedback).
+      // started (either flavour) → bridge to the WS reviewing flag (the indicator is the feedback).
+      // "started-at-cap" additionally warns that findings won't be re-sent — the run is real, but the
+      // rework budget is spent, so Resume is the affordance that delivers (#1759).
       // "skipped" while NOT already reviewing → transient note. Any error-* → 12s failure toast.
-      if (status === "started") awaitingPlanReview = true;
-      else if (status === "plan-unavailable" && !planGates.isReviewing(sessionId))
+      if (planReviewStarted(status)) {
+        awaitingPlanReview = true;
+        if (status === "started-at-cap") toasts.info(m.plangate_review_at_cap());
+      } else if (status === "plan-unavailable" && !planGates.isReviewing(sessionId))
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(sessionId))
         toasts.info(m.gitrail_review_plan_skipped());

@@ -3137,5 +3137,8 @@
   "feat_mobile_herd_accordion_body": "The phone herd now keeps only one named lifecycle group open at a time. Your turn opens by default; tap any larger group header to switch or close it while active sessions stay visible.",
   "feat_review_job_model_title": "See which model is reviewing",
   "feat_review_job_model_body": "The terminal review banner now shows the coding CLI, model and effort used by both Plan Gate and PR critic jobs, so their environment is distinct from the task session.",
-  "epicdraft_approve_in_progress": "Still creating the epic — this is taking a while. It'll appear here when it lands."
+  "epicdraft_approve_in_progress": "Still creating the epic — this is taking a while. It'll appear here when it lands.",
+  "plangate_review_at_cap": "Plan review started — but the rework budget is spent, so new findings won't be sent to the agent. Use “Resume with findings” to reset it and re-send.",
+  "plangate_review_spends_round": "Re-reviews send the findings back to the agent and spend a rework round ({round}/{cap} used).",
+  "planpanel_review_at_cap": "Re-reviewing at the rework cap. The reviewer can still approve the plan, but if it requests changes again those findings will not be sent to the planning agent. Use “Resume with findings” to reset the budget and re-send them."
 }

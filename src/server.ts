@@ -2641,7 +2641,10 @@ function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
 // cause ("error-spawn" | "error-worktree" | "error-auth"), or
 // nothing happened ("skipped" — a review is already in flight, the gate is already approved, or
 // the session has left the plan phase; the route can't distinguish which), so the UI can explain
-// the outcome without mislabelling a failure as a no-op.
+// the outcome without mislabelling a failure as a no-op. "started-at-cap" is also a real run, but
+// one whose findings won't be re-steered if it requests changes (the rework streak is already at the
+// cap — the operator needs Resume); relayed verbatim so the UI can say so instead of letting an
+// inert re-review read as a landed round (#1759).
 async function handleSessionReviewPlan({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "review-plan")) return null;
   const s = deps.store.get(parts[2]);

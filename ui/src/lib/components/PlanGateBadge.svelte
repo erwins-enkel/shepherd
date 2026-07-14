@@ -153,7 +153,9 @@
     busy = "review";
     try {
       const status = await reviewPlan(session.id);
-      if (status === "started") toasts.info(m.plangate_review_started());
+      // A real run either way; "started-at-cap" warns that its findings won't be re-sent (#1759).
+      if (status === "started-at-cap") toasts.info(m.plangate_review_at_cap());
+      else if (status === "started") toasts.info(m.plangate_review_started());
       else if (status === "plan-unavailable" && !planGates.isReviewing(session.id))
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(session.id))

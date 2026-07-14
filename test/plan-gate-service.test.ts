@@ -1733,6 +1733,44 @@ test("forced at-cap re-entry of an unchanged plan writes no stall row (guard #1)
   expect(h.store.gate.round).toBe(1);
 });
 
+test("#1759: consider() reports started-at-cap when the rework budget is already spent", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({
+    cap: 2,
+    store: {
+      getPlanGate: () => ({
+        planHash: hash,
+        approved: false,
+        decision: "changes_requested",
+        round: 2,
+        findings: ["again"],
+      }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  // A REAL run (it can still approve), but its findings won't be re-steered — the trigger says so
+  // instead of returning a bare "started" the UI can't tell from a round that landed.
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started-at-cap");
+});
+
+test("#1759: consider() reports plain started while the rework budget remains", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({
+    cap: 3,
+    store: {
+      getPlanGate: () => ({
+        planHash: hash,
+        approved: false,
+        decision: "changes_requested",
+        round: 1,
+        findings: ["again"],
+      }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started");
+});
+
 test("#1759: forced at-cap re-review CLEARS a pending final round (planStallStatus final → stalled)", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const steers: string[] = [];

@@ -7,6 +7,7 @@
     resumeQuota,
     reviewPlan,
     isPlanReviewError,
+    planReviewStarted,
     type PlanReviewError,
   } from "$lib/api";
   import {
@@ -49,6 +50,14 @@
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
+  // The live rework streak, and whether its budget is already spent. Mirrors the server's at-cap hold
+  // (plan-gate.ts applyChangesRequested) — the same `changes_requested && round >= cap` predicate
+  // hold-row's `atCap` and canShowPlanStallActions key off. Drives the "spends a round" hint below the
+  // cap and clears the at-cap note once the streak leaves it.
+  const rework = $derived(
+    gate?.decision === "changes_requested" && !gate.approved ? gate : undefined,
+  );
+  const atCap = $derived(!!rework && rework.round >= rework.cap);
   // Only `approved` renders the Review control inert: `force` re-reviews an unchanged plan, but the
   // server never bypasses `approved`. (The `reviewing` case is handled by the in-flight spinner path.)
   const planReviewBlock = $derived(canTriggerPlanReview(session, gate, reviewing));
@@ -75,6 +84,14 @@
   // synthetic complexity under the Tier-1 Svelte bar (.fallowrc.jsonc).
   const reviewingButtonLabel = $derived(
     reviewProvider ? m.planpanel_reviewing_env({ env: reviewEnv }) : m.planpanel_reviewing(),
+  );
+  // A re-review is no longer free of the rework budget: since #1759 its findings are steered back and
+  // it SPENDS a round, so a few clicks exhaust the budget. The only other surface for that is the
+  // {round}/{cap} counter, which doesn't say what a click costs — so the control says it itself.
+  const reviewHint = $derived(
+    rework && !atCap
+      ? m.plangate_review_spends_round({ round: rework.round, cap: rework.cap })
+      : undefined,
   );
 
   // Render the plan + reviewer body as markdown, SANITIZED before @html. Both are
@@ -123,6 +140,11 @@
   // Persistent while the current planning state has no usable `.shepherd-plan.md` artifact.
   // Unlike `outcome`, this must not auto-dismiss: it explains why Review cannot start.
   let planUnavailable = $state(false);
+  // The last Re-review click started a run on an already-at-cap rework streak: it is a REAL review
+  // (it can still approve), but a `request-changes` verdict won't be steered to the agent — Resume
+  // is the affordance that delivers (#1759). Unlike `outcome` this must survive the run itself (the
+  // reviewing flag doesn't clear it), so it's cleared only when the streak leaves the cap.
+  let heldAtCap = $state(false);
   // A review is visibly in flight from the click until the WS reviewing flag clears.
   const inFlight = $derived(busy || reviewing || awaitingReview);
   let quotaBusy = $state<"resume" | "dismiss" | null>(null);
@@ -141,6 +163,13 @@
 
   $effect(() => {
     if (gate || !canReviewNow) planUnavailable = false;
+  });
+
+  // The at-cap warning stands until the streak actually leaves the cap (a Resume/Dismiss reset, or an
+  // approval) — it describes the gate's state, not the click, so it must outlive both the run and the
+  // 6s `outcome` expiry.
+  $effect(() => {
+    if (!atCap) heldAtCap = false;
   });
 
   // Backstop: if the `reviewing` event never arrives (lost/late), don't wedge the spinner.
@@ -176,11 +205,16 @@
     planUnavailable = false;
     try {
       const status = await reviewPlan(session.id);
-      // "started" → bridge to the WS reviewing flag so the spinner doesn't blink back.
+      // started (either flavour) → bridge to the WS reviewing flag so the spinner doesn't blink back.
+      // "started-at-cap" is a REAL run, but the rework budget is spent: if it requests changes again,
+      // those findings will not be steered to the agent. Say so (#1759) — it used to be
+      // indistinguishable from a round that landed.
       // "skipped" → the review couldn't start (a race, an approval landing, a planPhase flip, or a
       // plugin abort). The cause is unknowable from here, so the note stays causally silent.
-      if (status === "started") awaitingReview = true;
-      else if (status === "plan-unavailable" && !reviewing) planUnavailable = true;
+      if (planReviewStarted(status)) {
+        awaitingReview = true;
+        heldAtCap = status === "started-at-cap";
+      } else if (status === "plan-unavailable" && !reviewing) planUnavailable = true;
       else if (status === "skipped" && !reviewing) outcome = "skipped";
       else if (isPlanReviewError(status)) outcome = status; // name the specific cause
     } catch {
@@ -392,6 +426,10 @@
         </section>
       {/if}
 
+      {#if heldAtCap}
+        <p class="note" role="status">{m.planpanel_review_at_cap()}</p>
+      {/if}
+
       {#if planUnavailable}
         <p class="note" role="status">{m.planpanel_review_plan_unavailable()}</p>
       {:else if outcome === "skipped"}
@@ -449,6 +487,7 @@
               aria-label={planReviewBlock === "approved"
                 ? `${m.planpanel_review_now()} — ${m.planpanel_review_already_approved()}`
                 : undefined}
+              title={reviewHint}
               onclick={() => {
                 if (planReviewBlock === "approved") return;
                 review();

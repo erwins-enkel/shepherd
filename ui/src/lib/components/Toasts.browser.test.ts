@@ -161,6 +161,37 @@ describe("Toasts: long action label wraps instead of squishing the message", () 
     expect(msgLineCount(msg)).toBe(1);
   });
 
+  /* .actions owns the row's ONLY auto margin; .undo and .x declare none. These two
+     pin the right-alignment that used to ride on those removed margins: the undo-tone
+     button (a direct child of .toast, outside .actions) is pushed right by .msg's
+     flex-grow, and a lone ✕ by .actions' own auto margin. */
+  it("right-aligns the undo-tone button, which sits outside .actions", async () => {
+    await page.viewport(1280, 900);
+    toasts.undo(MERGED, { undoLabel: m.common_undo(), onCommit: () => {} });
+    render(Toasts, {});
+    await tick();
+    const toast = el<HTMLElement>(".toast");
+    const undo = el<HTMLElement>(".undo");
+    expect(document.querySelector(".actions")).toBeNull(); // undo tone has no wrapper
+    // Flush right (12px padding + 1px border), not left-adrift beside the message.
+    expect(toast.getBoundingClientRect().right - undo.getBoundingClientRect().right).toBeCloseTo(
+      13,
+      0,
+    );
+  });
+
+  it("right-aligns a lone ✕ when there is no action label", async () => {
+    await page.viewport(1280, 900);
+    await renderToast(MERGED);
+    const toast = el<HTMLElement>(".toast");
+    const x = el<HTMLElement>(".x");
+    expect(document.querySelector(".undo")).toBeNull();
+    expect(toast.getBoundingClientRect().right - x.getBoundingClientRect().right).toBeCloseTo(
+      13,
+      0,
+    );
+  });
+
   it("keeps .countdown a direct child of .toast (absolutely positioned against it)", async () => {
     await page.viewport(1280, 900);
     toasts.info(MERGED, {

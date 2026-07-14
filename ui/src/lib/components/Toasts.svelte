@@ -124,9 +124,12 @@
     margin-left: auto;
     min-width: 0;
   }
+  /* No margin-left:auto here or on .x — .actions owns the row's single auto margin,
+     and .msg's flex-grow right-aligns the undo-tone button (a direct child of
+     .toast, outside .actions). A second auto margin would reintroduce the §8.1
+     equal-split of free space that grouping exists to prevent. */
   .undo {
     position: relative;
-    margin-left: auto;
     flex-shrink: 1;
     min-width: 0;
     max-width: 100%;
@@ -177,7 +180,6 @@
     animation-play-state: paused;
   }
   .x {
-    margin-left: auto;
     flex-shrink: 0;
     background: transparent;
     border: 0;

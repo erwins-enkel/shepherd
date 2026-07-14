@@ -408,9 +408,7 @@
   let armedAt = 0;
   let armTimer: ReturnType<typeof setTimeout> | undefined;
   // The armed row, for the sighted label swap + the live region's spoken sentence.
-  const armedRow = $derived(
-    options.find((o) => o.kind === "command" && o.id === armedId) ?? null,
-  ) as OptRow | null;
+  const armedRow = $derived(options.find((o) => o.kind === "command" && o.id === armedId) ?? null);
 
   // Imperative, never an $effect: arming WRITES activeIdx, so an effect watching activeIdx to
   // disarm would re-run on the arm itself and clear it on the spot. Called from exactly the three

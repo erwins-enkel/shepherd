@@ -272,23 +272,31 @@
       opacity: 1;
     }
   }
-  /* auto-address streak label that takes over the whole pill. streak-round now matches the
-     reviewing amber (cohesive amber pill, like the plain REVIEWING badge); the amber border +
-     rev-dot still signal running. Compound selectors (.critic-badge.streak-*, specificity 0,2,0)
-     so the recessive states (streak-final faint) still beat the reviewing amber
-     (.critic-reviewing, 0,1,0) by specificity rather than source order — robust against
-     stylesheet reordering. */
+  /* auto-address streak label that takes over the whole pill. TWO ORTHOGONAL AXES:
+       hue = severity   (round amber → final warn → stalled blocked; climbs with the ladder)
+       dot = running    (the amber .rev-dot, unchanged, whenever the critic is re-reviewing)
+     So an amber dot inside a warn/blocked pill is correct — it reports a different thing than
+     the hue does. Each streak state therefore owns BOTH color and border-color: .critic-reviewing
+     (0,1,0) sets an amber border, and a state that recolored only the text would let that amber
+     leak through underneath it (which is exactly how FINAL REVIEW came to render faint-grey inside
+     an orange border). The compound selectors (.critic-badge.streak-*, 0,2,0) beat it by
+     specificity rather than source order — robust against stylesheet reordering.
+     NB: .rev-dot must NOT follow currentColor — stalled + reviewing co-occur (addressStallStatus
+     escalates on the finalRoundTimeoutMs clock while a re-review is still in flight), which would
+     render a pulsing RED dot; DESIGN.md forbids a haloed/pulsing subordinate red. */
   .critic-badge.streak-round {
     color: var(--color-amber);
   }
-  /* final allowed round in flight: recessive (faint) vs. the amber in-progress/stalled streak states */
+  /* final allowed round in flight — caution: last chance before the streak stalls */
   .critic-badge.streak-final {
-    color: var(--color-faint);
+    color: var(--status-warn);
+    border-color: var(--status-warn);
   }
-  /* auto-address gave up at the cap — needs a human */
+  /* auto-address gave up at the cap — blocked, needs a human. Subordinate red: text + border
+     only, never a halo/pulse/wash — the blocked-agent pip stays the loudest red (Four-Light Rule). */
   .critic-badge.streak-stalled {
-    color: var(--color-amber);
+    color: var(--status-blocked);
     font-weight: 600;
-    border-color: var(--color-amber);
+    border-color: var(--status-blocked);
   }
 </style>

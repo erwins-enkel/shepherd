@@ -602,9 +602,11 @@
             tabindex="-1"
             onclick={(e) => selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey)}
             onkeydown={(e) => {
-              // Clicking a tabindex="-1" row focuses it and use:dialog never restores focus to the
-              // input, so after an arm-by-click every key lands HERE, not on onKey — hence the
-              // repeat forwarding on both Enter and Space.
+              // Clicking a tabindex="-1" row focuses it, so keys can land HERE rather than on the
+              // input's onKey. armGate now pulls focus back on arm, so the armed row's next key
+              // goes to the input — but a row can hold focus from any other click, and Space only
+              // ever activates here. The repeat forwarding therefore stays on both keys: it's the
+              // guard that makes a held key unable to arm or confirm from whichever path it takes.
               if (e.key === "Enter")
                 selectOption(row, e.shiftKey || e.metaKey || e.ctrlKey, e.repeat);
               else if (e.key === " ") selectOption(row, false, e.repeat);

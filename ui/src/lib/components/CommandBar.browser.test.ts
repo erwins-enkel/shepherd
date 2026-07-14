@@ -810,8 +810,9 @@ describe("CommandBar — destructive command two-step arm", () => {
 
   it("a held key never fires — repeat keydowns are rejected on both the input and the row", async () => {
     // The 300ms dwell cannot stop this: the OS initial repeat delay (~500ms) clears it easily.
-    // e.repeat is the only key-repeat defense, and after an arm-by-click the row (not the input)
-    // is the focused element receiving the keys.
+    // e.repeat is the only key-repeat defense. It is asserted on the row's handler as well as the
+    // input's: arming refocuses the input, but a row can still hold focus from any other click,
+    // and Space only ever activates through the row — so both paths must reject a held key.
     const { commands, run } = seedDestructive();
     renderBar({ commands });
     await page.getByRole("combobox").fill("decom");

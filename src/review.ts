@@ -344,11 +344,7 @@ export class ReviewService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    const reviewerEnv = this.deps.env?.() ?? {
-      provider: "claude" as const,
-      model: null,
-      effort: null,
-    };
+    const reviewerEnv = this.reviewerEnv();
     if (apiKeyFailClosed(reviewerEnv.provider)) {
       console.warn(
         "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
@@ -604,6 +600,10 @@ export class ReviewService {
       effort: env.effort,
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
     });
+  }
+
+  private reviewerEnv(): RoleEnvironment {
+    return this.deps.env?.() ?? { provider: "claude", model: null, effort: null };
   }
 
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.

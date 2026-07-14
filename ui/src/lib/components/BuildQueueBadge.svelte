@@ -62,7 +62,7 @@
   }
 </script>
 
-{#if queue?.approved && total > 0}
+{#if total > 0}
   {#if drifted}
     <button
       type="button"

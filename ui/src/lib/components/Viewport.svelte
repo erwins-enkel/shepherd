@@ -40,6 +40,7 @@
   import { trimTrailingWhitespace } from "$lib/terminalSelection";
   import { composeKeystrokes } from "$lib/compose";
   import { findCommandLinks } from "$lib/slashLinks";
+  import { createTypingCounter } from "$lib/terminal-input";
   import { shouldForwardEscape } from "$lib/terminalEscape";
   import { altComboKey, isCommandBarChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
@@ -281,12 +282,27 @@
 
   // composed send: routes the line through composeKeystrokes (atomic bracketed
   // paste) instead of xterm's textarea, sidestepping the Android IME duplication bug.
-  const sendComposed = (text: string) => conn?.send(composeKeystrokes(text));
+  const sendComposed = (text: string) => {
+    bumpOperatorInput();
+    conn?.send(composeKeystrokes(text));
+  };
 
-  // monotonic local keystroke counter, bumped on every term.onData — drives the
+  // monotonic counter of genuine operator input into this PTY — drives the
   // ReviewInFlightBanner's client-side escalation (issue #1022). Pure UI signal,
   // independent of the server-side lastOperatorKeystrokeAt seam.
+  //
+  // RULE: every path that puts *operator* input into the PTY bumps this. That is
+  // (a) input through xterm's helper textarea (createTypingCounter, wired at
+  // term.open) and (b) the sends below that bypass xterm entirely — ComposeBar,
+  // the touch key bar, image paste, slash-command taps, the synthesized Shift+Enter
+  // and Escape. It is NOT bumped from term.onData: that channel also carries mouse
+  // reports (mouse tracking is on — see agentOwnsScroll), focus reports and the
+  // terminal's replies to app queries, none of which are typing, and counting them
+  // made the banner claim "You're typing" on mere pointer movement.
+  // View control (jump-to-bottom, /tui fullscreen) is deliberately NOT counted —
+  // it moves the view, it doesn't enter text that could collide with a steer.
   let opKeystrokes = $state(0);
+  const bumpOperatorInput = () => opKeystrokes++;
   // occupied height (px) of the ReviewInFlightBanner while it's shown, 0 otherwise.
   // Published as --review-banner-h on .vp-body so the floating jump-to-latest button
   // (a sibling in ViewportTermBanners) can lift clear of the bottom banner strip.
@@ -1334,6 +1350,10 @@
     try {
       for (const f of imgs) {
         const path = await uploadImage(f, session.id);
+        // Genuine operator input: the capture-phase image-paste interceptor on `el`
+        // stopImmediatePropagation()s, so xterm's textarea never sees this paste —
+        // count it here or a pasted screenshot would never escalate the banner.
+        bumpOperatorInput();
         conn.send(` \x1b[200~${path}\x1b[201~ `);
       }
     } catch {
@@ -1557,6 +1577,10 @@
     term.open(el);
     fit.fit();
 
+    // Count operator input arriving through xterm's helper textarea (typing, IME,
+    // paste, dropped text). Only valid after open() — that's when the textarea exists.
+    const typingCounter = createTypingCounter(term, bumpOperatorInput);
+
     // WebGL renderer. The default DOM renderer flows text with a per-glyph
     // letter-spacing derived from a fractional cell width; at a non-integer
     // fontSize (12.5) on a HiDPI display (devicePixelRatio 2) xterm's glyph
@@ -1605,10 +1629,10 @@
       },
     );
     conn = c;
-    term.onData((d) => {
-      opKeystrokes++;
-      c.send(d);
-    });
+    // Forward everything xterm emits — keystrokes AND the mouse/focus/query-reply
+    // frames the app negotiated. Deliberately does NOT bump opKeystrokes: see the
+    // RULE at its declaration.
+    term.onData((d) => c.send(d));
 
     // Linkify slash-command tokens Claude suggests in its output (e.g. "/squad",
     // "/gsd-quick") so a tap pastes the command into the prompt — on a phone the
@@ -1643,6 +1667,7 @@
               end: { x: colAt[f.end - 1]! + 1, y: bufferLineNumber },
             },
             activate: () => {
+              bumpOperatorInput();
               c.send(`\x1b[200~/${f.name}\x1b[201~`);
             },
           })),
@@ -1723,6 +1748,7 @@
         !e.metaKey
       ) {
         e.preventDefault();
+        bumpOperatorInput();
         c.send("\n");
         return false;
       }
@@ -1809,6 +1835,9 @@
         return;
       e.preventDefault();
       e.stopImmediatePropagation();
+      // stopImmediatePropagation() in the window capture phase means xterm's textarea
+      // never sees this keydown — count it here or Escape wouldn't escalate.
+      bumpOperatorInput();
       c.send("\x1b");
       term.focus();
     };
@@ -2100,6 +2129,7 @@
       el?.removeEventListener("touchmove", onTouchMove);
       el?.removeEventListener("touchend", onTouchEnd);
       el?.removeEventListener("wheel", onWheelTrack, { capture: true });
+      typingCounter.destroy();
       stopFling();
       scrollSub.dispose();
       bufSub.dispose();
@@ -2989,7 +3019,10 @@
       onedit={(id) => onedit?.(id)}
       {mobile}
       {touch}
-      termSend={(seq) => conn?.send(seq)}
+      termSend={(seq) => {
+        bumpOperatorInput();
+        conn?.send(seq);
+      }}
       {micAvailable}
       ondictate={() => {
         composeDictate = true;
@@ -3004,7 +3037,10 @@
     {mobile}
     {touch}
     {tab}
-    send={(seq) => conn?.send(seq)}
+    send={(seq) => {
+      bumpOperatorInput();
+      conn?.send(seq);
+    }}
     {notesKey}
     {enter}
     {uploading}

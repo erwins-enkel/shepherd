@@ -222,3 +222,28 @@ describe("ReviewInFlightBanner preview — negative cases (no preview / no dim)"
     expect(document.querySelector(".rb-preview")).toBeNull();
   });
 });
+
+// The `keystrokes` prop is a monotonic count of genuine operator input into the PTY
+// (Viewport's opKeystrokes). It is deliberately NOT a count of xterm onData frames —
+// those also carry mouse reports, which is what used to escalate this banner on mere
+// pointer movement (issue #1022). The banner just reacts to the number going up.
+describe("ReviewInFlightBanner — sticky escalation on operator input", () => {
+  it("stays calm while the count holds, escalates once it rises mid-review", async () => {
+    planGates.applyReviewing(ID, true);
+    const { rerender } = await render(ReviewInFlightBanner, props({ keystrokes: 0 }) as never);
+
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("calm");
+
+    // pointer activity no longer moves the count → banner stays calm
+    await rerender(props({ keystrokes: 0 }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("calm");
+
+    // the operator types → the count rises → escalate, and stick
+    await rerender(props({ keystrokes: 1 }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("escalated");
+    await expect.poll(() => banner()?.textContent?.includes(m.reviewbanner_escalated())).toBe(true);
+
+    await rerender(props({ keystrokes: 1 }) as never);
+    await expect.poll(() => banner()?.getAttribute("data-tone")).toBe("escalated");
+  });
+});

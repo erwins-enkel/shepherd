@@ -442,19 +442,23 @@
 
   .run-settings {
     display: flex;
-    align-items: end;
+    align-items: center;
     gap: 6px;
     flex-wrap: wrap;
   }
 
+  /* Caption reads as an inline prefix on the control's own line — baseline, not
+     centre, so it sits on the select's text rather than mid-box. */
   .mini-field {
     display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 96px;
+    flex-direction: row;
+    align-items: baseline;
+    gap: 4px;
   }
 
   .micro {
+    flex: none;
+    white-space: nowrap;
     color: var(--color-faint);
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
@@ -463,6 +467,7 @@
 
   select {
     min-height: 24px;
+    min-width: 96px;
     max-width: 180px;
     background: var(--color-inset);
     border: 1px solid var(--color-line);
@@ -530,6 +535,12 @@
     .gbtn {
       min-height: 40px;
       padding: 2px 14px;
+    }
+
+    /* Matches .gbtn above — the fields sit inline with the buttons, so an
+       unraised 24px select would read as a short control beside a tall one. */
+    select {
+      min-height: 40px;
     }
   }
 </style>

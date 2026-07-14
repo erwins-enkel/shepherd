@@ -12,6 +12,8 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  DISTILLER_INTERVAL_DAYS_MIN,
+  DISTILLER_INTERVAL_DAYS_MAX,
   DIAGNOSTICS_INTERVAL_MS,
   DIAGNOSTICS_RECHECK_INTERVAL_MS,
   findServedPort,
@@ -290,7 +292,7 @@ if (savedDe !== null) {
 // are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`
 // ("inherit"|<provider>) + a `<role>Model` ("default"|<alias>), resolved to a spawn environment via
 // resolveRoleEnvironment at wiring/spawn time.
-for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilot"] as const) {
+for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilot", "distiller"] as const) {
   const savedCli = store.getSetting(`${role}Cli`);
   if (savedCli !== null) {
     const v = normalizeRoleCli(savedCli);
@@ -307,6 +309,14 @@ for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilo
     if (v !== null) config[`${role}Effort`] = v;
   }
 }
+const savedDistillerIntervalDays = store.getSetting("distillerIntervalDays");
+if (savedDistillerIntervalDays !== null)
+  config.distillerIntervalDays = clampCap(
+    Number(savedDistillerIntervalDays),
+    DISTILLER_INTERVAL_DAYS_MIN,
+    DISTILLER_INTERVAL_DAYS_MAX,
+    config.distillerIntervalDays,
+  );
 const savedProvider = store.getSetting("defaultAgentProvider");
 if (savedProvider !== null) {
   const v = normalizeAgentProvider(savedProvider);
@@ -627,6 +637,14 @@ function roleEnv(cli: string, model: string, effort: string): RoleEnvironment {
   if (dg !== null && env.provider === "claude")
     return { provider: "claude", model: dg, effort: env.effort };
   return env;
+}
+
+function distillerEnv(): RoleEnvironment {
+  const effort =
+    config.distillerCli === "inherit" && config.distillerEffort === "default"
+      ? config.defaultEffort
+      : config.distillerEffort;
+  return roleEnv(config.distillerCli, config.distillerModel, effort);
 }
 
 // Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
@@ -2154,6 +2172,8 @@ const distiller = new DistillerService({
   store,
   herdr,
   scratch: defaultScratch,
+  environment: distillerEnv,
+  intervalDays: () => config.distillerIntervalDays,
   onChange: () => learningsSvc.emitPending(),
 });
 deferredStarts.push(() => {

@@ -79,6 +79,43 @@ test("consider does nothing below the signal threshold", async () => {
   expect(started.length).toBe(0);
 });
 
+test("automatic consideration respects the persisted per-repository interval", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps, started } = mkDeps(store, { rules: [] });
+  let now = 1_000;
+  deps.now = () => now;
+  deps.intervalDays = () => 3;
+  const d = new DistillerService(deps as any);
+
+  await d.consider("/r");
+  await d.tick();
+  expect(started.length).toBe(1);
+  expect(store.getSetting("distiller:last-run:/r")).toBe(String(now));
+
+  now += 2 * 24 * 60 * 60 * 1000;
+  await d.consider("/r");
+  expect(started.length).toBe(1);
+
+  now += 24 * 60 * 60 * 1000;
+  await d.consider("/r");
+  expect(started.length).toBe(2);
+});
+
+test("manual distill bypasses a recent automatic-run timestamp", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps, started } = mkDeps(store, { rules: [] });
+  deps.intervalDays = () => 14;
+  const d = new DistillerService(deps as any);
+
+  await d.consider("/r");
+  await d.tick();
+  await d.distillNow("/r");
+
+  expect(started.length).toBe(2);
+});
+
 test("egress_drop signals are excluded from the learnings corpus + threshold", async () => {
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 2); // 2 real learning signals — below minSignals (3)
@@ -255,6 +292,68 @@ test("distill spawn: api-key without a configured key fails closed (no spawn, sc
     expect(cap.starts).toBe(0);
     expect(cap.removed).toBe(1); // allocated scratch dir cleaned up
   });
+});
+
+test("distill spawn: a resolved Codex environment uses codex exec with its model and effort", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps, cap } = spawnCapture(store);
+  deps.environment = () => ({ provider: "codex", model: "gpt-5.5", effort: "high" });
+
+  await new DistillerService(deps as any).distillNow("/r");
+
+  expect(cap.argv).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+    "-c",
+    "model_reasoning_effort=high",
+    expect.any(String),
+  ]);
+  expect(cap.env).toBeUndefined();
+});
+
+test("distill spawn: an explicit Claude environment keeps the writer-ro Claude argv", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const { deps, cap } = spawnCapture(store);
+  deps.environment = () => ({ provider: "claude", model: "sonnet", effort: "high" });
+
+  await new DistillerService(deps as any).distillNow("/r");
+
+  expect(cap.argv[0]).toBe("claude");
+  expect(cap.argv).toContain("--settings");
+  expect(cap.argv).toContain("--allowedTools");
+  expect(cap.argv).toContain("--model");
+  expect(cap.argv).toContain("sonnet");
+  expect(cap.argv).toContain("--effort");
+  expect(cap.argv).toContain("high");
+  expect(cap.argv).toContain("--permission-mode");
+  expect(cap.argv).toContain("dontAsk");
+});
+
+test("distill spawn: missing Anthropic api key does not block a resolved Codex environment", async () => {
+  const previousMode = config.authMode;
+  const previousHelper = config.authApiKeyHelperPath;
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = null;
+  try {
+    const store = new SessionStore(":memory:");
+    seedSignals(store, "/r", 3);
+    const { deps, cap } = spawnCapture(store);
+    deps.environment = () => ({ provider: "codex", model: null, effort: null });
+
+    await new DistillerService(deps as any).distillNow("/r");
+
+    expect(cap.starts).toBe(1);
+    expect(cap.argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+  } finally {
+    config.authMode = previousMode;
+    config.authApiKeyHelperPath = previousHelper;
+  }
 });
 
 test("tick finalizes and reaps a run that times out without proposals", async () => {

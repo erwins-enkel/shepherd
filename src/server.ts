@@ -20,6 +20,8 @@ import {
   PR_REVIEW_CYCLES_MAX,
   PLAN_REVIEW_CYCLES_MIN,
   PLAN_REVIEW_CYCLES_MAX,
+  DISTILLER_INTERVAL_DAYS_MIN,
+  DISTILLER_INTERVAL_DAYS_MAX,
   USAGE_HISTORY_RETENTION_MS,
 } from "./config";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
@@ -4491,6 +4493,12 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       docAgentCli: config.docAgentCli,
       docAgentModel: config.docAgentModel,
       docAgentEffort: config.docAgentEffort,
+      distillerCli: config.distillerCli,
+      distillerModel: config.distillerModel,
+      distillerEffort: config.distillerEffort,
+      distillerIntervalDays: config.distillerIntervalDays,
+      distillerIntervalDaysMin: DISTILLER_INTERVAL_DAYS_MIN,
+      distillerIntervalDaysMax: DISTILLER_INTERVAL_DAYS_MAX,
       namerCli: config.namerCli,
       namerModel: config.namerModel,
       namerEffort: config.namerEffort,
@@ -4572,6 +4580,10 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["docAgentCli", makeRoleCliPatch("docAgent")],
   ["docAgentModel", makeRoleModelPatch("docAgent")],
   ["docAgentEffort", makeRoleEffortPatch("docAgent")],
+  ["distillerCli", makeRoleCliPatch("distiller")],
+  ["distillerModel", makeRoleModelPatch("distiller")],
+  ["distillerEffort", makeRoleEffortPatch("distiller")],
+  ["distillerIntervalDays", putDistillerIntervalDays],
   ["namerCli", makeRoleCliPatch("namer")],
   ["namerModel", makeRoleModelPatch("namer")],
   ["namerEffort", makeRoleEffortPatch("namer")],
@@ -4684,7 +4696,7 @@ function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
 // is a PAIR: a `<role>Cli` ("inherit"|<provider>) and a `<role>Model` ("default"|<alias>). Both
 // live-update config (the spawn-time thunks read config per spawn, so no restart) and persist.
 // cli/model are validated + stored independently; resolveRoleEnvironment clamps an incoherent pair.
-type RoleKey = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
+type RoleKey = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot" | "distiller";
 
 function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
   const key = `${role}Cli` as const;
@@ -4734,6 +4746,19 @@ function putDefaultAgentProvider(value: unknown, deps: Ctx["deps"]): Response {
   config.defaultAgentProvider = v;
   deps.store.setSetting("defaultAgentProvider", v);
   return json({ defaultAgentProvider: config.defaultAgentProvider });
+}
+
+function putDistillerIntervalDays(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return json({ error: "distillerIntervalDays must be a number" }, 400);
+  config.distillerIntervalDays = clampCap(
+    value,
+    DISTILLER_INTERVAL_DAYS_MIN,
+    DISTILLER_INTERVAL_DAYS_MAX,
+    config.distillerIntervalDays,
+  );
+  deps.store.setSetting("distillerIntervalDays", String(config.distillerIntervalDays));
+  return json({ distillerIntervalDays: config.distillerIntervalDays });
 }
 
 // Account-wide extra-credit (paid overage) spend ceiling. Requires a finite, non-negative

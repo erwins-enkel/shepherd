@@ -614,7 +614,7 @@ export const putDefaultAgentProvider = (
 // The per-role ENVIRONMENT settings the Settings UI can override. Each role has a PAIR: a
 // `<role>Cli` ("inherit" | "claude" | "codex") and a `<role>Model` ("default" | <alias>). The
 // server validates + persists each independently and echoes the stored value under the same key.
-export type RoleBase = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot";
+export type RoleBase = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot" | "distiller";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
 export type RoleEffortKey = `${RoleBase}Effort`;
@@ -636,6 +636,10 @@ export const putRoleEffort = (
   key: RoleEffortKey,
   effort: string,
 ): Promise<Partial<Record<RoleEffortKey, string>>> => patchSettings({ [key]: effort });
+
+export const putDistillerIntervalDays = (
+  days: number,
+): Promise<{ distillerIntervalDays: number }> => patchSettings({ distillerIntervalDays: days });
 
 // Switch how spawned agents authenticate (subscription OAuth vs. metered API key).
 export const putAuthMode = (mode: string): Promise<{ authMode: string; hasApiKey: boolean }> =>

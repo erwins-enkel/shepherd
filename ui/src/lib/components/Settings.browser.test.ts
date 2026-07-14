@@ -251,23 +251,23 @@ describe("Settings Coding CLI sections", () => {
     expect(defaultsButton.getAttribute("aria-expanded")).toBe("true");
     expect(controlledSection(defaultsButton).hidden).toBe(false);
 
-    const defaultModelSelect = page
-      .getByRole("combobox", { name: m.settings_default_model_title() })
+    const defaultEffortSelect = page
+      .getByRole("combobox", { name: m.settings_default_effort_title() })
       .element();
-    expect(content.contains(defaultModelSelect)).toBe(true);
+    expect(content.contains(defaultEffortSelect)).toBe(true);
 
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(true);
-    expect(content.contains(defaultModelSelect)).toBe(true);
+    expect(content.contains(defaultEffortSelect)).toBe(true);
 
     await disclosure.click();
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(false);
-    expect(page.getByRole("combobox", { name: m.settings_default_model_title() }).element()).toBe(
-      defaultModelSelect,
+    expect(page.getByRole("combobox", { name: m.settings_default_effort_title() }).element()).toBe(
+      defaultEffortSelect,
     );
   });
 

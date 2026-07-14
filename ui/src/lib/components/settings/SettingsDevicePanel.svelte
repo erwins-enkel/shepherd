@@ -11,6 +11,7 @@
   } from "$lib/push";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
+  import { infoTips } from "$lib/info-tips.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl, CAPTURE_EXTENSION_URL } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -139,6 +140,22 @@
     <span class="track" class:on={tabTicker.enabled}><span class="knob"></span></span>
     <span class="state"
       >{tabTicker.enabled ? m.settings_tab_ticker_on() : m.settings_tab_ticker_off()}</span
+    >
+  </button>
+</div>
+<div class="rc">
+  <span class="micro">{m.settings_hide_info_tips_title()}</span>
+  <p class="hint">{m.settings_hide_info_tips_hint()}</p>
+  <button
+    type="button"
+    class="toggle"
+    role="switch"
+    aria-checked={infoTips.hidden}
+    onclick={() => infoTips.toggle()}
+  >
+    <span class="track" class:on={infoTips.hidden}><span class="knob"></span></span>
+    <span class="state"
+      >{infoTips.hidden ? m.settings_hide_info_tips_on() : m.settings_hide_info_tips_off()}</span
     >
   </button>
 </div>

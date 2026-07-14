@@ -1,8 +1,10 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import GlossaryTerm from "./GlossaryTerm.svelte";
+import GlossaryText from "./GlossaryText.svelte";
+import { infoTips } from "$lib/info-tips.svelte";
 import { m } from "$lib/paraglide/messages";
 
 describe("GlossaryTerm — activation-only inline disclosure", () => {
@@ -137,5 +139,47 @@ describe("GlossaryTerm — activation-only inline disclosure", () => {
     // mouse-leave/Escape dismiss handlers; synthetic-event timing is racy here).
     tip!.hidePopover();
     expect(getComputedStyle(tip!).display).toBe("none");
+  });
+});
+
+describe("GlossaryTerm — hide-info-tips preference", () => {
+  afterEach(() => infoTips.set(false));
+
+  it("degrades to plain text: the word stays, the affordance goes", async () => {
+    infoTips.set(true);
+    render(GlossaryTerm, { id: "epic", label: "epic" });
+
+    // The label is inline prose — dropping it would leave a hole in the sentence.
+    await expect.element(page.getByText("epic")).toBeInTheDocument();
+
+    // ...but nothing about it is interactive or decorated any more.
+    expect(page.getByRole("button", { name: "epic" }).query()).toBeNull();
+    expect(document.querySelectorAll(".gloss-term")).toHaveLength(0);
+    expect(document.querySelectorAll(".gloss-tooltip")).toHaveLength(0);
+  });
+
+  it("external terms lose their Wikipedia link too (accepted consequence)", async () => {
+    infoTips.set(true);
+    render(GlossaryTerm, { id: "ci", label: "CI" });
+
+    expect(document.querySelectorAll("a[href*='wikipedia.org']")).toHaveLength(0);
+    expect(page.getByRole("button", { name: "CI" }).query()).toBeNull();
+  });
+
+  it("GlossaryText markers degrade too — this is what covers Coachmark / What's-New", async () => {
+    infoTips.set(true);
+    render(GlossaryText, { text: "Shepherd groups sessions under an [[epic|epic]]." });
+
+    // Same prose, no markers left behind, no affordance.
+    await expect
+      .element(page.getByText("Shepherd groups sessions under an epic."))
+      .toBeInTheDocument();
+    expect(document.querySelectorAll(".gloss-term")).toHaveLength(0);
+  });
+
+  it("renders the affordance normally when the preference is off", async () => {
+    render(GlossaryTerm, { id: "epic", label: "epic" });
+
+    await expect.element(page.getByRole("button", { name: "epic" })).toBeInTheDocument();
   });
 });

@@ -14,7 +14,9 @@
   // drift from the real theme: change app.css and this updates with it.
   // +layout.svelte already inits the theme globally for every route; the toggles
   // below just read/drive the shared controller.
+  import { setContext } from "svelte";
   import { theme } from "$lib/theme.svelte";
+  import { INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import { labelChipStyle } from "$lib/label-color";
@@ -23,6 +25,12 @@
   // real components via PluginUIRenderer so the showcase exercises the actual dispatch path.
   import PluginUIRenderer from "$lib/plugin-ui/PluginUIRenderer.svelte";
   import type { PluginUINode } from "$lib/types";
+
+  // Force the (i) / glossary affordances to render here regardless of the operator's
+  // "hide info tooltips" preference (Settings → Device). This page is the canonical
+  // component catalogue, so a specimen that silently vanished based on the viewer's
+  // personal pref would make the reference lie about what the component looks like.
+  setContext(INFO_TIPS_FORCE, true);
 
   type Token = { name: string; note: string };
 

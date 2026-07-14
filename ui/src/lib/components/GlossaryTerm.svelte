@@ -1,10 +1,21 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import { anchorPopover } from "$lib/floating-anchor";
   import { m } from "$lib/paraglide/messages";
   import { getLocale } from "$lib/i18n";
   import { glossaryById } from "$lib/glossary";
+  import { infoTips, INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
 
   let { id, label }: { id: string; label: string } = $props();
+
+  // The /design-system catalogue forces specimens to render regardless of the preference.
+  const forced = getContext<boolean>(INFO_TIPS_FORCE) ?? false;
+  // When the operator hides info tips, a term degrades to the same plain-label output the
+  // unknown-term fail-soft path already produces: the word stays in the sentence, but the
+  // trigger button, dashed underline and tooltip are gone. For an `external` term that
+  // also removes its Wikipedia link — an accepted consequence of "remove the affordance
+  // entirely" (keeping underlines alive only for external terms would be incoherent).
+  const suppressed = $derived(infoTips.hidden && !forced);
 
   // Unique, SSR-stable id for aria-describedby wiring — Svelte's per-instance id
   // (a module counter would collide across instances and risk hydration mismatch).
@@ -167,9 +178,10 @@
 </script>
 
 <!--
-  If the term is unknown (fail-soft), render the plain label with no tooltip.
+  If the term is unknown (fail-soft) — or the operator hid info tips — render the plain
+  label with no tooltip.
 -->
-{#if !term}
+{#if !term || suppressed}
   <span class="gloss-term-plain">{label}</span>
 {:else}
   <button
@@ -276,7 +288,7 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-popover);
 
     /* Reset browser popover defaults */
     color: var(--color-ink);

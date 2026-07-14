@@ -2,7 +2,8 @@
   import type { EpicDraftChild } from "$lib/types";
   import { dialog } from "$lib/a11yDialog";
   import { epicDrafts } from "$lib/epic-draft.svelte";
-  import { approveEpicDraft, replySession, archiveSession } from "$lib/api";
+  import { replySession, archiveSession } from "$lib/api";
+  import { approveEpic } from "$lib/epic-approve";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
   import EpicDraftChildRow from "$lib/components/EpicDraftChildRow.svelte";
@@ -37,16 +38,13 @@
 
   async function approve() {
     if (approving) return;
+    // Capture the session: this dialog can close (and Viewport closes it on a session switch) long
+    // before a ~25s materialize returns. approveEpic owns the outcome from here — it lives outside
+    // the component tree precisely so the result is still reported if this modal is gone.
+    const sid = sessionId;
     approving = true;
     try {
-      const r = await approveEpicDraft(sessionId);
-      toasts.info(m.epicdraft_approve_success({ n: r.parentNumber }));
-    } catch (e) {
-      toasts.info(e instanceof Error ? e.message : m.epicdraft_approve_failed(), {
-        key: `epicdraft-approve-${sessionId}`,
-        sticky: true,
-        alert: true,
-      });
+      await approveEpic(sid);
     } finally {
       approving = false;
     }

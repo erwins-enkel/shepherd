@@ -1,7 +1,7 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import { makeApp, type AppDeps } from "../src/server";
+import { makeApp, slowRequestTimeoutSec, type AppDeps } from "../src/server";
 import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
@@ -200,4 +200,22 @@ test("a failed materialize reverts the draft to 'draft' so a retry can resume", 
   const res = await approve(app, s.id);
   expect(res.status).toBe(500);
   expect(store.getEpicDraft(s.id)?.status).toBe("draft"); // reverted, not stuck at materializing
+});
+
+// The approve request itself outruns Bun's 10s default idle timeout (~25 sequential GitHub calls for
+// a 12-child epic), so `serve()` lifts it per-request. Guard the route matching: a rename here would
+// silently sever the socket mid-materialize again, and the operator would see a bogus failure for an
+// approve that actually succeeded.
+test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on the default", () => {
+  const sec = (method: string, path: string) =>
+    slowRequestTimeoutSec(new Request(`http://x${path}`, { method }), new URL(`http://x${path}`));
+
+  expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve")).toBe(255); // Bun's ceiling
+  expect(sec("POST", "/api/usage/refresh")).toBe(60); // pre-existing budget, unchanged
+
+  // Everything else keeps the 10s default — including the draft's other verbs and near-miss paths.
+  expect(sec("GET", "/api/sessions/abc-123/epic-draft/approve")).toBeNull();
+  expect(sec("POST", "/api/sessions/abc-123/epic-draft")).toBeNull();
+  expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve/extra")).toBeNull();
+  expect(sec("POST", "/api/sessions")).toBeNull();
 });

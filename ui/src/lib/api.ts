@@ -114,7 +114,19 @@ export function isPreviewBlocked(e: unknown): boolean {
 
 /** Build an Error from a failed response body. A `403` carrying the server's
  *  preview-origin rejection becomes a translated {@link PreviewBlockedError}; every
- *  other failure becomes a plain Error preferring the server `{error}` over `fallback`. */
+ *  other failure becomes an {@link ApiError} preferring the server `{error}` over `fallback`.
+ *
+ *  `serverAuthored` records the PROVENANCE of the message: true when it came from the response
+ *  body (or is one of the translated 403s), false when `fallback` — the bare
+ *  `"<label> failed: <status>"` plumbing string — was used because the response carried no body.
+ *  A caller that surfaces `e.message` to a human MUST gate on it: a proxy 502/504 (or any severed
+ *  upstream) yields a bodyless response, and rendering that fallback verbatim shows the operator
+ *  "epic-draft approve failed: 502" instead of a real cause. Status alone can't stand in for this —
+ *  a 500 from a handler that catches and reports (`{error: e.message}`) is genuinely informative.
+ *
+ *  An EMPTY `{error: ""}` counts as no message, not as an empty server-authored one: a handler that
+ *  forwards `e.message` verbatim (e.g. approve's 500, src/server.ts) can emit one, and honouring it
+ *  would render a BLANK toast instead of the generic failure. Hence the truthiness check. */
 function apiError(
   status: number,
   body: { error?: string } | null | undefined,
@@ -125,9 +137,9 @@ function apiError(
     return new PreviewBlockedError(m.error_preview_readonly());
   }
   if (status === 403 && body?.error === ORIGIN_HOST_BLOCK) {
-    return new Error(m.error_origin_host_not_allowed());
+    return new ApiError(status, m.error_origin_host_not_allowed(), undefined, true);
   }
-  return new Error(body?.error ?? fallback);
+  return new ApiError(status, body?.error || fallback, undefined, !!body?.error);
 }
 
 /** A failed API call that carries the HTTP `status` and the server's stable `code`
@@ -136,12 +148,22 @@ function apiError(
 export class ApiError extends Error {
   status: number;
   code?: string;
-  constructor(status: number, message: string, code?: string) {
+  /** Whether `message` came from the server (a `{error}` body) rather than the bare
+   *  `"<label> failed: <status>"` fallback. Gate on this before showing `message` to a human —
+   *  see {@link apiError}. */
+  serverAuthored: boolean;
+  constructor(status: number, message: string, code?: string, serverAuthored = false) {
     super(message);
     this.status = status;
     this.code = code;
+    this.serverAuthored = serverAuthored;
   }
 }
+
+/** Provenance of an error built by {@link apiError}, for the re-wrap sites that rebuild an
+ *  {@link ApiError} to attach a `code`. Read it off the built error rather than re-deriving it from
+ *  the body, so "server authored" has exactly one definition and cannot drift between call sites. */
+const serverAuthored = (e: Error): boolean => e instanceof ApiError && e.serverAuthored;
 
 /** Build an Error from a failed response, preferring the server's `{error}` body
  *  (e.g. "no active workspace") over the bare status code so the UI shows the real
@@ -688,7 +710,9 @@ export async function uploadScratchpadFile(
   const r = await fetch(`/api/sessions/${id}/scratchpad/upload${q}`, { method: "POST", body: fd });
   if (!r.ok) {
     const body = (await r.json().catch(() => null)) as { error?: string } | null;
-    throw new ApiError(r.status, body?.error ?? `upload failed: ${r.status}`);
+    // No `code` to attach here, so `base` (already an ApiError, or a PreviewBlockedError) is exactly
+    // what a re-wrap would produce.
+    throw apiError(r.status, body, `upload failed: ${r.status}`);
   }
   return (await r.json()).path as string;
 }
@@ -899,7 +923,7 @@ export async function relaunchSession(
   // the rest of the API; for every other failure carry status + code to the caller.
   const base = apiError(r.status, body, `relaunch failed: ${r.status}`);
   if (isPreviewBlocked(base)) throw base;
-  throw new ApiError(r.status, base.message, body?.code);
+  throw new ApiError(r.status, base.message, body?.code, serverAuthored(base));
 }
 
 export type HandoffMode = "resume" | "summarize";
@@ -962,7 +986,8 @@ export async function restoreSession(id: string): Promise<Session> {
   if (r.ok) return r.json();
   const body = (await r.json().catch(() => null)) as { error?: string; code?: string } | null;
   const base = apiError(r.status, body, `restore failed: ${r.status}`);
-  throw new ApiError(r.status, base.message, body?.code);
+  if (isPreviewBlocked(base)) throw base; // else the 403 loses its PreviewBlockedError class
+  throw new ApiError(r.status, base.message, body?.code, serverAuthored(base));
 }
 
 /**

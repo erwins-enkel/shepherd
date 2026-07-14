@@ -3124,5 +3124,6 @@
   "feat_mobile_herd_accordion_title": "Fold lifecycle groups on mobile",
   "feat_mobile_herd_accordion_body": "The phone herd now keeps only one named lifecycle group open at a time. Your turn opens by default; tap any larger group header to switch or close it while active sessions stay visible.",
   "feat_review_job_model_title": "See which model is reviewing",
-  "feat_review_job_model_body": "The terminal review banner now shows the coding CLI, model and effort used by both Plan Gate and PR critic jobs, so their environment is distinct from the task session."
+  "feat_review_job_model_body": "The terminal review banner now shows the coding CLI, model and effort used by both Plan Gate and PR critic jobs, so their environment is distinct from the task session.",
+  "epicdraft_approve_in_progress": "Still creating the epic — this is taking a while. It'll appear here when it lands."
 }

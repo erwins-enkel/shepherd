@@ -215,6 +215,10 @@ test("start rolls back its orphan tab when agent start fails", async () => {
 // ── read-back resolve: registration staleness, tab-keying, exhaustion (reviewer-spawn race) ──
 
 const EMPTY_LIST = JSON.stringify({ result: { type: "agent_list", agents: [] } });
+const EMPTY_TABS = JSON.stringify({ result: { type: "tab_list", tabs: [] } });
+const TAB_LIST_WITH_NEW = JSON.stringify({
+  result: { type: "tab_list", tabs: [{ tab_id: "t_new", label: "flatten", workspace_id: "w1" }] },
+});
 
 test("start: resolve retries until the agent registers (registration staleness)", async () => {
   // `agent start` can return before the agent shows up in `agent list` — the read-back must
@@ -280,7 +284,9 @@ test("start: resolve is keyed by the created tab, not cwd (no cwd-collision alia
   expect(agent.terminalId).toBe("term_ours"); // the created tab, not the stale sibling
 });
 
-test("start: resolve exhaustion warns distinctly and rolls back the orphan tab", async () => {
+test("start: resolve exhaustion AND tab gone warns distinctly and rolls back the orphan tab", async () => {
+  // The agent never registers AND its tab is gone → a genuine spawn failure (herdr never kept
+  // the tab). Only then does resolveStartedAgent throw and start() roll the orphan tab back.
   const calls: string[][] = [];
   const runner = (args: string[]): string => {
     calls.push(args);
@@ -288,6 +294,7 @@ test("start: resolve exhaustion warns distinctly and rolls back the orphan tab",
     if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
     if (args[0] === "agent" && args[1] === "start") return "{}";
     if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST; // never registers
+    if (args[0] === "tab" && args[1] === "list") return EMPTY_TABS; // tab is gone too
     return "{}";
   };
   const warnings: string[] = [];
@@ -298,16 +305,39 @@ test("start: resolve exhaustion warns distinctly and rolls back the orphan tab",
   try {
     const d = new HerdrDriver(runner, async (a) => runner(a), 3, 0);
     await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow(
-      /started agent not found for tab t_new/,
+      /started agent not found and tab gone for tab t_new/,
     );
   } finally {
     console.warn = origWarn;
   }
   // distinct exhaustion signal (herdr-health), not a silent first-try success
   expect(
-    warnings.some((w) => w.includes("agent resolve exhausted after 3 attempts for tab t_new")),
+    warnings.some((w) => w.includes("agent resolve exhausted and tab t_new gone after 3 attempts")),
   ).toBe(true);
   expect(calls).toContainEqual(["tab", "close", "t_new"]); // orphan tab rolled back
+});
+
+test("start: agent never registers but its tab persists (exec spawn exited) → returns started, no rollback", async () => {
+  // A non-interactive `codex exec` runs to completion and EXITS, dropping it from `agent list`
+  // while its tab husk lingers. That is a successful spawn that already ran (and may have written
+  // its verdict), NOT a failure — throwing error-spawn here would wrongly delete its worktree.
+  // resolveStartedAgent must return a started handle (empty terminal id) and NOT roll back the
+  // tab (a running-but-unregistered agent would be killed by the close).
+  const calls: string[][] = [];
+  const runner = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") return TAB_CREATE;
+    if (args[0] === "agent" && args[1] === "start") return "{}";
+    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST; // never in the live list
+    if (args[0] === "tab" && args[1] === "list") return TAB_LIST_WITH_NEW; // but the tab husk persists
+    return "{}";
+  };
+  const d = new HerdrDriver(runner, async (a) => runner(a), 3, 0);
+  const agent = await d.start("flatten", "/wt/a", ["codex", "exec", "go"]);
+  expect(agent.tabId).toBe("t_new");
+  expect(agent.terminalId).toBe(""); // completed exec has no live terminal; herdr.stop("") is a no-op
+  expect(calls).not.toContainEqual(["tab", "close", "t_new"]); // NOT rolled back
 });
 
 test("start: the read-back runs OUTSIDE the serializer — a slow resolve doesn't block the next start", async () => {

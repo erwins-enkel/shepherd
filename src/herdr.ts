@@ -245,6 +245,19 @@ export function parseAgents(result: unknown): HerdrAgent[] {
   }));
 }
 
+/** Maps a `tab list` reply to `HerdrTab[]`. Shared by the sync `tabs()` and async
+ *  `tabsAsync()` so both parse the `result.tabs[]` shape identically. Internal — not
+ *  exported (fallow flags an unused export; the parsers used cross-module are exported). */
+function parseTabs(parsed: unknown): HerdrTab[] {
+  const tabs = (parsed as { result?: { tabs?: Record<string, string>[] } })?.result?.tabs ?? [];
+  return tabs.map((t) => ({
+    tabId: t.tab_id ?? "",
+    label: t.label ?? "",
+    agentStatus: (t.agent_status ?? "unknown") as HerdrState,
+    workspaceId: t.workspace_id ?? "",
+  }));
+}
+
 /**
  * Maps a single herdr `AgentInfo` object (the `result.agent` of an `agent.start`
  * `agent_started` reply) to one `HerdrAgent`, using the SAME field mapping as
@@ -409,14 +422,14 @@ export class HerdrDriver implements IHerdrDriver {
 
   /** Every tab in the workspace — including husks with no live agent (`tab list`). */
   tabs(): HerdrTab[] {
-    const parsed = JSON.parse(this.runner(["tab", "list"]));
-    const tabs = parsed?.result?.tabs ?? [];
-    return tabs.map((t: Record<string, string>) => ({
-      tabId: t.tab_id,
-      label: t.label ?? "",
-      agentStatus: (t.agent_status ?? "unknown") as HerdrState,
-      workspaceId: t.workspace_id ?? "",
-    }));
+    return parseTabs(JSON.parse(this.runner(["tab", "list"])));
+  }
+
+  /** Async sibling of `tabs()` — same shape via `asyncRunner` so it never blocks the loop.
+   *  Used by resolveStartedAgent to tell a genuine spawn failure (tab gone) from a role
+   *  `exec` that already exited or a lagging registration (tab husk still present). */
+  async tabsAsync(): Promise<HerdrTab[]> {
+    return parseTabs(JSON.parse(await this.asyncRunner(["tab", "list"])));
   }
 
   /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
@@ -544,21 +557,45 @@ export class HerdrDriver implements IHerdrDriver {
   /** Resolve the just-started agent from `agent list`, matching the unique tab we created
    *  for it (`tabId`) — deterministic, unlike the old cwd match (two sessions sharing a cwd
    *  could alias). The CLI `agent start` output exposes no terminal id, so a list read is the
-   *  only handle. An empty match means the agent isn't registered YET (a propagation lag, not
-   *  a slow list), so poll a bounded number of times. On exhaustion, warn distinctly — a
-   *  bounded retry masks transient staleness but not herdr-health decay (orphan accumulation
-   *  that eventually starves registration), so the signal must stay visible. The socket driver
-   *  reads terminal_id straight from the `agent.start` reply and needs none of this. */
+   *  only handle for a LIVE agent. Poll a bounded number of times for a registration lag.
+   *
+   *  A miss is NOT automatically a failure. `agent start` returning without throwing means the
+   *  spawn happened; a non-interactive role spawn (`codex exec`) runs to completion and EXITS,
+   *  which drops it from `agent list` while its tab husk lingers (`tab list`), and under load a
+   *  live agent's registration can lag past the poll window. Either way the review already ran
+   *  (or is running) and may have written its verdict — treating that as `error-spawn` would
+   *  wrongly delete its worktree. So on exhaustion decide by TAB existence, not agent liveness:
+   *    - tab still present ⇒ started; return a handle with an EMPTY terminal id (a completed
+   *      exec has no live terminal; `herdr.stop("")` is a safe no-op and callers re-derive a
+   *      live terminal by cwd where needed; the husk is reaped by the hourly orphan-tab sweep).
+   *      Do NOT close the tab here — a running-but-unregistered agent would be killed.
+   *    - tab gone ⇒ genuine failure (herdr never kept the tab) ⇒ throw.
+   *  The socket driver reads terminal_id straight from the `agent.start` reply and needs none of this. */
   private async resolveStartedAgent(tabId: string, cwd: string): Promise<HerdrAgent> {
     for (let attempt = 0; attempt < this.resolveAttempts; attempt++) {
       const match = (await this.listAsync()).find((a) => a.tabId === tabId);
       if (match) return match;
       if (attempt < this.resolveAttempts - 1) await sleep(this.resolveDelayMs);
     }
+    if ((await this.tabsAsync()).some((t) => t.tabId === tabId)) {
+      console.warn(
+        `[herdr] agent not in list but tab ${tabId} present — treating exec spawn as started (cwd ${cwd})`,
+      );
+      return {
+        agent: "",
+        agentStatus: "done",
+        cwd,
+        name: "",
+        paneId: "",
+        tabId,
+        terminalId: "",
+        workspaceId: "",
+      };
+    }
     console.warn(
-      `[herdr] agent resolve exhausted after ${this.resolveAttempts} attempts for tab ${tabId} (cwd ${cwd})`,
+      `[herdr] agent resolve exhausted and tab ${tabId} gone after ${this.resolveAttempts} attempts (cwd ${cwd})`,
     );
-    throw new Error(`herdr: started agent not found for tab ${tabId} (cwd ${cwd})`);
+    throw new Error(`herdr: started agent not found and tab gone for tab ${tabId} (cwd ${cwd})`);
   }
 
   private async startImpl(

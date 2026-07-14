@@ -737,6 +737,20 @@ test("completes the reviewer spawn's token total on finalize", async () => {
   expect(h.completedSpawns[0].u.total).toBe(10);
   expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
 });
+test("completes the reviewer spawn even with no usage (Codex exec has no transcript) → zeroed totals", async () => {
+  // A Codex `exec` reviewer writes no Claude JSONL, so readUsage yields null. The row must still
+  // be completed with zeroed totals so `completedAt` reflects the finished review rather than
+  // leaving a silent 0/N gap in reviewer_spawns.
+  const h = harness({
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    readUsage: async () => null,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.completedSpawns.length).toBe(1);
+  expect(h.completedSpawns[0].u.total).toBe(0);
+  expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
+});
 test("timeout with no verdict → error gate, reaped, not released", async () => {
   let t = 1000;
   const h = harness({ readVerdict: () => null, now: () => t });

@@ -430,6 +430,13 @@
       armedId = row.id;
       armedAt = Date.now();
       activeIdx = row.oid; // keep cursor, armed row and the next Enter on the same row
+      // Pull focus back to the combobox. Arming by CLICK leaves focus on the row (a tabindex="-1"
+      // div), which both breaks the aria-activedescendant pattern the bar follows — focus belongs
+      // on the input, the cursor is virtual — and strands the operator: keystrokes would go to the
+      // row, so neither `oninput` (disarm-on-type) nor onKey's arrows (disarm-on-move) could fire,
+      // leaving Esc or the 3s timeout as the only ways out. The cursor is already pinned to the
+      // armed row, so the next Enter still confirms it.
+      inputEl?.focus({ preventScroll: true });
       clearTimeout(armTimer);
       armTimer = setTimeout(disarm, ARM_MS);
       return true;

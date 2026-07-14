@@ -959,3 +959,43 @@ describe("CommandBar — armed row survives a live option-list change", () => {
     expect(run).not.toHaveBeenCalled();
   });
 });
+
+describe("CommandBar — arming by click keeps focus on the combobox", () => {
+  it("leaves focus on the input, so the documented escape hatches still work", async () => {
+    // Clicking a row focuses it (tabindex="-1"), which would strand the operator: keystrokes go to
+    // the row, so neither disarm-on-type nor disarm-on-arrow could fire, and it breaks the
+    // aria-activedescendant contract (focus belongs on the input; the cursor is virtual).
+    const { commands, run } = seedDestructive();
+    renderBar({ commands });
+    const input = page.getByRole("combobox");
+    await input.fill("decom");
+
+    await decomRow().click();
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    expect(document.activeElement).toBe(input.element());
+
+    // Escape hatch 1: typing disarms (the keystroke reaches the input's oninput).
+    await userEvent.keyboard("m");
+    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+
+    // Escape hatch 2: moving the cursor disarms (the arrow reaches onKey).
+    await decomRow().click();
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await userEvent.keyboard("{ArrowDown}");
+    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("still confirms on the Enter that follows a click-arm (cursor stayed on the armed row)", async () => {
+    const { commands, run } = seedDestructive();
+    const { onclose } = renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+
+    await decomRow().click();
+    await pastDwell();
+    await userEvent.keyboard("{Enter}"); // goes to the refocused input, not the row
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+});

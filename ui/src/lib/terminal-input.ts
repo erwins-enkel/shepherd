@@ -22,30 +22,37 @@ import type { Terminal } from "@xterm/xterm";
 // paste, slash-command taps) — those call Viewport's bumpOperatorInput()
 // directly, since they never reach this textarea.
 
-/** Modifier keys that produce no input on their own — held Shift while reading
- *  output is not typing. */
-const BARE_MODIFIERS = new Set(["Shift", "Control", "Alt", "Meta", "AltGraph"]);
-
 /**
- * Count operator input that flows through xterm's helper textarea: keystrokes,
- * IME composition (mobile soft keyboards finalize this way — xterm's composition
- * helper emits data without a keydown), text paste (incl. middle-click primary
- * selection) and dropped text.
+ * Count operator input that flows through xterm: keystrokes, IME composition,
+ * text paste (incl. middle-click primary selection) and dropped text.
+ *
+ * Two signals, because neither covers the other:
+ *
+ *  - `term.onKey` for the keyboard. It fires only when a key actually RESOLVES TO
+ *    INPUT for the PTY, which is the precision a raw `keydown` listener lacks:
+ *    CapsLock, NumLock and locally-handled chords (Cmd/Ctrl+Shift+C to copy) put
+ *    nothing into the terminal, and counting them would announce "You're typing"
+ *    to someone who only copied a line of output. Keys that DO produce input —
+ *    printable characters, Enter, arrows, F-keys, Ctrl+C — all fire it.
+ *  - The textarea's `input` / `compositionend` / `paste` / `drop`, because those
+ *    paths never reach `onKey`: a mobile soft keyboard finalizes through xterm's
+ *    composition helper (no keydown at all), and paste/drop are not keys. This is
+ *    why `onKey` alone was not usable as the signal.
+ *
+ * A key that both fires `onKey` and produces an `input` event would be counted
+ * twice; that is harmless — the counter is monotonic and its consumer only asks
+ * whether it went up.
  *
  * `term.textarea` only exists once `term.open()` has run, so create the counter
  * after opening. Returns a disposer that removes every listener.
  */
 export function createTypingCounter(term: Terminal, onInput: () => void): { destroy(): void } {
+  const keySub = term.onKey(() => onInput());
+
   const ta = term.textarea;
-  if (!ta) return { destroy() {} };
+  if (!ta) return { destroy: () => keySub.dispose() };
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (BARE_MODIFIERS.has(e.key)) return;
-    onInput();
-  };
   const bump = () => onInput();
-
-  ta.addEventListener("keydown", onKeyDown);
   ta.addEventListener("input", bump);
   ta.addEventListener("compositionend", bump);
   ta.addEventListener("paste", bump);
@@ -53,7 +60,7 @@ export function createTypingCounter(term: Terminal, onInput: () => void): { dest
 
   return {
     destroy() {
-      ta.removeEventListener("keydown", onKeyDown);
+      keySub.dispose();
       ta.removeEventListener("input", bump);
       ta.removeEventListener("compositionend", bump);
       ta.removeEventListener("paste", bump);

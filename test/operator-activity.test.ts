@@ -24,6 +24,7 @@ test("a mouse report is NOT operator input", () => {
   expect(isOperatorKeystroke("\x1b[<0;12;5m")).toBe(false); // SGR release
   expect(isOperatorKeystroke("\x1b[<64;12;5M")).toBe(false); // SGR wheel up
   expect(isOperatorKeystroke("\x1b[32;12;5M")).toBe(false); // urxvt (1015)
+  expect(isOperatorKeystroke("\x1b[M\x20\x30\x40")).toBe(false); // X10/default encoding
 });
 
 test("focus reports and terminal query replies are NOT operator input", () => {
@@ -32,6 +33,7 @@ test("focus reports and terminal query replies are NOT operator input", () => {
   expect(isOperatorKeystroke("\x1b[?62;1;6c")).toBe(false); // DA1
   expect(isOperatorKeystroke("\x1b[>0;10;1c")).toBe(false); // DA2
   expect(isOperatorKeystroke("\x1b[12;3R")).toBe(false); // cursor position (DSR)
+  expect(isOperatorKeystroke("\x1b[?12;3R")).toBe(false); // cursor position (DECXCPR)
   expect(isOperatorKeystroke("\x1b[?2026;2$y")).toBe(false); // DECRPM
   expect(isOperatorKeystroke("\x1b[8;40;120t")).toBe(false); // XTWINOPS
   expect(isOperatorKeystroke("\x1b]11;rgb:1e1e/1e1e/2e2e\x07")).toBe(false); // OSC, BEL-terminated

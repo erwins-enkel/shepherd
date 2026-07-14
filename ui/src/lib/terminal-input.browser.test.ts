@@ -154,21 +154,51 @@ describe("createTypingCounter — pointer activity is not typing", () => {
   }
 });
 
+/** Dispatch a keydown on xterm's textarea the way a browser would — xterm reads
+ *  keyCode/code, so a `key`-only synthetic event resolves to nothing. */
+function press(init: KeyboardEventInit) {
+  term.textarea!.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, ...init }));
+}
+
 describe("createTypingCounter — real operator input counts", () => {
   beforeEach(async () => await setup("\x1b[?1003;1006h"));
 
   it("a keystroke counts", async () => {
-    const ta = term.textarea!;
-    expect(ta, "textarea exists after open()").toBeTruthy();
-    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    expect(term.textarea, "textarea exists after open()").toBeTruthy();
+    press({ key: "a", code: "KeyA", keyCode: 65 });
+    await flush();
+    expect(frames.join(""), "the key reached the PTY").toBe("a");
     expect(count).toBe(1);
   });
 
+  it("keys that produce input count: Enter, arrows, F-keys, Ctrl+C", async () => {
+    press({ key: "Enter", code: "Enter", keyCode: 13 });
+    press({ key: "ArrowUp", code: "ArrowUp", keyCode: 38 });
+    press({ key: "F5", code: "F5", keyCode: 116 });
+    press({ key: "c", code: "KeyC", keyCode: 67, ctrlKey: true }); // SIGINT — real input
+    await flush();
+
+    expect(frames.join(""), "each of these reached the PTY").toContain("\x03");
+    expect(count).toBe(4);
+  });
+
   it("a bare modifier does not count", () => {
-    const ta = term.textarea!;
-    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Shift", bubbles: true }));
-    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "Control", bubbles: true }));
+    press({ key: "Shift", code: "ShiftLeft", keyCode: 16, shiftKey: true });
+    press({ key: "Control", code: "ControlLeft", keyCode: 17, ctrlKey: true });
     expect(count).toBe(0);
+  });
+
+  it("keys that put nothing into the PTY do not count (locks, copy chords)", async () => {
+    // The critic's case: copying a line of output mid-review must not announce
+    // "You're typing" — nothing was typed INTO the terminal.
+    press({ key: "CapsLock", code: "CapsLock", keyCode: 20 });
+    press({ key: "NumLock", code: "NumLock", keyCode: 144 });
+    press({ key: "c", code: "KeyC", keyCode: 67, ctrlKey: true, shiftKey: true }); // Ctrl+Shift+C = copy
+    press({ key: "c", code: "KeyC", keyCode: 67, metaKey: true }); // Cmd+C = copy (macOS)
+    await flush();
+
+    expect(frames.join(""), "none of these reached the PTY").toBe("");
+    expect(count, "copying is not typing").toBe(0);
   });
 
   it("a paste counts (incl. the middle-click primary-selection shape)", () => {
@@ -192,9 +222,9 @@ describe("createTypingCounter — real operator input counts", () => {
   });
 
   it("stops counting after destroy()", () => {
-    const ta = term.textarea!;
     counter.destroy();
-    ta.dispatchEvent(new KeyboardEvent("keydown", { key: "a", bubbles: true }));
+    press({ key: "a", code: "KeyA", keyCode: 65 });
+    term.textarea!.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, cancelable: true }));
     expect(count).toBe(0);
   });
 });

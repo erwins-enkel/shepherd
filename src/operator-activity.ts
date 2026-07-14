@@ -24,6 +24,13 @@ const RESIZE_PREFIX = "\x00resize:";
  * terminator — no `.*` — so a reply cannot swallow real bytes batched after it in
  * the same frame. OSC accepts both terminators (BEL and ST).
  *
+ * All three mouse encodings are covered, including X10/default (`\x1b[M` + 3 raw
+ * bytes), which an app gets by enabling ?1000/?1002/?1003 without negotiating an
+ * extended encoding (vim with ttymouse=xterm). Today that frame cannot actually
+ * reach us — xterm emits default-encoding reports on `onBinary`, which the browser
+ * never subscribes to, so they are dropped client-side — but the predicate should
+ * be complete in the encoding, not in what one client currently forwards.
+ *
  * The client fixes the banner a better way (it counts input-origin DOM events, see
  * ui/src/lib/terminal-input.ts), which is not available here: the server sees only
  * bytes. One consequence is recorded and accepted — in an alt-buffer TUI that has
@@ -36,9 +43,10 @@ const NON_TYPING = new RegExp(
   [
     "\\x1b\\[<\\d+;\\d+;\\d+[Mm]", // SGR (and SGR-pixels) mouse report
     "\\x1b\\[\\d+;\\d+;\\d+M", // urxvt (1015) mouse report
+    "\\x1b\\[M[\\s\\S]{3}", // X10/default mouse report (button + col + row as raw bytes)
     "\\x1b\\[[IO]", // focus in / focus out
     "\\x1b\\[[?>]\\d*(?:;\\d+)*c", // Device Attributes reply
-    "\\x1b\\[\\d+;\\d+R", // cursor-position (DSR) reply
+    "\\x1b\\[\\??\\d+;\\d+R", // cursor-position reply: DSR and DECXCPR (`?` form)
     "\\x1b\\[\\?\\d+;\\d+\\$y", // DECRPM reply
     "\\x1b\\[\\d+;\\d+;\\d+t", // XTWINOPS report
     "\\x1b\\][^\\x07\\x1b]*(?:\\x07|\\x1b\\\\)", // OSC reply (BEL- or ST-terminated)

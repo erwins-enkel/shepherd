@@ -344,6 +344,7 @@
   const newTaskFableAvailable = $derived(settings?.fableAvailable ?? true);
   // Hoisted out of the template (branch-free markup): the global default-effort seed.
   const newTaskDefaultEffort = $derived(settings?.defaultEffort);
+  const newTaskDefaultCodexModel = $derived(settings?.defaultCodexModel);
   // Onboarding folder-picker inputs, hoisted out of the template so the markup stays branch-free.
   const onboardingRepoRoot = $derived(settings?.repoRoot ?? null);
   const onboardingRepoRootDisplay = $derived(settings?.repoRootDisplay ?? null);
@@ -523,7 +524,7 @@
     {usageLimits}
     defaultAgentProvider={newTaskDefaultAgentProvider}
     defaultModel={settings?.defaultModel}
-    defaultCodexModel={settings?.defaultCodexModel}
+    defaultCodexModel={newTaskDefaultCodexModel}
     defaultEffort={newTaskDefaultEffort}
     fableAvailable={newTaskFableAvailable}
     {holdLikely}

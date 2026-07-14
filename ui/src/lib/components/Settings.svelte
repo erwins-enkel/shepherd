@@ -45,7 +45,6 @@
     MODELS,
     EFFORTS,
     MODELS_BY_PROVIDER,
-    PREMIUM_MODELS,
     type AgentProvider,
     type HerdrUpdateStatus,
     type CodexUpdateStatus,
@@ -58,6 +57,7 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
+  import SettingsDefaultEnvironment from "$lib/components/settings/SettingsDefaultEnvironment.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -271,11 +271,6 @@
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
-  const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
-  // 1M-context variants ("opus[1m]"/"sonnet[1m]") carry an extra per-turn cost the
-  // generic premium warning doesn't convey, so they surface an additional note.
-  const is1mModel = $derived(defaultModel.endsWith("[1m]"));
-
   // Per-role ENVIRONMENT overrides (plan reviewer, PR critic, recap, doc-agent, namer, autopilot).
   // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
   // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
@@ -1186,85 +1181,18 @@
       aria-label={m.settings_tab_coding_agents()}
       hidden={tab !== "codingAgents"}
     >
-      <div class="rc cli-default">
-        <span class="micro">{m.settings_default_environment_title()}</span>
-        <p class="hint">{m.settings_default_environment_hint()}</p>
-        <div class="cli-row default-env-row">
-          <label class="default-env-field">
-            <span>{m.settings_default_agent_provider_title()}</span>
-            <select
-              class="model-select"
-              bind:value={defaultAgentProvider}
-              disabled={defaultAgentProviderBusy}
-              aria-label={m.settings_default_agent_provider_title()}
-              onchange={saveDefaultAgentProvider}
-            >
-              {#each AGENT_PROVIDERS as provider (provider)}
-                <option value={provider}>
-                  {provider === "claude"
-                    ? m.agent_provider_claude()
-                    : m.agent_provider_codex_alpha()}
-                </option>
-              {/each}
-            </select>
-          </label>
-          <label class="default-env-field">
-            <span>
-              {defaultAgentProvider === "claude"
-                ? m.settings_default_model_title()
-                : m.settings_default_codex_model_title()}
-            </span>
-            {#if defaultAgentProvider === "claude"}
-              <select
-                class="model-select"
-                data-testid="default-environment-model"
-                bind:value={defaultModel}
-                disabled={defaultModelBusy}
-                aria-label={m.settings_default_model_title()}
-                onchange={saveDefaultModel}
-              >
-                <option value="auto">{m.settings_default_model_auto()}</option>
-                <option value="default">{m.newtask_model_default()}</option>
-                {#each MODELS as mdl (mdl)}
-                  <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
-                {/each}
-              </select>
-            {:else}
-              <select
-                class="model-select"
-                data-testid="default-environment-model"
-                bind:value={defaultCodexModel}
-                disabled={defaultCodexModelBusy}
-                aria-label={m.settings_default_codex_model_title()}
-                onchange={saveDefaultCodexModel}
-              >
-                <option value="default">{m.newtask_model_default()}</option>
-                {#each MODELS_BY_PROVIDER.codex as mdl (mdl)}
-                  <option value={mdl}>{modelOptionLabel("codex", mdl)}</option>
-                {/each}
-              </select>
-            {/if}
-          </label>
-        </div>
-        <p class="hint">
-          {defaultAgentProvider === "claude"
-            ? m.settings_default_model_hint()
-            : m.settings_default_codex_model_hint()}
-        </p>
-        <ModelGuidance
-          provider={defaultAgentProvider}
-          model={defaultAgentProvider === "claude"
-            ? modelGuidanceAlias(defaultModel, fableAvailable)
-            : defaultCodexModel}
-          context="default"
-        />
-        {#if defaultAgentProvider === "claude" && isPremiumModel}
-          <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
-        {/if}
-        {#if defaultAgentProvider === "claude" && is1mModel}
-          <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
-        {/if}
-      </div>
+      <SettingsDefaultEnvironment
+        bind:defaultAgentProvider
+        bind:defaultModel
+        bind:defaultCodexModel
+        {defaultAgentProviderBusy}
+        {defaultModelBusy}
+        {defaultCodexModelBusy}
+        {fableAvailable}
+        onProviderChange={saveDefaultAgentProvider}
+        onClaudeModelChange={saveDefaultModel}
+        onCodexModelChange={saveDefaultCodexModel}
+      />
 
       <div class="rc">
         <span class="micro">{m.settings_upnext_skip_cli_picker_label()}</span>
@@ -2029,27 +1957,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-  .cli-default {
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--color-line);
-  }
-  .default-env-row {
-    align-items: flex-start;
-  }
-  .default-env-field {
-    display: flex;
-    flex-direction: column;
-    flex: 1 1 12rem;
-    min-width: 0;
-    gap: 6px;
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-  }
-  .default-env-field .model-select {
-    width: 100%;
-    min-width: 0;
-    align-self: stretch;
   }
   .cli-section {
     display: flex;

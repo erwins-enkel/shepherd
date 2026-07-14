@@ -790,7 +790,17 @@ describe("PlanPanel at-cap re-review", () => {
     render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
 
     await page.getByRole("button", { name: m.planpanel_review_now() }).click();
-    await expect.element(page.getByText(m.planpanel_review_at_cap())).toBeVisible();
+
+    // …but with the variant that does NOT point at Resume: canShowPlanStallActions renders it only
+    // for a changes_requested verdict, so on an error gate that CTA is not on screen. Never name a
+    // button the operator can't see.
+    await expect.element(page.getByText(m.planpanel_review_at_cap_no_resume())).toBeVisible();
+    // The Resume CONTROL is genuinely absent here (the note only explains when it will appear).
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent?.trim() === m.planpanel_quota_resume(),
+      ),
+    ).toBe(false);
   });
 
   it("tells the operator a sub-cap re-review spends a rework round", async () => {

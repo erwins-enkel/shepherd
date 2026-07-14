@@ -3138,7 +3138,8 @@
   "feat_review_job_model_title": "Sieh, welches Modell prüft",
   "feat_review_job_model_body": "Das Review-Banner im Terminal zeigt jetzt Coding-CLI, Modell und Aufwand von Plan-Gate- und PR-Critic-Jobs, damit ihre Umgebung klar von der Task-Session unterscheidbar ist.",
   "epicdraft_approve_in_progress": "Epic wird noch erstellt — das dauert etwas. Es erscheint hier, sobald es fertig ist.",
-  "plangate_review_at_cap": "Plan-Prüfung gestartet – das Überarbeitungsbudget ist jedoch aufgebraucht, neue Befunde erreichen den Agenten nicht. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden.",
+  "plangate_review_at_cap": "Plan-Prüfung gestartet, aber das Überarbeitungsbudget ist aufgebraucht: Verlangt der Prüfer Änderungen, werden diese Befunde nicht an den Agenten gesendet.",
   "plangate_review_spends_round": "Eine erneute Prüfung sendet die Befunde an den Agenten und verbraucht eine Überarbeitungsrunde ({round}/{cap} verbraucht).",
-  "planpanel_review_at_cap": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben, aber falls er erneut Änderungen verlangt, werden diese Befunde nicht an den Planungs-Agenten gesendet. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden."
+  "planpanel_review_at_cap": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben, aber falls er erneut Änderungen verlangt, werden diese Befunde nicht an den Planungs-Agenten gesendet. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden.",
+  "planpanel_review_at_cap_no_resume": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden."
 }

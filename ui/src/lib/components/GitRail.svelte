@@ -561,7 +561,13 @@
       // "skipped" while NOT already reviewing → transient note. Any error-* → 12s failure toast.
       if (planReviewStarted(status)) {
         awaitingPlanReview = true;
-        if (status === "started-at-cap") toasts.info(m.plangate_review_at_cap());
+        if (status === "started-at-cap")
+          // 12s + hover-pause (alert), not the 4s notice tier: this warns that the run the
+          // operator just paid for will not deliver its findings. Keyed so repeat clicks replace.
+          toasts.info(m.plangate_review_at_cap(), {
+            alert: true,
+            key: `review-plan-at-cap:${sessionId}`,
+          });
       } else if (status === "plan-unavailable" && !planGates.isReviewing(sessionId))
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(sessionId))

@@ -88,6 +88,14 @@
   const reviewingButtonLabel = $derived(
     reviewProvider ? m.planpanel_reviewing_env({ env: reviewEnv }) : m.planpanel_reviewing(),
   );
+  // The at-cap note must never point at a CTA that isn't on screen. Resume/Dismiss render only for a
+  // `changes_requested` verdict (canShowPlanStallActions), while `atCap` is deliberately decision-free
+  // — so an `error` gate at the cap gets the variant that says Resume APPEARS once the reviewer
+  // requests changes again (which is exactly what happens: that verdict is held at the cap, and the
+  // CTA renders). Derived live off the gate, so the note re-points itself when the verdict lands.
+  const atCapNote = $derived(
+    rework ? m.planpanel_review_at_cap() : m.planpanel_review_at_cap_no_resume(),
+  );
   // A re-review is no longer free of the rework budget: since #1759 its findings are steered back and
   // it SPENDS a round, so a few clicks exhaust the budget. The only other surface for that is the
   // {round}/{cap} counter, which doesn't say what a click costs — so the control says it itself.
@@ -430,7 +438,7 @@
       {/if}
 
       {#if heldAtCap}
-        <p class="note" role="status">{m.planpanel_review_at_cap()}</p>
+        <p class="note" role="status">{atCapNote}</p>
       {/if}
 
       {#if planUnavailable}

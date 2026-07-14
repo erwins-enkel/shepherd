@@ -279,6 +279,15 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
     expect(startCall.argv.slice(-2)).toEqual(["claude", "go"]);
   });
 
+  it("start() keeps the root pane for a headless codex exec role", async () => {
+    const rec: { method: string; params: unknown }[] = [];
+    const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
+
+    await driver.start("plan-review TASK-693", "/repo/worktree", ["codex", "exec", "go"]);
+
+    expect(rec.map((r) => r.method)).toEqual(["workspace.list", "tab.create", "agent.start"]);
+  });
+
   it("start() bootstraps a 'shepherd' workspace when herdr has none", async () => {
     const rec: { method: string; params: unknown }[] = [];
     const driver = new SocketHerdrDriver(

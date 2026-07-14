@@ -798,6 +798,22 @@ test("timeout with no verdict → error gate, reaped, not released", async () =>
   expect(h.removed).toContain("/wt-detached");
 });
 
+test("an exited codex reviewer without a verdict fails before the file timeout", async () => {
+  let t = 1000;
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.5", effort: null }),
+    now: () => t,
+    readVerdict: () => null,
+    herdr: { start: async () => ({ terminalId: "t1" }), async stop() {}, list: () => [] },
+  });
+  await h.svc.consider(planningSession() as any);
+  t += 5_000;
+  await h.svc.tick();
+
+  expect(h.store.gate.decision).toBe("error");
+  expect(h.removed).toContain("/wt-detached");
+});
+
 test("approved verdict carries no summaryCode (reviewer text is the summary)", async () => {
   const h = harness({
     readVerdict: () => ({ decision: "approve", summary: "looks good", body: "", findings: [] }),

@@ -149,6 +149,7 @@ export function reviewerArgv(
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1000;
 const DEFAULT_CAP = 5;
+const CODEX_EXIT_GRACE_MS = 5_000;
 
 /** Zeroed usage for a completed reviewer whose transcript yields no totals — notably a Codex
  *  role spawn (`codex exec` writes no Claude JSONL) or a half-written transcript. Recording
@@ -688,13 +689,28 @@ export class PlanGateService {
     return this.deps.herdr.list().find((a) => a.cwd === worktreePath)?.terminalId ?? "";
   }
 
+  /** A Codex role is a one-shot `codex exec`: after a brief registration grace period, a missing
+   * terminal without a verdict means it has already exited. Avoid making the operator wait for the
+   * full file timeout; a Herdr read failure remains inconclusive and falls back to that timeout. */
+  private codexReviewerExited(f: PlanInFlight, now: number): boolean {
+    if (f.reviewerProvider !== "codex" || !f.terminalId || now - f.startedAt < CODEX_EXIT_GRACE_MS)
+      return false;
+    try {
+      return !this.deps.herdr.list().some((a) => a.terminalId === f.terminalId);
+    } catch {
+      return false;
+    }
+  }
+
   /** Finalize any in-flight plan review whose verdict file is ready or that timed out. */
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
       const raw = this.readVerdict(f.worktreePath);
-      const timedOut = this.now() - f.startedAt > this.timeoutMs;
-      if (!raw && !timedOut) {
+      const now = this.now();
+      const timedOut = now - f.startedAt > this.timeoutMs;
+      const exited = !raw && this.codexReviewerExited(f, now);
+      if (!raw && !timedOut && !exited) {
         // still running — surface what the reviewer is doing right now. Emit every tick (not
         // only on change) so a reloaded client repopulates within one tick; the client dedups
         // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
@@ -702,6 +718,8 @@ export class PlanGateService {
         if (summary) this.deps.onActivity?.(f.sessionId, summary);
         continue;
       }
+      if (exited)
+        console.warn(`[plan-gate] codex reviewer exited without a verdict for ${f.sessionId}`);
       f.finalizing = true; // stay claimed in `inflight` so consider() won't re-spawn mid-finalize
       // Always drop the entry, even if finalize throws — otherwise it stays
       // `finalizing=true` and every later tick `continue`s past it, wedging the

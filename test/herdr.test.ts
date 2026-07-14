@@ -277,12 +277,38 @@ test("start: captures agent start reply before root-pane close can remove the ta
   };
   const d = new HerdrDriver(runner, async (a) => runner(a));
 
-  const agent = await d.start("flatten", "/wt/a", ["codex", "exec", "go"]);
+  const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
 
   expect(agent).toMatchObject({ terminalId: "term_started", tabId: "t_new" });
   expect(tabPresent).toBe(false);
   expect(calls.some((c) => c[0] === "agent" && c[1] === "list")).toBe(false);
   expect(calls.some((c) => c[0] === "tab" && c[1] === "list")).toBe(false);
+});
+
+test("start: keeps the root pane alive for a headless codex exec role", async () => {
+  const calls: string[][] = [];
+  let tabPresent = false;
+  const runner = (args: string[]): string => {
+    calls.push(args);
+    if (args[0] === "workspace" && args[1] === "list") return WORKSPACE_LIST;
+    if (args[0] === "tab" && args[1] === "create") {
+      tabPresent = true;
+      return TAB_CREATE;
+    }
+    if (args[0] === "agent" && args[1] === "start") return AGENT_STARTED;
+    if (args[0] === "pane" && args[1] === "close") {
+      tabPresent = false;
+      return "{}";
+    }
+    return "{}";
+  };
+  const d = new HerdrDriver(runner, async (a) => runner(a));
+
+  const agent = await d.start("plan-review TASK-693", "/wt/a", ["codex", "exec", "go"]);
+
+  expect(agent).toMatchObject({ terminalId: "term_started", tabId: "t_new" });
+  expect(tabPresent).toBe(true);
+  expect(calls.some((c) => c[0] === "pane" && c[1] === "close")).toBe(false);
 });
 
 const TAB_LIST = JSON.stringify({

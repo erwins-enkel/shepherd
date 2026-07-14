@@ -95,7 +95,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
   /**
    * Spawn an agent over the socket, mirroring `HerdrDriver.start`'s orchestration:
    * ensure a workspace → create a dedicated tab → `agent.start` (with collision-retry) →
-   * close the leftover shell pane → resolve the `HerdrAgent`. Unlike the CLI path, the
+   * close the leftover shell pane → resolve the `HerdrAgent`. As on the CLI path, the
    * `agent.start` reply carries the started agent's full `AgentInfo` (terminal_id/tab_id/…),
    * so no post-start re-list is needed. Serialized to preserve start atomicity.
    */

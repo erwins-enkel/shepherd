@@ -457,6 +457,25 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "skipped";
     }
+    const spawnedAt = this.now();
+    // Persist ownership before launch so a server restart during Herdr orchestration can adopt
+    // this run and preserve the worktree that receives its verdict.
+    try {
+      this.deps.store.recordReviewerSpawn({
+        reviewerSessionId,
+        taskSessionId: session.id,
+        kind: "plan_gate",
+        worktreePath: wt.worktreePath,
+        reviewerProvider: reviewerEnv.provider,
+        model: reviewerEnv.model,
+        reviewerEffort,
+        spawnedAt,
+      });
+    } catch (err) {
+      console.warn(`[plan-gate] ownership persistence failed for ${session.id}:`, err);
+      this.deps.worktree.remove(wt.worktreePath);
+      return "error-spawn";
+    }
     let terminalId: string;
     try {
       terminalId = (
@@ -469,6 +488,11 @@ export class PlanGateService {
       ).terminalId;
     } catch (err) {
       console.warn(`[plan-gate] spawn failed for ${session.id}:`, err);
+      try {
+        this.deps.store.completeReviewerSpawn(reviewerSessionId, ZEROED_USAGE, this.now());
+      } catch (completeErr) {
+        console.warn(`[plan-gate] spawn failure accounting failed for ${session.id}:`, completeErr);
+      }
       this.deps.worktree.remove(wt.worktreePath);
       return "error-spawn";
     }
@@ -493,19 +517,7 @@ export class PlanGateService {
       reviewerEffort,
       priorRound: prior?.round ?? 0,
       forced,
-      startedAt: this.now(),
-    });
-    // Persist the spawn row now (totals NULL until finalize) so plan-review burn is attributable
-    // even if the run crashes/times out before producing a verdict (issue #502).
-    this.deps.store.recordReviewerSpawn({
-      reviewerSessionId,
-      taskSessionId: session.id,
-      kind: "plan_gate",
-      worktreePath: wt.worktreePath,
-      reviewerProvider: reviewerEnv.provider,
-      model: reviewerEnv.model,
-      reviewerEffort,
-      spawnedAt: this.now(),
+      startedAt: spawnedAt,
     });
     this.deps.onReviewing?.(session.id, true, {
       provider: reviewerEnv.provider,
@@ -632,11 +644,9 @@ export class PlanGateService {
    *   (a) it MUST run once at boot AFTER adoptOrphans() has repopulated `inflight`, so every
    *       genuinely-live orphan is already adopted (its worktree is in the inflight set below) and
    *       only the truly ownerless duplicates remain to reap;
-   *   (b) the load-bearing invariant that begin() calls recordReviewerSpawn AFTER inflight.set —
-   *       so any persisted not-yet-finalized plan_gate row implies its run is already in `inflight`
-   *       (or it finalized, and finalize already removed the worktree). A future reorder putting
-   *       recordReviewerSpawn BEFORE inflight.set would let this GC reap a live spawning run, so
-   *       that ordering must not be changed. */
+   *   (b) begin() persists ownership before launch, so a restart can adopt the row before this GC
+   *       runs. During a live launch this boot-only method cannot run concurrently; after restart,
+   *       (a) ensures adoption has already rebuilt `inflight`. */
   gcStaleReviewWorktrees(): void {
     const live = new Set([...this.inflight.values()].map((f) => f.worktreePath));
     for (const sp of this.deps.store.listReviewerSpawns()) {

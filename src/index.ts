@@ -1345,11 +1345,10 @@ const planGate = new PlanGateService({
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
   cap: () => config.planReviewCyclesCap,
 });
-// Grace window for a recent uncompleted reviewer_spawns row: spares a recently-spawned reviewer
-// whose path is not currently in `inflight` (e.g. a restart-orphan before re-adoption). It does
-// NOT cover the pre-`inflight` begin() window — recordReviewerSpawn runs AFTER inflight.set — so
-// that window is covered instead by the directory-age guard in reapStaleReviewWorktrees, which
-// reuses this same value as the dir-age threshold.
+// Grace window for a recent uncompleted reviewer_spawns row: spares a plan-gate reviewer during
+// its durable pre-launch/pre-inflight window and any recent restart-orphan before re-adoption.
+// The directory-age guard in reapStaleReviewWorktrees reuses this threshold as an independent
+// safety net for reviewer services that have not persisted a row yet.
 const REVIEW_WORKTREE_GRACE_MS = 15 * 60 * 1000;
 
 // Disk-driven stale reviewer-worktree sweep (#721): reaps `*-review-*` checkouts under each

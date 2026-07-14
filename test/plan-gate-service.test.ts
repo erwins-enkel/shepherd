@@ -282,6 +282,35 @@ test("consider re-reviews an error verdict even when the plan hash is unchanged"
   expect(status).toBe("started");
   expect(h.started.length).toBe(1); // an error verdict is retried, not deduped away
 });
+test("consider persists reviewer ownership before asking Herdr to start it", async () => {
+  const events: string[] = [];
+  const rows: any[] = [];
+  const h = harness({
+    store: {
+      recordReviewerSpawn: (row: any) => {
+        rows.push(row);
+        events.push("record");
+      },
+    },
+    herdr: {
+      start: async () => {
+        events.push("start");
+        return { terminalId: "t1" };
+      },
+      async stop() {},
+      list: () => [],
+    },
+  });
+
+  expect(await h.svc.consider(planningSession() as any)).toBe("started");
+  expect(events).toEqual(["record", "start"]);
+  expect(rows[0]).toMatchObject({
+    taskSessionId: "s1",
+    kind: "plan_gate",
+    worktreePath: "/wt-detached",
+    spawnedAt: 1000,
+  });
+});
 test("consider reports 'error-spawn' (not a dedupe) when the reviewer fails to spawn", async () => {
   const h = harness({
     herdr: {
@@ -294,6 +323,10 @@ test("consider reports 'error-spawn' (not a dedupe) when the reviewer fails to s
   const status = await h.svc.consider(planningSession() as any);
   expect(status).toBe("error-spawn"); // UI shows a failure note, not "plan unchanged"
   expect(h.started.length).toBe(0);
+  expect(h.recordedSpawns.length).toBe(1); // ownership exists before the launch attempt
+  expect(h.completedSpawns).toHaveLength(1); // confirmed launch failure closes the row
+  expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
+  expect(h.completedSpawns[0].u.total).toBe(0);
   expect(h.removed).toEqual(["/wt-detached"]); // the detached worktree is reaped on failure
 });
 

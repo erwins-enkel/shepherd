@@ -188,13 +188,12 @@ export async function reapOrphanTabs(
  *
  * **Full spare/reap coverage matrix** (an unowned candidate is reaped only if it survives
  * every spare below):
- *  - **pre-`inflight` begin() window** — each reviewer service's `begin()` does
- *    `createDetached` (mints the `-review-<tag>` dir on disk) and only LATER `inflight.set`
- *    then `recordReviewerSpawn`. In that window the dir exists, matches the tag shape, is
- *    NOT in `protectedPaths`, has NO `reviewer_spawns` row, and hosts no live `claude` yet —
- *    a mid-begin checkout. Covered by the **directory-age guard**: a candidate whose dir is
- *    younger than `graceMs` (or that can't be stat'd → fail-closed) is spared. Checked
- *    BEFORE the `scanAlive` probe so a not-yet-running spawn is held by age alone.
+ *  - **pre-`inflight` begin() window** — a reviewer worktree may exist before in-memory ownership.
+ *    Plan-gate persists its `reviewer_spawns` row before launch, so the recent-row grace covers
+ *    that starting window; other reviewer services can still have no row yet. The independent
+ *    **directory-age guard** therefore remains required: a candidate younger than `graceMs` (or
+ *    that can't be stat'd → fail-closed) is spared. Checked BEFORE the `scanAlive` probe so a
+ *    not-yet-running spawn is held by age alone.
  *  - **owned in memory (`protectedPaths`)** — paths a reviewer service currently holds.
  *    Spared REGARDLESS of age or `/proc` liveness. This is the #631 regression guard: a
  *    re-adopted plan-gate orphan has a DEAD reviewer `claude` AND an OLD uncompleted
@@ -206,12 +205,10 @@ export async function reapOrphanTabs(
  *  - **live `claude` under the dir (`scanAlive`)** — one cheap `/proc` pass; a candidate
  *    hosting a live `claude` is spared (`sparedLive`).
  *  - **recent uncompleted spawn (the `graceMs` grace)** — a `reviewer_spawns` row with
- *    `completedAt == null` whose `spawnedAt` is within `graceMs`. INVARIANT:
- *    `recordReviewerSpawn` runs AFTER `inflight.set`, so a row NEVER precedes in-memory
- *    tracking — the grace therefore does NOT cover the pre-`inflight` window (the age guard
- *    does). It spares a recently-spawned reviewer whose path is not (yet/any longer) in
- *    `inflight`, e.g. across a restart before re-adoption, or a review/critic spawn that
- *    isn't re-adopted.
+ *    `completedAt == null` whose `spawnedAt` is within `graceMs`. It covers plan-gate's durable
+ *    pre-launch ownership window and also spares a recently-spawned reviewer whose path is not
+ *    (yet/any longer) in `inflight`, e.g. across a restart before re-adoption, or a review/critic
+ *    spawn that isn't re-adopted.
  *  - **old + ownerless** — survives every spare above → reaped.
  *
  * Too-young/unstattable and live-session spares are counted under `sparedOwned`.

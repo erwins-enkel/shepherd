@@ -1074,6 +1074,13 @@
     operatorLanguageSaved = operatorLanguage;
   }
 
+  function applyDistillerPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
+    distillerIntervalDays = s.distillerIntervalDays ?? 1;
+    distillerIntervalDaysSaved = distillerIntervalDays;
+    distillerIntervalDaysMin = s.distillerIntervalDaysMin ?? 1;
+    distillerIntervalDaysMax = s.distillerIntervalDaysMax ?? 14;
+  }
+
   onMount(async () => {
     try {
       const s = await getSettings();
@@ -1090,10 +1097,7 @@
       planReviewCycles = s.planReviewCyclesCap;
       planReviewCyclesSaved = s.planReviewCyclesCap;
       applyModelPrefs(s);
-      distillerIntervalDays = s.distillerIntervalDays ?? 1;
-      distillerIntervalDaysSaved = distillerIntervalDays;
-      distillerIntervalDaysMin = s.distillerIntervalDaysMin ?? 1;
-      distillerIntervalDaysMax = s.distillerIntervalDaysMax ?? 14;
+      applyDistillerPrefs(s);
       // Fall back to the seed default per role when a field is absent (e.g. an older backend that
       // predates per-role environments) so the pickers never render blank — a sensible default is
       // always shown.

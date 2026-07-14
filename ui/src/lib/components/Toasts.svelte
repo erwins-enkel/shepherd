@@ -30,19 +30,27 @@
             <span class="bar" aria-hidden="true"></span>
           </button>
         {:else}
-          {#if t.actionLabel}
-            <button type="button" class="undo" onclick={() => toasts.act(t.id)}>
-              {t.actionLabel}
+          <!-- Action + ✕ are ONE flex item: as two siblings, line-breaking collects
+               them separately, so a long action label orphans the ✕ onto a third
+               row once button + gap + ✕ exceeds the line box. Grouping also leaves
+               exactly one margin-left:auto on the row, so the free space can't be
+               split equally between two auto margins (Flexbox §8.1). -->
+          <div class="actions">
+            {#if t.actionLabel}
+              <button type="button" class="undo" onclick={() => toasts.act(t.id)}>
+                {t.actionLabel}
+              </button>
+            {/if}
+            <button
+              type="button"
+              class="x"
+              onclick={() => toasts.close(t.id)}
+              aria-label={m.common_close()}
+            >
+              ✕
             </button>
-          {/if}
-          <button
-            type="button"
-            class="x"
-            onclick={() => toasts.close(t.id)}
-            aria-label={m.common_close()}
-          >
-            ✕
-          </button>
+          </div>
+          <!-- Stays a direct child of .toast — absolutely positioned against it. -->
           {#if t.durationMs !== undefined}
             <!-- Keyed on armSeq so a keyed refresh recreates the node, restarting
                  the drain animation in sync with the freshly re-armed timer. -->
@@ -78,7 +86,11 @@
     pointer-events: auto;
     display: flex;
     align-items: center;
-    gap: 14px;
+    flex-wrap: wrap;
+    /* Split axes deliberately: `gap: 14px` is a both-axes shorthand, so wrapping
+       would silently adopt 14px as the row gap too. 8px matches the stack rhythm. */
+    column-gap: 14px;
+    row-gap: 8px;
     max-width: min(440px, 92vw);
     padding: 10px 12px;
     background: var(--color-panel);
@@ -90,15 +102,34 @@
   .is-undo {
     border-color: var(--color-amber);
   }
+  /* Flex base = max-content, so line-breaking wraps .actions away rather than
+     shrinking the message: the long-action-label squeeze (3-line column) can't
+     recur. overflow-wrap catches an unbreakable branch name that alone exceeds
+     the line; flex-grow right-aligns a lone ✕ when there's no action button. */
   .msg {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-wrap: anywhere;
     color: var(--color-ink-bright);
     font-size: var(--fs-base);
     letter-spacing: 0.02em;
   }
+  /* The one auto margin on the row (see markup note). min-width:0 lets it shrink
+     so .undo inside it can, which is what keeps the ✕ beside the button at
+     --ui-scale 1.5 (--fs-meta 16.5px → the button alone overflows a phone banner). */
+  .actions {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-left: auto;
+    min-width: 0;
+  }
   .undo {
     position: relative;
     margin-left: auto;
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 100%;
     background: transparent;
     border: 1px solid var(--color-amber);
     border-radius: 2px;

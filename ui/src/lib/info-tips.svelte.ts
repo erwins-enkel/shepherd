@@ -39,7 +39,6 @@ class InfoTips {
 }
 
 export const infoTips = new InfoTips();
-export { read as readInfoTips };
 
 // Context key that forces the help affordances to render regardless of the preference.
 // Set once by the /design-system route: it is the canonical component catalogue, so a

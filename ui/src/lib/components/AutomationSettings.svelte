@@ -148,7 +148,7 @@
     <AutomationDetail
       id="lightweight"
       open={openDetail === "lightweight"}
-      paragraphs={[m.automation_lightweight_detail()]}
+      text={m.automation_lightweight_detail()}
     />
   </div>
   <button
@@ -180,7 +180,7 @@
     <AutomationDetail
       id="critic"
       open={openDetail === "critic"}
-      paragraphs={[m.automation_critic_detail()]}
+      text={m.automation_critic_detail()}
     />
   </div>
   <button
@@ -210,7 +210,7 @@
     <AutomationDetail
       id="critic-all-prs"
       open={openDetail === "critic-all-prs"}
-      paragraphs={[m.automation_allprs_detail()]}
+      text={m.automation_allprs_detail()}
     />
   </div>
   <button
@@ -243,7 +243,7 @@
     <AutomationDetail
       id="auto-address"
       open={openDetail === "auto-address"}
-      paragraphs={[m.automation_autoaddress_detail()]}
+      text={m.automation_autoaddress_detail()}
     />
   </div>
   <button
@@ -276,7 +276,7 @@
     <AutomationDetail
       id="plan-gate"
       open={openDetail === "plan-gate"}
-      paragraphs={[m.automation_plan_gate_detail()]}
+      text={m.automation_plan_gate_detail()}
     />
   </div>
   <button
@@ -309,7 +309,7 @@
     <AutomationDetail
       id="learnings"
       open={openDetail === "learnings"}
-      paragraphs={[m.automation_learnings_detail()]}
+      text={m.automation_learnings_detail()}
     />
   </div>
   <button
@@ -375,7 +375,7 @@
     <AutomationDetail
       id="autopilot"
       open={openDetail === "autopilot"}
-      paragraphs={[m.automation_autopilot_detail()]}
+      text={m.automation_autopilot_detail()}
     />
   </div>
   <button
@@ -412,7 +412,7 @@
     <AutomationDetail
       id="auto-drain"
       open={openDetail === "auto-drain"}
-      paragraphs={[m.automation_autodrain_detail()]}
+      text={m.automation_autodrain_detail()}
     />
   </div>
   <button
@@ -474,7 +474,7 @@
     <AutomationDetail
       id="auto-merge"
       open={openDetail === "auto-merge"}
-      paragraphs={[m.automation_automerge_detail()]}
+      text={m.automation_automerge_detail()}
     />
   </div>
   <button
@@ -505,7 +505,7 @@
     <AutomationDetail
       id="build-queue"
       open={openDetail === "build-queue"}
-      paragraphs={[m.automation_buildqueue_detail()]}
+      text={m.automation_buildqueue_detail()}
     />
   </div>
   <button
@@ -610,7 +610,6 @@
     id="sandbox"
     open={openDetail === "sandbox"}
     paragraphs={[m.automation_sandbox_profile_hint(), m.automation_sandbox_profile_caveats()]}
-    sandbox
   />
 </div>
 
@@ -767,10 +766,6 @@
     align-items: center;
     gap: 6px;
   }
-  /* Sandbox ⓘ detail: recess to --color-inset so it steps against the
-     --color-panel .drain-fields ground (panel-over-panel would show no fill
-     step — only the border). margin-top:0 cancels the .auto-detail 6px that
-     would otherwise stack on .drain-fields' 6px gap. */
   /* Epic-mode precedence banner: unmistakable amber notice inside the Work queue
      section that label-drain is suspended while an epic runs. Sits above the
      auto-drain row (which is also dimmed via .auto-row.disabled). */

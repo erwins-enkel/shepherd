@@ -14,25 +14,30 @@
   // again, since its ⓘ is gone too.
   import { infoTips } from "$lib/info-tips.svelte";
 
+  // Exactly one of `text` / `paragraphs` is given. `text` is the single-note shape every
+  // switch row uses (its message may carry \n\n breaks, rendered via white-space: pre-line).
+  // `paragraphs` is the multi-paragraph shape — currently only the sandbox row, which needs
+  // real <p> children rather than pre-line whitespace.
   let {
     id,
     open,
+    text,
     paragraphs,
-    sandbox = false,
-  }: { id: string; open: boolean; paragraphs: string[]; sandbox?: boolean } = $props();
+  }: { id: string; open: boolean; text?: string; paragraphs?: string[] } = $props();
 </script>
 
 {#if !infoTips.hidden}
-  {#if sandbox}
-    <!-- Container with real <p> children (multi-paragraph); recessed against the
-         .drain-fields ground it sits on. -->
+  {#if paragraphs}
+    <!-- Container with real <p> children; recessed against the .drain-fields ground it sits
+         on. Keyed by index: two paragraphs could legitimately carry identical text, and a
+         text key would throw on the duplicate. -->
     <div id="auto-detail-{id}" class="auto-detail sandbox-detail" role="note" hidden={!open}>
-      {#each paragraphs as text (text)}
-        <p>{text}</p>
+      {#each paragraphs as paragraph, i (i)}
+        <p>{paragraph}</p>
       {/each}
     </div>
   {:else}
-    <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={!open}>{paragraphs[0]}</p>
+    <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={!open}>{text}</p>
   {/if}
 {/if}
 

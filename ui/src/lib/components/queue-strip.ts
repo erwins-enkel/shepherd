@@ -248,6 +248,10 @@ export function pausedText(d: DrainStatus): string {
       return m.drain_paused_usage({ pct: desig });
     case "credits":
       return m.drain_paused_credits();
+    // #1757: the epic's integration branch could not be ensured on the forge — detail carries the
+    // branch. Without this case the generic "paused" copy would hide an actionable, nameable cause.
+    case "epic_base_unavailable":
+      return m.drain_paused_epic_base({ branch: desig });
     default:
       return m.drain_paused_generic();
   }

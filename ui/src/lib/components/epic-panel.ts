@@ -70,6 +70,10 @@ export function epicHoldLine(
       return m.epic_hold_cap({ inFlight: drain.inFlight, max: drain.max });
     case "awaiting_approval":
       return m.epic_hold_awaiting_approval({ num: desig });
+    // #1757: `detail` is the integration branch, not a desig — the forge's ensureBranch threw, so
+    // no child can be based on it. Self-heals when the forge recovers (cooldown → retry).
+    case "epic_base_unavailable":
+      return m.epic_hold_epic_base_unavailable({ branch: desig });
     case "awaiting_signoff":
       return m.epic_hold_awaiting_signoff({ desig });
     case "empty":

@@ -3141,5 +3141,7 @@
   "plangate_review_at_cap": "Plan review started, but the rework budget is spent: if it requests changes, those findings won't be sent to the agent.",
   "plangate_review_spends_round": "Re-reviews send the findings back to the agent and spend a rework round ({round}/{cap} used).",
   "planpanel_review_at_cap": "Re-reviewing at the rework cap. The reviewer can still approve the plan, but if it requests changes again those findings will not be sent to the planning agent. Use “Resume with findings” to reset the budget and re-send them.",
-  "planpanel_review_at_cap_no_resume": "Re-reviewing at the rework cap. The reviewer can still approve the plan. If it requests changes instead, those findings will not be sent to the planning agent — “Resume with findings” then appears here to reset the budget and re-send them."
+  "planpanel_review_at_cap_no_resume": "Re-reviewing at the rework cap. The reviewer can still approve the plan. If it requests changes instead, those findings will not be sent to the planning agent — “Resume with findings” then appears here to reset the budget and re-send them.",
+  "drain_paused_epic_base": "Paused: can't create epic branch {branch}",
+  "epic_hold_epic_base_unavailable": "Paused: the epic branch {branch} could not be created on the forge. Retrying — no child can be started until it exists."
 }

@@ -17,13 +17,17 @@ import {
   reviewPrompt,
   defaultReadVerdict,
   defaultComputePatchId,
+  defaultCollectBaseDelta,
   scopeFindings,
   buildVerdictCore,
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
   type RawVerdict,
+  type EpicBaseDelta,
+  type EpicContext,
 } from "./critic-core";
+import { isEpicIntegrationBranch } from "./epic-branch";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
@@ -34,18 +38,36 @@ export { reviewPrompt, defaultComputePatchId, scopeFindings };
  *  (preconditions unmet / dedup / ceiling / race guard), or begin() bailed before spawning. */
 export type ReviewOutcome = "started" | "skipped" | "error";
 
-/** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd. */
-function steerText(findings: string[], prNumber: number): string {
-  return [
+/** Agent-facing steer that carries critic findings into the task PTY. NOT i18n'd.
+ *
+ *  `epicBase` (issue #1757): epic children are deliberately never rebased onto their moving
+ *  integration branch, so the CHILD's own worktree is missing the sibling work that has merged into
+ *  the base — exactly like the critic's was. The critic can now ground a finding in that base code;
+ *  without this note the agent receiving the finding would be unable to SEE the code it names (and
+ *  would "fix" it against a tree that lacks it). So tell it where the base is. */
+function steerText(findings: string[], prNumber: number, epicBase: string | null): string {
+  const lines = [
     "The PR critic reviewed your latest push. Address each point below in this PR:",
     "",
     ...findings.map((f, i) => `${i + 1}. ${f}`),
     "",
+  ];
+  if (epicBase) {
+    lines.push(
+      `NOTE: this PR is an epic child based on \`${epicBase}\`, and your branch has NOT been rebased onto it.`,
+      "Sibling work already merged into that base is NOT in your worktree, so a finding may refer to code you cannot see locally. Inspect the base with:",
+      `  git fetch origin ${epicBase} && git diff --name-only HEAD...FETCH_HEAD   # what merged since you forked`,
+      "  git show FETCH_HEAD:<path>                                              # read a file as it exists on the base",
+      "",
+    );
+  }
+  lines.push(
     "Fix what's valid. If you genuinely disagree with a point, don't silently skip it —",
     `post a brief note on the PR explaining your reasoning so the critic can weigh it, e.g.:`,
     `  gh pr comment ${prNumber} --body "${AUTHOR_RESPONSE_MARKER} <which finding + why it shouldn't change>"`,
     "Then commit & push so CI and the critic re-run.",
-  ].join("\n");
+  );
+  return lines.join("\n");
 }
 
 // Max auto-address steers per outstanding-findings streak, and the same ceiling for the
@@ -65,6 +87,7 @@ interface InFlight {
   patchId: string; // fingerprint of this run's reviewed diff; persisted on the verdict for rebase-skip
   baseSha: string | null; // the concrete base the critic diffs against (== the fingerprint's base); null = total git failure
   files: string[]; // repo-relative paths in `git diff baseSha...HEAD`; drives the buildVerdict scope backstop
+  epicBase: string | null; // the epic integration branch when this session is an epic child (#1757); else null — carried so the auto-address steer can point the agent at the base its worktree lacks
   prNumber: number;
   branch: string; // head branch, for the at-finalize live PR-state recheck (prStatus keys on it)
   repoPath: string;
@@ -169,6 +192,10 @@ export interface ReviewServiceDeps extends MembraneSeams {
     worktreePath: string,
     base: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
+  /** Injectable collector of the sibling work an epic child's tree is missing (default: real
+   *  read-only git). Called ONLY for an epic child with a resolved baseSha; null on any git
+   *  failure → the epic block degrades to telling the critic to run the commands itself. */
+  collectBaseDelta?: (worktreePath: string, baseSha: string) => Promise<EpicBaseDelta | null>;
   /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL
    *  transcript via readActivitySignal). null = no parseable activity yet. */
   readActivity?: (worktreePath: string, criticSessionId: string) => string | null;
@@ -197,6 +224,10 @@ export class ReviewService {
     worktreePath: string,
     base: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
+  private collectBaseDelta: (
+    worktreePath: string,
+    baseSha: string,
+  ) => Promise<EpicBaseDelta | null>;
   private readActivity: (worktreePath: string, criticSessionId: string) => string | null;
   private readUsage: (
     worktreePath: string,
@@ -212,6 +243,7 @@ export class ReviewService {
     this.capFn = typeof cap === "function" ? cap : () => cap ?? DEFAULT_CAP;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
+    this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
     this.readActivity = deps.readActivity ?? defaultReadActivity;
     this.readUsage = deps.readUsage ?? readSessionUsage;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
@@ -332,10 +364,23 @@ export class ReviewService {
     // the spawn and covers this getIssue suspension too (matches plan-gate.ts's ordering).
     const issueBody = await this.fetchIssueBody(session);
 
-    // forget() (session archived) may have fired during either await above (author-notes or
-    // issue-body fetch); it clears our `starting` claim as a tombstone. Abort (reaping the
-    // worktree we allocated) before spawning so we don't run for — and re-post a review +
-    // re-insert a verdict row for — a gone session.
+    // Epic child (#1757): the base is the epic INTEGRATION branch, and this branch was never
+    // rebased onto it — so the checked-out tree is missing every sibling that merged since the
+    // fork, and the critic's "grep the tree to confirm it exists" rule would report merged sibling
+    // work as absent. Collect the base delta so the epic block can hand it the exact missing
+    // surface (best-effort; null ⇒ the block tells it to run the commands itself).
+    //
+    // Placed HERE deliberately: after rebaseSkip (which resolves baseSha) and BESIDE fetchIssueBody
+    // — i.e. still BEFORE the `starting` re-check below, so that re-check remains the LAST
+    // await-gated step before the spawn and covers this suspension too (same reasoning as the
+    // issue-body fetch above).
+    const epicBase = isEpicIntegrationBranch(session.baseBranch) ? session.baseBranch : null;
+    const epic = await this.resolveEpicContext(epicBase, wt.worktreePath, baseSha);
+
+    // forget() (session archived) may have fired during any await above (author-notes, issue-body
+    // fetch, or the epic base-delta collection); it clears our `starting` claim as a tombstone.
+    // Abort (reaping the worktree we allocated) before spawning so we don't run for — and re-post a
+    // review + re-insert a verdict row for — a gone session.
     if (!this.starting.has(session.id)) {
       this.deps.worktree.remove(wt.worktreePath);
       return;
@@ -359,6 +404,7 @@ export class ReviewService {
       authorNotes,
       issueBody,
       reviewerEnv,
+      epic,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -407,6 +453,7 @@ export class ReviewService {
       patchId,
       baseSha,
       files,
+      epicBase,
       prNumber: git.number!,
       branch: session.branch!,
       repoPath: session.repoPath,
@@ -588,22 +635,43 @@ export class ReviewService {
     authorNotes: string[],
     issueBody: string | null,
     env: RoleEnvironment,
+    epic: EpicContext | null,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
-    // originating issue's body, fetched in begin() and injected as UNTRUSTED context.
+    // originating issue's body, fetched in begin() and injected as UNTRUSTED context. `epic` is
+    // non-null only for an epic child (#1757) — it adds the EPIC CONTEXT block; a non-epic review's
+    // prompt is byte-identical to before.
     return buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
       effort: env.effort,
-      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
+      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic),
     });
   }
 
   private reviewerEnv(): RoleEnvironment {
     return this.deps.env?.() ?? { provider: "claude", model: null, effort: null };
+  }
+
+  /** Epic-child critic context (#1757), or null for an ordinary session. Collects the sibling work
+   *  the child's tree is missing so the epic block can hand the critic the exact missing surface
+   *  rather than relying on it to enumerate that itself. Best-effort: a null `baseSha` (the base
+   *  fetch failed — an epic branch usually has no local ref) means no base command could work, so
+   *  we don't shell out at all and the block degrades to its no-base mode. */
+  private async resolveEpicContext(
+    epicBase: string | null,
+    worktreePath: string,
+    baseSha: string | null,
+  ): Promise<EpicContext | null> {
+    if (!epicBase) return null;
+    return {
+      base: epicBase,
+      baseSha,
+      delta: baseSha ? await this.collectBaseDelta(worktreePath, baseSha) : null,
+    };
   }
 
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.
@@ -950,7 +1018,7 @@ export class ReviewService {
     try {
       delivered = await this.deps.autoAddress!(
         f.sessionId,
-        steerText(verdict.findings, f.prNumber),
+        steerText(verdict.findings, f.prNumber, f.epicBase),
       );
     } catch (err) {
       console.warn(`[review] auto-address steer failed for ${f.sessionId}:`, err);

@@ -1,5 +1,5 @@
 import { test, expect, describe } from "bun:test";
-import { assembleEpic, type AssembleInput } from "../src/epic-model";
+import { assembleEpic, NO_INTEGRATION_BRANCH_WARNING, type AssembleInput } from "../src/epic-model";
 
 const BASE: AssembleInput = {
   repoPath: "/repo",
@@ -270,4 +270,47 @@ describe("noDependencyEdges (#1447)", () => {
     expect(e.warnings.some((w) => w.includes("outside the epic"))).toBe(true);
     expect(e.noDependencyEdges).toBe(true);
   });
+});
+
+// ── #1757: forge cannot create branches → the epic runs WITHOUT an integration branch ───────────
+//
+// On Gitea/local (no `ensureBranch`) every child bases on the default branch and merges straight
+// into it. The epic still PROGRESSES (a merged child closes its issue; done-ness is
+// `integrationMerged || issueClosed`) — but it is not running the way the epic model implies, and
+// that used to be visible only as a server-side console.warn. Surface it.
+
+test("#1757 warns when the forge cannot create the integration branch", () => {
+  const e = assembleEpic({
+    ...BASE,
+    subIssues: [{ number: 320, title: "EFI", url: "u320", body: "", closed: false, labels: [] }],
+    integrationBranchSupported: false,
+  });
+  expect(e.warnings.join("\n")).toContain(NO_INTEGRATION_BRANCH_WARNING);
+});
+
+test("#1757 no warning on a branch-capable forge (and none for existing callers that omit the flag)", () => {
+  const supported = assembleEpic({
+    ...BASE,
+    subIssues: [{ number: 320, title: "EFI", url: "u320", body: "", closed: false, labels: [] }],
+    integrationBranchSupported: true,
+  });
+  const omitted = assembleEpic({
+    ...BASE,
+    subIssues: [{ number: 320, title: "EFI", url: "u320", body: "", closed: false, labels: [] }],
+  });
+  expect(supported.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
+  expect(omitted.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
+});
+
+test("#1757 an UNRESOLVABLE forge does not warn (that would assert something we never checked)", () => {
+  // `integrationBranchSupported` is false ONLY for a forge that resolved and genuinely lacks
+  // ensureBranch. A missing forge is a different, unknown condition — the warning states a specific
+  // fact ("this forge cannot create branches"), so asserting it when we couldn't even ask would
+  // tell the operator something untrue. Drain maps no-forge → true (silent).
+  const e = assembleEpic({
+    ...BASE,
+    subIssues: [{ number: 320, title: "EFI", url: "u320", body: "", closed: false, labels: [] }],
+    integrationBranchSupported: true,
+  });
+  expect(e.warnings.join("\n")).not.toContain(NO_INTEGRATION_BRANCH_WARNING);
 });

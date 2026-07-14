@@ -55,6 +55,32 @@ const EPIC_BRANCH_SCAN_TTL_MS = 5 * 60_000;
  *  window; a persistent one stops churning. */
 const SPAWN_FAIL_COOLDOWN_MS = 5 * 60_000;
 
+/** #1757: can this forge create the epic integration branch? A forge that resolves but lacks
+ *  `ensureBranch` (Gitea/local) genuinely cannot — that drives the operator-facing
+ *  NO_INTEGRATION_BRANCH_WARNING. An ABSENT forge is a different, unknown condition (we couldn't
+ *  ask), so it reports `true` (no warning): the warning states a specific fact about the forge, and
+ *  asserting it when no forge resolved would be telling the operator something untrue. */
+function forgeCanEnsureBranch(forge: GitForge | null | undefined): boolean {
+  return forge ? forge.ensureBranch != null : true;
+}
+
+/** #1757: `forge.ensureBranch` THREW while resolving an epic child's spawn base, so the integration
+ *  branch could not be ensured. Thrown by resolveSpawnBase and caught (typed) in doSpawn, which
+ *  records `epicBase` on the spawn-failure entry so the drain can surface an `epic_base_unavailable`
+ *  hold. TYPED deliberately: doSpawn's catch also wraps `service.create()`, so an untyped marker
+ *  would turn ANY epic-child spawn failure (sandbox hold, provider error, transient create error)
+ *  into a mislabeled, epic-wide hold. Carries the branch for the operator-facing detail. */
+class EpicBaseUnavailableError extends Error {
+  constructor(
+    readonly integrationBranch: string,
+    cause?: unknown,
+  ) {
+    super(`epic integration branch \`${integrationBranch}\` could not be ensured on the forge`);
+    this.name = "EpicBaseUnavailableError";
+    this.cause = cause;
+  }
+}
+
 /** #645 (Task 2): once a child's PR is found targeting the wrong base, don't re-pay the
  *  `prReviewMeta` API call on every pump while the operator hasn't fixed it — recheck at most
  *  this often per child. Bounds the cost to ≤1 call/child/~60s while a child stays blocked. */
@@ -286,9 +312,15 @@ export class DrainService {
   // purpose: a restart sweeps immediately (deploy ⇒ a pre-existing stall self-heals within one
   // tick), then settles to one sweep per EPIC_RECONCILE_TTL_MS.
   private epicReconcileAt = new Map<string, number>();
-  /** #790: `${repoPath}#${issueNumber}` → last spawn-failure timestamp; throttles re-spawn
-   *  of an issue whose create() keeps throwing. Cleared on a successful spawn. In-memory. */
-  private spawnFailures = new Map<string, number>();
+  /** #790: `${repoPath}#${issueNumber}` → last spawn failure; throttles re-spawn of an issue whose
+   *  create() keeps throwing. Cleared on a successful spawn. In-memory.
+   *
+   *  #1757: the entry also carries `epicBase` when — and ONLY when — the failure was a typed
+   *  {@link EpicBaseUnavailableError} (the forge's `ensureBranch` threw). buildState derives the
+   *  `epic_base_unavailable` hold from that, applying the cooldown freshness test ITSELF: the lazy
+   *  expiry delete lives inside doSpawn (below), which the hold PREVENTS from running — so a
+   *  membership-only check would latch the hold forever instead of letting it lapse and retry. */
+  private spawnFailures = new Map<string, { at: number; epicBase?: string }>();
   private approvedNext = new Set<string>();
   /** Extra-credit cost-guard baseline (account-wide, in-memory/ephemeral). The scraped paid-credit
    *  total is CUMULATIVE MONTHLY, but paid overage only accrues once a subscription window is
@@ -464,6 +496,15 @@ export class DrainService {
       persistedBranch,
       integratedBases,
       divergentBranches,
+      // #1757: a forge without ensureBranch (Gitea/local) cannot create the integration branch, so
+      // every child of this epic degrades onto the default branch. The epic still progresses, but
+      // not the way the epic model implies — surface it as a warning instead of a console.warn.
+      //
+      // An UNRESOLVABLE forge is NOT the same thing (epicStructure can serve a cached build after
+      // the forge is gone), and the warning asserts a specific, checkable fact — "this forge cannot
+      // create branches". Claiming that when we simply couldn't ask would be a false statement to
+      // the operator, so no-forge stays silent (true) rather than warning for the wrong reason.
+      integrationBranchSupported: forgeCanEnsureBranch(this.deps.resolveForge(repoPath)),
     };
     // Self-heal orphaned base-mismatch markers (#645). The marker is only cleared inside the
     // retire path (doRetire → epicChildBaseBlocked), which re-runs only while the child PR is
@@ -714,9 +755,39 @@ export class DrainService {
         epicParent,
         epicIntegrationBranch,
         epicProviderSettings,
+        epicBaseUnavailable: this.freshEpicBaseFailure(repoPath),
       },
       epic: builtEpic,
     };
+  }
+
+  /** Record a spawn failure for the #790 cooldown, tagging it with the epic integration branch ONLY
+   *  for the typed {@link EpicBaseUnavailableError} (#1757). doSpawn's catch also wraps
+   *  `service.create()`, so tagging any failure would raise a mislabeled, epic-wide
+   *  `epic_base_unavailable` hold for an unrelated cause (sandbox hold, provider error, transient
+   *  create error) — a far broader pause than the per-issue cooldown, with the wrong copy. */
+  private recordSpawnFailure(failKey: string, err: unknown): void {
+    const epicBase = err instanceof EpicBaseUnavailableError ? err.integrationBranch : undefined;
+    this.spawnFailures.set(failKey, { at: this.now(), ...(epicBase ? { epicBase } : {}) });
+  }
+
+  /** #1757: the integration branch of a RECENT, still-cooling epic-base spawn failure for this repo
+   *  (`ensureBranch` threw), or null. Feeds the `epic_base_unavailable` hold.
+   *
+   *  The freshness test lives HERE, not in the map's lifecycle, and that is load-bearing: the lazy
+   *  cooldown-expiry delete lives inside doSpawn — which the hold PREVENTS from running — so a
+   *  membership-only check would hold the epic forever instead of lapsing and retrying. Scanning is
+   *  scoped to this repo (`failKey` is `${repoPath}#${number}`) so another repo's failure can never
+   *  hold this one. Freshest qualifying entry wins. */
+  private freshEpicBaseFailure(repoPath: string): string | null {
+    const prefix = `${repoPath}#`;
+    let best: { at: number; epicBase: string } | null = null;
+    for (const [key, fail] of this.spawnFailures) {
+      if (!key.startsWith(prefix) || !fail.epicBase) continue;
+      if (this.now() - fail.at >= SPAWN_FAIL_COOLDOWN_MS) continue; // stale → no longer holds
+      if (!best || fail.at > best.at) best = { at: fail.at, epicBase: fail.epicBase };
+    }
+    return best?.epicBase ?? null;
   }
 
   /** Short-TTL cache around the forge's listIssues (the pump may re-read state
@@ -745,7 +816,16 @@ export class DrainService {
     // cap is conveyed by inFlight/max, empty is normal idle — neither pauses.
     const paused =
       hold !== null &&
-      ["blocked", "changes_requested", "error", "usage", "credits"].includes(hold.code);
+      [
+        "blocked",
+        "changes_requested",
+        "error",
+        "usage",
+        "credits",
+        // #1757: the epic can't base its children — genuinely stuck until the forge recovers, so it
+        // reads as a paused banner (amber), not a quiet idle state.
+        "epic_base_unavailable",
+      ].includes(hold.code);
     const queued = state.candidates.filter((c) => !state.mappedIssueNumbers.has(c.number)).length;
     return {
       repoPath,
@@ -2262,8 +2342,26 @@ export class DrainService {
   /**
    * Resolve the base branch + agent prompt for a spawn. Epic children base on (and ensure on
    * the host) the integration branch — so each builds on its predecessors' merged work — and
-   * get a directive to target it as their PR base; a forge that can't create the branch, or a
-   * non-epic spawn, falls back to the default branch with the bare task title.
+   * get a directive to target it as their PR base; a non-epic spawn bases on the default branch
+   * with the bare task title.
+   *
+   * The two epic failure modes are NOT the same and are handled differently (#1757):
+   *
+   *  - `ensureBranch` THREW (GitHub; a rate-limit, 5xx, race): FAIL CLOSED — throw
+   *    {@link EpicBaseUnavailableError}. Degrading this ONE child onto the default branch would mix
+   *    bases mid-epic: it would lose `epicBaseDirective`, open its PR against main, and — since
+   *    `isFullAuto` excludes only sessions whose base IS an integration branch — the merge train
+   *    would then land it on main automatically, while its siblings integrate on the epic branch.
+   *    A retry may well succeed, so doSpawn's catch backs off (cooldown) and the drain holds
+   *    visibly (`epic_base_unavailable`) meanwhile.
+   *
+   *  - The forge simply LACKS `ensureBranch` (gitea/local): DEGRADE, as before. On such a forge NO
+   *    child can ever get an integration branch, so the epic degrades CONSISTENTLY — every child
+   *    bases on the default branch, lands on main one at a time, and the epic still progresses (a
+   *    merged child closes its issue, and epic done-ness is `integrationMerged || issueClosed`).
+   *    Failing closed here would convert a degraded-but-progressing epic into permanent zero
+   *    progress with no operator path out. Instead the degrade is surfaced as an epic WARNING
+   *    (assembleEpic → EpicPanel), so it is visible rather than a server-side console.warn.
    */
   private async resolveSpawnBase(
     forge: GitForge,
@@ -2277,13 +2375,14 @@ export class DrainService {
         await forge.ensureBranch(decision.integrationBranch, def);
         base = decision.integrationBranch;
       } catch (err) {
-        console.warn(
-          `[drain] ensureBranch ${decision.integrationBranch} failed; basing on ${def}:`,
-          err,
-        );
+        // Fail closed — see the doc comment. Never silently base an epic child on the default
+        // branch when the forge CAN create branches: that child would land on main mid-epic.
+        throw new EpicBaseUnavailableError(decision.integrationBranch, err);
       }
     } else if (decision.integrationBranch) {
-      console.warn(`[drain] forge lacks ensureBranch; basing epic child #${number} on ${def}`);
+      console.warn(
+        `[drain] forge lacks ensureBranch; basing epic child #${number} on ${def} (epic runs without an integration branch — see the epic warning)`,
+      );
     }
     // Epic child actually based on the integration branch → tell the agent to target it as the
     // PR base (the agent opens its own PR and would otherwise default to the main branch).
@@ -2302,7 +2401,7 @@ export class DrainService {
     const failKey = `${repoPath}#${number}`;
     const lastFail = this.spawnFailures.get(failKey);
     if (lastFail !== undefined) {
-      if (this.now() - lastFail < SPAWN_FAIL_COOLDOWN_MS) {
+      if (this.now() - lastFail.at < SPAWN_FAIL_COOLDOWN_MS) {
         return; // #790: recently failed to spawn this issue — back off to avoid claim/label churn
       }
       this.spawnFailures.delete(failKey); // #790: cooldown elapsed — drop the stale entry so the map can't grow unbounded
@@ -2393,7 +2492,7 @@ export class DrainService {
       // cap AND mappedIssueNumbers, so the loop won't re-spawn this issue and
       // naturally stops at cap.
     } catch (err) {
-      this.spawnFailures.set(failKey, this.now());
+      this.recordSpawnFailure(failKey, err);
       console.warn(`[drain] spawn failed for issue #${number}:`, err);
       // Release the claim so the unspawned issue returns to the pool (best-effort).
       try {

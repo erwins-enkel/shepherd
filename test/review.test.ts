@@ -431,6 +431,25 @@ test("onReviewing fires true on spawn and false on finalize", async () => {
   ]);
 });
 
+test("onReviewing start + inflight snapshot carry the critic's exact reviewer env", async () => {
+  const events: unknown[][] = [];
+  const env = { provider: "codex" as const, model: "gpt-5.5", effort: "high" };
+  const { deps: d } = makeDeps({
+    env: () => env,
+    onReviewing: (id: string, reviewing: boolean, reviewerEnv?: unknown) =>
+      events.push([id, reviewing, reviewerEnv]),
+  });
+  const svc = new ReviewService(d as any);
+
+  await svc.consider(session(), OPEN_GREEN);
+
+  expect(events).toContainEqual(["s1", true, env]);
+  expect(svc.reviewingInflight()).toEqual([{ id: "s1", ...env }]);
+  await svc.tick();
+  expect(svc.reviewingInflight()).toEqual([]);
+  expect(events.at(-1)).toEqual(["s1", false, undefined]);
+});
+
 test("onReviewing fires false when an in-flight critic is forgotten", async () => {
   const events: { id: string; reviewing: boolean }[] = [];
   const { deps: d } = makeDeps({

@@ -67,11 +67,15 @@ test("GET /api/reviews returns {} when reviewCache is absent", async () => {
   expect(await res.json()).toEqual({});
 });
 
-test("GET /api/reviews/inflight returns in-flight session ids", async () => {
-  const { app } = harness({ snapshot: () => ({}), reviewing: () => ["sess-1", "sess-2"] });
+test("GET /api/reviews/inflight returns in-flight reviews with their reviewer env", async () => {
+  const inflight = [
+    { id: "sess-1", provider: "codex" as const, model: "gpt-5.5", effort: "high" },
+    { id: "sess-2", provider: null, model: null, effort: null },
+  ];
+  const { app } = harness({ snapshot: () => ({}), reviewing: () => inflight });
   const res = await app.fetch(new Request("http://x/api/reviews/inflight"));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual(["sess-1", "sess-2"]);
+  expect(await res.json()).toEqual(inflight);
 });
 
 test("GET /api/reviews/inflight returns [] when reviewCache is absent", async () => {

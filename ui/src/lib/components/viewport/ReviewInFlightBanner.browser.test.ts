@@ -64,9 +64,11 @@ const banner = () => document.querySelector(".review-banner");
 beforeEach(() => {
   reviews.map = {};
   reviews.reviewing = {};
+  reviews.reviewerEnv = {};
   reviews.activity = {};
   planGates.map = {};
   planGates.reviewing = {};
+  planGates.reviewerEnv = {};
   planGates.activity = {};
   repoConfig.autoAddress = {};
   repoConfig.autopilot = {};
@@ -77,6 +79,41 @@ afterEach(() => {
 });
 
 describe("ReviewInFlightBanner preview — in-flight tier", () => {
+  it("shows the Plan Gate reviewer's CLI, model, and effort below the headline", async () => {
+    planGates.applyReviewing(ID, true, {
+      provider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
+    render(ReviewInFlightBanner, props() as never);
+
+    await expect
+      .poll(() => document.querySelector(".rb-env")?.textContent?.trim())
+      .toBe("Codex · gpt-5.5 · High");
+  });
+
+  it("shows the critic reviewer's environment when auto-address makes the banner visible", async () => {
+    repoConfig.autoAddress = { [REPO]: true };
+    reviews.setReviewing(ID, true, {
+      provider: "claude",
+      model: "opus",
+      effort: "high",
+    });
+    render(ReviewInFlightBanner, props() as never);
+
+    await expect
+      .poll(() => document.querySelector(".rb-env")?.textContent?.trim())
+      .toBe("Claude Code · opus · High");
+  });
+
+  it("keeps the current banner unchanged when the reviewer provider is unavailable", async () => {
+    planGates.applyReviewing(ID, true, { provider: null, model: "opus", effort: "high" });
+    render(ReviewInFlightBanner, props() as never);
+
+    await expect.poll(() => banner()).not.toBeNull();
+    expect(document.querySelector(".rb-env")).toBeNull();
+  });
+
   it("critic in-flight (auto-address on): renders the rolling activity feed, oldest→newest", async () => {
     repoConfig.autoAddress = { [REPO]: true };
     reviews.setReviewing(ID, true);
@@ -127,7 +164,11 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
   // i.e. banner ≤ containerHeight - 4rem, so .term-mount never drops under its floor and the
   // prompt is never overlaid. See ReviewInFlightBanner's .review-banner max-height.
   it("caps its height in a short pane so the terminal keeps its 4rem reflow floor", async () => {
-    planGates.applyReviewing(ID, true);
+    planGates.applyReviewing(ID, true, {
+      provider: "codex",
+      model: "gpt-5.5",
+      effort: "high",
+    });
     for (const l of ["act-1", "act-2"]) planGates.setActivity(ID, l);
     render(ReviewInFlightBanner, props() as never);
     await expect.poll(() => banner()).not.toBeNull();
@@ -144,6 +185,7 @@ describe("ReviewInFlightBanner preview — in-flight tier", () => {
     expect(bannerH).toBeLessThanOrEqual(containerH - 4 * remPx + 0.5); // +0.5px rounding tolerance
     expect(bannerH).toBeGreaterThan(0); // clamped, not collapsed — headline still shows at 120px
     expect(document.querySelector(".rb-text")?.textContent?.trim()).toBeTruthy(); // headline present (ellipsized)
+    expect(document.querySelector(".rb-env")?.textContent?.trim()).toBe("Codex · gpt-5.5 · High");
   });
 });
 

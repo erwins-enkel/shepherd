@@ -32,6 +32,8 @@ class ReviewsStore {
   map = $state<Record<string, ReviewVerdict>>({});
   // session ids with a critic run currently in flight; driven by `session:reviewing`
   reviewing = $state<Record<string, boolean>>({});
+  // Exact reviewer environment for the current critic run, keyed by task session id.
+  reviewerEnv = $state<Record<string, ReviewerEnv>>({});
   // rolling live-activity feed (last MAX_ACTIVITY_LINES tool-use summaries) of the in-flight
   // critic, keyed by session id; driven by `session:critic-activity`. Surfaced in the badge
   // tooltip (latest line) and the review-in-flight banner preview (full feed). RESET on both
@@ -46,8 +48,12 @@ class ReviewsStore {
       /* best-effort; live events still populate it */
     }
     try {
-      // bootstrap in-flight runs so a reload mid-review still shows the indicator
-      this.reviewing = Object.fromEntries((await getReviewingIds()).map((id) => [id, true]));
+      // Bootstrap both the in-flight indicator and reviewer identity after a reload.
+      const inflight = await getReviewingIds();
+      this.reviewing = Object.fromEntries(inflight.map(({ id }) => [id, true]));
+      this.reviewerEnv = Object.fromEntries(
+        inflight.map(({ id, provider, model, effort }) => [id, { provider, model, effort }]),
+      );
       // Snapshot carries no historical activity → any pre-existing feed is stale after a resync.
       // Wipe it; the live feed rebuilds from `session:critic-activity` within ~1 tick.
       this.activity = {};
@@ -67,7 +73,14 @@ class ReviewsStore {
     this.setReviewing(d.id, false);
   }
 
-  setReviewing(id: string, on: boolean) {
+  setReviewing(id: string, on: boolean, env?: ReviewerEnv) {
+    if (on) {
+      if (env) this.reviewerEnv = { ...this.reviewerEnv, [id]: env };
+    } else if (id in this.reviewerEnv) {
+      const copy = { ...this.reviewerEnv };
+      delete copy[id];
+      this.reviewerEnv = copy;
+    }
     if (!!this.reviewing[id] === on) return;
     // Any genuine transition resets the feed: on START a new run must begin empty (defensive
     // against a missed end-clear), on END the finished run's live tail is stale. Guarded by the
@@ -108,6 +121,10 @@ class ReviewsStore {
   /** The full rolling feed (oldest→newest) for the banner preview; [] when absent. */
   activityFeed(id: string): string[] {
     return this.activity[id] ?? [];
+  }
+
+  reviewerEnvFor(id: string): ReviewerEnv | null {
+    return this.reviewerEnv[id] ?? null;
   }
 
   isReviewing(id: string): boolean {

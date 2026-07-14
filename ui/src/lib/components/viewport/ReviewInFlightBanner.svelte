@@ -13,6 +13,7 @@
   import { planStallStatus } from "$lib/plan-status";
   import { addressStallStatus } from "$lib/review-status";
   import { clock } from "$lib/now.svelte";
+  import { environmentLabel } from "$lib/reviewer-env";
 
   // Non-blocking signal that an in-flight PR-critic / plan-gate review may steer
   // this session when it concludes (issue #1022). Shown only when a paste could
@@ -63,6 +64,22 @@
       : liveKind === "plangate"
         ? planGates.activityFeed(session.id)
         : [],
+  );
+
+  // The reviewer is a separate job from the task session shown above the terminal. Read the
+  // environment captured for whichever review kind is live so the banner identifies that job,
+  // not the task agent. A legacy run with no resolved provider stays visually unchanged.
+  const reviewerEnv = $derived(
+    liveKind === "critic"
+      ? reviews.reviewerEnvFor(session.id)
+      : liveKind === "plangate"
+        ? planGates.reviewerEnvFor(session.id)
+        : null,
+  );
+  const reviewerIdentity = $derived(
+    reviewerEnv?.provider
+      ? environmentLabel(reviewerEnv.provider, reviewerEnv.model, reviewerEnv.effort)
+      : null,
   );
 
   // Session's effective autopilot (mirrors src/effective-autopilot.ts): per-session
@@ -288,7 +305,12 @@
       {:else}
         <span class="rb-icon" aria-hidden="true">{icon}</span>
       {/if}
-      <span class="rb-text">{bannerText(view)}</span>
+      <span class="rb-copy">
+        <span class="rb-text">{bannerText(view)}</span>
+        {#if view.phase === "in-flight" && reviewerIdentity}
+          <span class="rb-env">{reviewerIdentity}</span>
+        {/if}
+      </span>
     </div>
     {#if view.show && view.phase === "in-flight"}
       <!-- Live "tail -f" of the off-screen reviewer's actions. Reserves MAX_ACTIVITY_LINES rows
@@ -366,6 +388,18 @@
     flex-shrink: 0;
     min-width: 0;
   }
+  .rb-copy {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .rb-env {
+    color: var(--color-muted);
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    line-height: 1.3;
+    overflow-wrap: anywhere;
+  }
   /* Live activity tail under the in-flight headline. Newest line pins to the bottom
      (justify-content:flex-end); the reserved height is MAX_ACTIVITY_LINES rows (--rb-pv-rows) so
      the banner keeps a STABLE height across the whole in-flight phase as lines fill in — one
@@ -432,6 +466,7 @@
      ellipsizes in a narrow pane rather than wrapping and pushing the head past the cap.
      The full text still reaches assistive tech via the banner's aria-live region. */
   .rb-text {
+    display: block;
     min-width: 0;
     white-space: nowrap;
     overflow: hidden;

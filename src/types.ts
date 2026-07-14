@@ -487,6 +487,14 @@ export type PlanDecision = "approved" | "changes_requested" | "error";
  *  other summary is the reviewer's own operator-language text, passed through verbatim. */
 export type PlanSummaryCode = "no-verdict";
 
+/** Resolved coding environment for one in-flight reviewer job. `provider` can be null only for
+ *  legacy/restart-adopted runs whose durable spawn row predates provider persistence. */
+export interface ReviewerEnv {
+  provider: AgentProvider | null;
+  model: string | null;
+  effort: string | null;
+}
+
 export interface PlanGate {
   sessionId: string;
   planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan on the auto-path (the manual force path bypasses that dedupe)

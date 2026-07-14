@@ -3117,5 +3117,7 @@
   "feat_default_coding_environment_title": "Standard-CLI und -Modell wählen",
   "feat_default_coding_environment_body": "Die Einstellungen merken sich jetzt getrennte Standardmodelle für Claude Code und Codex. Neue Aufgaben und unbeaufsichtigte Starts verwenden das zur ausgewählten Coding-CLI gehörende Modell.",
   "feat_mobile_herd_accordion_title": "Lebenszyklus-Gruppen mobil einklappen",
-  "feat_mobile_herd_accordion_body": "Die Herd-Liste auf dem Smartphone hält jetzt höchstens eine benannte Lebenszyklus-Gruppe offen. „Du bist dran“ ist standardmäßig geöffnet; tippe auf eine größere Gruppenzeile, um den Bereich zu wechseln oder zu schließen, während aktive Sessions sichtbar bleiben."
+  "feat_mobile_herd_accordion_body": "Die Herd-Liste auf dem Smartphone hält jetzt höchstens eine benannte Lebenszyklus-Gruppe offen. „Du bist dran“ ist standardmäßig geöffnet; tippe auf eine größere Gruppenzeile, um den Bereich zu wechseln oder zu schließen, während aktive Sessions sichtbar bleiben.",
+  "feat_review_job_model_title": "Sieh, welches Modell prüft",
+  "feat_review_job_model_body": "Das Review-Banner im Terminal zeigt jetzt Coding-CLI, Modell und Aufwand von Plan-Gate- und PR-Critic-Jobs, damit ihre Umgebung klar von der Task-Session unterscheidbar ist."
 }

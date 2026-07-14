@@ -375,7 +375,7 @@ export interface AppDeps {
   /** Snapshot of critic verdicts keyed by session id (+ in-flight run ids); absent in tests that skip it. */
   reviewCache?: {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
-    reviewing?(): string[];
+    reviewing?(): Array<{ id: string } & import("./types").ReviewerEnv>;
   };
   /** Snapshot of plan-gate verdicts keyed by session id (+ in-flight reviewer ids); absent in
    *  tests that skip it. The parallel of reviewCache for the pre-execution plan gate. */

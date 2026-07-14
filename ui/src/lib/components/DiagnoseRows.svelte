@@ -23,10 +23,11 @@
   // ids currently running a fix (button disabled + "Running…"); cleared on settle.
   const busyIds = new SvelteSet<string>();
 
-  // A Fix button shows iff the check is non-ok AND the server attached a remediation
-  // command — guidance-only rows (tailscale) and ok rows carry none → no button.
+  // A Fix button shows iff the check is non-ok AND carries a one-click fix — either a
+  // shell `remediation` command OR a path-free `fixActionKey` (server-side code fix, e.g.
+  // claude folder-trust). Guidance-only rows (tailscale) and ok rows carry neither → no button.
   function fixable(check: DiagnosticCheck): boolean {
-    return check.state !== "ok" && !!check.remediation;
+    return check.state !== "ok" && (!!check.remediation || !!check.fixActionKey);
   }
 
   async function runFix() {
@@ -138,6 +139,13 @@
 
 {#if confirming}
   {@const cmd = confirming.remediation}
+  <!-- Code fix (claude folder-trust): no shell command — it runs a server-side config
+       seed, so the modal uses code-fix chrome (title/run label) and renders the
+       `fixActionKey` sentence as PROSE, never the command-styled <code> block. -->
+  {@const codeFix = !confirming.remediation && confirming.fixActionKey}
+  {@const title = codeFix
+    ? m.diagnostics_fix_confirm_title_code()
+    : m.diagnostics_fix_confirm_title()}
   <!-- Blocking confirm: scoped .overlay supplies position/scrim; the global .overlay
        rule (app.css) layers the blur so the diagnose tab recedes behind it. -->
   <div
@@ -151,19 +159,23 @@
       class="card"
       role="dialog"
       aria-modal="true"
-      aria-label={m.diagnostics_fix_confirm_title()}
+      aria-label={title}
       use:dialog={{ onclose: () => (confirming = null) }}
     >
-      <span class="micro chead">{m.diagnostics_fix_confirm_title()}</span>
-      <p class="desc">{m.diagnostics_fix_confirm_body()}</p>
-      <!-- Verbatim command — data, not chrome → never translated. -->
-      <code class="cmd">{cmd}</code>
+      <span class="micro chead">{title}</span>
+      {#if codeFix}
+        <p class="desc">{hint(confirming.fixActionKey!)}</p>
+      {:else}
+        <p class="desc">{m.diagnostics_fix_confirm_body()}</p>
+        <!-- Verbatim command — data, not chrome → never translated. -->
+        <code class="cmd">{cmd}</code>
+      {/if}
       <div class="actions">
         <button type="button" class="ghost micro" onclick={() => (confirming = null)}>
           {m.common_cancel()}
         </button>
         <button type="button" class="run micro" onclick={runFix}>
-          {m.diagnostics_fix_confirm_run()}
+          {codeFix ? m.diagnostics_fix_confirm_run_code() : m.diagnostics_fix_confirm_run()}
         </button>
       </div>
     </div>

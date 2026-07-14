@@ -67,6 +67,10 @@ function healthyDeps(): DiagnosticsDeps {
     // Pin the Codex auth mode so the codex_model_auth advisory is deterministically absent here
     // (it must not depend on the test host's real ~/.codex/auth.json).
     readCodexAuthMode: () => "unknown",
+    // claude_trust (#1683) surfaces only under subscription auth with Claude present. Pin both so
+    // the ambient snapshot is deterministic and all-ok (trusted → ok); override per case below.
+    isApiKeyAuth: () => false,
+    readClaudeTrusted: async () => true,
   };
 }
 
@@ -79,12 +83,13 @@ function byId(checks: DiagnosticCheck[], id: string): DiagnosticCheck {
 // Probe-payload purity: a check carries id/state/hintKey + (optionally) the
 // non-secret `remediation` command — and NOTHING else (no stdout/tokens/paths).
 function assertPure(check: DiagnosticCheck) {
-  const allowed = new Set(["hintKey", "id", "remediation", "state"]);
+  const allowed = new Set(["hintKey", "id", "remediation", "state", "fixActionKey"]);
   for (const k of Object.keys(check)) expect(allowed.has(k)).toBe(true);
   expect(typeof check.id).toBe("string");
   expect(typeof check.state).toBe("string");
   expect(typeof check.hintKey).toBe("string");
   if ("remediation" in check) expect(typeof check.remediation).toBe("string");
+  if ("fixActionKey" in check) expect(typeof check.fixActionKey).toBe("string");
 }
 
 describe("DiagnosticsService probes", () => {
@@ -93,10 +98,11 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(8);
+    expect(snap.checks).toHaveLength(9);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
+      "claude_trust",
       "codex",
       "gh",
       "git",
@@ -298,6 +304,43 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(0);
     expect(byId(snap.checks, "codex").state).toBe("optional");
     expect(snap.overall).toBe("ok");
+  });
+
+  // ── claude_trust (#1683): subscription-only, claude-gated folder-trust surfacing ──
+  it("claude_trust: ok when Claude Code trusts the repo root", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), readClaudeTrusted: async () => true });
+    const c = byId((await svc.check(0)).checks, "claude_trust");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_trust_ok");
+    expect(c.fixActionKey).toBeUndefined();
+  });
+  it("claude_trust: warning + path-free fixActionKey when untrusted", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), readClaudeTrusted: async () => false });
+    const snap = await svc.check(0);
+    const c = byId(snap.checks, "claude_trust");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_trust_untrusted");
+    expect(c.fixActionKey).toBe("diagnostics_fix_action_claude_trust");
+    expect(c.remediation).toBeUndefined(); // code fix, not a shell command
+    expect(snap.overall).toBe("warning");
+  });
+  it("claude_trust: absent under api-key auth (probe never wedges anything)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      isApiKeyAuth: () => true,
+      readClaudeTrusted: async () => false, // would be a warning if it surfaced
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "claude_trust")).toBeUndefined();
+  });
+  it("claude_trust: absent when Claude Code is not installed", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runVersion: versionRunner({ ...HEALTHY_VERSIONS, claude: new Error("ENOENT") }),
+      readClaudeTrusted: async () => false,
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "claude_trust")).toBeUndefined();
   });
 
   // ── gh: exit-code only, never stdout ─────────────────────────────────────────
@@ -636,10 +679,11 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(9);
+    expect(snap.checks).toHaveLength(10);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
+      "claude_trust",
       "codex",
       "gh",
       "git",
@@ -871,6 +915,41 @@ describe("DiagnosticsService.fix", () => {
       },
     });
     await expect(svc.fix("bun", 0)).rejects.toThrow("remediation exited 1");
+  });
+
+  // ── claude_trust (#1683): code-fix dispatch by hintKey — seeds trust, no shell command ──
+  it("claude_trust: seeds folder trust then re-probe flips to ok", async () => {
+    let seeded = false;
+    let trustCalls = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readClaudeTrusted: async () => seeded, // untrusted until the seed
+      trustClaude: async () => {
+        trustCalls++;
+        seeded = true;
+      },
+    });
+    const snap = await svc.fix("claude_trust", 0);
+    expect(trustCalls).toBe(1);
+    const c = byId(snap.checks, "claude_trust");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_claude_trust_ok");
+  });
+  it("claude_trust: read-gated — skips the seed write when already trusted at fix time", async () => {
+    let reads = 0;
+    let trustCalls = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      // Untrusted on the first (probe) read so the untrusted check exists; trusted by the
+      // gate read (seeded meanwhile) → the write must be skipped, no clobber of live state.
+      readClaudeTrusted: async () => reads++ > 0,
+      trustClaude: async () => {
+        trustCalls++;
+      },
+    });
+    const snap = await svc.fix("claude_trust", 0);
+    expect(trustCalls).toBe(0);
+    expect(byId(snap.checks, "claude_trust").state).toBe("ok");
   });
 });
 

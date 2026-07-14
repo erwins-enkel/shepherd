@@ -18,6 +18,8 @@ import { compareSemver } from "./herdr-update";
 import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
 import { readCodexAuthMode } from "./codex-auth";
+import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "./claude-trust";
+import { isApiKeyMode } from "./spawn-auth";
 import {
   resolveRoleEnvironment,
   CHATGPT_INCOMPATIBLE_CODEX_MODELS,
@@ -120,6 +122,15 @@ export interface DiagnosticsDeps {
   readCodexAuthMode?: () => CodexAuthMode;
   /** Additional live Codex models configured outside role/global settings (repo defaults, epics). */
   configuredCodexModels?: () => readonly (string | null)[];
+  /** True iff Claude Code trusts `config.repoRoot` (`hasTrustDialogAccepted`). Default reads the
+   *  config-dir-aware `.claude.json`. Injected in tests to drive the `claude_trust` check. */
+  readClaudeTrusted?: () => Promise<boolean>;
+  /** Seed `config.repoRoot`'s trust flag — the `claude_trust` code fix. Default writes the same
+   *  `.claude.json`. Injected in tests to spy the one-click fix without touching a real config. */
+  trustClaude?: () => Promise<void>;
+  /** True when the operator selected api-key auth mode. Module-level `isApiKeyMode` wrapped as a
+   *  dep so the subscription-only `claude_trust` gate is deterministic in tests. */
+  isApiKeyAuth?: () => boolean;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -234,6 +245,24 @@ function defaultHerdrLiveness(bin: string, timeoutMs: number): Promise<void> {
   });
 }
 
+/** Resolve the claude folder-trust deps for the `claude_trust` check + code fix (#1683),
+ *  applying test overrides. Kept out of the constructor so its config-dir resolution and
+ *  fallbacks don't inflate the constructor's complexity. Defaults target the SAME
+ *  config-dir-aware `.claude.json` Claude reads, scoped to `config.repoRoot` (the /usage
+ *  probe's cwd) — see claude-trust.ts / usage-probe.ts. */
+function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
+  readClaudeTrusted: () => Promise<boolean>;
+  trustClaude: () => Promise<void>;
+  isApiKeyAuth: () => boolean;
+} {
+  const cfg = claudeConfigPath(process.env.HOME ?? "", config.claudeDir);
+  return {
+    readClaudeTrusted: deps.readClaudeTrusted ?? (() => readRepoRootTrusted(cfg, config.repoRoot)),
+    trustClaude: deps.trustClaude ?? (() => trustRepoRoot(cfg, config.repoRoot)),
+    isApiKeyAuth: deps.isApiKeyAuth ?? isApiKeyMode,
+  };
+}
+
 /**
  * Server-side environment-readiness diagnostics (issue #623). Fans dependency
  * probes with `Promise.all` behind a TTL cache. Mirrors HerdrUpdateService:
@@ -261,6 +290,9 @@ export class DiagnosticsService {
   private anyLightweightRepo: () => boolean;
   private detectCodexAuthMode: () => CodexAuthMode;
   private configuredCodexModels: () => readonly (string | null)[];
+  private readClaudeTrusted: () => Promise<boolean>;
+  private trustClaude: () => Promise<void>;
+  private isApiKeyAuth: () => boolean;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -307,6 +339,10 @@ export class DiagnosticsService {
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
     this.detectCodexAuthMode = deps.readCodexAuthMode ?? readCodexAuthMode;
     this.configuredCodexModels = deps.configuredCodexModels ?? (() => []);
+    const trust = resolveClaudeTrustDeps(deps);
+    this.readClaudeTrusted = trust.readClaudeTrusted;
+    this.trustClaude = trust.trustClaude;
+    this.isApiKeyAuth = trust.isApiKeyAuth;
   }
 
   /**
@@ -488,7 +524,8 @@ export class DiagnosticsService {
 
   /** Claude Code and Codex are interchangeable agent runtimes for Shepherd:
    *  at least one must exist, the other is optional but still diagnosed. Both are
-   *  PRESENCE-ONLY (no login/auth probe, no config-dir parsing). */
+   *  PRESENCE-ONLY (no login/auth probe, no config-dir parsing). Claude presence
+   *  ALSO gates the `claude_trust` folder-trust check (below).  */
   private agentCliProbes = async (): Promise<DiagnosticCheck[]> => {
     const [claudeOk, codexOk] = await Promise.all([
       this.runVersion("claude", ["--version"])
@@ -499,7 +536,7 @@ export class DiagnosticsService {
         .catch(() => false),
     ]);
     const anyAgentCli = claudeOk || codexOk;
-    return [
+    const checks: DiagnosticCheck[] = [
       claudeOk
         ? { id: "claude", state: "ok", hintKey: "diagnostics_hint_claude_ok" }
         : {
@@ -519,6 +556,23 @@ export class DiagnosticsService {
               : "diagnostics_hint_codex_missing",
           },
     ];
+    // Folder-trust surfacing (#1683) — ONLY under subscription auth with Claude present. In api-key
+    // mode the /usage probe short-circuits (never spawns), so an untrusted path wedges nothing and
+    // the warning would be spurious. When untrusted, carry a path-free `fixActionKey` (a code fix,
+    // no shell command) so the row offers a one-click reseed of `config.repoRoot`'s trust flag.
+    if (claudeOk && !this.isApiKeyAuth()) {
+      checks.push(
+        (await this.readClaudeTrusted())
+          ? { id: "claude_trust", state: "ok", hintKey: "diagnostics_hint_claude_trust_ok" }
+          : {
+              id: "claude_trust",
+              state: "warning",
+              hintKey: "diagnostics_hint_claude_trust_untrusted",
+              fixActionKey: "diagnostics_fix_action_claude_trust",
+            },
+      );
+    }
+    return checks;
   };
 
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
@@ -643,14 +697,23 @@ export class DiagnosticsService {
     return this.check(now);
   }
 
-  /** Run the verbatim remediation for `checkId`'s current hintKey, then force a fresh
-   *  probe and return the new snapshot. Throws if the check is unknown or has no
-   *  auto-fix command (guidance-only / prose-only). A failing command REJECTS
-   *  (fail-closed) — the caller maps that to an explicit failure, never a false pass. */
+  /** Run the fix for `checkId`'s current hintKey, then force a fresh probe and return
+   *  the new snapshot. Two dispatch paths, both fail-closed (a rejection propagates so
+   *  the caller maps it to an explicit failure, never a false pass):
+   *   - **code fix** (dispatched by hintKey): the `claude_trust` untrusted check seeds
+   *     `config.repoRoot`'s folder-trust flag — a dynamic path payload-purity keeps out
+   *     of `remediation`, so it has no shell command. Read-gated (skips the write when
+   *     already trusted); same whole-file clobber caveat as the /usage probe seed.
+   *   - **shell remediation**: the verbatim command for the hintKey.
+   *  Throws if the check is unknown or has neither a code fix nor an auto-fix command. */
   async fix(checkId: string, now: number): Promise<DiagnosticsSnapshot> {
     const snapshot = await this.current(now);
     const check = snapshot.checks.find((c) => c.id === checkId);
     if (!check) throw new Error(`unknown check ${checkId}`);
+    if (check.hintKey === "diagnostics_hint_claude_trust_untrusted") {
+      if (!(await this.readClaudeTrusted())) await this.trustClaude(); // read-gated seed
+      return this.check(now); // forced re-probe reflects the fix
+    }
     const cmd = autoFixCommandFor(check.hintKey);
     if (!cmd) throw new Error(`no remediation for ${checkId}`);
     await this.runRemediation(cmd); // rejection propagates → fail closed

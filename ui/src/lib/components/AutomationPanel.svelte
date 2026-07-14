@@ -5,13 +5,14 @@
 
   let {
     repoPath,
-    sessionId,
+    sessionId = undefined,
     planPhase = null,
     drain = null,
     onClose,
   }: {
     repoPath: string;
-    sessionId: string;
+    /** Optional on repo-wide entry points that are not attached to a live task. */
+    sessionId?: string;
     planPhase?: Session["planPhase"];
     /** Live drain status for this repo; passed from GitRail via the store.
      *  When drain.epicParent is set, label-drain is suspended by the active epic. */

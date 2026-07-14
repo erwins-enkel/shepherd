@@ -289,12 +289,42 @@ describe("RepoSwitcher — filter rail", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.repo_chip_add_filter() }))
       .toBeVisible();
-    (document.querySelectorAll(".rs-menu-item")[1] as HTMLElement).click();
+    (page.getByRole("menuitem", { name: m.repo_chip_add_filter() }).element() as HTMLElement).click();
     await tick();
 
     // Same path as Shift+click: additive toggle.
     expect(onrepofilter).toHaveBeenCalledWith("/repo/alpha", true);
     expect(document.querySelector(".rs-menu"), "menu closes after filtering").toBeNull();
+  });
+
+  it("opens the selected repo's automation settings from the chip menu", async () => {
+    render(RepoSwitcher, {
+      chips: [
+        chip({
+          repoPath: "/repo/alpha",
+          drain: drain({ repoPath: "/repo/alpha", enabled: true, max: 7 }),
+        }),
+        chip({ repoPath: "/repo/beta" }),
+      ],
+      repoFilter: new Set<string>(),
+      onrepofilter: () => {},
+    });
+    const alpha = document.querySelector(".rs-chip") as HTMLElement;
+    alpha.dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+
+    const action = page.getByRole("menuitem", { name: /repo automation/i });
+    await expect.element(action).toBeVisible();
+    await action.click();
+
+    await vi.waitFor(() => {
+      const panel = document.querySelector<HTMLElement>(".auto-pop");
+      expect(panel, "automation settings panel opened").not.toBeNull();
+      expect(panel?.getAttribute("aria-label")).toBe(m.automation_panel_title());
+    });
+    expect(document.querySelector(".rs-menu"), "menu closes before settings opens").toBeNull();
   });
 
   it("the filter menu item reads 'Remove from filter' when the repo is already filtered", async () => {
@@ -312,9 +342,9 @@ describe("RepoSwitcher — filter rail", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }))
       .toBeVisible();
-    expect(
-      document.querySelector(`.rs-menu-item[role="menuitem"]:nth-child(2)`)?.textContent,
-    ).toContain(m.repo_chip_remove_filter());
+    expect(page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }).element().textContent).toContain(
+      m.repo_chip_remove_filter(),
+    );
   });
 
   it("shows a GitHub repo webpage link when the lazy repo lookup resolves to GitHub", async () => {
@@ -401,7 +431,7 @@ describe("RepoSwitcher — filter rail", () => {
     );
 
     const items = [...document.querySelectorAll<HTMLElement>(".rs-menu-item")];
-    expect(items.length).toBe(3);
+    expect(items.length).toBe(4);
     // The open effect focuses the first item.
     expect(document.activeElement).toBe(items[0]);
 
@@ -410,11 +440,11 @@ describe("RepoSwitcher — filter rail", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     expect(document.activeElement).toBe(items[2]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    expect(document.activeElement).toBe(items[2]);
+    expect(document.activeElement).toBe(items[3]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     expect(document.activeElement).toBe(items[0]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
-    expect(document.activeElement).toBe(items[2]);
+    expect(document.activeElement).toBe(items[3]);
 
     // Escape still closes.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

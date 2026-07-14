@@ -55,6 +55,14 @@ const PROFILES = ["default", "shep-onb"];
  *  `timeout 120` bounds the stop: it blocks on the unit's job, and incus.ts's RUNNER_TIMEOUT_MS
  *  is 20min — unbounded, a wedged stop would turn a fast, legible failure into a hung run.
  *
+ *  The stop is NOT `|| true`-swallowed. Blanket-ignoring its status would hide a wedged stop
+ *  (timeout ⇒ 124) or an unreachable bus, and we would then `rm -rf` + re-init the keyring while
+ *  the writer we failed to stop is STILL RUNNING — silently re-entering the very race this
+ *  function exists to close, degrading back to a flaky nightly. So we separate the one benign
+ *  case from real failures: `systemctl list-unit-files` (0 present / 1 absent) gates the stop, an
+ *  absent unit is skipped, and a present unit that will not stop fails this CHECKED baseline step
+ *  loudly. `reset-failed` keeps its `|| true` — it is pure cosmetics.
+ *
  *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8 non-Arch
  *  scenarios). Runs as root — `driver.exec` → `incus exec` is root by default, which
  *  `pacman-key` and `systemctl` require. */
@@ -62,9 +70,28 @@ function archKeyringRefresh(): string {
   return [
     "command -v pacman >/dev/null 2>&1 || exit 0",
     "set -e",
-    "timeout 120 systemctl stop pacman-init.service archlinux-keyring-wkd-sync.timer " +
-      "archlinux-keyring-wkd-sync.service >/dev/null 2>&1 || true",
-    "systemctl reset-failed pacman-init.service >/dev/null 2>&1 || true",
+    // Only systemd can be running the writers. No systemd as PID 1 ⇒ pacman-init/wkd-sync
+    // never ran ⇒ nothing to race, so skip the block rather than fail on a missing bus.
+    'if [ "$(cat /proc/1/comm 2>/dev/null)" = systemd ]; then',
+    // systemd IS PID 1, so the bus must answer. If it doesn't we cannot know whether a
+    // writer is live — fail loudly instead of silently proceeding (see the `continue` below,
+    // which would otherwise read an unreachable bus as "unit absent").
+    "  systemctl list-unit-files --no-legend >/dev/null 2>&1 || " +
+      "{ echo 'FATAL: systemd is PID 1 but its bus is unreachable; cannot verify the keyring " +
+      "writers are stopped' >&2; exit 1; }",
+    "  for u in pacman-init.service archlinux-keyring-wkd-sync.timer " +
+      "archlinux-keyring-wkd-sync.service; do",
+    // Absent unit (exit 1) is the ONLY benign skip: there is nothing to stop.
+    '    systemctl list-unit-files "$u" >/dev/null 2>&1 || continue',
+    // The unit exists, so a stop MUST succeed. Anything else — a 120s timeout (124), a bus
+    // error — means a writer may still be live, and rebuilding the keyring under it would
+    // silently re-enter the #1738 race. Fail the (checked) baseline step instead.
+    '    timeout 120 systemctl stop "$u" >/dev/null 2>&1 || ' +
+      '{ rc=$?; echo "FATAL: could not stop $u (exit $rc); refusing to rebuild the keyring ' +
+      'while a writer may still be running" >&2; exit 1; }',
+    "  done",
+    "  systemctl reset-failed pacman-init.service >/dev/null 2>&1 || true",
+    "fi",
     "gpgconf --homedir /etc/pacman.d/gnupg --kill all >/dev/null 2>&1 || true",
     "rm -rf /etc/pacman.d/gnupg",
     "pacman-key --init",

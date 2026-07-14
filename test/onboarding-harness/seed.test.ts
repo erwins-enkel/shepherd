@@ -101,6 +101,15 @@ describe("seedInstance", () => {
     // BOUNDED: `systemctl stop` blocks on the unit's job; unbounded it could hang to the
     // 20min RUNNER_TIMEOUT_MS SIGKILL instead of failing fast.
     expect(step).toContain("timeout 120 systemctl stop");
+
+    // The stop must NOT be `|| true`-swallowed: that would hide a wedged stop (timeout ⇒ 124)
+    // or an unreachable bus, and we would then rm -rf + re-init the keyring while the writer
+    // we failed to stop is still running — silently back in the #1738 race. An ABSENT unit is
+    // the only benign skip (gated on `list-unit-files`); a present-but-unstoppable one must
+    // fail this checked baseline step loudly.
+    expect(/systemctl stop[^\n]*\|\|\s*true/.test(step)).toBe(false);
+    expect(step).toContain('systemctl list-unit-files "$u"');
+    expect(/systemctl stop[^\n]*\|\|[\s\S]*exit 1/.test(step)).toBe(true);
   });
 
   it("the herdr stub is a CHECKED baseline step (a failure aborts the seed)", async () => {

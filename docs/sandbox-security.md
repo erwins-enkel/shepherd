@@ -51,7 +51,7 @@ secrets out of the membrane entirely.
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
 is watching (`willEgressConfine`, `src/sandbox.ts:565-570`; applied at
-`src/service.ts:1882`): the wrap applies iff the autonomous profile resolves
+`src/service.ts:1873`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -108,7 +108,7 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L2591-2610, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L2697, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. The same downgrade applies to an
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
@@ -117,14 +117,14 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   route materializes the draft. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
-  `src/autopilot.ts:24-29`, dispatched at L323). It ingests **untrusted web**
+  `src/autopilot.ts:42-47`, dispatched at L335). It ingests **untrusted web**
   content on `trusted`/`standard` with the **network open**, and can
   `gh pr create` / open issues via the bound gh token — so a hijacked research
   agent has **both** readable tokens **and** open egress.
 
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
-  (`src/autopilot.ts:326-330`). The residual is **accepted**.
+  (`src/autopilot.ts:40-45`). The residual is **accepted**.
 
 ## See also
 

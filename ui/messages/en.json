@@ -3115,5 +3115,7 @@
   "settings_default_environment_title": "Default coding environment",
   "settings_default_environment_hint": "Choose the CLI and its model for new tasks and unattended work. Shepherd remembers a separate model for Claude Code and Codex.",
   "feat_default_coding_environment_title": "Choose a default CLI and model",
-  "feat_default_coding_environment_body": "Settings now remembers separate default models for Claude Code and Codex. New tasks and unattended starts use the model paired with the selected coding CLI."
+  "feat_default_coding_environment_body": "Settings now remembers separate default models for Claude Code and Codex. New tasks and unattended starts use the model paired with the selected coding CLI.",
+  "feat_mobile_herd_accordion_title": "Fold lifecycle groups on mobile",
+  "feat_mobile_herd_accordion_body": "The phone herd now keeps only one named lifecycle group open at a time. Your turn opens by default; tap any larger group header to switch or close it while active sessions stay visible."
 }

@@ -47,6 +47,9 @@
     // Optional stage explainer: a right-aligned "i" that opens a tooltip describing what
     // this lifecycle stage means, what Shepherd does automatically, and what happens next.
     help?: { text: string; label: string } | null;
+    collapsible?: boolean;
+    expanded?: boolean;
+    ontoggle?: () => void;
     ctx: HerdRowCtx;
   };
 
@@ -58,14 +61,25 @@
     action = null,
     withPreview = false,
     help = null,
+    collapsible = false,
+    expanded = true,
+    ontoggle = undefined,
     ctx,
   }: HerdGroupProps = $props();
 </script>
 
 {#if headClass}
-  <div class="{headClass} micro">
-    {#if countLabel}{countLabel}{/if}
-    {#if aboveLabel}<span class="above">{aboveLabel}</span>{/if}
+  <div class="{headClass} micro" class:collapsible>
+    {#if collapsible}
+      <button class="group-toggle" type="button" aria-expanded={expanded} onclick={ontoggle}>
+        <span class="chev" class:collapsed={!expanded} aria-hidden="true">▾</span>
+        {#if countLabel}<span>{countLabel}</span>{/if}
+        {#if aboveLabel}<span class="above">{aboveLabel}</span>{/if}
+      </button>
+    {:else}
+      {#if countLabel}{countLabel}{/if}
+      {#if aboveLabel}<span class="above">{aboveLabel}</span>{/if}
+    {/if}
     {#if action || help}
       <!-- right-aligned cluster: the optional bulk action, then the stage-explainer "i"
            (kept rightmost for a consistent target across every header). -->
@@ -85,32 +99,34 @@
     {/if}
   </div>
 {/if}
-{#each sessions as session (session.id)}
-  <UnitRow
-    {session}
-    selected={session.id === ctx.selectedId}
-    nowMs={ctx.nowMs}
-    onselect={ctx.onselect}
-    git={ctx.git[session.id]}
-    activity={ctx.activity[session.id]}
-    previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
-    previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
-    onpreview={withPreview ? ctx.onpreview : undefined}
-    ondecommission={ctx.ondecommission}
-    onrename={ctx.onrename}
-    onrelaunch={ctx.onrelaunch}
-    onrelaunchElsewhere={ctx.onrelaunchElsewhere}
-    onvariant={ctx.onvariant}
-    onreplace={ctx.onreplace}
-    repoFilter={ctx.repoFilter}
-    onrepofilter={ctx.onrepofilter}
-    workingBlocked={ctx.workingBlocked}
-    quotaKind={ctx.quotaKindFor(session.id)}
-    hold={ctx.holdFor(session.id)}
-    onackmanualsteps={ctx.onackmanualsteps}
-    onshowowed={ctx.onshowowed}
-  />
-{/each}
+{#if !collapsible || expanded}
+  {#each sessions as session (session.id)}
+    <UnitRow
+      {session}
+      selected={session.id === ctx.selectedId}
+      nowMs={ctx.nowMs}
+      onselect={ctx.onselect}
+      git={ctx.git[session.id]}
+      activity={ctx.activity[session.id]}
+      previewPort={withPreview ? (ctx.preview[session.id] ?? null) : null}
+      previewServeFailed={withPreview ? ctx.previewServe[session.id] === "failed" : false}
+      onpreview={withPreview ? ctx.onpreview : undefined}
+      ondecommission={ctx.ondecommission}
+      onrename={ctx.onrename}
+      onrelaunch={ctx.onrelaunch}
+      onrelaunchElsewhere={ctx.onrelaunchElsewhere}
+      onvariant={ctx.onvariant}
+      onreplace={ctx.onreplace}
+      repoFilter={ctx.repoFilter}
+      onrepofilter={ctx.onrepofilter}
+      workingBlocked={ctx.workingBlocked}
+      quotaKind={ctx.quotaKindFor(session.id)}
+      hold={ctx.holdFor(session.id)}
+      onackmanualsteps={ctx.onackmanualsteps}
+      onshowowed={ctx.onshowowed}
+    />
+  {/each}
+{/if}
 
 <style>
   .micro {
@@ -118,6 +134,42 @@
     letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--color-muted);
+  }
+
+  .micro.collapsible {
+    min-height: 44px;
+    padding-block: 0;
+  }
+
+  .group-toggle {
+    display: flex;
+    align-items: center;
+    align-self: stretch;
+    gap: 7px;
+    flex: 1;
+    min-width: 0;
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    letter-spacing: inherit;
+    text-transform: inherit;
+    text-align: left;
+    cursor: pointer;
+  }
+  .group-toggle:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  .chev {
+    flex: none;
+    transition: transform 0.12s ease;
+  }
+  .chev.collapsed {
+    transform: rotate(-90deg);
   }
 
   /* amber section headers for the in-flight stages (PR CI running, critic
@@ -223,6 +275,13 @@
   .merge-train:focus-visible {
     outline: none;
     box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  .collapsible .merge-train,
+  .collapsible .clear-merged {
+    align-self: stretch;
+    min-height: 44px;
+    padding-inline: 8px;
   }
 
   /* right-aligned bulk action in the merged group header */

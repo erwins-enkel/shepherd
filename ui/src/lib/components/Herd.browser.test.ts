@@ -193,6 +193,97 @@ describe("Herd merge-train link", () => {
   });
 });
 
+describe("Herd mobile lifecycle accordion", () => {
+  afterEach(() => {
+    reviews.setReviewing("mobile-review", false);
+  });
+
+  it("opens Your turn by default and keeps ungrouped active sessions visible", async () => {
+    reviews.setReviewing("mobile-review", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "active", name: "active session", status: "running" }),
+        session({ id: "mobile-review", name: "review session" }),
+        session({ id: "your-turn", name: "your turn session" }),
+      ],
+      git: { "your-turn": openPr },
+      flow: true,
+    });
+
+    const yourTurn = page.getByRole("button", { name: /Your turn \(1\)/i });
+    const reviewing = page.getByRole("button", { name: /Reviewing \(1\)/i });
+    await expect.element(yourTurn).toHaveAttribute("aria-expanded", "true");
+    await expect.element(reviewing).toHaveAttribute("aria-expanded", "false");
+    await expect.element(page.getByText("active session")).toBeInTheDocument();
+    await expect.element(page.getByText("your turn session")).toBeInTheDocument();
+    await expect.element(page.getByText("review session")).not.toBeInTheDocument();
+
+    const reviewToggleHeight = (reviewing.element() as HTMLElement).getBoundingClientRect().height;
+    expect(reviewToggleHeight).toBeGreaterThanOrEqual(44);
+  });
+
+  it("opens only the tapped group and lets a second tap close it", async () => {
+    reviews.setReviewing("mobile-review", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "mobile-review", name: "review session" }),
+        session({ id: "your-turn", name: "your turn session" }),
+      ],
+      git: { "your-turn": openPr },
+      flow: true,
+    });
+
+    const yourTurn = page.getByRole("button", { name: /Your turn \(1\)/i });
+    const reviewing = page.getByRole("button", { name: /Reviewing \(1\)/i });
+    await reviewing.click();
+    await expect.element(reviewing).toHaveAttribute("aria-expanded", "true");
+    await expect.element(yourTurn).toHaveAttribute("aria-expanded", "false");
+    await expect.element(page.getByText("review session")).toBeInTheDocument();
+    await expect.element(page.getByText("your turn session")).not.toBeInTheDocument();
+
+    await reviewing.click();
+    await expect.element(reviewing).toHaveAttribute("aria-expanded", "false");
+    await expect.element(page.getByText("review session")).not.toBeInTheDocument();
+  });
+
+  it("keeps a group action separate from the disclosure toggle", async () => {
+    const onmergetrain = vi.fn();
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "ready", name: "ready session", readyToMerge: true })],
+      git: { ready: openPr },
+      flow: true,
+      onmergetrain,
+    });
+
+    const ready = page.getByRole("button", { name: /Ready to merge \(1\)/i });
+    await expect.element(ready).toHaveAttribute("aria-expanded", "false");
+    await page.getByRole("button", { name: "Merge train" }).click();
+    expect(onmergetrain).toHaveBeenCalledOnce();
+    await expect.element(ready).toHaveAttribute("aria-expanded", "false");
+  });
+
+  it("leaves lifecycle groups expanded and non-interactive on desktop", async () => {
+    reviews.setReviewing("mobile-review", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "mobile-review", name: "review session" }),
+        session({ id: "your-turn", name: "your turn session" }),
+      ],
+      git: { "your-turn": openPr },
+    });
+
+    await expect.element(page.getByText("review session")).toBeInTheDocument();
+    await expect.element(page.getByText("your turn session")).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: /Your turn \(1\)/i }))
+      .not.toBeInTheDocument();
+  });
+});
+
 describe("Herd Ready filter", () => {
   // reviews/planGates are module singletons — clear any state set per test so it
   // doesn't bleed into the next one.

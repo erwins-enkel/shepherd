@@ -7,6 +7,12 @@ These are the terms Shepherd uses across the UI and this documentation. The same
 definitions drive the inline term tooltips in the app (registry:
 `ui/src/lib/glossary.ts`).
 
+If you already know your way around, **Settings → Device → "Hide info tooltips"**
+(off by default, per-device) removes those dashed-underline glossary terms along
+with the app's ⓘ info icons; the terms stay in the text as plain words. Status
+chip and badge tooltips are unaffected. This page remains the full reference
+either way.
+
 ## Shepherd concepts
 
 ### Epic

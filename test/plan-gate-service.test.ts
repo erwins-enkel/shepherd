@@ -1753,6 +1753,28 @@ test("#1759: consider() reports started-at-cap when the rework budget is already
   expect(await h.svc.consider(planningSession() as any, { force: true })).toBe("started-at-cap");
 });
 
+test("#1759: consider() reports started-at-cap for an ERROR gate at the cap (the hold ignores decision)", async () => {
+  const hash = await PlanGateService.hashPlan("PLAN TEXT");
+  const h = harness({
+    cap: 2,
+    store: {
+      // An `error` verdict CARRIES its round (buildGate) and stays re-reviewable (consider() never
+      // dedups an error). If this re-review comes back `request-changes`, applyChangesRequested's
+      // at-cap hold — which keys on `round >= cap` ALONE — suppresses the steer. The trigger must say
+      // so, or an inert run reads as a landed round again.
+      getPlanGate: () => ({
+        planHash: hash,
+        approved: false,
+        decision: "error",
+        round: 2,
+        findings: [],
+      }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  expect(await h.svc.consider(planningSession() as any)).toBe("started-at-cap");
+});
+
 test("#1759: consider() reports plain started while the rework budget remains", async () => {
   const hash = await PlanGateService.hashPlan("PLAN TEXT");
   const h = harness({

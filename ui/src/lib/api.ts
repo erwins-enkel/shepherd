@@ -1746,8 +1746,9 @@ export type PlanReviewError = "error-spawn" | "error-worktree" | "error-auth";
 export type PlanReviewTrigger =
   "started" | "started-at-cap" | "skipped" | "plan-unavailable" | PlanReviewError;
 
-/** True for every outcome in which a reviewer actually spawned. Use this instead of `=== "started"`
- *  so an at-cap run isn't mistaken for a no-op or a failure (GitRail's fail-closed check inverts it). */
+/** True for every outcome in which a reviewer actually spawned. Use this instead of `=== "started"`:
+ *  the plan-review consumers all narrow explicitly, so a raw comparison silently drops the at-cap case
+ *  (no WS bridge, no note, no toast) and a real run reads as though nothing happened. */
 export function planReviewStarted(s: PlanReviewTrigger): boolean {
   return s === "started" || s === "started-at-cap";
 }

@@ -50,14 +50,17 @@
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
-  // The live rework streak, and whether its budget is already spent. Mirrors the server's at-cap hold
-  // (plan-gate.ts applyChangesRequested) — the same `changes_requested && round >= cap` predicate
-  // hold-row's `atCap` and canShowPlanStallActions key off. Drives the "spends a round" hint below the
-  // cap and clears the at-cap note once the streak leaves it.
+  // Whether the rework budget is spent. Mirrors the server's at-cap hold (plan-gate.ts
+  // applyChangesRequested + startedStatus) — which keys on `round >= cap` ALONE, so this must too: an
+  // `error` gate carries its round and stays re-reviewable, and its next `request-changes` verdict is
+  // held exactly the same way. Narrowing on `decision === "changes_requested"` here would clear the
+  // note the server just told us to show. Clears `heldAtCap` once the streak leaves the cap.
+  const atCap = $derived(!!gate && !gate.approved && gate.round >= gate.cap);
+  // The live rework streak — drives the "a click spends a round" hint. Narrowed to a
+  // changes-requested verdict on purpose: that's the state whose {round}/{cap} the operator sees.
   const rework = $derived(
     gate?.decision === "changes_requested" && !gate.approved ? gate : undefined,
   );
-  const atCap = $derived(!!rework && rework.round >= rework.cap);
   // Only `approved` renders the Review control inert: `force` re-reviews an unchanged plan, but the
   // server never bypasses `approved`. (The `reviewing` case is handled by the in-flight spinner path.)
   const planReviewBlock = $derived(canTriggerPlanReview(session, gate, reviewing));

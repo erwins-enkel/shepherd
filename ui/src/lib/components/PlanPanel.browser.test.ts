@@ -777,6 +777,22 @@ describe("PlanPanel at-cap re-review", () => {
       .toBeVisible();
   });
 
+  it("keeps the at-cap warning for an ERROR gate at the cap (the server's hold ignores decision)", async () => {
+    const id = "s-atcap-error";
+    // An `error` verdict carries its round and stays re-reviewable; its next request-changes verdict
+    // is held by the same `round >= cap` hold. Narrowing this panel on `changes_requested` would clear
+    // the note the server just told us to show.
+    planGates.map = {
+      [id]: gate(id, { decision: "error", round: 3, cap: 3, approved: false, findings: [] }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    await expect.element(page.getByText(m.planpanel_review_at_cap())).toBeVisible();
+  });
+
   it("tells the operator a sub-cap re-review spends a rework round", async () => {
     const id = "s-spend";
     planGates.map = {

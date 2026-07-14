@@ -40,8 +40,9 @@ import { resumeThenSteer } from "./resume-then-steer";
  *  instead. It can still legitimately come back `approve` and release the gate, which is why the run
  *  is allowed. Without this, an inert at-cap re-review is indistinguishable from a round that landed
  *  (issue #1759). Client-side, anything that only asks "did a run start?" must go through
- *  `planReviewStarted` (ui/src/lib/api.ts) rather than `=== "started"` — GitRail's plan-review check
- *  is fail-closed and inverted, so a raw comparison would read an at-cap run as a spawn failure. */
+ *  `planReviewStarted` (ui/src/lib/api.ts) rather than `=== "started"`: every plan-review consumer
+ *  narrows explicitly, so a raw comparison silently drops the at-cap case — no WS bridge, no note,
+ *  no toast — leaving a real run looking like nothing happened. */
 export type PlanReviewTrigger =
   | "started"
   | "started-at-cap"
@@ -1034,11 +1035,17 @@ export class PlanGateService {
  *  (applyChangesRequested's at-cap hold), so it says so at the trigger rather than reading as an
  *  ordinary landed round (#1759) — the operator needs Resume. Predicated on the PRE-review row, the
  *  same value that hold governs; an operator Resume landing mid-review resets the round and delivery
- *  happens after all, so the UI note is transient and the gate stays authoritative. Free function (not
- *  a method) to keep begin()'s cyclomatic count under the Fallow bar. */
+ *  happens after all, so the UI note is transient and the gate stays authoritative.
+ *
+ *  Keyed on `round` ALONE — exactly what the hold reads (`priorRound >= this.cap`). It must NOT also
+ *  require `decision === "changes_requested"`: an `error` gate CARRIES its round (buildGate) and is
+ *  deliberately re-reviewable on the auto-path (consider() never dedups an error verdict), so an
+ *  error-at-cap gate whose re-review comes back `request-changes` is held and never steered — the
+ *  exact inert-run-reads-as-landed defect this status exists to name. Two predicates for one hold is
+ *  how that hole opens; there is one. Free function (not a method) to keep begin()'s cyclomatic count
+ *  under the Fallow bar. */
 function startedStatus(prior: PlanGate | null, cap: number): PlanReviewTrigger {
-  const atCap = prior?.decision === "changes_requested" && prior.round >= cap;
-  return atCap ? "started-at-cap" : "started";
+  return (prior?.round ?? 0) >= cap ? "started-at-cap" : "started";
 }
 
 /** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */

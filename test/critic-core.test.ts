@@ -402,9 +402,15 @@ test("#1757 epic block: both critics emit it (the standalone critic reviews chil
   // standalone-critic reviews epic CHILD PRs whenever criticAllPrs is on (its carve-out is then
   // inert) and whenever the session critic is off (it is then the SOLE reviewer) — so the block
   // must reach prReviewPrompt, not just reviewPrompt.
+  // A KNOWN-STALE delta (siblings really did merge) — the canonical case, where the block may state
+  // that as fact. (The UNKNOWN case hedges instead; see its own test.)
+  const stale = {
+    ...EPIC,
+    delta: { paths: ["src/base-only.ts"], pathsTruncated: 0, commits: [], commitsTruncated: 0 },
+  };
   for (const p of [
-    reviewPrompt("BASE", "task", [], [], null, EPIC),
-    prReviewPrompt("BASE", "t", "body", EPIC),
+    reviewPrompt("BASE", "task", [], [], null, stale),
+    prReviewPrompt("BASE", "t", "body", stale),
   ]) {
     expect(p).toContain("EPIC CONTEXT");
     expect(p).toContain("epic/1757-critic");
@@ -649,9 +655,21 @@ test("#1757 first child of an epic: no false 'siblings already merged', and no s
 test("#1757 UNKNOWN delta (collection failed) stays conservative — enumerate + override", () => {
   // null != empty: git failed, so we do NOT know the tree is current. Assume it may be stale.
   const p = reviewPrompt("BASE", "task", [], [], null, { ...EPIC, delta: null });
-  expect(p).toContain("ALREADY MERGED");
   expect(p).toContain("Enumerate what your tree cannot see");
   expect(p).toContain("OVERRIDES the VERIFY rule");
+});
+
+test("#1757 UNKNOWN delta HEDGES — it never asserts siblings merged as established fact", () => {
+  // A failed collection is IGNORANCE. The epic's first child can be here too, so stating "siblings
+  // have ALREADY MERGED" would assert as ground truth precisely what we failed to determine — in a
+  // prompt whose whole purpose is to stop the critic from doing that. The conservative machinery
+  // still ships ("may be stale" is the safe assumption); it just isn't dressed up as fact.
+  const p = reviewPrompt("BASE", "task", [], [], null, { ...EPIC, delta: null });
+  expect(p).toContain("MAY ALREADY HAVE MERGED");
+  expect(p).toContain("could NOT be enumerated");
+  expect(p).toContain("assume the tree MAY be missing base content");
+  expect(p).not.toContain("Sibling children have ALREADY MERGED");
+  expect(p).not.toContain("is ABSENT from the tree: `Read`");
 });
 
 test("#1757 defaultCollectBaseDelta reports an EMPTY delta (not null) when nothing merged", async () => {

@@ -320,12 +320,21 @@ function epicBlock(epic: EpicContext): string[] {
   // malformed. The commit subjects are context for a real delta, never the reason there is one.
   const known = epic.delta ?? null;
   const knownCurrent = !!known && known.paths.length === 0;
+  // One header line per state — and the UNKNOWN one must HEDGE. Under a failed collection we have
+  // not established that anything merged (the epic's first child could be here too), so asserting
+  // "siblings have ALREADY MERGED" would state as ground truth exactly what we failed to determine —
+  // in a prompt whose entire purpose is to stop the critic doing that. Ignorance is stated as
+  // ignorance; the conservative stale-tree machinery below still ships, because "may be stale" is
+  // the safe assumption, but it is never dressed up as fact.
+  const header = knownCurrent
+    ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. The base carries NO content your fork point does not already have${known!.commits.length ? " (commits have landed on it, but their net diff against your fork point is empty — e.g. a revert pair)" : " (nothing has merged into it since this branch forked — you are its first child)"}, so your worktree is CURRENT with the base. Further children are STILL IN FLIGHT.`
+    : known
+      ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children have ALREADY MERGED into that base, and further children are STILL IN FLIGHT.`
+      : `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children MAY ALREADY HAVE MERGED into that base — the delta could NOT be enumerated here, so treat this as unknown, not as established fact. Further children are STILL IN FLIGHT.`;
   const lines = [
     "",
     "EPIC CONTEXT — this PR is ONE CHILD of a multi-PR epic:",
-    knownCurrent
-      ? `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. The base carries NO content your fork point does not already have${known!.commits.length ? " (commits have landed on it, but their net diff against your fork point is empty — e.g. a revert pair)" : " (nothing has merged into it since this branch forked — you are its first child)"}, so your worktree is CURRENT with the base. Further children are STILL IN FLIGHT.`
-      : `- Its base is the epic INTEGRATION BRANCH \`${epic.base}\`, not the default branch. Sibling children have ALREADY MERGED into that base, and further children are STILL IN FLIGHT.`,
+    header,
     "- Judge this PR against ITS OWN task only. Incompleteness versus the whole epic is NOT a finding, and work another child owns is not this PR's to do.",
   ];
   // Tree is current with the base → it is not missing anything, so the base-inspection machinery
@@ -333,7 +342,9 @@ function epicBlock(epic: EpicContext): string[] {
   // here: the epic-scope judging rule above is the whole point in that case.
   if (knownCurrent) return lines;
   lines.push(
-    "- Your checked-out worktree is this child's branch, which has NOT been rebased onto the base. Sibling work merged into the base after this branch forked is ABSENT from the tree: `Read`, `Glob` and `Grep` cannot see it.",
+    known
+      ? "- Your checked-out worktree is this child's branch, which has NOT been rebased onto the base. Sibling work merged into the base after this branch forked is ABSENT from the tree: `Read`, `Glob` and `Grep` cannot see it."
+      : "- Your checked-out worktree is this child's branch, which has NOT been rebased onto the base. Any sibling work merged into the base after this branch forked would therefore be ABSENT from the tree — `Read`, `Glob` and `Grep` could not see it — so assume the tree MAY be missing base content and verify against the base before concluding anything is absent.",
   );
   if (epic.baseSha) {
     const sha = epic.baseSha;

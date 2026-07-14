@@ -289,7 +289,9 @@ describe("RepoSwitcher — filter rail", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.repo_chip_add_filter() }))
       .toBeVisible();
-    (page.getByRole("menuitem", { name: m.repo_chip_add_filter() }).element() as HTMLElement).click();
+    (
+      page.getByRole("menuitem", { name: m.repo_chip_add_filter() }).element() as HTMLElement
+    ).click();
     await tick();
 
     // Same path as Shift+click: additive toggle.
@@ -342,9 +344,9 @@ describe("RepoSwitcher — filter rail", () => {
     await expect
       .element(page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }))
       .toBeVisible();
-    expect(page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }).element().textContent).toContain(
-      m.repo_chip_remove_filter(),
-    );
+    expect(
+      page.getByRole("menuitem", { name: m.repo_chip_remove_filter() }).element().textContent,
+    ).toContain(m.repo_chip_remove_filter());
   });
 
   it("shows a GitHub repo webpage link when the lazy repo lookup resolves to GitHub", async () => {

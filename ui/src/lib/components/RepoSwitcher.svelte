@@ -464,7 +464,13 @@
         ? m.repo_chip_unpin()
         : m.repo_chip_pin()}
     </button>
-    <button class="rs-menu-item" type="button" role="menuitem" tabindex="-1" onclick={openAutomation}>
+    <button
+      class="rs-menu-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={openAutomation}
+    >
       <span class="rs-menu-icon" aria-hidden="true">⚙</span>{m.repo_chip_automation_settings()}
     </button>
     {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
@@ -498,7 +504,11 @@
     bind:this={automationAnchor}
     style="left:{automation.left}px;top:{automation.top}px"
   >
-    <AutomationPanel repoPath={automation.chip.repoPath} drain={automation.chip.drain} onClose={closeAutomation} />
+    <AutomationPanel
+      repoPath={automation.chip.repoPath}
+      drain={automation.chip.drain}
+      onClose={closeAutomation}
+    />
   </div>
 {/if}
 

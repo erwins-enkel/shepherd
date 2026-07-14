@@ -291,6 +291,7 @@ describe("Settings Coding CLI sections", () => {
   });
 
   it("preserves an expanded section while switching Settings tabs", async () => {
+    await page.viewport(1280, 900);
     await mountCodingAgents();
     const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
     await disclosure.click();

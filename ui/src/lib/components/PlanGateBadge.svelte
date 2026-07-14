@@ -153,7 +153,15 @@
     busy = "review";
     try {
       const status = await reviewPlan(session.id);
-      if (status === "started") toasts.info(m.plangate_review_started());
+      // A real run either way; "started-at-cap" warns that its findings won't be re-sent (#1759).
+      if (status === "started-at-cap")
+        // 12s + hover-pause (alert), not the 4s notice tier: this warns that the run the
+        // operator just paid for will not deliver its findings. Keyed so repeat clicks replace.
+        toasts.info(m.plangate_review_at_cap(), {
+          alert: true,
+          key: `review-plan-at-cap:${session.id}`,
+        });
+      else if (status === "started") toasts.info(m.plangate_review_started());
       else if (status === "plan-unavailable" && !planGates.isReviewing(session.id))
         toasts.info(m.gitrail_review_plan_unavailable());
       else if (status === "skipped" && !planGates.isReviewing(session.id))

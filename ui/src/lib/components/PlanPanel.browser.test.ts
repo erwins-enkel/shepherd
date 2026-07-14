@@ -753,3 +753,88 @@ describe("PlanPanel visual blocks", () => {
     expect(document.querySelector(".plan-blocks-caption")).toBeNull();
   });
 });
+
+// ── #1759: an at-cap re-review must not read as a landed round ────────────────
+
+describe("PlanPanel at-cap re-review", () => {
+  it("warns that an at-cap re-review's findings won't reach the agent, and offers Resume", async () => {
+    const id = "s-atcap-note";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 3, cap: 3, approved: false }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+
+    // A REAL run started (never a failure note) — but the operator is told its findings won't be
+    // steered back, and Resume (which does deliver) stays on offer.
+    await expect.element(page.getByText(m.planpanel_review_at_cap())).toBeVisible();
+    expect(document.querySelector(".note.err")).toBeNull();
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_quota_resume() }))
+      .toBeVisible();
+  });
+
+  it("doesn't name Resume while the re-review is in flight — that's exactly when the CTA is hidden", async () => {
+    const id = "s-atcap-inflight";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 3, cap: 3, approved: false }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    // The WS reviewing flag lands — canShowPlanStallActions requires !reviewing, so Resume/Dismiss
+    // come off screen for the whole run. The note is set on the click, i.e. inside that very window.
+    planGates.reviewing = { [id]: true };
+
+    await expect.element(page.getByText(m.planpanel_review_at_cap_no_resume())).toBeVisible();
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent?.trim() === m.planpanel_quota_resume(),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the at-cap warning for an ERROR gate at the cap (the server's hold ignores decision)", async () => {
+    const id = "s-atcap-error";
+    // An `error` verdict carries its round and stays re-reviewable; its next request-changes verdict
+    // is held by the same `round >= cap` hold. Narrowing this panel on `changes_requested` would clear
+    // the note the server just told us to show.
+    planGates.map = {
+      [id]: gate(id, { decision: "error", round: 3, cap: 3, approved: false, findings: [] }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+
+    // …but with the variant that does NOT point at Resume: canShowPlanStallActions renders it only
+    // for a changes_requested verdict, so on an error gate that CTA is not on screen. Never name a
+    // button the operator can't see.
+    await expect.element(page.getByText(m.planpanel_review_at_cap_no_resume())).toBeVisible();
+    // The Resume CONTROL is genuinely absent here (the note only explains when it will appear).
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent?.trim() === m.planpanel_quota_resume(),
+      ),
+    ).toBe(false);
+  });
+
+  it("tells the operator a sub-cap re-review spends a rework round", async () => {
+    const id = "s-spend";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 1, cap: 3, approved: false }),
+    };
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await expect
+      .element(page.getByRole("button", { name: m.planpanel_review_now() }))
+      .toHaveAttribute("title", m.plangate_review_spends_round({ round: 1, cap: 3 }));
+  });
+});

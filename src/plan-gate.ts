@@ -24,15 +24,33 @@ import { fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 
-/** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`); the request
- *  was a no-op (`"skipped"` — not planning, a review already in flight/starting, a tombstone or
- *  plugin-abort during spawn, or an unchanged plan on the auto-path); the plan artifact is
- *  unavailable (`"plan-unavailable"`); or a spawn attempt failed with a specific cause —
- *  `"error-spawn"` (herdr couldn't start/register the reviewer), `"error-worktree"` (the review
- *  worktree couldn't be created), or `"error-auth"` (api-key mode with no key configured). The
- *  review-plan route relays this so the UI can name the cause instead of a generic failure. */
+/** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`, or
+ *  `"started-at-cap"` — see below); the request was a no-op (`"skipped"` — not planning, a review
+ *  already in flight/starting, a tombstone or plugin-abort during spawn, or an unchanged plan on the
+ *  auto-path); the plan artifact is unavailable (`"plan-unavailable"`); or a spawn attempt failed
+ *  with a specific cause — `"error-spawn"` (herdr couldn't start/register the reviewer),
+ *  `"error-worktree"` (the review worktree couldn't be created), or `"error-auth"` (api-key mode with
+ *  no key configured). The review-plan route relays this so the UI can name the cause instead of a
+ *  generic failure.
+ *
+ *  `"started-at-cap"` is a REAL run (treat it as started everywhere a spawn matters — the reviewing
+ *  indicator, the WS bridge, the not-a-failure check) that carries one extra fact: the rework streak
+ *  is already at/over the cap, so if this verdict comes back `request-changes` its findings will NOT
+ *  be steered to the planning agent (applyChangesRequested's at-cap hold) — the operator needs Resume
+ *  instead. It can still legitimately come back `approve` and release the gate, which is why the run
+ *  is allowed. Without this, an inert at-cap re-review is indistinguishable from a round that landed
+ *  (issue #1759). Client-side, anything that only asks "did a run start?" must go through
+ *  `planReviewStarted` (ui/src/lib/api.ts) rather than `=== "started"`: every plan-review consumer
+ *  narrows explicitly, so a raw comparison silently drops the at-cap case — no WS bridge, no note,
+ *  no toast — leaving a real run looking like nothing happened. */
 export type PlanReviewTrigger =
-  "started" | "skipped" | "plan-unavailable" | "error-spawn" | "error-worktree" | "error-auth";
+  | "started"
+  | "started-at-cap"
+  | "skipped"
+  | "plan-unavailable"
+  | "error-spawn"
+  | "error-worktree"
+  | "error-auth";
 
 /** Whether a settle edge should re-drive `consider()`. `done` always re-considers (first
  *  draft + any settle); `idle` re-considers ONLY when a prior gate already requested changes
@@ -255,7 +273,10 @@ interface PlanInFlight {
   reviewerModel: string | null;
   reviewerEffort: string | null;
   priorRound: number; // adversarial rounds already spent on this plan streak
-  forced: boolean; // this run is an operator's manual re-review (consider's opts.force) — governs the F3 hold + stall-signal guards
+  // This run is an operator's manual re-review (consider's opts.force). Since #1759 it governs ONLY
+  // the two stall-signal guards in escalateStallIfNeeded — a forced verdict now delivers its findings
+  // and spends a round exactly like an auto one.
+  forced: boolean;
   startedAt: number;
   finalizing?: boolean;
 }
@@ -320,7 +341,7 @@ export class PlanGateService {
   }
 
   /** Decide whether `session`'s current plan warrants a fresh adversarial review, and start one.
-   *  Returns `"started"` iff a reviewer actually spawned; `"skipped"` for a no-op — not planning,
+   *  Returns `"started"` (or `"started-at-cap"`) iff a reviewer actually spawned; `"skipped"` for a no-op — not planning,
    *  a review already in flight/starting, an already-`approved` gate, an unchanged plan on the
    *  auto-path, a `forget()` tombstone abort mid-fetch, or a plugin `onSpawn` refusal;
    *  `"plan-unavailable"` when the plan artifact is missing/unreadable/empty; or `"error"` if a
@@ -524,7 +545,7 @@ export class PlanGateService {
       model: reviewerEnv.model,
       effort: reviewerEffort,
     });
-    return "started";
+    return startedStatus(prior, this.cap);
   }
 
   /** Re-adopt plan reviews that were in flight when the server last stopped. The `inflight`
@@ -598,11 +619,13 @@ export class PlanGateService {
       reviewerEffort: sp.reviewerEffort ?? s.effort ?? null,
       priorRound: prior?.round ?? 0,
       // The `reviewer_spawns` row has no `forced` column, so a restart mid-forced-review resurrects
-      // the entry as `forced: false`. The divergence is deliberate: adding a column + migration to
-      // suppress one at-cap stall row isn't worth it, and it fails SAFE — after a crash "needs a
-      // human" is arguably true, and no operator is known to be present. Bounded at one stall row per
-      // restart per session, unreachable by clicking, so it can't walk the distiller toward its
-      // learnings-signal threshold. See applyChangesRequested's guards.
+      // the entry as `forced: false`. Since #1759 that costs NOTHING on delivery — a forced verdict
+      // steers and spends a round like an auto one either way — so the only divergence left is the
+      // stall-signal guards: this run may write an at-cap stall row a live forced run would have
+      // suppressed. Deliberate: a column + migration to suppress one row isn't worth it, and it fails
+      // SAFE — after a crash "needs a human" is arguably true, and no operator is known to be present.
+      // Bounded at one row per restart per session, unreachable by clicking, so it can't walk the
+      // distiller toward its learnings-signal threshold. See escalateStallIfNeeded's guards.
       forced: false,
       startedAt: sp.spawnedAt, // keep the original start so a verdict-less orphan times out
     };
@@ -760,25 +783,21 @@ export class PlanGateService {
   }
 
   /** Steer the findings back to the LIVE planning agent while under the cap; at/over the cap stop
-   *  steering and escalate to the operator. Execution stays gated until the plan is approved. */
+   *  steering and escalate to the operator. Execution stays gated until the plan is approved.
+   *
+   *  EVERY verdict takes this path, forced or not (issue #1759). A forced re-review of an UNCHANGED
+   *  plan used to hold the round and deliver nothing, on the theory that re-injecting identical
+   *  findings is noise. It isn't: the planning agent may have stopped revising precisely because it
+   *  didn't act on them, the reviewer writes a FRESH verdict each run, and — because `round` advances
+   *  only on a DELIVERED steer — suppressing delivery froze the round below the cap, where the
+   *  operator's only escape (Resume, gated on `round >= cap`) is not yet offered. That closed the
+   *  loop: no steer → plan unchanged → the next force is inert too. An operator's click means "send
+   *  these to the agent", so it now steers and spends a round like any other; repeated clicks walk the
+   *  round to the cap, where Resume/Dismiss render. */
   private async applyChangesRequested(f: PlanInFlight, gate: PlanGate): Promise<void> {
     // Read the LIVE (prior) gate — buildGate hasn't persisted this verdict yet, so this still
     // returns the pre-review row (with its round / finalRoundPending / planHash).
     const prior = this.deps.store.getPlanGate(f.sessionId);
-    // F3 — a forced re-review of an UNCHANGED plan is inert on the streak. The findings are
-    // identical to what the planning agent already holds, so re-injecting them is noise. Hold
-    // `round`, leave `finalRoundPending` as it was, deliver NO steer, and write NO signal — neither
-    // the at-cap crossing nor the sub-cap unreachable-pane escalation, since no delivery was
-    // attempted so "unreachable" is meaningless. The fresh verdict (summary/body/findings) is still
-    // persisted + surfaced; only the streak-advancing and signal side effects are suppressed. A
-    // forced review of a CHANGED plan (hash differs) is a real revision and falls through below.
-    if (f.forced && prior && prior.planHash === f.planHash) {
-      gate.round = prior.round; // live round (not the begin-time snapshot) — an operator reset wins
-      gate.finalRoundPending = prior.finalRoundPending;
-      this.deps.store.putPlanGate(gate);
-      this.deps.onChange(f.sessionId, gate);
-      return;
-    }
     // Carry the LIVE gate's round, not the begin-time snapshot: an operator resume()/dismiss() that
     // reset the round WHILE this review was in flight must win over this finalize, not be clobbered
     // back to the pre-reset value (the reviewer captured f.priorRound before the reset).
@@ -798,6 +817,10 @@ export class PlanGateService {
     // (priorRound === cap-1 → round === cap, delivered). The no-steer post-cap re-review
     // (priorRound >= cap, delivered=false) and every sub-cap round leave it false, so
     // planStallStatus can tell a genuine final round from a stall/takeover. See src/plan-status.ts.
+    // This RECOMPUTE (not a carry-forward) is uniform across forced and auto runs: a forced re-review
+    // at the cap therefore CLEARS a previously-true flag, flipping planStallStatus "final" → "stalled"
+    // and surfacing the recovery menu at once rather than after PLAN_FINAL_ROUND_TIMEOUT_MS. Intended:
+    // the flag means "the cap-th steer just landed", and this write is a NEW verdict on which none did.
     gate.finalRoundPending = delivered && gate.round >= this.cap;
     this.escalateStallIfNeeded(f, gate, delivered);
     this.deps.store.putPlanGate(gate);
@@ -807,13 +830,14 @@ export class PlanGateService {
   /** Emit the learnings `stall` signal when a changes-requested round can't progress on its own —
    *  at/over the cap, or sub-cap with an undelivered steer (dead pane). A forced re-review suppresses
    *  the signal so a repeat-clickable button can't spam the distiller: an at-cap RE-ENTRY
-   *  (`priorRound >= cap`) is fully suppressed, but a forced CROSSING (`priorRound === cap-1` whose
-   *  steer lands) still signals exactly once. Split out of applyChangesRequested to keep its
-   *  cognitive complexity within the health bar. */
+   *  (`priorRound >= cap`) is suppressed by guard #1 below, but a forced CROSSING (`priorRound ===
+   *  cap-1` whose steer lands) still signals exactly once. These two `f.forced` guards are now the
+   *  ONLY behaviour keyed off `forced` — since #1759 a forced verdict is otherwise an ordinary round.
+   *  Split out of applyChangesRequested to keep its cognitive complexity within the health bar. */
   private escalateStallIfNeeded(f: PlanInFlight, gate: PlanGate, delivered: boolean): void {
     if (gate.round >= this.cap) {
-      // Fires on the crossing round and on any re-review that re-enters already at the cap. NOT
-      // `!f.forced` — a forced crossing still signals once; only a forced at-cap re-entry is suppressed.
+      // Guard #1. Fires on the crossing round and on any re-review that re-enters already at the cap.
+      // NOT `!f.forced` — a forced crossing still signals once; only a forced at-cap re-entry is suppressed.
       if (!(f.forced && f.priorRound >= this.cap)) {
         this.deps.store.addSignal({
           repoPath: f.repoPath,
@@ -825,9 +849,9 @@ export class PlanGateService {
       return;
     }
     if (!delivered) {
-      // Sub-cap but the steer didn't land (dead/unreachable pane): stranded like a cap stall rather
-      // than mid-revision. Escalate so it surfaces — but suppress the learnings signal on a forced run
-      // (newly reachable per click and unbounded); the console.warn + rendered verdict still surface it.
+      // Guard #2. Sub-cap but the steer didn't land (dead/unreachable pane): stranded like a cap stall
+      // rather than mid-revision. Escalate so it surfaces — but suppress the learnings signal on a forced
+      // run (clickable at will and unbounded); the console.warn + rendered verdict still surface it.
       console.warn(
         `[plan-gate] changes-requested steer did not land for ${f.sessionId}; escalating`,
       );
@@ -1004,6 +1028,24 @@ export class PlanGateService {
     this.reapReviewer(sessionId);
     this.deps.store.dropPlanGate(sessionId);
   }
+}
+
+/** Which "a reviewer spawned" status a just-launched run reports. A run starting on an already-at-cap
+ *  rework streak will NOT re-steer its findings if it comes back `request-changes`
+ *  (applyChangesRequested's at-cap hold), so it says so at the trigger rather than reading as an
+ *  ordinary landed round (#1759) — the operator needs Resume. Predicated on the PRE-review row, the
+ *  same value that hold governs; an operator Resume landing mid-review resets the round and delivery
+ *  happens after all, so the UI note is transient and the gate stays authoritative.
+ *
+ *  Keyed on `round` ALONE — exactly what the hold reads (`priorRound >= this.cap`). It must NOT also
+ *  require `decision === "changes_requested"`: an `error` gate CARRIES its round (buildGate) and is
+ *  deliberately re-reviewable on the auto-path (consider() never dedups an error verdict), so an
+ *  error-at-cap gate whose re-review comes back `request-changes` is held and never steered — the
+ *  exact inert-run-reads-as-landed defect this status exists to name. Two predicates for one hold is
+ *  how that hole opens; there is one. Free function (not a method) to keep begin()'s cyclomatic count
+ *  under the Fallow bar. */
+function startedStatus(prior: PlanGate | null, cap: number): PlanReviewTrigger {
+  return (prior?.round ?? 0) >= cap ? "started-at-cap" : "started";
 }
 
 /** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */

@@ -146,6 +146,32 @@ test("POST /api/sessions/:id/review-plan → 202, calls consider, relays status:
   expect(considered[0]!.id).toBe(id);
 });
 
+test("POST /api/sessions/:id/review-plan → relays started-at-cap verbatim (#1759)", async () => {
+  const { app, store } = harness({
+    planGate: { consider: async () => "started-at-cap" as const },
+  });
+  const seeded = store.create({
+    name: "atcap",
+    prompt: "go",
+    repoPath: repoDir,
+    baseBranch: "main",
+    branch: "shepherd/atcap",
+    worktreePath: join(repoDir, "wt-atcap"),
+    isolated: true,
+    herdrSession: "sess-atcap",
+    herdrAgentId: "term_atcap",
+    claudeSessionId: "claude-atcap",
+    model: null,
+  });
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${seeded.id}/review-plan`, { method: "POST" }),
+  );
+  expect(res.status).toBe(202);
+  // A real run, but one whose findings won't be re-steered — the UI must be able to say so rather
+  // than let it read as a landed round.
+  expect(await res.json()).toEqual({ ok: true, status: "started-at-cap" });
+});
+
 test("POST /api/sessions/:id/review-plan → forwards { force: true } to consider (operator click bypasses dedupe)", async () => {
   const calls: Array<[Session, { force?: boolean } | undefined]> = [];
   const { app, store } = harness({

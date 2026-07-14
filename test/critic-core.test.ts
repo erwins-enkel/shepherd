@@ -636,7 +636,8 @@ test("#1757 first child of an epic: no false 'siblings already merged', and no s
     delta: { paths: [], pathsTruncated: 0, commits: [], commitsTruncated: 0 },
   });
   expect(p).toContain("EPIC CONTEXT");
-  expect(p).toContain("NOTHING has merged into that base since this branch forked");
+  expect(p).toContain("your worktree is CURRENT with the base");
+  expect(p).toContain("nothing has merged into it since this branch forked");
   expect(p).toContain("Incompleteness versus the whole epic is NOT a finding");
   // ...and none of the apparatus that only makes sense for a stale tree:
   expect(p).not.toContain("ALREADY MERGED");
@@ -677,4 +678,27 @@ test("#1757 defaultCollectBaseDelta reports an EMPTY delta (not null) when nothi
   expect(delta).not.toBeNull(); // NOT null — null means "we couldn't tell"
   expect(delta!.paths).toEqual([]);
   expect(delta!.commits).toEqual([]);
+});
+
+test("#1757 base commits with an EMPTY net diff (revert pair) still mean the tree is current", () => {
+  // Staleness is a property of CONTENT, not of commit count. Commits can land on the base whose net
+  // three-dot diff is empty (a revert pair, an empty commit). Keying the "tree is stale" decision on
+  // the commit list would then claim sibling work is ABSENT from the tree when nothing is — and emit
+  // the "...is exactly the paths below:" intro with no list under it.
+  const p = reviewPrompt("BASE", "task", [], [], null, {
+    ...EPIC,
+    delta: {
+      paths: [],
+      pathsTruncated: 0,
+      commits: ["abc1234 feat: add X", 'def5678 Revert "feat: add X"'],
+      commitsTruncated: 0,
+    },
+  });
+  expect(p).toContain("your worktree is CURRENT with the base");
+  expect(p).toContain("their net diff against your fork point is empty");
+  // none of the stale-tree apparatus, and no dangling promise of a list
+  expect(p).not.toContain("ABSENT from the tree");
+  expect(p).not.toContain("is exactly the paths below");
+  expect(p).not.toContain("OVERRIDES the VERIFY rule");
+  expect(p).not.toContain("⟦UNTRUSTED:base delta paths:");
 });

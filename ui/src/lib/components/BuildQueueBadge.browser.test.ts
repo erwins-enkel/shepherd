@@ -58,12 +58,12 @@ afterEach(() => {
 });
 
 describe("BuildQueueBadge", () => {
-  it("renders nothing when queue is unapproved (approved=false) even with steps", async () => {
+  it("renders progress when queue is unapproved (approved=false) with pending steps", async () => {
     buildQueues.map = {
-      s1: queue(false, [step("done", "1"), step("pending", "2")]),
+      s1: queue(false, [step("pending", "1"), step("pending", "2")]),
     };
     renderBadge({ sessionId: "s1", planPhase: "executing" });
-    expect(document.querySelector(".queue-badge")).toBeNull();
+    await expect.element(page.getByText("0/2")).toBeInTheDocument();
   });
 
   it("renders nothing when there is no queue for the session", async () => {

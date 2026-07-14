@@ -9,9 +9,11 @@ Shepherd is built to drive from the keyboard. These shortcuts are **desktop-only
 
 | Keys | Action |
 | --- | --- |
-| `⌘K` / `Ctrl+K` | Open the command bar — a quick-switcher over your sessions, repositories, and herd lenses. Fires even while an input or the terminal is focused. Type to filter, `↑` / `↓` to move, `Enter` to jump, `Esc` to close. |
+| `⌘K` / `Ctrl+K` | Open the command bar — a quick-switcher over your sessions, repositories, and herd lenses. Fires even while an input or the terminal is focused. Type to filter, `↑` / `↓` to move, `Enter` to activate the highlighted row, `Esc` to close. |
 
-The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting). Type part of a verb's name to surface it.
+The command bar also carries verbs beyond navigation — including **Next needs you**, which jumps to the next session waiting on your reply (offered whenever another session is waiting), and **Decommission**, which decommissions the session you have selected (offered whenever that session is on screen). Type part of a verb's name to surface it.
+
+Destructive verbs take **two** presses: the first `Enter` (or click) arms the row, which turns red and asks you to confirm; the second decommissions. The arm clears itself after three seconds, or as soon as you type or move the cursor. Decommission still opens the usual undo window, so an accidental confirm is recoverable until it expires.
 
 ## Session & herd navigation
 

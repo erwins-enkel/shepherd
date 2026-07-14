@@ -1819,6 +1819,15 @@
       onNextNeedsYou: () => selectNextNeedsYou(),
       onLearnings: openLearnings,
       onDiagnoseEpic: () => (showEpicDiagnose = true),
+      onDecommission: () => {
+        if (selectedId) onarchive(selectedId);
+      },
+      // Offered only where the operator can SEE the session it would destroy. The Done lens has
+      // its own selection space (doneSelectedId), so selectedId there is a stale leftover from the
+      // lens they came from; the panel-only lenses render no session list at all (shownSessions
+      // returns [] — the rail shows a panel and the main area a hint), so the selected session is
+      // invisible in both panes. Either way the verb would name a target that isn't on screen.
+      decommissionDesig: herdFilter === "done" || panelOnlyLens ? null : (selected?.desig ?? null),
       hasSessions,
       retryReady,
       otherNeedsYouCount: otherNeedsYou.length,

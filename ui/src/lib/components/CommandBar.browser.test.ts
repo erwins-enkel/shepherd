@@ -691,3 +691,186 @@ describe("CommandBar — Alt+digit quick-jump", () => {
     expect(rows[10].getAttribute("aria-keyshortcuts")).toBeNull();
   });
 });
+
+// ── two-step arm for destructive commands ──
+// A destructive verb (the real one is Decommission) carries a confirmLabel + confirmAria, which is
+// what makes the row two-step. Every test drives the real component contract: arm, then confirm.
+const CONFIRM = m.commandbar_cmd_decommission_confirm();
+const CONFIRM_ARIA = m.commandbar_cmd_decommission_confirm_aria({ desig: "TASK-07" });
+
+function seedDestructive(run = vi.fn()): { commands: Command[]; run: ReturnType<typeof vi.fn> } {
+  return {
+    commands: [
+      {
+        id: "decommission",
+        label: () => "Decommission TASK-07",
+        keywords: () => "archive remove",
+        confirmLabel: () => CONFIRM,
+        confirmAria: () => CONFIRM_ARIA,
+        run,
+      },
+    ],
+    run,
+  };
+}
+
+/** The dwell (300ms) drops a confirm that lands implausibly fast — a real operator's second
+ *  keystroke never does, but a test's does. Wait it out before every legitimate confirm. */
+const pastDwell = () => new Promise((r) => setTimeout(r, 320));
+
+const decomRow = () => page.getByRole("option", { name: /Decommission|Confirm/ });
+const srText = () => document.querySelector(".sr-only")?.textContent?.trim() ?? "";
+
+describe("CommandBar — destructive command two-step arm", () => {
+  it("arms on the first Enter (red row + spoken target) and fires only on the second", async () => {
+    const { commands, run } = seedDestructive();
+    const { onclose } = renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+
+    await userEvent.keyboard("{Enter}");
+    // Armed: the row swaps to the confirm copy, nothing has run, the bar stays open.
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    expect(decomRow().element().classList.contains("armed")).toBe(true);
+    expect(run).not.toHaveBeenCalled();
+    expect(onclose).not.toHaveBeenCalled();
+    // The announcement names the target — the short visible label drops it.
+    await vi.waitFor(() => expect(srText()).toBe(CONFIRM_ARIA));
+
+    await pastDwell();
+    await userEvent.keyboard("{Enter}");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not push the confirm copy into the visible empty region (no duplicate line)", async () => {
+    const { commands } = seedDestructive();
+    renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+    await userEvent.keyboard("{Enter}");
+
+    await vi.waitFor(() => expect(srText()).toBe(CONFIRM_ARIA));
+    const empty = document.querySelector(".cb-empty")!;
+    expect(empty.textContent?.trim()).toBe("");
+    expect(empty.classList.contains("filled")).toBe(false);
+  });
+
+  it("arm-by-click then confirm-by-click fires exactly once", async () => {
+    const { commands, run } = seedDestructive();
+    const { onclose } = renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+
+    await decomRow().click();
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    expect(run).not.toHaveBeenCalled();
+
+    await pastDwell();
+    await decomRow().click();
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(onclose).toHaveBeenCalledTimes(1);
+  });
+
+  it("arming by click moves the cursor onto the row, so a following Enter confirms THAT row", async () => {
+    // Rows have no hover handler, so a click never touches activeIdx on its own. Without the
+    // cursor sync, this Enter would fire options[activeIdx] — a different, unarmed command.
+    const run = vi.fn();
+    const other = vi.fn();
+    const commands: Command[] = [
+      { id: "usage", label: () => "Decommission decoy", run: other },
+      {
+        id: "decommission",
+        label: () => "Decommission TASK-07",
+        confirmLabel: () => CONFIRM,
+        confirmAria: () => CONFIRM_ARIA,
+        run,
+      },
+    ];
+    renderBar({ commands });
+    await page.getByRole("combobox").fill("decommission");
+
+    const rows = page.getByRole("option");
+    // The decoy ranks first; the destructive row is NOT the cursor before the click.
+    expect(rows.elements()[0].getAttribute("aria-selected")).toBe("true");
+    const armed = page.getByRole("option", { name: /TASK-07/ });
+    await armed.click();
+
+    // Cursor followed the arm: the armed row is now the active descendant.
+    const armedEl = document.querySelector(".cb-row.armed")!;
+    expect(armedEl.getAttribute("aria-selected")).toBe("true");
+    expect(page.getByRole("combobox").element().getAttribute("aria-activedescendant")).toBe(
+      armedEl.id,
+    );
+
+    // Confirm from the INPUT (not the row's own handler), so this exercises the cursor sync.
+    await pastDwell();
+    await page.getByRole("combobox").click();
+    await userEvent.keyboard("{Enter}");
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(other).not.toHaveBeenCalled();
+  });
+
+  it("a held key never fires — repeat keydowns are rejected on both the input and the row", async () => {
+    // The 300ms dwell cannot stop this: the OS initial repeat delay (~500ms) clears it easily.
+    // e.repeat is the only key-repeat defense, and after an arm-by-click the row (not the input)
+    // is the focused element receiving the keys.
+    const { commands, run } = seedDestructive();
+    renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+
+    const repeatKey = (el: Element, key: string) =>
+      el.dispatchEvent(
+        new KeyboardEvent("keydown", { key, repeat: true, bubbles: true, cancelable: true }),
+      );
+
+    // Held Enter on the input: cannot even arm.
+    repeatKey(page.getByRole("combobox").element(), "Enter");
+    expect(document.querySelector(".cb-row.armed")).toBeNull();
+    expect(run).not.toHaveBeenCalled();
+
+    // Arm for real, then hold Enter / Space on the row itself: cannot confirm.
+    await decomRow().click();
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await pastDwell();
+    repeatKey(decomRow().element(), "Enter");
+    repeatKey(decomRow().element(), " ");
+    expect(run).not.toHaveBeenCalled();
+
+    // A genuine (non-repeat) press still confirms.
+    await decomRow().click();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a confirm that lands inside the 300ms dwell (double-click guard)", async () => {
+    const { commands, run } = seedDestructive();
+    renderBar({ commands });
+    await page.getByRole("combobox").fill("decom");
+
+    await decomRow().click();
+    await decomRow().click(); // immediate second click — inside the dwell
+    expect(run).not.toHaveBeenCalled();
+    // Still armed, so a deliberate confirm afterwards works.
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await pastDwell();
+    await decomRow().click();
+    expect(run).toHaveBeenCalledTimes(1);
+  });
+
+  it("disarms on typing and on moving the cursor", async () => {
+    const { commands, run } = seedDestructive();
+    renderBar({ commands });
+    const input = page.getByRole("combobox");
+
+    await input.fill("decom");
+    await userEvent.keyboard("{Enter}");
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await input.fill("decomm"); // query change re-ranks the list → arm abandoned
+    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+    await vi.waitFor(() => expect(srText()).toBe(""));
+
+    await userEvent.keyboard("{Enter}");
+    await expect.element(decomRow()).toHaveTextContent(CONFIRM);
+    await userEvent.keyboard("{ArrowDown}"); // cursor move → arm abandoned
+    await expect.element(decomRow()).toHaveTextContent("Decommission TASK-07");
+
+    expect(run).not.toHaveBeenCalled();
+  });
+});

@@ -24,6 +24,7 @@ import {
 import { normalizeEffort } from "./default-effort";
 
 const SETTING_VALUES = new Set<string>(["auto", "default", ...MODELS]);
+const CODEX_SETTING_VALUES = new Set<string>(["default", ...CODEX_MODELS]);
 const CLAUDE_MODEL_VALUES = new Set<string>(MODELS);
 const CODEX_MODEL_VALUES = new Set<string>(CODEX_MODELS);
 
@@ -39,6 +40,12 @@ const REPO_SETTING_VALUES = new Set<string>(["inherit", ...SETTING_VALUES]);
 export function normalizeDefaultModelSetting(value: unknown): string | null {
   if (typeof value !== "string") return null;
   return SETTING_VALUES.has(value) ? value : null;
+}
+
+/** Normalize the persisted Codex default-model setting. */
+export function normalizeDefaultCodexModelSetting(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  return CODEX_SETTING_VALUES.has(value) ? value : null;
 }
 
 /**
@@ -129,6 +136,20 @@ export function resolveDefaultModelSetting(
   )
     return repoSetting;
   return globalSetting;
+}
+
+/** Resolve the selected provider's saved default, honoring only compatible repo overrides. */
+export function resolveProviderDefaultModelSetting(
+  repoSetting: string | null | undefined,
+  provider: AgentProvider,
+  claudeSetting: string,
+  codexSetting: string,
+): string {
+  const globalSetting = provider === "codex" ? codexSetting : claudeSetting;
+  const resolved = resolveDefaultModelSetting(repoSetting, globalSetting);
+  return modelCompatibleWithProvider(drainSpawnModel(resolved), provider)
+    ? resolved
+    : globalSetting;
 }
 
 /** How the operator's Codex CLI is authenticated. Some Codex models are rejected (HTTP 400) under

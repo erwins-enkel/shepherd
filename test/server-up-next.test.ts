@@ -13,6 +13,8 @@ let repoDir: string;
 const oldUsageHoldEnabled = config.usageHoldEnabled;
 const oldUsageHoldPct = config.usageHoldPct;
 const oldDefaultModel = config.defaultModel;
+const oldDefaultCodexModel = config.defaultCodexModel;
+const oldDefaultAgentProvider = config.defaultAgentProvider;
 const oldDefaultEffort = config.defaultEffort;
 
 beforeEach(() => {
@@ -22,12 +24,16 @@ beforeEach(() => {
   config.usageHoldEnabled = oldUsageHoldEnabled;
   config.usageHoldPct = oldUsageHoldPct;
   config.defaultModel = oldDefaultModel;
+  config.defaultCodexModel = oldDefaultCodexModel;
+  config.defaultAgentProvider = oldDefaultAgentProvider;
   config.defaultEffort = oldDefaultEffort;
 });
 afterEach(() => {
   config.usageHoldEnabled = oldUsageHoldEnabled;
   config.usageHoldPct = oldUsageHoldPct;
   config.defaultModel = oldDefaultModel;
+  config.defaultCodexModel = oldDefaultCodexModel;
+  config.defaultAgentProvider = oldDefaultAgentProvider;
   config.defaultEffort = oldDefaultEffort;
   rmSync(tmpRoot, { recursive: true, force: true });
 });
@@ -201,6 +207,33 @@ test("POST /api/up-next/start preserves default model and effort for provider-on
   expect(createCalls[0]!.agentProvider).toBe("claude");
   expect(createCalls[0]!.model).toBe("sonnet");
   expect(createCalls[0]!.effort).toBe("high");
+});
+
+test("POST /api/up-next/start uses the saved Codex model for a provider-only choice", async () => {
+  config.defaultModel = "sonnet";
+  config.defaultCodexModel = "gpt-5.4";
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }], {
+      agentProvider: "codex",
+    }),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls[0]!.agentProvider).toBe("codex");
+  expect(createCalls[0]!.model).toBe("gpt-5.4");
+});
+
+test("POST /api/up-next/start uses the saved model for the global default provider", async () => {
+  config.defaultAgentProvider = "codex";
+  config.defaultModel = "sonnet";
+  config.defaultCodexModel = "default";
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([{ repoPath: repoDir, issueRef: { number: 7, url: "u", title: "t", body: "b" } }]),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls[0]!.agentProvider).toBeUndefined();
+  expect(createCalls[0]!.model).toBeNull();
 });
 
 test("POST /api/up-next/start rejects invalid provider/model/effort choices", async () => {

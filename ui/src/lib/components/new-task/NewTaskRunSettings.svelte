@@ -8,7 +8,6 @@
   import ProviderCapacityGauge from "./ProviderCapacityGauge.svelte";
   import {
     AGENT_PROVIDERS,
-    CODEX_MODELS,
     type AgentProvider,
     type ProviderTokenConstraint,
     type SandboxProfile,
@@ -38,6 +37,7 @@
     relaunch,
     holdLikely,
     fableAvailable,
+    providerDefaultModel,
     providerConstraint = null,
   }: {
     planGate: boolean;
@@ -62,6 +62,7 @@
     relaunch: boolean;
     holdLikely: boolean;
     fableAvailable: boolean;
+    providerDefaultModel: string;
     providerConstraint?: ProviderTokenConstraint | null;
   } = $props();
 
@@ -75,9 +76,9 @@
     if (providerConstraint && !providerConstraint.providers.includes(agentProvider)) {
       agentProvider = providerConstraint.providers[0] ?? "claude";
     }
-    if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
-      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
-    }
+    model = modelAvailableForProvider(agentProvider, providerDefaultModel, fableAvailable)
+      ? providerDefaultModel
+      : "default";
   }
 
   function providerLabel(provider: AgentProvider | undefined): string {
@@ -86,7 +87,9 @@
 
   $effect(() => {
     if (!modelAvailableForProvider(agentProvider, model, fableAvailable)) {
-      model = agentProvider === "codex" ? CODEX_MODELS[0] : "default";
+      model = modelAvailableForProvider(agentProvider, providerDefaultModel, fableAvailable)
+        ? providerDefaultModel
+        : "default";
     }
   });
 

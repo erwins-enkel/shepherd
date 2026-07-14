@@ -2176,7 +2176,7 @@
   "settings_upnext_skip_cli_picker_hint": "When enabled, Up Next quick-start launches with your default coding CLI immediately, without asking which CLI to use — even when more than one is installed.",
   "settings_upnext_skip_cli_picker_save_failed": "Couldn't change the Up Next picker setting. Retry.",
   "settings_cli_claude_title": "Claude Code",
-  "settings_cli_claude_hint": "Claude-backed runs use these model and authentication settings.",
+  "settings_cli_claude_hint": "Claude-backed runs use these effort, language, and authentication settings.",
   "settings_cli_codex_title": "Codex",
   "settings_cli_codex_hint": "Codex runs through the local Codex CLI in a steerable terminal session. Alpha/MVP, under heavy development.",
   "settings_cli_codex_auth_title": "Authentication",
@@ -3108,5 +3108,12 @@
   "feat_automerge_session_jump_title": "Jump from Full-auto merge",
   "feat_automerge_session_jump_body": "Click any active Full-auto merge entry to jump straight to its task and terminal. Shepherd clears filters that would hide it and follows the task into the right repository.",
   "feat_build_queue_progress_toggle_title": "Open the build queue from progress",
-  "feat_build_queue_progress_toggle_body": "Click a session's progress badge to select it and open its build queue above the terminal. Click the selected session's badge again to collapse or expand the queue."
+  "feat_build_queue_progress_toggle_body": "Click a session's progress badge to select it and open its build queue above the terminal. Click the selected session's badge again to collapse or expand the queue.",
+  "settings_default_codex_model_title": "Codex model",
+  "settings_default_codex_model_hint": "Sets the Codex model for new tasks and Codex-backed autonomous starts. Default lets the local Codex CLI choose without a --model flag.",
+  "settings_default_codex_model_save_failed": "Couldn't change the default Codex model. Retry.",
+  "settings_default_environment_title": "Default coding environment",
+  "settings_default_environment_hint": "Choose the CLI and its model for new tasks and unattended work. Shepherd remembers a separate model for Claude Code and Codex.",
+  "feat_default_coding_environment_title": "Choose a default CLI and model",
+  "feat_default_coding_environment_body": "Settings now remembers separate default models for Claude Code and Codex. New tasks and unattended starts use the model paired with the selected coding CLI."
 }

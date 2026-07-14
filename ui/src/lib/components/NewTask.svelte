@@ -24,6 +24,7 @@
     type SandboxProfile,
     type SlashCommand,
     type Steer,
+    MODELS_BY_PROVIDER,
   } from "$lib/types";
   import { promoDefaultModel } from "$lib/fable-promo";
   import {
@@ -69,6 +70,7 @@
     initialEffort,
     defaultAgentProvider = "claude",
     defaultModel,
+    defaultCodexModel,
     defaultEffort,
     relaunch = false,
     editHeld = false,
@@ -119,6 +121,7 @@
     initialEffort?: string;
     defaultAgentProvider?: AgentProvider;
     defaultModel?: string;
+    defaultCodexModel?: string;
     defaultEffort?: string;
     relaunch?: boolean;
     editHeld?: boolean;
@@ -160,14 +163,25 @@
   // let the repo's current branch win on every subsequent load / repo switch.
   // svelte-ignore state_referenced_locally
   let seededBase = $state(initialBaseBranch != null);
+  // Seeds once from the overlay-resolved default CLI. The overlay may route a fresh
+  // task to a ready alternate provider when the configured default would hit a
+  // usage hold; explicit relaunch/edit-held seeds still win and preserve the task.
+  // svelte-ignore state_referenced_locally
+  let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
+
   // Picker preselect precedence: explicit initialModel (e.g. the "Try Fable" CTA) wins;
   // else the selected repo's default-model override; else the operator's global default
   // if it's an explicit model; else the fresh client promo (configured "auto", or
   // settings not yet loaded). NewTask remounts per open, so the promo cutoff is honored
   // fresh each open. `modelTouched` pins a manual pick so switching repos / a late repo
   // config load doesn't clobber it.
-  function preselectModel(configured: string | undefined): string {
-    const pick = configured && configured !== "auto" ? configured : promoDefaultModel();
+  function preselectModel(configured: string | undefined, provider: AgentProvider): string {
+    const pick =
+      configured && configured !== "auto"
+        ? configured
+        : provider === "claude"
+          ? promoDefaultModel()
+          : "default";
     return pick === "fable" && !fableAvailable ? "default" : pick;
   }
   // reads initialModel/fableAvailable once to compute the picker's seed (see preselectModel
@@ -177,7 +191,13 @@
   // seeds the model picker once; the $effect below re-derives it from the repo/global default
   // until the user picks one (modelTouched) — initial-value capture is intended here
   // svelte-ignore state_referenced_locally
-  let model = $state(safeInitial ?? preselectModel(defaultModel));
+  let model = $state(
+    safeInitial ??
+      preselectModel(
+        agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : defaultModel,
+        agentProvider,
+      ),
+  );
   let modelTouched = $state(false);
 
   // Effort picker preselect: a settings SETTING ("default" | <tier>) maps to a picker value; the
@@ -213,11 +233,6 @@
   let autopilot = $state(initialAutopilot ?? false);
   // svelte-ignore state_referenced_locally
   let autopilotTouched = $state(initialAutopilot != null);
-  // Seeds once from the overlay-resolved default CLI. The overlay may route a fresh
-  // task to a ready alternate provider when the configured default would hit a
-  // usage hold; explicit relaunch/edit-held seeds still win and preserve the task.
-  // svelte-ignore state_referenced_locally
-  let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   // svelte-ignore state_referenced_locally
   let research = $state(initialResearch);
@@ -461,11 +476,20 @@
   // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit
   // initialModel (CTA) pinned it or the user already picked a model by hand.
   const repoModelOverride = $derived(repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit");
-  const effectiveModelSetting = $derived(
-    repoModelOverride !== "inherit" ? repoModelOverride : (defaultModel ?? "auto"),
+  const providerModelSetting = $derived(
+    agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : (defaultModel ?? "auto"),
   );
+  const effectiveModelSetting = $derived(
+    repoModelOverride !== "inherit" &&
+      (repoModelOverride === "auto" ||
+        repoModelOverride === "default" ||
+        MODELS_BY_PROVIDER[agentProvider].includes(repoModelOverride))
+      ? repoModelOverride
+      : providerModelSetting,
+  );
+  const providerDefaultModel = $derived(preselectModel(effectiveModelSetting, agentProvider));
   $effect(() => {
-    if (initialModel == null && !modelTouched) model = preselectModel(effectiveModelSetting);
+    if (initialModel == null && !modelTouched) model = providerDefaultModel;
   });
 
   // Effort mirrors the model re-seed: repo override (unless "inherit") → global default effort.
@@ -1212,6 +1236,7 @@
         {usageLimits}
         {relaunch}
         {fableAvailable}
+        {providerDefaultModel}
         providerConstraint={activeProviderConstraint}
       />
 

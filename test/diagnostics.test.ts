@@ -1119,6 +1119,27 @@ describe("codex_model_auth advisory", () => {
     });
   });
 
+  it("checks the provider-specific global Codex default", async () => {
+    const savedProvider = config.defaultAgentProvider;
+    const savedClaudeModel = config.defaultModel;
+    const savedCodexModel = config.defaultCodexModel;
+    config.defaultAgentProvider = "codex";
+    config.defaultModel = "sonnet";
+    config.defaultCodexModel = "gpt-5.3-codex";
+    try {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        readCodexAuthMode: () => "chatgpt",
+      });
+      const c = byId((await svc.check(0)).checks, "codex_model_auth");
+      expect(c.state).toBe("warning");
+    } finally {
+      config.defaultAgentProvider = savedProvider;
+      config.defaultModel = savedClaudeModel;
+      config.defaultCodexModel = savedCodexModel;
+    }
+  });
+
   it("does NOT warn under apikey auth (the model is supported there)", async () => {
     await withRecap("codex", "gpt-5.3-codex", async () => {
       const svc = new DiagnosticsService({

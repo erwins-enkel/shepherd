@@ -2176,7 +2176,7 @@
   "settings_upnext_skip_cli_picker_hint": "Wenn aktiviert, startet der Schnellstart in „Als Nächstes“ sofort mit deiner Standard-Coding-CLI, ohne nachzufragen, welche CLI verwendet werden soll — auch wenn mehr als eine installiert ist.",
   "settings_upnext_skip_cli_picker_save_failed": "Einstellung für die „Als Nächstes“-Auswahl konnte nicht geändert werden. Erneut versuchen.",
   "settings_cli_claude_title": "Claude Code",
-  "settings_cli_claude_hint": "Claude-basierte Läufe verwenden diese Modell- und Authentifizierungseinstellungen.",
+  "settings_cli_claude_hint": "Claude-basierte Läufe verwenden diese Einstellungen für Aufwand, Sprache und Authentifizierung.",
   "settings_cli_codex_title": "Codex",
   "settings_cli_codex_hint": "Codex läuft über die lokale Codex-CLI in einer steuerbaren Terminal-Session. Alpha/MVP, wird gerade intensiv weiterentwickelt.",
   "settings_cli_codex_auth_title": "Authentifizierung",
@@ -3108,5 +3108,12 @@
   "feat_automerge_session_jump_title": "Aus Voll-Auto-Merge springen",
   "feat_automerge_session_jump_body": "Klicke auf einen aktiven Voll-Auto-Merge-Eintrag, um direkt zu seinem Task und Terminal zu springen. Shepherd entfernt Filter, die ihn verbergen würden, und folgt dem Task ins richtige Repository.",
   "feat_build_queue_progress_toggle_title": "Build-Queue direkt öffnen",
-  "feat_build_queue_progress_toggle_body": "Klicke auf das Fortschritts-Badge einer Session, um sie auszuwählen und ihre Build-Queue über dem Terminal zu öffnen. Klicke erneut auf das Badge der ausgewählten Session, um die Queue ein- oder auszuklappen."
+  "feat_build_queue_progress_toggle_body": "Klicke auf das Fortschritts-Badge einer Session, um sie auszuwählen und ihre Build-Queue über dem Terminal zu öffnen. Klicke erneut auf das Badge der ausgewählten Session, um die Queue ein- oder auszuklappen.",
+  "settings_default_codex_model_title": "Codex-Modell",
+  "settings_default_codex_model_hint": "Legt das Codex-Modell für neue Aufgaben und Codex-basierte autonome Starts fest. Standard lässt die lokale Codex-CLI ohne --model-Flag wählen.",
+  "settings_default_codex_model_save_failed": "Das Standard-Codex-Modell konnte nicht geändert werden. Erneut versuchen.",
+  "settings_default_environment_title": "Standard-Coding-Umgebung",
+  "settings_default_environment_hint": "Wähle CLI und Modell für neue Aufgaben und unbeaufsichtigte Arbeit. Shepherd merkt sich je ein Modell für Claude Code und Codex.",
+  "feat_default_coding_environment_title": "Standard-CLI und -Modell wählen",
+  "feat_default_coding_environment_body": "Die Einstellungen merken sich jetzt getrennte Standardmodelle für Claude Code und Codex. Neue Aufgaben und unbeaufsichtigte Starts verwenden das zur ausgewählten Coding-CLI gehörende Modell."
 }

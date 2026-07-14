@@ -337,23 +337,22 @@ test("spawn fills to cap: 3 labeled issues, maxAuto 2 → creates exactly 2 auto
   expect(h.statuses.at(-1)?.inFlight).toBe(2);
 });
 
-test("ChatGPT auth clamps a blocked Codex repo default before drain create", async () => {
-  const prior = config.defaultAgentProvider;
-  const priorModel = config.defaultModel;
+test("ChatGPT auth clamps a blocked Codex global default before drain create", async () => {
+  const savedProvider = config.defaultAgentProvider;
+  const savedCodexModel = config.defaultCodexModel;
   config.defaultAgentProvider = "codex";
-  config.defaultModel = "gpt-5.3-codex";
+  config.defaultCodexModel = "gpt-5.3-codex";
   try {
     const h = makeHarness({
       issues: [issue(1)],
       maxAuto: 1,
-      repoDefaultModel: "gpt-5.3-codex",
       authMode: "chatgpt",
     });
     await h.drain.pump(REPO);
     expect(h.creates[0]?.model).toBeNull();
   } finally {
-    config.defaultAgentProvider = prior;
-    config.defaultModel = priorModel;
+    config.defaultAgentProvider = savedProvider;
+    config.defaultCodexModel = savedCodexModel;
   }
 });
 
@@ -1495,7 +1494,11 @@ describe("drain epic mode", () => {
 
   test("running epic inheriting global Codex default spawns despite Claude usage ceiling", async () => {
     const saved = config.defaultAgentProvider;
+    const savedClaudeModel = config.defaultModel;
+    const savedCodexModel = config.defaultCodexModel;
     config.defaultAgentProvider = "codex";
+    config.defaultModel = "sonnet";
+    config.defaultCodexModel = "gpt-5.4";
     try {
       const h = epicHarness("running", "auto", {
         usagePct: 100,
@@ -1504,11 +1507,14 @@ describe("drain epic mode", () => {
       await h.drain.pump(REPO);
       expect(h.creates).toHaveLength(1);
       expect(h.creates[0]!.agentProvider).toBeUndefined();
+      expect(h.creates[0]!.model).toBe("gpt-5.4");
       const last = h.statuses.at(-1)!;
       expect(last.paused).toBe(false);
       expect(last.reason).not.toBe("usage");
     } finally {
       config.defaultAgentProvider = saved;
+      config.defaultModel = savedClaudeModel;
+      config.defaultCodexModel = savedCodexModel;
     }
   });
 

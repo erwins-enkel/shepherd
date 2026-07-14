@@ -1009,6 +1009,7 @@ function buildSettings(): Settings {
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
+    defaultCodexModel: "gpt-5.5",
     defaultEffort: "default",
     operatorLanguage: "en",
     criticCli: "inherit",

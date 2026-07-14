@@ -4,7 +4,13 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { Settings as SettingsPayload, DiagnosticCheck } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { getSettings, verifyApiKey, putAnthropicApiKey, fixDiagnostic } from "$lib/api";
+import {
+  getSettings,
+  verifyApiKey,
+  putAnthropicApiKey,
+  putDefaultCodexModel,
+  fixDiagnostic,
+} from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
@@ -21,6 +27,9 @@ vi.mock("$lib/api", async (importOriginal) => {
     verifyApiKey: vi.fn(),
     putAnthropicApiKey: vi.fn(),
     putAuthMode: vi.fn(async () => ({ authMode: "api-key", hasApiKey: true })),
+    putDefaultAgentProvider: vi.fn(async (provider) => ({ defaultAgentProvider: provider })),
+    putDefaultModel: vi.fn(async (model) => ({ defaultModel: model })),
+    putDefaultCodexModel: vi.fn(async (model) => ({ defaultCodexModel: model })),
   };
 });
 
@@ -45,6 +54,7 @@ const { default: Settings } = await import("./Settings.svelte");
 const mockGetSettings = vi.mocked(getSettings);
 const mockVerify = vi.mocked(verifyApiKey);
 const mockPutKey = vi.mocked(putAnthropicApiKey);
+const mockPutCodexModel = vi.mocked(putDefaultCodexModel);
 const mockFix = vi.mocked(fixDiagnostic);
 
 function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
@@ -55,6 +65,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
+    defaultCodexModel: "gpt-5.5",
     defaultEffort: "default",
     operatorLanguage: "en",
     criticCli: "inherit",
@@ -137,6 +148,8 @@ beforeEach(() => {
   mockGetSettings.mockReset();
   mockVerify.mockReset();
   mockPutKey.mockReset();
+  mockPutCodexModel.mockReset();
+  mockPutCodexModel.mockImplementation(async (model) => ({ defaultCodexModel: model }));
   // Default seed: api-key mode, key configured → Verify button renders.
   mockGetSettings.mockResolvedValue(settings());
 });
@@ -154,6 +167,70 @@ const keyInput = () => page.getByRole("textbox", { name: m.settings_auth_key_lab
 function mountCodingAgents() {
   render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
+
+describe("Settings default coding environment", () => {
+  it("loads the saved model for the selected Codex CLI", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
+    );
+    mountCodingAgents();
+
+    const model = page.getByTestId("default-environment-model");
+    await expect.element(model).toHaveValue("gpt-5.4");
+  });
+
+  it("switching CLI restores each CLI's saved model", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({
+        defaultAgentProvider: "claude",
+        defaultModel: "opus",
+        defaultCodexModel: "gpt-5.4",
+      }),
+    );
+    mountCodingAgents();
+
+    const provider = page.getByRole("combobox", {
+      name: m.settings_default_agent_provider_title(),
+    });
+    const model = page.getByTestId("default-environment-model");
+    await expect.element(model).toHaveValue("opus");
+    await provider.selectOptions("codex");
+    await expect.element(model).toHaveValue("gpt-5.4");
+    await provider.selectOptions("claude");
+    await expect.element(model).toHaveValue("opus");
+  });
+
+  it("saves Codex model changes through the Codex preference endpoint", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
+    );
+    mountCodingAgents();
+
+    const model = page.getByTestId("default-environment-model");
+    await model.selectOptions("gpt-5.6-luna");
+
+    await vi.waitFor(() => expect(mockPutCodexModel).toHaveBeenCalledWith("gpt-5.6-luna"));
+  });
+
+  it("reverts a Codex model change when saving fails", async () => {
+    toasts.items = [];
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
+    );
+    mockPutCodexModel.mockRejectedValue(new Error("save failed"));
+    mountCodingAgents();
+
+    const model = page.getByTestId("default-environment-model");
+    await model.selectOptions("gpt-5.6-luna");
+
+    await expect.element(model).toHaveValue("gpt-5.4");
+    await vi.waitFor(() =>
+      expect(
+        toasts.items.some((toast) => toast.text === m.settings_default_codex_model_save_failed()),
+      ).toBe(true),
+    );
+  });
+});
 
 describe("Settings api-key verify", () => {
   it("verify → OK renders the verified line", async () => {

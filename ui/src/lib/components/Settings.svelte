@@ -7,6 +7,7 @@
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
+    putDefaultCodexModel,
     putDefaultEffort,
     putOperatorLanguage,
     putRoleModel,
@@ -44,7 +45,6 @@
     MODELS,
     EFFORTS,
     MODELS_BY_PROVIDER,
-    PREMIUM_MODELS,
     type AgentProvider,
     type HerdrUpdateStatus,
     type CodexUpdateStatus,
@@ -57,6 +57,7 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
+  import SettingsDefaultEnvironment from "$lib/components/settings/SettingsDefaultEnvironment.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -257,6 +258,9 @@
   let defaultModel = $state("auto"); // raw default-model setting (auto|default|<alias>)
   let defaultModelSaved = "auto"; // last server-confirmed value, for revert on failure
   let defaultModelBusy = $state(false);
+  let defaultCodexModel = $state("gpt-5.5");
+  let defaultCodexModelSaved = "gpt-5.5";
+  let defaultCodexModelBusy = $state(false);
 
   let defaultEffort = $state("default"); // raw default-effort setting ("default"|<tier>)
   let defaultEffortSaved = "default"; // last server-confirmed value, for revert on failure
@@ -267,11 +271,6 @@
   let defaultAgentProvider = $state<AgentProvider>("claude");
   let defaultAgentProviderSaved: AgentProvider = "claude";
   let defaultAgentProviderBusy = $state(false);
-  const isPremiumModel = $derived(PREMIUM_MODELS.includes(defaultModel));
-  // 1M-context variants ("opus[1m]"/"sonnet[1m]") carry an extra per-turn cost the
-  // generic premium warning doesn't convey, so they surface an additional note.
-  const is1mModel = $derived(defaultModel.endsWith("[1m]"));
-
   // Per-role ENVIRONMENT overrides (plan reviewer, PR critic, recap, doc-agent, namer, autopilot).
   // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
   // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
@@ -379,7 +378,7 @@
       if (token !== "default" && !MODELS_BY_PROVIDER[cli].includes(token)) token = "default";
     } else {
       provider = defaultAgentProvider;
-      token = defaultModel; // "auto" | "default" | <alias>
+      token = provider === "codex" ? defaultCodexModel : defaultModel;
     }
     let model: string;
     let modelLbl: string;
@@ -600,6 +599,24 @@
       });
     } finally {
       defaultModelBusy = false;
+    }
+  }
+
+  async function saveDefaultCodexModel() {
+    if (defaultCodexModelBusy) return;
+    defaultCodexModelBusy = true;
+    try {
+      const r = await putDefaultCodexModel(defaultCodexModel);
+      defaultCodexModel = r.defaultCodexModel;
+      defaultCodexModelSaved = r.defaultCodexModel;
+    } catch {
+      defaultCodexModel = defaultCodexModelSaved;
+      toasts.info(m.settings_default_codex_model_save_failed(), {
+        key: "default-codex-model",
+        alert: true,
+      });
+    } finally {
+      defaultCodexModelBusy = false;
     }
   }
 
@@ -1002,6 +1019,8 @@
   function applyModelPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
     defaultModel = s.defaultModel ?? "auto";
     defaultModelSaved = defaultModel;
+    defaultCodexModel = s.defaultCodexModel ?? "gpt-5.5";
+    defaultCodexModelSaved = defaultCodexModel;
     defaultEffort = s.defaultEffort ?? "default";
     defaultEffortSaved = defaultEffort;
     operatorLanguage = s.operatorLanguage ?? "en";
@@ -1162,23 +1181,18 @@
       aria-label={m.settings_tab_coding_agents()}
       hidden={tab !== "codingAgents"}
     >
-      <div class="rc cli-default">
-        <span class="micro">{m.settings_default_agent_provider_title()}</span>
-        <p class="hint">{m.settings_default_agent_provider_hint()}</p>
-        <select
-          class="model-select"
-          bind:value={defaultAgentProvider}
-          disabled={defaultAgentProviderBusy}
-          aria-label={m.settings_default_agent_provider_title()}
-          onchange={saveDefaultAgentProvider}
-        >
-          {#each AGENT_PROVIDERS as provider (provider)}
-            <option value={provider}>
-              {provider === "claude" ? m.agent_provider_claude() : m.agent_provider_codex_alpha()}
-            </option>
-          {/each}
-        </select>
-      </div>
+      <SettingsDefaultEnvironment
+        bind:defaultAgentProvider
+        bind:defaultModel
+        bind:defaultCodexModel
+        {defaultAgentProviderBusy}
+        {defaultModelBusy}
+        {defaultCodexModelBusy}
+        {fableAvailable}
+        onProviderChange={saveDefaultAgentProvider}
+        onClaudeModelChange={saveDefaultModel}
+        onCodexModelChange={saveDefaultCodexModel}
+      />
 
       <div class="rc">
         <span class="micro">{m.settings_upnext_skip_cli_picker_label()}</span>
@@ -1202,34 +1216,6 @@
         <div class="cli-head">
           <span class="micro">{m.settings_cli_claude_title()}</span>
           <p class="hint">{m.settings_cli_claude_hint()}</p>
-        </div>
-        <div class="rc">
-          <span class="micro">{m.settings_default_model_title()}</span>
-          <p class="hint">{m.settings_default_model_hint()}</p>
-          <select
-            class="model-select"
-            bind:value={defaultModel}
-            disabled={defaultModelBusy}
-            aria-label={m.settings_default_model_title()}
-            onchange={saveDefaultModel}
-          >
-            <option value="auto">{m.settings_default_model_auto()}</option>
-            <option value="default">{m.newtask_model_default()}</option>
-            {#each MODELS as mdl (mdl)}
-              <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
-            {/each}
-          </select>
-          <ModelGuidance
-            provider="claude"
-            model={modelGuidanceAlias(defaultModel, fableAvailable)}
-            context="default"
-          />
-          {#if isPremiumModel}
-            <p class="premium-warn">{m.settings_default_model_premium_warning()}</p>
-          {/if}
-          {#if is1mModel}
-            <p class="premium-warn">{m.settings_default_model_1m_note()}</p>
-          {/if}
         </div>
         <div class="rc">
           <span class="micro">{m.settings_default_effort_title()}</span>
@@ -1971,10 +1957,6 @@
     display: flex;
     flex-direction: column;
     gap: 6px;
-  }
-  .cli-default {
-    padding-bottom: 10px;
-    border-bottom: 1px solid var(--color-line);
   }
   .cli-section {
     display: flex;

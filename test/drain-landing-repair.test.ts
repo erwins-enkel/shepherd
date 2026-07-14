@@ -364,16 +364,15 @@ describe("landing-repair: dispatch", () => {
     expect(h.repairCountCalls).toEqual([{ count: 1, head: "h1" }]);
   });
 
-  test("ChatGPT auth clamps a blocked Codex repo default for landing repair", async () => {
-    const prior = config.defaultAgentProvider;
-    const priorModel = config.defaultModel;
+  test("ChatGPT auth clamps a blocked Codex global default for landing repair", async () => {
+    const savedProvider = config.defaultAgentProvider;
+    const savedCodexModel = config.defaultCodexModel;
     config.defaultAgentProvider = "codex";
-    config.defaultModel = "gpt-5.3-codex";
+    config.defaultCodexModel = "gpt-5.3-codex";
     try {
       const h = makeHarness({
         autoDrainEnabled: true,
         prStatus: async () => redPr(),
-        repoDefaultModel: "gpt-5.3-codex",
         authMode: "chatgpt",
       });
       seedOpenLanding(h);
@@ -383,8 +382,30 @@ describe("landing-repair: dispatch", () => {
 
       expect(h.createCalls[0]?.input.model).toBeNull();
     } finally {
-      config.defaultAgentProvider = prior;
-      config.defaultModel = priorModel;
+      config.defaultAgentProvider = savedProvider;
+      config.defaultCodexModel = savedCodexModel;
+    }
+  });
+
+  test("inherits the selected provider's saved model", async () => {
+    const savedProvider = config.defaultAgentProvider;
+    const savedClaudeModel = config.defaultModel;
+    const savedCodexModel = config.defaultCodexModel;
+    config.defaultAgentProvider = "codex";
+    config.defaultModel = "sonnet";
+    config.defaultCodexModel = "gpt-5.4";
+    try {
+      const h = makeHarness({ autoDrainEnabled: true, prStatus: async () => redPr() });
+      seedOpenLanding(h);
+      spendRerunBudget(h);
+
+      await callRerunPass(h);
+
+      expect(h.createCalls[0]!.input.model).toBe("gpt-5.4");
+    } finally {
+      config.defaultAgentProvider = savedProvider;
+      config.defaultModel = savedClaudeModel;
+      config.defaultCodexModel = savedCodexModel;
     }
   });
 

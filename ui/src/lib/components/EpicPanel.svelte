@@ -535,15 +535,15 @@
      landscape is short-wide, so a width-only query would leave these controls
      desktop-sized while app.css had already bumped their font to 16px. */
   @media (max-width: 768px), (max-height: 600px) {
+    /* 44px is the tap-target floor — buttons and the inline selects beside them
+       move together, else the taller control breaks the shared control line. */
     .gbtn {
-      min-height: 40px;
+      min-height: 44px;
       padding: 2px 14px;
     }
 
-    /* Matches .gbtn above — the fields sit inline with the buttons, so an
-       unraised 24px select would read as a short control beside a tall one. */
     select {
-      min-height: 40px;
+      min-height: 44px;
     }
   }
 </style>

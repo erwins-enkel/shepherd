@@ -276,10 +276,15 @@
        hue = severity   (round amber → final warn → stalled blocked; climbs with the ladder)
        dot = running    (the amber .rev-dot, unchanged, whenever the critic is re-reviewing)
      So an amber dot inside a warn/blocked pill is correct — it reports a different thing than
-     the hue does. Each streak state therefore owns BOTH color and border-color: .critic-reviewing
-     (0,1,0) sets an amber border, and a state that recolored only the text would let that amber
-     leak through underneath it (which is exactly how FINAL REVIEW came to render faint-grey inside
-     an orange border). The compound selectors (.critic-badge.streak-*, 0,2,0) beat it by
+     the hue does.
+     The invariant: no streak state may show a border hue that CONTRADICTS its text hue. So any
+     state whose text is NOT amber must also claim the border — .critic-reviewing (0,1,0) sets an
+     amber border, and a state that recolored only its text would let that amber leak through
+     underneath (exactly how FINAL REVIEW came to render faint-grey inside an orange border).
+     streak-round is the one state that needs no border-color: its text IS amber, so it agrees with
+     the reviewing border when re-reviewing, and at rest it keeps the neutral --color-line hairline
+     every badge carries — a neutral hairline is not a competing hue, so there is nothing to
+     contradict. The compound selectors (.critic-badge.streak-*, 0,2,0) beat .critic-reviewing by
      specificity rather than source order — robust against stylesheet reordering.
      NB: .rev-dot must NOT follow currentColor — stalled + reviewing co-occur (addressStallStatus
      escalates on the finalRoundTimeoutMs clock while a re-review is still in flight), which would

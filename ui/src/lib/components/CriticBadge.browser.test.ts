@@ -115,7 +115,7 @@ describe("CriticBadge streak label", () => {
 
   it("verdict + final round → FINAL REVIEW streak label with streak-final class", async () => {
     // addressRound === addressCap, findings present, finalRoundPending true, updatedAt recent
-    // → addressRoundInfo returns status "final" (dim).
+    // → addressRoundInfo returns status "final" (warn — caution, last chance).
     reviews.map = {
       s1: v({
         addressRound: 5,
@@ -134,7 +134,7 @@ describe("CriticBadge streak label", () => {
     await expect.element(page.getByText(/FINAL REVIEW/)).toBeInTheDocument();
     // verdict word replaced, not appended
     expect(page.getByText(/CHANGES/).elements().length, "no CHANGES text").toBe(0);
-    // badge carries the dim class
+    // badge carries the warn (final-rung) class — resolved colors are asserted in the ladder suite
     const streak = document.querySelector(".streak-final");
     expect(streak, "streak-final rendered").not.toBeNull();
   });

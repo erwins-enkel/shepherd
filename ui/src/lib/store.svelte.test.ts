@@ -668,12 +668,26 @@ test("session:reviewing false clears the critic activity feed", async () => {
   const { reviews } = await import("./reviews.svelte");
   reviews.activity = {};
   reviews.reviewing = {};
+  reviews.reviewerEnv = {};
   const s = new HerdStore();
-  s.apply({ event: "session:reviewing", data: { id: "s1", reviewing: true } });
+  s.apply({
+    event: "session:reviewing",
+    data: {
+      id: "s1",
+      reviewing: true,
+      env: { provider: "codex", model: "gpt-5.5", effort: "high" },
+    },
+  });
+  expect(reviews.reviewerEnvFor("s1")).toEqual({
+    provider: "codex",
+    model: "gpt-5.5",
+    effort: "high",
+  });
   s.apply({ event: "session:critic-activity", data: { id: "s1", summary: "$ git diff" } });
   expect(reviews.activityFeed("s1")).toEqual(["$ git diff"]);
   s.apply({ event: "session:reviewing", data: { id: "s1", reviewing: false } });
   expect(reviews.activityFeed("s1")).toEqual([]);
+  expect(reviews.reviewerEnvFor("s1")).toBeNull();
 });
 
 // ── session:subagents ──────────────────────────────────────────────────────

@@ -3117,5 +3117,7 @@
   "feat_default_coding_environment_title": "Choose a default CLI and model",
   "feat_default_coding_environment_body": "Settings now remembers separate default models for Claude Code and Codex. New tasks and unattended starts use the model paired with the selected coding CLI.",
   "feat_mobile_herd_accordion_title": "Fold lifecycle groups on mobile",
-  "feat_mobile_herd_accordion_body": "The phone herd now keeps only one named lifecycle group open at a time. Your turn opens by default; tap any larger group header to switch or close it while active sessions stay visible."
+  "feat_mobile_herd_accordion_body": "The phone herd now keeps only one named lifecycle group open at a time. Your turn opens by default; tap any larger group header to switch or close it while active sessions stay visible.",
+  "feat_review_job_model_title": "See which model is reviewing",
+  "feat_review_job_model_body": "The terminal review banner now shows the coding CLI, model and effort used by both Plan Gate and PR critic jobs, so their environment is distinct from the task session."
 }

@@ -81,9 +81,11 @@ const planGate = (id: string): PlanGate => ({
 beforeEach(() => {
   reviews.map = {};
   reviews.reviewing = {};
+  reviews.reviewerEnv = {};
   reviews.activity = {};
   planGates.map = {};
   planGates.reviewing = {};
+  planGates.reviewerEnv = {};
   planGates.activity = {};
   repoConfig.enabled = {};
   repoConfig.autoAddress = {};
@@ -227,10 +229,38 @@ test("reviews.load wipes any stale feed, even for a still-in-flight id", async (
   reviews.setReviewing("s7", true);
   reviews.setActivity("s7", "line from before the resync");
   vi.mocked(getReviews).mockResolvedValue({});
-  vi.mocked(getReviewingIds).mockResolvedValue(["s7"]); // snapshot: s7 still in flight
+  vi.mocked(getReviewingIds).mockResolvedValue([
+    { id: "s7", provider: "codex", model: "gpt-5.5", effort: "high" },
+  ]); // snapshot: s7 still in flight
   await reviews.load();
   expect(reviews.isReviewing("s7")).toBe(true); // still in flight…
+  expect(reviews.reviewerEnvFor("s7")).toEqual({
+    provider: "codex",
+    model: "gpt-5.5",
+    effort: "high",
+  });
   expect(reviews.activityFeed("s7")).toEqual([]); // …but feed wiped; rebuilds from live events
+});
+
+test("reviews.setReviewing caches, refreshes, and clears the critic reviewer env", () => {
+  reviews.setReviewing("ce", true, { provider: "claude", model: "opus", effort: "high" });
+  reviews.setActivity("ce", "read review.ts");
+  expect(reviews.reviewerEnvFor("ce")).toEqual({
+    provider: "claude",
+    model: "opus",
+    effort: "high",
+  });
+
+  reviews.setReviewing("ce", true, { provider: "codex", model: "gpt-5.5", effort: "low" });
+
+  expect(reviews.reviewerEnvFor("ce")).toEqual({
+    provider: "codex",
+    model: "gpt-5.5",
+    effort: "low",
+  });
+  expect(reviews.activityFeed("ce")).toEqual(["read review.ts"]);
+  reviews.setReviewing("ce", false);
+  expect(reviews.reviewerEnvFor("ce")).toBeNull();
 });
 
 // ── plan-gate activity feed: mirrors ReviewsStore ──────────────────────────
@@ -322,10 +352,17 @@ test("repoConfig.toggle defaults to false when state unknown (default-on)", asyn
 test("reviews.load populates map and in-flight ids from api", async () => {
   const v = verdict("s2");
   vi.mocked(getReviews).mockResolvedValue({ s2: v });
-  vi.mocked(getReviewingIds).mockResolvedValue(["s3"]);
+  vi.mocked(getReviewingIds).mockResolvedValue([
+    { id: "s3", provider: "claude", model: "opus", effort: "high" },
+  ]);
   await reviews.load();
   expect(reviews.map["s2"]).toEqual(v);
   expect(reviews.isReviewing("s3")).toBe(true);
+  expect(reviews.reviewerEnvFor("s3")).toEqual({
+    provider: "claude",
+    model: "opus",
+    effort: "high",
+  });
 });
 
 test("repoConfig.ensure fetches and caches", async () => {

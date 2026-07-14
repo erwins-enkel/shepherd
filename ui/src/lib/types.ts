@@ -480,11 +480,9 @@ export interface PlanGate {
   updatedAt: number;
 }
 
-/** The plan reviewer's resolved CLI + model + effort for the currently in-flight run. Carried on
- *  the `session:plangate-reviewing` start signal (and the `/api/plan-gates/inflight` bootstrap) so
- *  the UI can show which coding CLI/model is doing the review before a gate — and thus its
- *  `reviewer*` fields — exists (notably the first review). `provider: null` for legacy /
- *  restart-adopted reviews whose CLI couldn't be resolved. */
+/** A reviewer's resolved CLI + model + effort for the currently in-flight run. Carried on the
+ *  review start signal and `/inflight` bootstrap so the UI can identify Plan Gate and critic jobs
+ *  before a verdict exists. `provider: null` for legacy/restart-adopted runs. */
 export type ReviewerEnv = {
   provider: AgentProvider | null;
   model: string | null;
@@ -1717,7 +1715,10 @@ export type WsEvent =
   | { event: "herd:digest"; data: { digest: HerdDigest } }
   | { event: "upnext:snapshot"; data: { snapshot: UpNextSnapshot } }
   | { event: "session:review"; data: { id: string; review: ReviewVerdict | null } }
-  | { event: "session:reviewing"; data: { id: string; reviewing: boolean } }
+  | {
+      event: "session:reviewing";
+      data: { id: string; reviewing: boolean; env?: ReviewerEnv };
+    }
   | { event: "session:critic-activity"; data: { id: string; summary: string } }
   | {
       event: "session:plangate";

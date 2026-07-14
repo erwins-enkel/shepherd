@@ -1628,8 +1628,8 @@ export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
   return getJson("/api/reviews", "reviews");
 }
 
-/** Session ids with a critic run currently in flight (bootstrap for the reviewing indicator). */
-export async function getReviewingIds(): Promise<string[]> {
+/** In-flight critic reviews with the environment used by each reviewer job. */
+export async function getReviewingIds(): Promise<Array<{ id: string } & ReviewerEnv>> {
   return getJson("/api/reviews/inflight", "reviewing");
 }
 

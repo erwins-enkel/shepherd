@@ -4,7 +4,7 @@ import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
-import type { ReviewVerdict, Session, ReviewerSpawnRow } from "./types";
+import type { ReviewVerdict, ReviewerEnv, Session, ReviewerSpawnRow } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
@@ -71,6 +71,9 @@ interface InFlight {
   worktreePath: string;
   terminalId: string;
   criticSessionId: string; // the critic's claude session id → locates its transcript for live activity
+  reviewerProvider: ReviewerEnv["provider"];
+  reviewerModel: string | null;
+  reviewerEffort: string | null;
   startedAt: number;
   priorRound: number; // auto-address steers already spent on this findings streak
   priorErrorRound: number; // consecutive critic error/timeout verdicts before this run
@@ -121,8 +124,9 @@ export interface ReviewServiceDeps extends MembraneSeams {
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
-  /** Fired when a critic run starts (true) and when it ends (false) for a session. */
-  onReviewing?: (id: string, reviewing: boolean) => void;
+  /** Fired when a critic run starts (true) and when it ends (false) for a session. The start
+   *  transition carries the exact environment captured for that spawn; end omits it. */
+  onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
   /**
    * Fired each tick a critic is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read review.ts") — surfaced live in the UI badge
@@ -340,7 +344,8 @@ export class ReviewService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
+    const reviewerEnv = this.reviewerEnv();
+    if (apiKeyFailClosed(reviewerEnv.provider)) {
       console.warn(
         "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
@@ -353,6 +358,7 @@ export class ReviewService {
       prior?.findings ?? [],
       authorNotes,
       issueBody,
+      reviewerEnv,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -367,7 +373,7 @@ export class ReviewService {
         sessionId: criticSessionId,
         kind: "review",
         parentSessionId: session.id,
-        model: this.deps.env?.().model ?? null,
+        model: reviewerEnv.model,
       },
     });
     if ("aborted" in aux) {
@@ -407,6 +413,9 @@ export class ReviewService {
       worktreePath: wt.worktreePath,
       terminalId,
       criticSessionId,
+      reviewerProvider: reviewerEnv.provider,
+      reviewerModel: reviewerEnv.model,
+      reviewerEffort: reviewerEnv.effort ?? null,
       startedAt: this.now(),
       ...priorStreakState(prior),
       seenNoteIds,
@@ -418,10 +427,16 @@ export class ReviewService {
       taskSessionId: session.id,
       kind: "review",
       worktreePath: wt.worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider: reviewerEnv.provider,
+      model: reviewerEnv.model,
+      reviewerEffort: reviewerEnv.effort ?? null,
       spawnedAt: this.now(),
     });
-    this.deps.onReviewing?.(session.id, true);
+    this.deps.onReviewing?.(session.id, true, {
+      provider: reviewerEnv.provider,
+      model: reviewerEnv.model,
+      effort: reviewerEnv.effort ?? null,
+    });
   }
 
   /**
@@ -572,19 +587,23 @@ export class ReviewService {
     priorFindings: string[],
     authorNotes: string[],
     issueBody: string | null,
+    env: RoleEnvironment,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context.
-    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     return buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
       effort: env.effort,
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody),
     });
+  }
+
+  private reviewerEnv(): RoleEnvironment {
+    return this.deps.env?.() ?? { provider: "claude", model: null, effort: null };
   }
 
   /** Best-effort fetch of the originating issue's body for UNTRUSTED reviewer context.
@@ -1142,6 +1161,16 @@ export class ReviewService {
   /** Session ids with a critic run currently in flight (for client bootstrap). */
   reviewingIds(): string[] {
     return [...this.inflight.keys()];
+  }
+
+  /** In-flight critic reviews with the exact environment captured for each spawn. */
+  reviewingInflight(): Array<{ id: string } & ReviewerEnv> {
+    return [...this.inflight.values()].map((f) => ({
+      id: f.sessionId,
+      provider: f.reviewerProvider,
+      model: f.reviewerModel,
+      effort: f.reviewerEffort,
+    }));
   }
 
   /** Worktree paths of critic runs currently owned in-memory — the GC sweep must spare

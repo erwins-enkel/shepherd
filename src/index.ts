@@ -1252,7 +1252,7 @@ const reviewService = new ReviewService({
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
-  onReviewing: (id, reviewing) => events.emit("session:reviewing", { id, reviewing }),
+  onReviewing: (id, reviewing, env) => events.emit("session:reviewing", { id, reviewing, env }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
   // auto-address: steer critic findings straight into the task agent's PTY (same path
   // as a human "send review to agent"). Gated per-repo by autoAddressEnabled; the
@@ -2670,7 +2670,7 @@ const appDeps: AppDeps = {
   hooks: hookIngest,
   reviewCache: {
     snapshot: () => reviewService.snapshot(),
-    reviewing: () => reviewService.reviewingIds(),
+    reviewing: () => reviewService.reviewingInflight(),
   },
   planGateCache: {
     snapshot: () => planGate.snapshot(),

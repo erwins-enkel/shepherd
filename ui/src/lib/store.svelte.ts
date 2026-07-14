@@ -568,7 +568,7 @@ export class HerdStore {
         reviews.apply(ev.data);
         return true;
       case "session:reviewing":
-        reviews.setReviewing(ev.data.id, ev.data.reviewing);
+        reviews.setReviewing(ev.data.id, ev.data.reviewing, ev.data.env);
         return true;
       case "session:critic-activity":
         reviews.setActivity(ev.data.id, ev.data.summary);

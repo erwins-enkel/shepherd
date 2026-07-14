@@ -5,7 +5,7 @@ import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
-import type { Session, PlanGate, PlanDecision, AgentProvider } from "./types";
+import type { Session, PlanGate, PlanDecision, AgentProvider, ReviewerEnv } from "./types";
 import { modelCompatibleWithProvider, type RoleEnvironment } from "./default-model";
 import type { GitForge } from "./forge/types";
 import {
@@ -201,7 +201,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  *which* coding CLI/model is doing the review before a verdict — and thus the gate's
    *  `reviewer*` fields — exists (notably the FIRST review, where no gate is present). Absent on
    *  the end (`false`) signal. */
-  onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnvSignal) => void;
+  onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
   /**
    * Fired each tick a plan reviewer is still running, with its latest *meaningful* tool-use
    * summary (e.g. "$ git diff", "read plan"). Surfaced live in the UI review-in-flight banner
@@ -241,15 +241,6 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
 }
-
-/** The reviewer's resolved CLI + model + effort for the currently in-flight run — carried on the
- *  reviewing=true signal (and the inflight bootstrap snapshot) so the UI can surface which coding
- *  CLI/model is doing the review even before a gate exists. */
-export type ReviewerEnvSignal = {
-  provider: AgentProvider | null;
-  model: string | null;
-  effort: string | null;
-};
 
 interface PlanInFlight {
   sessionId: string;
@@ -932,7 +923,7 @@ export class PlanGateService {
   /** In-flight plan reviews with their reviewer env — the client bootstrap snapshot so a reload
    *  mid-review restores which CLI/model is doing the review, not just that one is running. Distinct
    *  from `reviewingIds()`, which stays a bare `string[]` for the herd/upnext consumer. */
-  reviewingInflight(): Array<{ id: string } & ReviewerEnvSignal> {
+  reviewingInflight(): Array<{ id: string } & ReviewerEnv> {
     return [...this.inflight.values()].map((f) => ({
       id: f.sessionId,
       provider: f.reviewerProvider,

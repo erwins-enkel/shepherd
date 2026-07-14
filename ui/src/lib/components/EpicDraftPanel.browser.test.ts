@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import type { EpicDraft } from "$lib/types";
@@ -18,7 +18,7 @@ function longDraft(sessionId: string): EpicDraft {
       acceptanceCriteria: ["The complete draft can be reviewed."],
       nonGoals: ["Collapsible sections"],
     },
-    children: Array.from({ length: 6 }, (_, i) => ({
+    children: Array.from({ length: 12 }, (_, i) => ({
       key: `child-${i + 1}`,
       title: `Child issue ${i + 1}`,
       body: "A concrete vertical slice with enough detail to wrap on a narrow screen.",
@@ -32,46 +32,95 @@ function longDraft(sessionId: string): EpicDraft {
   };
 }
 
+// The bar is a SUMMARY, not the review surface: a 12-child draft used to grow the panel to 60dvh
+// and squeeze the terminal to a single line. The draft now lives in EpicDraftModal, so whatever the
+// draft's size, this stays one row and the terminal keeps the column.
 describe.each([
   ["desktop", 1000],
   ["narrow", 390],
-])("EpicDraftPanel long-draft layout — %s", (label, width) => {
-  it("scrolls the draft content while keeping review actions visible", async () => {
-    const sessionId = `epic-draft-scroll-${label}`;
+])("EpicDraftPanel bar — %s", (label, width) => {
+  it("stays a compact single row and owns no draft body, however long the draft", async () => {
+    const sessionId = `epic-draft-bar-${label}`;
     epicDrafts.upsert(longDraft(sessionId));
 
     const { container, unmount } = await render(EpicDraftPanel, {
       sessionId,
       epicAuthoring: true,
-      sessionLive: true,
+      onreview: () => {},
     });
     container.style.width = `${width}px`;
 
-    const panel = container.querySelector<HTMLElement>(".edp");
-    const scroller = container.querySelector<HTMLElement>(".edp-scroll");
-    const actions = container.querySelector<HTMLElement>(".edp-actions");
-    const childList = container.querySelector<HTMLElement>(".edp-list");
-
-    expect(panel, "draft panel should render").not.toBeNull();
-    expect(scroller, "draft content should own the vertical scroll").not.toBeNull();
-    expect(actions, "review actions should have a fixed region").not.toBeNull();
-    expect(childList, "child issue list should render").not.toBeNull();
-
-    if (!panel || !scroller || !actions || !childList) {
+    const bar = container.querySelector<HTMLElement>(".edp");
+    expect(bar, "draft bar should render").not.toBeNull();
+    if (!bar) {
       unmount();
       return;
     }
 
-    expect(getComputedStyle(scroller).overflowY).toBe("auto");
-    expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight);
-    expect(getComputedStyle(childList).overflowY).not.toBe("auto");
+    // The whole point of the change: no draft body, no scroller, no 60dvh squeeze.
+    expect(container.querySelector(".edp-scroll"), "bar must not own a scroller").toBeNull();
+    expect(container.querySelector(".edp-list"), "bar must not render the child list").toBeNull();
+    expect(bar.textContent).not.toContain("Section 1");
+    expect(bar.getBoundingClientRect().height).toBeLessThanOrEqual(window.innerHeight * 0.15);
 
-    const panelRect = panel.getBoundingClientRect();
-    const actionsRect = actions.getBoundingClientRect();
-    expect(actionsRect.height).toBeGreaterThan(0);
-    expect(actionsRect.top).toBeGreaterThanOrEqual(panelRect.top);
-    expect(actionsRect.bottom).toBeLessThanOrEqual(panelRect.bottom + 1);
-    expect(panelRect.height).toBeLessThanOrEqual(window.innerHeight * 0.6 + 1);
+    unmount();
+  });
+});
+
+describe("EpicDraftPanel bar — behavior", () => {
+  it("opens the review dialog through onreview", async () => {
+    const sessionId = "epic-draft-bar-cta";
+    epicDrafts.upsert(longDraft(sessionId));
+    const onreview = vi.fn();
+
+    const { container, unmount } = await render(EpicDraftPanel, {
+      sessionId,
+      epicAuthoring: true,
+      onreview,
+    });
+
+    const cta = container.querySelector<HTMLButtonElement>(".edp-cta");
+    expect(cta, "awaiting draft should offer a review CTA").not.toBeNull();
+    // a11y sizing floor — this is the only way into the review surface.
+    expect(cta!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+
+    cta!.click();
+    expect(onreview).toHaveBeenCalledTimes(1);
+
+    unmount();
+  });
+
+  // headerCollapsed is persisted in localStorage, so a phone operator who folded the header once
+  // would have NO path to approve or abort if the bar folded away with the rest of the chrome.
+  it("survives the header fold while a draft awaits review", async () => {
+    const sessionId = "epic-draft-bar-folded";
+    epicDrafts.upsert(longDraft(sessionId));
+
+    const { container, unmount } = await render(EpicDraftPanel, {
+      sessionId,
+      epicAuthoring: true,
+      folded: true,
+      onreview: () => {},
+    });
+
+    expect(container.querySelector(".edp"), "awaiting bar must survive the fold").not.toBeNull();
+    expect(container.querySelector(".edp-cta")).not.toBeNull();
+
+    unmount();
+  });
+
+  it("folds away when the draft is no longer awaiting review", async () => {
+    const sessionId = "epic-draft-bar-folded-quiet";
+    epicDrafts.upsert({ ...longDraft(sessionId), status: "approved" });
+
+    const { container, unmount } = await render(EpicDraftPanel, {
+      sessionId,
+      epicAuthoring: true,
+      folded: true,
+      onreview: () => {},
+    });
+
+    expect(container.querySelector(".edp"), "quiet bar folds with the other chrome").toBeNull();
 
     unmount();
   });

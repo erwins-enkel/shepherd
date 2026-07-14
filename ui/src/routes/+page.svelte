@@ -1506,6 +1506,14 @@
 
   // Every shortcut tier stands down while a modal/overlay is open, so a stray
   // key can't stack dialogs or switch sessions under one.
+  //
+  // The flag list covers the dialogs THIS route owns; the DOM probe covers the ones it doesn't —
+  // a modal owned by a child (Viewport's EpicDraftModal, LeftoverDialog) is invisible to these
+  // flags, so without it j/k/n/r keep firing behind an open dialog. It mirrors the probe
+  // shouldForwardEscape already trusts (see Viewport.svelte), and rides behind the flag
+  // short-circuit so the common path stays a plain boolean OR and never touches the DOM.
+  // Non-blocking anchored popovers (.auto-pop, .ep) don't carry these classes, so they're
+  // unaffected — .overlay/.drawer are reserved for surfaces that seize the app.
   function anyOverlayOpen(): boolean {
     return (
       showNew ||
@@ -1519,7 +1527,8 @@
       showCodexUpdate ||
       showPluginUpdates ||
       showWhatsNew ||
-      showCommandBar
+      showCommandBar ||
+      !!document.querySelector(".overlay, .drawer")
     );
   }
 

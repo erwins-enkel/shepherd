@@ -1,5 +1,7 @@
 <script lang="ts">
+  import { getContext } from "svelte";
   import { anchorPopover } from "$lib/floating-anchor";
+  import { infoTips, INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
 
   // A small circular "i" affordance that reveals an explanation in a floating
   // tooltip — opens above the icon on hover/focus (fine pointer) and tap-toggles
@@ -17,6 +19,11 @@
     label,
     prominent = false,
   }: { text: string; label: string; prominent?: boolean } = $props();
+
+  // Operator opt-out (Settings → Device). The /design-system catalogue forces specimens to
+  // render regardless, so the component reference never lies about what a component looks like.
+  const forced = getContext<boolean>(INFO_TIPS_FORCE) ?? false;
+  const suppressed = $derived(infoTips.hidden && !forced);
 
   // SSR-stable, per-instance id for the aria-describedby wiring.
   const tooltipId = $props.id();
@@ -104,26 +111,28 @@
   }
 </script>
 
-<button
-  bind:this={btnEl}
-  class={["info", { open, prominent }]}
-  type="button"
-  aria-label={label}
-  aria-describedby={tooltipId}
-  onpointerenter={onPointerenter}
-  onpointerleave={onPointerleave}
-  onfocus={onFocus}
-  onblur={onBlur}
-  onclick={onClick}
->
-  <span aria-hidden="true">i</span>
-</button>
+{#if !suppressed}
+  <button
+    bind:this={btnEl}
+    class={["info", { open, prominent }]}
+    type="button"
+    aria-label={label}
+    aria-describedby={tooltipId}
+    onpointerenter={onPointerenter}
+    onpointerleave={onPointerleave}
+    onfocus={onFocus}
+    onblur={onBlur}
+    onclick={onClick}
+  >
+    <span aria-hidden="true">i</span>
+  </button>
 
-<!-- popover="manual": native top-layer, escapes overflow:hidden containers.
-     position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement. -->
-<div id={tooltipId} bind:this={popEl} class="info-tooltip" role="tooltip" popover="manual">
-  {text}
-</div>
+  <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
+       position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement. -->
+  <div id={tooltipId} bind:this={popEl} class="info-tooltip" role="tooltip" popover="manual">
+    {text}
+  </div>
+{/if}
 
 <style>
   /* Clickable "ⓘ" — matches the AutomationPanel `.info` affordance. */
@@ -181,7 +190,7 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    box-shadow: var(--shadow-popover);
     color: var(--color-ink);
     font: inherit;
     font-size: var(--fs-meta);

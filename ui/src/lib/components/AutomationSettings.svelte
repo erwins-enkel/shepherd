@@ -1,9 +1,12 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
+  import { infoTips } from "$lib/info-tips.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { getSettings } from "$lib/api";
   import { DOCS_URL } from "$lib/build-info";
+  import AutomationInfoTip from "./automation-settings/AutomationInfoTip.svelte";
+  import AutomationDetail from "./automation-settings/AutomationDetail.svelte";
   import AutomationRepoFields from "./automation-settings/AutomationRepoFields.svelte";
   import AutomationDrainFields from "./automation-settings/AutomationDrainFields.svelte";
   import "./automation-settings/automation-fields.css";
@@ -92,6 +95,16 @@
   let openDetail = $state<string | null>(null);
   const toggleDetail = (id: string) => (openDetail = openDetail === id ? null : id);
 
+  // Collapse any expanded explanation when the operator hides info tips. `openDetail` is
+  // component-local state that survives the preference flip without a remount, so without
+  // this a row that was open would keep its detail expanded with no ⓘ left to close it.
+  // AutomationDetail also drops itself when tips are hidden, so this reset is not
+  // load-bearing for correctness — it's what makes re-enabling tips later return a cleanly
+  // collapsed panel rather than a stale expansion.
+  $effect(() => {
+    if (infoTips.hidden) openDetail = null;
+  });
+
   // The panel's switches are repo-level defaults; the plan gate is also a per-task
   // one-shot set at creation. Surface THIS task's actual gate phase so a tick in
   // New Task doesn't read as "off" just because the repo default is off. Shown only
@@ -104,8 +117,6 @@
   );
 </script>
 
-<!-- info/detail snippets are declared at the bottom of this file (Svelte hoists
-     top-level snippets), keeping the main settings template first. -->
 {#if showHeader}
   <div class="auto-head">{m.automation_panel_title()}</div>
   <div class="auto-sub">{m.automation_panel_subtitle()}</div>
@@ -126,10 +137,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ⊙ {m.automation_lightweight_name()}
-      {@render info("lightweight", m.automation_lightweight_name())}
+      <AutomationInfoTip
+        id="lightweight"
+        name={m.automation_lightweight_name()}
+        open={openDetail === "lightweight"}
+        ontoggle={() => toggleDetail("lightweight")}
+      />
     </div>
     <div class="auto-desc">{m.automation_lightweight_desc()}</div>
-    {@render detail("lightweight", m.automation_lightweight_detail())}
+    <AutomationDetail
+      id="lightweight"
+      open={openDetail === "lightweight"}
+      paragraphs={[m.automation_lightweight_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: lightweight }]}
@@ -149,10 +169,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ⌕ {m.automation_critic_name()}
-      {@render info("critic", m.automation_critic_name())}
+      <AutomationInfoTip
+        id="critic"
+        name={m.automation_critic_name()}
+        open={openDetail === "critic"}
+        ontoggle={() => toggleDetail("critic")}
+      />
     </div>
     <div class="auto-desc">{m.automation_critic_desc()}</div>
-    {@render detail("critic", m.automation_critic_detail())}
+    <AutomationDetail
+      id="critic"
+      open={openDetail === "critic"}
+      paragraphs={[m.automation_critic_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.critic, reviewing }]}
@@ -170,10 +199,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ⌗ {m.automation_allprs_name()}
-      {@render info("critic-all-prs", m.automation_allprs_name())}
+      <AutomationInfoTip
+        id="critic-all-prs"
+        name={m.automation_allprs_name()}
+        open={openDetail === "critic-all-prs"}
+        ontoggle={() => toggleDetail("critic-all-prs")}
+      />
     </div>
     <div class="auto-desc">{m.automation_allprs_desc()}</div>
-    {@render detail("critic-all-prs", m.automation_allprs_detail())}
+    <AutomationDetail
+      id="critic-all-prs"
+      open={openDetail === "critic-all-prs"}
+      paragraphs={[m.automation_allprs_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.criticAllPrs && !lightweight }]}
@@ -192,12 +230,21 @@
   <div class="auto-meta">
     <div class="auto-name">
       ◆ {m.automation_autoaddress_name()}
-      {@render info("auto-address", m.automation_autoaddress_name())}
+      <AutomationInfoTip
+        id="auto-address"
+        name={m.automation_autoaddress_name()}
+        open={openDetail === "auto-address"}
+        ontoggle={() => toggleDetail("auto-address")}
+      />
     </div>
     <div class="auto-desc">
       {flags.critic ? m.automation_autoaddress_desc() : m.automation_autoaddress_needs_critic()}
     </div>
-    {@render detail("auto-address", m.automation_autoaddress_detail())}
+    <AutomationDetail
+      id="auto-address"
+      open={openDetail === "auto-address"}
+      paragraphs={[m.automation_autoaddress_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.autoAddress && flags.critic }]}
@@ -215,13 +262,22 @@
   <div class="auto-meta">
     <div class="auto-name">
       ⌖ {m.automation_plan_gate_name()}
-      {@render info("plan-gate", m.automation_plan_gate_name())}
+      <AutomationInfoTip
+        id="plan-gate"
+        name={m.automation_plan_gate_name()}
+        open={openDetail === "plan-gate"}
+        ontoggle={() => toggleDetail("plan-gate")}
+      />
     </div>
     <div class="auto-desc">{m.automation_plan_gate_desc()}</div>
     {#if planPhase != null}
       <div class="auto-task">{planGateTaskLabel}</div>
     {/if}
-    {@render detail("plan-gate", m.automation_plan_gate_detail())}
+    <AutomationDetail
+      id="plan-gate"
+      open={openDetail === "plan-gate"}
+      paragraphs={[m.automation_plan_gate_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.planGate, reviewing: planReviewing }]}
@@ -242,10 +298,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ✦ {m.automation_learnings_name()}
-      {@render info("learnings", m.automation_learnings_name())}
+      <AutomationInfoTip
+        id="learnings"
+        name={m.automation_learnings_name()}
+        open={openDetail === "learnings"}
+        ontoggle={() => toggleDetail("learnings")}
+      />
     </div>
     <div class="auto-desc">{m.automation_learnings_desc()}</div>
-    {@render detail("learnings", m.automation_learnings_detail())}
+    <AutomationDetail
+      id="learnings"
+      open={openDetail === "learnings"}
+      paragraphs={[m.automation_learnings_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.learnings }]}
@@ -299,10 +364,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ▲ {m.automation_autopilot_name()}
-      {@render info("autopilot", m.automation_autopilot_name())}
+      <AutomationInfoTip
+        id="autopilot"
+        name={m.automation_autopilot_name()}
+        open={openDetail === "autopilot"}
+        ontoggle={() => toggleDetail("autopilot")}
+      />
     </div>
     <div class="auto-desc">{m.automation_autopilot_desc()}</div>
-    {@render detail("autopilot", m.automation_autopilot_detail())}
+    <AutomationDetail
+      id="autopilot"
+      open={openDetail === "autopilot"}
+      paragraphs={[m.automation_autopilot_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.autopilot }]}
@@ -327,10 +401,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ▽ {m.automation_autodrain_name()}
-      {@render info("auto-drain", m.automation_autodrain_name())}
+      <AutomationInfoTip
+        id="auto-drain"
+        name={m.automation_autodrain_name()}
+        open={openDetail === "auto-drain"}
+        ontoggle={() => toggleDetail("auto-drain")}
+      />
     </div>
     <div class="auto-desc">{m.automation_autodrain_desc()}</div>
-    {@render detail("auto-drain", m.automation_autodrain_detail())}
+    <AutomationDetail
+      id="auto-drain"
+      open={openDetail === "auto-drain"}
+      paragraphs={[m.automation_autodrain_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.autoDrain && !epicActive && !lightweight }]}
@@ -376,14 +459,23 @@
   <div class="auto-meta">
     <div class="auto-name">
       ↣ {m.automation_automerge_name()}
-      {@render info("auto-merge", m.automation_automerge_name())}
+      <AutomationInfoTip
+        id="auto-merge"
+        name={m.automation_automerge_name()}
+        open={openDetail === "auto-merge"}
+        ontoggle={() => toggleDetail("auto-merge")}
+      />
     </div>
     <div class="auto-desc">
       {flags.draftMode
         ? m.automation_draftmode_excludes_automerge()
         : m.automation_automerge_desc()}
     </div>
-    {@render detail("auto-merge", m.automation_automerge_detail())}
+    <AutomationDetail
+      id="auto-merge"
+      open={openDetail === "auto-merge"}
+      paragraphs={[m.automation_automerge_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.autoMerge && !flags.draftMode }]}
@@ -402,10 +494,19 @@
   <div class="auto-meta">
     <div class="auto-name">
       ▦ {m.automation_buildqueue_name()}
-      {@render info("build-queue", m.automation_buildqueue_name())}
+      <AutomationInfoTip
+        id="build-queue"
+        name={m.automation_buildqueue_name()}
+        open={openDetail === "build-queue"}
+        ontoggle={() => toggleDetail("build-queue")}
+      />
     </div>
     <div class="auto-desc">{m.automation_buildqueue_desc()}</div>
-    {@render detail("build-queue", m.automation_buildqueue_detail())}
+    <AutomationDetail
+      id="build-queue"
+      open={openDetail === "build-queue"}
+      paragraphs={[m.automation_buildqueue_detail()]}
+    />
   </div>
   <button
     class={["sw", { on: flags.buildQueue }]}
@@ -498,42 +599,22 @@
   </label>
   <div class="signoff-note sandbox-summary">
     {m.automation_sandbox_profile_summary()}
-    {@render info("sandbox", m.automation_sandbox_profile_label())}
+    <AutomationInfoTip
+      id="sandbox"
+      name={m.automation_sandbox_profile_label()}
+      open={openDetail === "sandbox"}
+      ontoggle={() => toggleDetail("sandbox")}
+    />
   </div>
-  <div
-    id="auto-detail-sandbox"
-    class="auto-detail sandbox-detail"
-    role="note"
-    hidden={openDetail !== "sandbox"}
-  >
-    <p>{m.automation_sandbox_profile_hint()}</p>
-    <p>{m.automation_sandbox_profile_caveats()}</p>
-  </div>
+  <AutomationDetail
+    id="sandbox"
+    open={openDetail === "sandbox"}
+    paragraphs={[m.automation_sandbox_profile_hint(), m.automation_sandbox_profile_caveats()]}
+    sandbox
+  />
 </div>
 
 <AutomationRepoFields {repoPath} {fableAvailable} />
-
-<!-- Clickable "ⓘ" that toggles a row's long-form explanation, and the detail
-     block it reveals. Reused by every row so each function carries a thorough,
-     newcomer-friendly description of what it does, how, and when it fires.
-     Declared after the template above (snippets are hoisted). -->
-{#snippet info(id: string, name: string)}
-  <button
-    class={["info", { open: openDetail === id }]}
-    type="button"
-    aria-expanded={openDetail === id}
-    aria-controls="auto-detail-{id}"
-    aria-label={m.automation_info_aria({ name })}
-    onclick={() => toggleDetail(id)}
-  >
-    <span aria-hidden="true">i</span>
-  </button>
-{/snippet}
-{#snippet detail(id: string, text: string)}
-  <!-- always in the DOM so the button's aria-controls target always resolves;
-       toggled with `hidden` rather than {#if} for assistive tech -->
-  <p id="auto-detail-{id}" class="auto-detail" role="note" hidden={openDetail !== id}>{text}</p>
-{/snippet}
 
 <style>
   .auto-head {
@@ -588,49 +669,8 @@
     color: var(--color-ink-bright);
   }
   /* clickable "ⓘ" — small circular affordance that toggles the long explanation */
-  .info {
-    flex: 0 0 auto;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 15px;
-    height: 15px;
-    padding: 0;
-    border: 1px solid var(--color-line);
-    border-radius: 50%;
-    background: transparent;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-micro);
-    font-style: italic;
-    line-height: 1;
-    cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
-  }
-  .info:hover {
-    color: var(--color-ink-bright);
-    border-color: var(--color-faint);
-  }
-  .info.open {
-    color: var(--color-amber);
-    border-color: var(--color-amber);
-  }
   /* the revealed long-form explanation: a quiet tonal-step note (panel over the
      popover's inset ground) with a full hairline border — no accent stripe */
-  .auto-detail {
-    margin: 6px 0 0;
-    padding: 8px 10px;
-    background: var(--color-panel);
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    font-size: var(--fs-meta);
-    line-height: 1.5;
-    color: var(--color-ink);
-    /* messages may carry \n\n paragraph breaks (e.g. auto-address/auto-drain) */
-    white-space: pre-line;
-  }
   .auto-desc {
     font-size: var(--fs-meta);
     color: var(--color-muted);
@@ -731,18 +771,6 @@
      --color-panel .drain-fields ground (panel-over-panel would show no fill
      step — only the border). margin-top:0 cancels the .auto-detail 6px that
      would otherwise stack on .drain-fields' 6px gap. */
-  .sandbox-detail {
-    margin-top: 0;
-    background: var(--color-inset);
-    /* container with real <p> children — pre-line would render markup whitespace */
-    white-space: normal;
-  }
-  .sandbox-detail p {
-    margin: 0;
-  }
-  .sandbox-detail p + p {
-    margin-top: 6px;
-  }
   /* Epic-mode precedence banner: unmistakable amber notice inside the Work queue
      section that label-drain is suspended while an epic runs. Sits above the
      auto-drain row (which is also dimmed via .auto-row.disabled). */

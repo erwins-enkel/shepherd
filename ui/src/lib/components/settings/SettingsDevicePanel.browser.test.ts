@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import { m } from "$lib/paraglide/messages";
+import { infoTips } from "$lib/info-tips.svelte";
 
 // Stub $lib/push so pushState resolves to unsupported — avoids navigator.
 vi.mock("$lib/push", async (importOriginal) => {
@@ -79,5 +80,32 @@ describe("SettingsDevicePanel reduced-notifications switch", () => {
     await switchEl().click();
 
     expect(spy).toHaveBeenCalledOnce();
+  });
+});
+
+// The hide-info-tips switch is a device pref, so the panel drives the store directly
+// (like tabTicker / theme) rather than taking a prop. Its accessible name comes from the
+// state label, matching the contrast / colourblind / tab-ticker rows.
+const tipsSwitch = () => page.getByRole("switch", { name: m.settings_hide_info_tips_off() });
+const tipsSwitchOn = () => page.getByRole("switch", { name: m.settings_hide_info_tips_on() });
+
+describe("SettingsDevicePanel hide-info-tips switch", () => {
+  afterEach(() => infoTips.set(false));
+
+  it("defaults to off (tooltips shown)", async () => {
+    render(SettingsDevicePanel, {});
+
+    await expect.element(tipsSwitch()).toBeInTheDocument();
+    await expect.element(tipsSwitch()).toHaveAttribute("aria-checked", "false");
+  });
+
+  it("clicking it hides info tips and flips aria-checked", async () => {
+    render(SettingsDevicePanel, {});
+
+    await expect.element(tipsSwitch()).toBeInTheDocument();
+    await tipsSwitch().click();
+
+    expect(infoTips.hidden).toBe(true);
+    await expect.element(tipsSwitchOn()).toHaveAttribute("aria-checked", "true");
   });
 });

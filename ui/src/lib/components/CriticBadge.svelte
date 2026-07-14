@@ -59,8 +59,16 @@
   }
 
   // Which visual state renders, and its class / label / tooltip text / dot.
+  // A STALLED streak yields to the reviewing view while the critic is actually re-reviewing: a
+  // stall is a claim about a run that ended, and an in-flight run supersedes it. Same rule the
+  // plan gate already applies (plan-gate-badge.ts: `if (reviewing)` precedes the stall branches;
+  // canShowPlanStallActions requires !reviewing) and the one criticChip states for plain verdicts.
+  // It also stops a STALE paint: forceReview persists a streak reset (addressRound: 0) but emits no
+  // onChange until the new verdict lands, so during a forced re-review this cached verdict is the
+  // last surface still claiming a stall the server already cleared. round/final keep their counter
+  // — it is not stale mid-streak, and the number is the useful thing to show.
   const view = $derived.by((): CriticView | null => {
-    if (round) return roundView(round);
+    if (round && !(round.status === "stalled" && reviewing)) return roundView(round);
     if (chip.kind === "reviewing") return reviewingView();
     if (chip.kind === "verdict")
       return {
@@ -272,11 +280,15 @@
       opacity: 1;
     }
   }
-  /* auto-address streak label that takes over the whole pill. TWO ORTHOGONAL AXES:
-       hue = severity   (round amber → final warn → stalled blocked; climbs with the ladder)
-       dot = running    (the amber .rev-dot, unchanged, whenever the critic is re-reviewing)
-     So an amber dot inside a warn/blocked pill is correct — it reports a different thing than
-     the hue does.
+  /* auto-address streak label that takes over the whole pill. hue = severity (round amber → final
+     warn → stalled blocked; climbs with the ladder); the amber .rev-dot reports the orthogonal fact
+     that the critic is re-reviewing RIGHT NOW.
+     .streak-stalled never co-occurs with .critic-reviewing: the `view` dispatcher hands a stalled
+     streak to the REVIEWING pill while a re-review is in flight, so a .rev-dot inside a stalled pill
+     is unreachable. Only round/final can pair the dot with their hue. That is also why the dot is
+     not simply recolored to follow currentColor: a red pill would then pulse a RED dot, and
+     DESIGN.md forbids a haloed/pulsing subordinate red (the loudest red belongs to the
+     blocked-agent pip — Four-Light Rule). Yielding the pill, not tinting the dot, is the fix.
      The invariant: no streak state may show a border hue that CONTRADICTS its text hue. So any
      state whose text is NOT amber must also claim the border — .critic-reviewing (0,1,0) sets an
      amber border, and a state that recolored only its text would let that amber leak through
@@ -285,10 +297,7 @@
      the reviewing border when re-reviewing, and at rest it keeps the neutral --color-line hairline
      every badge carries — a neutral hairline is not a competing hue, so there is nothing to
      contradict. The compound selectors (.critic-badge.streak-*, 0,2,0) beat .critic-reviewing by
-     specificity rather than source order — robust against stylesheet reordering.
-     NB: .rev-dot must NOT follow currentColor — stalled + reviewing co-occur (addressStallStatus
-     escalates on the finalRoundTimeoutMs clock while a re-review is still in flight), which would
-     render a pulsing RED dot; DESIGN.md forbids a haloed/pulsing subordinate red. */
+     specificity rather than source order — robust against stylesheet reordering. */
   .critic-badge.streak-round {
     color: var(--color-amber);
   }

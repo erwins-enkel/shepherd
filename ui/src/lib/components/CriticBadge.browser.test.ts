@@ -230,23 +230,37 @@ describe("CriticBadge streak ladder — resolved colors", () => {
     expect(border, "reviewing border agrees with the amber text").toBe(amber);
   });
 
-  it("stalled + reviewing: the pulsing dot stays AMBER, never red", async () => {
-    // Reachable in practice: addressStallStatus escalates to "stalled" on the finalRoundTimeoutMs
-    // clock while a re-review is still in flight, and roundView still sets dot: true. A dot that
-    // followed currentColor would pulse RED here — DESIGN.md forbids a pulsing subordinate red
-    // (that loudest red is reserved for the blocked-agent pip; Four-Light Rule).
+  it("stalled + reviewing: the REVIEWING pill wins — no red pill, and no red dot", async () => {
+    // Two ways in. (1) forceReview persists a streak reset (addressRound: 0) but emits no onChange
+    // until the verdict lands, so this cached verdict is a STALE claim of a stall the server already
+    // cleared. (2) addressStallStatus escalates to "stalled" on the finalRoundTimeoutMs clock while
+    // a re-review is still in flight — there the stall is real, and the pill deliberately flips
+    // STALLED → REVIEWING → STALLED (an in-flight run supersedes a timeout's guess).
+    // Either way the running dot must not sit inside a blocked-red pill: recoloring it to follow
+    // currentColor would pulse RED, which DESIGN.md forbids for a subordinate (the loudest red is
+    // the blocked-agent pip; Four-Light Rule). So the pill yields instead of the dot changing hue.
     reviews.map = { s1: stalledVerdict() };
     reviews.reviewing = { s1: true };
     render(CriticBadge, { sessionId: "s1" });
-    await expect.element(page.getByText(/STALLED REVIEW/)).toBeInTheDocument();
 
+    expect(document.querySelectorAll(".critic-badge").length, "exactly one .critic-badge").toBe(1);
+    await expect.element(page.getByText(/REVIEWING/)).toBeInTheDocument();
+    expect(page.getByText(/STALLED REVIEW/).elements().length, "no STALLED REVIEW text").toBe(0);
+    expect(document.querySelector(".streak-stalled"), "no stalled pill while reviewing").toBeNull();
+
+    // the running dot is present and amber — the reviewing pill is where it belongs
     const dot = document.querySelector(".rev-dot") as HTMLElement;
-    expect(dot, "running dot rendered while re-reviewing a stalled streak").not.toBeNull();
+    expect(dot, "running dot rendered while re-reviewing").not.toBeNull();
     expect(getComputedStyle(dot).backgroundColor, "dot is amber (running), not red").toBe(
       token("--color-amber"),
     );
-    // the pill itself is still red — hue (severity) and dot (running) are orthogonal axes
-    expect(getComputedStyle(badge()).color).toBe(token("--status-blocked"));
+    // and the pill itself is the reviewing amber, NOT blocked-red
+    const { color, border } = ink(badge());
+    expect(color, "pill is the reviewing amber").toBe(token("--color-amber"));
+    expect(border, "border agrees with the amber text").toBe(token("--color-amber"));
+    expect(color, "pill is not blocked-red while a re-review is in flight").not.toBe(
+      token("--status-blocked"),
+    );
   });
 });
 

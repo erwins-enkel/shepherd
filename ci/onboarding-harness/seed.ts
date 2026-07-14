@@ -8,25 +8,69 @@ const SHEPHERD_DIR = "/opt/shepherd";
 // replace default and leave the instance with no root device.
 const PROFILES = ["default", "shep-onb"];
 
-/** Arch's base-image `archlinux-keyring` drifts behind the mirror over time; once a
- *  mirror package is signed by a packager key newer than the image's keyring,
- *  `pacman -Sy <pkg>` fails "signature … is unknown trust / invalid or corrupted
- *  package (PGP signature)" and the checked baseline aborts (issue #1422 — herdr-missing
- *  on images:archlinux is the only Arch scenario). Refresh the keyring ONCE before any
- *  pacman install: init the gnupg dir, populate trust from the shipped keyring, then
- *  update archlinux-keyring from the mirror (its own signature verifies against the
- *  freshly-populated trust; its install hook re-populates the new packager keys).
- *  Populate-before-sync is required — `-Sy` first would fail verification before the
- *  keyring is refreshed. `--needed` skips a redundant reinstall when already current.
- *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8
- *  non-Arch scenarios). Runs as root — `driver.exec` → `incus exec` is root by default,
- *  which `pacman-key` requires. */
+/** Take sole ownership of Arch's pacman keyring, then refresh it from the mirror.
+ *
+ *  WHY refresh at all (#1422): the base image's `archlinux-keyring` drifts behind the
+ *  mirror; once a mirror package is signed by a packager key newer than the image's
+ *  keyring, `pacman -Sy <pkg>` fails "signature … is unknown trust / invalid or corrupted
+ *  package (PGP signature)" and the checked baseline aborts. So we rebuild trust and pull
+ *  a current `archlinux-keyring` BEFORE any pacman install. Populate-before-sync is
+ *  required — `-Sy` first would fail verification before the keyring is refreshed.
+ *
+ *  WHY stop units first (#1738): `images:archlinux` runs its OWN keyring init at boot —
+ *  `/etc/systemd/system/pacman-init.service` (`ExecStart=pacman-key --init` + `--populate`,
+ *  ordered `After=time-sync.target`). We only wait for DNS (waitForDns), which resolves
+ *  long before time-sync, so the pre-#1738 version of this function raced that unit: two gpg
+ *  processes writing /etc/pacman.d/gnupg, and the loser died with "can't open pubring.gpg /
+ *  no writable keyring found / could not be locally signed". Reproduced 3/3 by exec'ing as
+ *  soon as DNS resolved; 0/3 when run after the unit had settled. Since runScenario launches
+ *  a FRESH instance per scenario, BOTH Arch scenarios are exposed — which one loses on a
+ *  given night is jitter, which is exactly why the nightly looked flaky.
+ *
+ *  Enumerating `systemctl list-units --all '*keyring*' '*pacman*'` + `list-timers` on a
+ *  fresh instance, pacman-init is not the only writer of that homedir:
+ *   - `archlinux-keyring-wkd-sync.timer` (loaded, active, OnCalendar=weekly, Persistent=true)
+ *     refreshes keys in the SAME homedir. On a fresh instance it sits ~6 days out and does not
+ *     fire at boot — but Persistent=true means an aged image cache can fire a catch-up run
+ *     right inside our window, so we stop it (and its service) defensively.
+ *   - the socket-activated `gpg-agent@ / dirmngr@ / keyboxd@ etc-pacman.d-gnupg` daemons are
+ *     separate units that SURVIVE stopping pacman-init, so one can linger holding the homedir
+ *     we are about to delete; `gpgconf --kill all` releases them first.
+ *  Nothing else in that enumeration touches the homedir.
+ *
+ *  We then rebuild UNCONDITIONALLY (`rm -rf` + init + populate) rather than probe-and-heal:
+ *  after a race the unit finishes its own populate, so the homedir converges to healthy and a
+ *  `pacman-key --list-keys` probe would exit 0 and skip the heal; and pacman-init's
+ *  `ConditionPathIsDirectory=!/etc/pacman.d/gnupg` makes `systemctl start` a no-op once the dir
+ *  exists, so it cannot repair a broken-but-present homedir either. Destroying and rebuilding is
+ *  safe here — these are throw-away instances whose keyring we fully own. (For the same reason
+ *  this shape must NOT be ported to the in-app remediation that runs on real user machines.)
+ *
+ *  `set -e` is load-bearing: `driver.exec` runs this via `sh -c`, which returns only the LAST
+ *  command's status, and `pacman -Sy --needed archlinux-keyring` exits 0 ("nothing to do") when
+ *  the version already matches — so without it, a failed init/populate would be swallowed and the
+ *  step would report success on an EMPTY keyring, resurfacing later as a misleading `curl`/`unzip`
+ *  install error. It is placed after the guard so non-Arch images still exit 0.
+ *
+ *  `timeout 120` bounds the stop: it blocks on the unit's job, and incus.ts's RUNNER_TIMEOUT_MS
+ *  is 20min — unbounded, a wedged stop would turn a fast, legible failure into a hung run.
+ *
+ *  Guarded on `command -v pacman` so it's a clean no-op on apt/apk/dnf images (the 8 non-Arch
+ *  scenarios). Runs as root — `driver.exec` → `incus exec` is root by default, which
+ *  `pacman-key` and `systemctl` require. */
 function archKeyringRefresh(): string {
-  return (
-    "command -v pacman >/dev/null 2>&1 || exit 0; " +
-    "pacman-key --init && pacman-key --populate archlinux && " +
-    "pacman -Sy --needed --noconfirm archlinux-keyring"
-  );
+  return [
+    "command -v pacman >/dev/null 2>&1 || exit 0",
+    "set -e",
+    "timeout 120 systemctl stop pacman-init.service archlinux-keyring-wkd-sync.timer " +
+      "archlinux-keyring-wkd-sync.service >/dev/null 2>&1 || true",
+    "systemctl reset-failed pacman-init.service >/dev/null 2>&1 || true",
+    "gpgconf --homedir /etc/pacman.d/gnupg --kill all >/dev/null 2>&1 || true",
+    "rm -rf /etc/pacman.d/gnupg",
+    "pacman-key --init",
+    "pacman-key --populate archlinux",
+    "pacman -Sy --needed --noconfirm archlinux-keyring",
+  ].join("\n");
 }
 
 /** Cross-distro "ensure package `$1` is installed" one-liner (apt/apk/dnf/pacman). */
@@ -83,7 +127,8 @@ function herdrStub(): string {
  *  AFTER this so degraded Shepherd can still boot. */
 function baselineCommands(): string[] {
   return [
-    // Arch keyring rot (#1422) fails the first pacman install; refresh it before any
+    // Arch keyring rot (#1422) fails the first pacman install, and the image's own boot-time
+    // keyring init races ours (#1738) — take ownership of the keyring and refresh it before any
     // package op. No-op on non-Arch images. See archKeyringRefresh().
     archKeyringRefresh(),
     ensurePkg("curl"),

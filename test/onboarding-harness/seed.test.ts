@@ -66,6 +66,43 @@ describe("seedInstance", () => {
     expect(flat.some((c) => c.includes("herdr.dev"))).toBe(false);
   });
 
+  it("the Arch keyring step owns the keyring and is fail-closed (#1738)", async () => {
+    const { calls, run } = recorder();
+    const d = new IncusDriver(run, "shep-onb-");
+    await seedInstance(d, scenario, "/tmp/shepherd.tar");
+
+    const flat = calls.map((c) => c.join(" "));
+    const step = flat.find((c) => c.includes("pacman-key --populate archlinux"))!;
+    expect(step).toBeDefined();
+
+    // Stays a clean no-op on the 8 non-Arch (apt/apk/dnf) scenarios.
+    expect(step).toContain("command -v pacman");
+
+    // FAIL-CLOSED. `driver.exec` runs this via `sh -c`, which returns only the LAST
+    // command's status — and `pacman -Sy --needed archlinux-keyring` exits 0 ("nothing to
+    // do") when the version already matches. Without `set -e` a failed init/populate would
+    // be swallowed and the step would report success on an EMPTY keyring. Either `set -e`
+    // or an unbroken `&&` chain from init through the sync satisfies the contract.
+    const failClosed =
+      /(^|\n)set -e(\s|$)/.test(step) ||
+      /pacman-key --init\s*&&[\s\S]*pacman -Sy[^\n]*archlinux-keyring/.test(step);
+    expect(failClosed).toBe(true);
+
+    // Stops the image's OWN boot-time keyring writers BEFORE touching pacman-key, or we
+    // race them (#1738): pacman-init.service (After=time-sync.target, so it can fire well
+    // after our DNS gate) and the wkd-sync timer (Persistent=true ⇒ boot catch-up run).
+    const stopIdx = step.indexOf("systemctl stop");
+    const keyIdx = step.indexOf("pacman-key");
+    expect(stopIdx).toBeGreaterThanOrEqual(0);
+    expect(stopIdx).toBeLessThan(keyIdx);
+    expect(step).toContain("pacman-init.service");
+    expect(step).toContain("archlinux-keyring-wkd-sync.timer");
+
+    // BOUNDED: `systemctl stop` blocks on the unit's job; unbounded it could hang to the
+    // 20min RUNNER_TIMEOUT_MS SIGKILL instead of failing fast.
+    expect(step).toContain("timeout 120 systemctl stop");
+  });
+
   it("the herdr stub is a CHECKED baseline step (a failure aborts the seed)", async () => {
     const calls: string[][] = [];
     const run = async (args: string[]): Promise<IncusExec> => {

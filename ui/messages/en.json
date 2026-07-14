@@ -2229,6 +2229,7 @@
   "topbar_held_spawning": "Starting…",
   "topbar_held_discarding": "Discarding…",
   "automation_drain_fields_intro": "These dials govern Auto-Drain and apply only while it's on:",
+  "automation_drain_fields_intro_epic": "These dials still govern the running epic's draining — adjust them to retune it in flight:",
   "drain_cap_hint": "Most auto-started agents allowed to run at once. Once it's reached, Shepherd waits for a slot to free before picking up the next issue.",
   "drain_label_hint": "Only issues carrying this label get picked up — tag the tickets you want worked automatically with it.",
   "drain_ceiling_hint": "Pause new auto-starts once your account usage reaches this percentage. A higher value lets the drain keep going longer; the default is 80.",

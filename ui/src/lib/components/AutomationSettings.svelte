@@ -52,9 +52,14 @@
   const flags = $derived(repoConfig.flags(repoPath));
   /** True when this repo is configured for local-only (lightweight) mode. */
   const lightweight = $derived(repoConfig.repoModeFor(repoPath) === "lightweight");
-  /** Auto-Drain's rails are live only when drain is on, not epic-suspended, and the
-   *  repo is a forge — mirrors the Auto-Drain switch's own enabled condition. */
-  const drainRailsActive = $derived(flags.autoDrain && !epicActive && !lightweight);
+  /** Auto-Drain's rails (cap / usage ceiling) govern spawning whenever draining is
+   *  happening — label-drain (`flags.autoDrain`) OR a running epic — so they stay
+   *  reachable while an epic runs, since both `maxAuto` and the usage ceiling are
+   *  still enforced against the epic's children (drain-core capHold/usageHold). The
+   *  label field is the exception (label-drain is suspended mid-epic); the component
+   *  hides just that field on `epicActive`. Only lightweight (non-forge) repos, which
+   *  never drain, hide the group entirely. */
+  const drainRailsActive = $derived(!lightweight && (flags.autoDrain || epicActive));
   // Switch-pulse is per-task; only meaningful when this instance is bound to a session.
   const reviewing = $derived(sessionId ? reviews.isReviewing(sessionId) : false);
   const planReviewing = $derived(sessionId ? planGates.isReviewing(sessionId) : false);
@@ -433,10 +438,12 @@
   </button>
 </div>
 <!-- Auto-Drain's rails (cap / label / usage ceiling), inline directly under its
-     toggle so they read as part of that switch. The component renders them only
-     while drain is genuinely active (on, not epic-suspended, forge repo) —
-     visibility is gated inside it via `active` so this template stays flat. -->
-<AutomationDrainFields {repoPath} active={drainRailsActive} />
+     toggle so they read as part of that switch. `active` gates the whole group
+     (shown while label-drain is on OR an epic is running); `epicActive` tells the
+     component to hide just the label field (label-drain is suspended mid-epic) and
+     switch to the epic-scoped intro copy. Both flags are gated inside the component
+     so this template stays flat. -->
+<AutomationDrainFields {repoPath} active={drainRailsActive} {epicActive} />
 <div class={["auto-row", { disabled: lightweight }]}>
   <div class="auto-meta">
     <div class="auto-name">☑ {m.automation_prewarm_epic_ci_name()}</div>

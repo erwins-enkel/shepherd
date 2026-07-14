@@ -43,14 +43,22 @@
     try {
       const snap = await fixDiagnostic(checkId);
       diagChecks = snap.checks;
-      const cleared = snap.checks.find((c) => c.id === checkId)?.state === "ok";
+      const target = snap.checks.find((c) => c.id === checkId);
+      const cleared = target?.state === "ok";
       if (cleared) {
         toasts.info(m.diagnostics_fix_success(), { duration: 3000 });
       } else {
-        toasts.info(m.diagnostics_fix_unresolved(), {
-          alert: true,
-          key: `diagnose-fix:${checkId}`,
-        });
+        // A code fix (fixActionKey, no shell command) that didn't clear needs code-appropriate
+        // wording — "the command ran" is wrong for a config seed (e.g. claude folder-trust).
+        toasts.info(
+          target?.fixActionKey
+            ? m.diagnostics_fix_unresolved_code()
+            : m.diagnostics_fix_unresolved(),
+          {
+            alert: true,
+            key: `diagnose-fix:${checkId}`,
+          },
+        );
       }
     } catch {
       toasts.info(m.diagnostics_fix_failed(), {

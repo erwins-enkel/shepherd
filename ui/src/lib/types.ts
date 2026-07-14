@@ -1516,6 +1516,10 @@ export interface DiagnosticCheck {
    *  button. Present only on non-ok, auto-fixable checks (server sets it; guidance-only
    *  rows like tailscale and ok rows have none → no Fix button). */
   remediation?: string;
+  /** A path-free message key naming a server-side code fix (no shell command),
+   *  rendered as prose in the confirm modal instead of a `<code>` block. Mutually
+   *  exclusive with `remediation`; either one enables the Fix button. */
+  fixActionKey?: string;
 }
 export interface DiagnosticsSnapshot {
   checks: DiagnosticCheck[];

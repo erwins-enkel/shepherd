@@ -463,6 +463,12 @@ export interface DiagnosticCheck {
    *  auto-fixable checks (autoFixCommandFor resolved) — never on `ok` checks and never on
    *  guidance-only ones (tailscale). Still no stdout/tokens/paths/identity ever cross here. */
   remediation?: string;
+  /** A path-free UI message-key naming a SERVER-SIDE code fix (e.g.
+   *  "diagnostics_fix_action_claude_trust"), dispatched by `hintKey` in
+   *  `DiagnosticsService.fix()`. Used when the fix needs a dynamic path that
+   *  payload-purity bans from `remediation` (claude folder-trust seed). Mutually
+   *  exclusive with `remediation`. Still a message key only — no path ever crosses. */
+  fixActionKey?: string;
 }
 
 /** The full diagnostics payload returned by GET /api/diagnostics and pushed on

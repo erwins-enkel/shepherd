@@ -188,3 +188,48 @@ describe("DiagnoseRows fix button gating", () => {
     expect(onfix).not.toHaveBeenCalled();
   });
 });
+
+describe("DiagnoseRows code-fix (fixActionKey) branch", () => {
+  const trustCheck = () =>
+    check({
+      id: "claude_trust",
+      state: "warning",
+      hintKey: "diagnostics_hint_claude_trust_untrusted",
+      fixActionKey: "diagnostics_fix_action_claude_trust",
+    });
+
+  it("shows a Fix button for a check with fixActionKey (no remediation)", () => {
+    render(DiagnoseRows, { props: { onfix: vi.fn(), checks: [trustCheck()] } });
+    expect(document.querySelector("button.fix")).not.toBeNull();
+    expect(document.querySelector("a.doc-link")).toBeNull();
+  });
+
+  it("confirm modal uses code-fix chrome and renders the sentence as prose (no command block)", async () => {
+    render(DiagnoseRows, { props: { onfix: vi.fn(), checks: [trustCheck()] } });
+
+    await page.getByRole("button", { name: m.diagnostics_fix() }).click();
+
+    const dlg = document.querySelector('[role="dialog"][aria-modal="true"]');
+    expect(dlg).not.toBeNull();
+    // code-fix title + matching aria-label
+    expect(dlg?.getAttribute("aria-label")).toBe(m.diagnostics_fix_confirm_title_code());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_title_code());
+    // the fixActionKey sentence renders as prose — NOT inside the command-styled <code>
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_action_claude_trust());
+    expect(dlg?.querySelector("code.cmd")).toBeNull();
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_body());
+    // code-fix run label, not the shell "Run"
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_run_code());
+  });
+
+  it("confirming the code fix calls onfix with the check id", async () => {
+    const onfix = vi.fn(() => Promise.resolve());
+    render(DiagnoseRows, { props: { onfix, checks: [trustCheck()] } });
+
+    await page.getByRole("button", { name: m.diagnostics_fix() }).click();
+    await page.getByRole("button", { name: m.diagnostics_fix_confirm_run_code() }).click();
+
+    expect(onfix).toHaveBeenCalledTimes(1);
+    expect(onfix).toHaveBeenCalledWith("claude_trust");
+  });
+});

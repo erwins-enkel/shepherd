@@ -777,6 +777,28 @@ describe("PlanPanel at-cap re-review", () => {
       .toBeVisible();
   });
 
+  it("doesn't name Resume while the re-review is in flight — that's exactly when the CTA is hidden", async () => {
+    const id = "s-atcap-inflight";
+    planGates.map = {
+      [id]: gate(id, { decision: "changes_requested", round: 3, cap: 3, approved: false }),
+    };
+    vi.mocked(reviewPlan).mockResolvedValue("started-at-cap");
+
+    render(PlanPanel, { props: { session: session({ id }), onclose: vi.fn() } });
+
+    await page.getByRole("button", { name: m.planpanel_review_now() }).click();
+    // The WS reviewing flag lands — canShowPlanStallActions requires !reviewing, so Resume/Dismiss
+    // come off screen for the whole run. The note is set on the click, i.e. inside that very window.
+    planGates.reviewing = { [id]: true };
+
+    await expect.element(page.getByText(m.planpanel_review_at_cap_no_resume())).toBeVisible();
+    expect(
+      [...document.querySelectorAll("button")].some(
+        (b) => b.textContent?.trim() === m.planpanel_quota_resume(),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps the at-cap warning for an ERROR gate at the cap (the server's hold ignores decision)", async () => {
     const id = "s-atcap-error";
     // An `error` verdict carries its round and stays re-reviewable; its next request-changes verdict

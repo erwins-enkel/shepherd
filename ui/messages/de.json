@@ -1865,7 +1865,7 @@
   "feat_learnings_recur_body": "Wenn dieselbe Regel in mehreren Repos wiederkehrt, schlägt das Learnings-Panel jetzt vor, sie in deine benutzerglobale CLAUDE.md aufzunehmen – als Vorschlag, den du verwerfen kannst.",
   "gitrail_open_issue": "Issue ↗",
   "gitrail_issue_label": "Issue #{number}",
-  "gitrail_pr_link": "PR ↗",
+  "gitrail_pr_link": "PR",
   "gitrail_pr_plain": "PR",
   "feat_open_linked_issue_title": "Verknüpftes Issue öffnen",
   "feat_open_linked_issue_body": "GitRail zeigt jetzt einen \"Issue ↗\"-Link für Aufgaben, die aus einem Backlog-Issue gestartet wurden – direkt zum Issue auf GitHub oder Gitea springen.",

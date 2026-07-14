@@ -1865,7 +1865,7 @@
   "feat_learnings_recur_body": "When the same rule recurs across several repos, the Learnings drawer now suggests promoting it to your user-global CLAUDE.md — kept as a suggestion you can dismiss.",
   "gitrail_open_issue": "Issue ↗",
   "gitrail_issue_label": "Issue #{number}",
-  "gitrail_pr_link": "PR ↗",
+  "gitrail_pr_link": "PR",
   "gitrail_pr_plain": "PR",
   "feat_open_linked_issue_title": "Open the linked issue",
   "feat_open_linked_issue_body": "GitRail now shows an \"Issue ↗\" link for tasks spawned from a backlog issue — jump straight to the issue on GitHub or Gitea.",

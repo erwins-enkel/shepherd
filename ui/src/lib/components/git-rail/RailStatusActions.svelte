@@ -2,6 +2,7 @@
   import type { GitState, SessionStatus } from "$lib/types";
   import type { CriticChip } from "../critic-badge";
   import ReadyToggle from "../ReadyToggle.svelte";
+  import PrBadgeMenu from "../PrBadgeMenu.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -28,6 +29,7 @@
     planReviewLabel,
     planReviewBlockedReason,
     startPr,
+    togglePrDraft,
     doMerge,
     doRedeploy,
     toggleReview,
@@ -56,6 +58,7 @@
     planReviewLabel: string;
     planReviewBlockedReason: string | null;
     startPr: () => void;
+    togglePrDraft: (draft: boolean) => Promise<boolean>;
     doMerge: (skipArm?: boolean) => Promise<void>;
     doRedeploy: (skipArm?: boolean) => Promise<void>;
     toggleReview: (e?: Event) => void;
@@ -76,6 +79,30 @@
   // CI status → .status-chip accent modifier ("" = neutral for the "none" state).
   function ciMod(c: GitState["checks"]): string {
     return c === "success" ? "pass" : c === "pending" ? "pend" : c === "failure" ? "fail" : "";
+  }
+
+  const canToggleDraft = $derived(git.kind === "github" || git.kind === "gitea");
+  let prButton = $state<HTMLButtonElement>();
+  let prMenuAnchor = $state<DOMRect | null>(null);
+
+  function closePrMenu() {
+    prMenuAnchor = null;
+  }
+
+  function togglePrMenu(e: MouseEvent) {
+    e.stopPropagation();
+    if (prMenuAnchor) closePrMenu();
+    else if (prButton) prMenuAnchor = prButton.getBoundingClientRect();
+  }
+
+  function openPr() {
+    closePrMenu();
+    if (!git.url) return;
+    window.open(git.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function toggleDraftState() {
+    if (await togglePrDraft(git.isDraft !== true)) closePrMenu();
   }
 </script>
 
@@ -110,17 +137,20 @@
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_ready_to_merge()} #{git.number}</span
     >
   {:else if git.url}
-    <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-    <a
+    <button
+      bind:this={prButton}
+      type="button"
       class="status-chip info"
-      href={git.url}
-      target="_blank"
-      rel="noopener"
+      class:open={!!prMenuAnchor}
       title={m.prbadge_open({ number: git.number ?? 0 })}
-      aria-label={m.prbadge_open({ number: git.number ?? 0 })}
-      ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_link()}</a
+      aria-label={m.prbadge_button_title({
+        label: m.prbadge_open({ number: git.number ?? 0 }),
+      })}
+      aria-haspopup="menu"
+      aria-expanded={!!prMenuAnchor}
+      onclick={togglePrMenu}
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_link()}</button
     >
-    <!-- eslint-enable svelte/no-navigation-without-resolve -->
   {:else}
     <span class="status-chip info" title={m.prbadge_open({ number: git.number ?? 0 })}
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_plain()}</span
@@ -169,6 +199,20 @@
   <span class="status-chip parked"
     ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}</span
   >
+{/if}
+
+{#if prMenuAnchor}
+  <PrBadgeMenu
+    anchor={prMenuAnchor}
+    opener={prButton}
+    isDraft={git.isDraft === true}
+    canOpen={!!git.url}
+    {canToggleDraft}
+    {busy}
+    onopen={openPr}
+    ontoggledraft={toggleDraftState}
+    onclose={closePrMenu}
+  />
 {/if}
 
 {#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
@@ -289,8 +333,8 @@
   }
 
   /* Status Chip — component-scoped copy of the canonical recipe (DESIGN.json;
-     there is no shared class). Read-only functional-status readouts: PR / CI /
-     merged / closed / issue. Semantic hue on border + text + leading dot. */
+     there is no shared class). Functional-status readouts plus the PR menu
+     trigger. Semantic hue on border + text + leading dot. */
   .status-chip {
     display: inline-flex;
     align-items: center;
@@ -307,12 +351,24 @@
     white-space: nowrap;
     text-decoration: none;
   }
-  a.status-chip {
+  button.status-chip {
+    appearance: none;
+    margin: 0;
+    line-height: inherit;
+  }
+  a.status-chip,
+  button.status-chip {
     cursor: pointer;
     transition: background 0.12s;
   }
-  a.status-chip:hover {
+  a.status-chip:hover,
+  button.status-chip:hover,
+  button.status-chip.open {
     background: var(--color-hover);
+  }
+  button.status-chip:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
   }
   .status-chip .dot {
     width: 7px;

@@ -1,5 +1,5 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { DistillerService, DISTILL_LABEL } from "../src/distiller";
+import { DistillerService, DISTILL_LABEL, type DistillerDeps } from "../src/distiller";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -32,7 +32,11 @@ function seedSignals(store: SessionStore, repo: string, n: number) {
   }
 }
 
-function mkDeps(store: SessionStore, proposals: any, onChange = () => {}) {
+function mkDeps(
+  store: SessionStore,
+  proposals: any,
+  onChange = () => {},
+): { deps: DistillerDeps; started: { dir: string }[] } {
   const started: { dir: string }[] = [];
   return {
     deps: {
@@ -231,7 +235,10 @@ test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare
   expect(argv.length).toBeGreaterThan(mode + 2);
 });
 
-function spawnCapture(store: SessionStore) {
+function spawnCapture(store: SessionStore): {
+  deps: DistillerDeps;
+  cap: { argv: string[]; env?: Record<string, string>; starts: number; removed: number };
+} {
   const cap: { argv: string[]; env?: Record<string, string>; starts: number; removed: number } = {
     argv: [],
     env: undefined,
@@ -448,6 +455,8 @@ test("distiller increments ineffective for cited active rule ids with validated 
       addLearning: () => ({}) as never,
       listLearnings: () => [],
       listActiveLearnings: () => active as never,
+      getSetting: () => null,
+      setSetting: () => {},
       getRepoConfig: () => ({
         criticEnabled: true,
         criticAllPrs: false,

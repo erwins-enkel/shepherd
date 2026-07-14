@@ -24,11 +24,17 @@
         onfocusout={() => toasts.release(t.id)}
       >
         <span class="msg">{t.text}</span>
+        <!-- Both tones put their controls in .actions: it carries the row's single
+             margin-left:auto, which is the ONLY thing right-aligning them once the row
+             wraps (a lone button on line 2 has no free space to grow into, so .msg's
+             flex-grow can't reach it). -->
         {#if t.tone === "undo"}
-          <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>
-            {t.undoLabel}
-            <span class="bar" aria-hidden="true"></span>
-          </button>
+          <div class="actions">
+            <button type="button" class="undo" onclick={() => toasts.cancel(t.id)}>
+              {t.undoLabel}
+              <span class="bar" aria-hidden="true"></span>
+            </button>
+          </div>
         {:else}
           <!-- Action + ✕ are ONE flex item: as two siblings, line-breaking collects
                them separately, so a long action label orphans the ✕ onto a third
@@ -105,7 +111,7 @@
   /* Flex base = max-content, so line-breaking wraps .actions away rather than
      shrinking the message: the long-action-label squeeze (3-line column) can't
      recur. overflow-wrap catches an unbreakable branch name that alone exceeds
-     the line; flex-grow right-aligns a lone ✕ when there's no action button. */
+     the line. */
   .msg {
     flex: 1 1 auto;
     min-width: 0;
@@ -124,10 +130,10 @@
     margin-left: auto;
     min-width: 0;
   }
-  /* No margin-left:auto here or on .x — .actions owns the row's single auto margin,
-     and .msg's flex-grow right-aligns the undo-tone button (a direct child of
-     .toast, outside .actions). A second auto margin would reintroduce the §8.1
-     equal-split of free space that grouping exists to prevent. */
+  /* No margin-left:auto here or on .x — .actions (their only parent, both tones)
+     owns the row's single auto margin and right-aligns them on wrapped and unwrapped
+     rows alike. A second auto margin would reintroduce the §8.1 equal-split of free
+     space that grouping exists to prevent. */
   .undo {
     position: relative;
     flex-shrink: 1;

@@ -161,35 +161,50 @@ describe("Toasts: long action label wraps instead of squishing the message", () 
     expect(msgLineCount(msg)).toBe(1);
   });
 
-  /* .actions owns the row's ONLY auto margin; .undo and .x declare none. These two
-     pin the right-alignment that used to ride on those removed margins: the undo-tone
-     button (a direct child of .toast, outside .actions) is pushed right by .msg's
-     flex-grow, and a lone ✕ by .actions' own auto margin. */
-  it("right-aligns the undo-tone button, which sits outside .actions", async () => {
-    await page.viewport(1280, 900);
-    toasts.undo(MERGED, { undoLabel: m.common_undo(), onCommit: () => {} });
+  /* .actions owns the row's ONLY auto margin; .undo and .x declare none. These pin the
+     right-alignment that used to ride on those removed margins. The undo tone is in
+     .actions too — a lone button on a wrapped line has no free space to grow into, so
+     .msg's flex-grow cannot reach it and it would left-align without the wrapper. */
+  async function renderUndo(text: string) {
+    toasts.undo(text, { undoLabel: m.common_undo(), onCommit: () => {} });
     render(Toasts, {});
     await tick();
-    const toast = el<HTMLElement>(".toast");
-    const undo = el<HTMLElement>(".undo");
-    expect(document.querySelector(".actions")).toBeNull(); // undo tone has no wrapper
-    // Flush right (12px padding + 1px border), not left-adrift beside the message.
-    expect(toast.getBoundingClientRect().right - undo.getBoundingClientRect().right).toBeCloseTo(
-      13,
-      0,
+  }
+
+  /** Distance from the toast's right edge — 13px (12px padding + 1px border) when flush. */
+  function insetRight(node: HTMLElement): number {
+    return (
+      el<HTMLElement>(".toast").getBoundingClientRect().right - node.getBoundingClientRect().right
     );
+  }
+
+  it("right-aligns the undo-tone button on an unwrapped row", async () => {
+    await page.viewport(1280, 900);
+    await renderUndo(MERGED);
+    expect(insetRight(el<HTMLElement>(".undo"))).toBeCloseTo(13, 0);
+  });
+
+  it("right-aligns the undo-tone button once the row WRAPS (long session name)", async () => {
+    await page.viewport(1280, 900);
+    // Reachable in real use: toast_decommissioned carries a session name and routinely
+    // exceeds the 440px cap. Without .actions the button would be alone on line 2 with
+    // no auto margin and no grow → left-adrift, unlike an info toast in the same state.
+    await renderUndo(m.toast_decommissioned({ name: "shepherd/toast-decommission-update-local" }));
+    const msg = el<HTMLElement>(".msg");
+    const undo = el<HTMLElement>(".undo");
+    // Actually wrapped (else this asserts nothing).
+    expect(undo.getBoundingClientRect().top).toBeGreaterThanOrEqual(
+      msg.getBoundingClientRect().bottom,
+    );
+    expect(insetRight(undo)).toBeCloseTo(13, 0);
   });
 
   it("right-aligns a lone ✕ when there is no action label", async () => {
     await page.viewport(1280, 900);
     await renderToast(MERGED);
-    const toast = el<HTMLElement>(".toast");
     const x = el<HTMLElement>(".x");
     expect(document.querySelector(".undo")).toBeNull();
-    expect(toast.getBoundingClientRect().right - x.getBoundingClientRect().right).toBeCloseTo(
-      13,
-      0,
-    );
+    expect(insetRight(x)).toBeCloseTo(13, 0);
   });
 
   it("keeps .countdown a direct child of .toast (absolutely positioned against it)", async () => {

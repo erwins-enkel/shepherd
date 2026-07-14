@@ -3141,5 +3141,7 @@
   "plangate_review_at_cap": "Plan-Prüfung gestartet, aber das Überarbeitungsbudget ist aufgebraucht: Verlangt der Prüfer Änderungen, werden diese Befunde nicht an den Agenten gesendet.",
   "plangate_review_spends_round": "Eine erneute Prüfung sendet die Befunde an den Agenten und verbraucht eine Überarbeitungsrunde ({round}/{cap} verbraucht).",
   "planpanel_review_at_cap": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben, aber falls er erneut Änderungen verlangt, werden diese Befunde nicht an den Planungs-Agenten gesendet. Mit „Mit Befunden fortsetzen“ das Budget zurücksetzen und erneut senden.",
-  "planpanel_review_at_cap_no_resume": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden."
+  "planpanel_review_at_cap_no_resume": "Erneute Prüfung am Überarbeitungslimit. Der Prüfer kann den Plan weiterhin freigeben. Verlangt er stattdessen Änderungen, werden diese Befunde nicht an den Planungs-Agenten gesendet – „Mit Befunden fortsetzen“ erscheint dann hier, um das Budget zurückzusetzen und sie erneut zu senden.",
+  "drain_paused_epic_base": "Pausiert: Epic-Branch {branch} nicht erstellbar",
+  "epic_hold_epic_base_unavailable": "Pausiert: Der Epic-Branch {branch} konnte auf der Forge nicht erstellt werden. Wird erneut versucht — bis dahin kann kein Child starten."
 }

@@ -871,3 +871,44 @@ test("reapOrphans is a no-op when herdr is unavailable", () => {
   expect(() => svc.reapOrphans()).not.toThrow();
   expect(closes).toBe(0);
 });
+
+// ── #1757: this critic reviews epic CHILD PRs too ───────────────────────────────────────────────
+//
+// The eligibility carve-out (`!criticAllPrs && !isEpicIntegrationBranch(headRefName)`) only excludes
+// child PRs when criticAllPrs is OFF. With it ON every child PR is reviewed here, and when the
+// session critic is off this is the SOLE reviewer. Either way the same stale-tree bug applies: the
+// child was never rebased onto its epic base, so merged sibling work is missing from the tree.
+
+test("#1757 epic child PR: the prompt carries the EPIC CONTEXT block", async () => {
+  const { deps, spies } = makeDeps(
+    {
+      computePatchId: async () => ({ patchId: "p1", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+      collectBaseDelta: async () => ({
+        paths: ["src/base-only.ts"],
+        pathsTruncated: 0,
+        commits: ["abc feat: sibling landed"],
+        commitsTruncated: 0,
+      }),
+    },
+    { criticAllPrs: true },
+  );
+  // the PR's base IS the epic integration branch (makeDeps doesn't thread `meta` into its forge)
+  deps.resolveForge = () =>
+    makeForge(spies, { meta: async () => ({ ...OPEN_META, baseRefName: "epic/1757-critic" }) });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC CONTEXT");
+  expect(prompt).toContain("epic/1757-critic");
+  expect(prompt).toContain("OVERRIDES the VERIFY rule");
+  expect(prompt).toContain("⟦UNTRUSTED:base delta paths:");
+});
+
+test("#1757 ordinary PR (base=main): no epic block", async () => {
+  const { deps, spies } = makeDeps({
+    computePatchId: async () => ({ patchId: "p1", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  expect(spies.started[0]!.argv.at(-1)!).not.toContain("EPIC CONTEXT");
+});

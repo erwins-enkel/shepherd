@@ -105,6 +105,14 @@ describe("queueOpenable", () => {
 });
 
 describe("pausedText", () => {
+  // #1757: this switch IS reached (the code is `paused`), so without a case the generic
+  // "paused" copy would hide a nameable, actionable cause.
+  it("maps epic_base_unavailable with its branch", () => {
+    expect(
+      pausedText(drain({ paused: true, reason: "epic_base_unavailable", detail: "epic/9-x" })),
+    ).toContain("epic/9-x");
+  });
+
   it("maps blocked with its designation", () => {
     expect(pausedText(drain({ paused: true, reason: "blocked", detail: "TASK-07" }))).toContain(
       "TASK-07",

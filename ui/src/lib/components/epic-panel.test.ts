@@ -41,6 +41,18 @@ describe("epic-panel helpers", () => {
 });
 
 describe("epicHoldLine", () => {
+  // #1757: the forge's ensureBranch threw, so no child can be based on the epic branch. `detail`
+  // carries the BRANCH (not a desig) — without a case here the epic panel would render nothing for
+  // a genuinely actionable, self-healing stall.
+  it("epic_base_unavailable names the integration branch", () => {
+    const line = epicHoldLine(
+      drain({ reason: "epic_base_unavailable", detail: "epic/1757-critic" }),
+      true,
+      [...READY],
+    );
+    expect(line).toContain("epic/1757-critic");
+  });
+
   it("returns null when not running / no drain / actively spawning (reason null)", () => {
     expect(epicHoldLine(drain({ reason: "cap" }), false, [...READY])).toBeNull();
     expect(epicHoldLine(null, true, [...READY])).toBeNull();

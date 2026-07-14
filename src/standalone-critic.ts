@@ -33,11 +33,13 @@ import {
   prReviewPrompt,
   defaultReadVerdict,
   defaultComputePatchId,
+  defaultCollectBaseDelta,
   buildVerdictCore,
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
   type RawVerdict,
+  type EpicContext,
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
@@ -106,6 +108,9 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     worktreePath: string,
     base: string,
   ) => Promise<{ patchId: string | null; baseSha: string | null; files: string[] }>;
+  /** Injectable collector of an epic child's missing sibling work (default: real read-only git).
+   *  Same contract as ReviewService — see critic-core's defaultCollectBaseDelta. */
+  collectBaseDelta?: typeof defaultCollectBaseDelta;
   /** Injectable reader of a finished reviewer's token totals (default: readSessionUsage). */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
 }
@@ -127,6 +132,7 @@ export class StandalonePrCriticService {
   private log: (msg: string) => void;
   private readVerdict: (worktreePath: string) => VerdictRead<RawVerdict>;
   private computePatchId: StandalonePrCriticDeps["computePatchId"] & {};
+  private collectBaseDelta: typeof defaultCollectBaseDelta;
   private readUsage: (
     worktreePath: string,
     criticSessionId: string,
@@ -139,6 +145,7 @@ export class StandalonePrCriticService {
     this.log = deps.log ?? ((msg) => console.log(msg));
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
+    this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
@@ -367,6 +374,17 @@ export class StandalonePrCriticService {
       // Resolve the base for the prompt: the concrete fingerprinted SHA when we have it (so the
       // review diffs the identical base the skip decision used), else the base branch name.
       const diffBase = baseSha ?? meta.baseRefName;
+      // Epic child (#1757): this critic reviews child PRs too — whenever `criticAllPrs` is ON (the
+      // eligibility carve-out above is then inert) and whenever the session critic is OFF (here it
+      // is the SOLE reviewer). Same stale-tree problem: the child was never rebased onto its epic
+      // integration base, so merged sibling work is absent from the checked-out tree.
+      const epic: EpicContext | null = isEpicIntegrationBranch(meta.baseRefName)
+        ? {
+            base: meta.baseRefName,
+            baseSha,
+            delta: baseSha ? await this.collectBaseDelta(wt.worktreePath, baseSha) : null,
+          }
+        : null;
       // Fail-closed guard + membrane-wrapped spawn + spawn-row record live in spawnAndRecord (keeps
       // begin under the cognitive budget). Returns false when nothing spawned (fail-closed / spawn
       // error) — the worktree is reaped inside, so begin just bails.
@@ -375,6 +393,7 @@ export class StandalonePrCriticService {
         baseSha,
         files,
         priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
+        epic,
       });
     } finally {
       this.starting.delete(key);
@@ -403,6 +422,8 @@ export class StandalonePrCriticService {
       baseSha: string | null;
       files: string[];
       priorReviewedPatchIds: string[];
+      /** Non-null only when the PR's base is an epic integration branch (#1757). */
+      epic?: EpicContext | null;
     },
   ): Promise<void> {
     if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
@@ -417,7 +438,7 @@ export class StandalonePrCriticService {
       provider: env.provider,
       model: env.model,
       effort: env.effort,
-      prompt: prReviewPrompt(diffBase, pr.title, prBody),
+      prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null),
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).

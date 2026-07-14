@@ -38,6 +38,8 @@ interface ForgeRec {
   added: { number: number; label: string }[];
   /** ensureBranch calls: [branch, fromRef]. */
   ensured: { branch: string; fromRef: string }[];
+  /** #1757: claim-label removals (a failed spawn must release the claim). */
+  removed: { number: number; label: string }[];
 }
 
 function fakeForge(
@@ -76,7 +78,9 @@ function fakeForge(
     addIssueLabel: async (number: number, label: string) => {
       rec.added.push({ number, label });
     },
-    removeIssueLabel: async () => {},
+    removeIssueLabel: async (number: number, label: string) => {
+      rec.removed.push({ number, label });
+    },
     getIssue: async (number: number) => {
       if (opts.getIssue) return opts.getIssue(number);
       return issues.find((i) => i.number === number) ?? null;
@@ -110,6 +114,10 @@ function makeHarness(
     listBlockedByImpl?: (issueNumber: number) => Promise<number[]>;
     noEnsureBranch?: boolean;
     authMode?: "chatgpt" | "apikey" | "unknown";
+    /** #1757: make the forge's ensureBranch THROW (a rate-limit / 5xx / race). */
+    ensureBranchImpl?: (branch: string, fromRef: string) => Promise<void>;
+    /** #1757: injectable clock, so a test can advance past SPAWN_FAIL_COOLDOWN_MS. */
+    now?: () => number;
   } = {},
 ): Harness {
   const store = new SessionStore(":memory:");
@@ -140,13 +148,14 @@ function makeHarness(
     hidden: false,
   });
 
-  const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [] };
+  const forgeRec: ForgeRec = { listIssuesCalls: 0, added: [], ensured: [], removed: [] };
   const forge = fakeForge(opts.issues ?? [], forgeRec, {
     listIssues: opts.listIssuesImpl,
     getIssue: opts.getIssueImpl,
     listSubIssues: opts.listSubIssuesImpl,
     listBlockedBy: opts.listBlockedByImpl,
     noEnsureBranch: opts.noEnsureBranch,
+    ensureBranch: opts.ensureBranchImpl,
   });
 
   const prCache: Record<string, GitState> = {};
@@ -188,6 +197,7 @@ function makeHarness(
   const drain = new DrainService({
     store,
     service,
+    ...(opts.now ? { now: opts.now } : {}),
     resolveForge: () => forge,
     prCache: { snapshot: () => prCache },
     usage,
@@ -373,5 +383,149 @@ describe("epic-child spawns base on the integration branch", () => {
     expect(h.forgeRec.added).toEqual([{ number: 1, label: ACTIVE_LABEL }]);
     // Regular spawn → prompt is just the title, no --base directive.
     expect(h.creates[0]!.prompt).not.toContain("--base");
+  });
+});
+
+// ── #1757: the two epic-base failure modes are NOT the same ─────────────────────────────────────
+//
+// A child degraded onto the default branch is NOT stuck: the base-mismatch gate needs
+// isEpicIntegrationBranch(baseBranch) (drain.ts:2220), which a degraded child fails — so it retires
+// normally, the merge train lands it on main (isFullAuto uses the same predicate), its issue closes,
+// and epic done-ness (`integrationMerged || issueClosed`) counts it. The epic PROGRESSES.
+// So the two causes get opposite treatment:
+//   - forge LACKS ensureBranch (gitea/local): degrade — holding would turn a progressing epic into
+//     permanent zero progress. Surface it as an epic WARNING instead. (Asserted above + below.)
+//   - ensureBranch THROWS (GitHub, transient): FAIL CLOSED — degrading would mix bases mid-epic and
+//     the merge train would silently land this one child on main.
+
+describe("#1757 epic base failures", () => {
+  const PARENT = 327;
+  const CHILD = 320;
+  const EPIC_BRANCH = "epic/327-efi-cluster";
+  const COOLDOWN_MS = 5 * 60_000;
+
+  const subIssues: SubIssueRef[] = [
+    { number: CHILD, title: "EFI", url: "u320", body: "spec 320", closed: false, labels: [] },
+  ];
+  const parentIssue: Issue = {
+    number: PARENT,
+    title: "EFI cluster",
+    body: "epic body",
+    url: `https://x/${PARENT}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+  const epicOpts = {
+    listIssuesImpl: async () => [],
+    getIssueImpl: async (n: number) => (n === PARENT ? parentIssue : null),
+    listSubIssuesImpl: async (n: number) => (n === PARENT ? subIssues : []),
+    listBlockedByImpl: async () => [],
+  };
+  const runEpic = (h: Harness) =>
+    h.store.setEpicRun({
+      repoPath: REPO,
+      parentIssueNumber: PARENT,
+      mode: "auto",
+      status: "running",
+    });
+
+  test("ensureBranch THROWS → fail closed: no child spawned on main, claim released", async () => {
+    const h = makeHarness({
+      ...epicOpts,
+      ensureBranchImpl: async () => {
+        throw new Error("403 rate limited");
+      },
+    });
+    runEpic(h);
+
+    await h.drain.pump(REPO);
+
+    // The critical assertion: NO session was created. Before #1757 the child was silently based on
+    // main, opened its PR against main, and the merge train would land it mid-epic.
+    expect(h.creates).toHaveLength(0);
+    // The claim label was stamped then RELEASED, so the issue returns to the pool for a retry.
+    expect(h.forgeRec.added).toEqual([{ number: CHILD, label: ACTIVE_LABEL }]);
+    expect(h.forgeRec.removed).toEqual([{ number: CHILD, label: ACTIVE_LABEL }]);
+  });
+
+  test("ensureBranch THROWS → drain reports epic_base_unavailable, naming the branch", async () => {
+    const h = makeHarness({
+      ...epicOpts,
+      ensureBranchImpl: async () => {
+        throw new Error("500");
+      },
+    });
+    runEpic(h);
+
+    await h.drain.pump(REPO); // fails the spawn, records the typed failure
+    await h.drain.pump(REPO); // next tick: the hold is derived from it
+
+    const last = h.statuses.at(-1)!;
+    expect(last.reason).toBe("epic_base_unavailable");
+    expect(last.detail).toBe(EPIC_BRANCH);
+    expect(last.paused).toBe(true); // amber operator banner, not a quiet idle state
+  });
+
+  test("the hold CLEARS once the cooldown lapses (it must not latch)", async () => {
+    // Regression guard for a deadlock: spawnFailures entries are only dropped on a successful spawn
+    // or by a LAZY expiry delete inside doSpawn — which the hold prevents from running. A
+    // membership-only derivation would therefore hold the epic FOREVER. buildState applies the
+    // freshness test itself; this asserts that.
+    let now = 1_000_000;
+    let fail = true;
+    const h = makeHarness({
+      ...epicOpts,
+      now: () => now,
+      ensureBranchImpl: async () => {
+        if (fail) throw new Error("transient");
+      },
+    });
+    runEpic(h);
+
+    await h.drain.pump(REPO);
+    await h.drain.pump(REPO);
+    expect(h.statuses.at(-1)!.reason).toBe("epic_base_unavailable");
+
+    // ...the forge recovers and the cooldown lapses → the hold must lapse with it and the spawn retry.
+    fail = false;
+    now += COOLDOWN_MS + 1;
+    await h.drain.pump(REPO);
+
+    expect(h.statuses.at(-1)!.reason).not.toBe("epic_base_unavailable");
+    expect(h.creates).toHaveLength(1);
+    expect(h.creates[0]!.baseBranch).toBe(EPIC_BRANCH); // and it lands on the epic branch, as intended
+  });
+
+  test("an ORDINARY spawn failure raises NO epic_base_unavailable hold (typed error only)", async () => {
+    // doSpawn's catch also wraps service.create(), so an untyped marker would turn ANY epic-child
+    // spawn failure (sandbox hold, provider error, transient create error) into a mislabeled,
+    // epic-wide hold — a far broader pause than the per-issue cooldown, with the wrong copy.
+    const h = makeHarness(epicOpts);
+    runEpic(h);
+    h.drain["deps"].service.create = async () => {
+      throw new Error("worktree isolation aborted");
+    };
+
+    await h.drain.pump(REPO);
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(0);
+    expect(h.statuses.at(-1)!.reason).not.toBe("epic_base_unavailable");
+  });
+
+  test("forge WITHOUT ensureBranch: epic still progresses, and the degrade is surfaced as a warning", async () => {
+    // The static case. It must NOT hold (that would convert a degraded-but-progressing epic into
+    // permanent zero progress) — it degrades, exactly as before, and now says so out loud.
+    const h = makeHarness({ ...epicOpts, noEnsureBranch: true });
+    runEpic(h);
+
+    await h.drain.pump(REPO);
+
+    expect(h.creates).toHaveLength(1); // still spawns — no regression
+    expect(h.creates[0]!.baseBranch).toBe("main");
+    expect(h.statuses.at(-1)!.reason).not.toBe("epic_base_unavailable"); // and NO hold
+    // ...but the operator can now SEE that this epic has no integration branch.
+    expect(h.epics.at(-1)!.warnings.join("\n")).toContain("WITHOUT an integration branch");
   });
 });

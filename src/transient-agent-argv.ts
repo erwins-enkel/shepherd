@@ -126,6 +126,15 @@ const PRESETS: Record<TransientAgentKind, KindPreset> = {
   "writer-only": { allowedTools: ["Write"], mcpIsolated: false },
 };
 
+/** The exact `--allowedTools` set a transient kind runs with. Exported as the SINGLE SOURCE for
+ *  tests that must assert a prompt only names commands the role can actually run: the critic runs
+ *  under `--permission-mode dontAsk`, so a command outside this list is auto-DENIED (silently — not
+ *  a prompt), which would make the instruction that names it inert. `PRESETS` itself stays private.
+ *  Returns a copy — callers must not mutate the preset. */
+export function allowedToolsFor(kind: TransientAgentKind): string[] {
+  return [...PRESETS[kind].allowedTools];
+}
+
 /** child_process.spawn rejects any argv arg containing a NUL. Keep one shared prompt sanitizer so
  *  Claude and Codex transient roles have the same contract. */
 function sanitizePromptArg(prompt: string): string {

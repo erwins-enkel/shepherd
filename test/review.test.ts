@@ -2900,3 +2900,101 @@ test("critic: a repeated onSpawn abort for the same head does not churn the verd
   expect(removed).toEqual(["/review-wt", "/review-wt"]);
   expect(changes).toBe(1);
 });
+
+// ── #1757: epic-child critic context is wired only for epic children ────────────────────────────
+
+test("#1757 epic child: the critic prompt carries the EPIC CONTEXT block + the collected delta", async () => {
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: "p", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+    collectBaseDelta: async () => ({
+      paths: ["src/base-only.ts"],
+      pathsTruncated: 0,
+      commits: ["abc1234 feat: sibling landed"],
+      commitsTruncated: 0,
+    }),
+  });
+  await new ReviewService(d as any).consider(
+    session({ baseBranch: "epic/1757-critic" }),
+    OPEN_GREEN,
+  );
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC CONTEXT");
+  expect(prompt).toContain("epic/1757-critic");
+  expect(prompt).toContain("OVERRIDES the VERIFY rule");
+  // the server-collected delta is embedded (and fenced) so the enumeration is data, not diligence
+  expect(prompt).toContain("⟦UNTRUSTED:base delta paths:");
+  expect(prompt).toContain("src/base-only.ts");
+});
+
+test("#1757 non-epic session: no epic block, and the delta is never collected", async () => {
+  let collected = 0;
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: "p", baseSha: "deadbeefcafe1234", files: ["x.ts"] }),
+    collectBaseDelta: async () => {
+      collected++;
+      return null;
+    },
+  });
+  await new ReviewService(d as any).consider(session({ baseBranch: "main" }), OPEN_GREEN);
+  expect(started[0]!.argv.at(-1)!).not.toContain("EPIC CONTEXT");
+  expect(collected).toBe(0); // no wasted git in the common (non-epic) path
+});
+
+test("#1757 epic child with an unresolvable base: degraded block, no delta collection", async () => {
+  // An epic integration branch usually has no local ref, so a failed fetch leaves baseSha null and
+  // every base command would error. The override still ships (the grep-and-conclude rule is still
+  // in force), but existence conclusions become limitations rather than findings.
+  let collected = 0;
+  const { deps: d, started } = makeDeps({
+    computePatchId: async () => ({ patchId: "p", baseSha: null, files: ["x.ts"] }),
+    collectBaseDelta: async () => {
+      collected++;
+      return null;
+    },
+  });
+  await new ReviewService(d as any).consider(session({ baseBranch: "epic/9-x" }), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC CONTEXT");
+  expect(prompt).toContain("OVERRIDES the VERIFY rule");
+  expect(prompt).toContain("It is NOT a finding.");
+  expect(prompt).not.toContain("git show");
+  expect(collected).toBe(0); // nothing to collect against — never shell out
+});
+
+test("#1757 the auto-address steer points an epic child at the base its worktree lacks", async () => {
+  // Epic children are deliberately never rebased, so the CHILD's own worktree is missing the merged
+  // sibling work too. The critic can now ground a finding in that base code — without this note the
+  // agent receiving the finding cannot SEE the code it names, and would "fix" it against a tree
+  // that lacks it.
+  const { deps: d, steers } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "s",
+        body: "b",
+        findings: ["src/child.ts: imports `helper`, which a merged sibling removed"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session({ baseBranch: "epic/1757-critic" }), OPEN_GREEN);
+  await svc.tick();
+  expect(steers[0]!.text).toContain("has NOT been rebased onto it");
+  expect(steers[0]!.text).toContain("git fetch origin epic/1757-critic");
+  expect(steers[0]!.text).toContain("git show FETCH_HEAD:<path>");
+});
+
+test("#1757 a non-epic steer is unchanged (no base note)", async () => {
+  const { deps: d, steers } = makeDeps(
+    {
+      readVerdict: () => ({ decision: "comment", summary: "nit", body: "b", findings: ["x"] }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers[0]!.text).not.toContain("rebased onto");
+  expect(steers[0]!.text).not.toContain("FETCH_HEAD");
+});

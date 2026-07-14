@@ -756,3 +756,53 @@ describe("epic attended gate", () => {
     expect(computeNext(state({ candidates: [issue(322)] })).kind).toBe("spawn");
   });
 });
+
+// ── #1757: epic_base_unavailable hold ───────────────────────────────────────────────────────────
+
+describe("computeNext: epic_base_unavailable (#1757)", () => {
+  test("epic run + a fresh epic-base failure → hold, naming the branch", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/9-thing",
+        epicBaseUnavailable: "epic/9-thing",
+      }),
+    );
+    expect(d).toEqual({
+      kind: "hold",
+      reason: { code: "epic_base_unavailable", detail: "epic/9-thing" },
+    });
+  });
+
+  test("NOT in epic mode → never fires (label-drain must be unaffected)", () => {
+    // Gated on an active epic run: a label-mode drain has no integration branch, so even a stray
+    // marker must not pause it. (It also cannot be set there — only an epic spawn can produce it.)
+    const d = computeNext(state({ candidates: [issue(1)], epicBaseUnavailable: "epic/9-thing" }));
+    expect(d.kind).toBe("spawn");
+  });
+
+  test("no fresh failure → spawns normally", () => {
+    const d = computeNext(
+      state({
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/9-thing",
+        epicBaseUnavailable: null,
+      }),
+    );
+    expect(d.kind).toBe("spawn");
+  });
+
+  test("a retireable PR still retires while the epic base is unavailable", () => {
+    // The hold sits AFTER the retire gate: work already in flight must still land. Only NEW spawns
+    // pause (every sibling would fail to base identically).
+    const d = computeNext(
+      state({
+        autoSessions: [autoSession({ id: "ok", issueNumber: 2, git: MERGEABLE })],
+        candidates: [issue(1)],
+        epicIntegrationBranch: "epic/9-thing",
+        epicBaseUnavailable: "epic/9-thing",
+      }),
+    );
+    expect(d.kind).toBe("retire");
+  });
+});

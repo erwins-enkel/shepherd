@@ -53,7 +53,20 @@ export interface AssembleInput {
    *  epic branch (`epic_base_mismatch`, read in drain.buildEpic). Each surfaces an actionable,
    *  remedy-naming warning — the epic is BLOCKED until the operator re-targets the PR. */
   baseMismatches?: { childNumber: number; actualBase: string; prNumber: number | null }[];
+  /** #1757: false when the repo's forge cannot create branches (no `ensureBranch` — Gitea, local).
+   *  Such an epic runs WITHOUT an integration branch: every child bases on the default branch and
+   *  merges straight into it, one at a time (the epic still progresses — a merged child closes its
+   *  issue, and done-ness is `integrationMerged || issueClosed` — but there is no atomic epic
+   *  landing PR). That degrade used to be a server-side console.warn only; surface it so the
+   *  operator can see the epic is not running the way the epic model implies. Undefined/true ⇒ no
+   *  warning (GitHub, and every existing caller/test). */
+  integrationBranchSupported?: boolean;
 }
+
+/** #1757 — see {@link AssembleInput.integrationBranchSupported}. Server-authored epic warning text,
+ *  like the other strings in this file (not UI chrome; surfaced verbatim in the epic payload). */
+export const NO_INTEGRATION_BRANCH_WARNING =
+  "This forge cannot create branches, so this epic is running WITHOUT an integration branch: each child is based on the default branch and merges directly into it (no atomic epic landing PR).";
 
 interface ResolvedGraph {
   order: number[];
@@ -146,6 +159,9 @@ export function assembleEpic(input: AssembleInput): Epic {
   });
 
   warnings.push(...divergenceWarnings(input));
+  // #1757: forge can't create branches → this epic has no integration branch at all. Explicitly
+  // `=== false` so every existing caller (which omits the flag) is unaffected.
+  if (input.integrationBranchSupported === false) warnings.push(NO_INTEGRATION_BRANCH_WARNING);
 
   // Zero-edges legibility signal (#1447): ≥2 ready children and no surviving dependency
   // edges (post-filter, so self-loop / outside-epic edges — already warned above — don't

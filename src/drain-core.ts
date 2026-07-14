@@ -37,6 +37,7 @@ export interface HoldReason {
     | "error" // an auto-agent's critic verdict is an error (don't advance on uncertainty)
     | "awaiting_signoff" // draftMode: a retireable PR is held at cap, awaiting its sign-off
     | "awaiting_approval" // epicAttended: next spawn held until operator approves
+    | "epic_base_unavailable" // epic: the forge's ensureBranch threw — can't base the child on the integration branch (#1757)
     | "empty"; // no eligible backlog item
   /** A desig (trouble pauses) or a percentage (usage), for the operator banner. */
   detail?: string;
@@ -122,6 +123,16 @@ export interface DrainRepoState {
   /** Epic mode: explicit provider/model/effort for child spawns. Undefined for label-drain
    *  and for epics inheriting the repo/global defaults. */
   epicProviderSettings?: EpicProviderSettings | null;
+  /** Epic mode (#1757): the integration branch a RECENT epic-child spawn failed to ensure on the
+   *  forge (`ensureBranch` threw), while that failure is still inside its cooldown window; null
+   *  otherwise. Set ONLY for that specific, typed failure — never for an ordinary spawn error —
+   *  and only ever for the epic's own branch, so the resulting hold pauses exactly the work that
+   *  cannot proceed. Derived fresh each tick (see Drain.buildState), so a stale failure stops
+   *  holding once its cooldown lapses: the drain then retries the spawn and either succeeds or
+   *  re-holds. Deliberately NOT set when the forge simply lacks `ensureBranch` (gitea/local) —
+   *  that degrades to the default branch and the epic still progresses; it surfaces as an epic
+   *  warning instead of a hold. */
+  epicBaseUnavailable?: string | null;
 }
 
 /** True when this session's PR is ready to be retired / handed off for a human to merge.
@@ -276,6 +287,22 @@ export function computeNext(state: DrainRepoState): DrainDecision {
   // 2. Trouble → halt new spawns (in-flight agents keep running; retires above still pass).
   const trouble = troubleHold(state);
   if (trouble) return { kind: "hold", reason: trouble };
+
+  // 2b. Epic base unavailable (#1757): the forge's `ensureBranch` THREW for a child spawn, so the
+  // integration branch could not be ensured. Basing the child on the default branch instead would
+  // silently mix bases mid-epic — the merge train would land that one child on main (it is not
+  // excluded from full-auto: `isEpicIntegrationBranch(baseBranch)` is false for it) while its
+  // siblings integrate on the epic branch. So fail closed and hold. Gated on an active epic run, so
+  // it can never fire in label-mode drain; while an epic runs the candidate set IS that epic's
+  // children, and every sibling would fail identically, so pausing new spawns is exactly right.
+  // Placed AFTER the retire gate (a ready PR still retires) and BEFORE the cap. The marker is
+  // cooldown-fresh (see Drain.buildState), so this self-heals: it lapses, the spawn retries.
+  if (state.epicIntegrationBranch && state.epicBaseUnavailable) {
+    return {
+      kind: "hold",
+      reason: { code: "epic_base_unavailable", detail: state.epicBaseUnavailable },
+    };
+  }
 
   // 3. Concurrency cap. In draftMode, if a session is retireable-but-unsigned it's the reason
   //    the slot stays taken — relabel the hold `awaiting_signoff` (with that session's desig) so

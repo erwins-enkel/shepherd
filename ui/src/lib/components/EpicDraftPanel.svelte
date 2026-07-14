@@ -123,100 +123,104 @@
     {#if !draft || children.length === 0}
       <p class="edp-empty">{m.epicdraft_empty()}</p>
     {:else}
-      {#if awaiting}
-        <p class="edp-hint">{m.epicdraft_awaiting_hint()}</p>
-      {:else if status === "materializing"}
-        <p class="edp-note">{m.epicdraft_materializing_note()}</p>
-      {:else if status === "approved"}
-        <p class="edp-note edp-note-done">
-          {m.epicdraft_created()}
-          {#if draft.parentUrl && draft.parentNumber != null}
-            <span aria-hidden="true">·</span>
-            <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
-            <a class="edp-link" href={draft.parentUrl} target="_blank" rel="noopener noreferrer"
-              >{m.epicdraft_view_parent({ n: draft.parentNumber })}</a
-            >
+      <div class="edp-scroll">
+        {#if awaiting}
+          <p class="edp-hint">{m.epicdraft_awaiting_hint()}</p>
+        {:else if status === "materializing"}
+          <p class="edp-note">{m.epicdraft_materializing_note()}</p>
+        {:else if status === "approved"}
+          <p class="edp-note edp-note-done">
+            {m.epicdraft_created()}
+            {#if draft.parentUrl && draft.parentNumber != null}
+              <span aria-hidden="true">·</span>
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL -->
+              <a class="edp-link" href={draft.parentUrl} target="_blank" rel="noopener noreferrer"
+                >{m.epicdraft_view_parent({ n: draft.parentNumber })}</a
+              >
+            {/if}
+          </p>
+        {/if}
+
+        <!-- Parent -->
+        <section class="edp-parent">
+          <span class="edp-section-label">{m.epicdraft_parent_label()}</span>
+          <h4 class="edp-parent-title">{draft.parent.title}</h4>
+          {#if draft.parent.body}<p class="edp-body">{draft.parent.body}</p>{/if}
+          {#if draft.parent.acceptanceCriteria.length}
+            <span class="edp-sub-label">{m.epicdraft_acceptance_label()}</span>
+            <ul class="edp-crit">
+              {#each draft.parent.acceptanceCriteria as c, i (i)}<li>{c}</li>{/each}
+            </ul>
           {/if}
-        </p>
-      {/if}
+          {#if draft.parent.nonGoals.length}
+            <span class="edp-sub-label">{m.epicdraft_nongoals_label()}</span>
+            <ul class="edp-crit">
+              {#each draft.parent.nonGoals as g, i (i)}<li>{g}</li>{/each}
+            </ul>
+          {/if}
+        </section>
 
-      <!-- Parent -->
-      <section class="edp-parent">
-        <span class="edp-section-label">{m.epicdraft_parent_label()}</span>
-        <h4 class="edp-parent-title">{draft.parent.title}</h4>
-        {#if draft.parent.body}<p class="edp-body">{draft.parent.body}</p>{/if}
-        {#if draft.parent.acceptanceCriteria.length}
-          <span class="edp-sub-label">{m.epicdraft_acceptance_label()}</span>
-          <ul class="edp-crit">
-            {#each draft.parent.acceptanceCriteria as c, i (i)}<li>{c}</li>{/each}
-          </ul>
-        {/if}
-        {#if draft.parent.nonGoals.length}
-          <span class="edp-sub-label">{m.epicdraft_nongoals_label()}</span>
-          <ul class="edp-crit">
-            {#each draft.parent.nonGoals as g, i (i)}<li>{g}</li>{/each}
-          </ul>
-        {/if}
-      </section>
-
-      <!-- Children (dependency DAG rendered as an ordered list with blocked-by annotations) -->
-      <section class="edp-children">
-        <span class="edp-section-label"
-          >{m.epicdraft_children_label({ count: children.length })}</span
-        >
-        <ol class="edp-list">
-          {#each children as child, i (child.key)}
-            <EpicDraftChildRow
-              {child}
-              index={i}
-              materializedNumber={draft.materializedChildren[child.key] ?? null}
-              blockedLabel={blockedLabel(child)}
-            />
-          {/each}
-        </ol>
-      </section>
+        <!-- Children (dependency DAG rendered as an ordered list with blocked-by annotations) -->
+        <section class="edp-children">
+          <span class="edp-section-label"
+            >{m.epicdraft_children_label({ count: children.length })}</span
+          >
+          <ol class="edp-list">
+            {#each children as child, i (child.key)}
+              <EpicDraftChildRow
+                {child}
+                index={i}
+                materializedNumber={draft.materializedChildren[child.key] ?? null}
+                blockedLabel={blockedLabel(child)}
+              />
+            {/each}
+          </ol>
+        </section>
+      </div>
 
       {#if awaiting}
-        <div class="edp-amend">
-          <input
-            class="edp-amend-input"
-            type="text"
-            bind:value={amendText}
-            disabled={!sessionLive}
-            placeholder={sessionLive
-              ? m.epicdraft_amend_placeholder()
-              : m.epicdraft_amend_offline()}
-            aria-label={m.epicdraft_amend_placeholder()}
-            onkeydown={(e) => {
-              if (e.key === "Enter") void sendAmend();
-            }}
-          />
-          <button
-            type="button"
-            class="edp-btn"
-            disabled={!sessionLive || !amendText.trim()}
-            onclick={() => void sendAmend()}>{m.epicdraft_amend_send()}</button
-          >
-        </div>
-        <div class="edp-footer">
-          <button
-            type="button"
-            class="edp-btn edp-abort"
-            class:is-armed={abortArmed}
-            onclick={() => void abort()}
-            onmouseleave={() => (abortArmed = false)}
-            onblur={() => (abortArmed = false)}
-            >{abortArmed ? m.epicdraft_abort_confirm() : m.epicdraft_abort()}</button
-          >
-          <button
-            type="button"
-            class="edp-btn edp-approve"
-            disabled={approving}
-            onclick={() => void approve()}
-          >
-            <span class="edp-approve-glyph" aria-hidden="true">▸</span>
-            {approving ? m.epicdraft_approving() : m.epicdraft_approve()}
-          </button>
+        <div class="edp-actions">
+          <div class="edp-amend">
+            <input
+              class="edp-amend-input"
+              type="text"
+              bind:value={amendText}
+              disabled={!sessionLive}
+              placeholder={sessionLive
+                ? m.epicdraft_amend_placeholder()
+                : m.epicdraft_amend_offline()}
+              aria-label={m.epicdraft_amend_placeholder()}
+              onkeydown={(e) => {
+                if (e.key === "Enter") void sendAmend();
+              }}
+            />
+            <button
+              type="button"
+              class="edp-btn"
+              disabled={!sessionLive || !amendText.trim()}
+              onclick={() => void sendAmend()}>{m.epicdraft_amend_send()}</button
+            >
+          </div>
+          <div class="edp-footer">
+            <button
+              type="button"
+              class="edp-btn edp-abort"
+              class:is-armed={abortArmed}
+              onclick={() => void abort()}
+              onmouseleave={() => (abortArmed = false)}
+              onblur={() => (abortArmed = false)}
+              >{abortArmed ? m.epicdraft_abort_confirm() : m.epicdraft_abort()}</button
+            >
+            <button
+              type="button"
+              class="edp-btn edp-approve"
+              disabled={approving}
+              onclick={() => void approve()}
+            >
+              <span class="edp-approve-glyph" aria-hidden="true">▸</span>
+              {approving ? m.epicdraft_approving() : m.epicdraft_approve()}
+            </button>
+          </div>
         </div>
       {/if}
     {/if}
@@ -233,6 +237,9 @@
     border-top: 1px solid var(--color-line);
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
+    max-height: 60dvh;
+    min-height: 0;
+    overflow: hidden;
   }
   .is-awaiting {
     background: color-mix(in oklab, var(--color-amber) 6%, var(--color-panel));
@@ -242,6 +249,7 @@
     display: flex;
     align-items: center;
     gap: 8px;
+    flex: none;
   }
   .edp-title {
     font-size: var(--fs-micro);
@@ -304,6 +312,16 @@
     flex-direction: column;
     gap: 3px;
   }
+  .edp-scroll {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+    flex-direction: column;
+    gap: 6px;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    touch-action: pan-y;
+  }
   .edp-section-label,
   .edp-sub-label {
     font-size: var(--fs-micro);
@@ -342,10 +360,14 @@
     display: flex;
     flex-direction: column;
     gap: 4px;
-    max-height: 40vh;
-    overflow-y: auto;
-    overscroll-behavior: contain;
-    touch-action: pan-y;
+  }
+  .edp-actions {
+    display: flex;
+    flex: none;
+    flex-direction: column;
+    gap: 6px;
+    padding-top: 6px;
+    border-top: 1px solid var(--color-line);
   }
   .edp-amend {
     display: flex;

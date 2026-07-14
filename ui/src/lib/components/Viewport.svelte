@@ -294,13 +294,15 @@
   // RULE: every path that puts *operator* input into the PTY bumps this. That is
   // (a) input through xterm's helper textarea (createTypingCounter, wired at
   // term.open) and (b) the sends below that bypass xterm entirely — ComposeBar,
-  // the touch key bar, image paste, slash-command taps, the synthesized Shift+Enter
-  // and Escape. It is NOT bumped from term.onData: that channel also carries mouse
-  // reports (mouse tracking is on — see agentOwnsScroll), focus reports and the
-  // terminal's replies to app queries, none of which are typing, and counting them
-  // made the banner claim "You're typing" on mere pointer movement.
-  // View control (jump-to-bottom, /tui fullscreen) is deliberately NOT counted —
-  // it moves the view, it doesn't enter text that could collide with a steer.
+  // the touch key bar, image paste, slash-command taps, the /tui fullscreen redraw
+  // (a bracketed paste + CR, i.e. a submitted prompt line), the synthesized
+  // Shift+Enter and Escape. It is NOT bumped from term.onData: that channel also
+  // carries mouse reports (mouse tracking is on — see agentOwnsScroll), focus
+  // reports and the terminal's replies to app queries, none of which are typing,
+  // and counting them made the banner claim "You're typing" on mere pointer movement.
+  // The one deliberate carve-out is the jump-to-top/bottom scroll sends: those are
+  // navigation keys (Ctrl+End / Ctrl+Home + PageUp) that the agent interprets as
+  // scrolling and never as prompt text, so they can't collide with an incoming steer.
   let opKeystrokes = $state(0);
   const bumpOperatorInput = () => opKeystrokes++;
   // occupied height (px) of the ReviewInFlightBanner while it's shown, 0 otherwise.
@@ -1492,6 +1494,9 @@
   //    intercept mid-typing.
   function redrawFullscreen() {
     redrawOpen = false;
+    // Same byte path as the compose bar: a bracketed paste + submitting CR. It really
+    // does enter (and send) a line at the agent's prompt, so it counts as operator input.
+    bumpOperatorInput();
     conn?.send(composeKeystrokes("/tui fullscreen"));
   }
   // 4) Heavy: force a fresh provider resume — re-renders the FULL conversation

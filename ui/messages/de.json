@@ -2229,6 +2229,7 @@
   "topbar_held_spawning": "Wird gestartet…",
   "topbar_held_discarding": "Wird verworfen…",
   "automation_drain_fields_intro": "Diese Regler steuern die Backlog-Abarbeitung und gelten nur, solange sie aktiv ist:",
+  "automation_drain_fields_intro_epic": "Diese Regler steuern weiterhin die Abarbeitung des laufenden Epics — passe sie an, um es im Lauf nachzujustieren:",
   "drain_cap_hint": "Wie viele auto-gestartete Agenten höchstens gleichzeitig laufen. Ist das Limit erreicht, wartet Shepherd auf einen freien Platz, bevor das nächste Issue aufgegriffen wird.",
   "drain_label_hint": "Nur Issues mit diesem Label werden aufgegriffen — versieh die Tickets, die automatisch abgearbeitet werden sollen, damit.",
   "drain_ceiling_hint": "Pausiert neue Auto-Starts, sobald die Konto-Auslastung diesen Prozentwert erreicht. Ein höherer Wert lässt die Abarbeitung länger weiterlaufen; Standard ist 80.",

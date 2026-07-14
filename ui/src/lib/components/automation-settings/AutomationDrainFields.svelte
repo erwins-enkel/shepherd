@@ -6,11 +6,18 @@
   import "./automation-fields.css";
 
   // The Auto-Drain "rails" (cap / label / usage ceiling). Rendered inline directly
-  // beneath the Auto-Drain toggle — and only while it's on — so the dials read as
-  // belonging to that switch rather than floating in an unrelated section below.
-  // `active` gates visibility here (instead of an {#if} at the call site) to keep
-  // the parent's already-large template flat.
-  let { repoPath, active }: { repoPath: string; active: boolean } = $props();
+  // beneath the Auto-Drain toggle so the dials read as belonging to that switch
+  // rather than floating in an unrelated section below. `active` gates visibility
+  // here (instead of an {#if} at the call site) to keep the parent's already-large
+  // template flat. `epicActive` (a running epic has taken over draining) hides the
+  // label field — label-drain is suspended mid-epic, so its dial is inert — while
+  // the cap and usage ceiling stay editable, since both are still enforced against
+  // the epic's children.
+  let {
+    repoPath,
+    active,
+    epicActive = false,
+  }: { repoPath: string; active: boolean; epicActive?: boolean } = $props();
 
   // Per-instance prefix so the hint IDs (and the inputs' aria-describedby) stay
   // unique even if two panels mount at once (e.g. in-task popover + backlog tab).
@@ -61,7 +68,9 @@
 
 {#if active}
   <div class="drain-fields" role="group" aria-label={m.automation_autodrain_name()}>
-    <p class="drain-intro">{m.automation_drain_fields_intro()}</p>
+    <p class="drain-intro">
+      {epicActive ? m.automation_drain_fields_intro_epic() : m.automation_drain_fields_intro()}
+    </p>
     <label class="drain-field">
       <span class="drain-label">{m.drain_cap_label()}</span>
       <input
@@ -76,19 +85,21 @@
       />
     </label>
     <p id="{uid}-cap" class="drain-hint">{m.drain_cap_hint()}</p>
-    <label class="drain-field">
-      <span class="drain-label">{m.drain_label_label()}</span>
-      <input
-        class="afield-num txt"
-        type="text"
-        bind:value={drainLabel}
-        aria-label={m.drain_label_label()}
-        aria-describedby="{uid}-label"
-        onchange={commitDrainLabel}
-        onblur={commitDrainLabel}
-      />
-    </label>
-    <p id="{uid}-label" class="drain-hint">{m.drain_label_hint()}</p>
+    {#if !epicActive}
+      <label class="drain-field">
+        <span class="drain-label">{m.drain_label_label()}</span>
+        <input
+          class="afield-num txt"
+          type="text"
+          bind:value={drainLabel}
+          aria-label={m.drain_label_label()}
+          aria-describedby="{uid}-label"
+          onchange={commitDrainLabel}
+          onblur={commitDrainLabel}
+        />
+      </label>
+      <p id="{uid}-label" class="drain-hint">{m.drain_label_hint()}</p>
+    {/if}
     <label class="drain-field">
       <span class="drain-label">{m.drain_ceiling_label()}</span>
       <input

@@ -292,7 +292,15 @@ if (savedDe !== null) {
 // are ignored (keep the seed rather than clobber). Each role is a PAIR: a `<role>Cli`
 // ("inherit"|<provider>) + a `<role>Model` ("default"|<alias>), resolved to a spawn environment via
 // resolveRoleEnvironment at wiring/spawn time.
-for (const role of ["critic", "planner", "recap", "docAgent", "namer", "autopilot", "distiller"] as const) {
+for (const role of [
+  "critic",
+  "planner",
+  "recap",
+  "docAgent",
+  "namer",
+  "autopilot",
+  "distiller",
+] as const) {
   const savedCli = store.getSetting(`${role}Cli`);
   if (savedCli !== null) {
     const v = normalizeRoleCli(savedCli);

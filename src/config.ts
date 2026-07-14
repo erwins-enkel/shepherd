@@ -674,7 +674,8 @@ export const config = {
   // it follows the operator's global provider/model/effort selection.
   distillerCli: normalizeRoleCli(process.env.SHEPHERD_DISTILLER_CLI) ?? "inherit",
   distillerModel: normalizeRoleModelToken(process.env.SHEPHERD_DISTILLER_MODEL) ?? "default",
-  distillerEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_DISTILLER_EFFORT) ?? "default",
+  distillerEffort:
+    normalizeDefaultEffortSetting(process.env.SHEPHERD_DISTILLER_EFFORT) ?? "default",
   // Automatic runs are throttled per repository; 1 preserves the historic daily behavior.
   distillerIntervalDays: clampCap(
     Number(process.env.SHEPHERD_DISTILLER_INTERVAL_DAYS ?? 1),

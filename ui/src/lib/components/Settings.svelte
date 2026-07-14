@@ -281,7 +281,15 @@
   // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
   // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
   // mirror the server defaults so the pickers read sensibly before load() resolves.
-  const ROLE_BASES = ["planner", "critic", "docAgent", "recap", "distiller", "namer", "autopilot"] as const;
+  const ROLE_BASES = [
+    "planner",
+    "critic",
+    "docAgent",
+    "recap",
+    "distiller",
+    "namer",
+    "autopilot",
+  ] as const;
   type RoleBase = (typeof ROLE_BASES)[number];
   const ROLE_CLI_SEED: Record<RoleBase, string> = {
     planner: "inherit",
@@ -489,14 +497,23 @@
   async function saveDistillerInterval() {
     if (distillerIntervalBusy) return;
     distillerIntervalBusy = true;
-    const value = Math.min(distillerIntervalDaysMax, Math.max(distillerIntervalDaysMin, Math.round(Number(distillerIntervalDays)) || distillerIntervalDaysMin));
+    const value = Math.min(
+      distillerIntervalDaysMax,
+      Math.max(
+        distillerIntervalDaysMin,
+        Math.round(Number(distillerIntervalDays)) || distillerIntervalDaysMin,
+      ),
+    );
     try {
       const r = await putDistillerIntervalDays(value);
       distillerIntervalDays = r.distillerIntervalDays;
       distillerIntervalDaysSaved = r.distillerIntervalDays;
     } catch {
       distillerIntervalDays = distillerIntervalDaysSaved;
-      toasts.info(m.settings_distiller_interval_save_failed(), { key: "distiller-interval", alert: true });
+      toasts.info(m.settings_distiller_interval_save_failed(), {
+        key: "distiller-interval",
+        alert: true,
+      });
     } finally {
       distillerIntervalBusy = false;
     }
@@ -1407,9 +1424,24 @@
           {#if role === "distiller"}
             <label class="cycles">
               <span class="cycles-label">{m.settings_distiller_interval_label()}</span>
-              <input class="num" type="number" min={distillerIntervalDaysMin} max={distillerIntervalDaysMax} step="1" disabled={distillerIntervalBusy} bind:value={distillerIntervalDays} aria-label={m.settings_distiller_interval_label()} onchange={saveDistillerInterval} />
+              <input
+                class="num"
+                type="number"
+                min={distillerIntervalDaysMin}
+                max={distillerIntervalDaysMax}
+                step="1"
+                disabled={distillerIntervalBusy}
+                bind:value={distillerIntervalDays}
+                aria-label={m.settings_distiller_interval_label()}
+                onchange={saveDistillerInterval}
+              />
             </label>
-            <p class="hint">{m.settings_distiller_interval_hint({ min: distillerIntervalDaysMin, max: distillerIntervalDaysMax })}</p>
+            <p class="hint">
+              {m.settings_distiller_interval_hint({
+                min: distillerIntervalDaysMin,
+                max: distillerIntervalDaysMax,
+              })}
+            </p>
           {/if}
         </div>
       {/snippet}

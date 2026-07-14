@@ -26,7 +26,15 @@ let savedPrCap: number;
 let savedPlanCap: number;
 let savedDefaultModel: string;
 let savedDefaultCodexModel: string;
-const ROLE_BASES = ["critic", "planner", "recap", "docAgent", "namer", "autopilot", "distiller"] as const;
+const ROLE_BASES = [
+  "critic",
+  "planner",
+  "recap",
+  "docAgent",
+  "namer",
+  "autopilot",
+  "distiller",
+] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
 let savedExtraCredits: number;

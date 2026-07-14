@@ -67,6 +67,47 @@ describe.each([
   });
 });
 
+// .viewport is overflow:hidden, so anything pushed past the bar's right edge is CUT OFF — and the
+// CTA is the only way into the review dialog (and, with the header folded, the only path to approve
+// or abort at all). It must keep its box no matter how long the labels get: German strings are
+// longer than English, and --ui-scale (iOS Dynamic Type) inflates every one of them.
+describe.each([
+  ["phone", 320, "1"],
+  ["phone, large text", 320, "1.3"],
+  ["tiny", 240, "1.3"],
+])("EpicDraftPanel bar — CTA horizontal containment (%s)", (label, width, uiScale) => {
+  it("keeps the CTA inside the bar", async () => {
+    const sessionId = `epic-draft-bar-fit-${label}`;
+    epicDrafts.upsert(longDraft(sessionId));
+
+    const { container, unmount } = await render(EpicDraftPanel, {
+      sessionId,
+      epicAuthoring: true,
+      onreview: () => {},
+    });
+    container.style.width = `${width}px`;
+    document.documentElement.style.setProperty("--ui-scale", uiScale);
+
+    const bar = container.querySelector<HTMLElement>(".edp")!;
+    const cta = container.querySelector<HTMLButtonElement>(".edp-cta")!;
+    const barBox = bar.getBoundingClientRect();
+    const ctaBox = cta.getBoundingClientRect();
+
+    expect(ctaBox.width, "CTA must not be squeezed to nothing").toBeGreaterThan(0);
+    expect(ctaBox.right, "CTA must not overflow the bar's right edge").toBeLessThanOrEqual(
+      barBox.right + 1,
+    );
+    expect(ctaBox.left, "CTA must not be pushed off the left edge either").toBeGreaterThanOrEqual(
+      barBox.left - 1,
+    );
+    // The row must not silently become two rows either — it's a ONE-line bar by contract.
+    expect(bar.scrollHeight).toBeLessThanOrEqual(bar.clientHeight + 1);
+
+    document.documentElement.style.removeProperty("--ui-scale");
+    unmount();
+  });
+});
+
 describe("EpicDraftPanel bar — behavior", () => {
   it("opens the review dialog through onreview", async () => {
     const sessionId = "epic-draft-bar-cta";

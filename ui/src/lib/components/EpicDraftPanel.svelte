@@ -90,22 +90,46 @@
     font-size: var(--fs-meta);
     min-width: 0;
   }
-  .is-awaiting {
+  /* Qualified: `class:is-awaiting` also lands on the CTA button, and an unqualified rule would
+     match it too — today only harmlessly, because .edp-cta's own `background` happens to come
+     later at equal specificity. Don't rely on source order. */
+  .edp.is-awaiting {
     background: color-mix(in oklab, var(--color-amber) 6%, var(--color-panel));
   }
 
+  /* The CTA is the only way into the review dialog — and, with the header folded, the only path to
+     approve/abort at all. .viewport clips its overflow, so on a narrow phone (long DE strings, and
+     worse as --ui-scale grows) anything that refuses to shrink can push the CTA past the right edge
+     and cut it off. So: every label here shrinks and ellipsizes, the CTA alone keeps its box. */
+  .edp-title,
+  .edp-chip,
+  .edp-count,
+  .edp-empty {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   .edp-title {
-    flex: none;
+    flex: 0 1 auto;
     font-size: var(--fs-micro);
     letter-spacing: 0.16em;
     text-transform: uppercase;
     color: var(--color-muted);
   }
+  /* Narrow phones: the section title is the most expendable label — the amber chip already says
+     what this row is — so it goes first and hands its width to the chip + CTA. */
+  @media (max-width: 480px) {
+    .edp-title {
+      display: none;
+    }
+  }
   .edp-chip {
     display: inline-flex;
     align-items: center;
     gap: 5px;
-    flex: none;
+    flex: 0 1 auto;
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -131,9 +155,6 @@
   .edp-empty {
     color: var(--color-faint);
     font-size: var(--fs-micro);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
   }
 
   .edp-cta {

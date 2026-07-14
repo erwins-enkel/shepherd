@@ -620,3 +620,50 @@ test("harness: a winner that lands codex EARLIER on PATH is still seen (bash has
   expect(r.converged).toBe("codex");
   expect(r.npmInstallRan).toBe(false); // must NOT fall through to the npm fallback
 });
+
+test("memo: a throwing store READ degrades to the default order, never cancels the update", async () => {
+  // The memo only picks which installer we try FIRST. Read it inside the spawn's
+  // Promise executor and a locked SQLite rejects before `spawn` — killing an update
+  // that would otherwise have succeeded. It is an optimisation, not a precondition.
+  const seen: (CodexUpdateChannel | null)[] = [];
+  const dones: CodexUpdateResult[] = [];
+  const svc = new CodexUpdateService({
+    versionRunner: (() => {
+      let n = 0;
+      return () => `@openai/codex ${++n === 1 ? "0.142.2" : "0.142.4"}`;
+    })(),
+    fetchLatest: async () => ({ version: "0.142.4" }),
+    readChannel: () => {
+      throw new Error("database is locked");
+    },
+    runUpdate: async (onLine, _signal, preferred) => {
+      seen.push(preferred); // the update MUST still run…
+      onLine(`${CONVERGED_MARKER}codex`);
+    },
+    onDone: (r) => dones.push(r),
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(seen).toEqual([null]); // …with the historical order, not a rejection
+  expect(dones[0]).toMatchObject({ ok: true, to: "0.142.4" });
+});
+
+test("memo: a readable memo is handed to the update as the preferred channel", async () => {
+  const seen: (CodexUpdateChannel | null)[] = [];
+  const svc = new CodexUpdateService({
+    versionRunner: (() => {
+      let n = 0;
+      return () => `@openai/codex ${++n === 1 ? "0.142.2" : "0.142.4"}`;
+    })(),
+    fetchLatest: async () => ({ version: "0.142.4" }),
+    readChannel: () => "npm",
+    runUpdate: async (_onLine, _signal, preferred) => {
+      seen.push(preferred);
+    },
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(seen).toEqual(["npm"]);
+});

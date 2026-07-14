@@ -213,9 +213,14 @@ export interface CodexUpdateDeps {
   /**
    * Run the update child, streaming each output line to onLine, resolving when
    * it exits. The AbortSignal fires on watchdog timeout — the default kills the
-   * child. Default: spawn `bash -lc <buildUpdateScript>`.
+   * child. `preferred` is the channel memo (null → historical order). Default:
+   * spawn `bash -lc <buildUpdateScript>`.
    */
-  runUpdate?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  runUpdate?: (
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ) => Promise<void>;
   /** each log line streamed from the running update; default: no-op */
   onLog?: (line: string) => void;
   /** the recomputed status after the update settles; default: no-op */
@@ -264,7 +269,11 @@ export interface CodexUpdateDeps {
 export class CodexUpdateService {
   private versionRunner: () => string;
   private fetchLatest: () => Promise<{ version: string }>;
-  private runUpdate: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  private runUpdate: (
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ) => Promise<void>;
   private onLog: (line: string) => void;
   private onStatus: (status: CodexUpdateStatus) => void;
   private onDone: (result: CodexUpdateResult) => void;
@@ -282,7 +291,9 @@ export class CodexUpdateService {
     this.fetchLatest =
       deps.fetchLatest ??
       (() => fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string }>));
-    this.runUpdate = deps.runUpdate ?? ((onLine, signal) => this.defaultRunUpdate(onLine, signal));
+    this.runUpdate =
+      deps.runUpdate ??
+      ((onLine, signal, preferred) => this.defaultRunUpdate(onLine, signal, preferred));
     this.onLog = deps.onLog ?? (() => {});
     this.onStatus = deps.onStatus ?? (() => {});
     this.onDone = deps.onDone ?? (() => {});
@@ -293,17 +304,38 @@ export class CodexUpdateService {
     this.watchdogMs = deps.watchdogMs ?? 5 * 60 * 1000;
   }
 
+  /** Read the channel memo, degrading a throwing store (locked SQLite) to null.
+   *  The memo only picks which installer we TRY FIRST — it is an optimisation,
+   *  never a precondition — so a failed read must cost us the head start, not the
+   *  update: null simply restores the historical order (`codex update`, then npm),
+   *  and the cross-fallback still converges. Mirrors the write side. */
+  private readChannelSafe(): CodexUpdateChannel | null {
+    try {
+      return this.readChannel();
+    } catch (err) {
+      console.warn(
+        `[codex-update] could not read the channel memo, using the default order: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
+
   /** Spawn `bash -lc <script>` in shepherd's own process tree (NOT detached —
    *  there is no shepherd restart to outlive), stream stdout+stderr to onLine,
    *  resolve on exit. The signal (watchdog) force-kills a hung child. */
-  private defaultRunUpdate(onLine: (line: string) => void, signal: AbortSignal): Promise<void> {
+  private defaultRunUpdate(
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
+  ): Promise<void> {
     return new Promise((resolve) => {
       const script = buildUpdateScript(
         config.codexUpdateLogPath,
         this.last?.current,
         this.last?.latest,
         config.codexBin,
-        this.readChannel(),
+        preferred,
       );
       const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
       const kill = () => child.kill("SIGKILL");
@@ -380,23 +412,28 @@ export class CodexUpdateService {
    *  the memo. */
   private async runUpdateCapturingPath(
     signal: AbortSignal,
+    preferred: CodexUpdateChannel | null,
   ): Promise<{ onPath: string | null; channel: CodexUpdateChannel | null }> {
     const pathMarker = `${CODEX_UPDATE_LOG_PREFIX} on-PATH codex:`;
     let onPath: string | null = null;
     let channel: CodexUpdateChannel | null = null;
-    await this.runUpdate((line) => {
-      const at = line.indexOf(pathMarker);
-      if (at !== -1) {
-        const val = line.slice(at + pathMarker.length).trim();
-        onPath = val && val !== "<not found>" ? val : null;
-      }
-      const ch = line.indexOf(CONVERGED_MARKER);
-      if (ch !== -1) {
-        const val = line.slice(ch + CONVERGED_MARKER.length).trim();
-        if (val === "npm" || val === "codex") channel = val;
-      }
-      this.onLog(line);
-    }, signal);
+    await this.runUpdate(
+      (line) => {
+        const at = line.indexOf(pathMarker);
+        if (at !== -1) {
+          const val = line.slice(at + pathMarker.length).trim();
+          onPath = val && val !== "<not found>" ? val : null;
+        }
+        const ch = line.indexOf(CONVERGED_MARKER);
+        if (ch !== -1) {
+          const val = line.slice(ch + CONVERGED_MARKER.length).trim();
+          if (val === "npm" || val === "codex") channel = val;
+        }
+        this.onLog(line);
+      },
+      signal,
+      preferred,
+    );
     return { onPath, channel };
   }
 
@@ -414,7 +451,13 @@ export class CodexUpdateService {
       // Run the update; capture the login-shell-resolved codex path the script
       // logs (the AUTHORITATIVE resolution — a standalone ~/.local/bin/codex may be
       // on PATH only via a shell profile Node's process.env.PATH doesn't reflect).
-      const { onPath, channel } = await this.runUpdateCapturingPath(ctrl.signal);
+      // Read the memo HERE, not inside the spawn: it only picks which installer we
+      // try first, so a throwing store degrades to the historical order (null) —
+      // it must never cancel an update that would otherwise have run.
+      const { onPath, channel } = await this.runUpdateCapturingPath(
+        ctrl.signal,
+        this.readChannelSafe(),
+      );
       result = this.settleUpdate(from, to, onPath, channel, ctrl.signal.aborted);
     } catch (err) {
       // runUpdate itself threw (e.g. spawn failed) — re-read the actual version

@@ -118,7 +118,9 @@ describe.each([
     }
     for (const element of [parentBody, criteria, childBody]) {
       const style = getComputedStyle(element);
-      expect(parseFloat(style.lineHeight) / parseFloat(style.fontSize)).toBeGreaterThanOrEqual(1.45);
+      expect(parseFloat(style.lineHeight) / parseFloat(style.fontSize)).toBeGreaterThanOrEqual(
+        1.45,
+      );
       expect(style.maxWidth).not.toBe("none");
     }
 

@@ -80,15 +80,15 @@ describe("labels", () => {
       repo({
         openIssues: [
           issue(1, {
-            labels: ["blocked-upstream", "bug"],
-            labelColors: { "blocked-upstream": "#111111", bug: "#d73a4a" },
+            labels: ["enhancement", "bug"],
+            labelColors: { enhancement: "#111111", bug: "#d73a4a" },
           }),
         ],
       }),
     ];
     const item = repoSection(r, "/r/a")!.items[0]!;
-    expect(item.labels).toEqual(["blocked-upstream", "bug"]);
-    expect(item.labelColors).toEqual({ "blocked-upstream": "#111111", bug: "#d73a4a" });
+    expect(item.labels).toEqual(["enhancement", "bug"]);
+    expect(item.labelColors).toEqual({ enhancement: "#111111", bug: "#d73a4a" });
   });
   test("epic unit carries the PARENT's labels and colors, not the candidate child's", () => {
     const r = [
@@ -98,8 +98,8 @@ describe("labels", () => {
           epic({
             parentNumber: 100,
             memberNumbers: [2],
-            parentLabels: ["blocked-upstream", "epic"],
-            parentLabelColors: { "blocked-upstream": "#111111", epic: "#7057ff" },
+            parentLabels: ["enhancement", "epic"],
+            parentLabelColors: { enhancement: "#111111", epic: "#7057ff" },
             candidate: issue(2, {
               labels: ["unrelated-child-label"],
               labelColors: { "unrelated-child-label": "#ffffff" },
@@ -109,8 +109,8 @@ describe("labels", () => {
       }),
     ];
     const epicRow = repoSection(r, "/r/a")!.items.find((i) => i.kind === "epic")!;
-    expect(epicRow.labels).toEqual(["blocked-upstream", "epic"]);
-    expect(epicRow.labelColors).toEqual({ "blocked-upstream": "#111111", epic: "#7057ff" });
+    expect(epicRow.labels).toEqual(["enhancement", "epic"]);
+    expect(epicRow.labelColors).toEqual({ enhancement: "#111111", epic: "#7057ff" });
   });
 });
 
@@ -130,6 +130,21 @@ describe("exclusions", () => {
       }),
     ];
     expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([3]);
+  });
+  test("blocked-word label variants excluded (word-boundary, mirrors UI isBlocked)", () => {
+    // Up Next only lists startable work, so any blocked-word label is dropped — not just the
+    // exact `blocked`. `unblocked` has no word boundary before "blocked", so it is NOT excluded.
+    const r = [
+      repo({
+        openIssues: [
+          issue(1, { labels: ["blocked-upstream"] }),
+          issue(2, { labels: ["status:blocked"] }),
+          issue(3, { labels: ["unblocked"] }),
+          issue(4),
+        ],
+      }),
+    ];
+    expect(repoSection(r, "/r/a")!.items.map((i) => i.number)).toEqual([3, 4]);
   });
   test("bot-authored issues excluded (dependabot + [bot] suffix)", () => {
     const r = [

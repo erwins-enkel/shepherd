@@ -611,11 +611,19 @@ export const putDefaultAgentProvider = (
 ): Promise<{ defaultAgentProvider: AgentProvider }> =>
   patchSettings<{ defaultAgentProvider: AgentProvider }>({ defaultAgentProvider: provider });
 
-// The per-role ENVIRONMENT settings the Settings UI can override. Each role has a PAIR: a
-// `<role>Cli` ("inherit" | "claude" | "codex") and a `<role>Model` ("default" | <alias>). The
-// server validates + persists each independently and echoes the stored value under the same key.
+// The per-role ENVIRONMENT settings the Settings UI can override: `<role>Cli`
+// ("inherit" | "claude" | "codex"), `<role>Model` ("default" | <alias>), and `<role>Effort`.
+// The server validates + persists each independently and echoes the stored value under the same key.
 export type RoleBase =
-  "critic" | "planner" | "recap" | "rundown" | "docAgent" | "namer" | "autopilot" | "distiller";
+  | "critic"
+  | "planner"
+  | "recap"
+  | "rundown"
+  | "docAgent"
+  | "namer"
+  | "autopilot"
+  | "distiller"
+  | "optimizer";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
 export type RoleEffortKey = `${RoleBase}Effort`;

@@ -676,6 +676,12 @@ export const config = {
   distillerModel: normalizeRoleModelToken(process.env.SHEPHERD_DISTILLER_MODEL) ?? "default",
   distillerEffort:
     normalizeDefaultEffortSetting(process.env.SHEPHERD_DISTILLER_EFFORT) ?? "default",
+  // Per-role environment for the Learnings Optimizer. Inherit follows the operator's global
+  // provider/model/effort selection; explicit providers keep "default" effort provider-native.
+  optimizerCli: normalizeRoleCli(process.env.SHEPHERD_OPTIMIZER_CLI) ?? "inherit",
+  optimizerModel: normalizeRoleModelToken(process.env.SHEPHERD_OPTIMIZER_MODEL) ?? "default",
+  optimizerEffort:
+    normalizeDefaultEffortSetting(process.env.SHEPHERD_OPTIMIZER_EFFORT) ?? "default",
   // Automatic runs are throttled per repository; 1 preserves the historic daily behavior.
   distillerIntervalDays: clampCap(
     Number(process.env.SHEPHERD_DISTILLER_INTERVAL_DAYS ?? 1),

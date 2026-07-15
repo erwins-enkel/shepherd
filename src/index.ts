@@ -301,6 +301,7 @@ for (const role of [
   "namer",
   "autopilot",
   "distiller",
+  "optimizer",
 ] as const) {
   const savedCli = store.getSetting(`${role}Cli`);
   if (savedCli !== null) {
@@ -654,6 +655,14 @@ function distillerEnv(): RoleEnvironment {
       ? config.defaultEffort
       : config.distillerEffort;
   return roleEnv(config.distillerCli, config.distillerModel, effort);
+}
+
+function optimizerEnv(): RoleEnvironment {
+  const effort =
+    config.optimizerCli === "inherit" && config.optimizerEffort === "default"
+      ? config.defaultEffort
+      : config.optimizerEffort;
+  return roleEnv(config.optimizerCli, config.optimizerModel, effort);
 }
 
 // Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
@@ -2199,6 +2208,7 @@ const optimizer = new OptimizerService({
   herdr,
   scratch: defaultOptimizerScratch,
   promoter,
+  environment: optimizerEnv,
   onChange: () => learningsSvc.emitPending(),
 });
 deferredStarts.push(() => {

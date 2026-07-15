@@ -5,9 +5,10 @@ import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Promoter } from "./promote";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
+import type { RoleEnvironment } from "./default-model";
 
 const INPUT_FILE = "input.json";
 const OUTPUT_FILE = "optimized.json";
@@ -59,6 +60,7 @@ export interface OptimizerDeps {
   promoter: Pick<Promoter, "resyncPromoted">;
   onChange: () => void;
   model?: string | null;
+  environment?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number; // default 10*60*1000 (match distiller)
   maxConcurrent?: number; // default 3
@@ -71,7 +73,7 @@ export interface OptimizerDeps {
  * their failure evidence, applies the rewrites in place (clearing the flag), and opens a
  * CLAUDE.md sync PR for any revised *promoted* rule. A faithful sibling of
  * {@link DistillerService} — same inflight/queue/tick/finalize/health shape and the same
- * hard-won read-only claude spawn contract. NEVER runs on a timer inside the service.
+ * shared read-only transient-agent contract. NEVER runs on a timer inside the service.
  */
 export class OptimizerService {
   private inflight = new Map<string, InFlight>();
@@ -188,8 +190,13 @@ export class OptimizerService {
 
   private async begin(repoPath: string, ids: string[]): Promise<void> {
     const { dir } = this.deps.scratch.create();
+    const environment = this.deps.environment?.() ?? {
+      provider: "claude" as const,
+      model: this.deps.model ?? null,
+      effort: null,
+    };
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(environment.provider)) {
       console.warn(
         "[optimize] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
@@ -212,7 +219,9 @@ export class OptimizerService {
     // Read-only optimizer — the shared `writer-ro` transient-agent shape (untrusted agent/repo
     // text); see buildTransientAgentArgv for the flag-order + isolation rationale.
     const { argv, sessionId } = buildTransientAgentArgv("writer-ro", {
-      model: this.deps.model ?? null,
+      provider: environment.provider,
+      model: environment.model,
+      effort: environment.effort,
       prompt: optimizePrompt(),
     });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
@@ -234,7 +243,12 @@ export class OptimizerService {
     this.inflight.set(repoPath, entry);
     try {
       entry.terminalId = (
-        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
+        await this.deps.herdr.start(
+          agentName,
+          dir,
+          argv,
+          environment.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined,
+        )
       ).terminalId;
     } catch (err) {
       this.inflight.delete(repoPath); // release the reservation

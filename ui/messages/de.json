@@ -3173,5 +3173,9 @@
   "settings_role_model_rundown_title": "Herd-Rundown",
   "settings_role_model_rundown_hint": "Fasst einmal täglich und bei Bedarf die Aufmerksamkeit der gesamten Herde zusammen.",
   "feat_rundown_provider_title": "Kosten des Herd-Rundowns steuern",
-  "feat_rundown_provider_body": "Wähle CLI, Modell und Aufwand des Herd-Rundowns für automatische und neu erzeugte Digests."
+  "feat_rundown_provider_body": "Wähle CLI, Modell und Aufwand des Herd-Rundowns für automatische und neu erzeugte Digests.",
+  "settings_role_model_optimizer_title": "Learnings-Optimierer",
+  "settings_role_model_optimizer_hint": "Verschärft als unwirksam markierte Regeln anhand ihrer Fehlerbelege.",
+  "feat_optimizer_provider_aware_title": "Umgebung des Learnings-Optimierers wählen",
+  "feat_optimizer_provider_aware_body": "Wähle CLI, Modell und Reasoning-Aufwand, mit denen der Optimierer als unwirksam markierte Regeln verschärft."
 }

@@ -3181,5 +3181,17 @@
   "settings_role_model_merge_suggest_title": "Learnings Merge Suggester",
   "settings_role_model_merge_suggest_hint": "Consolidates overlapping Learnings rules within and across repositories.",
   "feat_merge_suggester_provider_title": "Control Merge Suggester cost",
-  "feat_merge_suggester_provider_body": "Choose the Learnings Merge Suggester CLI, model, and effort."
+  "feat_merge_suggester_provider_body": "Choose the Learnings Merge Suggester CLI, model, and effort.",
+  "updatemodal_dirty_title": "Local changes are blocking the update",
+  "updatemodal_dirty_body": "You have uncommitted changes in the repo where Shepherd runs, so it can't pull the new version cleanly. Discard your changes to update, or leave them and update later after committing them yourself.",
+  "updatemodal_dirty_files_head": "Changed files",
+  "updatemodal_dirty_files_more": "… and {count} more",
+  "updatemodal_discard_and_update": "Discard & update",
+  "updatemodal_discard_confirm": "Reset {count} tracked change(s) to the last commit? Edits to existing files are lost; newly added files aren't deleted — they stay as untracked files.",
+  "updatemodal_discard_confirm_yes": "Yes, reset",
+  "updatemodal_now_clean": "The tree is clean now — try the update again.",
+  "updatemodal_dirty_stale": "The changes shifted since they were shown — review the updated list and confirm again.",
+  "updatemodal_dirty_too_large": "The changes are too large to verify safely for a one-click discard — please commit or discard them manually.",
+  "feat_safe_update_dirty_repo_title": "Updating a dirty repo, explained",
+  "feat_safe_update_dirty_repo_body": "When an update can't run because you have uncommitted changes in the repo where Shepherd runs, the update dialog now explains it in plain language and lists the changed files. You can discard exactly those changes and update in one click, or leave them and update later — newly added files are always kept."
 }

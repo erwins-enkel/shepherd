@@ -22,6 +22,7 @@ import type {
   ScratchListing,
   UpdateStatus,
   DeployState,
+  DirtyStatus,
   HerdrUpdateStatus,
   CodexUpdateStatus,
   DiagnosticsSnapshot,
@@ -1352,6 +1353,24 @@ export async function getUpdateLog(): Promise<DeployState> {
   return r.json();
 }
 
+/** Fresh dirty snapshot of the running deployment's repo (never cached), so the
+ *  update modal can warn before a discard and re-check after a stale failure. */
+export async function getUpdateDirty(): Promise<DirtyStatus> {
+  const r = await fetch("/api/update/dirty");
+  if (!r.ok) throw await failed(r, "update dirty status");
+  return r.json();
+}
+
+/** Thrown by {@link applyUpdate} when the server rejects a discard because the
+ *  tree drifted from what the operator confirmed (HTTP 409 `stale`). Carries the
+ *  fresh {@link DirtyStatus} so the modal can re-render and ask for re-confirmation. */
+export class StaleDirtyError extends Error {
+  constructor(readonly dirty: DirtyStatus) {
+    super("stale");
+    this.name = "StaleDirtyError";
+  }
+}
+
 /** Current herdr-version update status (whether a newer herdr exists). */
 export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
   const r = await fetch("/api/herdr-update");
@@ -1572,12 +1591,25 @@ export async function triggerRestart(opts: {
   return { ok: false, error: typeof body.error === "string" ? body.error : "restart_failed" };
 }
 
-/** Trigger the deploy script (pull → rebuild → restart). Server restarts on success. */
-export async function applyUpdate(): Promise<void> {
-  const r = await fetch("/api/update", { method: "POST", headers: JSON_HEADERS });
+/** Trigger the deploy script (pull → rebuild → restart). Server restarts on success.
+ *  `discard` runs a scoped `git restore` of the confirmed dirty paths first; `sig`
+ *  is the signature of the dirty state the operator confirmed. On a 409 `stale`
+ *  response (tree drifted since confirmation) throws {@link StaleDirtyError} with
+ *  the fresh dirty status so the modal can re-render + re-confirm. */
+export async function applyUpdate(discard = false, sig?: string): Promise<void> {
+  const r = await fetch("/api/update", {
+    method: "POST",
+    headers: JSON_HEADERS,
+    body: JSON.stringify(discard ? { discard, sig } : {}),
+  });
   if (!r.ok) {
-    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
-    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+    const msg = (await r.json().catch(() => ({ error: `${r.status}` }))) as {
+      error?: string;
+      dirty?: DirtyStatus;
+    };
+    if (r.status === 409 && msg.error === "stale" && msg.dirty)
+      throw new StaleDirtyError(msg.dirty);
+    throw apiError(r.status, msg, `error ${r.status}`);
   }
 }
 

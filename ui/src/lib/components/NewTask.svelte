@@ -750,6 +750,11 @@
     }
   }
 
+  function selectRepo(path: string) {
+    repoPath = path;
+    queueMicrotask(() => promptInput?.focus());
+  }
+
   function cycleRepo(dir: 1 | -1) {
     // Cycle only the non-hidden subset so Alt+[/] can never surface a hidden repo in the
     // trigger label. If the current repo is hidden (cur === -1) we enter the visible subset.
@@ -1048,7 +1053,7 @@
           {repos}
           windowDays={recentRepoWindowDays}
           value={repoPath}
-          onchange={(p) => (repoPath = p)}
+          onchange={selectRepo}
           {onclone}
           {onfork}
           {onnewproject}

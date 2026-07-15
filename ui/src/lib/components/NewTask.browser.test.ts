@@ -1288,6 +1288,33 @@ describe("NewTask repo shortcuts", () => {
       .toBe(true);
   });
 
+  it("Enter after filtering a repo closes the picker and focuses the prompt", async () => {
+    render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
+    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+
+    press("KeyR");
+    await expect.poll(() => document.querySelector(".rs-filter")).toBeTruthy();
+    const filter = document.querySelector<HTMLInputElement>(".rs-filter")!;
+    await expect.poll(() => document.activeElement).toBe(filter);
+
+    filter.value = "char";
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect
+      .poll(
+        () =>
+          document.querySelector<HTMLElement>('[role="option"][aria-selected="true"]')?.textContent,
+      )
+      .toContain(repoC.name);
+
+    filter.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+
+    await expect.poll(() => triggerLabel()).toBe(repoC.name);
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeFalsy();
+    expect(document.activeElement).toBe(document.querySelector("#nt-prompt"));
+  });
+
   it("Escape in open picker closes dropdown but not the modal, refocuses prompt", async () => {
     const onclose = vi.fn();
     render(NewTask, { props: base({ initialRepoPath: repoA.path, onclose }) });

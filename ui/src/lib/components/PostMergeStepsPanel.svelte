@@ -151,6 +151,7 @@
   {:else}
     <p class="ow-note">{m.owed_note()}</p>
     {#if frozenCard}
+      {@const frozenIcon = projectIcons.iconFor(frozenCard.repoPath)}
       <section
         class="ow-card ow-card--frozen"
         data-session-id={frozenCard.sessionId}
@@ -159,9 +160,7 @@
         <header class="ow-card-head">
           <div class="ow-card-id">
             <span class="ow-repo" title={frozenCard.repoPath}>
-              {#if projectIcons.iconFor(frozenCard.repoPath)}<span
-                  class="ow-repo-icon"
-                  aria-hidden="true">{projectIcons.iconFor(frozenCard.repoPath)}</span
+              {#if frozenIcon}<span class="ow-repo-icon" aria-hidden="true">{frozenIcon}</span
                 >{/if}{basename(frozenCard.repoPath)}
             </span>
             <span class="ow-desig">{frozenCard.desig}</span>
@@ -190,6 +189,7 @@
     {/if}
     <div class="ow-list">
       {#each shownRecords as rec (rec.sessionId)}
+        {@const repoIcon = projectIcons.iconFor(rec.repoPath)}
         <section
           class="ow-card"
           data-session-id={rec.sessionId}
@@ -198,9 +198,7 @@
           <header class="ow-card-head">
             <div class="ow-card-id">
               <span class="ow-repo" title={rec.repoPath}>
-                {#if projectIcons.iconFor(rec.repoPath)}<span
-                    class="ow-repo-icon"
-                    aria-hidden="true">{projectIcons.iconFor(rec.repoPath)}</span
+                {#if repoIcon}<span class="ow-repo-icon" aria-hidden="true">{repoIcon}</span
                   >{/if}{basename(rec.repoPath)}
               </span>
               <span class="ow-desig">{rec.desig}</span>

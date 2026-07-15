@@ -459,6 +459,17 @@ export class RecapService {
     });
   }
 
+  private async resolveGenerateSource(
+    session: Session,
+    knownHead?: string,
+    knownBase?: string,
+  ): Promise<{ head: string; base: string; diff: DiffResult }> {
+    const head = knownHead || (await this._headSha(session.worktreePath));
+    const base = knownBase || (await this._resolveBase(session)).base;
+    const diff = await this._computeDiff(session.worktreePath, base, session.branch);
+    return { head, base, diff };
+  }
+
   private async classifyEmptyDiff(
     session: Session,
     head: string,
@@ -697,7 +708,7 @@ export class RecapService {
       );
       return "error";
     }
-    const { id, worktreePath, branch, claudeSessionId, spawnAccountDir } = session;
+    const { id, worktreePath, claudeSessionId, spawnAccountDir } = session;
 
     // Synchronous guard: if already mid-flight for this session, bail immediately.
     if (this.inFlight.has(id)) return "started";
@@ -711,17 +722,14 @@ export class RecapService {
       // rather than throwing out of this bare-`void`-called method.
       // Resolving the base HERE (not just in the dedup callers) covers regenerate(),
       // which bypasses dedup — so a forced regenerate never re-bakes the stored base.
-      let head = knownHead ?? "";
-      let base = knownBase ?? "";
-      let diff: DiffResult;
+      let source: { head: string; base: string; diff: DiffResult };
       try {
-        if (!head) head = await this._headSha(worktreePath);
-        if (!base) base = (await this._resolveBase(session)).base;
-        diff = await this._computeDiff(worktreePath, base, branch);
+        source = await this.resolveGenerateSource(session, knownHead, knownBase);
       } catch (err) {
-        this.putFailureRecap(session, "source-unavailable", err, head, base);
+        this.putFailureRecap(session, "source-unavailable", err);
         return "error";
       }
+      const { head, base, diff } = source;
 
       let landedContext = "";
       let diffState: RecapDiffState = "present";
@@ -868,13 +876,10 @@ export class RecapService {
       }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      let failure: RecapFailure | undefined;
-      if (action === "finalize-null") {
-        const detail = await this.logUnproducedVerdict(r, read, elapsed, finished);
-        const code: RecapFailureCode =
-          read.status === "unparseable" ? "invalid-result" : timedOut ? "timed-out" : "no-result";
-        failure = this.failureFor(r, code, detail);
-      }
+      const failure =
+        action === "finalize-null"
+          ? await this.failureForUnproducedVerdict(r, read, elapsed, finished, timedOut)
+          : undefined;
 
       // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
@@ -883,6 +888,18 @@ export class RecapService {
         this.finalizing.delete(r.sessionId);
       }
     }
+  }
+
+  private async failureForUnproducedVerdict(
+    recap: Recap,
+    read: VerdictRead<unknown>,
+    elapsed: number,
+    finished: boolean,
+    timedOut: boolean,
+  ): Promise<RecapFailure> {
+    const detail = await this.logUnproducedVerdict(recap, read, elapsed, finished);
+    if (read.status === "unparseable") return this.failureFor(recap, "invalid-result", detail);
+    return this.failureFor(recap, timedOut ? "timed-out" : "no-result", detail);
   }
 
   /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a

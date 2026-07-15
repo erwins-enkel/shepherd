@@ -2272,9 +2272,13 @@ export class DrainService {
     }
     // Keep the claim: the child issue stays open until the epic lands; releasing would let it
     // re-spawn. Mirrors the non-epic retire path.
-    this.retainClaimOnArchive.add(decision.sessionId);
-    this.deps.dropPrCache(decision.sessionId);
-    this.deps.emitArchived(decision.sessionId);
+    this.retainArchivedClaim(decision.sessionId);
+  }
+
+  private retainArchivedClaim(sessionId: string): void {
+    this.retainClaimOnArchive.add(sessionId);
+    this.deps.dropPrCache(sessionId);
+    this.deps.emitArchived(sessionId);
   }
 
   /**
@@ -2334,9 +2338,7 @@ export class DrainService {
     // would let another instance re-spawn an issue that already has a ready PR. The
     // human merge auto-closes the issue (`Closes #N`), retiring the claim with it.
     // Set before emitArchived so a synchronous onArchived sees it.
-    this.retainClaimOnArchive.add(decision.sessionId);
-    this.deps.dropPrCache(decision.sessionId);
-    this.deps.emitArchived(decision.sessionId);
+    this.retainArchivedClaim(decision.sessionId);
   }
 
   /**

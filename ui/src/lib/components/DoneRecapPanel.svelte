@@ -75,6 +75,14 @@
     };
   });
 
+  function archiveReasonLabel(reason?: SessionArchiveReason | null): string {
+    if (reason === "operator") return m.done_recap_archive_operator();
+    if (reason === "merged") return m.done_recap_archive_merged();
+    if (reason === "drain") return m.done_recap_archive_drain();
+    if (reason === "relaunch") return m.done_recap_archive_relaunch();
+    return m.done_recap_archive_unknown();
+  }
+
   // Mirrors SessionRecap's verdict mapping (semantic, not decorative): green only for a
   // genuinely-ready verdict; a parked/done session reads slate; needs-attention amber.
   const VERDICT_COLOR: Record<RecapVerdict, string> = {
@@ -87,14 +95,6 @@
     if (v === "ready") return m.recap_verdict_ready();
     if (v === "parked") return m.recap_verdict_parked();
     return m.recap_verdict_needs_attention();
-  }
-
-  function archiveReasonLabel(reason?: SessionArchiveReason | null): string {
-    if (reason === "operator") return m.done_recap_archive_operator();
-    if (reason === "merged") return m.done_recap_archive_merged();
-    if (reason === "drain") return m.done_recap_archive_drain();
-    if (reason === "relaunch") return m.done_recap_archive_relaunch();
-    return m.done_recap_archive_unknown();
   }
 
   function failureHeadline(code: RecapFailureCode): string {

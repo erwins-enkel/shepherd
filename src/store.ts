@@ -125,6 +125,25 @@ function parseFailureReason(raw: string | null | undefined): RecapFailure | null
   };
 }
 
+function parseArchiveReason(raw: string | null | undefined): SessionArchiveReason | null {
+  return raw === "operator" || raw === "merged" || raw === "drain" || raw === "relaunch"
+    ? raw
+    : null;
+}
+
+function parseRecapBlocks(raw: string | null | undefined): VisualBlock[] {
+  const parsed = safeJsonParse<unknown>(raw, []);
+  return Array.isArray(parsed) ? (parsed as VisualBlock[]) : [];
+}
+
+function serializeRecapSkip(recap: Recap): string | null {
+  return recap.failure || !recap.skip ? null : JSON.stringify(recap.skip);
+}
+
+function serializeRecapFailure(recap: Recap): string | null {
+  return recap.skip || !recap.failure ? null : JSON.stringify(recap.failure);
+}
+
 /** Coerce a persisted plan-gate summary code: only the known "no-verdict" sentinel survives; any
  *  other value (legacy prose lived in `summary`, not here) → null. */
 function coerceSummaryCode(v: string | null): PlanSummaryCode | null {
@@ -2047,7 +2066,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // spawnAccountDir — always null at create
           strOrEmpty(s.providerSessionId), // "" at create for both providers; Codex id captured post-spawn
           launchMetadataJson(s.launchMetadata),
-          s.archiveReason ?? null,
+          null, // archiveReason — a fresh session has not been archived
         ],
       );
       return s;
@@ -2610,33 +2629,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── session recaps ────────────────────────────────────────────────────────────
   private hydrateRecap(r: RecapRow): Recap {
-    let openItems: string[] = [];
-    try {
-      const parsed = JSON.parse(r.openItems);
-      if (Array.isArray(parsed))
-        openItems = parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-      openItems = [];
-    }
-    let changedFiles: string[] = [];
-    try {
-      const parsed = JSON.parse(r.changedFiles);
-      if (Array.isArray(parsed))
-        changedFiles = parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-      changedFiles = [];
-    }
     // Persisted blocks were already validated + server-grounded at finalize (the real DiffFile is
     // joined onto diff blocks there). Parse as trusted data — do NOT re-run parseVisualBlocks, the
     // LLM-input trust boundary, which strips the joined `file` off diff blocks. parseVisualBlocks
     // runs only on fresh spawn output (recap-core.ts), never on DB reads.
-    let blocks: VisualBlock[] = [];
-    try {
-      const parsed = JSON.parse(r.blocks);
-      if (Array.isArray(parsed)) blocks = parsed as VisualBlock[];
-    } catch {
-      blocks = [];
-    }
     return {
       sessionId: r.sessionId,
       state: r.state,
@@ -2651,9 +2647,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         r.diffState === "none" || r.diffState === "present" || r.diffState === "landed"
           ? r.diffState
           : null,
-      openItems,
-      changedFiles,
-      blocks,
+      openItems: safeJsonArray(r.openItems),
+      changedFiles: safeJsonArray(r.changedFiles),
+      blocks: parseRecapBlocks(r.blocks),
       spawnSessionId: r.spawnSessionId ?? "",
       cwd: r.cwd ?? "",
       model: r.model ?? null,
@@ -2707,8 +2703,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         recap.verdict ?? null,
         recap.headline ?? "",
         recap.body ?? "",
-        recap.failure ? null : recap.skip ? JSON.stringify(recap.skip) : null,
-        recap.skip ? null : recap.failure ? JSON.stringify(recap.failure) : null,
+        serializeRecapSkip(recap),
+        serializeRecapFailure(recap),
         recap.diffState ?? null,
         JSON.stringify(recap.openItems ?? []),
         JSON.stringify(recap.changedFiles ?? []),
@@ -4789,13 +4785,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: r.haltedAt ?? null,
       manualSteps: parseManualStepsJson(r.manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
-      archiveReason:
-        r.archiveReason === "operator" ||
-        r.archiveReason === "merged" ||
-        r.archiveReason === "drain" ||
-        r.archiveReason === "relaunch"
-          ? r.archiveReason
-          : null,
+      archiveReason: parseArchiveReason(r.archiveReason),
       launchMetadata: parseLaunchMetadataJson(r.launchMetadataJson),
       experimentId: r.experimentId ?? null,
       experimentRole:

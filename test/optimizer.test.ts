@@ -406,9 +406,7 @@ for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
       expect(store.getLearning(b)!.rule).toBe(
         entryPoint === "optimizeOne" ? "rule B" : "B revised",
       );
-      expect(store.getLearning(b)!.ineffectiveCount).toBe(
-        entryPoint === "optimizeOne" ? 1 : 0,
-      );
+      expect(store.getLearning(b)!.ineffectiveCount).toBe(entryPoint === "optimizeOne" ? 1 : 0);
     });
   }
 }
@@ -469,12 +467,7 @@ test("Codex optimizer is not blocked by missing Anthropic api-key configuration"
 
     await new OptimizerService(deps as any).optimizeOne(id);
 
-    expect(cap.argv[0]!.slice(0, 4)).toEqual([
-      "codex",
-      "exec",
-      "--sandbox",
-      "workspace-write",
-    ]);
+    expect(cap.argv[0]!.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
     expect(cap.env[0]).toBeUndefined();
   });
 });

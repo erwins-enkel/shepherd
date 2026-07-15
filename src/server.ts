@@ -4499,6 +4499,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       distillerCli: config.distillerCli,
       distillerModel: config.distillerModel,
       distillerEffort: config.distillerEffort,
+      optimizerCli: config.optimizerCli,
+      optimizerModel: config.optimizerModel,
+      optimizerEffort: config.optimizerEffort,
       distillerIntervalDays: config.distillerIntervalDays,
       distillerIntervalDaysMin: DISTILLER_INTERVAL_DAYS_MIN,
       distillerIntervalDaysMax: DISTILLER_INTERVAL_DAYS_MAX,
@@ -4589,6 +4592,9 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["distillerCli", makeRoleCliPatch("distiller")],
   ["distillerModel", makeRoleModelPatch("distiller")],
   ["distillerEffort", makeRoleEffortPatch("distiller")],
+  ["optimizerCli", makeRoleCliPatch("optimizer")],
+  ["optimizerModel", makeRoleModelPatch("optimizer")],
+  ["optimizerEffort", makeRoleEffortPatch("optimizer")],
   ["distillerIntervalDays", putDistillerIntervalDays],
   ["namerCli", makeRoleCliPatch("namer")],
   ["namerModel", makeRoleModelPatch("namer")],
@@ -4698,12 +4704,20 @@ function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
   return json({ defaultEffort: config.defaultEffort });
 }
 
-// Per-role ENVIRONMENT patch handlers (critic/planner/recap/doc-agent/namer/autopilot). Each role
-// is a PAIR: a `<role>Cli` ("inherit"|<provider>) and a `<role>Model` ("default"|<alias>). Both
+// Per-role ENVIRONMENT patch handlers. Each role has `<role>Cli` ("inherit"|<provider>),
+// `<role>Model` ("default"|<alias>), and `<role>Effort` ("default"|<tier>). All three
 // live-update config (the spawn-time thunks read config per spawn, so no restart) and persist.
 // cli/model are validated + stored independently; resolveRoleEnvironment clamps an incoherent pair.
 type RoleKey =
-  "critic" | "planner" | "recap" | "rundown" | "docAgent" | "namer" | "autopilot" | "distiller";
+  | "critic"
+  | "planner"
+  | "recap"
+  | "rundown"
+  | "docAgent"
+  | "namer"
+  | "autopilot"
+  | "distiller"
+  | "optimizer";
 
 function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
   const key = `${role}Cli` as const;

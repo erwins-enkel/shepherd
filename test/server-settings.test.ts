@@ -35,6 +35,7 @@ const ROLE_BASES = [
   "namer",
   "autopilot",
   "distiller",
+  "optimizer",
 ] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
@@ -515,6 +516,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   config.rundownCli = "codex";
   config.rundownModel = "gpt-5.5";
   config.rundownEffort = "low";
+  config.optimizerCli = "codex";
+  config.optimizerModel = "gpt-5.5";
+  config.optimizerEffort = "medium";
   const { app } = harness();
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.criticCli).toBe("codex");
@@ -529,6 +533,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   expect(body.rundownCli).toBe("codex");
   expect(body.rundownModel).toBe("gpt-5.5");
   expect(body.rundownEffort).toBe("low");
+  expect(body.optimizerCli).toBe("codex");
+  expect(body.optimizerModel).toBe("gpt-5.5");
+  expect(body.optimizerEffort).toBe("medium");
 });
 
 for (const role of ROLE_BASES) {

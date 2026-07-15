@@ -3,6 +3,8 @@ import { OptimizerService, OPTIMIZE_LABEL, type OptimizerTarget } from "../src/o
 import { SessionStore } from "../src/store";
 import { HerdrUnavailableError } from "../src/herdr";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { config } from "../src/config";
+import type { RoleEnvironment } from "../src/default-model";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -89,6 +91,57 @@ function mkDeps(
 }
 
 type RawLike = { revisions?: { id?: unknown; rule?: unknown; rationale?: unknown }[] } | null;
+
+function optimizerSpawnCapture(
+  store: SessionStore,
+  readOutput: () => RawLike,
+  environment: () => RoleEnvironment,
+) {
+  const cap: {
+    argv: string[][];
+    env: (Record<string, string> | undefined)[];
+    removed: number;
+  } = { argv: [], env: [], removed: 0 };
+  const deps = {
+    store,
+    herdr: {
+      start: async (_name: string, _cwd: string, argv: string[], env?: Record<string, string>) => {
+        cap.argv.push(argv);
+        cap.env.push(env);
+        return { terminalId: `o${cap.argv.length}` };
+      },
+      stop: async () => {},
+    } as any,
+    scratch: {
+      create: () => ({ dir: `/scratch/${cap.argv.length}` }),
+      remove: () => cap.removed++,
+    },
+    promoter: fakePromoter(),
+    onChange: () => {},
+    now: () => 1000,
+    environment,
+    writeInput: () => {},
+    readOutput,
+  };
+  return { deps, cap };
+}
+
+async function withAuth(
+  mode: typeof config.authMode,
+  helper: string | null,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const previousMode = config.authMode;
+  const previousHelper = config.authApiKeyHelperPath;
+  config.authMode = mode;
+  config.authApiKeyHelperPath = helper;
+  try {
+    await fn();
+  } finally {
+    config.authMode = previousMode;
+    config.authApiKeyHelperPath = previousHelper;
+  }
+}
 
 test("applies revisions + clears flag; onChange fires", async () => {
   const store = new SessionStore(":memory:");
@@ -290,6 +343,160 @@ test("spawn argv follows the safe contract + unique __optimize__ name", async ()
   expect(write).toBeLessThan(mode);
   expect(argv).toContain('{"disableAllHooks":true}');
   expect(argv.length).toBeGreaterThan(mode + 2); // prompt trails dontAsk
+});
+
+for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
+  for (const provider of ["claude", "codex"] as const) {
+    test(`${entryPoint} uses the resolved ${provider} environment and applies the shared revision output`, async () => {
+      const store = new SessionStore(":memory:");
+      const a = seedActiveRule(store, "/r", "rule A");
+      const b = seedActiveRule(store, "/r", "rule B");
+      flag(store, "/r", a);
+      flag(store, "/r", b);
+      const environment: RoleEnvironment =
+        provider === "claude"
+          ? { provider, model: "sonnet", effort: "high" }
+          : { provider, model: "gpt-5.5", effort: "high" };
+      const { deps, cap } = optimizerSpawnCapture(
+        store,
+        () => ({
+          revisions: [
+            { id: a, rule: "A revised" },
+            { id: b, rule: "B revised" },
+          ],
+        }),
+        () => environment,
+      );
+      const svc = new OptimizerService(deps as any);
+
+      if (entryPoint === "optimizeOne") await svc.optimizeOne(a);
+      else await svc.optimizeAllFlagged("/r");
+      await svc.tick();
+
+      const argv = cap.argv[0]!;
+      if (provider === "claude") {
+        expect(argv[0]).toBe("claude");
+        expect(argv).toContain("--allowedTools");
+        expect(argv).toContain("Write");
+        expect(argv).toContain("--permission-mode");
+        expect(argv).toContain("dontAsk");
+        expect(argv.slice(argv.indexOf("--model"), argv.indexOf("--model") + 2)).toEqual([
+          "--model",
+          "sonnet",
+        ]);
+        expect(argv.slice(argv.indexOf("--effort"), argv.indexOf("--effort") + 2)).toEqual([
+          "--effort",
+          "high",
+        ]);
+      } else {
+        expect(argv).toEqual([
+          "codex",
+          "exec",
+          "--sandbox",
+          "workspace-write",
+          "-m",
+          "gpt-5.5",
+          "-c",
+          "model_reasoning_effort=high",
+          expect.any(String),
+        ]);
+      }
+      expect(store.getLearning(a)!.rule).toBe("A revised");
+      expect(store.getLearning(a)!.ineffectiveCount).toBe(0);
+      expect(store.getLearning(b)!.rule).toBe(
+        entryPoint === "optimizeOne" ? "rule B" : "B revised",
+      );
+      expect(store.getLearning(b)!.ineffectiveCount).toBe(
+        entryPoint === "optimizeOne" ? 1 : 0,
+      );
+    });
+  }
+}
+
+test("resolves a fresh environment for every optimizer spawn", async () => {
+  const store = new SessionStore(":memory:");
+  const id = seedActiveRule(store, "/r", "rule");
+  flag(store, "/r", id);
+  let environment: RoleEnvironment = { provider: "claude", model: "sonnet", effort: "high" };
+  let revision = "Claude revision";
+  const { deps, cap } = optimizerSpawnCapture(
+    store,
+    () => ({ revisions: [{ id, rule: revision }] }),
+    () => environment,
+  );
+  const svc = new OptimizerService(deps as any);
+
+  await svc.optimizeOne(id);
+  await svc.tick();
+  environment = { provider: "codex", model: "gpt-5.5", effort: "medium" };
+  revision = "Codex revision";
+  flag(store, "/r", id);
+  await svc.optimizeOne(id);
+  await svc.tick();
+
+  expect(cap.argv.map((argv) => argv[0])).toEqual(["claude", "codex"]);
+  expect(store.getLearning(id)!.rule).toBe("Codex revision");
+});
+
+test("Claude optimizer fails closed in api-key mode when no key is configured", async () => {
+  await withAuth("api-key", null, async () => {
+    const store = new SessionStore(":memory:");
+    const id = seedActiveRule(store, "/r", "rule");
+    flag(store, "/r", id);
+    const { deps, cap } = optimizerSpawnCapture(
+      store,
+      () => null,
+      () => ({ provider: "claude", model: null, effort: null }),
+    );
+
+    await new OptimizerService(deps as any).optimizeOne(id);
+
+    expect(cap.argv).toHaveLength(0);
+    expect(cap.removed).toBe(1);
+  });
+});
+
+test("Codex optimizer is not blocked by missing Anthropic api-key configuration", async () => {
+  await withAuth("api-key", null, async () => {
+    const store = new SessionStore(":memory:");
+    const id = seedActiveRule(store, "/r", "rule");
+    flag(store, "/r", id);
+    const { deps, cap } = optimizerSpawnCapture(
+      store,
+      () => null,
+      () => ({ provider: "codex", model: null, effort: null }),
+    );
+
+    await new OptimizerService(deps as any).optimizeOne(id);
+
+    expect(cap.argv[0]!.slice(0, 4)).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+    ]);
+    expect(cap.env[0]).toBeUndefined();
+  });
+});
+
+test("Claude optimizer keeps apiKeyHelper settings and CLAUDE_CONFIG_DIR passthrough", async () => {
+  await withAuth("api-key", "/helper.sh", async () => {
+    const store = new SessionStore(":memory:");
+    const id = seedActiveRule(store, "/r", "rule");
+    flag(store, "/r", id);
+    const { deps, cap } = optimizerSpawnCapture(
+      store,
+      () => null,
+      () => ({ provider: "claude", model: "sonnet", effort: "high" }),
+    );
+
+    await new OptimizerService(deps as any).optimizeOne(id);
+
+    const argv = cap.argv[0]!;
+    const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
+    expect(settings.apiKeyHelper).toBe("/helper.sh");
+    expect(Object.keys(cap.env[0]!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  });
 });
 
 // ── boot reapOrphans (issue #1135) ──────────────────────────────────────────

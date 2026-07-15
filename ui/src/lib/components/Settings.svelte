@@ -278,10 +278,9 @@
   let distillerIntervalDaysMin = $state(1);
   let distillerIntervalDaysMax = $state(14);
   let distillerIntervalBusy = $state(false);
-  // Per-role ENVIRONMENT overrides (plan reviewer, PR critic, recap, doc-agent, namer, autopilot).
-  // Each role is a PAIR: a CLI (`<role>Cli` ∈ "inherit"|"claude"|"codex"; "inherit" follows the
-  // global provider+model) and a model (`<role>Model` ∈ "default"|<alias for that CLI>). Seeds
-  // mirror the server defaults so the pickers read sensibly before load() resolves.
+  // Per-role ENVIRONMENT overrides. Each role has CLI, model, and reasoning-effort settings;
+  // `inherit` follows the global provider+model. Seeds mirror the server defaults so the pickers
+  // read sensibly before load() resolves.
   const ROLE_BASES = [
     "planner",
     "critic",
@@ -289,6 +288,7 @@
     "recap",
     "rundown",
     "distiller",
+    "optimizer",
     "namer",
     "autopilot",
   ] as const;
@@ -302,6 +302,7 @@
     namer: "claude",
     autopilot: "claude",
     distiller: "inherit",
+    optimizer: "inherit",
   };
   const ROLE_MODEL_SEED: Record<RoleBase, string> = {
     planner: "default",
@@ -312,6 +313,7 @@
     namer: "haiku",
     autopilot: "haiku",
     distiller: "default",
+    optimizer: "default",
   };
   // Per-role reasoning-effort tier ("default"|<tier>), orthogonal to CLI/model — always shown.
   const ROLE_EFFORT_SEED: Record<RoleBase, string> = {
@@ -323,6 +325,7 @@
     namer: "low",
     autopilot: "low",
     distiller: "default",
+    optimizer: "default",
   };
   let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
   let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
@@ -339,6 +342,7 @@
     namer: false,
     autopilot: false,
     distiller: false,
+    optimizer: false,
   });
   // Foreground (content) roles vs. collapsed classifiers (constant-cadence, kept cheap).
   const ROLE_PRIMARY: RoleBase[] = [
@@ -348,6 +352,7 @@
     "recap",
     "rundown",
     "distiller",
+    "optimizer",
   ];
   const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
 
@@ -369,6 +374,8 @@
         return m.settings_role_model_autopilot_title();
       case "distiller":
         return m.settings_role_model_distiller_title();
+      case "optimizer":
+        return m.settings_role_model_optimizer_title();
     }
   }
   function roleHint(role: RoleBase): string {
@@ -389,6 +396,8 @@
         return m.settings_role_model_autopilot_hint();
       case "distiller":
         return m.settings_role_model_distiller_hint();
+      case "optimizer":
+        return m.settings_role_model_optimizer_hint();
     }
   }
   // Display label for a CLI/provider (the CLI dropdown options + the effective line).

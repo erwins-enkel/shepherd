@@ -3173,5 +3173,9 @@
   "settings_role_model_rundown_title": "Herd Rundown",
   "settings_role_model_rundown_hint": "Summarizes herd-wide attention once per day and on demand.",
   "feat_rundown_provider_title": "Control Herd Rundown cost",
-  "feat_rundown_provider_body": "Choose the Herd Rundown CLI, model, and effort for automatic and regenerated digests."
+  "feat_rundown_provider_body": "Choose the Herd Rundown CLI, model, and effort for automatic and regenerated digests.",
+  "settings_role_model_optimizer_title": "Learnings Optimizer",
+  "settings_role_model_optimizer_hint": "Strengthens rules marked as not working using their failure evidence.",
+  "feat_optimizer_provider_aware_title": "Choose the Learnings Optimizer environment",
+  "feat_optimizer_provider_aware_body": "Choose the CLI, model, and reasoning effort the Optimizer uses when strengthening rules marked as not working."
 }

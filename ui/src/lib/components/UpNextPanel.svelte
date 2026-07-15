@@ -684,7 +684,14 @@
     border-color: var(--color-amber);
   }
 
+  /* Sticky so the single-start affordance stays reachable: on mobile the per-row
+     START is hidden, making this bar the only way to launch one issue, and it must
+     not scroll off when a row is ticked deep in a long list. Pins to the top of
+     the .upnext scroll container (overflow:auto). */
   .un-batch {
+    position: sticky;
+    top: 0;
+    z-index: 2;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -761,9 +768,6 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-  }
-  .un-row {
-    flex-wrap: wrap;
   }
   .un-check {
     display: flex;
@@ -857,11 +861,13 @@
     flex: none;
   }
 
-  @container issue-list-row (max-width: 520px) {
-    .un-actions {
-      flex-basis: 100%;
-      justify-content: flex-end;
-      padding-left: 28px;
+  /* At narrow row widths the title becomes the shrink-valve so the inline START,
+     priority/epic pills and age (all flex:none) never overflow the panel. Only
+     Up Next lowers the shared 6rem .issue-list-title floor here; IssueRow /
+     PromptSources keep it. */
+  @container issue-list-row (max-width: 460px) {
+    .un-title {
+      min-width: 0;
     }
   }
 
@@ -877,9 +883,11 @@
       min-height: var(--mobile-actionbar-hit);
     }
 
-    .un-start {
-      min-height: var(--mobile-actionbar-hit);
-      padding: 2px 14px;
+    /* Hide the per-row START on mobile/coarse-pointer; display:none also drops it
+       from the tab order / a11y tree. Single-start path: tick the checkbox → the
+       (sticky) batch bar's "Start selected (1)". */
+    .un-actions {
+      display: none;
     }
   }
 

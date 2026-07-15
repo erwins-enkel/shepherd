@@ -1062,12 +1062,36 @@
     align-items: center;
     gap: 5px;
   }
-  /* Read-only status readouts are now .status-chip (was .prlink/.dot/.merged);
-     keep their touch legibility at --fs-base. Non-interactive, so NO 40px rule
-     (that stays scoped to .gbtn / button.verdict-chip above) — no fake tap targets.
-     The CI word is a sibling of the .dot, so the dot rule below still enlarges it. */
+  /* status-chips keep their touch legibility at --fs-base. Height/box treatment then
+     splits by affordance (element type), NOT by a blanket rule: */
   .rail.mobile :global(.status-chip) {
     font-size: var(--fs-base);
+  }
+  /* Tappable status-chips — the Issue link (<a>) and the PR-menu trigger (<button>) — ARE
+     tap targets, so promote them to the 44px touch floor like their .gbtn / button.verdict-chip
+     siblings. Fixes the sub-44px a11y violation; the span. readouts below stay short. */
+  .rail.mobile :global(a.status-chip),
+  .rail.mobile :global(button.status-chip) {
+    min-height: var(--mobile-actionbar-hit);
+    padding: 6px 9px;
+  }
+  /* Passive readouts (CI, merged, closed, plain/ready PR) and the reviewing-no-findings chip
+     de-box on mobile: drop the fill + border so they read as inline dot+text labels rather
+     than short boxes clashing against the 44px controls. Hue stays on the dot + text. The
+     `span.` prefix keeps specificity above the .status-chip.info/.pend/… hue variants so the
+     transparent border wins. No min-height → they stay short (not fake tap targets). */
+  .rail.mobile :global(span.status-chip),
+  .rail.mobile :global(span.verdict-chip) {
+    background: transparent;
+    border-color: transparent;
+    padding: 0;
+    font-size: var(--fs-base);
+  }
+  /* automation divider breathes 14px each side on mobile (8px margin + the .rail 6px gap),
+     matching the new status-sep. Scoped to .rail.mobile so the base .rail-sep (shared with the
+     test-only desktop mount) is untouched. */
+  .rail.mobile .rail-sep {
+    margin: 0 8px;
   }
   .rail.mobile :global(.dot) {
     width: 9px;

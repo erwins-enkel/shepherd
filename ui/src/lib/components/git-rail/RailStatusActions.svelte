@@ -104,39 +104,126 @@
   async function toggleDraftState() {
     if (await togglePrDraft(git.isDraft !== true)) closePrMenu();
   }
+
+  // ── Passive vs. tappable split (mobile grouping) ──────────────────────────
+  // The row is split into a leading passive-status zone (de-boxed labels) and a
+  // trailing actions zone (44px tap targets). Each predicate below mirrors the
+  // render guard of exactly ONE item so the two can never drift; `hasPassive` /
+  // `hasActions` are the unions. The `rail-status-sep` renders iff BOTH are
+  // non-empty, so it can never orphan (leading: steal the .rail `margin-left:auto`
+  // first-child; trailing: double-divider against GitRail's own rail-sep).
+
+  // passive readouts (non-interactive <span> chips) — each maps 1:1 to a span:
+  const readyToMerge = $derived(git.state === "open" && local); // "ready to merge #N"
+  const plainPr = $derived(git.state === "open" && !local && !git.url); // no-url plain PR
+  const ciStatus = $derived(git.state === "open" && !local); // CI status
+  const mergedSpan = $derived(git.state === "merged");
+  // the closed span renders from the template {:else} catch-all, NOT `=== "closed"`;
+  // key off the same negation so it can't drift if a 5th GitState.state value appears.
+  const closedSpan = $derived(
+    git.state !== "none" && git.state !== "open" && git.state !== "merged",
+  );
+  const reviewingSpan = $derived(chip.kind === "reviewing" && !chip.hasFindings);
+  const hasPassive = $derived(
+    readyToMerge || plainPr || ciStatus || mergedSpan || closedSpan || reviewingSpan,
+  );
+
+  // tappable controls (<a>/<button> + ReadyToggle) — each maps 1:1 to a control:
+  const issueChip = $derived(!!git.issueUrl && issueNumber != null);
+  const openPrBtn = $derived(git.state === "none" && !autopilotOn);
+  const prMenuBtn = $derived(git.state === "open" && !local && !!git.url);
+  const mergeBtn = $derived(git.state === "open"); // always shown in open (may be disabled)
+  const redeployBtn = $derived(git.state === "merged" && git.deployConfigured);
+  const readyToggleShown = $derived(
+    showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked",
+  );
+  const verdictBtn = $derived(
+    chip.kind === "verdict" || (chip.kind === "reviewing" && chip.hasFindings),
+  );
+  const hasActions = $derived(
+    issueChip ||
+      openPrBtn ||
+      prMenuBtn ||
+      mergeBtn ||
+      redeployBtn ||
+      readyToggleShown ||
+      verdictBtn ||
+      canReview ||
+      canReviewPlan,
+  );
 </script>
 
-{#if git.issueUrl && issueNumber != null}
-  <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
-  <a
-    class="status-chip"
-    href={git.issueUrl}
-    target="_blank"
-    rel="noopener"
-    title={m.gitrail_issue_label({ number: issueNumber })}
-    aria-label={m.gitrail_issue_label({ number: issueNumber })}
-    ><span class="dot" aria-hidden="true"></span>{m.gitrail_open_issue()}</a
-  >
-  <!-- eslint-enable svelte/no-navigation-without-resolve -->
-{/if}
-{#if git.state === "none"}
-  <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
-       so the manual button is redundant. This stays hidden even while autopilot is
-       PAUSED (autopilotPaused): a paused autopilot is still on and will resume and
-       open the PR; the human escape hatch is the AP toggle in the same strip.
-       autopilotPaused is surfaced separately via AutopilotBadge — not a signal to
-       re-show this button. -->
-  {#if !autopilotOn}
+<!-- Leading passive-status zone: non-interactive readouts, de-boxed to inline labels
+     on mobile (see GitRail .rail.mobile). Each {#if} guard mirrors a `hasPassive` term. -->
+{#snippet passiveZone()}
+  {#if readyToMerge}
+    <span class="status-chip info"
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_ready_to_merge()} #{git.number}</span
+    >
+  {/if}
+  {#if plainPr}
+    <span class="status-chip info" title={m.prbadge_open({ number: git.number ?? 0 })}
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_plain()}</span
+    >
+  {/if}
+  {#if ciStatus}
+    <span
+      class={["status-chip", ciMod(git.checks)]}
+      title={m.gitrail_ci_status({ status: git.checks })}
+      aria-label={m.gitrail_ci_status({ status: git.checks })}
+    >
+      <span class="dot" aria-hidden="true"></span>{ciLabel(git.checks)}
+    </span>
+  {/if}
+  {#if mergedSpan}
+    <span class="status-chip parked"
+      ><span class="dot" aria-hidden="true"></span>{local
+        ? m.gitrail_merged_locally()
+        : m.gitrail_merged()}</span
+    >
+  {/if}
+  {#if closedSpan}
+    <span class="status-chip parked"
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}</span
+    >
+  {/if}
+  {#if reviewingSpan}
+    <span class="verdict-chip critic-reviewing" title={m.criticbadge_reviewing_title()}>
+      <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+    </span>
+  {/if}
+{/snippet}
+
+<!-- Trailing actions zone: 44px tap targets (Issue link, PR menu, Merge, Ready, verdict, …).
+     Each {#if} guard mirrors a `hasActions` term. -->
+{#snippet actionsZone()}
+  {#if git.issueUrl && issueNumber != null}
+    <!-- guard inline (not the `issueChip` derived) so TS narrows `issueNumber` to non-null;
+         `issueChip` mirrors this exact condition for the `hasActions` union above. -->
+    <!-- eslint-disable svelte/no-navigation-without-resolve -- external git-host URL, not an app route -->
+    <a
+      class="status-chip"
+      href={git.issueUrl}
+      target="_blank"
+      rel="noopener"
+      title={m.gitrail_issue_label({ number: issueNumber })}
+      aria-label={m.gitrail_issue_label({ number: issueNumber })}
+      ><span class="dot" aria-hidden="true"></span>{m.gitrail_open_issue()}</a
+    >
+    <!-- eslint-enable svelte/no-navigation-without-resolve -->
+  {/if}
+  {#if openPrBtn}
+    <!-- Hidden whenever autopilot is effectively on — the agent opens the PR itself,
+         so the manual button is redundant. This stays hidden even while autopilot is
+         PAUSED (autopilotPaused): a paused autopilot is still on and will resume and
+         open the PR; the human escape hatch is the AP toggle in the same strip.
+         autopilotPaused is surfaced separately via AutopilotBadge — not a signal to
+         re-show this button. -->
     <button class="gbtn" type="button" disabled={busy} onclick={startPr}
       >{local ? m.gitrail_open_for_merge() : m.gitrail_open_pr()}</button
     >
   {/if}
-{:else if git.state === "open"}
-  {#if local}
-    <span class="status-chip info"
-      ><span class="dot" aria-hidden="true"></span>{m.gitrail_ready_to_merge()} #{git.number}</span
-    >
-  {:else if git.url}
+  {#if prMenuBtn}
     <button
       bind:this={prButton}
       type="button"
@@ -151,40 +238,23 @@
       onclick={togglePrMenu}
       ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_link()}</button
     >
-  {:else}
-    <span class="status-chip info" title={m.prbadge_open({ number: git.number ?? 0 })}
-      ><span class="dot" aria-hidden="true"></span>{m.gitrail_pr_plain()}</span
-    >
   {/if}
-  {#if !local}
-    <span
-      class={["status-chip", ciMod(git.checks)]}
-      title={m.gitrail_ci_status({ status: git.checks })}
-      aria-label={m.gitrail_ci_status({ status: git.checks })}
+  {#if mergeBtn}
+    <button
+      class={["gbtn", "merge", { armed: armed === "merge" }]}
+      type="button"
+      disabled={mergeBlocked}
+      title={mergeBlockedReason}
+      onclick={() => doMerge()}
     >
-      <span class="dot" aria-hidden="true"></span>{ciLabel(git.checks)}
-    </span>
+      {#if local}
+        {armed === "merge" ? m.gitrail_confirm_merge_locally() : m.gitrail_merge_locally()}
+      {:else}
+        {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
+      {/if}
+    </button>
   {/if}
-  <button
-    class={["gbtn", "merge", { armed: armed === "merge" }]}
-    type="button"
-    disabled={mergeBlocked}
-    title={mergeBlockedReason}
-    onclick={() => doMerge()}
-  >
-    {#if local}
-      {armed === "merge" ? m.gitrail_confirm_merge_locally() : m.gitrail_merge_locally()}
-    {:else}
-      {armed === "merge" ? m.gitrail_confirm_merge() : m.gitrail_merge()}
-    {/if}
-  </button>
-{:else if git.state === "merged"}
-  <span class="status-chip parked"
-    ><span class="dot" aria-hidden="true"></span>{local
-      ? m.gitrail_merged_locally()
-      : m.gitrail_merged()}</span
-  >
-  {#if git.deployConfigured}
+  {#if redeployBtn}
     <button
       class="gbtn"
       class:armed={armed === "redeploy"}
@@ -195,11 +265,75 @@
       {armed === "redeploy" ? m.gitrail_confirm_redeploy() : m.gitrail_redeploy()}
     </button>
   {/if}
-{:else}
-  <span class="status-chip parked"
-    ><span class="dot" aria-hidden="true"></span>{m.gitrail_closed()}</span
-  >
+  {#if readyToggleShown}
+    <ReadyToggle {sessionId} {ready} {mobile} />
+  {/if}
+  <!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body
+       exists, so the showReview popover has content). The no-findings variant is a
+       non-interactive <span> and lives in the passive zone above instead. -->
+  {#if chip.kind === "reviewing" && chip.hasFindings}
+    <button
+      class={["verdict-chip", "critic-reviewing", { armed: showReview }]}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={showReview}
+      title={m.criticbadge_reviewing_title()}
+      onclick={(e) => toggleReview(e)}
+    >
+      <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
+    </button>
+  {:else if chip.kind === "verdict"}
+    <button
+      class={["verdict-chip", `critic-${chip.decision}`, { armed: showReview }]}
+      type="button"
+      aria-haspopup="dialog"
+      aria-expanded={showReview}
+      title={m.gitrail_review_title()}
+      onclick={(e) => toggleReview(e)}
+    >
+      {chip.label}
+    </button>
+  {/if}
+  {#if canReview}
+    <button
+      class="gbtn"
+      class:armed={armed === "review"}
+      type="button"
+      onclick={() => doReview()}
+      use:coachTarget={"manual-critic-review"}
+    >
+      {reviewLabel}
+    </button>
+  {/if}
+  {#if canReviewPlan}
+    <button
+      class="gbtn"
+      class:armed={armed === "review-plan" && !planReviewBlockedReason}
+      type="button"
+      disabled={planReviewing}
+      aria-disabled={planReviewBlockedReason ? "true" : undefined}
+      title={planReviewBlockedReason ?? undefined}
+      aria-label={planReviewBlockedReason
+        ? `${planReviewLabel} — ${planReviewBlockedReason}`
+        : undefined}
+      onclick={() => {
+        if (planReviewBlockedReason) return;
+        doReviewPlan();
+      }}
+    >
+      {planReviewLabel}
+    </button>
+  {/if}
+{/snippet}
+
+{@render passiveZone()}
+<!-- status │ actions divider — mobile only, and only when BOTH zones are non-empty so it
+     can never orphan (leading: become .rail :first-child and steal margin-left:auto;
+     trailing: double up with GitRail's own rail-sep before the auto-pill). -->
+{#if mobile && hasPassive && hasActions}
+  <span class="rail-status-sep" aria-hidden="true"></span>
 {/if}
+{@render actionsZone()}
 
 {#if prMenuAnchor}
   <PrBadgeMenu
@@ -213,73 +347,6 @@
     ontoggledraft={toggleDraftState}
     onclose={closePrMenu}
   />
-{/if}
-
-{#if showReady && (git.state === "open" || ready) && status !== "running" && status !== "blocked"}
-  <ReadyToggle {sessionId} {ready} {mobile} />
-{/if}
-<!-- while re-reviewing: keep the prior findings reachable (hasFindings ⇒ verdict body exists,
-     so the showReview popover below still has content); otherwise a plain status chip. -->
-{#if chip.kind === "reviewing"}
-  {#if chip.hasFindings}
-    <button
-      class={["verdict-chip", "critic-reviewing", { armed: showReview }]}
-      type="button"
-      aria-haspopup="dialog"
-      aria-expanded={showReview}
-      title={m.criticbadge_reviewing_title()}
-      onclick={(e) => toggleReview(e)}
-    >
-      <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-    </button>
-  {:else}
-    <span class="verdict-chip critic-reviewing" title={m.criticbadge_reviewing_title()}>
-      <span class="rev-dot" aria-hidden="true"></span>{m.criticbadge_reviewing()}
-    </span>
-  {/if}
-{:else if chip.kind === "verdict"}
-  <button
-    class={["verdict-chip", `critic-${chip.decision}`, { armed: showReview }]}
-    type="button"
-    aria-haspopup="dialog"
-    aria-expanded={showReview}
-    title={m.gitrail_review_title()}
-    onclick={(e) => toggleReview(e)}
-  >
-    {chip.label}
-  </button>
-{/if}
-
-{#if canReview}
-  <button
-    class="gbtn"
-    class:armed={armed === "review"}
-    type="button"
-    onclick={() => doReview()}
-    use:coachTarget={"manual-critic-review"}
-  >
-    {reviewLabel}
-  </button>
-{/if}
-
-{#if canReviewPlan}
-  <button
-    class="gbtn"
-    class:armed={armed === "review-plan" && !planReviewBlockedReason}
-    type="button"
-    disabled={planReviewing}
-    aria-disabled={planReviewBlockedReason ? "true" : undefined}
-    title={planReviewBlockedReason ?? undefined}
-    aria-label={planReviewBlockedReason
-      ? `${planReviewLabel} — ${planReviewBlockedReason}`
-      : undefined}
-    onclick={() => {
-      if (planReviewBlockedReason) return;
-      doReviewPlan();
-    }}
-  >
-    {planReviewLabel}
-  </button>
 {/if}
 
 <style>
@@ -330,6 +397,17 @@
   .gbtn.merge:not(:disabled) {
     border-color: var(--color-amber);
     color: var(--color-amber);
+  }
+
+  /* status │ actions divider (mobile only — rendered iff mobile && hasPassive && hasActions).
+     Mirrors GitRail's own .rail-sep; the 8px side margins + the .rail 6px gap give 14px of
+     breathing room each side, marking the passive-status → tap-target boundary. */
+  .rail-status-sep {
+    width: 1px;
+    align-self: stretch;
+    background: var(--color-line);
+    flex-shrink: 0;
+    margin: 0 8px;
   }
 
   /* Status Chip — component-scoped copy of the canonical recipe (DESIGN.json;

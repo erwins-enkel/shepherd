@@ -3899,7 +3899,10 @@
     align-items: center;
     gap: 6px;
     flex: 0 0 auto;
-    padding-left: 8px;
+    /* divider breathes 14px each side: 8px margin + the strip's 6px gap on the left,
+       14px padding on the right — matching the rail's status-sep / rail-sep spacing */
+    margin-left: 8px;
+    padding-left: 14px;
     border-left: 1px solid var(--color-line);
   }
   /* the strip's GitRail uses the shared actionbar touch height — match it so the

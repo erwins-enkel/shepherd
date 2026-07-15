@@ -253,6 +253,14 @@
         "reason": "Tier 1: global Svelte <template> complexity bar (#851; see comment above)."
       },
       {
+        "files": ["ui/src/lib/components/git-rail/RailStatusActions.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 40,
+        "maxCognitive": 70,
+        "maxCrap": 20000,
+        "reason": "The mobile git-rail is split by affordance into a leading passive-status zone (de-boxed readouts) and a trailing tap-target zone, each item gated by its own hasPassive/hasActions term and the reviewing span-vs-button split; the added per-item guards take cognitive just over the Tier-1 60 bar (68), cyclomatic stays under (36). Keep capped until the rail is split into passive/actions child components (#855)."
+      },
+      {
         "files": ["ui/src/lib/components/UpdateModal.svelte"],
         "functions": ["<template>"],
         "maxCyclomatic": 45,

@@ -146,6 +146,7 @@ test("skip existing: archived session with pre-existing usage row is NOT overwri
     cacheReadUnits: 0,
     messageCount: 99,
     byModel: { "sentinel-model": 42.0 },
+    rawByModel: { "sentinel-model": 9999 },
     createdAt: 1,
     archivedAt: 1,
     snapshotAt: 1,

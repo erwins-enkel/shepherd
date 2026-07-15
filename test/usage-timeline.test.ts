@@ -39,6 +39,7 @@ function seedBuckets(
     cacheReadUnits: 0,
     messageCount: 1,
     byModel: { [MODEL]: 0 },
+    rawByModel: { [MODEL]: 2 },
     createdAt: NOW - H24,
     archivedAt: NOW - 500,
     snapshotAt: NOW - 500,
@@ -60,6 +61,7 @@ function bucket(bucketStart: number, units: number): Omit<SessionUsageBucket, "s
     weightedUnits: units,
     cacheReadUnits: 0,
     byModel: { [MODEL]: units },
+    rawByModel: { [MODEL]: 0 },
   };
 }
 
@@ -159,6 +161,7 @@ test("finalized reviewer spawns add units at floorHour(completedAt); unfinalized
       messageCount: 1,
       lastActivity: NOW - HOUR,
       byModel: { [MODEL]: 450 },
+      rawByModel: { [MODEL]: 0 },
       fullRecaches: 0,
       sidechainCount: 0,
     },

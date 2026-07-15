@@ -3866,5 +3866,12 @@
   "feat_codex_reasoning_tiers_body": "Choose Max or Ultra for GPT-6 Astra, GPT-5.6 Sol, and Terra; Luna also offers Max. Ultra uses automatic subagents. Shepherd passes your selected effort unchanged when starting or continuing work. Sol remains the built-in Codex default.",
   "feat_codex_reasoning_tiers_title": "Codex Max and Ultra reasoning",
   "model_guidance_codex_6_astra": "Most capable Codex model for complex, multi-step coding, research, and document work.",
-  "effort_label_ultra": "Ultra"
+  "effort_label_ultra": "Ultra",
+  "usage_models_tab": "Models",
+  "usage_models_total": "{tokens} total",
+  "usage_models_other": "Other",
+  "usage_models_empty": "No model usage recorded in this range",
+  "usage_models_bar_aria": "{provider} model mix, {tokens} total",
+  "feat_usage_model_breakdown_title": "See model mix by provider",
+  "feat_usage_model_breakdown_body": "Usage → Models shows the raw-token share for each model across the selected range. Claude Code and Codex stay in separate 100% blocks with their own token totals."
 }

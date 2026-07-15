@@ -8,6 +8,7 @@ import { EventHub } from "../src/events";
 import {
   USAGE_BREAKDOWN_KEYS,
   USAGE_KIND_UNITS_KEYS,
+  USAGE_MODEL_BREAKDOWN_KEYS,
   USAGE_REPO_KEYS,
   USAGE_TASK_KEYS,
   USAGE_TOKENS_KEYS,
@@ -15,13 +16,17 @@ import {
 import type { SessionUsageSnapshot } from "../src/types";
 import { SessionUsageRollup } from "../src/usage";
 
-function harness(): { app: ReturnType<typeof makeApp>; store: SessionStore } {
+function harness(overrides: Partial<AppDeps> = {}): {
+  app: ReturnType<typeof makeApp>;
+  store: SessionStore;
+} {
   const store = new SessionStore(":memory:");
   const deps: AppDeps = {
     store,
     service: {} as any,
     events: new EventHub(),
     usageLimits: { limits: () => ({}) } as any,
+    ...overrides,
   };
   return { app: makeApp(deps), store };
 }
@@ -50,6 +55,7 @@ function seedSnapshot(store: SessionStore, overrides: Partial<SessionUsageSnapsh
     cacheReadUnits: 0.01,
     messageCount: 10,
     byModel: { "claude-sonnet-4": 0.05 },
+    rawByModel: { "claude-sonnet-4": 3600 },
     createdAt: NOW - 1000,
     archivedAt: NOW - 500,
     snapshotAt: NOW - 100,
@@ -72,6 +78,14 @@ test("GET /api/usage/breakdown?range=7d → 200 with correct shape", async () =>
   expect(body.range).toBe("7d");
   // api-key gate: subscription harness defaults to non-api-key mode → dollars must be null
   expect(body.dollars).toBeNull();
+  expect(Object.keys(body.models).sort()).toEqual(["claude", "codex"]);
+  exactKeys(body.models.claude, USAGE_MODEL_BREAKDOWN_KEYS);
+  exactKeys(body.models.codex, USAGE_MODEL_BREAKDOWN_KEYS);
+  expect(body.models.claude).toEqual({
+    totalTokens: 3600,
+    byModel: { "claude-sonnet-4": 3600 },
+  });
+  expect(body.models.codex).toEqual({ totalTokens: 0, byModel: {} });
 
   for (const repo of body.repos) {
     exactKeys(repo, USAGE_REPO_KEYS);
@@ -108,6 +122,28 @@ test("GET /api/usage/breakdown?range=bogus → 400", async () => {
   expect(res.status).toBe(400);
   const body = await res.json();
   expect(body.error).toBe("invalid range");
+});
+
+test("GET /api/usage/breakdown forwards cutoff to the Codex model dependency", async () => {
+  let receivedCutoff: number | null = null;
+  const { app } = harness({
+    codexModelUsage: (cutoff) => {
+      receivedCutoff = cutoff;
+      return { "gpt-5.5": 700, unknown: 300 };
+    },
+  });
+
+  const before = Date.now() - 7 * 86_400_000;
+  const body = await (
+    await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))
+  ).json();
+  const after = Date.now() - 7 * 86_400_000;
+  expect(receivedCutoff).toBeGreaterThanOrEqual(before);
+  expect(receivedCutoff).toBeLessThanOrEqual(after);
+  expect(body.models.codex).toEqual({
+    totalTokens: 1000,
+    byModel: { "gpt-5.5": 700, unknown: 300 },
+  });
 });
 
 // ── satelliteByKind: global per-kind tally incl. unattributed buckets ─────────

@@ -1,3 +1,7 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { expect, test } from "bun:test";
 import { SessionStore } from "../src/store";
 import type { SessionUsageBucket, SessionUsageSnapshot } from "../src/types";
@@ -17,6 +21,7 @@ const snap = (over: Partial<SessionUsageSnapshot> = {}): SessionUsageSnapshot =>
   cacheReadUnits: 0.25,
   messageCount: 10,
   byModel: { "claude-sonnet-4-5": 3.14 },
+  rawByModel: { "claude-sonnet-4-5": 1750 },
   createdAt: 1_000_000,
   archivedAt: 2_000_000,
   snapshotAt: 2_000_001,
@@ -43,6 +48,7 @@ test("session_usage: upsert then list round-trips all fields", () => {
   expect(r.cacheReadUnits).toBe(0.25);
   expect(r.messageCount).toBe(10);
   expect(r.byModel).toEqual({ "claude-sonnet-4-5": 3.14 });
+  expect(r.rawByModel).toEqual({ "claude-sonnet-4-5": 1750 });
   expect(r.createdAt).toBe(1_000_000);
   expect(r.archivedAt).toBe(2_000_000);
   expect(r.snapshotAt).toBe(2_000_001);
@@ -79,6 +85,7 @@ const bucket = (over: Partial<SessionUsageBucket> = {}): SessionUsageBucket => (
   weightedUnits: 1.5,
   cacheReadUnits: 0.1,
   byModel: { "claude-sonnet-4-5": 1.5 },
+  rawByModel: { "claude-sonnet-4-5": 175 },
   ...over,
 });
 
@@ -167,6 +174,79 @@ test("session_usage_bucket: sumSessionUsageBucketsSince merges byModel across ro
   expect(bm["sonnet"]).toBeCloseTo(3.0, 10); // 1.0 + 2.0
   expect(bm["opus"]).toBeCloseTo(0.5, 10); // only in bucket 0
   expect(bm["haiku"]).toBeCloseTo(0.3, 10); // bucket 3H
+});
+
+test("session_usage_bucket: sumSessionUsageBucketsSince merges rawByModel across rows", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap());
+
+  const H = 3_600_000;
+  s.replaceSessionUsageBuckets("sess-1", [
+    bucket({ bucketStart: 0, rawByModel: { sonnet: 100, opus: 50 } }),
+    bucket({ bucketStart: 2 * H, rawByModel: { sonnet: 200 } }),
+    bucket({ bucketStart: 3 * H, rawByModel: { haiku: 30 } }),
+  ]);
+
+  expect(s.sumSessionUsageBucketsSince(2 * H).get("sess-1")!.rawByModel).toEqual({
+    sonnet: 300,
+    opus: 50,
+    haiku: 30,
+  });
+});
+
+test("legacy empty rawByModel falls back to unknown raw token totals", () => {
+  const s = new SessionStore(":memory:");
+  s.upsertSessionUsage(snap({ rawByModel: {} }));
+  expect(s.listSessionUsage()[0]!.rawByModel).toEqual({ unknown: 1750 });
+
+  s.replaceSessionUsageBuckets("sess-1", [bucket({ rawByModel: {} })]);
+  expect(s.sumSessionUsageBucketsSince(0).get("sess-1")!.rawByModel).toEqual({ unknown: 175 });
+});
+
+test("legacy usage tables migrate rawByModel columns and preserve totals as unknown", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-usage-model-migration-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    const raw = new Database(dbPath);
+    raw.exec(`
+      CREATE TABLE session_usage (
+        sessionId TEXT PRIMARY KEY, desig TEXT NOT NULL, name TEXT NOT NULL DEFAULT '',
+        repoPath TEXT NOT NULL, model TEXT NOT NULL, input INTEGER NOT NULL,
+        output INTEGER NOT NULL, cacheRead INTEGER NOT NULL, cacheWrite INTEGER NOT NULL,
+        total INTEGER NOT NULL, weightedUnits REAL NOT NULL, cacheReadUnits REAL NOT NULL,
+        messageCount INTEGER NOT NULL, byModel TEXT NOT NULL DEFAULT '{}',
+        createdAt INTEGER NOT NULL, archivedAt INTEGER NOT NULL, snapshotAt INTEGER NOT NULL
+      );
+      CREATE TABLE session_usage_bucket (
+        sessionId TEXT NOT NULL, bucketStart INTEGER NOT NULL, input INTEGER NOT NULL,
+        output INTEGER NOT NULL, cacheRead INTEGER NOT NULL, cacheWrite INTEGER NOT NULL,
+        weightedUnits REAL NOT NULL, cacheReadUnits REAL NOT NULL,
+        byModel TEXT NOT NULL DEFAULT '{}', PRIMARY KEY (sessionId, bucketStart),
+        FOREIGN KEY (sessionId) REFERENCES session_usage(sessionId) ON DELETE CASCADE
+      );
+      INSERT INTO session_usage VALUES (
+        'legacy', 'TASK-00', 'legacy', '/repos/legacy', 'claude-sonnet-4-5',
+        100, 50, 20, 5, 175, 1.5, 0.1, 1, '{}', 1, 2, 3
+      );
+      INSERT INTO session_usage_bucket VALUES (
+        'legacy', 0, 100, 50, 20, 5, 1.5, 0.1, '{}'
+      );
+    `);
+    raw.close();
+
+    const s = new SessionStore(dbPath);
+    const db = (s as unknown as { db: Database }).db;
+    const usageColumns = db.query(`PRAGMA table_info(session_usage)`).all() as { name: string }[];
+    const bucketColumns = db.query(`PRAGMA table_info(session_usage_bucket)`).all() as {
+      name: string;
+    }[];
+    expect(usageColumns.some((column) => column.name === "rawByModel")).toBe(true);
+    expect(bucketColumns.some((column) => column.name === "rawByModel")).toBe(true);
+    expect(s.listSessionUsage()[0]!.rawByModel).toEqual({ unknown: 175 });
+    expect(s.sumSessionUsageBucketsSince(0).get("legacy")!.rawByModel).toEqual({ unknown: 175 });
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("session_usage_bucket: sumSessionUsageBucketsSince sums multiple sessions independently", () => {

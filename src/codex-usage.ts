@@ -204,6 +204,43 @@ export function readCodexTokenUsage(dbPath: string, now: number): UsageProviderS
   return st ? tokenSnapshot(st, now) : null;
 }
 
+/** Raw Codex token totals grouped by model for OpenAI threads updated in the selected range. */
+export function readCodexModelUsage(
+  dbPath: string | null,
+  cutoff: number,
+): Record<string, number> {
+  if (!dbPath || !existsSync(dbPath)) return {};
+  let db: Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const columns = db.query(`PRAGMA table_info(threads)`).all() as { name: string }[];
+    if (!columns.some((column) => column.name === "model")) {
+      const row = db
+        .query<{ tokens: number | null }, [number]>(
+          `SELECT SUM(tokens_used) AS tokens
+           FROM threads
+           WHERE model_provider = 'openai' AND updated_at_ms >= ?`,
+        )
+        .get(cutoff);
+      return row?.tokens ? { unknown: row.tokens } : {};
+    }
+
+    const rows = db
+      .query<{ model: string; tokens: number }, [number]>(
+        `SELECT COALESCE(NULLIF(model, ''), 'unknown') AS model, SUM(tokens_used) AS tokens
+         FROM threads
+         WHERE model_provider = 'openai' AND updated_at_ms >= ?
+         GROUP BY COALESCE(NULLIF(model, ''), 'unknown')`,
+      )
+      .all(cutoff);
+    return Object.fromEntries(rows.filter((row) => row.tokens > 0).map((row) => [row.model, row.tokens]));
+  } catch {
+    return {};
+  } finally {
+    db?.close();
+  }
+}
+
 /** One rollout's `rate_limits.primary`/`.secondary` shape (Codex CLI session log). */
 interface RolloutLimitWindow {
   used_percent?: number;

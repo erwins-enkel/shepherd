@@ -81,6 +81,7 @@ function makeSnap(over: {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel?: Record<string, number>;
+  rawByModel?: Record<string, number>;
   snapshotAt: number;
 }) {
   const model = over.model ?? "claude-opus-4-8";
@@ -103,6 +104,7 @@ function makeSnap(over: {
     cacheReadUnits: over.cacheReadUnits,
     messageCount: 1,
     byModel: over.byModel ?? { [model]: input + output + cacheRead + cacheWrite },
+    rawByModel: over.rawByModel ?? { [model]: input + output + cacheRead + cacheWrite },
     createdAt: over.snapshotAt - 1000,
     archivedAt: over.snapshotAt,
     snapshotAt: over.snapshotAt,
@@ -817,6 +819,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 700 },
       },
       {
         bucketStart: recentHourFloor,
@@ -827,6 +830,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
         weightedUnits: recentWu,
         cacheReadUnits: 0,
         byModel: { [model]: recentWu },
+        rawByModel: { [model]: 400 },
       },
     ],
   );
@@ -838,6 +842,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task24h!.tokens.input).toBe(300);
   expect(task24h!.tokens.output).toBe(100);
   expect(task24h!.authoringUnits).toBeCloseTo(recentWu, 10);
+  expect(bd24h.models.claude).toEqual({ totalTokens: 400, byModel: { [model]: 400 } });
 
   // 30d: both buckets (old hour is 48h ago, within 30d)
   const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
@@ -846,6 +851,7 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task30d!.tokens.input).toBe(800);
   expect(task30d!.tokens.output).toBe(300);
   expect(task30d!.authoringUnits).toBeCloseTo(totalWu, 10);
+  expect(bd30d.models.claude).toEqual({ totalTokens: 1100, byModel: { [model]: 1100 } });
 
   // all: uses aggregate row → same total
   const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
@@ -957,6 +963,7 @@ test("bucketed zero-window: dropped when no spawn; retained as zero-authoring wh
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 550 },
       },
     ]);
   }
@@ -1076,6 +1083,7 @@ test("live via rollup == re-parse fallback: identical authoringUnits/tokens/byMo
   expect(taskWithRollup!.authoringUnits).toBeCloseTo(taskFallback!.authoringUnits, 10);
   expect(taskWithRollup!.model).toBe(taskFallback!.model);
   expect(taskWithRollup!.byModel).toEqual(taskFallback!.byModel);
+  expect(bdWithRollup.models.claude).toEqual(bdFallback.models.claude);
 
   // Sanity: actual values match the 24h window (both records are within 24h)
   expect(taskWithRollup!.tokens.input).toBe(450);
@@ -1131,6 +1139,7 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
         weightedUnits: oldWu,
         cacheReadUnits: 0,
         byModel: { [model]: oldWu },
+        rawByModel: { [model]: 700 },
       },
       {
         bucketStart: recentHourFloor,
@@ -1141,6 +1150,7 @@ test("cutoff===0 persisted uses aggregate rows (bucketed session all-time = aggr
         weightedUnits: recentWu,
         cacheReadUnits: 0,
         byModel: { [model]: recentWu },
+        rawByModel: { [model]: 400 },
       },
     ],
   );

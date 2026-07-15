@@ -9,6 +9,7 @@ import {
   parseCodexRateLimits,
   recentCodexRolloutPaths,
   readCodexRateLimits,
+  readCodexModelUsage,
   readCodexTokenUsage,
 } from "../src/codex-usage";
 
@@ -93,6 +94,51 @@ test("readCodexTokenUsage returns null when no OpenAI Codex threads exist", () =
   db.close();
 
   expect(readCodexTokenUsage(path, NOW)).toBeNull();
+});
+
+test("readCodexModelUsage groups in-range OpenAI threads and maps null models to unknown", () => {
+  const dir = tempDir();
+  const path = join(dir, "state_5.sqlite");
+  const db = new Database(path);
+  db.exec(`
+    CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      model_provider TEXT NOT NULL,
+      model TEXT,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      updated_at_ms INTEGER NOT NULL
+    )
+  `);
+  const insert = db.query(
+    "INSERT INTO threads (id, model_provider, model, tokens_used, updated_at_ms) VALUES (?, ?, ?, ?, ?)",
+  );
+  insert.run("recent-gpt", "openai", "gpt-5.5", 1000, NOW - H);
+  insert.run("recent-unknown", "openai", null, 250, NOW - H);
+  insert.run("empty-model", "openai", "", 125, NOW - H);
+  insert.run("at-cutoff", "openai", "gpt-5.5", 300, NOW - 5 * H);
+  insert.run("old", "openai", "gpt-5.4", 4000, NOW - 10 * H);
+  insert.run("local", "ollama", "llama", 8000, NOW - H);
+  db.close();
+
+  expect(readCodexModelUsage(path, NOW - 5 * H)).toEqual({
+    "gpt-5.5": 1300,
+    unknown: 375,
+  });
+});
+
+test("readCodexModelUsage uses one unknown bucket when the model column is absent", () => {
+  const dir = tempDir();
+  const path = join(dir, "state_5.sqlite");
+  const db = createStateDb(path);
+  const insert = db.query(
+    "INSERT INTO threads (id, model_provider, tokens_used, updated_at_ms) VALUES (?, ?, ?, ?)",
+  );
+  insert.run("recent", "openai", 1000, NOW - H);
+  insert.run("old", "openai", 4000, NOW - 10 * H);
+  insert.run("local", "ollama", 8000, NOW - H);
+  db.close();
+
+  expect(readCodexModelUsage(path, NOW - 5 * H)).toEqual({ unknown: 1000 });
 });
 
 /** A Codex rollout `token_count` line carrying a rate-limit reading. */

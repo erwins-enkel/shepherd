@@ -262,7 +262,7 @@ describe("UpNextPanel compact issue rows", () => {
     expect(row.querySelector(".issue-list-actions .un-start")).not.toBeNull();
   });
 
-  it("keeps checkbox, issue link, and Start touch-sized without narrow-row overflow", async () => {
+  it("hides the per-row Start on mobile while checkbox and link stay touch-sized", async () => {
     await page.viewport(390, 800);
     render(UpNextPanel, {});
 
@@ -272,11 +272,69 @@ describe("UpNextPanel compact issue rows", () => {
       getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
     );
 
-    for (const selector of [".un-check", ".un-link", ".un-start"]) {
+    // Checkbox + link remain the 44px touch targets…
+    for (const selector of [".un-check", ".un-link"]) {
       expect(
         row.querySelector<HTMLElement>(selector)!.getBoundingClientRect().height,
       ).toBeGreaterThanOrEqual(hitSize);
     }
+    // …but the per-row Start is hidden entirely (out of the layout + a11y tree).
+    // Starting one issue goes through the checkbox → sticky batch bar instead.
+    const actions = row.querySelector<HTMLElement>(".un-actions")!;
+    expect(getComputedStyle(actions).display).toBe("none");
+    expect(row.querySelector<HTMLElement>(".un-start")!.getBoundingClientRect().height).toBe(0);
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
+  });
+
+  it("keeps a worst-case row single-line with Start inline and no overflow at 360px", async () => {
+    // Widest row content: priority + epic pills and multiple label chips. On a
+    // narrow desktop sidebar the mobile @media branch does not fire (wide viewport,
+    // fine pointer), so this exercises the strict-nowrap + title-valve path.
+    await page.viewport(1024, 900);
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [
+        {
+          kind: "repo",
+          repoPath: "~/projects/homeassistant",
+          repoSlug: null,
+          repoLabel: "homeassistant",
+          totalCount: 1,
+          items: [
+            item("~/projects/homeassistant", 1642, true, {
+              kind: "epic",
+              title: "herdr terminal transport rewrite with a deliberately long title",
+              labels: ["enhancement", "operator UX", "feedback"],
+              labelColors: { enhancement: "#a2eeef", feedback: "#d4c5f9" },
+            }),
+          ],
+        },
+      ],
+    };
+
+    render(UpNextPanel, {});
+    await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
+    const panel = document.querySelector<HTMLElement>(".upnext")!;
+    const row = document.querySelector<HTMLElement>(".un-row")!;
+
+    // Both pills render and Start stays inline (not hidden) on desktop.
+    expect(row.querySelector(".un-pill-priority")).not.toBeNull();
+    expect(row.querySelector(".un-pill-epic")).not.toBeNull();
+    expect(getComputedStyle(row.querySelector<HTMLElement>(".un-actions")!).display).not.toBe(
+      "none",
+    );
+
+    const measure = (w: number): number => {
+      panel.style.width = `${w}px`;
+      return row.offsetHeight; // forces reflow; integer px avoids subpixel noise
+    };
+    const wide = measure(600);
+    // At the narrowest supported desktop width the row stays a single line (Start
+    // never wraps → same height as wide) and its content does not overflow.
+    expect(measure(360)).toBe(wide);
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 });

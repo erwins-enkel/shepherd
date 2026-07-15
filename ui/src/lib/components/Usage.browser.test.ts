@@ -171,6 +171,22 @@ describe("Usage modal component", () => {
     expect(rangeGroup, "range selector present on Timeline tab").not.toBeNull();
   });
 
+  it("clicking the Models tab renders separate ranged provider blocks", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    const modelsBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (button) => button.textContent?.trim() === m.usage_models_tab(),
+    );
+    expect(modelsBtn, "Models tab button exists").not.toBeNull();
+    modelsBtn!.click();
+
+    await expect.poll(() => document.querySelectorAll(".provider-block").length).toBe(2);
+    expect(document.querySelector('[data-provider="claude"]')).not.toBeNull();
+    expect(document.querySelector('[data-provider="codex"]')).not.toBeNull();
+    expect(document.querySelector('[role="group"][aria-label]')).not.toBeNull();
+    expect(document.querySelector(".provider-strip"), "non-ranged Codex strip hidden").toBeNull();
+  });
+
   it("clicking the GitHub tab shows REST + GraphQL buckets and the GraphQL-paused banner", async () => {
     render(Usage, { onclose: vi.fn() });
 

@@ -59,6 +59,16 @@
     { name: "warn", note: "Caution / heads-up — not running, not error" },
   ];
 
+  const dataColors: Token[] = [
+    { name: "data-1", note: "Categorical series 1" },
+    { name: "data-2", note: "Categorical series 2" },
+    { name: "data-3", note: "Categorical series 3" },
+    { name: "data-4", note: "Categorical series 4" },
+    { name: "data-5", note: "Categorical series 5" },
+    { name: "data-6", note: "Categorical series 6" },
+    { name: "data-7", note: "Categorical series 7 / aggregate remainder" },
+  ];
+
   // Type scale — the six deliberate rungs in app.css. Never hardcode a px size;
   // reach for the nearest rung.
   const typeScale: { name: string; px: string; note: string }[] = [
@@ -572,6 +582,22 @@ input, select, textarea {
     </p>
     <div class="swatches">
       {#each accents as t (t.name)}
+        <figure class="swatch">
+          <span class="chip" style="background: var(--color-{t.name})"></span>
+          <figcaption><code>--color-{t.name}</code><span>{t.note}</span></figcaption>
+        </figure>
+      {/each}
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Color · categorical data</h2>
+    <p class="when">
+      Use these ordered tones for categorical charts whose series are also identified by text.
+      They encode identity, never status. Green is intentionally absent so READY stays exclusive.
+    </p>
+    <div class="swatches">
+      {#each dataColors as t (t.name)}
         <figure class="swatch">
           <span class="chip" style="background: var(--color-{t.name})"></span>
           <figcaption><code>--color-{t.name}</code><span>{t.note}</span></figcaption>

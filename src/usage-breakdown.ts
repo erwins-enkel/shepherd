@@ -24,6 +24,7 @@ interface TaskAccum {
   satelliteUnits: number;
   tokens: UsageTokens;
   byModel: Record<string, number>;
+  rawByModel: Record<string, number>;
   authoringCacheReadUnits: number;
   satelliteCacheReadUnits: number;
 }
@@ -53,6 +54,7 @@ function snapshotToAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[numb
       cacheWrite: snap.cacheWrite,
     },
     byModel: snap.byModel,
+    rawByModel: snap.rawByModel,
     authoringCacheReadUnits: snap.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -78,6 +80,7 @@ function windowedSnapshotToAccum(
       cacheWrite: w.cacheWrite,
     },
     byModel: w.byModel,
+    rawByModel: w.rawByModel,
     authoringCacheReadUnits: w.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -95,6 +98,7 @@ function zeroAuthoringAccum(snap: ReturnType<SessionStore["listSessionUsage"]>[n
     satelliteUnits: 0,
     tokens: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     byModel: {},
+    rawByModel: {},
     authoringCacheReadUnits: 0,
     satelliteCacheReadUnits: 0,
   };
@@ -131,6 +135,7 @@ async function liveSessionToAccum(
       cacheWrite: sc.usage.cacheWrite,
     },
     byModel: sc.weightedByModel,
+    rawByModel: sc.usage.byModel,
     authoringCacheReadUnits: sc.cacheReadUnits,
     satelliteCacheReadUnits: 0,
   };
@@ -368,6 +373,7 @@ async function addLiveRollupTasks(
         cacheWrite: w.cacheWrite,
       },
       byModel: w.byModel,
+      rawByModel: w.rawByModel,
       authoringCacheReadUnits: w.cacheReadUnits,
       satelliteCacheReadUnits: 0,
     });
@@ -380,6 +386,7 @@ export async function buildUsageBreakdown(opts: {
   now: number;
   apiKey: boolean;
   usageRollup?: SessionUsageRollup;
+  codexModelUsage?: (cutoff: number) => Record<string, number>;
 }): Promise<UsageBreakdown> {
   const { store, range, now, apiKey } = opts;
 
@@ -430,12 +437,28 @@ export async function buildUsageBreakdown(opts: {
   // Global per-kind satellite tally — spawn-timestamp-filtered, independent of attribution.
   const satelliteByKind = satelliteUnitsByKind(spawns, cutoff);
 
+  const claudeByModel: Record<string, number> = {};
+  for (const task of taskMap.values()) {
+    for (const [model, tokens] of Object.entries(task.rawByModel)) {
+      claudeByModel[model] = (claudeByModel[model] ?? 0) + tokens;
+    }
+  }
+  const codexByModel = opts.codexModelUsage?.(cutoff) ?? {};
+  const modelBreakdown = (byModel: Record<string, number>) => ({
+    totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
+    byModel,
+  });
+
   return {
     range,
     generatedAt: now,
     ...totals,
     satelliteByKind,
     dollars: apiKey ? totals.totalUnits : null,
+    models: {
+      claude: modelBreakdown(claudeByModel),
+      codex: modelBreakdown(codexByModel),
+    },
     repos,
   };
 }

@@ -8,6 +8,7 @@ import {
   providerSnapshots,
   gaugeColor,
   providerCapacityRows,
+  modelDisplayName,
 } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
@@ -63,6 +64,20 @@ describe("gaugeList", () => {
   it("lists only the present window", () => {
     expect(gaugeList(limits({ week: w(20) })).map((g) => g.label)).toEqual(["WK"]);
     expect(gaugeList(limits({ session5h: w(10) })).map((g) => g.label)).toEqual(["5H"]);
+  });
+});
+
+describe("modelDisplayName", () => {
+  it("formats Claude family/version slugs", () => {
+    expect(modelDisplayName("claude-opus-4-8")).toBe("Opus 4.8");
+    expect(modelDisplayName("claude-sonnet-4-5")).toBe("Sonnet 4.5");
+  });
+
+  it("formats Fable, GPT and fallback slugs", () => {
+    expect(modelDisplayName("fable")).toBe("Fable");
+    expect(modelDisplayName("gpt-5.5")).toBe("GPT-5.5");
+    expect(modelDisplayName("unknown")).toBe("Unknown");
+    expect(modelDisplayName("custom_model-v2")).toBe("Custom Model V2");
   });
 });
 

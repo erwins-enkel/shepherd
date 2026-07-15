@@ -1214,6 +1214,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       cacheReadUnits REAL NOT NULL,
       messageCount   INTEGER NOT NULL,
       byModel        TEXT NOT NULL DEFAULT '{}',
+      rawByModel     TEXT NOT NULL DEFAULT '{}',
       createdAt      INTEGER NOT NULL,
       archivedAt     INTEGER NOT NULL,
       snapshotAt     INTEGER NOT NULL)`);
@@ -1227,6 +1228,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       weightedUnits  REAL NOT NULL,
       cacheReadUnits REAL NOT NULL,
       byModel        TEXT NOT NULL DEFAULT '{}',
+      rawByModel     TEXT NOT NULL DEFAULT '{}',
       PRIMARY KEY (sessionId, bucketStart),
       FOREIGN KEY (sessionId) REFERENCES session_usage(sessionId) ON DELETE CASCADE
     )`);
@@ -1239,6 +1241,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!usageCols.some((c) => c.name === "name")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
     }
+    this.addMissingColumns("session_usage", {
+      rawByModel: "TEXT NOT NULL DEFAULT '{}'",
+    });
+    this.addMissingColumns("session_usage_bucket", {
+      rawByModel: "TEXT NOT NULL DEFAULT '{}'",
+    });
   }
 
   // ── settings (key/value) ─────────────────────────────────────────────────
@@ -4830,8 +4838,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(
       `INSERT INTO session_usage
          (sessionId, desig, name, repoPath, model, input, output, cacheRead, cacheWrite, total,
-          weightedUnits, cacheReadUnits, messageCount, byModel, createdAt, archivedAt, snapshotAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+          weightedUnits, cacheReadUnits, messageCount, byModel, rawByModel, createdAt, archivedAt, snapshotAt)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET
          desig = excluded.desig,
          name = excluded.name,
@@ -4846,6 +4854,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
          cacheReadUnits = excluded.cacheReadUnits,
          messageCount = excluded.messageCount,
          byModel = excluded.byModel,
+         rawByModel = excluded.rawByModel,
          createdAt = excluded.createdAt,
          archivedAt = excluded.archivedAt,
          snapshotAt = excluded.snapshotAt`,
@@ -4864,6 +4873,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         snap.cacheReadUnits,
         snap.messageCount,
         JSON.stringify(snap.byModel),
+        JSON.stringify(snap.rawByModel),
         snap.createdAt,
         snap.archivedAt,
         snap.snapshotAt,
@@ -4871,13 +4881,18 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** All session usage snapshots, with byModel hydrated from JSON. */
+  /** All session usage snapshots, with model maps hydrated from JSON. */
   listSessionUsage(): SessionUsageSnapshot[] {
     const rows = this.db.query(`SELECT * FROM session_usage`).all() as SessionUsageRow[];
-    return rows.map((row) => ({
-      ...row,
-      byModel: JSON.parse(row.byModel) as Record<string, number>,
-    }));
+    return rows.map((row) => {
+      const rawByModel = JSON.parse(row.rawByModel) as Record<string, number>;
+      if (Object.keys(rawByModel).length === 0 && row.total > 0) rawByModel.unknown = row.total;
+      return {
+        ...row,
+        byModel: JSON.parse(row.byModel) as Record<string, number>,
+        rawByModel,
+      };
+    });
   }
 
   // ── per-session usage buckets ────────────────────────────────────────────────
@@ -4891,8 +4906,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       for (const b of buckets) {
         this.db.run(
           `INSERT INTO session_usage_bucket
-             (sessionId, bucketStart, input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel)
-           VALUES (?,?,?,?,?,?,?,?,?)`,
+             (sessionId, bucketStart, input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel, rawByModel)
+           VALUES (?,?,?,?,?,?,?,?,?,?)`,
           [
             // bind the method's sessionId (which scoped the DELETE), not b.sessionId, so a
             // bucket row can never land under a different parent than the one being replaced.
@@ -4905,6 +4920,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
             b.weightedUnits,
             b.cacheReadUnits,
             JSON.stringify(b.byModel),
+            JSON.stringify(b.rawByModel),
           ],
         );
       }
@@ -4926,11 +4942,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       weightedUnits: number;
       cacheReadUnits: number;
       byModel: string;
+      rawByModel: string;
     };
     const rows = this.db
       .query(
         `SELECT sessionId, bucketStart, input, output, cacheRead, cacheWrite,
-                weightedUnits, cacheReadUnits, byModel
+                weightedUnits, cacheReadUnits, byModel, rawByModel
          FROM session_usage_bucket
          WHERE bucketStart = 0 OR bucketStart >= ?`,
       )
@@ -4940,6 +4957,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     for (const row of rows) {
       const existing = result.get(row.sessionId);
       const rowByModel = JSON.parse(row.byModel) as Record<string, number>;
+      const rowRawByModel = JSON.parse(row.rawByModel) as Record<string, number>;
+      const rowRawTotal = row.input + row.output + row.cacheRead + row.cacheWrite;
+      if (Object.keys(rowRawByModel).length === 0 && rowRawTotal > 0) {
+        rowRawByModel.unknown = rowRawTotal;
+      }
       if (!existing) {
         result.set(row.sessionId, {
           input: row.input,
@@ -4949,6 +4971,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           weightedUnits: row.weightedUnits,
           cacheReadUnits: row.cacheReadUnits,
           byModel: { ...rowByModel },
+          rawByModel: { ...rowRawByModel },
         });
       } else {
         existing.input += row.input;
@@ -4959,6 +4982,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         existing.cacheReadUnits += row.cacheReadUnits;
         for (const [model, units] of Object.entries(rowByModel)) {
           existing.byModel[model] = (existing.byModel[model] ?? 0) + units;
+        }
+        for (const [model, tokens] of Object.entries(rowRawByModel)) {
+          existing.rawByModel[model] = (existing.rawByModel[model] ?? 0) + tokens;
         }
       }
     }

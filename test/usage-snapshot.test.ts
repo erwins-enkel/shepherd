@@ -130,6 +130,7 @@ test("normal session → one row with correct fields", async () => {
   expect(r.cacheReadUnits).toBeGreaterThan(0);
   expect(typeof r.byModel).toBe("object");
   expect(r.byModel["claude-opus-4-8"]).toBeGreaterThan(0);
+  expect(r.rawByModel).toEqual({ "claude-opus-4-8": 445 });
   expect(r.createdAt).toBe(1_000_000);
   expect(r.archivedAt).toBe(r.snapshotAt);
   expect(r.archivedAt).toBeGreaterThanOrEqual(before);
@@ -358,6 +359,7 @@ test("snapshot aggregate parity: snapshotSessionUsage matches sessionCost for sa
   for (const model of legacyModels) {
     expect(row.byModel[model]).toBeCloseTo(legacy.weightedByModel[model]!, 6);
   }
+  expect(row.rawByModel).toEqual(legacy.usage.byModel);
 });
 
 test("bucket row count: ≥2 UTC hours produce ≥2 distinct bucket rows (cutoff-split proof)", async () => {

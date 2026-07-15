@@ -2,7 +2,13 @@
  * Mock fixtures for the /usage token-spend dashboard (Phase 0 prototype).
  * No backend — all data is hand-written for visual prototyping.
  */
-import type { UsageBreakdown, UsageKindUnits, UsageRange, UsageTaskBreakdown } from "./types";
+import type {
+  UsageBreakdown,
+  UsageKindUnits,
+  UsageModelBreakdown,
+  UsageRange,
+  UsageTaskBreakdown,
+} from "./types";
 
 /** Single stable base to keep all timestamps deterministic across calls. */
 const BASE = Date.now();
@@ -26,6 +32,57 @@ function byKind(totalSat: number): UsageKindUnits[] {
  */
 function task(t: Omit<UsageTaskBreakdown, "dollars">): UsageTaskBreakdown {
   return { ...t, dollars: t.authoringUnits + t.satelliteUnits };
+}
+
+function modelBreakdown(byModel: Record<string, number>): UsageModelBreakdown {
+  return {
+    totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
+    byModel,
+  };
+}
+
+function modelsFor(range: UsageRange): UsageBreakdown["models"] {
+  if (range === "24h") {
+    return {
+      claude: modelBreakdown({
+        "claude-opus-4-8": 2_400_000,
+        "claude-sonnet-4-5": 1_150_000,
+        fable: 420_000,
+      }),
+      codex: modelBreakdown({ "gpt-5.5": 1_800_000, "gpt-5.4": 350_000 }),
+    };
+  }
+  if (range === "7d") {
+    return {
+      claude: modelBreakdown({
+        "claude-opus-4-8": 12_800_000,
+        "claude-sonnet-4-5": 7_300_000,
+        "claude-haiku-4-5": 1_950_000,
+        fable: 1_100_000,
+      }),
+      codex: modelBreakdown({ "gpt-5.5": 8_900_000, "gpt-5.4": 2_600_000, unknown: 240_000 }),
+    };
+  }
+  if (range === "30d") {
+    return {
+      claude: modelBreakdown({
+        "claude-opus-4-8": 48_600_000,
+        "claude-sonnet-4-5": 29_400_000,
+        "claude-haiku-4-5": 8_700_000,
+        fable: 4_200_000,
+      }),
+      codex: modelBreakdown({ "gpt-5.5": 31_500_000, "gpt-5.4": 12_400_000, unknown: 860_000 }),
+    };
+  }
+  return {
+    claude: modelBreakdown({
+      "claude-opus-4-8": 76_200_000,
+      "claude-sonnet-4-5": 45_800_000,
+      "claude-haiku-4-5": 13_100_000,
+      fable: 6_700_000,
+    }),
+    codex: modelBreakdown({ "gpt-5.5": 49_600_000, "gpt-5.4": 18_900_000, unknown: 1_200_000 }),
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -419,6 +476,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.25),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        models: modelsFor(range),
         repos: [
           {
             repoPath: "/home/user/shepherd",
@@ -462,6 +520,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.24),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        models: modelsFor(range),
         repos: [
           {
             repoPath: "/home/user/shepherd",
@@ -505,6 +564,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.23),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        models: modelsFor(range),
         repos: [
           {
             repoPath: "/home/user/shepherd",
@@ -556,6 +616,7 @@ export function mockBreakdown(range: UsageRange): UsageBreakdown {
         generationUnits: Math.round(total * 0.22),
         satelliteByKind: byKind(totalS),
         dollars: total,
+        models: modelsFor(range),
         repos: [
           {
             repoPath: "/home/user/shepherd",

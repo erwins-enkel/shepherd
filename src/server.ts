@@ -280,6 +280,8 @@ export interface AppDeps {
   refreshUsage?: () => Promise<{ limits: UsageLimits; scraped: boolean }>;
   /** Incremental per-session rollup; absent in tests → breakdown falls back to re-parsing JSONL. */
   usageRollup?: SessionUsageRollup;
+  /** Range-filtered Codex raw tokens by model; absent in tests → empty Codex model block. */
+  codexModelUsage?: (cutoff: number) => Record<string, number>;
   /** Live GitHub REST + GraphQL rate-limit buckets (via `gh api rate_limit`, which is
    *  itself quota-exempt); absent in tests → `/api/usage/github` 503s. */
   githubRateLimit?: () => Promise<GithubRateLimitPayload>;
@@ -3927,6 +3929,7 @@ async function handleUsageBreakdown({ req, parts, url, deps }: Ctx): Promise<Res
     now: Date.now(),
     apiKey: isApiKeyMode(),
     usageRollup: deps.usageRollup,
+    codexModelUsage: deps.codexModelUsage,
   });
   return json(breakdown);
 }

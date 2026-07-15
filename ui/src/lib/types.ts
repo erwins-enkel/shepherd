@@ -1123,6 +1123,7 @@ export interface PostMergeSteps {
 export interface OwedFocusSnapshot {
   sessionId: string;
   desig: string;
+  repoPath: string; // session.repoPath — feeds the frozen card's repo reference (keys projectIcons)
   prNumber: number | null;
   steps: ManualStep[]; // frozen from session.manualSteps at click time
   merged: boolean; // git state === "merged" at click time

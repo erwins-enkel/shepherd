@@ -2455,6 +2455,7 @@
       owedFocusSnapshot = {
         sessionId: id,
         desig: s.desig,
+        repoPath: s.repoPath,
         prNumber: store.git[id]?.number ?? null,
         steps: s.manualSteps,
         merged: store.git[id]?.state === "merged",

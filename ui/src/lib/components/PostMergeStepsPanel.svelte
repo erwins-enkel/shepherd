@@ -2,6 +2,8 @@
   import { onDestroy, tick } from "svelte";
   import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
   import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { basename } from "./learnings-drawer";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -149,6 +151,7 @@
   {:else}
     <p class="ow-note">{m.owed_note()}</p>
     {#if frozenCard}
+      {@const frozenIcon = projectIcons.iconFor(frozenCard.repoPath)}
       <section
         class="ow-card ow-card--frozen"
         data-session-id={frozenCard.sessionId}
@@ -156,6 +159,10 @@
       >
         <header class="ow-card-head">
           <div class="ow-card-id">
+            <span class="ow-repo" title={frozenCard.repoPath}>
+              {#if frozenIcon}<span class="ow-repo-icon" aria-hidden="true">{frozenIcon}</span
+                >{/if}{basename(frozenCard.repoPath)}
+            </span>
             <span class="ow-desig">{frozenCard.desig}</span>
             {#if frozenCard.prNumber != null}<span class="ow-pr">#{frozenCard.prNumber}</span>{/if}
           </div>
@@ -182,6 +189,7 @@
     {/if}
     <div class="ow-list">
       {#each shownRecords as rec (rec.sessionId)}
+        {@const repoIcon = projectIcons.iconFor(rec.repoPath)}
         <section
           class="ow-card"
           data-session-id={rec.sessionId}
@@ -189,6 +197,10 @@
         >
           <header class="ow-card-head">
             <div class="ow-card-id">
+              <span class="ow-repo" title={rec.repoPath}>
+                {#if repoIcon}<span class="ow-repo-icon" aria-hidden="true">{repoIcon}</span
+                  >{/if}{basename(rec.repoPath)}
+              </span>
               <span class="ow-desig">{rec.desig}</span>
               {#if rec.prNumber != null}<span class="ow-pr">#{rec.prNumber}</span>{/if}
               <span class="ow-count"
@@ -306,6 +318,23 @@
     align-items: baseline;
     gap: 8px;
     flex-wrap: wrap;
+  }
+  /* Quiet repo identity marker ahead of the designation — mirrors EpicGroupHeader's
+     .repo / .repo-icon (icon only when set, no ▣ fallback). */
+  .ow-repo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    max-width: 16ch;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .ow-repo-icon {
+    flex: none;
   }
   .ow-desig {
     font-size: var(--fs-sm);

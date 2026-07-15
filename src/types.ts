@@ -702,7 +702,7 @@ export interface HerdDigest {
    *  at spawn time and kept live intraday by reconcileEpics() (see HerdDigestService). */
   epicsToLand: RundownEpicItem[];
   attentionFingerprint: Record<string, string[]>; // sessionId → sorted signal codes
-  spawnSessionId: string; // claude --session-id of the rundown spawn (usage + pane resolve)
+  spawnSessionId: string; // provider spawn tracking id (usage attribution + pane resolve)
   cwd: string; // tmpdir cwd of the spawn (verdict file read + pane reap)
   model: string | null;
   spawnedAt: number;

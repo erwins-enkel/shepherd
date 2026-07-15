@@ -4490,6 +4490,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       recapCli: config.recapCli,
       recapModel: config.recapModel,
       recapEffort: config.recapEffort,
+      rundownCli: config.rundownCli,
+      rundownModel: config.rundownModel,
+      rundownEffort: config.rundownEffort,
       docAgentCli: config.docAgentCli,
       docAgentModel: config.docAgentModel,
       docAgentEffort: config.docAgentEffort,
@@ -4577,6 +4580,9 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["recapCli", makeRoleCliPatch("recap")],
   ["recapModel", makeRoleModelPatch("recap")],
   ["recapEffort", makeRoleEffortPatch("recap")],
+  ["rundownCli", makeRoleCliPatch("rundown")],
+  ["rundownModel", makeRoleModelPatch("rundown")],
+  ["rundownEffort", makeRoleEffortPatch("rundown")],
   ["docAgentCli", makeRoleCliPatch("docAgent")],
   ["docAgentModel", makeRoleModelPatch("docAgent")],
   ["docAgentEffort", makeRoleEffortPatch("docAgent")],
@@ -4696,7 +4702,8 @@ function putDefaultEffort(value: unknown, deps: Ctx["deps"]): Response {
 // is a PAIR: a `<role>Cli` ("inherit"|<provider>) and a `<role>Model` ("default"|<alias>). Both
 // live-update config (the spawn-time thunks read config per spawn, so no restart) and persist.
 // cli/model are validated + stored independently; resolveRoleEnvironment clamps an incoherent pair.
-type RoleKey = "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot" | "distiller";
+type RoleKey =
+  "critic" | "planner" | "recap" | "rundown" | "docAgent" | "namer" | "autopilot" | "distiller";
 
 function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
   const key = `${role}Cli` as const;

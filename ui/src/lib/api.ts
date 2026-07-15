@@ -615,7 +615,7 @@ export const putDefaultAgentProvider = (
 // `<role>Cli` ("inherit" | "claude" | "codex") and a `<role>Model` ("default" | <alias>). The
 // server validates + persists each independently and echoes the stored value under the same key.
 export type RoleBase =
-  "critic" | "planner" | "recap" | "docAgent" | "namer" | "autopilot" | "distiller";
+  "critic" | "planner" | "recap" | "rundown" | "docAgent" | "namer" | "autopilot" | "distiller";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
 export type RoleEffortKey = `${RoleBase}Effort`;

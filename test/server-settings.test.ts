@@ -30,6 +30,7 @@ const ROLE_BASES = [
   "critic",
   "planner",
   "recap",
+  "rundown",
   "docAgent",
   "namer",
   "autopilot",
@@ -511,6 +512,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   config.recapCli = "claude";
   config.recapModel = "sonnet";
   config.recapEffort = "low";
+  config.rundownCli = "codex";
+  config.rundownModel = "gpt-5.5";
+  config.rundownEffort = "low";
   const { app } = harness();
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.criticCli).toBe("codex");
@@ -522,6 +526,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   expect(body.recapCli).toBe("claude");
   expect(body.recapModel).toBe("sonnet");
   expect(body.recapEffort).toBe("low");
+  expect(body.rundownCli).toBe("codex");
+  expect(body.rundownModel).toBe("gpt-5.5");
+  expect(body.rundownEffort).toBe("low");
 });
 
 for (const role of ROLE_BASES) {

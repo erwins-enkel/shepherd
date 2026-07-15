@@ -797,6 +797,11 @@ export const config = {
   recapCli: normalizeRoleCli(process.env.SHEPHERD_RECAP_CLI) ?? "claude",
   recapModel: normalizeRoleModelToken(process.env.SHEPHERD_RECAP_MODEL) ?? "sonnet",
   recapEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_RECAP_EFFORT) ?? "low",
+  // Per-role ENVIRONMENT for the daily Herd Rundown. Inherit follows the global provider/model;
+  // explicit Claude preserves the prior Sonnet path. Persisted + UI-configurable.
+  rundownCli: normalizeRoleCli(process.env.SHEPHERD_RUNDOWN_CLI) ?? "inherit",
+  rundownModel: normalizeRoleModelToken(process.env.SHEPHERD_RUNDOWN_MODEL) ?? "sonnet",
+  rundownEffort: normalizeDefaultEffortSetting(process.env.SHEPHERD_RUNDOWN_EFFORT) ?? "low",
   // Default model for spawned agents. Persisted + UI-configurable. "auto" = unset seed
   // (picker uses client promo fallback, drain falls back to no --model); an explicit
   // value applies to both the New Task picker and drain/autopilot auto-spawns. Env seeds

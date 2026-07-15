@@ -296,6 +296,7 @@ for (const role of [
   "critic",
   "planner",
   "recap",
+  "rundown",
   "docAgent",
   "namer",
   "autopilot",
@@ -2086,6 +2087,7 @@ const landingReadyEpics = async (): Promise<RundownEpicItem[]> => {
 const herdDigestService = new HerdDigestService({
   store,
   herdr,
+  environment: () => roleEnv(config.rundownCli, config.rundownModel, config.rundownEffort),
   // Live operator-language setting, read per spawn (#1586).
   operatorLanguage: () => config.operatorLanguage,
   isActive: () => presence.isActive(),

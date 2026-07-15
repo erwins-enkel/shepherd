@@ -1009,7 +1009,7 @@ export interface HeldTask {
 
 // ── per-session usage snapshot ────────────────────────────────────────────────
 
-/** SQLite row type for session_usage (byModel stored as JSON TEXT). */
+/** SQLite row type for session_usage (model maps stored as JSON TEXT). */
 export interface SessionUsageRow {
   sessionId: string;
   desig: string;
@@ -1025,6 +1025,7 @@ export interface SessionUsageRow {
   cacheReadUnits: number;
   messageCount: number;
   byModel: string; // JSON: Record<string, number>
+  rawByModel: string; // JSON: Record<string, number>
   createdAt: number;
   archivedAt: number;
   snapshotAt: number;
@@ -1046,6 +1047,7 @@ export interface SessionUsageSnapshot {
   cacheReadUnits: number;
   messageCount: number;
   byModel: Record<string, number>; // weighted units per model id
+  rawByModel: Record<string, number>; // raw tokens per model id
   createdAt: number;
   archivedAt: number;
   snapshotAt: number;
@@ -1062,6 +1064,7 @@ export interface SessionUsageBucket {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>; // weighted units per model
+  rawByModel: Record<string, number>; // raw tokens per model
 }
 
 /** Per-session windowed sum returned by sumSessionUsageBucketsSince. */
@@ -1073,6 +1076,7 @@ export interface WindowedBucketSum {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>;
+  rawByModel: Record<string, number>;
 }
 
 // Mirror of the UsageBreakdown contract in ui/src/lib/types.ts — keep in sync.
@@ -1115,6 +1119,11 @@ export interface UsageKindUnits {
   count: number; // number of completed passes of that kind, in range
 }
 
+export interface UsageModelBreakdown {
+  totalTokens: number;
+  byModel: Record<string, number>;
+}
+
 export interface UsageBreakdown {
   range: UsageRange;
   generatedAt: number;
@@ -1125,6 +1134,10 @@ export interface UsageBreakdown {
   generationUnits: number;
   satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
+  models: {
+    claude: UsageModelBreakdown;
+    codex: UsageModelBreakdown;
+  };
   repos: UsageRepoBreakdown[];
 }
 
@@ -1170,6 +1183,8 @@ export const USAGE_REPO_KEYS = [
 ] as const;
 // Mirrors UsageKindUnits:
 export const USAGE_KIND_UNITS_KEYS = ["kind", "units", "count"] as const;
+// Mirrors UsageModelBreakdown:
+export const USAGE_MODEL_BREAKDOWN_KEYS = ["totalTokens", "byModel"] as const;
 // Mirrors UsageBreakdown:
 export const USAGE_BREAKDOWN_KEYS = [
   "range",
@@ -1181,6 +1196,7 @@ export const USAGE_BREAKDOWN_KEYS = [
   "generationUnits",
   "satelliteByKind",
   "dollars",
+  "models",
   "repos",
 ] as const;
 // Mirrors UsageTimelineHour:

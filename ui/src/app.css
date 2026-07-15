@@ -24,6 +24,13 @@
   --color-blue: var(--blue);
   --color-slate: var(--slate);
   --color-warn: var(--warn);
+  --color-data-1: var(--data-1);
+  --color-data-2: var(--data-2);
+  --color-data-3: var(--data-3);
+  --color-data-4: var(--data-4);
+  --color-data-5: var(--data-5);
+  --color-data-6: var(--data-6);
+  --color-data-7: var(--data-7);
   --color-scrim: var(--scrim);
   --color-term-fg: var(--term-fg);
   --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -57,6 +64,16 @@
   --blue: #4a90d9;
   --slate: #566460;
   --warn: #e8730c;
+
+  /* Categorical data visualization. These hues identify series, never status;
+     deliberately no green so READY keeps its exclusive signal. */
+  --data-1: oklch(0.7 0.11 250);
+  --data-2: oklch(0.72 0.1 295);
+  --data-3: oklch(0.74 0.09 210);
+  --data-4: oklch(0.76 0.1 85);
+  --data-5: oklch(0.71 0.1 330);
+  --data-6: oklch(0.69 0.08 35);
+  --data-7: oklch(0.62 0.025 240);
 
   --scrim: rgba(3, 6, 5, 0.66);
   --term-fg: #c4d0cb;
@@ -194,6 +211,14 @@
   --blue: #2f6fb0;
   --slate: #6b7873;
   --warn: #b5560a;
+
+  --data-1: oklch(0.52 0.12 250);
+  --data-2: oklch(0.53 0.11 295);
+  --data-3: oklch(0.52 0.09 210);
+  --data-4: oklch(0.55 0.11 85);
+  --data-5: oklch(0.52 0.1 330);
+  --data-6: oklch(0.51 0.09 35);
+  --data-7: oklch(0.48 0.03 240);
 
   --scrim: rgba(20, 28, 25, 0.42);
   --term-fg: #2b3633;

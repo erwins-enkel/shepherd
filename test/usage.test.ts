@@ -275,6 +275,7 @@ test("foldSessionBuckets: summing all buckets matches sessionCost totals (no win
     cacheWrite = 0,
     weightedUnits = 0,
     cacheReadUnits = 0;
+  const rawByModel: Record<string, number> = {};
   for (const b of fold.buckets.values()) {
     input += b.input;
     output += b.output;
@@ -282,6 +283,9 @@ test("foldSessionBuckets: summing all buckets matches sessionCost totals (no win
     cacheWrite += b.cacheWrite;
     weightedUnits += b.weightedUnits;
     cacheReadUnits += b.cacheReadUnits;
+    for (const [model, tokens] of Object.entries(b.rawByModel)) {
+      rawByModel[model] = (rawByModel[model] ?? 0) + tokens;
+    }
   }
 
   expect(input).toBe(ref.usage.input);
@@ -290,6 +294,8 @@ test("foldSessionBuckets: summing all buckets matches sessionCost totals (no win
   expect(cacheWrite).toBe(ref.usage.cacheWrite);
   expect(weightedUnits).toBeCloseTo(ref.weightedUnits, 10);
   expect(cacheReadUnits).toBeCloseTo(ref.cacheReadUnits, 10);
+  expect(rawByModel).toEqual(ref.usage.byModel);
+  expect(fold.rawByModel).toEqual(ref.usage.byModel);
 });
 
 test("foldSessionBuckets: messageCount equals sessionCost messageCount", () => {
@@ -315,6 +321,7 @@ test("foldSessionBuckets: ts=0 record folds into bucket 0", () => {
   const fold = foldSessionBuckets(lines);
   expect(fold.buckets.has(0)).toBe(true);
   expect(fold.buckets.get(0)!.input).toBe(77);
+  expect(fold.buckets.get(0)!.rawByModel["claude-opus-4-8"]).toBe(77);
 });
 
 // ── SessionUsageRollup ────────────────────────────────────────────────────────

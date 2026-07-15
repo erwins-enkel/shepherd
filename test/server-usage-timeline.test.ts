@@ -40,6 +40,7 @@ function seedHour(store: SessionStore, sessionId: string, units: number): number
     cacheReadUnits: 0,
     messageCount: 1,
     byModel: { "claude-opus-4-8": units },
+    rawByModel: { "claude-opus-4-8": 2 },
     createdAt: NOW - 2 * HOUR,
     archivedAt: NOW - 500,
     snapshotAt: NOW - 500,
@@ -56,6 +57,7 @@ function seedHour(store: SessionStore, sessionId: string, units: number): number
       weightedUnits: units,
       cacheReadUnits: 0,
       byModel: { "claude-opus-4-8": units },
+      rawByModel: { "claude-opus-4-8": 0 },
     },
   ]);
   return hour;

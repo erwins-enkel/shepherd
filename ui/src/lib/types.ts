@@ -1275,6 +1275,11 @@ export interface UsageKindUnits {
   count: number; // number of completed passes of that kind, in range
 }
 
+export interface UsageModelBreakdown {
+  totalTokens: number;
+  byModel: Record<string, number>;
+}
+
 /** Top-level breakdown — serves the Spend + Overhead lenses. */
 export interface UsageBreakdown {
   range: UsageRange;
@@ -1286,6 +1291,10 @@ export interface UsageBreakdown {
   generationUnits: number; // non-cacheRead share (Overhead b)
   satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode
+  models: {
+    claude: UsageModelBreakdown;
+    codex: UsageModelBreakdown;
+  };
   repos: UsageRepoBreakdown[];
 }
 

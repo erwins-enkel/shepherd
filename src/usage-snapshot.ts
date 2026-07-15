@@ -14,6 +14,7 @@ function sumBuckets(buckets: Map<number, SessionBucket>): {
   weightedUnits: number;
   cacheReadUnits: number;
   byModel: Record<string, number>;
+  rawByModel: Record<string, number>;
 } {
   let input = 0,
     output = 0,
@@ -22,6 +23,7 @@ function sumBuckets(buckets: Map<number, SessionBucket>): {
     weightedUnits = 0,
     cacheReadUnits = 0;
   const byModel: Record<string, number> = {};
+  const rawByModel: Record<string, number> = {};
   for (const b of buckets.values()) {
     input += b.input;
     output += b.output;
@@ -32,8 +34,20 @@ function sumBuckets(buckets: Map<number, SessionBucket>): {
     for (const [model, units] of Object.entries(b.byModel)) {
       byModel[model] = (byModel[model] ?? 0) + units;
     }
+    for (const [model, tokens] of Object.entries(b.rawByModel)) {
+      rawByModel[model] = (rawByModel[model] ?? 0) + tokens;
+    }
   }
-  return { input, output, cacheRead, cacheWrite, weightedUnits, cacheReadUnits, byModel };
+  return {
+    input,
+    output,
+    cacheRead,
+    cacheWrite,
+    weightedUnits,
+    cacheReadUnits,
+    byModel,
+    rawByModel,
+  };
 }
 
 /** Persist a session's authoring spend into the session_usage table.
@@ -86,6 +100,7 @@ export async function snapshotSessionUsage(
       cacheReadUnits: agg.cacheReadUnits,
       messageCount: fold.messageCount,
       byModel: agg.byModel,
+      rawByModel: agg.rawByModel,
       createdAt: s.createdAt,
       archivedAt: asOf,
       snapshotAt: asOf,
@@ -102,6 +117,7 @@ export async function snapshotSessionUsage(
       weightedUnits: b.weightedUnits,
       cacheReadUnits: b.cacheReadUnits,
       byModel: b.byModel,
+      rawByModel: b.rawByModel,
     }));
     store.replaceSessionUsageBuckets(s.id, buckets);
 

@@ -181,7 +181,8 @@ import { parseEpicBody } from "./epic-parse";
 import { countDefinedWorkflows, type CountsService, type RepoCounts } from "./backlog";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { join, normalize, basename } from "node:path";
-import { homedir } from "node:os";
+import { homedir, tmpdir } from "node:os";
+import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
 import type { ServerWebSocket } from "bun";
 import { execFileSync, markPtyEvent } from "./instrument";
 import { isOperatorKeystroke, stampOperatorKeystroke } from "./operator-activity";
@@ -289,7 +290,8 @@ export interface AppDeps {
   /** Resolve the git forge for a repo dir; null when none is configured. */
   resolveForge?: (repoDir: string) => GitForge | null;
   /** Self-update tracker; absent in environments where it isn't wired. */
-  updates?: Pick<UpdateService, "current" | "apply"> & Partial<Pick<UpdateService, "applyState">>;
+  updates?: Pick<UpdateService, "current" | "apply"> &
+    Partial<Pick<UpdateService, "applyState" | "dirtyStatus">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
@@ -3978,20 +3980,91 @@ function updateStatus(deps: AppDeps): Response {
   );
 }
 
-function updateApply(deps: AppDeps): Response {
+/** Fresh dirty snapshot for the UI, with the server-internal raw pathspec buffers
+ *  stripped (the UI only needs the display list + count + signature). */
+async function updateDirty(deps: AppDeps): Promise<Response> {
+  if (!deps.updates?.dirtyStatus) return json({ error: "updates not available" }, 503);
+  const { dirty, dirtyFiles, dirtyCount, sig } = await deps.updates.dirtyStatus();
+  return json({ dirty, dirtyFiles, dirtyCount, sig });
+}
+
+async function updateApply(req: Request, deps: AppDeps): Promise<Response> {
   if (!deps.updates) return json({ error: "updates not available" }, 503);
+  const body = (await req.json().catch(() => ({}))) as { discard?: unknown; sig?: unknown };
+  if (body.discard !== undefined && typeof body.discard !== "boolean")
+    return json({ error: "body.discard must be a boolean" }, 400);
+  if (body.sig !== undefined && typeof body.sig !== "string")
+    return json({ error: "body.sig must be a string" }, 400);
+
+  // Existing no-update guard runs FIRST — before any dirty probe, tempfile, or
+  // apply — so a discard request with nothing to update has zero side effects.
   const status = deps.updates.current();
   if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
+
+  if (body.discard === true) {
+    if (!deps.updates.dirtyStatus) return json({ error: "updates not available" }, 503);
+    // re-probe fresh and validate the confirmed signature before doing anything
+    const fresh = await deps.updates.dirtyStatus();
+    if (!fresh.dirty || fresh.sig == null || fresh.sig !== body.sig)
+      return json(
+        {
+          error: "stale",
+          dirty: {
+            dirty: fresh.dirty,
+            dirtyFiles: fresh.dirtyFiles,
+            dirtyCount: fresh.dirtyCount,
+            sig: fresh.sig,
+          },
+        },
+        409,
+      );
+    // symlink-safe: a private 0700 dir + exclusive (wx) file creation, so a
+    // pre-planted path/symlink can't be written through.
+    const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-"));
+    try {
+      const pathspecAllFile = join(dir, "all");
+      const pathspecWtFile = join(dir, "worktree");
+      writeFileSync(pathspecAllFile, fresh.pathspecAll, { flag: "wx", mode: 0o600 });
+      writeFileSync(pathspecWtFile, fresh.pathspecWorktree, { flag: "wx", mode: 0o600 });
+      const r = deps.updates.apply({
+        discard: true,
+        sig: fresh.sig,
+        dir,
+        pathspecAllFile,
+        pathspecWtFile,
+      });
+      if (!r.started) {
+        rmSync(dir, { recursive: true, force: true });
+        return json({ error: r.error ?? "could not start the update" }, 409);
+      }
+      // success → the detached update.sh trap removes `dir` after it runs
+      return json({ ok: true }, 202);
+    } catch (e) {
+      rmSync(dir, { recursive: true, force: true });
+      return json({ error: e instanceof Error ? e.message : "could not start the update" }, 500);
+    }
+  }
+
   const r = deps.updates.apply();
   if (r.started) return json({ ok: true }, 202);
   // never a bare status: carry the real reason so the UI can show it
   return json({ error: r.error ?? "could not start the update" }, 409);
 }
 
-function handleUpdate({ req, parts, deps }: Ctx): Response | null {
+async function handleUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (parts[0] === "api" && parts[1] === "update" && !parts[2]) {
     if (req.method === "GET") return updateStatus(deps);
-    if (req.method === "POST") return updateApply(deps);
+    if (req.method === "POST") return updateApply(req, deps);
+  }
+  // fresh dirty snapshot of the running deployment (never cached)
+  if (
+    req.method === "GET" &&
+    parts[0] === "api" &&
+    parts[1] === "update" &&
+    parts[2] === "dirty" &&
+    !parts[3]
+  ) {
+    return updateDirty(deps);
   }
   // live state of an in-flight/failed deploy so the modal can show why it failed
   if (

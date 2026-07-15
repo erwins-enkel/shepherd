@@ -1,4 +1,5 @@
-import { execFile, spawnSync } from "node:child_process";
+import { execFile, spawn, spawnSync } from "node:child_process";
+import { createHash, type Hash } from "node:crypto";
 import { readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -22,7 +23,44 @@ export interface DeployState {
   /** tail of the deploy's captured stdout+stderr (ANSI stripped) so the UI can
    *  show *why* a deploy failed instead of a bare status code */
   log: string;
+  /** classified failure cause, so the UI can route a dirty/stale deploy through the
+   *  friendly dirty-repo flow instead of the raw log. `"dirty"` = the working tree
+   *  blocked `--pull` (`needs a clean tree`); `"stale"` = the discard's confirmed
+   *  signature no longer matched at reset time (`SHEPHERD_DISCARD_STALE`). */
+  reason?: "dirty" | "stale" | null;
 }
+
+/**
+ * Fresh snapshot of the running deployment's *tracked* dirty state, computed on
+ * demand (never from the periodic {@link UpdateService.check}). Drives the
+ * dirty-repo update flow: the file list the operator confirms, a content-sensitive
+ * signature the discard is validated against, and the exact NUL pathspecs the
+ * scoped `git restore` runs over.
+ */
+export interface DirtyStatus {
+  /** true when the tracked tree has staged or unstaged changes (what blocks `--pull`) */
+  dirty: boolean;
+  /** capped, display-formatted `XY path` lines (lossy UTF-8 ok — display only) */
+  dirtyFiles: string[];
+  /** total number of changed entries, independent of the capped {@link dirtyFiles} */
+  dirtyCount: number;
+  /** SHA-256 over the framed per-command subhashes (status + both content diffs);
+   *  null when the diff was too large / timed out (auto-discard then unavailable) */
+  sig: string | null;
+  /** raw NUL-joined pathspec bytes for `git restore --staged` — every confirmed
+   *  path (both sides of a rename/copy). Server-internal; stripped from the API. */
+  pathspecAll: Buffer;
+  /** raw NUL-joined pathspec bytes for `git restore --worktree` — only paths that
+   *  exist in HEAD (excludes pure adds + the new side of renames/copies, which are
+   *  left as untracked so created content is never deleted). Server-internal. */
+  pathspecWorktree: Buffer;
+}
+
+/** Marker `update.sh` dies with when a discard's confirmed signature no longer
+ *  matches the tree at reset time; classified as {@link DeployState.reason} "stale". */
+const DISCARD_STALE_MARKER = "SHEPHERD_DISCARD_STALE";
+/** Signature the `--pull` clean-tree guard prints; classified as reason "dirty". */
+const CLEAN_TREE_MARKER = "needs a clean tree";
 
 /** Marker the launch wrapper appends once the deploy script returns, carrying
  *  its exit code. Lets a surviving (or freshly restarted) shepherd tell a
@@ -37,6 +75,84 @@ const ANSI_RE = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 const stripAnsi = (s: string): string => s.replace(ANSI_RE, "");
 const tail = (s: string, max = 6000): string => (s.length > max ? s.slice(s.length - max) : s);
 const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
+
+const NUL = 0x00;
+
+/**
+ * Parse `git status --porcelain -z --untracked-files=no` output (raw bytes) into
+ * the display list + the two restore pathspecs, all NUL-safe.
+ *
+ * Each record is `XY<space>PATH`; a rename/copy (X ∈ {R,C}) is followed by an
+ * extra NUL field carrying the ORIGinal path. Path bytes are taken **verbatim**
+ * (never decoded) for the pathspecs, so non-UTF-8 paths still match under
+ * `git restore --pathspec-from-file --pathspec-file-nul`; only the capped display
+ * strings are decoded (lossy is fine — they're never used to match).
+ *
+ * `pathspecWorktree` excludes paths that don't exist in HEAD (pure adds and the new
+ * side of a rename/copy) so `git restore --worktree` never tries — and can't be
+ * asked — to delete them; they're left as untracked, preserving created content.
+ */
+function parsePorcelain(
+  buf: Buffer,
+  limit: number,
+): { dirtyFiles: string[]; dirtyCount: number; pathspecAll: Buffer; pathspecWorktree: Buffer } {
+  // split on NUL into field slices (drop a trailing empty field)
+  const fields: Buffer[] = [];
+  let start = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === NUL) {
+      fields.push(buf.subarray(start, i));
+      start = i + 1;
+    }
+  }
+  if (start < buf.length) fields.push(buf.subarray(start));
+
+  const dirtyFiles: string[] = [];
+  const allParts: Buffer[] = [];
+  const wtParts: Buffer[] = [];
+  const sep = Buffer.from([NUL]);
+  const pushSpec = (parts: Buffer[], p: Buffer) => {
+    parts.push(p, sep);
+  };
+
+  let dirtyCount = 0;
+  let i = 0;
+  while (i < fields.length) {
+    const rec = fields[i];
+    if (!rec || rec.length < 3) {
+      i++;
+      continue; // malformed / empty — skip
+    }
+    const x = String.fromCharCode(rec[0]!);
+    const status = rec.subarray(0, 2).toString("latin1");
+    const path = rec.subarray(3); // skip "XY "
+    const isRenameOrCopy = x === "R" || x === "C";
+    const orig = isRenameOrCopy ? fields[i + 1] : undefined;
+    i += isRenameOrCopy ? 2 : 1;
+
+    dirtyCount++;
+    if (dirtyFiles.length < limit) dirtyFiles.push(`${status} ${path.toString("utf8")}`);
+
+    if (isRenameOrCopy) {
+      pushSpec(allParts, path); // new side
+      if (orig) {
+        pushSpec(allParts, orig); // old side (in HEAD)
+        pushSpec(wtParts, orig); // restore the old path in the worktree
+      }
+      // new side is NOT in HEAD → left untracked, never worktree-restored
+    } else {
+      pushSpec(allParts, path);
+      if (x !== "A") pushSpec(wtParts, path); // pure adds aren't in HEAD → keep as untracked
+    }
+  }
+
+  return {
+    dirtyFiles,
+    dirtyCount,
+    pathspecAll: Buffer.concat(allParts),
+    pathspecWorktree: Buffer.concat(wtParts),
+  };
+}
 
 export interface UpdateStatus {
   /** how many commits the tracked branch is ahead of the running HEAD; 0 = up to date */
@@ -63,6 +179,32 @@ const EMPTY = (now: number): UpdateStatus => ({
 /** Runs git inside a fixed repo dir and returns stdout; injectable for tests. */
 export type GitRunner = (args: string[]) => Promise<string>;
 
+/** Runs git and returns raw stdout **bytes** (no UTF-8 decode), so a signature or
+ *  pathspec built from it is byte-exact even for non-UTF-8 paths. Injectable. */
+export type GitRawRunner = (args: string[]) => Promise<Buffer>;
+
+/** Streams a git command's stdout chunk-by-chunk into `hash` (never buffering the
+ *  whole output — so a huge `git diff --binary` can't overflow memory), returning
+ *  the byte count streamed. Must throw if it streamed more than `limit.maxBytes`
+ *  before completing or ran past `limit.timeoutMs`. Injectable for tests. */
+export type GitHashStreamer = (
+  args: string[],
+  hash: Hash,
+  limit: { maxBytes: number; timeoutMs: number },
+) => Promise<number>;
+
+/** Discard args passed through {@link UpdateService.apply} to the deploy launch. */
+export interface DiscardLaunch {
+  /** confirmed content signature the script re-verifies before restoring */
+  sig: string;
+  /** private temp dir holding the two pathspec files (script `trap`s its removal) */
+  dir: string;
+  /** file of NUL-joined pathspec bytes for `git restore --staged` */
+  pathspecAllFile: string;
+  /** file of NUL-joined pathspec bytes for `git restore --worktree` */
+  pathspecWtFile: string;
+}
+
 export interface UpdateDeps {
   /** repo to check; defaults to the service working dir (the live deployment) */
   repoDir?: string;
@@ -75,10 +217,18 @@ export interface UpdateDeps {
   logPath?: string;
   /** inject point for tests; defaults to real `git -C <repoDir> …` */
   git?: GitRunner;
+  /** inject point for tests; defaults to real `git -C <repoDir> …` returning bytes */
+  gitRaw?: GitRawRunner;
+  /** inject point for tests; defaults to streaming `git -C <repoDir> …` into a hash */
+  gitHashStream?: GitHashStreamer;
   /** inject point for tests; defaults to launching the deploy script detached */
-  launch?: () => void;
+  launch?: (discard?: DiscardLaunch) => void;
   /** cap the commit list shown in the UI */
   limit?: number;
+  /** cap the total signature bytes hashed before falling back to sig:null */
+  sigMaxBytes?: number;
+  /** timeout for the whole signature computation before falling back to sig:null */
+  sigTimeoutMs?: number;
 }
 
 /**
@@ -94,8 +244,12 @@ export class UpdateService {
   private scriptPath: string;
   private logPath: string;
   private git: GitRunner;
-  private launch: () => void;
+  private gitRaw: GitRawRunner;
+  private gitHashStream: GitHashStreamer;
+  private launch: (discard?: DiscardLaunch) => void;
   private limit: number;
+  private sigMaxBytes: number;
+  private sigTimeoutMs: number;
   private last: UpdateStatus | null = null;
   private applying = false;
 
@@ -105,6 +259,8 @@ export class UpdateService {
     this.scriptPath = deps.scriptPath ?? join(this.repoDir, "deploy", "update.sh");
     this.logPath = deps.logPath ?? join(tmpdir(), "shepherd-update.log");
     this.limit = deps.limit ?? 20;
+    this.sigMaxBytes = deps.sigMaxBytes ?? 64 * 1024 * 1024;
+    this.sigTimeoutMs = deps.sigTimeoutMs ?? 10_000;
     this.git =
       deps.git ??
       (async (args) => {
@@ -113,7 +269,59 @@ export class UpdateService {
         );
         return stdout as string;
       });
-    this.launch = deps.launch ?? (() => this.defaultLaunch());
+    this.gitRaw =
+      deps.gitRaw ??
+      (async (args) => {
+        const { stdout } = await execFileAsync("git", ["-C", this.repoDir, ...args], {
+          encoding: "buffer",
+          maxBuffer: this.sigMaxBytes,
+        });
+        return stdout as Buffer;
+      });
+    this.gitHashStream =
+      deps.gitHashStream ?? ((args, hash, limit) => this.streamGit(args, hash, limit));
+    this.launch = deps.launch ?? ((discard) => this.defaultLaunch(discard));
+  }
+
+  /** Default {@link GitHashStreamer}: spawn `git` and pipe stdout into `hash`,
+   *  aborting (kill + throw) once the running total exceeds the cap or the timeout
+   *  fires — so an enormous `--binary` diff never buffers or hangs the request. */
+  private streamGit(
+    args: string[],
+    hash: Hash,
+    limit: { maxBytes: number; timeoutMs: number },
+  ): Promise<number> {
+    return new Promise((resolve, reject) => {
+      const child = spawn("git", ["-C", this.repoDir, ...args], {
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+      let streamed = 0;
+      let done = false;
+      const finish = (err?: Error) => {
+        if (done) return;
+        done = true;
+        clearTimeout(timer);
+        if (err) {
+          child.kill("SIGKILL");
+          reject(err);
+        } else {
+          resolve(streamed);
+        }
+      };
+      const timer = setTimeout(() => finish(new Error("signature timed out")), limit.timeoutMs);
+      child.on("error", (e) => finish(e));
+      child.stdout.on("data", (chunk: Buffer) => {
+        streamed += chunk.length;
+        if (streamed > limit.maxBytes) {
+          finish(new Error("signature too large"));
+          return;
+        }
+        hash.update(chunk);
+      });
+      child.on("close", (code) =>
+        code === 0 ? finish() : finish(new Error(`git exited ${code}`)),
+      );
+    });
   }
 
   /** Launch the deploy script in its own transient systemd scope so it survives
@@ -124,7 +332,7 @@ export class UpdateService {
    *  the script returns, so a failed deploy (which never restarts shepherd) can
    *  be read back and shown to the operator instead of vanishing. Throws if the
    *  unit can't even be registered (e.g. systemd-run missing). */
-  private defaultLaunch(): void {
+  private defaultLaunch(discard?: DiscardLaunch): void {
     // truncate up front so the file exists immediately → readState() reports
     // "running" before the scope has had a chance to open it.
     writeFileSync(this.logPath, "");
@@ -132,9 +340,17 @@ export class UpdateService {
     // deploy script needs bun/herdr/git/systemctl, which live on the service's PATH.
     const args = ["--user", "--collect", "--unit=shepherd-update"];
     if (process.env.PATH) args.push(`--setenv=PATH=${process.env.PATH}`);
+    // A discard forwards the confirmed signature + the private pathspec dir so the
+    // script can re-verify the tree and restore ONLY the confirmed paths.
+    if (discard) {
+      args.push(`--setenv=SHEPHERD_DISCARD_SIG=${discard.sig}`);
+      args.push(`--setenv=SHEPHERD_DISCARD_DIR=${discard.dir}`);
+      args.push(`--setenv=SHEPHERD_DISCARD_PATHSPEC_ALL=${discard.pathspecAllFile}`);
+      args.push(`--setenv=SHEPHERD_DISCARD_PATHSPEC_WT=${discard.pathspecWtFile}`);
+    }
     const inner =
       `exec >${shq(this.logPath)} 2>&1; ` +
-      `bash ${shq(this.scriptPath)} --pull; ` +
+      `bash ${shq(this.scriptPath)} --pull${discard ? " --discard" : ""}; ` +
       `echo "${EXIT_MARKER}:$?"`;
     args.push("bash", "-c", inner);
     const r = spawnSync("systemd-run", args, {
@@ -164,7 +380,18 @@ export class UpdateService {
     if (m) {
       const exitCode = Number(m[1]);
       const log = tail(clean.replace(m[0], "").trimEnd());
-      return { phase: exitCode === 0 ? "done" : "failed", exitCode, log };
+      // Classify a failed deploy so the UI can route it through the friendly
+      // dirty-repo flow (fresh probe + refreshed list) instead of the raw log.
+      // The markers are stable English git/script output, never translated.
+      const reason =
+        exitCode === 0
+          ? null
+          : log.includes(DISCARD_STALE_MARKER)
+            ? "stale"
+            : log.includes(CLEAN_TREE_MARKER)
+              ? "dirty"
+              : null;
+      return { phase: exitCode === 0 ? "done" : "failed", exitCode, log, reason };
     }
     let mtimeMs = 0;
     try {
@@ -185,6 +412,64 @@ export class UpdateService {
   /** Last computed status, or null before the first check. */
   current(): UpdateStatus | null {
     return this.last;
+  }
+
+  /**
+   * Compute a **fresh** snapshot of the running deployment's tracked dirty state.
+   * Never cached (the tree changes underfoot), so both the proactive warning and
+   * the reactive failure path read the current truth.
+   *
+   * The `sig` is content-sensitive and framed: each of three git commands
+   * (status, staged diff, unstaged diff) is hashed independently, then the three
+   * fixed-length hex digests are hashed together — unambiguous, and the heavy
+   * `--binary` diffs stream (never buffered). All diff commands neutralise the
+   * repo's diff config (`--no-ext-diff --no-textconv`) so `sig` depends only on
+   * real content. If the diffs exceed the byte cap or timeout, `sig` is null and
+   * the caller must not offer a one-click discard.
+   */
+  async dirtyStatus(): Promise<DirtyStatus> {
+    // status: small + bounded → buffer it raw (bytes, not UTF-8) for parsing AND
+    // as the first signature input.
+    const statusBuf = await this.gitRaw(["status", "--porcelain", "-z", "--untracked-files=no"]);
+    const { dirtyFiles, dirtyCount, pathspecAll, pathspecWorktree } = parsePorcelain(
+      statusBuf,
+      this.limit,
+    );
+    const dirty = dirtyCount > 0;
+
+    let sig: string | null;
+    try {
+      const hStatus = createHash("sha256").update(statusBuf);
+      const hCached = createHash("sha256");
+      const hWt = createHash("sha256");
+      // shared byte budget across the two streamed diffs (status already counted)
+      let remaining = Math.max(0, this.sigMaxBytes - statusBuf.length);
+      const cachedArgs = [
+        "diff",
+        "--cached",
+        "--binary",
+        "--no-color",
+        "--no-ext-diff",
+        "--no-textconv",
+      ];
+      const wtArgs = ["diff", "--binary", "--no-color", "--no-ext-diff", "--no-textconv"];
+      remaining -= await this.gitHashStream(cachedArgs, hCached, {
+        maxBytes: remaining,
+        timeoutMs: this.sigTimeoutMs,
+      });
+      await this.gitHashStream(wtArgs, hWt, {
+        maxBytes: Math.max(0, remaining),
+        timeoutMs: this.sigTimeoutMs,
+      });
+      sig = createHash("sha256")
+        .update(hStatus.digest("hex") + hCached.digest("hex") + hWt.digest("hex"))
+        .digest("hex");
+    } catch {
+      // too large / timed out / git error → no signature; discard stays unavailable
+      sig = null;
+    }
+
+    return { dirty, dirtyFiles, dirtyCount, sig, pathspecAll, pathspecWorktree };
   }
 
   /** Fetch origin and recompute how far behind the tracked branch we are. On any
@@ -221,8 +506,15 @@ export class UpdateService {
   /** Kick off the detached deploy script. Guards against double-launch, but
    *  self-heals: once a prior deploy has finished (or crashed), the latch clears
    *  so a failed update can be retried. Returns `started: false` with a reason
-   *  the UI can surface verbatim — never a bare status code. */
-  apply(): { started: boolean; error?: string } {
+   *  the UI can surface verbatim — never a bare status code.
+   *
+   *  `opts.discard` forwards the confirmed signature + private pathspec dir so the
+   *  deploy runs a scoped `git restore` of only the confirmed paths (see
+   *  {@link DiscardLaunch}); throwing propagates so the caller can clean the dir up. */
+  apply(opts?: { discard?: boolean } & Partial<DiscardLaunch>): {
+    started: boolean;
+    error?: string;
+  } {
     // reconcile the in-process latch with the real deploy result: a terminal
     // deploy (done/failed) means we're free to launch again.
     const phase = this.applyState().phase;
@@ -234,10 +526,20 @@ export class UpdateService {
       };
     }
     this.applying = true;
+    const discard =
+      opts?.discard && opts.sig && opts.dir && opts.pathspecAllFile && opts.pathspecWtFile
+        ? {
+            sig: opts.sig,
+            dir: opts.dir,
+            pathspecAllFile: opts.pathspecAllFile,
+            pathspecWtFile: opts.pathspecWtFile,
+          }
+        : undefined;
     try {
-      this.launch();
+      this.launch(discard);
     } catch (e) {
       this.applying = false;
+      // never launched → the caller (server) removes the private pathspec dir it wrote
       return {
         started: false,
         error: e instanceof Error ? e.message : "could not launch the update",

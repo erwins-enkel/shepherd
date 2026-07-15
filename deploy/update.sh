@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Deploy local code to the running Shepherd service.
 # Idempotent: install deps → build UI → restart unit → health check.
-#   deploy/update.sh           # deploy the current working tree
-#   deploy/update.sh --pull    # fast-forward main from origin first (dev==prod box: skip)
+#   deploy/update.sh                     # deploy the current working tree
+#   deploy/update.sh --pull              # fast-forward main from origin first (dev==prod box: skip)
+#   deploy/update.sh --pull --discard    # discard the CONFIRMED tracked changes first, then pull
 set -euo pipefail
 
 REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -11,7 +12,15 @@ cd "$REPO"
 UNIT="shepherd"
 PORT="${SHEPHERD_PORT:-7330}"
 PULL=0
-[[ "${1:-}" == "--pull" ]] && PULL=1
+DISCARD=0
+# Parse ALL args (order-independent), not just $1 — so `--pull --discard` and
+# `--discard --pull` both take effect.
+for arg in "$@"; do
+  case "$arg" in
+    --pull) PULL=1 ;;
+    --discard) DISCARD=1 ;;
+  esac
+done
 
 note() { printf '\033[36m▸ %s\033[0m\n' "$*"; }
 warn() { printf '\033[33m! %s\033[0m\n' "$*"; }
@@ -39,6 +48,26 @@ retry() {
   return 1
 }
 
+# sha256 of stdin as bare hex (Linux: sha256sum; macOS: shasum -a 256)
+sha256_hex() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  else
+    shasum -a 256 | cut -d' ' -f1
+  fi
+}
+# Framed content signature of the tracked dirty state: three per-command subhashes
+# (status + staged diff + unstaged diff), then hash their concatenated hex. Diff
+# config fully neutralised so it depends only on real content. Must match the
+# Node side in src/update.ts byte-for-byte.
+discard_sig() {
+  local s1 s2 s3
+  s1="$(git status --porcelain -z --untracked-files=no | sha256_hex)"
+  s2="$(git diff --cached --binary --no-color --no-ext-diff --no-textconv | sha256_hex)"
+  s3="$(git diff --binary --no-color --no-ext-diff --no-textconv | sha256_hex)"
+  printf '%s%s%s' "$s1" "$s2" "$s3" | sha256_hex
+}
+
 # ── guard: the working tree IS the deployment ────────────────────────────────
 branch="$(git rev-parse --abbrev-ref HEAD)"
 [[ "$branch" == "main" ]] || warn "on branch '$branch' (not main) — the service will run THIS code"
@@ -48,6 +77,33 @@ fi
 
 if [[ "$PULL" == "1" ]]; then
   [[ "$branch" == "main" ]] || die "--pull requires being on main (currently '$branch')"
+
+  # ── scoped discard of the CONFIRMED tracked changes ─────────────────────────
+  # Never a blanket `git reset --hard` (which would also wipe anything written to
+  # the tree between confirmation and now). Instead restore ONLY the confirmed
+  # NUL pathspecs, re-verified against the confirmed signature at the last instant.
+  if [[ "$DISCARD" == "1" ]]; then
+    [[ -n "${SHEPHERD_DISCARD_SIG:-}" && -n "${SHEPHERD_DISCARD_DIR:-}" \
+      && -n "${SHEPHERD_DISCARD_PATHSPEC_ALL:-}" && -n "${SHEPHERD_DISCARD_PATHSPEC_WT:-}" ]] \
+      || die "--discard requires the confirmation tokens"
+    # remove the private pathspec dir on ANY exit path (guarded against rm -rf "")
+    trap '[ -n "${SHEPHERD_DISCARD_DIR:-}" ] && rm -rf "$SHEPHERD_DISCARD_DIR"' EXIT
+    [[ "$(discard_sig)" == "$SHEPHERD_DISCARD_SIG" ]] \
+      || die "SHEPHERD_DISCARD_STALE: working tree changed since confirmation"
+    note "discarding confirmed local changes"
+    # --literal-pathspecs: a confirmed filename may itself contain pathspec magic
+    # (e.g. *.ts or :(glob)…); treat every listed path literally so the restore
+    # can't fan out to unconfirmed matching files.
+    git --literal-pathspecs restore --source=HEAD --staged \
+      --pathspec-from-file="$SHEPHERD_DISCARD_PATHSPEC_ALL" --pathspec-file-nul
+    if [[ -s "$SHEPHERD_DISCARD_PATHSPEC_WT" ]]; then
+      git --literal-pathspecs restore --source=HEAD --worktree \
+        --pathspec-from-file="$SHEPHERD_DISCARD_PATHSPEC_WT" --pathspec-file-nul
+    fi
+  fi
+
+  # final gate: if an UNconfirmed tracked change slipped in (not in the pathspec),
+  # abort here rather than pulling over a dirty tree — routes back to reconfirm.
   git diff --quiet && git diff --cached --quiet || die "--pull needs a clean tree"
   note "fast-forwarding main from origin"
   git pull --ff-only

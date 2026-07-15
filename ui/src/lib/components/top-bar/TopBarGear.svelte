@@ -20,6 +20,12 @@
     clickHalt,
     chooseSettings,
     chooseUsage,
+    learningsPresent,
+    learnings,
+    learningsCurate,
+    learningsLabel,
+    learningsCount,
+    chooseLearnings,
     onMenuKey,
     onFeedback,
     pluginItems = [],
@@ -38,6 +44,12 @@
     clickHalt: () => void;
     chooseSettings: () => void;
     chooseUsage: () => void;
+    learningsPresent: boolean;
+    learnings: number;
+    learningsCurate: number;
+    learningsLabel: string;
+    learningsCount: number;
+    chooseLearnings: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
     onFeedback: (kind: FeedbackKind) => void;
     pluginItems?: { id: string; label: string; icon?: string }[];
@@ -110,6 +122,20 @@
         <span class="menu-glyph" aria-hidden="true">▦</span>
         <span class="menu-label">{m.topbar_usage_link()}</span>
       </button>
+      {#if learningsPresent}
+        <button
+          class="menu-item"
+          type="button"
+          role="menuitem"
+          aria-label={learnings > 0
+            ? m.learnings_open_aria({ count: learnings })
+            : m.learnings_open_curate_aria({ count: learningsCurate })}
+          onclick={chooseLearnings}
+        >
+          <span class="menu-glyph" aria-hidden="true">✦</span>
+          <span class="menu-label">{learningsLabel} · {learningsCount}</span>
+        </button>
+      {/if}
       <!-- External docs site — opens in a new tab; ↗ marks it external, matching the
            mobile sheet + Settings → About link convention. Closes the menu on click. -->
       <a

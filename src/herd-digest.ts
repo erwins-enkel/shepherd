@@ -1,6 +1,6 @@
 /**
  * HerdDigestService — synthesizes a cross-session "what needs a human right now?"
- * attention digest once per calendar day via a transient Sonnet spawn. Mirrors
+ * attention digest once per calendar day via a transient role spawn. Mirrors
  * RecapService structure, but keyed by calendar DAY (single-flight) instead of by
  * session head:
  *   sweep()      — daily auto-spark (presence-gated, non-empty herd, once/day)
@@ -9,10 +9,10 @@
  *   regenerate() — on-demand force (re-spawns today's digest even if ready)
  *   snapshot()   — latest digest for client bootstrap
  *
- * Spawn pattern mirrors src/recap.ts: tmpdir cwd, Write-only, dontAsk,
- * disableAllHooks, disable-slash-commands. No worktree, no membrane. All herd
- * state is supplied via injected accessors so the service stays unit-testable and
- * never reaches into index.ts's live caches directly (Task 3 wires the real ones).
+ * Spawn pattern mirrors src/recap.ts: tmpdir cwd and the provider-specific
+ * writer-only transient-agent sandbox. No worktree, no membrane. All herd state
+ * is supplied via injected accessors so the service stays unit-testable and never
+ * reaches into index.ts's live caches directly (Task 3 wires the real ones).
  */
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -23,8 +23,9 @@ import type { HerdDigest, ReviewVerdict, PlanGate, Recap, RundownEpicItem } from
 import type { GitState } from "./forge/types";
 import type { SessionUsage } from "./usage";
 import { readSessionUsage } from "./usage";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import type { OperatorLanguage } from "./operator-language";
+import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import {
   assembleHerdState,
@@ -82,11 +83,19 @@ function defaultCleanup(cwd: string): void {
 
 /**
  * The rundown spawn's argv — the shared `writer-only` transient-agent shape. The input is
- * cross-session digest text (UNTRUSTED); bare `Write` is safe via the sandbox shape, not an
- * input-trust claim. See buildTransientAgentArgv for the flag-order + isolation rationale.
+ * cross-session digest text (UNTRUSTED); write access is constrained by the selected provider's
+ * sandbox shape, not an input-trust claim. See buildTransientAgentArgv for the isolation rationale.
  */
-function rundownArgv(model: string | null, prompt: string): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("writer-only", { model, prompt });
+function rundownArgv(
+  environment: RoleEnvironment,
+  prompt: string,
+): { argv: string[]; sessionId: string } {
+  return buildTransientAgentArgv("writer-only", {
+    provider: environment.provider,
+    model: environment.model,
+    effort: environment.effort,
+    prompt,
+  });
 }
 
 /** `YYYY-MM-DD` for the operator's LOCAL day at `now`. The single-flight key. */
@@ -140,7 +149,8 @@ export interface HerdDigestServiceDeps {
    *  as the sweep() pre-filter so an idle herd with a pending epic still triggers generate(); the
    *  authoritative not-ready→no-spawn decision lives in generate(). Optional — absent → false. */
   hasOpenLandingEpics?: () => boolean;
-  model?: string | null;
+  /** Live role environment, resolved per spawn so Settings changes need no restart. */
+  environment?: () => RoleEnvironment;
   /** Live operator-language setting, read per spawn (#1586). Absent → "en" (no directive). */
   operatorLanguage?: () => OperatorLanguage;
   now?: () => number;
@@ -161,7 +171,7 @@ export class HerdDigestService {
   private now: () => number;
   private timeoutMs: number;
   private topN: number;
-  private model: string | null;
+  private environment: () => RoleEnvironment;
   private operatorLanguage: () => OperatorLanguage;
 
   private _readVerdict: (cwd: string) => string | null;
@@ -178,7 +188,8 @@ export class HerdDigestService {
     this.now = deps.now ?? Date.now;
     this.timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.topN = deps.topN ?? RUNDOWN_DEFAULT_TOPN;
-    this.model = deps.model ?? "sonnet";
+    this.environment =
+      deps.environment ?? (() => ({ provider: "claude", model: "sonnet", effort: "low" }));
     this.operatorLanguage = deps.operatorLanguage ?? (() => "en");
     this._readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this._readUsage = deps.readUsage ?? readSessionUsage;
@@ -264,8 +275,9 @@ export class HerdDigestService {
    * `opts.force` (regenerate) bypasses the existing-generating-row skip.
    */
   async generate(opts?: { force?: boolean }): Promise<GenerateResult> {
-    // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    const environment = this.environment();
+    // Fail closed only for Claude: Codex authenticates independently of the Anthropic API key.
+    if (apiKeyFailClosed(environment.provider)) {
       console.warn(
         "[rundown] api-key mode enabled but no API key configured — skipping (fail closed)",
       );
@@ -345,11 +357,16 @@ export class HerdDigestService {
       );
 
       const prompt = buildRundownPrompt(assembled, this.operatorLanguage());
-      const { argv, sessionId: spawnSessionId } = rundownArgv(this.model, prompt);
+      const { argv, sessionId: spawnSessionId } = rundownArgv(environment, prompt);
 
       const cwd = this._makeTmpDir();
       try {
-        await this.deps.herdr.start("rundown", cwd, argv, apiKeyPassthroughEnv(false));
+        await this.deps.herdr.start(
+          "rundown",
+          cwd,
+          argv,
+          environment.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined,
+        );
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so a later sweep can retry
@@ -362,7 +379,9 @@ export class HerdDigestService {
         taskSessionId: "", // herd-wide — not bound to a single task
         kind: "rundown",
         worktreePath: cwd,
-        model: this.model,
+        reviewerProvider: environment.provider,
+        model: environment.model,
+        reviewerEffort: environment.effort ?? null,
         spawnedAt,
       });
 
@@ -380,7 +399,7 @@ export class HerdDigestService {
         attentionFingerprint: fingerprint,
         spawnSessionId,
         cwd,
-        model: this.model,
+        model: environment.model,
         spawnedAt,
         generatedAt: null,
         updatedAt: spawnedAt,

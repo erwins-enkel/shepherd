@@ -3,7 +3,9 @@ import { HerdDigestService, dayKeyFor } from "../src/herd-digest";
 import type { HerdSnapshots, MergeTrainState } from "../src/herd-digest";
 import { SessionStore } from "../src/store";
 import type { HerdDigest, RundownEpicItem, Session } from "../src/types";
-import { RUNDOWN_EPICS_CAP } from "../src/rundown-core";
+import type { RoleEnvironment } from "../src/default-model";
+import { config } from "../src/config";
+import { RUNDOWN_EPICS_CAP, RUNDOWN_VERDICT_FILE } from "../src/rundown-core";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 beforeEach(() => {
@@ -173,6 +175,7 @@ function buildSvc(opts: {
   backlogPriority?: () => Record<string, number>;
   landingReadyEpics?: () => Promise<RundownEpicItem[]>;
   hasOpenLandingEpics?: () => boolean;
+  environment?: () => RoleEnvironment;
   verdict?: string | null;
   timeoutMs?: number;
   readUsage?: () => Promise<any>;
@@ -191,7 +194,7 @@ function buildSvc(opts: {
     backlogPriority: opts.backlogPriority,
     landingReadyEpics: opts.landingReadyEpics,
     hasOpenLandingEpics: opts.hasOpenLandingEpics,
-    model: "sonnet",
+    environment: opts.environment,
     now: opts.nowFn,
     timeoutMs: opts.timeoutMs ?? 300_000,
     readVerdict: () => (opts.verdict !== undefined ? opts.verdict : null),
@@ -513,6 +516,99 @@ test("argv: --model sonnet, --permission-mode AFTER --allowedTools, prompt last"
   const last = argv[argv.length - 1]!;
   expect(last.startsWith("--")).toBe(false);
   expect(last).toContain("what needs a human right now");
+});
+
+const PROVIDER_DRIVERS = ["sweep", "regenerate"] as const;
+const PROVIDER_ENVS = [
+  { provider: "claude", model: "sonnet", effort: "low" },
+  { provider: "codex", model: "gpt-5.5", effort: "high" },
+] as const satisfies readonly RoleEnvironment[];
+
+for (const driver of PROVIDER_DRIVERS) {
+  for (const environment of PROVIDER_ENVS) {
+    test(`${driver}: ${environment.provider} uses its CLI and attributes the resolved environment`, async () => {
+      const store = makeStore([makeSession()]);
+      const herdr = makeHerdr();
+      const svc = buildSvc({
+        store,
+        herdr,
+        nowFn: () => DAY1,
+        environment: () => environment,
+      });
+
+      await svc[driver]();
+
+      const argv = herdr.started[0]!.argv;
+      const prompt = argv.at(-1)!;
+      expect(prompt).toContain(RUNDOWN_VERDICT_FILE);
+      if (environment.provider === "claude") {
+        expect(argv[0]).toBe("claude");
+        expect(argv[argv.indexOf("--model") + 1]).toBe(environment.model);
+        expect(argv[argv.indexOf("--effort") + 1]).toBe(environment.effort);
+        expect(argv.indexOf("--permission-mode")).toBeGreaterThan(argv.indexOf("--allowedTools"));
+      } else {
+        expect(argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+        expect(argv[argv.indexOf("-m") + 1]).toBe(environment.model);
+        expect(argv).toContain(`model_reasoning_effort=${environment.effort}`);
+        expect(argv).not.toContain("--allowedTools");
+      }
+
+      const reviewerSpawn = store.reviewerSpawns[0];
+      expect(typeof reviewerSpawn?.reviewerSessionId).toBe("string");
+      expect(reviewerSpawn).toMatchObject({
+        taskSessionId: "",
+        kind: "rundown",
+        reviewerProvider: environment.provider,
+        model: environment.model,
+        reviewerEffort: environment.effort,
+      });
+      const digest = store.getHerdDigest(dayKeyFor(DAY1));
+      expect(digest?.spawnSessionId).toBe(reviewerSpawn?.reviewerSessionId);
+      expect(digest?.model).toBe(environment.model);
+    });
+  }
+}
+
+test("generate resolves the environment again for a later regenerate", async () => {
+  const store = makeStore([makeSession()]);
+  const herdr = makeHerdr();
+  let environment: RoleEnvironment = { provider: "claude", model: "sonnet", effort: "low" };
+  const svc = buildSvc({ store, herdr, nowFn: () => DAY1, environment: () => environment });
+
+  expect(await svc.generate()).toBe("started");
+  environment = { provider: "codex", model: "gpt-5.5", effort: "medium" };
+  expect(await svc.regenerate()).toBe("started");
+
+  expect(herdr.started.map((spawn) => spawn.argv[0])).toEqual(["claude", "codex"]);
+  expect(store.reviewerSpawns.map((spawn) => spawn.reviewerProvider)).toEqual(["claude", "codex"]);
+  expect(store.reviewerSpawns[1]).toMatchObject({
+    model: "gpt-5.5",
+    reviewerEffort: "medium",
+  });
+});
+
+test("generate does not apply the Claude API-key fail-closed gate to Codex", async () => {
+  const previousMode = config.authMode;
+  const previousHelper = config.authApiKeyHelperPath;
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = null;
+  try {
+    const store = makeStore([makeSession()]);
+    const herdr = makeHerdr();
+    const svc = buildSvc({
+      store,
+      herdr,
+      nowFn: () => DAY1,
+      environment: () => ({ provider: "codex", model: "gpt-5.5", effort: "low" }),
+    });
+
+    expect(await svc.generate()).toBe("started");
+    expect(herdr.started[0]!.argv[0]).toBe("codex");
+    expect(herdr.started[0]!.env).toBeUndefined();
+  } finally {
+    config.authMode = previousMode;
+    config.authApiKeyHelperPath = previousHelper;
+  }
 });
 
 // ── empty-herd short-circuit in generate (no active sessions) ─────────────────────
@@ -875,7 +971,7 @@ test("reconcileEpics: real store round-trip is idempotent for a ready epic (regr
     isActive: () => true,
     onChange: (d) => changes.push(d),
     snapshots: () => EMPTY_SNAPSHOTS,
-    model: "sonnet",
+    environment: () => ({ provider: "claude", model: "sonnet", effort: "low" }),
     now: () => DAY1,
     timeoutMs: 300_000,
     readVerdict: () => null,
@@ -937,7 +1033,7 @@ test("reconcileEpics: real store round-trip is idempotent for a paused epic (reg
     isActive: () => true,
     onChange: (d) => changes.push(d),
     snapshots: () => EMPTY_SNAPSHOTS,
-    model: "sonnet",
+    environment: () => ({ provider: "claude", model: "sonnet", effort: "low" }),
     now: () => DAY1,
     timeoutMs: 300_000,
     readVerdict: () => null,

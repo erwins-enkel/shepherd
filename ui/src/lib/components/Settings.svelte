@@ -287,6 +287,7 @@
     "critic",
     "docAgent",
     "recap",
+    "rundown",
     "distiller",
     "namer",
     "autopilot",
@@ -297,6 +298,7 @@
     critic: "inherit",
     docAgent: "inherit",
     recap: "claude",
+    rundown: "inherit",
     namer: "claude",
     autopilot: "claude",
     distiller: "inherit",
@@ -306,6 +308,7 @@
     critic: "default",
     docAgent: "default",
     recap: "sonnet",
+    rundown: "sonnet",
     namer: "haiku",
     autopilot: "haiku",
     distiller: "default",
@@ -316,6 +319,7 @@
     critic: "high",
     docAgent: "low",
     recap: "low",
+    rundown: "low",
     namer: "low",
     autopilot: "low",
     distiller: "default",
@@ -331,12 +335,20 @@
     critic: false,
     docAgent: false,
     recap: false,
+    rundown: false,
     namer: false,
     autopilot: false,
     distiller: false,
   });
   // Foreground (content) roles vs. collapsed classifiers (constant-cadence, kept cheap).
-  const ROLE_PRIMARY: RoleBase[] = ["planner", "critic", "docAgent", "recap", "distiller"];
+  const ROLE_PRIMARY: RoleBase[] = [
+    "planner",
+    "critic",
+    "docAgent",
+    "recap",
+    "rundown",
+    "distiller",
+  ];
   const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
 
   function roleTitle(role: RoleBase): string {
@@ -349,6 +361,8 @@
         return m.settings_role_model_docagent_title();
       case "recap":
         return m.settings_role_model_recap_title();
+      case "rundown":
+        return m.settings_role_model_rundown_title();
       case "namer":
         return m.settings_role_model_namer_title();
       case "autopilot":
@@ -367,6 +381,8 @@
         return m.settings_role_model_docagent_hint();
       case "recap":
         return m.settings_role_model_recap_hint();
+      case "rundown":
+        return m.settings_role_model_rundown_hint();
       case "namer":
         return m.settings_role_model_namer_hint();
       case "autopilot":

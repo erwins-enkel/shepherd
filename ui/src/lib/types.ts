@@ -110,6 +110,9 @@ export interface Settings {
   recapCli: string;
   recapModel: string;
   recapEffort: string;
+  rundownCli?: string;
+  rundownModel?: string;
+  rundownEffort?: string;
   docAgentCli: string;
   docAgentModel: string;
   docAgentEffort: string;

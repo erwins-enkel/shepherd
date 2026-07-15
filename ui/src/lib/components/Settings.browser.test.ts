@@ -77,6 +77,9 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     recapCli: "claude",
     recapModel: "sonnet",
     recapEffort: "low",
+    rundownCli: "claude",
+    rundownModel: "sonnet",
+    rundownEffort: "low",
     docAgentCli: "inherit",
     docAgentModel: "default",
     docAgentEffort: "low",
@@ -312,6 +315,22 @@ describe("Settings Coding CLI sections", () => {
 });
 
 describe("Settings default coding environment", () => {
+  it("shows the saved Herd Rundown CLI, model, and effort", async () => {
+    mountCodingAgents();
+
+    const role = "Herd Rundown";
+    await expect.element(page.getByText(role, { exact: true })).toBeInTheDocument();
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_role_cli_label({ role }) }))
+      .toHaveValue("claude");
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_role_model_label({ role }) }))
+      .toHaveValue("sonnet");
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_role_effort_label({ role }) }))
+      .toHaveValue("low");
+  });
+
   it("loads the saved model for the selected Codex CLI", async () => {
     mockGetSettings.mockResolvedValue(
       settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),

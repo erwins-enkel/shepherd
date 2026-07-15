@@ -3155,5 +3155,9 @@
   "feat_collapsible_coding_cli_sections_body": "Die Coding-CLI-Einstellungen sind jetzt in einklappbare Bereiche gegliedert und praktisch sortiert: globale Standards, Claude Code, Codex und anschließend die Umgebungen der Hilfsagenten.",
   "issuechips_more": "+{count}",
   "feat_consistent_issue_selectors_title": "Einheitliche Issue-Zeilen",
-  "feat_consistent_issue_selectors_body": "„Neue Aufgabe“, „Repos“ und „Als Nächstes“ verwenden jetzt denselben kompakten Issue-Aufbau, dieselben Forge-Label-Farben und dieselbe responsive Hierarchie. Die jeweiligen Aktionen bleiben erhalten."
+  "feat_consistent_issue_selectors_body": "„Neue Aufgabe“, „Repos“ und „Als Nächstes“ verwenden jetzt denselben kompakten Issue-Aufbau, dieselben Forge-Label-Farben und dieselbe responsive Hierarchie. Die jeweiligen Aktionen bleiben erhalten.",
+  "settings_role_model_rundown_title": "Herd-Rundown",
+  "settings_role_model_rundown_hint": "Fasst einmal täglich und bei Bedarf die Aufmerksamkeit der gesamten Herde zusammen.",
+  "feat_rundown_provider_title": "Kosten des Herd-Rundowns steuern",
+  "feat_rundown_provider_body": "Wähle CLI, Modell und Aufwand des Herd-Rundowns für automatische und neu erzeugte Digests."
 }

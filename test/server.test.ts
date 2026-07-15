@@ -1667,6 +1667,8 @@ test("POST /api/sessions/clear-merged archives only merged sessions, ignoring ot
   expect(body.leftovers).toBe(2);
   expect(h.store.get(a.id)?.status).toBe("archived");
   expect(h.store.get(b.id)?.status).toBe("archived");
+  expect(h.store.get(a.id)?.archiveReason).toBe("merged");
+  expect(h.store.get(b.id)?.archiveReason).toBe("merged");
   expect(h.store.get(c.id)?.status).not.toBe("archived"); // open PR left alone
   expect(new Set(h.emitted)).toEqual(new Set([a.id, b.id])); // session:archived per cleared
   expect(new Set(h.reaped)).toEqual(new Set(["process:a", "process:b"])); // leftovers killed

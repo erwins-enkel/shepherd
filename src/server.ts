@@ -2333,7 +2333,7 @@ async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Res
     ? (body!.ids as unknown[]).filter((x): x is string => typeof x === "string")
     : [...merged];
   const target = requested.filter((id) => merged.has(id)); // merged-only, no matter what was sent
-  const { cleared, leftovers } = await deps.service.archiveMany(target);
+  const { cleared, leftovers } = await deps.service.archiveMany(target, "merged");
   for (const id of cleared) {
     deps.prCache?.drop(id);
     deps.events.emit("session:archived", { id });
@@ -3027,7 +3027,7 @@ async function finalizeRelaunch(
 
   // Tear down the original — archiveMany auto-detects + reaps leftover subprocesses and
   // isolates teardown failures (unlike a bare archive(id)).
-  const { cleared } = await deps.service.archiveMany([id]);
+  const { cleared } = await deps.service.archiveMany([id], "relaunch");
   const archived = cleared.includes(id);
   if (archived) {
     // Retain the original's claim ONLY when the replacement actually carries the issue
@@ -3638,7 +3638,7 @@ async function forgeMerge(
     );
     await settleMergedSession(session, {
       resolveForge: (repoPath) => deps.resolveForge?.(repoPath) ?? null,
-      archive: (id) => deps.service.archive(id),
+      archive: (id, reason) => deps.service.archive(id, undefined, reason),
       dropPrCache: (id) => deps.prCache?.drop(id),
       emitArchived: (id) => deps.events.emit("session:archived", { id }),
       retainClaim: (id) => deps.drain?.retainClaim(id),

@@ -36,6 +36,15 @@ test("recaps: put→get round-trip (incl. openItems JSON)", () => {
   expect(got?.verdict).toBeNull();
   expect(got?.model).toBe("claude-sonnet-4-5");
   expect(got?.generatedAt).toBeNull();
+  expect(got?.diffState).toBeNull();
+});
+
+test("recaps: explicit diff state round-trips without guessing from legacy changedFiles", () => {
+  const s = new SessionStore(":memory:");
+  s.putRecap(r({ sessionId: "none", diffState: "none" }));
+  s.putRecap(r({ sessionId: "present", diffState: "present", changedFiles: ["src/a.ts"] }));
+  expect(s.getRecap("none")?.diffState).toBe("none");
+  expect(s.snapshotRecaps()["present"]?.diffState).toBe("present");
 });
 
 test("recaps: skipReason {code, params} round-trips through get/snapshot/generating (#1628)", () => {
@@ -94,18 +103,18 @@ test("recaps: upsert overwrites existing row", () => {
   expect(got?.generatedAt).toBe(2000);
 });
 
-test("recaps: snapshotRecaps excludes empty-state rows", () => {
+test("recaps: snapshotRecaps includes legacy empty-state rows", () => {
   const s = new SessionStore(":memory:");
   s.putRecap(r({ sessionId: "s1", state: "ready", verdict: "ready", headline: "done" }));
   s.putRecap(r({ sessionId: "s2", state: "empty", generatedAt: 1000 }));
   s.putRecap(r({ sessionId: "s3", state: "generating" }));
   s.putRecap(r({ sessionId: "s4", state: "failed", generatedAt: 1000 }));
   const snap = s.snapshotRecaps();
-  expect(Object.keys(snap).sort()).toEqual(["s1", "s3", "s4"]);
-  expect(snap["s2"]).toBeUndefined();
+  expect(Object.keys(snap).sort()).toEqual(["s1", "s2", "s3", "s4"]);
+  expect(snap["s2"]?.state).toBe("empty");
 });
 
-test("recaps: getRecap returns an empty-state row (excluded only from snapshot)", () => {
+test("recaps: getRecap returns a legacy empty-state row", () => {
   const s = new SessionStore(":memory:");
   s.putRecap(r({ state: "empty", generatedAt: 1000 }));
   const got = s.getRecap("s1");

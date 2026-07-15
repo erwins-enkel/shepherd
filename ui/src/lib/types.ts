@@ -1,4 +1,5 @@
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -635,6 +636,20 @@ export interface RecapSkip {
   code: RecapSkipCode;
   params: RecapSkipParams;
 }
+export type RecapFailureCode =
+  | "auth-unavailable"
+  | "source-unavailable"
+  | "launch-failed"
+  | "timed-out"
+  | "no-result"
+  | "invalid-result";
+export interface RecapFailure {
+  code: RecapFailureCode;
+  provider: AgentProvider;
+  model: string | null;
+  detail?: string;
+}
+export type RecapDiffState = "none" | "present" | "landed";
 export interface Recap {
   sessionId: string;
   state: RecapState;
@@ -644,6 +659,8 @@ export interface Recap {
   body: string; // "" on a coded skip — render the localized body from `skip`
   // Sentinel code + params for a `failed` skip rendered per-locale; absent → render headline/body verbatim.
   skip?: RecapSkip | null;
+  failure?: RecapFailure | null;
+  diffState?: RecapDiffState | null;
   openItems: string[];
   changedFiles: string[];
   spawnSessionId: string;
@@ -1047,6 +1064,8 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  /** How this session was completed; null/absent for pre-feature archived rows. */
+  archiveReason?: SessionArchiveReason | null;
   /** Reason the session halted mid-run; null when not halted. */
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */

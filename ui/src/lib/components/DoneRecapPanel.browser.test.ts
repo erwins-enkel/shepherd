@@ -64,6 +64,7 @@ function recap(partial: Partial<Recap> & { sessionId: string }): Recap {
     verdict: "ready",
     headline: "Shipped the feature",
     body: "Did **all** the work.",
+    diffState: null,
     openItems: [],
     changedFiles: [],
     spawnSessionId: partial.sessionId,
@@ -128,10 +129,21 @@ describe("DoneRecapPanel ready state", () => {
   });
 
   it("omits the changed-files section when the list is empty", async () => {
-    recaps.map = { s2: recap({ sessionId: "s2", changedFiles: [] }) };
+    recaps.map = { s2: recap({ sessionId: "s2", changedFiles: [], diffState: "none" }) };
     render(DoneRecapPanel, { session: session({ id: "s2" }) });
     await expect.element(page.getByText("Shipped the feature")).toBeInTheDocument();
     expect(page.getByText("Changed files").elements().length, "no changed-files heading").toBe(0);
+    await expect
+      .element(page.getByText("No files were changed in this session, so there is no code diff."))
+      .toBeInTheDocument();
+  });
+
+  it("does not infer no changes from an older recap with unknown diff metadata", async () => {
+    recaps.map = { legacy: recap({ sessionId: "legacy", changedFiles: [], diffState: null }) };
+    render(DoneRecapPanel, { session: session({ id: "legacy" }) });
+    expect(
+      page.getByText("No files were changed in this session, so there is no code diff.").query(),
+    ).toBeNull();
   });
 
   it("has no regenerate/retry button (worktree is gone)", async () => {
@@ -280,6 +292,46 @@ describe("DoneRecapPanel bring-back button", () => {
 });
 
 describe("DoneRecapPanel fail-closed", () => {
+  it("technical failure shows actionable copy and closed redacted details", async () => {
+    recaps.map = {
+      ft: recap({
+        sessionId: "ft",
+        state: "failed",
+        headline: "",
+        body: "",
+        failure: {
+          code: "timed-out",
+          provider: "codex",
+          model: "gpt-5.6-luna",
+          detail: "fatal: not a git repository",
+        },
+      }),
+    };
+    render(DoneRecapPanel, { session: session({ id: "ft" }) });
+
+    await expect.element(page.getByText("Recap generation timed out.")).toBeInTheDocument();
+    await expect
+      .element(page.getByText("Check the recap provider and model before relaunching the session."))
+      .toBeInTheDocument();
+    const details = document.querySelector("details");
+    expect(details?.open).toBe(false);
+    await page.getByText("Technical details").click();
+    await expect.element(page.getByText("gpt-5.6-luna")).toBeInTheDocument();
+    await expect.element(page.getByText("fatal: not a git repository")).toBeInTheDocument();
+  });
+
+  it("legacy empty recap explains that no files changed and no diff existed", async () => {
+    recaps.map = { empty: recap({ sessionId: "empty", state: "empty" }) };
+    render(DoneRecapPanel, { session: session({ id: "empty" }) });
+    await expect
+      .element(
+        page.getByText(
+          "No recap was created because this session had no file changes. Older Shepherd versions skipped these sessions because there was no diff.",
+        ),
+      )
+      .toBeInTheDocument();
+  });
+
   it("failed recap → names the failure (never a blank success card)", async () => {
     recaps.map = { f1: recap({ sessionId: "f1", state: "failed", headline: "", body: "" }) };
     render(DoneRecapPanel, { session: session({ id: "f1" }) });
@@ -356,11 +408,13 @@ describe("DoneRecapPanel fail-closed", () => {
       .toBeInTheDocument();
   });
 
-  it("missing recap row on a recent session → generic unavailable", async () => {
-    // no entry in recaps.map; finished after recaps shipped → generic message
+  it("missing recap row on a recent session → explains that no reason was recorded", async () => {
+    // no entry in recaps.map; finished after recaps shipped → explicit legacy-unknown cause
     render(DoneRecapPanel, { session: session({ id: "missing" }) });
     await expect
-      .element(page.getByText("No recap available for this session."))
+      .element(
+        page.getByText("No recap record exists for this session; the reason was not recorded."),
+      )
       .toBeInTheDocument();
   });
 
@@ -374,5 +428,18 @@ describe("DoneRecapPanel fail-closed", () => {
         ),
       )
       .toBeInTheDocument();
+  });
+});
+
+describe("DoneRecapPanel completion source", () => {
+  it("names an operator decommission and marks legacy completion as unknown", async () => {
+    recaps.map = { source: recap({ sessionId: "source" }) };
+    const { rerender } = await render(DoneRecapPanel, {
+      session: session({ id: "source", archiveReason: "operator" }),
+    });
+    await expect.element(page.getByText("Decommissioned by operator")).toBeInTheDocument();
+
+    await rerender({ session: session({ id: "source", archiveReason: null }) });
+    await expect.element(page.getByText("Completion source unknown")).toBeInTheDocument();
   });
 });

@@ -11,7 +11,13 @@ import type {
   SubIssueRef,
 } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { AgentProvider, CreateSessionInput, ReviewDecision, Session } from "../src/types";
+import type {
+  AgentProvider,
+  CreateSessionInput,
+  ReviewDecision,
+  Session,
+  SessionArchiveReason,
+} from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
 import { config } from "../src/config";
@@ -241,9 +247,13 @@ function makeHarness(
         issueNumber: input.issueRef?.number ?? null,
       });
     },
-    archive: async (id: string): Promise<number> => {
+    archive: async (
+      id: string,
+      _reapKeys?: string[],
+      reason?: SessionArchiveReason,
+    ): Promise<number> => {
       if (opts.archiveImpl) return opts.archiveImpl(id);
-      store.archive(id);
+      store.archive(id, reason);
       return 1;
     },
   };
@@ -427,6 +437,7 @@ test("retire gate: ready session → retired once; forge.merge never called; ens
   expect(h.forgeRec.links).toEqual([{ prNumber: 7, issueNumber: 7 }]);
   // session archived
   expect(h.store.get(s.id)?.status).toBe("archived");
+  expect(h.store.get(s.id)?.archiveReason).toBe("drain");
   // emitArchived and dropPrCache fired
   expect(h.archived).toEqual([s.id]);
   expect(h.dropped).toEqual([s.id]);

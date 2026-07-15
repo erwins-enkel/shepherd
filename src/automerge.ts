@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState } from "./forge/types";
-import type { ReviewVerdict, Session } from "./types";
+import type { ReviewVerdict, Session, SessionArchiveReason } from "./types";
 import type { WorktreeMgr } from "./worktree";
 import {
   computeMerge,
@@ -55,7 +55,7 @@ export interface AutoMergeDeps {
     | "recordEpicIntegrated"
   >;
   service: {
-    archive(id: string): Promise<number>;
+    archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
     /** SessionService.reply (async since #1567; resolves true when the steer reached a live pane). */
     reply(id: string, text: string): Promise<boolean>;
     /** SessionService.resume (async — the awaited result decides; truthy = resumed). */
@@ -332,7 +332,7 @@ export class AutoMergeService {
     );
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
-      archive: (id) => this.deps.service.archive(id),
+      archive: (id, reason) => this.deps.service.archive(id, undefined, reason),
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: this.deps.retainClaim,

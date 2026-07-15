@@ -4159,7 +4159,7 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
   const a = mk("a", "term_a");
   const b = mk("b", "term_b");
 
-  const res = await svc.archiveMany([a.id, b.id, "missing-id"]);
+  const res = await svc.archiveMany([a.id, b.id, "missing-id"], "relaunch");
 
   expect(res.cleared).toEqual([a.id, b.id]); // missing id skipped
   expect(res.leftovers).toBe(2); // one leftover each, both counted
@@ -4167,6 +4167,8 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
   expect(calls.reaped).toEqual(["process:a", "process:b"]); // each session's leftovers killed
   expect(store.get(a.id)?.status).toBe("archived");
   expect(store.get(b.id)?.status).toBe("archived");
+  expect(store.get(a.id)?.archiveReason).toBe("relaunch");
+  expect(store.get(b.id)?.archiveReason).toBe("relaunch");
 });
 
 function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated = true) {

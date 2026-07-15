@@ -18,7 +18,16 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
-import type { Session, Recap, AgentProvider, RecapEvidenceKind, RecapSkip } from "./types";
+import type {
+  Session,
+  Recap,
+  AgentProvider,
+  RecapEvidenceKind,
+  RecapSkip,
+  RecapFailure,
+  RecapFailureCode,
+  RecapDiffState,
+} from "./types";
 import type { DiffFile, DiffResult } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { OperatorLanguage } from "./operator-language";
@@ -67,7 +76,8 @@ export interface LandedWorkEvidence {
 }
 
 type EmptyDiffAction =
-  { kind: "continue"; landedContext: string } | { kind: "done"; result: "empty" | "error" };
+  | { kind: "continue"; landedContext: string; diffState: "none" | "landed" }
+  | { kind: "done"; result: "error" };
 
 // ── defaults ──────────────────────────────────────────────────────────────────
 
@@ -186,6 +196,32 @@ function recapSnippet(s: string | undefined, max = 300): string {
   if (!s) return "<empty>";
   const oneLine = s.replace(/\s+/g, " ").trim();
   return oneLine.length > max ? `${oneLine.slice(0, max)}…` : oneLine;
+}
+
+/** Collapse and redact a bounded technical detail before it reaches persistence or the UI. */
+export function sanitizeRecapFailureDetail(value: unknown): string | undefined {
+  const raw =
+    value instanceof Error
+      ? value.message
+      : typeof value === "string"
+        ? value
+        : String(value ?? "");
+  const detail = raw
+    .replace(
+      /\b([A-Z][A-Z0-9_]*(?:KEY|TOKEN|SECRET|PASSWORD|CREDENTIAL)[A-Z0-9_]*)(\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;]+)/g,
+      "$1$2<redacted>",
+    )
+    .replace(
+      /\b(authorization|api[_ -]?key|token|password)(\s*[:=]\s*)(?:bearer\s+)?[^\s,;]+/gi,
+      "$1$2<redacted>",
+    )
+    .replace(/\bbearer\s+[^\s,;]+/gi, "Bearer <redacted>")
+    .replace(/\b(?:sk|gh[pousr]|xox[baprs])[-_][A-Za-z0-9_-]{8,}\b/gi, "<redacted>")
+    .replace(/:\/\/([^\s/:@]+):([^\s/@]+)@/g, "://$1:<redacted>@")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!detail) return undefined;
+  return detail.length > 300 ? `${detail.slice(0, 299)}…` : detail;
 }
 
 function defaultMakeTmpDir(): string {
@@ -350,6 +386,7 @@ export class RecapService {
       headSha: string;
       base: string;
       skip?: RecapSkip;
+      failure?: RecapFailure;
     },
   ): void {
     const t = this.now();
@@ -364,18 +401,73 @@ export class RecapService {
       headline: "",
       body: "",
       skip: input.skip ?? null,
+      failure: input.failure ?? null,
       openItems: [],
       changedFiles: [],
       blocks: [],
       spawnSessionId: "",
       cwd: "",
-      model: env.model,
+      model: input.failure?.model ?? env.model,
       spawnedAt: t,
       generatedAt: t,
       updatedAt: t,
     };
     this.deps.store.putRecap(row);
-    this.deps.onChange(session.id, input.state === "empty" ? null : row);
+    this.deps.onChange(session.id, row);
+  }
+
+  private failureFor(
+    recap: Pick<Recap, "spawnSessionId" | "model">,
+    code: RecapFailureCode,
+    detail?: unknown,
+  ): RecapFailure {
+    const spawn = this.deps.store
+      .listReviewerSpawns()
+      .find((s) => s.reviewerSessionId === recap.spawnSessionId);
+    const provider =
+      spawn?.reviewerProvider === "claude" || spawn?.reviewerProvider === "codex"
+        ? spawn.reviewerProvider
+        : this.env().provider;
+    const safeDetail = sanitizeRecapFailureDetail(detail);
+    return {
+      code,
+      provider,
+      model: recap.model ?? null,
+      ...(safeDetail ? { detail: safeDetail } : {}),
+    };
+  }
+
+  private putFailureRecap(
+    session: Session,
+    code: RecapFailureCode,
+    detail?: unknown,
+    headSha = "",
+    base = "",
+  ): void {
+    const env = this.env();
+    const safeDetail = sanitizeRecapFailureDetail(detail);
+    this.putTerminalRecap(session, {
+      state: "failed",
+      headSha,
+      base,
+      failure: {
+        code,
+        provider: env.provider,
+        model: env.model,
+        ...(safeDetail ? { detail: safeDetail } : {}),
+      },
+    });
+  }
+
+  private async resolveGenerateSource(
+    session: Session,
+    knownHead?: string,
+    knownBase?: string,
+  ): Promise<{ head: string; base: string; diff: DiffResult }> {
+    const head = knownHead || (await this._headSha(session.worktreePath));
+    const base = knownBase || (await this._resolveBase(session)).base;
+    const diff = await this._computeDiff(session.worktreePath, base, session.branch);
+    return { head, base, diff };
   }
 
   private async classifyEmptyDiff(
@@ -438,8 +530,12 @@ export class RecapService {
   ): Promise<EmptyDiffAction> {
     const classified = await this.classifyEmptyDiff(session, head, diff);
     if (classified.kind === "empty") {
-      this.putTerminalRecap(session, { state: "empty", headSha: head, base });
-      return { kind: "done", result: "empty" };
+      return {
+        kind: "continue",
+        diffState: "none",
+        landedContext:
+          "No files were changed in this session, so no code diff exists. Summarize the task, plan, and transcript outcome, clearly state that there are no file changes, and do not invent changed files or implementation details.",
+      };
     }
     if (classified.kind === "failed") {
       this.putTerminalRecap(session, {
@@ -452,6 +548,7 @@ export class RecapService {
     }
     return {
       kind: "continue",
+      diffState: "landed",
       landedContext: `The code diff is empty because this session's HEAD is already contained in the resolved base. Landed-work evidence: ${classified.evidence.summary}. Summarize the completed work from the task, plan, review/PR context, and transcript digest; do not invent changed files.`,
     };
   }
@@ -553,7 +650,8 @@ export class RecapService {
     let head: string;
     try {
       head = await this._headSha(session.worktreePath);
-    } catch {
+    } catch (err) {
+      this.putFailureRecap(session, "source-unavailable", err);
       return "error"; // git/worktree unavailable — don't throw out of the hook
     }
 
@@ -584,10 +682,9 @@ export class RecapService {
    * Spawn a recap agent for `session`. Shared by sweep (auto) and regenerate (on-demand).
    *
    * Returns:
-   *   "empty"   — diff had no files; an empty row is written and onChange is fired.
+   *   "empty"   — retained for API compatibility; new no-diff sessions now generate a recap.
    *   "started" — spawn launched; a generating row is written.
-   *   "error"   — git (rev-parse/diff) failed, or herdr.start failed; any tmpdir is
-   *               cleaned and no row is left so a later auto-settle can retry.
+   *   "error"   — git/auth/spawn failed; a structured failed row records why.
    *
    * Does NOT throw — git/diff rejections are caught and surface as "error" — so callers
    * (incl. the bare-`void` sweep loop) need not guard it.
@@ -604,9 +701,14 @@ export class RecapService {
       console.warn(
         "[recap] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
+      this.putFailureRecap(
+        session,
+        "auth-unavailable",
+        "API-key mode is enabled, but no API key is configured.",
+      );
       return "error";
     }
-    const { id, worktreePath, branch, claudeSessionId, spawnAccountDir } = session;
+    const { id, worktreePath, claudeSessionId, spawnAccountDir } = session;
 
     // Synchronous guard: if already mid-flight for this session, bail immediately.
     if (this.inFlight.has(id)) return "started";
@@ -616,26 +718,26 @@ export class RecapService {
       // Reap any in-flight row for this session first (prevents stale generating rows).
       this.reapGenerating(id);
 
-      // Resolve HEAD + base + diff up front; a git/diff rejection self-heals to "error"
-      // (no row left) rather than throwing out of this bare-`void`-called method.
+      // Resolve HEAD + base + diff up front; a rejection records a structured visible failure
+      // rather than throwing out of this bare-`void`-called method.
       // Resolving the base HERE (not just in the dedup callers) covers regenerate(),
       // which bypasses dedup — so a forced regenerate never re-bakes the stored base.
-      let head: string;
-      let base: string;
-      let diff: DiffResult;
+      let source: { head: string; base: string; diff: DiffResult };
       try {
-        head = knownHead ?? (await this._headSha(worktreePath));
-        base = knownBase ?? (await this._resolveBase(session)).base;
-        diff = await this._computeDiff(worktreePath, base, branch);
-      } catch {
+        source = await this.resolveGenerateSource(session, knownHead, knownBase);
+      } catch (err) {
+        this.putFailureRecap(session, "source-unavailable", err);
         return "error";
       }
+      const { head, base, diff } = source;
 
       let landedContext = "";
+      let diffState: RecapDiffState = "present";
       if (diff.files.length === 0) {
         const action = await this.handleEmptyDiff(session, head, base, diff);
         if (action.kind === "done") return action.result;
         landedContext = action.landedContext;
+        diffState = action.diffState;
       }
 
       // Build prompt inputs.
@@ -686,9 +788,10 @@ export class RecapService {
           argv,
           apiKeyPassthroughEnv(false),
         );
-      } catch {
+      } catch (err) {
         this._cleanup(cwd);
-        return "error"; // spawn failed; no row left so next settle can retry
+        this.putFailureRecap(session, "launch-failed", err, head, base);
+        return "error";
       }
 
       const spawnedAt = this.now();
@@ -714,6 +817,7 @@ export class RecapService {
         body: "",
         openItems: [],
         changedFiles,
+        diffState,
         spawnSessionId,
         cwd,
         model: env.model,
@@ -748,10 +852,11 @@ export class RecapService {
       let read: VerdictRead<unknown>;
       let elapsed: number;
       let finished: boolean;
+      let timedOut: boolean;
       try {
         elapsed = this.now() - r.spawnedAt;
         read = this._readVerdict(r.cwd);
-        const timedOut = elapsed > this.timeoutMs;
+        timedOut = elapsed > this.timeoutMs;
         // Ground-truth liveness via paneForegroundProcs (same signal as tab-reaper): a live-but-idle
         // recap spawn between API turns reads "idle" in agentStatus but still has non-shell procs.
         // isSpawnAlive never throws; herdr errors → fail-closed alive.
@@ -771,15 +876,30 @@ export class RecapService {
       }
       // finalize-value carries the parsed verdict; finalize-null (timeout / fail-fast) → `failed`.
       const raw = action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      if (action === "finalize-null") await this.logUnproducedVerdict(r, read, elapsed, finished);
+      const failure =
+        action === "finalize-null"
+          ? await this.failureForUnproducedVerdict(r, read, elapsed, finished, timedOut)
+          : undefined;
 
       // finalizing flag stays set; always delete in finally so entry doesn't wedge after a throw.
       try {
-        await this.finalize(r, raw);
+        await this.finalize(r, raw, failure);
       } finally {
         this.finalizing.delete(r.sessionId);
       }
     }
+  }
+
+  private async failureForUnproducedVerdict(
+    recap: Recap,
+    read: VerdictRead<unknown>,
+    elapsed: number,
+    finished: boolean,
+    timedOut: boolean,
+  ): Promise<RecapFailure> {
+    const detail = await this.logUnproducedVerdict(recap, read, elapsed, finished);
+    if (read.status === "unparseable") return this.failureFor(recap, "invalid-result", detail);
+    return this.failureFor(recap, timedOut ? "timed-out" : "no-result", detail);
   }
 
   /** Observability for a finalize-null recap (timeout / fail-fast): a `failed` recap used to be a
@@ -790,7 +910,7 @@ export class RecapService {
     read: VerdictRead<unknown>,
     elapsed: number,
     finished: boolean,
-  ): Promise<void> {
+  ): Promise<string | undefined> {
     const spawn = this.deps.store
       .listReviewerSpawns()
       .find((s) => s.reviewerSessionId === r.spawnSessionId);
@@ -802,9 +922,9 @@ export class RecapService {
       `finished=${finished}`;
     if (read.status === "unparseable") {
       console.warn(
-        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. ${ctx} snippet: ${recapSnippet(read.raw)}`,
+        `[recap] ${r.sessionId}: verdict file present but unparseable even after jsonrepair — failing. ${ctx} snippet: ${recapSnippet(sanitizeRecapFailureDetail(read.raw))}`,
       );
-      return;
+      return sanitizeRecapFailureDetail(read.raw);
     }
     // No verdict file — capture the spawn's terminal tail (best-effort) so the reason is diagnosable
     // instead of a black hole: a chatgpt-account-incompatible codex model prints its 400
@@ -816,6 +936,9 @@ export class RecapService {
         tail ? ` pane-tail: ${tail}` : ""
       }`,
     );
+    return sanitizeRecapFailureDetail(
+      tail || `Agent produced no verdict after ${Math.round(elapsed / 1000)} seconds.`,
+    );
   }
 
   /** Best-effort, bounded tail of a spawn's terminal buffer for diagnostics. Takes the LAST ~300
@@ -824,7 +947,9 @@ export class RecapService {
     try {
       const buf = await this.deps.herdr.readAsync(paneId, "recent", 20);
       const oneLine = buf.replace(/\s+/g, " ").trim();
-      return oneLine.length > 300 ? `…${oneLine.slice(-300)}` : oneLine;
+      return (
+        sanitizeRecapFailureDetail(oneLine.length > 300 ? `…${oneLine.slice(-300)}` : oneLine) ?? ""
+      );
     } catch {
       return "";
     }
@@ -847,7 +972,7 @@ export class RecapService {
     };
   }
 
-  private async finalize(r: Recap, raw: unknown | null): Promise<void> {
+  private async finalize(r: Recap, raw: unknown | null, failure?: RecapFailure): Promise<void> {
     const t = this.now();
     // Strip the server-only carrier so it never reaches putRecap or onChange.
     const { pendingDiff = [], ...rBase } = r;
@@ -867,6 +992,7 @@ export class RecapService {
           verdict: parsed.verdict,
           headline: parsed.headline,
           body: parsed.body,
+          failure: null,
           openItems: parsed.openItems,
           blocks: manualBlock ? [manualBlock, ...grounded] : grounded,
           generatedAt: t,
@@ -877,14 +1003,20 @@ export class RecapService {
         // parsed but failed recap-shape validation (bad verdict, unrecoverable structure); log it
         // so the otherwise-silent failure is diagnosable (tick() already logged the raw==null cases).
         if (raw != null) {
-          const v = (raw as { verdict?: unknown })?.verdict;
           console.warn(
-            `[recap] ${r.sessionId}: verdict parsed as JSON but failed recap-shape validation (verdict=${JSON.stringify(v)}) — failing. snippet: ${recapSnippet(JSON.stringify(raw))}`,
+            `[recap] ${r.sessionId}: verdict parsed as JSON but failed recap-shape validation — failing. snippet: ${recapSnippet(sanitizeRecapFailureDetail(JSON.stringify(raw)))}`,
           );
         }
         newRow = {
           ...rBase,
           state: "failed",
+          failure:
+            failure ??
+            this.failureFor(
+              r,
+              "invalid-result",
+              raw == null ? undefined : recapSnippet(JSON.stringify(raw)),
+            ),
           blocks: manualBlock ? [manualBlock] : [],
           generatedAt: t,
           updatedAt: t,

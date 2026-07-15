@@ -2,6 +2,7 @@ import { Database, type SQLQueryBindings } from "bun:sqlite";
 import { randomUUID } from "node:crypto";
 import type {
   Session,
+  SessionArchiveReason,
   ExperimentRole,
   ReviewVerdict,
   ReviewDecision,
@@ -9,6 +10,7 @@ import type {
   PlanSummaryCode,
   Recap,
   RecapSkip,
+  RecapFailure,
   DiffFile,
   Signal,
   SignalKind,
@@ -100,6 +102,46 @@ function parseSkipReason(raw: string | null | undefined): RecapSkip | null {
   } catch {
     return null;
   }
+}
+
+function parseFailureReason(raw: string | null | undefined): RecapFailure | null {
+  const parsed = safeJsonParse<Partial<RecapFailure> | null>(raw, null);
+  if (!parsed) return null;
+  const codes = new Set([
+    "auth-unavailable",
+    "source-unavailable",
+    "launch-failed",
+    "timed-out",
+    "no-result",
+    "invalid-result",
+  ]);
+  if (!codes.has(parsed.code ?? "")) return null;
+  if (parsed.provider !== "claude" && parsed.provider !== "codex") return null;
+  return {
+    code: parsed.code as RecapFailure["code"],
+    provider: parsed.provider,
+    model: typeof parsed.model === "string" ? parsed.model : null,
+    ...(typeof parsed.detail === "string" && parsed.detail ? { detail: parsed.detail } : {}),
+  };
+}
+
+function parseArchiveReason(raw: string | null | undefined): SessionArchiveReason | null {
+  return raw === "operator" || raw === "merged" || raw === "drain" || raw === "relaunch"
+    ? raw
+    : null;
+}
+
+function parseRecapBlocks(raw: string | null | undefined): VisualBlock[] {
+  const parsed = safeJsonParse<unknown>(raw, []);
+  return Array.isArray(parsed) ? (parsed as VisualBlock[]) : [];
+}
+
+function serializeRecapSkip(recap: Recap): string | null {
+  return recap.failure || !recap.skip ? null : JSON.stringify(recap.skip);
+}
+
+function serializeRecapFailure(recap: Recap): string | null {
+  return recap.skip || !recap.failure ? null : JSON.stringify(recap.failure);
 }
 
 /** Coerce a persisted plan-gate summary code: only the known "no-verdict" sentinel survives; any
@@ -232,6 +274,7 @@ type NewSession = Omit<
   | "createdAt"
   | "updatedAt"
   | "archivedAt"
+  | "archiveReason"
   | "model"
   | "effort"
   | "claudeSessionId"
@@ -303,7 +346,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   research, epicAuthoring, landingRepair,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
-  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson`;
+  spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason`;
 
 // ── SQLite row shapes ──────────────────────────────────────────────────────────
 
@@ -351,6 +394,7 @@ type SessionRow = {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  archiveReason: string | null;
   mergingSince: number | null;
   mergingTrainId: string | null;
   mergeTrainPrs: string | null;
@@ -422,6 +466,8 @@ type RecapRow = {
   headline: string | null;
   body: string | null;
   skipReason: string | null; // JSON of RecapSkip ({code, params}) for a coded failed skip; null otherwise
+  failureReason: string | null;
+  diffState: string | null;
   openItems: string;
   changedFiles: string;
   blocks: string;
@@ -957,6 +1003,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       headline TEXT NOT NULL DEFAULT '',
       body TEXT NOT NULL DEFAULT '',
       skipReason TEXT,
+      failureReason TEXT,
+      diffState TEXT,
       openItems TEXT NOT NULL DEFAULT '[]',
       changedFiles TEXT NOT NULL DEFAULT '[]',
       spawnSessionId TEXT NOT NULL DEFAULT '',
@@ -982,6 +1030,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // the UI. Legacy failed rows predate it (NULL) and keep rendering their baked headline/body prose.
     if (!recapCols.some((c) => c.name === "skipReason")) {
       this.db.run(`ALTER TABLE recaps ADD COLUMN skipReason TEXT`);
+    }
+    if (!recapCols.some((c) => c.name === "failureReason")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN failureReason TEXT`);
+    }
+    if (!recapCols.some((c) => c.name === "diffState")) {
+      this.db.run(`ALTER TABLE recaps ADD COLUMN diffState TEXT`);
     }
     // migrate recaps that predate the base column (legacy rows default to '' — the dedup's
     // legacy guard then never force-regenerates them on base alone).
@@ -1932,6 +1986,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       createdAt: now,
       updatedAt: now,
       archivedAt: null,
+      archiveReason: null,
       mergingSince: null,
       mergingTrainId: null,
       mergeTrainPrs: input.mergeTrainPrs ?? null,
@@ -1954,7 +2009,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2011,6 +2066,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // spawnAccountDir — always null at create
           strOrEmpty(s.providerSessionId), // "" at create for both providers; Codex id captured post-spawn
           launchMetadataJson(s.launchMetadata),
+          null, // archiveReason — a fresh session has not been archived
         ],
       );
       return s;
@@ -2237,18 +2293,20 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return out;
   }
 
-  archive(id: string) {
+  archive(id: string, reason: SessionArchiveReason = "operator") {
     const now = Date.now();
-    this.db.run(`UPDATE sessions SET status='archived', archivedAt=?, updatedAt=? WHERE id=?`, [
-      now,
-      now,
-      id,
-    ]);
+    this.db.run(
+      `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
+      [now, reason, now, id],
+    );
   }
 
   unarchive(id: string) {
     const now = Date.now();
-    this.db.run(`UPDATE sessions SET archivedAt=NULL, updatedAt=? WHERE id=?`, [now, id]);
+    this.db.run(`UPDATE sessions SET archivedAt=NULL, archiveReason=NULL, updatedAt=? WHERE id=?`, [
+      now,
+      id,
+    ]);
   }
 
   // ── usage limit caps (CapStore) ──────────────────────────────────────────
@@ -2571,33 +2629,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   // ── session recaps ────────────────────────────────────────────────────────────
   private hydrateRecap(r: RecapRow): Recap {
-    let openItems: string[] = [];
-    try {
-      const parsed = JSON.parse(r.openItems);
-      if (Array.isArray(parsed))
-        openItems = parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-      openItems = [];
-    }
-    let changedFiles: string[] = [];
-    try {
-      const parsed = JSON.parse(r.changedFiles);
-      if (Array.isArray(parsed))
-        changedFiles = parsed.filter((x): x is string => typeof x === "string");
-    } catch {
-      changedFiles = [];
-    }
     // Persisted blocks were already validated + server-grounded at finalize (the real DiffFile is
     // joined onto diff blocks there). Parse as trusted data — do NOT re-run parseVisualBlocks, the
     // LLM-input trust boundary, which strips the joined `file` off diff blocks. parseVisualBlocks
     // runs only on fresh spawn output (recap-core.ts), never on DB reads.
-    let blocks: VisualBlock[] = [];
-    try {
-      const parsed = JSON.parse(r.blocks);
-      if (Array.isArray(parsed)) blocks = parsed as VisualBlock[];
-    } catch {
-      blocks = [];
-    }
     return {
       sessionId: r.sessionId,
       state: r.state,
@@ -2607,9 +2642,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       headline: r.headline ?? "",
       body: r.body ?? "",
       skip: parseSkipReason(r.skipReason),
-      openItems,
-      changedFiles,
-      blocks,
+      failure: r.skipReason ? null : parseFailureReason(r.failureReason),
+      diffState:
+        r.diffState === "none" || r.diffState === "present" || r.diffState === "landed"
+          ? r.diffState
+          : null,
+      openItems: safeJsonArray(r.openItems),
+      changedFiles: safeJsonArray(r.changedFiles),
+      blocks: parseRecapBlocks(r.blocks),
       spawnSessionId: r.spawnSessionId ?? "",
       cwd: r.cwd ?? "",
       model: r.model ?? null,
@@ -2631,7 +2671,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getRecap(sessionId: string): Recap | null {
     const r = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, failureReason, diffState, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE sessionId = ?`,
       )
@@ -2641,13 +2681,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putRecap(recap: Recap): void {
     this.db.run(
-      `INSERT INTO recaps (sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles,
+      `INSERT INTO recaps (sessionId, state, headSha, base, verdict, headline, body, skipReason, failureReason, diffState, openItems, changedFiles,
          blocks, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET state=excluded.state, headSha=excluded.headSha,
          base=excluded.base,
          verdict=excluded.verdict, headline=excluded.headline, body=excluded.body,
          skipReason=excluded.skipReason,
+         failureReason=excluded.failureReason,
+         diffState=excluded.diffState,
          openItems=excluded.openItems, changedFiles=excluded.changedFiles,
          blocks=excluded.blocks,
          spawnSessionId=excluded.spawnSessionId,
@@ -2661,7 +2703,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         recap.verdict ?? null,
         recap.headline ?? "",
         recap.body ?? "",
-        recap.skip ? JSON.stringify(recap.skip) : null,
+        serializeRecapSkip(recap),
+        serializeRecapFailure(recap),
+        recap.diffState ?? null,
         JSON.stringify(recap.openItems ?? []),
         JSON.stringify(recap.changedFiles ?? []),
         JSON.stringify(recap.blocks ?? []),
@@ -2675,13 +2719,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** All recaps except `empty` ones — the UI never shows an empty recap. */
+  /** All recaps, including pre-feature `empty` rows whose historical cause the UI explains. */
   snapshotRecaps(): Record<string, Recap> {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, failureReason, diffState, openItems, changedFiles, blocks,
                 spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
-              FROM recaps WHERE state != 'empty'`,
+              FROM recaps`,
       )
       .all() as RecapRow[];
     const out: Record<string, Recap> = {};
@@ -2693,7 +2737,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   generatingRecaps(): Recap[] {
     const rows = this.db
       .query(
-        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, openItems, changedFiles, blocks,
+        `SELECT sessionId, state, headSha, base, verdict, headline, body, skipReason, failureReason, diffState, openItems, changedFiles, blocks,
                 pendingDiff, spawnSessionId, cwd, model, spawnedAt, generatedAt, updatedAt
               FROM recaps WHERE state = 'generating'`,
       )
@@ -3287,6 +3331,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("spawnTerminalId", `spawnTerminalId TEXT`);
     add("spawnAccountDir", `spawnAccountDir TEXT`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
+    add("archiveReason", `archiveReason TEXT`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -4740,6 +4785,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       haltedAt: r.haltedAt ?? null,
       manualSteps: parseManualStepsJson(r.manualStepsJson),
       manualStepsAckedAt: r.manualStepsAckedAt ?? null,
+      archiveReason: parseArchiveReason(r.archiveReason),
       launchMetadata: parseLaunchMetadataJson(r.launchMetadataJson),
       experimentId: r.experimentId ?? null,
       experimentRole:

@@ -56,15 +56,17 @@
   }
   .edp-child-title {
     color: var(--color-ink);
-    font-size: var(--fs-meta);
+    font-size: var(--fs-base);
   }
   .edp-child-num {
     color: var(--color-accent);
     margin-right: 3px;
   }
   .edp-child-body {
+    max-width: 74ch;
     color: var(--color-muted);
-    font-size: var(--fs-micro);
+    font-size: var(--fs-base);
+    line-height: 1.45;
   }
   .edp-blocked {
     color: var(--color-amber);

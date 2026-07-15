@@ -92,6 +92,46 @@ describe.each([
 
     unmount();
   });
+
+  it("uses readable text measures and standard-sized review controls", async () => {
+    const sessionId = `epic-draft-modal-readability-${label}`;
+    epicDrafts.upsert(longDraft(sessionId));
+
+    const { container, unmount } = await render(EpicDraftModal, {
+      sessionId,
+      sessionLive: true,
+      onclose: () => {},
+    });
+    const card = container.querySelector<HTMLElement>(".card");
+    if (card) card.style.width = `${width}px`;
+
+    const parentBody = container.querySelector<HTMLElement>(".parent-body")!;
+    const criteria = container.querySelector<HTMLElement>(".crit")!;
+    const childTitle = container.querySelector<HTMLElement>(".edp-child-title")!;
+    const childBody = container.querySelector<HTMLElement>(".edp-child-body")!;
+    const input = container.querySelector<HTMLInputElement>(".amend-input")!;
+    const buttons = [...container.querySelectorAll<HTMLButtonElement>(".btn")];
+    const bodyFontSize = parseFloat(getComputedStyle(document.body).fontSize);
+
+    for (const element of [parentBody, criteria, childTitle, childBody]) {
+      expect(parseFloat(getComputedStyle(element).fontSize)).toBe(bodyFontSize);
+    }
+    for (const element of [parentBody, criteria, childBody]) {
+      const style = getComputedStyle(element);
+      expect(parseFloat(style.lineHeight) / parseFloat(style.fontSize)).toBeGreaterThanOrEqual(1.45);
+      expect(style.maxWidth).not.toBe("none");
+    }
+
+    expect(parseFloat(getComputedStyle(input).fontSize)).toBeGreaterThanOrEqual(bodyFontSize);
+    expect(input.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expect(buttons.length).toBeGreaterThan(0);
+    for (const button of buttons) {
+      expect(parseFloat(getComputedStyle(button).fontSize)).toBe(bodyFontSize);
+      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    }
+
+    unmount();
+  });
 });
 
 describe("EpicDraftModal — dialog behavior", () => {

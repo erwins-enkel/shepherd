@@ -380,6 +380,7 @@
   }
   .parent-body {
     margin: 0;
+    max-width: 74ch;
     color: var(--color-ink);
     font-size: var(--fs-base);
     line-height: 1.5;
@@ -387,6 +388,7 @@
   }
   .crit {
     margin: 0;
+    max-width: 74ch;
     padding-left: 18px;
     color: var(--color-ink);
     font-size: var(--fs-base);

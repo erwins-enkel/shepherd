@@ -160,8 +160,11 @@ function assertControlsWithin(cell: HTMLElement) {
     const expectedTouchHeight = Number.parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
     );
+    // Every tappable control reaches the 44px touch floor — including the promoted
+    // interactive status-chips (Issue link <a>, PR-menu trigger <button>), which used to
+    // render at ~23px below the floor (the a11y bug this change fixes).
     const touchButtons = rail!.querySelectorAll<HTMLElement>(
-      "button.gbtn, button.verdict-chip, button.ready-toggle",
+      "button.gbtn, button.verdict-chip, button.ready-toggle, a.status-chip, button.status-chip",
     );
     expect(expectedTouchHeight, "mobile actionbar height token").toBeGreaterThan(0);
     expect(touchButtons.length, "mobile rail has touch buttons").toBeGreaterThan(0);
@@ -171,6 +174,26 @@ function assertControlsWithin(cell: HTMLElement) {
       expect(button.getBoundingClientRect().height, `${label} uses mobile touch height`).toBe(
         expectedTouchHeight,
       );
+    }
+    // Conversely, de-boxed passive readouts (<span> status/verdict chips) must NOT be blown up
+    // into 44px boxes — they stay short inline labels (no fake tap targets) — and must sit
+    // before the first tap target in DOM order (grouped into the leading status zone).
+    const passiveLabels = rail!.querySelectorAll<HTMLElement>(
+      "span.status-chip, span.verdict-chip",
+    );
+    const firstControl = rail!.querySelector<HTMLElement>("button, a[href]");
+    for (const label of passiveLabels) {
+      const name = label.textContent?.trim() || label.className;
+      expect(
+        label.getBoundingClientRect().height,
+        `${name} passive label must stay short (not a 44px box)`,
+      ).toBeLessThan(expectedTouchHeight);
+      if (firstControl) {
+        expect(
+          Boolean(label.compareDocumentPosition(firstControl) & Node.DOCUMENT_POSITION_FOLLOWING),
+          `${name} passive label must precede the first control`,
+        ).toBe(true);
+      }
     }
     const tallest = Math.max(...[...controls].map((c) => c.getBoundingClientRect().height));
     const railH = rail!.getBoundingClientRect().height;
@@ -685,6 +708,120 @@ describe("GitRail — controls stay within the cell", () => {
     await expect.element(screen.getByRole("button", { name: /confirm/i })).toBeVisible();
 
     assertControlsWithin(h);
+  });
+});
+
+describe("GitRail — status │ actions seam (no orphan dividers)", () => {
+  async function railOf(h: HTMLElement): Promise<HTMLElement> {
+    return await vi.waitFor(() => {
+      const r = h.querySelector<HTMLElement>(".rail");
+      expect(r, "rail mounted").not.toBeNull();
+      return r!;
+    });
+  }
+
+  it("open: exactly one seam, between the passive readouts and the tap targets", async () => {
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    const rail = await railOf(h);
+    await vi.waitFor(() =>
+      expect(rail.querySelector("button.status-chip"), "PR button present").not.toBeNull(),
+    );
+    const seams = rail.querySelectorAll(".rail-status-sep");
+    expect(seams.length, "exactly one status│actions seam").toBe(1);
+    const seam = seams[0];
+    const ci = rail.querySelector("span.status-chip"); // CI readout (passive)
+    const prBtn = rail.querySelector("button.status-chip"); // PR menu trigger (action)
+    expect(ci, "CI passive label present").not.toBeNull();
+    expect(prBtn, "PR action present").not.toBeNull();
+    // CI (passive) precedes the seam; the PR button (action) follows it
+    expect(Boolean(ci!.compareDocumentPosition(seam) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    expect(Boolean(seam.compareDocumentPosition(prBtn!) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(
+      true,
+    );
+    // right-pin: first .rail child is the leading passive chip (gets margin-left:auto)
+    expect(rail.firstElementChild, "first child is the leading passive readout").toBe(ci);
+  });
+
+  it("state:none + autopilot on: no seam, first child is the auto-pill divider (leading-orphan guard)", async () => {
+    const noneState: GitState = {
+      kind: "github",
+      state: "none",
+      checks: "none",
+      deployConfigured: false,
+    };
+    gitStateFn.mockResolvedValue(noneState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    // repoPath present → auto-pill renders; autopilotOn hides Open PR → BOTH zones empty
+    await render(GitRail, { target: h, props: { ...baseProps, mobile: true, autopilotOn: true } });
+    const rail = await railOf(h);
+    await vi.waitFor(() =>
+      expect(rail.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
+    );
+    expect(rail.querySelector(".rail-status-sep"), "no dangling status seam").toBeNull();
+    // no leading orphan: first child is GitRail's own rail-sep, so margin-left:auto lands on a
+    // real divider rather than a 1px status seam
+    expect(
+      rail.firstElementChild?.classList.contains("rail-sep"),
+      "first child is the auto-pill divider",
+    ).toBe(true);
+  });
+
+  it("state:none + autopilot off: no seam, first child is the Open PR action (empty-passive right-pin)", async () => {
+    const noneState: GitState = {
+      kind: "github",
+      state: "none",
+      checks: "none",
+      deployConfigured: false,
+    };
+    gitStateFn.mockResolvedValue(noneState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    await render(GitRail, {
+      target: h,
+      props: { ...baseProps, mobile: true, autopilotOn: false },
+    });
+    const rail = await railOf(h);
+    await vi.waitFor(() =>
+      expect(rail.querySelector("button.gbtn"), "Open PR present").not.toBeNull(),
+    );
+    expect(rail.querySelector(".rail-status-sep"), "no seam without passive").toBeNull();
+    // right-pin with empty passive zone: first child is the first tap target (Open PR)
+    expect(
+      rail.firstElementChild?.matches("button.gbtn"),
+      "first child is the Open PR button",
+    ).toBe(true);
+  });
+
+  it("state:closed: passive label but empty actions → no seam, no double divider (trailing-orphan guard)", async () => {
+    const closedState: GitState = {
+      kind: "github",
+      state: "closed",
+      checks: "none",
+      deployConfigured: false,
+    };
+    gitStateFn.mockResolvedValue(closedState);
+    await page.viewport(400, 900);
+    const h = host(360);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: true } });
+    await expect.element(screen.getByText(/closed/i)).toBeVisible();
+    const rail = await railOf(h);
+    await vi.waitFor(() =>
+      expect(rail.querySelector(".auto-pill"), "auto-pill present").not.toBeNull(),
+    );
+    expect(rail.querySelector(".rail-status-sep"), "no trailing status seam").toBeNull();
+    // only ONE divider precedes the auto-pill (GitRail's rail-sep) — never `│ │`
+    expect(rail.querySelectorAll(".rail-sep").length, "single divider, no doubling").toBe(1);
+    // right-pin with passive present: first child is the CLOSED readout
+    expect(
+      rail.firstElementChild?.matches("span.status-chip"),
+      "first child is the CLOSED label",
+    ).toBe(true);
   });
 });
 

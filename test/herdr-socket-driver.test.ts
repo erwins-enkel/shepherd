@@ -283,7 +283,14 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
     const rec: { method: string; params: unknown }[] = [];
     const driver = new SocketHerdrDriver(writeClient(rec), fakeCli() as unknown as HerdrDriver);
 
-    await driver.start("plan-review TASK-693", "/repo/worktree", ["codex", "exec", "go"]);
+    await driver.start("plan-review TASK-707", "/repo/worktree", [
+      "bwrap",
+      "--die-with-parent",
+      "--",
+      "codex",
+      "exec",
+      "go",
+    ]);
 
     expect(rec.map((r) => r.method)).toEqual(["workspace.list", "tab.create", "agent.start"]);
   });

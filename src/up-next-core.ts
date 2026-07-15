@@ -109,7 +109,15 @@ export const PRIORITY_CAP = 10;
 export const REPO_CAP = 5;
 
 const BUG_LABELS = new Set(["bug", "type/bug", "type:bug"]);
-const EXCLUDE_LABELS = new Set(["wontfix", "wont-fix", "blocked"]);
+const EXCLUDE_LABELS = new Set(["wontfix", "wont-fix"]);
+/** Word-boundary "blocked" match — mirrors BLOCKED_LABEL_RE / isBlocked in
+ *  ui/src/lib/components/issues-panel.ts (kept in sync for server↔UI parity; no shared module
+ *  spans src/ ↔ ui/). Matches `blocked`, `blocked-upstream`, `status:blocked`; NOT `unblocked`
+ *  or `blocking`. Up Next only lists startable work, so any blocked-labeled issue is dropped. */
+const BLOCKED_LABEL_RE = /\bblocked/i;
+function hasBlockedLabel(labels: string[]): boolean {
+  return labels.some((l) => BLOCKED_LABEL_RE.test(l));
+}
 const KIND_RANK: Record<UpNextKind, number> = { epic: 0, bug: 1, feature: 2 };
 
 function lc(labels: string[]): Set<string> {
@@ -150,6 +158,7 @@ function isAssignedToOthers(assignees: string[], viewer: string | null): boolean
 function isExcludedIssue(issue: Issue, labelSet: Set<string>): boolean {
   if (hasLabel(labelSet, ACTIVE_LABEL)) return true;
   if (intersects(labelSet, EXCLUDE_LABELS)) return true;
+  if (hasBlockedLabel(issue.labels)) return true; // blocked-word label (any boundary variant)
   if (isBotAuthored(issue)) return true;
   if (issue.blockedBy && issue.blockedBy.length > 0) return true; // dependency-blocked (#1622)
   return false;
@@ -185,6 +194,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
   const parentLabelSet = lc(e.parentLabels);
   if (hasLabel(parentLabelSet, ACTIVE_LABEL)) return null;
   if (intersects(parentLabelSet, EXCLUDE_LABELS)) return null;
+  if (hasBlockedLabel(e.parentLabels)) return null; // blocked-word label (any boundary variant)
   if (isAssignedToOthers(e.parentAssignees, repo.viewer)) return null; // #824 (keyed on parent)
   if (e.parentBlockedBy && e.parentBlockedBy.length > 0) return null; // epic parent dependency-blocked
   if (linkedSet.has(c.number)) return null; // the child already has a PR in flight

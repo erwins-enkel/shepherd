@@ -4,7 +4,16 @@
   import { listPullRequests } from "$lib/api";
   import type { PullRequest } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { prsFilter } from "$lib/prs-filter.svelte";
+  import {
+    hideDraftPrs,
+    hideConflictPrs,
+    hideFailingCiPrs,
+    filterByAuthor,
+    distinctAuthors,
+  } from "./prs-panel";
   import PrRow from "./PrRow.svelte";
+  import PrFilterPopover from "./PrFilterPopover.svelte";
   import RepoLink from "./RepoLink.svelte";
 
   let {
@@ -31,12 +40,35 @@
   let repoUrl = $state<string | null>(null);
   let loading = $state(true);
 
-  // Multi-select for launching a merge train. Holds PR numbers; the launch
-  // payload is always reconciled against the present list so a row that merged
-  // out from under the set can't keep a phantom number armed.
+  // Repo-scoped author filter. Selection is local (not the global prsFilter store)
+  // because the option set is repo-specific; reset on repo change and pruned on refresh
+  // (see the effects below). Options are derived from the RAW `prs` list so picking one
+  // author doesn't drop the others from the picker.
+  let selectedAuthor = $state<string | null>(null);
+  const availableAuthors = $derived(distinctAuthors(prs));
+
+  // The three global toggle filters (drafts / conflicts / failed CI) → the repo-scoped
+  // author filter. Pure derive over the loaded list — no API round-trip. Everything the
+  // panel renders and acts on (rows, select-all, launch train, empty state) keys off this,
+  // so a hidden PR can never be armed into a merge train.
+  const visiblePrs = $derived(
+    filterByAuthor(
+      hideFailingCiPrs(
+        hideConflictPrs(hideDraftPrs(prs, prsFilter.hideDrafts), prsFilter.hideConflicts),
+        prsFilter.hideFailingCi,
+      ),
+      selectedAuthor,
+    ),
+  );
+
+  // Multi-select for launching a merge train. Holds PR numbers; the launch payload is
+  // always reconciled against the VISIBLE list so a row that merged out — or that a filter
+  // now hides — can't keep a phantom number armed.
   let selected = new SvelteSet<number>();
-  const presentSelected = $derived(prs.filter((p) => selected.has(p.number)));
-  const allSelected = $derived(prs.length > 0 && presentSelected.length === prs.length);
+  const presentSelected = $derived(visiblePrs.filter((p) => selected.has(p.number)));
+  const allSelected = $derived(
+    visiblePrs.length > 0 && presentSelected.length === visiblePrs.length,
+  );
 
   function toggle(n: number) {
     if (selected.has(n)) selected.delete(n);
@@ -44,7 +76,7 @@
   }
   function toggleAll() {
     if (allSelected) selected.clear();
-    else for (const p of prs) selected.add(p.number);
+    else for (const p of visiblePrs) selected.add(p.number);
   }
 
   // `silent` reloads without flipping the full-panel loading placeholder — used
@@ -71,9 +103,21 @@
     // of `selected` and a plain row-toggle would wrongly wipe the selection.
     const rp = repoPath;
     untrack(() => {
-      // Selection must never leak across repos — clear it whenever the repo flips.
+      // Selection + author filter must never leak across repos — reset whenever the repo flips.
       selected.clear();
+      selectedAuthor = null;
       load(rp);
+    });
+  });
+
+  // Prune a selected author that a refresh removed from the current PR set — otherwise an
+  // absent-but-selected author keeps filtering while its picker entry is gone (the popover
+  // only lists present authors), stranding the list unclearable. Keyed on the derived option
+  // set (which depends on `prs`, not on the selection), so it can't loop; write is untracked.
+  $effect(() => {
+    const authors = availableAuthors;
+    untrack(() => {
+      if (selectedAuthor != null && !authors.includes(selectedAuthor)) selectedAuthor = null;
     });
   });
 
@@ -93,6 +137,11 @@
 
   {#if prs.length > 0}
     <div class="prs-toolbar">
+      <PrFilterPopover
+        authors={availableAuthors}
+        {selectedAuthor}
+        onauthor={(a) => (selectedAuthor = a)}
+      />
       <button type="button" class="link" onclick={toggleAll}>
         {allSelected ? m.prspanel_clear_all() : m.prspanel_select_all()}
       </button>
@@ -115,8 +164,10 @@
       <div class="muted">{m.issuespanel_no_host()}</div>
     {:else if prs.length === 0}
       <div class="muted">{m.prspanel_no_open()}</div>
+    {:else if visiblePrs.length === 0}
+      <div class="muted">{m.prspanel_none_match()}</div>
     {:else}
-      {#each prs as pr (pr.number)}
+      {#each visiblePrs as pr (pr.number)}
         <PrRow
           {repoPath}
           {pr}

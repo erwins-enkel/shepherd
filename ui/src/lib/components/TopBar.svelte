@@ -594,8 +594,11 @@
   // under measured overflow (compactBadges), where the gear opens the menu (which
   // carries Documentation + Settings) even with an idle herd, so those stay reachable
   // once the bar has crowded down to icons.
-  // Plugin items also force menu mode: their actions live in the menu, not the gear click.
-  const gearOpensMenu = $derived(mobile || haltable > 0 || compactBadges || pluginItems.length > 0);
+  // Learnings and plugin items also force menu mode: their actions live in the menu,
+  // not the gear's direct-to-Settings click.
+  const gearOpensMenu = $derived(
+    mobile || haltable > 0 || compactBadges || learningsPresent || pluginItems.length > 0,
+  );
   // Mobile only: settings-owned diagnostics attention collapses into one dot on
   // the gear, because the Diagnose row lives inside the gear sheet on phones.
   // Herd/session state stays on the tallies and rows instead of duplicating here.
@@ -636,6 +639,10 @@
     menuOpen = false;
     disarmHalt();
     onusage?.();
+  }
+  function chooseLearnings() {
+    closeMenu();
+    onlearnings?.();
   }
   function choosePlugin(id: string) {
     menuOpen = false;
@@ -678,6 +685,11 @@
     // Under measured overflow the gear is a menu button even with an idle herd, so keep
     // the menu open here too — just drop armed state.
     if (compactBadges) {
+      disarmHalt();
+      return;
+    }
+    // Pending Learnings keep the desktop menu valid with an idle herd so the row stays reachable.
+    if (learningsPresent) {
       disarmHalt();
       return;
     }
@@ -835,6 +847,12 @@
       {clickHalt}
       {chooseSettings}
       {chooseUsage}
+      {learningsPresent}
+      {learnings}
+      {learningsCurate}
+      {learningsLabel}
+      {learningsCount}
+      {chooseLearnings}
       {onMenuKey}
       {onFeedback}
       {pluginItems}

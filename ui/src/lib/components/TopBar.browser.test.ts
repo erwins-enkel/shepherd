@@ -2134,6 +2134,64 @@ describe("TopBar — mobile learnings sheet row", () => {
   });
 });
 
+describe("TopBar — desktop learnings menu row", () => {
+  it("idle desktop: learnings opens the menu, calls onlearnings, and closes", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onlearnings = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: [{ id: "d1", status: "done" }] as unknown as Session[],
+      learnings: 2,
+      onlearnings,
+    });
+
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const learningsItem = page.getByRole("menuitem", {
+      name: m.learnings_open_aria({ count: 2 }),
+    });
+    await expect.element(learningsItem).toBeInTheDocument();
+    await learningsItem.click();
+    expect(onlearnings).toHaveBeenCalledTimes(1);
+    await expect.element(learningsItem).not.toBeInTheDocument();
+  });
+
+  it("desktop menu: choosing learnings disarms the halt action", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onhalt = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(1),
+      learnings: 2,
+      onhalt,
+    });
+
+    const menuItem = (name: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].find(
+        (item) => item.getAttribute("aria-label") === name,
+      );
+    const gear = document.querySelector<HTMLButtonElement>(".gear")!;
+
+    gear.click();
+    await Promise.resolve();
+    menuItem(m.halt_all_aria({ count: 1 }))!.click();
+    menuItem(m.learnings_open_aria({ count: 2 }))!.click();
+    await Promise.resolve();
+
+    gear.click();
+    await Promise.resolve();
+    const haltItem = menuItem(m.halt_all_aria({ count: 1 }));
+    expect(haltItem, "halt action is unarmed after choosing Learnings").toBeDefined();
+    haltItem!.click();
+    expect(onhalt).not.toHaveBeenCalled();
+  });
+});
+
 describe("TopBar — mobile gear sheet portals out of transformed ancestor", () => {
   // Regression guard for the fixed-containing-block bug: on mobile the sheet lives
   // inside <header class="chrome"> which carries `will-change: transform` on

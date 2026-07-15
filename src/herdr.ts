@@ -313,9 +313,11 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
 
 /** A headless Codex role shares its tab's process lifetime with the initial shell pane.
  * Closing that pane immediately after `agent start` can terminate the role before it writes its
- * file-based result, so transient `codex exec` runs deliberately retain it. */
+ * file-based result, so direct `codex exec` and membrane-wrapped `bwrap … -- codex exec` runs
+ * deliberately retain it. */
 export function isHeadlessCodexExec(argv: string[]): boolean {
-  return argv[0] === "codex" && argv[1] === "exec";
+  const commandStart = argv[0] === "bwrap" ? argv.indexOf("--") + 1 : 0;
+  return argv[commandStart] === "codex" && argv[commandStart + 1] === "exec";
 }
 
 /**

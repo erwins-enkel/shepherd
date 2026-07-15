@@ -1,5 +1,12 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { HerdrDriver, mapState, matchAgent, matchAgents, type HerdrAgent } from "../src/herdr";
+import {
+  HerdrDriver,
+  isHeadlessCodexExec,
+  mapState,
+  matchAgent,
+  matchAgents,
+  type HerdrAgent,
+} from "../src/herdr";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
 // shim that start() prepends to every agent argv is assertable.
@@ -304,11 +311,29 @@ test("start: keeps the root pane alive for a headless codex exec role", async ()
   };
   const d = new HerdrDriver(runner, async (a) => runner(a));
 
-  const agent = await d.start("plan-review TASK-693", "/wt/a", ["codex", "exec", "go"]);
+  const agent = await d.start("plan-review TASK-707", "/wt/a", [
+    "bwrap",
+    "--die-with-parent",
+    "--",
+    "codex",
+    "exec",
+    "go",
+  ]);
 
   expect(agent).toMatchObject({ terminalId: "term_started", tabId: "t_new" });
   expect(tabPresent).toBe(true);
   expect(calls.some((c) => c[0] === "pane" && c[1] === "close")).toBe(false);
+});
+
+test("isHeadlessCodexExec recognizes direct and bwrap-wrapped exec roles only", () => {
+  expect(isHeadlessCodexExec(["codex", "exec", "go"])).toBe(true);
+  expect(isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "exec", "go"])).toBe(
+    true,
+  );
+  expect(
+    isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "--no-alt-screen"]),
+  ).toBe(false);
+  expect(isHeadlessCodexExec(["claude", "codex exec appears only in prompt"])).toBe(false);
 });
 
 const TAB_LIST = JSON.stringify({

@@ -4502,6 +4502,9 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       optimizerCli: config.optimizerCli,
       optimizerModel: config.optimizerModel,
       optimizerEffort: config.optimizerEffort,
+      mergeSuggestCli: config.mergeSuggestCli,
+      mergeSuggestModel: config.mergeSuggestModel,
+      mergeSuggestEffort: config.mergeSuggestEffort,
       distillerIntervalDays: config.distillerIntervalDays,
       distillerIntervalDaysMin: DISTILLER_INTERVAL_DAYS_MIN,
       distillerIntervalDaysMax: DISTILLER_INTERVAL_DAYS_MAX,
@@ -4595,6 +4598,9 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["optimizerCli", makeRoleCliPatch("optimizer")],
   ["optimizerModel", makeRoleModelPatch("optimizer")],
   ["optimizerEffort", makeRoleEffortPatch("optimizer")],
+  ["mergeSuggestCli", makeRoleCliPatch("mergeSuggest")],
+  ["mergeSuggestModel", makeRoleModelPatch("mergeSuggest")],
+  ["mergeSuggestEffort", makeRoleEffortPatch("mergeSuggest")],
   ["distillerIntervalDays", putDistillerIntervalDays],
   ["namerCli", makeRoleCliPatch("namer")],
   ["namerModel", makeRoleModelPatch("namer")],
@@ -4717,7 +4723,8 @@ type RoleKey =
   | "namer"
   | "autopilot"
   | "distiller"
-  | "optimizer";
+  | "optimizer"
+  | "mergeSuggest";
 
 function makeRoleCliPatch(role: RoleKey): (value: unknown, deps: Ctx["deps"]) => Response {
   const key = `${role}Cli` as const;

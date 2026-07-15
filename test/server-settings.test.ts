@@ -36,6 +36,7 @@ const ROLE_BASES = [
   "autopilot",
   "distiller",
   "optimizer",
+  "mergeSuggest",
 ] as const;
 let savedRoleEnvs: Record<string, string>;
 let savedDefaultAgentProvider: typeof config.defaultAgentProvider;
@@ -502,7 +503,7 @@ test("GET and PUT resolve a ChatGPT-incompatible Codex model to provider default
   expect(store.getSetting("defaultCodexModel")).toBe("default");
 });
 
-// ── per-role environment settings (cli + model) for the six roles ──
+// ── per-role environment settings (cli + model + effort) ──
 test("GET /api/settings includes every per-role cli + model + effort setting (raw, unresolved)", async () => {
   config.criticCli = "codex";
   config.criticModel = "gpt-5.5";
@@ -519,6 +520,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   config.optimizerCli = "codex";
   config.optimizerModel = "gpt-5.5";
   config.optimizerEffort = "medium";
+  config.mergeSuggestCli = "codex";
+  config.mergeSuggestModel = "gpt-5.5";
+  config.mergeSuggestEffort = "high";
   const { app } = harness();
   const body = await (await app.fetch(new Request("http://x/api/settings"))).json();
   expect(body.criticCli).toBe("codex");
@@ -536,6 +540,9 @@ test("GET /api/settings includes every per-role cli + model + effort setting (ra
   expect(body.optimizerCli).toBe("codex");
   expect(body.optimizerModel).toBe("gpt-5.5");
   expect(body.optimizerEffort).toBe("medium");
+  expect(body.mergeSuggestCli).toBe("codex");
+  expect(body.mergeSuggestModel).toBe("gpt-5.5");
+  expect(body.mergeSuggestEffort).toBe("high");
 });
 
 for (const role of ROLE_BASES) {

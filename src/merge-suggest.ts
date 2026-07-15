@@ -7,9 +7,10 @@ import type { HerdrDriver } from "./herdr";
 import { HerdrUnavailableError } from "./herdr";
 import type { Learning, MergeSuggestionKind } from "./types";
 import { normalizeRule } from "./distiller";
-import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
+import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
+import type { RoleEnvironment } from "./default-model";
 
 const RULES_FILE = "rules.json";
 const OUTPUT_FILE = ".shepherd-merge.json";
@@ -69,6 +70,7 @@ export interface MergeSuggestionDeps {
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
   model?: string | null;
+  environment?: () => RoleEnvironment;
   now?: () => number;
   timeoutMs?: number;
   /** Min active rules in a repo before an intra pass runs (default 8). */
@@ -215,8 +217,13 @@ export class MergeSuggestionService {
     }
 
     const { dir } = this.deps.scratch.create();
+    const environment = this.deps.environment?.() ?? {
+      provider: "claude" as const,
+      model: this.deps.model ?? null,
+      effort: null,
+    };
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
-    if (isApiKeyMode() && !isApiKeyConfigured()) {
+    if (apiKeyFailClosed(environment.provider)) {
       console.warn(
         "[merge] api-key mode enabled but no API key configured — skipping (fail closed)",
       );
@@ -237,7 +244,9 @@ export class MergeSuggestionService {
     // Read-only merge suggester — the shared `writer-ro` transient-agent shape (untrusted
     // agent-authored rule text); see buildTransientAgentArgv for the flag-order + isolation rationale.
     const { argv, sessionId } = buildTransientAgentArgv("writer-ro", {
-      model: this.deps.model ?? null,
+      provider: environment.provider,
+      model: environment.model,
+      effort: environment.effort,
       prompt: kind === "cross" ? crossPrompt() : intraPrompt(),
     });
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
@@ -260,7 +269,12 @@ export class MergeSuggestionService {
     this.inflight.set(key, entry);
     try {
       entry.terminalId = (
-        await this.deps.herdr.start(agentName, dir, argv, apiKeyPassthroughEnv(false))
+        await this.deps.herdr.start(
+          agentName,
+          dir,
+          argv,
+          environment.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined,
+        )
       ).terminalId;
     } catch (err) {
       this.inflight.delete(key); // release the reservation

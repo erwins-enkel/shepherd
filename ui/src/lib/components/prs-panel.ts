@@ -51,10 +51,11 @@ export function filterByAuthor(prs: readonly PullRequest[], author: string | nul
 }
 
 /**
- * Distinct author logins present in a PR list, sorted case-insensitively.
- * PRs without an author contribute nothing. Source for the author filter's radio
- * options — computed from the RAW list so picking one author doesn't make the
- * others vanish from the picker.
+ * Distinct author logins present in a PR list, deduped by exact (case-sensitive)
+ * login then sorted case-insensitively — logins are case-sensitive identifiers, so
+ * `Bob` and `bob` are kept as separate entries. PRs without an author contribute
+ * nothing. Source for the author filter's radio options — computed from the RAW list
+ * so picking one author doesn't make the others vanish from the picker.
  */
 export function distinctAuthors(prs: readonly PullRequest[]): string[] {
   const seen = new Set<string>();

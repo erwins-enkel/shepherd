@@ -98,6 +98,11 @@ function rundownArgv(
   });
 }
 
+function rundownSpawnEnv(environment: RoleEnvironment): Record<string, string> | undefined {
+  if (environment.provider !== "claude") return undefined;
+  return apiKeyPassthroughEnv(false);
+}
+
 /** `YYYY-MM-DD` for the operator's LOCAL day at `now`. The single-flight key. */
 export function dayKeyFor(now: number): string {
   const d = new Date(now);
@@ -361,12 +366,7 @@ export class HerdDigestService {
 
       const cwd = this._makeTmpDir();
       try {
-        await this.deps.herdr.start(
-          "rundown",
-          cwd,
-          argv,
-          environment.provider === "claude" ? apiKeyPassthroughEnv(false) : undefined,
-        );
+        await this.deps.herdr.start("rundown", cwd, argv, rundownSpawnEnv(environment));
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so a later sweep can retry

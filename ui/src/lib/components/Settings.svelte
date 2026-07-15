@@ -59,6 +59,7 @@
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
   import SettingsDefaultEnvironment from "$lib/components/settings/SettingsDefaultEnvironment.svelte";
+  import SettingsSection from "$lib/components/settings/SettingsSection.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
   import { dialog } from "$lib/a11yDialog";
@@ -1236,42 +1237,42 @@
       aria-label={m.settings_tab_coding_agents()}
       hidden={tab !== "codingAgents"}
     >
-      <SettingsDefaultEnvironment
-        bind:defaultAgentProvider
-        bind:defaultModel
-        bind:defaultCodexModel
-        {defaultAgentProviderBusy}
-        {defaultModelBusy}
-        {defaultCodexModelBusy}
-        {fableAvailable}
-        onProviderChange={saveDefaultAgentProvider}
-        onClaudeModelChange={saveDefaultModel}
-        onCodexModelChange={saveDefaultCodexModel}
-      />
+      <SettingsSection title={m.settings_cli_defaults_title()} defaultOpen>
+        <SettingsDefaultEnvironment
+          bind:defaultAgentProvider
+          bind:defaultModel
+          bind:defaultCodexModel
+          {defaultAgentProviderBusy}
+          {defaultModelBusy}
+          {defaultCodexModelBusy}
+          {fableAvailable}
+          onProviderChange={saveDefaultAgentProvider}
+          onClaudeModelChange={saveDefaultModel}
+          onCodexModelChange={saveDefaultCodexModel}
+        />
 
-      <div class="rc">
-        <span class="micro">{m.settings_upnext_skip_cli_picker_label()}</span>
-        <p class="hint">{m.settings_upnext_skip_cli_picker_hint()}</p>
-        <button
-          type="button"
-          class="toggle"
-          role="switch"
-          aria-checked={upnextSkipCliPicker}
-          disabled={upnextSkipCliPickerBusy}
-          onclick={toggleUpnextSkipCliPicker}
-        >
-          <span class="track" class:on={upnextSkipCliPicker}><span class="knob"></span></span>
-          <span class="state"
-            >{upnextSkipCliPicker ? m.settings_usage_hold_on() : m.settings_usage_hold_off()}</span
+        <div class="rc">
+          <span class="micro">{m.settings_upnext_skip_cli_picker_label()}</span>
+          <p class="hint">{m.settings_upnext_skip_cli_picker_hint()}</p>
+          <button
+            type="button"
+            class="toggle"
+            role="switch"
+            aria-checked={upnextSkipCliPicker}
+            disabled={upnextSkipCliPickerBusy}
+            onclick={toggleUpnextSkipCliPicker}
           >
-        </button>
-      </div>
-
-      <div class="cli-section">
-        <div class="cli-head">
-          <span class="micro">{m.settings_cli_claude_title()}</span>
-          <p class="hint">{m.settings_cli_claude_hint()}</p>
+            <span class="track" class:on={upnextSkipCliPicker}><span class="knob"></span></span>
+            <span class="state"
+              >{upnextSkipCliPicker
+                ? m.settings_usage_hold_on()
+                : m.settings_usage_hold_off()}</span
+            >
+          </button>
         </div>
+      </SettingsSection>
+
+      <SettingsSection title={m.settings_cli_claude_title()} hint={m.settings_cli_claude_hint()}>
         <div class="rc">
           <span class="micro">{m.settings_default_effort_title()}</span>
           <p class="hint">{m.settings_default_effort_hint()}</p>
@@ -1368,7 +1369,7 @@
             </div>
           {/if}
         </div>
-      </div>
+      </SettingsSection>
 
       {#snippet roleRow(role: RoleBase)}
         <div class="rc">
@@ -1450,11 +1451,22 @@
         </div>
       {/snippet}
 
-      <div class="cli-section">
-        <div class="cli-head">
-          <span class="micro">{m.settings_role_models_title()}</span>
-          <p class="hint">{m.settings_role_models_hint()}</p>
+      <SettingsSection title={m.settings_cli_codex_title()} hint={m.settings_cli_codex_hint()}>
+        <div class="rc">
+          <span class="micro">{m.settings_cli_codex_auth_title()}</span>
+          <p class="hint">{m.settings_cli_codex_auth_hint()}</p>
+          <select
+            class="model-select"
+            value="local"
+            disabled
+            aria-label={m.settings_cli_codex_auth_title()}
+          >
+            <option value="local">{m.settings_cli_codex_auth_local()}</option>
+          </select>
         </div>
+      </SettingsSection>
+
+      <SettingsSection title={m.settings_role_models_title()} hint={m.settings_role_models_hint()}>
         {#each ROLE_PRIMARY as role (role)}
           {@render roleRow(role)}
         {/each}
@@ -1465,24 +1477,7 @@
             {@render roleRow(role)}
           {/each}
         </details>
-      </div>
-
-      <div class="cli-section">
-        <div class="cli-head">
-          <span class="micro">{m.settings_cli_codex_title()}</span>
-          <p class="hint">{m.settings_cli_codex_hint()}</p>
-        </div>
-        <span class="micro">{m.settings_cli_codex_auth_title()}</span>
-        <p class="hint">{m.settings_cli_codex_auth_hint()}</p>
-        <select
-          class="model-select"
-          value="local"
-          disabled
-          aria-label={m.settings_cli_codex_auth_title()}
-        >
-          <option value="local">{m.settings_cli_codex_auth_local()}</option>
-        </select>
-      </div>
+      </SettingsSection>
     </div>
 
     <div
@@ -2035,28 +2030,7 @@
     flex-direction: column;
     gap: 6px;
   }
-  .cli-section {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    padding: 12px 0 4px;
-    border-top: 1px solid var(--color-line);
-  }
-  .cli-section:first-of-type {
-    border-top: 0;
-  }
-  .cli-head {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
   .rc .hint {
-    color: var(--color-faint);
-    font-size: var(--fs-meta);
-    margin: 0;
-  }
-  .cli-head .hint,
-  .cli-section > .hint {
     color: var(--color-faint);
     font-size: var(--fs-meta);
     margin: 0;

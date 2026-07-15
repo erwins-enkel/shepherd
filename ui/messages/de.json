@@ -3151,5 +3151,8 @@
   "settings_distiller_interval_hint": "Wähle {min}–{max} ganze Tage. Manuelle Läufe werden nie verzögert.",
   "settings_distiller_interval_save_failed": "Das Distiller-Intervall konnte nicht gespeichert werden.",
   "feat_distiller_provider_cadence_title": "Kosten des Learnings-Distillers steuern",
-  "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen."
+  "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen.",
+  "settings_cli_defaults_title": "Globale Standards",
+  "feat_collapsible_coding_cli_sections_title": "Einklappbare Coding-CLI-Einstellungen",
+  "feat_collapsible_coding_cli_sections_body": "Die Coding-CLI-Einstellungen sind jetzt in einklappbare Bereiche gegliedert und praktisch sortiert: globale Standards, Claude Code, Codex und anschließend die Umgebungen der Hilfsagenten."
 }

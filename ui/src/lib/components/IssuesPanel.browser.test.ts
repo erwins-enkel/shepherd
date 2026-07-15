@@ -48,8 +48,9 @@ beforeEach(() => {
   );
 });
 
-afterEach(() => {
+afterEach(async () => {
   document.body.innerHTML = "";
+  await page.viewport(1024, 768);
 });
 
 const noop = () => {};
@@ -128,6 +129,104 @@ describe("IssuesPanel empty vs fetch-failed", () => {
     expect(document.querySelector(".issues-list")?.textContent).not.toContain(
       m.common_no_open_issues(),
     );
+  });
+});
+
+describe("IssuesPanel compact issue rows", () => {
+  it("uses the shared row hierarchy and keeps Task beside bounded forge labels", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: null,
+      issues: [
+        {
+          number: 42,
+          title: "Compact issue row",
+          body: "",
+          url: "https://example.com/issues/42",
+          labels: ["enhancement", "feedback", "operator UX"],
+          labelColors: {
+            enhancement: "#a2eeef",
+            feedback: "#d4c5f9",
+            "operator UX": "#7057ff",
+          },
+          createdAt: 0,
+          assignees: [],
+          author: "octocat",
+        },
+      ],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
+
+    await expect.poll(() => document.querySelector(".issue-main")).toBeTruthy();
+    const row = document.querySelector<HTMLElement>(".issue-main")!;
+    expect(row.classList).toContain("issue-list-row");
+    expect(row.querySelector(".issue-list-number")?.textContent).toBe("#42");
+    expect(row.querySelector(".issue-list-title")?.textContent).toBe("Compact issue row");
+    expect(row.querySelector(".issue-list-author")?.textContent).toContain("octocat");
+    expect(row.querySelectorAll(".issue-label-chip:not(.issue-label-more)")).toHaveLength(2);
+    expect(row.querySelector(".issue-label-more")?.textContent).toContain("+1");
+    expect(row.querySelector(".issue-list-actions .task-btn")).not.toBeNull();
+  });
+
+  it("keeps every narrow-row action scroll-reachable and issue links touch-sized", async () => {
+    await page.viewport(400, 800);
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      viewer: null,
+      issues: [
+        {
+          number: 42,
+          title: "Issue with several quick actions",
+          body: "",
+          url: "https://example.com/issues/42",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+        },
+      ],
+    });
+    mockGetEpics.mockResolvedValue({ epics: [], subIssues: [] });
+
+    const previousSteers = steers.list;
+    steers.list = Array.from({ length: 8 }, (_, index) => ({
+      id: `quick-${index}`,
+      label: `Long action ${index + 1}`,
+      text: `Run action ${index + 1}`,
+      inSteerBar: false,
+      onIssues: true,
+    }));
+
+    try {
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
+      await expect.poll(() => document.querySelectorAll(".quick-btn").length).toBe(8);
+
+      const actions = document.querySelector<HTMLElement>(".issue-actions")!;
+      const buttons = actions.querySelectorAll<HTMLElement>("button");
+      const actionsRect = actions.getBoundingClientRect();
+      expect(actions.scrollWidth).toBeGreaterThan(actions.clientWidth);
+      expect(buttons[0]!.getBoundingClientRect().left).toBeGreaterThanOrEqual(actionsRect.left);
+
+      actions.scrollLeft = actions.scrollWidth;
+      await expect.poll(() => actions.scrollLeft).toBeGreaterThan(0);
+      expect(buttons[buttons.length - 1]!.getBoundingClientRect().right).toBeLessThanOrEqual(
+        actionsRect.right + 1,
+      );
+
+      const hitSize = parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+      );
+      for (const selector of [".issue-num", ".issue-title"]) {
+        const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
+        expect(rect.height).toBeGreaterThanOrEqual(hitSize);
+        expect(rect.width).toBeGreaterThanOrEqual(hitSize);
+      }
+    } finally {
+      steers.list = previousSteers;
+    }
   });
 });
 

@@ -4,7 +4,6 @@
   import { getTodo, listIssues, getCommands } from "$lib/api";
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
-  import { labelChipStyle } from "$lib/label-color";
   import {
     commandInsertable,
     commandInvocation,
@@ -21,7 +20,6 @@
     distinctAuthors,
     distinctLabels,
     labelColorMap,
-    ACTIVE_LABEL,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
@@ -30,6 +28,7 @@
   import { steers } from "$lib/steers.svelte";
   import { repos } from "$lib/repos.svelte";
   import { steerAppliesToRepo } from "$lib/steer-scope";
+  import IssueLabelChips from "./IssueLabelChips.svelte";
 
   let {
     repoPath,
@@ -180,19 +179,6 @@
   let hasTodo = $state<boolean | null>(null);
 
   const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
-
-  // ACTIVE_LABEL (imported from ./issues-panel) is surfaced first + highlighted so
-  // a taken issue reads as already-being-worked-on, same as the Issues panel.
-  // Active-first ordering so the claimed marker survives the 3-chip cap below.
-  const orderedLabels = (labels: string[]): string[] =>
-    labels.includes(ACTIVE_LABEL)
-      ? [ACTIVE_LABEL, ...labels.filter((l) => l !== ACTIVE_LABEL)]
-      : labels;
-
-  // Inline `--lc-*` style vars for a label chip's real forge color, or null for the
-  // system ACTIVE_LABEL (stays semantic amber) / a missing/invalid color (neutral chip).
-  const chipStyle = (lbl: string, colors: Record<string, string> | undefined): string | null =>
-    lbl === ACTIVE_LABEL ? null : labelChipStyle(colors?.[lbl] ?? "");
 
   // Resolve TODO.md eagerly per repo (independent of the active tab) so the To-Do
   // tab is hidden outright when the repo has no TODO.md, and the panel opens on
@@ -448,40 +434,35 @@
           <div class="muted">{m.issues_filter_no_match()}</div>
         {/if}
         {#each visibleIssues as i (i.number)}
-          {@const ordered = orderedLabels(i.labels)}
           {#if epicParents.has(i.number)}
             <!-- Epic-parent tracking issue: not pickable as a manual task (it would
                  collide with the Epic Runner). Shown disabled with an EPIC tag + hint;
                  epics launch via the epic panel's Start control. -->
             <div
-              class="row row-epic"
+              class="issue-list-row issue-source-row row-epic"
               aria-disabled="true"
               title={m.promptsources_epic_hint()}
               use:issueMenuTrigger={{ onopen: (x, y, node) => openMenu(i, false, x, y, node) }}
             >
-              <span class="issue-num">#{i.number}</span>
-              <span class="row-text">{i.title}</span>
+              <span class="issue-list-number">#{i.number}</span>
+              <span class="issue-list-title">{i.title}</span>
               {@render issueAuthor(i.author)}
-              <span class="chips">
-                <span class="chip chip-epic">{m.promptsources_epic_tag()}</span>
-                {@render labelChips(ordered, i.labelColors)}
-              </span>
+              <span class="source-epic-tag">{m.promptsources_epic_tag()}</span>
+              <IssueLabelChips labels={i.labels} labelColors={i.labelColors} />
             </div>
           {:else}
             <button
-              class="row"
+              class="issue-list-row is-interactive issue-source-row"
               type="button"
               onclick={() => onpickissue(i)}
               use:issueMenuTrigger={{
                 onopen: (x, y, node) => openMenu(i, onpicksteer != null, x, y, node),
               }}
             >
-              <span class="issue-num">#{i.number}</span>
-              <span class="row-text">{i.title}</span>
+              <span class="issue-list-number">#{i.number}</span>
+              <span class="issue-list-title">{i.title}</span>
               {@render issueAuthor(i.author)}
-              {#if ordered.length > 0}
-                <span class="chips">{@render labelChips(ordered, i.labelColors)}</span>
-              {/if}
+              <IssueLabelChips labels={i.labels} labelColors={i.labelColors} />
             </button>
           {/if}
         {/each}
@@ -503,36 +484,7 @@
 
 {#snippet issueAuthor(login: string | undefined)}
   {#if login}
-    <span class="issue-author">{m.issuerow_author_by({ login })}</span>
-  {/if}
-{/snippet}
-
-{#snippet labelChips(ordered: string[], colors: Record<string, string> | undefined)}
-  {#each ordered.slice(0, 2) as lbl, idx (lbl)}
-    {@const style = chipStyle(lbl, colors)}
-    <span
-      class="chip"
-      class:chip-2={idx === 1}
-      class:active={lbl === ACTIVE_LABEL}
-      class:hued={style !== null}
-      {style}
-      title={lbl === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}>{lbl}</span
-    >
-  {/each}
-  <!-- Two "+N" counters, one per regime (toggled by the pane-width media query in
-       <style>): the wide regime shows 2 chips so it hides ordered[2..]; the narrow
-       regime shows 1 chip so it hides ordered[1..]. Each title lists ONLY the labels
-       it actually hides — the wide counter must start at slice(2), or it would
-       over-list ordered[1], which is itself a visible chip when wide. -->
-  {#if ordered.length > 2}
-    <span class="chip chip-more more-wide" title={ordered.slice(2).join(", ")}>
-      {m.promptsources_more_labels({ count: ordered.length - 2 })}
-    </span>
-  {/if}
-  {#if ordered.length > 1}
-    <span class="chip chip-more more-narrow" title={ordered.slice(1).join(", ")}>
-      {m.promptsources_more_labels({ count: ordered.length - 1 })}
-    </span>
+    <span class="issue-list-author">{m.issuerow_author_by({ login })}</span>
   {/if}
 {/snippet}
 
@@ -662,34 +614,33 @@
     color: var(--color-faint);
   }
 
-  /* Epic-parent rows are listed but not selectable — muted, no hover affordance. */
-  .row-epic {
-    color: var(--color-faint);
-    cursor: default;
-  }
-
   .row-marker {
     color: var(--color-faint);
     flex-shrink: 0;
     font-size: var(--fs-micro);
   }
 
-  .issue-num {
-    color: var(--color-muted);
-    flex-shrink: 0;
-    font-size: var(--fs-meta);
+  /* Epic-parent rows are listed but not selectable. Their amber EPIC badge is
+     the state signal; the row itself stays quiet and has no hover affordance. */
+  .row-epic {
+    cursor: default;
   }
 
-  /* Subtle "by {login}" author metadata — dimmed, sits between the title and the label
-     chips; shrinks/ellipsates before the title's min-width floor so it never crushes it. */
-  .issue-author {
-    flex-shrink: 1;
-    min-width: 0;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+  .row-epic .issue-list-number,
+  .row-epic .issue-list-title {
     color: var(--color-faint);
+  }
+
+  .source-epic-tag {
+    flex: none;
+    padding: 0 4px;
+    border: 1px solid var(--status-running);
+    border-radius: 2px;
+    background: color-mix(in srgb, var(--status-running) 14%, transparent);
+    color: var(--status-running);
     font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 
   /* Search input fills the sticky .ps-filter-bar wrapper (which provides the
@@ -738,28 +689,16 @@
 
   .row-text {
     flex: 1;
-    /* Explicit floor: flex-basis is 0%, so on a very narrow row (where #num + chips
-       already fill the width) the title would otherwise grow by 0 and sit near 0px.
-       This reserves a readable minimum; the bounded, shrinkable chips yield first. */
+    /* Keep To-Do and command descriptions readable beside their fixed markers. */
     min-width: 6rem;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  /* Up to 2 label chips + a "+N" count (labelChips caps inline chips at 2 in the
-     wide pane, 1 below 520px — see the responsive rule below). The group is bounded
-     so the title keeps the row instead of being crushed to a character: it may
-     shrink (min-width:0), the label chips ellipsate, and the count never clips.
-     Combined with .row-text's min-width floor, the title can't collapse to nothing. */
-  .chips {
-    display: flex;
-    gap: 3px;
-    min-width: 0;
-    flex-shrink: 1;
-  }
-
   .chip {
+    /* Commands-tab scope marker (for example "user"). Issue labels use the
+       shared IssueLabelChips component instead. */
     font-size: var(--fs-micro);
     letter-spacing: 0.08em;
     text-transform: uppercase;
@@ -767,67 +706,9 @@
     border: 1px solid var(--color-faint);
     border-radius: 2px;
     padding: 0 4px;
-    /* Cap a pathologically long single label (e.g. COMPONENT/VALUEMAP…) so it
-       truncates instead of pushing the "+N" count off the row. */
     max-width: 14ch;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-  }
-
-  /* shepherd:active — claimed work. Same semantic running/in-progress token as
-     IssuesPanel so a taken issue stands out with the running-session hue.
-     The EPIC tag (.chip-epic) shares this hue, matching the backlog epic badge. */
-  .chip.active,
-  .chip-epic {
-    color: var(--status-running);
-    border-color: var(--status-running);
-    background: color-mix(in srgb, var(--status-running) 14%, transparent);
-  }
-
-  /* Real forge label color (issue: labels-almost-invisible) — sanctioned exception to
-     "accent hues are semantic, not decorative" (see /design-system). Never coexists with
-     .active: the snippet only computes a style for non-active labels, so the semantic
-     amber rule above always wins where it applies. */
-  .chip.hued {
-    color: var(--lc-text-d);
-    border-color: var(--lc-border-d);
-    background: var(--lc-fill-d);
-  }
-  :global([data-theme="light"]) .chip.hued {
-    color: var(--lc-text-l);
-    border-color: var(--lc-border-l);
-    background: var(--lc-fill-l);
-  }
-
-  .chip-more {
-    color: var(--color-muted);
-    border-color: transparent;
-    cursor: default;
-    /* Always visible — the count is the signal that more labels exist, so it must
-       never be the thing that gets clipped when the row is tight. */
-    flex-shrink: 0;
-    max-width: none;
-  }
-
-  /* Responsive label cap: show 2 chips by default (the pane is now 760px wide),
-     falling back to 1 chip + a "+N" count when the pane is narrower than 520px.
-     The pane width is min(760px, 92vw) on desktop and 100vw on the mobile
-     full-bleed sheet, so "pane < 520" is exactly "viewport < 520" — a viewport
-     media query is equivalent to a container query here WITHOUT establishing
-     inline-size containment on the NewTask card (which would make it a containing
-     block for any position:fixed/absolute descendant). If the card-width formula
-     or the 768px mobile breakpoint changes, revisit this 519.98px threshold. */
-  .more-narrow {
-    display: none;
-  }
-  @media (max-width: 519.98px) {
-    .chip-2,
-    .more-wide {
-      display: none;
-    }
-    .more-narrow {
-      display: inline-block;
-    }
   }
 </style>

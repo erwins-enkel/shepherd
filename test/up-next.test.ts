@@ -59,6 +59,25 @@ describe("UpNextService.refresh", () => {
     expect(s.snapshot()).toBe(snap);
   });
 
+  test("retains available forge label colors in the snapshot", async () => {
+    const s = svc({
+      resolveForge: () =>
+        fakeForge({
+          issues: [
+            issue(1, {
+              labels: ["enhancement"],
+              labelColors: { enhancement: "#a2eeef" },
+            }),
+          ],
+        }),
+    });
+
+    const snap = await s.refresh();
+    const row = snap.sections.find((section) => section.kind === "repo")!.items[0]!;
+    expect(row.labels).toEqual(["enhancement"]);
+    expect(row.labelColors).toEqual({ enhancement: "#a2eeef" });
+  });
+
   test("a repo whose listIssues throws is dropped and flagged as a fetch failure", async () => {
     const s = svc({
       resolveForge: () =>

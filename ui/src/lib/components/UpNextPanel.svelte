@@ -13,6 +13,7 @@
   import ModelCliPicker from "./new-task/ModelCliPicker.svelte";
   import UpNextSortMenu from "./UpNextSortMenu.svelte";
   import { isBlocked } from "./issues-panel";
+  import IssueLabelChips from "./IssueLabelChips.svelte";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import {
@@ -72,6 +73,7 @@
   // Manual starts bypass the per-repo maxAuto drain cap, so a large batch could launch a swarm
   // unintentionally — confirm above this many selected (issue #1169 tunable).
   const CONFIRM_THRESHOLD = 3;
+  const PRIORITY_LABEL = "shepherd:priority";
   const SORT_MODES: SortMode[] = ["recommended", "newest", "oldest", "title-asc", "title-desc"];
   const SORT_LABELS: Record<SortMode, () => string> = {
     recommended: m.upnext_sort_recommended,
@@ -266,6 +268,16 @@
     return expanded.has(g.id) ? g.items : g.items.slice(0, g.cap);
   }
 
+  // Priority and epic are Up Next workflow badges, so suppress their exact forge
+  // label duplicates while retaining every other real label and color.
+  function displayLabels(it: UpNextItem): string[] {
+    return it.labels.filter((label) => {
+      const normalized = label.toLowerCase();
+      if (normalized === PRIORITY_LABEL) return false;
+      return !(it.kind === "epic" && normalized === "epic");
+    });
+  }
+
   // Selected items still present in the current snapshot (a refresh may have dropped some).
   const selectedItems = $derived(
     renderGroups.flatMap((g) => g.items).filter((it) => selected.has(keyOf(it))),
@@ -400,8 +412,8 @@
 {/snippet}
 
 {#snippet row(it: UpNextItem, showRepo: boolean)}
-  <li class="un-row">
-    <label class="un-check">
+  <li class="un-row issue-list-row is-interactive">
+    <label class="un-check issue-list-leading">
       <input
         type="checkbox"
         checked={selected.has(keyOf(it))}
@@ -411,25 +423,27 @@
     </label>
     <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external forge URL, not an app route -->
     <a class="un-link" href={it.url} target="_blank" rel="noopener noreferrer">
-      <span class="un-num">#{it.number}</span>
-      <span class="un-title">{it.title}</span>
-      {#if showRepo}
-        <span class="un-repo">{it.repoLabel || repoBase(it.repoPath)}</span>
-      {/if}
+      <span class="un-num issue-list-number">#{it.number}</span>
+      <span class="un-title issue-list-title">{it.title}</span>
     </a>
+    {#if showRepo}
+      <span class="un-repo issue-list-meta">{it.repoLabel || repoBase(it.repoPath)}</span>
+    {/if}
     <span class="un-pills">
       {#if it.priority}{@render pill(m.upnext_pill_priority(), "un-pill-priority")}{/if}
       {#if it.kind === "epic"}{@render pill(m.upnext_pill_epic(), "un-pill-epic")}{/if}
-      {#if it.kind === "bug"}{@render pill(m.upnext_pill_bug(), "un-pill-bug")}{/if}
     </span>
-    <span class="un-age">{formatAgo(clock.current - it.createdAt)}</span>
-    <button
-      type="button"
-      class="un-start"
-      disabled={starting}
-      onclick={(e) => requestStart([it], e.currentTarget as HTMLElement)}
-      title={m.upnext_start()}>{m.upnext_start()}</button
-    >
+    <IssueLabelChips labels={displayLabels(it)} labelColors={it.labelColors} />
+    <span class="un-age issue-list-meta">{formatAgo(clock.current - it.createdAt)}</span>
+    <span class="un-actions issue-list-actions">
+      <button
+        type="button"
+        class="un-start"
+        disabled={starting}
+        onclick={(e) => requestStart([it], e.currentTarget as HTMLElement)}
+        title={m.upnext_start()}>{m.upnext_start()}</button
+      >
+    </span>
   </li>
 {/snippet}
 
@@ -749,16 +763,15 @@
     gap: 2px;
   }
   .un-row {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 3px 0;
+    flex-wrap: wrap;
   }
   .un-check {
     display: flex;
     align-items: center;
   }
   .un-check input {
+    margin: 0;
+    accent-color: var(--color-amber);
     cursor: pointer;
   }
   .un-link {
@@ -774,16 +787,9 @@
     color: var(--color-amber);
   }
   .un-num {
-    font-size: var(--fs-micro);
-    color: var(--color-muted);
     flex: none;
   }
   .un-title {
-    font-size: var(--fs-meta);
-    color: var(--color-ink);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
     transition: color 0.12s ease;
   }
   .un-repo {
@@ -808,10 +814,6 @@
   .un-pill-priority {
     color: var(--color-amber);
     border-color: var(--color-amber);
-  }
-  .un-pill-bug {
-    color: var(--color-red);
-    border-color: var(--color-red);
   }
   .un-pill-epic {
     color: var(--color-ink-bright);
@@ -849,6 +851,36 @@
   .un-start:disabled {
     opacity: 0.4;
     cursor: not-allowed;
+  }
+
+  .un-actions {
+    flex: none;
+  }
+
+  @container issue-list-row (max-width: 520px) {
+    .un-actions {
+      flex-basis: 100%;
+      justify-content: flex-end;
+      padding-left: 28px;
+    }
+  }
+
+  @media (max-width: 768px), (pointer: coarse) {
+    .un-check {
+      justify-content: center;
+      min-width: var(--mobile-actionbar-hit);
+      min-height: var(--mobile-actionbar-hit);
+    }
+
+    .un-link {
+      align-items: center;
+      min-height: var(--mobile-actionbar-hit);
+    }
+
+    .un-start {
+      min-height: var(--mobile-actionbar-hit);
+      padding: 2px 14px;
+    }
   }
 
   .un-expand {

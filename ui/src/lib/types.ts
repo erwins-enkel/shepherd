@@ -1637,6 +1637,8 @@ export interface UpNextItem {
   /** The issue's labels (standalone) or the parent epic's labels (epic unit) — used by the
    *  hide-blocked display filter (isBlocked in issues-panel.ts). */
   labels: string[];
+  /** Forge label name → source color. Optional/partial; labels without a color render neutral. */
+  labelColors?: Record<string, string>;
   epicParent?: { number: number; title: string };
   issueRef: { number: number; url: string; title: string; body: string };
 }

@@ -285,6 +285,7 @@ export class UpNextService {
         parentUrl: parent.url,
         parentCreatedAt: parent.createdAt,
         parentLabels: parent.labels,
+        parentLabelColors: parent.labelColors,
         parentAssignees: parent.assignees,
         memberNumbers: epic.children.map((c) => c.number),
         candidate: selectEpicCandidates(epic.children)[0] ?? null,

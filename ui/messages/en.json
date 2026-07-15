@@ -320,7 +320,6 @@
   "promptsources_commands_tab": "Commands",
   "promptsources_no_todos": "no open TODO items",
   "promptsources_no_github": "no GitHub upstream",
-  "promptsources_more_labels": "+{count}",
   "promptsources_no_commands": "no installed commands",
   "promptsources_commands_filter": "filter commands…",
   "promptsources_epic_tag": "EPIC",
@@ -2314,7 +2313,6 @@
   "upnext_batch_aria": "Batch start actions",
   "upnext_select_aria": "Select #{number} {title}",
   "upnext_pill_priority": "priority",
-  "upnext_pill_bug": "bug",
   "upnext_pill_epic": "epic",
   "upnext_show_all": "show all {count}",
   "upnext_show_less": "show less",
@@ -3154,5 +3152,8 @@
   "feat_distiller_provider_cadence_body": "Choose the Distiller CLI, model, effort, and the days between automatic runs.",
   "settings_cli_defaults_title": "Global defaults",
   "feat_collapsible_coding_cli_sections_title": "Collapsible Coding CLI settings",
-  "feat_collapsible_coding_cli_sections_body": "Coding CLI settings are now grouped into collapsible sections in a practical order: global defaults, Claude Code, Codex, then helper-agent environments."
+  "feat_collapsible_coding_cli_sections_body": "Coding CLI settings are now grouped into collapsible sections in a practical order: global defaults, Claude Code, Codex, then helper-agent environments.",
+  "issuechips_more": "+{count}",
+  "feat_consistent_issue_selectors_title": "Consistent issue rows",
+  "feat_consistent_issue_selectors_body": "New Task, Repos, and Up Next now share the same compact issue layout, forge-label colors, and responsive hierarchy while keeping their surface-specific actions."
 }

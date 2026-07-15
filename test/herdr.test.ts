@@ -327,9 +327,9 @@ test("start: keeps the root pane alive for a headless codex exec role", async ()
 
 test("isHeadlessCodexExec recognizes direct and bwrap-wrapped exec roles only", () => {
   expect(isHeadlessCodexExec(["codex", "exec", "go"])).toBe(true);
-  expect(
-    isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "exec", "go"]),
-  ).toBe(true);
+  expect(isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "exec", "go"])).toBe(
+    true,
+  );
   expect(
     isHeadlessCodexExec(["bwrap", "--die-with-parent", "--", "codex", "--no-alt-screen"]),
   ).toBe(false);

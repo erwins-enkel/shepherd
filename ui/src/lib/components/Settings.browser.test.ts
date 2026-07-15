@@ -316,7 +316,9 @@ describe("Settings Coding CLI sections", () => {
 
 describe("Settings default coding environment", () => {
   it("shows the saved Herd Rundown CLI, model, and effort", async () => {
-    mountCodingAgents();
+    await mountCodingAgents();
+    const { disclosure } = requiredCodingSectionButton(m.settings_role_models_title());
+    await disclosure.click();
 
     const role = "Herd Rundown";
     await expect.element(page.getByText(role, { exact: true })).toBeInTheDocument();

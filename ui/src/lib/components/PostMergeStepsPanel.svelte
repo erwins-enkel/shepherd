@@ -2,6 +2,8 @@
   import { onDestroy, tick } from "svelte";
   import type { PostMergeSteps, OwedFocusSnapshot } from "$lib/types";
   import { postMergeSteps, owedRecordsForRepo } from "$lib/post-merge-steps.svelte";
+  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { basename } from "./learnings-drawer";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -156,6 +158,12 @@
       >
         <header class="ow-card-head">
           <div class="ow-card-id">
+            <span class="ow-repo" title={frozenCard.repoPath}>
+              {#if projectIcons.iconFor(frozenCard.repoPath)}<span
+                  class="ow-repo-icon"
+                  aria-hidden="true">{projectIcons.iconFor(frozenCard.repoPath)}</span
+                >{/if}{basename(frozenCard.repoPath)}
+            </span>
             <span class="ow-desig">{frozenCard.desig}</span>
             {#if frozenCard.prNumber != null}<span class="ow-pr">#{frozenCard.prNumber}</span>{/if}
           </div>
@@ -189,6 +197,12 @@
         >
           <header class="ow-card-head">
             <div class="ow-card-id">
+              <span class="ow-repo" title={rec.repoPath}>
+                {#if projectIcons.iconFor(rec.repoPath)}<span
+                    class="ow-repo-icon"
+                    aria-hidden="true">{projectIcons.iconFor(rec.repoPath)}</span
+                  >{/if}{basename(rec.repoPath)}
+              </span>
               <span class="ow-desig">{rec.desig}</span>
               {#if rec.prNumber != null}<span class="ow-pr">#{rec.prNumber}</span>{/if}
               <span class="ow-count"
@@ -306,6 +320,23 @@
     align-items: baseline;
     gap: 8px;
     flex-wrap: wrap;
+  }
+  /* Quiet repo identity marker ahead of the designation — mirrors EpicGroupHeader's
+     .repo / .repo-icon (icon only when set, no ▣ fallback). */
+  .ow-repo {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 4px;
+    min-width: 0;
+    max-width: 16ch;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+  .ow-repo-icon {
+    flex: none;
   }
   .ow-desig {
     font-size: var(--fs-sm);

@@ -30,6 +30,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 });
 
 const { postMergeSteps } = await import("$lib/post-merge-steps.svelte");
+const { projectIcons } = await import("$lib/projectIcons.svelte");
 const PostMergeStepsPanel = (await import("./PostMergeStepsPanel.svelte")).default;
 
 function record(p: Partial<PostMergeSteps> & { sessionId: string }): PostMergeSteps {
@@ -54,6 +55,7 @@ function record(p: Partial<PostMergeSteps> & { sessionId: string }): PostMergeSt
 function snapshot(p: Partial<OwedFocusSnapshot> & { sessionId: string }): OwedFocusSnapshot {
   return {
     desig: "TASK-09",
+    repoPath: "/repo/shepherd",
     prNumber: 12,
     steps: [
       { id: "ms1", text: "Set FLAG=1", postMerge: false },
@@ -69,8 +71,28 @@ describe("PostMergeStepsPanel", () => {
     postMergeSteps.records = [];
     postMergeSteps.loaded = false;
     postMergeSteps.settled = false;
+    projectIcons.map = {};
     setManualStepDone.mockClear();
     dismissManualSteps.mockClear();
+  });
+
+  it("live card shows the repo marker: basename + project emoji when set", async () => {
+    projectIcons.map = { "/repo/shepherd": "🐑" };
+    postMergeSteps.records = [record({ sessionId: "s1", repoPath: "/repo/shepherd" })];
+    const screen = await render(PostMergeStepsPanel);
+    await expect.element(page.getByText("shepherd")).toBeInTheDocument();
+    const icon = screen.container.querySelector(".ow-repo-icon");
+    expect(icon).not.toBeNull();
+    expect(icon?.textContent).toBe("🐑");
+  });
+
+  it("live card with no project emoji renders name-only — no ▣, no icon slot", async () => {
+    // projectIcons.map is empty (reset in beforeEach) → iconFor returns null.
+    postMergeSteps.records = [record({ sessionId: "s1", repoPath: "/repo/web-app" })];
+    const screen = await render(PostMergeStepsPanel);
+    await expect.element(page.getByText("web-app")).toBeInTheDocument();
+    expect(screen.container.querySelector(".ow-repo-icon")).toBeNull();
+    expect(screen.container.textContent).not.toContain("▣");
   });
 
   it("shows the empty state when nothing is owed", async () => {
@@ -157,6 +179,22 @@ describe("PostMergeStepsPanel — focus (#1275)", () => {
     postMergeSteps.records = [];
     postMergeSteps.loaded = false;
     postMergeSteps.settled = false;
+    projectIcons.map = {};
+  });
+
+  it("frozen fallback card shows the repo marker (basename from the snapshot's repoPath)", async () => {
+    // merged + cleared → frozen card (no live record). The repo reference must render here too.
+    postMergeSteps.loaded = true;
+    postMergeSteps.settled = true;
+    const screen = await render(PostMergeStepsPanel, {
+      focusSnapshot: snapshot({ sessionId: "s1", merged: true, repoPath: "/repo/shepherd" }),
+      focusNonce: 1,
+      focusHandledNonce: 0,
+    });
+    await expect.element(page.getByText(m.owed_frozen_cleared_note())).toBeInTheDocument();
+    const frozen = screen.container.querySelector(".ow-card--frozen");
+    expect(frozen).not.toBeNull();
+    expect(frozen?.querySelector(".ow-repo")?.textContent).toContain("shepherd");
   });
 
   it("live record + loaded: highlights the live card, no frozen fallback", async () => {

@@ -302,6 +302,7 @@ for (const role of [
   "autopilot",
   "distiller",
   "optimizer",
+  "mergeSuggest",
 ] as const) {
   const savedCli = store.getSetting(`${role}Cli`);
   if (savedCli !== null) {
@@ -663,6 +664,14 @@ function optimizerEnv(): RoleEnvironment {
       ? config.defaultEffort
       : config.optimizerEffort;
   return roleEnv(config.optimizerCli, config.optimizerModel, effort);
+}
+
+function mergeSuggestEnv(): RoleEnvironment {
+  const effort =
+    config.mergeSuggestCli === "inherit" && config.mergeSuggestEffort === "default"
+      ? config.defaultEffort
+      : config.mergeSuggestEffort;
+  return roleEnv(config.mergeSuggestCli, config.mergeSuggestModel, effort);
 }
 
 // Anonymous product telemetry (Aptabase). No-op unless the operator has explicitly
@@ -2225,6 +2234,7 @@ const mergeSuggest = new MergeSuggestionService({
   store,
   herdr,
   scratch: defaultMergeScratch,
+  environment: mergeSuggestEnv,
   onChange: () => learningsSvc.emitPending(),
 });
 deferredStarts.push(() => {

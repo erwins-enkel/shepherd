@@ -623,7 +623,8 @@ export type RoleBase =
   | "namer"
   | "autopilot"
   | "distiller"
-  | "optimizer";
+  | "optimizer"
+  | "mergeSuggest";
 export type RoleCliKey = `${RoleBase}Cli`;
 export type RoleModelKey = `${RoleBase}Model`;
 export type RoleEffortKey = `${RoleBase}Effort`;

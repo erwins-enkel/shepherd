@@ -682,6 +682,12 @@ export const config = {
   optimizerModel: normalizeRoleModelToken(process.env.SHEPHERD_OPTIMIZER_MODEL) ?? "default",
   optimizerEffort:
     normalizeDefaultEffortSetting(process.env.SHEPHERD_OPTIMIZER_EFFORT) ?? "default",
+  // Per-role environment for the Learnings Merge Suggester. Inherit follows the live global
+  // provider/model/effort selection while explicit providers keep their natural defaults.
+  mergeSuggestCli: normalizeRoleCli(process.env.SHEPHERD_MERGE_SUGGEST_CLI) ?? "inherit",
+  mergeSuggestModel: normalizeRoleModelToken(process.env.SHEPHERD_MERGE_SUGGEST_MODEL) ?? "default",
+  mergeSuggestEffort:
+    normalizeDefaultEffortSetting(process.env.SHEPHERD_MERGE_SUGGEST_EFFORT) ?? "default",
   // Automatic runs are throttled per repository; 1 preserves the historic daily behavior.
   distillerIntervalDays: clampCap(
     Number(process.env.SHEPHERD_DISTILLER_INTERVAL_DAYS ?? 1),

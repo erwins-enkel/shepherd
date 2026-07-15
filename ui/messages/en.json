@@ -3177,5 +3177,9 @@
   "settings_role_model_optimizer_title": "Learnings Optimizer",
   "settings_role_model_optimizer_hint": "Strengthens rules marked as not working using their failure evidence.",
   "feat_optimizer_provider_aware_title": "Choose the Learnings Optimizer environment",
-  "feat_optimizer_provider_aware_body": "Choose the CLI, model, and reasoning effort the Optimizer uses when strengthening rules marked as not working."
+  "feat_optimizer_provider_aware_body": "Choose the CLI, model, and reasoning effort the Optimizer uses when strengthening rules marked as not working.",
+  "settings_role_model_merge_suggest_title": "Learnings Merge Suggester",
+  "settings_role_model_merge_suggest_hint": "Consolidates overlapping Learnings rules within and across repositories.",
+  "feat_merge_suggester_provider_title": "Control Merge Suggester cost",
+  "feat_merge_suggester_provider_body": "Choose the Learnings Merge Suggester CLI, model, and effort."
 }

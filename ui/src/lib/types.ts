@@ -128,6 +128,9 @@ export interface Settings {
   optimizerCli?: string;
   optimizerModel?: string;
   optimizerEffort?: string;
+  mergeSuggestCli?: string;
+  mergeSuggestModel?: string;
+  mergeSuggestEffort?: string;
   distillerIntervalDays?: number;
   distillerIntervalDaysMin?: number;
   distillerIntervalDaysMax?: number;

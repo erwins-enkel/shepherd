@@ -3177,5 +3177,9 @@
   "settings_role_model_optimizer_title": "Learnings-Optimierer",
   "settings_role_model_optimizer_hint": "Verschärft als unwirksam markierte Regeln anhand ihrer Fehlerbelege.",
   "feat_optimizer_provider_aware_title": "Umgebung des Learnings-Optimierers wählen",
-  "feat_optimizer_provider_aware_body": "Wähle CLI, Modell und Reasoning-Aufwand, mit denen der Optimierer als unwirksam markierte Regeln verschärft."
+  "feat_optimizer_provider_aware_body": "Wähle CLI, Modell und Reasoning-Aufwand, mit denen der Optimierer als unwirksam markierte Regeln verschärft.",
+  "settings_role_model_merge_suggest_title": "Learnings-Merge-Suggester",
+  "settings_role_model_merge_suggest_hint": "Konsolidiert überschneidende Learnings-Regeln innerhalb und über Repositorys hinweg.",
+  "feat_merge_suggester_provider_title": "Kosten des Merge-Suggesters steuern",
+  "feat_merge_suggester_provider_body": "Wähle CLI, Modell und Aufwand des Learnings-Merge-Suggesters."
 }

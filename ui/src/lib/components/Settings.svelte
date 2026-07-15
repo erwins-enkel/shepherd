@@ -289,6 +289,7 @@
     "rundown",
     "distiller",
     "optimizer",
+    "mergeSuggest",
     "namer",
     "autopilot",
   ] as const;
@@ -303,6 +304,7 @@
     autopilot: "claude",
     distiller: "inherit",
     optimizer: "inherit",
+    mergeSuggest: "inherit",
   };
   const ROLE_MODEL_SEED: Record<RoleBase, string> = {
     planner: "default",
@@ -314,6 +316,7 @@
     autopilot: "haiku",
     distiller: "default",
     optimizer: "default",
+    mergeSuggest: "default",
   };
   // Per-role reasoning-effort tier ("default"|<tier>), orthogonal to CLI/model — always shown.
   const ROLE_EFFORT_SEED: Record<RoleBase, string> = {
@@ -326,6 +329,7 @@
     autopilot: "low",
     distiller: "default",
     optimizer: "default",
+    mergeSuggest: "default",
   };
   let roleCli = $state<Record<RoleBase, string>>({ ...ROLE_CLI_SEED });
   let roleCliSaved: Record<RoleBase, string> = { ...ROLE_CLI_SEED };
@@ -343,6 +347,7 @@
     autopilot: false,
     distiller: false,
     optimizer: false,
+    mergeSuggest: false,
   });
   // Foreground (content) roles vs. collapsed classifiers (constant-cadence, kept cheap).
   const ROLE_PRIMARY: RoleBase[] = [
@@ -353,6 +358,7 @@
     "rundown",
     "distiller",
     "optimizer",
+    "mergeSuggest",
   ];
   const ROLE_CLASSIFIERS: RoleBase[] = ["namer", "autopilot"];
 
@@ -376,6 +382,8 @@
         return m.settings_role_model_distiller_title();
       case "optimizer":
         return m.settings_role_model_optimizer_title();
+      case "mergeSuggest":
+        return m.settings_role_model_merge_suggest_title();
     }
   }
   function roleHint(role: RoleBase): string {
@@ -398,6 +406,8 @@
         return m.settings_role_model_distiller_hint();
       case "optimizer":
         return m.settings_role_model_optimizer_hint();
+      case "mergeSuggest":
+        return m.settings_role_model_merge_suggest_hint();
     }
   }
   // Display label for a CLI/provider (the CLI dropdown options + the effective line).

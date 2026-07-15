@@ -227,6 +227,169 @@ test("cross: a group promoted to global (applied) is NOT re-suggested on a later
   expect(store.listMergeSuggestions({ kind: "cross", status: "pending" }).length).toBe(0);
 });
 
+// ── provider-aware spawn contract ──────────────────────────────────────────
+
+test("intra spawn: explicit Claude keeps writer-ro argv and persists the file result", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "Use bun, not npm");
+  const b = seedActive(store, "/r", "Prefer bun over npm for installs");
+  const { deps, cap } = mkDeps(
+    store,
+    {
+      groups: [
+        {
+          memberIds: [a.id, b.id],
+          anchorId: a.id,
+          mergedRule: "Use bun, not npm",
+          mergedRationale: "same guidance",
+        },
+      ],
+    },
+    { environment: () => ({ provider: "claude", model: "sonnet", effort: "high" }) },
+  );
+
+  const svc = new MergeSuggestionService(deps);
+  await svc.mergeNow("/r");
+  await svc.tick();
+
+  expect(cap.argv[0]).toBe("claude");
+  expect(cap.argv).toContain("--allowedTools");
+  expect(cap.argv).toContain("Read");
+  expect(cap.argv).toContain("Grep");
+  expect(cap.argv).toContain("Glob");
+  expect(cap.argv).toContain("Write");
+  expect(cap.argv).toContain("--permission-mode");
+  expect(cap.argv).toContain("dontAsk");
+  expect(cap.argv).toContain("--model");
+  expect(cap.argv).toContain("sonnet");
+  expect(cap.argv).toContain("--effort");
+  expect(cap.argv).toContain("high");
+  expect(cap.argv.at(-1)).toContain("ONE repository");
+  expect(store.listMergeSuggestions({ kind: "intra", status: "pending" })).toHaveLength(1);
+});
+
+test("intra spawn: resolved Codex uses codex exec and persists the file result", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r", "Use bun, not npm");
+  const b = seedActive(store, "/r", "Prefer bun over npm for installs");
+  const { deps, cap } = mkDeps(
+    store,
+    {
+      groups: [
+        {
+          memberIds: [a.id, b.id],
+          anchorId: a.id,
+          mergedRule: "Use bun, not npm",
+          mergedRationale: "same guidance",
+        },
+      ],
+    },
+    { environment: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }) },
+  );
+
+  const svc = new MergeSuggestionService(deps);
+  await svc.mergeNow("/r");
+  await svc.tick();
+
+  expect(cap.argv).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+    "-c",
+    "model_reasoning_effort=high",
+    expect.stringContaining("ONE repository"),
+  ]);
+  expect(cap.env).toBeUndefined();
+  expect(store.listMergeSuggestions({ kind: "intra", status: "pending" })).toHaveLength(1);
+});
+
+test("cross spawn: explicit Claude keeps writer-ro argv and persists the file result", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r1", "Always write a regression test");
+  const b = seedActive(store, "/r2", "Always write a regression test first");
+  const { deps, cap } = mkDeps(
+    store,
+    { groups: [{ memberIds: [a.id, b.id], canonicalRule: "Always write a regression test" }] },
+    { environment: () => ({ provider: "claude", model: "sonnet", effort: "high" }) },
+  );
+
+  const svc = new MergeSuggestionService(deps);
+  await svc.considerCrossRepo();
+  await svc.tick();
+
+  expect(cap.argv[0]).toBe("claude");
+  expect(cap.argv).toContain("--allowedTools");
+  expect(cap.argv).toContain("--permission-mode");
+  expect(cap.argv).toContain("dontAsk");
+  expect(cap.argv).toContain("--model");
+  expect(cap.argv).toContain("sonnet");
+  expect(cap.argv).toContain("--effort");
+  expect(cap.argv).toContain("high");
+  expect(cap.argv.at(-1)).toContain("MANY repositories");
+  expect(store.listMergeSuggestions({ kind: "cross", status: "pending" })).toHaveLength(1);
+});
+
+test("cross spawn: resolved Codex uses codex exec and persists the file result", async () => {
+  const store = new SessionStore(":memory:");
+  const a = seedActive(store, "/r1", "Always write a regression test");
+  const b = seedActive(store, "/r2", "Always write a regression test first");
+  const { deps, cap } = mkDeps(
+    store,
+    { groups: [{ memberIds: [a.id, b.id], canonicalRule: "Always write a regression test" }] },
+    { environment: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }) },
+  );
+
+  const svc = new MergeSuggestionService(deps);
+  await svc.considerCrossRepo();
+  await svc.tick();
+
+  expect(cap.argv).toEqual([
+    "codex",
+    "exec",
+    "--sandbox",
+    "workspace-write",
+    "-m",
+    "gpt-5.5",
+    "-c",
+    "model_reasoning_effort=high",
+    expect.stringContaining("MANY repositories"),
+  ]);
+  expect(cap.env).toBeUndefined();
+  expect(store.listMergeSuggestions({ kind: "cross", status: "pending" })).toHaveLength(1);
+});
+
+test("each actual spawn resolves a fresh environment", async () => {
+  const store = new SessionStore(":memory:");
+  seedActive(store, "/r", "rule one");
+  seedActive(store, "/r", "rule two");
+  let calls = 0;
+  const { deps, cap } = mkDeps(
+    store,
+    { groups: [] },
+    {
+      environment: () => {
+        calls++;
+        return calls === 1
+          ? { provider: "claude", model: "sonnet", effort: "low" }
+          : { provider: "codex", model: "gpt-5.5", effort: "high" };
+      },
+    },
+  );
+  const svc = new MergeSuggestionService(deps);
+
+  await svc.mergeNow("/r");
+  await svc.tick();
+  await svc.mergeNow("/r");
+
+  expect(calls).toBe(2);
+  expect(cap.argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+  expect(cap.argv).toContain("gpt-5.5");
+  expect(cap.argv).toContain("model_reasoning_effort=high");
+});
+
 // ── pure helpers ────────────────────────────────────────────────────────────
 
 test("pickSurvivor: anchor wins; else most-injected; else earliest createdAt", async () => {
@@ -299,10 +462,43 @@ test("api-key mode without a configured key fails closed (no spawn)", async () =
     const store = new SessionStore(":memory:");
     seedActive(store, "/r", "rule a");
     seedActive(store, "/r", "rule b");
-    const { deps, started } = mkDeps(store, { groups: [] });
+    const { deps, started } = mkDeps(
+      store,
+      { groups: [] },
+      {
+        environment: () => ({ provider: "claude", model: null, effort: null }),
+      },
+    );
     new MergeSuggestionService(deps).mergeNow("/r");
     expect(started.length).toBe(0);
   });
+});
+
+test("api-key mode without an Anthropic key does not block resolved Codex", async () => {
+  const previousMode = config.authMode;
+  const previousHelper = config.authApiKeyHelperPath;
+  config.authMode = "api-key";
+  config.authApiKeyHelperPath = null;
+  try {
+    const store = new SessionStore(":memory:");
+    seedActive(store, "/r", "rule one");
+    seedActive(store, "/r", "rule two");
+    const { deps, started, cap } = mkDeps(
+      store,
+      { groups: [] },
+      {
+        environment: () => ({ provider: "codex", model: null, effort: null }),
+      },
+    );
+
+    await new MergeSuggestionService(deps).mergeNow("/r");
+
+    expect(started).toHaveLength(1);
+    expect(cap.argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
+  } finally {
+    config.authMode = previousMode;
+    config.authApiKeyHelperPath = previousHelper;
+  }
 });
 
 // ── boot reapOrphans (issue #1135) ──────────────────────────────────────────

@@ -79,18 +79,22 @@
   );
 
   type Mode = "progress" | "loading" | "clean" | "dirty" | "toolarge" | "nowclean" | "rawlog";
+  // once a fresh probe has resolved: still pending → loading; dirty → dirty (or
+  // toolarge when the signature was unavailable); anything else → the normal update UI
+  const probeMode = (): Mode => {
+    if (dirtyProbe === "pending" || dirtyProbe === "idle") return "loading";
+    if (dirtyProbe === "dirty") return dirty?.sig == null ? "toolarge" : "dirty";
+    return "clean";
+  };
   const mode = $derived.by((): Mode => {
     if (busy) return "progress";
     if (dirtyReactive) {
-      if (dirtyProbe === "pending" || dirtyProbe === "idle") return "loading";
       if (dirtyProbe === "error") return "rawlog"; // couldn't probe → raw log fallback
       if (dirtyProbe === "clean") return "nowclean"; // tree got cleaned meanwhile
-      return dirty?.sig == null ? "toolarge" : "dirty";
+      return probeMode();
     }
     if (failed) return "rawlog";
-    if (dirtyProbe === "pending" || dirtyProbe === "idle") return "loading";
-    if (dirtyProbe === "clean" || dirtyProbe === "error") return "clean";
-    return dirty?.sig == null ? "toolarge" : "dirty";
+    return probeMode(); // probe error degrades to the normal (clean) update UI
   });
 
   const moreCount = $derived(dirty ? dirty.dirtyCount - dirty.dirtyFiles.length : 0);

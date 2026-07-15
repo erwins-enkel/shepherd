@@ -3988,6 +3988,48 @@ async function updateDirty(deps: AppDeps): Promise<Response> {
   return json({ dirty, dirtyFiles, dirtyCount, sig });
 }
 
+/** Validate the confirmed dirty signature, then launch a scoped discard+update.
+ *  Writes the pathspecs symlink-safely (private 0700 dir + exclusive wx/0600 files)
+ *  and cleans the dir up on any non-launch outcome (success leaves it for the
+ *  detached update.sh trap). */
+async function updateDiscardApply(updates: NonNullable<AppDeps["updates"]>, sig?: string) {
+  if (!updates.dirtyStatus) return json({ error: "updates not available" }, 503);
+  const fresh = await updates.dirtyStatus();
+  if (!fresh.dirty || fresh.sig == null || fresh.sig !== sig)
+    return json(
+      {
+        error: "stale",
+        dirty: {
+          dirty: fresh.dirty,
+          dirtyFiles: fresh.dirtyFiles,
+          dirtyCount: fresh.dirtyCount,
+          sig: fresh.sig,
+        },
+      },
+      409,
+    );
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-"));
+  try {
+    const pathspecAllFile = join(dir, "all");
+    const pathspecWtFile = join(dir, "worktree");
+    writeFileSync(pathspecAllFile, fresh.pathspecAll, { flag: "wx", mode: 0o600 });
+    writeFileSync(pathspecWtFile, fresh.pathspecWorktree, { flag: "wx", mode: 0o600 });
+    const r = updates.apply({
+      discard: true,
+      sig: fresh.sig,
+      dir,
+      pathspecAllFile,
+      pathspecWtFile,
+    });
+    if (r.started) return json({ ok: true }, 202); // update.sh's trap removes `dir`
+    rmSync(dir, { recursive: true, force: true });
+    return json({ error: r.error ?? "could not start the update" }, 409);
+  } catch (e) {
+    rmSync(dir, { recursive: true, force: true });
+    return json({ error: e instanceof Error ? e.message : "could not start the update" }, 500);
+  }
+}
+
 async function updateApply(req: Request, deps: AppDeps): Promise<Response> {
   if (!deps.updates) return json({ error: "updates not available" }, 503);
   const body = (await req.json().catch(() => ({}))) as { discard?: unknown; sig?: unknown };
@@ -4001,49 +4043,7 @@ async function updateApply(req: Request, deps: AppDeps): Promise<Response> {
   const status = deps.updates.current();
   if (!status || status.behind <= 0) return json({ error: "no update available" }, 409);
 
-  if (body.discard === true) {
-    if (!deps.updates.dirtyStatus) return json({ error: "updates not available" }, 503);
-    // re-probe fresh and validate the confirmed signature before doing anything
-    const fresh = await deps.updates.dirtyStatus();
-    if (!fresh.dirty || fresh.sig == null || fresh.sig !== body.sig)
-      return json(
-        {
-          error: "stale",
-          dirty: {
-            dirty: fresh.dirty,
-            dirtyFiles: fresh.dirtyFiles,
-            dirtyCount: fresh.dirtyCount,
-            sig: fresh.sig,
-          },
-        },
-        409,
-      );
-    // symlink-safe: a private 0700 dir + exclusive (wx) file creation, so a
-    // pre-planted path/symlink can't be written through.
-    const dir = mkdtempSync(join(tmpdir(), "shepherd-discard-"));
-    try {
-      const pathspecAllFile = join(dir, "all");
-      const pathspecWtFile = join(dir, "worktree");
-      writeFileSync(pathspecAllFile, fresh.pathspecAll, { flag: "wx", mode: 0o600 });
-      writeFileSync(pathspecWtFile, fresh.pathspecWorktree, { flag: "wx", mode: 0o600 });
-      const r = deps.updates.apply({
-        discard: true,
-        sig: fresh.sig,
-        dir,
-        pathspecAllFile,
-        pathspecWtFile,
-      });
-      if (!r.started) {
-        rmSync(dir, { recursive: true, force: true });
-        return json({ error: r.error ?? "could not start the update" }, 409);
-      }
-      // success → the detached update.sh trap removes `dir` after it runs
-      return json({ ok: true }, 202);
-    } catch (e) {
-      rmSync(dir, { recursive: true, force: true });
-      return json({ error: e instanceof Error ? e.message : "could not start the update" }, 500);
-    }
-  }
+  if (body.discard === true) return updateDiscardApply(deps.updates, body.sig);
 
   const r = deps.updates.apply();
   if (r.started) return json({ ok: true }, 202);

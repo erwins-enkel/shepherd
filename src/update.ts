@@ -62,6 +62,14 @@ const DISCARD_STALE_MARKER = "SHEPHERD_DISCARD_STALE";
 /** Signature the `--pull` clean-tree guard prints; classified as reason "dirty". */
 const CLEAN_TREE_MARKER = "needs a clean tree";
 
+/** Classify a failed deploy's log so the UI can route it through the dirty-repo flow. */
+function classifyDeployReason(exitCode: number, log: string): "dirty" | "stale" | null {
+  if (exitCode === 0) return null;
+  if (log.includes(DISCARD_STALE_MARKER)) return "stale";
+  if (log.includes(CLEAN_TREE_MARKER)) return "dirty";
+  return null;
+}
+
 /** Marker the launch wrapper appends once the deploy script returns, carrying
  *  its exit code. Lets a surviving (or freshly restarted) shepherd tell a
  *  finished deploy from one still in flight. */
@@ -77,6 +85,37 @@ const tail = (s: string, max = 6000): string => (s.length > max ? s.slice(s.leng
 const shq = (s: string): string => `'${s.replace(/'/g, `'\\''`)}'`;
 
 const NUL = 0x00;
+
+/** Split a NUL-separated buffer into field slices (drops a trailing empty field). */
+function splitNul(buf: Buffer): Buffer[] {
+  const fields: Buffer[] = [];
+  let start = 0;
+  for (let i = 0; i < buf.length; i++) {
+    if (buf[i] === NUL) {
+      fields.push(buf.subarray(start, i));
+      start = i + 1;
+    }
+  }
+  if (start < buf.length) fields.push(buf.subarray(start));
+  return fields;
+}
+
+/**
+ * Which restore pathspecs a single porcelain entry contributes.
+ * `all` → `git restore --staged` (every confirmed path; both sides of a rename/copy).
+ * `wt`  → `git restore --worktree` (only paths that exist in HEAD, so pure adds and the
+ *          new side of a rename/copy are left as untracked instead of being deleted).
+ */
+function entrySpecs(
+  x: string,
+  path: Buffer,
+  orig: Buffer | undefined,
+): { all: Buffer[]; wt: Buffer[] } {
+  if (x === "R" || x === "C") {
+    return orig ? { all: [path, orig], wt: [orig] } : { all: [path], wt: [] };
+  }
+  return { all: [path], wt: x === "A" ? [] : [path] };
+}
 
 /**
  * Parse `git status --porcelain -z --untracked-files=no` output (raw bytes) into
@@ -96,23 +135,13 @@ function parsePorcelain(
   buf: Buffer,
   limit: number,
 ): { dirtyFiles: string[]; dirtyCount: number; pathspecAll: Buffer; pathspecWorktree: Buffer } {
-  // split on NUL into field slices (drop a trailing empty field)
-  const fields: Buffer[] = [];
-  let start = 0;
-  for (let i = 0; i < buf.length; i++) {
-    if (buf[i] === NUL) {
-      fields.push(buf.subarray(start, i));
-      start = i + 1;
-    }
-  }
-  if (start < buf.length) fields.push(buf.subarray(start));
-
+  const fields = splitNul(buf);
   const dirtyFiles: string[] = [];
   const allParts: Buffer[] = [];
   const wtParts: Buffer[] = [];
   const sep = Buffer.from([NUL]);
-  const pushSpec = (parts: Buffer[], p: Buffer) => {
-    parts.push(p, sep);
+  const push = (parts: Buffer[], paths: Buffer[]) => {
+    for (const p of paths) parts.push(p, sep);
   };
 
   let dirtyCount = 0;
@@ -124,26 +153,17 @@ function parsePorcelain(
       continue; // malformed / empty — skip
     }
     const x = String.fromCharCode(rec[0]!);
-    const status = rec.subarray(0, 2).toString("latin1");
     const path = rec.subarray(3); // skip "XY "
-    const isRenameOrCopy = x === "R" || x === "C";
-    const orig = isRenameOrCopy ? fields[i + 1] : undefined;
-    i += isRenameOrCopy ? 2 : 1;
+    const orig = x === "R" || x === "C" ? fields[i + 1] : undefined;
+    i += orig ? 2 : 1;
 
     dirtyCount++;
-    if (dirtyFiles.length < limit) dirtyFiles.push(`${status} ${path.toString("utf8")}`);
+    if (dirtyFiles.length < limit)
+      dirtyFiles.push(`${rec.subarray(0, 2).toString("latin1")} ${path.toString("utf8")}`);
 
-    if (isRenameOrCopy) {
-      pushSpec(allParts, path); // new side
-      if (orig) {
-        pushSpec(allParts, orig); // old side (in HEAD)
-        pushSpec(wtParts, orig); // restore the old path in the worktree
-      }
-      // new side is NOT in HEAD → left untracked, never worktree-restored
-    } else {
-      pushSpec(allParts, path);
-      if (x !== "A") pushSpec(wtParts, path); // pure adds aren't in HEAD → keep as untracked
-    }
+    const { all, wt } = entrySpecs(x, path, orig);
+    push(allParts, all);
+    push(wtParts, wt);
   }
 
   return {
@@ -382,15 +402,7 @@ export class UpdateService {
       const log = tail(clean.replace(m[0], "").trimEnd());
       // Classify a failed deploy so the UI can route it through the friendly
       // dirty-repo flow (fresh probe + refreshed list) instead of the raw log.
-      // The markers are stable English git/script output, never translated.
-      const reason =
-        exitCode === 0
-          ? null
-          : log.includes(DISCARD_STALE_MARKER)
-            ? "stale"
-            : log.includes(CLEAN_TREE_MARKER)
-              ? "dirty"
-              : null;
+      const reason = classifyDeployReason(exitCode, log);
       return { phase: exitCode === 0 ? "done" : "failed", exitCode, log, reason };
     }
     let mtimeMs = 0;

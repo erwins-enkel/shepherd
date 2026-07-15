@@ -110,7 +110,9 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
 
     // Wait for the issues to load.
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
+    await expect
+      .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
+      .toBeGreaterThan(0);
 
     // The Filters trigger button renders inside .ps-filter-bar.
     const filterBar = document.querySelector(".ps-body .ps-filter-bar");
@@ -138,7 +140,9 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
 
     // Both issues visible before toggling.
     const titles = () =>
-      [...document.querySelectorAll(".ps-body .row .row-text")].map((el) => el.textContent?.trim());
+      [...document.querySelectorAll(".ps-body .issue-source-row .issue-list-title")].map((el) =>
+        el.textContent?.trim(),
+      );
     expect(titles()).toContain("Active issue");
     expect(titles()).toContain("Plain issue");
 
@@ -280,9 +284,15 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
     !!el && getComputedStyle(el as HTMLElement).display !== "none";
   // Real label chips (excludes the "+N" more-counters).
   const visibleChips = () =>
-    [...document.querySelectorAll(".ps-body .row .chip:not(.chip-more)")].filter(shown);
-  const moreWide = () => document.querySelector<HTMLElement>(".ps-body .row .more-wide");
-  const moreNarrow = () => document.querySelector<HTMLElement>(".ps-body .row .more-narrow");
+    [
+      ...document.querySelectorAll(
+        ".ps-body .issue-source-row .issue-label-chip:not(.issue-label-more)",
+      ),
+    ].filter(shown);
+  const moreWide = () =>
+    document.querySelector<HTMLElement>(".ps-body .issue-source-row .more-wide");
+  const moreNarrow = () =>
+    document.querySelector<HTMLElement>(".ps-body .issue-source-row .more-narrow");
 
   afterEach(async () => {
     // Restore a wide viewport so a leaked narrow width can't perturb the layout
@@ -300,13 +310,15 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
     });
 
     render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
+    await expect
+      .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
+      .toBeGreaterThan(0);
 
     // Two visible label chips (default/wide regime).
     await expect.poll(() => visibleChips().length).toBe(2);
     // Wide "+N" counts the labels beyond the 2 shown (len - 2 = 1); narrow one hidden.
     expect(shown(moreWide())).toBe(true);
-    expect(moreWide()!.textContent).toContain(m.promptsources_more_labels({ count: 1 }));
+    expect(moreWide()!.textContent).toContain(m.issuechips_more({ count: 1 }));
     expect(shown(moreNarrow())).toBe(false);
   });
 
@@ -320,16 +332,25 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
     });
 
     render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBeGreaterThan(0);
+    await expect
+      .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
+      .toBeGreaterThan(0);
 
     // The media-query fallback: only 1 chip visible; the 2nd chip is in the DOM but hidden.
     await expect.poll(() => visibleChips().length).toBe(1);
-    const chip2 = document.querySelector(".ps-body .row .chip-2");
+    const chip2 = document.querySelector(".ps-body .issue-source-row .issue-label-second");
     expect(chip2).not.toBeNull();
     expect(shown(chip2)).toBe(false);
     // Narrow "+N" counts labels beyond the 1 shown (len - 1 = 2); wide one hidden.
     expect(shown(moreWide())).toBe(false);
     expect(shown(moreNarrow())).toBe(true);
-    expect(moreNarrow()!.textContent).toContain(m.promptsources_more_labels({ count: 2 }));
+    expect(moreNarrow()!.textContent).toContain(m.issuechips_more({ count: 2 }));
+
+    const hitSize = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+    );
+    expect(
+      document.querySelector<HTMLElement>(".issue-source-row")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(hitSize);
   });
 });

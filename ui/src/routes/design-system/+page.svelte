@@ -18,6 +18,7 @@
   import { theme } from "$lib/theme.svelte";
   import { INFO_TIPS_FORCE } from "$lib/info-tips.svelte";
   import IssueFilterPopover from "$lib/components/IssueFilterPopover.svelte";
+  import IssueLabelChips from "$lib/components/IssueLabelChips.svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import { labelChipStyle } from "$lib/label-color";
   // Graphical plugin-UI widgets (issue #1189). Unlike the static meter demo, these
@@ -167,6 +168,18 @@ input, select, textarea {
   border-color: var(--lc-border-l);
   background: var(--lc-fill-l);
 }`;
+
+  const issueRowMarkup = `<div class="issue-list-row is-interactive">
+  <span class="issue-list-number">#1699</span>
+  <span class="issue-list-title">Diff tab: source per-line annotations</span>
+  <span class="issue-list-author">by scoop</span>
+  <IssueLabelChips labels={issue.labels} labelColors={issue.labelColors} />
+  <span class="issue-list-actions"><button class="gbtn">Task</button></span>
+</div>
+
+<!-- The host owns semantics: New Task uses a whole-row button; Repos keeps
+     links/actions; Up Next keeps checkbox/Start. The shared classes own only
+     spacing, hierarchy, hover/focus and responsive label behaviour. -->`;
 
   const statusChipMarkup = `<span class="status-chip info"><span class="dot"></span>PR #42</span>
 <span class="status-chip ready"><span class="dot"></span>CI passing</span>
@@ -905,6 +918,38 @@ input, select, textarea {
       <span class="label-chip-demo" style={demoLabelStyle3}>enhancement</span>
     </div>
     <pre><code>{labelChipMarkup}</code></pre>
+  </section>
+
+  <section class="panel">
+    <h2>Issue-list rows</h2>
+    <p class="when">
+      <strong>When:</strong> an issue appears in New Task, Repos or Up Next. Use the shared row
+      anatomy for number, truncating title, secondary metadata, forge labels and trailing actions.
+      The host still owns the correct semantics: never put a checkbox/link/button inside a whole-row
+      button. Labels cap against the row's actual width, not the viewport.
+      <strong>When not:</strong> expanded epic content remains an in-flow panel beneath its issue row;
+      it is not forced into this single-line recipe.
+    </p>
+    <div class="demo demo-col">
+      <div class="issue-list-row is-interactive">
+        <span class="issue-list-number">#1699</span>
+        <span class="issue-list-title">Diff tab: source per-line annotations</span>
+        <span class="issue-list-author">by scoop</span>
+        <IssueLabelChips
+          labels={["enhancement", "feedback", "operator UX"]}
+          labelColors={{ enhancement: "#a2eeef", feedback: "#d4c5f9", "operator UX": "#7057ff" }}
+        />
+        <span class="issue-list-actions"><button class="gbtn">Task</button></span>
+      </div>
+      <div class="issue-list-row is-interactive">
+        <input type="checkbox" aria-label="Select issue 1630" />
+        <span class="issue-list-number">#1630</span>
+        <span class="issue-list-title">Revive stranded sessions after restart</span>
+        <span class="issue-list-meta">2d</span>
+        <span class="issue-list-actions"><button class="gbtn primary">Start</button></span>
+      </div>
+    </div>
+    <pre><code>{issueRowMarkup}</code></pre>
   </section>
 
   <section class="panel">

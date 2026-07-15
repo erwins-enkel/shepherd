@@ -750,15 +750,17 @@ describe("NewTask issue picker epic-parent rows", () => {
     // Open the Issues tab in the picker, then wait for the rows to render.
     // exact: true avoids matching the "hide sub-issues" chip (accessible name contains "issues").
     await page.getByRole("button", { name: m.promptsources_issues_tab(), exact: true }).click();
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBe(2);
+    await expect.poll(() => document.querySelectorAll(".ps-body .issue-source-row").length).toBe(2);
 
     // The EPIC tag chip renders (exact match: "Epic parent" also contains "Epic").
     await expect
       .element(page.getByText(m.promptsources_epic_tag(), { exact: true }))
       .toBeInTheDocument();
-    expect(document.querySelector(".chip-epic")?.textContent).toBe(m.promptsources_epic_tag());
+    expect(document.querySelector(".source-epic-tag")?.textContent).toBe(
+      m.promptsources_epic_tag(),
+    );
 
-    const rows = Array.from(document.querySelectorAll<HTMLElement>(".ps-body .row"));
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".ps-body .issue-source-row"));
     const epicRow = rows.find((r) => r.textContent?.includes("Epic parent"))!;
     const plainRow = rows.find((r) => r.textContent?.includes("Plain issue"))!;
 
@@ -769,10 +771,8 @@ describe("NewTask issue picker epic-parent rows", () => {
 
     // The epic row keeps the issue's normal label chips ALONGSIDE the EPIC tag:
     // the EPIC chip and the "shepherd:active" highlight chip both render.
-    expect(epicRow.querySelector(".chip-epic")?.textContent).toBe(m.promptsources_epic_tag());
-    const epicLabelChips = Array.from(
-      epicRow.querySelectorAll<HTMLElement>(".chip:not(.chip-epic)"),
-    );
+    expect(epicRow.querySelector(".source-epic-tag")?.textContent).toBe(m.promptsources_epic_tag());
+    const epicLabelChips = Array.from(epicRow.querySelectorAll<HTMLElement>(".issue-label-chip"));
     expect(epicLabelChips.map((c) => c.textContent?.trim())).toContain("shepherd:active");
     expect(epicLabelChips.some((c) => c.classList.contains("active"))).toBe(true);
 
@@ -2267,8 +2267,8 @@ describe("NewTask issue steer inject (context menu)", () => {
   // pointerdown first pins lastPointerType away from "touch" so the contextmenu opens.
   async function openIssueMenu() {
     await page.getByRole("button", { name: m.promptsources_issues_tab(), exact: true }).click();
-    await expect.poll(() => document.querySelectorAll(".ps-body .row").length).toBe(1);
-    const row = document.querySelector<HTMLElement>(".ps-body .row")!;
+    await expect.poll(() => document.querySelectorAll(".ps-body .issue-source-row").length).toBe(1);
+    const row = document.querySelector<HTMLElement>(".ps-body .issue-source-row")!;
     window.dispatchEvent(new PointerEvent("pointerdown", { pointerType: "mouse" }));
     row.dispatchEvent(
       new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 20 }),

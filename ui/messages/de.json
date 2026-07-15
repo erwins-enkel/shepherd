@@ -320,7 +320,6 @@
   "promptsources_commands_tab": "Befehle",
   "promptsources_no_todos": "keine offenen TODO-Einträge",
   "promptsources_no_github": "kein GitHub-Upstream",
-  "promptsources_more_labels": "+{count}",
   "promptsources_no_commands": "keine installierten Befehle",
   "promptsources_commands_filter": "Befehle filtern…",
   "promptsources_epic_tag": "EPIC",
@@ -2314,7 +2313,6 @@
   "upnext_batch_aria": "Aktionen für Stapelstart",
   "upnext_select_aria": "#{number} {title} auswählen",
   "upnext_pill_priority": "Priorität",
-  "upnext_pill_bug": "Bug",
   "upnext_pill_epic": "Epic",
   "upnext_show_all": "alle {count} anzeigen",
   "upnext_show_less": "weniger anzeigen",
@@ -3154,5 +3152,8 @@
   "feat_distiller_provider_cadence_body": "Wähle CLI, Modell, Aufwand und die Tage zwischen automatischen Distiller-Läufen.",
   "settings_cli_defaults_title": "Globale Standards",
   "feat_collapsible_coding_cli_sections_title": "Einklappbare Coding-CLI-Einstellungen",
-  "feat_collapsible_coding_cli_sections_body": "Die Coding-CLI-Einstellungen sind jetzt in einklappbare Bereiche gegliedert und praktisch sortiert: globale Standards, Claude Code, Codex und anschließend die Umgebungen der Hilfsagenten."
+  "feat_collapsible_coding_cli_sections_body": "Die Coding-CLI-Einstellungen sind jetzt in einklappbare Bereiche gegliedert und praktisch sortiert: globale Standards, Claude Code, Codex und anschließend die Umgebungen der Hilfsagenten.",
+  "issuechips_more": "+{count}",
+  "feat_consistent_issue_selectors_title": "Einheitliche Issue-Zeilen",
+  "feat_consistent_issue_selectors_body": "„Neue Aufgabe“, „Repos“ und „Als Nächstes“ verwenden jetzt denselben kompakten Issue-Aufbau, dieselben Forge-Label-Farben und dieselbe responsive Hierarchie. Die jeweiligen Aktionen bleiben erhalten."
 }

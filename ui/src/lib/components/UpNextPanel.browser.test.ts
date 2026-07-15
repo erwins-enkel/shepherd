@@ -31,7 +31,13 @@ const item = (
   repoPath: string,
   number: number,
   priority = false,
-  opts: { title?: string; createdAt?: number; labels?: string[] } = {},
+  opts: {
+    title?: string;
+    createdAt?: number;
+    labels?: string[];
+    labelColors?: Record<string, string>;
+    kind?: UpNextItem["kind"];
+  } = {},
 ): UpNextItem => ({
   repoPath,
   repoSlug: null,
@@ -39,10 +45,11 @@ const item = (
   number,
   title: opts.title ?? `issue ${number}`,
   url: `https://example.test/${number}`,
-  kind: "feature",
+  kind: opts.kind ?? "feature",
   priority,
   createdAt: opts.createdAt ?? 0,
   labels: opts.labels ?? [],
+  labelColors: opts.labelColors,
   issueRef: {
     number,
     url: `https://example.test/${number}`,
@@ -180,13 +187,14 @@ beforeEach(() => {
   }`;
   document.head.appendChild(fontStyle);
 });
-afterEach(() => {
+afterEach(async () => {
   upNext.snapshot = null;
   upNext.loadError = false;
   localStorage.removeItem("shepherd.upnext.sort");
   issuesFilter.setBlocked(true); // restore the default so it never bleeds into other tests
   vi.clearAllMocks();
   fontStyle.remove();
+  await page.viewport(1024, 768);
 });
 
 describe("UpNextPanel repo filter", () => {
@@ -214,6 +222,62 @@ describe("UpNextPanel repo filter", () => {
     await expect
       .element(page.getByText(m.upnext_repo_filter_empty({ repo: "does-not-exist" })))
       .toBeInTheDocument();
+  });
+});
+
+describe("UpNextPanel compact issue rows", () => {
+  it("renders bounded forge labels with colored and neutral fallbacks beside Start", async () => {
+    upNext.snapshot = {
+      generatedAt: 1,
+      repoCount: 1,
+      fallback: null,
+      failedRepoCount: 0,
+      sections: [
+        {
+          kind: "repo",
+          repoPath: "~/projects/homeassistant",
+          repoSlug: null,
+          repoLabel: "homeassistant",
+          totalCount: 1,
+          items: [
+            item("~/projects/homeassistant", 42, false, {
+              labels: ["enhancement", "operator UX", "feedback"],
+              labelColors: { enhancement: "#a2eeef", feedback: "#d4c5f9" },
+            }),
+          ],
+        },
+      ],
+    };
+
+    render(UpNextPanel, {});
+
+    await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
+    const row = document.querySelector<HTMLElement>(".un-row")!;
+    expect(row.classList).toContain("issue-list-row");
+    const chips = row.querySelectorAll<HTMLElement>(".issue-label-chip:not(.issue-label-more)");
+    expect(chips).toHaveLength(2);
+    expect(chips[0]!.classList).toContain("hued");
+    expect(chips[1]!.classList).not.toContain("hued");
+    expect(row.querySelector(".issue-label-more")?.textContent).toContain("+1");
+    expect(row.querySelector(".issue-list-actions .un-start")).not.toBeNull();
+  });
+
+  it("keeps checkbox, issue link, and Start touch-sized without narrow-row overflow", async () => {
+    await page.viewport(390, 800);
+    render(UpNextPanel, {});
+
+    await expect.poll(() => document.querySelector(".un-row")).toBeTruthy();
+    const row = document.querySelector<HTMLElement>(".un-row")!;
+    const hitSize = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
+    );
+
+    for (const selector of [".un-check", ".un-link", ".un-start"]) {
+      expect(
+        row.querySelector<HTMLElement>(selector)!.getBoundingClientRect().height,
+      ).toBeGreaterThanOrEqual(hitSize);
+    }
+    expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 });
 

@@ -598,7 +598,7 @@
     padding: 0 12px 10px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
+    gap: 2px;
   }
 
   .issues-list::-webkit-scrollbar {

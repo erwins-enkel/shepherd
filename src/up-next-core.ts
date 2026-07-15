@@ -29,6 +29,9 @@ export interface UpNextItem {
   /** The issue's labels (standalone) or the parent epic's labels (epic unit) — used by the
    *  UI's client-side hide-blocked display filter (isBlocked in issues-panel.ts). */
   labels: string[];
+  /** Forge label name → source color. Optional presentational metadata; names in `labels`
+   *  remain authoritative and a missing/partial map renders with the neutral fallback. */
+  labelColors?: Record<string, string>;
   /** Present iff this row represents an epic unit (the parent it rolls up). */
   epicParent?: { number: number; title: string };
   /** Payload for SessionService.create()'s issueRef on Start. */
@@ -66,6 +69,8 @@ export interface EpicUnitInput {
   parentUrl: string;
   parentCreatedAt: number;
   parentLabels: string[];
+  /** Forge colors paired with parentLabels; forwarded to the collapsed Up Next row. */
+  parentLabelColors?: Record<string, string>;
   /** The epic parent's assignees. The unit is filtered by these (#824) — the candidate child
    *  is synthesized with `assignees: []`, so the parent is the assignee-bearing issue (matching
    *  what the Backlog hides). */
@@ -167,6 +172,7 @@ function standaloneItem(repo: RepoInput, issue: Issue, linkedSet: Set<number>): 
     priority: hasLabel(labelSet, PRIORITY_LABEL),
     createdAt: issue.createdAt,
     labels: issue.labels,
+    labelColors: issue.labelColors,
     issueRef: { number: issue.number, url: issue.url, title: issue.title, body: issue.body },
   };
 }
@@ -193,6 +199,7 @@ function epicItem(repo: RepoInput, e: EpicUnitInput, linkedSet: Set<number>): Up
     priority: hasLabel(parentLabelSet, PRIORITY_LABEL),
     createdAt: e.parentCreatedAt,
     labels: e.parentLabels,
+    labelColors: e.parentLabelColors,
     epicParent: { number: e.parentNumber, title: e.parentTitle },
     issueRef: { number: c.number, url: c.url, title: c.title, body: c.body },
   };

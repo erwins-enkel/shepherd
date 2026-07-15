@@ -75,11 +75,22 @@ describe("classification", () => {
 });
 
 describe("labels", () => {
-  test("standalone item carries the issue's labels", () => {
-    const r = [repo({ openIssues: [issue(1, { labels: ["blocked-upstream", "bug"] })] })];
-    expect(repoSection(r, "/r/a")!.items[0]!.labels).toEqual(["blocked-upstream", "bug"]);
+  test("standalone item carries the issue's labels and available forge colors", () => {
+    const r = [
+      repo({
+        openIssues: [
+          issue(1, {
+            labels: ["blocked-upstream", "bug"],
+            labelColors: { "blocked-upstream": "#111111", bug: "#d73a4a" },
+          }),
+        ],
+      }),
+    ];
+    const item = repoSection(r, "/r/a")!.items[0]!;
+    expect(item.labels).toEqual(["blocked-upstream", "bug"]);
+    expect(item.labelColors).toEqual({ "blocked-upstream": "#111111", bug: "#d73a4a" });
   });
-  test("epic unit carries the PARENT's labels, not the candidate child's", () => {
+  test("epic unit carries the PARENT's labels and colors, not the candidate child's", () => {
     const r = [
       repo({
         openIssues: [issue(1), issue(2)],
@@ -88,13 +99,18 @@ describe("labels", () => {
             parentNumber: 100,
             memberNumbers: [2],
             parentLabels: ["blocked-upstream", "epic"],
-            candidate: issue(2, { labels: ["unrelated-child-label"] }),
+            parentLabelColors: { "blocked-upstream": "#111111", epic: "#7057ff" },
+            candidate: issue(2, {
+              labels: ["unrelated-child-label"],
+              labelColors: { "unrelated-child-label": "#ffffff" },
+            }),
           }),
         ],
       }),
     ];
     const epicRow = repoSection(r, "/r/a")!.items.find((i) => i.kind === "epic")!;
     expect(epicRow.labels).toEqual(["blocked-upstream", "epic"]);
+    expect(epicRow.labelColors).toEqual({ "blocked-upstream": "#111111", epic: "#7057ff" });
   });
 });
 

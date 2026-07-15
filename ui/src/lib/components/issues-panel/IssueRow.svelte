@@ -4,13 +4,13 @@
   import { fitLabels } from "$lib/fit-labels";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { labelChipStyle } from "$lib/label-color";
-  import { ACTIVE_LABEL, epicFlagForOthers } from "../issues-panel";
+  import { epicFlagForOthers } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicOthersPill from "./EpicOthersPill.svelte";
+  import IssueLabelChips from "../IssueLabelChips.svelte";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
   // Tier-1 <template> complexity bar (#855). The row owns all its nested conditionals
@@ -151,23 +151,42 @@
   use:epicRowClick
   use:issueMenuTrigger={{ onopen: openMenu }}
 >
-  <div class="issue-top">
+  <div class="issue-list-row is-interactive issue-main">
     <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->
     <a
-      class="issue-num"
+      class="issue-num issue-list-number"
       href={issue.url}
       target="_blank"
       rel="noopener"
       title={m.issuespanel_open_on_github()}>#{issue.number}</a
     >
     <a
-      class="issue-title"
+      class="issue-title issue-list-title"
       href={issue.url}
       target="_blank"
       rel="noopener"
       title={m.issuespanel_open_on_github()}>{issue.title}</a
     >
     <!-- eslint-enable svelte/no-navigation-without-resolve -->
+    {#if issue.author}
+      <span class="issue-list-author">{m.issuerow_author_by({ login: issue.author })}</span>
+    {/if}
+    {#if !isEpicParent && issue.blockedBy?.length}
+      <span class="blocked-chip"
+        >{m.issuerow_blocked_on({ deps: issue.blockedBy.map((n) => `#${n}`).join(", ") })}</span
+      >
+    {/if}
+    {#if showAssignees}
+      {#each issue.assignees as login (login)}
+        <span class="label-chip assignee" title={m.issuerow_assignee_title({ login })}
+          ><span class="assignee-glyph" aria-hidden="true">👤</span>{login}</span
+        >
+      {/each}
+    {/if}
+    <IssueLabelChips labels={issue.labels} labelColors={issue.labelColors} />
+    {#if age}
+      <span class="issue-list-meta age-chip">{relativeAge(issue.createdAt, clock.current)}</span>
+    {/if}
     {#if epicSummary}
       {@const isNative = epicSummary.source === "native"}
       <button
@@ -193,77 +212,44 @@
          so the row carries just the pill, no duplicate notice. Extracted into a child so the
          tier→copy branching doesn't inflate this row's <template> complexity. -->
     <EpicOthersPill flag={othersFlag} />
+    <!-- fitLabels toggles `compact` when the buttons overflow their available
+         trailing region: emoji-carrying controls shed the visible label while
+         title/aria-label keep the full action name. -->
+    <div class="issue-actions issue-list-actions" use:fitLabels>
+      {#if onquick}
+        {#each issueActions as a (a.id)}
+          <button
+            class="quick-btn"
+            class:has-emoji={!!a.emoji}
+            disabled={isEpicParent}
+            onclick={() => onquick(issue, a)}
+            aria-label={isEpicParent
+              ? m.issuespanel_task_button_epic_disabled()
+              : m.issuespanel_action_aria({ label: a.label })}
+            title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : a.text}
+            >{#if a.emoji}<span class="act-emoji" aria-hidden="true">{a.emoji}</span>{/if}<span
+              class="act-label">{a.label}</span
+            ></button
+          >
+        {/each}
+      {/if}
+      <button
+        class="task-btn has-emoji"
+        disabled={isEpicParent}
+        onclick={() => onnewtask(issue)}
+        title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : undefined}
+        aria-label={isEpicParent
+          ? m.issuespanel_task_button_epic_disabled()
+          : m.issuespanel_task_button()}
+        ><span class="act-emoji" aria-hidden="true">+</span><span class="act-label"
+          >{m.issuespanel_task_button()}</span
+        ></button
+      >
+    </div>
   </div>
   {#if bodyPreview && issue.body}
     <div class="body-preview">{issue.body}</div>
   {/if}
-  {#if issue.labels.length > 0 || age || issue.author || (showAssignees && issue.assignees.length > 0) || (!isEpicParent && issue.blockedBy?.length)}
-    <div class="label-row">
-      {#if !isEpicParent && issue.blockedBy?.length}
-        <span class="blocked-chip"
-          >{m.issuerow_blocked_on({ deps: issue.blockedBy.map((n) => `#${n}`).join(", ") })}</span
-        >
-      {/if}
-      {#if showAssignees}
-        {#each issue.assignees as login (login)}
-          <span class="label-chip assignee" title={m.issuerow_assignee_title({ login })}
-            ><span class="assignee-glyph" aria-hidden="true">👤</span>{login}</span
-          >
-        {/each}
-      {/if}
-      {#each issue.labels as label (label)}
-        {@const style =
-          label !== ACTIVE_LABEL ? labelChipStyle(issue.labelColors?.[label] ?? "") : null}
-        <span
-          class="label-chip"
-          class:active={label === ACTIVE_LABEL}
-          class:hued={style !== null}
-          {style}
-          title={label === ACTIVE_LABEL ? m.issuespanel_active_label_title() : undefined}
-          >{label}</span
-        >
-      {/each}
-      {#if issue.author}
-        <span class="issue-author">{m.issuerow_author_by({ login: issue.author })}</span>
-      {/if}
-      {#if age}
-        <span class="age-chip">{relativeAge(issue.createdAt, clock.current)}</span>
-      {/if}
-    </div>
-  {/if}
-  <!-- fitLabels toggles `compact` when the buttons overflow the row: emoji-
-       carrying buttons collapse to their emoji (label stays in title/aria). -->
-  <div class="issue-actions" use:fitLabels>
-    {#if onquick}
-      {#each issueActions as a (a.id)}
-        <button
-          class="quick-btn"
-          class:has-emoji={!!a.emoji}
-          disabled={isEpicParent}
-          onclick={() => onquick(issue, a)}
-          aria-label={isEpicParent
-            ? m.issuespanel_task_button_epic_disabled()
-            : m.issuespanel_action_aria({ label: a.label })}
-          title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : a.text}
-          >{#if a.emoji}<span class="act-emoji" aria-hidden="true">{a.emoji}</span>{/if}<span
-            class="act-label">{a.label}</span
-          ></button
-        >
-      {/each}
-    {/if}
-    <button
-      class="task-btn has-emoji"
-      disabled={isEpicParent}
-      onclick={() => onnewtask(issue)}
-      title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : undefined}
-      aria-label={isEpicParent
-        ? m.issuespanel_task_button_epic_disabled()
-        : m.issuespanel_task_button()}
-      ><span class="act-emoji" aria-hidden="true">+</span><span class="act-label"
-        >{m.issuespanel_task_button()}</span
-      ></button
-    >
-  </div>
   {#if epicSummary && isExpanded}
     <div data-epic-panel>
       {#if epic}
@@ -291,35 +277,23 @@
     display: flex;
     flex-direction: column;
     gap: 3px;
-    padding: 7px 8px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    background: var(--color-inset);
+    min-width: 0;
   }
 
-  /* Epic parent rows stand out from ordinary issues: an amber (--status-running,
-     the epic/in-progress semantic) left accent + a faint amber wash. The tint is
-     deliberately low (6%) so the accent, the amber EPIC badge, and amber button
-     hovers on the same row read as one signal, not three competing ones. The
-     2px left border compensates 1px off the left padding to keep text aligned
-     with neighbouring non-epic rows. */
-  .issue-row.is-epic {
-    border-left: 2px solid var(--status-running);
-    padding-left: 7px;
+  .issue-main {
+    flex-wrap: wrap;
+  }
+
+  /* Epic state is carried by the EPIC/sub-issue badge plus a quiet full-row
+     treatment. No colored side stripe: the whole row is one state surface. */
+  .issue-row.is-epic .issue-main {
+    border-color: color-mix(in srgb, var(--status-running) 35%, var(--color-line));
     background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
-  }
-
-  .issue-top {
-    display: flex;
-    align-items: baseline;
-    gap: 6px;
+    cursor: pointer;
   }
 
   .issue-num {
-    font-size: var(--fs-meta);
     color: var(--color-faint);
-    flex-shrink: 0;
-    text-decoration: none;
     transition: color 0.12s;
   }
 
@@ -328,12 +302,7 @@
   }
 
   .issue-title {
-    flex: 1;
-    font-size: var(--fs-base);
-    color: var(--color-ink);
     line-height: 1.4;
-    word-break: break-word;
-    text-decoration: none;
     transition: color 0.12s;
   }
 
@@ -341,34 +310,38 @@
     color: var(--color-ink-bright);
   }
 
-  .label-row {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-
   .label-chip {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--color-muted);
+    flex: 0 1 auto;
+    max-width: 14ch;
+    overflow: hidden;
+    padding: 1px 5px;
     border: 1px solid var(--color-line);
     border-radius: 2px;
-    padding: 1px 5px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   /* "blocked on #N" — standalone (non-epic-parent) issues held back by an open dependency.
      Uses the semantic blocked token (red); never green, never a raw hex. Mirrors EpicPanel's
      .deps chip but as its own class since it lives in the label-row, not the epic child list. */
   .blocked-chip {
-    font-size: var(--fs-micro);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    color: var(--status-blocked);
+    flex: 0 1 auto;
+    max-width: 18ch;
+    overflow: hidden;
+    padding: 1px 5px;
     border: 1px solid var(--status-blocked);
     border-radius: 2px;
-    padding: 1px 5px;
     background: color-mix(in srgb, var(--status-blocked) 14%, transparent);
+    color: var(--status-blocked);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-overflow: ellipsis;
+    text-transform: uppercase;
+    white-space: nowrap;
   }
 
   /* Assignee chip — reuses the label-chip recipe but keeps the login verbatim (logins are
@@ -386,67 +359,29 @@
     font-size: var(--fs-micro);
   }
 
-  /* shepherd:active — claimed work. Uses the semantic running/in-progress token so a
-     taken issue stands out from neutral labels with the same hue as running sessions. */
-  .label-chip.active {
-    color: var(--status-running);
-    border-color: var(--status-running);
-    background: color-mix(in srgb, var(--status-running) 14%, transparent);
-  }
-
-  /* Real forge label color (issue: labels-almost-invisible) — sanctioned exception to
-     "accent hues are semantic, not decorative" (see /design-system). Never coexists with
-     .active: labelChipStyle is only computed for non-active labels, so the semantic amber
-     rule above always wins where it applies. Vars come from labelChipStyle(); dark is the
-     default, [data-theme="light"] overrides. */
-  .label-chip.hued {
-    color: var(--lc-text-d);
-    border-color: var(--lc-border-d);
-    background: var(--lc-fill-d);
-  }
-  :global([data-theme="light"]) .label-chip.hued {
-    color: var(--lc-text-l);
-    border-color: var(--lc-border-l);
-    background: var(--lc-fill-l);
-  }
-
   .body-preview {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    line-height: 1.4;
     display: -webkit-box;
+    margin: 0 10px 4px 42px;
+    overflow: hidden;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    line-height: 1.4;
+    word-break: break-word;
     -webkit-line-clamp: 3;
     line-clamp: 3;
     -webkit-box-orient: vertical;
-    overflow: hidden;
-    word-break: break-word;
   }
 
   .age-chip {
-    font-size: var(--fs-micro);
     letter-spacing: 0.1em;
-    color: var(--color-faint);
-    padding: 1px 0;
-  }
-
-  /* Subtle "by {login}" author text — dimmed, no chip border, so it reads as metadata
-     alongside the age and distinct from the 👤 assignee chip. Logins are verbatim. */
-  .issue-author {
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-    padding: 1px 0;
-    white-space: nowrap;
   }
 
   .issue-actions {
-    display: flex;
-    gap: 6px;
-    margin-top: 2px;
+    flex: 0 1 auto;
+    max-width: 45%;
     min-width: 0;
     /* Final fallback when even the compact (emoji-only) rendering overflows — e.g.
-       several emoji-less actions: scroll instead of clipping. Right-alignment comes
-       from the first child's auto margin (NOT justify-content: flex-end, whose
-       start-side overflow would be unreachable in a scroll container). */
+       several emoji-less actions: scroll instead of clipping. */
     overflow-x: auto;
     scrollbar-width: none;
     -webkit-overflow-scrolling: touch;
@@ -556,11 +491,35 @@
     background: color-mix(in oklab, var(--status-running) 22%, transparent);
   }
 
-  @media (max-width: 768px) {
+  [data-epic-panel] {
+    padding-top: 6px;
+    border-top: 1px solid var(--color-line);
+  }
+
+  @container issue-list-row (max-width: 560px) {
+    .issue-actions {
+      flex-basis: 100%;
+      max-width: 100%;
+      padding-left: 42px;
+    }
+  }
+
+  @media (max-width: 768px), (pointer: coarse) {
     .task-btn,
     .quick-btn {
-      min-height: 40px;
+      min-height: var(--mobile-actionbar-hit);
       padding: 2px 14px;
+    }
+
+    .issue-num,
+    .issue-title {
+      min-height: var(--mobile-actionbar-hit);
+      line-height: var(--mobile-actionbar-hit);
+    }
+
+    .issue-num {
+      min-width: var(--mobile-actionbar-hit);
+      text-align: center;
     }
   }
 </style>

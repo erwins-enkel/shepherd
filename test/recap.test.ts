@@ -1,5 +1,5 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
-import { RecapService } from "../src/recap";
+import { RecapService, sanitizeRecapFailureDetail } from "../src/recap";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { DiffResult, Recap, Session } from "../src/types";
 import type { ActivityEntry } from "../src/activity";
@@ -392,7 +392,7 @@ test("sweep idempotency: second sweep in same idle episode → no second spawn",
   expect(herdr.started.length).toBe(1);
 });
 
-test("sweep: empty diff → state 'empty', no spawn, onChange(id, null)", async () => {
+test("sweep: empty diff still starts a recap and reports no changed files", async () => {
   const s = makeSession({ status: "idle", auto: false });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -412,12 +412,14 @@ test("sweep: empty diff → state 'empty', no spawn, onChange(id, null)", async 
   t = 230_000;
   await svc.sweep(); // fire → empty diff
 
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
+  expect(store.getRecap("s1")?.changedFiles).toEqual([]);
+  expect(herdr.started[0]!.argv.at(-1)).toContain("No files were changed");
   const lastChange = changes[changes.length - 1];
   expect(lastChange).toBeDefined();
   expect(lastChange![0]).toBe("s1");
-  expect(lastChange![1]).toBeNull();
+  expect(lastChange![1]?.state).toBe("generating");
 });
 
 test("sweep: existing READY recap at headA; session re-activates then re-settles at headB → new spawn", async () => {
@@ -599,12 +601,13 @@ test("tick timeout: generating row, no verdict, past timeout → state 'failed',
     herdr,
     nowFn: () => 400_000, // spawnedAt=1_000, timeout=300_000 → timedOut
     timeoutMs: 300_000,
-    verdictJson: null,
+    verdictRead: { status: "absent" },
     cleanup: (d) => cleaned.push(d),
   });
 
   await svc.tick();
   expect(store.getRecap("s1")?.state).toBe("failed");
+  expect(store.getRecap("s1")?.failure?.code).toBe("timed-out");
   expect(herdr.stopped).toContain("t-timeout");
   expect(cleaned).toContain("/tmp/recap-timeout");
 });
@@ -667,7 +670,7 @@ test("tick no verdict captures the codex pane tail (400) so the failure is diagn
   const store = makeStore([], [rec]);
   const herdr = makeHerdr([{ cwd: "/tmp/recap-codex-400", terminalId: "t-400" }]);
   herdr.readBuffer =
-    'codex\nERROR: {"status":400,"message":"The \'gpt-5.3-codex\' model is not supported when using Codex with a ChatGPT account."}\n';
+    'codex\nERROR: {"status":400,"message":"The \'gpt-5.3-codex\' model is not supported when using Codex with a ChatGPT account."}\nOPENAI_API_KEY=plainSecretValue123\n';
   const warnings: string[] = [];
   const prevWarn = console.warn;
   console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
@@ -687,7 +690,56 @@ test("tick no verdict captures the codex pane tail (400) so the failure is diagn
   const msg = warnings.join("\n");
   expect(msg).toContain("pane-tail:");
   expect(msg).toContain("not supported when using Codex with a ChatGPT account");
+  expect(msg).not.toContain("plainSecretValue123");
+  expect(store.getRecap("s1")?.failure?.detail).not.toContain("plainSecretValue123");
   expect(store.getRecap("s1")?.state).toBe("failed");
+});
+
+test("TASK-677 timeout persists the redacted Codex terminal failure", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-task-677",
+    spawnSessionId: "sp-task-677",
+    model: "gpt-5.6-luna",
+    spawnedAt: 1_000,
+  });
+  const store = makeStore([], [rec]);
+  store.reviewerSpawns.push({
+    reviewerSessionId: "sp-task-677",
+    reviewerProvider: "codex",
+    model: "gpt-5.6-luna",
+  });
+  const herdr = makeHerdr([{ cwd: rec.cwd, terminalId: "t-task-677" }]);
+  herdr.readBuffer = "fatal: not a git repository (or any parent directories): .git";
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => 400_000,
+    timeoutMs: 300_000,
+    verdictRead: { status: "absent" },
+  });
+
+  await svc.tick();
+
+  expect(store.getRecap("s1")?.failure).toEqual({
+    code: "timed-out",
+    provider: "codex",
+    model: "gpt-5.6-luna",
+    detail: "fatal: not a git repository (or any parent directories): .git",
+  });
+});
+
+test("failure details redact credentials, collapse whitespace, and stay bounded", () => {
+  const detail = sanitizeRecapFailureDetail(
+    `Authorization: Bearer secret-token\nOPENAI_API_KEY=plainSecretValue123 ANTHROPIC_AUTH_TOKEN=oauthSecretValue123 AWS_SECRET_ACCESS_KEY=awsSecretValue123 ${"x".repeat(400)}`,
+  )!;
+  expect(detail).not.toContain("secret-token");
+  expect(detail).not.toContain("plainSecretValue123");
+  expect(detail).not.toContain("oauthSecretValue123");
+  expect(detail).not.toContain("awsSecretValue123");
+  expect(detail).toContain("<redacted>");
+  expect(detail).not.toContain("\n");
+  expect(detail.length).toBeLessThanOrEqual(300);
 });
 
 test("tick unparseable: garbage verdict → state 'failed'", async () => {
@@ -695,18 +747,27 @@ test("tick unparseable: garbage verdict → state 'failed'", async () => {
   const store = makeStore([], [rec]);
   const herdr = makeHerdr();
   const cleaned: string[] = [];
+  const warnings: string[] = [];
 
   const svc = buildSvc({
     store,
     herdr,
     nowFn: () => 200_000,
     timeoutMs: 300_000,
-    verdictJson: { verdict: "not-a-valid-verdict", headline: 42 }, // invalid
+    verdictJson: { verdict: "OPENAI_API_KEY=plainSecretValue123", headline: 42 }, // invalid
     cleanup: (d) => cleaned.push(d),
   });
 
-  await svc.tick();
+  const prevWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.map(String).join(" "));
+  try {
+    await svc.tick();
+  } finally {
+    console.warn = prevWarn;
+  }
   expect(store.getRecap("s1")?.state).toBe("failed");
+  expect(store.getRecap("s1")?.failure?.code).toBe("invalid-result");
+  expect(warnings.join("\n")).not.toContain("plainSecretValue123");
   expect(cleaned).toContain("/tmp/recap-garbage");
 });
 
@@ -828,6 +889,7 @@ test("recap: husk (shell-only) past grace → finalize-null failed (fast-fail pr
 
   await svc.tick();
   expect(store.getRecap("s1")?.state).toBe("failed"); // finalize-null: fast-fail preserved
+  expect(store.getRecap("s1")?.failure?.code).toBe("no-result");
   expect(herdr.stopped).toContain("t-husk");
   expect(cleaned).toContain("/tmp/recap-husk");
 });
@@ -1078,14 +1140,16 @@ test("generate: api-key without a configured key fails closed → 'error', no sp
   await withAuth("api-key", null, async () => {
     const s = makeSession({ status: "idle" });
     const herdr = makeHerdr();
+    const store = makeStore([s]);
     const svc = buildSvc({
-      store: makeStore([s]),
+      store,
       herdr,
       nowFn: () => 1,
       makeTmpDir: () => "/tmp/r",
     });
     expect(await svc.regenerate(s)).toBe("error");
     expect(herdr.started.length).toBe(0);
+    expect(store.getRecap("s1")?.failure?.code).toBe("auth-unavailable");
   });
 });
 
@@ -1127,7 +1191,7 @@ test("regenerate: replaces an existing ready row", async () => {
   expect(r?.headSha).toBe("sha-new");
 });
 
-test("regenerate: empty diff returns 'empty'", async () => {
+test("regenerate: empty diff starts a no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1141,12 +1205,12 @@ test("regenerate: empty diff returns 'empty'", async () => {
   });
 
   const result = await svc.regenerate(s);
-  expect(result).toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  expect(result).toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
-test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdir cleaned", async () => {
+test("generate/regenerate: herdr.start throws → returns 'error', records failure, cleans tmpdir", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const cleaned: string[] = [];
@@ -1179,7 +1243,11 @@ test("generate/regenerate: herdr.start throws → returns 'error', no row, tmpdi
 
   const result = await svc.regenerate(s);
   expect(result).toBe("error");
-  expect(store.getRecap("s1")).toBeNull();
+  expect(store.getRecap("s1")?.failure).toMatchObject({
+    code: "launch-failed",
+    provider: "claude",
+    model: "sonnet",
+  });
   expect(cleaned).toContain("/tmp/recap-error-test");
 });
 
@@ -1247,9 +1315,10 @@ test("generate: non-empty diff → generating row captures changedFiles", async 
   const r = store.getRecap("s1");
   expect(r?.state).toBe("generating");
   expect(r?.changedFiles).toEqual(["src/foo.ts"]); // from NON_EMPTY_DIFF
+  expect(r?.diffState).toBe("present");
 });
 
-test("generate: empty diff → empty row has changedFiles = []", async () => {
+test("generate: empty diff → generating row has changedFiles = []", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1263,13 +1332,14 @@ test("generate: empty diff → empty row has changedFiles = []", async () => {
   });
 
   const result = await svc.generate(s);
-  expect(result).toBe("empty");
+  expect(result).toBe("started");
   const r = store.getRecap("s1");
-  expect(r?.state).toBe("empty");
+  expect(r?.state).toBe("generating");
   expect(r?.changedFiles).toEqual([]);
+  expect(r?.diffState).toBe("none");
 });
 
-test("generate: empty diff + contained head without landed evidence stays empty", async () => {
+test("generate: empty diff without landed evidence still starts a no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1283,9 +1353,9 @@ test("generate: empty diff + contained head without landed evidence stays empty"
     headContainedInBase: async () => "contained",
   });
 
-  await expect(svc.generate(s)).resolves.toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
 test("generate: empty diff + contained head with landed evidence starts visible recap", async () => {
@@ -1308,6 +1378,7 @@ test("generate: empty diff + contained head with landed evidence starts visible 
   expect(herdr.started[0]!.argv.at(-1)).toContain("already contained in the resolved base");
   expect(herdr.started[0]!.argv.at(-1)).toContain("merged PR #12");
   expect(store.getRecap("s1")?.state).toBe("generating");
+  expect(store.getRecap("s1")?.diffState).toBe("landed");
 });
 
 test("generate: empty diff + landed evidence + fetch failure becomes visible failed diagnostic", async () => {
@@ -1338,7 +1409,7 @@ test("generate: empty diff + landed evidence + fetch failure becomes visible fai
   });
 });
 
-test("generate: empty diff + fetch failure without landed evidence stays empty", async () => {
+test("generate: empty diff + fetch failure without landed evidence starts no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1352,9 +1423,9 @@ test("generate: empty diff + fetch failure without landed evidence stays empty",
     headContainedInBase: async () => "contained",
   });
 
-  await expect(svc.generate(s)).resolves.toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
 test("generate: empty diff + branch mismatch becomes visible metadata failure", async () => {
@@ -1383,7 +1454,7 @@ test("generate: empty diff + branch mismatch becomes visible metadata failure", 
   });
 });
 
-test("generate: empty diff + not-contained ancestry without evidence stays empty", async () => {
+test("generate: empty diff + not-contained ancestry without evidence starts no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1397,9 +1468,9 @@ test("generate: empty diff + not-contained ancestry without evidence stays empty
     headContainedInBase: async () => "not-contained",
   });
 
-  await expect(svc.generate(s)).resolves.toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
 test("generate: empty diff + unknown ancestry with landed evidence becomes visible failed diagnostic", async () => {
@@ -1457,7 +1528,7 @@ test("generate: empty diff + not-contained ancestry with evidence → empty-diff
   });
 });
 
-test("generate: empty diff + unknown ancestry without evidence stays empty", async () => {
+test("generate: empty diff + unknown ancestry without evidence starts no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1471,12 +1542,12 @@ test("generate: empty diff + unknown ancestry without evidence stays empty", asy
     headContainedInBase: async () => "unknown",
   });
 
-  await expect(svc.generate(s)).resolves.toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
-test("generate: empty diff + null current branch without evidence stays empty", async () => {
+test("generate: empty diff + null current branch without evidence starts no-change recap", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1490,9 +1561,9 @@ test("generate: empty diff + null current branch without evidence stays empty", 
     headContainedInBase: async () => "contained",
   });
 
-  await expect(svc.generate(s)).resolves.toBe("empty");
-  expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")?.state).toBe("empty");
+  await expect(svc.generate(s)).resolves.toBe("started");
+  expect(herdr.started.length).toBe(1);
+  expect(store.getRecap("s1")?.state).toBe("generating");
 });
 
 test("generate: empty diff + null current branch with landed evidence can start recap", async () => {
@@ -1652,7 +1723,7 @@ test("considerForArchive: headSha throws → 'error', no throw, no spawn", async
   const result = await svc.considerForArchive(s);
   expect(result).toBe("error");
   expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")).toBeNull();
+  expect(store.getRecap("s1")?.failure).toMatchObject({ code: "source-unavailable" });
 });
 
 // ── onArchived tests ──────────────────────────────────────────────────────────────
@@ -1706,7 +1777,7 @@ test("onArchived: clears debounce so a later re-stamp is clean", async () => {
 
 // ── git/diff failure self-heals to "error" (must NOT throw out of bare-void sweep) ──
 
-test("generate: computeDiff rejection → 'error', no throw, no row", async () => {
+test("generate: computeDiff rejection → visible source failure", async () => {
   const s = makeSession({ status: "idle" });
   const store = makeStore([s]);
   const herdr = makeHerdr();
@@ -1734,7 +1805,10 @@ test("generate: computeDiff rejection → 'error', no throw, no row", async () =
   const result = await svc.generate(s); // must resolve, not reject
   expect(result).toBe("error");
   expect(herdr.started.length).toBe(0);
-  expect(store.getRecap("s1")).toBeNull(); // no row left → a later settle can retry
+  expect(store.getRecap("s1")?.failure).toMatchObject({
+    code: "source-unavailable",
+    detail: "git diff exceeded maxBuffer",
+  });
 });
 
 test("regenerate: headSha rejection → 'error', no throw", async () => {

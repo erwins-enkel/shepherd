@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { Session, RecapVerdict } from "$lib/types";
+  import type { Session, RecapFailureCode, RecapVerdict, SessionArchiveReason } from "$lib/types";
   import { recaps } from "$lib/recaps.svelte";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
@@ -89,6 +89,29 @@
     return m.recap_verdict_needs_attention();
   }
 
+  function archiveReasonLabel(reason?: SessionArchiveReason | null): string {
+    if (reason === "operator") return m.done_recap_archive_operator();
+    if (reason === "merged") return m.done_recap_archive_merged();
+    if (reason === "drain") return m.done_recap_archive_drain();
+    if (reason === "relaunch") return m.done_recap_archive_relaunch();
+    return m.done_recap_archive_unknown();
+  }
+
+  function failureHeadline(code: RecapFailureCode): string {
+    if (code === "auth-unavailable") return m.recap_failure_auth_headline();
+    if (code === "source-unavailable") return m.recap_failure_source_headline();
+    if (code === "launch-failed") return m.recap_failure_launch_headline();
+    if (code === "timed-out") return m.recap_failure_timeout_headline();
+    if (code === "no-result") return m.recap_failure_no_result_headline();
+    return m.recap_failure_invalid_result_headline();
+  }
+
+  function failureAction(code: RecapFailureCode): string {
+    if (code === "auth-unavailable") return m.recap_failure_auth_action();
+    if (code === "source-unavailable") return m.recap_failure_source_action();
+    return m.recap_failure_provider_action();
+  }
+
   const hasFileTree = $derived(!!recap?.blocks?.some((b) => b.type === "file-tree"));
 </script>
 
@@ -97,6 +120,7 @@
   <header class="dr-head">
     <span class="dr-desig">{session.desig}</span>
     <span class="dr-finished">{m.done_recap_finished({ ago: finishedAgo })}</span>
+    <span class="dr-source">{archiveReasonLabel(session.archiveReason)}</span>
     {#if onbringback}
       <div class="dr-actions">
         <button type="button" class="gbtn" class:armed={bringBackArmed} onclick={onBringBackClick}
@@ -125,6 +149,9 @@
       {/if}
       {#if recap.headline}
         <p class="dr-headline">{recap.headline}</p>
+      {/if}
+      {#if recap.diffState === "none"}
+        <p class="dr-warning" role="note">⚠ {m.recap_no_diff_warning()}</p>
       {/if}
       {#if recap.blocks && recap.blocks.length > 0}
         <VisualReview blocks={recap.blocks} />
@@ -155,14 +182,28 @@
     {:else if recap?.state === "generating"}
       <p class="dr-muted">{m.recap_generating()}</p>
     {:else if recap?.state === "failed"}
-      <!-- generation ran but couldn't produce a recap — say so, don't imply it was never tried. -->
-      <p class="dr-muted">{m.recap_failed()}</p>
-      <!-- A coded skip renders its headline/body per-locale; a legacy row (no code) falls back to
-           the baked prose it persisted. -->
-      {#if recap.skip}
+      {#if recap.failure}
+        <p class="dr-failure-headline">{failureHeadline(recap.failure.code)}</p>
+        <p class="dr-failure-body">{failureAction(recap.failure.code)}</p>
+        <details class="dr-details">
+          <summary>{m.recap_failure_details()}</summary>
+          <dl>
+            <dt>{m.recap_failure_provider()}</dt>
+            <dd>{recap.failure.provider}</dd>
+            <dt>{m.recap_failure_model()}</dt>
+            <dd>{recap.failure.model ?? m.recap_failure_default_model()}</dd>
+            {#if recap.failure.detail}
+              <dt>{m.recap_failure_detail()}</dt>
+              <dd>{recap.failure.detail}</dd>
+            {/if}
+          </dl>
+        </details>
+      {:else if recap.skip}
+        <p class="dr-muted">{m.recap_failed()}</p>
         <p class="dr-failure-headline">{recapSkipHeadline(recap.skip)}</p>
         <p class="dr-failure-body">{recapSkipBody(recap.skip)}</p>
       {:else}
+        <p class="dr-muted">{m.recap_failed()}</p>
         {#if recap.headline}
           <p class="dr-failure-headline">{recap.headline}</p>
         {/if}
@@ -170,11 +211,13 @@
           <p class="dr-failure-body">{recap.body}</p>
         {/if}
       {/if}
+    {:else if recap?.state === "empty"}
+      <p class="dr-warning" role="note">⚠ {m.recap_empty_legacy()}</p>
     {:else if predatesRecapFeature}
       <!-- finished before durable recaps existed: name the reason instead of a bare "unavailable". -->
       <p class="dr-muted">{m.recap_predates_feature()}</p>
     {:else}
-      <!-- empty diff or no recap row: fail-closed — never a blank card that reads as a success. -->
+      <!-- no recap row: fail-closed — never a blank card that reads as a success. -->
       <p class="dr-muted">{m.recap_unavailable()}</p>
     {/if}
   </div>
@@ -207,9 +250,16 @@
     font-weight: 600;
   }
 
-  .dr-finished {
+  .dr-finished,
+  .dr-source {
     font-size: var(--fs-meta);
     color: var(--color-muted);
+  }
+
+  .dr-source::before {
+    content: "·";
+    margin-right: 10px;
+    color: var(--color-faint);
   }
 
   /* Action cluster: sits right after the muted stamps; the issue link's auto margin
@@ -342,6 +392,16 @@
     color: var(--color-muted);
   }
 
+  .dr-warning {
+    margin: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--status-warn);
+    background: color-mix(in srgb, var(--status-warn) 8%, transparent);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    color: var(--color-ink);
+  }
+
   .dr-failure-headline {
     margin: 0;
     font-size: var(--fs-base);
@@ -354,5 +414,40 @@
     line-height: 1.5;
     color: var(--color-ink);
     white-space: pre-wrap;
+  }
+
+  .dr-details {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+  }
+
+  .dr-details summary {
+    width: fit-content;
+    cursor: pointer;
+    color: var(--color-muted);
+  }
+
+  .dr-details summary:hover {
+    color: var(--color-ink-bright);
+  }
+
+  .dr-details dl {
+    display: grid;
+    grid-template-columns: max-content minmax(0, 1fr);
+    gap: 4px 10px;
+    margin: 8px 0 0;
+    padding: 8px 10px;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+  }
+
+  .dr-details dt {
+    color: var(--color-faint);
+  }
+
+  .dr-details dd {
+    margin: 0;
+    color: var(--color-ink);
+    overflow-wrap: anywhere;
   }
 </style>

@@ -1,6 +1,6 @@
 import type { SessionStore } from "./store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "./forge/types";
-import type { CreateSessionInput, Session } from "./types";
+import type { CreateSessionInput, Session, SessionArchiveReason } from "./types";
 import type { SessionStateChange } from "./session-snapshot";
 import type { UsageLimits } from "./usage-limits";
 import type { TelemetryService } from "./telemetry";
@@ -210,7 +210,7 @@ export interface DrainDeps {
   >;
   service: {
     create(input: CreateSessionInput): Promise<Session>;
-    archive(id: string): Promise<number>;
+    archive(id: string, reapKeys?: string[], reason?: SessionArchiveReason): Promise<number>;
   };
   resolveForge: (repoPath: string) => GitForge | null;
   prCache: { snapshot(): Record<string, GitState> };
@@ -2252,7 +2252,7 @@ export class DrainService {
       s.baseBranch, // #645 (b): the branch this child actually squash-merged into
     );
     try {
-      await this.deps.service.archive(decision.sessionId);
+      await this.deps.service.archive(decision.sessionId, undefined, "drain");
     } catch (err) {
       // The squash-merge already landed (PR is now MERGED) but teardown didn't finish. This is
       // recoverable, not a permanent strand: we deliberately do NOT dropPrCache/emit below, so the
@@ -2324,7 +2324,7 @@ export class DrainService {
     // next tick retries; we must NOT drop the pr-cache or emit "archived" for a
     // session that didn't actually archive.
     try {
-      await this.deps.service.archive(decision.sessionId);
+      await this.deps.service.archive(decision.sessionId, undefined, "drain");
     } catch (err) {
       console.warn(`[drain] archive failed for ${decision.sessionId}:`, err);
       return;
@@ -2651,7 +2651,7 @@ export class DrainService {
   private async reapMerged(s: Session): Promise<void> {
     await settleMergedSession(s, {
       resolveForge: this.deps.resolveForge,
-      archive: (sid) => this.deps.service.archive(sid),
+      archive: (sid, reason) => this.deps.service.archive(sid, undefined, reason),
       dropPrCache: this.deps.dropPrCache,
       emitArchived: this.deps.emitArchived,
       retainClaim: (sid) => this.retainClaimOnArchive.add(sid),

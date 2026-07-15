@@ -1,5 +1,5 @@
 import type { GitForge } from "./forge/types";
-import type { Session } from "./types";
+import type { Session, SessionArchiveReason } from "./types";
 import type { SessionStore } from "./store";
 
 /** Store surface for {@link recordEpicIntegrationIfChild}. */
@@ -86,7 +86,7 @@ async function resolveMergedBase(
 export interface MergeTeardownDeps {
   resolveForge: (repoPath: string) => GitForge | null;
   /** service.archive */
-  archive: (id: string) => Promise<number>;
+  archive: (id: string, reason?: SessionArchiveReason) => Promise<number>;
   /** prPoller.drop */
   dropPrCache: (id: string) => void;
   /** events.emit("session:archived", {id}) */
@@ -116,7 +116,7 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
   // claim (the still-open issue's label is what stops a re-spawn) and skip closeIssue entirely.
   if (s.auto && s.issueNumber != null && deps.isIntegratedEpicChild(s)) {
     deps.retainClaim(s.id);
-    await deps.archive(s.id);
+    await deps.archive(s.id, "merged");
     deps.dropPrCache(s.id);
     deps.emitArchived(s.id);
     return;
@@ -139,7 +139,7 @@ export async function settleMergedSession(s: Session, deps: MergeTeardownDeps): 
     // any instance re-spawning already-merged work.
     if (!closed) deps.retainClaim(s.id);
   }
-  await deps.archive(s.id);
+  await deps.archive(s.id, "merged");
   deps.dropPrCache(s.id);
   deps.emitArchived(s.id);
 }

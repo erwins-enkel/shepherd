@@ -69,6 +69,7 @@ function harness(opts: {
   const emitted: Spy[] = [];
   const calls = {
     relaunch: [] as Array<{ id: string; issueRef: unknown; overrides: unknown }>,
+    archiveMany: [] as Array<{ ids: string[]; reason: unknown }>,
     stageRelaunchImages: [] as string[],
   };
   let retainClaimSeenArchived = false;
@@ -112,10 +113,10 @@ function harness(opts: {
         issueNumber: ir?.number ?? null,
       } as Session;
     },
-    archiveMany: (ids: string[]) => ({
-      cleared: opts.archiveCleared ?? ids,
-      leftovers: 0,
-    }),
+    archiveMany: (ids: string[], reason: unknown) => {
+      calls.archiveMany.push({ ids, reason });
+      return { cleared: opts.archiveCleared ?? ids, leftovers: 0 };
+    },
     stageRelaunchImages: (id: string) => {
       calls.stageRelaunchImages.push(id);
       return (
@@ -210,6 +211,7 @@ test("happy path: emits session:new then session:archived, returns {session, arc
   expect(h.emitted[1]?.data).toEqual({ id: "orig" });
   expect(h.calls.relaunch).toHaveLength(1);
   expect(h.calls.relaunch[0]).toEqual({ id: "orig", issueRef: undefined, overrides: undefined });
+  expect(h.calls.archiveMany).toEqual([{ ids: ["orig"], reason: "relaunch" }]);
   expect(h.droppedFromCache).toEqual(["orig"]);
 });
 

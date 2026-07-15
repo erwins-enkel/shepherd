@@ -149,6 +149,7 @@ test("session migration: an old sessions row without providerSessionId gains the
     // opening through the store runs migrateSessionColumns, adding providerSessionId with its default
     const store = new SessionStore(dbPath);
     expect(store.get("old")?.providerSessionId).toBe("");
+    expect(store.get("old")?.archiveReason).toBeNull();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -592,7 +593,28 @@ test("get / list / update / archive", () => {
   s.archive(a.id);
   expect(s.get(a.id)?.status).toBe("archived");
   expect(s.get(a.id)?.archivedAt).toBeGreaterThan(0);
+  expect(s.get(a.id)?.archiveReason).toBe("operator");
   expect(s.list({ activeOnly: true }).length).toBe(0);
+});
+
+test("archive persists an explicit completion reason", () => {
+  const s = mk();
+  const reasons = ["operator", "merged", "drain", "relaunch"] as const;
+  for (const reason of reasons) {
+    const row = s.create({ ...base, herdrAgentId: `term-${reason}` });
+    s.archive(row.id, reason);
+    expect(s.get(row.id)?.archiveReason).toBe(reason);
+  }
+});
+
+test("archive preserves the first completion reason", () => {
+  const s = mk();
+  const row = s.create(base);
+  s.archive(row.id, "drain");
+  const firstArchivedAt = s.get(row.id)?.archivedAt;
+  s.archive(row.id, "operator");
+  expect(s.get(row.id)?.archiveReason).toBe("drain");
+  expect(s.get(row.id)?.archivedAt).toBe(firstArchivedAt);
 });
 
 test("unarchive clears archivedAt to null", () => {
@@ -602,6 +624,7 @@ test("unarchive clears archivedAt to null", () => {
   expect(s.get(a.id)?.archivedAt).toBeGreaterThan(0);
   s.unarchive(a.id);
   expect(s.get(a.id)?.archivedAt).toBeNull();
+  expect(s.get(a.id)?.archiveReason).toBeNull();
   // status stays archived (finishResumeSpawn updates it separately)
   expect(s.get(a.id)?.status).toBe("archived");
 });
@@ -758,6 +781,25 @@ test("pruneArchivedSessions: cascades the victim's recap, keeps survivor's", asy
   expect(removed).toBe(1);
   expect(s.getRecap(victim.id)).toBeNull(); // recap pruned with the session
   expect(s.getRecap(keep.id)).not.toBeNull(); // survivor's recap intact
+});
+
+test("recap failure details round-trip and legacy empty rows remain visible in snapshots", () => {
+  const s = mk();
+  const failed = recap("failed", {
+    state: "failed",
+    failure: {
+      code: "timed-out",
+      provider: "codex",
+      model: "gpt-5.5",
+      detail: "agent produced no verdict",
+    },
+  });
+  const empty = recap("empty", { state: "empty" });
+  s.putRecap(failed);
+  s.putRecap(empty);
+
+  expect(s.getRecap("failed")?.failure).toEqual(failed.failure);
+  expect(s.snapshotRecaps().empty?.state).toBe("empty");
 });
 
 function newMergeInput() {

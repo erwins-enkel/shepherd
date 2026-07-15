@@ -4,6 +4,7 @@ import type { ManualStep } from "./manual-steps";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
 
@@ -99,6 +100,8 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
+  /** How this session was completed; null for active and pre-feature archived rows. */
+  archiveReason?: SessionArchiveReason | null;
   /** Reason the session halted mid-run; null when not halted. */
   haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
   /** Epoch ms when haltReason was set; null when not halted. */
@@ -611,6 +614,24 @@ export interface RecapSkip {
   params: RecapSkipParams;
 }
 
+export type RecapFailureCode =
+  | "auth-unavailable"
+  | "source-unavailable"
+  | "launch-failed"
+  | "timed-out"
+  | "no-result"
+  | "invalid-result";
+
+/** A technical recap failure rendered with localized guidance plus optional redacted details. */
+export interface RecapFailure {
+  code: RecapFailureCode;
+  provider: AgentProvider;
+  model: string | null;
+  detail?: string;
+}
+
+export type RecapDiffState = "none" | "present" | "landed";
+
 /** A per-session LLM recap. One row per session, keyed by the HEAD it summarizes
  *  (head-keyed dedupe: a new head re-generates). `state` distinguishes in-flight /
  *  done / failed / no-changes. verdict/headline/body/openItems are empty until ready. */
@@ -626,6 +647,9 @@ export interface Recap {
   // When set, headline/body are "" and the UI derives them from this; absent (legacy failed rows,
   // or genuine spawn failures) → render the stored headline/body verbatim. See src/recap.ts.
   skip?: RecapSkip | null;
+  failure?: RecapFailure | null;
+  /** Explicit diff classification; null/absent for recaps created before this metadata existed. */
+  diffState?: RecapDiffState | null;
   openItems: string[]; // [] until ready
   changedFiles: string[]; // files changed in the session (captured at gen time; survives worktree teardown)
   spawnSessionId: string; // claude --session-id of the recap spawn (usage + pane resolve)

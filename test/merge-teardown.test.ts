@@ -21,7 +21,7 @@ function deps(over: Partial<MergeTeardownDeps> = {}): MergeTeardownDeps {
 test("auto session with issue: closes issue, archives, does NOT retain claim", async () => {
   const d = deps();
   await settleMergedSession({ id: "s1", auto: true, issueNumber: 9, repoPath: "/r" } as any, d);
-  expect((d.archive as any).mock.calls.length).toBe(1);
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
   expect((d.retainClaim as any).mock.calls.length).toBe(0);
 });
 
@@ -48,7 +48,7 @@ test("integrated epic child: archives + retains claim, NEVER closes the issue (#
   await settleMergedSession({ id: "s1", auto: true, issueNumber: 12, repoPath: "/r" } as any, d);
   expect(close.mock.calls.length).toBe(0); // close reserved for the landing PR merge
   expect((d.retainClaim as any).mock.calls).toEqual([["s1"]]); // still-open issue must not re-spawn
-  expect((d.archive as any).mock.calls.length).toBe(1);
+  expect((d.archive as any).mock.calls).toEqual([["s1", "merged"]]);
 });
 
 test("manual session (no issue): archives, no close, no retain", async () => {

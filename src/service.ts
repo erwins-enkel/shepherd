@@ -22,6 +22,7 @@ import type {
   LaunchAttachmentMetadata,
   RelaunchOverrides,
   Session,
+  SessionArchiveReason,
   SessionLaunchMetadata,
 } from "./types";
 import {
@@ -4653,7 +4654,11 @@ export class SessionService {
    * leftovers actually reaped (the intersection), so bulk callers can report a count
    * that reflects what was killed rather than what was requested.
    */
-  async archive(id: string, reapKeys?: string[]): Promise<number> {
+  async archive(
+    id: string,
+    reapKeys?: string[],
+    reason: SessionArchiveReason = "operator",
+  ): Promise<number> {
     const s = this.deps.store.get(id);
     if (!s) return 0;
     let reaped = 0;
@@ -4687,7 +4692,7 @@ export class SessionService {
     // stopped above, so nothing still tails it. No-op when the session never had egress on.
     removeEgressTmp(id);
     this.attributeLearningReward(s);
-    this.deps.store.archive(id);
+    this.deps.store.archive(id, reason);
     // AFTER store.archive, so the reaper's terminality gate sees `archived`. While a batch is
     // draining we DEFER rather than skip: `archive` awaits (herdr.stop, the 15s beforeArchive
     // window), so a timer-driven archive (automerge / drain / merge-teardown) can interleave with
@@ -4730,7 +4735,10 @@ export class SessionService {
    * the rest, so each is isolated: a failed id is skipped and left out of `cleared`,
    * so the caller emits archived events for exactly the rows that really went away.
    */
-  async archiveMany(ids: string[]): Promise<{ cleared: string[]; leftovers: number }> {
+  async archiveMany(
+    ids: string[],
+    reason: SessionArchiveReason = "operator",
+  ): Promise<{ cleared: string[]; leftovers: number }> {
     const cleared: string[] = [];
     let leftovers = 0;
     // The runaway sweep enumerates every pid on the host, so it must run ONCE for the batch, not
@@ -4745,7 +4753,7 @@ export class SessionService {
         if (!s) continue;
         const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
         try {
-          leftovers += await this.archive(id, keys); // count what was reaped, not what was detected
+          leftovers += await this.archive(id, keys, reason); // count what was reaped, not what was detected
           cleared.push(id);
         } catch {
           // skip this one; its row stays active and gets no archived event

@@ -3181,5 +3181,17 @@
   "settings_role_model_merge_suggest_title": "Learnings-Merge-Suggester",
   "settings_role_model_merge_suggest_hint": "Konsolidiert überschneidende Learnings-Regeln innerhalb und über Repositorys hinweg.",
   "feat_merge_suggester_provider_title": "Kosten des Merge-Suggesters steuern",
-  "feat_merge_suggester_provider_body": "Wähle CLI, Modell und Aufwand des Learnings-Merge-Suggesters."
+  "feat_merge_suggester_provider_body": "Wähle CLI, Modell und Aufwand des Learnings-Merge-Suggesters.",
+  "updatemodal_dirty_title": "Lokale Änderungen blockieren das Update",
+  "updatemodal_dirty_body": "Du hast nicht committete Änderungen im Repo, in dem Shepherd läuft — deshalb kann die neue Version nicht sauber geholt werden. Verwirf deine Änderungen, um zu aktualisieren, oder lass sie stehen und aktualisiere später, nachdem du sie selbst committet hast.",
+  "updatemodal_dirty_files_head": "Geänderte Dateien",
+  "updatemodal_dirty_files_more": "… und {count} weitere",
+  "updatemodal_discard_and_update": "Verwerfen & aktualisieren",
+  "updatemodal_discard_confirm": "{count} getrackte Änderung(en) auf den letzten Commit zurücksetzen? Bearbeitungen an vorhandenen Dateien gehen verloren; neu hinzugefügte Dateien werden nicht gelöscht — sie bleiben als ungetrackte Dateien liegen.",
+  "updatemodal_discard_confirm_yes": "Ja, zurücksetzen",
+  "updatemodal_now_clean": "Der Baum ist jetzt sauber — versuche das Update erneut.",
+  "updatemodal_dirty_stale": "Die Änderungen haben sich seit der Anzeige geändert — bitte prüfe die aktualisierte Liste und bestätige erneut.",
+  "updatemodal_dirty_too_large": "Die Änderungen sind zu groß, um sie für einen Ein-Klick-Discard sicher zu prüfen — bitte committe oder verwirf sie manuell.",
+  "feat_safe_update_dirty_repo_title": "Update bei „dirty\" Repo, erklärt",
+  "feat_safe_update_dirty_repo_body": "Wenn ein Update nicht laufen kann, weil du nicht committete Änderungen im Repo hast, in dem Shepherd läuft, erklärt der Update-Dialog das jetzt in Klartext und listet die geänderten Dateien. Du kannst genau diese Änderungen verwerfen und mit einem Klick aktualisieren — oder sie stehen lassen und später aktualisieren. Neu hinzugefügte Dateien bleiben immer erhalten."
 }

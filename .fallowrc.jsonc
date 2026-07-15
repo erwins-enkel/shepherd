@@ -253,6 +253,14 @@
         "reason": "Tier 1: global Svelte <template> complexity bar (#851; see comment above)."
       },
       {
+        "files": ["ui/src/lib/components/UpdateModal.svelte"],
+        "functions": ["<template>"],
+        "maxCyclomatic": 45,
+        "maxCognitive": 60,
+        "maxCrap": 20000,
+        "reason": "The dirty-repo self-update flow adds render modes (progress/loading/clean/dirty/toolarge/nowclean/rawlog) so the operator can be shown, and re-confirm, exactly which changes a discard would revert; the extra {#if mode ===} branches take cyclomatic to 44 (over the Tier-1 40 bar), cognitive stays under (54). Keep capped until the dirty section splits into a child component (#855)."
+      },
+      {
         "files": ["ui/src/lib/components/Viewport.svelte"],
         "functions": ["<template>"],
         "maxCyclomatic": 90,

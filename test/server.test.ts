@@ -1,5 +1,13 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, mkdirSync, rmSync, existsSync, realpathSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  rmSync,
+  existsSync,
+  realpathSync,
+  statSync,
+  readFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import { stagingDir } from "../src/uploads";
@@ -1094,6 +1102,142 @@ test("GET /api/update/log returns the deploy state", async () => {
     exitCode: 1,
     log: "build failed: tsc error",
   });
+});
+
+// ── dirty-repo discard endpoints ───────────────────────────────────────────
+const BEHIND = { behind: 1, current: "a", latest: "b", commits: [], checkedAt: 1 };
+function dirtyFixture(sig: string | null) {
+  return {
+    dirty: true,
+    dirtyFiles: [" M a.ts"],
+    dirtyCount: 1,
+    sig,
+    pathspecAll: Buffer.from("a.ts\0"),
+    pathspecWorktree: Buffer.from("a.ts\0"),
+  };
+}
+function postUpdate(app: ReturnType<typeof makeApp>, body: unknown) {
+  return app.fetch(
+    new Request("http://x/api/update", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }),
+  );
+}
+
+test("POST /api/update rejects a non-boolean discard / non-string sig with 400", async () => {
+  const app = harnessWithUpdates({ current: () => BEHIND, apply: () => ({ started: true }) });
+  expect((await postUpdate(app, { discard: "yes" })).status).toBe(400);
+  expect((await postUpdate(app, { discard: true, sig: 1 })).status).toBe(400);
+});
+
+test("GET /api/update/dirty returns the fresh status with pathspec buffers stripped", async () => {
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    apply: () => ({ started: true }),
+    dirtyStatus: async () => dirtyFixture("S"),
+  });
+  const res = await app.fetch(new Request("http://x/api/update/dirty"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({
+    dirty: true,
+    dirtyFiles: [" M a.ts"],
+    dirtyCount: 1,
+    sig: "S",
+  });
+});
+
+test("discard when no update available → 409 with NO dirty probe / apply", async () => {
+  let probes = 0;
+  let applies = 0;
+  const app = harnessWithUpdates({
+    current: () => ({ behind: 0, current: "a", latest: "a", commits: [], checkedAt: 1 }),
+    apply: () => {
+      applies++;
+      return { started: true };
+    },
+    dirtyStatus: async () => {
+      probes++;
+      return dirtyFixture("S");
+    },
+  });
+  const res = await postUpdate(app, { discard: true, sig: "S" });
+  expect(res.status).toBe(409);
+  expect(probes).toBe(0); // no-update guard ran BEFORE any probe
+  expect(applies).toBe(0);
+});
+
+test("discard with a stale sig → 409 stale, apply not called", async () => {
+  let applies = 0;
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    apply: () => {
+      applies++;
+      return { started: true };
+    },
+    dirtyStatus: async () => dirtyFixture("FRESH"),
+  });
+  const res = await postUpdate(app, { discard: true, sig: "STALE" });
+  expect(res.status).toBe(409);
+  expect((await res.json()).error).toBe("stale");
+  expect(applies).toBe(0);
+});
+
+test("discard with sig:null (too large) → 409, apply not called", async () => {
+  let applies = 0;
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    apply: () => {
+      applies++;
+      return { started: true };
+    },
+    dirtyStatus: async () => dirtyFixture(null),
+  });
+  expect((await postUpdate(app, { discard: true, sig: "S" })).status).toBe(409);
+  expect(applies).toBe(0);
+});
+
+test("discard with a matching sig writes two 0600 pathspec files and launches", async () => {
+  let seen: { dir?: string; all?: string; wt?: string; allBytes?: Buffer; mode?: number } = {};
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    apply: (opts?) => {
+      // capture what the server wrote, while the temp files still exist
+      seen = {
+        dir: opts?.dir,
+        all: opts?.pathspecAllFile,
+        wt: opts?.pathspecWtFile,
+        allBytes: opts?.pathspecAllFile ? readFileSync(opts.pathspecAllFile) : undefined,
+        mode: opts?.pathspecAllFile ? statSync(opts.pathspecAllFile).mode & 0o777 : undefined,
+      };
+      return { started: true };
+    },
+    dirtyStatus: async () => dirtyFixture("S"),
+  });
+  const res = await postUpdate(app, { discard: true, sig: "S" });
+  expect(res.status).toBe(202);
+  expect(seen.dir).toBeTruthy();
+  expect(seen.allBytes?.toString()).toBe("a.ts\0"); // byte-verbatim pathspec
+  expect(seen.mode).toBe(0o600); // private perms
+  // on success the server leaves the dir for update.sh's trap; clean it up here
+  if (seen.dir) rmSync(seen.dir, { recursive: true, force: true });
+});
+
+test("discard cleans up the private dir when the launch fails", async () => {
+  let capturedDir: string | undefined;
+  const app = harnessWithUpdates({
+    current: () => BEHIND,
+    apply: (opts?) => {
+      capturedDir = opts?.dir;
+      return { started: false, error: "a deploy is already running" };
+    },
+    dirtyStatus: async () => dirtyFixture("S"),
+  });
+  const res = await postUpdate(app, { discard: true, sig: "S" });
+  expect(res.status).toBe(409);
+  expect(capturedDir).toBeTruthy();
+  expect(existsSync(capturedDir!)).toBe(false); // dir removed, no orphaned pathspec
 });
 
 test("GET /api/update/log with no updater → idle", async () => {

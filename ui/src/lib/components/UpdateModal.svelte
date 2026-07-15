@@ -1,6 +1,6 @@
 <script lang="ts">
-  import type { UpdateStatus, DeployState } from "$lib/types";
-  import { applyUpdate } from "$lib/api";
+  import type { UpdateStatus, DeployState, DirtyStatus } from "$lib/types";
+  import { applyUpdate, getUpdateDirty, StaleDirtyError } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
   import SvgFlockOverlay from "$lib/components/SvgFlockOverlay.svelte";
@@ -28,13 +28,83 @@
   let expanded = $state<Record<string, boolean>>({});
   const toggle = (sha: string) => (expanded[sha] = !expanded[sha]);
 
+  const busy = $derived(submitting || updating);
   const failed = $derived(deploy?.phase === "failed");
+  // while the deploy is in flight, show its captured output so the user sees
+  // real progress (install → build → restart) instead of a frozen spinner
+  const liveLog = $derived(busy && !failed && deploy?.log ? deploy.log : null);
 
-  async function confirm() {
+  // ── dirty-repo flow ────────────────────────────────────────────────────────
+  // The tracked dirty state is volatile, so we always fetch it FRESH (never from
+  // the cached update status): once proactively when the dialog opens, and again
+  // reactively if a deploy fails because the tree blocked the pull / drifted.
+  let dirtyProbe = $state<"idle" | "pending" | "clean" | "dirty" | "error">("idle");
+  let dirty = $state<DirtyStatus | null>(null);
+  // two-click destructive confirm: the first click only arms (no API call)
+  let arming = $state(false);
+  // shown when the deploy failed because the tree changed since confirmation
+  let staleHint = $state(false);
+
+  const displayedSig = $derived(dirty?.sig ?? undefined);
+
+  async function probe() {
+    dirtyProbe = "pending";
+    arming = false;
+    try {
+      const d = await getUpdateDirty();
+      dirty = d;
+      dirtyProbe = d.dirty ? "dirty" : "clean";
+    } catch {
+      dirty = null;
+      dirtyProbe = "error"; // degrade to the normal update UI — never a stuck button
+    }
+  }
+
+  // proactive: probe once when the dialog mounts on an available update
+  $effect(() => {
+    if (update.behind > 0 && dirtyProbe === "idle") void probe();
+  });
+
+  // reactive: a failed deploy classified dirty/stale → re-probe fresh and route
+  // through the same dirty UI (with a "changed since shown" hint for stale)
+  $effect(() => {
+    if (failed && (deploy?.reason === "dirty" || deploy?.reason === "stale")) {
+      staleHint = deploy?.reason === "stale";
+      void probe();
+    }
+  });
+
+  const dirtyReactive = $derived(
+    failed && (deploy?.reason === "dirty" || deploy?.reason === "stale"),
+  );
+
+  type Mode = "progress" | "loading" | "clean" | "dirty" | "toolarge" | "nowclean" | "rawlog";
+  // once a fresh probe has resolved: still pending → loading; dirty → dirty (or
+  // toolarge when the signature was unavailable); anything else → the normal update UI
+  const probeMode = (): Mode => {
+    if (dirtyProbe === "pending" || dirtyProbe === "idle") return "loading";
+    if (dirtyProbe === "dirty") return dirty?.sig == null ? "toolarge" : "dirty";
+    return "clean";
+  };
+  const mode = $derived.by((): Mode => {
+    if (busy) return "progress";
+    if (dirtyReactive) {
+      if (dirtyProbe === "error") return "rawlog"; // couldn't probe → raw log fallback
+      if (dirtyProbe === "clean") return "nowclean"; // tree got cleaned meanwhile
+      return probeMode();
+    }
+    if (failed) return "rawlog";
+    return probeMode(); // probe error degrades to the normal (clean) update UI
+  });
+
+  const moreCount = $derived(dirty ? dirty.dirtyCount - dirty.dirtyFiles.length : 0);
+
+  /** Clean/retry path: a plain (non-destructive) update. */
+  async function runUpdate() {
     submitting = true;
     error = null;
     try {
-      await applyUpdate();
+      await applyUpdate(false);
       onconfirm?.(); // store marks `updating`; the page reloads once the new build is live
     } catch (e) {
       error = e instanceof Error ? e.message : m.updatemodal_update_failed();
@@ -42,10 +112,26 @@
     }
   }
 
-  const busy = $derived(submitting || updating);
-  // while the deploy is in flight, show its captured output so the user sees
-  // real progress (install → build → restart) instead of a frozen spinner
-  const liveLog = $derived(busy && !failed && deploy?.log ? deploy.log : null);
+  /** Destructive path, second click: send the discard with the DISPLAYED sig. */
+  async function confirmDiscard() {
+    submitting = true;
+    error = null;
+    try {
+      await applyUpdate(true, displayedSig);
+      onconfirm?.();
+    } catch (e) {
+      submitting = false;
+      if (e instanceof StaleDirtyError) {
+        // the tree drifted since we showed the list → re-render fresh + re-confirm
+        dirty = e.dirty;
+        dirtyProbe = e.dirty.dirty ? "dirty" : "clean";
+        arming = false;
+        staleHint = true;
+      } else {
+        error = e instanceof Error ? e.message : m.updatemodal_update_failed();
+      }
+    }
+  }
 </script>
 
 <div
@@ -98,9 +184,6 @@
             title={c.subject}
             onclick={() => toggle(c.sha)}
           >
-            <!-- inner wrapper carries the flex layout: WebKit doesn't reliably
-                 grow a <button> that is itself a flex container when a child
-                 wraps, which painted the expanded subject over the next row -->
             <span class="row">
               <span class="sha">{c.sha}</span>
               <span class="subject">{c.subject}</span>
@@ -109,18 +192,51 @@
         {/each}
       </div>
 
-      {#if busy}
+      {#if mode === "progress"}
         <div class="status" aria-live="polite">{m.updatemodal_status()}</div>
+        {#if liveLog}
+          <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
+          <!-- The concise .status line above is the polite announcement; the raw log
+               stays silent so a fast-appending stream doesn't re-announce every line. -->
+          <pre class="log">{liveLog}</pre>
+        {/if}
       {/if}
-      {#if liveLog}
-        <div class="loghead micro">{m.updatemodal_deploy_log()}</div>
-        <!-- The concise .status line above is the polite announcement; the raw log
-             stays silent so a fast-appending stream doesn't re-announce every line. -->
-        <pre class="log">{liveLog}</pre>
-      {/if}
-      {#if error}<div class="err">{error}</div>{/if}
 
-      {#if failed}
+      {#if mode === "dirty" || mode === "toolarge"}
+        <div class="dirty">
+          <div class="dirty-title err">{m.updatemodal_dirty_title()}</div>
+          <p class="dirty-body">{m.updatemodal_dirty_body()}</p>
+          {#if staleHint}
+            <p class="dirty-stale">{m.updatemodal_dirty_stale()}</p>
+          {/if}
+          {#if dirty && dirty.dirtyFiles.length}
+            <div class="loghead micro">{m.updatemodal_dirty_files_head()}</div>
+            <ul class="files">
+              {#each dirty.dirtyFiles as f (f)}
+                <li>{f}</li>
+              {/each}
+              {#if moreCount > 0}
+                <li class="more">{m.updatemodal_dirty_files_more({ count: moreCount })}</li>
+              {/if}
+            </ul>
+          {/if}
+          {#if mode === "toolarge"}
+            <p class="dirty-hint">{m.updatemodal_dirty_too_large()}</p>
+          {:else if arming}
+            <div class="confirm">
+              <span class="confirm-q"
+                >{m.updatemodal_discard_confirm({ count: dirty?.dirtyCount ?? 0 })}</span
+              >
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if mode === "nowclean"}
+        <div class="status">{m.updatemodal_now_clean()}</div>
+      {/if}
+
+      {#if mode === "rawlog"}
         <div class="failure">
           <div class="err">
             {m.updatemodal_deploy_failed()}
@@ -135,19 +251,45 @@
         </div>
       {/if}
 
+      {#if error}<div class="err">{error}</div>{/if}
+
       <div class="actions">
         {#if !busy}
-          <button type="button" class="later" onclick={() => onclose?.()}
-            >{m.updatemodal_later()}</button
+          <button
+            type="button"
+            class="later"
+            onclick={() => (arming ? (arming = false) : onclose?.())}
           >
+            {arming ? m.common_close() : m.updatemodal_later()}
+          </button>
         {/if}
-        <button type="button" class="run" onclick={confirm} disabled={busy}>
-          {busy
-            ? m.updatemodal_updating()
-            : failed
-              ? m.updatemodal_retry()
-              : m.updatemodal_update_now()}
-        </button>
+
+        {#if mode === "dirty"}
+          {#if arming}
+            <button type="button" class="run danger" onclick={confirmDiscard} disabled={busy}>
+              {m.updatemodal_discard_confirm_yes()}
+            </button>
+          {:else}
+            <button type="button" class="run danger" onclick={() => (arming = true)}>
+              {m.updatemodal_discard_and_update()}
+            </button>
+          {/if}
+        {:else if mode === "toolarge"}
+          <!-- no destructive action offered; the operator resolves it manually -->
+        {:else}
+          <button
+            type="button"
+            class="run"
+            onclick={runUpdate}
+            disabled={busy || mode === "loading"}
+          >
+            {busy
+              ? m.updatemodal_updating()
+              : mode === "rawlog" || mode === "nowclean"
+                ? m.updatemodal_retry()
+                : m.updatemodal_update_now()}
+          </button>
+        {/if}
       </div>
     </div>
   </div>
@@ -322,7 +464,8 @@
     color: var(--color-red);
     font-size: var(--fs-base);
   }
-  .failure {
+  .failure,
+  .dirty {
     display: flex;
     flex-direction: column;
     gap: 6px;
@@ -331,6 +474,50 @@
     color: var(--color-faint);
     font-variant-numeric: tabular-nums;
     margin-left: 6px;
+  }
+  .dirty-title {
+    font-weight: 600;
+  }
+  .dirty-body,
+  .dirty-hint,
+  .dirty-stale {
+    margin: 0;
+    font-size: var(--fs-base);
+    line-height: 1.45;
+    color: var(--color-ink);
+  }
+  .dirty-hint {
+    color: var(--color-muted);
+  }
+  .dirty-stale {
+    color: var(--color-amber);
+  }
+  .files {
+    margin: 0;
+    list-style: none;
+    padding: 8px 10px;
+    max-height: 160px;
+    overflow: auto;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+    color: var(--color-ink-bright);
+    font-family: var(--font-mono, monospace);
+    font-size: var(--fs-meta);
+    line-height: 1.5;
+    white-space: pre;
+  }
+  .files .more {
+    color: var(--color-faint);
+    white-space: normal;
+  }
+  .confirm {
+    padding: 8px 10px;
+    border: 1px solid var(--color-red);
+    background: var(--color-inset);
+  }
+  .confirm-q {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
   }
   .loghead {
     color: var(--color-muted);
@@ -372,6 +559,12 @@
     cursor: pointer;
     letter-spacing: 0.06em;
     box-shadow: inset 0 0 18px -10px var(--color-amber);
+  }
+  /* destructive variant: same recipe, danger hue (traffic-light semantics) */
+  .run.danger {
+    border-color: var(--color-red);
+    color: var(--color-red);
+    box-shadow: inset 0 0 18px -10px var(--color-red);
   }
   .run:disabled {
     opacity: 0.6;

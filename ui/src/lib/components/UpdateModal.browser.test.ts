@@ -2,14 +2,28 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { DeployState, UpdateStatus } from "$lib/types";
+import type { DeployState, DirtyStatus, UpdateStatus } from "$lib/types";
 
 vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
   applyUpdate: vi.fn(() => new Promise(() => {})),
+  getUpdateDirty: vi.fn(async () => ({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null })),
 }));
 
 import UpdateModal from "./UpdateModal.svelte";
+import { applyUpdate, getUpdateDirty } from "$lib/api";
+
+const mockApply = applyUpdate as unknown as ReturnType<typeof vi.fn>;
+const mockDirty = getUpdateDirty as unknown as ReturnType<typeof vi.fn>;
+const DIRTY = (over: Partial<DirtyStatus> = {}): DirtyStatus => ({
+  dirty: true,
+  dirtyFiles: [" M src/a.ts"],
+  dirtyCount: 1,
+  sig: "SIG-1",
+  ...over,
+});
+const btn = (re: RegExp) =>
+  [...document.querySelectorAll("button")].find((b) => re.test(b.textContent ?? ""));
 
 const update: UpdateStatus = {
   behind: 1,
@@ -34,6 +48,10 @@ const deploy: DeployState = {
 afterEach(async () => {
   document.body.innerHTML = "";
   vi.restoreAllMocks();
+  mockApply.mockReset();
+  mockApply.mockImplementation(() => new Promise(() => {}));
+  mockDirty.mockReset();
+  mockDirty.mockResolvedValue({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null });
   await page.viewport(1280, 900);
 });
 
@@ -204,5 +222,75 @@ describe("UpdateModal", () => {
     expect(getComputedStyle(actor!).animationName).toBe("none");
     expect(flock!.querySelectorAll('[data-flock-actor="sheep"]').length).toBeGreaterThan(1);
     expect(flock!.querySelector("[data-sheep-body]")).not.toBeNull();
+  });
+
+  // ── dirty-repo flow ────────────────────────────────────────────────────────
+
+  it("discard is two-click: the first arms only, the second sends the displayed sig", async () => {
+    mockDirty.mockResolvedValue(DIRTY({ sig: "SIG-1" }));
+    mockApply.mockResolvedValue(undefined);
+    render(UpdateModal, { props: { update, updating: false, deploy: null } });
+
+    // proactive probe resolves → the discard button appears
+    await vi.waitFor(() => expect(btn(/discard & update/i)).toBeTruthy());
+    expect(document.body.textContent).toContain("src/a.ts"); // changed-file list
+
+    btn(/discard & update/i)!.click(); // FIRST click: arm only
+    await vi.waitFor(() => expect(btn(/yes, reset/i)).toBeTruthy());
+    expect(mockApply).not.toHaveBeenCalled(); // no API call yet
+
+    btn(/yes, reset/i)!.click(); // SECOND click: send
+    await vi.waitFor(() => expect(mockApply).toHaveBeenCalledTimes(1));
+    expect(mockApply).toHaveBeenCalledWith(true, "SIG-1");
+  });
+
+  it("a failed dirty probe falls back to an enabled Update now (never a stuck button)", async () => {
+    mockDirty.mockRejectedValue(new Error("network"));
+    render(UpdateModal, { props: { update, updating: false, deploy: null } });
+
+    await vi.waitFor(() => {
+      const b = btn(/update now/i);
+      expect(b).toBeTruthy();
+      expect((b as HTMLButtonElement).disabled).toBe(false);
+    });
+    expect(btn(/discard & update/i)).toBeFalsy();
+  });
+
+  it("too-large (sig:null) offers no discard button, just the manual hint", async () => {
+    mockDirty.mockResolvedValue(DIRTY({ sig: null }));
+    render(UpdateModal, { props: { update, updating: false, deploy: null } });
+
+    await vi.waitFor(() => expect(document.body.textContent).toContain("src/a.ts"));
+    expect(btn(/discard & update/i)).toBeFalsy();
+    expect(document.body.textContent).toContain("too large");
+  });
+
+  it("a reactive stale failure shows the refreshed list + re-confirm, not the raw log", async () => {
+    mockDirty.mockResolvedValue(DIRTY({ dirtyFiles: [" M src/fresh.ts"], sig: "SIG-2" }));
+    const failedDeploy: DeployState = {
+      phase: "failed",
+      exitCode: 1,
+      log: "SHEPHERD_DISCARD_STALE: working tree changed",
+      reason: "stale",
+    };
+    render(UpdateModal, { props: { update, updating: false, deploy: failedDeploy } });
+
+    await vi.waitFor(() => expect(btn(/discard & update/i)).toBeTruthy());
+    expect(document.body.textContent).toContain("src/fresh.ts");
+    expect(document.body.textContent).not.toContain("SHEPHERD_DISCARD_STALE"); // raw log hidden
+  });
+
+  it("a reactive dirty failure that is now clean offers a plain retry, no discard", async () => {
+    mockDirty.mockResolvedValue({ dirty: false, dirtyFiles: [], dirtyCount: 0, sig: null });
+    const failedDeploy: DeployState = {
+      phase: "failed",
+      exitCode: 1,
+      log: "--pull needs a clean tree",
+      reason: "dirty",
+    };
+    render(UpdateModal, { props: { update, updating: false, deploy: failedDeploy } });
+
+    await vi.waitFor(() => expect(btn(/retry/i)).toBeTruthy());
+    expect(btn(/discard & update/i)).toBeFalsy();
   });
 });

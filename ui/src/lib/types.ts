@@ -1385,6 +1385,22 @@ export interface DeployState {
   phase: DeployPhase;
   exitCode: number | null;
   log: string;
+  /** classified failure cause so a dirty/stale deploy routes through the friendly
+   *  dirty-repo flow instead of the raw log (mirrors src/update.ts) */
+  reason?: "dirty" | "stale" | null;
+}
+
+/** Fresh snapshot of the running deployment's tracked dirty state (never cached),
+ *  as served by `GET /api/update/dirty` (raw pathspec buffers stripped server-side). */
+export interface DirtyStatus {
+  dirty: boolean;
+  /** capped, display-formatted `XY path` lines */
+  dirtyFiles: string[];
+  /** total changed entries, independent of the capped list */
+  dirtyCount: number;
+  /** content signature the discard is validated against; null when the diff was
+   *  too large / timed out (auto-discard then unavailable) */
+  sig: string | null;
 }
 
 /** Informational herdr-version update check (no auto-apply). */

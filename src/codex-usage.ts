@@ -205,10 +205,7 @@ export function readCodexTokenUsage(dbPath: string, now: number): UsageProviderS
 }
 
 /** Raw Codex token totals grouped by model for OpenAI threads updated in the selected range. */
-export function readCodexModelUsage(
-  dbPath: string | null,
-  cutoff: number,
-): Record<string, number> {
+export function readCodexModelUsage(dbPath: string | null, cutoff: number): Record<string, number> {
   if (!dbPath || !existsSync(dbPath)) return {};
   let db: Database | null = null;
   try {
@@ -233,7 +230,9 @@ export function readCodexModelUsage(
          GROUP BY COALESCE(NULLIF(model, ''), 'unknown')`,
       )
       .all(cutoff);
-    return Object.fromEntries(rows.filter((row) => row.tokens > 0).map((row) => [row.model, row.tokens]));
+    return Object.fromEntries(
+      rows.filter((row) => row.tokens > 0).map((row) => [row.model, row.tokens]),
+    );
   } catch {
     return {};
   } finally {

@@ -593,8 +593,8 @@ input, select, textarea {
   <section class="panel">
     <h2>Color · categorical data</h2>
     <p class="when">
-      Use these ordered tones for categorical charts whose series are also identified by text.
-      They encode identity, never status. Green is intentionally absent so READY stays exclusive.
+      Use these ordered tones for categorical charts whose series are also identified by text. They
+      encode identity, never status. Green is intentionally absent so READY stays exclusive.
     </p>
     <div class="swatches">
       {#each dataColors as t (t.name)}

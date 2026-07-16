@@ -577,6 +577,17 @@ export const putSessionHousekeeping = (
 ): Promise<{ sessionHousekeepingEnabled: boolean }> =>
   patchSettings({ sessionHousekeepingEnabled: enabled });
 
+// Toggle auto-revive of stranded default-account sessions after a herdr daemon restart (#1630).
+export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: boolean }> =>
+  patchSettings({ autoReviveEnabled: enabled });
+
+// Force-resume every currently-stranded session ("revive all"). Returns per-batch counts.
+export async function reviveStranded(): Promise<{ revived: number; failed: number }> {
+  const r = await fetch("/api/revive-stranded", { method: "POST" });
+  if (!r.ok) throw await failed(r, "revive stranded");
+  return r.json();
+}
+
 // Set anonymous-telemetry consent ("granted" | "denied"). Server persists + live-applies.
 export const putTelemetryConsent = (
   consent: "granted" | "denied",

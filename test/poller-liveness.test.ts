@@ -14,6 +14,7 @@ import { SessionStore } from "../src/store";
 import { StatusPoller } from "../src/poller";
 import { makeApp } from "../src/server";
 import type { HerdrAgent } from "../src/herdr";
+import type { LivenessState } from "../src/types";
 
 /**
  * tick() (issue #1529) now reads agents over the socket via `listAsync()`, not the
@@ -54,7 +55,7 @@ function makePoller(opts: {
   store: SessionStore;
   agents: HerdrAgent[];
   scan: (worktrees: string[]) => Map<string, boolean>;
-  onChange: (id: string, alive: boolean) => void;
+  onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
   sweepMs?: number;
   now?: () => number;
 }) {
@@ -226,4 +227,135 @@ test("GET /api/claude-alive → {} when unwired", async () => {
   const res = await app.fetch(new Request("http://localhost/api/claude-alive"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({});
+});
+
+// ── stranded detection + auto-revive (#1630) ────────────────────────────────
+
+import { config } from "../src/config";
+
+/** A restored-pane husk: the session's spawnTerminalId ("spawn_old") differs from the matched
+ *  agent's terminalId ("term_a"), and the /proc scan reports it dead → stranded. */
+function makeStrandedSession(store: SessionStore, over: Record<string, unknown> = {}) {
+  const s = store.create({ ...baseSessionInput });
+  // default account (spawnAccountDir null) with a prior verified spawn on a DIFFERENT terminal
+  store.setSpawnIdentity(s.id, "spawn_old", null);
+  if (Object.keys(over).length) store.update(s.id, over);
+  return store.get(s.id)!;
+}
+
+test("liveness: a restored-pane husk emits liveness=stranded and grows the stranded set", async () => {
+  const store = new SessionStore(":memory:");
+  const s = makeStrandedSession(store);
+  const emits: Array<{ id: string; alive: boolean; liveness: string }> = [];
+  const grew: number[] = [];
+  const clock = 100_000;
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent], // terminalId term_a === herdrAgentId term_a → matched; != spawn_old
+    scan: (worktrees) => new Map(worktrees.map((w) => [w, false])), // husk
+    onChange: (id, alive, liveness) => {
+      emits.push({ id, alive, liveness });
+    },
+    sweepMs: 4000,
+    now: () => clock,
+  });
+  poller.onStrandedGrew = (count) => grew.push(count);
+
+  await poller.tick();
+  expect(emits).toEqual([{ id: s.id, alive: false, liveness: "stranded" }]);
+  expect(grew).toEqual([1]);
+  expect(poller.strandedIds()).toEqual([s.id]);
+});
+
+test("liveness: auto-revive fires (default account) only after the 2-sweep debounce, when enabled", async () => {
+  const store = new SessionStore(":memory:");
+  const s = makeStrandedSession(store);
+  const revived: string[] = [];
+  let clock = 100_000;
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = true; // ON before construction → no rising-edge arm, isolates the debounce
+  try {
+    const poller = makePoller({
+      store,
+      agents: [baseHerdrAgent],
+      scan: (worktrees) => new Map(worktrees.map((w) => [w, false])),
+      onChange: () => {},
+      sweepMs: 4000,
+      now: () => clock,
+    });
+    poller.revive = async (id) => {
+      revived.push(id);
+      return true;
+    };
+    await poller.tick(); // sweep 1 → stranded, debounce not yet met
+    expect(revived).toEqual([]);
+    clock += 5000;
+    await poller.tick(); // sweep 2 → debounce met → dispatch
+    expect(revived).toEqual([s.id]);
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
+});
+
+test("liveness: an account session is NOT auto-revived (reDriveAccount owns it)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create({ ...baseSessionInput });
+  store.setSpawnIdentity(s.id, "spawn_old", "/cfg/acct"); // account session (spawnAccountDir set)
+  const revived: string[] = [];
+  let clock = 100_000;
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: (worktrees) => new Map(worktrees.map((w) => [w, false])),
+    onChange: () => {},
+    sweepMs: 4000,
+    now: () => clock,
+  });
+  poller.revive = async (id) => {
+    revived.push(id);
+    return true;
+  };
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = true;
+  try {
+    await poller.tick();
+    clock += 5000;
+    await poller.tick();
+    clock += 5000;
+    await poller.tick();
+    expect(revived).toEqual([]); // never — account panes stay with reDriveAccount
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
+});
+
+test("liveness: sweep-on-arm force-resumes the current stranded set on the toggle rising edge (single sweep)", async () => {
+  const store = new SessionStore(":memory:");
+  const s = makeStrandedSession(store);
+  const revived: string[] = [];
+  let clock = 100_000;
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: (worktrees) => new Map(worktrees.map((w) => [w, false])),
+    onChange: () => {},
+    sweepMs: 4000,
+    now: () => clock,
+  });
+  poller.revive = async (id) => {
+    revived.push(id);
+    return true;
+  };
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = false;
+  try {
+    await poller.tick(); // stranded observed, but toggle off → no dispatch
+    expect(revived).toEqual([]);
+    config.autoReviveEnabled = true; // operator flips it ON
+    clock += 5000;
+    await poller.tick(); // rising edge → dispatch immediately (no 2-sweep wait)
+    expect(revived).toEqual([s.id]);
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
 });

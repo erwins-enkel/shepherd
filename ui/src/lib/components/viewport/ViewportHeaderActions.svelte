@@ -14,6 +14,7 @@
     parked,
     resuming,
     resumable,
+    stranded = false,
     resumeSession,
     prReady,
     armed,
@@ -39,6 +40,8 @@
     parked: boolean;
     resuming: boolean;
     resumable: boolean;
+    // herdr-restored husk → distinct "agent died — revive" label on the resume button (#1630)
+    stranded?: boolean;
     resumeSession: (full?: boolean) => void;
     prReady: boolean;
     armed: boolean;
@@ -145,11 +148,12 @@
       class="vp-resume"
       class:icon-btn={compact}
       class:compact
+      class:stranded
       type="button"
       onclick={() => resumeSession(true)}
       disabled={resuming}
-      title={m.viewport_resume_title()}
-      aria-label={m.viewport_resume_title()}
+      title={stranded ? m.stranded_revive_title() : m.viewport_resume_title()}
+      aria-label={stranded ? m.stranded_revive_title() : m.viewport_resume_title()}
     >
       <svg
         class:spin={resuming}
@@ -162,7 +166,7 @@
         aria-hidden="true"
         ><path d="M21 12a9 9 0 1 1-9-9c2.52 0 4.93 1 6.74 2.74L21 8" /><path d="M21 3v5h-5" /></svg
       >
-      {#if !compact}<span>{m.cardmenu_resume_short()}</span>{/if}
+      {#if !compact}<span>{stranded ? m.stranded_revive() : m.cardmenu_resume_short()}</span>{/if}
     </button>
   {/if}
   {#if prReady}

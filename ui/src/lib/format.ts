@@ -1,5 +1,5 @@
 import { m } from "$lib/paraglide/messages";
-import type { Session, SessionStatus, GitState } from "./types";
+import type { Session, SessionStatus, GitState, LivenessState } from "./types";
 import { isMerging } from "./components/merge-train";
 
 /**
@@ -15,13 +15,19 @@ import { isMerging } from "./components/merge-train";
  * so a husk is never left without an affordance. Running (working) / blocked
  * (awaiting input) are unambiguously live, so they're excluded regardless.
  */
-export function canResume(s: Session, claudeAlive?: boolean): boolean {
+export function canResume(s: Session, liveness?: LivenessState): boolean {
   const provider = s.agentProvider ?? "claude";
   return (
     (provider === "codex" || !!s.claudeSessionId) &&
     (s.status === "idle" || s.status === "done") &&
-    claudeAlive !== true
+    liveness !== "alive"
   );
+}
+
+/** True when a session is stranded (herdr-restored husk) — gets the distinct "agent died — revive"
+ *  framing instead of the generic Resume CTA (#1630). */
+export function isStrandedLiveness(liveness?: LivenessState): boolean {
+  return liveness === "stranded";
 }
 
 /**

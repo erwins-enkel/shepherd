@@ -64,6 +64,7 @@ function settings(over: Partial<SettingsPayload> = {}): SettingsPayload {
     firstRunPending: false,
     remoteControlAtStartup: false,
     sessionHousekeepingEnabled: true,
+    autoReviveEnabled: false,
     defaultModel: "auto",
     defaultCodexModel: "gpt-5.5",
     defaultEffort: "default",

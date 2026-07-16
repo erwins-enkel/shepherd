@@ -1,4 +1,8 @@
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+/** Coarse liveness of a session's agent process (#1630). `alive` = a live agent backs the pane;
+ *  `husk` = the agent process is gone but not a daemon-restart strand (e.g. a normal Codex
+ *  between-turns exit); `stranded` = a herdr-restored husk needing revival. */
+export type LivenessState = "alive" | "husk" | "stranded";
 export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];
@@ -88,6 +92,9 @@ export interface Settings {
   remoteControlAtStartup: boolean;
   /** Daily sweep that prunes old archived sessions; kill switch (default on). */
   sessionHousekeepingEnabled: boolean;
+  /** Auto-revive stranded default-account sessions after a herdr daemon restart (#1630); opt-in
+   *  (default off). */
+  autoReviveEnabled: boolean;
   /** Raw configured default-model setting (auto|default|<alias>); the New Task
    *  picker resolves `auto` via the client promo. */
   defaultModel: string;
@@ -1746,8 +1753,15 @@ export type WsEvent =
     }
   | { event: "session:activity"; data: { id: string; activity: SessionActivity } }
   | { event: "session:subagents"; data: { id: string; subagents: SubagentEntry[] } }
-  | { event: "session:claude-alive"; data: { id: string; claudeAlive: boolean } }
+  | {
+      event: "session:claude-alive";
+      // Additive (#1630): `claudeAlive` (raw /proc bit) retained for compat; `liveness` (folded
+      // 3-state) added — absent from an old server, so the client falls back to the boolean.
+      data: { id: string; claudeAlive: boolean; liveness?: LivenessState };
+    }
   | { event: "session:working-blocked"; data: { id: string; working: boolean } }
+  | { event: "app:sessions-stranded"; data: { count: number } }
+  | { event: "app:auto-revived"; data: { revived: number; failed: number } }
   | { event: "session:preview"; data: { id: string; previewPort: number | null } }
   | { event: "session:preview-serve"; data: { id: string; serve: "ok" | "failed" | null } }
   | { event: "update:status"; data: UpdateStatus }

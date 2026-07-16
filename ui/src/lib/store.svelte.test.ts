@@ -726,25 +726,37 @@ test("session:archived drops the subagents entry for that session", () => {
 
 // ── session:claude-alive ───────────────────────────────────────────────────
 
-test("setClaudeAlive seeds the liveness map for bootstrap", () => {
+test("setClaudeAlive folds the boolean bootstrap into the 3-state liveness map", () => {
   const s = new HerdStore();
   s.setClaudeAlive({ s1: true, s2: false });
-  expect(s.claudeAlive["s1"]).toBe(true);
-  expect(s.claudeAlive["s2"]).toBe(false);
+  expect(s.claudeAlive["s1"]).toBe("alive");
+  expect(s.claudeAlive["s2"]).toBe("husk"); // seeded as husk; self-heals to stranded on the next event
 });
 
-test("session:claude-alive sets and flips the liveness for that session", () => {
+test("session:claude-alive prefers `liveness`, falling back to the boolean", () => {
   const s = new HerdStore();
-  s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: true } });
-  expect(s.claudeAlive["s1"]).toBe(true);
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: true, liveness: "alive" },
+  });
+  expect(s.claudeAlive["s1"]).toBe("alive");
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: false, liveness: "stranded" },
+  });
+  expect(s.claudeAlive["s1"]).toBe("stranded");
+  // old server (no `liveness`) → derive from the boolean
   s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: false } });
-  expect(s.claudeAlive["s1"]).toBe(false);
+  expect(s.claudeAlive["s1"]).toBe("husk");
 });
 
 test("session:archived drops the claude-alive entry for that session", () => {
   const s = new HerdStore();
   s.setAll([session("s1")]);
-  s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: true } });
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: true, liveness: "alive" },
+  });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.claudeAlive["s1"]).toBeUndefined();
 });

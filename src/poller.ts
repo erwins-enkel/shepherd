@@ -1,6 +1,8 @@
 import type { SessionStore } from "./store";
-import type { Session } from "./types";
+import type { LivenessState, Session } from "./types";
 import {
+  classifyLiveness,
+  isAutoRevivable,
   mapState,
   matchAgents,
   needsAccountRedrive,
@@ -93,7 +95,9 @@ export interface LivenessWiring {
   /** Single /proc pass answering "does a claude process live in this worktree?". */
   scan: (worktrees: string[]) => Map<string, boolean>;
   sweepMs: number;
-  onChange: (id: string, alive: boolean) => void;
+  /** Emitted on a liveness change. `alive` is the raw /proc bit (retained for old clients across an
+   *  update); `liveness` is the folded 3-state (alive/husk/stranded) the new UI consumes. */
+  onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
 }
 
 /** Bounded tail read + auth-URL detection for a session's transcript; the default
@@ -139,6 +143,17 @@ export class StatusPoller {
   /** Fire-and-forget re-drive of a herdr-restored account pane (wired to service.reDriveAccount in
    *  index.ts). Left undefined in tests that don't exercise it. */
   reDrive?: (id: string) => void;
+
+  /** Fire-and-forget autonomous auto-revive of a STRANDED default-account session (wired to
+   *  service.reviveStranded in index.ts). Resolves true when the agent was revived. Left undefined in
+   *  tests that don't exercise it; a no-op when `config.autoReviveEnabled` is off. */
+  revive?: (id: string) => Promise<boolean>;
+  /** Coalesced daemon-restart signal — fired with the current stranded count when the stranded set
+   *  grows (a session newly enters it). Wired in index.ts to emit `app:sessions-stranded`. */
+  onStrandedGrew?: (count: number) => void;
+  /** Fired after each autonomous auto-revive completes, carrying the running default-account
+   *  revived/failed totals for the current restart episode. Wired to emit `app:auto-revived`. */
+  onAutoRevived?: (revived: number, failed: number) => void;
 
   /** Fire-and-forget best-effort seed of a running Codex session's provider-native id (wired to
    *  service.captureCodexSessionId in index.ts). No-op for non-Codex / non-isolated / already-seeded
@@ -268,6 +283,23 @@ export class StatusPoller {
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
   private lastClaudeAlive = new Map<string, boolean>();
+  /** Last-emitted folded 3-state liveness per session (alive/husk/stranded); the dedup baseline for
+   *  `updateLiveness`. */
+  private lastLiveness = new Map<string, LivenessState>();
+  /** This tick's session→agent match result (`matchAgents`), stashed so the throttled liveness sweep
+   *  — which has no agent in scope — can evaluate the stranded fingerprint. Rebuilt every tick. */
+  private lastMatched = new Map<string, HerdrAgent | null>();
+  /** Consecutive liveness sweeps a session has been observed `stranded` — the 2-sweep debounce for
+   *  the AUTONOMOUS auto-revive path (blunts a transient /proc false-negative). Reset when not
+   *  stranded. */
+  private strandedSweeps = new Map<string, number>();
+  /** Sessions with an auto-revive dispatch in flight — coalesces repeated sweep dispatches. */
+  private reviveInFlight = new Set<string>();
+  /** `config.autoReviveEnabled` as of the last sweep — the rising-edge detector for sweep-on-arm. */
+  private lastAutoReviveEnabled = config.autoReviveEnabled;
+  /** Running default-account auto-revive tally for the current restart episode; reset when no
+   *  stranded sessions remain and no revive is in flight. */
+  private reviveOutcome = { revived: 0, failed: 0 };
   /** The resolved liveness wiring (with real defaults filled in). */
   private readonly livenessWiring: LivenessWiring;
   /** Emitted when a session's halt state changes: a usage-limit halt is detected
@@ -445,6 +477,7 @@ export class StatusPoller {
       }
       const sessions = this.store.list({ activeOnly: true });
       const matched = matchAgents(sessions, agents);
+      this.lastMatched = matched; // stash for the throttled liveness sweep (has no agent in scope)
       const activeIds = new Set<string>();
       for (const s of sessions) {
         activeIds.add(s.id);
@@ -521,21 +554,102 @@ export class StatusPoller {
       console.warn("[poller] claude-liveness sweep failed:", err);
       return;
     }
+    // Sweep-on-arm: the operator just flipped auto-revive ON → dispatch for the CURRENT stranded set
+    // this sweep (operator-initiated, so it bypasses the 2-sweep debounce, matching manual Resume).
+    const armed = config.autoReviveEnabled && !this.lastAutoReviveEnabled;
+    this.lastAutoReviveEnabled = config.autoReviveEnabled;
     const activeIds = new Set<string>();
     for (const s of candidates) {
       activeIds.add(s.id);
       const alive = byWorktree.get(s.worktreePath) ?? false;
-      if (this.lastClaudeAlive.get(s.id) !== alive) {
-        this.lastClaudeAlive.set(s.id, alive);
-        this.livenessWiring.onChange(s.id, alive);
-      }
+      this.lastClaudeAlive.set(s.id, alive);
+      this.updateLiveness(s, alive);
+      this.maybeAutoRevive(s, armed);
     }
     for (const id of [...this.lastClaudeAlive.keys()]) {
-      if (!activeIds.has(id)) this.lastClaudeAlive.delete(id);
+      if (!activeIds.has(id)) {
+        this.lastClaudeAlive.delete(id);
+        this.lastLiveness.delete(id);
+        this.strandedSweeps.delete(id);
+      }
     }
+    // Restart episode over (nothing stranded, nothing landing) → reset the outcome tally so the next
+    // restart starts from zero.
+    if (this.strandedCount() === 0 && this.reviveInFlight.size === 0)
+      this.reviveOutcome = { revived: 0, failed: 0 };
   }
 
-  /** Last-swept claude-process liveness per session, for client bootstrap. */
+  /**
+   * Autonomous auto-revive gate for one swept session. A default-account strand auto-revives once the
+   * husk is stable across two consecutive sweeps (debounce) — OR immediately on `armed` (the operator
+   * just flipped the toggle ON, an operator-initiated single-sweep action). Non-stranded/ineligible
+   * sessions reset the debounce counter.
+   */
+  private maybeAutoRevive(s: Session, armed: boolean): void {
+    if (this.lastLiveness.get(s.id) !== "stranded" || !isAutoRevivable(s)) {
+      this.strandedSweeps.delete(s.id);
+      return;
+    }
+    const n = (this.strandedSweeps.get(s.id) ?? 0) + 1;
+    this.strandedSweeps.set(s.id, n);
+    if (config.autoReviveEnabled && (armed || n >= 2)) this.dispatchRevive(s.id);
+  }
+
+  /**
+   * Fold this session's match result (`lastMatched`) + `/proc` bit into the 3-state liveness and emit
+   * on change. Called from BOTH cadences — `reconcileAgent` each tick (agent just matched) and the
+   * sweep after a `/proc` flip — so the value re-emits when either input changes. A still-unknown
+   * `/proc` bit (pre-first-sweep) stays silent, matching the prior emit-nothing-until-swept behavior.
+   */
+  private updateLiveness(s: Session, alive: boolean | undefined): void {
+    if (alive === undefined) return;
+    const agent = this.lastMatched.get(s.id) ?? null;
+    const state = classifyLiveness(s, agent, alive);
+    const prev = this.lastLiveness.get(s.id);
+    if (prev === state) return;
+    this.lastLiveness.set(s.id, state);
+    this.livenessWiring.onChange(s.id, alive, state);
+    // The stranded set grew (this session newly entered it) → coalesced daemon-restart toast.
+    if (state === "stranded" && prev !== "stranded") this.onStrandedGrew?.(this.strandedCount());
+  }
+
+  /** Number of sessions currently classified `stranded`. */
+  private strandedCount(): number {
+    let n = 0;
+    for (const v of this.lastLiveness.values()) if (v === "stranded") n++;
+    return n;
+  }
+
+  /** Fire-and-forget one autonomous auto-revive, tallying the outcome. Coalesced per id by
+   *  `reviveInFlight`; `resume()` + the bounded `reviveAttempts` map in the service back it further. */
+  private dispatchRevive(id: string): void {
+    if (!this.revive || this.reviveInFlight.has(id)) return;
+    this.reviveInFlight.add(id);
+    this.revive(id)
+      .then((ok) => {
+        if (ok) this.reviveOutcome.revived++;
+        else this.reviveOutcome.failed++;
+      })
+      .catch((err) => {
+        console.warn(`[poller] auto-revive dispatch failed for ${id}:`, err);
+        this.reviveOutcome.failed++;
+      })
+      .finally(() => {
+        this.reviveInFlight.delete(id);
+        this.onAutoRevived?.(this.reviveOutcome.revived, this.reviveOutcome.failed);
+      });
+  }
+
+  /** Ids currently classified `stranded` — the set the batch "revive all" endpoint acts on. */
+  strandedIds(): string[] {
+    const out: string[] = [];
+    for (const [id, v] of this.lastLiveness) if (v === "stranded") out.push(id);
+    return out;
+  }
+
+  /** Last-swept claude-process liveness per session, for client bootstrap. Kept as the raw boolean
+   *  (`/api/claude-alive` wire-format is unchanged); the new client seeds its liveness map from this
+   *  and self-heals to the precise 3-state on the next `session:claude-alive` emit. */
   claudeAliveSnapshot(): Record<string, boolean> {
     return Object.fromEntries(this.lastClaudeAlive);
   }
@@ -583,6 +697,9 @@ export class StatusPoller {
 
   private reconcileAgent(s: Session, agent: HerdrAgent): void {
     this.maybeReDriveRestoredAccount(s, agent);
+    // Re-fold liveness against this tick's fresh match (`lastMatched`) so a herdr-restored pane's
+    // strand surfaces on the match change too, not only on the next throttled /proc sweep.
+    this.updateLiveness(s, this.lastClaudeAlive.get(s.id));
     const status = mapState(agent.agentStatus);
     const idChanged = agent.terminalId !== s.herdrAgentId;
     if (idChanged || status !== s.status || agent.agentStatus !== s.lastState) {
@@ -751,6 +868,10 @@ export class StatusPoller {
       ...this.hookAwaitingInput,
       ...this.pendingStopAt.keys(),
       ...this.pendingDoneAt.keys(),
+      ...this.lastClaudeAlive.keys(),
+      ...this.lastLiveness.keys(),
+      ...this.strandedSweeps.keys(),
+      ...this.reviveInFlight,
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -779,6 +900,11 @@ export class StatusPoller {
         // Observe-only Stop↔herdr-done markers (issue #713)
         this.pendingStopAt.delete(id);
         this.pendingDoneAt.delete(id);
+        // Liveness / auto-revive tracking (#1630)
+        this.lastClaudeAlive.delete(id);
+        this.lastLiveness.delete(id);
+        this.strandedSweeps.delete(id);
+        this.reviveInFlight.delete(id);
       }
     }
     // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too
@@ -865,9 +991,12 @@ export class StatusPoller {
    */
   ingestSessionStart(id: string): void {
     if (!config.hooksSignals) return;
-    if (this.lastClaudeAlive.get(id) !== true) {
+    // A live SessionStart hook fired from inside the process → it's alive (liveness is always "alive"
+    // when the /proc bit is true). Keep both maps in sync and emit the additive 3-arg signal.
+    if (this.lastLiveness.get(id) !== "alive") {
       this.lastClaudeAlive.set(id, true);
-      this.livenessWiring.onChange(id, true);
+      this.lastLiveness.set(id, "alive");
+      this.livenessWiring.onChange(id, true, "alive");
     }
   }
 

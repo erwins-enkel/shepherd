@@ -331,6 +331,9 @@ export interface AppDeps {
    *  live in the worktree?), for client bootstrap; updates flow via the
    *  `session:claude-alive` event. Absent in tests that skip it. */
   claudeAlive?: { snapshot(): Record<string, boolean> };
+  /** Ids of sessions currently classified `stranded` (herdr-restored husk needing revival), for the
+   *  batch "revive all" endpoint (#1630). Absent in tests that skip it. */
+  stranded?: { ids(): string[] };
   /** Sessions herdr reports blocked whose TUI shows a live turn spinner
    *  (working-while-blocked display flag), for client bootstrap; updates flow via
    *  the `session:working-blocked` event. Absent in tests that skip it. */
@@ -766,6 +769,17 @@ function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | nul
     return json(deps.workingBlocked?.snapshot() ?? {});
   }
   return null;
+}
+
+// POST /api/revive-stranded → operator-initiated "revive all": force-resume every currently-stranded
+// session (#1630). Returns { revived, failed }.
+async function handleReviveStranded({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "POST" || parts[0] !== "api" || parts[1] !== "revive-stranded" || parts[2]) {
+    return null;
+  }
+  const ids = deps.stranded?.ids() ?? [];
+  const result = await deps.service.reviveAll(ids);
+  return json(result);
 }
 
 function handleBlocksSnapshot({ req, parts, deps }: Ctx): Response | null {
@@ -4531,6 +4545,7 @@ async function handleSettings({ req, parts, deps }: Ctx): Promise<Response | nul
       remoteControlAtStartup: config.remoteControlAtStartup,
       reducedPushMode: config.reducedPushMode,
       sessionHousekeepingEnabled: config.sessionHousekeepingEnabled,
+      autoReviveEnabled: config.autoReviveEnabled,
       prReviewCyclesCap: config.prReviewCyclesCap,
       planReviewCyclesCap: config.planReviewCyclesCap,
       // display-only: each cap's valid bounds, so the UI steppers read min/max off the
@@ -4645,6 +4660,7 @@ const SETTING_PATCHES: [string, (value: unknown, deps: Ctx["deps"]) => Response]
   ["remoteControlAtStartup", putRemoteControl],
   ["reducedPushMode", putReducedPushMode],
   ["sessionHousekeepingEnabled", putSessionHousekeeping],
+  ["autoReviveEnabled", putAutoRevive],
   ["prReviewCyclesCap", putPrReviewCyclesCap],
   ["planReviewCyclesCap", putPlanReviewCyclesCap],
   ["defaultModel", putDefaultModel],
@@ -4724,6 +4740,15 @@ function putSessionHousekeeping(value: unknown, deps: Ctx["deps"]): Response {
   config.sessionHousekeepingEnabled = value; // live: the next daily sweep honors it
   deps.store.setSetting("sessionHousekeepingEnabled", value ? "1" : "0"); // persist
   return json({ sessionHousekeepingEnabled: config.sessionHousekeepingEnabled });
+}
+
+function putAutoRevive(value: unknown, deps: Ctx["deps"]): Response {
+  if (typeof value !== "boolean") {
+    return json({ error: "autoReviveEnabled must be a boolean" }, 400);
+  }
+  config.autoReviveEnabled = value; // live: the poller's next sweep honors it (incl. sweep-on-arm)
+  deps.store.setSetting("autoReviveEnabled", value ? "1" : "0"); // persist
+  return json({ autoReviveEnabled: config.autoReviveEnabled });
 }
 
 function putPrReviewCyclesCap(value: unknown, deps: Ctx["deps"]): Response {
@@ -7176,6 +7201,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
+  handleReviveStranded,
   handleWorkingBlockedSnapshot,
   handleBlocksSnapshot,
   handleHoldsSnapshot,

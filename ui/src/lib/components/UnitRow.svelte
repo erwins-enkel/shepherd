@@ -15,8 +15,8 @@
 </script>
 
 <script lang="ts">
-  import type { Session, GitState, SessionActivity, HoldReason } from "$lib/types";
-  import { STATUS_COLOR, canResume, canRelaunch } from "$lib/format";
+  import type { Session, GitState, SessionActivity, HoldReason, LivenessState } from "$lib/types";
+  import { STATUS_COLOR, canResume, canRelaunch, isStrandedLiveness } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import {
     resumeSession,
@@ -72,6 +72,7 @@
     repoFilter = undefined,
     onrepofilter,
     workingBlocked = {},
+    liveness = undefined,
     quotaKind = null,
     hold = undefined,
     onackmanualsteps,
@@ -114,6 +115,8 @@
     onrepofilter?: (repoPath: string, additive: boolean) => void;
     // working-while-blocked display flags (whole store map); feeds displayStatus only
     workingBlocked?: Record<string, boolean>;
+    // this session's agent liveness; "stranded" triggers the distinct "agent died — revive" framing (#1630)
+    liveness?: LivenessState;
     // quota block kind for this session; non-null surfaces the quota badge
     quotaKind?: "rework" | "review" | "error" | "plan" | null;
     // hold reason for this session; when present renders a muted "why parked" subline
@@ -535,6 +538,34 @@
   // noise — and it stays the force-resume escape hatch should the /proc sweep
   // ever misreport a session as alive.
   const resumable = $derived(canResume(session));
+  // Stranded (herdr-restored husk): a daemon restart left this session's pane a bare shell (#1630).
+  // Gets a distinct inline "agent died — revive" affordance instead of the quiet CardMenu Resume.
+  const stranded = $derived(isStrandedLiveness(liveness));
+  // One view-model for the inline subline so the template renders a single snippet (no stranded-vs-hold
+  // branch in the row markup): stranded wins, else the parked "why" line + its one-click CTA.
+  const sublineView = $derived(
+    stranded
+      ? {
+          line: m.stranded_agent_died(),
+          cls: "hold-cta--resume",
+          title: m.stranded_revive_title(),
+          label: m.stranded_revive(),
+          run: reviveStrandedRow,
+          hasAction: true,
+          stranded: true,
+        }
+      : holdRow.line
+        ? {
+            line: holdRow.line,
+            cls: holdRow.action ? `hold-cta--${holdRow.action.kind}` : "",
+            title: holdRow.action?.title ?? "",
+            label: ctaLabel,
+            run: onHoldCta,
+            hasAction: !!holdRow.action,
+            stranded: false,
+          }
+        : null,
+  );
   // Relaunch is offered only for an in-flight task (see canRelaunch) AND only when the
   // parent wired a handler — never on a concluded/merged record, where it would spawn a
   // duplicate and tear down the finished row.
@@ -579,6 +610,19 @@
       await resumeSession(session.id, true);
     } catch {
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    }
+  }
+  // Inline "Revive" from the stranded card affordance — force-resume the husk (#1630).
+  async function reviveStrandedRow() {
+    if (ctaBusy) return;
+    ctaBusy = true;
+    onselect(session.id); // focus it so the rebuilt terminal lands in view
+    try {
+      await resumeSession(session.id, true);
+    } catch {
+      toasts.info(m.cardmenu_resume_failed({ name: session.name }));
+    } finally {
+      ctaBusy = false;
     }
   }
   function decommissionFromMenu() {
@@ -651,16 +695,16 @@
 </script>
 
 {#snippet holdSubline()}
-  {#if holdRow.line}
-    <div class="u-hold">
-      <span class="u-hold-text">{holdRow.line}</span>
-      {#if holdRow.action}
+  {#if sublineView}
+    <div class="u-hold" class:u-stranded={sublineView.stranded}>
+      <span class="u-hold-text">{sublineView.line}</span>
+      {#if sublineView.hasAction}
         <button
           type="button"
-          class="hold-cta hold-cta--{holdRow.action.kind}"
-          title={holdRow.action.title}
+          class="hold-cta {sublineView.cls}"
+          title={sublineView.title}
           disabled={ctaBusy}
-          onclick={onHoldCta}>{ctaLabel}</button
+          onclick={sublineView.run}>{sublineView.label}</button
         >
       {/if}
     </div>
@@ -1275,6 +1319,11 @@
     overflow: hidden;
     white-space: nowrap;
     text-overflow: ellipsis;
+  }
+  /* Stranded (herdr-restored husk): read as an attention state, not a quiet hold (#1630). */
+  .u-stranded .u-hold-text {
+    color: var(--color-red);
+    font-weight: 600;
   }
 
   /* Inline one-click action beside the hold subline (Go / Re-review / Resume / Answer) —

@@ -10,6 +10,7 @@
     resuming,
     resumeFailed,
     resumable,
+    stranded = false,
     authUrl = null,
     scrollToTop,
     scrollToBottom,
@@ -25,6 +26,8 @@
     resuming: boolean;
     resumeFailed: boolean;
     resumable: boolean;
+    // herdr-restored husk → distinct "agent died — revive" label on the in-terminal resume banner (#1630)
+    stranded?: boolean;
     /** Pending MCP OAuth authorization URL for an awaiting-input block — the operator must
      *  open it in their browser. null when the agent isn't waiting on an auth URL. */
     authUrl?: string | null;
@@ -115,7 +118,11 @@
   <button class="parked resume" type="button" onclick={() => resumeSession()} disabled={resuming}>
     <span class="parked-icon" aria-hidden="true">{resuming ? "⟳" : "↻"}</span>
     <span class="parked-title"
-      >{resumeFailed ? m.viewport_resume_failed() : m.viewport_resume_title()}</span
+      >{resumeFailed
+        ? m.viewport_resume_failed()
+        : stranded
+          ? m.stranded_revive_title()
+          : m.viewport_resume_title()}</span
     >
     <span class="parked-sub">{resuming ? m.common_loading() : m.viewport_resume_sub()}</span>
   </button>

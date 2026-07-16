@@ -718,6 +718,10 @@ export const config = {
   // on, with this flag as the kill switch. UI-configurable + persisted; set
   // SHEPHERD_SESSION_HOUSEKEEPING=0 to seed it off on a fresh DB.
   sessionHousekeepingEnabled: process.env.SHEPHERD_SESSION_HOUSEKEEPING !== "0",
+  // Auto-revive stranded default-account sessions after a herdr daemon restart (#1630). Opt-in,
+  // default OFF: only the default-account complement is auto-revived (account panes already recover
+  // via reDriveAccount). UI-configurable + persisted; set SHEPHERD_AUTO_REVIVE=1 to seed it on.
+  autoReviveEnabled: process.env.SHEPHERD_AUTO_REVIVE === "1",
   // Runaway-orphan reaper (issue #1144). SIGKILLs a process that (a) carries this session's
   // SHEPHERD_SESSION_ID in its /proc/<pid>/environ (provenance — an agent spawned it) AND (b) whose
   // session row is present and `archived` (terminality — the agent is definitively done), once it has

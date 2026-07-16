@@ -425,6 +425,30 @@ test("limits computes pct = units/cap and rolls the reset anchor forward", () =>
   expect(l.stale).toBe(false);
 });
 
+test("limits reconciles a mid-window weekly reset: a scraped 0% drops the gauge off a stale high local sum", () => {
+  const H = 3_600_000;
+  const WEEK = 7 * 24 * H;
+  const now = NOW;
+  const resetAt = now + 2 * H; // the weekly boundary did NOT move — the reset only zeroed the counter
+  const windowStart = resetAt - WEEK;
+  // Account JSONL still holds ~the whole cap of pre-reset usage inside the (unchanged) window.
+  const index = seededIndex([{ ts: windowStart + H, units: 980 }]);
+  const caps = new MemCaps();
+
+  // Before the reset: calibrated at 98% (980/1000). The gauge reads 98%.
+  caps.putCap({ window: "week", cap: 1000, resetAt, pct: 98, scrapedAt: windowStart + 2 * H });
+  const pre = new UsageLimitsService(index, caps, new StubProbe(null), new MemCredits());
+  expect(pre.limits(now).week!.pct).toBe(98);
+
+  // The reset scrape lands: 0% < MIN_CALIBRATION_PCT so the cap is unchanged, but the anchor is
+  // re-stamped to pct=0 at `now` (same resetAt) — exactly the row calibrateWindow persists.
+  caps.putCap({ window: "week", cap: 1000, resetAt, pct: 0, scrapedAt: now });
+  const post = new UsageLimitsService(index, caps, new StubProbe(null), new MemCredits());
+  // Pre-anchor code returned windowSum/cap = 980/1000 = 98% forever (the reported bug); anchored to
+  // the fresh scrape it tracks 0% + (no) post-scrape usage.
+  expect(post.limits(now).week!.pct).toBe(0);
+});
+
 test("limits clamps to 100 and reports stale when never calibrated", () => {
   const empty = new UsageLimitsService(
     fakeIndex(0),
@@ -451,7 +475,8 @@ test("limits keeps Claude usage when an extra provider throws", () => {
     },
   };
   const svc = new UsageLimitsService(
-    fakeIndex(50),
+    // no post-scrape usage → the gauge shows the scraped anchor pct (20%) verbatim
+    seededIndex([]),
     caps,
     new StubProbe(null),
     new MemCredits(),
@@ -461,7 +486,7 @@ test("limits keeps Claude usage when an extra provider throws", () => {
 
   const l = svc.limits(NOW);
 
-  expect(l.week!.pct).toBe(25);
+  expect(l.week!.pct).toBe(20);
   expect(l.providers).toHaveLength(1);
   expect(l.providers?.[0]?.provider).toBe("claude");
 });
@@ -547,6 +572,24 @@ test("limits drops a credit snapshot whose monthly budget already reset", () => 
   });
   const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
   expect(svc.limits(NOW).credits).toBeNull();
+});
+
+test("limits drops a dead credit snapshot (extra usage turned off) past CREDIT_DROP_MS", () => {
+  const credits = new MemCredits();
+  const DAY = 24 * 3600_000;
+  credits.putCreditSnapshot({
+    spent: 46.47,
+    cap: 100,
+    currency: "€",
+    pct: 46,
+    resetAt: NOW + 30 * DAY, // monthly reset still ahead → NOT the post-reset drop
+    scrapedAt: NOW - 3 * DAY, // 3 days stale: past CREDIT_DROP_MS (2 daily calibrations)
+  });
+  const svc = new UsageLimitsService(fakeIndex(0), new MemCaps(), new StubProbe(null), credits);
+  // Hidden entirely rather than lingered as a stale, un-refreshable "SCRAPED Nd AGO" gauge.
+  expect(svc.limits(NOW).credits).toBeNull();
+  // The snapshot itself is untouched — recoverable if credits are re-enabled and re-scraped.
+  expect(credits.getCreditSnapshot()).not.toBeNull();
 });
 
 test("limits keeps a credit snapshot with an unparseable (null) resetAt", () => {
@@ -752,9 +795,9 @@ test("projections: will-exceed (projectedPct > 100) is NOT clamped", () => {
   const now = NOW;
   const resetAt = now + 2 * H;
   const caps = new MemCaps();
-  // cap=100, windowStart=now-3h
-  caps.putCap({ window: "session5h", cap: 100, resetAt, pct: 50, scrapedAt: now });
-  // 200 units in last 0.5h → burnRatePerHour=200, curUnits=200, hoursToReset=2
+  // cap=100, windowStart=now-3h; scraped 0% at now-1h so the whole window's burn is post-scrape
+  caps.putCap({ window: "session5h", cap: 100, resetAt, pct: 0, scrapedAt: now - H });
+  // 200 units in last 0.5h → burnRatePerHour=200, curUnits = 0-anchor + 200 delta = 200, hoursToReset=2
   // projectedPct = round((200 + 200*2)/100 * 100) = 600
   const records = [{ ts: now - 0.5 * H, units: 200 }];
   const svc = new UsageLimitsService(
@@ -790,8 +833,9 @@ test("projections: just-after-reset boundary excludes pre-reset records", () => 
   );
   const proj = svc.projections(now);
   const p = proj[0]!;
-  // (a) pre-reset records excluded → curUnits=10, projectedPct = round((10 + 10*4.5)/1000*100) = 6
-  expect(p.projectedPct).toBe(6);
+  // (a) curUnits anchored to the scrape (5% of 1000 = 50) + post-scrape delta (windowSum(now,now)=0)
+  //     = 50; projectedPct = round((50 + 10*4.5)/1000*100) = round(9.5) = 10
+  expect(p.projectedPct).toBe(10);
   // recentUnits clamped to windowStart → only the 0.25h record = 10; burnRatePerHour = 10
   expect(p.burnRatePerHour).toBe(10);
   // (b) non-vacuous: unclamped windowSum(now-1h, now) WOULD include the pre-reset record

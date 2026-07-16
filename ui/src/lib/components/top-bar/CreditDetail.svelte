@@ -9,18 +9,12 @@
     creditColor,
     creditAmount,
     nowMs,
-    refreshing,
-    refreshError,
-    onRefresh,
   }: {
     credits: CreditWindow | null;
     creditFill: number;
     creditColor: string;
     creditAmount: string;
     nowMs: number;
-    refreshing: boolean;
-    refreshError: boolean;
-    onRefresh: () => void;
   } = $props();
 
   // relativeAge returns the "now" sentinel for <60s; branch it to a natural phrase
@@ -54,18 +48,6 @@
     </div>
     {#if credits.stale}
       <div class="credit-stale micro">{m.topbar_credits_stale()}</div>
-    {/if}
-    <button
-      type="button"
-      class="credit-refresh micro"
-      disabled={refreshing}
-      aria-busy={refreshing}
-      onclick={onRefresh}
-    >
-      {refreshing ? m.common_loading() : m.topbar_credits_refresh()}
-    </button>
-    {#if refreshError}
-      <div class="credit-error micro" role="alert">{m.common_retry()}</div>
     {/if}
   </div>
 {/if}
@@ -111,32 +93,6 @@
     text-transform: none;
     letter-spacing: 0.04em;
     color: var(--color-amber);
-  }
-  .credit-error {
-    text-transform: none;
-    letter-spacing: 0.04em;
-    color: var(--color-red);
-  }
-  .credit-refresh {
-    align-self: flex-start;
-    margin-top: 2px;
-    background: transparent;
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    text-transform: none;
-    letter-spacing: 0.04em;
-    padding: 4px 9px;
-    cursor: pointer;
-  }
-  .credit-refresh:hover:not(:disabled) {
-    background: var(--color-inset);
-  }
-  .credit-refresh:disabled {
-    cursor: default;
-    opacity: 0.5;
   }
   .gp-head {
     display: flex;

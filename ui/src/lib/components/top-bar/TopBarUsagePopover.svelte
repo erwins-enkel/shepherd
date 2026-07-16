@@ -8,6 +8,7 @@
   import CreditDetail from "./CreditDetail.svelte";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
+  import UsageRefreshButton from "./UsageRefreshButton.svelte";
 
   let {
     desktop,
@@ -84,16 +85,7 @@
       {/each}
       {#if credits}
         <div class="gp-window">
-          <CreditDetail
-            {credits}
-            {creditFill}
-            {creditColor}
-            {creditAmount}
-            {nowMs}
-            {refreshing}
-            {refreshError}
-            {onRefresh}
-          />
+          <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
         </div>
       {/if}
     {:else}
@@ -105,16 +97,12 @@
           <ModelWeekGauge {entry} {nowMs} />
         </div>
       {/each}
-      <CreditDetail
-        {credits}
-        {creditFill}
-        {creditColor}
-        {creditAmount}
-        {nowMs}
-        {refreshing}
-        {refreshError}
-        {onRefresh}
-      />
+      <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+    {/if}
+    {#if hasClaude}
+      <div class="gp-refresh">
+        <UsageRefreshButton {refreshing} {refreshError} {onRefresh} />
+      </div>
     {/if}
   </div>
   {#if codexUsage}
@@ -171,6 +159,10 @@
   }
   .gauge-pop-row-model {
     margin-bottom: 6px;
+  }
+  /* Refresh control, section-level so it survives the credits gauge being hidden. */
+  .gp-refresh {
+    margin-top: 10px;
   }
   .gauge-pop-link {
     appearance: none;

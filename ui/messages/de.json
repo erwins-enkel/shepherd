@@ -1276,7 +1276,7 @@
   "topbar_credits_age_now": "gerade abgerufen",
   "topbar_credits_stale": "Snapshot veraltet — für Live-Verbrauch aktualisieren",
   "topbar_credits_alert_aria": "Zusatzguthaben in Nutzung: {amount}",
-  "topbar_credits_refresh": "Aktualisieren",
+  "topbar_usage_refresh": "Aktualisieren",
   "settings_extra_credits_ceiling_title": "Ausgabenlimit für Zusatzguthaben",
   "settings_extra_credits_ceiling_hint": "Pausiert autonomen Drain und Autopilot, sobald die seit dem letzten Reset des Wochenfensters angefallenen Pay-as-you-go-Ausgaben für Zusatzguthaben (echtes Geld über dein Abo hinaus) diesen Betrag in deiner Kontowährung übersteigen. 0 pausiert bei jeglichen neuen Zusatzguthaben-Ausgaben. Aus einer früheren Woche übernommene Ausgaben zählen nicht mehr, sobald das Wochenfenster zurücksetzt — die Pause folgt so deinem Abo-Rhythmus, nicht dem monatlichen Guthaben-Reset.",
   "settings_extra_credits_ceiling_label": "Pausieren, wenn Ausgaben übersteigen",

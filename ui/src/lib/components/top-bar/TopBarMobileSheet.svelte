@@ -13,6 +13,7 @@
   import CreditDetail from "./CreditDetail.svelte";
   import LimitGaugeRow from "./LimitGaugeRow.svelte";
   import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
+  import UsageRefreshButton from "./UsageRefreshButton.svelte";
   import { codexGaugeList } from "../usage-gauges";
   import { formatTokenLabel } from "$lib/format";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
@@ -209,16 +210,10 @@
                 <ModelWeekGauge {entry} {nowMs} />
               </div>
             {/each}
-            <CreditDetail
-              {credits}
-              {creditFill}
-              {creditColor}
-              {creditAmount}
-              {nowMs}
-              {refreshing}
-              {refreshError}
-              {onRefresh}
-            />
+            <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+            <!-- Section-level refresh (not inside the credits block) so it survives credits being
+                 hidden — a dead/absent credits panel must not take the only refresh control with it. -->
+            <UsageRefreshButton {refreshing} {refreshError} {onRefresh} />
           </div>
         {/if}
         {#if codexUsage}

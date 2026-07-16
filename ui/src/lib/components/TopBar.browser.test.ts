@@ -1604,8 +1604,10 @@ describe("TopBar — CR extra-credit gauge", () => {
     // 2-decimal precision, aligned with the server push copy (src/push.ts extraCreditsBody)
     expect(txt, "cap").toContain("€50.00");
     expect(txt, "snapshot age (5m)").toContain(m.topbar_credits_age({ age: "5m" }));
-    // REFRESH is reachable — present in the open, clickable dialog (the bug was it closed on mouseout)
-    expect(detail!.querySelector(".credit-refresh"), "refresh button reachable").not.toBeNull();
+    // REFRESH is reachable — present in the open, clickable dialog (the bug was it closed on mouseout).
+    // It lives at the Claude-section level now (not inside the credit block), so it survives credits
+    // being hidden.
+    expect(pop!.querySelector(".usage-refresh"), "refresh button reachable").not.toBeNull();
   });
 
   it("a stale Claude snapshot dims only the Claude section, not fresh Codex usage", async () => {
@@ -1686,10 +1688,7 @@ describe("TopBar — CR extra-credit gauge", () => {
     await nextFrame();
     const detail = hud.querySelector<HTMLElement>(".credit-detail");
     expect(detail, "credit detail in credits-only popover").not.toBeNull();
-    expect(
-      detail!.querySelector(".credit-refresh"),
-      "refresh reachable in credits-only",
-    ).not.toBeNull();
+    expect(hud.querySelector(".usage-refresh"), "refresh reachable in credits-only").not.toBeNull();
     // no usage windows → the popover carries no 5-Hour/Weekly window blocks (only the credit detail,
     // whose own header reads "Extra credits", not a window period label)
     const pop = hud.querySelector<HTMLElement>(".gauge-pop-desk");
@@ -1906,7 +1905,7 @@ describe("TopBar — CR extra-credit gauge", () => {
 
   it("fail-closed: a rejected refresh surfaces the error state, not silent success", async () => {
     // The house-rule fail-closed path: refreshUsage() rejects → the popover must show
-    // its visible error state (role=alert / .credit-error / retry message) so the user
+    // its visible error state (role=alert / .usage-refresh-error / retry message) so the user
     // sees the refresh FAILED rather than it looking like a success.
     vi.mocked(refreshUsage).mockRejectedValueOnce(new Error("network down"));
     const hud = await renderDesktop(limitsWithCredit({}));
@@ -1915,16 +1914,16 @@ describe("TopBar — CR extra-credit gauge", () => {
     const detail = hud.querySelector<HTMLElement>(".credit-detail");
     expect(detail, "credit detail rendered on click").not.toBeNull();
     // No error before the refresh is attempted.
-    expect(detail!.querySelector(".credit-error"), "no error before refresh").toBeNull();
+    expect(hud.querySelector(".usage-refresh-error"), "no error before refresh").toBeNull();
 
-    const refreshBtn = detail!.querySelector<HTMLButtonElement>(".credit-refresh");
+    const refreshBtn = hud.querySelector<HTMLButtonElement>(".usage-refresh");
     expect(refreshBtn, "refresh button present").not.toBeNull();
     refreshBtn!.click();
 
     // The rejection sets refreshError → the error alert appears. Poll for the rAF/
     // microtask settle so a genuinely-missing error state still fails the test.
     await vi.waitFor(() => {
-      const err = hud.querySelector<HTMLElement>(".credit-error");
+      const err = hud.querySelector<HTMLElement>(".usage-refresh-error");
       expect(err, "error state appears on rejected refresh").not.toBeNull();
       expect(err!.getAttribute("role"), "error is an alert").toBe("alert");
       expect(err!.textContent ?? "", "retry message").toContain(m.common_retry());

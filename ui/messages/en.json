@@ -1276,7 +1276,7 @@
   "topbar_credits_age_now": "scraped just now",
   "topbar_credits_stale": "snapshot stale — refresh for live spend",
   "topbar_credits_alert_aria": "Extra credits in use: {amount}",
-  "topbar_credits_refresh": "Refresh",
+  "topbar_usage_refresh": "Refresh",
   "settings_extra_credits_ceiling_title": "Extra-credit spend ceiling",
   "settings_extra_credits_ceiling_hint": "Pauses autonomous drain and autopilot once pay-as-you-go extra-credit spend (real money beyond your subscription) accrued since the weekly window reset exceeds this amount, in your account currency. 0 pauses on any new extra-credit spend. Overage carried over from an earlier week stops counting once the weekly window resets, so the pause tracks your subscription cadence — not the monthly credit reset.",
   "settings_extra_credits_ceiling_label": "Pause when spend exceeds",

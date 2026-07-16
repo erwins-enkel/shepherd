@@ -84,16 +84,7 @@
       {/each}
       {#if credits}
         <div class="gp-window">
-          <CreditDetail
-            {credits}
-            {creditFill}
-            {creditColor}
-            {creditAmount}
-            {nowMs}
-            {refreshing}
-            {refreshError}
-            {onRefresh}
-          />
+          <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
         </div>
       {/if}
     {:else}
@@ -105,16 +96,26 @@
           <ModelWeekGauge {entry} {nowMs} />
         </div>
       {/each}
-      <CreditDetail
-        {credits}
-        {creditFill}
-        {creditColor}
-        {creditAmount}
-        {nowMs}
-        {refreshing}
-        {refreshError}
-        {onRefresh}
-      />
+      <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+    {/if}
+    {#if hasClaude}
+      <!-- Manual re-scrape of `/usage`. Lives at the Claude-section level (not inside the credits
+           block) so it survives when the credits gauge is hidden — a dead/absent credits panel must
+           not take the only refresh control with it. -->
+      <div class="gp-refresh">
+        <button
+          type="button"
+          class="usage-refresh micro"
+          disabled={refreshing}
+          aria-busy={refreshing}
+          onclick={onRefresh}
+        >
+          {refreshing ? m.common_loading() : m.topbar_usage_refresh()}
+        </button>
+        {#if refreshError}
+          <span class="usage-refresh-error micro" role="alert">{m.common_retry()}</span>
+        {/if}
+      </div>
     {/if}
   </div>
   {#if codexUsage}
@@ -171,6 +172,37 @@
   }
   .gauge-pop-row-model {
     margin-bottom: 6px;
+  }
+  /* Refresh control, section-level so it survives the credits gauge being hidden. */
+  .gp-refresh {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+  }
+  .usage-refresh {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-meta);
+    text-transform: none;
+    letter-spacing: 0.04em;
+    padding: 4px 9px;
+    cursor: pointer;
+  }
+  .usage-refresh:hover:not(:disabled) {
+    background: var(--color-inset);
+  }
+  .usage-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .usage-refresh-error {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-red);
   }
   .gauge-pop-link {
     appearance: none;

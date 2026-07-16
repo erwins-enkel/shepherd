@@ -209,16 +209,23 @@
                 <ModelWeekGauge {entry} {nowMs} />
               </div>
             {/each}
-            <CreditDetail
-              {credits}
-              {creditFill}
-              {creditColor}
-              {creditAmount}
-              {nowMs}
-              {refreshing}
-              {refreshError}
-              {onRefresh}
-            />
+            <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
+            <!-- Section-level refresh (not inside the credits block) so it survives credits being
+                 hidden — a dead/absent credits panel must not take the only refresh control with it. -->
+            <div class="sheet-refresh">
+              <button
+                type="button"
+                class="usage-refresh micro"
+                disabled={refreshing}
+                aria-busy={refreshing}
+                onclick={onRefresh}
+              >
+                {refreshing ? m.common_loading() : m.topbar_usage_refresh()}
+              </button>
+              {#if refreshError}
+                <span class="usage-refresh-error micro" role="alert">{m.common_retry()}</span>
+              {/if}
+            </div>
           </div>
         {/if}
         {#if codexUsage}
@@ -576,6 +583,37 @@
   }
   .sheet-gauges.stale {
     opacity: 0.5;
+  }
+  /* Section-level refresh control (see markup note). */
+  .sheet-refresh {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding-top: 2px;
+  }
+  .usage-refresh {
+    background: transparent;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    color: var(--color-ink);
+    font: inherit;
+    font-size: var(--fs-meta);
+    text-transform: none;
+    letter-spacing: 0.04em;
+    padding: 6px 11px;
+    cursor: pointer;
+  }
+  .usage-refresh:hover:not(:disabled) {
+    background: var(--color-inset);
+  }
+  .usage-refresh:disabled {
+    cursor: default;
+    opacity: 0.5;
+  }
+  .usage-refresh-error {
+    text-transform: none;
+    letter-spacing: 0.04em;
+    color: var(--color-red);
   }
   .sheet-model-row {
     display: flex;

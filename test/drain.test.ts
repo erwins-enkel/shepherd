@@ -412,6 +412,18 @@ test("dedupe: an existing session mapped to #1 → spawns #2 next, not #1", asyn
   expect(h.creates[0]!.issueRef?.number).toBe(2);
 });
 
+test("spawn prompt: an ordinary title rides bare; a slash-leading title is templated", async () => {
+  const h = makeHarness({ maxAuto: 2, issues: [issue(1), issue(2, { title: "/foo bar" })] });
+  await h.drain.pump(REPO);
+  expect(h.creates).toHaveLength(2);
+  // Byte-identical for the common case — the namer derives branch + worktree names from this.
+  expect(h.creates[0]!.prompt).toBe("issue 1");
+  // The prompt is delivered as a positional argv, where a leading "/" is parsed as a slash
+  // command ("Unknown command: /foo bar") and the session dies before it starts.
+  expect(h.creates[1]!.prompt).toBe("Work on issue #2: /foo bar");
+  expect(h.creates[1]!.prompt.startsWith("/")).toBe(false);
+});
+
 test("retire gate: ready session → retired once; forge.merge never called; ensureIssueLink + archive + emitArchived fire", async () => {
   const h = makeHarness({ maxAuto: 1, issues: [] });
   const s = h.store.create({

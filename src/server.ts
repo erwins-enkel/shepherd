@@ -208,6 +208,7 @@ import {
   effortBelowHigh,
 } from "./default-effort";
 import { startSerially } from "./up-next";
+import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import { excludeHiddenSections } from "./up-next-core";
 import type { UpNextSnapshot } from "./up-next-core";
 import { normalizeAgentProvider } from "./agent-provider";
@@ -1110,15 +1111,16 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
     }
     try {
       // Base + prompt = the drain auto-prompt for a plain issue (issue title on the default
-      // branch). Manual epic-child starts also base on default here; integration-branch
-      // orchestration stays the auto epic-runner's job (documented v1 scoping, #1169).
+      // branch, via the same issueSpawnPrompt guard). Manual epic-child starts also base on
+      // default here; integration-branch orchestration stays the auto epic-runner's job
+      // (documented v1 scoping, #1169).
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
       const provider = choice?.agentProvider ?? config.defaultAgentProvider;
       const input: CreateSessionInput = {
         repoPath: it.dir,
         baseBranch: base,
-        prompt: it.issueRef.title,
+        prompt: issueSpawnPrompt(it.issueRef.number, it.issueRef.title),
         // Operator default model (repo override wins; "auto"/"inherit" → no --model flag).
         // The Fable promo is client-only and never applied here, matching drain spawns.
         agentProvider: choice?.agentProvider,

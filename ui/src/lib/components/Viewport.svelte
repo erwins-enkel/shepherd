@@ -22,6 +22,7 @@
   import { connectPty, type PtyConn } from "$lib/pty";
   import { theme, xtermTheme, xtermMinContrast } from "$lib/theme.svelte";
   import { terminalFontSize, FONT_MIN, FONT_MAX } from "$lib/terminal-font-size.svelte";
+  import { uiScale } from "$lib/ui-scale.svelte";
   import { tick, untrack } from "svelte";
   import { SvelteMap } from "svelte/reactivity";
   import {
@@ -351,11 +352,21 @@
   // integer. Rounding here keeps the readout an integer — a fresh desktop user
   // never sees the fractional 12.5 (nor its overflow of the readout box) — and
   // lets stepping move a clean ±1 from the shown number. The ACTUAL xterm size
-  // when unset stays the true termFontDefault (12.5/11) — see the creation +
-  // live-apply effects — so default terminal rendering is unchanged; the ≤0.5px
-  // gap exists only in the never-touched state and closes the moment the user
-  // steps. Never feeds the terminal-creation effect.
+  // when unset stays the true termFontDefault (12.5/11), scaled by --ui-scale
+  // (see appliedFontSize below and the creation + live-apply effects) — so
+  // default terminal rendering is unchanged; the ≤0.5px gap exists only in the
+  // never-touched state and closes the moment the user steps. Never feeds the
+  // terminal-creation effect.
   const effectiveFontSize = $derived(terminalFontSize.size ?? Math.round(termFontDefault));
+  // What xterm actually renders: the base size (pinned or per-device default)
+  // multiplied by the iOS Dynamic Type ratio (--ui-scale, 1 everywhere the
+  // app.html probe never runs). The terminal is canvas-rendered, so it can't
+  // pick the ratio up through the CSS type scale like the rest of the UI —
+  // it has to be multiplied in here. Base stays the readout/stepper/persisted
+  // unit; the product is deliberately unclamped (base is clamped 8–24 by the
+  // store, the probe caps the ratio at 1.5 — both bounds are already enforced
+  // at their sources, mirroring the CSS --fs-* tokens).
+  const appliedFontSize = $derived((terminalFontSize.size ?? termFontDefault) * uiScale.value);
   // A+ / A− step. Snaps to an integer (up → floor+1, down → ceil−1) so stepping
   // can never produce a fractional size; from the rounded default it is a clean
   // ±1 off the shown readout. Store clamps to [FONT_MIN, FONT_MAX].
@@ -1544,9 +1555,12 @@
     const initialTheme = document.documentElement.dataset.theme === "light" ? "light" : "dark";
     // Initial font size: the persisted preference (read UNTRACKED so a later
     // wrench-menu step never re-keys this effect → never recreates the terminal /
-    // PTY), else the per-device default. Live changes are applied in place by the
-    // dedicated effect below.
-    const initialFont = untrack(() => terminalFontSize.size) ?? termFontDefault;
+    // PTY), else the per-device default — times the iOS Dynamic Type ratio
+    // (also untracked: a live Text Size change must never recreate the
+    // terminal either). Live changes are applied in place by the dedicated
+    // effect below.
+    const initialFont =
+      (untrack(() => terminalFontSize.size) ?? termFontDefault) * untrack(() => uiScale.value);
     const term = new Terminal({
       fontFamily: "'JetBrains Mono', monospace",
       fontSize: initialFont,
@@ -1704,6 +1718,16 @@
     // catches display:none; the client-size checks catch transient collapses.
     const refit = () => {
       if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+      // Reconcile a font-size change that arrived while the mount was hidden
+      // (an iOS Dynamic Type change on another tab — see the live-apply effect,
+      // which defers instead of measuring against a hidden mount). Setting the
+      // option NOW is safe: the guard above proves the mount is visible, so
+      // xterm's CharSizeService re-measure is valid, and the fit below reflows
+      // to the fresh cell size. untracked: refit() is called from inside
+      // $effect bodies on some paths, and the reconcile must not become a
+      // reactive dependency of those effects.
+      const desired = untrack(() => appliedFontSize);
+      if (term.options.fontSize !== desired) term.options.fontSize = desired;
       fit.fit();
       c.resize(term.cols, term.rows);
     };
@@ -2161,26 +2185,27 @@
     term.refresh(0, Math.max(0, term.rows - 1));
   });
 
-  // Live-apply the terminal font size (wrench-menu stepper). Mirrors the theme
-  // effect: mutate the option in place — never recreate the terminal/PTY.
-  // Setting term.options.fontSize makes xterm's CharSizeService re-measure the
-  // cell (it watches fontSize), but ONLY when the mount is visible; a hidden
-  // measure is invalid. If the mount is hidden we store the option and return
-  // before fit.fit() (the same 2-col poison guard as refit()) — but the deferred
-  // visibility/ResizeObserver refit() calls fit.fit() alone, which does NOT
-  // re-trigger a CharSizeService measure, so it would reflow against stale cell
-  // metrics. We rely on the invariant that the ONLY font-size trigger is the
-  // wrench menu, which renders on the terminal tab only → the mount is always
-  // visible at change time, so this hidden branch is effectively unreachable for
-  // user-driven changes.
+  // Live-apply the terminal font size. Mirrors the theme effect: mutate the
+  // option in place — never recreate the terminal/PTY. Two triggers feed it:
+  // the wrench-menu stepper (renders on the terminal tab only → mount always
+  // visible) and the iOS Dynamic Type ratio (--ui-scale — can change while ANY
+  // tab is active, so the mount may be hidden). Setting term.options.fontSize
+  // makes xterm's CharSizeService re-measure the cell (it watches fontSize),
+  // but ONLY a visible measure is valid — and the deferred visibility/
+  // ResizeObserver refit() calls fit.fit() alone, which does NOT re-trigger a
+  // measure, so a hidden mutation here would poison the cell metrics for the
+  // terminal's whole life. Therefore: if the mount is hidden, change NOTHING
+  // (guard before the mutation) — refit() reconciles term.options.fontSize
+  // against appliedFontSize the moment the mount is visible again, which is
+  // the only time a measure is trustworthy.
   $effect(() => {
-    const size = terminalFontSize.size ?? termFontDefault;
+    const size = appliedFontSize;
     const term = termRef;
     const fit = fitRef;
     if (!term || !fit) return;
     if (term.options.fontSize === size) return;
-    term.options.fontSize = size;
     if (!el || el.offsetParent === null || el.clientWidth === 0 || el.clientHeight === 0) return;
+    term.options.fontSize = size;
     fit.fit();
     conn?.resize(term.cols, term.rows);
   });

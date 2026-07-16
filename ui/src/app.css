@@ -76,7 +76,11 @@
      The probe caps --ui-scale at 1.5: only type scales here, not spacing or the
      fixed chrome heights below (--mobile-actionbar-hit, --icon-btn-hit), so the
      accessibility end of Dynamic Type (~3x) would overflow those dense bars. The
-     cap honors a meaningfully larger choice while keeping the chrome intact. */
+     cap honors a meaningfully larger choice while keeping the chrome intact.
+
+     The canvas-rendered xterm terminal can't consume the ratio through CSS —
+     it multiplies --ui-scale into its JS fontSize instead (ui-scale.svelte.ts
+     → Viewport.svelte), so terminal text follows the same setting and cap. */
   --ui-scale: 1;
   --fs-micro: calc(10px * var(--ui-scale));
   --fs-meta: calc(11px * var(--ui-scale));

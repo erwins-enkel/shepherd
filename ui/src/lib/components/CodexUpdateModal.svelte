@@ -24,6 +24,8 @@
   let logEl = $state<HTMLPreElement | null>(null);
 
   const CODEX_RELEASES_URL = "https://github.com/openai/codex/releases";
+  const displayedCurrent = $derived(done?.from ?? update.current);
+  const displayedLatest = $derived(done?.to ?? update.latest);
 
   // `codex update` runs server-side in a managed child; shepherd stays up and the
   // modal resolves itself via the `done` result. Busy only while the update is in
@@ -77,12 +79,12 @@
       >
     </div>
 
-    {#if update.current && update.latest}
+    {#if displayedCurrent && displayedLatest}
       <div class="summary">
         <span class="versions"
           >{m.codexupdate_versions({
-            current: update.current,
-            latest: update.latest,
+            current: displayedCurrent,
+            latest: displayedLatest,
           })}</span
         >
       </div>

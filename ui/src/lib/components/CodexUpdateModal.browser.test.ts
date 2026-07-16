@@ -78,4 +78,17 @@ describe("CodexUpdateModal", () => {
       ),
     );
   });
+
+  it("keeps the completed update's actual version transition after status refreshes", async () => {
+    const { rerender } = await render(CodexUpdateModal, { props: { update } });
+
+    await rerender({
+      update: { ...update, current: "0.142.5", latest: "0.142.5", updateAvailable: false },
+      done: { ok: true, from: "0.142.4", to: "0.142.5" },
+    });
+
+    await vi.waitFor(() =>
+      expect(document.querySelector(".versions")?.textContent).toContain("0.142.4 → 0.142.5"),
+    );
+  });
 });

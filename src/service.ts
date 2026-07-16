@@ -3807,16 +3807,20 @@ export class SessionService {
    *
    * Bounded by its OWN `reviveAttempts` counter (anchored on spawnTerminalId, same CAP as the account
    * path): a persistently-refused revive (e.g. usage-halted → the auto-gate refuses BEFORE teardown, so
-   * spawnTerminalId never advances) gives up instead of re-firing every sweep. Returns true when the
-   * agent was revived (`resume(force)` produced a session), false on refusal/failure/give-up. Never
-   * throws — it runs off the poll loop.
+   * spawnTerminalId never advances) gives up instead of re-firing every sweep. Returns:
+   *   "revived"  — `resume(force)` produced a session (spawnTerminalId advances → no longer stranded).
+   *   "failed"   — this attempt refused/failed but the CAP is not yet reached; a later sweep may retry.
+   *   "gaveup"   — the CAP has been reached (this attempt OR a prior one), so the caller must STOP
+   *                re-dispatching: further attempts would no-op forever (the toggle stays on, the husk
+   *                stays stranded). The poller uses this to freeze its per-session dispatch + tally.
+   * Never throws — it runs off the poll loop.
    */
-  async reviveStranded(id: string): Promise<boolean> {
+  async reviveStranded(id: string): Promise<"revived" | "failed" | "gaveup"> {
     const before = this.deps.store.get(id);
-    if (!before) return false;
+    if (!before) return "failed";
     const anchor = before.spawnTerminalId; // stable until a heal advances it
     const rec = this.reviveAttempts.get(id);
-    if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return false;
+    if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return "gaveup";
     let revived: boolean;
     try {
       revived = (await this.resume(id, { force: true })) !== null;
@@ -3826,16 +3830,18 @@ export class SessionService {
     }
     if (revived) {
       this.reviveAttempts.delete(id);
-    } else {
-      const attempts = rec && rec.anchor === anchor ? rec.attempts + 1 : 1;
-      this.reviveAttempts.set(id, { anchor, attempts });
-      if (attempts >= SessionService.REDRIVE_CAP)
-        console.warn(
-          `[revive] auto-revive for ${id} gave up after ${attempts} failed attempts ` +
-            `(anchor ${anchor ?? "null"})`,
-        );
+      return "revived";
     }
-    return revived;
+    const attempts = rec && rec.anchor === anchor ? rec.attempts + 1 : 1;
+    this.reviveAttempts.set(id, { anchor, attempts });
+    if (attempts >= SessionService.REDRIVE_CAP) {
+      console.warn(
+        `[revive] auto-revive for ${id} gave up after ${attempts} failed attempts ` +
+          `(anchor ${anchor ?? "null"})`,
+      );
+      return "gaveup";
+    }
+    return "failed";
   }
 
   /** Force-resume every currently-stranded session (operator-initiated "revive all"), returning how

@@ -4,16 +4,18 @@ import { isMerging } from "./components/merge-train";
 
 /**
  * Whether to offer a Resume control for a session: idle/done with a provider-
- * specific resume target, and the claude process verifiably gone.
+ * specific resume target, and the agent process verifiably gone.
  *
  * herdr ≥0.6 `agent list` exposes no per-agent command/liveness field, so a husk
- * shell and an idle-at-prompt claude are indistinguishable from its API. The
- * server fills that gap with a /proc scan (is a `claude` process still rooted in
- * the session's worktree?) pushed as `session:claude-alive` and passed in here as
- * `claudeAlive`. Only a confirmed-alive claude (`true`) hides the control;
- * `undefined` (not swept yet / older server) keeps the old offer-always behavior
- * so a husk is never left without an affordance. Running (working) / blocked
- * (awaiting input) are unambiguously live, so they're excluded regardless.
+ * shell and an idle-at-prompt agent are indistinguishable from its API. The server
+ * fills that gap with a /proc scan (is a `claude`/`codex` process still rooted in
+ * the session's worktree?) folded into the `LivenessState` (`alive`/`husk`/`stranded`)
+ * pushed as `session:claude-alive` and passed in here as `liveness`. Only a
+ * confirmed-alive agent (`"alive"`) hides the control; a `husk`/`stranded` state
+ * offers it, and `undefined` (not swept yet / older server) keeps the old
+ * offer-always behavior so a husk is never left without an affordance. Running
+ * (working) / blocked (awaiting input) are unambiguously live, so they're excluded
+ * regardless.
  */
 export function canResume(s: Session, liveness?: LivenessState): boolean {
   const provider = s.agentProvider ?? "claude";

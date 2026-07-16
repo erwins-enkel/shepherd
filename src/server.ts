@@ -764,6 +764,17 @@ function handleClaudeAliveSnapshot({ req, parts, deps }: Ctx): Response | null {
   return null;
 }
 
+// GET /api/stranded → the currently-stranded session ids, for client bootstrap (#1630). The
+// `/api/claude-alive` snapshot is only the raw boolean, which folds a stranded session to `husk`;
+// and `session:claude-alive` re-emits on flips only, so a client reloading mid-strand would otherwise
+// lose the 3-state until the strand next changes. Fetching these ids lets it reconstruct `stranded`.
+function handleStrandedSnapshot({ req, parts, deps }: Ctx): Response | null {
+  if (req.method === "GET" && parts[0] === "api" && parts[1] === "stranded" && !parts[2]) {
+    return json(deps.stranded?.ids() ?? []);
+  }
+  return null;
+}
+
 function handleWorkingBlockedSnapshot({ req, parts, deps }: Ctx): Response | null {
   if (req.method === "GET" && parts[0] === "api" && parts[1] === "working-blocked" && !parts[2]) {
     return json(deps.workingBlocked?.snapshot() ?? {});
@@ -7201,6 +7212,7 @@ const ROUTE_HANDLERS = [
   handleGitSnapshot,
   handleActivitySnapshot,
   handleClaudeAliveSnapshot,
+  handleStrandedSnapshot,
   handleReviveStranded,
   handleWorkingBlockedSnapshot,
   handleBlocksSnapshot,

@@ -261,6 +261,13 @@ class ToastStore {
     this.#drop(id);
   }
 
+  /** Programmatically dismiss the info toast currently registered under `key` — for a sticky status
+   *  toast a later event clears (e.g. a mass-strand banner once the strand heals). No-op if none. */
+  dismissKey(key: string): void {
+    const id = this.#keyed.get(this.#kk("info", key));
+    if (id !== undefined) this.#drop(id);
+  }
+
   /** Is a destructive action against `key` currently deferred in its undo window? */
   pendingUndo(key: string): boolean {
     return this.items.some((t) => t.tone === "undo" && t.key === key);

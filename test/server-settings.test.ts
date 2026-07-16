@@ -365,6 +365,35 @@ test("PUT /api/settings rejects a non-boolean autoReviveEnabled", async () => {
   }
 });
 
+test("GET /api/stranded returns the current stranded ids (for client bootstrap)", async () => {
+  const store = new SessionStore(":memory:");
+  const deps = {
+    store,
+    events: new EventHub(),
+    service: {} as unknown,
+    usageLimits: { limits: () => ({}) },
+    stranded: { ids: () => ["a", "b"] },
+  } as unknown as AppDeps;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/stranded"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(["a", "b"]);
+});
+
+test("GET /api/stranded → [] when unwired", async () => {
+  const store = new SessionStore(":memory:");
+  const deps = {
+    store,
+    events: new EventHub(),
+    service: {} as unknown,
+    usageLimits: { limits: () => ({}) },
+  } as unknown as AppDeps;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/stranded"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
 test("POST /api/revive-stranded revives the current stranded set, returns counts", async () => {
   const revivedIds: string[] = [];
   const store = new SessionStore(":memory:");

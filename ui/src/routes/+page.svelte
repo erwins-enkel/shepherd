@@ -23,6 +23,7 @@
     gitStates,
     activityStates,
     claudeAliveStates,
+    strandedStates,
     workingBlockedStates,
     blockStates,
     holdStates,
@@ -849,8 +850,8 @@
     activityStates()
       .then((m) => store.setActivity(m))
       .catch(() => {});
-    claudeAliveStates()
-      .then((m) => store.setClaudeAlive(m))
+    Promise.all([claudeAliveStates(), strandedStates().catch(() => [])])
+      .then(([m, stranded]) => store.setClaudeAlive(m, stranded))
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
@@ -1689,8 +1690,8 @@
     activityStates()
       .then((m) => store.setActivity(m))
       .catch(() => {});
-    claudeAliveStates()
-      .then((m) => store.setClaudeAlive(m))
+    Promise.all([claudeAliveStates(), strandedStates().catch(() => [])])
+      .then(([m, stranded]) => store.setClaudeAlive(m, stranded))
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))

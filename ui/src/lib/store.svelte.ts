@@ -185,12 +185,16 @@ export class HerdStore {
     this.subagents = map;
   }
   /** Seed (or replace) the liveness map after a bootstrap GET. The `/api/claude-alive` snapshot is
-   *  the raw boolean (unchanged wire format); fold it into the 3-state (true → alive, false → husk).
-   *  A husk that is actually stranded self-heals to `stranded` on the next `session:claude-alive`. */
-  setClaudeAlive(map: Record<string, boolean>) {
-    this.claudeAlive = Object.fromEntries(
+   *  the raw boolean (unchanged wire format); fold it into the 3-state (true → alive, false → husk),
+   *  then upgrade any `strandedIds` (from `GET /api/stranded`) to `stranded` — the boolean snapshot
+   *  can't distinguish a restart-strand from a plain husk, and `session:claude-alive` re-emits on
+   *  flips only, so without this a client reloading mid-strand would lose the banner + framing. */
+  setClaudeAlive(map: Record<string, boolean>, strandedIds: string[] = []) {
+    const folded: Record<string, LivenessState> = Object.fromEntries(
       Object.entries(map).map(([id, alive]) => [id, alive ? "alive" : "husk"]),
     );
+    for (const id of strandedIds) folded[id] = "stranded";
+    this.claudeAlive = folded;
   }
   /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
   setWorkingBlocked(map: Record<string, boolean>) {
@@ -448,6 +452,7 @@ export class HerdStore {
         this.activity = dropKey(this.activity, ev.data.id);
         this.subagents = dropKey(this.subagents, ev.data.id);
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
+        this.clearStrandedToastIfEmpty(); // archiving the last stranded session → drop the banner
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
@@ -498,6 +503,14 @@ export class HerdStore {
     let n = 0;
     for (const v of Object.values(this.claudeAlive)) if (v === "stranded") n++;
     return n;
+  }
+
+  /** Dismiss the sticky mass-strand toast + its now-inert "Revive all" button once the stranded set
+   *  has drained to empty (auto-revive healed the last one, or it was archived). The manual
+   *  `reviveAllStranded` path already replaces it via the shared key; this closes the auto/archive gap
+   *  (the `app:auto-revived` outcome posts under a different key, so it can't replace it). */
+  private clearStrandedToastIfEmpty(): void {
+    if (this.strandedCount === 0) toasts.dismissKey("sessions-stranded");
   }
 
   /** "Revive all stranded" — force-resume every stranded session, then refresh the keyed toast with
@@ -586,6 +599,7 @@ export class HerdStore {
           ev.data.id,
           ev.data.liveness ?? (ev.data.claudeAlive ? "alive" : "husk"),
         );
+        this.clearStrandedToastIfEmpty(); // auto-revive/heal drained the last strand → drop the banner
         return true;
       case "session:halt":
         this.patchSession(ev.data.id, {

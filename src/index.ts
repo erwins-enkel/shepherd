@@ -1006,7 +1006,8 @@ poller.reDrive = (id) =>
   });
 
 // Autonomous auto-revive of a stranded default-account session after a herdr restart (#1630),
-// gated by config.autoReviveEnabled. Resolves true when the agent was revived.
+// gated by config.autoReviveEnabled. Resolves "revived" on success, "failed" for a retryable
+// attempt, or "gaveup" once the service's bounded cap is reached (the poller then stops dispatching).
 poller.revive = (id) => service.reviveStranded(id);
 // Coalesced daemon-restart toast: the stranded set grew → tell every open dashboard once.
 poller.onStrandedGrew = (count) => events.emit("app:sessions-stranded", { count });

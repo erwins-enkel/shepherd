@@ -1270,6 +1270,15 @@ export async function claudeAliveStates(): Promise<Record<string, boolean>> {
   return r.json();
 }
 
+/** Currently-stranded session ids (herdr-restored husks), for client bootstrap. The boolean
+ *  claude-alive snapshot folds these to `husk`; these ids let a reloading client reconstruct the
+ *  `stranded` 3-state (the banner + "agent died — revive" framing) without waiting for a flip (#1630). */
+export async function strandedStates(): Promise<string[]> {
+  const r = await fetch("/api/stranded");
+  if (!r.ok) throw await failed(r, "stranded sessions");
+  return r.json();
+}
+
 /** Snapshot of the working-while-blocked display flags, keyed by session id (for
  *  client bootstrap; mirror of /api/claude-alive). `true` = herdr reports the
  *  session "blocked" but the server saw it resume mid-turn (herdr's blocked

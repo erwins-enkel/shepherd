@@ -145,9 +145,11 @@ export class StatusPoller {
   reDrive?: (id: string) => void;
 
   /** Fire-and-forget autonomous auto-revive of a STRANDED default-account session (wired to
-   *  service.reviveStranded in index.ts). Resolves true when the agent was revived. Left undefined in
-   *  tests that don't exercise it; a no-op when `config.autoReviveEnabled` is off. */
-  revive?: (id: string) => Promise<boolean>;
+   *  service.reviveStranded in index.ts). Resolves "revived" on success, "failed" for a retryable
+   *  attempt, "gaveup" once the service's bounded cap is reached (the poller then stops dispatching +
+   *  counting that id). Left undefined in tests that don't exercise it; a no-op when
+   *  `config.autoReviveEnabled` is off. */
+  revive?: (id: string) => Promise<"revived" | "failed" | "gaveup">;
   /** Coalesced daemon-restart signal — fired with the current stranded count when the stranded set
    *  grows (a session newly enters it). Wired in index.ts to emit `app:sessions-stranded`. */
   onStrandedGrew?: (count: number) => void;
@@ -295,6 +297,12 @@ export class StatusPoller {
   private strandedSweeps = new Map<string, number>();
   /** Sessions with an auto-revive dispatch in flight — coalesces repeated sweep dispatches. */
   private reviveInFlight = new Set<string>();
+  /** Sessions the service has permanently GIVEN UP auto-reviving (its bounded cap reached). A
+   *  terminal per-session state: no further dispatch or outcome-tally re-emit for these while they
+   *  stay stranded, so a permanently-failing session can't grow `reviveOutcome.failed` unbounded or
+   *  re-fire the outcome toast every sweep. Cleared when the session leaves the stranded set (healed /
+   *  concluded / archived), which also frees a fresh anchor for a later strand. */
+  private reviveGaveUp = new Set<string>();
   /** `config.autoReviveEnabled` as of the last sweep — the rising-edge detector for sweep-on-arm. */
   private lastAutoReviveEnabled = config.autoReviveEnabled;
   /** Running default-account auto-revive tally for the current restart episode; reset when no
@@ -571,6 +579,7 @@ export class StatusPoller {
         this.lastClaudeAlive.delete(id);
         this.lastLiveness.delete(id);
         this.strandedSweeps.delete(id);
+        this.reviveGaveUp.delete(id);
       }
     }
     // Restart episode over (nothing stranded, nothing landing) → reset the outcome tally so the next
@@ -588,8 +597,10 @@ export class StatusPoller {
   private maybeAutoRevive(s: Session, armed: boolean): void {
     if (this.lastLiveness.get(s.id) !== "stranded" || !isAutoRevivable(s)) {
       this.strandedSweeps.delete(s.id);
+      this.reviveGaveUp.delete(s.id); // left the stranded set → a later strand starts fresh
       return;
     }
+    if (this.reviveGaveUp.has(s.id)) return; // service gave up → stop re-dispatching this husk
     const n = (this.strandedSweeps.get(s.id) ?? 0) + 1;
     this.strandedSweeps.set(s.id, n);
     if (config.autoReviveEnabled && (armed || n >= 2)) this.dispatchRevive(s.id);
@@ -620,24 +631,29 @@ export class StatusPoller {
     return n;
   }
 
-  /** Fire-and-forget one autonomous auto-revive, tallying the outcome. Coalesced per id by
-   *  `reviveInFlight`; `resume()` + the bounded `reviveAttempts` map in the service back it further. */
+  /** Fire-and-forget one autonomous auto-revive, tallying the outcome PER SESSION (not per attempt):
+   *  `revived` counts a healed session, `failed` counts a session the service permanently gave up on
+   *  ("gaveup", also marked terminal in `reviveGaveUp` so `maybeAutoRevive` stops re-dispatching it).
+   *  A plain "failed" is a retryable attempt — no tally, no emit; a later sweep re-dispatches (still
+   *  capped by the service), so the counts stay aligned with distinct sessions and don't overcount. */
   private dispatchRevive(id: string): void {
     if (!this.revive || this.reviveInFlight.has(id)) return;
     this.reviveInFlight.add(id);
     this.revive(id)
-      .then((ok) => {
-        if (ok) this.reviveOutcome.revived++;
-        else this.reviveOutcome.failed++;
+      .then((result) => {
+        if (result === "revived") this.reviveOutcome.revived++;
+        else if (result === "gaveup") {
+          this.reviveGaveUp.add(id);
+          this.reviveOutcome.failed++;
+        } else return; // "failed": retryable, no terminal outcome yet → don't tally or emit
+        this.onAutoRevived?.(this.reviveOutcome.revived, this.reviveOutcome.failed);
       })
       .catch((err) => {
+        // Unexpected throw (the service normally resolves a status, never rejects) → retryable, so it
+        // is not tallied; a later sweep re-dispatches. Just surface it.
         console.warn(`[poller] auto-revive dispatch failed for ${id}:`, err);
-        this.reviveOutcome.failed++;
       })
-      .finally(() => {
-        this.reviveInFlight.delete(id);
-        this.onAutoRevived?.(this.reviveOutcome.revived, this.reviveOutcome.failed);
-      });
+      .finally(() => this.reviveInFlight.delete(id));
   }
 
   /** Ids currently classified `stranded` — the set the batch "revive all" endpoint acts on. */
@@ -872,6 +888,7 @@ export class StatusPoller {
       ...this.lastLiveness.keys(),
       ...this.strandedSweeps.keys(),
       ...this.reviveInFlight,
+      ...this.reviveGaveUp,
     ]);
     for (const id of tracked) {
       if (!activeIds.has(id)) {
@@ -905,6 +922,7 @@ export class StatusPoller {
         this.lastLiveness.delete(id);
         this.strandedSweeps.delete(id);
         this.reviveInFlight.delete(id);
+        this.reviveGaveUp.delete(id);
       }
     }
     // Phase-1 (issue #704): drop the HookIngest ring buffers for dead sessions too

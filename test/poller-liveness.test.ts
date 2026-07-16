@@ -285,7 +285,7 @@ test("liveness: auto-revive fires (default account) only after the 2-sweep debou
     });
     poller.revive = async (id) => {
       revived.push(id);
-      return true;
+      return "revived";
     };
     await poller.tick(); // sweep 1 → stranded, debounce not yet met
     expect(revived).toEqual([]);
@@ -313,7 +313,7 @@ test("liveness: an account session is NOT auto-revived (reDriveAccount owns it)"
   });
   poller.revive = async (id) => {
     revived.push(id);
-    return true;
+    return "revived";
   };
   const prev = config.autoReviveEnabled;
   config.autoReviveEnabled = true;
@@ -344,7 +344,7 @@ test("liveness: sweep-on-arm force-resumes the current stranded set on the toggl
   });
   poller.revive = async (id) => {
     revived.push(id);
-    return true;
+    return "revived";
   };
   const prev = config.autoReviveEnabled;
   config.autoReviveEnabled = false;
@@ -355,6 +355,45 @@ test("liveness: sweep-on-arm force-resumes the current stranded set on the toggl
     clock += 5000;
     await poller.tick(); // rising edge → dispatch immediately (no 2-sweep wait)
     expect(revived).toEqual([s.id]);
+  } finally {
+    config.autoReviveEnabled = prev;
+  }
+});
+
+test("liveness: auto-revive stops dispatching + re-counting once the service gives up", async () => {
+  const store = new SessionStore(":memory:");
+  makeStrandedSession(store);
+  const dispatches: string[] = [];
+  const outcomes: Array<{ revived: number; failed: number }> = [];
+  let clock = 100_000;
+  const prev = config.autoReviveEnabled;
+  config.autoReviveEnabled = true; // ON before construction → debounced path (no arm)
+  try {
+    const poller = makePoller({
+      store,
+      agents: [baseHerdrAgent],
+      scan: (worktrees) => new Map(worktrees.map((w) => [w, false])),
+      onChange: () => {},
+      sweepMs: 4000,
+      now: () => clock,
+    });
+    // The service has permanently given up (bounded cap reached).
+    poller.revive = async (id) => {
+      dispatches.push(id);
+      return "gaveup";
+    };
+    poller.onAutoRevived = (revived, failed) => outcomes.push({ revived, failed });
+    for (let i = 0; i < 5; i++) {
+      await poller.tick();
+      // flush the fire-and-forget revive().then().finally() chain before the next sweep
+      for (let f = 0; f < 4; f++) await Promise.resolve();
+      clock += 5000;
+    }
+    // dispatched exactly once (2-sweep debounce), then frozen — not every sweep forever
+    expect(dispatches).toEqual([store.list({ activeOnly: true })[0]!.id]);
+    // failed counted exactly once; the outcome toast does not re-emit a climbing count
+    expect(outcomes.at(-1)).toEqual({ revived: 0, failed: 1 });
+    expect(outcomes.filter((o) => o.failed > 1)).toEqual([]);
   } finally {
     config.autoReviveEnabled = prev;
   }

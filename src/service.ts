@@ -71,6 +71,7 @@ import {
   willEgressConfine,
   wrapArgv,
   buildMembraneFlags,
+  membraneForArgv,
   safeRealpath,
   collectPassthroughEnv,
   SandboxAutoRefused,
@@ -2228,7 +2229,9 @@ export class SessionService {
     writeEgressConfigFiles(tmp, cfg);
     const bwrapArgv = [
       "bwrap",
-      ...buildMembraneFlags(membrane),
+      // membraneForArgv folds the codex binds in for a codex inner argv (this branch
+      // bypasses wrapArgv, which does the same fold — keep the two in lockstep).
+      ...buildMembraneFlags(membraneForArgv(innerArgv, membrane)),
       ...egressMembraneOverrideFlags(tmp),
       "--",
       ...innerArgv,

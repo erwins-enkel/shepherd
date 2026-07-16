@@ -14,7 +14,10 @@ import {
   detectBackend,
   resetBackendCache,
   collectPassthroughEnv,
+  resolveCodexMembrane,
+  membraneForArgv,
   type MembraneInputs,
+  type CodexMembraneInputs,
 } from "../src/sandbox";
 import { resolveNodeBin } from "../src/node-bin";
 import type { EgressBackend } from "../src/egress";
@@ -940,5 +943,188 @@ describe("#1144 session marker survives the membrane", () => {
     expect(i).toBeGreaterThanOrEqual(0);
     expect(f[i - 1]).toBe("--setenv");
     expect(f[i + 1]).toBe("sess-abc");
+  });
+});
+
+// ── codex membrane support ────────────────────────────────────────────────────
+// The membrane was claude-only: a wrapped `codex exec` role died on a dangling
+// launcher symlink (execvp ENOENT) or an empty tmpfs ~/.codex (401, no verdict).
+// These tests pin the codex fold: detection, bind set, PATH, and — critically —
+// that claude spawns stay byte-identical when no codex inputs are present.
+
+/** Deterministic probe deps simulating the bun-global layout: the launcher on PATH
+ *  is a symlink whose realpath lives inside a node_modules tree. */
+const bunGlobalDeps = {
+  which: (cmd: string) => (cmd === "codex" ? "/home/me/.bun/bin/codex" : null),
+  realpath: (p: string) =>
+    p === "/home/me/.bun/bin/codex"
+      ? "/home/me/.bun/install/global/node_modules/@openai/codex/bin/codex.js"
+      : p,
+  env: {} as Record<string, string | undefined>,
+};
+
+const fakeCodex: CodexMembraneInputs = {
+  binDir: "/home/me/.bun/bin",
+  pkgRoot: "/home/me/.bun/install/global/node_modules",
+  codexHome: "/home/me/.codex",
+};
+
+describe("resolveCodexMembrane", () => {
+  test("bun-global symlink layout → binDir + nearest node_modules root + default codexHome", () => {
+    const r = resolveCodexMembrane("/home/me", bunGlobalDeps);
+    expect(r).toEqual(fakeCodex);
+  });
+
+  test("standalone binary (no node_modules ancestor) → pkgRoot is the realpath's dir", () => {
+    const r = resolveCodexMembrane("/home/me", {
+      ...bunGlobalDeps,
+      realpath: () => "/opt/codex/bin/codex",
+    });
+    expect(r?.pkgRoot).toBe("/opt/codex/bin");
+  });
+
+  test("host CODEX_HOME override wins over the home default", () => {
+    const r = resolveCodexMembrane("/home/me", {
+      ...bunGlobalDeps,
+      env: { CODEX_HOME: "/data/codex-home" },
+    });
+    expect(r?.codexHome).toBe("/data/codex-home");
+  });
+
+  test("codex not on PATH → null (spawn fails as before, but traceably)", () => {
+    expect(resolveCodexMembrane("/home/me", { ...bunGlobalDeps, which: () => null })).toBeNull();
+  });
+});
+
+describe("membraneForArgv", () => {
+  test("claude argv passes through untouched — no host probe runs", () => {
+    const m = fakeMembrane();
+    const out = membraneForArgv(["claude", "--model", "opus"], m, {
+      which: () => {
+        throw new Error("which must not be called for a claude argv");
+      },
+    });
+    expect(out).toBe(m);
+  });
+
+  test("codex argv folds the resolved codex inputs", () => {
+    const out = membraneForArgv(["codex", "exec", "prompt"], fakeMembrane(), bunGlobalDeps);
+    expect(out.codex).toEqual(fakeCodex);
+  });
+
+  test("pre-resolved membrane.codex is kept (no re-probe)", () => {
+    const m = fakeMembrane({ codex: fakeCodex });
+    const out = membraneForArgv(["codex", "exec", "p"], m, {
+      which: () => {
+        throw new Error("which must not be called when codex is pre-resolved");
+      },
+    });
+    expect(out).toBe(m);
+  });
+
+  test("unresolvable codex → membrane unchanged", () => {
+    const m = fakeMembrane();
+    const out = membraneForArgv(["codex", "exec", "p"], m, { ...bunGlobalDeps, which: () => null });
+    expect(out).toBe(m);
+    expect(out.codex).toBeUndefined();
+  });
+});
+
+describe("buildMembraneFlags codex flags", () => {
+  test("no codex inputs → claude flags stay byte-identical (no codex traces)", () => {
+    const f = buildMembraneFlags(fakeMembrane(), detDeps);
+    expect(f.join("\n")).not.toContain(".codex");
+    expect(f.join("\n")).not.toContain(".bun");
+    expect(
+      hasTriple(
+        f,
+        "--setenv",
+        "PATH",
+        "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin",
+      ),
+    ).toBe(true);
+  });
+
+  test("codex inputs → RO binDir + RO pkgRoot + RW codexHome, all after the home tmpfs", () => {
+    const f = buildMembraneFlags(fakeMembrane({ codex: fakeCodex }), detDeps);
+    expect(hasTriple(f, "--ro-bind-try", fakeCodex.binDir, fakeCodex.binDir)).toBe(true);
+    expect(hasTriple(f, "--ro-bind-try", fakeCodex.pkgRoot, fakeCodex.pkgRoot)).toBe(true);
+    expect(hasTriple(f, "--bind-try", fakeCodex.codexHome, fakeCodex.codexHome)).toBe(true);
+    // the RW codexHome bind must punch THROUGH the home tmpfs → must come after it
+    const tmpfsHome = f.findIndex((v, i) => v === "--tmpfs" && f[i + 1] === "/home/me");
+    const codexBind = f.findIndex((v, i) => v === "--bind-try" && f[i + 1] === fakeCodex.codexHome);
+    expect(tmpfsHome).toBeGreaterThanOrEqual(0);
+    expect(codexBind).toBeGreaterThan(tmpfsHome);
+  });
+
+  test("pkgRoot equal to binDir is not re-bound", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({ codex: { ...fakeCodex, pkgRoot: fakeCodex.binDir } }),
+      detDeps,
+    );
+    const targets = f.filter((v, i) => f[i - 2] === "--ro-bind-try" && v === fakeCodex.binDir);
+    expect(targets.length).toBe(1);
+  });
+
+  test("PATH gains the codex binDir when it is not already an entry", () => {
+    const f = buildMembraneFlags(fakeMembrane({ codex: fakeCodex }), detDeps);
+    expect(
+      hasTriple(
+        f,
+        "--setenv",
+        "PATH",
+        "/home/me/.local/bin:/home/linuxbrew/.linuxbrew/Cellar/node/22.0.0/bin:/usr/bin:/bin:/home/me/.bun/bin",
+      ),
+    ).toBe(true);
+  });
+
+  test("PATH unchanged when the codex binDir already is a PATH entry", () => {
+    const f = buildMembraneFlags(
+      fakeMembrane({
+        nodeBinReal: "/home/me/.bun/bin/bun",
+        codex: fakeCodex,
+      }),
+      detDeps,
+    );
+    expect(
+      hasTriple(f, "--setenv", "PATH", "/home/me/.local/bin:/home/me/.bun/bin:/usr/bin:/bin"),
+    ).toBe(true);
+  });
+
+  test("CODEX_HOME setenv only for a non-default home", () => {
+    const def = buildMembraneFlags(fakeMembrane({ codex: fakeCodex }), detDeps);
+    expect(def).not.toContain("CODEX_HOME");
+    const custom = buildMembraneFlags(
+      fakeMembrane({ codex: { ...fakeCodex, codexHome: "/data/codex-home" } }),
+      detDeps,
+    );
+    expect(hasTriple(custom, "--setenv", "CODEX_HOME", "/data/codex-home")).toBe(true);
+    expect(hasTriple(custom, "--bind-try", "/data/codex-home", "/data/codex-home")).toBe(true);
+  });
+});
+
+describe("wrapArgv codex fold", () => {
+  test("codex inner argv gets the codex binds; inner argv preserved", () => {
+    const inner = ["codex", "exec", "--sandbox", "workspace-write", "prompt"];
+    const out = wrapArgv(
+      inner,
+      { profile: "standard", backend: "bwrap", membrane: fakeMembrane() },
+      { ...detDeps, ...bunGlobalDeps },
+    );
+    expect(out[0]).toBe("bwrap");
+    const sep = out.indexOf("--");
+    expect(out.slice(sep + 1)).toEqual(inner);
+    const flags = out.slice(1, sep);
+    expect(hasTriple(flags, "--bind-try", "/home/me/.codex", "/home/me/.codex")).toBe(true);
+    expect(hasTriple(flags, "--ro-bind-try", fakeCodex.pkgRoot, fakeCodex.pkgRoot)).toBe(true);
+  });
+
+  test("claude inner argv wrapped WITHOUT codex binds", () => {
+    const out = wrapArgv(
+      ["claude", "--model", "opus", "task"],
+      { profile: "standard", backend: "bwrap", membrane: fakeMembrane() },
+      { ...detDeps, ...bunGlobalDeps },
+    );
+    expect(out.join("\n")).not.toContain(".codex");
   });
 });

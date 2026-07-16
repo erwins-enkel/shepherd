@@ -6267,9 +6267,8 @@ function normalizeEpicRunProviderSettings(
 
 function mergeEpicRunPatch(
   base: EpicRun,
-  patch: ReturnType<typeof validateEpicRunPatch>,
+  patch: NonNullable<ReturnType<typeof validateEpicRunPatch>>,
 ): EpicRun | null {
-  if (patch === null) return null;
   const providerSettings = normalizeEpicRunProviderSettings(base, patch);
   if (providerSettings === null) return null;
   return {

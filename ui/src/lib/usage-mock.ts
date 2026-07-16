@@ -34,53 +34,69 @@ function task(t: Omit<UsageTaskBreakdown, "dollars">): UsageTaskBreakdown {
   return { ...t, dollars: t.authoringUnits + t.satelliteUnits };
 }
 
-function modelBreakdown(byModel: Record<string, number>): UsageModelBreakdown {
+function modelBreakdown(
+  byModel: Record<string, number>,
+  includeCodingRole = false,
+): UsageModelBreakdown {
   return {
     totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
     byModel,
+    byRole: includeCodingRole ? { coding: byModel } : {},
   };
 }
 
 function modelsFor(range: UsageRange): UsageBreakdown["models"] {
   if (range === "24h") {
     return {
-      claude: modelBreakdown({
-        "claude-opus-4-8": 2_400_000,
-        "claude-sonnet-4-5": 1_150_000,
-        fable: 420_000,
-      }),
+      claude: modelBreakdown(
+        {
+          "claude-opus-4-8": 2_400_000,
+          "claude-sonnet-4-5": 1_150_000,
+          fable: 420_000,
+        },
+        true,
+      ),
       codex: modelBreakdown({ "gpt-5.5": 1_800_000, "gpt-5.4": 350_000 }),
     };
   }
   if (range === "7d") {
     return {
-      claude: modelBreakdown({
-        "claude-opus-4-8": 12_800_000,
-        "claude-sonnet-4-5": 7_300_000,
-        "claude-haiku-4-5": 1_950_000,
-        fable: 1_100_000,
-      }),
+      claude: modelBreakdown(
+        {
+          "claude-opus-4-8": 12_800_000,
+          "claude-sonnet-4-5": 7_300_000,
+          "claude-haiku-4-5": 1_950_000,
+          fable: 1_100_000,
+        },
+        true,
+      ),
       codex: modelBreakdown({ "gpt-5.5": 8_900_000, "gpt-5.4": 2_600_000, unknown: 240_000 }),
     };
   }
   if (range === "30d") {
     return {
-      claude: modelBreakdown({
-        "claude-opus-4-8": 48_600_000,
-        "claude-sonnet-4-5": 29_400_000,
-        "claude-haiku-4-5": 8_700_000,
-        fable: 4_200_000,
-      }),
+      claude: modelBreakdown(
+        {
+          "claude-opus-4-8": 48_600_000,
+          "claude-sonnet-4-5": 29_400_000,
+          "claude-haiku-4-5": 8_700_000,
+          fable: 4_200_000,
+        },
+        true,
+      ),
       codex: modelBreakdown({ "gpt-5.5": 31_500_000, "gpt-5.4": 12_400_000, unknown: 860_000 }),
     };
   }
   return {
-    claude: modelBreakdown({
-      "claude-opus-4-8": 76_200_000,
-      "claude-sonnet-4-5": 45_800_000,
-      "claude-haiku-4-5": 13_100_000,
-      fable: 6_700_000,
-    }),
+    claude: modelBreakdown(
+      {
+        "claude-opus-4-8": 76_200_000,
+        "claude-sonnet-4-5": 45_800_000,
+        "claude-haiku-4-5": 13_100_000,
+        fable: 6_700_000,
+      },
+      true,
+    ),
     codex: modelBreakdown({ "gpt-5.5": 49_600_000, "gpt-5.4": 18_900_000, unknown: 1_200_000 }),
   };
 }

@@ -25,7 +25,9 @@
     isPlanReviewError,
     resumeQuota,
     retryCi,
+    mergePr,
   } from "$lib/api";
+  import { prMergeAvailable } from "./pr-badge";
   import CardMenu from "./CardMenu.svelte";
   import TaskIdButton from "./TaskIdButton.svelte";
   import { longPress } from "./longpress";
@@ -579,13 +581,19 @@
   const comparisonRow = $derived(session.experimentRole === "comparison");
   const variantable = $derived(!!onvariant && !comparisonRow && canRelaunch(session, git, nowMs));
   const replaceable = $derived(!!onreplace && !comparisonRow && canRelaunch(session, git, nowMs));
+  // Merge PR: offered when the session's PR is eligible to merge — the SAME predicate PrBadge uses
+  // (open, non-draft, mergeable, checks not failing), so the in-list menu and the badge never
+  // disagree. The merge endpoint is session-scoped, so no parent callback is needed; the server
+  // re-validates on merge (a stale-eligibility merge fails harmlessly → toast).
+  const mergeable = $derived(prMergeAvailable(git));
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
   // Returns whether a menu actually opened (so the long-press can decide whether to
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   const hasMenu = $derived(
-    resumable ||
+    mergeable ||
+      resumable ||
       !!ondecommission ||
       !!onrename ||
       relaunchable ||
@@ -623,6 +631,24 @@
       toasts.info(m.cardmenu_resume_failed({ name: session.name }));
     } finally {
       ctaBusy = false;
+    }
+  }
+  // Confirmed (second-tap) merge from the card menu — mirrors PrBadge.doMerge's API + toast
+  // contract, incl. the shared `pr-merge:${id}` key so a badge merge and a menu merge of the same
+  // session dedupe into one toast. The two-tap arm lives in CardMenu, so this only runs on confirm.
+  async function mergeFromMenu() {
+    menu = null;
+    const number = git?.number ?? 0;
+    try {
+      await mergePr(session.id);
+      toasts.info(m.prbadge_merged_toast({ number }), { key: `pr-merge:${session.id}` });
+    } catch (err) {
+      toasts.info(
+        m.prbadge_merge_failed({
+          reason: err instanceof Error ? err.message : m.prbadge_unknown_error(),
+        }),
+        { alert: true, key: `pr-merge:${session.id}` },
+      );
     }
   }
   function decommissionFromMenu() {
@@ -934,6 +960,7 @@
     y={menu.y}
     {resumable}
     opener={menu.opener}
+    onmergepr={mergeable ? mergeFromMenu : undefined}
     onresume={resumeFromMenu}
     onrename={onrename ? renameFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}

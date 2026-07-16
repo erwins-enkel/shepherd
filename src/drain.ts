@@ -6,6 +6,7 @@ import type { UsageLimits } from "./usage-limits";
 import type { TelemetryService } from "./telemetry";
 import { recordEpicIntegrationIfChild, settleMergedSession } from "./merge-teardown";
 import { isFullAuto } from "./full-auto";
+import { issueSpawnPrompt } from "./issue-spawn-prompt";
 import {
   ACTIVE_LABEL,
   computeNext,
@@ -2388,8 +2389,11 @@ export class DrainService {
     }
     // Epic child actually based on the integration branch → tell the agent to target it as the
     // PR base (the agent opens its own PR and would otherwise default to the main branch).
+    // The directive rides AFTER the templated title so a `/`-leading title can't reach argv
+    // position 0 and be parsed as a slash command (issueSpawnPrompt).
     const usingEpicBase = !!decision.integrationBranch && base === decision.integrationBranch;
-    const prompt = usingEpicBase ? `${title}\n\n${epicBaseDirective(base)}` : title;
+    const task = issueSpawnPrompt(number, title);
+    const prompt = usingEpicBase ? `${task}\n\n${epicBaseDirective(base)}` : task;
     return { base, prompt };
   }
 

@@ -60,6 +60,7 @@ function harness(
     at: number;
     repoPath: string;
     number: number | undefined;
+    prompt: string;
     agentProvider: CreateSessionInput["agentProvider"];
     model: CreateSessionInput["model"];
     effort: CreateSessionInput["effort"];
@@ -78,6 +79,7 @@ function harness(
             at: ++n,
             repoPath: input.repoPath,
             number: input.issueRef?.number,
+            prompt: input.prompt,
             agentProvider: input.agentProvider,
             model: input.model,
             effort: input.effort,
@@ -156,9 +158,27 @@ test("POST /api/up-next/start spawns one session and stamps the claim", async ()
   expect(body.errors).toHaveLength(0);
   expect(createCalls).toHaveLength(1);
   expect(createCalls[0]!.number).toBe(7);
+  // An ordinary title spawns on the bare title, byte-identical — the namer derives branch and
+  // worktree names from it, so the common case must not change.
+  expect(createCalls[0]!.prompt).toBe("t");
   // claim is stamped asynchronously, so it should have recorded #7.
   await new Promise((r) => setTimeout(r, 5));
   expect(labelCalls).toContain(7);
+});
+
+test("POST /api/up-next/start templates a slash-leading title so the CLI can't parse it as a command", async () => {
+  const { app, createCalls } = harness();
+  const res = await app.fetch(
+    startReq([
+      { repoPath: repoDir, issueRef: { number: 7, url: "u", title: "/foo bar", body: "b" } },
+    ]),
+  );
+  expect(res.status).toBe(201);
+  expect(createCalls).toHaveLength(1);
+  // The prompt is delivered as a positional argv; a leading "/" there is parsed as a slash
+  // command ("Unknown command: /foo bar") and the session dies before it starts.
+  expect(createCalls[0]!.prompt).toBe("Work on issue #7: /foo bar");
+  expect(createCalls[0]!.prompt.startsWith("/")).toBe(false);
 });
 
 test("POST /api/up-next/start forwards selected provider, model and effort to create", async () => {

@@ -68,7 +68,8 @@ the model reasons before answering — higher effort spends more tokens for deep
 reasoning, lower is faster and cheaper. Selectable per session in the New Task
 picker — and when spawning a variant, comparison, or replacement — with a per-repo
 or global default in Settings, plus a per-role override for each satellite pass
-(critic, planner, recap, doc-agent, distiller, namer, autopilot) in the Settings agent matrix;
+(critic, planner, recap, doc-agent, distiller, optimizer, merge-suggester, rundown,
+namer, autopilot) in the Settings agent matrix;
 leave it at **default** to use the CLI's own effort. Shepherd passes it to the
 agent CLI as `--effort` (Claude) or `model_reasoning_effort` (Codex).
 

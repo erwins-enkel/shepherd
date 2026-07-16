@@ -14,9 +14,7 @@
  *  byte-identical to the unscaled behavior. */
 
 function read(): number {
-  const v = parseFloat(
-    getComputedStyle(document.documentElement).getPropertyValue("--ui-scale"),
-  );
+  const v = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--ui-scale"));
   return Number.isFinite(v) && v > 0 ? v : 1;
 }
 

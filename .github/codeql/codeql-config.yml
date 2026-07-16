@@ -1,0 +1,23 @@
+name: "CodeQL config"
+
+# Run security + reliability/maintainability (code-quality) queries in one pass.
+# `security-and-quality` is the documented suite that adds the maintainability and
+# reliability queries (js/trivial-conditional, js/unneeded-defensive-code, etc.) on
+# top of security-extended. This replaces the previous DEFAULT setup (base
+# `code-scanning` suite) — see .github/workflows/codeql.yml for why we moved to
+# advanced setup.
+queries:
+  - uses: security-and-quality
+
+# Exclude vendored, generated inlang/Paraglide plugin bundles. They are minified
+# third-party code referenced by local path in project.inlang/settings.json — not
+# our source — and accounted for 50 of 53 Code Quality findings. Linguist markers
+# (linguist-generated/-vendored in .gitattributes) do NOT exclude files from CodeQL,
+# so the path filter is the actual lever. `**` is only valid at a path boundary.
+paths-ignore:
+  - "**/project.inlang/**"
+  # Generated Paraglide message accessors (gitignored, so not scanned today with
+  # build-mode: none — but defensive: if a build step or a committed copy ever puts
+  # them on disk they would otherwise emit thousands of trivial-conditional /
+  # superfluous-trailing-arguments findings).
+  - "**/src/lib/paraglide/**"

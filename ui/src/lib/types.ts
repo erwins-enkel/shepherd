@@ -1841,6 +1841,8 @@ export interface RelaunchOverrides {
   model?: string | null;
   effort?: string | null;
   planGateEnabled?: boolean | null;
+  /** Per-task Autopilot override; null → inherit the destination repo default. */
+  autopilotEnabled?: boolean | null;
   images?: string[];
   attachmentNames?: string[];
   launchUiState?: LaunchUiState;

@@ -985,14 +985,20 @@ describe("NewTask autopilot override", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false });
   });
 
-  it("hides the checkbox in relaunch mode (relaunch carries the original's value)", async () => {
+  it("shows the checkbox in relaunch mode and submits an explicit override", async () => {
     const repoPath = "/repo/ap-relaunch";
     mockGetRepoConfig.mockResolvedValue({ ...repoConfig(false), autopilotEnabled: true });
-    render(NewTask, { props: base({ relaunch: true, initialRepoPath: repoPath }) });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: base({ onsubmit, relaunch: true, initialRepoPath: repoPath }) });
 
-    // plan-gate still renders in relaunch (it IS overridable); autopilot does not
-    await expect.poll(() => document.querySelector(".plan-gate")).toBeTruthy();
-    expect(autopilotBox()).toBeUndefined();
+    // An untouched relaunch follows the destination repo's default.
+    await expect.poll(() => autopilotBox().checked).toBe(true);
+    autopilotBox().click();
+    expect(autopilotBox().checked).toBe(false);
+    await fillAndSubmit();
+
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false });
   });
 });
 

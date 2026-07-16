@@ -34,7 +34,6 @@
     autopilotDefault,
     repoPath,
     usageLimits = null,
-    relaunch,
     holdLikely,
     fableAvailable,
     providerDefaultModel,
@@ -59,7 +58,6 @@
     autopilotDefault: boolean;
     repoPath: string;
     usageLimits?: UsageLimits | null;
-    relaunch: boolean;
     holdLikely: boolean;
     fableAvailable: boolean;
     providerDefaultModel: string;
@@ -193,47 +191,37 @@
     />
   </div>
 
-  <!-- Relaunch intentionally CARRIES the original session's autopilot value
-       (server-side, src/service.ts relaunch()), so RelaunchOverrides has no
-       autopilotEnabled field and the override wouldn't take effect here.
-       Hide the control in relaunch so it never implies an override it can't honor. -->
-  {#if !relaunch}
-    <div class="pg-row">
-      <label
-        class="plan-gate"
-        class:research-locked={modeLocked}
-        use:coachTarget={"task-autopilot"}
-      >
-        <input
-          type="checkbox"
-          checked={autopilot}
-          onchange={(e) => {
-            autopilot = e.currentTarget.checked;
-            onAutopilotTouched();
-          }}
-          disabled={autopilotLoading || modeLocked}
-          aria-describedby={modeLocked ? "nt-research-locked-note" : undefined}
-        />
-        <span class="pg-label">{m.newtask_autopilot_label()}</span>
-      </label>
-      <!-- The repo's standing default, shown alongside so it's clear how this repo
-           normally handles it — the checkbox is seeded from it on open, so unchecking
-           here is a visible, deliberate opt-out for this one task. -->
-      {#if autopilotLoading}
-        <span class="pg-loading">{m.common_loading()}</span>
-      {:else if repoPath}
-        <span class="repo-default" class:on={autopilotDefault}>
-          {autopilotDefault
-            ? m.newtask_autopilot_repo_default_on()
-            : m.newtask_autopilot_repo_default_off()}
-        </span>
-      {/if}
-      <InfoTip
-        text={m.newtask_autopilot_hint()}
-        label={m.newtask_info_aria({ topic: m.newtask_autopilot_label() })}
+  <div class="pg-row">
+    <label class="plan-gate" class:research-locked={modeLocked} use:coachTarget={"task-autopilot"}>
+      <input
+        type="checkbox"
+        checked={autopilot}
+        onchange={(e) => {
+          autopilot = e.currentTarget.checked;
+          onAutopilotTouched();
+        }}
+        disabled={autopilotLoading || modeLocked}
+        aria-describedby={modeLocked ? "nt-research-locked-note" : undefined}
       />
-    </div>
-  {/if}
+      <span class="pg-label">{m.newtask_autopilot_label()}</span>
+    </label>
+    <!-- The repo's standing default, shown alongside so it's clear how this repo
+         normally handles it — the checkbox is seeded from it on open, so unchecking
+         here is a visible, deliberate opt-out for this one task. -->
+    {#if autopilotLoading}
+      <span class="pg-loading">{m.common_loading()}</span>
+    {:else if repoPath}
+      <span class="repo-default" class:on={autopilotDefault}>
+        {autopilotDefault
+          ? m.newtask_autopilot_repo_default_on()
+          : m.newtask_autopilot_repo_default_off()}
+      </span>
+    {/if}
+    <InfoTip
+      text={m.newtask_autopilot_hint()}
+      label={m.newtask_info_aria({ topic: m.newtask_autopilot_label() })}
+    />
+  </div>
 
   <div class="run-config">
     <div class="model-field">

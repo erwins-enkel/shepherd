@@ -288,8 +288,8 @@ function codexHarness(isolated: boolean, authMode: "chatgpt" | "apikey" | "unkno
   return { store, service, calls };
 }
 
-function setRepoAutopilot(store: SessionStore, on: boolean) {
-  store.setRepoConfig("/repo", {
+function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") {
+  store.setRepoConfig(repoPath, {
     criticEnabled: true,
     criticAllPrs: false,
     autoAddressEnabled: false,
@@ -561,12 +561,7 @@ test("createSession: codex never receives the context-trim notice", async () => 
   expect(codexPrompt(calls.start.argv)).not.toContain("<context-trim-notice>");
 });
 
-// Autopilot directive divergence (TASK-413 review point 1): Claude gates the directive on the REPO
-// DEFAULT only; Codex folds in the per-session toggle (and an isolation gate). With repo-default OFF
-// + per-session ON (isolated), Codex includes the autopilot directive — pinned by "codex + isolated
-// + autopilotEnabled=true → directive injected" above — while Claude omits it. This is the Claude
-// half: collapsing the two into one shared rule would regress one provider.
-test("autopilot directive: claude is repo-default-only — per-session ON with repo-default OFF omits it", async () => {
+test("autopilot directive: claude honors a per-session ON override over a repo-default OFF", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -578,7 +573,7 @@ test("autopilot directive: claude is repo-default-only — per-session ON with r
     images: [],
     autopilotEnabled: true, // per-session ON, but the repo default is OFF
   });
-  expect(sysPrompt(captured.argv!)).not.toContain("<autopilot-directive>");
+  expect(sysPrompt(captured.argv!)).toContain("<autopilot-directive>");
 });
 
 test("createSession: codex + isolated + autopilotEnabled=true → directive injected, persisted true", async () => {
@@ -6596,7 +6591,7 @@ test("relaunch tears down the just-created session if a post-create step throws 
   expect(calls.stopped[0]).not.toBe("term_orig");
 });
 
-test("relaunch overrides apply repo/baseBranch/prompt/model/planGateEnabled over the original", async () => {
+test("relaunch overrides apply repo/baseBranch/prompt/model/plan-gate/Autopilot over the original", async () => {
   const store = new SessionStore(":memory:");
   const { service } = relaunchHarness(store);
   const orig = originalSession(store); // repo /repo, develop, opus, planGate true
@@ -6607,6 +6602,7 @@ test("relaunch overrides apply repo/baseBranch/prompt/model/planGateEnabled over
     prompt: "do something else",
     model: "sonnet",
     planGateEnabled: false,
+    autopilotEnabled: false,
   });
 
   expect(fresh.repoPath).toBe("/other-repo");
@@ -6614,6 +6610,7 @@ test("relaunch overrides apply repo/baseBranch/prompt/model/planGateEnabled over
   expect(fresh.prompt).toBe("do something else");
   expect(fresh.model).toBe("sonnet");
   expect(fresh.planGateEnabled).toBe(false);
+  expect(fresh.autopilotEnabled).toBe(false);
 });
 
 test("relaunch overrides treat an absent field as keep-original (explicit null replaces)", async () => {
@@ -6625,15 +6622,66 @@ test("relaunch overrides treat an absent field as keep-original (explicit null r
   const kept = await service.relaunch(orig.id, undefined, {});
   expect(kept.model).toBe("opus");
   expect(kept.planGateEnabled).toBe(true);
+  expect(kept.autopilotEnabled).toBe(true);
 
   // Explicit null is a PRESENT value → replaces (clears) the original's.
   const cleared = await service.relaunch(orig.id, undefined, {
     model: null,
     planGateEnabled: null,
+    autopilotEnabled: null,
   });
   expect(cleared.model).toBe(null);
   expect(cleared.planGateEnabled).toBe(null);
+  expect(cleared.autopilotEnabled).toBe(null);
 });
+
+for (const [label, override, approved, persisted] of [
+  ["absent", undefined, true, true],
+  ["null", null, false, null],
+  ["true", true, true, true],
+  ["false", false, false, false],
+] as const) {
+  test(`relaunch Autopilot ${label} controls create-time queue approval before final persistence`, async () => {
+    const store = new SessionStore(":memory:");
+    store.setRepoConfig("/repo", {
+      ...store.getRepoConfig("/repo"),
+      buildQueueEnabled: true,
+      autopilotEnabled: false,
+    });
+    const { service } = relaunchHarness(store);
+    const original = originalSession(store); // explicit Autopilot=true
+
+    const fresh = await service.relaunch(
+      original.id,
+      undefined,
+      override === undefined ? undefined : { autopilotEnabled: override },
+    );
+
+    expect(store.getBuildQueue(fresh.id).approved).toBe(approved);
+    expect(fresh.autopilotEnabled).toBe(persisted);
+  });
+}
+
+for (const [destinationDefault, override, directive] of [
+  [true, false, false],
+  [false, true, true],
+] as const) {
+  test(`relaunch Claude directive honors Autopilot=${override} over destination default=${destinationDefault}`, async () => {
+    const store = new SessionStore(":memory:");
+    const destinationRepo = "/destination";
+    setRepoAutopilot(store, destinationDefault, destinationRepo);
+    const { service, calls } = relaunchHarness(store);
+    const original = originalSession(store);
+
+    await service.relaunch(original.id, undefined, {
+      repoPath: destinationRepo,
+      planGateEnabled: false,
+      autopilotEnabled: override,
+    });
+
+    expect(sysPrompt(calls.started[0]!.argv).includes("<autopilot-directive>")).toBe(directive);
+  });
+}
 
 test("relaunch WITH overrides uses override uploads verbatim (no auto-carry)", async () => {
   const store = new SessionStore(":memory:");

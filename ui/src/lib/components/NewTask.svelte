@@ -1239,7 +1239,6 @@
         {autopilotDefault}
         {repoPath}
         {usageLimits}
-        {relaunch}
         {fableAvailable}
         {providerDefaultModel}
         providerConstraint={activeProviderConstraint}

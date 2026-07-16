@@ -480,6 +480,16 @@ test("same-repo relaunch with { prompt, model, planGateEnabled, baseBranch } app
   expect(h.drainCalls).toEqual(["orig"]); // retainClaim called
 });
 
+for (const autopilotEnabled of [null, true, false]) {
+  test(`relaunch forwards autopilotEnabled=${String(autopilotEnabled)} through the HTTP boundary`, async () => {
+    const h = harness({ original: { issueNumber: null, repoPath: REPO } });
+    const res = await h.app.fetch(relaunchReq("orig", { autopilotEnabled }));
+
+    expect(res.status).toBe(201);
+    expect(h.calls.relaunch[0]?.overrides).toEqual({ autopilotEnabled });
+  });
+}
+
 test("images override is threaded through to service.relaunch as the authoritative set", async () => {
   // Image semantics live in the service (overrides → verbatim, no auto-carry); at the route
   // boundary we assert the supplied images ride through unchanged as that authoritative set.

@@ -259,7 +259,7 @@ export interface CreateSessionInput {
 /**
  * Optional override bag applied over the original session on relaunch. Every field is
  * optional: an ABSENT field keeps the original's value, a PRESENT one (including an
- * explicit `null` for `model`/`planGateEnabled`) replaces it. Lets a caller relaunch
+ * explicit `null` for model, plan-gate, or Autopilot) replaces it. Lets a caller relaunch
  * into a different repo (`repoPath`) while carrying prompt/model/base-branch/uploads
  * forward; `images` are appended to the original's carried-over uploads. A bare relaunch
  * sends no body → no overrides → byte-for-byte the original quick-relaunch.
@@ -277,6 +277,8 @@ export interface RelaunchOverrides {
    *  When `agentProvider` changes, `relaunch` re-clamps a now-incompatible effort. */
   effort?: string | null;
   planGateEnabled?: boolean | null;
+  /** Per-task Autopilot override; null → inherit the destination repo default. */
+  autopilotEnabled?: boolean | null;
   images?: string[];
   attachmentNames?: string[];
   launchUiState?: LaunchUiState;

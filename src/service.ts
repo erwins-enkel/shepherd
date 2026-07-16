@@ -2339,9 +2339,9 @@ export class SessionService {
    *
    * `autopilotActive` and `trimmed` are passed IN by the caller, never derived here, because they
    * legitimately diverge per provider (issue: TASK-413):
-   *  - autopilotActive — Claude uses the repo default (`repoConfig.autopilotEnabled`); Codex folds in
-   *    the per-session toggle AND the isolation gate (`isolated && effectiveAutopilot(...)`), since
-   *    Codex autopilot stands down on non-isolated sessions. Collapsing these would regress a provider.
+   *  - autopilotActive — both providers resolve the per-session toggle over the repo default; Codex
+   *    additionally applies its isolation gate (`isolated && effectiveAutopilot(...)`), since Codex
+   *    autopilot stands down on non-isolated sessions.
    *  - trimmed — the context-trim notice is Claude-specific (skill-catalog / slash-command / plugin
    *    trimming); Codex has no such trim, so its caller passes `false`.
    *
@@ -2443,8 +2443,11 @@ export class SessionService {
         planGateOn,
         isolated,
         baseUrl,
-        // Claude divergence: autopilot directive rides on the repo default, not isolation-gated.
-        autopilotActive: repoConfig.autopilotEnabled,
+        // Claude honors the effective session override, but unlike Codex it is not isolation-gated.
+        autopilotActive: effectiveAutopilot(
+          { autopilotEnabled: input.autopilotEnabled ?? null },
+          repoConfig.autopilotEnabled,
+        ),
         trimmed: trim.trimmed,
         agentProvider: "claude",
       }),
@@ -3164,52 +3167,22 @@ export class SessionService {
     //     re-merging here would double the carried uploads.
     const images = this.carryRelaunchImages(s, overrides, originalId);
     const attachmentNames = this.carryRelaunchAttachmentNames(s, overrides, images);
-    // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
-    // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
-    const effectiveProvider = overrides?.agentProvider ?? s.agentProvider ?? "claude";
-    const model = reconcileRelaunchModel(
-      overrides?.model,
-      s.model,
-      effectiveProvider,
-      this.codexAuthMode(),
-      authPolicy,
-    );
-
-    // Apply overrides over the original: an ABSENT field keeps the original's value;
-    // a PRESENT one (including explicit `null` for model/planGateEnabled) replaces it.
-    const input: CreateSessionInput = {
-      repoPath: overrides?.repoPath ?? s.repoPath,
-      baseBranch: overrides?.baseBranch ?? s.baseBranch,
-      prompt: overrides?.prompt ?? s.prompt,
-      agentProvider: effectiveProvider,
-      model,
-      // Effort needs no provider re-clamp: unlike a model alias, every tier is meaningful for both
-      // providers, and the argv-build seam clamps Codex's xhigh/max → high at emit time.
-      effort: pickOverride(overrides?.effort, s.effort),
-      planGateEnabled: pickOverride(overrides?.planGateEnabled, s.planGateEnabled),
-      // Carry autopilot at spawn time (NOT redundant with the setAutopilotState copy below):
-      // create()'s build-queue pre-approval reads the session's effective autopilot and is never
-      // re-evaluated after, so an autopilot-off original (e.g. a merge-train driver) must be off
-      // here too or a relaunch under an autopilot-on repo would wrongly auto-approve its queue.
-      autopilotEnabled: s.autopilotEnabled,
-      research: pickOverride(overrides?.research, s.research),
-      // Carry the epic-authoring flag so a relaunch keeps its no-GitHub-write gate directive
-      // (buildSpawnArgv re-derives the directive from the spawn input — #1507).
-      epicAuthoring: pickOverride(overrides?.epicAuthoring, s.epicAuthoring),
-      // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
-      landingRepair: pickOverride(overrides?.landingRepair, s.landingRepair),
+    const input = this.buildRelaunchInput(
+      s,
+      issueRef,
+      overrides,
       images,
       attachmentNames,
-      launchUiState: overrides?.launchUiState,
-      issueRef,
-      auto: false,
-    };
+      authPolicy,
+    );
     const newSession = await this.create(input);
 
     try {
       // Copy runtime-toggleable overrides so the replacement matches the original's
-      // CURRENT state, not just spawn-time defaults.
-      this.deps.store.setAutopilotState(newSession.id, { enabled: s.autopilotEnabled });
+      // current state unless the relaunch explicitly replaced Autopilot.
+      this.deps.store.setAutopilotState(newSession.id, {
+        enabled: pickOverride(overrides?.autopilotEnabled, s.autopilotEnabled),
+      });
       this.deps.store.setAutoMergeState(newSession.id, { enabled: s.autoMergeEnabled });
     } catch (e) {
       // best-effort teardown so no orphaned new session leaks alongside the intact original
@@ -3223,6 +3196,54 @@ export class SessionService {
 
     // Re-fetch AFTER the override writes so the returned session reflects them.
     return this.deps.store.get(newSession.id)!;
+  }
+
+  private buildRelaunchInput(
+    original: Session,
+    issueRef: IssueRef | undefined,
+    overrides: RelaunchOverrides | undefined,
+    images: string[],
+    attachmentNames: string[] | undefined,
+    authPolicy: "error" | "clamp",
+  ): CreateSessionInput {
+    // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
+    // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
+    const agentProvider = overrides?.agentProvider ?? original.agentProvider ?? "claude";
+    const model = reconcileRelaunchModel(
+      overrides?.model,
+      original.model,
+      agentProvider,
+      this.codexAuthMode(),
+      authPolicy,
+    );
+
+    // Apply overrides over the original: an ABSENT field keeps the original's value;
+    // a PRESENT one (including explicit `null` for model, plan-gate, or Autopilot) replaces it.
+    return {
+      repoPath: overrides?.repoPath ?? original.repoPath,
+      baseBranch: overrides?.baseBranch ?? original.baseBranch,
+      prompt: overrides?.prompt ?? original.prompt,
+      agentProvider,
+      model,
+      // Effort needs no provider re-clamp: unlike a model alias, every tier is meaningful for both
+      // providers, and the argv-build seam clamps Codex's xhigh/max → high at emit time.
+      effort: pickOverride(overrides?.effort, original.effort),
+      planGateEnabled: pickOverride(overrides?.planGateEnabled, original.planGateEnabled),
+      // Apply the effective Autopilot value at spawn time (NOT redundant with the store write
+      // below): create()'s build-queue pre-approval reads it and is never re-evaluated after.
+      autopilotEnabled: pickOverride(overrides?.autopilotEnabled, original.autopilotEnabled),
+      research: pickOverride(overrides?.research, original.research),
+      // Carry the epic-authoring flag so a relaunch keeps its no-GitHub-write gate directive
+      // (buildSpawnArgv re-derives the directive from the spawn input — #1507).
+      epicAuthoring: pickOverride(overrides?.epicAuthoring, original.epicAuthoring),
+      // Carry the landing-repair flag so a relaunch keeps its push-not-PR repair directive.
+      landingRepair: pickOverride(overrides?.landingRepair, original.landingRepair),
+      images,
+      attachmentNames,
+      launchUiState: overrides?.launchUiState,
+      issueRef,
+      auto: false,
+    };
   }
 
   /**

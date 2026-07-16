@@ -1,3 +1,7 @@
+<script module lang="ts">
+  import { relaunchOverrides } from "./relaunch-payload";
+</script>
+
 <script lang="ts">
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
@@ -1981,21 +1985,12 @@
         autopilotChecked: boolean;
       };
       planGateEnabled: boolean | null;
+      autopilotEnabled: boolean | null;
     },
   ) {
     let result: { session: Session; archived: boolean };
     try {
-      result = await relaunchSession(id, {
-        repoPath: input.repoPath,
-        baseBranch: input.baseBranch,
-        prompt: input.prompt,
-        model: input.model,
-        effort: input.effort,
-        planGateEnabled: input.planGateEnabled,
-        images: input.images,
-        attachmentNames: input.attachmentNames,
-        launchUiState: input.launchUiState,
-      });
+      result = await relaunchSession(id, relaunchOverrides(input));
     } catch (e) {
       if (e instanceof ApiError && e.code === "in_progress")
         throw new Error(m.relaunch_in_progress(), { cause: e });

@@ -145,6 +145,20 @@ test("validateRelaunchOverrides carries attachment names only with images", () =
   if (!bad.ok) expect(bad.error).toBe("attachmentNames requires images");
 });
 
+test("validateRelaunchOverrides accepts an Autopilot override", () => {
+  const enabled = validateRelaunchOverrides({ autopilotEnabled: true }, root);
+  expect(enabled.ok).toBe(true);
+  if (enabled.ok) expect(enabled.value.autopilotEnabled).toBe(true);
+
+  const inherited = validateRelaunchOverrides({ autopilotEnabled: null }, root);
+  expect(inherited.ok).toBe(true);
+  if (inherited.ok) expect(inherited.value.autopilotEnabled).toBeNull();
+
+  const invalid = validateRelaunchOverrides({ autopilotEnabled: "yes" }, root);
+  expect(invalid.ok).toBe(false);
+  if (!invalid.ok) expect(invalid.error).toMatch(/autopilotEnabled/);
+});
+
 test("known model accepted and passed through", () => {
   const r = validateCreate(
     { repoPath: validRepo, baseBranch: "main", prompt: "go", model: "opus" },

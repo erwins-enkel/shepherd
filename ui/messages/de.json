@@ -2355,6 +2355,8 @@
   "feat_newtask_wider_body": "Das Fenster „Neue Aufgabe“ ist jetzt breiter und gibt dem Prompt und der Liste „Übernehmen aus“ mehr Platz. Issue-Zeilen zeigen mehr vom Titel und bis zu zwei Labels auf einen Blick statt einem.",
   "feat_revive_stranded_title": "Von einem herdr-Neustart gestrandete Sessions wiederbeleben",
   "feat_revive_stranded_body": "Wenn der herdr-Daemon neu startet (Reboot, Absturz oder fehlgeschlagenes Update), stellt er deine Panes als leere Shells wieder her — die Agenten darin sind weg. Shepherd erkennt diese gestrandeten Sessions jetzt, markiert jede Karte mit einer Aktion „Agent beendet — wiederbeleben“ und zeigt ein Banner, um alle auf einmal wiederzubeleben. Aktiviere Auto-Wiederbeleben in den Einstellungen, damit Shepherd Standard-Konto-Agenten automatisch zurückholt.",
+  "feat_merge_pr_context_menu_title": "Einen PR direkt aus der Session-Liste mergen",
+  "feat_merge_pr_context_menu_body": "Wenn der Pull Request einer Session merge-bereit ist, hat ihr Rechtsklick-Menü (oder Long-Press auf Touch) jetzt ganz oben eine Aktion „PR mergen“ — die Session muss nicht erst geöffnet werden. Einmal klicken zum Scharfschalten, erneut zum Bestätigen, und Shepherd merged ihn für dich.",
   "feat_terminal_font_size_title": "Textgröße des Terminals anpassen",
   "feat_terminal_font_size_body": "Das Schraubenschlüssel-Menü des Terminals hat jetzt einen experimentellen Regler für die Textgröße. Vergrößere oder verkleinere die Agent-Ausgabe – praktisch, wenn sie zu klein wird, besonders auf dem Handy. Deine Wahl wird auf diesem Gerät über Sitzungen hinweg gespeichert.",
   "feat_epic_stall_legibility_title": "Sehen, worauf ein Epic wartet",

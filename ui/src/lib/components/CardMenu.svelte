@@ -11,6 +11,7 @@
     y,
     resumable,
     opener,
+    onmergepr,
     onresume,
     onrename,
     onrelaunch,
@@ -27,6 +28,10 @@
     resumable: boolean;
     // the element that opened the menu (the card hit-target) — focus returns here on close
     opener?: HTMLElement;
+    // when provided, a two-step armed "Merge PR" item appears at the top (the session's PR is
+    // eligible to merge). Positive but consequential, so it arms amber (not the red danger wash) —
+    // the parent's handler closes over the session id + runs the merge, like the badge menu.
+    onmergepr?: () => void;
     onresume?: () => void;
     onrename?: () => void;
     // when provided, a two-step armed Relaunch item appears between Resume and
@@ -63,6 +68,25 @@
     relaunchTimer = setTimeout(() => (relaunchArmed = false), RELAUNCH_ARM_MS);
   }
   $effect(() => () => clearTimeout(relaunchTimer));
+
+  // Two-step arm → confirm for Merge PR (GitRail/PrBadge parity): merging is consequential, so the
+  // first click arms (label swaps to the confirm text) and only a second click within the window
+  // fires it. Same 3s window + unmount cleanup as Relaunch, but armed amber (positive, not danger).
+  const MERGE_ARM_MS = 3000;
+  let mergeArmed = $state(false);
+  let mergeTimer: ReturnType<typeof setTimeout> | undefined;
+  function onMergeClick() {
+    if (mergeArmed) {
+      clearTimeout(mergeTimer);
+      mergeArmed = false;
+      onmergepr?.();
+      return;
+    }
+    mergeArmed = true;
+    clearTimeout(mergeTimer);
+    mergeTimer = setTimeout(() => (mergeArmed = false), MERGE_ARM_MS);
+  }
+  $effect(() => () => clearTimeout(mergeTimer));
 
   let el = $state<HTMLDivElement>();
 
@@ -144,6 +168,20 @@
   style="left:{pos?.left ?? x}px;top:{pos?.top ?? y}px"
   onkeydown={onNav}
 >
+  {#if onmergepr}
+    <button
+      class="cm-item"
+      class:merge-armed={mergeArmed}
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={onMergeClick}
+    >
+      <span class="cm-icon" aria-hidden="true">⇥</span>{mergeArmed
+        ? m.prbadge_confirm_merge()
+        : m.prbadge_merge()}
+    </button>
+  {/if}
   {#if resumable && onresume}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onresume}>
       <span class="cm-icon" aria-hidden="true">↻</span>{m.cardmenu_resume()}
@@ -263,6 +301,17 @@
   .cm-item.armed:hover,
   .cm-item.armed:focus-visible {
     background: color-mix(in srgb, var(--color-red) 22%, var(--color-panel));
+  }
+  /* Armed merge: positive-but-consequential, so it arms amber (like .gbtn.armed / PrBadgeMenu's
+     merge), not the red danger wash relaunch uses. The wash marks it hot so the second click reads
+     as "click again to confirm". */
+  .cm-item.merge-armed {
+    color: var(--color-amber);
+    background: color-mix(in srgb, var(--color-amber) 14%, var(--color-panel));
+  }
+  .cm-item.merge-armed:hover,
+  .cm-item.merge-armed:focus-visible {
+    background: color-mix(in srgb, var(--color-amber) 22%, var(--color-panel));
   }
   .cm-icon {
     font-size: var(--fs-meta);

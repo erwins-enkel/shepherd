@@ -23,11 +23,12 @@ vi.mock("$lib/api", async (importOriginal) => {
     retryCi: vi.fn(
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
     ),
+    mergePr: vi.fn(async () => ({ state: "merged" }) as never),
   };
 });
 
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
-const { releasePlanGate, reviewPlan, resumeQuota, retryCi } = await import("$lib/api");
+const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr } = await import("$lib/api");
 const { toasts } = await import("$lib/toasts.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -131,6 +132,9 @@ beforeEach(() => {
   vi.mocked(reviewPlan).mockReset().mockResolvedValue("started");
   vi.mocked(resumeQuota).mockReset().mockResolvedValue({ status: "resumed" });
   vi.mocked(retryCi).mockReset().mockResolvedValue({ ok: true });
+  vi.mocked(mergePr)
+    .mockReset()
+    .mockResolvedValue({ state: "merged" } as never);
 });
 
 function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask") {
@@ -468,6 +472,44 @@ describe("UnitRow context menu", () => {
     openMenu("merged row");
 
     await expect.element(page.getByText(m.cardmenu_replace_with())).not.toBeInTheDocument();
+  });
+
+  it("offers Merge PR for a merge-eligible row; two-tap arm then merges via the session id", async () => {
+    render(UnitRow, {
+      session: session({ id: "merge-row", name: "merge row" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      git: openGreenGit(),
+    });
+
+    openMenu("merge row");
+
+    // first click arms (no merge yet), second confirms
+    await page.getByRole("menuitem", { name: m.prbadge_merge() }).click();
+    expect(mergePr).not.toHaveBeenCalled();
+    await page.getByRole("menuitem", { name: m.prbadge_confirm_merge() }).click();
+
+    expect(mergePr).toHaveBeenCalledWith("merge-row");
+    // The toast container isn't mounted in an isolated row render — assert on the store.
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.prbadge_merged_toast({ number: 7 }))).toBe(true),
+    );
+  });
+
+  it("does not offer Merge PR when the PR is not eligible (draft)", async () => {
+    render(UnitRow, {
+      session: session({ id: "draft-row", name: "draft row" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      git: openGreenGit({ isDraft: true }),
+      onrename: vi.fn(),
+    });
+
+    openMenu("draft row");
+
+    await expect.element(page.getByText(m.prbadge_merge())).not.toBeInTheDocument();
   });
 });
 

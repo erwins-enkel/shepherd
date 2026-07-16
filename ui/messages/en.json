@@ -2355,6 +2355,8 @@
   "feat_newtask_wider_body": "The New Task pane is now wider, giving the prompt and the Seed From issues list more room. Issue rows show more of the title, and up to two labels at a glance instead of one.",
   "feat_revive_stranded_title": "Revive sessions stranded by a herdr restart",
   "feat_revive_stranded_body": "When the herdr daemon restarts (a reboot, crash, or failed update), it restores your panes as bare shells — the agents inside are gone. Shepherd now spots these stranded sessions, flags each card with an \"agent died — revive\" action, and shows one banner to revive them all at once. Turn on auto-revive in Settings to have Shepherd bring default-account agents back automatically.",
+  "feat_merge_pr_context_menu_title": "Merge a PR straight from the session list",
+  "feat_merge_pr_context_menu_body": "When a session's pull request is ready to merge, its right-click (or long-press on touch) menu now has a Merge PR action right at the top — no need to open the session first. Click once to arm, again to confirm, and Shepherd merges it for you.",
   "feat_terminal_font_size_title": "Adjust the terminal text size",
   "feat_terminal_font_size_body": "The terminal wrench menu now has an experimental Text size stepper. Bump the agent output up or down — handy when it gets squinty, especially on mobile. Your choice is remembered across sessions on this device.",
   "feat_epic_stall_legibility_title": "See why an epic is waiting",

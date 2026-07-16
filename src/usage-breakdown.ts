@@ -238,14 +238,8 @@ function isLegacyClaudeModel(model: string): boolean {
   return CLAUDE_MODEL_ALIASES.has(model) || CLAUDE_FULL_MODEL_ID.test(model);
 }
 
-function claudeUsageByRole(
-  taskMap: Map<string, TaskAccum>,
-  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
-  cutoff: number,
-): UsageByRole {
-  const byRole: UsageByRole = {};
+function codingUsageByModel(taskMap: Map<string, TaskAccum>): Record<string, number> {
   const coding: Record<string, number> = {};
-
   for (const task of taskMap.values()) {
     for (const [rawModel, tokens] of Object.entries(task.rawByModel)) {
       const model = usableModel(rawModel);
@@ -253,24 +247,41 @@ function claudeUsageByRole(
       coding[model] = (coding[model] ?? 0) + tokens;
     }
   }
-  if (Object.keys(coding).length > 0) byRole.coding = coding;
+  return coding;
+}
 
+function spawnRawTokens(spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number]): number {
+  return (
+    (spawn.inputTokens ?? 0) +
+    (spawn.outputTokens ?? 0) +
+    (spawn.cacheReadTokens ?? 0) +
+    (spawn.cacheWriteTokens ?? 0)
+  );
+}
+
+function claudeSpawnModel(
+  spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+  cutoff: number,
+): string | null {
+  if (spawn.totalTokens == null) return null;
+  if ((spawn.completedAt ?? spawn.spawnedAt) < cutoff) return null;
+  const model = usableModel(spawn.model);
+  if (!model) return null;
+  if (spawn.reviewerProvider === "claude") return model;
+  if (spawn.reviewerProvider == null && isLegacyClaudeModel(model)) return model;
+  return null;
+}
+
+function claudeSpawnUsageByRole(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole: UsageByRole = {};
   for (const sp of spawns) {
-    if (sp.totalTokens == null) continue;
-    if ((sp.completedAt ?? sp.spawnedAt) < cutoff) continue;
-
-    const model = usableModel(sp.model);
+    const model = claudeSpawnModel(sp, cutoff);
     if (!model) continue;
-    const isClaude =
-      sp.reviewerProvider === "claude" ||
-      (sp.reviewerProvider == null && isLegacyClaudeModel(model));
-    if (!isClaude) continue;
 
-    const tokens =
-      (sp.inputTokens ?? 0) +
-      (sp.outputTokens ?? 0) +
-      (sp.cacheReadTokens ?? 0) +
-      (sp.cacheWriteTokens ?? 0);
+    const tokens = spawnRawTokens(sp);
     if (tokens <= 0) continue;
 
     const role = byRole[sp.kind] ?? {};
@@ -278,6 +289,17 @@ function claudeUsageByRole(
     byRole[sp.kind] = role;
   }
 
+  return byRole;
+}
+
+function claudeUsageByRole(
+  taskMap: Map<string, TaskAccum>,
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole = claudeSpawnUsageByRole(spawns, cutoff);
+  const coding = codingUsageByModel(taskMap);
+  if (Object.keys(coding).length > 0) byRole.coding = coding;
   return byRole;
 }
 

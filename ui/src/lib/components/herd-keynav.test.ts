@@ -1,14 +1,14 @@
 import { test, expect } from "vitest";
 import {
   railOrder as railOrderRaw,
+  railLocationsOf,
   cycleId,
   nthId,
   nextNeedsYou,
-  nextNeedsYouTarget,
   altComboKey,
   jumpDigitIndex,
 } from "./herd-keynav";
-import type { HerdFilter } from "./herd-partition";
+import { GROUP_KEY_BY_STAGE, type HerdFilter } from "./herd-partition";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
 
 function session(
@@ -114,6 +114,7 @@ function railOrder(
   activeEpicKeys: Set<string> = new Set(),
   collapsedKeys: Set<string> = new Set(),
   isReworkRunning: (session: Session) => boolean = noRework,
+  collapsedStageKeys: ReadonlySet<string> = new Set(),
 ) {
   return railOrderRaw(
     sessions,
@@ -126,7 +127,17 @@ function railOrder(
     epics,
     activeEpicKeys,
     collapsedKeys,
+    collapsedStageKeys,
   );
+}
+
+/** A comparison-experiment member — two of these with the same experimentId form a group. */
+function variant(id: string, experimentId: string, issueNumber: number | null = null): Session {
+  return {
+    ...session(id, false, "running", issueNumber),
+    experimentId,
+    experimentRole: "variant",
+  };
 }
 
 test("railOrder flattens the partition in the rail's render order", () => {
@@ -344,40 +355,110 @@ test("nextNeedsYou is a no-op (null) when none are blocked or only the current o
   expect(nextNeedsYou(["a"], "a")).toBeNull();
 });
 
-// nextNeedsYouTarget — target id + the collapsed group to auto-expand
+// collapsed lifecycle stages (desktop group collapse) + experiment mirroring
 
-test("nextNeedsYouTarget: target inside a collapsed group returns that group key to expand", () => {
-  const groupOf = new Map([["x", "/r#100"]]);
-  const collapsed = new Set(["/r#100"]);
-  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
-    id: "x",
-    expand: "/r#100",
-  });
+test("railOrder: a collapsed lifecycle stage contributes no rest ids", () => {
+  const list = [session("act"), session("am", false, "idle"), session("rdy", true, "idle")];
+  const g = { am: git("open", "success") };
+  // sanity: nothing collapsed → all three in stage order
+  expect(railOrder(list, g, noReview, 1000)).toEqual(["act", "am", "rdy"]);
+  const collapsedStages = new Set([GROUP_KEY_BY_STAGE.awaitingMerge]);
+  expect(
+    railOrder(
+      list,
+      g,
+      noReview,
+      1000,
+      "all",
+      {},
+      {},
+      new Set(),
+      new Set(),
+      noRework,
+      collapsedStages,
+    ),
+  ).toEqual(["act", "rdy"]);
 });
 
-test("nextNeedsYouTarget: target in an EXPANDED group needs no expand", () => {
-  const groupOf = new Map([["x", "/r#100"]]);
-  const collapsed = new Set<string>(); // group not collapsed
-  expect(nextNeedsYouTarget(["x", "y"], "other", groupOf, collapsed)).toEqual({
-    id: "x",
-    expand: null,
-  });
+test("railOrder: experiment members of a collapsed stage stay reachable (they render in their experiment group)", () => {
+  // Two green-idle variants form an experiment group; a plain green-idle rest row shares
+  // their awaitingMerge stage. Collapsing that stage must drop ONLY the rest row.
+  const v1 = { ...variant("v1", "e1"), status: "idle" as const };
+  const v2 = { ...variant("v2", "e1"), status: "idle" as const };
+  const rest = session("plain", false, "idle");
+  const g = {
+    v1: git("open", "success"),
+    v2: git("open", "success"),
+    plain: git("open", "success"),
+  };
+  const collapsedStages = new Set([GROUP_KEY_BY_STAGE.awaitingMerge]);
+  const order = railOrder(
+    [v1, v2, rest],
+    g,
+    noReview,
+    1000,
+    "all",
+    {},
+    {},
+    new Set(),
+    new Set(),
+    noRework,
+    collapsedStages,
+  );
+  expect(order).toEqual(["v1", "v2"]);
 });
 
-test("nextNeedsYouTarget: ungrouped target needs no expand", () => {
-  expect(nextNeedsYouTarget(["x", "y"], "other", new Map(), new Set(["/r#100"]))).toEqual({
-    id: "x",
-    expand: null,
-  });
+test("railOrder renders epic groups, then experiment groups, then the lifecycle rest", () => {
+  const epics = { [epicKey("/r", 100)]: epic("/r", 100, [101]) };
+  const active = new Set([epicKey("/r", 100)]);
+  const epicMember = session("g100", false, "running", 101);
+  const rest = session("rest1");
+  const order = railOrder(
+    [rest, variant("v1", "e1"), epicMember, variant("v2", "e1")],
+    {},
+    noReview,
+    1000,
+    "all",
+    {},
+    epics,
+    active,
+  );
+  expect(order).toEqual(["g100", "v1", "v2", "rest1"]);
 });
 
-test("nextNeedsYouTarget: no blocked → null id, null expand", () => {
-  expect(nextNeedsYouTarget([], null, new Map(), new Set())).toEqual({ id: null, expand: null });
-  // only the current one blocked → nextNeedsYou is null → no expand either
-  expect(nextNeedsYouTarget(["a"], "a", new Map([["a", "/r#100"]]), new Set(["/r#100"]))).toEqual({
-    id: null,
-    expand: null,
-  });
+// railLocationsOf — where each session renders (single authority for jump expansion)
+
+test("railLocationsOf classifies epic members, experiment members, and the lifecycle rest", () => {
+  const epics = { [epicKey("/r", 100)]: epic("/r", 100, [101, 102]) };
+  const active = new Set([epicKey("/r", 100)]);
+  const epicMember = session("g100", false, "running", 101);
+  // experiment member CARRYING epic metadata (child 102): experiments are pulled out
+  // first, so it must classify as experiment — never as the epic it doesn't render in
+  const v1 = variant("v1", "e1", 102);
+  const v2 = variant("v2", "e1");
+  const restReady = session("rest-ready", true, "idle");
+  const locs = railLocationsOf(
+    [epicMember, v1, v2, restReady],
+    {},
+    noReview,
+    noRework,
+    1000,
+    epics,
+    active,
+  );
+  expect(locs.get("g100")).toEqual({ kind: "epic", key: epicKey("/r", 100) });
+  expect(locs.get("v1")).toEqual({ kind: "experiment" });
+  expect(locs.get("v2")).toEqual({ kind: "experiment" });
+  expect(locs.get("rest-ready")).toEqual({ kind: "stage", key: GROUP_KEY_BY_STAGE.ready });
+  expect(locs.get("not-shown")).toBeUndefined();
+});
+
+test("railLocationsOf: a lone surviving variant falls back into the lifecycle rest", () => {
+  // <2 visible variants and no comparison → groupSessionsByExperiment leaves it in rest,
+  // where it partitions like any session — the locator must mirror that fallback.
+  const lone = variant("lone", "e1");
+  const locs = railLocationsOf([lone], {}, noReview, noRework, 1000);
+  expect(locs.get("lone")).toEqual({ kind: "stage", key: GROUP_KEY_BY_STAGE.active });
 });
 
 // altComboKey — physical KeyboardEvent.code → keynav key vocabulary

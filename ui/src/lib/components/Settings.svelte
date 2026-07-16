@@ -4,6 +4,7 @@
     getSettings,
     putRemoteControl,
     putSessionHousekeeping,
+    putAutoRevive,
     putPrReviewCyclesCap,
     putPlanReviewCyclesCap,
     putDefaultModel,
@@ -245,6 +246,8 @@
   let telemetryBusy = $state(false);
   let housekeeping = $state(true); // daily prune of old archived sessions (kill switch)
   let hkBusy = $state(false);
+  let autoRevive = $state(false); // auto-revive stranded default-account sessions after a herdr restart
+  let arBusy = $state(false);
   let retentionDays = $state(30); // display-only, from the settings payload
   let retentionKeep = $state(250); // display-only, from the settings payload
   let prReviewCycles = $state(3); // global max PR-critic auto-address rounds (stepper value)
@@ -1097,6 +1100,20 @@
     }
   }
 
+  async function toggleAutoRevive() {
+    if (arBusy) return;
+    arBusy = true;
+    const next = !autoRevive;
+    try {
+      const s = await putAutoRevive(next);
+      autoRevive = s.autoReviveEnabled;
+    } catch {
+      toasts.info(m.settings_auto_revive_save_failed(), { alert: true, key: "auto-revive" });
+    } finally {
+      arBusy = false;
+    }
+  }
+
   // Apply the model / effort / operator-language preference trio from a loaded settings payload.
   // Extracted from onMount so each added preference doesn't grow that handler's branch count.
   function applyModelPrefs(s: Awaited<ReturnType<typeof getSettings>>) {
@@ -1122,6 +1139,7 @@
       const s = await getSettings();
       remoteControl = s.remoteControlAtStartup;
       housekeeping = s.sessionHousekeepingEnabled;
+      autoRevive = s.autoReviveEnabled;
       retentionDays = s.sessionRetentionDays;
       retentionKeep = s.sessionRetentionKeep;
       prReviewCyclesMin = s.prReviewCyclesMin;
@@ -1557,6 +1575,23 @@
           <span class="track" class:on={housekeeping}><span class="knob"></span></span>
           <span class="state"
             >{housekeeping ? m.settings_housekeeping_on() : m.settings_housekeeping_off()}</span
+          >
+        </button>
+      </div>
+      <div class="rc">
+        <span class="micro">{m.settings_auto_revive_title()}</span>
+        <p class="hint">{m.settings_auto_revive_hint()}</p>
+        <button
+          type="button"
+          class="toggle"
+          role="switch"
+          aria-checked={autoRevive}
+          disabled={arBusy}
+          onclick={toggleAutoRevive}
+        >
+          <span class="track" class:on={autoRevive}><span class="knob"></span></span>
+          <span class="state"
+            >{autoRevive ? m.settings_auto_revive_on() : m.settings_auto_revive_off()}</span
           >
         </button>
       </div>

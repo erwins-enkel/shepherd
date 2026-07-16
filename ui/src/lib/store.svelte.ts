@@ -2,6 +2,7 @@ import { SvelteMap } from "svelte/reactivity";
 import type {
   Session,
   SessionStatus,
+  LivenessState,
   WsEvent,
   PluginInfo,
   PluginUIView,
@@ -36,6 +37,7 @@ import { herdDigest } from "./herd-digest.svelte";
 import { upNext } from "./up-next.svelte";
 import { learnings } from "./learnings.svelte";
 import { toasts } from "./toasts.svelte";
+import { reviveStranded as apiReviveStranded } from "./api";
 import { m } from "$lib/paraglide/messages";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
@@ -108,11 +110,13 @@ export class HerdStore {
    *  server's `session:subagents` event; bootstrapped via GET /api/subagents. An
    *  entry with no `endedAt` is still live. */
   subagents = $state<Record<string, SubagentEntry[]>>({});
-  /** Live per-session claude-process liveness (sessionId → alive), pushed by the
-   *  server's `session:claude-alive` event. `false` = claude exited and left a
-   *  husk shell → the Resume affordance applies; `true` = claude still runs.
-   *  Absent = not swept yet (treated as unknown → Resume stays offered). */
-  claudeAlive = $state<Record<string, boolean>>({});
+  /** Live per-session agent liveness (sessionId → LivenessState), pushed by the server's
+   *  `session:claude-alive` event (#1630). `husk`/`stranded` = the agent exited → the Resume
+   *  affordance applies (`stranded` additionally gets the distinct "agent died — revive" framing);
+   *  `alive` = the agent still runs. Absent = not swept yet (treated as unknown → Resume stays
+   *  offered). Seeded from the boolean bootstrap and self-heals to the precise 3-state on the next
+   *  event. */
+  claudeAlive = $state<Record<string, LivenessState>>({});
   /** Display-only flag (sessionId → true), pushed by the server's
    *  `session:working-blocked` event: the server says this herdr-"blocked"
    *  session is actually mid-turn (herdr latches "blocked" after an answered
@@ -180,9 +184,17 @@ export class HerdStore {
   setSubagents(map: Record<string, SubagentEntry[]>) {
     this.subagents = map;
   }
-  /** Seed (or replace) the claude-liveness map after a bootstrap GET. */
-  setClaudeAlive(map: Record<string, boolean>) {
-    this.claudeAlive = map;
+  /** Seed (or replace) the liveness map after a bootstrap GET. The `/api/claude-alive` snapshot is
+   *  the raw boolean (unchanged wire format); fold it into the 3-state (true → alive, false → husk),
+   *  then upgrade any `strandedIds` (from `GET /api/stranded`) to `stranded` — the boolean snapshot
+   *  can't distinguish a restart-strand from a plain husk, and `session:claude-alive` re-emits on
+   *  flips only, so without this a client reloading mid-strand would lose the banner + framing. */
+  setClaudeAlive(map: Record<string, boolean>, strandedIds: string[] = []) {
+    const folded: Record<string, LivenessState> = Object.fromEntries(
+      Object.entries(map).map(([id, alive]) => [id, alive ? "alive" : "husk"]),
+    );
+    for (const id of strandedIds) folded[id] = "stranded";
+    this.claudeAlive = folded;
   }
   /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
   setWorkingBlocked(map: Record<string, boolean>) {
@@ -440,6 +452,7 @@ export class HerdStore {
         this.activity = dropKey(this.activity, ev.data.id);
         this.subagents = dropKey(this.subagents, ev.data.id);
         this.claudeAlive = dropKey(this.claudeAlive, ev.data.id);
+        this.clearStrandedToastIfEmpty(); // archiving the last stranded session → drop the banner
         this.workingBlocked = dropKey(this.workingBlocked, ev.data.id);
         this.holds = dropKey(this.holds, ev.data.id);
         this.preview = dropKey(this.preview, ev.data.id);
@@ -484,6 +497,37 @@ export class HerdStore {
     }
   }
 
+  /** Count of sessions currently classified `stranded` (herdr-restored husk) — drives the herd-level
+   *  "Revive stranded" banner. */
+  get strandedCount(): number {
+    let n = 0;
+    for (const v of Object.values(this.claudeAlive)) if (v === "stranded") n++;
+    return n;
+  }
+
+  /** Dismiss the sticky mass-strand toast + its now-inert "Revive all" button once the stranded set
+   *  has drained to empty (auto-revive healed the last one, or it was archived). The manual
+   *  `reviveAllStranded` path already replaces it via the shared key; this closes the auto/archive gap
+   *  (the `app:auto-revived` outcome posts under a different key, so it can't replace it). */
+  private clearStrandedToastIfEmpty(): void {
+    if (this.strandedCount === 0) toasts.dismissKey("sessions-stranded");
+  }
+
+  /** "Revive all stranded" — force-resume every stranded session, then refresh the keyed toast with
+   *  the outcome (which also dismisses the sticky one). Shared by the persistent toast CTA and the
+   *  herd-level banner button (#1630). */
+  async reviveAllStranded(): Promise<void> {
+    try {
+      const { revived, failed } = await apiReviveStranded();
+      toasts.info(m.toast_revive_all_result({ revived, failed }), {
+        key: "sessions-stranded",
+        alert: true,
+      });
+    } catch {
+      toasts.info(m.toast_revive_all_failed(), { key: "sessions-stranded", alert: true });
+    }
+  }
+
   /** Handle the operator-notification WS events — each surfaces a keyed, alert-level toast and
    *  mutates no store state. Extracted from apply() to keep that dispatch switch under the
    *  complexity gate. Returns true when `ev` was handled. */
@@ -513,6 +557,22 @@ export class HerdStore {
           alert: true,
         });
         return true;
+      case "app:sessions-stranded":
+        // Persistent, actionable: a daemon restart stranded N sessions (agents gone). One keyed,
+        // sticky, alert toast with a "revive all" CTA (per the persistent-failure-toast house rule).
+        toasts.info(m.toast_sessions_stranded({ count: ev.data.count }), {
+          key: "sessions-stranded",
+          sticky: true,
+          alert: true,
+          action: { label: m.toast_revive_all(), run: () => void this.reviveAllStranded() },
+        });
+        return true;
+      case "app:auto-revived":
+        toasts.info(m.toast_auto_revived({ revived: ev.data.revived, failed: ev.data.failed }), {
+          key: "auto-revived",
+          alert: true,
+        });
+        return true;
       default:
         return false;
     }
@@ -533,7 +593,13 @@ export class HerdStore {
         this.subagents = { ...this.subagents, [ev.data.id]: ev.data.subagents };
         return true;
       case "session:claude-alive":
-        this.claudeAlive = { ...this.claudeAlive, [ev.data.id]: ev.data.claudeAlive };
+        // Prefer the folded 3-state; fall back to the boolean when an old server omits `liveness`.
+        this.claudeAlive = setKey(
+          this.claudeAlive,
+          ev.data.id,
+          ev.data.liveness ?? (ev.data.claudeAlive ? "alive" : "husk"),
+        );
+        this.clearStrandedToastIfEmpty(); // auto-revive/heal drained the last strand → drop the banner
         return true;
       case "session:halt":
         this.patchSession(ev.data.id, {
@@ -977,6 +1043,14 @@ function dropKey<T>(rec: Record<string, T>, id: string): Record<string, T> {
   const copy = { ...rec };
   delete copy[id];
   return copy;
+}
+
+/** Immutably set `rec[id] = value`. `id` is a server-provided session id (a UUID/slug), so it is
+ *  validated against a strict charset before the computed write — this both rejects malformed ids
+ *  and forecloses any prototype-polluting property name (`__proto__` etc. never match) (#1630). */
+function setKey<T>(rec: Record<string, T>, id: string, value: T): Record<string, T> {
+  if (!/^[0-9a-zA-Z-]+$/.test(id)) return rec;
+  return { ...rec, [id]: value };
 }
 
 export function wsUrl(path: string): string {

@@ -1658,6 +1658,10 @@ export class SessionService {
   /** After this many failed (refused/unhealed) re-drive attempts on the SAME anchor, give up
    *  ("degraded") rather than re-firing every poller tick forever. */
   private static readonly REDRIVE_CAP = 3;
+  /** Bounded-attempt bookkeeping for autonomous `reviveStranded` (#1630) — SEPARATE from
+   *  `redriveAttempts` (which the account path owns) so their CAP counters never cross-write. Anchored
+   *  on spawnTerminalId (stable until a heal advances it) so a persistently-refused revive gives up. */
+  private readonly reviveAttempts = new Map<string, { anchor: string | null; attempts: number }>();
 
   /**
    * Merge-train completion tracker (issue #426). A train that lands ≥1 of its
@@ -3792,6 +3796,72 @@ export class SessionService {
       }
     }
     return verdict;
+  }
+
+  /**
+   * Autonomous auto-revive of a STRANDED default-account session (#1630): force-resume the
+   * herdr-restored husk so its conversation is restored and steerable again (and `planPhase` persists,
+   * so a plan-gated session stays gated). The poller only calls this for `isAutoRevivable` sessions
+   * (`spawnTerminalId !== null && spawnAccountDir === null`), so this never respawns an account session
+   * under the default `CLAUDE_CONFIG_DIR` — that stays with `reDriveAccount`.
+   *
+   * Bounded by its OWN `reviveAttempts` counter (anchored on spawnTerminalId, same CAP as the account
+   * path): a persistently-refused revive (e.g. usage-halted → the auto-gate refuses BEFORE teardown, so
+   * spawnTerminalId never advances) gives up instead of re-firing every sweep. Returns:
+   *   "revived"  — `resume(force)` produced a session (spawnTerminalId advances → no longer stranded).
+   *   "failed"   — this attempt refused/failed but the CAP is not yet reached; a later sweep may retry.
+   *   "gaveup"   — the CAP has been reached (this attempt OR a prior one), so the caller must STOP
+   *                re-dispatching: further attempts would no-op forever (the toggle stays on, the husk
+   *                stays stranded). The poller uses this to freeze its per-session dispatch + tally.
+   * Never throws — it runs off the poll loop.
+   */
+  async reviveStranded(id: string): Promise<"revived" | "failed" | "gaveup"> {
+    const before = this.deps.store.get(id);
+    if (!before) return "failed";
+    const anchor = before.spawnTerminalId; // stable until a heal advances it
+    const rec = this.reviveAttempts.get(id);
+    if (rec && rec.anchor === anchor && rec.attempts >= SessionService.REDRIVE_CAP) return "gaveup";
+    let revived: boolean;
+    try {
+      revived = (await this.resume(id, { force: true })) !== null;
+    } catch (err) {
+      console.warn(`[revive] auto-revive threw for ${id}:`, err);
+      revived = false;
+    }
+    if (revived) {
+      this.reviveAttempts.delete(id);
+      return "revived";
+    }
+    const attempts = rec && rec.anchor === anchor ? rec.attempts + 1 : 1;
+    this.reviveAttempts.set(id, { anchor, attempts });
+    if (attempts >= SessionService.REDRIVE_CAP) {
+      console.warn(
+        `[revive] auto-revive for ${id} gave up after ${attempts} failed attempts ` +
+          `(anchor ${anchor ?? "null"})`,
+      );
+      return "gaveup";
+    }
+    return "failed";
+  }
+
+  /** Force-resume every currently-stranded session (operator-initiated "revive all"), returning how
+   *  many were revived vs failed. Unlike the autonomous `reviveStranded`, this is unbounded and
+   *  account-inclusive — the operator explicitly asked, so `resume(force)` (which re-applies the
+   *  account) covers account panes too, coalescing with any in-flight `reDriveAccount`. */
+  async reviveAll(ids: string[]): Promise<{ revived: number; failed: number }> {
+    let revived = 0;
+    let failed = 0;
+    for (const id of ids) {
+      let ok = false;
+      try {
+        ok = (await this.resume(id, { force: true })) !== null;
+      } catch (err) {
+        console.warn(`[revive] revive-all threw for ${id}:`, err);
+      }
+      if (ok) revived++;
+      else failed++;
+    }
+    return { revived, failed };
   }
 
   /**

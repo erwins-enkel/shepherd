@@ -334,6 +334,88 @@ test("PUT /api/settings toggles sessionHousekeepingEnabled, persists, leaves rep
   expect(store.getSetting("sessionHousekeepingEnabled")).toBe("1");
 });
 
+test("PUT /api/settings toggles autoReviveEnabled, persists as 1/0, exposed on GET", async () => {
+  config.repoRoot = tmp;
+  const savedAr = config.autoReviveEnabled;
+  config.autoReviveEnabled = false;
+  try {
+    const { app, store } = harness();
+    const res = await put(app, { autoReviveEnabled: true });
+    expect(res.status).toBe(200);
+    expect((await res.json()).autoReviveEnabled).toBe(true);
+    expect(config.autoReviveEnabled).toBe(true); // live
+    expect(store.getSetting("autoReviveEnabled")).toBe("1"); // persisted
+    const got = await (await app.fetch(new Request("http://x/api/settings"))).json();
+    expect(got.autoReviveEnabled).toBe(true);
+    await put(app, { autoReviveEnabled: false });
+    expect(store.getSetting("autoReviveEnabled")).toBe("0");
+  } finally {
+    config.autoReviveEnabled = savedAr;
+  }
+});
+
+test("PUT /api/settings rejects a non-boolean autoReviveEnabled", async () => {
+  const savedAr = config.autoReviveEnabled;
+  try {
+    const { app } = harness();
+    const res = await put(app, { autoReviveEnabled: "yes" });
+    expect(res.status).toBe(400);
+  } finally {
+    config.autoReviveEnabled = savedAr;
+  }
+});
+
+test("GET /api/stranded returns the current stranded ids (for client bootstrap)", async () => {
+  const store = new SessionStore(":memory:");
+  const deps = {
+    store,
+    events: new EventHub(),
+    service: {} as unknown,
+    usageLimits: { limits: () => ({}) },
+    stranded: { ids: () => ["a", "b"] },
+  } as unknown as AppDeps;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/stranded"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(["a", "b"]);
+});
+
+test("GET /api/stranded → [] when unwired", async () => {
+  const store = new SessionStore(":memory:");
+  const deps = {
+    store,
+    events: new EventHub(),
+    service: {} as unknown,
+    usageLimits: { limits: () => ({}) },
+  } as unknown as AppDeps;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/stranded"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual([]);
+});
+
+test("POST /api/revive-stranded revives the current stranded set, returns counts", async () => {
+  const revivedIds: string[] = [];
+  const store = new SessionStore(":memory:");
+  const deps = {
+    store,
+    events: new EventHub(),
+    service: {
+      reviveAll: async (ids: string[]) => {
+        revivedIds.push(...ids);
+        return { revived: ids.length, failed: 0 };
+      },
+    },
+    usageLimits: { limits: () => ({}) },
+    stranded: { ids: () => ["s1", "s2"] },
+  } as unknown as AppDeps;
+  const app = makeApp(deps);
+  const res = await app.fetch(new Request("http://x/api/revive-stranded", { method: "POST" }));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ revived: 2, failed: 0 });
+  expect(revivedIds).toEqual(["s1", "s2"]);
+});
+
 test("PUT /api/settings rejects a non-boolean sessionHousekeepingEnabled", async () => {
   const { app } = harness();
   const before = config.sessionHousekeepingEnabled;

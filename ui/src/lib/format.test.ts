@@ -37,13 +37,14 @@ describe("canResume", () => {
     expect(canResume(session({ status: "blocked" }))).toBe(false);
   });
 
-  it("hides Resume when the claude process is verifiably alive", () => {
-    expect(canResume(session({}), true)).toBe(false);
+  it("hides Resume when the agent is verifiably alive", () => {
+    expect(canResume(session({}), "alive")).toBe(false);
   });
 
-  it("keeps offering when liveness is unknown or the process is gone (husk)", () => {
+  it("keeps offering when liveness is unknown or the agent is gone (husk/stranded)", () => {
     expect(canResume(session({}), undefined)).toBe(true);
-    expect(canResume(session({}), false)).toBe(true);
+    expect(canResume(session({}), "husk")).toBe(true);
+    expect(canResume(session({}), "stranded")).toBe(true);
   });
 });
 

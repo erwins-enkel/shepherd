@@ -4,6 +4,11 @@ import type { ManualStep } from "./manual-steps";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
+/** Coarse liveness of a session's agent process, folded onto the `session:claude-alive` channel.
+ *  `alive` = a live agent backs the pane. `husk` = the agent process is gone (a bare shell) but NOT
+ *  a daemon-restart strand (e.g. a normal Codex between-turns exit at its own pane). `stranded` = a
+ *  herdr-restored husk (the daemon restarted and re-created the pane; the agent needs reviving). */
+export type LivenessState = "alive" | "husk" | "stranded";
 export type SessionArchiveReason = "operator" | "merged" | "drain" | "relaunch";
 export const AGENT_PROVIDERS = ["claude", "codex"] as const;
 export type AgentProvider = (typeof AGENT_PROVIDERS)[number];

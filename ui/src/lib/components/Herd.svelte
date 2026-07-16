@@ -8,6 +8,7 @@
     HoldReason,
     OwedFocusSnapshot,
     AgentProvider,
+    LivenessState,
   } from "$lib/types";
   import type { HerdStore } from "$lib/store.svelte";
   import type { BlockState } from "$lib/triage";
@@ -70,6 +71,7 @@
     statusFilter = null,
     onstatusfilter = undefined,
     workingBlocked = {},
+    liveness = {},
     blocks = {},
     holds = {},
     collapsible = false,
@@ -167,6 +169,8 @@
     // working-while-blocked display flags (store map) — threaded into the rows'
     // displayStatus and the "ready" filter so flagged sessions read as working
     workingBlocked?: Record<string, boolean>;
+    // per-session agent liveness (store.claudeAlive) — drives the distinct stranded card framing (#1630)
+    liveness?: Record<string, LivenessState>;
     // live quota blocks map (store.blocks); only "quota"-shape entries surface a badge
     blocks?: Record<string, BlockState>;
     // live hold reasons map (store.holds); surfaced as a muted subline on each held card
@@ -402,6 +406,7 @@
     repoFilter,
     onrepofilter,
     workingBlocked,
+    liveness,
     quotaKindFor,
     holdFor,
     onackmanualsteps,

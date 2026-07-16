@@ -4,7 +4,7 @@ import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
 import { compileCacheDir } from "./tmp-sweep";
-import type { HerdrState, SessionStatus } from "./types";
+import type { HerdrState, LivenessState, SessionStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
 
@@ -132,6 +132,76 @@ export function needsAccountRedrive(
   agent: { terminalId: string },
 ): boolean {
   return s.spawnAccountDir !== null && agent.terminalId !== s.spawnTerminalId;
+}
+
+/** The Session fields the stranded/liveness helpers read (a structural subset so tests can pass
+ *  bare literals). */
+export type StrandFields = {
+  status: SessionStatus;
+  readyToMerge: boolean;
+  autopilotComplete: boolean;
+  spawnTerminalId: string | null;
+  spawnAccountDir: string | null;
+};
+
+/**
+ * True when a session's pane is a herdr-restored **husk** — the daemon restarted (or the pane was
+ * re-created) and the `claude`/`codex` process inside is gone, so the session is stranded and needs
+ * reviving. Evaluated against the tick's MATCH RESULT (`agent`), never `session.herdrAgentId`, so a
+ * session with no live pane this tick (about to be reaped) is never misread as stranded.
+ *
+ *  - `agent != null` — a pane matched this tick (restored husk), not gone.
+ *  - `claudeAlive === false` — the `/proc` sweep confirms no agent process (herdr's `agent_status`
+ *    can't see this; a bare shell still lists `idle`).
+ *  - active + not operator/auto-concluded — a parked/finished session's dead agent is expected.
+ *  - `spawnTerminalId === null` (legacy row, no verified spawn recorded → fingerprint-free fallback)
+ *    OR `terminalId !== spawnTerminalId` (the daemon-restart fingerprint: `spawnTerminalId` advances
+ *    only on a verified spawn, so a re-created pane's id differs). A normal Codex exit sits at its OWN
+ *    pane (`terminalId === spawnTerminalId`, non-null) → excluded.
+ */
+export function isStranded(
+  s: StrandFields,
+  agent: { terminalId: string } | null,
+  claudeAlive: boolean,
+): boolean {
+  return (
+    agent !== null &&
+    claudeAlive === false &&
+    s.status !== "archived" &&
+    !s.readyToMerge &&
+    !s.autopilotComplete &&
+    (s.spawnTerminalId === null || agent.terminalId !== s.spawnTerminalId)
+  );
+}
+
+/**
+ * Fold the `/proc` husk bit + the match result into the 3-state liveness surfaced to the UI.
+ * `claudeAlive === undefined` (pre-first-sweep) counts as not-husk → `alive`, so a session is never
+ * flagged before `/proc` confirms the husk.
+ */
+export function classifyLiveness(
+  s: StrandFields,
+  agent: { terminalId: string } | null,
+  claudeAlive: boolean | undefined,
+): LivenessState {
+  if (claudeAlive !== false) return "alive";
+  return isStranded(s, agent, claudeAlive) ? "stranded" : "husk";
+}
+
+/**
+ * True when a stranded session may be AUTONOMOUSLY force-resumed (auto-revive). A *positively*
+ * default-account session: `spawnTerminalId !== null` (a verified spawn happened) AND
+ * `spawnAccountDir === null` (that spawn recorded no owning account → genuinely default). This
+ * excludes (a) account/plugin panes — already handled every tick by `reDriveAccount` — and (b) legacy
+ * rows whose account is unknown, so `resume(force)` can never silently respawn a possible account
+ * session under the default `CLAUDE_CONFIG_DIR`. Legacy/account strands stay on operator-initiated
+ * revive (manual Resume / "revive all").
+ */
+export function isAutoRevivable(s: {
+  spawnTerminalId: string | null;
+  spawnAccountDir: string | null;
+}): boolean {
+  return s.spawnTerminalId !== null && s.spawnAccountDir === null;
 }
 
 /**

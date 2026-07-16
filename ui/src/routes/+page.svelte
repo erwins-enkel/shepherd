@@ -23,6 +23,7 @@
     gitStates,
     activityStates,
     claudeAliveStates,
+    strandedStates,
     workingBlockedStates,
     blockStates,
     holdStates,
@@ -849,8 +850,8 @@
     activityStates()
       .then((m) => store.setActivity(m))
       .catch(() => {});
-    claudeAliveStates()
-      .then((m) => store.setClaudeAlive(m))
+    Promise.all([claudeAliveStates(), strandedStates().catch(() => [])])
+      .then(([m, stranded]) => store.setClaudeAlive(m, stranded))
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
@@ -1689,8 +1690,8 @@
     activityStates()
       .then((m) => store.setActivity(m))
       .catch(() => {});
-    claudeAliveStates()
-      .then((m) => store.setClaudeAlive(m))
+    Promise.all([claudeAliveStates(), strandedStates().catch(() => [])])
+      .then(([m, stranded]) => store.setClaudeAlive(m, stranded))
       .catch(() => {});
     workingBlockedStates()
       .then((m) => store.setWorkingBlocked(m))
@@ -2642,6 +2643,21 @@
   {/if}
 
   <main id="main-content" class="main-region">
+    {#if store.strandedCount > 0}
+      <!-- Herd-level "revive all" affordance for a daemon-restart mass-strand (#1630): a persistent,
+           always-visible entry point (complements the sticky toast, which can be dismissed). -->
+      <div class="stranded-banner" role="status">
+        <span class="stranded-banner__text"
+          >{m.toast_sessions_stranded({ count: store.strandedCount })}</span
+        >
+        <button
+          type="button"
+          class="stranded-banner__btn"
+          title={m.herd_revive_all_title()}
+          onclick={() => void store.reviveAllStranded()}>{m.herd_revive_all()}</button
+        >
+      </div>
+    {/if}
     {#if mobile.current}
       <!-- This list branch is the sole place the mobile ActionBar renders; its
            presence is mirrored by `mobileActionBarPresent` above (feeds Toasts).
@@ -2687,6 +2703,7 @@
             flow={true}
             bind:filter={herdFilter}
             workingBlocked={store.workingBlocked}
+            liveness={store.claudeAlive}
             blocks={store.blocks}
             holds={store.holds}
             completedEpics={completedEpicsShown}
@@ -2763,7 +2780,7 @@
             git={store.git[selected.id]}
             activity={store.activity[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
-            claudeAlive={store.claudeAlive[selected.id]}
+            liveness={store.claudeAlive[selected.id]}
             previewMap={store.preview}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
@@ -2846,6 +2863,7 @@
               }}
               bind:filter={herdFilter}
               workingBlocked={store.workingBlocked}
+              liveness={store.claudeAlive}
               blocks={store.blocks}
               holds={store.holds}
               collapsible={canCollapse}
@@ -2928,7 +2946,7 @@
             git={store.git[selected.id]}
             activity={store.activity[selected.id]}
             previewPort={store.preview[selected.id] ?? null}
-            claudeAlive={store.claudeAlive[selected.id]}
+            liveness={store.claudeAlive[selected.id]}
             previewMap={store.preview}
             previewHost={settings?.previewHost ?? null}
             previewServeFailed={store.previewServe[selected.id] === "failed"}
@@ -3442,6 +3460,43 @@
     display: flex;
     flex-direction: column;
     gap: inherit;
+  }
+
+  /* Daemon-restart mass-strand banner (#1630) — attention-toned, always visible while stranded. */
+  .stranded-banner {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    border: 1px solid var(--color-red);
+    border-radius: 8px;
+    background: var(--wash-attention);
+    color: var(--color-ink-bright);
+    font-size: var(--fs-base);
+  }
+  .stranded-banner__text {
+    flex: 1;
+    min-width: 0;
+  }
+  .stranded-banner__btn {
+    flex: none;
+    min-height: 44px;
+    padding: 6px 14px;
+    border: 1px solid var(--color-red);
+    border-radius: 6px;
+    background: transparent;
+    color: var(--color-red);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .stranded-banner__btn:hover {
+    background: var(--color-red);
+    color: var(--color-bg);
+  }
+  .stranded-banner__btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-red);
   }
 
   .shell.mobile {

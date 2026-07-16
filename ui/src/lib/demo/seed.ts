@@ -1007,6 +1007,7 @@ function buildSettings(): Settings {
     // The hosted demo is a seeded, always-configured environment — never first-run.
     firstRunPending: false,
     remoteControlAtStartup: false,
+    autoReviveEnabled: false,
     sessionHousekeepingEnabled: true,
     defaultModel: "auto",
     defaultCodexModel: "gpt-5.5",

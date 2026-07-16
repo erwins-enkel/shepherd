@@ -249,6 +249,9 @@ if (savedRpm !== null) config.reducedPushMode = savedRpm === "1";
 // absent → keep the config default (on). Stored as "1"/"0".
 const savedHk = store.getSetting("sessionHousekeepingEnabled");
 if (savedHk !== null) config.sessionHousekeepingEnabled = savedHk === "1";
+// Auto-revive toggle (#1630): a UI-chosen value (persisted) overrides the env seed.
+const savedAr = store.getSetting("autoReviveEnabled");
+if (savedAr !== null) config.autoReviveEnabled = savedAr === "1";
 // a UI-chosen PR-review cap (persisted) overrides the env seed; absent → keep the config
 // default. Clamped on read so a hand-edited/out-of-range DB value can't escape. Falls
 // back to the legacy single-cap key `reviewCyclesCap` for migration: an existing install
@@ -972,7 +975,12 @@ const poller = new StatusPoller(
   }, // preview sweep wiring
   // claude-liveness sweep wiring: lets the UI gate its Resume affordance on the
   // claude process actually being gone instead of offering it on every idle/done.
-  { onChange: (id, claudeAlive) => events.emit("session:claude-alive", { id, claudeAlive }) },
+  // Additive payload (#1630): retains `claudeAlive` (old clients across an update keep working) and
+  // adds the folded 3-state `liveness` (alive/husk/stranded) the new UI consumes.
+  {
+    onChange: (id, claudeAlive, liveness) =>
+      events.emit("session:claude-alive", { id, claudeAlive, liveness }),
+  },
   // working-while-blocked display flag: herdr latched "blocked" but the TUI shows a
   // live turn spinner — the UI keeps working chrome instead of a false "needs you".
   (id, working) => events.emit("session:working-blocked", { id, working }),
@@ -996,6 +1004,15 @@ poller.reDrive = (id) =>
   void service.reDriveAccount(id).catch((err) => {
     console.warn(`[poller] account re-drive failed for ${id}:`, err);
   });
+
+// Autonomous auto-revive of a stranded default-account session after a herdr restart (#1630),
+// gated by config.autoReviveEnabled. Resolves "revived" on success, "failed" for a retryable
+// attempt, or "gaveup" once the service's bounded cap is reached (the poller then stops dispatching).
+poller.revive = (id) => service.reviveStranded(id);
+// Coalesced daemon-restart toast: the stranded set grew → tell every open dashboard once.
+poller.onStrandedGrew = (count) => events.emit("app:sessions-stranded", { count });
+// Auto-revive outcome: running default-account revived/failed tally for the current restart episode.
+poller.onAutoRevived = (revived, failed) => events.emit("app:auto-revived", { revived, failed });
 
 // Best-effort: seed a running isolated Codex session's provider-native id from its rollout header, so
 // restore (and #1087/#1160) has the id available. Synchronous + internally guarded/never-throws.
@@ -2720,6 +2737,7 @@ const appDeps: AppDeps = {
   activity: { snapshot: () => poller.activitySnapshot() },
   blocks: { snapshot: () => poller.blockSnapshot() },
   claudeAlive: { snapshot: () => poller.claudeAliveSnapshot() },
+  stranded: { ids: () => poller.strandedIds() },
   workingBlocked: { snapshot: () => poller.workingBlockedSnapshot() },
   preview: { snapshot: () => previewService.snapshot() },
   previewServe: { snapshot: () => tailscaleServe.snapshot() },

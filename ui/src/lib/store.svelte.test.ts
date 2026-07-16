@@ -726,25 +726,76 @@ test("session:archived drops the subagents entry for that session", () => {
 
 // ── session:claude-alive ───────────────────────────────────────────────────
 
-test("setClaudeAlive seeds the liveness map for bootstrap", () => {
+test("setClaudeAlive folds the boolean bootstrap into the 3-state liveness map", () => {
   const s = new HerdStore();
   s.setClaudeAlive({ s1: true, s2: false });
-  expect(s.claudeAlive["s1"]).toBe(true);
-  expect(s.claudeAlive["s2"]).toBe(false);
+  expect(s.claudeAlive["s1"]).toBe("alive");
+  expect(s.claudeAlive["s2"]).toBe("husk");
 });
 
-test("session:claude-alive sets and flips the liveness for that session", () => {
+test("setClaudeAlive upgrades bootstrapped stranded ids so a reloading client keeps the banner", () => {
   const s = new HerdStore();
-  s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: true } });
-  expect(s.claudeAlive["s1"]).toBe(true);
+  // s2/s3 are husks on the boolean snapshot; /api/stranded says s3 is actually a restart-strand
+  s.setClaudeAlive({ s1: true, s2: false, s3: false }, ["s3"]);
+  expect(s.claudeAlive["s1"]).toBe("alive");
+  expect(s.claudeAlive["s2"]).toBe("husk");
+  expect(s.claudeAlive["s3"]).toBe("stranded");
+  expect(s.strandedCount).toBe(1); // banner/framing reconstructed without waiting for a flip
+});
+
+test("session:claude-alive prefers `liveness`, falling back to the boolean", () => {
+  const s = new HerdStore();
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: true, liveness: "alive" },
+  });
+  expect(s.claudeAlive["s1"]).toBe("alive");
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: false, liveness: "stranded" },
+  });
+  expect(s.claudeAlive["s1"]).toBe("stranded");
+  // old server (no `liveness`) → derive from the boolean
   s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: false } });
-  expect(s.claudeAlive["s1"]).toBe(false);
+  expect(s.claudeAlive["s1"]).toBe("husk");
+});
+
+test("the sticky mass-strand toast is dismissed once the stranded set drains (auto-revive heal)", () => {
+  const s = new HerdStore();
+  toasts.items = [];
+  // two sessions strand → the server raises the sticky banner toast
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "x1", claudeAlive: false, liveness: "stranded" },
+  });
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "x2", claudeAlive: false, liveness: "stranded" },
+  });
+  s.apply({ event: "app:sessions-stranded", data: { count: 2 } });
+  expect(toasts.items.some((t) => t.key === "sessions-stranded")).toBe(true);
+  // one heals — still stranded, banner stays
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "x1", claudeAlive: true, liveness: "alive" },
+  });
+  expect(toasts.items.some((t) => t.key === "sessions-stranded")).toBe(true);
+  // last one heals → set empty → banner dismissed
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "x2", claudeAlive: true, liveness: "alive" },
+  });
+  expect(toasts.items.some((t) => t.key === "sessions-stranded")).toBe(false);
+  toasts.items = [];
 });
 
 test("session:archived drops the claude-alive entry for that session", () => {
   const s = new HerdStore();
   s.setAll([session("s1")]);
-  s.apply({ event: "session:claude-alive", data: { id: "s1", claudeAlive: true } });
+  s.apply({
+    event: "session:claude-alive",
+    data: { id: "s1", claudeAlive: true, liveness: "alive" },
+  });
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.claudeAlive["s1"]).toBeUndefined();
 });

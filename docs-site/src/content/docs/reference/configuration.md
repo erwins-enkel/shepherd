@@ -101,6 +101,19 @@ Opt-in, default-off. Configurable from the Settings panel (persisted in the SQLi
 | --- | --- | --- |
 | `SHEPHERD_UPNEXT_SKIP_CLI_PICKER` | `0` (off) | Set `1` to make Up Next quick-start launch with the operator's default coding CLI instead of opening the "Choose coding CLI" picker, even when more than one CLI is ready. Default off preserves the picker behavior. |
 
+## Session revival (herdr daemon-restart recovery)
+
+When the **herdr daemon** restarts, it re-creates each pane as a bare shell while the
+agent process behind it is gone — a "stranded" husk whose conversation is no longer live.
+Shepherd detects these and surfaces them (a daemon-restart toast plus a herd banner with a
+**revive all** action, which force-resumes every stranded session). It can also revive them
+autonomously. Opt-in, default-off; configurable from the Settings panel (persisted in the
+SQLite `settings` table), and the env var below seeds a fresh DB.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_AUTO_REVIVE` | `0` (off) | Set `1` to seed autonomous auto-revive on for a fresh DB. When on, only the **default-account** complement of stranded sessions is auto-revived (account panes keep recovering via `reDriveAccount`); each revive is bounded so a persistently-refused session gives up rather than re-firing every sweep. Operators can still trigger a manual **revive all** from the HUD regardless of this flag ([#1630](https://github.com/erwins-enkel/shepherd/issues/1630)) |
+
 ## Push-based hook ingestion
 
 Shepherd injects Claude Code lifecycle **hooks** into each spawned agent that POST to a restricted

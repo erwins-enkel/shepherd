@@ -577,6 +577,17 @@ export const putSessionHousekeeping = (
 ): Promise<{ sessionHousekeepingEnabled: boolean }> =>
   patchSettings({ sessionHousekeepingEnabled: enabled });
 
+// Toggle auto-revive of stranded default-account sessions after a herdr daemon restart (#1630).
+export const putAutoRevive = (enabled: boolean): Promise<{ autoReviveEnabled: boolean }> =>
+  patchSettings({ autoReviveEnabled: enabled });
+
+// Force-resume every currently-stranded session ("revive all"). Returns per-batch counts.
+export async function reviveStranded(): Promise<{ revived: number; failed: number }> {
+  const r = await fetch("/api/revive-stranded", { method: "POST" });
+  if (!r.ok) throw await failed(r, "revive stranded");
+  return r.json();
+}
+
 // Set anonymous-telemetry consent ("granted" | "denied"). Server persists + live-applies.
 export const putTelemetryConsent = (
   consent: "granted" | "denied",
@@ -1256,6 +1267,15 @@ export async function activityStates(): Promise<Record<string, SessionActivity>>
 export async function claudeAliveStates(): Promise<Record<string, boolean>> {
   const r = await fetch("/api/claude-alive");
   if (!r.ok) throw await failed(r, "claude liveness");
+  return r.json();
+}
+
+/** Currently-stranded session ids (herdr-restored husks), for client bootstrap. The boolean
+ *  claude-alive snapshot folds these to `husk`; these ids let a reloading client reconstruct the
+ *  `stranded` 3-state (the banner + "agent died — revive" framing) without waiting for a flip (#1630). */
+export async function strandedStates(): Promise<string[]> {
+  const r = await fetch("/api/stranded");
+  if (!r.ok) throw await failed(r, "stranded sessions");
   return r.json();
 }
 

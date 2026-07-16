@@ -8,6 +8,7 @@
     DrainStatus,
     GitState,
     Leftover,
+    LivenessState,
     Session,
     SessionActivity,
     SessionStatus,
@@ -15,7 +16,13 @@
     SubagentEntry,
     UsageLimits,
   } from "$lib/types";
-  import { STATUS_COLOR, statusLabel, formatTokens, canResume } from "$lib/format";
+  import {
+    STATUS_COLOR,
+    statusLabel,
+    formatTokens,
+    canResume,
+    isStrandedLiveness,
+  } from "$lib/format";
   import { displayStatus } from "$lib/display-status";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { hotterGauge, gaugeColor } from "./usage-gauges";
@@ -103,7 +110,7 @@
     git = null,
     activity = undefined,
     previewPort = null,
-    claudeAlive = undefined,
+    liveness = undefined,
     previewServeFailed = false,
     previewMap = {},
     openPreviewTick = 0,
@@ -145,10 +152,10 @@
     /** Live preview-listener port for this session (server-driven). Non-null → the
      *  Preview tab + pane are available; the iframe URL is built from window.location. */
     previewPort?: number | null;
-    /** Server-swept claude-process liveness for this session: true = a `claude`
-     *  process still lives in the worktree (hide Resume), false = husk shell
-     *  (offer Resume), undefined = not swept yet (offer Resume, fail-safe). */
-    claudeAlive?: boolean;
+    /** Server-swept agent liveness for this session (#1630): `alive` = a live agent backs the pane
+     *  (hide Resume); `husk`/`stranded` = agent gone (offer Resume; `stranded` = a herdr-restored
+     *  husk → distinct "agent died" label); undefined = not swept yet (offer Resume, fail-safe). */
+    liveness?: LivenessState;
     /** true when the server's tailscale serve registration failed for this session's
      *  preview port — the preview is reachable on loopback only, not over Tailscale. */
     previewServeFailed?: boolean;
@@ -486,7 +493,9 @@
   // brought back — surface a header Resume button so the user isn't stranded at a
   // bare shell with no affordance (the in-terminal overlay only shows once the PTY
   // closes for good). A verifiably-alive claude (server /proc sweep) hides it.
-  const resumable = $derived(canResume(session, claudeAlive));
+  const resumable = $derived(canResume(session, liveness));
+  // A herdr-restored husk gets a distinct "agent died — revive" label on the header Resume (#1630).
+  const stranded = $derived(isStrandedLiveness(liveness));
   const effectiveAgentProvider = $derived(
     session.agentProvider ??
       (session as Session & { launch?: { agent?: { provider?: Session["agentProvider"] } } }).launch
@@ -2748,6 +2757,7 @@
       {parked}
       {resuming}
       {resumable}
+      {stranded}
       {resumeSession}
       {prReady}
       {armed}
@@ -2909,6 +2919,7 @@
       {resuming}
       {resumeFailed}
       {resumable}
+      {stranded}
       {authUrl}
       {scrollToTop}
       {scrollToBottom}

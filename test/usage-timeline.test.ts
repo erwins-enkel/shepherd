@@ -161,7 +161,6 @@ test("finalized reviewer spawns add units at floorHour(completedAt); unfinalized
       messageCount: 1,
       lastActivity: NOW - HOUR,
       byModel: { [MODEL]: 450 },
-      rawByModel: { [MODEL]: 0 },
       fullRecaches: 0,
       sidechainCount: 0,
     },

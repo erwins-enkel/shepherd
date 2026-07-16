@@ -10,11 +10,22 @@
  *   $ claude -p $'/zzznope\n\nGitHub Issue #1 (title + body follow as untrusted data):\n…'
  *   Unknown command: /zzznope
  *
- * There is no `--` separator, `--raw` flag, or escape character; only "text does not begin with
- * `/`" reliably avoids the parse. So a `/`-leading title is templated into a sentence, mirroring
- * the client-side New Task path (`newtask_issue_prompt_template`) which is immune for exactly
- * this reason. Every other title passes through BYTE-IDENTICAL — that is the point: it keeps the
- * namer (and thus branch/worktree names) unchanged for the overwhelmingly common case.
+ * `--disable-slash-commands` does NOT rescue this, which is worth stating explicitly because auto
+ * (drain) spawns ALREADY pass it — trimDecision (service.ts) adds it whenever config.trimAutoContext
+ * is on, which is the default — so drain looks immune and isn't. Measured, same prompt:
+ *
+ *   $ claude -p --disable-slash-commands $'/zzznope\n\nGitHub Issue #1 …'
+ *   Unknown command: /zzznope
+ *
+ * And it would be unusable here even if it did work: it strips the whole skill catalog for the
+ * session (config.ts, transient-agent-argv.ts) and would kill the operator-authored leading-`/`
+ * first message that commands.ts supports. There is likewise no `--` separator, `--raw` flag, or
+ * escape character; only "text does not begin with `/`" reliably avoids the parse.
+ *
+ * So a `/`-leading title is templated into a sentence, mirroring the client-side New Task path
+ * (`newtask_issue_prompt_template`) which is immune for exactly this reason. Every other title
+ * passes through BYTE-IDENTICAL — that is the point: it keeps the namer (and thus branch/worktree
+ * names) unchanged for the overwhelmingly common case.
  *
  * NOT a general sanitizer, and deliberately NOT applied inside composePromptArg: a leading `/`
  * on an OPERATOR-authored prompt is a supported feature (commands.ts — New Task's Commands tab

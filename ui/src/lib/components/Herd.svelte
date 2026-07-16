@@ -24,7 +24,12 @@
   import RundownPanel from "./RundownPanel.svelte";
   import PostMergeStepsPanel from "./PostMergeStepsPanel.svelte";
   import UpNextPanel from "./UpNextPanel.svelte";
-  import { partitionSessions, shownSessions, type HerdFilter } from "./herd-partition";
+  import {
+    partitionSessions,
+    shownSessions,
+    GROUP_KEY_BY_STAGE,
+    type HerdFilter,
+  } from "./herd-partition";
   import { groupSessionsByEpic } from "./epic-grouping";
   import { groupSessionsByExperiment } from "./experiment-grouping";
   import { collectReadyPrs } from "./merge-train";
@@ -76,6 +81,9 @@
     holds = {},
     collapsible = false,
     oncollapse = undefined,
+    collapsedStageKeys = new Set(),
+    onstagecollapsetoggle = undefined,
+    touch = false,
     completedEpics = [],
     ondismissepic = undefined,
     onlandepic = undefined,
@@ -181,6 +189,16 @@
     // called when the collapse arrow is clicked; parent drives the actual
     // collapse so the button is purely a signal
     oncollapse?: () => void;
+    // desktop lifecycle-group collapse (page-owned, GROUP_KEY_BY_STAGE keys — shared with
+    // the keyboard-nav rail so render and nav agree). Only read when !flow; the phone
+    // layout keeps its own internal accordion.
+    collapsedStageKeys?: ReadonlySet<string>;
+    // toggles a lifecycle group's desktop collapse; without it the desktop headers stay
+    // plain non-interactive text (no no-op disclosure buttons)
+    onstagecollapsetoggle?: (key: string) => void;
+    // coarse-pointer/touch input (page's `(pointer: coarse)` MediaQuery, same signal as
+    // Viewport's `touch`) — keeps 44px touch targets on touch-wide desktop layouts
+    touch?: boolean;
     // fully-integrated epics for this repo scope — rendered as the bottom
     // "integrated epics" band (self-hides when empty)
     completedEpics?: CompletedEpic[];
@@ -363,8 +381,9 @@
 
   // Phone-only lifecycle accordion. The stable key makes "Your turn" the default
   // without coupling the open state to the groups' live ordering. null closes all
-  // named lifecycle groups; unheaded active rows remain visible.
-  let mobileOpenPartitionKey = $state<string | null>("awaiting-merge");
+  // named lifecycle groups; unheaded active rows remain visible. Desktop uses the
+  // page-owned collapsedStageKeys set instead (independent per-group collapse).
+  let mobileOpenPartitionKey = $state<string | null>(GROUP_KEY_BY_STAGE.awaitingMerge);
   function toggleMobilePartitionGroup(key: string) {
     mobileOpenPartitionKey = mobileOpenPartitionKey === key ? null : key;
   }
@@ -427,48 +446,48 @@
   const partitionGroups = $derived<PartitionGroupEntry[]>(
     [
       partition.active.length > 0 && {
-        key: "active",
+        key: GROUP_KEY_BY_STAGE.active,
         sessions: partition.active,
         headClass: null,
         withPreview: true,
       },
       partition.ciRunning.length > 0 && {
-        key: "ci-running",
+        key: GROUP_KEY_BY_STAGE.ciRunning,
         sessions: partition.ciRunning,
         headClass: "ci-head",
         countLabel: m.herd_ci_running_group({ count: partition.ciRunning.length }),
         withPreview: true,
       },
       partition.ciFailed.length > 0 && {
-        key: "ci-failed",
+        key: GROUP_KEY_BY_STAGE.ciFailed,
         sessions: partition.ciFailed,
         headClass: "ci-failed-head",
         countLabel: m.herd_ci_failed_group({ count: partition.ciFailed.length }),
         withPreview: true,
       },
       partition.reviewerRunning.length > 0 && {
-        key: "reviewer-running",
+        key: GROUP_KEY_BY_STAGE.reviewerRunning,
         sessions: partition.reviewerRunning,
         headClass: "reviewing-head",
         countLabel: m.herd_reviewer_running_group({ count: partition.reviewerRunning.length }),
         withPreview: true,
       },
       partition.reworkRunning.length > 0 && {
-        key: "rework-running",
+        key: GROUP_KEY_BY_STAGE.reworkRunning,
         sessions: partition.reworkRunning,
         headClass: "rework-head",
         countLabel: m.herd_rework_running_group({ count: partition.reworkRunning.length }),
         withPreview: true,
       },
       partition.needsRework.length > 0 && {
-        key: "needs-rework",
+        key: GROUP_KEY_BY_STAGE.needsRework,
         sessions: partition.needsRework,
         headClass: "needs-rework-head",
         countLabel: m.herd_changes_requested_group({ count: partition.needsRework.length }),
         withPreview: true,
       },
       partition.branchProtectionBlocked.length > 0 && {
-        key: "branch-protection-blocked",
+        key: GROUP_KEY_BY_STAGE.branchProtectionBlocked,
         sessions: partition.branchProtectionBlocked,
         headClass: "branch-blocked-head",
         countLabel: m.herd_merge_blocked_group({
@@ -477,7 +496,7 @@
         withPreview: true,
       },
       partition.waitingOnReviewer.length > 0 && {
-        key: "waiting-reviewer",
+        key: GROUP_KEY_BY_STAGE.waitingOnReviewer,
         sessions: partition.waitingOnReviewer,
         headClass: "waiting-head",
         countLabel: reviewerWho
@@ -489,7 +508,7 @@
         withPreview: false,
       },
       partition.waitingOnMerger.length > 0 && {
-        key: "waiting-merger",
+        key: GROUP_KEY_BY_STAGE.waitingOnMerger,
         sessions: partition.waitingOnMerger,
         headClass: "waiting-head",
         countLabel: mergerWho
@@ -498,7 +517,7 @@
         withPreview: false,
       },
       partition.draftAwaitingSignoff.length > 0 && {
-        key: "draft-signoff",
+        key: GROUP_KEY_BY_STAGE.draftAwaitingSignoff,
         sessions: partition.draftAwaitingSignoff,
         headClass: "draft-head",
         countLabel: m.herd_draft_awaiting_signoff_group({
@@ -507,14 +526,14 @@
         withPreview: false,
       },
       partition.awaitingMerge.length > 0 && {
-        key: "awaiting-merge",
+        key: GROUP_KEY_BY_STAGE.awaitingMerge,
         sessions: partition.awaitingMerge,
         headClass: "awaiting-head",
         countLabel: m.herd_awaiting_merge_group({ count: partition.awaitingMerge.length }),
         withPreview: true,
       },
       partition.ready.length + readyAbove > 0 && {
-        key: "ready",
+        key: GROUP_KEY_BY_STAGE.ready,
         sessions: partition.ready,
         headClass: "ready-head",
         countLabel:
@@ -532,14 +551,14 @@
         withPreview: true,
       },
       partition.merging.length > 0 && {
-        key: "merging",
+        key: GROUP_KEY_BY_STAGE.merging,
         sessions: partition.merging,
         headClass: "merging-head",
         countLabel: m.herd_merging_group({ count: partition.merging.length }),
         withPreview: true,
       },
       partition.merged.length + mergedAbove > 0 && {
-        key: "merged",
+        key: GROUP_KEY_BY_STAGE.merged,
         sessions: partition.merged,
         headClass: "merged-head",
         countLabel:
@@ -562,57 +581,58 @@
   );
 
   // Per-stage explainer content for the group-header "i" tooltips (issue: self-explanatory
-  // Herd). Group keys are hyphenated, but Paraglide accessors can't contain hyphens, so this
-  // maps each key to its underscore message keys explicitly (mirroring the `herd_*_group`
-  // label names). A `$derived` so copy re-resolves on locale change; the aria-label reuses
-  // the shared `newtask_info_aria` ("Explain: {topic}"). The headerless `active` group never
-  // renders a tooltip, but is included so the map is the single source for every stage.
+  // Herd). Keyed via GROUP_KEY_BY_STAGE (the same source partitionGroups renders under) so
+  // the record can't drift from the group keys; the message accessors stay explicit because
+  // Paraglide accessors can't contain hyphens (mirroring the `herd_*_group` label names).
+  // A `$derived` so copy re-resolves on locale change; the aria-label reuses the shared
+  // `newtask_info_aria` ("Explain: {topic}"). The headerless `active` group never renders
+  // a tooltip, but is included so the map is the single source for every stage.
   const groupHelp = $derived<Record<string, { text: string; label: string }>>({
-    active: {
+    [GROUP_KEY_BY_STAGE.active]: {
       text: m.herd_help_active(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_active() }),
     },
-    "ci-running": {
+    [GROUP_KEY_BY_STAGE.ciRunning]: {
       text: m.herd_help_ci_running(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_ci_running() }),
     },
-    "ci-failed": {
+    [GROUP_KEY_BY_STAGE.ciFailed]: {
       text: m.herd_help_ci_failed(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_ci_failed() }),
     },
-    "reviewer-running": {
+    [GROUP_KEY_BY_STAGE.reviewerRunning]: {
       text: m.herd_help_reviewing(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_reviewing() }),
     },
-    "rework-running": {
+    [GROUP_KEY_BY_STAGE.reworkRunning]: {
       text: m.herd_help_rework(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_rework() }),
     },
-    "waiting-reviewer": {
+    [GROUP_KEY_BY_STAGE.waitingOnReviewer]: {
       text: m.herd_help_waiting_reviewer(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_waiting_reviewer() }),
     },
-    "waiting-merger": {
+    [GROUP_KEY_BY_STAGE.waitingOnMerger]: {
       text: m.herd_help_waiting_merger(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_waiting_merger() }),
     },
-    "draft-signoff": {
+    [GROUP_KEY_BY_STAGE.draftAwaitingSignoff]: {
       text: m.herd_help_draft_signoff(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_draft_signoff() }),
     },
-    "awaiting-merge": {
+    [GROUP_KEY_BY_STAGE.awaitingMerge]: {
       text: m.herd_help_your_turn(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_your_turn() }),
     },
-    ready: {
+    [GROUP_KEY_BY_STAGE.ready]: {
       text: m.herd_help_ready(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_ready() }),
     },
-    merging: {
+    [GROUP_KEY_BY_STAGE.merging]: {
       text: m.herd_help_merging(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_merging() }),
     },
-    merged: {
+    [GROUP_KEY_BY_STAGE.merged]: {
       text: m.herd_help_merged(),
       label: m.newtask_info_aria({ topic: m.herd_stage_name_merged() }),
     },
@@ -695,13 +715,22 @@
       />
       <HerdExperimentGroups groups={experimentGrouped.groups} {oncompare} ctx={rowCtx} />
       {#each partitionGroups as grp (grp.key)}
+        <!-- flow: phone accordion (internal state). Desktop: independent per-group
+             collapse via the page-owned collapsedStageKeys — but only when the page
+             wired onstagecollapsetoggle; without it the header must stay plain text,
+             never a no-op disclosure button. touchTarget keys 44px targets to input
+             modality: the phone layout always, wide layouts only on coarse pointers. -->
         <HerdGroup
           ctx={rowCtx}
           {...grp}
           help={groupHelp[grp.key] ?? null}
-          collapsible={flow && !!grp.headClass && grp.sessions.length > 0}
-          expanded={!flow || mobileOpenPartitionKey === grp.key}
-          ontoggle={() => toggleMobilePartitionGroup(grp.key)}
+          collapsible={!!grp.headClass &&
+            grp.sessions.length > 0 &&
+            (flow || !!onstagecollapsetoggle)}
+          expanded={flow ? mobileOpenPartitionKey === grp.key : !collapsedStageKeys.has(grp.key)}
+          ontoggle={() =>
+            flow ? toggleMobilePartitionGroup(grp.key) : onstagecollapsetoggle?.(grp.key)}
+          touchTarget={flow || touch}
         />
       {/each}
     {/if}

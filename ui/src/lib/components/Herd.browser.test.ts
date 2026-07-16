@@ -4,6 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import Herd from "./Herd.svelte";
 import { railOrder } from "./herd-keynav";
+import { GROUP_KEY_BY_STAGE } from "./herd-partition";
 import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "$lib/reviews.svelte";
 import { postMergeSteps } from "$lib/post-merge-steps.svelte";
@@ -247,40 +248,168 @@ describe("Herd mobile lifecycle accordion", () => {
     await expect.element(reviewing).toHaveAttribute("aria-expanded", "false");
     await expect.element(page.getByText("review session")).not.toBeInTheDocument();
   });
+});
 
-  it("keeps a group action separate from the disclosure toggle", async () => {
-    const onmergetrain = vi.fn();
-    render(Herd, {
-      ...base,
-      sessions: [session({ id: "ready", name: "ready session", readyToMerge: true })],
-      git: { ready: openPr },
-      flow: true,
-      onmergetrain,
+describe("Herd group header actions stay separate from the disclosure toggle", () => {
+  const mergedGit: GitState = {
+    kind: "github",
+    state: "merged",
+    checks: "success",
+    deployConfigured: false,
+  };
+
+  // Both header actions × both layouts. The mobile accordion starts groups closed
+  // (default open is "Your turn"); desktop starts every group expanded. Clicking the
+  // action must fire ONLY the action — never flip aria-expanded or hit the stage toggle.
+  it.each([
+    { flow: true, kind: "merge-train", expanded: "false" },
+    { flow: false, kind: "merge-train", expanded: "true" },
+    { flow: true, kind: "clear-merged", expanded: "false" },
+    { flow: false, kind: "clear-merged", expanded: "true" },
+  ])("$kind fires without toggling (flow=$flow)", async ({ flow, kind, expanded }) => {
+    const action = vi.fn();
+    const onstagecollapsetoggle = vi.fn();
+    const props: {
+      sessions: Session[];
+      git: Record<string, GitState>;
+      onmergetrain?: () => void;
+      onclearmerged?: () => void;
+    } =
+      kind === "merge-train"
+        ? {
+            sessions: [session({ id: "ready", name: "ready session", readyToMerge: true })],
+            git: { ready: openPr },
+            onmergetrain: action,
+          }
+        : {
+            sessions: [session({ id: "mgd", name: "merged session" })],
+            git: { mgd: mergedGit },
+            onclearmerged: action,
+          };
+    render(Herd, { ...base, ...props, flow, onstagecollapsetoggle });
+
+    const head = page.getByRole("button", {
+      name: kind === "merge-train" ? /Ready to merge \(1\)/i : /Merged \(1\)/i,
     });
+    const actionLabel = kind === "merge-train" ? "Merge train" : "Decommission all";
+    await expect.element(head).toHaveAttribute("aria-expanded", expanded);
+    await page.getByRole("button", { name: actionLabel }).click();
+    expect(action).toHaveBeenCalledOnce();
+    expect(onstagecollapsetoggle).not.toHaveBeenCalled();
+    await expect.element(head).toHaveAttribute("aria-expanded", expanded);
+  });
+});
 
-    const ready = page.getByRole("button", { name: /Ready to merge \(1\)/i });
-    await expect.element(ready).toHaveAttribute("aria-expanded", "false");
-    await page.getByRole("button", { name: "Merge train" }).click();
-    expect(onmergetrain).toHaveBeenCalledOnce();
-    await expect.element(ready).toHaveAttribute("aria-expanded", "false");
+describe("Herd desktop lifecycle group collapse", () => {
+  afterEach(() => {
+    reviews.setReviewing("desk-review", false);
   });
 
-  it("leaves lifecycle groups expanded and non-interactive on desktop", async () => {
-    reviews.setReviewing("mobile-review", true);
+  it("keeps headers non-interactive when no stage toggle handler is wired", async () => {
+    reviews.setReviewing("desk-review", true);
     render(Herd, {
       ...base,
       sessions: [
-        session({ id: "mobile-review", name: "review session" }),
+        session({ id: "desk-review", name: "review session" }),
         session({ id: "your-turn", name: "your turn session" }),
       ],
       git: { "your-turn": openPr },
     });
 
+    // no onstagecollapsetoggle → plain text headers (never a no-op disclosure button)
     await expect.element(page.getByText("review session")).toBeInTheDocument();
     await expect.element(page.getByText("your turn session")).toBeInTheDocument();
     await expect
       .element(page.getByRole("button", { name: /Your turn \(1\)/i }))
       .not.toBeInTheDocument();
+  });
+
+  it("renders per-group disclosures, all expanded by default", async () => {
+    reviews.setReviewing("desk-review", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "desk-review", name: "review session" }),
+        session({ id: "your-turn", name: "your turn session" }),
+      ],
+      git: { "your-turn": openPr },
+      onstagecollapsetoggle: () => {},
+    });
+
+    const yourTurn = page.getByRole("button", { name: /Your turn \(1\)/i });
+    const reviewing = page.getByRole("button", { name: /Reviewing \(1\)/i });
+    await expect.element(yourTurn).toHaveAttribute("aria-expanded", "true");
+    await expect.element(reviewing).toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByText("review session")).toBeInTheDocument();
+    await expect.element(page.getByText("your turn session")).toBeInTheDocument();
+  });
+
+  it("controlled: collapsedStageKeys hides exactly those rows; the toggle reports the group key", async () => {
+    const onstagecollapsetoggle = vi.fn();
+    reviews.setReviewing("desk-review", true);
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "desk-review", name: "review session" }),
+        session({ id: "your-turn", name: "your turn session" }),
+      ],
+      git: { "your-turn": openPr },
+      collapsedStageKeys: new Set([GROUP_KEY_BY_STAGE.awaitingMerge]),
+      onstagecollapsetoggle,
+    });
+
+    // independence: the collapsed group hides its rows while the other stays open
+    const yourTurn = page.getByRole("button", { name: /Your turn \(1\)/i });
+    const reviewing = page.getByRole("button", { name: /Reviewing \(1\)/i });
+    await expect.element(yourTurn).toHaveAttribute("aria-expanded", "false");
+    await expect.element(reviewing).toHaveAttribute("aria-expanded", "true");
+    await expect.element(page.getByText("your turn session")).not.toBeInTheDocument();
+    await expect.element(page.getByText("review session")).toBeInTheDocument();
+
+    await yourTurn.click();
+    expect(onstagecollapsetoggle).toHaveBeenCalledExactlyOnceWith(GROUP_KEY_BY_STAGE.awaitingMerge);
+  });
+
+  it("fine-pointer desktop headers stay compact (toggle < 44px)", async () => {
+    render(Herd, {
+      ...base,
+      sessions: [session({ id: "your-turn", name: "your turn session" })],
+      git: { "your-turn": openPr },
+      onstagecollapsetoggle: () => {},
+    });
+
+    const yourTurn = page.getByRole("button", { name: /Your turn \(1\)/i });
+    await expect.element(yourTurn).toBeInTheDocument();
+    expect((yourTurn.element() as HTMLElement).getBoundingClientRect().height).toBeLessThan(44);
+  });
+
+  it("coarse-pointer desktop (touch) keeps ≥44px targets on toggle and header actions", async () => {
+    const mergedGit: GitState = {
+      kind: "github",
+      state: "merged",
+      checks: "success",
+      deployConfigured: false,
+    };
+    render(Herd, {
+      ...base,
+      sessions: [
+        session({ id: "ready", name: "ready session", readyToMerge: true }),
+        session({ id: "mgd", name: "merged session" }),
+      ],
+      git: { ready: openPr, mgd: mergedGit },
+      touch: true,
+      onstagecollapsetoggle: () => {},
+      onmergetrain: () => {},
+      onclearmerged: () => {},
+    });
+
+    for (const name of [/Ready to merge \(1\)/i, "Merge train", "Decommission all"] as const) {
+      const el = page.getByRole("button", { name });
+      await expect.element(el).toBeInTheDocument();
+      expect((el.element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(
+        44,
+      );
+    }
   });
 });
 

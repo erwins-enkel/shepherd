@@ -51,6 +51,9 @@
     collapsible?: boolean;
     expanded?: boolean;
     ontoggle?: () => void;
+    // coarse-pointer/touch input: keeps the 44px touch-target sizing on the header
+    // toggle + its actions. False on fine-pointer desktop, where headers stay compact.
+    touchTarget?: boolean;
     ctx: HerdRowCtx;
   };
 
@@ -65,12 +68,13 @@
     collapsible = false,
     expanded = true,
     ontoggle = undefined,
+    touchTarget = false,
     ctx,
   }: HerdGroupProps = $props();
 </script>
 
 {#if headClass}
-  <div class="{headClass} micro" class:collapsible>
+  <div class="{headClass} micro" class:collapsible class:touch={touchTarget}>
     {#if collapsible}
       <button class="group-toggle" type="button" aria-expanded={expanded} onclick={ontoggle}>
         <span class="chev" class:collapsed={!expanded} aria-hidden="true">▾</span>
@@ -138,7 +142,10 @@
     color: var(--color-muted);
   }
 
-  .micro.collapsible {
+  /* 44px touch targets are keyed to input modality (.touch = phone layout or a
+     coarse-pointer wide device), not to collapsibility — fine-pointer desktop
+     headers stay at their compact height. */
+  .micro.collapsible.touch {
     min-height: 44px;
     padding-block: 0;
   }
@@ -150,7 +157,6 @@
     gap: 7px;
     flex: 1;
     min-width: 0;
-    min-height: 44px;
     padding: 0;
     border: 0;
     background: none;
@@ -160,6 +166,12 @@
     text-transform: inherit;
     text-align: left;
     cursor: pointer;
+  }
+  .touch .group-toggle {
+    min-height: 44px;
+  }
+  .group-toggle:hover {
+    background: var(--color-hover);
   }
   .group-toggle:focus-visible {
     outline: none;
@@ -279,8 +291,8 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
-  .collapsible .merge-train,
-  .collapsible .clear-merged {
+  .collapsible.touch .merge-train,
+  .collapsible.touch .clear-merged {
     align-self: stretch;
     min-height: 44px;
     padding-inline: 8px;

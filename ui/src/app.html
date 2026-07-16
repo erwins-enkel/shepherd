@@ -40,7 +40,9 @@
       })();
     </script>
     <!-- iOS Dynamic Type bridge. The whole type scale is `calc(<px> * var(--ui-scale))`
-         in app.css; this resolves --ui-scale to the user's iOS system Text Size so the
+         in app.css, and the canvas-rendered xterm terminal multiplies the same ratio in
+         on the JS side (ui-scale.svelte.ts observes this element's inline-style writes);
+         this resolves --ui-scale to the user's iOS system Text Size so the
          UI honors that setting (the slider in Control Center / Settings → Display).
          WebKit only exposes the preference through the `-apple-system-body` font
          keyword — never a number — so we render a hidden probe with that font and read

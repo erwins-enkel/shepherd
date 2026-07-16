@@ -1,0 +1,61 @@
+name: CodeQL
+
+# Advanced setup for code scanning + code quality.
+#
+# We moved off DEFAULT setup because GitHub Code Quality (the preview product that
+# surfaces reliability/maintainability findings) is default-setup-only and offers no
+# path filtering — its whole config surface is languages + runner. That left 50 of 53
+# findings sitting in vendored inlang/Paraglide plugin bundles with no way to exclude
+# them (linguist-generated/-vendored markers are ignored by CodeQL; the findings API
+# is read-only). Advanced setup runs the same queries via the `security-and-quality`
+# suite while honoring `paths-ignore` in .github/codeql/codeql-config.yml.
+#
+# MANUAL STEP: default setup must be turned off (Settings > Code security > CodeQL
+# analysis, and Settings > Code quality), otherwise it conflicts with this workflow.
+# Findings now appear under Security > Code scanning alerts, not the Code Quality tab.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly, matching the cadence of the previous default setup.
+    - cron: "27 3 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: analyze (${{ matrix.language }})
+    runs-on: ubuntu-latest
+    permissions:
+      security-events: write # upload SARIF results
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        # Mirrors the languages the prior default setup analyzed.
+        language: [javascript-typescript, actions]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@v4
+        with:
+          languages: ${{ matrix.language }}
+          # No build required — JS/TS and actions use build-less extraction.
+          build-mode: none
+          config-file: ./.github/codeql/codeql-config.yml
+
+      - name: Perform CodeQL analysis
+        uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:${{ matrix.language }}"

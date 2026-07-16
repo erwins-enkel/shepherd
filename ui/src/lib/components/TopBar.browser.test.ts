@@ -597,6 +597,9 @@ describe("TopBar — async gauge arrival re-measures (reactivity gap)", () => {
 
     const RealResizeObserver = globalThis.ResizeObserver;
     class NoopResizeObserver {
+      // Mirror the real ResizeObserver(callback) signature so static analysis
+      // doesn't read our production `new ResizeObserver(cb)` as a superfluous arg.
+      constructor(readonly cb?: ResizeObserverCallback) {}
       observe() {}
       unobserve() {}
       disconnect() {}
@@ -736,6 +739,9 @@ describe("TopBar — async held-task arrival re-measures (touch-desktop reactivi
 
     const RealResizeObserver = globalThis.ResizeObserver;
     class NoopResizeObserver {
+      // Mirror the real ResizeObserver(callback) signature so static analysis
+      // doesn't read our production `new ResizeObserver(cb)` as a superfluous arg.
+      constructor(readonly cb?: ResizeObserverCallback) {}
       observe() {}
       unobserve() {}
       disconnect() {}

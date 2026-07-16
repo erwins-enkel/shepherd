@@ -354,6 +354,14 @@ export interface UsageProviderSource {
 // 1h, unlike the 2-week cap stale that tolerates JSONL-recomputed windows drifting.
 const CREDIT_STALE_MS = 60 * 60 * 1000;
 
+// Beyond this age the credit snapshot is treated as DEAD (extra usage was turned off): calibrate
+// runs at least daily, so a snapshot older than two calibration cycles means the `/usage` panel has
+// stopped rendering a credits section across multiple successful scrapes — the account no longer has
+// credits enabled. `limits()` drops it entirely rather than lingering a "SCRAPED Nd AGO / SNAPSHOT
+// STALE" gauge the user can't refresh away. The persisted snapshot + history are untouched, so if
+// credits are re-enabled the next scrape re-populates it and the gauge returns.
+const CREDIT_DROP_MS = 2 * CALIBRATE_INTERVAL_MS;
+
 // Per-model weekly passthrough is scrape-fresh-only too, but — unlike credits — it isn't put on
 // the near-cap 15-min watch cadence, so a 1h stale would flip it "stale" within an hour of every
 // daily calibration. Tie it to the calibration cadence, tolerant of one missed daily run.
@@ -526,6 +534,30 @@ export class UsageLimitsService {
     return any;
   }
 
+  /**
+   * Effective units consumed in the current window, anchored to the last scrape.
+   *
+   * `row.pct` is the account's true % at `row.scrapedAt` (⇒ `pct/100 * cap` units), so we add ONLY
+   * local usage since the scrape. This reconciles a mid-window account reset — Claude zeroes the
+   * weekly counter without moving the reset boundary — that a fixed windowed sum misses: the
+   * pre-reset usage stays inside the window but no longer counts toward the account cap, and a
+   * scraped `pct` below MIN_CALIBRATION_PCT can't re-invert the cap, so `windowSum/cap` would stay
+   * stuck at the pre-reset % forever (the "usage reset but the gauge won't update" bug).
+   *
+   * In the normal (non-reset) path this is provably identical to `windowSum(windowStart, now)/cap`:
+   * the cap was inverted from `unitsAtScrape / (pct/100)`, so `pct/100*cap == unitsAtScrape` and
+   * `unitsAtScrape + windowSum(scrapedAt, now) == windowSum(windowStart, now)`.
+   *
+   * When the window has rolled over since the scrape (`resetAt` advanced past the stored anchor),
+   * the anchor belongs to the previous window — fall back to the plain windowed sum of the fresh
+   * window (matches the pre-anchor post-boundary behavior).
+   */
+  private currentUnits(row: CapRow, resetAt: number, now: number): number {
+    const period = PERIOD_MS[row.window];
+    if (resetAt !== row.resetAt) return this.index.windowSum(resetAt - period, now);
+    return (row.pct / 100) * row.cap + this.index.windowSum(row.scrapedAt, now);
+  }
+
   /** Current live limits, recomputed from local JSONL against the calibrated caps. */
   limits(now: number): UsageLimits {
     const rows = new Map(this.caps.getCaps().map((r) => [r.window, r]));
@@ -535,8 +567,7 @@ export class UsageLimitsService {
       if (!row || row.cap <= 0) return null;
       calibratedAt = Math.max(calibratedAt ?? 0, row.scrapedAt);
       const resetAt = rollForward(row.resetAt, PERIOD_MS[key], now);
-      const units = this.index.windowSum(resetAt - PERIOD_MS[key], now);
-      return { pct: clampPct((units / row.cap) * 100), resetAt };
+      return { pct: clampPct((this.currentUnits(row, resetAt, now) / row.cap) * 100), resetAt };
     };
     const session5h = compute("session5h");
     const week = compute("week");
@@ -544,10 +575,16 @@ export class UsageLimitsService {
     // Credits is a passthrough of the stored snapshot — not recomputed from JSONL.
     const snap = this.creditStore.getCreditSnapshot();
     let credits: CreditWindow | null = null;
-    // Post-reset guard: a snapshot whose monthly budget has already rolled over is meaningless
-    // until re-scraped — drop it (also stops the gauge showing a past reset date). An unparseable
-    // (null) resetAt can't be known to have rolled over, so it passes through.
-    if (snap && !(snap.resetAt != null && snap.resetAt <= now)) {
+    // Two guards keep `credits` null (gauge hidden):
+    //  1. Post-reset: a snapshot whose monthly budget already rolled over is meaningless until
+    //     re-scraped (also stops the gauge showing a past reset date). An unparseable (null)
+    //     resetAt can't be known to have rolled over, so it passes through.
+    //  2. Dead: a snapshot older than CREDIT_DROP_MS means extra usage was turned off (the `/usage`
+    //     panel stopped rendering credits across multiple daily scrapes) — hide it rather than
+    //     linger a stale, un-refreshable "SCRAPED Nd AGO" gauge. The snapshot itself is untouched.
+    const rolledOver = snap != null && snap.resetAt != null && snap.resetAt <= now;
+    const dead = snap != null && now - snap.scrapedAt > CREDIT_DROP_MS;
+    if (snap && !rolledOver && !dead) {
       credits = {
         pct: snap.pct,
         spent: snap.spent,
@@ -616,7 +653,9 @@ export class UsageLimitsService {
       const period = PERIOD_MS[key];
       const resetAt = rollForward(row.resetAt, period, now);
       const windowStart = resetAt - period;
-      const curUnits = this.index.windowSum(windowStart, now);
+      // Anchored to the last scrape (same reconciliation as limits()) so a mid-window reset doesn't
+      // leave the projection basing off pre-reset usage that no longer counts.
+      const curUnits = this.currentUnits(row, resetAt, now);
       const lookback = LOOKBACK_MS[key];
       // numerator start clamped to windowStart so the trailing window never bleeds
       // pre-reset burn into a fresh window; denominator stays the NOMINAL lookback hours

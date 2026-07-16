@@ -16,7 +16,7 @@
  * rather than hard-failing the spawn.
  */
 import { existsSync, readdirSync, realpathSync } from "node:fs";
-import { dirname } from "node:path";
+import { basename, dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
 import type { EgressBackend } from "./egress";
@@ -193,6 +193,94 @@ export interface MembraneInputs {
    *  where Shepherd's usage/activity readback looks (config.claudeProjectsDir via
    *  jsonlPathFor) even though auth comes from the (pool) claudeDir. */
   projectsBindSource?: string;
+  /** Codex CLI support — set only for a `codex` inner argv (see membraneForArgv).
+   *  Absent (claude spawns): flags stay byte-identical to the historical output. */
+  codex?: CodexMembraneInputs;
+}
+
+// ── codex CLI membrane support ────────────────────────────────────────────────
+
+/**
+ * Resolved host paths that let a wrapped `codex exec` role start and authenticate
+ * inside the membrane. Without them every sandboxed codex spawn (plan-gate reviewer,
+ * PR critic, standalone critic, doc-agent) died silently: the claude-only membrane
+ * bound neither the codex launcher chain (execvp ENOENT on the dangling
+ * `~/.bun/bin/codex` symlink) nor `~/.codex` (`--tmpfs $HOME` hides auth.json → 401).
+ */
+export interface CodexMembraneInputs {
+  /** dirname of the `codex` launcher as found on Shepherd's PATH (often a symlink
+   *  dir, e.g. `~/.bun/bin`) — bound RO and appended to the sandbox PATH. */
+  binDir: string;
+  /** RO bind covering the launcher's REAL file and its runtime siblings: the nearest
+   *  `node_modules` ancestor of the realpath'd launcher (the platform package holding
+   *  the native binary is a SIBLING package, so the package dir alone is not enough),
+   *  or the realpath's dirname when no node_modules ancestor exists (standalone bin). */
+  pkgRoot: string;
+  /** CODEX_HOME (auth.json, config.toml, sessions/, sqlite state) — bound RW: token
+   *  refresh, rollout writes and sqlite WAL all need a writable directory. Tool-level
+   *  writes stay confined by codex's own `--sandbox workspace-write`. */
+  codexHome: string;
+}
+
+/** Injectable host probes for codex membrane resolution (tests never touch the host). */
+export interface CodexProbeDeps {
+  /** PATH lookup; default Bun.which. */
+  which?: (cmd: string) => string | null;
+  /** realpath; default safeRealpath. */
+  realpath?: (p: string) => string;
+  /** Host env (CODEX_HOME override); default process.env. */
+  env?: Record<string, string | undefined>;
+}
+
+/** Nearest ancestor directory named `node_modules`, or null when none. */
+function nodeModulesAncestor(p: string): string | null {
+  for (let dir = dirname(p); ; dir = dirname(dir)) {
+    if (basename(dir) === "node_modules") return dir;
+    if (dirname(dir) === dir) return null;
+  }
+}
+
+/**
+ * Resolve the codex membrane inputs for `home`, or null (with a warn — never a
+ * silent drop) when `codex` is not on Shepherd's own PATH. On null the spawn fails
+ * exactly as before, but traceably.
+ */
+export function resolveCodexMembrane(
+  home: string,
+  deps: CodexProbeDeps = {},
+): CodexMembraneInputs | null {
+  const which = deps.which ?? ((cmd: string) => Bun.which(cmd));
+  const bin = which("codex");
+  if (!bin) {
+    console.warn(
+      "[sandbox] codex spawn requested but `codex` is not on PATH — membrane gets no codex binds",
+    );
+    return null;
+  }
+  const real = (deps.realpath ?? safeRealpath)(bin);
+  const env = deps.env ?? process.env;
+  const codexHome = env.CODEX_HOME || `${home}/.codex`;
+  return {
+    binDir: dirname(bin),
+    pkgRoot: nodeModulesAncestor(real) ?? dirname(real),
+    codexHome,
+  };
+}
+
+/**
+ * The membrane for an inner argv: a `codex` spawn gets the resolved codex inputs
+ * folded in (unless the caller already did); anything else passes through untouched.
+ * SINGLE source for the detection so wrapArgv and service.ts's egress branch (which
+ * calls buildMembraneFlags directly) can never drift.
+ */
+export function membraneForArgv(
+  innerArgv: string[],
+  membrane: MembraneInputs,
+  deps: CodexProbeDeps = {},
+): MembraneInputs {
+  if (innerArgv[0] !== "codex" || membrane.codex) return membrane;
+  const codex = resolveCodexMembrane(membrane.home, deps);
+  return codex ? { ...membrane, codex } : membrane;
 }
 
 /**
@@ -259,6 +347,39 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
   }
   add(binDir);
   return flags;
+}
+
+/**
+ * Codex CLI flags — empty for a non-codex spawn, keeping claude flags byte-identical.
+ * Launcher chain RO: binDir (the PATH lookup target, often a symlink dir) plus the
+ * realpath'd package tree (the native platform binary is a SIBLING package under the
+ * same node_modules, so binding the launcher's package alone would not start).
+ * CODEX_HOME RW: auth.json token refresh, sessions/ rollouts and sqlite WAL files
+ * all need a writable directory; tool-level writes remain confined by codex's own
+ * `--sandbox workspace-write`.
+ */
+function codexCliFlags(codex: CodexMembraneInputs | undefined): string[] {
+  if (!codex) return [];
+  const f = ["--ro-bind-try", codex.binDir, codex.binDir];
+  if (codex.pkgRoot !== codex.binDir) f.push("--ro-bind-try", codex.pkgRoot, codex.pkgRoot);
+  f.push("--bind-try", codex.codexHome, codex.codexHome);
+  return f;
+}
+
+/** The sandbox PATH. A codex spawn appends the launcher's bin dir so `codex` resolves
+ *  by name; skipped when it already is an entry (claude spawns are unchanged either way). */
+function sandboxPath(home: string, nodeBinDir: string, codex?: CodexMembraneInputs): string {
+  const entries = [`${home}/.local/bin`, nodeBinDir, "/usr/bin", "/bin"];
+  if (codex && !entries.includes(codex.binDir)) entries.push(codex.binDir);
+  return entries.join(":");
+}
+
+/** `--setenv CODEX_HOME` for a codex spawn with a non-default home: --clearenv strips
+ *  it, and codex must be pointed back at the dir the membrane bound (the default
+ *  ~/.codex needs no env — codex derives it from HOME). Empty otherwise. */
+function codexEnvFlags(home: string, codex?: CodexMembraneInputs): string[] {
+  if (!codex || codex.codexHome === `${home}/.codex`) return [];
+  return ["--setenv", "CODEX_HOME", codex.codexHome];
 }
 
 /**
@@ -408,6 +529,11 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   // ── node toolchain (binary's libs must resolve) ──────────────────────────
   f.push(...nodeToolchainFlags(inputs, exists));
 
+  // ── codex CLI (codex spawns only — claude flags stay byte-identical) ─────
+  // MUST sit after the `--tmpfs home` above so the RW CODEX_HOME bind punches
+  // through the tmpfs.
+  f.push(...codexCliFlags(inputs.codex));
+
   // ── commit identity + gh token ───────────────────────────────────────────
   f.push("--ro-bind-try", `${home}/.gitconfig`, `${home}/.gitconfig`);
   f.push("--ro-bind-try", `${home}/.config/gh`, `${home}/.config/gh`);
@@ -437,12 +563,13 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   const nodeBinDir = dirname(inputs.nodeBinReal);
   f.push("--clearenv");
   f.push("--setenv", "HOME", home);
-  f.push("--setenv", "PATH", `${home}/.local/bin:${nodeBinDir}:/usr/bin:/bin`);
+  f.push("--setenv", "PATH", sandboxPath(home, nodeBinDir, inputs.codex));
   f.push("--setenv", "TERM", term);
   // --clearenv strips CLAUDE_CONFIG_DIR; re-set it when the bound config dir is NOT the
   // default ~/.claude, else claude would fall back to an empty ~/.claude tmpfs (the custom
   // dir IS bound above) and lose auth/onboarding state.
   if (claudeDir !== `${home}/.claude`) f.push("--setenv", "CLAUDE_CONFIG_DIR", claudeDir);
+  f.push(...codexEnvFlags(home, inputs.codex));
   for (const [k, v] of Object.entries(inputs.extraEnv ?? {}).sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
@@ -468,10 +595,11 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
 export function wrapArgv(
   innerArgv: string[],
   opts: { profile: SandboxProfile; backend: SandboxBackend; membrane: MembraneInputs },
-  deps: PathProbeDeps = {},
+  deps: PathProbeDeps & CodexProbeDeps = {},
 ): string[] {
   if (opts.profile === "trusted" || opts.backend === null) return innerArgv;
-  return ["bwrap", ...buildMembraneFlags(opts.membrane, deps), "--", ...innerArgv];
+  const membrane = membraneForArgv(innerArgv, opts.membrane, deps);
+  return ["bwrap", ...buildMembraneFlags(membrane, deps), "--", ...innerArgv];
 }
 
 // ── auto-gate ─────────────────────────────────────────────────────────────────

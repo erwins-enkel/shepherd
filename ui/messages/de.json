@@ -3234,5 +3234,7 @@
   "recap_failure_detail": "Fehler",
   "recap_failure_default_model": "Anbieter-Standard",
   "feat_recap_diagnostics_title": "Fehlende Recaps verstehen",
-  "feat_recap_diagnostics_body": "Abgeschlossene Sessions zeigen jetzt, wie sie beendet wurden und warum ein Recap fehlt. Sessions ohne Änderungen erhalten weiterhin ein Recap mit einem klaren No-Diff-Hinweis; technische Fehler enthalten eine Handlungsempfehlung und redigierte Details."
+  "feat_recap_diagnostics_body": "Abgeschlossene Sessions zeigen jetzt, wie sie beendet wurden und warum ein Recap fehlt. Sessions ohne Änderungen erhalten weiterhin ein Recap mit einem klaren No-Diff-Hinweis; technische Fehler enthalten eine Handlungsempfehlung und redigierte Details.",
+  "feat_desktop_herd_group_collapse_title": "Lebenszyklus-Gruppen auch am Desktop einklappen",
+  "feat_desktop_herd_group_collapse_body": "Die Gruppen-Header der Desktop-Session-Leiste (CI läuft, Dein Zug, Gemergt, …) sind jetzt ebenfalls klappbar: Ein Klick auf einen Header klappt die Gruppe zu — jede Gruppe unabhängig, und Sprünge zu einer Session in einer eingeklappten Gruppe öffnen sie automatisch wieder."
 }

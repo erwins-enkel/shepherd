@@ -3234,5 +3234,7 @@
   "recap_failure_detail": "Failure",
   "recap_failure_default_model": "provider default",
   "feat_recap_diagnostics_title": "Understand missing recaps",
-  "feat_recap_diagnostics_body": "Finished sessions now show how they were completed and why a recap is missing. No-change sessions still get a recap with a clear no-diff warning; technical failures include actionable guidance and redacted details."
+  "feat_recap_diagnostics_body": "Finished sessions now show how they were completed and why a recap is missing. No-change sessions still get a recap with a clear no-diff warning; technical failures include actionable guidance and redacted details.",
+  "feat_desktop_herd_group_collapse_title": "Fold lifecycle groups on the desktop",
+  "feat_desktop_herd_group_collapse_body": "The desktop session rail's lifecycle group headers (CI running, Your turn, Merged, …) are now collapsible too: click a header to fold that group away — each group toggles independently, and jumps to a session hidden in a folded group reopen it automatically."
 }

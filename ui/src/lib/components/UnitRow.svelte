@@ -1429,6 +1429,12 @@
     min-width: 0;
     display: flex;
     align-items: center;
+    /* wrap so the flex:none footer chips (manual-steps count + Ack + stepper) flow to a
+       second line instead of overflowing the card — with `.meta-text` collapsed to zero
+       their fixed widths alone can exceed a phone-width row (esp. the longer German
+       labels), and `.units.flow` (overflow:visible) would leak that to a page-level
+       horizontal scroll that drags the whole shell sideways. */
+    flex-wrap: wrap;
     gap: 10px;
     color: var(--color-muted);
     font-size: var(--fs-meta);

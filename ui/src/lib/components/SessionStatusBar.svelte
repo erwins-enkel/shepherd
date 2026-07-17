@@ -14,6 +14,12 @@
   // (provider on pre-field rows; effort is optional in the client mirror) fall back.
   // environmentLabel is the same formatter ReviewInFlightBanner uses for the reviewer, so
   // the task strip and the reviewer strip can never drift apart in wording.
+  //
+  // These are the CONFIGURED values, labeled as such via the hover title: the runtime may
+  // substitute at spawn time without rewriting them — pushModelFlag applies usage-downgrade/
+  // availability fallbacks argv-only, and Codex clamps unsupported effort tiers (max → high)
+  // while the stored intent keeps the un-clamped tier. Surfacing the EFFECTIVE spawn values
+  // needs server-side persistence across every spawn path and is tracked separately.
   const launch = $derived(session.launchMetadata ?? null);
   const provider = $derived(session.agentProvider ?? launch?.agent.provider ?? "claude");
   const identity = $derived(
@@ -23,6 +29,7 @@
       session.effort === undefined ? (launch?.resolvedLaunch.effort ?? null) : session.effort,
     ),
   );
+  const identityTitle = $derived(m.statusbar_identity_title({ identity }));
 
   // Archived sessions show a static total runtime (archivedAt ?? updatedAt matches
   // DoneRecapPanel's finishedAt fallback); live sessions tick on the shared 30s clock.
@@ -58,7 +65,7 @@
 <!-- Deliberately NOT a live region (no role="status"/aria-live): the elapsed tick and the
      usage poll would re-announce to screen readers continuously. -->
 <div class="ssb" role="group" aria-label={m.statusbar_aria()}>
-  <span class="ssb-identity" title={identity}>{identity}</span>
+  <span class="ssb-identity" title={identityTitle}>{identity}</span>
   <span class="ssb-sep" aria-hidden="true">·</span>
   {#if tokensKnown}
     <span class="ssb-tokens">{tokensText}</span>

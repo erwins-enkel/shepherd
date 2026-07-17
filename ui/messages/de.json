@@ -3283,5 +3283,6 @@
   "statusbar_elapsed_live_title": "Läuft seit {elapsed}",
   "statusbar_elapsed_done_title": "Gesamtlaufzeit {elapsed}",
   "feat_session_status_bar_title": "Eine Statusleiste für jede Session",
-  "feat_session_status_bar_body": "Jede Session-Ansicht endet jetzt in derselben Statusleiste: mit welchem CLI, Modell und Aufwand der Agent läuft, sein Token-Verbrauch und wie lange er schon arbeitet. Sie bleibt auf jedem Tab und in jeder Lebensphase an Ort und Stelle – auch beim Rework, wo das Banner darüber den Reviewer zeigt, während die Leiste die Identität des Task-Agenten behält – und bei fertigen Sessions in der Done-Ansicht."
+  "feat_session_status_bar_body": "Jede Session-Ansicht endet jetzt in derselben Statusleiste: mit welchem CLI, Modell und Aufwand der Agent läuft, sein Token-Verbrauch und wie lange er schon arbeitet. Sie bleibt auf jedem Tab und in jeder Lebensphase an Ort und Stelle – auch beim Rework, wo das Banner darüber den Reviewer zeigt, während die Leiste die Identität des Task-Agenten behält – und bei fertigen Sessions in der Done-Ansicht.",
+  "statusbar_identity_title": "Konfigurierte Umgebung: {identity}. Zur Laufzeit kann beim Start ersetzt werden (Nutzungs-Downgrade, Provider-Begrenzungen), ohne diese Einstellung zu ändern."
 }

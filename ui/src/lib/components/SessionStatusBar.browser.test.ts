@@ -203,6 +203,33 @@ describe("SessionStatusBar", () => {
     await expect.element(page.getByText("1h 30m")).toBeInTheDocument();
   });
 
+  it("labels the identity as configured intent — spawn may substitute the model", async () => {
+    // pushModelFlag applies usage-downgrade/availability fallbacks argv-only (never rewrites
+    // session.model), so the bar knowingly shows the CONFIGURED model with an explanatory
+    // title rather than claiming to know the effective spawn value.
+    render(SessionStatusBar, {
+      session: session({ id: "l", model: "fable", effort: "high" }),
+      usage: usage(),
+    });
+    const id = document.querySelector(".ssb-identity") as HTMLElement;
+    expect(id.textContent).toBe("Claude Code · fable · High");
+    expect(id.title).toContain("Configured environment: Claude Code · fable · High");
+    expect(id.title).toContain("usage downgrade");
+  });
+
+  it("labels a clamped codex effort tier as configured intent", async () => {
+    // Codex clamps max → high at spawn while the stored intent keeps "max" — the bar shows
+    // the stored tier, explicitly labeled as configuration, not the effective value.
+    render(SessionStatusBar, {
+      session: session({ id: "m", agentProvider: "codex", model: "gpt-5.5", effort: "max" }),
+      usage: usage({ available: false, source: "none", total: 0 }),
+    });
+    const id = document.querySelector(".ssb-identity") as HTMLElement;
+    expect(id.textContent).toBe("Codex · gpt-5.5 · Max");
+    expect(id.title).toContain("Configured environment: Codex · gpt-5.5 · Max");
+    expect(id.title).toContain("provider clamps");
+  });
+
   it("is a labelled group and never an ARIA live region", async () => {
     render(SessionStatusBar, { session: session({ id: "j" }), usage: usage() });
     const bar = document.querySelector(".ssb") as HTMLElement;

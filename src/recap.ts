@@ -14,7 +14,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
@@ -166,7 +166,8 @@ function defaultReadPlan(worktreePath: string): string {
 export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex recap that answers in
   // chat never writes the result file — see codex-last-message.ts). null → nothing to read yet.
-  const text = readRoleResultText(cwd, RECAP_VERDICT_FILE);
+  // Disposable-tmpdir role → fixed fallback name (its cwd is a fresh empty dir, so no pre-seed risk).
+  const text = readRoleResultText(cwd, RECAP_VERDICT_FILE, CODEX_LAST_MESSAGE_FILE);
   if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
   return r.status === "ok"

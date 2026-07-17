@@ -1,5 +1,5 @@
 /**
- * The Codex `-o` last-message fallback — one home for the file name and the shared read helper.
+ * The Codex `-o` last-message fallback — the filename helpers and the shared read helper.
  *
  * A headless `codex exec` role is told to WRITE its result as JSON to a role-specific file
  * (`.shepherd-recap.json`, `.shepherd-review.json`, …). Codex occasionally treats "write the
@@ -11,7 +11,20 @@
  * `codex exec -o <FILE>` makes the CLI ITSELF write the agent's final message to a file, with no
  * dependence on the model choosing to call a tool — so it captures exactly that chat-only case. The
  * flag is emitted for every Codex role (see codex-role-argv.ts) with a RELATIVE path, which Codex
- * resolves against the spawn's cwd (verified: the file lands in the disposable tmpdir).
+ * resolves against the spawn's cwd.
+ *
+ * ── UNTRUSTED-CHECKOUT SAFETY ────────────────────────────────────────────────────────────────────
+ * The PR critics (review.ts, standalone-critic.ts) run in a worktree checked out from the UNTRUSTED
+ * PR head. If the `-o` fallback had a fixed, guessable name, a malicious PR could commit a strict-JSON
+ * `.shepherd-last-message.txt` into its branch; the read finalizes a strict parse on the first tick
+ * and is provider-agnostic, so that pre-seed would short-circuit the real reviewer — a Claude reviewer
+ * included, which never writes an `-o` file at all. So this helper NEVER reads a hardcoded name: the
+ * caller passes the exact fallback filename, and reviewer-kind spawns use a PER-SPAWN UNGUESSABLE name
+ * keyed on the spawn's session id ({@link codexLastMessageFile}) — a name a PR author cannot know at
+ * authoring time, so a committed copy can never match the name the real run writes and reads. The
+ * disposable-tmpdir roles (recap, autopilot, rundown, distiller, optimizer, merge-suggest) run in a
+ * fresh empty dir nothing else can write, so they use the fixed {@link CODEX_LAST_MESSAGE_FILE} — safe
+ * there because there is no untrusted checkout to pre-seed.
  *
  * The result file stays the PRIMARY contract; the last-message file is a FALLBACK read only when the
  * result file is absent. In the normal success case BOTH files exist — the agent writes the result
@@ -26,31 +39,36 @@
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-/** The file `codex exec -o <FILE>` writes the agent's final message to. Relative → resolved against
- *  the spawn's cwd. Shared across every Codex role's result-read path + emitted by codexRoleArgv. */
+/** The FIXED last-message filename, used ONLY by the disposable-tmpdir roles (recap, autopilot,
+ *  rundown, distiller, optimizer, merge-suggest) whose cwd is a fresh empty dir no untrusted party
+ *  can write. Reviewer-kind spawns MUST NOT use this — they use {@link codexLastMessageFile}. */
 export const CODEX_LAST_MESSAGE_FILE = ".shepherd-last-message.txt";
+
+/** The PER-SPAWN last-message filename for a role that runs in an UNTRUSTED checkout (the PR critics).
+ *  Keyed on the spawn's session id — an unguessable `randomUUID()` minted per spawn — so a file a PR
+ *  commits into its head can never match the name the real run writes and later reads. The read side
+ *  reconstructs the same name from the session id it recorded for the spawn. */
+export function codexLastMessageFile(spawnSessionId: string): string {
+  return `.shepherd-last-message-${spawnSessionId}.txt`;
+}
 
 /**
  * Read a role's result text: the role's own `resultFile` first, falling back to the Codex `-o`
- * last-message file when the result file is absent. Returns null when neither exists (or is
- * unreadable mid-write — treat as not-yet-written and retry next tick). Callers apply their existing
- * parser/validator to the returned text, so behavior is unchanged whenever the result file is present.
+ * last-message file — read from the caller-provided `lastMessageFile` — when the result file is
+ * absent. Returns null when neither exists (or is unreadable mid-write — treat as not-yet-written and
+ * retry next tick). Callers apply their existing parser/validator to the returned text, so behavior is
+ * unchanged whenever the result file is present.
  *
- * `codexFallback` gates the `-o` fallback and defaults to `true` (the disposable-tmpdir roles — recap,
- * autopilot, rundown, distiller, optimizer, merge-suggest — run in a fresh empty dir no one else can
- * write, so the fixed-name fallback is safe there). A role that runs in an UNTRUSTED checkout (the PR
- * critics) MUST pass `codexFallback: <provider is Codex>`: the `-o` file is a Codex-only artifact, so
- * a non-Codex reviewer has no legitimate last-message file and must NEVER read one — otherwise a PR
- * that commits a strict-JSON `.shepherd-last-message.txt` into its head could short-circuit even a
- * Claude reviewer (the read + parse are provider-agnostic). Paired with scrubStaleVerdictArtifacts,
- * this "only enables the fallback for the matching completed Codex run".
+ * The fallback is read ONLY from the exact `lastMessageFile` the caller names; when it is omitted
+ * there is NO fallback. The helper hardcodes no fallback name, so a fixed guessable file a PR commits
+ * into an untrusted reviewer checkout is never read — reviewer-kind callers pass a per-spawn
+ * unguessable name ({@link codexLastMessageFile}); tmpdir roles pass {@link CODEX_LAST_MESSAGE_FILE}.
  */
 export function readRoleResultText(
   cwd: string,
   resultFile: string,
-  opts: { codexFallback?: boolean } = {},
+  lastMessageFile?: string,
 ): string | null {
-  const { codexFallback = true } = opts;
   const primary = join(cwd, resultFile);
   if (existsSync(primary)) {
     try {
@@ -59,8 +77,8 @@ export function readRoleResultText(
       return null; // unreadable mid-write — retry next tick
     }
   }
-  if (!codexFallback) return null; // non-Codex reviewer: no legitimate `-o` file — never read one
-  const fallback = join(cwd, CODEX_LAST_MESSAGE_FILE);
+  if (!lastMessageFile) return null; // no fallback requested
+  const fallback = join(cwd, lastMessageFile);
   if (existsSync(fallback)) {
     try {
       return readFileSync(fallback, "utf8");
@@ -72,25 +90,23 @@ export function readRoleResultText(
 }
 
 /**
- * Delete any pre-existing verdict artifacts from a reviewer/critic worktree BEFORE launching the
+ * Delete a pre-existing verdict RESULT file from a reviewer/critic worktree BEFORE launching the
  * role. REQUIRED for roles that spawn in a worktree checked out from UNTRUSTED PR contents (the PR
- * critics `review.ts` + `standalone-critic.ts` detach at the PR head): a malicious PR can commit a
- * strict-JSON `<resultFile>` or `.shepherd-last-message.txt` (the `-o` fallback) into its branch, and
- * because the read path finalizes a strict parse on the first tick AND is provider-agnostic, that
- * pre-seed would short-circuit the real reviewer — a Claude reviewer included, which never
- * legitimately writes an `-o` file at all. A detached reviewer worktree exists solely to inspect
- * committed code; the reviewer writes its verdict FRESH during the run, so any such artifact present
- * at launch is a pre-seed, never a real verdict — removing it is safe and closes the hole. Both the
- * role's own `resultFile` and the shared `-o` fallback file are scrubbed. Best-effort per file (a
- * missing file / unlink race must not block the spawn). Harmless for base-checkout reviewers (the
- * plan reviewer detaches at the trusted base) — a defense-in-depth no-op there.
+ * critics `review.ts` + `standalone-critic.ts` detach at the PR head): the result file has a FIXED
+ * name (the prompt tells the agent to write exactly `<resultFile>`), so a malicious PR can commit a
+ * strict-JSON `<resultFile>` into its branch, and because the read finalizes a strict parse on the
+ * first tick that pre-seed would short-circuit the real reviewer. A detached reviewer worktree exists
+ * solely to inspect committed code; the reviewer writes its verdict FRESH during the run, so a
+ * `<resultFile>` present at launch is a pre-seed, never a real verdict — removing it is safe and
+ * closes the hole. (The `-o` fallback needs no scrub: reviewer-kind spawns use a per-spawn unguessable
+ * name a PR can't pre-commit — see {@link codexLastMessageFile}.) Best-effort (a missing file / unlink
+ * race must not block the spawn). Harmless for base-checkout reviewers (the plan reviewer detaches at
+ * the trusted base) — a defense-in-depth no-op there.
  */
 export function scrubStaleVerdictArtifacts(worktreePath: string, resultFile: string): void {
-  for (const name of [resultFile, CODEX_LAST_MESSAGE_FILE]) {
-    try {
-      rmSync(join(worktreePath, name), { force: true });
-    } catch {
-      /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
-    }
+  try {
+    rmSync(join(worktreePath, resultFile), { force: true });
+  } catch {
+    /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
   }
 }

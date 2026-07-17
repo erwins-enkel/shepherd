@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
@@ -571,7 +571,8 @@ function defaultWriteSignals(
 function defaultReadProposals(dir: string): RawProposals | null {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex distiller that answers
   // in chat never writes the result file — see codex-last-message.ts).
-  const text = readRoleResultText(dir, PROPOSALS_FILE);
+  // Disposable-tmpdir role → fixed fallback name (fresh empty cwd, no pre-seed risk).
+  const text = readRoleResultText(dir, PROPOSALS_FILE, CODEX_LAST_MESSAGE_FILE);
   if (text === null) return null;
   try {
     return JSON.parse(text) as RawProposals;

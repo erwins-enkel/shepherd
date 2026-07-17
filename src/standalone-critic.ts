@@ -62,7 +62,6 @@ interface InFlight {
   worktreePath: string;
   terminalId: string;
   criticSessionId: string; // the critic's claude session id → locates its transcript for usage capture
-  reviewerProvider: RoleEnvironment["provider"]; // gates the `-o` fallback: PR head is untrusted
   startedAt: number;
   priorReviewedPatchIds: string[]; // churn/revert dedup set carried in from the prior pr_reviews row
   finalizing?: boolean;
@@ -105,10 +104,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
   /** Deferral/skip logging. Default console.log/console.warn. */
   log?: (msg: string) => void;
   /** Injectable verdict reader (default: read VERDICT_FILE from the worktree). */
-  readVerdict?: (
-    worktreePath: string,
-    provider?: RoleEnvironment["provider"],
-  ) => VerdictRead<RawVerdict>;
+  readVerdict?: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   /** Injectable diff fingerprint (default: real `git patch-id`). See ReviewService for the
    *  patchId/baseSha/files contract — identical here. */
   computePatchId?: (
@@ -137,10 +133,7 @@ export class StandalonePrCriticService {
   private timeoutMs: number;
   private concurrency: number;
   private log: (msg: string) => void;
-  private readVerdict: (
-    worktreePath: string,
-    provider?: RoleEnvironment["provider"],
-  ) => VerdictRead<RawVerdict>;
+  private readVerdict: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   private computePatchId: StandalonePrCriticDeps["computePatchId"] & {};
   private collectBaseDelta: typeof defaultCollectBaseDelta;
   private readUsage: (
@@ -533,7 +526,6 @@ export class StandalonePrCriticService {
       worktreePath,
       terminalId,
       criticSessionId,
-      reviewerProvider: env.provider,
       startedAt: this.now(),
       priorReviewedPatchIds: fp.priorReviewedPatchIds,
     });
@@ -558,7 +550,9 @@ export class StandalonePrCriticService {
   async tick(): Promise<void> {
     for (const f of [...this.inFlight.values()]) {
       if (f.finalizing) continue; // an overlapping tick already owns it
-      const read = this.readVerdict(f.worktreePath, f.reviewerProvider);
+      // Per-spawn session id → reconstructs this run's unguessable `-o` fallback name (a PR can't
+      // pre-commit a match; a Claude critic passes its id too but wrote no `-o` file → no fallback).
+      const read = this.readVerdict(f.worktreePath, f.criticSessionId);
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
       // A strict OR repaired parse is a usable verdict → finalize (repair recovers a malformed-but-
       // complete verdict that JSON.parse would have rejected). `absent`/`unparseable` mean no usable

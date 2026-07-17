@@ -5,11 +5,11 @@
  * state) — the session critic in `review.ts` re-exports these and wraps them with its own
  * streak/notes/publish control flow, which stays there.
  */
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, codexLastMessageFile } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
-import type { AgentProvider, ReviewDecision } from "./types";
+import type { ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
@@ -702,16 +702,19 @@ export async function defaultComputePatchId(
  */
 export function defaultReadVerdict(
   worktreePath: string,
-  provider?: AgentProvider | null,
+  spawnSessionId?: string,
 ): VerdictRead<RawVerdict> {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex critic that answers in
   // chat never writes the result file — see codex-last-message.ts). The critic worktree is checked
-  // out from the UNTRUSTED PR head, so the `-o` fallback is gated to a Codex reviewer: a non-Codex
-  // reviewer never writes one, and reading a PR-committed copy would short-circuit it. null → nothing
-  // to read yet.
-  const text = readRoleResultText(worktreePath, VERDICT_FILE, {
-    codexFallback: provider === "codex",
-  });
+  // out from the UNTRUSTED PR head, so the fallback is read from the PER-SPAWN unguessable name keyed
+  // on this spawn's session id — a PR can't pre-commit a file matching an id minted at spawn time, and
+  // a Claude reviewer (which writes no `-o` file, and has no session id passed here) reads no fallback
+  // at all. null → nothing to read yet.
+  const text = readRoleResultText(
+    worktreePath,
+    VERDICT_FILE,
+    spawnSessionId ? codexLastMessageFile(spawnSessionId) : undefined,
+  );
   if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
   return r.status === "ok"

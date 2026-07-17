@@ -1,5 +1,5 @@
 import { mkdtempSync, rmSync } from "node:fs";
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
@@ -47,7 +47,8 @@ function defaultMakeTmpDir(): string {
 function defaultReadVerdict(cwd: string): RawVerdict | null {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex classifier that answers
   // in chat never writes the result file — see codex-last-message.ts).
-  const text = readRoleResultText(cwd, VERDICT_FILE);
+  // Disposable-tmpdir role → fixed fallback name (fresh empty cwd, no pre-seed risk).
+  const text = readRoleResultText(cwd, VERDICT_FILE, CODEX_LAST_MESSAGE_FILE);
   if (text === null) return null;
   try {
     return JSON.parse(text) as RawVerdict;

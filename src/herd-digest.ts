@@ -15,7 +15,7 @@
  * reaches into index.ts's live caches directly (Task 3 wires the real ones).
  */
 import { mkdtempSync, rmSync } from "node:fs";
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionStore } from "./store";
@@ -63,7 +63,8 @@ export interface MergeTrainState {
 function defaultReadVerdict(cwd: string): string | null {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex rundown that answers in
   // chat never writes the result file — see codex-last-message.ts). null → partial write; retry.
-  return readRoleResultText(cwd, RUNDOWN_VERDICT_FILE);
+  // Disposable-tmpdir role → fixed fallback name (fresh empty cwd, no pre-seed risk).
+  return readRoleResultText(cwd, RUNDOWN_VERDICT_FILE, CODEX_LAST_MESSAGE_FILE);
 }
 
 function defaultMakeTmpDir(): string {

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { apiKeySettingsFragment } from "./spawn-auth";
 import { codexRoleArgv } from "./codex-role-argv";
+import { CODEX_LAST_MESSAGE_FILE, codexLastMessageFile } from "./codex-last-message";
 import { effortForSpawn } from "./default-effort";
 import type { AgentProvider } from "./types";
 
@@ -156,12 +157,26 @@ export function buildTransientAgentArgv(
   // Codex CLI path: a headless, workspace-write-sandboxed `codex exec` runs the same prompt (which
   // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,
   // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
-  // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
-  if (opts.provider === "codex")
+  // `--sandbox workspace-write`.
+  //
+  // The `-o` last-message file name is PER-SPAWN unguessable for the `reviewer` kind — the only kind
+  // that runs in an UNTRUSTED checkout (the PR critics), where a fixed name could be pre-committed by
+  // a malicious PR to short-circuit the critic (see codex-last-message.ts). Every other kind runs in a
+  // disposable tmpdir nothing else can write, so it uses the fixed name. The read side reconstructs
+  // the reviewer name from the `sessionId` returned here (recorded per spawn by the critic services).
+  if (opts.provider === "codex") {
+    const lastMessageFile =
+      kind === "reviewer" ? codexLastMessageFile(sessionId) : CODEX_LAST_MESSAGE_FILE;
     return {
-      argv: codexRoleArgv(opts.model, sanitizePromptArg(opts.prompt), opts.effort ?? null),
+      argv: codexRoleArgv(
+        opts.model,
+        sanitizePromptArg(opts.prompt),
+        opts.effort ?? null,
+        lastMessageFile,
+      ),
       sessionId,
     };
+  }
 
   const settings: Record<string, unknown> = { disableAllHooks: true };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;

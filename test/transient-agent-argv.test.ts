@@ -321,15 +321,24 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 
 test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] -o <file> <prompt>`", () => {
   for (const kind of ALL_KINDS) {
+    // `-o <last-message file>` sits between the config flags and the trailing prompt so Codex writes
+    // its final message to a file even when the agent answers in chat instead of writing the result
+    // file (see codex-last-message.ts). The reviewer kind runs in an UNTRUSTED checkout, so its `-o`
+    // name is PER-SPAWN unguessable (keyed on the returned sessionId); every other kind runs in a
+    // disposable tmpdir and uses the fixed name.
     const withModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: "gpt-5.5",
       prompt: "DO_IT",
-    }).argv;
-    // `-o <last-message file>` sits between the config flags and the trailing prompt so Codex writes
-    // its final message to a file even when the agent answers in chat instead of writing the result
-    // file (see codex-last-message.ts).
-    expect(withModel).toEqual([
+    });
+    const expectedName =
+      kind === "reviewer"
+        ? `.shepherd-last-message-${withModel.sessionId}.txt`
+        : ".shepherd-last-message.txt";
+    if (kind === "reviewer") {
+      expect(expectedName).not.toBe(".shepherd-last-message.txt"); // genuinely per-spawn
+    }
+    expect(withModel.argv).toEqual([
       "codex",
       "exec",
       "--sandbox",
@@ -337,7 +346,7 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       "-m",
       "gpt-5.5",
       "-o",
-      ".shepherd-last-message.txt",
+      expectedName,
       "DO_IT",
     ]);
     // No Claude flags leak in.
@@ -347,21 +356,25 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       "--safe-mode",
       "--disable-slash-commands",
     ]) {
-      expect(withModel).not.toContain(flag);
+      expect(withModel.argv).not.toContain(flag);
     }
     // No model → no -m flag, but the -o pair + trailing prompt remain.
     const noModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: null,
       prompt: "DO_IT",
-    }).argv;
-    expect(noModel).toEqual([
+    });
+    const noModelName =
+      kind === "reviewer"
+        ? `.shepherd-last-message-${noModel.sessionId}.txt`
+        : ".shepherd-last-message.txt";
+    expect(noModel.argv).toEqual([
       "codex",
       "exec",
       "--sandbox",
       "workspace-write",
       "-o",
-      ".shepherd-last-message.txt",
+      noModelName,
       "DO_IT",
     ]);
   }

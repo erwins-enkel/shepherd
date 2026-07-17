@@ -26,6 +26,16 @@ test("interactive directive references both reviewer and not-implementing-yet", 
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE).toContain("reviewer");
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE.toLowerCase()).toContain("aligned");
 });
+test("#1812 B/H: both plan-gate directives list Out-of-Scope + testing-seams schema sections", () => {
+  // Content assertions on the RENDERED directive text (NOT the self-referential
+  // planGateDirective*("claude") === constant guard, which stays green regardless).
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).toContain("out of scope");
+    expect(d).toContain("testing seams + decisions");
+    // pre-existing schema sections still present (additive change, nothing dropped)
+    expect(d).toContain("success criteria");
+  }
+});
 test("interactive directive makes the agent ask actively, not park questions in the plan", () => {
   // names AskUserQuestion as the choice-style mechanism (but not the exclusive channel)
   expect(PLAN_GATE_DIRECTIVE_INTERACTIVE).toContain("AskUserQuestion");

@@ -94,6 +94,13 @@ export function planReviewPrompt(
     "try to REFUTE the plan: is it the best path? Does it actually satisfy the task? What are the hidden",
     "risks, missing steps, wrong assumptions, or a materially simpler approach it ignored? You MAY inspect",
     "the codebase read-only (git log/show/diff, Read, Grep) to ground your critique.",
+    // #1812 findings B + H: the plan schema now carries an explicit "Out of Scope" boundary and a
+    // "testing seams + decisions" section, giving this reviewer a scope + testability surface to
+    // attack. A plan that leaves either implicit is refutable.
+    "Scrutinise the plan's SCOPE and TESTABILITY in particular: does it draw an explicit `Out of Scope` " +
+      "boundary (so scope creep can be caught at review), and does it name concrete testing seams — " +
+      "preferring existing seams and the fewest, highest ones — rather than a vague 'add tests'? Flag " +
+      "either being missing, too broad, or untestable as a blocking concern.",
     "",
     "TASK:",
     task,

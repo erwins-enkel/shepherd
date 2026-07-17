@@ -1,4 +1,5 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import type { SessionStore } from "./store";
 import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
@@ -202,6 +203,11 @@ export interface ReviewServiceDeps extends MembraneSeams {
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable reader for the session's approved `.shepherd-plan.md` (#1812 finding A; default
+   *  reads it from the LIVE session worktree). null when no plan was written. Fed to the critic as
+   *  UNTRUSTED intent-context. MUST read from `session.worktreePath`, NOT the critic's detached
+   *  worktree — the plan file is git-excluded, so it can never exist in a fresh head checkout. */
+  readPlan?: (worktreePath: string) => string | null;
 }
 
 export class ReviewService {
@@ -233,6 +239,7 @@ export class ReviewService {
     worktreePath: string,
     criticSessionId: string,
   ) => Promise<SessionUsage | null>;
+  private readPlan: (worktreePath: string) => string | null;
   private worktreeExists: (p: string) => boolean;
 
   constructor(private deps: ReviewServiceDeps) {
@@ -246,6 +253,7 @@ export class ReviewService {
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
     this.readActivity = deps.readActivity ?? defaultReadActivity;
     this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
 
@@ -397,6 +405,13 @@ export class ReviewService {
       this.deps.worktree.remove(wt.worktreePath);
       return;
     }
+    // Read the approved plan LAST — a synchronous local-file read (no await, so it does NOT touch
+    // the "last await-gated step before spawn" invariant that fixes the issue-body / epic-delta
+    // fetches above). Placed AFTER the rebaseSkip churn-skip, the tombstone re-check, and the
+    // api-key fail-closed early returns, so none of those common/early exits wastes a read. Read
+    // from session.worktreePath (the LIVE tree) — NOT wt.worktreePath (the critic's detached head
+    // checkout), where the git-excluded plan can never exist. Best-effort: null ⇒ no plan context.
+    const plan = this.readPlan(session.worktreePath);
     const { argv, sessionId: criticSessionId } = this.criticArgv(
       session,
       diffBase,
@@ -405,6 +420,7 @@ export class ReviewService {
       issueBody,
       reviewerEnv,
       epic,
+      plan,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -636,6 +652,7 @@ export class ReviewService {
     issueBody: string | null,
     env: RoleEnvironment,
     epic: EpicContext | null,
+    plan: string | null,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -648,7 +665,13 @@ export class ReviewService {
       provider: env.provider,
       model: env.model,
       effort: env.effort,
-      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic),
+      // #1812 finding A: the approved plan rides as UNTRUSTED intent-context (augmenting the task).
+      // The SCOPE-CREEP lens (finding B) is emitted by reviewPrompt itself (the session critic always
+      // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
+      // Absent plan + no epic ⇒ the non-epic session-critic prompt is unchanged from before finding B.
+      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
+        plan,
+      }),
     });
   }
 
@@ -1268,4 +1291,19 @@ export class ReviewService {
  *  transcript is missing or has no parseable activity yet. */
 function defaultReadActivity(worktreePath: string, criticSessionId: string): string | null {
   return readActivitySignal(jsonlPathFor(worktreePath, criticSessionId))?.summary ?? null;
+}
+
+/** #1812 finding A: read the session's approved `.shepherd-plan.md` from the LIVE session worktree.
+ *  null when absent/unreadable. Mirrors plan-gate.ts's reader — the plan file is git-excluded, so
+ *  this MUST be passed `session.worktreePath` (never the critic's detached head checkout, where it
+ *  can never exist). */
+const PLAN_FILE = ".shepherd-plan.md";
+function defaultReadPlan(worktreePath: string): string | null {
+  const p = join(worktreePath, PLAN_FILE);
+  if (!existsSync(p)) return null;
+  try {
+    return readFileSync(p, "utf8");
+  } catch {
+    return null;
+  }
 }

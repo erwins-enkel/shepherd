@@ -588,6 +588,26 @@ test("task prompt survives the variadic allowlist (not swallowed → no task →
   expect(firstFlag).toBeGreaterThanOrEqual(0);
 });
 
+// ── #1812 finding A: the approved plan is threaded into the critic prompt ────────────────────────
+
+test("critic prompt carries the approved plan (fenced UNTRUSTED) when readPlan returns one", async () => {
+  const { deps: d, started } = makeDeps({
+    // readPlan is passed session.worktreePath (the LIVE tree), NOT the detached critic worktree.
+    readPlan: (wt: string) => (wt === "/wt" ? "## Goal\nship the widget" : null),
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("APPROVED PLAN");
+  expect(prompt).toContain("⟦UNTRUSTED:approved plan:");
+  expect(prompt).toContain("ship the widget");
+});
+
+test("critic prompt omits the plan block when no plan exists (readPlan → null)", async () => {
+  const { deps: d, started } = makeDeps({ readPlan: () => null });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(started[0]!.argv.at(-1)!).not.toContain("APPROVED PLAN");
+});
+
 test("does not review the same head twice", async () => {
   const { deps: d, started } = makeDeps({});
   const svc = new ReviewService(d as any);

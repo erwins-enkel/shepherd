@@ -3,25 +3,36 @@ import {
   partitionSessions,
   shownSessions,
   flattenByStage,
+  GROUP_KEY_BY_STAGE,
   type HerdFilter,
 } from "./herd-partition";
 import { groupSessionsByEpic } from "./epic-grouping";
+import { groupSessionsByExperiment, type ExperimentGroup } from "./experiment-grouping";
 
 /** Pure ordering/cycling logic for the herd's keyboard navigation (j/k, g, 1-9).
  *  Sibling of herd-partition.ts: the page-level shortcut handler computes the
  *  rail's visible order here instead of duplicating Herd.svelte's template walk. */
 
+/** An experiment group's members in the exact order HerdExperimentGroups renders them
+ *  (variants first, then the comparison run). Shared by railOrder and railLocationsOf. */
+function experimentMembers(g: ExperimentGroup): Session[] {
+  return g.comparison ? [...g.variants, g.comparison] : g.variants;
+}
+
 /** Session ids in the exact order the herd rail renders them. Mirrors Herd.svelte's
- *  template: epic groups render at the TOP (in `groupSessionsByEpic` order, each
- *  group's sessions already lifecycle-flattened, a collapsed group contributing
- *  nothing), then the lifecycle sections render over the non-epic `rest` in
- *  `STAGE_ORDER`. Reuses the SAME `groupSessionsByEpic` + `flattenByStage` the
- *  template does, so the rail can never drift from the render.
+ *  grouping pipeline: comparison experiments are pulled out FIRST, then epic groups form
+ *  over the experiment `rest`, then the lifecycle sections render over the true rest in
+ *  `STAGE_ORDER`. The template order is epic groups → experiment groups → lifecycle, with
+ *  a collapsed epic group contributing nothing and a collapsed lifecycle stage
+ *  (`collapsedStageKeys`, desktop group collapse) dropping ONLY its rest rows — epic and
+ *  experiment members stay reachable because their groups render regardless of stage.
+ *  Reuses the SAME grouping helpers + `flattenByStage` the template does, so the rail can
+ *  never drift from the render.
  *
- *  The trailing epic args default empty: with no epics, `grouped.groups` is empty
- *  and `grouped.rest === shown`, so the output equals the pre-epic behavior
- *  (`flattenByStage(partitionSessions(shownSessions(...)))`) — existing callers and
- *  tests that pass no grouping args see identical order. */
+ *  The trailing epic/collapse args default empty: with no epics and no experiments,
+ *  `grouped.groups` is empty and `grouped.rest === shown`, so the output equals the
+ *  pre-epic behavior (`flattenByStage(partitionSessions(shownSessions(...)))`) — existing
+ *  callers and tests that pass no grouping args see identical order. */
 export function railOrder(
   sessions: Session[],
   git: Record<string, GitState>,
@@ -33,10 +44,12 @@ export function railOrder(
   epics: Record<string, Epic> = {},
   activeEpicKeys: Set<string> = new Set(),
   collapsedKeys: Set<string> = new Set(),
+  collapsedStageKeys: ReadonlySet<string> = new Set(),
 ): string[] {
   const shown = shownSessions(sessions, filter, isReviewing, workingBlocked, git, now);
+  const experimentGrouped = groupSessionsByExperiment(shown);
   const grouped = groupSessionsByEpic(
-    shown,
+    experimentGrouped.rest,
     epics,
     activeEpicKeys,
     git,
@@ -47,10 +60,66 @@ export function railOrder(
   const groupIds = grouped.groups.flatMap((g) =>
     collapsedKeys.has(g.key) ? [] : g.sessions.map((s) => s.id),
   );
+  const experimentIds = experimentGrouped.groups.flatMap((g) =>
+    experimentMembers(g).map((s) => s.id),
+  );
   const restIds = flattenByStage(
     partitionSessions(grouped.rest, git, isReviewing, isReworkRunning, now),
+    collapsedStageKeys,
   ).map((s) => s.id);
-  return [...groupIds, ...restIds];
+  return [...groupIds, ...experimentIds, ...restIds];
+}
+
+/** Where a session renders in the herd rail: inside an experiment group (never
+ *  collapsible), inside an epic group (collapsed via the epic set), or in a lifecycle
+ *  section of the rest (collapsed via the desktop stage set, keyed by
+ *  GROUP_KEY_BY_STAGE). Sessions not in the input list have no location. */
+export type RailLocation =
+  { kind: "experiment" } | { kind: "epic"; key: string } | { kind: "stage"; key: string };
+
+/** Classify every session by where it renders, in ONE pass of the exact grouping
+ *  pipeline the template (and railOrder) uses: experiments first, epics over the
+ *  experiment rest, lifecycle partition over the true rest. Single authority for
+ *  "which collapsed group hides this row" — jump handlers expand based on this, so an
+ *  experiment member (even one carrying epic metadata) can never open an epic or
+ *  lifecycle group it doesn't render in. */
+export function railLocationsOf(
+  sessions: Session[],
+  git: Record<string, GitState>,
+  isReviewing: (id: string) => boolean,
+  isReworkRunning: (session: Session) => boolean,
+  now: number,
+  epics: Record<string, Epic> = {},
+  activeEpicKeys: Set<string> = new Set(),
+): Map<string, RailLocation> {
+  const experimentGrouped = groupSessionsByExperiment(sessions);
+  const grouped = groupSessionsByEpic(
+    experimentGrouped.rest,
+    epics,
+    activeEpicKeys,
+    git,
+    isReviewing,
+    isReworkRunning,
+    now,
+  );
+  const partition = partitionSessions(grouped.rest, git, isReviewing, isReworkRunning, now);
+  // Entries array (not .set in a loop) so callers get a plain non-reactive lookup,
+  // matching the page's previous epicGroupOf pattern.
+  const entries: [string, RailLocation][] = [
+    ...experimentGrouped.groups.flatMap((g) =>
+      experimentMembers(g).map((s): [string, RailLocation] => [s.id, { kind: "experiment" }]),
+    ),
+    ...grouped.groups.flatMap((g) =>
+      g.sessions.map((s): [string, RailLocation] => [s.id, { kind: "epic", key: g.key }]),
+    ),
+    ...(Object.keys(GROUP_KEY_BY_STAGE) as (keyof typeof GROUP_KEY_BY_STAGE)[]).flatMap((stage) =>
+      partition[stage].map((s): [string, RailLocation] => [
+        s.id,
+        { kind: "stage", key: GROUP_KEY_BY_STAGE[stage] },
+      ]),
+    ),
+  ];
+  return new Map(entries);
 }
 
 /** The id one step (+1 down / -1 up) from `currentId` in `order`, wrapping at
@@ -138,22 +207,6 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
     if (id !== currentId) return id;
   }
   return null;
-}
-
-/** Resolve the next needs-you jump target plus the epic group key (if any) that must be
- *  expanded so the target row is visible. `groupOf` maps sessionId → its epic group key.
- *  Backs the command bar's `next-needs-you` verb: resolves the target AND the
- *  collapsed-group-to-expand through one tested helper. */
-export function nextNeedsYouTarget(
-  blockedIds: string[],
-  currentId: string | null,
-  groupOf: Map<string, string>,
-  collapsed: ReadonlySet<string>,
-): { id: string | null; expand: string | null } {
-  const id = nextNeedsYou(blockedIds, currentId);
-  if (id === null) return { id: null, expand: null };
-  const key = groupOf.get(id);
-  return { id, expand: key != null && collapsed.has(key) ? key : null };
 }
 
 /** The command-bar chord: Cmd/Ctrl+K with no other modifier held. Shared by

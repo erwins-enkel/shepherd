@@ -206,9 +206,39 @@ const STAGE_ORDER = [
   "merged",
 ] as const satisfies readonly Stage[];
 
-/** Flatten a partitionSessions result into a single list in STAGE_ORDER. */
-export function flattenByStage(p: ReturnType<typeof partitionSessions>): Session[] {
-  return STAGE_ORDER.flatMap((stage) => p[stage]);
+/** The hyphenated group key each lifecycle stage renders under — the `key` of
+ *  Herd.svelte's `partitionGroups` entries and the value the desktop collapse state
+ *  (`collapsedStages`) and group-toggle callbacks speak. Single source of truth:
+ *  Herd.svelte, `flattenByStage`'s collapse skip, and herd-keynav's locator all read
+ *  from here, so a renamed key can never drift between render, state, and keynav. */
+export const GROUP_KEY_BY_STAGE = {
+  active: "active",
+  ciRunning: "ci-running",
+  ciFailed: "ci-failed",
+  reviewerRunning: "reviewer-running",
+  reworkRunning: "rework-running",
+  needsRework: "needs-rework",
+  branchProtectionBlocked: "branch-protection-blocked",
+  waitingOnReviewer: "waiting-reviewer",
+  waitingOnMerger: "waiting-merger",
+  draftAwaitingSignoff: "draft-signoff",
+  awaitingMerge: "awaiting-merge",
+  ready: "ready",
+  merging: "merging",
+  merged: "merged",
+} as const satisfies Record<Stage, string>;
+
+/** Flatten a partitionSessions result into a single list in STAGE_ORDER. Stages whose
+ *  group key (per GROUP_KEY_BY_STAGE) is in `collapsedGroupKeys` contribute nothing —
+ *  the desktop lifecycle collapse hides exactly those rows, and keynav's rail order
+ *  must skip what the rail doesn't render. Defaults to no skips for existing callers. */
+export function flattenByStage(
+  p: ReturnType<typeof partitionSessions>,
+  collapsedGroupKeys: ReadonlySet<string> = new Set(),
+): Session[] {
+  return STAGE_ORDER.flatMap((stage) =>
+    collapsedGroupKeys.has(GROUP_KEY_BY_STAGE[stage]) ? [] : p[stage],
+  );
 }
 
 export function partitionSessions(

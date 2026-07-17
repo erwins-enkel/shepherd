@@ -3,6 +3,7 @@ import {
   partitionSessions as partitionSessionsRaw,
   shownSessions,
   flattenByStage,
+  GROUP_KEY_BY_STAGE,
 } from "./herd-partition";
 import type { Session, GitState, SessionStatus } from "$lib/types";
 
@@ -618,4 +619,42 @@ test('"ready" filter is unchanged with no git/now args (backward compat)', () =>
   // excluded stage, so the legacy 4-arg call behaves exactly as before.
   const list = [session("a", false, "idle"), session("b", false, "blocked")];
   expect(shownSessions(list, "ready", () => false).map((s) => s.id)).toEqual(["a", "b"]);
+});
+
+test("GROUP_KEY_BY_STAGE maps every stage to its exact render group key", () => {
+  // Frozen 1:1 — these are the keys Herd.svelte's partitionGroups render under and the
+  // desktop collapse state stores; a rename on either side must fail here first.
+  expect(GROUP_KEY_BY_STAGE).toEqual({
+    active: "active",
+    ciRunning: "ci-running",
+    ciFailed: "ci-failed",
+    reviewerRunning: "reviewer-running",
+    reworkRunning: "rework-running",
+    needsRework: "needs-rework",
+    branchProtectionBlocked: "branch-protection-blocked",
+    waitingOnReviewer: "waiting-reviewer",
+    waitingOnMerger: "waiting-merger",
+    draftAwaitingSignoff: "draft-signoff",
+    awaitingMerge: "awaiting-merge",
+    ready: "ready",
+    merging: "merging",
+    merged: "merged",
+  });
+});
+
+test("flattenByStage skips stages whose group key is collapsed", () => {
+  const list = [
+    session("act"),
+    session("am", false, "idle"),
+    session("rdy", true, "idle"),
+    session("mrg", false, "idle"),
+  ];
+  const p = partitionSessions(list, {
+    am: git("open", "success"),
+    mrg: git("merged"),
+  });
+  // sanity: full flatten sees all four in stage order
+  expect(flattenByStage(p).map((s) => s.id)).toEqual(["act", "am", "rdy", "mrg"]);
+  const collapsed = new Set([GROUP_KEY_BY_STAGE.awaitingMerge, GROUP_KEY_BY_STAGE.merged]);
+  expect(flattenByStage(p, collapsed).map((s) => s.id)).toEqual(["act", "rdy"]);
 });

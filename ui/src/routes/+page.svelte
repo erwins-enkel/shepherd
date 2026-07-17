@@ -91,13 +91,13 @@
   import Herd from "$lib/components/Herd.svelte";
   import {
     railOrder,
+    railLocationsOf,
     isCommandBarChord,
     cycleId,
     nthId,
-    nextNeedsYouTarget,
     altComboKey,
   } from "$lib/components/herd-keynav";
-  import { groupSessionsByEpic } from "$lib/components/epic-grouping";
+  import { createJumpHandlers } from "$lib/components/herd-jump";
   import { normalizeEpicCollapse } from "$lib/components/herd-epic-collapse";
   import { isReworkRunning as isReworkRunningSession } from "$lib/components/rework-running";
   import { buildCommands } from "$lib/command-registry";
@@ -411,8 +411,10 @@
         store.workingBlocked,
         selected,
       );
-      // toDetail=false: filtering the list must not fling a phone user into a terminal.
-      if (target) selectUnit(target, false, false);
+      // toDetail=false lives in the handler: filtering the list must not fling a
+      // phone user into a terminal. Routed through jumpHandlers so a target in a
+      // collapsed (desktop) lifecycle group is revealed before selection.
+      if (target) void jumpHandlers.retargetForRepoFilter(target);
     });
   });
   // Session-status filter toggled from the TopBar tallies; null = all statuses.
@@ -493,6 +495,15 @@
     if (collapsedEpics.has(key)) expandEpicGroup(key);
     else collapseEpicGroup(key);
   }
+  // Desktop lifecycle-group collapse (GROUP_KEY_BY_STAGE keys). Same page-owned
+  // SvelteSet pattern as collapsedEpics — shared with <Herd> (render) and railOrder
+  // (nav). In-memory by design: a reload reopens every group. No normalization
+  // needed: stage keys are stable (unlike epic keys, which come and go per epic).
+  const collapsedStages = new SvelteSet<string>();
+  function toggleStageCollapse(key: string) {
+    if (collapsedStages.has(key)) collapsedStages.delete(key);
+    else collapsedStages.add(key);
+  }
   // Seed store.epics for any active epic we don't have the full Epic for yet (header
   // needs title + X/Y + backlog link). Reactive on activeEpicKeys, deduped per key.
   // Fires on load (drain bootstrapped) and when an epic starts mid-session. The effect
@@ -517,12 +528,14 @@
     }
   });
   // sessionId → epic group key, from the SAME pure grouping the Herd render + rail use.
-  // Drives NEEDS-YOU auto-expand: a jump target sitting in a collapsed group is found
-  // here so the handler can expand that group before selecting. Built off raw
-  // herdSessions (no rail ready/status filter): it only resolves the group of a blocked
-  // jump target (which always passes the filter) to remove a collapsed key — never used
-  // for ordering — so the filter asymmetry with render/rail is intentional and harmless.
-  const epicGroupOf = $derived.by(() => {
+  // Drives every global jump's reveal-before-select: where a target renders (experiment
+  // group / epic group / lifecycle stage of the rest) so the handler can expand exactly
+  // the collapsed group hiding it — an experiment member expands nothing (its group never
+  // collapses). Built off raw herdSessions (no rail ready/status filter): it only
+  // resolves the group of a jump target (which always passes the filter) to remove a
+  // collapsed key — never used for ordering — so the filter asymmetry with render/rail
+  // is intentional and harmless.
+  const railLocations = $derived.by(() => {
     const isReviewing = (id: string) => reviews.isReviewing(id) || planGates.isReviewing(id);
     const isReworkRunning = (session: Session) =>
       isReworkRunningSession(
@@ -531,19 +544,14 @@
         store.workingBlocked,
         nowMs,
       );
-    const { groups } = groupSessionsByEpic(
+    return railLocationsOf(
       herdSessions,
-      store.epics,
-      activeEpicKeys,
       store.git,
       isReviewing,
       isReworkRunning,
       nowMs,
-    );
-    // Build from an entries array (not .set in a loop) so it's a plain non-reactive
-    // lookup, matching Herd's groupParts pattern.
-    return new Map<string, string>(
-      groups.flatMap((g) => g.sessions.map((s): [string, string] => [s.id, g.key])),
+      store.epics,
+      activeEpicKeys,
     );
   });
 
@@ -1309,21 +1317,17 @@
 
   // A global session jump must leave the target visible in the herd, even when a lens or
   // repo/status filter currently hides it. Shared by the command bar and auto-merge strip.
+  // Routed through jumpHandlers (herd-jump.ts) so a target in a collapsed group is
+  // revealed before selection.
   function jumpToSession(id: string) {
-    showBacklog = false;
-    herdFilter = "all";
-    statusFilter = null;
-    const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
-    if (repoPath) followFilterToRepo(repoPath);
-    selectUnit(id);
+    void jumpHandlers.jumpToSession(id);
   }
 
   // Deep-link a Rundown item to its live session: leave the panel-only Rundown lens
   // (back to the full list so the session row is visible) and select it via the same
   // selectUnit a rail click uses.
   function selectRundownItem(id: string) {
-    herdFilter = "all";
-    selectUnit(id);
+    void jumpHandlers.selectRundownItem(id);
   }
 
   // Deep-link a Rundown epics-to-land item (#1045) to its row in the IntegratedEpicsBand: leave the
@@ -1451,6 +1455,7 @@
       store.epics,
       activeEpicKeys,
       collapsedEpics,
+      collapsedStages,
     );
   }
 
@@ -1626,23 +1631,52 @@
   // command bar's `next-needs-you` verb and tells the operator how many remain.
   const otherNeedsYou = $derived(blockedEntries.filter((e) => e.session.id !== selectedId));
 
-  // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
-  // as the NEEDS YOU badge) starting after the current one, wrapping around. Keep
-  // blockedEntries UNFILTERED (count + jump stay on the same full set); if the target
-  // sits in a collapsed epic group, expand it first so the row is visible. Backs the
-  // command bar's `next-needs-you` verb.
-  async function selectNextNeedsYou(focusTerm = true) {
-    const { id, expand } = nextNeedsYouTarget(
-      blockedEntries.map((entry) => entry.session.id),
-      selectedId,
-      epicGroupOf,
+  // Every global (outside-the-rail) session jump, built on herd-jump.ts's single
+  // reveal-before-select core: a target hidden in a collapsed epic group or (desktop)
+  // collapsed lifecycle group is expanded — after the path's filter/lens effects ran,
+  // so an initially filter-hidden target resolves — then selected once its row mounted.
+  // All mutable deps are live getters; the SvelteSets are live references.
+  const jumpHandlers = createJumpHandlers(
+    {
+      locate: () => railLocations,
+      selectedId: () => selectedId,
+      // blockedEntries stays UNFILTERED (count + jump read the same full set)
+      blockedIds: () => blockedEntries.map((entry) => entry.session.id),
+      isDesktop: () => !mobile.current,
       collapsedEpics,
-    );
-    if (expand) {
-      expandEpicGroup(expand);
-      await tick(); // let the now-expanded group's rows mount so keyNavSelect can scroll to the target
-    }
-    keyNavSelect(id, focusTerm);
+      collapsedStages,
+      expandEpic: expandEpicGroup,
+      expandStage: (key) => collapsedStages.delete(key),
+      tick,
+      select: selectUnit,
+      keyNavSelect,
+    },
+    {
+      resetLensAndFilters: () => {
+        showBacklog = false;
+        herdFilter = "all";
+        statusFilter = null;
+      },
+      followRepo: (id) => {
+        const repoPath = store.sessions.find((s) => s.id === id)?.repoPath;
+        if (repoPath) followFilterToRepo(repoPath);
+      },
+      leaveRundown: () => {
+        herdFilter = "all";
+      },
+      beforeHerdrUpdateJump: () => {
+        showHerdrUpdate = false;
+        herdrUpdating = false;
+        store.herdrUpdateDone = null;
+      },
+    },
+  );
+
+  // Jump to the next waiting session: walk blockedEntries (oldest-first, same set
+  // as the NEEDS YOU badge) starting after the current one, wrapping around. Backs
+  // the command bar's `next-needs-you` verb.
+  function selectNextNeedsYou(focusTerm = true) {
+    void jumpHandlers.selectNextNeedsYou(focusTerm);
   }
 
   // if the selected unit disappears while in mobile detail, fall back to the list
@@ -1659,7 +1693,7 @@
     // Learnings-retire push deep-link (issue #852): ?learnings=1 (cold open) or an
     // "open-learnings" message from the SW (open/backgrounded window) opens the drawer.
     if (params.get("learnings") === "1") showLearnings = true;
-    const disposeSelect = onSelectSession((id) => selectUnit(id));
+    const disposeSelect = onSelectSession((id) => void jumpHandlers.selectFromDeepLink(id));
     const disposeLearnings = onOpenLearnings(() => (showLearnings = true));
     listSessions()
       .then((list) => {
@@ -2785,7 +2819,7 @@
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
-            onnavigate={(id) => selectUnit(id)}
+            onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
@@ -2863,6 +2897,9 @@
               holds={store.holds}
               collapsible={canCollapse}
               oncollapse={toggleSidebar}
+              collapsedStageKeys={collapsedStages}
+              onstagecollapsetoggle={toggleStageCollapse}
+              touch={touch.current}
               completedEpics={completedEpicsShown}
               ondismissepic={onDismissEpic}
               onlandepic={onLandEpic}
@@ -2951,7 +2988,7 @@
             onSeedBuildQueue={(q) => store.setBuildQueue(q)}
             queue={blockedEntries.map((e) => e.session.id)}
             switchOrder={store.sessions.map((s) => s.id)}
-            onnavigate={(id) => selectUnit(id)}
+            onnavigate={(id) => void jumpHandlers.navigateFromViewport(id)}
             {consumeAutoFocusTerm}
             {onarchive}
             workingBlocked={store.workingBlocked}
@@ -3004,12 +3041,7 @@
     herdrUpdating = false;
     store.herdrUpdateDone = null;
   }}
-  onherdrupdatejump={(id) => {
-    showHerdrUpdate = false;
-    herdrUpdating = false;
-    store.herdrUpdateDone = null;
-    selectUnit(id);
-  }}
+  onherdrupdatejump={(id) => void jumpHandlers.jumpFromHerdrUpdate(id)}
   {showCodexUpdate}
   {codexUpdating}
   oncodexupdateconfirm={() => {

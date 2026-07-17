@@ -264,6 +264,7 @@ export const planGates = new PlanGateStore();
 class RepoConfigStore {
   enabled = $state<Record<string, boolean>>({}); // critic on/off (default on)
   allPrs = $state<Record<string, boolean>>({}); // standalone repo-wide PR critic on/off (default off)
+  smellLens = $state<Record<string, boolean>>({}); // Fowler code-smell lens on the session critic (default off, #1824)
   autoAddress = $state<Record<string, boolean>>({}); // auto-address loop on/off (default off)
   learnings = $state<Record<string, boolean>>({}); // house-rule injection (default on)
   autopilot = $state<Record<string, boolean>>({}); // autopilot mode (default off)
@@ -300,6 +301,7 @@ class RepoConfigStore {
   private ingest(repoPath: string, c: RepoConfigResponse) {
     this.enabled = { ...this.enabled, [repoPath]: c.criticEnabled };
     this.allPrs = { ...this.allPrs, [repoPath]: c.criticAllPrs };
+    this.smellLens = { ...this.smellLens, [repoPath]: c.criticSmellLensEnabled };
     this.autoAddress = { ...this.autoAddress, [repoPath]: c.autoAddressEnabled };
     this.learnings = { ...this.learnings, [repoPath]: c.learningsEnabled };
     this.autopilot = { ...this.autopilot, [repoPath]: c.autopilotEnabled };
@@ -392,6 +394,7 @@ class RepoConfigStore {
         RepoConfig,
         | "criticEnabled"
         | "criticAllPrs"
+        | "criticSmellLensEnabled"
         | "autoAddressEnabled"
         | "learningsEnabled"
         | "autopilotEnabled"
@@ -439,6 +442,15 @@ class RepoConfigStore {
     this.allPrs = { ...this.allPrs, [repoPath]: next }; // optimistic
     await this.apply(repoPath, { criticAllPrs: next }, () => {
       this.allPrs = { ...this.allPrs, [repoPath]: prev };
+    });
+  }
+
+  async toggleSmellLens(repoPath: string) {
+    const prev = this.smellLens[repoPath];
+    const next = !this.smellLensOn(repoPath);
+    this.smellLens = { ...this.smellLens, [repoPath]: next }; // optimistic
+    await this.apply(repoPath, { criticSmellLensEnabled: next }, () => {
+      this.smellLens = { ...this.smellLens, [repoPath]: prev };
     });
   }
 
@@ -686,6 +698,10 @@ class RepoConfigStore {
     return this.allPrs[repoPath] ?? false;
   }
 
+  smellLensOn(repoPath: string): boolean {
+    return this.smellLens[repoPath] ?? false;
+  }
+
   isAutoAddressEnabled(repoPath: string): boolean {
     return this.autoAddress[repoPath] ?? false;
   }
@@ -767,6 +783,7 @@ class RepoConfigStore {
     return {
       critic: this.isEnabled(repoPath),
       criticAllPrs: this.isAllPrsEnabled(repoPath),
+      smellLens: this.smellLensOn(repoPath),
       autoAddress: this.isAutoAddressEnabled(repoPath),
       learnings: this.learningsOn(repoPath),
       autopilot: this.isAutopilotEnabled(repoPath),

@@ -415,6 +415,7 @@ test("consider does nothing when learnings disabled for the repo", async () => {
   store.setRepoConfig("/r", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -460,6 +461,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
       getRepoConfig: () => ({
         criticEnabled: true,
         criticAllPrs: false,
+        criticSmellLensEnabled: false,
         autoAddressEnabled: false,
         learningsEnabled: true,
         autopilotEnabled: false,

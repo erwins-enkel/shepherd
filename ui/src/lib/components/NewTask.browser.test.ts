@@ -64,6 +64,7 @@ function repoConfig(
   return {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -1666,6 +1667,7 @@ function unconfirmedNewRepoConfig(): RepoConfig & {
   return {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

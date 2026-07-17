@@ -412,6 +412,9 @@ export class ReviewService {
     // from session.worktreePath (the LIVE tree) — NOT wt.worktreePath (the critic's detached head
     // checkout), where the git-excluded plan can never exist. Best-effort: null ⇒ no plan context.
     const plan = this.readPlan(session.worktreePath);
+    // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
+    // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
+    const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
     const { argv, sessionId: criticSessionId } = this.criticArgv(
       session,
       diffBase,
@@ -421,6 +424,7 @@ export class ReviewService {
       reviewerEnv,
       epic,
       plan,
+      smellLens,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -653,6 +657,7 @@ export class ReviewService {
     env: RoleEnvironment,
     epic: EpicContext | null,
     plan: string | null,
+    smellLens: boolean,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -668,9 +673,11 @@ export class ReviewService {
       // #1812 finding A: the approved plan rides as UNTRUSTED intent-context (augmenting the task).
       // The SCOPE-CREEP lens (finding B) is emitted by reviewPrompt itself (the session critic always
       // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
-      // Absent plan + no epic ⇒ the non-epic session-critic prompt is unchanged from before finding B.
+      // #1824 finding C: `smellLens` (per-repo flag, default OFF) appends the POSSIBLE-SMELLS lens.
+      // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
         plan,
+        smellLens,
       }),
     });
   }

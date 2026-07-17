@@ -9,6 +9,7 @@ import {
 const flags = (over: Partial<AutomationFlags> = {}): AutomationFlags => ({
   critic: false,
   criticAllPrs: false,
+  smellLens: false,
   autoAddress: false,
   learnings: false,
   autopilot: false,
@@ -41,12 +42,18 @@ describe("automationCount", () => {
     expect(automationCount(flags({ critic: true, autoAddress: true }))).toBe(2);
   });
 
-  it("never exceeds 10", () => {
+  it("does NOT count the smell lens unless the critic is on (dependency)", () => {
+    expect(automationCount(flags({ smellLens: true }))).toBe(0);
+    expect(automationCount(flags({ critic: true, smellLens: true }))).toBe(2);
+  });
+
+  it("never exceeds 11", () => {
     expect(
       automationCount(
         flags({
           critic: true,
           criticAllPrs: true,
+          smellLens: true,
           autoAddress: true,
           planGate: true,
           learnings: true,
@@ -57,7 +64,7 @@ describe("automationCount", () => {
           draftMode: true,
         }),
       ),
-    ).toBe(10);
+    ).toBe(11);
   });
 
   it("counts draftMode independently", () => {
@@ -66,10 +73,10 @@ describe("automationCount", () => {
 });
 
 describe("AUTOMATION_GROUPS", () => {
-  it("lists all ten automation keys exactly once", () => {
+  it("lists all eleven automation keys exactly once", () => {
     const keys = AUTOMATION_GROUPS.flatMap((g) => g.items);
-    expect(keys).toHaveLength(10);
-    expect(new Set(keys).size).toBe(10);
+    expect(keys).toHaveLength(11);
+    expect(new Set(keys).size).toBe(11);
     expect(keys.sort()).toEqual(
       [
         "autoAddress",
@@ -79,6 +86,7 @@ describe("AUTOMATION_GROUPS", () => {
         "buildQueue",
         "critic",
         "criticAllPrs",
+        "smellLens",
         "draftMode",
         "learnings",
         "planGate",
@@ -91,6 +99,7 @@ describe("AUTOMATION_GROUPS", () => {
     expect(AUTOMATION_GROUPS[0].items).toEqual([
       "critic",
       "criticAllPrs",
+      "smellLens",
       "autoAddress",
       "planGate",
     ]);
@@ -106,7 +115,7 @@ describe("AUTOMATION_GROUPS", () => {
 
 describe("AUTOMATION_TOTAL", () => {
   it("is the item count across all groups (the pill denominator)", () => {
-    expect(AUTOMATION_TOTAL).toBe(10);
+    expect(AUTOMATION_TOTAL).toBe(11);
     expect(AUTOMATION_TOTAL).toBe(AUTOMATION_GROUPS.flatMap((g) => g.items).length);
   });
 });

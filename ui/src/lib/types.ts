@@ -751,6 +751,9 @@ export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review EVERY open CI-green PR, not just session PRs (default off). */
   criticAllPrs: boolean;
+  /** Append the named Fowler code-smell lens to the session critic's prompt (#1824). Non-blocking
+   *  (matches go to a body section, never findings). Experimental trial, default OFF. */
+  criticSmellLensEnabled: boolean;
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
   autopilotEnabled: boolean;

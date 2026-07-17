@@ -292,6 +292,7 @@ function setRepoAutopilot(store: SessionStore, on: boolean, repoPath = "/repo") 
   store.setRepoConfig(repoPath, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: on,
@@ -506,6 +507,7 @@ test("createSession: codex plan-gate + build-queue + autopilot → build queue s
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: true,
@@ -4255,6 +4257,7 @@ test("create omits house rules when learnings disabled for the repo", async () =
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -4310,6 +4313,7 @@ test("create seeds the autopilot directive when the repo has autopilot on", asyn
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: true,
@@ -5211,6 +5215,7 @@ function buildQueueDeps(
     store.setRepoConfig("/repo", {
       criticEnabled: true,
       criticAllPrs: false,
+      criticSmellLensEnabled: false,
       autoAddressEnabled: false,
       learningsEnabled: false,
       autopilotEnabled: false,
@@ -7106,6 +7111,7 @@ test("create research under autonomous: downgrades to standard (sandboxApplied=s
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -7152,6 +7158,7 @@ test("create NON-research under autonomous: stays autonomous (no downgrade)", as
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,

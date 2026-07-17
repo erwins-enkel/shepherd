@@ -152,6 +152,7 @@ function makeHarness(opts: {
   store.setRepoConfig(REPO, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

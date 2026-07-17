@@ -142,6 +142,11 @@ Break the intent into a backlog of **tracer-bullet vertical slices**. The method
   **epic** — split it into child slices.
 - Each issue gets a crisp title and a body stating the goal, the vertical cut, and a
   checkable acceptance criterion.
+- **Don't bake concrete file paths into an issue body.** An issue can sit in the
+  backlog for weeks before it drains, and paths named in it may have moved or been
+  renamed by then — the draining agent then follows a stale map. Point at stable
+  anchors (a module/feature name, an exported symbol, a glob) and let the agent
+  locate the current files when it picks the issue up.
 
 Express dependencies with an `epic-dag` fence (the format Shepherd's importer reads —
 `#<dependent> <- #<blocker>, #<blocker>`; a bare `#<n>` line is a member with no

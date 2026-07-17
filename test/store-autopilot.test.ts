@@ -126,6 +126,7 @@ test("repo config autopilotEnabled defaults off and round-trips", () => {
   store.setRepoConfig("/repo", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: true,

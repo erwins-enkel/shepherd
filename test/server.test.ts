@@ -1491,6 +1491,7 @@ test("GET /api/learnings/injectable marks all rules uninjected when learnings di
   deps.store.setRepoConfig("/off", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,

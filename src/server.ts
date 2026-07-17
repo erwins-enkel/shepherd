@@ -1280,6 +1280,7 @@ function parsePreviewOpenMode(v: unknown): "ask" | "inline" | "tab" | { error: s
 const REPO_CFG_BOOL_FIELDS = [
   "criticEnabled",
   "criticAllPrs",
+  "criticSmellLensEnabled",
   "autoAddressEnabled",
   "learningsEnabled",
   "autopilotEnabled",
@@ -1297,6 +1298,7 @@ const REPO_CFG_BOOL_FIELDS = [
 type RepoCfgBody = {
   criticEnabled?: unknown;
   criticAllPrs?: unknown;
+  criticSmellLensEnabled?: unknown;
   autoAddressEnabled?: unknown;
   learningsEnabled?: unknown;
   autopilotEnabled?: unknown;
@@ -1396,6 +1398,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   | {
       criticEnabled?: boolean;
       criticAllPrs?: boolean;
+      criticSmellLensEnabled?: boolean;
       autoAddressEnabled?: boolean;
       learningsEnabled?: boolean;
       autopilotEnabled?: boolean;
@@ -1479,6 +1482,7 @@ async function parseRepoConfigPatch(req: Request): Promise<
   return {
     criticEnabled: body.criticEnabled as boolean | undefined,
     criticAllPrs: body.criticAllPrs as boolean | undefined,
+    criticSmellLensEnabled: body.criticSmellLensEnabled as boolean | undefined,
     autoAddressEnabled: body.autoAddressEnabled as boolean | undefined,
     learningsEnabled: body.learningsEnabled as boolean | undefined,
     autopilotEnabled: body.autopilotEnabled as boolean | undefined,

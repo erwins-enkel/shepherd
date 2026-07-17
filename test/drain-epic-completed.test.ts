@@ -90,6 +90,7 @@ function makeHarness(opts: HarnessOpts): Harness {
   store.setRepoConfig(REPO, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

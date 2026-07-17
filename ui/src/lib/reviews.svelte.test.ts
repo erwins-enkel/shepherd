@@ -24,6 +24,7 @@ import {
 const rc = (overrides: Partial<RepoConfig> = {}): RepoConfig => ({
   criticEnabled: true,
   criticAllPrs: false,
+  criticSmellLensEnabled: false,
   autoAddressEnabled: false,
   learningsEnabled: true,
   autopilotEnabled: false,

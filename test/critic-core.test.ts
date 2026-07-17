@@ -140,6 +140,69 @@ test("the SCOPE-CREEP lens sits ABOVE the shared verdict-output contract (backst
   expect(p.indexOf("SCOPE-CREEP LENS")).toBeLessThan(p.indexOf("When done, write your verdict"));
 });
 
+// ── POSSIBLE-SMELLS lens (#1824 finding C, per-repo flag) ────────────────────
+
+test("reviewPrompt carries the POSSIBLE-SMELLS lens only when smellLens is on, routed non-blocking", () => {
+  const p = reviewPrompt("BASE", "do the thing", [], [], null, null, { smellLens: true });
+  expect(p).toContain("POSSIBLE-SMELLS LENS");
+  // exact body-section header the routing depends on
+  expect(p).toContain("Possible smells (judgement calls, non-blocking):");
+  // never blocking: routed to body, out of findings, never request-changes
+  expect(p).toContain('Do NOT put any of these in "findings"');
+  expect(p).toContain('NEVER make the decision "request-changes"');
+  // both binding rules + deconfliction with the scope-creep section
+  expect(p).toContain("a documented repo standard always WINS");
+  expect(p).toContain("EVERY item is a JUDGEMENT CALL");
+  expect(p).toContain("scope-creep WINS for gold-plating-class items");
+});
+
+test("reviewPrompt omits the POSSIBLE-SMELLS lens by default (byte-identical path)", () => {
+  const withoutOpts = reviewPrompt("BASE", "do the thing");
+  const withOff = reviewPrompt("BASE", "do the thing", [], [], null, null, { smellLens: false });
+  expect(withoutOpts).not.toContain("POSSIBLE-SMELLS LENS");
+  // default === explicit-off: the flag adds nothing when off
+  expect(withOff).toBe(withoutOpts);
+});
+
+test("prReviewPrompt (standalone critic) never carries the POSSIBLE-SMELLS lens", () => {
+  const p = prReviewPrompt("BASE", "My PR", "body");
+  expect(p).not.toContain("POSSIBLE-SMELLS LENS");
+  expect(p).not.toContain("Possible smells (judgement calls, non-blocking):");
+});
+
+test("the POSSIBLE-SMELLS lens sits ABOVE the shared verdict-output contract", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, { smellLens: true });
+  expect(p.indexOf("POSSIBLE-SMELLS LENS")).toBeLessThan(
+    p.indexOf("When done, write your verdict"),
+  );
+});
+
+test("the POSSIBLE-SMELLS lens is trimmed to the 9-smell subset (drops 3 low-signal on TS/Svelte)", () => {
+  const p = reviewPrompt("BASE", "task", [], [], null, null, { smellLens: true });
+  for (const kept of [
+    "Mysterious Name",
+    "Duplicated Code",
+    "Feature Envy",
+    "Data Clumps",
+    "Primitive Obsession",
+    "Repeated Switches",
+    "Shotgun Surgery",
+    "Divergent Change",
+    "Speculative Generality",
+  ])
+    expect(p).toContain(kept);
+  for (const dropped of ["Message Chains", "Middle Man", "Refused Bequest"])
+    expect(p).not.toContain(dropped);
+});
+
+test("smellLens on leaves the shared verdict-output contract byte-identical to the standalone critic", () => {
+  // The lens sits above the contract, so the output-contract portion both critics key off must
+  // stay identical even with the lens on (scope backstop + verdict parser unaffected).
+  const withLens = reviewPrompt("b", "task", [], [], null, null, { smellLens: true });
+  const outputContract = (s: string) => s.slice(s.indexOf("When done, write your verdict"));
+  expect(outputContract(withLens)).toBe(outputContract(prReviewPrompt("b", "t", "body")));
+});
+
 test("reviewPrompt fences PR author notes as untrusted", () => {
   // Author notes are attacker-forgeable (any GitHub user can leave the marker comment), so each
   // note body must be individually fenced — not just the issue body.

@@ -1942,6 +1942,7 @@ export async function putRepoConfig(
       | "usageCeilingPct"
       | "repoMode"
       | "autoOptimizeFlagged"
+      | "criticSmellLensEnabled"
       | "manualStepsIssueEnabled"
       | "preWarmEpicLandingCi"
       | "hidden"

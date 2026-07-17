@@ -135,7 +135,7 @@ export function reviewPrompt(
   authorNotes: string[] = [],
   issueBody?: string | null,
   epic?: EpicContext | null,
-  opts: { plan?: string | null } = {},
+  opts: { plan?: string | null; smellLens?: boolean } = {},
 ): string {
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
@@ -191,7 +191,9 @@ export function reviewPrompt(
       // #1812 finding B: the session critic always has a task (and often an approved plan), so it
       // always runs the SCOPE-CREEP lens. prReviewPrompt omits it — a third-party PR has no task to
       // measure "unrequested" against — so the standalone-critic prompt stays byte-identical.
-      { scopeCreep: true },
+      // #1824 finding C: the POSSIBLE-SMELLS lens rides behind a per-repo flag (opts.smellLens),
+      // default OFF — absent it, the emitted tail is byte-identical to before finding C.
+      { scopeCreep: true, smellLens: opts.smellLens },
     ),
   );
   return lines.join("\n");
@@ -413,7 +415,7 @@ function scopeAndOutputTail(
   diffBase: string,
   judgeClause: string,
   epic?: EpicContext | null,
-  opts: { scopeCreep?: boolean } = {},
+  opts: { scopeCreep?: boolean; smellLens?: boolean } = {},
 ): string[] {
   return [
     // SCOPE: the critic can Read/grep the whole tree, which historically led it to flag
@@ -465,6 +467,34 @@ function scopeAndOutputTail(
           '- A change that DIRECTLY CONTRADICTS an explicit `Out of Scope` boundary in the plan, or adds behaviour the task did not ask for that carries real risk (a new dependency, a new public/API surface, a behaviour change, weakened validation), IS a finding: put it in "findings" and block it per the usual rules.',
           '- Ordinary gold-plating that violates no explicit boundary — an abstraction for single-use code, speculative flexibility or config, error handling for genuinely impossible cases, an unrequested helper, or a drive-by refactor of code the task did not require touching — is a JUDGEMENT CALL the author may legitimately keep. Report it in a SINGLE "body" section headed exactly `Scope creep / gold-plating (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes". It must concern a file in the diff per the SCOPE rule above.',
           "- A diff being SMALLER or simpler than you expected is NOT scope creep and is never a finding on its own.",
+          "",
+        ]
+      : []),
+    // POSSIBLE-SMELLS LENS (#1824 finding C): a named Fowler-smell vocabulary that turns the judge
+    // clause's one undefined phrase ("clear quality problems") into a matchable checklist. Behind a
+    // per-repo flag (opts.smellLens), default OFF — ~9 smells add tokens/round, so it ships opt-in
+    // pending measurement. Session critic only (prReviewPrompt never sets it, staying byte-identical).
+    // Routing is the whole point: EVERY match goes to a NON-BLOCKING body section, NEVER `findings`,
+    // and NEVER flips the decision — for the same reason as the scope-creep/latent lenses above (a
+    // "non-blocking" item in `findings` would advance the streak, be auto-addressed, and re-raise
+    // every round). Trimmed to 9 of Fowler's 12: Message Chains (fluent chains are idiomatic here),
+    // Middle Man (rare; its gold-plating flavour is already the scope-creep section) and Refused
+    // Bequest (little classical inheritance) are dropped as low-signal on a TS/Svelte codebase.
+    ...(opts.smellLens
+      ? [
+          'POSSIBLE-SMELLS LENS — a named vocabulary for the "clear quality problems" you already judge. It is a checklist to MATCH against, never a mandate to find something. Consider whether the diff exhibits any of these code smells (Fowler, Refactoring ch.3):',
+          "- Mysterious Name — a name that doesn't say what the thing is or does.",
+          "- Duplicated Code — the same structure repeated where one copy would serve.",
+          "- Feature Envy — a function that reaches into another module's data more than its own.",
+          "- Data Clumps — the same few values passed around together that want to be one object.",
+          "- Primitive Obsession — bare primitives/strings standing in for a concept that deserves a type.",
+          "- Repeated Switches — the same switch / if-chain on the same tag scattered across the code.",
+          "- Shotgun Surgery — one conceptual change forcing edits in many scattered places.",
+          "- Divergent Change — one module edited for many unrelated reasons.",
+          "- Speculative Generality — abstraction or flexibility for a need that isn't here yet.",
+          'TWO binding rules: (1) a documented repo standard always WINS — if the repo\'s own convention sanctions something here, it is not a smell; (2) EVERY item is a JUDGEMENT CALL — write "possible Feature Envy", never assert a hard violation.',
+          "DECONFLICTION with the SCOPE-CREEP lens above: some items here overlap the `Scope creep / gold-plating (non-blocking):` section — chiefly Speculative Generality, and any unrequested helper or drive-by refactor. Report each construct under EXACTLY ONE section, and scope-creep WINS for gold-plating-class items: an unrequested addition / speculative flexibility / drive-by refactor belongs in the scope-creep section and must NOT be repeated here. This lens is for smells in code the task DID require — naming, duplication, envy, clumps, primitives, scattered switches, shotgun/divergent change.",
+          'ROUTING: report matches in a SINGLE "body" section headed exactly `Possible smells (judgement calls, non-blocking):`, ONE LINE PER DISTINCT ITEM, naming the smell + the in-diff file. Do NOT put any of these in "findings", and they NEVER make the decision "request-changes". Each must concern a file in the diff per the SCOPE rule above. If nothing clearly matches, OMIT the section — do not manufacture a match.',
           "",
         ]
       : []),

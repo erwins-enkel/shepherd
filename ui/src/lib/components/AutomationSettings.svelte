@@ -81,6 +81,12 @@
   const manualStepsActive = $derived(repoConfig.manualStepsIssueOn(repoPath) && !lightweight);
   const preWarmEpicCiActive = $derived(repoConfig.preWarmEpicLandingCiOn(repoPath) && !lightweight);
   const autoOptimizeActive = $derived(repoConfig.autoOptimizeOn(repoPath) && flags.learnings);
+  // Smell lens is a no-op without the critic (same dependency as auto-address); hoist its row state
+  // out of the template so the markup stays under the Tier-1 <template> complexity bar.
+  const smellLensActive = $derived(flags.smellLens && flags.critic);
+  const smellLensDesc = $derived(
+    flags.critic ? m.automation_smelllens_desc() : m.automation_smelllens_needs_critic(),
+  );
   const signoffAuthority = $derived(repoConfig.signoffAuthorityFor(repoPath));
   const signoffHelp = $derived(
     signoffAuthority === "human"
@@ -227,6 +233,36 @@
     title={lightweight ? m.automation_lightweight_unavailable() : undefined}
     aria-label={m.automation_allprs_name()}
     onclick={() => !lightweight && repoConfig.toggleAllPrs(repoPath)}
+  >
+    <span class="knob"></span>
+  </button>
+</div>
+<div class={["auto-row", { disabled: !flags.critic }]}>
+  <div class="auto-meta">
+    <div class="auto-name">
+      ⚗ {m.automation_smelllens_name()}
+      <AutomationInfoTip
+        id="smell-lens"
+        name={m.automation_smelllens_name()}
+        open={openDetail === "smell-lens"}
+        ontoggle={() => toggleDetail("smell-lens")}
+      />
+    </div>
+    <div class="auto-desc">{smellLensDesc}</div>
+    <AutomationDetail
+      id="smell-lens"
+      open={openDetail === "smell-lens"}
+      text={m.automation_smelllens_detail()}
+    />
+  </div>
+  <button
+    class={["sw", { on: smellLensActive }]}
+    type="button"
+    role="switch"
+    aria-checked={smellLensActive}
+    disabled={!flags.critic}
+    aria-label={m.automation_smelllens_name()}
+    onclick={() => repoConfig.toggleSmellLens(repoPath)}
   >
     <span class="knob"></span>
   </button>

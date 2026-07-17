@@ -181,6 +181,10 @@ export interface RepoConfig {
   criticEnabled: boolean;
   /** Standalone repo-level PR critic: review every open CI-green PR in the repo, not just session PRs (default OFF). */
   criticAllPrs: boolean;
+  /** Append a named Fowler code-smell lens to the session critic's prompt (#1824, research #1812
+   *  finding C). Non-blocking: smell matches go to a body section, never `findings`. Experimental
+   *  trial, default OFF — extra tokens/round, so it ships opt-in pending measurement. */
+  criticSmellLensEnabled: boolean;
   /** Auto-feed critic findings back to the task agent until clean or the round cap. */
   autoAddressEnabled: boolean;
   learningsEnabled: boolean;
@@ -557,6 +561,7 @@ type PrReviewRow = {
 type RepoCfgRow = {
   criticEnabled: number;
   criticAllPrs: number;
+  criticSmellLensEnabled: number;
   autoAddressEnabled: number;
   learningsEnabled: number;
   autopilotEnabled: number;
@@ -710,6 +715,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
     return {
       criticEnabled: true,
       criticAllPrs: false,
+      criticSmellLensEnabled: false,
       autoAddressEnabled: false,
       learningsEnabled: true,
       autopilotEnabled: false,
@@ -739,6 +745,7 @@ function repoConfigFromRow(r: RepoCfgRow | null): RepoConfig {
   return {
     criticEnabled: !!r.criticEnabled,
     criticAllPrs: !!r.criticAllPrs,
+    criticSmellLensEnabled: !!r.criticSmellLensEnabled,
     autoAddressEnabled: !!r.autoAddressEnabled,
     learningsEnabled: !!r.learningsEnabled,
     autopilotEnabled: !!r.autopilotEnabled,
@@ -771,6 +778,7 @@ function repoConfigParams(repoPath: string, cfg: RepoConfig): SQLQueryBindings[]
     repoPath,
     Number(Boolean(cfg.criticEnabled)),
     Number(Boolean(cfg.criticAllPrs)),
+    Number(Boolean(cfg.criticSmellLensEnabled)),
     Number(Boolean(cfg.autoAddressEnabled)),
     Number(Boolean(cfg.learningsEnabled)),
     Number(Boolean(cfg.autopilotEnabled)),
@@ -1361,7 +1369,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getRepoConfig(repoPath: string): RepoConfig {
     const r = this.db
       .query(
-        `SELECT criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+        `SELECT criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
                 autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
                 maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
                 autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode
@@ -1374,13 +1382,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   setRepoConfig(repoPath: string, cfg: RepoConfig): void {
     this.db.run(
       `INSERT INTO repo_config
-         (repoPath, criticEnabled, criticAllPrs, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
+         (repoPath, criticEnabled, criticAllPrs, criticSmellLensEnabled, autoAddressEnabled, learningsEnabled, autopilotEnabled, planGateEnabled,
           autoDrainEnabled, autoMergeEnabled, buildQueueEnabled, draftMode, signoffAuthority,
           maxAuto, autoLabel, usageCeilingPct, sandboxProfile, defaultModel, defaultEffort, egressExtraHosts, repoMode,
           autoOptimizeFlagged, manualStepsIssueEnabled, preWarmEpicLandingCi, hidden, previewStartScript, previewStartCommand, previewOpenMode, updatedAt)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(repoPath) DO UPDATE SET criticEnabled = excluded.criticEnabled,
          criticAllPrs = excluded.criticAllPrs,
+         criticSmellLensEnabled = excluded.criticSmellLensEnabled,
          autoAddressEnabled = excluded.autoAddressEnabled,
          learningsEnabled = excluded.learningsEnabled,
          autopilotEnabled = excluded.autopilotEnabled,
@@ -3381,6 +3390,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
     add("autoAddressEnabled", `autoAddressEnabled INTEGER NOT NULL DEFAULT 0`);
     add("criticAllPrs", `criticAllPrs INTEGER NOT NULL DEFAULT 0`);
+    // #1824: named Fowler code-smell lens for the session critic. Default OFF — experimental
+    // trial, extra tokens/round; non-blocking (body section, never findings).
+    add("criticSmellLensEnabled", `criticSmellLensEnabled INTEGER NOT NULL DEFAULT 0`);
     add("learningsEnabled", `learningsEnabled INTEGER NOT NULL DEFAULT 1`);
     add("autopilotEnabled", `autopilotEnabled INTEGER NOT NULL DEFAULT 0`);
     add("planGateEnabled", `planGateEnabled INTEGER NOT NULL DEFAULT 0`);

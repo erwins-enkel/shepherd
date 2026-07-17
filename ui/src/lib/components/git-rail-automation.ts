@@ -7,6 +7,7 @@
 export type AutomationKey =
   | "critic"
   | "criticAllPrs"
+  | "smellLens"
   | "autoAddress"
   | "planGate"
   | "learnings"
@@ -20,6 +21,8 @@ export type AutomationKey =
 export interface AutomationFlags {
   critic: boolean;
   criticAllPrs: boolean;
+  /** Fowler code-smell lens on the session critic (#1824). No-op unless the critic is on. */
+  smellLens: boolean;
   autoAddress: boolean;
   planGate: boolean;
   learnings: boolean;
@@ -38,7 +41,7 @@ export interface AutomationGroup {
 
 /** Panel layout: theme groups in display order. */
 export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
-  { id: "review", items: ["critic", "criticAllPrs", "autoAddress", "planGate"] },
+  { id: "review", items: ["critic", "criticAllPrs", "smellLens", "autoAddress", "planGate"] },
   { id: "behavior", items: ["learnings", "autopilot"] },
   { id: "queue", items: ["autoDrain", "autoMerge", "buildQueue", "draftMode"] },
 ];
@@ -47,12 +50,13 @@ export const AUTOMATION_GROUPS: readonly AutomationGroup[] = [
  *  stays in sync with the count when an automation is added or removed. */
 export const AUTOMATION_TOTAL = AUTOMATION_GROUPS.flatMap((g) => g.items).length;
 
-/** Number of automations currently ON. Auto-address only counts while the critic
- *  is on (it's a no-op otherwise), matching the panel's disabled-row behavior. */
+/** Number of automations currently ON. Auto-address and the smell lens only count
+ *  while the critic is on (each is a no-op otherwise), matching the panel's disabled-row behavior. */
 export function automationCount(flags: AutomationFlags): number {
   return [
     flags.critic,
     flags.criticAllPrs,
+    flags.smellLens && flags.critic,
     flags.autoAddress && flags.critic,
     flags.planGate,
     flags.learnings,

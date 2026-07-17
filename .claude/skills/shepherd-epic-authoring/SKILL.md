@@ -100,6 +100,13 @@ parent body carrying the dag fence (or the task-list when there are no
 dependencies) with placeholder numbers to be filled in at Stage 3. This draft
 is both the approval artifact and the local/lightweight fallback.
 
+**Don't bake concrete file paths into a child body.** A child issue can sit in
+the backlog for weeks before it drains, and by then the paths named in it may
+have moved or been renamed — the draining agent then follows a stale map. State
+the goal, the behaviour, and the acceptance criterion; point at stable anchors
+(a module/feature name, an exported symbol, a glob) rather than exact paths, and
+let the agent locate the current files when it picks the issue up.
+
 ### 2. Approve (hard gate)
 
 Present the full draft — for promotion, show the parent-body change as

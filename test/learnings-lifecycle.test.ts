@@ -96,6 +96,7 @@ function makeRepoConfig(o: Partial<RepoConfig> = {}): RepoConfig {
   return {
     criticEnabled: false,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

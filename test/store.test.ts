@@ -211,6 +211,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -239,6 +240,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   store.setRepoConfig("/repo/a", {
     criticEnabled: false,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -267,6 +269,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: false,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: true,
     learningsEnabled: false,
     autopilotEnabled: false,
@@ -295,6 +298,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   store.setRepoConfig("/repo/a", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -323,6 +327,7 @@ test("repo_config: defaults to critic on + auto-address off + learnings on, pers
   expect(store.getRepoConfig("/repo/a")).toEqual({
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -374,6 +379,7 @@ test("repo_config: drain fields default off/cap-1/default-label/ceiling-80, pers
   store.setRepoConfig("/repo/d", {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,

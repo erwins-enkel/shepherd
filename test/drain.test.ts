@@ -175,6 +175,7 @@ function makeHarness(
   store.setRepoConfig(REPO, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -964,6 +965,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   store.setRepoConfig(REPO, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -990,6 +992,7 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
   store.setRepoConfig(REPO2, {
     criticEnabled: true,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: true,
     autopilotEnabled: false,
@@ -1711,6 +1714,7 @@ test("#790: spawn-failure cooldown: failed issue is skipped until window expires
   store.setRepoConfig(REPO, {
     criticEnabled: false,
     criticAllPrs: false,
+    criticSmellLensEnabled: false,
     autoAddressEnabled: false,
     learningsEnabled: false,
     autopilotEnabled: false,

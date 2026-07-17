@@ -13,6 +13,12 @@ test("prompt without prior findings omits the re-review block", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT");
   expect(p).not.toContain("RE-REVIEW");
 });
+test("#1812 B/H: prompt tells the reviewer to attack the scope boundary + testability", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).toContain("SCOPE and TESTABILITY");
+  expect(p).toContain("Out of Scope");
+  expect(p).toContain("testing seams");
+});
 test("prompt embeds the originating issue body as UNTRUSTED context when given", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT", [], "ISSUE_BODY_XYZ");
   expect(p).toContain("ISSUE_BODY_XYZ");

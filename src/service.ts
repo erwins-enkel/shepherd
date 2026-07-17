@@ -563,7 +563,9 @@ const AUTOPILOT_DIRECTIVE =
   "complete; for a code change that means verified local changes and an open PR (`gh pr create`). " +
   "Before committing, pushing, or opening the PR for a code change, run the relevant local " +
   "lint/check/test commands from the repository instructions for the files you touched, and fix " +
-  "failures before proceeding. Only stop to ask when " +
+  "failures before proceeding. Then self-review the diff you produced — read your own changes for " +
+  "bugs, security issues, and quality defects and fix what you find BEFORE opening the PR; keep this " +
+  "to the code you changed, do not expand scope or add unrequested improvements. Only stop to ask when " +
   "you hit a genuine product or requirements decision that only a human can make.";
 
 /**
@@ -1070,8 +1072,9 @@ function planGateDirectiveInteractive(
     askStep +
     "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
     "success criteria. Misalignment now is the costliest failure.\n" +
-    "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, files, " +
-    "steps, risks, success criteria) and tell the user it's ready for review. The plan must contain NO open / " +
+    "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, out of " +
+    "scope, files, testing seams + decisions, steps, risks, success criteria) and tell the user it's " +
+    "ready for review. The plan must contain NO open / " +
     "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
     "assumptions and resolved decisions.\n" +
     "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
@@ -1100,7 +1103,8 @@ function planGateDirectiveAuto(
     stopClause +
     "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
     "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
-    "at the repo root (goal, approach, files, steps, risks, success criteria). An adversarial reviewer " +
+    "at the repo root (goal, approach, out of scope, files, testing seams + decisions, steps, risks, " +
+    "success criteria). An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
     "are told the plan is approved.\n\n" +
     planBlockInstructions({ allowQuestionForm: true, agentProvider, operatorLanguage })
@@ -1185,8 +1189,10 @@ const PLAN_GO_STEER_BASE =
   "Plan approved. Execute `.shepherd-plan.md` now, autonomously — implement it fully, commit, push, " +
   "and open a pull request (`gh pr create`). Before committing, pushing, or opening the PR, run the " +
   "relevant local lint/check/test commands from the repository instructions for the files you " +
-  "touched, and fix failures before proceeding. Don't re-litigate the plan; if you hit a genuine " +
-  "product decision that only the user can make, ask, otherwise keep going.";
+  "touched, and fix failures before proceeding. Then self-review the diff you produced — read your " +
+  "own changes for bugs, security issues, and quality defects and fix what you find before opening " +
+  "the PR; keep this to the code you changed, do not expand scope. Don't re-litigate the plan; if you " +
+  "hit a genuine product decision that only the user can make, ask, otherwise keep going.";
 
 /** Returns the plan-go steer, appending the draft-mode note when `draftMode` is true. */
 export function planGoSteer(draftMode: boolean): string {

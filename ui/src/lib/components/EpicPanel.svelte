@@ -291,7 +291,8 @@
     gap: 6px;
     padding: 8px 10px;
     background: var(--color-panel);
-    border-top: 1px solid var(--color-line);
+    /* No border-top: the host ([data-epic-panel]) owns the single head↔children
+       divider, so it also covers the pre-resolve loading line. */
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
   }
@@ -304,9 +305,15 @@
   }
 
   /* ── child list ─────────────────────────────────────────────────────────── */
+  /* A leading rail marks these rows as the epic's CHILDREN, separating them from
+     their siblings on the same panel surface (.epic-head's progress/import/diagnose
+     above, .epic-controls below). Mirrors the same cue on the herd's epic groups
+     (HerdEpicGroups.svelte). The rail sits on the scroll container, so it stays put
+     while a long child list scrolls under it — intended. */
   .epic-children {
     margin: 0;
-    padding: 0;
+    padding: 0 0 0 8px;
+    border-left: 1px solid color-mix(in srgb, var(--status-running) 30%, var(--color-line));
     list-style: none;
     display: flex;
     flex-direction: column;

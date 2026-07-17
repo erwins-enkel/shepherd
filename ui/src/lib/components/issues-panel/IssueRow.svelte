@@ -147,6 +147,7 @@
 <div
   class="issue-row"
   class:is-epic={isEpicParent}
+  class:epic-open={isEpicParent && isExpanded}
   id={`epic-issue-row-${issue.number}`}
   use:epicRowClick
   use:issueMenuTrigger={{ onopen: openMenu }}
@@ -290,6 +291,42 @@
     border-color: color-mix(in srgb, var(--status-running) 35%, var(--color-line));
     background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
     cursor: pointer;
+  }
+
+  /* ── Open epic = one bounded group ───────────────────────────────────────
+     The wrapper (inert while collapsed) becomes the group container: it owns the
+     outline, so the closing bottom edge answers "where does the epic end". Follows
+     the .panel recipe (see /design-system) for ground + the 2px radius rung —
+     deliberately NOT --radius-chip, which app.css reserves for chips/controls.
+     The one departure is the border hue: this is a STATE surface carrying epic
+     semantics, so it mixes --status-running like .epic-badge and .is-epic do.
+     No overflow:hidden — the border draws the edge, and clipping would put the
+     fixed-position EpicDiagnosisModal (rendered inside this wrapper) one stray
+     transform/filter away from being clipped.
+     The amber ground spans the PARENT issue (header + its body preview); the
+     children sit below on the panel surface. gap:0 so the two meet on a single
+     seam instead of drifting 3px apart. */
+  .issue-row.epic-open {
+    gap: 0;
+    border: 1px solid color-mix(in srgb, var(--status-running) 35%, var(--color-line));
+    border-radius: 2px;
+    background: color-mix(in oklab, var(--status-running) 6%, var(--color-inset));
+  }
+
+  /* The head becomes the group's header bar: the container draws the outline now,
+     so the row sheds its own box and inherits the container's ground. Must follow
+     .issue-row.is-epic .issue-main — equal specificity, later rule wins. */
+  .issue-row.epic-open .issue-main {
+    border-color: transparent;
+    border-radius: 0;
+    background: transparent;
+  }
+
+  /* The body preview belongs to the PARENT issue, so it stays on the amber ground
+     above the divider — never with the children. Restores the vertical rhythm the
+     container's gap:0 removes. */
+  .issue-row.epic-open .body-preview {
+    margin-top: 4px;
   }
 
   .issue-num {
@@ -491,9 +528,21 @@
     background: color-mix(in oklab, var(--status-running) 22%, transparent);
   }
 
+  /* The children's panel surface, and the single head↔children divider. Both live
+     here rather than on EpicPanel's .epic because this node is present in BOTH
+     branches — .epic renders only once the epic resolves, so a divider hung there
+     would vanish under the loading line. (Previously .epic carried a border-top of
+     its own on top of this one: two rules ~6px apart, which is what made the open
+     epic read as loose blocks.) */
   [data-epic-panel] {
-    padding-top: 6px;
-    border-top: 1px solid var(--color-line);
+    border-top: 1px solid color-mix(in srgb, var(--status-running) 25%, var(--color-line));
+    background: var(--color-panel);
+  }
+
+  /* The loading line stands in for .epic, so it borrows .epic's panel padding
+     (8px 10px) instead of sitting flush against the divider. */
+  .issue-row.epic-open .muted {
+    padding: 8px 10px;
   }
 
   @container issue-list-row (max-width: 560px) {

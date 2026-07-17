@@ -1271,6 +1271,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
       name           TEXT NOT NULL DEFAULT '',
+      claudeSessionId TEXT NOT NULL DEFAULT '',
       repoPath       TEXT NOT NULL,
       model          TEXT NOT NULL,
       input          INTEGER NOT NULL,
@@ -1306,6 +1307,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const usageCols = this.db.query(`PRAGMA table_info(session_usage)`).all() as { name: string }[];
     if (!usageCols.some((c) => c.name === "name")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+    }
+    // provenance column (see SessionUsageRow.claudeSessionId): legacy rows default to '',
+    // which the archived-usage read tolerates as "pre-provenance"
+    if (!usageCols.some((c) => c.name === "claudeSessionId")) {
+      this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -4939,12 +4945,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   upsertSessionUsage(snap: SessionUsageSnapshot): void {
     this.db.run(
       `INSERT INTO session_usage
-         (sessionId, desig, name, repoPath, model, input, output, cacheRead, cacheWrite, total,
+         (sessionId, desig, name, claudeSessionId, repoPath, model, input, output, cacheRead, cacheWrite, total,
           weightedUnits, cacheReadUnits, messageCount, byModel, createdAt, archivedAt, snapshotAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET
          desig = excluded.desig,
          name = excluded.name,
+         claudeSessionId = excluded.claudeSessionId,
          repoPath = excluded.repoPath,
          model = excluded.model,
          input = excluded.input,
@@ -4963,6 +4970,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         snap.sessionId,
         snap.desig,
         snap.name,
+        snap.claudeSessionId ?? "",
         snap.repoPath,
         snap.model,
         snap.input,

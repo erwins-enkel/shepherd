@@ -189,6 +189,41 @@ describe("SessionStatusBar", () => {
     await expect.element(page.getByText("2h 14m")).toBeInTheDocument();
   });
 
+  it("idle session shows wall-clock age labeled as session age, not runtime", async () => {
+    // No active-interval tracking exists server-side, so the value is deliberately AGE:
+    // an idle session keeps aging and the title says exactly that.
+    const M = 60_000;
+    // clock.current may lag Date.now() by up to its 30s tick — the 40s cushion keeps the
+    // minute floor at 45m for any lag in [0, 30s).
+    render(SessionStatusBar, {
+      session: session({ id: "n", status: "idle", createdAt: Date.now() - 45 * M - 40_000 }),
+      usage: usage(),
+    });
+    const el = document.querySelector(".ssb-elapsed") as HTMLElement;
+    expect(el.textContent).toBe("45m");
+    expect(el.title).toContain("Session age 45m");
+    expect(el.title).toContain("not active runtime");
+  });
+
+  it("restored session ages from creation on the live clock, not the stale archive stamp", async () => {
+    // Bring-back clears archivedAt and flips status back to running; even if a stale
+    // archivedAt survived, the live branch keys on status and must ignore it.
+    const H = 3_600_000;
+    // Same 40s cushion as above against the 30s clock lag.
+    render(SessionStatusBar, {
+      session: session({
+        id: "o",
+        status: "running",
+        createdAt: Date.now() - 3 * H - 40_000,
+        archivedAt: Date.now() - 2 * H, // stale leftover — must not cap the live age
+      }),
+      usage: usage(),
+    });
+    const el = document.querySelector(".ssb-elapsed") as HTMLElement;
+    expect(el.textContent).toBe("3h 00m"); // full age since creation, incl. archived downtime
+    expect(el.title).toContain("Session age 3h 00m");
+  });
+
   it("archived session without archivedAt falls back to updatedAt", async () => {
     render(SessionStatusBar, {
       session: session({

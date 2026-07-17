@@ -3280,8 +3280,8 @@
   "statusbar_aria": "Session status",
   "statusbar_tokens_unavailable_title": "Token usage is unavailable for this session",
   "statusbar_tokens_unavailable_codex_title": "Token usage isn't tracked for Codex sessions yet",
-  "statusbar_elapsed_live_title": "Running for {elapsed}",
-  "statusbar_elapsed_done_title": "Total runtime {elapsed}",
+  "statusbar_elapsed_live_title": "Session age {elapsed} — time since creation, not active runtime",
+  "statusbar_elapsed_done_title": "Session age {elapsed} — creation to archive, not active runtime",
   "feat_session_status_bar_title": "One status bar for every session",
   "feat_session_status_bar_body": "Every session view now ends in the same status strip: which CLI, model and effort the agent runs with, its token usage, and how long it has been at it. It stays put on every tab and lifecycle stage — including rework, where the banner above shows the reviewer while the strip keeps the task agent's own identity — and on finished sessions in the Done lens.",
   "statusbar_identity_title": "Configured environment: {identity}. The runtime may substitute at spawn time (usage downgrade, provider clamps) without changing this configuration."

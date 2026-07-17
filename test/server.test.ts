@@ -245,6 +245,7 @@ test("usage ladder: archived session serves its snapshot — raw fields, byModel
     sessionId: s.id,
     desig: s.desig,
     name: s.name,
+    claudeSessionId: s.claudeSessionId, // same-lineage provenance → served
     repoPath: s.repoPath,
     model: "opus",
     input: 10,
@@ -272,6 +273,86 @@ test("usage ladder: archived session serves its snapshot — raw fields, byModel
     messageCount: 5,
     byModel: null,
   });
+});
+
+// Minimal snapshot row for the provenance tests below.
+function usageSnapFor(
+  s: { id: string; desig: string; name: string; repoPath: string; createdAt: number },
+  claudeSessionId: string,
+): Parameters<import("../src/store").SessionStore["upsertSessionUsage"]>[0] {
+  return {
+    sessionId: s.id,
+    desig: s.desig,
+    name: s.name,
+    claudeSessionId,
+    repoPath: s.repoPath,
+    model: "opus",
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheWrite: 40,
+    total: 100,
+    weightedUnits: 7,
+    cacheReadUnits: 3,
+    messageCount: 5,
+    byModel: { opus: 7 },
+    createdAt: s.createdAt,
+    archivedAt: s.createdAt + 1000,
+    snapshotAt: s.createdAt + 1000,
+  };
+}
+
+test("usage ladder: restore → replace with codex → re-archive rejects the stale snapshot", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // First life: claude session, archived with a snapshot.
+  const s = deps.store.create({
+    ...USAGE_SESSION,
+    claudeSessionId: "c0ffee00-0000-4000-8000-00000000000a",
+  });
+  deps.store.upsertSessionUsage(usageSnapFor(s, s.claudeSessionId));
+  // Restored, replaced with a Codex agent (claudeSessionId cleared), archived again — the
+  // snapshot writer skips codex, so the old claude row is all that exists. It must NOT be
+  // reported as this archive's usage.
+  deps.store.update(s.id, { status: "archived", claudeSessionId: "", agentProvider: "codex" });
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(false);
+  expect(u.source).toBe("none");
+});
+
+test("usage ladder: restore → replace (new claude id, no transcript) → re-archive rejects the stale snapshot", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = deps.store.create({
+    ...USAGE_SESSION,
+    claudeSessionId: "c0ffee00-0000-4000-8000-00000000000b",
+  });
+  deps.store.upsertSessionUsage(usageSnapFor(s, s.claudeSessionId));
+  // Replacement pinned a fresh claudeSessionId whose transcript never materialized; the
+  // re-archive snapshot skipped. The old-lineage row must not surface — the ladder falls
+  // through to the (missing) live JSONL and reports honest unavailability.
+  deps.store.update(s.id, {
+    status: "archived",
+    claudeSessionId: "c0ffee00-0000-4000-8000-00000000000c",
+  });
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(false);
+  expect(u.source).toBe("none");
+});
+
+test("usage ladder: legacy pre-provenance snapshot ('' claudeSessionId) is still served", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = deps.store.create({
+    ...USAGE_SESSION,
+    claudeSessionId: "c0ffee00-0000-4000-8000-00000000000d",
+  });
+  deps.store.update(s.id, { status: "archived" });
+  deps.store.upsertSessionUsage(usageSnapFor(s, "")); // pre-migration row shape
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(true);
+  expect(u.source).toBe("snapshot");
+  expect(u.total).toBe(100);
 });
 
 test("usage ladder: snapshot-less archive falls back to the live source (here: unavailable)", async () => {

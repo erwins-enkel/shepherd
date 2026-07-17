@@ -587,9 +587,17 @@ const UNAVAILABLE_USAGE: SessionUsageDto = {
  *     overlap semantics across resumes are unproven and a rollout-tree scan has no place in the
  *     UI's 5s polling path); tracked by the Codex-totals follow-up issue. */
 async function sessionUsageDto(s: Session, store: SessionStore): Promise<SessionUsageDto> {
-  if (s.status === "archived") {
+  // Snapshot rung applies only to Claude sessions: the writer never snapshots Codex, so any
+  // row under a now-Codex session is by definition from a previous (pre-replacement) cycle.
+  if (s.status === "archived" && (s.agentProvider ?? "claude") === "claude") {
     const snap = store.getSessionUsage(s.id);
-    if (snap) {
+    // Provenance guard (restore → replace → re-archive): a replaced session keeps its id but
+    // gets a NEW claudeSessionId, and its re-archive may skip snapshotting (empty/missing
+    // transcript) — the leftover row would then report the previous agent's tokens as
+    // current. Serve only a snapshot from the same agent lineage; '' = legacy row from
+    // before the provenance column, tolerated (it predates restore-with-replace staleness
+    // being reachable for it in practice, and new snapshots always stamp the id).
+    if (snap && (!snap.claudeSessionId || snap.claudeSessionId === s.claudeSessionId)) {
       return {
         available: true,
         source: "snapshot",

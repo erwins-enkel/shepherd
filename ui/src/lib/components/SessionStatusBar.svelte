@@ -31,9 +31,12 @@
   );
   const identityTitle = $derived(m.statusbar_identity_title({ identity }));
 
-  // Archived sessions show a static total runtime (archivedAt ?? updatedAt matches
-  // DoneRecapPanel's finishedAt fallback); live sessions tick on the shared 30s clock.
-  // elapsedCoarse has no seconds, so the 30s tick never reads as a frozen counter.
+  // The elapsed segment is SESSION AGE — wall-clock since createdAt (to archive time for
+  // archived sessions; archivedAt ?? updatedAt matches DoneRecapPanel's finishedAt
+  // fallback) — and its titles say so explicitly: idle stretches and pre-restore downtime
+  // are included, because no active-interval tracking exists server-side. Live sessions
+  // tick on the shared 30s clock; elapsedCoarse has no seconds, so the tick never reads
+  // as a frozen counter.
   const archived = $derived(session.status === "archived");
   const elapsedText = $derived(
     elapsedCoarse(

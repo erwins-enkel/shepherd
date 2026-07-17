@@ -75,6 +75,9 @@ export async function snapshotSessionUsage(
       sessionId: s.id,
       desig: s.desig,
       name: s.name,
+      // Provenance: ties this snapshot to the agent lineage it measured, so the archived-
+      // usage read can reject it after a restore → replace → re-archive cycle.
+      claudeSessionId: s.claudeSessionId,
       repoPath: s.repoPath,
       model,
       input: agg.input,

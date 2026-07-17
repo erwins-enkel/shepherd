@@ -3280,8 +3280,8 @@
   "statusbar_aria": "Session-Status",
   "statusbar_tokens_unavailable_title": "Token-Verbrauch ist für diese Session nicht verfügbar",
   "statusbar_tokens_unavailable_codex_title": "Token-Verbrauch wird für Codex-Sessions noch nicht erfasst",
-  "statusbar_elapsed_live_title": "Läuft seit {elapsed}",
-  "statusbar_elapsed_done_title": "Gesamtlaufzeit {elapsed}",
+  "statusbar_elapsed_live_title": "Session-Alter {elapsed} – Zeit seit Erstellung, nicht aktive Laufzeit",
+  "statusbar_elapsed_done_title": "Session-Alter {elapsed} – von Erstellung bis Archivierung, nicht aktive Laufzeit",
   "feat_session_status_bar_title": "Eine Statusleiste für jede Session",
   "feat_session_status_bar_body": "Jede Session-Ansicht endet jetzt in derselben Statusleiste: mit welchem CLI, Modell und Aufwand der Agent läuft, sein Token-Verbrauch und wie lange er schon arbeitet. Sie bleibt auf jedem Tab und in jeder Lebensphase an Ort und Stelle – auch beim Rework, wo das Banner darüber den Reviewer zeigt, während die Leiste die Identität des Task-Agenten behält – und bei fertigen Sessions in der Done-Ansicht.",
   "statusbar_identity_title": "Konfigurierte Umgebung: {identity}. Zur Laufzeit kann beim Start ersetzt werden (Nutzungs-Downgrade, Provider-Begrenzungen), ohne diese Einstellung zu ändern."

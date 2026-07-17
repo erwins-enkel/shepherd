@@ -35,8 +35,22 @@ export const CODEX_LAST_MESSAGE_FILE = ".shepherd-last-message.txt";
  * last-message file when the result file is absent. Returns null when neither exists (or is
  * unreadable mid-write — treat as not-yet-written and retry next tick). Callers apply their existing
  * parser/validator to the returned text, so behavior is unchanged whenever the result file is present.
+ *
+ * `codexFallback` gates the `-o` fallback and defaults to `true` (the disposable-tmpdir roles — recap,
+ * autopilot, rundown, distiller, optimizer, merge-suggest — run in a fresh empty dir no one else can
+ * write, so the fixed-name fallback is safe there). A role that runs in an UNTRUSTED checkout (the PR
+ * critics) MUST pass `codexFallback: <provider is Codex>`: the `-o` file is a Codex-only artifact, so
+ * a non-Codex reviewer has no legitimate last-message file and must NEVER read one — otherwise a PR
+ * that commits a strict-JSON `.shepherd-last-message.txt` into its head could short-circuit even a
+ * Claude reviewer (the read + parse are provider-agnostic). Paired with scrubStaleVerdictArtifacts,
+ * this "only enables the fallback for the matching completed Codex run".
  */
-export function readRoleResultText(cwd: string, resultFile: string): string | null {
+export function readRoleResultText(
+  cwd: string,
+  resultFile: string,
+  opts: { codexFallback?: boolean } = {},
+): string | null {
+  const { codexFallback = true } = opts;
   const primary = join(cwd, resultFile);
   if (existsSync(primary)) {
     try {
@@ -45,6 +59,7 @@ export function readRoleResultText(cwd: string, resultFile: string): string | nu
       return null; // unreadable mid-write — retry next tick
     }
   }
+  if (!codexFallback) return null; // non-Codex reviewer: no legitimate `-o` file — never read one
   const fallback = join(cwd, CODEX_LAST_MESSAGE_FILE);
   if (existsSync(fallback)) {
     try {

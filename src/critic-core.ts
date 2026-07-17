@@ -9,7 +9,7 @@ import { readRoleResultText } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { execFileSync, timedAsync } from "./instrument";
-import type { ReviewDecision } from "./types";
+import type { AgentProvider, ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
@@ -700,10 +700,18 @@ export async function defaultComputePatchId(
  * critic spawn has finished — a repaired-truncated verdict must never silently drop findings or flip
  * the decision in the merge gate. Exported for the read-path content-fidelity test.
  */
-export function defaultReadVerdict(worktreePath: string): VerdictRead<RawVerdict> {
+export function defaultReadVerdict(
+  worktreePath: string,
+  provider?: AgentProvider | null,
+): VerdictRead<RawVerdict> {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex critic that answers in
-  // chat never writes the result file — see codex-last-message.ts). null → nothing to read yet.
-  const text = readRoleResultText(worktreePath, VERDICT_FILE);
+  // chat never writes the result file — see codex-last-message.ts). The critic worktree is checked
+  // out from the UNTRUSTED PR head, so the `-o` fallback is gated to a Codex reviewer: a non-Codex
+  // reviewer never writes one, and reading a PR-committed copy would short-circuit it. null → nothing
+  // to read yet.
+  const text = readRoleResultText(worktreePath, VERDICT_FILE, {
+    codexFallback: provider === "codex",
+  });
   if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
   return r.status === "ok"

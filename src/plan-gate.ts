@@ -258,7 +258,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  already-finalized review (finalize reaps the worktree). */
   worktreeExists?: (worktreePath: string) => boolean;
   /** default: read PLAN_VERDICT_FILE from the reviewer's disposable worktree. */
-  readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
+  readVerdict?: (worktreePath: string, provider?: AgentProvider | null) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
   baseSha?: (repoPath: string, base: string) => string;
   /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
@@ -318,7 +318,10 @@ export class PlanGateService {
   }
   private readPlan: (worktreePath: string) => string | null;
   private readPlanBlocks: (worktreePath: string) => VisualBlock[];
-  private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
+  private readVerdict: (
+    worktreePath: string,
+    provider?: AgentProvider | null,
+  ) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
   private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
@@ -718,7 +721,7 @@ export class PlanGateService {
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
-      const raw = this.readVerdict(f.worktreePath);
+      const raw = this.readVerdict(f.worktreePath, f.reviewerProvider);
       const now = this.now();
       const timedOut = now - f.startedAt > this.timeoutMs;
       const exited = !raw && this.codexReviewerExited(f, now);
@@ -1261,10 +1264,17 @@ function defaultReadActivity(worktreePath: string, reviewerSessionId: string): s
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */
-function defaultReadVerdict(worktreePath: string): RawPlanVerdict | null {
+function defaultReadVerdict(
+  worktreePath: string,
+  provider?: AgentProvider | null,
+): RawPlanVerdict | null {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex plan reviewer that
-  // answers in chat never writes the result file — see codex-last-message.ts).
-  const text = readRoleResultText(worktreePath, PLAN_VERDICT_FILE);
+  // answers in chat never writes the result file — see codex-last-message.ts). The `-o` fallback is
+  // gated to a Codex reviewer for uniformity with the PR critics (this reviewer detaches at the
+  // TRUSTED base, so it isn't pre-seedable, but the gate keeps the contract identical everywhere).
+  const text = readRoleResultText(worktreePath, PLAN_VERDICT_FILE, {
+    codexFallback: provider === "codex",
+  });
   if (text === null) return null;
   try {
     return JSON.parse(text) as RawPlanVerdict;

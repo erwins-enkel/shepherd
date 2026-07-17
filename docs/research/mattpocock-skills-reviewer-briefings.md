@@ -25,6 +25,14 @@ report file is the entire diff. Everything below is a proposal, not a decision.
 
 ## What was compared
 
+**Upstream source:** [mattpocock/skills](https://github.com/mattpocock/skills)
+(Matt Pocock, MIT), inspected at commit
+[`9603c1c`](https://github.com/mattpocock/skills/commit/9603c1cc8118d08bc1b3bf34cf714f62178dea3b)
+(2026-07-16). Every external claim below — the line counts, the 12-smell Fowler
+list, the 400-word cap — is quoted from the three `SKILL.md` files at that ref
+and can be re-checked against it. The repo is actively edited, so a later ref may
+differ.
+
 | Source                        | File                                                         | Lines |
 | ----------------------------- | ------------------------------------------------------------ | ----- |
 | Matt's PR reviewer            | `skills/engineering/code-review/SKILL.md`                    | 89    |
@@ -60,10 +68,28 @@ that task" against the **raw task string and issue body** — the un-negotiated
 inputs. Every clarification the plan gate bought (resolved assumptions, chosen
 approach, rejected alternatives) is invisible at review time.
 
-**Feasibility is good.** `.shepherd-plan.md` is git-excluded (`shepherd-exclude.ts`)
-but physically present in the session worktree, and a reader already exists —
-`plan-gate.ts:1234` and `recap.ts:150` both read it from `worktreePath`. This is
-a plumbing change, not new machinery.
+**Feasibility is good, but there is one trap that will bite an implementer.**
+`.shepherd-plan.md` is git-excluded (`shepherd-exclude.ts`) — it is **never
+committed**. The Critic, however, does not run in the session worktree: `begin()`
+allocates a **fresh detached worktree** at the PR head
+(`review.ts:330`, `worktree.createDetached(...)`) and everything downstream —
+`rebaseSkip`, the critic's cwd — uses that `wt.worktreePath`. A git-excluded file
+cannot exist in a fresh checkout of a commit, so **the plan is not there and
+never will be.** An implementer who reuses `review.ts`'s local `worktreePath`
+idiom gets `null` silently and ships a no-op.
+
+The plan must be read from **`session.worktreePath`** — the live session tree —
+which is exactly what the existing readers do: `plan-gate.ts:363`
+(`this.readPlan(session.worktreePath)`), and likewise `recap.ts:150`. So the
+change is: read from `session.worktreePath` in `begin()`, thread the text through
+`criticArgv` into `reviewPrompt`. Still plumbing, not new machinery — but the two
+`worktreePath`s are distinct and the naming actively invites the mistake.
+
+_On ordering:_ the read is from a **different directory** than `createDetached`
+touches, so it is not order-dependent for correctness, and placing it **after**
+the `createDetached` early-return is marginally better (a failed worktree
+allocation returns before the read is wasted). What matters is the **path**, not
+the sequence.
 
 **Two things it must get right:**
 

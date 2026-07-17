@@ -22,7 +22,7 @@
     "gen:icons": "node scripts/gen-icons.mjs"
   },
   "devDependencies": {
-    "@inlang/paraglide-js": "^2.21.0",
+    "@inlang/paraglide-js": "^2.22.0",
     "@sveltejs/adapter-auto": "^7.0.1",
     "@sveltejs/adapter-static": "^3.0.10",
     "@sveltejs/kit": "^2.69.3",
@@ -33,7 +33,7 @@
     "@vitest/browser-playwright": "^4.1.10",
     "playwright": "^1.61.1",
     "sharp": "^0.35.3",
-    "svelte": "^5.56.4",
+    "svelte": "^5.56.5",
     "svelte-check": "^4.7.2",
     "typescript": "^6.0.2",
     "vite": "^8.1.4",

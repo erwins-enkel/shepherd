@@ -603,6 +603,35 @@ describe("IssuesPanel expandEpic", () => {
     expect(mockEpic).toHaveBeenCalledWith("/repo", 327);
   });
 
+  // Cheap regression guard for the open-epic group container (#1808): the wrapper
+  // only reads as one bounded unit while `epic-open` is on it. This asserts the hook
+  // exists and tracks the toggle — it does NOT prove the visual result, which rests
+  // on the design tokens and review.
+  it("marks the wrapper epic-open only while the epic is expanded", async () => {
+    mockIssues.mockResolvedValue({
+      slug: "acme/repo",
+      webUrl: null,
+      issues: [issue(327), issue(400)],
+      viewer: null,
+    });
+    mockEpics.mockResolvedValue({ epics: [summary(327)], subIssues: [] });
+    mockEpic.mockResolvedValue(epic(327));
+
+    render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, expandEpic: 327 });
+
+    const row = () => document.querySelector("#epic-issue-row-327");
+    await expect.poll(() => row()).toBeTruthy();
+
+    // Expanded (auto-expand targeted it): the wrapper is the group container.
+    await expect.poll(() => row()?.classList.contains("epic-open")).toBe(true);
+
+    // Collapsed: the container treatment is gone, so the row renders as before.
+    (document.querySelector(".epic-badge") as HTMLButtonElement).click();
+    await expect.poll(() => row()?.classList.contains("epic-open")).toBe(false);
+    // ...while it stays an epic row — only the OPEN state gained the container.
+    expect(row()?.classList.contains("is-epic")).toBe(true);
+  });
+
   it("lets the user collapse the targeted epic — it does NOT spring back open", async () => {
     mockIssues.mockResolvedValue({
       slug: "acme/repo",

@@ -300,6 +300,8 @@ test("intra spawn: resolved Codex uses codex exec and persists the file result",
     "gpt-5.5",
     "-c",
     "model_reasoning_effort=high",
+    "-o",
+    ".shepherd-last-message.txt",
     expect.stringContaining("ONE repository"),
   ]);
   expect(cap.env).toBeUndefined();
@@ -355,6 +357,8 @@ test("cross spawn: resolved Codex uses codex exec and persists the file result",
     "gpt-5.5",
     "-c",
     "model_reasoning_effort=high",
+    "-o",
+    ".shepherd-last-message.txt",
     expect.stringContaining("MANY repositories"),
   ]);
   expect(cap.env).toBeUndefined();

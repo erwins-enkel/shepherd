@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
+import { readRoleResultText } from "./codex-last-message";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "./instrument";
@@ -1257,10 +1258,12 @@ function defaultReadActivity(worktreePath: string, reviewerSessionId: string): s
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */
 function defaultReadVerdict(worktreePath: string): RawPlanVerdict | null {
-  const p = join(worktreePath, PLAN_VERDICT_FILE);
-  if (!existsSync(p)) return null;
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex plan reviewer that
+  // answers in chat never writes the result file — see codex-last-message.ts).
+  const text = readRoleResultText(worktreePath, PLAN_VERDICT_FILE);
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawPlanVerdict;
+    return JSON.parse(text) as RawPlanVerdict;
   } catch {
     return null; // partial write; try again next tick
   }

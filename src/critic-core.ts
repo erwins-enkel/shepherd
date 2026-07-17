@@ -5,10 +5,9 @@
  * state) — the session critic in `review.ts` re-exports these and wraps them with its own
  * streak/notes/publish control flow, which stays there.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { readRoleResultText } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { join } from "node:path";
 import { execFileSync, timedAsync } from "./instrument";
 import type { ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
@@ -699,14 +698,10 @@ export async function defaultComputePatchId(
  * the decision in the merge gate. Exported for the read-path content-fidelity test.
  */
 export function defaultReadVerdict(worktreePath: string): VerdictRead<RawVerdict> {
-  const p = join(worktreePath, VERDICT_FILE);
-  if (!existsSync(p)) return { status: "absent" };
-  let text: string;
-  try {
-    text = readFileSync(p, "utf8");
-  } catch {
-    return { status: "absent" }; // unreadable mid-write — treat as not-yet-written, retry next tick
-  }
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex critic that answers in
+  // chat never writes the result file — see codex-last-message.ts). null → nothing to read yet.
+  const text = readRoleResultText(worktreePath, VERDICT_FILE);
+  if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
   return r.status === "ok"
     ? { status: "parsed", value: r.value as RawVerdict, repaired: r.repaired }

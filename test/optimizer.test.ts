@@ -398,6 +398,8 @@ for (const entryPoint of ["optimizeOne", "optimizeAllFlagged"] as const) {
           "gpt-5.5",
           "-c",
           "model_reasoning_effort=high",
+          "-o",
+          ".shepherd-last-message.txt",
           expect.any(String),
         ]);
       }

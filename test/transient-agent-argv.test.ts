@@ -319,13 +319,16 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // file-based result contract is identical, so the caller's verdict reading is unchanged; only the
 // argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools) leak.
 
-test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] <prompt>`", () => {
+test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] -o <file> <prompt>`", () => {
   for (const kind of ALL_KINDS) {
     const withModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: "gpt-5.5",
       prompt: "DO_IT",
     }).argv;
+    // `-o <last-message file>` sits between the config flags and the trailing prompt so Codex writes
+    // its final message to a file even when the agent answers in chat instead of writing the result
+    // file (see codex-last-message.ts).
     expect(withModel).toEqual([
       "codex",
       "exec",
@@ -333,6 +336,8 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       "workspace-write",
       "-m",
       "gpt-5.5",
+      "-o",
+      ".shepherd-last-message.txt",
       "DO_IT",
     ]);
     // No Claude flags leak in.
@@ -344,13 +349,21 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
     ]) {
       expect(withModel).not.toContain(flag);
     }
-    // No model → no -m flag, prompt still trailing.
+    // No model → no -m flag, but the -o pair + trailing prompt remain.
     const noModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: null,
       prompt: "DO_IT",
     }).argv;
-    expect(noModel).toEqual(["codex", "exec", "--sandbox", "workspace-write", "DO_IT"]);
+    expect(noModel).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "-o",
+      ".shepherd-last-message.txt",
+      "DO_IT",
+    ]);
   }
 });
 

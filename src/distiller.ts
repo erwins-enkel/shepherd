@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readRoleResultText } from "./codex-last-message";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
@@ -568,10 +569,12 @@ function defaultWriteSignals(
 }
 
 function defaultReadProposals(dir: string): RawProposals | null {
-  const p = join(dir, PROPOSALS_FILE);
-  if (!existsSync(p)) return null;
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex distiller that answers
+  // in chat never writes the result file — see codex-last-message.ts).
+  const text = readRoleResultText(dir, PROPOSALS_FILE);
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawProposals;
+    return JSON.parse(text) as RawProposals;
   } catch {
     return null; // partial write; retry next tick
   }

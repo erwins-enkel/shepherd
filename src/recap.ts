@@ -14,6 +14,7 @@ import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { readRoleResultText } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { SessionStore } from "./store";
@@ -163,14 +164,10 @@ function defaultReadPlan(worktreePath: string): string {
  * once the spawn has finished (see RecapService.tick). Exported for the read-path regression test.
  */
 export function defaultReadVerdict(cwd: string): VerdictRead<unknown> {
-  const p = join(cwd, RECAP_VERDICT_FILE);
-  if (!existsSync(p)) return { status: "absent" };
-  let text: string;
-  try {
-    text = readFileSync(p, "utf8");
-  } catch {
-    return { status: "absent" }; // unreadable mid-write — treat as not-yet-written, retry next tick
-  }
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex recap that answers in
+  // chat never writes the result file — see codex-last-message.ts). null → nothing to read yet.
+  const text = readRoleResultText(cwd, RECAP_VERDICT_FILE);
+  if (text === null) return { status: "absent" };
   const r = tolerantParseJson(text);
   return r.status === "ok"
     ? { status: "parsed", value: r.value, repaired: r.repaired }

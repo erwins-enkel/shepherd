@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readRoleResultText } from "./codex-last-message";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
@@ -374,10 +375,12 @@ function defaultWriteInput(dir: string, targets: OptimizerTarget[]): void {
 }
 
 function defaultReadOutput(dir: string): RawOptimized | null {
-  const p = join(dir, OUTPUT_FILE);
-  if (!existsSync(p)) return null;
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex optimizer that answers
+  // in chat never writes the result file — see codex-last-message.ts).
+  const text = readRoleResultText(dir, OUTPUT_FILE);
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawOptimized;
+    return JSON.parse(text) as RawOptimized;
   } catch {
     return null; // partial write; retry next tick
   }

@@ -14,7 +14,8 @@
  * is supplied via injected accessors so the service stays unit-testable and never
  * reaches into index.ts's live caches directly (Task 3 wires the real ones).
  */
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { readRoleResultText } from "./codex-last-message";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { SessionStore } from "./store";
@@ -60,13 +61,9 @@ export interface MergeTrainState {
 // ── defaults ────────────────────────────────────────────────────────────────────
 
 function defaultReadVerdict(cwd: string): string | null {
-  const p = join(cwd, RUNDOWN_VERDICT_FILE);
-  if (!existsSync(p)) return null;
-  try {
-    return readFileSync(p, "utf8");
-  } catch {
-    return null; // partial write; retry next tick
-  }
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex rundown that answers in
+  // chat never writes the result file — see codex-last-message.ts). null → partial write; retry.
+  return readRoleResultText(cwd, RUNDOWN_VERDICT_FILE);
 }
 
 function defaultMakeTmpDir(): string {

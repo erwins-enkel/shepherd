@@ -265,11 +265,25 @@ describe("session-detail tab GETs never fall back to {}", () => {
     expect(withPath.body.path).toBe("src");
   });
 
-  it("GET /api/sessions/:id/usage returns a SessionUsage record, never {}", async () => {
+  it("GET /api/sessions/:id/usage returns a full SessionUsage DTO, never {}", async () => {
     const { body } = await get("/api/sessions/coupon/usage");
     expect(typeof body.total).toBe("number");
     expect(body.total).toBeGreaterThan(0);
-    expect(typeof (await get("/api/sessions/rounding/usage")).body.total).toBe("number");
+    expect(body.available).toBe(true);
+    expect(body.source).toBe("live");
+    // seeded true zero: available with total 0 (renders "0 tok", never the placeholder)
+    const zero = (await get("/api/sessions/rounding/usage")).body;
+    expect(zero.available).toBe(true);
+    expect(zero.total).toBe(0);
+    // the one deliberately unavailable session exercises the "—" placeholder path
+    const none = (await get("/api/sessions/neon/usage")).body;
+    expect(none.available).toBe(false);
+    expect(none.source).toBe("none");
+    expect(none.byModel).toBeNull();
+    // unseeded id → the zeroed available fallback, still a full DTO
+    const unseeded = (await get("/api/sessions/not-seeded/usage")).body;
+    expect(unseeded.available).toBe(true);
+    expect(unseeded.total).toBe(0);
   });
 
   it("GET /api/sessions/:id/leftovers returns [], never {}", async () => {

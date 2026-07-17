@@ -89,6 +89,20 @@ export function elapsed(fromMs: number, nowMs: number): string {
 }
 
 /**
+ * Minute-granularity elapsed for the status bar: `<60m → "{n}m"`, `<24h → "{H}h {MM}m"`,
+ * else `"{D}d {HH}h"`. No seconds anywhere — the status bar ticks on the shared 30s
+ * clock, and second-level output against a 30s tick would read as a frozen counter.
+ * Unit letters d/h/m are tech notation, NOT translated (same as `elapsed`). Negative/0 → "0m".
+ */
+export function elapsedCoarse(fromMs: number, nowMs: number): string {
+  const min = Math.max(0, Math.floor((nowMs - fromMs) / 60_000));
+  if (min < 60) return `${min}m`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `${h}h ${String(min % 60).padStart(2, "0")}m`;
+  return `${Math.floor(h / 24)}d ${String(h % 24).padStart(2, "0")}h`;
+}
+
+/**
  * Compact elapsed for the row heartbeat: `<60s → "{n}s"`, `<60m → "{n}m"`,
  * `<24h → "{n}h"`, else `"{n}d"`. Each unit floored; negative/0 → "0s".
  * Unit letters s/m/h/d are tech notation, NOT translated (same as `elapsed`).

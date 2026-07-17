@@ -3276,5 +3276,12 @@
   "diagnostics_fix_confirm_title_host_capacity": "Apply host capacity limits?",
   "diagnostics_fix_confirm_run_host_capacity": "Apply limits",
   "diagnostics_fix_unresolved_host_capacity": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped.",
-  "hold_pr_conflict": "The PR has merge conflicts — CI can't run until it's rebased."
+  "hold_pr_conflict": "The PR has merge conflicts — CI can't run until it's rebased.",
+  "statusbar_aria": "Session status",
+  "statusbar_tokens_unavailable_title": "Token usage is unavailable for this session",
+  "statusbar_tokens_unavailable_codex_title": "Token usage isn't tracked for Codex sessions yet",
+  "statusbar_elapsed_live_title": "Running for {elapsed}",
+  "statusbar_elapsed_done_title": "Total runtime {elapsed}",
+  "feat_session_status_bar_title": "One status bar for every session",
+  "feat_session_status_bar_body": "Every session view now ends in the same status strip: which CLI, model and effort the agent runs with, its token usage, and how long it has been at it. It stays put on every tab and lifecycle stage — including rework, where the banner above shows the reviewer while the strip keeps the task agent's own identity — and on finished sessions in the Done lens."
 }

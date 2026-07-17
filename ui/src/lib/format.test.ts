@@ -4,6 +4,7 @@ import {
   autopilotBadgeShown,
   relativeAge,
   formatAgo,
+  elapsedCoarse,
   formatResetIn,
   heartbeatTone,
   canResume,
@@ -268,6 +269,27 @@ describe("formatAgo", () => {
   ];
   for (const [ms, out] of cases) {
     it(`${ms}ms → ${out}`, () => expect(formatAgo(ms)).toBe(out));
+  }
+});
+
+describe("elapsedCoarse", () => {
+  const M = 60_000;
+  const H = 60 * M;
+  const D = 24 * H;
+  const cases: [number, string][] = [
+    [0, "0m"],
+    [-5000, "0m"], // negative clamps
+    [59_999, "0m"], // sub-minute floors — no seconds at this granularity
+    [M, "1m"],
+    [59 * M + 59_000, "59m"],
+    [H, "1h 00m"],
+    [2 * H + 14 * M, "2h 14m"],
+    [23 * H + 59 * M, "23h 59m"],
+    [D, "1d 00h"],
+    [3 * D + H, "3d 01h"],
+  ];
+  for (const [ms, out] of cases) {
+    it(`${ms}ms → ${out}`, () => expect(elapsedCoarse(0, ms)).toBe(out));
   }
 });
 

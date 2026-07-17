@@ -1,0 +1,172 @@
+import { describe, it, expect, afterEach } from "vitest";
+import { render } from "vitest-browser-svelte";
+import { page } from "vitest/browser";
+import "../../app.css";
+import type { Session, SessionUsage } from "$lib/types";
+
+const { default: SessionStatusBar } = await import("./SessionStatusBar.svelte");
+
+function session(partial: Partial<Session> & { id: string }): Session {
+  return {
+    desig: "TASK-01",
+    name: "task one",
+    prompt: "p",
+    repoPath: "/repo/a",
+    baseBranch: "main",
+    branch: "feat/x",
+    worktreePath: "/wt",
+    isolated: true,
+    herdrSession: "h",
+    herdrAgentId: "ha",
+    claudeSessionId: "cs",
+    model: null,
+    status: "running",
+    readyToMerge: false,
+    mergingSince: null,
+    mergingTrainId: null,
+    mergeTrainPrs: null,
+    autopilotEnabled: null,
+    autopilotStepCount: 0,
+    autopilotPaused: false,
+    autopilotComplete: false,
+    autopilotQuestion: null,
+    planGateEnabled: null,
+    planPhase: null,
+    autoMergeEnabled: null,
+    autoMergeRebaseCount: 0,
+    auto: false,
+    sandboxApplied: null,
+    sandboxDegraded: false,
+    egressApplied: false,
+    egressDegraded: false,
+    research: false,
+    epicAuthoring: false,
+    issueNumber: null,
+    lastState: "",
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    archivedAt: null,
+    haltReason: null,
+    haltedAt: null,
+    manualSteps: [],
+    manualStepsAckedAt: null,
+    experimentId: null,
+    experimentRole: null,
+    ...partial,
+  };
+}
+
+function usage(partial: Partial<SessionUsage> = {}): SessionUsage {
+  return {
+    available: true,
+    source: "live",
+    total: 1234,
+    input: 1000,
+    output: 234,
+    cacheRead: 0,
+    cacheWrite: 0,
+    messageCount: 3,
+    byModel: { opus: 1234 },
+    ...partial,
+  };
+}
+
+afterEach(() => {
+  document.body.innerHTML = "";
+});
+
+describe("SessionStatusBar", () => {
+  it("renders identity, tokens and elapsed for a live Claude session", async () => {
+    render(SessionStatusBar, {
+      session: session({ id: "a", model: "opus", effort: "high" }),
+      usage: usage(),
+    });
+    await expect.element(page.getByText("Claude Code · opus · High")).toBeInTheDocument();
+    await expect.element(page.getByText("1.2k tok")).toBeInTheDocument();
+    await expect.element(page.getByText("0m")).toBeInTheDocument(); // createdAt = now, minute floor
+  });
+
+  it("falls back to the localized default for a null model and effort", async () => {
+    render(SessionStatusBar, { session: session({ id: "b" }), usage: usage() });
+    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+  });
+
+  it("legacy pre-feature session (no launch metadata) still renders identity", async () => {
+    render(SessionStatusBar, {
+      session: session({ id: "c", claudeSessionId: "" }),
+      usage: null,
+    });
+    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+  });
+
+  it("codex session renders the Codex label and the codex-specific unavailable tokens", async () => {
+    render(SessionStatusBar, {
+      session: session({ id: "d", agentProvider: "codex", model: "gpt-5.5" }),
+      usage: usage({ available: false, source: "none", total: 0 }),
+    });
+    await expect.element(page.getByText("Codex · gpt-5.5 · default")).toBeInTheDocument();
+    const dash = document.querySelector(".ssb-unavailable") as HTMLElement;
+    expect(dash.textContent).toBe("—");
+    expect(dash.title).toBe("Token usage isn't tracked for Codex sessions yet");
+  });
+
+  it("unavailable usage shows the explained dash; a true zero shows 0 tok", async () => {
+    render(SessionStatusBar, {
+      session: session({ id: "e" }),
+      usage: usage({ available: false, source: "none", total: 0 }),
+    });
+    const dash = document.querySelector(".ssb-unavailable") as HTMLElement;
+    expect(dash.textContent).toBe("—");
+    expect(dash.title).toBe("Token usage is unavailable for this session");
+    document.body.innerHTML = "";
+
+    render(SessionStatusBar, {
+      session: session({ id: "f" }),
+      usage: usage({ available: true, total: 0 }),
+    });
+    await expect.element(page.getByText("0 tok")).toBeInTheDocument();
+    expect(document.querySelector(".ssb-unavailable")).toBeNull();
+  });
+
+  it("pending usage (null) shows the dash placeholder, not a fake zero", async () => {
+    render(SessionStatusBar, { session: session({ id: "g" }), usage: null });
+    expect((document.querySelector(".ssb-unavailable") as HTMLElement).textContent).toBe("—");
+  });
+
+  it("archived session shows the static total runtime from archivedAt", async () => {
+    const H = 3_600_000;
+    render(SessionStatusBar, {
+      session: session({
+        id: "h",
+        status: "archived",
+        createdAt: 0,
+        archivedAt: 2 * H + 14 * 60_000,
+      }),
+      usage: usage({ source: "snapshot", byModel: null }),
+    });
+    await expect.element(page.getByText("2h 14m")).toBeInTheDocument();
+  });
+
+  it("archived session without archivedAt falls back to updatedAt", async () => {
+    render(SessionStatusBar, {
+      session: session({
+        id: "i",
+        status: "archived",
+        createdAt: 0,
+        archivedAt: null,
+        updatedAt: 90 * 60_000,
+      }),
+      usage: null,
+    });
+    await expect.element(page.getByText("1h 30m")).toBeInTheDocument();
+  });
+
+  it("is a labelled group and never an ARIA live region", async () => {
+    render(SessionStatusBar, { session: session({ id: "j" }), usage: usage() });
+    const bar = document.querySelector(".ssb") as HTMLElement;
+    expect(bar.getAttribute("role")).toBe("group");
+    expect(bar.getAttribute("aria-label")).toBe("Session status");
+    expect(bar.getAttribute("aria-live")).toBeNull();
+    expect(document.querySelector('[role="status"]')).toBeNull();
+  });
+});

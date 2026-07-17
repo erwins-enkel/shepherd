@@ -4990,6 +4990,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }));
   }
 
+  /** One session's archive-time usage snapshot, or null when none was recorded
+   *  (writer skips operational archetypes / empty transcripts; backfill can miss). */
+  getSessionUsage(sessionId: string): SessionUsageSnapshot | null {
+    const row = this.db
+      .query(`SELECT * FROM session_usage WHERE sessionId = ?`)
+      .get(sessionId) as SessionUsageRow | null;
+    return row ? { ...row, byModel: JSON.parse(row.byModel) as Record<string, number> } : null;
+  }
+
   // ── per-session usage buckets ────────────────────────────────────────────────
 
   /** Replace all bucket rows for sessionId atomically.

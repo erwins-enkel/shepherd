@@ -1146,15 +1146,21 @@ export interface OwedFocusSnapshot {
   merged: boolean; // git state === "merged" at click time
 }
 
+/** Wire mirror of the server's SessionUsageDto (GET /api/sessions/:id/usage).
+ *  `available: false` means no resolvable data source (Codex, pre-feature, cleaned
+ *  transcript) — distinct from a true zero, which is `available: true, total: 0`.
+ *  Splits/messageCount/byModel are null when the resolved source doesn't carry them
+ *  (e.g. archive snapshots withhold byModel: they store weighted units, not raw tokens). */
 export interface SessionUsage {
-  input: number;
-  output: number;
-  cacheRead: number;
-  cacheWrite: number;
+  available: boolean;
+  source: "live" | "snapshot" | "codex" | "none";
   total: number;
-  messageCount: number;
-  lastActivity: number | null;
-  byModel: Record<string, number>;
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  messageCount: number | null;
+  byModel: Record<string, number> | null;
 }
 
 export interface ActivityEntry {

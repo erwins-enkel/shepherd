@@ -115,16 +115,18 @@ export const demoState = {
    *  listing for a session whose scratchpad root doesn't exist yet. */
   scratchpadRoot: (id: string): ScratchListing =>
     world.scratchpad[id] ?? { path: "", parent: null, entries: [] },
-  /** GET /api/sessions/:id/usage — a zeroed (never {}) record for an unseeded session. */
+  /** GET /api/sessions/:id/usage — a zeroed (never {}) record for an unseeded session.
+   *  available:true — in the demo world the data source "exists", so zero is a true zero. */
   sessionUsage: (id: string): SessionUsage =>
     world.sessionUsage[id] ?? {
+      available: true,
+      source: "live",
       input: 0,
       output: 0,
       cacheRead: 0,
       cacheWrite: 0,
       total: 0,
       messageCount: 0,
-      lastActivity: null,
       byModel: {},
     },
   /** GET /api/sessions/:id/leftovers — the demo never leaves real subprocesses running. */

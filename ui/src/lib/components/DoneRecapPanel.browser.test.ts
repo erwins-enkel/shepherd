@@ -5,7 +5,38 @@ import "../../app.css";
 import DoneRecapPanel from "./DoneRecapPanel.svelte";
 import { recaps } from "$lib/recaps.svelte";
 import { m } from "$lib/paraglide/messages";
-import type { Session, Recap } from "$lib/types";
+import type { Session, Recap, SessionUsage } from "$lib/types";
+
+// Deferred-resolution mock for the status bar's usage fetch: each call parks its resolver
+// under the session id so tests control response ORDER (the stale-response test resolves
+// the first session's request last). Unresolved requests are harmless elsewhere — the pane
+// just shows its placeholder.
+const { usageResolvers } = vi.hoisted(() => ({
+  usageResolvers: new Map<string, (u: SessionUsage) => void>(),
+}));
+vi.mock(import("$lib/api"), async (importOriginal) => {
+  const mod = await importOriginal();
+  return {
+    ...mod,
+    getSessionUsage: vi.fn(
+      (id: string) => new Promise<SessionUsage>((resolve) => usageResolvers.set(id, resolve)),
+    ),
+  };
+});
+
+function usageDto(total: number): SessionUsage {
+  return {
+    available: true,
+    source: "snapshot",
+    total,
+    input: total,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    messageCount: 1,
+    byModel: null,
+  };
+}
 
 function session(partial: Partial<Session> & { id: string }): Session {
   return {
@@ -441,5 +472,62 @@ describe("DoneRecapPanel completion source", () => {
 
     await rerender({ session: session({ id: "source", archiveReason: null }) });
     await expect.element(page.getByText("Completion source unknown")).toBeInTheDocument();
+  });
+});
+
+describe("DoneRecapPanel status bar", () => {
+  beforeEach(() => usageResolvers.clear());
+
+  it("pins the status bar while an overflowing body scrolls (constrained height)", async () => {
+    recaps.map = {
+      pin: recap({
+        sessionId: "pin",
+        changedFiles: Array.from({ length: 80 }, (_, i) => `src/deep/path/file-${i}.ts`),
+      }),
+    };
+    const { container } = await render(DoneRecapPanel, {
+      session: session({ id: "pin", status: "archived", model: "opus" }),
+    });
+    // Constrain the mount like the Done lens does (flex column of fixed height).
+    const mount = container as HTMLElement;
+    mount.style.display = "flex";
+    mount.style.flexDirection = "column";
+    mount.style.height = "300px";
+    await expect.element(page.getByText("src/deep/path/file-0.ts")).toBeInTheDocument();
+
+    const panel = mount.querySelector(".done-recap") as HTMLElement;
+    const body = mount.querySelector(".dr-body") as HTMLElement;
+    const bar = mount.querySelector(".ssb") as HTMLElement;
+    expect(bar, "status bar renders").not.toBeNull();
+    // The body overflows and owns the scrolling; the panel itself does not scroll.
+    expect(body.scrollHeight).toBeGreaterThan(body.clientHeight);
+    expect(panel.scrollHeight).toBe(panel.clientHeight);
+    // The pinned bar sits fully inside the visible panel box.
+    const panelRect = panel.getBoundingClientRect();
+    const barRect = bar.getBoundingClientRect();
+    expect(barRect.bottom).toBeLessThanOrEqual(panelRect.bottom + 1);
+    expect(barRect.top).toBeGreaterThanOrEqual(panelRect.top);
+    // Scrolling the body must not move the pinned bar.
+    body.scrollTop = body.scrollHeight;
+    expect(bar.getBoundingClientRect().bottom).toBeCloseTo(barRect.bottom, 0);
+  });
+
+  it("drops a stale usage response after switching sessions (A resolves last)", async () => {
+    recaps.map = { ua: recap({ sessionId: "ua" }), ub: recap({ sessionId: "ub" }) };
+    const { container, rerender } = await render(DoneRecapPanel, {
+      session: session({ id: "ua", status: "archived" }),
+    });
+    // A's request is in flight (unresolved) → placeholder shows.
+    expect((container as HTMLElement).querySelector(".ssb-unavailable")).not.toBeNull();
+
+    await rerender({ session: session({ id: "ub", status: "archived" }) });
+    usageResolvers.get("ub")!(usageDto(500));
+    await expect.element(page.getByText("500 tok")).toBeInTheDocument();
+
+    // A's response arrives LAST — the dead run's alive-guard must drop it.
+    usageResolvers.get("ua")!(usageDto(999_999));
+    await new Promise((r) => setTimeout(r, 20));
+    await expect.element(page.getByText("500 tok")).toBeInTheDocument();
+    expect((container as HTMLElement).textContent).not.toContain("1M tok");
   });
 });

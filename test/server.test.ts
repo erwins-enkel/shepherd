@@ -7,6 +7,7 @@ import {
   realpathSync,
   statSync,
   readFileSync,
+  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -204,7 +205,7 @@ test("POST /api/usage/refresh without refreshUsage falls back to current limits 
   });
 });
 
-test("GET /api/sessions/:id/usage returns zeroed usage for a session w/o JSONL", async () => {
+test("GET /api/sessions/:id/usage is unavailable (not fake zero) for a session w/o JSONL", async () => {
   const app = harness();
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
@@ -212,8 +213,145 @@ test("GET /api/sessions/:id/usage returns zeroed usage for a session w/o JSONL",
   const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/usage`));
   expect(res.status).toBe(200);
   const u = await res.json();
+  expect(u.available).toBe(false);
+  expect(u.source).toBe("none");
+  expect(u.total).toBe(0);
+  expect(u.messageCount).toBeNull();
+  expect(u.byModel).toBeNull();
+});
+
+// Base row for direct-store usage-ladder tests (bypasses the spawn path).
+const USAGE_SESSION = {
+  name: "u",
+  prompt: "u",
+  repoPath: "/r",
+  baseBranch: "main",
+  branch: "shepherd/u",
+  worktreePath: "/wt-usage",
+  isolated: true,
+  herdrSession: "default",
+  herdrAgentId: "term_u",
+};
+
+test("usage ladder: archived session serves its snapshot — raw fields, byModel withheld", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = deps.store.create({
+    ...USAGE_SESSION,
+    claudeSessionId: "c0ffee00-0000-4000-8000-000000000001",
+  });
+  deps.store.update(s.id, { status: "archived" });
+  deps.store.upsertSessionUsage({
+    sessionId: s.id,
+    desig: s.desig,
+    name: s.name,
+    repoPath: s.repoPath,
+    model: "opus",
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheWrite: 40,
+    total: 100,
+    weightedUnits: 7,
+    cacheReadUnits: 3,
+    messageCount: 5,
+    byModel: { opus: 7 }, // weighted units — must NOT surface in the raw-token DTO field
+    createdAt: s.createdAt,
+    archivedAt: s.createdAt + 1000,
+    snapshotAt: s.createdAt + 1000,
+  });
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u).toEqual({
+    available: true,
+    source: "snapshot",
+    total: 100,
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheWrite: 40,
+    messageCount: 5,
+    byModel: null,
+  });
+});
+
+test("usage ladder: snapshot-less archive falls back to the live source (here: unavailable)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const s = deps.store.create({
+    ...USAGE_SESSION,
+    claudeSessionId: "c0ffee00-0000-4000-8000-000000000002",
+  });
+  deps.store.update(s.id, { status: "archived" });
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(false);
+  expect(u.source).toBe("none");
+});
+
+test("usage ladder: live JSONL resolves under the spawn account dir (raw byModel served)", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // Swap/pool-account session: its JSONL lives under <spawnAccountDir>/projects, NOT the
+  // default claude projects dir — the exact resolution the old endpoint silently missed.
+  const accountDir = join(tmpRoot, "swap-account");
+  const sid = "c0ffee00-0000-4000-8000-000000000003";
+  const jsonlDir = join(accountDir, "projects", "-wt-usage"); // dashify("/wt-usage")
+  mkdirSync(jsonlDir, { recursive: true });
+  const line = JSON.stringify({
+    type: "assistant",
+    requestId: "req_1",
+    message: { model: "fable", usage: { input_tokens: 5, output_tokens: 7 } },
+  });
+  writeFileSync(join(jsonlDir, `${sid}.jsonl`), `${line}\n`);
+  const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
+  deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(true);
+  expect(u.source).toBe("live");
+  expect(u.total).toBe(12);
+  expect(u.input).toBe(5);
+  expect(u.output).toBe(7);
+  expect(u.messageCount).toBe(1);
+  expect(u.byModel).toEqual({ fable: 12 }); // raw tokens per model
+});
+
+test("usage ladder: readable-but-empty transcript is a true zero, not unavailable", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const accountDir = join(tmpRoot, "swap-account-empty");
+  const sid = "c0ffee00-0000-4000-8000-000000000004";
+  const jsonlDir = join(accountDir, "projects", "-wt-usage");
+  mkdirSync(jsonlDir, { recursive: true });
+  writeFileSync(join(jsonlDir, `${sid}.jsonl`), "");
+  const s = deps.store.create({ ...USAGE_SESSION, claudeSessionId: sid });
+  deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u.available).toBe(true); // the source exists — zero is a real reading
+  expect(u.source).toBe("live");
   expect(u.total).toBe(0);
   expect(u.messageCount).toBe(0);
+});
+
+test("usage ladder: codex session is honestly unavailable — no state-DB or rollout access", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  // The codex branch must short-circuit BEFORE any filesystem source: per-session state-DB
+  // totals are deliberately out of scope (unproven thread-overlap semantics across resumes,
+  // and no tree scan belongs in the UI's 5s polling path — see the codex-totals follow-up
+  // issue). The exact all-null DTO below is the wire contract for that boundary; a future
+  // scan would surface here as available:true / a non-"none" source.
+  const s = deps.store.create({ ...USAGE_SESSION, agentProvider: "codex" as const });
+  const u = await (await app.fetch(new Request(`http://x/api/sessions/${s.id}/usage`))).json();
+  expect(u).toEqual({
+    available: false,
+    source: "none",
+    total: 0,
+    input: null,
+    output: null,
+    cacheRead: null,
+    cacheWrite: null,
+    messageCount: null,
+    byModel: null,
+  });
 });
 
 test("GET /api/sessions/:id/activity returns [] for a session w/o JSONL", async () => {

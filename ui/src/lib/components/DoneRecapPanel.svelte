@@ -1,11 +1,19 @@
 <script lang="ts">
-  import type { Session, RecapFailureCode, RecapVerdict, SessionArchiveReason } from "$lib/types";
+  import type {
+    Session,
+    SessionUsage,
+    RecapFailureCode,
+    RecapVerdict,
+    SessionArchiveReason,
+  } from "$lib/types";
   import { recaps } from "$lib/recaps.svelte";
   import { formatAgo } from "$lib/format";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { getSessionUsage } from "$lib/api";
   import { recapSkipHeadline, recapSkipBody } from "$lib/recap-skip";
   import VisualReview from "./VisualReview.svelte";
+  import SessionStatusBar from "./SessionStatusBar.svelte";
 
   let {
     session,
@@ -36,6 +44,25 @@
   $effect(() => () => clearTimeout(bringBackTimer));
 
   const recap = $derived(recaps.map[session.id]);
+
+  // Usage for the pinned status bar. The panel can be re-rendered onto a DIFFERENT archived
+  // session without a remount, so the load is keyed on the derived id (a $derived only
+  // notifies on value change, mirroring Viewport's unitId note): the effect resets usage
+  // immediately on a switch and an `alive` flag drops any late response for a previous id.
+  // One-shot fetch — archived usage is snapshot-backed and static, no poll.
+  const unitId = $derived(session.id);
+  let usage = $state<SessionUsage | null>(null);
+  $effect(() => {
+    const id = unitId;
+    usage = null;
+    let alive = true;
+    getSessionUsage(id)
+      .then((u) => alive && (usage = u))
+      .catch(() => {}); // pane shows its explained "—" placeholder
+    return () => {
+      alive = false;
+    };
+  });
 
   // relative "finished X ago" from archivedAt; falls back to updatedAt when an
   // archived session somehow has no archivedAt stamp. Driven by the shared 30s
@@ -221,6 +248,10 @@
       <p class="dr-muted">{m.recap_unavailable()}</p>
     {/if}
   </div>
+
+  <!-- Same persistent status pane as the live viewport, pinned below the scrolling body:
+       finished sessions keep their model/effort/tokens/runtime glanceable. -->
+  <SessionStatusBar {session} {usage} />
 </section>
 
 <style>
@@ -230,7 +261,9 @@
     background: var(--color-panel);
     display: flex;
     flex-direction: column;
-    overflow: auto;
+    /* Scroll ownership lives in .dr-body: the panel itself must not scroll, so the
+       header and the pinned status bar stay in view while the recap body scrolls. */
+    overflow: hidden;
     min-height: 0;
     flex: 1;
   }
@@ -325,6 +358,11 @@
     flex-direction: column;
     gap: 12px;
     padding: 14px 16px;
+    /* The sole scroll container (see .done-recap): overflowing recap content scrolls
+       here while the header above and the status bar below stay pinned. */
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
   }
 
   .dr-verdict {

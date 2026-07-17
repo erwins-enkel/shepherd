@@ -770,6 +770,22 @@
   // re-run this effect on every store-driven prop churn, resetting usage to null and
   // re-fetching each tick even while the id stays put.
   let usage = $state<SessionUsage | null>(null);
+  // metaPop's split-breakdown hover title needs all four raw splits; sources that don't
+  // carry them (see SessionUsage) show the plain total with no title.
+  const usageSplitsTitle = $derived(
+    usage != null &&
+      usage.input != null &&
+      usage.output != null &&
+      usage.cacheRead != null &&
+      usage.cacheWrite != null
+      ? m.viewport_usage_title({
+          input: usage.input.toLocaleString(),
+          output: usage.output.toLocaleString(),
+          cacheRead: usage.cacheRead.toLocaleString(),
+          cacheWrite: usage.cacheWrite.toLocaleString(),
+        })
+      : undefined,
+  );
   $effect(() => {
     const id = unitId;
     usage = null;
@@ -2423,21 +2439,8 @@
         <span class="dp-section">{m.tasktip_usage()}</span>
         <span class="dp-row">
           <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
-          <!-- The split-breakdown title needs all four raw splits; sources that don't carry
-               them (see SessionUsage) show the plain total without the hover breakdown. -->
-          <span
-            class="dp-v"
-            title={usage.input != null &&
-            usage.output != null &&
-            usage.cacheRead != null &&
-            usage.cacheWrite != null
-              ? m.viewport_usage_title({
-                  input: usage.input.toLocaleString(),
-                  output: usage.output.toLocaleString(),
-                  cacheRead: usage.cacheRead.toLocaleString(),
-                  cacheWrite: usage.cacheWrite.toLocaleString(),
-                })
-              : undefined}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
+          <span class="dp-v" title={usageSplitsTitle}
+            >{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
           >
         </span>
       {/if}

@@ -548,11 +548,12 @@ export interface AppDeps {
   ) => Promise<import("./prompt-recommend").RecommendResult>;
 }
 
-/** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage).
+/** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage —
+ *  the two trees don't share a build, so the shape is deliberately not exported/imported).
  *  `available: false` is reserved for genuinely absent data — a readable-but-empty transcript
  *  is `available: true, total: 0`. Splits/messageCount/byModel are null when the resolved
  *  source doesn't carry them; `byModel` is always RAW tokens per model, never weighted units. */
-export interface SessionUsageDto {
+interface SessionUsageDto {
   available: boolean;
   source: "live" | "snapshot" | "codex" | "none";
   total: number;

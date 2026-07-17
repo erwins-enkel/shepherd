@@ -7,16 +7,20 @@
 
   let { session, usage }: { session: Session; usage: SessionUsage | null } = $props();
 
-  // Identity mirrors the metaPop fallback chain (Viewport): stored value first, then the
-  // launch record. environmentLabel is the same formatter ReviewInFlightBanner uses for the
-  // reviewer, so the task strip and the reviewer strip can never drift apart in wording.
+  // Identity reads the session row's model/effort as AUTHORITATIVE: null explicitly means
+  // "provider default" (it's what a replace/relaunch with provider defaults writes), so it
+  // must render as "default" — falling back to the original launch metadata here would
+  // resurrect the pre-replacement model forever. Only fields that can be genuinely ABSENT
+  // (provider on pre-field rows; effort is optional in the client mirror) fall back.
+  // environmentLabel is the same formatter ReviewInFlightBanner uses for the reviewer, so
+  // the task strip and the reviewer strip can never drift apart in wording.
   const launch = $derived(session.launchMetadata ?? null);
   const provider = $derived(session.agentProvider ?? launch?.agent.provider ?? "claude");
   const identity = $derived(
     environmentLabel(
       provider,
-      session.model ?? launch?.resolvedLaunch.storedModel ?? null,
-      session.effort ?? launch?.resolvedLaunch.effort ?? null,
+      session.model,
+      session.effort === undefined ? (launch?.resolvedLaunch.effort ?? null) : session.effort,
     ),
   );
 

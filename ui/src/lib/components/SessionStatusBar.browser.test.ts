@@ -99,6 +99,48 @@ describe("SessionStatusBar", () => {
     await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
   });
 
+  it("replacement to provider defaults wins over stale launch metadata", async () => {
+    // "Continue with provider defaults" writes model/effort = null on the session row while
+    // the ORIGINAL launch record still says opus/high — the bar must show the defaults,
+    // not resurrect the pre-replacement environment.
+    render(SessionStatusBar, {
+      session: session({
+        id: "k",
+        model: null,
+        effort: null,
+        launchMetadata: {
+          sourceKind: "user",
+          prompt: "p",
+          issue: null,
+          attachments: [],
+          branch: { baseBranch: "main", workBranch: "feat/x", sharedCheckout: false },
+          uiState: null,
+          submittedChoices: {
+            planGateOverride: null,
+            autopilotOverride: null,
+            sandboxProfile: null,
+            model: "opus",
+            effort: "high",
+          },
+          resolvedLaunch: {
+            research: false,
+            planGateOptIn: false,
+            autopilotOptIn: false,
+            storedModel: "opus",
+            effort: "high",
+            sandboxApplied: null,
+            sandboxDegraded: false,
+            egressApplied: false,
+            egressDegraded: false,
+          },
+          agent: { provider: "claude", model: "opus", effort: "high" },
+        },
+      }),
+      usage: usage(),
+    });
+    await expect.element(page.getByText("Claude Code · default · default")).toBeInTheDocument();
+  });
+
   it("codex session renders the Codex label and the codex-specific unavailable tokens", async () => {
     render(SessionStatusBar, {
       session: session({ id: "d", agentProvider: "codex", model: "gpt-5.5" }),

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs";
-import { readRoleResultText } from "./codex-last-message";
+import { readRoleResultText, scrubStaleVerdictArtifacts } from "./codex-last-message";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "./instrument";
@@ -506,6 +506,10 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "error-spawn";
     }
+    // Defense-in-depth: the plan reviewer detaches at the TRUSTED base sha (not the plan author's
+    // live worktree), so a pre-seed can't ride in the checkout — but scrub uniformly with the PR
+    // critics so no future base change silently opens the hole (see scrubStaleVerdictArtifacts).
+    scrubStaleVerdictArtifacts(wt.worktreePath, PLAN_VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (

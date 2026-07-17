@@ -23,7 +23,7 @@
  * last-message that isn't a valid verdict fails that validation and fails closed exactly as before —
  * the fallback can never invent a verdict.
  */
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
 /** The file `codex exec -o <FILE>` writes the agent's final message to. Relative → resolved against
@@ -54,4 +54,28 @@ export function readRoleResultText(cwd: string, resultFile: string): string | nu
     }
   }
   return null;
+}
+
+/**
+ * Delete any pre-existing verdict artifacts from a reviewer/critic worktree BEFORE launching the
+ * role. REQUIRED for roles that spawn in a worktree checked out from UNTRUSTED PR contents (the PR
+ * critics `review.ts` + `standalone-critic.ts` detach at the PR head): a malicious PR can commit a
+ * strict-JSON `<resultFile>` or `.shepherd-last-message.txt` (the `-o` fallback) into its branch, and
+ * because the read path finalizes a strict parse on the first tick AND is provider-agnostic, that
+ * pre-seed would short-circuit the real reviewer — a Claude reviewer included, which never
+ * legitimately writes an `-o` file at all. A detached reviewer worktree exists solely to inspect
+ * committed code; the reviewer writes its verdict FRESH during the run, so any such artifact present
+ * at launch is a pre-seed, never a real verdict — removing it is safe and closes the hole. Both the
+ * role's own `resultFile` and the shared `-o` fallback file are scrubbed. Best-effort per file (a
+ * missing file / unlink race must not block the spawn). Harmless for base-checkout reviewers (the
+ * plan reviewer detaches at the trusted base) — a defense-in-depth no-op there.
+ */
+export function scrubStaleVerdictArtifacts(worktreePath: string, resultFile: string): void {
+  for (const name of [resultFile, CODEX_LAST_MESSAGE_FILE]) {
+    try {
+      rmSync(join(worktreePath, name), { force: true });
+    } catch {
+      /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
+    }
+  }
 }

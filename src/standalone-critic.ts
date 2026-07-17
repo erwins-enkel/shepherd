@@ -38,10 +38,12 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  VERDICT_FILE,
   type RawVerdict,
   type EpicContext,
   type LandingContext,
 } from "./critic-core";
+import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
@@ -493,6 +495,10 @@ export class StandalonePrCriticService {
       return;
     }
 
+    // The worktree is checked out at the UNTRUSTED PR head (a fork's `refs/pull/<n>/head`); a
+    // malicious PR could commit a strict-JSON verdict / `-o` fallback to short-circuit the real critic
+    // (see scrubStaleVerdictArtifacts). Scrub right before spawn.
+    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (

@@ -24,10 +24,12 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  VERDICT_FILE,
   type RawVerdict,
   type EpicBaseDelta,
   type EpicContext,
 } from "./critic-core";
+import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
@@ -452,6 +454,10 @@ export class ReviewService {
       this.publishSpawnAbort(session, git, aux.aborted.reason, prior);
       return;
     }
+    // The worktree is checked out at the UNTRUSTED PR head; a malicious PR could commit a strict-JSON
+    // verdict / `-o` fallback to short-circuit the real critic (see scrubStaleVerdictArtifacts).
+    // Scrub HERE — after rebaseSkip, which can re-materialize a committed artifact — right before spawn.
+    scrubStaleVerdictArtifacts(wt.worktreePath, VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (

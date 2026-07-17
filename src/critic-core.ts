@@ -564,7 +564,10 @@ function scopeAndOutputTail(
   ];
 }
 
-const VERDICT_FILE = ".shepherd-review.json";
+/** The critic's verdict file, written into its disposable worktree. Exported so the PR-critic spawn
+ *  sites can scrub a pre-seeded copy from the untrusted checkout before launch (see
+ *  scrubStaleVerdictArtifacts). */
+export const VERDICT_FILE = ".shepherd-review.json";
 
 export interface RawVerdict {
   decision?: unknown;

@@ -128,11 +128,14 @@ function attachmentsSubPath(norm: string): string {
 
 /**
  * Merged scratchpad root: the session's own scratchpad entries plus the synthetic `attachments`
- * folder (when the worktree has any operator attachments). Dedupe: if the real scratchpad already
- * holds a dir literally named `attachments`, the synthetic overlay wins — the real entry is dropped
- * so the root never emits two `attachments` rows. The concat order is irrelevant because the result
- * is sorted with the same dirs-first-then-locale-alpha comparator `listDir` uses everywhere else.
- * Returns null only when there is neither a scratchpad nor any attachment (nothing to show).
+ * folder (when the worktree has any operator attachments). Dedupe is conditional on the overlay
+ * being present: only when there ARE uploads does a real scratchpad dir literally named
+ * `attachments` get dropped in favor of the synthetic one (so the root never emits two rows). With
+ * NO uploads there is no overlay, so a real `attachments` entry is kept and stays browsable — see
+ * `listScratchpadMerged`, which likewise only claims the `attachments/` namespace when uploads
+ * exist. The concat order is irrelevant because the result is sorted with the same
+ * dirs-first-then-locale-alpha comparator `listDir` uses everywhere else. Returns null only when
+ * there is neither a scratchpad nor any attachment (nothing to show).
  */
 async function listScratchpadRoot(
   worktreePath: string,
@@ -142,7 +145,9 @@ async function listScratchpadRoot(
   const hasAttachments = await attachmentsHasFiles(worktreePath);
   if (!scratch && !hasAttachments) return null;
 
-  const base = (scratch?.entries ?? []).filter((e) => e.path !== ATTACHMENTS_DIR);
+  // Drop a real `attachments` entry ONLY when the synthetic overlay replaces it; otherwise keep it.
+  const raw = scratch?.entries ?? [];
+  const base = hasAttachments ? raw.filter((e) => e.path !== ATTACHMENTS_DIR) : raw;
   const entries = hasAttachments ? [attachmentsEntry(), ...base] : base;
   entries.sort((a, b) =>
     a.type !== b.type ? (a.type === "dir" ? -1 : 1) : a.name.localeCompare(b.name),
@@ -153,9 +158,11 @@ async function listScratchpadRoot(
 /**
  * List one directory of the merged scratchpad view (#1717): the session scratchpad with the
  * operator attachments overlaid as a reserved `attachments/` subtree. Paths under `attachments/`
- * resolve against `<worktree>/.shepherd-uploads` (contained to that root), everything else against
- * the session scratchpad root (unchanged, still null on a blank `claudeSessionId`). Each path is
- * dispatched to exactly one root — there is no cross-root traversal.
+ * resolve against `<worktree>/.shepherd-uploads` (contained to that root) — but ONLY when uploads
+ * exist. With no uploads the overlay is inactive, so `attachments/…` falls through to the scratchpad
+ * root like any other path, keeping a real scratchpad dir named `attachments` browsable. Everything
+ * else resolves against the scratchpad root (unchanged, still null on a blank `claudeSessionId`).
+ * Each path is dispatched to exactly one root — there is no cross-root traversal.
  */
 export async function listScratchpadMerged(
   worktreePath: string,
@@ -163,7 +170,7 @@ export async function listScratchpadMerged(
   relPath: string,
 ): Promise<BrowseListing | null> {
   const norm = normalize(relPath || "");
-  if (isAttachmentsPath(norm)) {
+  if (isAttachmentsPath(norm) && (await attachmentsHasFiles(worktreePath))) {
     const listing = await listDir(worktreeUploadsDir(worktreePath), attachmentsSubPath(norm));
     return listing ? remapUploadsListing(listing) : null;
   }
@@ -173,9 +180,10 @@ export async function listScratchpadMerged(
 
 /**
  * Resolve a merged-view path that must be a regular FILE (for download). An `attachments/…` path
- * resolves against the uploads root; everything else against the scratchpad root. Returns the
- * canonical absolute path, or null on escape / missing / not-a-regular-file (a bare `attachments`
- * folder path resolves to null — you cannot download the folder itself).
+ * resolves against the uploads root ONLY when uploads exist; otherwise it falls through to the
+ * scratchpad root (so a real scratchpad `attachments/<file>` is downloadable when there is no
+ * overlay). Returns the canonical absolute path, or null on escape / missing / not-a-regular-file
+ * (a bare `attachments` folder path resolves to null — you cannot download the folder itself).
  */
 export async function resolveScratchpadOrAttachmentFile(
   worktreePath: string,
@@ -183,7 +191,7 @@ export async function resolveScratchpadOrAttachmentFile(
   relPath: string,
 ): Promise<string | null> {
   const norm = normalize(relPath || "");
-  if (isAttachmentsPath(norm)) {
+  if (isAttachmentsPath(norm) && (await attachmentsHasFiles(worktreePath))) {
     return resolveFileInRoot(worktreeUploadsDir(worktreePath), attachmentsSubPath(norm));
   }
   return resolveScratchpadFile(worktreePath, claudeSessionId, relPath);

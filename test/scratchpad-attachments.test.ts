@@ -212,6 +212,29 @@ test("dedupe: a real scratchpad dir named `attachments` yields exactly one (synt
   expect(names(await sub.json())).toEqual(["shot.png"]);
 });
 
+test("with NO uploads, a real scratchpad `attachments` dir is kept at root and stays browsable", async () => {
+  const { app, store } = harness();
+  const s = makeSession(store);
+  // A real scratchpad dir named `attachments` with a nested subdir — and NO uploads, so no overlay.
+  const root = sessionScratchpadDir(repoDir, SID);
+  mkdirSync(join(root, ATTACHMENTS_DIR, "sub"), { recursive: true });
+
+  // Root keeps the REAL entry (no synthetic overlay) — not filtered away, not marked synthetic.
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/scratchpad`));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  const rows = body.entries.filter((e: { name: string }) => e.name === ATTACHMENTS_DIR);
+  expect(rows).toHaveLength(1);
+  expect(rows[0].attachments).toBeUndefined(); // real scratchpad dir, not the synthetic overlay
+
+  // Browsing into it resolves against the SCRATCHPAD (not the empty uploads root) → its real content.
+  const sub = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/scratchpad?path=${ATTACHMENTS_DIR}`),
+  );
+  expect(sub.status).toBe(200);
+  expect(names(await sub.json())).toEqual(["sub"]);
+});
+
 test("root is 404 when there is neither a scratchpad nor any attachment (blank sid, no uploads)", async () => {
   const { app, store } = harness();
   const s = makeSession(store, "");

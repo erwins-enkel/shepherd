@@ -19,6 +19,7 @@
     labelColorMap,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { viewerCache } from "$lib/viewer-cache.svelte";
   import { backlogRefresh } from "$lib/backlog-refresh.svelte";
   import IssueRow from "./issues-panel/IssueRow.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
@@ -236,6 +237,7 @@
         repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
+        viewerCache.set(rp, r.viewer);
         loadError = r.error != null;
         loading = false;
       })
@@ -304,6 +306,7 @@
         repoUrl = r.webUrl;
         issues = r.issues;
         viewer = r.viewer;
+        viewerCache.set(rp, r.viewer);
         loadError = false;
         // This result is now the newest state — display it even if the (superseded)
         // mount fetch never settled; otherwise fresh data hides behind the skeleton.
@@ -560,6 +563,7 @@
           {bodyPreview}
           {age}
           {showAssignees}
+          {viewer}
           {issueActions}
           {onnewtask}
           {onquick}

@@ -213,6 +213,24 @@ export function hideOthersExceptFlaggedEpics(
 }
 
 /**
+ * The assignee logins of an issue that are NOT the viewer — the "someone else is
+ * assigned" list that drives the plain-issue "assigned to X" pill (#1694), mirroring
+ * the epic `assignedOthers` computation (src/epic-core.ts).
+ *
+ * Returns `[]` when `viewer` is null: this is specifically the "others" list, and
+ * claiming "assigned to others" without knowing who "me" is would mislabel the
+ * operator's own issues. A null viewer does NOT mean "show nothing" — the row falls
+ * back to a neutral assignee listing (see IssueRow) built from `issue.assignees`
+ * directly; only the "others" framing is withheld until the viewer is known.
+ *
+ * The `?? []` guard tolerates a stale payload predating the `assignees` field.
+ */
+export function assignedOthers(issue: Issue, viewer: string | null): string[] {
+  if (viewer == null) return [];
+  return (issue.assignees ?? []).filter((login) => login !== viewer);
+}
+
+/**
  * Narrow an issue list to "hide in progress": drop issues already claimed by a
  * running session (labeled `shepherd:active`). Viewer-agnostic — it keys off a
  * label, not assignees.

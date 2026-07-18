@@ -4,12 +4,13 @@
   import { fitLabels } from "$lib/fit-labels";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
-  import { epicFlagForOthers } from "../issues-panel";
+  import { epicFlagForOthers, assignedOthers } from "../issues-panel";
   import { progress } from "../epic-panel";
   import EpicPanel from "../EpicPanel.svelte";
   import IssueMenuLayer from "../IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "../issue-menu-trigger";
   import EpicOthersPill from "./EpicOthersPill.svelte";
+  import AssignedPill from "./AssignedPill.svelte";
   import IssueLabelChips from "../IssueLabelChips.svelte";
 
   // One backlog issue row, extracted from IssuesPanel so the panel template clears the
@@ -25,6 +26,7 @@
     bodyPreview = false,
     age = false,
     showAssignees = false,
+    viewer = null,
     issueActions,
     onnewtask,
     onquick = undefined,
@@ -44,9 +46,12 @@
     drain?: DrainStatus | null;
     bodyPreview?: boolean;
     age?: boolean;
-    /** Show a chip per assignee login — set only when the "mine & unassigned" filter
-     *  isn't hiding others' issues (#824), so the assignee isn't redundant noise. */
+    /** Surface the assignee pill — set only when the "mine & unassigned" filter isn't
+     *  hiding others' issues (#824), so the assignee isn't redundant noise. */
     showAssignees?: boolean;
+    /** Forge viewer login (or null when unknown). Drives whether the assignee pill is
+     *  "framed" ("assigned to X" — non-viewer assignees) or a neutral listing (#1694). */
+    viewer?: string | null;
     issueActions: Steer[];
     onnewtask: (issue: Issue) => void;
     onquick?: (issue: Issue, action: Steer) => void;
@@ -99,6 +104,17 @@
   // the operator's own epics (the server excludes the viewer). Drives the collapsed-row pill
   // (EpicOthersPill) + the soft notice next to Start (forwarded to EpicPanel).
   const othersFlag = $derived(epicFlagForOthers(epicSummary));
+
+  // Plain-issue assignee pill (#1694). Null (no pill) unless the "mine & unassigned"
+  // filter is off (showAssignees) AND this isn't an epic parent (those carry their own
+  // EpicOthersPill + a disabled quick-launch, so a second pill/tooltip would collide).
+  // viewer known → framed "assigned to X" (non-viewer assignees); viewer unknown →
+  // neutral listing of all assignees (no "others" framing, no false claim).
+  const assign = $derived.by(() => {
+    if (!showAssignees || isEpicParent) return null;
+    const who = viewer == null ? (issue.assignees ?? []) : assignedOthers(issue, viewer);
+    return who.length ? { who, framed: viewer != null } : null;
+  });
 
   // Badge count: prefer the live/fetched Epic's authoritative (native-first) child counts
   // over the list summary, which is markdown-first and can go stale after an epic is
@@ -177,12 +193,8 @@
         >{m.issuerow_blocked_on({ deps: issue.blockedBy.map((n) => `#${n}`).join(", ") })}</span
       >
     {/if}
-    {#if showAssignees}
-      {#each issue.assignees as login (login)}
-        <span class="label-chip assignee" title={m.issuerow_assignee_title({ login })}
-          ><span class="assignee-glyph" aria-hidden="true">👤</span>{login}</span
-        >
-      {/each}
+    {#if assign}
+      <AssignedPill who={assign.who} framed={assign.framed} />
     {/if}
     <IssueLabelChips labels={issue.labels} labelColors={issue.labelColors} />
     {#if age}
@@ -227,7 +239,11 @@
             aria-label={isEpicParent
               ? m.issuespanel_task_button_epic_disabled()
               : m.issuespanel_action_aria({ label: a.label })}
-            title={isEpicParent ? m.issuespanel_task_button_epic_disabled() : a.text}
+            title={isEpicParent
+              ? m.issuespanel_task_button_epic_disabled()
+              : assign?.framed
+                ? `${a.text}\n${m.issuerow_assigned_notice({ who: assign.who.join(", ") })}`
+                : a.text}
             >{#if a.emoji}<span class="act-emoji" aria-hidden="true">{a.emoji}</span>{/if}<span
               class="act-label">{a.label}</span
             ></button
@@ -347,21 +363,6 @@
     color: var(--color-ink-bright);
   }
 
-  .label-chip {
-    flex: 0 1 auto;
-    max-width: 14ch;
-    overflow: hidden;
-    padding: 1px 5px;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-size: var(--fs-micro);
-    letter-spacing: 0.1em;
-    text-overflow: ellipsis;
-    text-transform: uppercase;
-    white-space: nowrap;
-  }
-
   /* "blocked on #N" — standalone (non-epic-parent) issues held back by an open dependency.
      Uses the semantic blocked token (red); never green, never a raw hex. Mirrors EpicPanel's
      .deps chip but as its own class since it lives in the label-row, not the epic child list. */
@@ -379,21 +380,6 @@
     text-overflow: ellipsis;
     text-transform: uppercase;
     white-space: nowrap;
-  }
-
-  /* Assignee chip — reuses the label-chip recipe but keeps the login verbatim (logins are
-     mixed-case, so no uppercasing/letter-spacing) and leads the row with a person glyph.
-     Shown only when the "mine & unassigned" filter isn't hiding others' issues (#824). */
-  .label-chip.assignee {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 4px;
-    text-transform: none;
-    letter-spacing: normal;
-  }
-
-  .assignee-glyph {
-    font-size: var(--fs-micro);
   }
 
   .body-preview {

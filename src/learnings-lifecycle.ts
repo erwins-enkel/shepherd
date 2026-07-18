@@ -28,11 +28,9 @@ export const TRIAL_REAP_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_
 export const TRIAL_REAP_MAX_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS ?? 60);
 export const MAX_REAP_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP ?? 5);
 
-// proposed expiry
-export const EXPIRE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_EXPIRE_DAYS ?? 30);
-export const MAX_EXPIRE_PER_SWEEP = Number(
-  process.env.SHEPHERD_LEARNINGS_MAX_EXPIRE_PER_SWEEP ?? 5,
-);
+// proposed retention (#1794): permanently prune proposed learnings whose latest evidence is
+// older than this many days. Applied in full each sweep (no cap, no exemption).
+export const PRUNE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_PRUNE_DAYS ?? 3);
 
 /** Informational reason stored when a stale trial is reaped; reapStaleTrial sets it in-store. */
 export const TRIAL_EXPIRED_REASON = "trial-expired";
@@ -56,12 +54,6 @@ export interface TrialedRecord {
   evidenceCount: number;
   distinctKinds: number;
   distinctSessions: number;
-}
-
-export interface ExpiredRecord {
-  repoPath: string;
-  id: string;
-  rule: string;
 }
 
 export interface ReapedRecord {
@@ -221,56 +213,23 @@ export function runAutoTrial(deps: AutoTrialDeps): TrialedRecord[] {
   return out;
 }
 
-// ── shouldExpireProposed + runAutoExpire ──────────────────────────────────────
+// ── runProposedPrune (#1794) ──────────────────────────────────────────────────
 
-export function shouldExpireProposed(
-  rule: Learning,
-  now: number,
-  opts?: {
-    expireDays?: number;
-    expiryFloor?: number;
-    gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
-  },
-): boolean {
-  if (rule.status !== "proposed") return false;
-  if (shouldTrial(rule, opts?.gate)) return false; // trial-worthy → never expire
-  const expireMs = (opts?.expireDays ?? EXPIRE_DAYS) * DAY_MS;
-  const floor = opts?.expiryFloor ?? 0;
-  const effective = Math.max(rule.lastEvidenceAt ?? rule.createdAt, floor); // grace floor for backlog
-  return now - effective > expireMs;
-}
-
-export interface AutoExpireDeps {
-  store: Pick<
-    SessionStore,
-    "listPendingLearnings" | "getRepoConfig" | "expireLearning" | "expiryFloorAt"
-  >;
+export interface ProposedPruneDeps {
+  store: Pick<SessionStore, "pruneStaleProposedLearnings">;
   now?: number;
-  maxPerSweep?: number;
-  expireDays?: number;
-  gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
+  retentionDays?: number;
 }
 
-export function runAutoExpire(deps: AutoExpireDeps): ExpiredRecord[] {
+/** Permanently delete every `proposed` learning whose latest evidence is older than the
+ *  retention window (age = COALESCE(lastEvidenceAt, createdAt)). One global, status-scoped,
+ *  uncapped bulk delete — no per-repo gate and no exemption for strong/trial-worthy proposals.
+ *  Runs before auto-trial in the sweep, so a strong-but-stale proposal is dropped rather than
+ *  promoted; genuinely recurring evidence re-proposes it later. Returns the number removed. */
+export function runProposedPrune(deps: ProposedPruneDeps): number {
   const now = deps.now ?? Date.now();
-  const cap = deps.maxPerSweep ?? MAX_EXPIRE_PER_SWEEP;
-  const floor = deps.store.expiryFloorAt();
-  const out: ExpiredRecord[] = [];
-  for (const rule of deps.store.listPendingLearnings()) {
-    if (out.length >= cap) break;
-    if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
-    if (
-      !shouldExpireProposed(rule, now, {
-        expireDays: deps.expireDays,
-        expiryFloor: floor,
-        gate: deps.gate,
-      })
-    )
-      continue;
-    if (deps.store.expireLearning(rule.id))
-      out.push({ repoPath: rule.repoPath, id: rule.id, rule: rule.rule });
-  }
-  return out;
+  const days = deps.retentionDays ?? PRUNE_DAYS;
+  return deps.store.pruneStaleProposedLearnings(now - days * DAY_MS);
 }
 
 // ── shouldReapTrial + runReapStaleTrials ──────────────────────────────────────

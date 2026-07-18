@@ -6,11 +6,10 @@ import {
   repoBaseRate,
   shouldRetire,
   shouldTrial,
-  shouldExpireProposed,
   shouldReapTrial,
   runAutoRetire,
   runAutoTrial,
-  runAutoExpire,
+  runProposedPrune,
   runReapStaleTrials,
   AUTO_RETIRE_REASON,
   WILSON_Z,
@@ -27,13 +26,12 @@ import {
   TRIAL_REAP_DAYS,
   TRIAL_REAP_MAX_DAYS,
   MAX_REAP_PER_SWEEP,
-  EXPIRE_DAYS,
-  MAX_EXPIRE_PER_SWEEP,
+  PRUNE_DAYS,
   TRIAL_EXPIRED_REASON,
   AUTO_TRIAL_ENABLED,
   type AutoRetireDeps,
   type AutoTrialDeps,
-  type AutoExpireDeps,
+  type ProposedPruneDeps,
   type ReapTrialDeps,
 } from "../src/learnings-lifecycle";
 import type { Learning, ReviewVerdict } from "../src/types";
@@ -915,171 +913,50 @@ describe("runAutoTrial", () => {
   });
 });
 
-// ── shouldExpireProposed ──────────────────────────────────────────────────────
+// ── runProposedPrune (#1794) ─────────────────────────────────────────────────
 
-describe("shouldExpireProposed", () => {
-  const THIRTY_DAYS = 30 * 86_400_000;
+describe("runProposedPrune", () => {
+  const DAY_MS = 86_400_000;
 
-  test("expires a stale proposal (old lastEvidenceAt, beyond EXPIRE_DAYS)", () => {
-    const now = Date.now();
-    const rule = makeLearning({
-      id: "a",
-      status: "proposed",
-      lastEvidenceAt: now - THIRTY_DAYS - 1,
-      createdAt: now - THIRTY_DAYS - 1,
-      evidenceCount: 0,
-      distinctSessions: 0,
-      distinctKinds: 0,
-    });
-    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(true);
-  });
-
-  test("not within window → no expiry", () => {
-    const now = Date.now();
-    const rule = makeLearning({
-      id: "a",
-      status: "proposed",
-      lastEvidenceAt: now - 1000, // very fresh
-      createdAt: now - 1000,
-    });
-    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(false);
-  });
-
-  test("trial-worthy → never expire", () => {
-    const now = Date.now();
-    const rule = makeLearning({
-      id: "a",
-      status: "proposed",
-      lastEvidenceAt: now - THIRTY_DAYS - 1,
-      createdAt: now - THIRTY_DAYS - 1,
-      evidenceCount: 4,
-      distinctSessions: 2,
-      distinctKinds: 2,
-    });
-    expect(
-      shouldExpireProposed(rule, now, {
-        expireDays: 30,
-        gate: { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 },
-      }),
-    ).toBe(false);
-  });
-
-  test("#945: a blocked reverted rule is no longer trial-worthy → ages out (becomes expirable)", () => {
-    const now = Date.now();
-    // Same strong counters as the "trial-worthy → never expire" case above, but the re-trial
-    // block makes shouldTrial false, so the stale reverted proposal expires instead of being
-    // pinned in the queue — this is how Revert "durably sticks" with no recurrence.
-    const rule = makeLearning({
-      id: "a",
-      status: "proposed",
-      lastEvidenceAt: now - THIRTY_DAYS - 1,
-      createdAt: now - THIRTY_DAYS - 1,
-      evidenceCount: 4,
-      distinctSessions: 2,
-      distinctKinds: 2,
-      reTrialBlockedAt: now,
-    });
-    expect(
-      shouldExpireProposed(rule, now, {
-        expireDays: 30,
-        gate: { nMin: 4, sessionFloor: 2, minKinds: 2, minSessions: 3 },
-      }),
-    ).toBe(true);
-  });
-
-  test("expiryFloor defers expiry (old lastEvidenceAt but floor=now → NOT expired)", () => {
-    const now = Date.now();
-    const rule = makeLearning({
-      id: "a",
-      status: "proposed",
-      lastEvidenceAt: now - THIRTY_DAYS - 1,
-      createdAt: now - THIRTY_DAYS - 1,
-      evidenceCount: 0,
-      distinctSessions: 0,
-      distinctKinds: 0,
-    });
-    expect(shouldExpireProposed(rule, now, { expireDays: 30, expiryFloor: now })).toBe(false);
-  });
-
-  test("status !== proposed → false", () => {
-    const now = Date.now();
-    const rule = makeLearning({
-      id: "a",
-      status: "active",
-      lastEvidenceAt: now - THIRTY_DAYS - 1,
-      createdAt: now - THIRTY_DAYS - 1,
-    });
-    expect(shouldExpireProposed(rule, now, { expireDays: 30 })).toBe(false);
-  });
-});
-
-// ── runAutoExpire ─────────────────────────────────────────────────────────────
-
-function makeFakeExpireDeps(opts: {
-  pending?: Learning[];
-  cfg?: Partial<RepoConfig>;
-  expiryFloor?: number;
-}) {
-  const pending = opts.pending ?? [];
-  const cfg = makeRepoConfig(opts.cfg ?? {});
-  const expired: string[] = [];
-  const floor = opts.expiryFloor ?? 0;
-
-  const store: AutoExpireDeps["store"] = {
-    listPendingLearnings: () => pending,
-    getRepoConfig: () => cfg,
-    expiryFloorAt: () => floor,
-    expireLearning: (id) => {
-      const r = pending.find((x) => x.id === id);
-      if (!r) return null;
-      expired.push(id);
-      return { ...r, status: "dismissed" };
-    },
-  };
-
-  return { store, expired };
-}
-
-describe("runAutoExpire", () => {
-  const THIRTY_DAYS = 30 * 86_400_000;
-
-  function staleRule(id: string, repoPath = "/repo"): Learning {
-    const past = Date.now() - THIRTY_DAYS - 1;
-    return makeLearning({
-      id,
-      repoPath,
-      status: "proposed",
-      lastEvidenceAt: past,
-      createdAt: past,
-      evidenceCount: 0,
-      distinctSessions: 0,
-      distinctKinds: 0,
-    });
+  function fakeStore() {
+    const calls: number[] = [];
+    let removed = 0;
+    return {
+      calls,
+      setRemoved(n: number) {
+        removed = n;
+      },
+      store: {
+        pruneStaleProposedLearnings: (beforeTs: number) => {
+          calls.push(beforeTs);
+          return removed;
+        },
+      } satisfies ProposedPruneDeps["store"],
+    };
   }
 
-  test("caps at maxPerSweep", () => {
-    const pending = [staleRule("a"), staleRule("b"), staleRule("c"), staleRule("d")];
-    const { store, expired } = makeFakeExpireDeps({ pending });
-    const result = runAutoExpire({ store, now: Date.now(), maxPerSweep: 2, expireDays: 30 });
-    expect(expired).toHaveLength(2);
-    expect(result).toHaveLength(2);
+  test("computes cutoff = now - PRUNE_DAYS(3) days by default", () => {
+    const now = 1_000_000_000_000;
+    const f = fakeStore();
+    runProposedPrune({ store: f.store, now });
+    expect(PRUNE_DAYS).toBe(3);
+    expect(f.calls).toEqual([now - 3 * DAY_MS]);
   });
 
-  test("gates on learningsEnabled", () => {
-    const pending = [staleRule("a")];
-    const { store, expired } = makeFakeExpireDeps({ pending, cfg: { learningsEnabled: false } });
-    const result = runAutoExpire({ store, now: Date.now(), maxPerSweep: 5, expireDays: 30 });
-    expect(expired).toHaveLength(0);
-    expect(result).toHaveLength(0);
+  test("honors an injected retentionDays", () => {
+    const now = 1_000_000_000_000;
+    const f = fakeStore();
+    runProposedPrune({ store: f.store, now, retentionDays: 7 });
+    expect(f.calls).toEqual([now - 7 * DAY_MS]);
   });
 
-  test("reads floor from expiryFloorAt() and defers expiry", () => {
+  test("returns the store's removed count verbatim (drives sweep log/emit gating)", () => {
     const now = Date.now();
-    const pending = [staleRule("a")];
-    const { store, expired } = makeFakeExpireDeps({ pending, expiryFloor: now });
-    const result = runAutoExpire({ store, now, maxPerSweep: 5, expireDays: 30 });
-    expect(expired).toHaveLength(0);
-    expect(result).toHaveLength(0);
+    const zero = fakeStore();
+    expect(runProposedPrune({ store: zero.store, now })).toBe(0);
+    const many = fakeStore();
+    many.setRemoved(42);
+    expect(runProposedPrune({ store: many.store, now })).toBe(42);
   });
 });
 
@@ -1294,8 +1171,7 @@ describe("new constant defaults", () => {
     expect(TRIAL_REAP_DAYS).toBe(21);
     expect(TRIAL_REAP_MAX_DAYS).toBe(60);
     expect(MAX_REAP_PER_SWEEP).toBe(5);
-    expect(EXPIRE_DAYS).toBe(30);
-    expect(MAX_EXPIRE_PER_SWEEP).toBe(5);
+    expect(PRUNE_DAYS).toBe(3);
     expect(TRIAL_EXPIRED_REASON).toBe("trial-expired");
   });
 });

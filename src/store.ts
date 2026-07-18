@@ -4295,15 +4295,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return this.getLearning(id);
   }
 
-  /** Dismiss a stale proposed rule (expiry path). Returns null if not proposed. */
-  expireLearning(id: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "proposed") return null;
-    this.db.run(`UPDATE learnings SET status = 'dismissed', updatedAt = ? WHERE id = ?`, [
-      Date.now(),
-      id,
-    ]);
-    return this.getLearning(id);
+  /** #1794: permanently delete every `proposed` learning whose latest supporting evidence is
+   *  older than `beforeTs` (age = COALESCE(lastEvidenceAt, createdAt), strict `<` so a row
+   *  exactly at the cutoff survives). Only `proposed` rows are eligible; accepted/history rows
+   *  (active/promoted/dismissed/retired) are never touched. One status-scoped bulk delete, no
+   *  hydration or per-row loop. Returns the number of rows removed. */
+  pruneStaleProposedLearnings(beforeTs: number): number {
+    return this.db.run(
+      `DELETE FROM learnings WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
+      [beforeTs],
+    ).changes;
   }
 
   /** All active rules that were auto-trialed (trialedAt IS NOT NULL), across all repos,
@@ -4317,15 +4318,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
-  /** The expiry grace floor timestamp: proposed rules created before this ts are exempt
-   *  from expiry on the first backfill sweep (kv key: "learnings:expiry-floor"). */
-  expiryFloorAt(): number {
-    return Number(this.getSetting("learnings:expiry-floor") ?? 0);
-  }
-
   /** One-time backfill: populate evidenceKindsSeen + evidenceSessionsSeen for existing
-   *  proposed rows that still have empty sets, and stamp the expiry-grace floor so the
-   *  lifecycle sweep doesn't immediately expire pre-existing proposals.
+   *  proposed rows that still have empty sets.
    *  Guarded by the kv flag "learnings:diversity-backfilled" so it runs exactly once. */
   private backfillLearningDiversity(): void {
     if (this.getSetting("learnings:diversity-backfilled") === "1") return;
@@ -4345,7 +4339,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         );
       }
     }
-    this.setSetting("learnings:expiry-floor", String(Date.now()));
     this.setSetting("learnings:diversity-backfilled", "1");
   }
 

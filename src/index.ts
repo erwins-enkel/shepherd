@@ -125,7 +125,7 @@ import { MergeSuggestionService, defaultMergeScratch } from "./merge-suggest";
 import {
   runAutoRetire,
   runAutoTrial,
-  runAutoExpire,
+  runProposedPrune,
   runReapStaleTrials,
 } from "./learnings-lifecycle";
 import { Promoter } from "./promote";
@@ -2352,6 +2352,14 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
+  // #1794: permanently prune stale proposed learnings (fixed 3-day retention). Runs
+  // synchronously here — before any async distillation/merge-suggestion/auto-trial work — so
+  // the retention rule has unconditional, deterministic precedence over promotion.
+  const prunedLearnings = runProposedPrune({ store });
+  if (prunedLearnings > 0) {
+    console.log(`[learnings] permanently pruned ${prunedLearnings} stale proposed learning(s)`);
+    learningsSvc.emitPending();
+  }
   for (const repo of listRepos(config.repoRoot)) void distiller.consider(repo.path);
   // Phase 4 merge suggestions: per-repo near-duplicate clustering (intra) + a single global
   // cross-repo recurrence pass. Both no-op unless the active set is large enough AND changed
@@ -2381,12 +2389,12 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
       .catch((err) => console.warn("[push] learnings_retired notify failed:", err));
   }
   // Auto-trial strong proposals (#925): promote proposals with strong, multi-source evidence
-  // to active trials (kill-switch via SHEPHERD_LEARNINGS_AUTO_TRIAL); reap inert/zombie trials;
-  // expire stale dead proposals. All capped per sweep. Returns drive the client nudge + push.
+  // to active trials (kill-switch via SHEPHERD_LEARNINGS_AUTO_TRIAL); reap inert/zombie trials.
+  // Both capped per sweep. Returns drive the client nudge + push. Stale-proposal retention is
+  // handled earlier by runProposedPrune (#1794), which emits its own pending update.
   const trialed = runAutoTrial({ store });
   const reaped = runReapStaleTrials({ store });
-  const expired = runAutoExpire({ store });
-  if (trialed.length + reaped.length + expired.length > 0) {
+  if (trialed.length + reaped.length > 0) {
     learningsSvc.emitPending();
   }
   if (trialed.length > 0) {

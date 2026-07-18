@@ -326,6 +326,8 @@
   "promptsources_epic_hint": "Über „Start“ starten, nicht als Aufgabe.",
   "slash_menu_label": "Slash-Befehle",
   "slash_menu_empty": "keine passenden Befehle",
+  "repos_resize_modal": "Ziehen zum Anpassen des Repos-Fensters · Doppelklick zum Zurücksetzen",
+  "repos_resize_sidebar": "Ziehen zum Anpassen der Repository-Liste · Doppelklick zum Zurücksetzen",
   "reposelect_placeholder": "Repo auswählen…",
   "reposelect_filter_placeholder": "filtern…",
   "reposelect_no_matches": "keine Treffer",
@@ -3242,5 +3244,7 @@
   "feat_recap_diagnostics_title": "Fehlende Recaps verstehen",
   "feat_recap_diagnostics_body": "Abgeschlossene Sessions zeigen jetzt, wie sie beendet wurden und warum ein Recap fehlt. Sessions ohne Änderungen erhalten weiterhin ein Recap mit einem klaren No-Diff-Hinweis; technische Fehler enthalten eine Handlungsempfehlung und redigierte Details.",
   "feat_desktop_herd_group_collapse_title": "Lebenszyklus-Gruppen auch am Desktop einklappen",
-  "feat_desktop_herd_group_collapse_body": "Die Gruppen-Header der Desktop-Session-Leiste (CI läuft, Dein Zug, Gemergt, …) sind jetzt ebenfalls klappbar: Ein Klick auf einen Header klappt die Gruppe zu — jede Gruppe unabhängig, und Sprünge zu einer Session in einer eingeklappten Gruppe öffnen sie automatisch wieder."
+  "feat_desktop_herd_group_collapse_body": "Die Gruppen-Header der Desktop-Session-Leiste (CI läuft, Dein Zug, Gemergt, …) sind jetzt ebenfalls klappbar: Ein Klick auf einen Header klappt die Gruppe zu — jede Gruppe unabhängig, und Sprünge zu einer Session in einer eingeklappten Gruppe öffnen sie automatisch wieder.",
+  "feat_resizable_repos_title": "Repos-Fenster in der Größe anpassen",
+  "feat_resizable_repos_body": "Am Desktop öffnet sich das Repos-Fenster jetzt deutlich größer und merkt sich deine Größe: Ziehe an der unteren rechten Ecke, um das gesamte Fenster anzupassen, und ziehe an der Trennlinie zwischen der Repository-Liste und dem Detailbereich, um eine der Seiten zu verbreitern. Beide Größen werden in diesem Browser gespeichert; ein Doppelklick auf einen Griff setzt sie zurück."
 }

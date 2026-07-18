@@ -1,7 +1,10 @@
 <script lang="ts">
   import type { BacklogPayload, DrainStatus, Epic, Issue, PullRequest, Steer } from "$lib/types";
+  import { MediaQuery } from "svelte/reactivity";
   import { m } from "$lib/paraglide/messages";
   import { dialog } from "$lib/a11yDialog";
+  import { backlogLayout, clampModalWidth, clampModalHeight } from "$lib/backlog-layout.svelte";
+  import { createResizeDrag } from "$lib/resize-drag";
   import BacklogView from "./BacklogView.svelte";
 
   let {
@@ -51,6 +54,42 @@
      *  Automation tab's epic banner + drain-cap would be stale here. */
     drain?: Record<string, DrainStatus>;
   } = $props();
+
+  // ── Desktop modal resize (issue #1787) ──────────────────────────────────────
+  // Shared drag lifecycle (createResizeDrag) mirrors the Herd sidebar splitter:
+  // pointer capture, a threshold, live setModal on move, commit on up,
+  // double-click reset. Gated on !mobile && fine-pointer so the mobile
+  // full-screen sheet and touch tablets are untouched. The .card is flex-centered
+  // by .overlay, so a 1:1 delta would move the bottom-right corner at half speed —
+  // onDrag doubles the delta per axis so the corner tracks the pointer 1:1.
+  const coarse = new MediaQuery("(pointer: coarse)");
+  const resizable = $derived(!mobile && !coarse.current);
+  const resized = $derived(
+    resizable && backlogLayout.width !== null && backlogLayout.height !== null,
+  );
+  const sizeStyle = $derived(
+    resized ? `--repos-w:${backlogLayout.width}px;--repos-h:${backlogLayout.height}px` : undefined,
+  );
+
+  let cardEl = $state<HTMLElement>();
+  let modalResizing = $state(false);
+
+  const startModalResize = createResizeDrag<{ x: number; y: number; w: number; h: number }>({
+    axis: "both",
+    onActive: (a) => (modalResizing = a),
+    onStart: (e) => {
+      if (!resizable || !cardEl) return null;
+      const r = cardEl.getBoundingClientRect();
+      return { x: e.clientX, y: e.clientY, w: r.width, h: r.height };
+    },
+    onDrag: (e, c) =>
+      backlogLayout.setModal(
+        clampModalWidth(c.w + 2 * (e.clientX - c.x), window.innerWidth),
+        clampModalHeight(c.h + 2 * (e.clientY - c.y), window.innerHeight),
+      ),
+    onCommit: () => backlogLayout.commitModal(),
+    onReset: () => backlogLayout.resetModal(),
+  });
 </script>
 
 <div
@@ -64,6 +103,10 @@
   <div
     class="card"
     class:mobile
+    class:resized
+    class:resizing={modalResizing}
+    bind:this={cardEl}
+    style={sizeStyle}
     role="dialog"
     aria-modal="true"
     aria-label={m.actionbar_backlog()}
@@ -93,6 +136,20 @@
         {drain}
       />
     </div>
+    {#if resizable}
+      <!-- Bottom-right resize grip (issue #1787). Drag to resize the modal,
+           double-click to reset — see startModalResize. Rendered only on
+           fine-pointer desktop; never on the mobile full-screen sheet. role
+           mirrors the Herd splitter (no ideal ARIA role for a 2D grip). -->
+      <div
+        class="resize-corner"
+        class:dragging={modalResizing}
+        role="separator"
+        aria-label={m.repos_resize_modal()}
+        title={m.repos_resize_modal()}
+        onpointerdown={startModalResize}
+      ></div>
+    {/if}
   </div>
 </div>
 
@@ -111,14 +168,32 @@
     padding: 0;
   }
   .card {
-    width: min(960px, 94vw);
-    height: min(720px, 88vh);
-    max-height: 88vh;
+    /* Default (issue #1787): fill most of a wide desktop viewport — the old
+       min(960px, 94vw) cap left large monitors mostly unused. */
+    width: 90vw;
+    height: 88vh;
+    position: relative;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* Operator-chosen size (issue #1787). --repos-w/-h are clamped px from the
+     corner drag; min(stored, calc(100vw/vh - 48px)) is the reactive clamp-on-
+     restore — the -48px leaves the .overlay's 24px padding on each side free so
+     the card edge / close button can't be clipped when the viewport shrinks.
+     min-width/min-height keep the shell usable if a stored value is tiny. */
+  .card.resized {
+    width: min(var(--repos-w), calc(100vw - 48px));
+    height: min(var(--repos-h), calc(100vh - 48px));
+    min-width: 640px;
+    min-height: 460px;
+  }
+  /* During an active drag: kill text selection + force the resize cursor. */
+  .card.resizing {
+    user-select: none;
+    cursor: nwse-resize;
   }
   .card.mobile {
     width: 100%;
@@ -160,5 +235,38 @@
     display: flex;
     flex-direction: column;
     overflow: hidden;
+  }
+  /* Bottom-right resize grip (issue #1787): a restrained ~16px hit target with a
+     diagonal hairline (::after) that brightens on hover/focus/drag — detectable
+     without decorative color, matching the Herd splitter's treatment. */
+  .resize-corner {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 16px;
+    height: 16px;
+    cursor: nwse-resize;
+    z-index: 5;
+    touch-action: none;
+  }
+  .resize-corner::after {
+    content: "";
+    position: absolute;
+    right: 3px;
+    bottom: 3px;
+    width: 7px;
+    height: 7px;
+    border-right: 2px solid var(--color-line-bright);
+    border-bottom: 2px solid var(--color-line-bright);
+    opacity: 0.5;
+    transition: opacity 0.12s ease;
+  }
+  .resize-corner:hover::after,
+  .resize-corner:focus-visible::after,
+  .resize-corner.dragging::after {
+    opacity: 1;
+  }
+  .resize-corner:focus-visible {
+    outline: none;
   }
 </style>

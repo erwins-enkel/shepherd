@@ -9,6 +9,8 @@ export const DOC_LINKS: Record<string, string> = {
   diagnostics_hint_gh_not_authenticated: "https://cli.github.com/manual/gh_auth_login",
   diagnostics_hint_tailscale_missing: "https://tailscale.com/kb/1347/installation",
   diagnostics_hint_tailscale_not_serving: "https://tailscale.com/kb/1242/tailscale-serve",
+  diagnostics_hint_host_capacity_unbounded:
+    "https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html",
 };
 
 /** Per-state PWA-install help URL; undefined for `optional`/`installed`

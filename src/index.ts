@@ -2604,7 +2604,7 @@ const diagnosticsTick = async (): Promise<void> => {
     const snapshot = await diagnostics.check(Date.now());
     events.emit("diagnostics:status", snapshot);
     delay = nextDiagnosticsDelay(
-      snapshot.overall,
+      snapshot.checks,
       DIAGNOSTICS_INTERVAL_MS,
       DIAGNOSTICS_RECHECK_INTERVAL_MS,
     );

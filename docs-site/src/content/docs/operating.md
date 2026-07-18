@@ -98,3 +98,16 @@ tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
 `SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
 listed in [Configuration](/reference/configuration/).
+
+## Host tuning — resource guardrails
+
+**Settings → DIAGNOSE** includes a **Host capacity** check. On a systemd-managed
+host it **warns** when Shepherd's unit has no memory or CPU guardrails
+(`MemoryMax` / `MemoryHigh` / `CPUQuota`), so a runaway fan-out of sessions can
+starve the box. Add limits to the unit — or to a dedicated slice such as
+`shepherd.slice` — before running many concurrent sessions. The check also
+**errors** when the kernel reports dangerous live memory/IO pressure (PSI), a cue
+to pause or reduce active agent sessions until the host recovers. On non-systemd
+or local dev hosts it stays quiet. Because sustained pressure is steady-state, the
+background re-check is *not* accelerated on this error — use the Diagnostics
+**Re-run** button for an on-demand live reading.

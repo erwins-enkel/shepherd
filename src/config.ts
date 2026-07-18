@@ -87,12 +87,24 @@ export const DIAGNOSTICS_TTL_MS = 60_000;
 // staying pinned on the client — which seeds diagnostics once and thereafter only takes
 // the `diagnostics:status` push (never re-GETs). Only `error` accelerates: a `warning`
 // is steady-state by design (advisory version floors, gh-not-required on lightweight
-// hosts) and must NOT drive a permanent fast poll.
+// hosts) and must NOT drive a permanent fast poll. A `host_capacity` pressure error is
+// likewise steady-state-ish and is EXEMPT from the acceleration (see nextDiagnosticsDelay):
+// re-running the full probe fan-out every 60s would pile fork/exec load onto a host already
+// under memory/IO pressure — the manual Diagnose "Re-run" is the on-demand live path instead.
 export const DIAGNOSTICS_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const DIAGNOSTICS_RECHECK_INTERVAL_MS = 60_000;
 // Per-probe exec timeout: a timed-out probe RESOLVES to its defined non-OK state
 // (never rejects the Promise.all), so one hung binary can't stall the batch.
 export const DIAGNOSTICS_PROBE_TIMEOUT_MS = 5_000;
+// host_capacity probe thresholds (#1732). Kernel PSI avg10 is the % of the last 10s in
+// which tasks were stalled on the resource — it is the AUTHORITATIVE live-pressure signal.
+// swap-used alone is NOT dangerous (zram / proactive eviction sit at 90%+ swap with ~0 PSI),
+// so a saturated swap only *corroborates* memory pressure by lowering the memory-PSI bar;
+// it never triggers on its own. Seeded conservatively to avoid false `error`s.
+export const HOST_SWAP_SATURATION_RATIO = 0.9; // swap saturated when used/total ≥ this
+export const HOST_PSI_MEMORY_AVG10 = 10; // memory stalled ≥10% of last 10s ⇒ dangerous
+export const HOST_PSI_MEMORY_AVG10_CORROBORATED = 5; // lower bar, only when swap is also saturated
+export const HOST_PSI_IO_AVG10 = 20; // IO stall bar (higher; transient IO PSI is normal)
 // gh auth probe hardening (#623 follow-up): `gh auth status` reads the token from the OS
 // keyring, so a locked keyring / D-Bus stall / cold `gh` under load can transiently blow
 // the probe budget and — pre-fix — masquerade as "not logged in". The probe now RETRIES a

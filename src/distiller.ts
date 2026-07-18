@@ -12,8 +12,6 @@ import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
 import { normalizeRule } from "./learning-rule";
 
-export { normalizeRule } from "./learning-rule";
-
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
 /** Signal kinds the learnings distiller does NOT mine for code-review patterns.
@@ -441,12 +439,7 @@ export class DistillerService {
         ? r.evidence.filter((e): e is string => typeof e === "string")
         : [];
       const prunedAt = tombstones.get(key);
-      if (
-        prunedAt !== undefined &&
-        !evidence.some(
-          (signalId) => (f.signalTs.get(signalId) ?? Number.NEGATIVE_INFINITY) > prunedAt,
-        )
-      ) {
+      if (isBlockedByPruneTombstone(f.signalTs, evidence, prunedAt)) {
         console.warn(
           `[distill] rejected tombstoned rule without post-prune evidence for ${f.repoPath}: ${key}`,
         );
@@ -504,6 +497,17 @@ export class DistillerService {
     }
     return reaffirmed;
   }
+}
+
+function isBlockedByPruneTombstone(
+  signalTs: Map<string, number>,
+  evidence: string[],
+  prunedAt: number | undefined,
+): boolean {
+  return (
+    prunedAt !== undefined &&
+    !evidence.some((signalId) => (signalTs.get(signalId) ?? Number.NEGATIVE_INFINITY) > prunedAt)
+  );
 }
 
 function distillPrompt(): string {

@@ -1,5 +1,6 @@
 <script lang="ts">
   import { untrack } from "svelte";
+  import { MediaQuery } from "svelte/reactivity";
   import type {
     BacklogPayload,
     DocAgentOutcome,
@@ -20,6 +21,8 @@
   import { actionsTabState, filterProjects, splitHidden } from "./backlog-view";
   import { repoConfig } from "$lib/reviews.svelte";
   import { pullMainAndToast } from "$lib/pull-offer";
+  import { backlogLayout, clampSidebarWidth } from "$lib/backlog-layout.svelte";
+  import { createResizeDrag } from "$lib/resize-drag";
 
   let {
     payload,
@@ -92,6 +95,40 @@
      *  brand-new (zero issues/PRs) repo isn't excluded from the visible list. */
     selectPath?: string | null;
   } = $props();
+
+  // ── Desktop repository-sidebar resize (issue #1787) ─────────────────────────
+  // Shared drag lifecycle (createResizeDrag) — see BacklogOverlay. The separator
+  // lives in .desktop-split (a non-scrolling position:relative wrapper) at the
+  // track boundary, so drag adjusts only the repo-list width; the 1fr detail
+  // column absorbs the rest. Gated on !mobile && fine-pointer.
+  const coarse = new MediaQuery("(pointer: coarse)");
+  const sbResizable = $derived(!mobile && !coarse.current);
+  const sidebarStyle = $derived(
+    sbResizable && backlogLayout.sidebar !== null
+      ? `--repos-sidebar:${backlogLayout.sidebar}px`
+      : undefined,
+  );
+
+  let splitEl = $state<HTMLElement>();
+  let masterEl = $state<HTMLElement>();
+  let sbResizing = $state(false);
+
+  const startSidebarResize = createResizeDrag<{ x: number; w: number; splitW: number }>({
+    axis: "x",
+    onActive: (a) => (sbResizing = a),
+    onStart: (e) => {
+      if (!sbResizable || !splitEl || !masterEl) return null;
+      return {
+        x: e.clientX,
+        w: masterEl.getBoundingClientRect().width,
+        splitW: splitEl.getBoundingClientRect().width,
+      };
+    },
+    onDrag: (e, c) =>
+      backlogLayout.setSidebar(clampSidebarWidth(c.w + (e.clientX - c.x), c.splitW)),
+    onCommit: () => backlogLayout.commitSidebar(),
+    onReset: () => backlogLayout.resetSidebar(),
+  });
 
   type Tab = "issues" | "prs" | "actions" | "readiness" | "automation";
   let activeTab = $state<Tab>("issues");
@@ -387,8 +424,13 @@
          detail pane (not the whole view) — the project list on the left is shared
          across tabs, so the tabs only switch the selected repo's detail content;
          keeping them inside the detail column makes that hierarchy legible. -->
-    <div class="desktop-split">
-      <div class="master-pane">
+    <div
+      class="desktop-split"
+      class:sb-resizing={sbResizing}
+      bind:this={splitEl}
+      style={sidebarStyle}
+    >
+      <div class="master-pane" bind:this={masterEl}>
         <ProjectBacklogList
           projects={visibleProjects}
           hiddenProjects={shownHidden}
@@ -449,6 +491,22 @@
           {/if}
         </div>
       </div>
+      {#if sbResizable}
+        <!-- Vertical separator (issue #1787): an abs-positioned child of the
+             non-scrolling .desktop-split wrapper, sitting at the track boundary
+             (left: var(--repos-sidebar)). NOT a child of the scrolling
+             .master-pane, which would clip it / scroll it away. Drag to resize
+             the repo list, double-click to reset — see startSidebarResize. -->
+        <div
+          class="repo-splitter"
+          class:dragging={sbResizing}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label={m.repos_resize_sidebar()}
+          title={m.repos_resize_sidebar()}
+          onpointerdown={startSidebarResize}
+        ></div>
+      {/if}
     </div>
   {/if}
 </div>
@@ -499,12 +557,56 @@
   }
 
   /* ── desktop split layout ── */
+  /* position:relative hosts the abs-positioned .repo-splitter (issue #1787). The
+     first track reads var(--repos-sidebar, 300px) — a concrete 300px default (the
+     minmax(220,300) first track already resolved to ~300px in the modal, the 1fr
+     detail being the hungry track) so the grid boundary and the separator's `left`
+     read from one shared variable and can't drift. */
   .desktop-split {
     display: grid;
-    grid-template-columns: minmax(220px, 300px) 1fr;
+    grid-template-columns: var(--repos-sidebar, 300px) 1fr;
+    position: relative;
     flex: 1;
     min-height: 0;
     overflow: hidden;
+  }
+  /* During a sidebar drag: kill text selection + force the resize cursor. */
+  .desktop-split.sb-resizing {
+    user-select: none;
+    cursor: col-resize;
+  }
+  /* Vertical splitter: ~12px hit strip centred on the master/detail boundary.
+     A 2px hairline (::after) is invisible at rest and brightens on hover/drag —
+     mirrors the Herd splitter. */
+  .repo-splitter {
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: var(--repos-sidebar, 300px);
+    width: 12px;
+    transform: translateX(-50%);
+    cursor: col-resize;
+    z-index: 5;
+    touch-action: none;
+  }
+  .repo-splitter::after {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: 50%;
+    width: 2px;
+    transform: translateX(-50%);
+    background: transparent;
+    transition: background 0.12s ease;
+  }
+  .repo-splitter:hover::after,
+  .repo-splitter:focus-visible::after,
+  .repo-splitter.dragging::after {
+    background: var(--color-line-bright);
+  }
+  .repo-splitter:focus-visible {
+    outline: none;
   }
 
   .master-pane {

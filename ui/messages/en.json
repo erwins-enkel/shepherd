@@ -326,6 +326,8 @@
   "promptsources_epic_hint": "Run via Start, not as a task.",
   "slash_menu_label": "slash commands",
   "slash_menu_empty": "no matching commands",
+  "repos_resize_modal": "Drag to resize the Repos window · double-click to reset",
+  "repos_resize_sidebar": "Drag to resize the repository list · double-click to reset",
   "reposelect_placeholder": "select a repo…",
   "reposelect_filter_placeholder": "filter…",
   "reposelect_no_matches": "no matches",
@@ -3249,5 +3251,7 @@
   "feat_recap_diagnostics_title": "Understand missing recaps",
   "feat_recap_diagnostics_body": "Finished sessions now show how they were completed and why a recap is missing. No-change sessions still get a recap with a clear no-diff warning; technical failures include actionable guidance and redacted details.",
   "feat_desktop_herd_group_collapse_title": "Fold lifecycle groups on the desktop",
-  "feat_desktop_herd_group_collapse_body": "The desktop session rail's lifecycle group headers (CI running, Your turn, Merged, …) are now collapsible too: click a header to fold that group away — each group toggles independently, and jumps to a session hidden in a folded group reopen it automatically."
+  "feat_desktop_herd_group_collapse_body": "The desktop session rail's lifecycle group headers (CI running, Your turn, Merged, …) are now collapsible too: click a header to fold that group away — each group toggles independently, and jumps to a session hidden in a folded group reopen it automatically.",
+  "feat_resizable_repos_title": "Resize the Repos window",
+  "feat_resizable_repos_body": "On desktop the Repos window now opens much larger and remembers your size: drag the bottom-right corner to resize the whole window, and drag the divider between the repository list and the detail pane to widen either side. Both sizes are saved in this browser; double-click a handle to reset."
 }

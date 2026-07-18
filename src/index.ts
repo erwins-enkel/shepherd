@@ -2352,7 +2352,7 @@ const runDailySweep = (opts?: { skipTmpSweep?: boolean }) => {
   store.pruneReviewerSpawns(Date.now() - REVIEWER_SPAWN_RETENTION_MS);
   // Scrape timeline history; pruned on a 90-day window matching the caps/credit tables.
   store.pruneUsageHistory(Date.now() - USAGE_HISTORY_RETENTION_MS);
-  // #1794: permanently prune stale proposed learnings (fixed 3-day retention). Runs
+  // #1794: permanently prune stale proposed learnings (3-day default retention). Runs
   // synchronously here — before any async distillation/merge-suggestion/auto-trial work — so
   // the retention rule has unconditional, deterministic precedence over promotion.
   const prunedLearnings = runProposedPrune({ store });

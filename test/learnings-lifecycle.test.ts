@@ -950,7 +950,7 @@ describe("runProposedPrune", () => {
     expect(f.calls).toEqual([now - 7 * DAY_MS]);
   });
 
-  test.each(["", 0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+  test.each(["", 0, -1, Number.MIN_VALUE, Number.NaN, Number.POSITIVE_INFINITY, 1e308])(
     "rejects invalid retention override %p and falls back visibly",
     (retentionDays) => {
       const warn = spyOn(console, "warn").mockImplementation(() => {});
@@ -960,12 +960,22 @@ describe("runProposedPrune", () => {
     },
   );
 
-  test("invalid injected retentionDays cannot alter the cutoff", () => {
+  test.each([0, 1e308])("unsafe injected retentionDays %p cannot alter the cutoff", (days) => {
     const now = 1_000_000_000_000;
     const f = fakeStore();
     const warn = spyOn(console, "warn").mockImplementation(() => {});
-    runProposedPrune({ store: f.store, now, retentionDays: 0 });
+    runProposedPrune({ store: f.store, now, retentionDays: days });
     expect(f.calls).toEqual([now - 3 * DAY_MS]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
+  });
+
+  test("non-finite derived cutoff skips pruning visibly", () => {
+    const f = fakeStore();
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    const days = Number.MAX_VALUE / DAY_MS / 2;
+    expect(runProposedPrune({ store: f.store, now: -Number.MAX_VALUE, retentionDays: days })).toBe(0);
+    expect(f.calls).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();
   });

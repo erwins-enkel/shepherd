@@ -229,7 +229,9 @@ export interface ProposedPruneDeps {
 export function resolveProposedRetentionDays(value: unknown, fallback: number): number {
   if (value === undefined) return fallback;
   const parsed = typeof value === "string" && value.trim() === "" ? Number.NaN : Number(value);
-  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  const durationMs = parsed * DAY_MS;
+  if (Number.isFinite(parsed) && parsed > 0 && Number.isFinite(durationMs) && durationMs >= 1)
+    return parsed;
   const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
   console.warn(`[learnings] invalid proposed retention days ${shown}; using ${fallback}`);
   return fallback;
@@ -243,7 +245,12 @@ export function resolveProposedRetentionDays(value: unknown, fallback: number): 
 export function runProposedPrune(deps: ProposedPruneDeps): number {
   const now = deps.now ?? Date.now();
   const days = resolveProposedRetentionDays(deps.retentionDays, PRUNE_DAYS);
-  return deps.store.pruneStaleProposedLearnings(now - days * DAY_MS);
+  const cutoff = now - days * DAY_MS;
+  if (!Number.isFinite(cutoff)) {
+    console.warn("[learnings] invalid proposed retention cutoff; skipping prune");
+    return 0;
+  }
+  return deps.store.pruneStaleProposedLearnings(cutoff, now);
 }
 
 // ── shouldReapTrial + runReapStaleTrials ──────────────────────────────────────

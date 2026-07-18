@@ -22,6 +22,7 @@ import {
   ACTIVE_LABEL,
   epicFlagForOthers,
   hideOthersExceptFlaggedEpics,
+  assignedOthers,
 } from "./issues-panel";
 import type { Issue, EpicSummary } from "$lib/types";
 
@@ -134,6 +135,42 @@ describe("hideOthers", () => {
     } as unknown as Issue;
     expect(() => hideOthers([stale], me, true)).not.toThrow();
     expect(hideOthers([stale], me, true)).toEqual([stale]);
+  });
+});
+
+describe("assignedOthers", () => {
+  const me = "octocat";
+
+  it("returns the assignees that are not the viewer", () => {
+    expect(assignedOthers(issue(1, "T", "", [], ["someone-else", me]), me)).toEqual([
+      "someone-else",
+    ]);
+  });
+
+  it("returns [] for an issue assigned only to the viewer", () => {
+    expect(assignedOthers(issue(2, "Mine", "", [], [me]), me)).toEqual([]);
+  });
+
+  it("returns [] for an unassigned issue", () => {
+    expect(assignedOthers(issue(3, "Unassigned", "", [], []), me)).toEqual([]);
+  });
+
+  it("returns [] when the viewer is null (no 'others' claim without a known me)", () => {
+    // The row surfaces its assignees via the neutral fallback, not this helper.
+    expect(assignedOthers(issue(4, "T", "", [], ["someone-else"]), null)).toEqual([]);
+  });
+
+  it("does not throw on a stale payload missing assignees", () => {
+    const stale = {
+      number: 5,
+      title: "T",
+      body: "",
+      url: "https://example.test/5",
+      labels: [],
+      createdAt: 0,
+    } as unknown as Issue;
+    expect(() => assignedOthers(stale, me)).not.toThrow();
+    expect(assignedOthers(stale, me)).toEqual([]);
   });
 });
 

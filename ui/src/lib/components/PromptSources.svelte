@@ -22,6 +22,7 @@
     labelColorMap,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
+  import { viewerCache } from "$lib/viewer-cache.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import IssueMenuLayer from "./IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "./issue-menu-trigger";
@@ -239,6 +240,7 @@
           slug = r.slug;
           issues = r.issues;
           viewer = r.viewer;
+          viewerCache.set(rp, r.viewer);
           loadError = r.error != null;
           loading = false;
         })

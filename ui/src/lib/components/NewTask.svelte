@@ -48,6 +48,8 @@
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { viewerCache } from "$lib/viewer-cache.svelte";
+  import { assignedOthers } from "./issues-panel";
   import { recentRepos } from "$lib/recentRepos";
   import type { UsageLimits } from "$lib/types";
 
@@ -152,6 +154,12 @@
   // The attached issue: its body is sent separately, NOT dumped into the prompt.
   // svelte-ignore state_referenced_locally
   let issueRef = $state<Issue | null>(initialIssue ?? null);
+  // The repoPath in effect when issueRef was attached, so the "assigned to X — you can
+  // still start" notice (#1694) only fires while the dialog still targets that repo. An
+  // in-dialog repo switch doesn't clear the attachment, and Issue carries no repoPath, so
+  // without this guard the notice would compare a repo-A issue against repo-B's viewer.
+  // svelte-ignore state_referenced_locally
+  let attachedRepoPath = $state<string | null>(initialIssue ? (initialRepoPath ?? "") : null);
   // intentional one-time seed; NewTask remounts per open
   // svelte-ignore state_referenced_locally
   let repoPath = $state(initialRepoPath ?? "");
@@ -264,6 +272,14 @@
   let recentRepoWindowDays = $state(0);
   // Echoed on the submit button so the destination repo is visible at commit time.
   const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
+  // Non-viewer assignees of the attached issue, for the soft "you can still start" notice
+  // (#1694). Empty unless the issue is still attached under THIS repo (attachedRepoPath
+  // guard) and the forge viewer is known for it (viewer-cache; fail-closed → no notice).
+  const attachedOthers = $derived(
+    issueRef && repoPath === attachedRepoPath
+      ? assignedOthers(issueRef, viewerCache.get(repoPath))
+      : [],
+  );
   let branches = $state<string[]>([]);
   // The base selected by pickBaseBranch (the repo default / origin/HEAD) need not be a
   // LOCAL branch — a fresh clone may have `dev` only as `origin/dev`. Surface it as an
@@ -595,6 +611,7 @@
   // to the agent), seed an editable template only when the user hasn't typed anything.
   function pickIssue(issue: Issue) {
     issueRef = issue;
+    attachedRepoPath = repoPath;
     if (!prompt.trim()) {
       prompt = issueTemplate(issue);
       queueMicrotask(autogrow);
@@ -609,6 +626,7 @@
   // out-of-band via issueRef, so a title line would be redundant.
   function injectSteer(issue: Issue, steer: Steer) {
     issueRef = issue;
+    attachedRepoPath = repoPath;
     const t = steer.text;
     prompt = prompt.trim() ? `${prompt}\n${t}` : t;
     queueMicrotask(() => {
@@ -1162,10 +1180,20 @@
           <button
             type="button"
             class="issue-ref-x"
-            onclick={() => (issueRef = null)}
+            onclick={() => {
+              issueRef = null;
+              attachedRepoPath = null;
+            }}
             aria-label={m.newtask_issue_remove_aria()}>✕</button
           >
         </div>
+        {#if attachedOthers.length > 0}
+          <p class="issue-assigned-notice">
+            <span class="glyph" aria-hidden="true">⚠</span>{m.issuerow_assigned_notice({
+              who: attachedOthers.join(", "),
+            })}
+          </p>
+        {/if}
       {/if}
 
       {#if repoPath}
@@ -1681,6 +1709,19 @@
     border-radius: 2px;
     background: var(--color-inset);
     font-size: var(--fs-meta);
+  }
+  /* Soft "assigned to X — you can still start" advisory under the attached issue (#1694).
+     Non-blocking (Run is never intercepted); muted-warn tone, mirrors EpicPanel's notice. */
+  .issue-assigned-notice {
+    margin: 4px 0 0;
+    display: flex;
+    align-items: baseline;
+    gap: 4px;
+    font-size: var(--fs-micro);
+    color: color-mix(in oklab, var(--color-warn) 80%, var(--color-muted));
+  }
+  .issue-assigned-notice .glyph {
+    flex-shrink: 0;
   }
   .issue-ref-label {
     flex-shrink: 0;

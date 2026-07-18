@@ -7,6 +7,7 @@ import type { Issue, RepoConfig, RepoEntry, SlashCommand, Steer } from "$lib/typ
 import type { UsageLimits } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { steers } from "$lib/steers.svelte";
+import { viewerCache } from "$lib/viewer-cache.svelte";
 import {
   listIssues,
   getEpics,
@@ -2370,5 +2371,68 @@ describe("NewTask issue steer inject (context menu)", () => {
     expect(openSpy).toHaveBeenCalledWith("https://gh/o/r/issues/55", "_blank", "noopener");
     expect(onsubmit).not.toHaveBeenCalled();
     openSpy.mockRestore();
+  });
+});
+
+describe("NewTask assigned-to-others notice (#1694)", () => {
+  const attachedIssue = (assignees: string[]): Issue => ({
+    number: 77,
+    title: "Fix the thing",
+    body: "",
+    url: "https://gh/o/r/issues/77",
+    labels: [],
+    createdAt: 0,
+    assignees,
+  });
+
+  const notice = () => document.querySelector(".issue-assigned-notice");
+
+  it("shows the soft notice for an attached issue assigned to someone else", async () => {
+    // Cache + listIssues agree on the viewer (PromptSources warms the cache to the same
+    // value, so its async write can't clobber the seed).
+    viewerCache.set("/repo-notice", "octocat");
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: "octocat",
+    });
+    render(NewTask, {
+      props: base({
+        initialRepoPath: "/repo-notice",
+        initialIssue: attachedIssue(["someone-else"]),
+      }),
+    });
+
+    await expect.poll(() => notice()).toBeTruthy();
+    expect(notice()!.textContent).toContain(m.issuerow_assigned_notice({ who: "someone-else" }));
+  });
+
+  it("shows no notice for the viewer's own assigned issue", async () => {
+    viewerCache.set("/repo-own", "octocat");
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [],
+      viewer: "octocat",
+    });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo-own", initialIssue: attachedIssue(["octocat"]) }),
+    });
+
+    // The attachment renders; the notice must not (it's mine, not someone else's).
+    await expect.poll(() => document.querySelector(".issue-ref-link")).toBeTruthy();
+    expect(notice()).toBeNull();
+  });
+
+  it("shows no notice when the viewer is unknown (cache cold → fail closed)", async () => {
+    // No viewerCache seed and listIssues returns a null viewer → assignedOthers is [].
+    mockListIssues.mockResolvedValue({ slug: null, webUrl: null, issues: [], viewer: null });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo-cold", initialIssue: attachedIssue(["someone-else"]) }),
+    });
+
+    await expect.poll(() => document.querySelector(".issue-ref-link")).toBeTruthy();
+    expect(notice()).toBeNull();
   });
 });

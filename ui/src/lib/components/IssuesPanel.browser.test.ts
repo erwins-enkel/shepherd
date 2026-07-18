@@ -997,22 +997,25 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     expect(checkboxByLabel(m.issues_filter_active_label())).toBeTruthy();
   });
 
-  // Assignee chips (#824 follow-up): exposed per issue row only when the mine &
-  // unassigned filter isn't hiding others' issues.
-  const assigneeChips = () => document.querySelectorAll(".label-chip.assignee");
-  const assigneeText = () => [...assigneeChips()].map((el) => el.textContent ?? "");
+  // Assignee pill (#1694): shown per row only when the mine & unassigned filter isn't
+  // hiding others' issues. `.assigned-pill` is distinct from EpicOthersPill's `.others-pill`;
+  // `.framed` = "assigned to X" (viewer known), `.neutral` = plain listing (viewer unknown).
+  const assignedPills = () => document.querySelectorAll(".assigned-pill");
+  const framedPills = () => document.querySelectorAll(".assigned-pill.framed");
+  const neutralPills = () => document.querySelectorAll(".assigned-pill.neutral");
+  const pillText = (els: NodeListOf<Element>) => [...els].map((el) => el.textContent ?? "");
 
-  it("shows no assignee chips while the mine & unassigned filter is active", async () => {
+  it("shows no assignee pill while the mine & unassigned filter is active", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(2);
-    // Filter on + viewer known → every visible issue is mine-or-unassigned, so chips
-    // would be redundant and are suppressed.
-    expect(assigneeChips().length).toBe(0);
+    // Filter on + viewer known → every visible issue is mine-or-unassigned, so the pill
+    // would be redundant and is suppressed.
+    expect(assignedPills().length).toBe(0);
   });
 
-  it("reveals assignee chips when the mine & unassigned filter is toggled off", async () => {
+  it("reveals a framed 'assigned to X' pill for others' issues when the filter is toggled off", async () => {
     seedMixed("octocat");
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
@@ -1023,21 +1026,70 @@ describe("IssuesPanel mine & unassigned filter (#824)", () => {
     checkboxByLabel(m.issues_filter_mine_label())!.click();
 
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    // One chip per assignee login; the unassigned issue contributes none.
-    await expect.poll(() => assigneeChips().length).toBe(2);
-    expect(assigneeText().some((t) => t.includes("octocat"))).toBe(true);
-    expect(assigneeText().some((t) => t.includes("someone-else"))).toBe(true);
+    // Only the someone-else issue is pilled; the viewer's own row (octocat) shows none.
+    await expect.poll(() => framedPills().length).toBe(1);
+    expect(neutralPills().length).toBe(0);
+    expect(pillText(framedPills())[0]).toContain("someone-else");
   });
 
-  it("shows assignee chips when the viewer is unknown even with the filter on (fail open)", async () => {
+  it("lists assignees in neutral mode (no 'assigned to' framing) when the viewer is unknown", async () => {
     seedMixed(null);
     render(IssuesPanel, { repoPath: "/repo", onnewtask: noop });
 
-    // Fail open: all 3 issues show AND the chips render without toggling the filter —
-    // guards the `|| viewer == null` clause in IssuesPanel's showAssignees.
+    // Fail open on the FILTER (all 3 show), but the pill can't claim "others" without a
+    // known viewer — it falls back to a neutral listing, preserving assignee visibility.
     await expect.poll(() => document.querySelectorAll(".issue-title").length).toBe(3);
-    await expect.poll(() => assigneeChips().length).toBe(2);
-    expect(assigneeText().some((t) => t.includes("someone-else"))).toBe(true);
+    await expect.poll(() => neutralPills().length).toBe(2);
+    expect(framedPills().length).toBe(0);
+    const texts = pillText(neutralPills());
+    expect(texts.some((t) => t.includes("octocat"))).toBe(true);
+    expect(texts.some((t) => t.includes("someone-else"))).toBe(true);
+    // No "assigned to" framing in neutral mode.
+    const framedCopy = m.issuerow_assigned_pill({ who: "someone-else" });
+    expect(texts.every((t) => !t.includes(framedCopy))).toBe(true);
+  });
+
+  it("suppresses the assigned pill on a flagged epic-parent row (keeps EpicOthersPill + epic-disabled quick-launch)", async () => {
+    const previousSteers = steers.list;
+    steers.list = [{ id: "s1", label: "Go", text: "do it", inSteerBar: false, onIssues: true }];
+    try {
+      mockListIssues.mockResolvedValue({
+        slug: "owner/repo",
+        webUrl: null,
+        viewer: "octocat",
+        issues: [withAssignees(50, "Epic parent", ["someone-else"])],
+      });
+      mockGetEpics.mockResolvedValue({
+        epics: [
+          {
+            parentIssueNumber: 50,
+            parentTitle: "Epic parent",
+            merged: 0,
+            total: 3,
+            status: "idle",
+            source: "markdown",
+            inFlight: 0,
+            inFlightBy: [],
+            assignedOthers: ["someone-else"],
+            authoredByOther: null,
+          },
+        ],
+        subIssues: [],
+      });
+      render(IssuesPanel, { repoPath: "/repo", onnewtask: noop, onquick: noop });
+
+      // Filter ON (default) — the flagged epic stays visible via the #1616 exemption.
+      await expect.poll(() => document.querySelector(".others-pill")).toBeTruthy();
+      // No plain-issue pill on the epic parent (guarded by !isEpicParent) — no double-pill.
+      expect(document.querySelector(".assigned-pill")).toBeNull();
+      // Quick-launch stays epic-disabled; its tooltip is NOT clobbered by the assigned notice.
+      const quick = document.querySelector<HTMLButtonElement>(".quick-btn");
+      expect(quick).not.toBeNull();
+      expect(quick!.disabled).toBe(true);
+      expect(quick!.title).toBe(m.issuespanel_task_button_epic_disabled());
+    } finally {
+      steers.list = previousSteers;
+    }
   });
 
   it("hide-in-progress checkbox drops shepherd:active issues and restores them when toggled off", async () => {

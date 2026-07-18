@@ -4298,13 +4298,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   /** #1794: permanently delete every `proposed` learning whose latest supporting evidence is
    *  older than `beforeTs` (age = COALESCE(lastEvidenceAt, createdAt), strict `<` so a row
    *  exactly at the cutoff survives). Only `proposed` rows are eligible; accepted/history rows
-   *  (active/promoted/dismissed/retired) are never touched. One status-scoped bulk delete, no
-   *  hydration or per-row loop. Returns the number of rows removed. */
+   *  (active/promoted/dismissed/retired) are never touched. Inbound merge-history citations are
+   *  cleared in the same transaction before the status-scoped bulk delete. Returns the number of
+   *  rows removed. */
   pruneStaleProposedLearnings(beforeTs: number): number {
-    return this.db.run(
-      `DELETE FROM learnings WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
-      [beforeTs],
-    ).changes;
+    return this.db.transaction(() => {
+      this.db.run(
+        `UPDATE learnings SET mergedIntoId = NULL WHERE mergedIntoId IN (
+           SELECT id FROM learnings
+           WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?
+         )`,
+        [beforeTs],
+      );
+      return this.db.run(
+        `DELETE FROM learnings WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
+        [beforeTs],
+      ).changes;
+    })();
   }
 
   /** All active rules that were auto-trialed (trialedAt IS NOT NULL), across all repos,

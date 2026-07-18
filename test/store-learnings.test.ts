@@ -1249,6 +1249,25 @@ test("#1794: prune returns 0 when no proposed row is eligible", () => {
   expect(s.getLearning(fresh.id)).not.toBeNull();
 });
 
+test("#1794: prune clears merged-history references to a reverted trial survivor", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  const survivor = s.addLearning({ repoPath: "/r", rule: "survivor", rationale: "", evidence: [] });
+  const source = s.addLearning({ repoPath: "/r", rule: "source", rationale: "", evidence: [] });
+  s.trialLearning(survivor.id);
+  s.setLearningStatus(source.id, "active");
+  s.retireLearningMerged(source.id, survivor.id);
+  expect(s.listSubsumedLearnings(survivor.id).map((learning) => learning.id)).toEqual([source.id]);
+
+  s.revertTrial(survivor.id, "proposed");
+  ageRow(s, survivor.id, cutoff - 1, cutoff - 1);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(1);
+
+  expect(s.getLearning(survivor.id)).toBeNull();
+  expect(s.getLearning(source.id)?.mergedIntoId).toBeNull();
+  expect(s.listSubsumedLearnings(survivor.id)).toEqual([]);
+});
+
 test("#925: listTrialLearnings returns only active+trialedAt rows, oldest-trial first", () => {
   const s = new SessionStore(":memory:");
   const l1 = s.addLearning({ repoPath: "/r", rule: "r1", rationale: "", evidence: [] });

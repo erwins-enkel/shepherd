@@ -30,7 +30,10 @@ export const MAX_REAP_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_REAP
 
 // proposed retention (#1794): permanently prune proposed learnings whose latest evidence is
 // older than this many days. Applied in full each sweep (no cap, no exemption).
-export const PRUNE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_PRUNE_DAYS ?? 3);
+export const PRUNE_DAYS = resolveProposedRetentionDays(
+  process.env.SHEPHERD_LEARNINGS_PRUNE_DAYS,
+  3,
+);
 
 /** Informational reason stored when a stale trial is reaped; reapStaleTrial sets it in-store. */
 export const TRIAL_EXPIRED_REASON = "trial-expired";
@@ -221,6 +224,17 @@ export interface ProposedPruneDeps {
   retentionDays?: number;
 }
 
+/** Resolve a configured retention window without allowing malformed overrides to make the
+ *  cutoff destructive or disable pruning. Invalid explicit values fall back visibly. */
+export function resolveProposedRetentionDays(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = typeof value === "string" && value.trim() === "" ? Number.NaN : Number(value);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
+  console.warn(`[learnings] invalid proposed retention days ${shown}; using ${fallback}`);
+  return fallback;
+}
+
 /** Permanently delete every `proposed` learning whose latest evidence is older than the
  *  retention window (age = COALESCE(lastEvidenceAt, createdAt)). One global, status-scoped,
  *  uncapped bulk delete — no per-repo gate and no exemption for strong/trial-worthy proposals.
@@ -228,7 +242,7 @@ export interface ProposedPruneDeps {
  *  promoted; genuinely recurring evidence re-proposes it later. Returns the number removed. */
 export function runProposedPrune(deps: ProposedPruneDeps): number {
   const now = deps.now ?? Date.now();
-  const days = deps.retentionDays ?? PRUNE_DAYS;
+  const days = resolveProposedRetentionDays(deps.retentionDays, PRUNE_DAYS);
   return deps.store.pruneStaleProposedLearnings(now - days * DAY_MS);
 }
 
@@ -322,12 +336,9 @@ export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
   const results: RetiredRecord[] = [];
 
   for (const repoPath of store.listRepoPathsWithInjectableLearnings()) {
-    // Skip repos with learnings injection disabled entirely — consistent with the sibling
-    // sweeps (runAutoTrial / reapStaleTrial / expireProposed), which all `continue` past
-    // learnings-disabled repos. When the operator turns Learnings off, the whole rule
-    // lifecycle (trial, optimize, retire) goes dormant for that repo, and no
-    // `learnings_retired` notification fires. This also makes the UI's Auto-optimize gate
-    // honest: with Learnings off the optimize pass never runs.
+    // Injection-driven lifecycle paths (auto-trial, trial reaping, optimize, retire) stay
+    // dormant for learnings-disabled repos. The global proposed-prune pass is the intentional
+    // exception: it is status/age-based and not gated by repository configuration.
     if (!store.getRepoConfig(repoPath).learningsEnabled) continue;
     results.push(
       ...retireRepoCandidates(repoPath, deps, { nMin, maxRetirePerSweep, baseRateOpts }),

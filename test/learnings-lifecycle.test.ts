@@ -1,4 +1,4 @@
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, spyOn } from "bun:test";
 import {
   wilsonLowerBound,
   isGoodOutcome,
@@ -10,6 +10,7 @@ import {
   runAutoRetire,
   runAutoTrial,
   runProposedPrune,
+  resolveProposedRetentionDays,
   runReapStaleTrials,
   AUTO_RETIRE_REASON,
   WILSON_Z,
@@ -509,10 +510,9 @@ describe("runAutoRetire", () => {
   });
 
   test("learnings OFF → repo skipped entirely (no retire, no optimize)", () => {
-    // When Learnings injection is off, the whole rule lifecycle is dormant for the repo —
-    // consistent with runAutoTrial / reapStaleTrial / expireProposed, which all skip
-    // learnings-disabled repos. So neither retire nor optimize fires (and no
-    // learnings_retired notification is emitted downstream).
+    // Injection-driven lifecycle paths stay dormant for learnings-disabled repos, so neither
+    // retire nor optimize fires (and no learnings_retired notification is emitted downstream).
+    // The global, status/age-based proposed-prune pass is intentionally not repo-gated.
     const rule = makeLearning({
       id: "r4",
       repoPath: "/repo",
@@ -948,6 +948,26 @@ describe("runProposedPrune", () => {
     const f = fakeStore();
     runProposedPrune({ store: f.store, now, retentionDays: 7 });
     expect(f.calls).toEqual([now - 7 * DAY_MS]);
+  });
+
+  test.each(["", 0, -1, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid retention override %p and falls back visibly",
+    (retentionDays) => {
+      const warn = spyOn(console, "warn").mockImplementation(() => {});
+      expect(resolveProposedRetentionDays(retentionDays, 3)).toBe(3);
+      expect(warn).toHaveBeenCalledTimes(1);
+      warn.mockRestore();
+    },
+  );
+
+  test("invalid injected retentionDays cannot alter the cutoff", () => {
+    const now = 1_000_000_000_000;
+    const f = fakeStore();
+    const warn = spyOn(console, "warn").mockImplementation(() => {});
+    runProposedPrune({ store: f.store, now, retentionDays: 0 });
+    expect(f.calls).toEqual([now - 3 * DAY_MS]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    warn.mockRestore();
   });
 
   test("returns the store's removed count verbatim (drives sweep log/emit gating)", () => {

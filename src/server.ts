@@ -83,8 +83,8 @@ import { codexHome } from "./codex-usage";
 import { listDirs, validateRoot, collapseHome } from "./dirs";
 import { scratchpadHasFiles } from "./tmp-sweep";
 import {
-  listScratchpad,
-  resolveScratchpadFile,
+  listScratchpadMerged,
+  resolveScratchpadOrAttachmentFile,
   attachmentDisposition,
   resolveScratchpadUploadDir,
   placeScratchpadUpload,
@@ -2231,11 +2231,13 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
 // ── scratchpad file browser: GET /api/sessions/:id/scratchpad[?path=] (list)
 //                            GET /api/sessions/:id/scratchpad/download?path= (file) ──
 // Read-only browse + single-file download, rooted at and realpath-contained to the session's
-// OWN scratchpad dir (#1164). Live sessions only: 404 on a missing/archived session. `path` is
-// relative to the scratchpad root; containment is enforced in src/scratchpad.ts.
+// OWN scratchpad dir (#1164), with the session's operator attachments overlaid as a synthetic
+// `attachments/` subtree that resolves against `<worktree>/.shepherd-uploads` (#1717). Live
+// sessions only: 404 on a missing/archived session. `path` is relative to the merged root;
+// containment (per root) is enforced in src/scratchpad.ts.
 // Stream one contained scratchpad file as an attachment download.
 async function scratchpadDownload(s: Session, rel: string): Promise<Response> {
-  const file = await resolveScratchpadFile(s.worktreePath, s.claudeSessionId, rel);
+  const file = await resolveScratchpadOrAttachmentFile(s.worktreePath, s.claudeSessionId, rel);
   if (!file) return json({ error: "not found" }, 404);
   const f = Bun.file(file);
   return new Response(f, {
@@ -2250,7 +2252,7 @@ async function scratchpadDownload(s: Session, rel: string): Promise<Response> {
 // yet) returns a synthetic empty listing so the Files tab doesn't error before the first
 // upload/write; a missing non-root path still 404s.
 async function scratchpadList(s: Session, rel: string): Promise<Response> {
-  const listing = await listScratchpad(s.worktreePath, s.claudeSessionId, rel);
+  const listing = await listScratchpadMerged(s.worktreePath, s.claudeSessionId, rel);
   if (listing) return json(listing);
   if (rel === "" && s.claudeSessionId) return json({ path: "", parent: null, entries: [] });
   return json({ error: "not found" }, 404);

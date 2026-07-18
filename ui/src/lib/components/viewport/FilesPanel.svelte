@@ -8,6 +8,7 @@
     ApiError,
   } from "$lib/api";
   import type { ScratchEntry, ScratchListing } from "$lib/types";
+  import { ATTACHMENTS_DIR } from "$lib/session-files";
   import { m } from "$lib/paraglide/messages";
   import { relativeAge } from "$lib/format";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -24,6 +25,20 @@
   let listing = $state<ScratchListing | null>(null);
   let loading = $state(false);
   let error = $state(false);
+
+  // The synthetic Attachments overlay (#1717) is a read-only view of the worktree's uploads dir.
+  // `uploadDisabled` gates ONLY the upload affordances (button + drag/drop) — NOT the label/aria
+  // derivations, which stay keyed on `source` so the scratchpad Attachments folder keeps its
+  // scratchpad strings (reusing `readOnly` here would mislabel it with Worktree text).
+  const withinAttachments = $derived(
+    (listing?.path ?? "") === ATTACHMENTS_DIR ||
+      (listing?.path ?? "").startsWith(`${ATTACHMENTS_DIR}/`),
+  );
+  const uploadDisabled = $derived(readOnly || withinAttachments);
+
+  // Row/breadcrumb label for the synthetic Attachments folder is localized; every real entry
+  // renders its own name verbatim (names are data, not app chrome).
+  const displayName = (e: ScratchEntry) => (e.attachments ? m.files_attachments_folder() : e.name);
 
   // Sort state for the two clickable columns. Default = dirs-first + name-ascending (the
   // server's own order). `now` anchors the relative-age labels; refreshed on each load so
@@ -159,7 +174,11 @@
     let acc = "";
     for (const s of segs) {
       acc = acc ? `${acc}/${s}` : s;
-      out.push({ label: s, path: acc });
+      // Localize the top-level reserved Attachments segment (scratchpad source only); every other
+      // crumb is a real path segment rendered verbatim.
+      const label =
+        source === "scratchpad" && acc === ATTACHMENTS_DIR ? m.files_attachments_folder() : s;
+      out.push({ label, path: acc });
     }
     return out;
   });
@@ -205,20 +224,20 @@
   }
 
   function handleDragOver(e: DragEvent) {
-    if (readOnly) return;
+    if (uploadDisabled) return;
     e.preventDefault();
     dragOver = true;
   }
 
   function handleDragLeave(e: DragEvent) {
-    if (readOnly) return;
+    if (uploadDisabled) return;
     // Ignore leave events triggered by crossing into a child element — only clear on a real exit.
     if (e.relatedTarget && (e.currentTarget as Node).contains(e.relatedTarget as Node)) return;
     dragOver = false;
   }
 
   function handleDrop(e: DragEvent) {
-    if (readOnly) return;
+    if (uploadDisabled) return;
     e.preventDefault();
     dragOver = false;
     if (!listing) return; // still loading
@@ -284,7 +303,7 @@
           {/if}
         {/each}
       </nav>
-      {#if !readOnly}
+      {#if !uploadDisabled}
         <button
           type="button"
           class="gbtn upload-btn"
@@ -343,7 +362,7 @@
       {:else if listing && listing.entries.length === 0}
         <div class="placeholder empty-droppable">
           <span>{emptyText}</span>
-          {#if !readOnly}
+          {#if !uploadDisabled}
             <span class="drop-hint">{m.files_upload_drop_hint()}</span>
           {/if}
         </div>
@@ -381,14 +400,14 @@
           {#if e.linkOutside}
             <div class="row link-outside" aria-disabled="true" title={m.files_link_outside_title()}>
               <span class="ico" aria-hidden="true">↗</span>
-              <span class="nm">{e.name}</span>
+              <span class="nm">{displayName(e)}</span>
               {@render createdCell(e)}
               <span class="trail" aria-hidden="true"></span>
             </div>
           {:else if e.type === "dir"}
             <button type="button" class="row" onclick={() => browse(e.path)}>
               <span class="ico" aria-hidden="true">▸</span>
-              <span class="nm">{e.name}</span>
+              <span class="nm">{displayName(e)}</span>
               {@render createdCell(e)}
               <span class="chev trail" aria-hidden="true">›</span>
             </button>

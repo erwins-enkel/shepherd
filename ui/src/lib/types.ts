@@ -231,6 +231,9 @@ export interface ScratchEntry {
   /** true when this entry is a symlink resolving outside the root (worktree view only);
    *  rendered as a disabled, non-navigable row. */
   linkOutside?: boolean;
+  /** true only on the synthetic "Attachments" overlay folder (#1717); the UI renders a
+   *  localized label for it and treats its subtree as read-only. */
+  attachments?: boolean;
 }
 
 /** A directory listing within a session's scratchpad subtree (#1164). Paths are relative to the

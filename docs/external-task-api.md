@@ -134,10 +134,16 @@ Once a task exists, an external agent can also drive it:
   changed lines plus routed critic findings) as `{ "notes": [...] }`; it degrades
   to an empty list on any error rather than failing.
 - `GET /api/sessions/:id/scratchpad[?path=]` — browse a live session's own
-  scratchpad subtree; `GET /api/sessions/:id/scratchpad/download?path=`
-  streams a single file. Paths are relative to the scratchpad root and
-  realpath-contained to it (`..`, absolute, and symlink escapes are rejected);
-  both `404` on a missing/archived session.
+  scratchpad subtree, with the session's operator attachments overlaid as a
+  synthetic read-only `attachments/` folder (New Task screenshots and
+  mid-session compose-box uploads, which physically live in
+  `<worktree>/.shepherd-uploads`). `GET /api/sessions/:id/scratchpad/download?path=`
+  streams a single file. Paths are relative to the merged root: `attachments/…`
+  paths resolve against the worktree uploads dir, everything else against the
+  scratchpad root, each realpath-contained to its own root (`..`, absolute, and
+  symlink escapes are rejected). Because the overlay is worktree-keyed, this view
+  is provider-agnostic and surfaces even for non-Claude sessions with no
+  scratchpad of their own. Both `404` on a missing/archived session.
 - `GET /api/sessions/:id/worktree[?path=]` — browse a live session's git
   worktree subtree (read-only); `GET /api/sessions/:id/worktree/download?path=`
   streams a single file. Paths are relative to the worktree root and

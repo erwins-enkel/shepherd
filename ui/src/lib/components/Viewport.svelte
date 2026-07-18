@@ -84,6 +84,7 @@
   import ClipboardPill from "./viewport/ClipboardPill.svelte";
   import { handleOsc52 } from "$lib/osc52";
   import type { BuildQueue } from "$lib/types";
+  import { computeHasFiles } from "$lib/session-files";
   import { m } from "$lib/paraglide/messages";
   import { modelLabel } from "$lib/model-label";
   import { effortLabel } from "$lib/effort-guidance";
@@ -807,10 +808,10 @@
     if (todoExists === false && tab === "todo") tab = "term";
   });
 
-  // The Files tab is shown for any live session that has a claudeSessionId (#1258). This lets an
-  // operator upload files even before the agent writes anything. hasScratchpadFiles is subsumed —
-  // it can only be true for a live session with a claudeSessionId — so it no longer drives visibility.
-  const hasFiles = $derived(session.claudeSessionId !== "" && session.status !== "archived");
+  // The Files tab is shown for any live session that has a claudeSessionId (#1258) OR any operator
+  // attachment (#1717) — the latter makes attachments visible for non-Claude sessions too (they have
+  // no scratchpad). See computeHasFiles for the exact rule.
+  const hasFiles = $derived(computeHasFiles(session));
   // Don't strand the operator on a Files tab whose scratchpad just emptied.
   $effect(() => {
     if (!hasFiles && tab === "files") tab = "term";

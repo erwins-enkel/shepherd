@@ -2292,6 +2292,7 @@
   "feat_hide_repos_body": "Declutter the Backlog repos panel: hover a repo row and click the eye to hide it. A \"Hidden\" chip reveals hidden repos so you can bring them back. It's list-only — the repo's sessions, drain and totals are untouched.",
   "viewport_files_tab": "Files",
   "files_root_crumb": "scratchpad",
+  "files_attachments_folder": "Attachments",
   "files_breadcrumb_aria": "Scratchpad path",
   "files_empty": "No files in the scratchpad yet.",
   "files_load_error": "Couldn't load scratchpad files.",
@@ -3253,5 +3254,7 @@
   "feat_desktop_herd_group_collapse_title": "Fold lifecycle groups on the desktop",
   "feat_desktop_herd_group_collapse_body": "The desktop session rail's lifecycle group headers (CI running, Your turn, Merged, …) are now collapsible too: click a header to fold that group away — each group toggles independently, and jumps to a session hidden in a folded group reopen it automatically.",
   "feat_resizable_repos_title": "Resize the Repos window",
-  "feat_resizable_repos_body": "On desktop the Repos window now opens much larger and remembers your size: drag the bottom-right corner to resize the whole window, and drag the divider between the repository list and the detail pane to widen either side. Both sizes are saved in this browser; double-click a handle to reset."
+  "feat_resizable_repos_body": "On desktop the Repos window now opens much larger and remembers your size: drag the bottom-right corner to resize the whole window, and drag the divider between the repository list and the detail pane to widen either side. Both sizes are saved in this browser; double-click a handle to reset.",
+  "feat_scratchpad_attachments_title": "Task attachments show in the Files tab",
+  "feat_scratchpad_attachments_body": "Screenshots and files you attach when creating a task now appear in the session's Files tab from the start, under a new Attachments folder in the Scratchpad view — alongside any images you paste in mid-session. It works for every agent, including ones without a scratchpad of their own."
 }

@@ -315,3 +315,57 @@ describe("FilesPanel — Created column and sorting", () => {
     await expect.poll(() => rowNames()).toEqual(["zzz-dir", "aaa-dir", "a.txt", "b.txt", "c.txt"]);
   });
 });
+
+describe("FilesPanel — Attachments overlay (#1717)", () => {
+  const ATT = "attachments";
+  const rootWithAttachments = {
+    path: "",
+    parent: null as string | null,
+    entries: [{ name: ATT, type: "dir" as const, path: ATT, attachments: true }],
+  };
+  const nmText = () =>
+    Array.from(document.querySelectorAll(".list .row .nm")).map((n) => n.textContent?.trim());
+
+  it("renders the localized Attachments folder from the initial listing", async () => {
+    mockListing.mockResolvedValue(rootWithAttachments);
+    render(FilesPanel, { sessionId: "att-1" });
+    await waitForPanel();
+    await expect.poll(() => nmText()).toContain(m.files_attachments_folder());
+    // The raw reserved slug is never shown to the operator.
+    expect(nmText()).not.toContain(ATT);
+  });
+
+  it("keeps scratchpad labels and hides the upload affordance inside the attachments subtree", async () => {
+    const emptySub = { path: ATT, parent: "", entries: [] as never[] };
+    mockListing.mockImplementation(async (_id: string, path?: string) =>
+      path === ATT ? emptySub : rootWithAttachments,
+    );
+    render(FilesPanel, { sessionId: "att-2" });
+    await waitForPanel();
+
+    // Navigate into the Attachments folder.
+    const folder = Array.from(document.querySelectorAll<HTMLButtonElement>("button.row")).find(
+      (b) => b.querySelector(".nm")?.textContent?.trim() === m.files_attachments_folder(),
+    );
+    expect(folder).toBeTruthy();
+    folder!.click();
+
+    // Upload affordance disappears (uploadDisabled inside the read-only overlay).
+    await expect.poll(() => document.querySelector("button.upload-btn")).toBeNull();
+
+    // Empty-state text stays the SCRATCHPAD variant — not the Worktree string.
+    const empty = document.querySelector(".placeholder")?.textContent ?? "";
+    expect(empty).toContain(m.files_empty());
+    expect(empty).not.toContain(m.files_worktree_empty());
+
+    // Breadcrumb root crumb stays the scratchpad label; current crumb is the localized folder name.
+    const crumbs = Array.from(document.querySelectorAll(".crumbs .crumb")).map((c) =>
+      c.textContent?.trim(),
+    );
+    expect(crumbs).toContain(m.files_root_crumb());
+    expect(crumbs).not.toContain(m.files_worktree_root_crumb());
+    expect(document.querySelector(".crumb.current")?.textContent?.trim()).toBe(
+      m.files_attachments_folder(),
+    );
+  });
+});

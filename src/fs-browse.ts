@@ -23,6 +23,12 @@ export interface BrowseEntry {
   createdMs?: number;
   /** true when this entry is a symlink that resolves OUTSIDE the root (only set in onEscape:"mark"). */
   linkOutside?: boolean;
+  /**
+   * true only on the synthetic "Attachments" folder the scratchpad merge overlays onto the
+   * root (see src/scratchpad.ts). The UI keys on this to render a localized folder label; no
+   * real filesystem entry ever sets it.
+   */
+  attachments?: boolean;
 }
 
 /** Creation date (epoch ms) from a stat: birth time when recorded, else modified-time fallback. */

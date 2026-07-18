@@ -2292,6 +2292,7 @@
   "feat_hide_repos_body": "Räume das Backlog-Repos-Panel auf: Fahre über eine Repo-Zeile und klicke auf das Auge, um sie auszublenden. Ein „Ausgeblendet“-Chip zeigt ausgeblendete Repos wieder an, sodass du sie zurückholen kannst. Nur die Anzeige – Sessions, Drain und Summen bleiben unberührt.",
   "viewport_files_tab": "Dateien",
   "files_root_crumb": "Scratchpad",
+  "files_attachments_folder": "Anhänge",
   "files_breadcrumb_aria": "Scratchpad-Pfad",
   "files_empty": "Noch keine Dateien im Scratchpad.",
   "files_load_error": "Scratchpad-Dateien konnten nicht geladen werden.",
@@ -3253,5 +3254,7 @@
   "feat_desktop_herd_group_collapse_title": "Lebenszyklus-Gruppen auch am Desktop einklappen",
   "feat_desktop_herd_group_collapse_body": "Die Gruppen-Header der Desktop-Session-Leiste (CI läuft, Dein Zug, Gemergt, …) sind jetzt ebenfalls klappbar: Ein Klick auf einen Header klappt die Gruppe zu — jede Gruppe unabhängig, und Sprünge zu einer Session in einer eingeklappten Gruppe öffnen sie automatisch wieder.",
   "feat_resizable_repos_title": "Repos-Fenster in der Größe anpassen",
-  "feat_resizable_repos_body": "Am Desktop öffnet sich das Repos-Fenster jetzt deutlich größer und merkt sich deine Größe: Ziehe an der unteren rechten Ecke, um das gesamte Fenster anzupassen, und ziehe an der Trennlinie zwischen der Repository-Liste und dem Detailbereich, um eine der Seiten zu verbreitern. Beide Größen werden in diesem Browser gespeichert; ein Doppelklick auf einen Griff setzt sie zurück."
+  "feat_resizable_repos_body": "Am Desktop öffnet sich das Repos-Fenster jetzt deutlich größer und merkt sich deine Größe: Ziehe an der unteren rechten Ecke, um das gesamte Fenster anzupassen, und ziehe an der Trennlinie zwischen der Repository-Liste und dem Detailbereich, um eine der Seiten zu verbreitern. Beide Größen werden in diesem Browser gespeichert; ein Doppelklick auf einen Griff setzt sie zurück.",
+  "feat_scratchpad_attachments_title": "Task-Anhänge erscheinen im Dateien-Tab",
+  "feat_scratchpad_attachments_body": "Screenshots und Dateien, die du beim Erstellen einer Aufgabe anhängst, erscheinen jetzt von Anfang an im Dateien-Tab der Session – in einem neuen Ordner „Anhänge“ in der Scratchpad-Ansicht, zusammen mit Bildern, die du mitten in der Sitzung einfügst. Das funktioniert für jeden Agenten, auch für solche ohne eigenen Scratchpad."
 }

@@ -10,6 +10,7 @@ import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
+import { normalizeRule } from "./learning-rule";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
@@ -83,6 +84,8 @@ interface InFlight {
   /** Signal ids handed to this run — the only ids whose citation as evidence for
    *  an ineffective rule we trust (blocks a hallucinated id from being counted). */
   signalIds: Set<string>;
+  /** Timestamp lookup for proving a tombstoned rule cites genuinely post-prune evidence. */
+  signalTs: Map<string, number>;
 }
 
 export interface DistillerDeps {
@@ -100,6 +103,7 @@ export interface DistillerDeps {
     | "mergeLearning"
     | "retireLearning"
     | "getLearning"
+    | "listLearningPruneTombstones"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
@@ -285,6 +289,7 @@ export class DistillerService {
       terminalId: "",
       startedAt: this.now(),
       signalIds: new Set(signals.map((s) => s.id)),
+      signalTs: new Map(signals.map((s) => [s.id, s.ts])),
     };
     this.inflight.set(repoPath, entry);
     try {
@@ -346,7 +351,7 @@ export class DistillerService {
   }
 
   private finalize(f: InFlight, raw: RawProposals | null): void {
-    const { added, updated, deleted } = this.applyProposals(f.repoPath, raw);
+    const { added, updated, deleted } = this.applyProposals(f, raw);
     const flagged = this.applyIneffective(f, raw);
     const reaffirmed = this.applyReaffirm(f, raw);
     void this.deps.herdr.stop(f.terminalId).catch(() => {});
@@ -361,9 +366,10 @@ export class DistillerService {
 
   /** Persist new (deduped) proposed rules and apply UPDATE/DELETE from the distiller's output. */
   private applyProposals(
-    repoPath: string,
+    f: InFlight,
     raw: RawProposals | null,
   ): { added: number; updated: number; deleted: number } {
+    const repoPath = f.repoPath;
     const activeIds = new Set(
       this.deps.store
         .listActiveLearnings(repoPath)
@@ -376,7 +382,12 @@ export class DistillerService {
     // existing rule, so an ADD carrying that same merged text must dedup against the
     // just-merged rule (recomputing from the store reflects the post-merge text).
     const have = new Set(this.deps.store.listLearnings(repoPath).map((l) => normalizeRule(l.rule)));
-    const added = this.applyAdds(repoPath, raw, have);
+    const tombstones = new Map(
+      this.deps.store
+        .listLearningPruneTombstones(repoPath)
+        .map((tombstone) => [tombstone.ruleKey, tombstone.prunedAt]),
+    );
+    const added = this.applyAdds(f, raw, have, tombstones);
     return { added, updated, deleted };
   }
 
@@ -411,7 +422,12 @@ export class DistillerService {
     return deleted;
   }
 
-  private applyAdds(repoPath: string, raw: RawProposals | null, have: Set<string>): number {
+  private applyAdds(
+    f: InFlight,
+    raw: RawProposals | null,
+    have: Set<string>,
+    tombstones: Map<string, number>,
+  ): number {
     let added = 0;
     const rules = Array.isArray(raw?.rules) ? (raw!.rules as RawRule[]) : [];
     for (const r of rules) {
@@ -419,14 +435,22 @@ export class DistillerService {
       if (typeof r?.rule !== "string" || !r.rule.trim()) continue;
       const key = normalizeRule(r.rule);
       if (have.has(key)) continue;
+      const evidence = Array.isArray(r.evidence)
+        ? r.evidence.filter((e): e is string => typeof e === "string")
+        : [];
+      const prunedAt = tombstones.get(key);
+      if (isBlockedByPruneTombstone(f.signalTs, evidence, prunedAt)) {
+        console.warn(
+          `[distill] rejected tombstoned rule without post-prune evidence for ${f.repoPath}: ${key}`,
+        );
+        continue;
+      }
       have.add(key);
       this.deps.store.addLearning({
-        repoPath,
+        repoPath: f.repoPath,
         rule: r.rule.trim().slice(0, 240),
         rationale: typeof r.rationale === "string" ? r.rationale : "",
-        evidence: Array.isArray(r.evidence)
-          ? r.evidence.filter((e): e is string => typeof e === "string")
-          : [],
+        evidence,
         scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
       });
       added++;
@@ -475,8 +499,15 @@ export class DistillerService {
   }
 }
 
-export function normalizeRule(s: string): string {
-  return s.trim().toLowerCase().replace(/\s+/g, " ");
+function isBlockedByPruneTombstone(
+  signalTs: Map<string, number>,
+  evidence: string[],
+  prunedAt: number | undefined,
+): boolean {
+  return (
+    prunedAt !== undefined &&
+    !evidence.some((signalId) => (signalTs.get(signalId) ?? Number.NEGATIVE_INFINITY) > prunedAt)
+  );
 }
 
 function distillPrompt(): string {

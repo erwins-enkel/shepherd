@@ -28,10 +28,11 @@ export const TRIAL_REAP_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_
 export const TRIAL_REAP_MAX_DAYS = Number(process.env.SHEPHERD_LEARNINGS_TRIAL_REAP_MAX_DAYS ?? 60);
 export const MAX_REAP_PER_SWEEP = Number(process.env.SHEPHERD_LEARNINGS_MAX_REAP_PER_SWEEP ?? 5);
 
-// proposed expiry
-export const EXPIRE_DAYS = Number(process.env.SHEPHERD_LEARNINGS_EXPIRE_DAYS ?? 30);
-export const MAX_EXPIRE_PER_SWEEP = Number(
-  process.env.SHEPHERD_LEARNINGS_MAX_EXPIRE_PER_SWEEP ?? 5,
+// proposed retention (#1794): permanently prune proposed learnings whose latest evidence is
+// older than this many days. Applied in full each sweep (no cap, no exemption).
+export const PRUNE_DAYS = resolveProposedRetentionDays(
+  process.env.SHEPHERD_LEARNINGS_PRUNE_DAYS,
+  3,
 );
 
 /** Informational reason stored when a stale trial is reaped; reapStaleTrial sets it in-store. */
@@ -56,12 +57,6 @@ export interface TrialedRecord {
   evidenceCount: number;
   distinctKinds: number;
   distinctSessions: number;
-}
-
-export interface ExpiredRecord {
-  repoPath: string;
-  id: string;
-  rule: string;
 }
 
 export interface ReapedRecord {
@@ -221,56 +216,41 @@ export function runAutoTrial(deps: AutoTrialDeps): TrialedRecord[] {
   return out;
 }
 
-// ── shouldExpireProposed + runAutoExpire ──────────────────────────────────────
+// ── runProposedPrune (#1794) ──────────────────────────────────────────────────
 
-export function shouldExpireProposed(
-  rule: Learning,
-  now: number,
-  opts?: {
-    expireDays?: number;
-    expiryFloor?: number;
-    gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
-  },
-): boolean {
-  if (rule.status !== "proposed") return false;
-  if (shouldTrial(rule, opts?.gate)) return false; // trial-worthy → never expire
-  const expireMs = (opts?.expireDays ?? EXPIRE_DAYS) * DAY_MS;
-  const floor = opts?.expiryFloor ?? 0;
-  const effective = Math.max(rule.lastEvidenceAt ?? rule.createdAt, floor); // grace floor for backlog
-  return now - effective > expireMs;
-}
-
-export interface AutoExpireDeps {
-  store: Pick<
-    SessionStore,
-    "listPendingLearnings" | "getRepoConfig" | "expireLearning" | "expiryFloorAt"
-  >;
+export interface ProposedPruneDeps {
+  store: Pick<SessionStore, "pruneStaleProposedLearnings">;
   now?: number;
-  maxPerSweep?: number;
-  expireDays?: number;
-  gate?: { nMin?: number; sessionFloor?: number; minKinds?: number; minSessions?: number };
+  retentionDays?: number;
 }
 
-export function runAutoExpire(deps: AutoExpireDeps): ExpiredRecord[] {
+/** Resolve a configured retention window without allowing malformed overrides to make the
+ *  cutoff destructive or disable pruning. Invalid explicit values fall back visibly. */
+export function resolveProposedRetentionDays(value: unknown, fallback: number): number {
+  if (value === undefined) return fallback;
+  const parsed = typeof value === "string" && value.trim() === "" ? Number.NaN : Number(value);
+  const durationMs = parsed * DAY_MS;
+  if (Number.isFinite(parsed) && parsed > 0 && Number.isFinite(durationMs) && durationMs >= 1)
+    return parsed;
+  const shown = typeof value === "string" ? JSON.stringify(value) : String(value);
+  console.warn(`[learnings] invalid proposed retention days ${shown}; using ${fallback}`);
+  return fallback;
+}
+
+/** Permanently delete every `proposed` learning whose latest evidence is older than the
+ *  retention window (age = COALESCE(lastEvidenceAt, createdAt)). One global, status-scoped,
+ *  uncapped bulk delete — no per-repo gate and no exemption for strong/trial-worthy proposals.
+ *  Runs before auto-trial in the sweep, so a strong-but-stale proposal is dropped rather than
+ *  promoted; genuinely recurring evidence re-proposes it later. Returns the number removed. */
+export function runProposedPrune(deps: ProposedPruneDeps): number {
   const now = deps.now ?? Date.now();
-  const cap = deps.maxPerSweep ?? MAX_EXPIRE_PER_SWEEP;
-  const floor = deps.store.expiryFloorAt();
-  const out: ExpiredRecord[] = [];
-  for (const rule of deps.store.listPendingLearnings()) {
-    if (out.length >= cap) break;
-    if (!deps.store.getRepoConfig(rule.repoPath).learningsEnabled) continue;
-    if (
-      !shouldExpireProposed(rule, now, {
-        expireDays: deps.expireDays,
-        expiryFloor: floor,
-        gate: deps.gate,
-      })
-    )
-      continue;
-    if (deps.store.expireLearning(rule.id))
-      out.push({ repoPath: rule.repoPath, id: rule.id, rule: rule.rule });
+  const days = resolveProposedRetentionDays(deps.retentionDays, PRUNE_DAYS);
+  const cutoff = now - days * DAY_MS;
+  if (!Number.isFinite(cutoff)) {
+    console.warn("[learnings] invalid proposed retention cutoff; skipping prune");
+    return 0;
   }
-  return out;
+  return deps.store.pruneStaleProposedLearnings(cutoff, now);
 }
 
 // ── shouldReapTrial + runReapStaleTrials ──────────────────────────────────────
@@ -363,12 +343,9 @@ export function runAutoRetire(deps: AutoRetireDeps): RetiredRecord[] {
   const results: RetiredRecord[] = [];
 
   for (const repoPath of store.listRepoPathsWithInjectableLearnings()) {
-    // Skip repos with learnings injection disabled entirely — consistent with the sibling
-    // sweeps (runAutoTrial / reapStaleTrial / expireProposed), which all `continue` past
-    // learnings-disabled repos. When the operator turns Learnings off, the whole rule
-    // lifecycle (trial, optimize, retire) goes dormant for that repo, and no
-    // `learnings_retired` notification fires. This also makes the UI's Auto-optimize gate
-    // honest: with Learnings off the optimize pass never runs.
+    // Injection-driven lifecycle paths (auto-trial, trial reaping, optimize, retire) stay
+    // dormant for learnings-disabled repos. The global proposed-prune pass is the intentional
+    // exception: it is status/age-based and not gated by repository configuration.
     if (!store.getRepoConfig(repoPath).learningsEnabled) continue;
     results.push(
       ...retireRepoCandidates(repoPath, deps, { nMin, maxRetirePerSweep, baseRateOpts }),

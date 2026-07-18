@@ -60,6 +60,7 @@ import { normalizeRepoDefaultEffortSetting } from "./default-effort";
 import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
+import { normalizeRule } from "./learning-rule";
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
@@ -1132,6 +1133,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, lastEvidenceAt INTEGER, promotedPrUrl TEXT,
   ineffectiveSignalIds TEXT NOT NULL DEFAULT '[]')`);
     this.db.run(`CREATE INDEX IF NOT EXISTS learnings_repo_status ON learnings (repoPath, status)`);
+    this.db.run(`CREATE TABLE IF NOT EXISTS learning_prune_tombstones (
+      repoPath TEXT NOT NULL, ruleKey TEXT NOT NULL, prunedAt INTEGER NOT NULL,
+      PRIMARY KEY (repoPath, ruleKey))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS session_injected_learnings (
       sessionId TEXT NOT NULL, learningId TEXT NOT NULL,
       PRIMARY KEY (sessionId, learningId))`);
@@ -4295,15 +4299,47 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return this.getLearning(id);
   }
 
-  /** Dismiss a stale proposed rule (expiry path). Returns null if not proposed. */
-  expireLearning(id: string): Learning | null {
-    const cur = this.getLearning(id);
-    if (!cur || cur.status !== "proposed") return null;
-    this.db.run(`UPDATE learnings SET status = 'dismissed', updatedAt = ? WHERE id = ?`, [
-      Date.now(),
-      id,
-    ]);
-    return this.getLearning(id);
+  /** Durable normalized signatures for pruned proposals. The distiller uses `prunedAt` to reject
+   *  recurrence from its unchanged signal window while permitting genuinely newer evidence. */
+  listLearningPruneTombstones(repoPath: string): { ruleKey: string; prunedAt: number }[] {
+    return this.db
+      .query(`SELECT ruleKey, prunedAt FROM learning_prune_tombstones WHERE repoPath = ?`)
+      .all(repoPath) as { ruleKey: string; prunedAt: number }[];
+  }
+
+  /** #1794: permanently delete every `proposed` learning whose latest supporting evidence is
+   *  older than `beforeTs` (age = COALESCE(lastEvidenceAt, createdAt), strict `<` so a row
+   *  exactly at the cutoff survives). Only `proposed` rows are eligible; accepted/history rows
+   *  (active/promoted/dismissed/retired) are never touched. Normalized tombstones are retained and
+   *  inbound merge-history citations are cleared in the same transaction before the status-scoped
+   *  bulk delete. Returns the number of rows removed. */
+  pruneStaleProposedLearnings(beforeTs: number, prunedAt = Date.now()): number {
+    return this.db.transaction(() => {
+      const stale = this.db
+        .query(
+          `SELECT repoPath, rule FROM learnings
+           WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
+        )
+        .all(beforeTs) as { repoPath: string; rule: string }[];
+      for (const learning of stale) {
+        this.db.run(
+          `INSERT INTO learning_prune_tombstones (repoPath, ruleKey, prunedAt) VALUES (?, ?, ?)
+           ON CONFLICT(repoPath, ruleKey) DO UPDATE SET prunedAt = MAX(prunedAt, excluded.prunedAt)`,
+          [learning.repoPath, normalizeRule(learning.rule), prunedAt],
+        );
+      }
+      this.db.run(
+        `UPDATE learnings SET mergedIntoId = NULL WHERE mergedIntoId IN (
+           SELECT id FROM learnings
+           WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?
+         )`,
+        [beforeTs],
+      );
+      return this.db.run(
+        `DELETE FROM learnings WHERE status = 'proposed' AND COALESCE(lastEvidenceAt, createdAt) < ?`,
+        [beforeTs],
+      ).changes;
+    })();
   }
 
   /** All active rules that were auto-trialed (trialedAt IS NOT NULL), across all repos,
@@ -4317,15 +4353,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return (rows as LearningRow[]).map((r) => this.hydrateLearning(r));
   }
 
-  /** The expiry grace floor timestamp: proposed rules created before this ts are exempt
-   *  from expiry on the first backfill sweep (kv key: "learnings:expiry-floor"). */
-  expiryFloorAt(): number {
-    return Number(this.getSetting("learnings:expiry-floor") ?? 0);
-  }
-
   /** One-time backfill: populate evidenceKindsSeen + evidenceSessionsSeen for existing
-   *  proposed rows that still have empty sets, and stamp the expiry-grace floor so the
-   *  lifecycle sweep doesn't immediately expire pre-existing proposals.
+   *  proposed rows that still have empty sets.
    *  Guarded by the kv flag "learnings:diversity-backfilled" so it runs exactly once. */
   private backfillLearningDiversity(): void {
     if (this.getSetting("learnings:diversity-backfilled") === "1") return;
@@ -4345,7 +4374,6 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         );
       }
     }
-    this.setSetting("learnings:expiry-floor", String(Date.now()));
     this.setSetting("learnings:diversity-backfilled", "1");
   }
 

@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
 import { DistillerService, DISTILL_LABEL, type DistillerDeps } from "../src/distiller";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
@@ -455,6 +455,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
       ],
       addLearning: () => ({}) as never,
       listLearnings: () => [],
+      listLearningPruneTombstones: () => [],
       listActiveLearnings: () => active as never,
       getSetting: () => null,
       setSetting: () => {},
@@ -545,6 +546,65 @@ test("dismissed rules are passed to the distiller so they aren't re-proposed", a
   const d = new DistillerService(deps as any);
   await d.distillNow("/r");
   expect(captured).toContain("dismissed rule");
+});
+
+test("#1794: pruned rule needs genuinely post-prune evidence before normalized recurrence", async () => {
+  const store = new SessionStore(":memory:");
+  const db = (
+    store as unknown as {
+      db: { run(sql: string, params: unknown[]): void };
+    }
+  ).db;
+  const oldSignal = store.addSignal({
+    repoPath: "/r",
+    sessionId: null,
+    kind: "reply",
+    payload: "use bun",
+  });
+  const original = store.addLearning({
+    repoPath: "/r",
+    rule: "Use bun",
+    rationale: "",
+    evidence: [oldSignal.id],
+  });
+  const prunedAt = Date.now();
+  const cutoff = prunedAt - 3 * 86_400_000;
+  db.run(`UPDATE signals SET ts = ? WHERE id = ?`, [prunedAt - 1, oldSignal.id]);
+  db.run(`UPDATE learnings SET createdAt = ?, lastEvidenceAt = ? WHERE id = ?`, [
+    cutoff - 1,
+    cutoff - 1,
+    original.id,
+  ]);
+  expect(store.pruneStaleProposedLearnings(cutoff, prunedAt)).toBe(1);
+  expect(store.listLearningPruneTombstones("/r")).toEqual([{ ruleKey: "use bun", prunedAt }]);
+
+  const staleRun = mkDeps(store, {
+    rules: [{ rule: "  use   bun  ", rationale: "same corpus", evidence: [oldSignal.id] }],
+  });
+  const warn = spyOn(console, "warn").mockImplementation(() => {});
+  const staleService = new DistillerService(staleRun.deps);
+  await staleService.distillNow("/r");
+  await staleService.tick();
+  expect(store.listLearnings("/r", { status: "proposed" })).toEqual([]);
+  expect(warn).toHaveBeenCalledTimes(1);
+  warn.mockRestore();
+
+  const freshSignal = store.addSignal({
+    repoPath: "/r",
+    sessionId: null,
+    kind: "reply",
+    payload: "use bun again",
+  });
+  db.run(`UPDATE signals SET ts = ? WHERE id = ?`, [prunedAt + 1, freshSignal.id]);
+  const freshRun = mkDeps(store, {
+    rules: [{ rule: "  use   bun  ", rationale: "fresh recurrence", evidence: [freshSignal.id] }],
+  });
+  const freshService = new DistillerService(freshRun.deps);
+  await freshService.distillNow("/r");
+  await freshService.tick();
+  expect(store.listLearnings("/r", { status: "proposed" }).map((l) => l.rule)).toEqual([
+    "use   bun",
+  ]);
 });
 
 // ── New tests: unique agent name, concurrency cap, health ───────────────────

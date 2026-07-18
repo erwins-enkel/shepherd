@@ -1167,19 +1167,105 @@ test("#925: accrueProposedEvidence null-sessionId signal merges kind but not ses
   expect(updated.distinctSessions).toBe(1); // only s1
 });
 
-test("#925: expireLearning proposed→dismissed only", () => {
+// ── #1794: pruneStaleProposedLearnings (permanent 3-day retention) ─────────────
+
+/** Force createdAt/lastEvidenceAt on a row so age is deterministic (no public setter). */
+function ageRow(s: SessionStore, id: string, createdAt: number, lastEvidenceAt: number | null) {
+  (s as unknown as { db: { run(sql: string, params: unknown[]): void } }).db.run(
+    `UPDATE learnings SET createdAt = ?, lastEvidenceAt = ? WHERE id = ?`,
+    [createdAt, lastEvidenceAt, id],
+  );
+}
+
+test("#1794: prune permanently deletes every stale proposed row (no per-sweep cap)", () => {
   const s = new SessionStore(":memory:");
-  const l = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
-  const expired = s.expireLearning(l.id)!;
-  expect(expired).not.toBeNull();
-  expect(expired.status).toBe("dismissed");
-  // active → null
-  const a = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
-  s.setLearningStatus(a.id, "active");
-  expect(s.expireLearning(a.id)).toBeNull();
-  expect(s.getLearning(a.id)!.status).toBe("active");
-  // missing → null
-  expect(s.expireLearning("nope")).toBeNull();
+  const cutoff = Date.now();
+  const ids = Array.from({ length: 7 }, (_, i) => {
+    const l = s.addLearning({ repoPath: "/r", rule: `r${i}`, rationale: "", evidence: [] });
+    ageRow(s, l.id, cutoff - 1, null);
+    return l.id;
+  });
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(7); // uncapped: all 7, past the old 5-cap
+  for (const id of ids) expect(s.getLearning(id)).toBeNull(); // permanent, not soft-dismissed
+});
+
+test("#1794: prune boundary is strict (< cutoff): exactly-at and newer survive", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  const older = s.addLearning({ repoPath: "/r", rule: "older", rationale: "", evidence: [] });
+  const atCut = s.addLearning({ repoPath: "/r", rule: "at", rationale: "", evidence: [] });
+  const newer = s.addLearning({ repoPath: "/r", rule: "newer", rationale: "", evidence: [] });
+  ageRow(s, older.id, cutoff - 1, null);
+  ageRow(s, atCut.id, cutoff, null);
+  ageRow(s, newer.id, cutoff + 1, null);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(1);
+  expect(s.getLearning(older.id)).toBeNull();
+  expect(s.getLearning(atCut.id)).not.toBeNull(); // exactly at cutoff survives until a later sweep
+  expect(s.getLearning(newer.id)).not.toBeNull();
+});
+
+test("#1794: prune ages by COALESCE(lastEvidenceAt, createdAt) — fresh evidence refreshes retention", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  // stale createdAt but recent lastEvidenceAt → survives
+  const refreshed = s.addLearning({ repoPath: "/r", rule: "fresh", rationale: "", evidence: [] });
+  ageRow(s, refreshed.id, cutoff - 10_000, cutoff + 1);
+  // stale latest evidence → removed
+  const stale = s.addLearning({ repoPath: "/r", rule: "stale", rationale: "", evidence: [] });
+  ageRow(s, stale.id, cutoff - 10_000, cutoff - 1);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(1);
+  expect(s.getLearning(refreshed.id)).not.toBeNull();
+  expect(s.getLearning(stale.id)).toBeNull();
+});
+
+test("#1794: prune only touches proposed rows — active/promoted/dismissed/retired preserved", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  const active = s.addLearning({ repoPath: "/r", rule: "a", rationale: "", evidence: [] });
+  s.setLearningStatus(active.id, "active");
+  const promoted = s.addLearning({ repoPath: "/r", rule: "p", rationale: "", evidence: [] });
+  s.setLearningStatus(promoted.id, "active");
+  s.setLearningStatus(promoted.id, "promoted");
+  const dismissed = s.addLearning({ repoPath: "/r", rule: "d", rationale: "", evidence: [] });
+  s.setLearningStatus(dismissed.id, "dismissed");
+  const retired = s.addLearning({ repoPath: "/r", rule: "x", rationale: "", evidence: [] });
+  s.setLearningStatus(retired.id, "active");
+  s.retireLearning(retired.id, "auto-retire");
+  for (const id of [active.id, promoted.id, dismissed.id, retired.id])
+    ageRow(s, id, cutoff - 1, cutoff - 1);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(0);
+  expect(s.getLearning(active.id)!.status).toBe("active");
+  expect(s.getLearning(promoted.id)!.status).toBe("promoted");
+  expect(s.getLearning(dismissed.id)!.status).toBe("dismissed");
+  expect(s.getLearning(retired.id)!.status).toBe("retired");
+});
+
+test("#1794: prune returns 0 when no proposed row is eligible", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  const fresh = s.addLearning({ repoPath: "/r", rule: "r", rationale: "", evidence: [] });
+  ageRow(s, fresh.id, cutoff + 1, null);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(0);
+  expect(s.getLearning(fresh.id)).not.toBeNull();
+});
+
+test("#1794: prune clears merged-history references to a reverted trial survivor", () => {
+  const s = new SessionStore(":memory:");
+  const cutoff = Date.now();
+  const survivor = s.addLearning({ repoPath: "/r", rule: "survivor", rationale: "", evidence: [] });
+  const source = s.addLearning({ repoPath: "/r", rule: "source", rationale: "", evidence: [] });
+  s.trialLearning(survivor.id);
+  s.setLearningStatus(source.id, "active");
+  s.retireLearningMerged(source.id, survivor.id);
+  expect(s.listSubsumedLearnings(survivor.id).map((learning) => learning.id)).toEqual([source.id]);
+
+  s.revertTrial(survivor.id, "proposed");
+  ageRow(s, survivor.id, cutoff - 1, cutoff - 1);
+  expect(s.pruneStaleProposedLearnings(cutoff)).toBe(1);
+
+  expect(s.getLearning(survivor.id)).toBeNull();
+  expect(s.getLearning(source.id)?.mergedIntoId).toBeNull();
+  expect(s.listSubsumedLearnings(survivor.id)).toEqual([]);
 });
 
 test("#925: listTrialLearnings returns only active+trialedAt rows, oldest-trial first", () => {
@@ -1233,12 +1319,6 @@ test("#925: listPendingLearnings orders by evidenceCount DESC then lastEvidenceA
   expect(pending[0]!.id).toBe(l_high.id); // 5 evidence
   expect(pending[1]!.id).toBe(l_mid.id); // 2 evidence
   expect(pending[2]!.id).toBe(l_low.id); // 0 evidence
-});
-
-test("#925: expiryFloorAt returns the stamped floor after backfill (non-zero on fresh DB)", () => {
-  const s = new SessionStore(":memory:");
-  // backfillLearningDiversity runs on construction and stamps learnings:expiry-floor
-  expect(s.expiryFloorAt()).toBeGreaterThan(0);
 });
 
 test("#925: new DB columns exist with correct defaults after migration", () => {

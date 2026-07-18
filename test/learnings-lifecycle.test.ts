@@ -974,7 +974,9 @@ describe("runProposedPrune", () => {
     const f = fakeStore();
     const warn = spyOn(console, "warn").mockImplementation(() => {});
     const days = Number.MAX_VALUE / DAY_MS / 2;
-    expect(runProposedPrune({ store: f.store, now: -Number.MAX_VALUE, retentionDays: days })).toBe(0);
+    expect(runProposedPrune({ store: f.store, now: -Number.MAX_VALUE, retentionDays: days })).toBe(
+      0,
+    );
     expect(f.calls).toEqual([]);
     expect(warn).toHaveBeenCalledTimes(1);
     warn.mockRestore();

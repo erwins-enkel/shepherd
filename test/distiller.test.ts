@@ -550,9 +550,11 @@ test("dismissed rules are passed to the distiller so they aren't re-proposed", a
 
 test("#1794: pruned rule needs genuinely post-prune evidence before normalized recurrence", async () => {
   const store = new SessionStore(":memory:");
-  const db = (store as unknown as {
-    db: { run(sql: string, params: unknown[]): void };
-  }).db;
+  const db = (
+    store as unknown as {
+      db: { run(sql: string, params: unknown[]): void };
+    }
+  ).db;
   const oldSignal = store.addSignal({
     repoPath: "/r",
     sessionId: null,
@@ -574,9 +576,7 @@ test("#1794: pruned rule needs genuinely post-prune evidence before normalized r
     original.id,
   ]);
   expect(store.pruneStaleProposedLearnings(cutoff, prunedAt)).toBe(1);
-  expect(store.listLearningPruneTombstones("/r")).toEqual([
-    { ruleKey: "use bun", prunedAt },
-  ]);
+  expect(store.listLearningPruneTombstones("/r")).toEqual([{ ruleKey: "use bun", prunedAt }]);
 
   const staleRun = mkDeps(store, {
     rules: [{ rule: "  use   bun  ", rationale: "same corpus", evidence: [oldSignal.id] }],

@@ -9,8 +9,14 @@ export const DOC_LINKS: Record<string, string> = {
   diagnostics_hint_gh_not_authenticated: "https://cli.github.com/manual/gh_auth_login",
   diagnostics_hint_tailscale_missing: "https://tailscale.com/kb/1347/installation",
   diagnostics_hint_tailscale_not_serving: "https://tailscale.com/kb/1242/tailscale-serve",
+  // Shepherd's own operating guide (resource-guardrails section) carries a
+  // copy-paste `set-property` remedy — far more actionable than the raw systemd
+  // man page. Both host_capacity non-ok states point here. Anchor slug is coupled
+  // to the operating.md heading by test/host-capacity-doc-anchor.test.ts.
   diagnostics_hint_host_capacity_unbounded:
-    "https://www.freedesktop.org/software/systemd/man/latest/systemd.resource-control.html",
+    "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
+  diagnostics_hint_host_capacity_pressure:
+    "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
 };
 
 /** Per-state PWA-install help URL; undefined for `optional`/`installed`

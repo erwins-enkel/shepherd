@@ -2,6 +2,7 @@
   import type { DiagnosticCheck } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { DOC_LINKS } from "$lib/diagnostics-docs";
+  import GlossaryText from "./GlossaryText.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { SvelteSet } from "svelte/reactivity";
 
@@ -92,7 +93,7 @@
           >
         </div>
         {#if check.state !== "ok"}
-          <p class="hint">{hint(check.hintKey)}</p>
+          <p class="hint"><GlossaryText text={hint(check.hintKey)} /></p>
         {/if}
         {#if onfix && fixable(check)}
           <div class="fix-wrap">

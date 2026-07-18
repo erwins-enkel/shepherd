@@ -33,7 +33,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Operating Shepherd",
     path: "/operating/",
     keywords:
-      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service expose it over the network deploy a code change backups & restore host tuning — tmpfs inodes host tuning — resource guardrails",
+      "run shepherd as a systemd service, expose it over tailscale, and deploy code changes. run as a systemd user service expose it over the network deploy a code change backups & restore host tuning — tmpfs inodes host tuning — resource guardrails add a limit (copy-paste)",
   },
   {
     title: "CLI reference",

@@ -111,3 +111,49 @@ to pause or reduce active agent sessions until the host recovers. On non-systemd
 or local dev hosts it stays quiet. Because sustained pressure is steady-state, the
 background re-check is *not* accelerated on this error — use the Diagnostics
 **Re-run** button for an on-demand live reading.
+
+### Add a limit (copy-paste)
+
+Shepherd installs as a **systemd user service** (`shepherd.service`), so you can
+add a live, persistent guardrail without `sudo` or a restart. `set-property`
+writes a drop-in under `~/.config/systemd/user.control/` and applies it
+immediately:
+
+```sh
+# Tune the values to the host — e.g. MemoryHigh a few GB below total RAM,
+# CPUQuota to leave headroom for the OS and other services. 300% = 3 cores.
+systemctl --user set-property shepherd.service MemoryHigh=6G CPUQuota=300%
+```
+
+Setting **any** of `MemoryHigh`, `MemoryMax`, or `CPUQuota` clears the **Host
+capacity** warning. `MemoryHigh` throttles and reclaims *before* the harder
+`MemoryMax` OOM-kill ceiling, so it's the safer first lever.
+
+For **real** protection, prefer a shared **slice**. Agent sessions run under
+**herdr**, a *separate* unit — so a limit on `shepherd.service` alone bounds
+Shepherd but not the sessions that actually consume the box. Put both units in one
+slice and limit the slice instead:
+
+```ini
+# ~/.config/systemd/user/shepherd.slice
+[Slice]
+MemoryHigh=12G
+CPUQuota=600%
+```
+
+```ini
+# ~/.config/systemd/user/shepherd.service.d/slice.conf   (same for herdr.service)
+[Service]
+Slice=shepherd.slice
+```
+
+`Slice=` is assigned at unit load, not via `set-property`, so this pair needs a
+reload + restart to take effect (the restart briefly drops the HUD):
+
+```sh
+systemctl --user daemon-reload
+systemctl --user restart herdr.service shepherd.service
+```
+
+A **system**-level install (unit under `/etc/systemd/system/`) takes the same
+properties via `sudo systemctl set-property …` or an equivalent drop-in there.

@@ -171,3 +171,43 @@ describe("EpicPanel legibility lines (#1447)", () => {
     expect(page.getByText(m.epic_hold_cap({ inFlight: 3, max: 3 })).query()).toBeNull();
   });
 });
+
+// The "epic not loading" bug: a duplicate child (an epic-dag node listed on two `<-` lines) reaches
+// EpicPanel's `{#each epic.children as c (c.number)}`, whose duplicate key throws each_key_duplicate
+// and crashes the panel on mount. The data-layer fix (parser + assembleEpic dedup) guarantees unique
+// children; these cases pin the user-visible outcome. The clean-mount case runs first — the throwing
+// render can leak a partially-mounted subtree, so the throw assertion is kept last.
+describe("EpicPanel duplicate-child guard", () => {
+  it("mounts and renders each child row when numbers are unique", async () => {
+    const e: Epic = {
+      ...epic(),
+      children: [child({ number: 707 }), child({ number: 708 }), child({ number: 709 })],
+    };
+    render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
+
+    await expect.element(page.getByRole("link", { name: "#709" })).toBeInTheDocument();
+  });
+
+  it("crashes the child list with each_key_duplicate on a duplicate child number", async () => {
+    // The each block's effect throws asynchronously (Svelte schedules it), surfacing as an
+    // unhandled rejection rather than a synchronous throw from render() — capture it here and
+    // preventDefault so it's asserted, not leaked into the run as a false failure.
+    let captured: string | null = null;
+    const onRejection = (ev: PromiseRejectionEvent) => {
+      const msg = String((ev.reason as Error)?.message ?? ev.reason ?? "");
+      if (msg.includes("each_key_duplicate")) {
+        captured = msg;
+        ev.preventDefault();
+      }
+    };
+    window.addEventListener("unhandledrejection", onRejection);
+    try {
+      const e: Epic = { ...epic(), children: [child({ number: 709 }), child({ number: 709 })] };
+      render(EpicPanel, { repoPath: "/repo", parent: 327, epic: e });
+      await new Promise((r) => setTimeout(r, 50));
+      expect(captured).toMatch(/each_key_duplicate/);
+    } finally {
+      window.removeEventListener("unhandledrejection", onRejection);
+    }
+  });
+});

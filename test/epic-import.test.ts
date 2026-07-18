@@ -97,6 +97,25 @@ describe("importEpicLinks", () => {
     expect(r.unresolved.filter((n) => n === 320)).toHaveLength(1);
   });
 
+  // A child listed on multiple `<-` lines (two blockers) must be added exactly once. Before the
+  // parser dedup, the duplicated member was re-`addSubIssue`'d — the pre-loop existingSubs snapshot
+  // didn't yet contain it, so the forge threw and it landed in `unresolved` (spurious miscount).
+  test("multi-line blockers → child added once, both edges wired", async () => {
+    const body = "```epic-dag\n#707\n#708\n#709 <- #707\n#709 <- #708\n```";
+    const f = fakeForge([], new Map());
+    const r = await importEpicLinks(f.forge, 327, body);
+    expect(f.subAdds).toEqual([
+      [327, 707],
+      [327, 708],
+      [327, 709],
+    ]);
+    expect(f.depAdds).toEqual([
+      [709, 707],
+      [709, 708],
+    ]);
+    expect(r).toEqual({ subIssuesAdded: 3, dependenciesAdded: 2, skipped: 0, unresolved: [] });
+  });
+
   test("throws on forge with no native support", async () => {
     const bare = {} as never;
     await expect(importEpicLinks(bare, 1, BODY)).rejects.toThrow(

@@ -35,6 +35,27 @@ describe("parseEpicBody", () => {
   });
   test("no structure → empty", () =>
     expect(parseEpicBody("prose")).toEqual({ members: [], order: [], edges: [] }));
+
+  // A node listed on multiple `<-` lines to express several blockers (`#709 <- #707` then
+  // `#709 <- #708`) must count as ONE member — a duplicate `order` entry flows into a
+  // duplicate epic child and throws each_key_duplicate in EpicPanel's keyed {#each}.
+  test("fenced multi-line blockers → member once, edges unioned", () => {
+    const r = parseEpicBody(
+      ["```epic-dag", "#707", "#708", "#709 <- #707", "#709 <- #708", "```"].join("\n"),
+    );
+    expect(r.members).toEqual([707, 708, 709]);
+    expect(r.order).toEqual([707, 708, 709]);
+    expect(r.edges).toEqual([
+      { dependent: 709, blocker: 707 },
+      { dependent: 709, blocker: 708 },
+    ]);
+  });
+
+  test("checklist with a repeated member → member once", () => {
+    const r = parseEpicBody("- [ ] #10 a\n- [ ] #11 b\n- [x] #10 a again\n");
+    expect(r.members).toEqual([10, 11]);
+    expect(r.order).toEqual([10, 11]);
+  });
 });
 
 // #1391 — the injected epic-shape contract's embedded examples are the SOURCE OF TRUTH for the

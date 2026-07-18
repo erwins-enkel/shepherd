@@ -42,6 +42,23 @@ describe("assembleEpic", () => {
     // 322 (unclaimed) is "ready" ONLY because 320 was detected closed from native state, not openIssues.
     expect(assembleEpic(BASE).children.find((c) => c.number === 322)!.state).toBe("ready");
   });
+  // Defense-in-depth: EpicPanel keys its {#each} by child number, so a duplicate would throw
+  // each_key_duplicate and crash the panel. The markdown parser now dedupes members, so the only
+  // way to reach the guard is a repeated number on the NATIVE path (unrealistic from GitHub, but
+  // the honest seam for the guard). assembleEpic must collapse it to a single child.
+  test("native: duplicate sub-issue number → single child (dedup guard)", () => {
+    const e = assembleEpic({
+      ...BASE,
+      subIssues: [
+        { number: 707, title: "a", url: "u707", body: "", closed: false, labels: [] },
+        { number: 709, title: "b", url: "u709", body: "", closed: false, labels: [] },
+        { number: 709, title: "b", url: "u709", body: "", closed: false, labels: [] },
+      ],
+      blockedBy: new Map(),
+    });
+    expect(e.children.map((c) => c.number)).toEqual([707, 709]);
+    expect(e.children.map((c) => c.order)).toEqual([0, 1]);
+  });
   test("claimed child with no live session surfaces as in-review (retired/in-flight, PR awaiting merge)", () => {
     const e = assembleEpic({
       ...BASE,

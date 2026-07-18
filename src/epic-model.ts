@@ -116,7 +116,12 @@ function resolveMarkdown(input: AssembleInput): ResolvedGraph {
 export function assembleEpic(input: AssembleInput): Epic {
   const native = input.subIssues.length > 0;
   const graph = native ? resolveNative(input) : resolveMarkdown(input);
-  const { order, resolved, edges } = graph;
+  // Defense-in-depth: children are keyed by number in EpicPanel's {#each}, so a duplicate in
+  // `order` (from any source) would throw each_key_duplicate and crash the panel on mount. The
+  // markdown parser already dedupes members; this guards the native path (repeated subIssue
+  // number) and any future source. First-seen wins; `members`/`done` derive from `order` below.
+  const { resolved, edges } = graph;
+  const order = [...new Set(graph.order)];
   const warnings = [...graph.warnings];
 
   const members = new Set(order);

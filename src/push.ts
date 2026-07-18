@@ -25,7 +25,8 @@ export interface PushPayload {
     | "learnings_trialed"
     | "manual_steps"
     | "ready"
-    | "backup_stale";
+    | "backup_stale"
+    | "landing_conflict";
   tag: string;
 }
 
@@ -50,6 +51,8 @@ const KIND_CATEGORY: Record<PushPayload["kind"], PushCategory> = {
   ready: "agent",
   // Host-global operational alert; ride the "agent" toggle like usage_limit/extra_credits.
   backup_stale: "agent",
+  // Epic-global merge/land attention; ride the "ci" toggle like merge_attention/manual_steps.
+  landing_conflict: "ci",
 };
 
 /** A notification described by intent, not text — localized per device at send time. */
@@ -69,7 +72,8 @@ export interface NotifyInput {
     | "learnings_trialed"
     | "manual_steps"
     | "ready"
-    | "backup_stale";
+    | "backup_stale"
+    | "landing_conflict";
   sessionId: string;
   tag: string;
   name: string;
@@ -102,6 +106,10 @@ export interface NotifyInput {
   trialedCount?: number;
   /** For kind "backup_stale": whole hours since the newest snapshot (for the body copy). */
   staleHours?: number;
+  /** For kind "landing_conflict": the epic's parent issue number (subject of the body). */
+  epicNumber?: number;
+  /** For kind "landing_conflict": the epic's landing PR number (subject of the body). */
+  landingPr?: number;
   /** Overrides the cooldown key (default `${kind}:${sessionId}`). */
   cooldownKey?: string;
 }
@@ -170,6 +178,11 @@ const NOTIFY_TEXT = {
       h !== null
         ? `No successful DB backup in ~${h}h — the backup timer may be failing.`
         : "No successful DB backup yet — the backup timer may be failing.",
+    landingConflictTitle: "Landing needs rework",
+    landingConflictBody: (epic: number, pr: number | null) =>
+      pr !== null
+        ? `Epic #${epic}'s landing PR #${pr} has a conflict with the default branch — over to you.`
+        : `Epic #${epic}'s landing PR has a conflict with the default branch — over to you.`,
   },
   de: {
     doneTitle: (name: string) => `${name} — wartet`,
@@ -217,6 +230,11 @@ const NOTIFY_TEXT = {
       h !== null
         ? `Seit ~${h}h kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.`
         : "Noch kein erfolgreiches DB-Backup — der Backup-Timer könnte fehlschlagen.",
+    landingConflictTitle: "Landing braucht Überarbeitung",
+    landingConflictBody: (epic: number, pr: number | null) =>
+      pr !== null
+        ? `Der Landing-PR #${pr} von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`
+        : `Der Landing-PR von Epic #${epic} hat einen Konflikt mit dem Standard-Branch — du bist dran.`,
   },
 } as const;
 
@@ -264,6 +282,14 @@ function mergeAttentionParts(t: NotifyText, input: NotifyInput): { title: string
     return { title: t.rebaseCapTitle, body: t.rebaseCapBody(desig) };
   }
   return { title: t.mergeErrorTitle, body: t.mergeErrorBody(desig) };
+}
+
+/** Landing-conflict title/body: the epic + landing-PR numbers the operator must rework. */
+function landingConflictParts(t: NotifyText, input: NotifyInput): { title: string; body: string } {
+  return {
+    title: t.landingConflictTitle,
+    body: t.landingConflictBody(input.epicNumber ?? 0, input.landingPr ?? null),
+  };
 }
 
 /** Extra-credits body: the spent/cap amount formatted with the optional currency prefix. */
@@ -338,6 +364,8 @@ export function buildPayload(input: NotifyInput, locale: string): PushPayload {
         title: t.backupStaleTitle,
         body: t.backupStaleBody(input.staleHours ?? null),
       };
+    case "landing_conflict":
+      return { ...base, ...landingConflictParts(t, input) };
     default:
       return {
         ...base,

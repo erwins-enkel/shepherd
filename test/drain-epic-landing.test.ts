@@ -5,6 +5,8 @@ import { EmptyDiffError, EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { GitForge, Issue, OpenPrInput, PrStatus, SubIssueRef } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { CompletedEpic } from "../src/completed-epic";
+import type { LandingRebaseResult } from "../src/landing-rebase";
+import type { NotifyInput } from "../src/push";
 import { epicIntegrationBranch } from "../src/epic-branch";
 
 const REPO = "/repo";
@@ -132,6 +134,8 @@ interface Harness {
   drain: DrainService;
   completedEmits: CompletedEpic[];
   spy: ForgeSpy;
+  notifyCalls: NotifyInput[];
+  rebaseCalls: string[];
 }
 
 function makeHarness(opts: {
@@ -147,6 +151,12 @@ function makeHarness(opts: {
   /** Skip recording the running epic_run row (e.g. testing tick() in isolation). */
   noEpicRun?: boolean;
   autoDrainEnabled?: boolean;
+  /** #1838: fake open-time rebase seam result (default `current` → hermetic no-op, no real git). */
+  rebaseResult?: LandingRebaseResult;
+  /** #1838: invoked when the fake rebase seam runs (for ordering assertions). */
+  onRebase?: () => void;
+  /** #1838: make the notify seam throw synchronously (assert it can't demote the opened PR). */
+  notifyThrows?: boolean;
 }): Harness {
   const store = new SessionStore(":memory:");
   store.setRepoConfig(REPO, {
@@ -187,6 +197,8 @@ function makeHarness(opts: {
 
   const spy = fakeForge(opts);
   const completedEmits: CompletedEpic[] = [];
+  const notifyCalls: NotifyInput[] = [];
+  const rebaseCalls: string[] = [];
 
   const service = {
     create: async () => {
@@ -208,9 +220,20 @@ function makeHarness(opts: {
     emitEpic: () => {},
     emitEpicCompleted: (e) => completedEmits.push(e),
     rebaseCap: 5,
+    // #1838: hermetic open-time rebase seam — default `current` so no real git runs; overridable.
+    rebaseLandingBranch: async (_repo, branch) => {
+      rebaseCalls.push(branch);
+      opts.onRebase?.();
+      return opts.rebaseResult ?? { kind: "current" };
+    },
+    notify: (input) => {
+      notifyCalls.push(input);
+      if (opts.notifyThrows) throw new Error("notify boom");
+      return undefined;
+    },
   });
 
-  return { store, drain, completedEmits, spy };
+  return { store, drain, completedEmits, spy, notifyCalls, rebaseCalls };
 }
 
 /** Seed a recorded, integration-merged epic_completed row WITHOUT driving the completion
@@ -939,5 +962,165 @@ describe("classifyLanding — adopt + finalize the pre-warm draft landing PR (#1
     const row = h.store.listEpicCompleted(REPO)[0]!;
     expect(row.landingState).toBe("error"); // still a draft, never readied → visible error
     expect(row.landingPrNumber).toBe(52);
+  });
+});
+
+describe("#1838 open-time rebase — freshly-opened landing PR (openNewLandingPr)", () => {
+  test("rebase seam runs BEFORE openPr", async () => {
+    const order: string[] = [];
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      onRebase: () => order.push("rebase"),
+      openPr: async () => {
+        order.push("openPr");
+        return {
+          state: "open",
+          number: 601,
+          url: "https://github.com/o/r/pull/601",
+          checks: "none",
+          deployConfigured: false,
+        };
+      },
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.rebaseCalls).toEqual([INTEGRATION_BRANCH]);
+    expect(order).toEqual(["rebase", "openPr"]); // rebase precedes the open
+    expect(h.store.listEpicCompleted(REPO)[0]!.landingState).toBe("open");
+  });
+
+  test("genuine conflict → PR still opened AND pause+notify, with automation OFF", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true, // no running epic
+      autoDrainEnabled: false, // + auto-drain off + auto-merge off ⇒ reactive pass is NOT engaged
+      rebaseResult: { kind: "conflict" },
+      openPr: async () => ({
+        state: "open",
+        number: 602,
+        url: "https://github.com/o/r/pull/602",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    // The PR is still opened and recorded — a conflict must not block the operator from seeing it.
+    expect(h.spy.openPrCalls).toHaveLength(1);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingPrNumber).toBe(602);
+    // …and the conflict is loud even though no automation is engaged: pause + push.
+    expect(row.landingRebasePauseReason).toBe("conflict");
+    expect(h.notifyCalls).toHaveLength(1);
+    expect(h.notifyCalls[0]!.kind).toBe("landing_conflict");
+    expect(h.notifyCalls[0]!.epicNumber).toBe(PARENT);
+    expect(h.notifyCalls[0]!.landingPr).toBe(602);
+  });
+
+  test("no conflict → no pause, no notify", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      rebaseResult: { kind: "rebased", headSha: "deadbeef" },
+      openPr: async () => ({
+        state: "open",
+        number: 603,
+        url: "https://github.com/o/r/pull/603",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingRebasePauseReason).toBe(null);
+    expect(h.notifyCalls).toHaveLength(0);
+  });
+
+  test("a throwing notify does NOT demote the opened PR to error", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      rebaseResult: { kind: "conflict" },
+      notifyThrows: true,
+      openPr: async () => ({
+        state: "open",
+        number: 604,
+        url: "https://github.com/o/r/pull/604",
+        checks: "none",
+        deployConfigured: false,
+      }),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick(); // must not throw
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open"); // NOT error
+    expect(row.landingPrNumber).toBe(604);
+    expect(row.landingRebasePauseReason).toBe("conflict"); // pause still applied
+    expect(h.notifyCalls).toHaveLength(1); // notify was attempted
+  });
+});
+
+describe("#1838 open-time rebase — pre-warm-adopted landing PR (adoptOpenLanding)", () => {
+  const openExistingDraft = (num: number) => async () =>
+    ({
+      state: "open" as const,
+      number: num,
+      url: `https://github.com/o/r/pull/${num}`,
+      isDraft: true,
+      checks: "none" as const,
+      deployConfigured: false,
+    }) as PrStatus;
+
+  test("adoption invokes the rebase seam (the draft was opened without one)", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      preWarm: true,
+      prStatus: openExistingDraft(701),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    expect(h.spy.openPrCalls).toHaveLength(0); // adopted, not re-opened
+    expect(h.rebaseCalls).toEqual([INTEGRATION_BRANCH]); // …but rebased at adoption
+    expect(h.spy.markReadyCalls).toEqual([701]);
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open");
+    expect(row.landingRebasePauseReason).toBe(null);
+  });
+
+  test("genuine conflict at adoption → pause + notify (automation OFF)", async () => {
+    const h = makeHarness({
+      subIssues: [],
+      noEpicRun: true,
+      autoDrainEnabled: false,
+      preWarm: true,
+      rebaseResult: { kind: "conflict" },
+      prStatus: openExistingDraft(702),
+    });
+    seedCompleted(h);
+
+    await h.drain.tick();
+
+    const row = h.store.listEpicCompleted(REPO)[0]!;
+    expect(row.landingState).toBe("open"); // still adopted
+    expect(row.landingPrNumber).toBe(702);
+    expect(row.landingRebasePauseReason).toBe("conflict");
+    expect(h.notifyCalls).toHaveLength(1);
+    expect(h.notifyCalls[0]!.kind).toBe("landing_conflict");
+    expect(h.notifyCalls[0]!.landingPr).toBe(702);
   });
 });

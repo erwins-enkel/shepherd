@@ -1869,6 +1869,8 @@ const drain = new DrainService({
   telemetry,
   // #1071: wire rebase cap + real rebaseLandingBranch (mirrors autopilot/automerge wiring).
   rebaseCap: config.autoMergeRebaseCap,
+  // #1838: surface a genuine-conflict landing pause to the operator via push.
+  notify: (input) => push.notify(input),
 });
 
 // Drive the drain's archived/review handling off the poller events. `session:git`/`session:status`

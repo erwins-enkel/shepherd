@@ -39,6 +39,7 @@ import { EmptyDiffError } from "./forge/types";
 import { mapBounded } from "./map-bounded";
 import { config } from "./config";
 import { rebaseLandingBranch, isUnionDriverRegistered } from "./landing-rebase";
+import type { NotifyInput } from "./push";
 
 /** Concurrency cap for the per-child blocked_by fan-out when assembling an epic.
  *  Bounds `gh api` subprocesses so a large (100+-child) epic can't exhaust FDs or
@@ -255,6 +256,9 @@ export interface DrainDeps {
   /** #1071: injectable seam for the driver-pause fast-path re-probe (tests inject a fake).
    *  Defaults to the real isUnionDriverRegistered (src/landing-rebase.ts) in the constructor. */
   isDriverRegistered?: (repoPath: string) => Promise<boolean>;
+  /** #1838: push a notification (→ push.notify). Optional — absent in tests that don't assert it.
+   *  Used by enterLandingConflict to surface a genuine-conflict landing pause to the operator. */
+  notify?: (input: NotifyInput) => Promise<boolean> | void;
 }
 
 /**
@@ -1082,11 +1086,17 @@ export class DrainService {
         cfg.preWarmEpicLandingCi,
       );
       this.resolveLanding(repoPath, parentIssueNumber, resolution);
-      // Migration-awareness checkpoint (#645): once the landing PR's number is known, detect any
-      // migration files it carries so the band can ask the operator to acknowledge them. Strictly
-      // best-effort — a detection failure (or a forge without prChangedPaths) leaves no paths,
-      // hence no chip, and NEVER affects the landing resolution above.
       if (resolution.state === "open" && resolution.prNumber != null) {
+        // #1838: the open-time rebase (in openNewLandingPr / adoptOpenLanding) hit a genuine
+        // conflict — layer the conflict pause + operator push on AFTER resolveLanding has persisted
+        // the PR, so a store/notify hiccup can never demote the just-opened PR to error+attempts++.
+        if (resolution.rebaseConflict) {
+          this.enterLandingConflict(repoPath, parentIssueNumber, resolution.prNumber);
+        }
+        // Migration-awareness checkpoint (#645): once the landing PR's number is known, detect any
+        // migration files it carries so the band can ask the operator to acknowledge them. Strictly
+        // best-effort — a detection failure (or a forge without prChangedPaths) leaves no paths,
+        // hence no chip, and NEVER affects the landing resolution above.
         await this.detectAndPersistMigrations(
           forge,
           repoPath,
@@ -1125,6 +1135,7 @@ export class DrainService {
     prNumber: number | null;
     prUrl: string | null;
     attempts: number;
+    rebaseConflict?: boolean;
   }> {
     const { repoPath, parentIssueNumber, landingAttempts } = row;
     try {
@@ -1267,8 +1278,31 @@ export class DrainService {
     prNumber: number | null;
     prUrl: string | null;
     attempts: number;
+    rebaseConflict?: boolean;
   }> {
     const { repoPath, parentIssueNumber, landingAttempts } = row;
+    // #1838: a pre-warm draft (drain.ts openPr, no rebase) is finalized here, bypassing
+    // openNewLandingPr — so rebase the integration branch onto the current default at adoption too.
+    // For the record-failed re-adoption (already rebased at its openNewLandingPr) this hits the
+    // seam's `current` short-circuit and cheaply returns false. Wrapped so a defaultBranch hiccup
+    // degrades to no-rebase (PR still adopted) — honoring adoptOpenLanding's "sub-steps swallow
+    // their own forge-call errors" contract rather than demoting a healthy adoption to error.
+    let rebaseConflict = false;
+    try {
+      const defaultBranch = await forge.defaultBranch();
+      rebaseConflict = await this.rebaseIntegrationAtLanding(
+        forge,
+        repoPath,
+        integrationBranch,
+        defaultBranch,
+        parentIssueNumber,
+      );
+    } catch (err) {
+      console.warn(
+        `[drain] open-time rebase prep failed for ${repoPath}#${parentIssueNumber}:`,
+        err,
+      );
+    }
     // A.3 — refresh body from the FINAL rollup. Gated on the UNION (preWarm || existing.isDraft)
     //       so the flag-off record-failed-gap (non-draft) stays a no-op, but ANY actual draft
     //       is refreshed even if the operator disabled the flag (or un-drafted) mid-drain.
@@ -1299,7 +1333,71 @@ export class DrainService {
       prNumber: existing.number ?? null,
       prUrl: existing.url ?? null,
       attempts: landingAttempts,
+      rebaseConflict,
     };
+  }
+
+  /**
+   * #1838: Best-effort open-time rebase of an epic's integration branch onto the default branch,
+   * reusing the union-aware landing-rebase seam. Called at landing-PR OPEN time (openNewLandingPr)
+   * and at pre-warm-draft ADOPTION time (adoptOpenLanding) so a landing PR is never born behind an
+   * advanced default. GitHub-only (the seam force-pushes to origin; other forges have no remote to
+   * rebase against) and repair-fenced (never --force-with-lease over a live repair session's
+   * commits, mirroring doLandingRebase). NEVER throws — the seam returns a result union, so a
+   * skipped/short-circuited/faulted attempt yields false. Returns true ONLY on a genuine (non-union)
+   * conflict, so the caller keeps the PR open and routes it to enterLandingConflict.
+   *
+   * Safe to force-push here: both call sites run post-completion (adoption is only reached via
+   * classifyLanding, which requires a completed-epic row), so every child PR is already merged.
+   */
+  private async rebaseIntegrationAtLanding(
+    forge: GitForge,
+    repoPath: string,
+    integrationBranch: string,
+    defaultBranch: string,
+    parent: number,
+  ): Promise<boolean> {
+    if (forge.kind !== "github") return false;
+    if (this.hasLiveRepairSession(repoPath, integrationBranch)) return false;
+    const res = await this.rebaseLandingBranch(repoPath, integrationBranch, defaultBranch);
+    if (res.kind === "conflict") {
+      console.warn(
+        `[drain] open-time rebase for ${repoPath}#${parent} hit a genuine conflict; ` +
+          `opening/adopting the landing PR paused`,
+      );
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * #1838: Transition an epic's landing row into the genuine-conflict pause and notify the operator.
+   * Single source of truth for the conflict pause + push, called from BOTH the open-time paths (via
+   * ensureLandingPr, after resolveLanding has persisted the PR) and the reactive rebase pass's
+   * conflict case. The pause is edge-set (callers reach this only on the transition into conflict),
+   * so the push fires once per transition; a cooldownKey backstops any repeat. NEVER lets a notify
+   * throw/reject escape — a push hiccup must not demote a successfully-opened landing PR.
+   */
+  private enterLandingConflict(repoPath: string, parent: number, landingPr: number | null): void {
+    this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "conflict" });
+    this.emitCompleted(repoPath, parent);
+    try {
+      void Promise.resolve(
+        this.deps.notify?.({
+          kind: "landing_conflict",
+          sessionId: "",
+          tag: `landing-conflict:${repoPath}#${parent}`,
+          name: "epic",
+          epicNumber: parent,
+          landingPr: landingPr ?? undefined,
+          cooldownKey: `landing_conflict:${repoPath}#${parent}`,
+        }),
+      ).catch((err) =>
+        console.warn(`[drain] landing_conflict notify failed for ${repoPath}#${parent}:`, err),
+      );
+    } catch (err) {
+      console.warn(`[drain] landing_conflict notify threw for ${repoPath}#${parent}:`, err);
+    }
   }
 
   /**
@@ -1324,9 +1422,20 @@ export class DrainService {
     prNumber: number | null;
     prUrl: string | null;
     attempts: number;
+    rebaseConflict?: boolean;
   }> {
     const { parentIssueNumber, parentTitle, landingAttempts } = row;
     const defaultBranch = await forge.defaultBranch();
+    // #1838: rebase the integration branch onto the current default BEFORE opening, so the PR is
+    // not born behind/conflicting. A genuine conflict is left un-pushed by the seam; open the PR
+    // anyway (the operator needs a PR to see) and signal it so the caller pauses + notifies.
+    const rebaseConflict = await this.rebaseIntegrationAtLanding(
+      forge,
+      row.repoPath,
+      integrationBranch,
+      defaultBranch,
+      parentIssueNumber,
+    );
     const children = JSON.parse(row.childrenJson) as CompletedEpicChild[];
     const title = buildLandingPrTitle(parentIssueNumber, parentTitle);
     const body = buildLandingPrBody({
@@ -1347,6 +1456,7 @@ export class DrainService {
       prNumber: status.number ?? null,
       prUrl: status.url ?? null,
       attempts: landingAttempts,
+      rebaseConflict,
     };
   }
 
@@ -1647,6 +1757,7 @@ export class DrainService {
       landingRebaseCount: number;
       landingRebaseDriverMisses: number;
       landingRebasePauseReason: "cap" | "conflict" | "driver" | null;
+      landingPrNumber: number | null;
     },
     branch: string,
     defaultBranch: string,
@@ -1685,9 +1796,9 @@ export class DrainService {
         break;
 
       case "conflict":
-        // Genuine conflict (non-union path, or union path + driver self-test passed).
-        this.deps.store.setEpicLandingRebaseState(repoPath, parent, { pauseReason: "conflict" });
-        this.emitCompleted(repoPath, parent);
+        // Genuine conflict (non-union path, or union path + driver self-test passed). #1838: route
+        // through the shared helper so the conflict pause + operator push are set as one transition.
+        this.enterLandingConflict(repoPath, parent, row.landingPrNumber);
         break;
 
       case "driver-absent":

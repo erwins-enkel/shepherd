@@ -1,9 +1,16 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import {
   DiagnosticsService,
+  classifyHostCapacity,
   defaultRunRemediation,
+  hasMeaningfulLimit,
   nextDiagnosticsDelay,
+  parseCgroupUnit,
+  parsePsiAvg10,
+  parseSwap,
+  parseSystemctlShow,
   type DiagnosticsDeps,
+  type HostCapacityFacts,
 } from "../src/diagnostics";
 import {
   DIAGNOSTICS_TTL_MS,
@@ -71,6 +78,14 @@ function healthyDeps(): DiagnosticsDeps {
     // the ambient snapshot is deterministic and all-ok (trusted → ok); override per case below.
     isApiKeyAuth: () => false,
     readClaudeTrusted: async () => true,
+    // host_capacity (#1732): a systemd-managed host WITH limits and no pressure → ok. Override
+    // per case to model unbounded / pressure / uninspectable.
+    readHostResources: async () => ({
+      unit: "shepherd.service",
+      limited: true,
+      swap: { total: 8_000_000_000, used: 100_000_000 },
+      pressure: { memory: 0, io: 0 },
+    }),
   };
 }
 
@@ -98,7 +113,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(9);
+    expect(snap.checks).toHaveLength(10);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -107,6 +122,7 @@ describe("DiagnosticsService probes", () => {
       "gh",
       "git",
       "herdr",
+      "host_capacity",
       "node",
       "tailscale",
     ]);
@@ -679,7 +695,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(10);
+    expect(snap.checks).toHaveLength(11);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -689,6 +705,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "git",
       "git_mergetree",
       "herdr",
+      "host_capacity",
       "node",
       "tailscale",
     ]);
@@ -1052,40 +1069,238 @@ describe("DiagnosticsService gh probe — real anyForgeRepo closure (bare repo d
 
 // ── adaptive background re-check cadence (nextDiagnosticsDelay) ──────────────────
 // The scheduler in src/index.ts re-arms itself with this delay after every snapshot.
-// ONLY an `error` accelerates to the recheck interval so a transient hard error (herdr
-// `offline`) self-corrects fast; `warning` must stay on the steady interval or a
-// persistent-by-design warning (advisory version floors, gh-not-required) would fast-poll
-// forever. The input domain is exactly {ok, warning, error}: `overall` is worstOf(checks),
-// and worstOf ranks `optional` at 0 (== ok) upgrading only on a strict increase, so it can
-// never surface `optional` — hence it is intentionally not part of the cases below.
+// A NON-steady-state `error` accelerates to the recheck interval so a transient hard error
+// (herdr `offline`) self-corrects fast; `warning` and `ok` stay on the steady interval, and a
+// steady-state error (`host_capacity` pressure) is EXEMPT so it never fast-polls the full
+// probe fan-out onto an already-stressed host.
 describe("nextDiagnosticsDelay", () => {
-  const cases: Array<[DiagnosticState, number]> = [
-    ["error", DIAGNOSTICS_RECHECK_INTERVAL_MS],
-    ["warning", DIAGNOSTICS_INTERVAL_MS],
-    ["ok", DIAGNOSTICS_INTERVAL_MS],
+  const chk = (id: string, state: DiagnosticState): DiagnosticCheck => ({
+    id,
+    state,
+    hintKey: `diagnostics_hint_${id}`,
+  });
+  const delay = (checks: DiagnosticCheck[]): number =>
+    nextDiagnosticsDelay(checks, DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS);
+
+  it("a transient error (herdr) accelerates to the recheck interval", () => {
+    expect(delay([chk("herdr", "error"), chk("bun", "ok")])).toBe(DIAGNOSTICS_RECHECK_INTERVAL_MS);
+  });
+
+  it("all-ok / warning stay on the steady interval", () => {
+    expect(delay([chk("bun", "ok"), chk("gh", "warning")])).toBe(DIAGNOSTICS_INTERVAL_MS);
+  });
+
+  it("a host_capacity-only error does NOT accelerate (steady-state exempt)", () => {
+    expect(delay([chk("host_capacity", "error"), chk("bun", "ok")])).toBe(DIAGNOSTICS_INTERVAL_MS);
+  });
+
+  it("host_capacity error alongside a transient error still accelerates", () => {
+    expect(delay([chk("host_capacity", "error"), chk("herdr", "error")])).toBe(
+      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+    );
+  });
+});
+
+// ── host_capacity check (#1732) ─────────────────────────────────────────────────
+describe("classifyHostCapacity", () => {
+  // A systemd-managed, limited, unpressured host → ok. Override per case.
+  const base: HostCapacityFacts = {
+    unit: "shepherd.service",
+    limited: true,
+    swap: { total: 8_000_000_000, used: 100_000_000 },
+    pressure: { memory: 0, io: 0 },
+  };
+  const facts = (o: Partial<HostCapacityFacts>): HostCapacityFacts => ({ ...base, ...o });
+  const saturated = { total: 8_000_000_000, used: 7_900_000_000 }; // ~98% used
+
+  const cases: Array<[string, HostCapacityFacts, DiagnosticState, string]> = [
+    ["limited + calm → ok", base, "ok", "diagnostics_hint_host_capacity_ok"],
+    [
+      "systemd, no limits → unbounded",
+      facts({ limited: false }),
+      "warning",
+      "diagnostics_hint_host_capacity_unbounded",
+    ],
+    [
+      "not systemd (unit null) → uninspectable",
+      facts({ unit: null, limited: null }),
+      "optional",
+      "diagnostics_hint_host_capacity_uninspectable",
+    ],
+    [
+      "non-Linux (all null) → uninspectable",
+      { unit: null, limited: null, swap: null, pressure: null },
+      "optional",
+      "diagnostics_hint_host_capacity_uninspectable",
+    ],
+    [
+      "unit found but limits unreadable (limited null) → uninspectable, not a false unbounded",
+      facts({ limited: null }),
+      "optional",
+      "diagnostics_hint_host_capacity_uninspectable",
+    ],
+    [
+      "memory PSI high → error",
+      facts({ pressure: { memory: 15, io: 0 } }),
+      "error",
+      "diagnostics_hint_host_capacity_pressure",
+    ],
+    [
+      "io PSI high → error",
+      facts({ pressure: { memory: 0, io: 30 } }),
+      "error",
+      "diagnostics_hint_host_capacity_pressure",
+    ],
+    [
+      "saturated swap + LOW PSI → NOT error (zram/proactive guard)",
+      facts({ swap: saturated, pressure: { memory: 1, io: 0 } }),
+      "ok",
+      "diagnostics_hint_host_capacity_ok",
+    ],
+    [
+      "saturated swap + moderate PSI (≥5) → error via corroboration",
+      facts({ swap: saturated, pressure: { memory: 6, io: 0 } }),
+      "error",
+      "diagnostics_hint_host_capacity_pressure",
+    ],
+    [
+      "saturated swap but no /proc/pressure → NOT error (can't corroborate)",
+      facts({ swap: saturated, pressure: null }),
+      "ok",
+      "diagnostics_hint_host_capacity_ok",
+    ],
+    [
+      "pressure beats unbounded (precedence)",
+      facts({ limited: false, pressure: { memory: 20, io: 0 } }),
+      "error",
+      "diagnostics_hint_host_capacity_pressure",
+    ],
   ];
-  for (const [overall, expected] of cases) {
-    it(`overall=${overall} → ${expected === DIAGNOSTICS_RECHECK_INTERVAL_MS ? "recheck" : "steady"} interval`, () => {
-      expect(
-        nextDiagnosticsDelay(overall, DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS),
-      ).toBe(expected);
+
+  for (const [name, f, state, hintKey] of cases) {
+    it(name, () => {
+      const c = classifyHostCapacity(f);
+      expect(c.id).toBe("host_capacity");
+      expect(c.state).toBe(state);
+      expect(c.hintKey).toBe(hintKey);
+      assertPure(c);
     });
   }
+});
 
-  it("only error accelerates: warning/ok are ≥ error's delay (no permanent fast poll)", () => {
-    const err = nextDiagnosticsDelay(
-      "error",
-      DIAGNOSTICS_INTERVAL_MS,
-      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+describe("host_capacity parsers", () => {
+  it("parseCgroupUnit: v2 user service", () => {
+    expect(
+      parseCgroupUnit(
+        "0::/user.slice/user-1000.slice/user@1000.service/app.slice/shepherd.service\n",
+      ),
+    ).toEqual({ unit: "shepherd.service", userScope: true });
+  });
+  it("parseCgroupUnit: v2 system service (no --user)", () => {
+    expect(parseCgroupUnit("0::/system.slice/shepherd.service\n")).toEqual({
+      unit: "shepherd.service",
+      userScope: false,
+    });
+  });
+  it("parseCgroupUnit: a login *.scope is not a managed service", () => {
+    expect(
+      parseCgroupUnit(
+        "0::/user.slice/user-1000.slice/user@1000.service/app.slice/foot-server.scope\n",
+      ),
+    ).toEqual({ unit: null, userScope: true });
+  });
+  it("parseCgroupUnit: cgroup v1 (no 0:: line) → null", () => {
+    expect(parseCgroupUnit("12:pids:/user.slice\n11:memory:/user.slice\n")).toEqual({
+      unit: null,
+      userScope: false,
+    });
+  });
+
+  it("hasMeaningfulLimit: all infinity → false", () => {
+    const p = parseSystemctlShow(
+      "MemoryHigh=infinity\nMemoryMax=infinity\nCPUQuotaPerSecUSec=infinity\nTasksMax=4915\nSlice=app.slice",
     );
-    const warn = nextDiagnosticsDelay(
-      "warning",
-      DIAGNOSTICS_INTERVAL_MS,
-      DIAGNOSTICS_RECHECK_INTERVAL_MS,
-    );
-    const ok = nextDiagnosticsDelay("ok", DIAGNOSTICS_INTERVAL_MS, DIAGNOSTICS_RECHECK_INTERVAL_MS);
-    expect(err).toBeLessThan(warn);
-    expect(warn).toBe(ok);
+    expect(p.Slice).toBe("app.slice");
+    expect(hasMeaningfulLimit(p)).toBe(false);
+  });
+  it("hasMeaningfulLimit: MemoryMax set → true", () => {
+    expect(
+      hasMeaningfulLimit(parseSystemctlShow("MemoryMax=25769803776\nCPUQuotaPerSecUSec=infinity")),
+    ).toBe(true);
+  });
+  it("hasMeaningfulLimit: CPUQuota set → true", () => {
+    expect(
+      hasMeaningfulLimit(parseSystemctlShow("MemoryMax=infinity\nCPUQuotaPerSecUSec=12000000")),
+    ).toBe(true);
+  });
+  it("hasMeaningfulLimit: TasksMax alone does NOT count", () => {
+    expect(
+      hasMeaningfulLimit(
+        parseSystemctlShow(
+          "MemoryHigh=infinity\nMemoryMax=infinity\nCPUQuotaPerSecUSec=infinity\nTasksMax=100",
+        ),
+      ),
+    ).toBe(false);
+  });
+
+  it("parsePsiAvg10: reads the some-line avg10", () => {
+    expect(
+      parsePsiAvg10("some avg10=12.34 avg60=5.00 avg300=1.00 total=999\nfull avg10=6.00 total=42"),
+    ).toBe(12.34);
+  });
+  it("parsePsiAvg10: no some line → null", () => {
+    expect(parsePsiAvg10("")).toBe(null);
+  });
+
+  it("parseSwap: computes used bytes", () => {
+    expect(parseSwap("SwapTotal:       8388604 kB\nSwapFree:        4194304 kB\n")).toEqual({
+      total: 8388604 * 1024,
+      used: (8388604 - 4194304) * 1024,
+    });
+  });
+  it("parseSwap: no swap configured → total 0", () => {
+    expect(parseSwap("SwapTotal:       0 kB\nSwapFree:        0 kB")).toEqual({
+      total: 0,
+      used: 0,
+    });
+  });
+  it("parseSwap: missing fields → null", () => {
+    expect(parseSwap("MemTotal:  123 kB")).toBe(null);
+  });
+});
+
+describe("host_capacity probe (via injected readHostResources)", () => {
+  it("unbounded facts → warning, degrades overall", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHostResources: async () => ({
+        unit: "shepherd.service",
+        limited: false,
+        swap: { total: 8_000_000_000, used: 100_000_000 },
+        pressure: { memory: 0, io: 0 },
+      }),
+    });
+    const snap = await svc.check(1000);
+    const c = byId(snap.checks, "host_capacity");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_host_capacity_unbounded");
+    assertPure(c);
+    expect(snap.overall).toBe("warning");
+  });
+
+  it("a rejecting host read falls back to optional/uninspectable (never reddens overall)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHostResources: async () => {
+        throw new Error("boom");
+      },
+    });
+    const snap = await svc.check(1000);
+    const c = byId(snap.checks, "host_capacity");
+    expect(c.state).toBe("optional");
+    expect(c.hintKey).toBe("diagnostics_hint_host_capacity_uninspectable");
+    assertPure(c);
+    expect(snap.overall).toBe("ok"); // optional ranks 0, everything else healthy
   });
 });
 

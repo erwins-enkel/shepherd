@@ -1,4 +1,5 @@
 import { execFile, spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import {
   BUN_MIN_VERSION,
@@ -8,6 +9,10 @@ import {
   GH_PROBE_RETRY_DELAY_MS,
   GH_PROBE_TIMEOUT_MS,
   HERDR_MIN_VERSION,
+  HOST_PSI_IO_AVG10,
+  HOST_PSI_MEMORY_AVG10,
+  HOST_PSI_MEMORY_AVG10_CORROBORATED,
+  HOST_SWAP_SATURATION_RATIO,
   NODE_MIN_VERSION,
   REMEDIATION_TIMEOUT_MS,
   config,
@@ -131,6 +136,11 @@ export interface DiagnosticsDeps {
   /** True when the operator selected api-key auth mode. Module-level `isApiKeyMode` wrapped as a
    *  dep so the subscription-only `claude_trust` gate is deterministic in tests. */
   isApiKeyAuth?: () => boolean;
+  /** Gather non-secret host-resource facts for the `host_capacity` check (#1732): the cgroup
+   *  unit + its systemd limits, swap totals, and memory/io PSI. Default reads `/proc` +
+   *  `systemctl show`; injected in tests so no real host state is touched. Reject ⇒ the probe
+   *  falls back to `optional`/uninspectable (its `onTimeout`). */
+  readHostResources?: () => Promise<HostCapacityFacts>;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -147,23 +157,33 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
   return worst;
 }
 
+/** Error checks that are steady-state rather than transient, so they must NOT accelerate the
+ *  background re-check. `host_capacity` pressure can persist for hours; fast-polling the full
+ *  probe fan-out (`diagnosticsTick` → `check()`) every `recheckMs` would pile ~10 fork/execs a
+ *  minute onto a host already under memory/IO pressure — the manual Diagnose "Re-run" is the
+ *  on-demand live path instead. */
+const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>(["host_capacity"]);
+
 /**
- * Adaptive delay until the next background diagnostics re-check, chosen from the snapshot
- * just produced. ONLY an `error` accelerates to `recheckMs`: a hard error (canonically
+ * Adaptive delay until the next background diagnostics re-check, chosen from the checks just
+ * produced. A NON-steady-state `error` accelerates to `recheckMs`: a hard error (canonically
  * herdr `offline`) is expected to be transient/recoverable, and the client only learns it
- * cleared from the next `diagnostics:status` push — so re-checking every `recheckMs` while
- * `error` persists lets a healthy-again host self-correct within ~one recheck instead of
- * staying pinned until the next `intervalMs`. `warning` deliberately stays on `intervalMs`:
- * it is steady-state by design (advisory version floors, gh-not-required on lightweight
- * hosts, `worstOf` never surfaces `optional` — it ranks 0, same as `ok`), so accelerating on
- * it would fast-poll forever with no path back to the steady cadence.
+ * cleared from the next `diagnostics:status` push — so re-checking every `recheckMs` while it
+ * persists lets a healthy-again host self-correct within ~one recheck instead of staying pinned
+ * until the next `intervalMs`. `warning` deliberately stays on `intervalMs` (steady-state by
+ * design: advisory version floors, gh-not-required on lightweight hosts), and a
+ * `STEADY_STATE_ERROR_CHECK_IDS` error (host_capacity pressure) is likewise exempt — accelerating
+ * on either would fast-poll forever with no path back to the steady cadence.
  */
 export function nextDiagnosticsDelay(
-  overall: DiagnosticState,
+  checks: readonly DiagnosticCheck[],
   intervalMs: number,
   recheckMs: number,
 ): number {
-  return overall === "error" ? recheckMs : intervalMs;
+  const accelerate = checks.some(
+    (c) => c.state === "error" && !STEADY_STATE_ERROR_CHECK_IDS.has(c.id),
+  );
+  return accelerate ? recheckMs : intervalMs;
 }
 
 /** Cap on drained child output: just enough to keep a noisy `curl | bash` install
@@ -267,6 +287,192 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
   };
 }
 
+// ── host_capacity check (#1732) ──────────────────────────────────────────────
+// Warns when a systemd-managed Shepherd host has no resource guardrails, or errors
+// when the host is under dangerous live memory/IO pressure. Every field below drives
+// a `classifyHostCapacity` decision — nothing is wired speculatively (systemd-oomd and
+// CPU PSI were deliberately left out of v1; see the plan / issue). The struct carries
+// only parsed booleans/numbers, never raw command output, so payload purity is trivial.
+
+/** Non-secret host-resource facts, produced by `readHostResources`, classified by
+ *  `classifyHostCapacity`. */
+export interface HostCapacityFacts {
+  /** The `*.service` this process runs under (from `/proc/self/cgroup`), else null when
+   *  not run as a managed service (a `bun run` in a login `*.scope`, or non-systemd). */
+  unit: string | null;
+  /** Whether `unit` OR its custom slice has a meaningful limit (MemoryHigh/MemoryMax/CPUQuota).
+   *  null when `unit` is null OR the unit was found but its limits couldn't be read — either
+   *  way the guardrail verdict is unknown and `classify` falls through to uninspectable. */
+  limited: boolean | null;
+  /** Swap totals in bytes, or null when `/proc/meminfo` is unreadable. `total: 0` ⇒ no swap. */
+  swap: { total: number; used: number } | null;
+  /** PSI avg10 (% of the last 10s tasks were stalled) for memory/io; a field is null when that
+   *  `/proc/pressure/<res>` is absent, and the whole struct is null when neither exists. */
+  pressure: { memory: number | null; io: number | null } | null;
+}
+
+/** Parse `/proc/self/cgroup`. cgroup v2 emits a single `0::<path>` line; we trust only that
+ *  (v1's `N:ctrl:<path>` lines are ignored). Returns the leaf unit when it is a `*.service`
+ *  (⇒ systemd-managed) and whether it lives under a `user@…` manager (⇒ `systemctl --user`). */
+export function parseCgroupUnit(cgroup: string): { unit: string | null; userScope: boolean } {
+  const line = cgroup.split("\n").find((l) => l.startsWith("0::"));
+  if (!line) return { unit: null, userScope: false };
+  const path = line.slice(3);
+  const userScope = path.includes("/user@");
+  const leaf = path.split("/").filter(Boolean).pop() ?? "";
+  return { unit: leaf.endsWith(".service") ? leaf : null, userScope };
+}
+
+/** Parse `systemctl show` KEY=VALUE lines into a map. */
+export function parseSystemctlShow(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const raw of text.split("\n")) {
+    const eq = raw.indexOf("=");
+    if (eq <= 0) continue;
+    out[raw.slice(0, eq)] = raw.slice(eq + 1).trim();
+  }
+  return out;
+}
+
+/** True when the unit sets at least one meaningful resource guardrail. systemd shows `infinity`
+ *  for an unset MemoryHigh / MemoryMax / CPUQuota; `CPUQuotaPerSecUSec` is the real show-property
+ *  for `CPUQuota`. `TasksMax` is intentionally NOT counted — systemd assigns a large default, so
+ *  its presence is no signal of an intentional limit. */
+export function hasMeaningfulLimit(props: Record<string, string>): boolean {
+  const set = (v: string | undefined): boolean => v !== undefined && v !== "" && v !== "infinity";
+  return set(props.MemoryHigh) || set(props.MemoryMax) || set(props.CPUQuotaPerSecUSec);
+}
+
+/** Parse a `/proc/pressure/<res>` file's `some avg10=` value (the standard some-stalled
+ *  indicator), or null when absent/unparseable. */
+export function parsePsiAvg10(psi: string): number | null {
+  const some = psi.split("\n").find((l) => l.startsWith("some "));
+  const m = some?.match(/avg10=(\d+(?:\.\d+)?)/);
+  return m ? Number(m[1]) : null;
+}
+
+/** Parse swap totals (bytes) from `/proc/meminfo`; null when the fields are missing. */
+export function parseSwap(meminfo: string): { total: number; used: number } | null {
+  const kb = (key: string): number | null => {
+    const m = meminfo.match(new RegExp(`^${key}:\\s+(\\d+)\\s+kB`, "m"));
+    return m ? Number(m[1]) * 1024 : null;
+  };
+  const total = kb("SwapTotal");
+  const free = kb("SwapFree");
+  if (total === null || free === null) return null;
+  return { total, used: Math.max(0, total - free) };
+}
+
+/** Dangerous live pressure. PSI (kernel stall time) is authoritative; swap-used ALONE never
+ *  fires (zram / proactive eviction sit at 90%+ swap with ~0 PSI). A saturated swap only lowers
+ *  the memory-PSI bar (corroboration). No `/proc/pressure` ⇒ can't assess ⇒ not dangerous. */
+function isDangerousPressure(f: HostCapacityFacts): boolean {
+  const p = f.pressure;
+  if (!p) return false;
+  if (p.memory !== null && p.memory >= HOST_PSI_MEMORY_AVG10) return true;
+  if (p.io !== null && p.io >= HOST_PSI_IO_AVG10) return true;
+  const swapSaturated =
+    f.swap !== null && f.swap.total > 0 && f.swap.used / f.swap.total >= HOST_SWAP_SATURATION_RATIO;
+  return swapSaturated && p.memory !== null && p.memory >= HOST_PSI_MEMORY_AVG10_CORROBORATED;
+}
+
+/** Map host facts → check. Precedence: dangerous pressure (error, any inspectable host) beats the
+ *  guardrail verdict. Uninspectable (non-systemd / non-Linux / limits unreadable) is `optional`
+ *  — a deliberate divergence from the issue's `warning` so local `bun run` boxes don't pin a
+ *  permanent yellow health pip; genuine pressure still errors on those hosts. */
+export function classifyHostCapacity(f: HostCapacityFacts): DiagnosticCheck {
+  const id = "host_capacity";
+  if (isDangerousPressure(f)) {
+    return { id, state: "error", hintKey: "diagnostics_hint_host_capacity_pressure" };
+  }
+  if (f.unit !== null && f.limited !== null) {
+    return f.limited
+      ? { id, state: "ok", hintKey: "diagnostics_hint_host_capacity_ok" }
+      : { id, state: "warning", hintKey: "diagnostics_hint_host_capacity_unbounded" };
+  }
+  return { id, state: "optional", hintKey: "diagnostics_hint_host_capacity_uninspectable" };
+}
+
+/** Default slices that carry no intentional guardrail — a `Slice=` among these is not worth a
+ *  second `systemctl show`. A custom slice (e.g. the recommended `shepherd.slice`) is. */
+const DEFAULT_SLICES = new Set(["-.slice", "user.slice", "app.slice", "system.slice"]);
+
+/** Default `readHostResources`: read the cgroup unit + its (and a custom slice's) systemd limits,
+ *  swap totals, and memory/io PSI. Every read is independently guarded so a partial failure still
+ *  yields useful facts (e.g. systemctl absent but `/proc` readable ⇒ pressure detection still
+ *  works). On a non-Linux host every read throws ⇒ all-null facts ⇒ `optional` uninspectable. */
+async function defaultReadHostResources(): Promise<HostCapacityFacts> {
+  let unit: string | null = null;
+  let userScope = false;
+  try {
+    ({ unit, userScope } = parseCgroupUnit(await readFile("/proc/self/cgroup", "utf8")));
+  } catch {
+    /* non-Linux / no cgroup v2 ⇒ unit stays null */
+  }
+
+  const showLimits = async (target: string): Promise<Record<string, string>> => {
+    const { stdout } = await execFileAsync(
+      "systemctl",
+      [
+        ...(userScope ? ["--user"] : []),
+        "show",
+        target,
+        "-p",
+        "MemoryHigh",
+        "-p",
+        "MemoryMax",
+        "-p",
+        "CPUQuotaPerSecUSec",
+        "-p",
+        "TasksMax",
+        "-p",
+        "Slice",
+      ],
+      { encoding: "utf8", timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS },
+    );
+    return parseSystemctlShow(stdout.toString());
+  };
+
+  // null (not false) when the unit is known but its limits can't be read — classify then treats
+  // the guardrail verdict as unknown (uninspectable) rather than a false `unbounded`.
+  let limited: boolean | null = null;
+  if (unit) {
+    try {
+      const props = await showLimits(unit);
+      limited = hasMeaningfulLimit(props);
+      const slice = props.Slice;
+      if (!limited && slice && !DEFAULT_SLICES.has(slice)) {
+        try {
+          limited = hasMeaningfulLimit(await showLimits(slice));
+        } catch {
+          /* slice unreadable ⇒ keep the service-level verdict (false) */
+        }
+      }
+    } catch {
+      limited = null; // systemctl absent/failed ⇒ unknown, not unbounded
+    }
+  }
+
+  let swap: { total: number; used: number } | null = null;
+  try {
+    swap = parseSwap(await readFile("/proc/meminfo", "utf8"));
+  } catch {
+    /* no /proc/meminfo */
+  }
+
+  const readPsi = async (res: string): Promise<number | null> => {
+    try {
+      return parsePsiAvg10(await readFile(`/proc/pressure/${res}`, "utf8"));
+    } catch {
+      return null;
+    }
+  };
+  const [memory, io] = await Promise.all([readPsi("memory"), readPsi("io")]);
+  const pressure = memory !== null || io !== null ? { memory, io } : null;
+
+  return { unit, limited, swap, pressure };
+}
+
 /**
  * Server-side environment-readiness diagnostics (issue #623). Fans dependency
  * probes with `Promise.all` behind a TTL cache. Mirrors HerdrUpdateService:
@@ -297,6 +503,7 @@ export class DiagnosticsService {
   private readClaudeTrusted: () => Promise<boolean>;
   private trustClaude: () => Promise<void>;
   private isApiKeyAuth: () => boolean;
+  private readHostResources: () => Promise<HostCapacityFacts>;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -347,6 +554,7 @@ export class DiagnosticsService {
     this.readClaudeTrusted = trust.readClaudeTrusted;
     this.trustClaude = trust.trustClaude;
     this.isApiKeyAuth = trust.isApiKeyAuth;
+    this.readHostResources = deps.readHostResources ?? defaultReadHostResources;
   }
 
   /**
@@ -608,6 +816,11 @@ export class DiagnosticsService {
     return { id: "tailscale", state: "ok", hintKey: "diagnostics_hint_tailscale_ok" };
   };
 
+  /** host_capacity (#1732): classify injected/read host-resource facts. Any read failure resolves
+   *  to the probe's `onTimeout` (optional/uninspectable) via the `check()` wrapper. */
+  private hostCapacityProbe = async (): Promise<DiagnosticCheck> =>
+    classifyHostCapacity(await this.readHostResources());
+
   /** The probes, each paired with its timed-out non-OK fallback. The
    *  git_mergetree check is only added when at least one lightweight repo is
    *  configured — a conditional push so forge-only setups are unaffected. */
@@ -647,6 +860,16 @@ export class DiagnosticsService {
       {
         run: this.nodeProbe,
         onTimeout: { id: "node", state: "error", hintKey: "diagnostics_hint_node_missing" },
+      },
+      {
+        run: this.hostCapacityProbe,
+        // A failed/timed-out host read = can't verify guardrails ⇒ optional (no pip degrade),
+        // matching the classifier's uninspectable branch.
+        onTimeout: {
+          id: "host_capacity",
+          state: "optional",
+          hintKey: "diagnostics_hint_host_capacity_uninspectable",
+        },
       },
     ];
     if (this.anyLightweightRepo()) {

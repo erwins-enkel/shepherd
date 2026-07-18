@@ -19,11 +19,19 @@ function operatingAnchors(source: string): string[] {
 }
 
 /** Slug every ATX heading in the doc the way Starlight/github-slugger does.
- *  A fresh slugger per call so its dedup counter matches a clean build. */
+ *  Fenced code blocks are skipped so `#`-prefixed shell/ini comments inside them
+ *  aren't mistaken for headings. A fresh slugger per call so its dedup counter
+ *  matches a clean build. */
 function headingSlugs(markdown: string): Set<string> {
   const slugger = new GithubSlugger();
   const slugs = new Set<string>();
+  let inFence = false;
   for (const line of markdown.split("\n")) {
+    if (/^\s*```/.test(line)) {
+      inFence = !inFence;
+      continue;
+    }
+    if (inFence) continue;
     const m = line.match(/^#{1,6}\s+(.*)$/);
     if (m?.[1] !== undefined) slugs.add(slugger.slug(m[1].trim()));
   }

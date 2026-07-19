@@ -67,7 +67,7 @@ import { HerdrUpdateService } from "./herdr-update";
 import { CodexUpdateService } from "./codex-update";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
-import { DiagnosticsService, nextDiagnosticsDelay } from "./diagnostics";
+import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
 import { TelemetryService } from "./telemetry";
 import { normalizeTelemetryConsent } from "./telemetry-consent";
 import { wirePrOpenedTelemetry } from "./pr-opened-telemetry";
@@ -2597,6 +2597,9 @@ const diagnostics = new DiagnosticsService({
       .filter((run) => run.agentProvider === "codex")
       .map((run) => modelForProviderOrDefault(run.model ?? null, "codex")),
   ],
+  // herdr_health (#1835): reconcile active sessions vs the herdr fleet. Wired here (not a ctor
+  // default) because it needs the store + herdr driver the service doesn't hold.
+  readHerdrFleet: () => defaultReadHerdrFleet(store, herdr),
 });
 // Adaptive background re-check (NOT a fixed setInterval): each tick probes, pushes the
 // snapshot, then re-arms itself with a delay chosen from that snapshot — 60s while the

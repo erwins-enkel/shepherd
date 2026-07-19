@@ -30,6 +30,10 @@ import {
   CHATGPT_INCOMPATIBLE_CODEX_MODELS,
   type CodexAuthMode,
 } from "./default-model";
+import { matchAgents, type IHerdrDriver } from "./herdr";
+import { isShepherdHelperLabel } from "./tab-reaper";
+import { SHELLS } from "./json-tolerant";
+import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -141,6 +145,12 @@ export interface DiagnosticsDeps {
    *  `systemctl show`; injected in tests so no real host state is touched. Reject ⇒ the probe
    *  falls back to `optional`/uninspectable (its `onTimeout`). */
   readHostResources?: () => Promise<HostCapacityFacts>;
+  /** Reconcile active sessions vs the herdr fleet for the `herdr_health` check (#1835): count
+   *  unclaimed, non-helper panes by foreground-process liveness. NO in-constructor functional
+   *  default — it needs the store + herdr driver, which the service does not hold; the ctor default
+   *  is a fail-safe reject so an unwired service resolves to `optional`/uninspectable rather than a
+   *  false `ok`. Wired in `index.ts` via `defaultReadHerdrFleet`; injected in tests. */
+  readHerdrFleet?: () => Promise<HerdrFleetFacts>;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -473,6 +483,74 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
   return { unit, limited, swap, pressure };
 }
 
+// ── herdr_health check (#1835) ────────────────────────────────────────────────
+// Diagnose-only runtime-hygiene / Soll-Ist reconciliation: correlate active Shepherd sessions
+// against the herdr agent fleet and warn when an unclaimed, non-helper pane still holds a LIVE
+// foreground process — a genuine leftover/zombie. It NEVER flags a running/pending session (its
+// agent is claimed), a Shepherd helper agent, or a shell-only husk (the tab-reaper's domain).
+// Pure scan — no kills, no pane-close. Payload purity holds: only counts cross into
+// `HerdrFleetFacts`, never into the snapshot; the probe emits only {id,state,hintKey}. The systemd
+// "Tasks" figure (threads, not processes) is deliberately NOT read here — it is not an alarm; the
+// threads≠processes caveat is carried by the `herdr-hygiene` glossary term, and any numeric read is
+// the drill-down follow-up.
+
+/** Non-secret herdr-fleet facts, produced by `readHerdrFleet`, classified by `classifyHerdrFleet`.
+ *  Counts only — never crosses into the snapshot. */
+export interface HerdrFleetFacts {
+  /** Unclaimed, non-helper panes whose foreground holds a LIVE (non-shell) process — the
+   *  leftover/zombie signal. Drives the warning. */
+  orphanLive: number;
+  /** Unclaimed, non-helper panes that are shell-only husks (no live process). Measured for the
+   *  shell-vs-live distinction (and the future drill-down); does NOT drive state — husks are the
+   *  tab-reaper's domain and counting them here would over-fire the warning. */
+  orphanHusk: number;
+}
+
+/** Map herdr-fleet facts → check. Only a live leftover proc warrants the hygiene warning; a
+ *  shell-only husk (`orphanHusk`) is benign here. Uninspectable (herdr unreachable) is produced by
+ *  the probe's `onTimeout`, not here. */
+export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
+  const id = "herdr_health";
+  return f.orphanLive > 0
+    ? { id, state: "warning", hintKey: "diagnostics_hint_herdr_health_leftover" }
+    : { id, state: "ok", hintKey: "diagnostics_hint_herdr_health_ok" };
+}
+
+/** Default `readHerdrFleet`: reconcile active sessions against the herdr fleet and count unclaimed,
+ *  non-helper panes by foreground-process liveness. `listAsync` rejects when herdr is unreachable →
+ *  the probe's `onTimeout` uninspectable fallback. A pane adopted by a live session (`matchAgents`)
+ *  is skipped — a running/pending session is never a leak. Shepherd's own short-lived helper agents
+ *  are skipped via `isShepherdHelperLabel` (they legitimately register with no session and are reaped
+ *  by the tab-reaper). Per-orphan `paneForegroundProcs` is fail-closed: a throw or empty proc list is
+ *  skipped (never counted on no evidence), mirroring `reapOrphanTabs`. */
+export async function defaultReadHerdrFleet(
+  store: Pick<SessionStore, "list">,
+  herdr: Pick<IHerdrDriver, "listAsync" | "paneForegroundProcs">,
+): Promise<HerdrFleetFacts> {
+  const sessions = store.list({ activeOnly: true });
+  const agents = await herdr.listAsync();
+  const matched = matchAgents(sessions, agents);
+  const claimed = new Set<string>();
+  for (const a of matched.values()) if (a) claimed.add(a.terminalId);
+
+  let orphanLive = 0;
+  let orphanHusk = 0;
+  for (const a of agents) {
+    if (claimed.has(a.terminalId)) continue; // adopted by a live session — never a leak
+    if (isShepherdHelperLabel(a.name)) continue; // Shepherd's own helper agents (reaped elsewhere)
+    let procs: string[];
+    try {
+      procs = await herdr.paneForegroundProcs(a.paneId);
+    } catch {
+      continue; // transient read failure — fail closed, never count on no evidence
+    }
+    if (procs.length === 0) continue; // undeterminable — fail closed
+    if (procs.every((n) => SHELLS.has(n))) orphanHusk++;
+    else orphanLive++;
+  }
+  return { orphanLive, orphanHusk };
+}
+
 /**
  * Server-side environment-readiness diagnostics (issue #623). Fans dependency
  * probes with `Promise.all` behind a TTL cache. Mirrors HerdrUpdateService:
@@ -504,6 +582,7 @@ export class DiagnosticsService {
   private trustClaude: () => Promise<void>;
   private isApiKeyAuth: () => boolean;
   private readHostResources: () => Promise<HostCapacityFacts>;
+  private readHerdrFleet: () => Promise<HerdrFleetFacts>;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -555,6 +634,11 @@ export class DiagnosticsService {
     this.trustClaude = trust.trustClaude;
     this.isApiKeyAuth = trust.isApiKeyAuth;
     this.readHostResources = deps.readHostResources ?? defaultReadHostResources;
+    // No functional default: `defaultReadHerdrFleet` needs the store + herdr driver, which this
+    // service doesn't hold, so the real read is wired in `index.ts`. Unwired, the fail-safe reject
+    // resolves the probe to its `optional`/uninspectable `onTimeout` — never a false ok/warning.
+    this.readHerdrFleet =
+      deps.readHerdrFleet ?? (() => Promise.reject(new Error("readHerdrFleet unwired")));
   }
 
   /**
@@ -821,6 +905,12 @@ export class DiagnosticsService {
   private hostCapacityProbe = async (): Promise<DiagnosticCheck> =>
     classifyHostCapacity(await this.readHostResources());
 
+  /** herdr_health (#1835): classify the reconciled herdr-fleet facts. Any read failure (herdr
+   *  unreachable, or the fail-safe reject when unwired) resolves to the probe's `onTimeout`
+   *  (optional/uninspectable) via the `check()` wrapper. */
+  private herdrHealthProbe = async (): Promise<DiagnosticCheck> =>
+    classifyHerdrFleet(await this.readHerdrFleet());
+
   /** The probes, each paired with its timed-out non-OK fallback. The
    *  git_mergetree check is only added when at least one lightweight repo is
    *  configured — a conditional push so forge-only setups are unaffected. */
@@ -869,6 +959,16 @@ export class DiagnosticsService {
           id: "host_capacity",
           state: "optional",
           hintKey: "diagnostics_hint_host_capacity_uninspectable",
+        },
+      },
+      {
+        run: this.herdrHealthProbe,
+        // A failed/rejected fleet read = herdr unreachable (or unwired) ⇒ can't assess hygiene ⇒
+        // optional/uninspectable (no pip degrade), matching classifyHerdrFleet's absent branch.
+        onTimeout: {
+          id: "herdr_health",
+          state: "optional",
+          hintKey: "diagnostics_hint_herdr_health_uninspectable",
         },
       },
     ];

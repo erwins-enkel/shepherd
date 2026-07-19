@@ -1,7 +1,9 @@
 import { describe, expect, it, spyOn } from "bun:test";
 import {
   DiagnosticsService,
+  classifyHerdrFleet,
   classifyHostCapacity,
+  defaultReadHerdrFleet,
   defaultRunRemediation,
   hasMeaningfulLimit,
   nextDiagnosticsDelay,
@@ -12,6 +14,7 @@ import {
   type DiagnosticsDeps,
   type HostCapacityFacts,
 } from "../src/diagnostics";
+import type { HerdrAgent } from "../src/herdr";
 import {
   DIAGNOSTICS_TTL_MS,
   DIAGNOSTICS_INTERVAL_MS,
@@ -86,6 +89,11 @@ function healthyDeps(): DiagnosticsDeps {
       swap: { total: 8_000_000_000, used: 100_000_000 },
       pressure: { memory: 0, io: 0 },
     }),
+    // herdr_health (#1835): a clean fleet (no live orphans) → ok. Injected because the service has
+    // NO functional default (defaultReadHerdrFleet needs the store + herdr driver); without this
+    // the probe's fail-safe reject would report herdr_health as optional/uninspectable and break
+    // the all-ok assertions. Override per case to model leftover / husk / uninspectable.
+    readHerdrFleet: async () => ({ orphanLive: 0, orphanHusk: 0 }),
   };
 }
 
@@ -113,7 +121,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(10);
+    expect(snap.checks).toHaveLength(11);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -122,6 +130,7 @@ describe("DiagnosticsService probes", () => {
       "gh",
       "git",
       "herdr",
+      "herdr_health",
       "host_capacity",
       "node",
       "tailscale",
@@ -695,7 +704,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(11);
+    expect(snap.checks).toHaveLength(12);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -705,6 +714,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "git",
       "git_mergetree",
       "herdr",
+      "herdr_health",
       "host_capacity",
       "node",
       "tailscale",
@@ -1301,6 +1311,175 @@ describe("host_capacity probe (via injected readHostResources)", () => {
     expect(c.hintKey).toBe("diagnostics_hint_host_capacity_uninspectable");
     assertPure(c);
     expect(snap.overall).toBe("ok"); // optional ranks 0, everything else healthy
+  });
+});
+
+describe("classifyHerdrFleet", () => {
+  it("a live orphan → warning (leftover)", () => {
+    const c = classifyHerdrFleet({ orphanLive: 1, orphanHusk: 0 });
+    expect(c).toEqual({
+      id: "herdr_health",
+      state: "warning",
+      hintKey: "diagnostics_hint_herdr_health_leftover",
+    });
+    assertPure(c);
+  });
+
+  it("shell-only husks alone → ok (does NOT over-fire)", () => {
+    const c = classifyHerdrFleet({ orphanLive: 0, orphanHusk: 3 });
+    expect(c).toEqual({
+      id: "herdr_health",
+      state: "ok",
+      hintKey: "diagnostics_hint_herdr_health_ok",
+    });
+    assertPure(c);
+  });
+
+  it("a clean fleet → ok", () => {
+    const c = classifyHerdrFleet({ orphanLive: 0, orphanHusk: 0 });
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_herdr_health_ok");
+  });
+});
+
+describe("herdr_health probe (via injected readHerdrFleet)", () => {
+  it("a live orphan → warning, degrades overall", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHerdrFleet: async () => ({ orphanLive: 2, orphanHusk: 0 }),
+    });
+    const snap = await svc.check(1000);
+    const c = byId(snap.checks, "herdr_health");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_herdr_health_leftover");
+    assertPure(c);
+    expect(snap.overall).toBe("warning");
+  });
+
+  it("a rejecting fleet read (herdr unreachable / unwired) → optional/uninspectable, never reddens overall", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHerdrFleet: async () => {
+        throw new Error("boom");
+      },
+    });
+    const snap = await svc.check(1000);
+    const c = byId(snap.checks, "herdr_health");
+    expect(c.state).toBe("optional");
+    expect(c.hintKey).toBe("diagnostics_hint_herdr_health_uninspectable");
+    assertPure(c);
+    expect(snap.overall).toBe("ok"); // optional ranks 0, everything else healthy
+  });
+
+  it("without an injected readHerdrFleet the fail-safe reject lands on optional/uninspectable", async () => {
+    // No functional ctor default: an unwired service must NOT report a false ok/warning.
+    const deps = healthyDeps();
+    delete deps.readHerdrFleet;
+    const svc = new DiagnosticsService(deps);
+    const c = byId((await svc.check(1000)).checks, "herdr_health");
+    expect(c.state).toBe("optional");
+    expect(c.hintKey).toBe("diagnostics_hint_herdr_health_uninspectable");
+  });
+});
+
+describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
+  // Minimal HerdrAgent builder — only the fields the reconciliation reads matter.
+  function agent(over: Partial<HerdrAgent>): HerdrAgent {
+    return {
+      agent: "claude",
+      agentStatus: "idle",
+      cwd: "/w",
+      name: "task-07",
+      paneId: "w1:t1",
+      tabId: "t1",
+      terminalId: "term-1",
+      workspaceId: "w1",
+      ...over,
+    };
+  }
+  // Structural session subset matchAgents needs.
+  function session(over: {
+    id: string;
+    herdrAgentId: string;
+    worktreePath?: string;
+    name?: string;
+  }) {
+    return { worktreePath: "/w", name: "task-07", ...over };
+  }
+  function fakeStore(sessions: ReturnType<typeof session>[]) {
+    return { list: () => sessions } as unknown as Parameters<typeof defaultReadHerdrFleet>[0];
+  }
+  function fakeHerdr(
+    agents: HerdrAgent[],
+    procs: Record<string, string[]>,
+  ): Parameters<typeof defaultReadHerdrFleet>[1] {
+    return {
+      listAsync: async () => agents,
+      paneForegroundProcs: async (paneId: string) => {
+        if (!(paneId in procs)) throw new Error(`no procs for ${paneId}`);
+        return procs[paneId]!;
+      },
+    };
+  }
+
+  it("counts an unclaimed non-helper pane with a live proc as orphanLive", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([]), // no sessions → the agent is unclaimed
+      fakeHerdr([agent({ terminalId: "term-1", paneId: "p1", name: "task-07" })], {
+        p1: ["node", "claude"], // a live non-shell proc
+      }),
+    );
+    expect(facts).toEqual({ orphanLive: 1, orphanHusk: 0 });
+  });
+
+  it("a claimed pane (adopted by an active session) is never counted", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([session({ id: "s1", herdrAgentId: "term-1" })]),
+      fakeHerdr([agent({ terminalId: "term-1", paneId: "p1" })], { p1: ["node"] }),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
+  it("a Shepherd helper agent is excluded even with a live proc", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([]),
+      fakeHerdr([agent({ terminalId: "term-h", paneId: "ph", name: "review TASK-07" })], {
+        ph: ["node", "claude"],
+      }),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
+  it("a shell-only orphan pane counts as orphanHusk, not orphanLive", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([]),
+      fakeHerdr([agent({ terminalId: "term-1", paneId: "p1" })], { p1: ["zsh"] }),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 1 });
+  });
+
+  it("fail-closed: a throwing or empty proc read is never counted", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([]),
+      fakeHerdr(
+        [
+          agent({ terminalId: "term-empty", paneId: "pe" }),
+          agent({ terminalId: "term-throw", paneId: "pt" }),
+        ],
+        { pe: [] /* pt throws (absent) */ },
+      ),
+    );
+    expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
+  it("propagates a herdr-unreachable listAsync rejection (→ probe onTimeout)", async () => {
+    const herdr = {
+      listAsync: async () => {
+        throw new Error("ECONNREFUSED");
+      },
+      paneForegroundProcs: async () => [],
+    } as Parameters<typeof defaultReadHerdrFleet>[1];
+    await expect(defaultReadHerdrFleet(fakeStore([]), herdr)).rejects.toThrow("ECONNREFUSED");
   });
 });
 

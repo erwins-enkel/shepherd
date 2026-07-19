@@ -647,6 +647,18 @@ export class AutopilotService {
     if (!this.deps.fullAuto(id)) return false; // only full-auto owns the post-PR CI loop
     const git = this.deps.prGit(id);
     if (!git || git.state !== "open" || git.checks !== "failure") return false;
+    // The budget is SHARED with the `behind` path, deliberately, and does NOT reset when a PR
+    // transitions behind→dirty. So a PR that already spent all `rebaseCap` attempts on behind
+    // rebases and then goes conflicting is handed back immediately, with zero attempts spent on
+    // the conflict itself. That is a continuation, not a regression: resetClearedCounters
+    // (automerge.ts) zeroes the counter the moment a PR reaches clean, so reaching the cap means
+    // `rebaseCap` rebases that each failed to leave it clean — the merge train is already
+    // emitting the rebase_cap hold for that session before the conflict appears. The alternative
+    // (a separate conflict budget, or resetting on the behind→dirty edge) would hand a session
+    // that has already exhausted its budget a second full one, doubling worst-case CI churn on
+    // exactly the sessions the cap exists to stop. If a reviewer prefers that trade it is a small
+    // change; it is a judgement call, not an oversight.
+    //
     // Conflict cap hand-back, BEFORE the ownership stand-down below. Not because the pause would
     // otherwise be unreachable — a capped session never refreshes its steer stamp, so ownership
     // does eventually lapse — but because that lapse takes OWNERSHIP_TTL_MS, and in the meantime

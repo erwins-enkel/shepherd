@@ -1810,3 +1810,25 @@ test("considerCi's cap gate is fullAuto-only: a NON-full-auto capped session is 
   await flush();
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
 });
+
+test("the rebase budget is SHARED across behind and conflict: a capped PR that goes dirty hands back at once", async () => {
+  // Deliberate carry-over, documented at the cap gate. resetClearedCounters zeroes the counter
+  // whenever a PR reaches clean, so count === rebaseCap means rebaseCap rebases that each failed
+  // to leave it clean — the train is already holding at rebase_cap before the conflict appears.
+  // Granting a fresh budget on the behind→dirty edge would double worst-case churn on exactly
+  // the sessions the cap exists to stop.
+  const h = harness({
+    // rebaseSteeredAt null proves the budget was earned entirely on the behind path — no conflict
+    // rebase has ever been steered for this session.
+    session: sess({ status: "idle", autoMergeRebaseCount: 5, autoMergeRebaseSteeredAt: null }),
+    repoEnabled: true,
+    fullAuto: true,
+    rebaseCap: 5,
+    prGit: dirtyGit({ checks: "failure" }),
+  });
+  await h.svc.tick();
+  await flush();
+  // Handed back immediately, with zero attempts spent on the conflict itself.
+  expect(h.events.some((e) => e.pause === "s1")).toBe(true);
+  expect(h.events.some((e) => typeof e.steer === "string")).toBe(false);
+});

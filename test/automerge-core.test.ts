@@ -425,12 +425,52 @@ test("Gitea (no mergeStateStatus) gets no CI waiver — checks:none stays a hold
   );
 });
 
-test("a behind session whose HEAD was recorded is skipped by BOTH scans (the wedge to avoid)", () => {
-  // Documents why the failure arms must not record the head: with it recorded, needsRebase is
-  // false, so neither the stale scan nor the capped scan sees the session — it falls through to
-  // an idle hold with no re-steer and no rebase_cap, silently stuck.
+test("a behind session whose HEAD was recorded is skipped by the STALE scan (the wedge to avoid)", () => {
+  // Documents why the failure arms must not record the head: with it recorded, the behind dedup
+  // is permanent, so the stale scan never re-steers — the session falls through to an idle hold,
+  // silently stuck, for as long as it stays under the cap.
   const d = computeMerge(
-    state([sess({ behind: true, rebaseCount: 5, headSha: "h1", rebaseSteeredHead: "h1" })]),
+    state([sess({ behind: true, rebaseCount: 1, headSha: "h1", rebaseSteeredHead: "h1" })]),
   );
   expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("capped scan is availability-free: a dedup-suppressed session still reports rebase_cap", () => {
+  // The capped scan asks only "is this PR eligible AND out of budget?", never "is now the moment
+  // to steer?" — an exhausted budget is already true and does not become truer by waiting. Gating
+  // it on availability would report `idle` while the cap sat unannounced (and no train-error
+  // signal / merge_attention push) until the dedup released.
+  //
+  // behind: permanent dedup → without this, never announced at all.
+  expect(
+    computeMerge(
+      state([sess({ behind: true, rebaseCount: 5, headSha: "h1", rebaseSteeredHead: "h1" })]),
+    ),
+  ).toEqual({ kind: "hold", reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" } });
+
+  // conflicting: dedup fresh (steered at `now`) → without this, suppressed for a full TTL.
+  expect(
+    computeMerge(
+      state(
+        [
+          sess({
+            mergeable: false,
+            mergeStateStatus: "dirty",
+            rebaseCount: 5,
+            headSha: "h1",
+            rebaseSteeredHead: "h1",
+            rebaseSteeredAt: 1_000,
+          }),
+        ],
+        { now: 1_000 },
+      ),
+    ),
+  ).toEqual({ kind: "hold", reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" } });
+
+  // conflicting + BUSY: rebaseAvailable's busy gate would have hidden the cap indefinitely.
+  expect(
+    computeMerge(
+      state([sess({ mergeable: false, mergeStateStatus: "dirty", rebaseCount: 5, busy: true })]),
+    ),
+  ).toEqual({ kind: "hold", reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" } });
 });

@@ -235,10 +235,22 @@ export function computeMerge(state: MergeRepoState): MergeDecision {
   // cap never refreshes rebaseSteeredAt (it gets a hold, not a rebase), so its dedup stays expired
   // and needsRebase stays true forever — a single find() would return it on every pump and starve
   // every sibling of a rebase decision. Landing progress beats reporting an exhausted budget.
-  const wants = (s: MergeSessionView) =>
-    needsRebase(s, state.criticEnabled, state.draftMode, state.signoffAuthority, state.now);
+  //
+  // The two scans ask DIFFERENT questions, so they use different predicates. The `stale` scan is
+  // about to ACT, so it needs full availability (needsRebase = eligibility AND "now is the
+  // moment"). The `capped` scan only REPORTS an exhausted budget — a fact that is already true
+  // and does not become truer by waiting. Gating it on availability too would suppress the
+  // rebase_cap hold (and with it the train-error signal and the merge_attention push) for a whole
+  // REBASE_DEDUP_TTL_MS after the cap-reaching rebase, while the train reported `idle` — and
+  // would hide it indefinitely for a session stuck busy behind rebaseAvailable's busy gate.
+  const eligible = (s: MergeSessionView) =>
+    rebaseEligible(s, state.criticEnabled, state.draftMode, state.signoffAuthority);
 
-  const stale = state.sessions.find((s) => wants(s) && s.rebaseCount < state.rebaseCap);
+  const stale = state.sessions.find(
+    (s) =>
+      needsRebase(s, state.criticEnabled, state.draftMode, state.signoffAuthority, state.now) &&
+      s.rebaseCount < state.rebaseCap,
+  );
   if (stale) {
     return {
       kind: "rebase",
@@ -248,7 +260,7 @@ export function computeMerge(state: MergeRepoState): MergeDecision {
     };
   }
 
-  const capped = state.sessions.find((s) => wants(s) && s.rebaseCount >= state.rebaseCap);
+  const capped = state.sessions.find((s) => eligible(s) && s.rebaseCount >= state.rebaseCap);
   if (capped) {
     return {
       kind: "hold",

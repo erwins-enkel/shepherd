@@ -353,7 +353,7 @@
       err =
         git?.checks === "failure"
           ? m.gitrail_merge_failed_checks()
-          : git?.mergeable === false
+          : git && isConflicting(git)
             ? m.gitrail_merge_failed_unmergeable()
             : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
       retry = () => doMerge(true);

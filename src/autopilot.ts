@@ -585,6 +585,12 @@ export class AutopilotService {
     // taken the session; a declined one must keep its CI-fix loop or it is left with no actor at
     // all. After the cheap guards above because the non-full-auto arm re-runs rebaseCandidate.
     if (this.conflictOwnedByRebaser(s, git)) return;
+    // Mirror reEngageCi's cap hand-back gate. Once the train caps a conflicting session it stops
+    // refreshing rebaseSteeredAt, so ownership lapses after OWNERSHIP_TTL_MS and the stand-down
+    // above stops firing — without this, an already-exhausted session takes a spurious CI-fix
+    // steer. Unlike reEngageCi this only stands down, it does not pause: considerCi is a sync
+    // event handler and must not write terminal state mid-work; the pause is the idle sweep's job.
+    if (isDefiniteConflict(git) && s.autoMergeRebaseCount >= this.rebaseCap) return;
     if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
     if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
     if (s.autopilotStepCount >= this.stepCap) {

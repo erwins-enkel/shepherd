@@ -1765,3 +1765,25 @@ test("rebaseSteeredAt is CONFLICT-ONLY: stamped on a conflict steer, absent on a
   await flush();
   expect(behind.mergeStateCalls).toContainEqual({ id: "s1", patch: { rebaseCount: 1 } });
 });
+
+test("considerCi also stands down at rebaseCap (mirrors reEngageCi's gate)", async () => {
+  // Once the train caps a conflicting session it stops refreshing rebaseSteeredAt, so ownership
+  // lapses and the stand-down stops firing. Without a cap check here the event-driven path takes
+  // a spurious CI-fix steer on an already-exhausted session.
+  const h = harness({
+    session: sess({
+      status: "idle",
+      autoMergeRebaseSteeredAt: 0,
+      autoMergeRebaseCount: 5, // at the cap
+    }),
+    repoEnabled: true,
+    fullAuto: true,
+    rebaseCap: 5,
+    now: OWNERSHIP_TTL_MS * 10, // stamp long stale → ownership lapsed
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+  // And it does NOT pause — considerCi is a sync event handler; the pause is reEngageCi's job.
+  expect(h.events.some((e) => e.pause === "s1")).toBe(false);
+});

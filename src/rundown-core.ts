@@ -193,6 +193,15 @@ const ATTENTION_RULES: Array<{
   // a false "has merge conflicts — CI can't run until it's rebased". Where the signal is
   // ambiguous, the accurate one wins.
   //
+  // KNOWN GAP, deliberate: isDefiniteConflict is structurally always false on Gitea and
+  // LocalForge (neither sets mergeStateStatus), so a genuinely conflicting PR there gets the
+  // PRs-tab chip but NO rundown/digest signal. Do not "fix" this by widening the predicate: on
+  // Gitea `mergeable: false` cannot be told apart from branch protection, and this hold line
+  // makes a specific actionable claim ("rebase it") that would then be wrong. A missing signal
+  // is recoverable — the chip still marks the PR; a false instruction sends the operator to
+  // rebase a PR that has no conflict. Closing it properly needs a per-forge conflict signal
+  // Gitea does not currently expose.
+  //
   // (!busy || stalled): a session actively RESOLVING its conflict is protected by the merge
   // train's busy gate and would otherwise show a Tier-1 line for the whole duration. But a HUNG
   // session is running/blocked too, and is the one case where this signal is the only backstop

@@ -1235,3 +1235,12 @@ test("mergeable:false + a settled non-dirty mergeStateStatus is definite → pr-
   } as any;
   expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
 });
+
+test("KNOWN GAP: a conflicting Gitea PR gets no pr-conflict signal (chip only)", () => {
+  // Deliberate and documented at the rule. Gitea never sets mergeStateStatus, so a genuine
+  // conflict is indistinguishable from branch protection — and this rule outranks ci-red while
+  // emitting a specific actionable claim. Asserted so the gap is a decision, not a surprise.
+  const s = session({ status: "idle" });
+  const caches = { git: { state: "open", mergeable: false, number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});

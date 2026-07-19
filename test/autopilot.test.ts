@@ -1726,3 +1726,42 @@ test("8(g): a BUSY full-auto session is not CI-fix-steered mid-resolution, stale
   await flush();
   expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });
+
+test("rebaseSteeredAt is CONFLICT-ONLY: stamped on a conflict steer, absent on a behind-only one", async () => {
+  // Both readers — rebaseAvailable (automerge-core) and conflictOwnedByRebaser — check the stamp
+  // only under isDefiniteConflict, so writing it on the behind path would be write-only data
+  // contradicting the field's contract in store.ts.
+  const conflicting = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    now: 5_000,
+    prGit: dirtyGit({ checks: "success" }),
+  });
+  await conflicting.svc.tick();
+  await flush();
+  expect(conflicting.mergeStateCalls).toContainEqual({
+    id: "s1",
+    patch: { rebaseCount: 1, rebaseSteeredAt: 5_000 },
+  });
+
+  const behind = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    now: 5_000,
+    prGit: {
+      state: "open",
+      checks: "success",
+      noCi: false,
+      headSha: "sha1",
+      number: 7,
+      deployConfigured: false,
+      mergeable: true,
+      mergeStateStatus: "behind",
+    } as GitState,
+  });
+  await behind.svc.tick();
+  await flush();
+  expect(behind.mergeStateCalls).toContainEqual({ id: "s1", patch: { rebaseCount: 1 } });
+});

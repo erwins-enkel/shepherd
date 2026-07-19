@@ -717,13 +717,16 @@ export class AutopilotService {
       return true;
     }
     // Count the attempt regardless of whether the steer lands (see the no-dedup note above).
+    // rebaseSteeredAt is CONFLICT-ONLY, matching doRebase and both readers: rebaseAvailable
+    // (automerge-core) and conflictOwnedByRebaser below each check it only under
+    // isDefiniteConflict, so a behind-path stamp would be write-only data contradicting the
+    // field's documented contract in store.ts.
+    const conflict = isDefiniteConflict(git);
     this.deps.store.setAutoMergeState(id, {
       rebaseCount: s.autoMergeRebaseCount + 1,
-      rebaseSteeredAt: this.now(),
+      ...(conflict ? { rebaseSteeredAt: this.now() } : {}),
     });
-    const steer = isDefiniteConflict(git)
-      ? conflictRebaseSteer(s.baseBranch)
-      : rebaseSteer(s.baseBranch);
+    const steer = conflict ? conflictRebaseSteer(s.baseBranch) : rebaseSteer(s.baseBranch);
     void this.sendSteer(s, steer).catch((err) =>
       console.warn("[autopilot] rebase re-engage steer:", err),
     );

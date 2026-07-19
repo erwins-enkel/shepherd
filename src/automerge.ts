@@ -369,7 +369,7 @@ export class AutoMergeService {
     repoPath: string,
     sessionId: string,
     headSha: string | null,
-    conflict = false,
+    conflict: boolean,
   ): Promise<void> {
     const s = this.deps.store.get(sessionId);
     if (!s) return;

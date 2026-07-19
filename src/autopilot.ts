@@ -703,7 +703,11 @@ export class AutopilotService {
     if (git.mergeStateStatus !== "behind" && !isConflicting(git)) {
       // PR is current + conflict-free again → clear any spent rebase budget so a future re-behind
       // gets a fresh cap (mirrors the merge train's resetClearedCounters).
-      if (s.autoMergeRebaseCount > 0 || s.autoMergeRebaseHead !== null)
+      if (
+        s.autoMergeRebaseCount > 0 ||
+        s.autoMergeRebaseHead !== null ||
+        s.autoMergeRebaseSteeredAt != null
+      )
         this.deps.store.setAutoMergeState(id, {
           rebaseCount: 0,
           rebaseHead: null,

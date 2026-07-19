@@ -19,7 +19,7 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { verdictStale } from "./verdict-freshness";
-import { isConflicting } from "./pr-conflict";
+import { isDefiniteConflict } from "./pr-conflict";
 import { fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
@@ -186,6 +186,13 @@ const ATTENTION_RULES: Array<{
   // conflict is also the actionable root cause there ("rebase, CI can't run" beats "CI is
   // failing"): the red run was against a stale base and the rebase re-runs it.
   //
+  // isDefiniteConflict, NOT the broad isConflicting: this rule OUTRANKS ci-red, so it may only
+  // fire where the conflict is certain. Gitea never sets mergeStateStatus and folds
+  // branch-protection into `mergeable`, so a red-but-perfectly-mergeable Gitea PR reports
+  // `mergeable: false` — the broad predicate would replace an accurate "CI is failing" line with
+  // a false "has merge conflicts — CI can't run until it's rebased". Where the signal is
+  // ambiguous, the accurate one wins.
+  //
   // (!busy || stalled): a session actively RESOLVING its conflict is protected by the merge
   // train's busy gate and would otherwise show a Tier-1 line for the whole duration. But a HUNG
   // session is running/blocked too, and is the one case where this signal is the only backstop
@@ -193,7 +200,7 @@ const ATTENTION_RULES: Array<{
   {
     signal: "pr-conflict",
     when: (s, c) => {
-      if (c.git?.state !== "open" || !isConflicting(c.git)) return false;
+      if (c.git?.state !== "open" || !isDefiniteConflict(c.git)) return false;
       const busy = s.status === "running" || s.status === "blocked";
       return !busy || Boolean(c.stalled);
     },

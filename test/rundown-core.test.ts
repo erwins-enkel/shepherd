@@ -1204,3 +1204,34 @@ test("a Gitea DRAFT (mergeable:false, no mergeStateStatus) does not fire pr-conf
   const caches = { git: { state: "open", mergeable: false, isDraft: true, number: 7 } } as any;
   expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
 });
+
+test("a red Gitea PR (mergeable:false, no mergeStateStatus) keeps the accurate ci-red line", () => {
+  // Gitea folds branch-protection into `mergeable`, so a red-but-perfectly-mergeable PR reports
+  // mergeable:false. Because pr-conflict OUTRANKS ci-red, firing it here would replace an
+  // accurate "CI is failing" hold with a false "has merge conflicts — CI can't run until it's
+  // rebased". The rule gates on isDefiniteConflict precisely to prevent that.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeable: false, number: 7 },
+  } as any;
+  const { signals } = classifyAttention(s, caches, 0);
+  expect(signals).not.toContain("pr-conflict");
+  expect(signals).toContain("ci-red");
+  expect(explainHold(s, caches, 0)?.code).toBe("ci-red");
+});
+
+test("mergeable:false + a settled non-dirty mergeStateStatus is definite → pr-conflict wins", () => {
+  // On GitHub `mergeable:false` is unambiguous (mapMergeable: false ⟺ CONFLICTING), so the
+  // conflict line is the accurate one even without `dirty`.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: {
+      state: "open",
+      checks: "failure",
+      mergeable: false,
+      mergeStateStatus: "blocked",
+      number: 7,
+    },
+  } as any;
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});

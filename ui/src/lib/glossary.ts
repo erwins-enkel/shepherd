@@ -112,6 +112,12 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_host_capacity_term",
     bodyKey: "gloss_host_capacity_def",
   },
+  {
+    id: "herdr-hygiene",
+    kind: "internal",
+    termKey: "gloss_herdr_hygiene_term",
+    bodyKey: "gloss_herdr_hygiene_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

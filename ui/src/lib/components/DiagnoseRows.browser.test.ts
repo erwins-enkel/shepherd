@@ -264,6 +264,12 @@ describe("DiagnoseRows code-fix (fixActionKey) branch", () => {
     expect(dlg?.textContent).toContain("shepherd.service herdr.service");
     // still code-fix chrome — prose, not a shell command block
     expect(dlg?.querySelector("code.cmd")).toBeNull();
+    // host_capacity chrome — NOT the folder-trust title/button (the reported bug)
+    expect(dlg?.getAttribute("aria-label")).toBe(m.diagnostics_fix_confirm_title_host_capacity());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_title_host_capacity());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_run_host_capacity());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_title_code());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_run_code());
   });
 });
 

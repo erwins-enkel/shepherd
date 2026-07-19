@@ -63,6 +63,31 @@
     return check.fixActionKey ? (msg[check.fixActionKey]?.(check.fixActionParams) ?? "") : "";
   }
 
+  // Per-code-fix confirm chrome (title + run label). The generic *_code strings are folder-trust
+  // -specific, so each fixActionKey maps to its own copy — a new code fix must register here.
+  const codeFixChrome: Record<string, { title: () => string; run: () => string }> = {
+    diagnostics_fix_action_claude_trust: {
+      title: m.diagnostics_fix_confirm_title_code,
+      run: m.diagnostics_fix_confirm_run_code,
+    },
+    diagnostics_fix_action_host_capacity: {
+      title: m.diagnostics_fix_confirm_title_host_capacity,
+      run: m.diagnostics_fix_confirm_run_host_capacity,
+    },
+  };
+  function codeFixTitle(check: DiagnosticCheck): string {
+    return (
+      (check.fixActionKey && codeFixChrome[check.fixActionKey]?.title()) ||
+      m.diagnostics_fix_confirm_title_code()
+    );
+  }
+  function codeFixRun(check: DiagnosticCheck): string {
+    return (
+      (check.fixActionKey && codeFixChrome[check.fixActionKey]?.run()) ||
+      m.diagnostics_fix_confirm_run_code()
+    );
+  }
+
   function stateWord(state: DiagnosticCheck["state"]): string {
     return msg[`diagnostics_state_${state}`]?.() ?? state;
   }
@@ -151,9 +176,7 @@
        seed, so the modal uses code-fix chrome (title/run label) and renders the
        `fixActionKey` sentence as PROSE, never the command-styled <code> block. -->
   {@const codeFix = !confirming.remediation && confirming.fixActionKey}
-  {@const title = codeFix
-    ? m.diagnostics_fix_confirm_title_code()
-    : m.diagnostics_fix_confirm_title()}
+  {@const title = codeFix ? codeFixTitle(confirming) : m.diagnostics_fix_confirm_title()}
   <!-- Blocking confirm: scoped .overlay supplies position/scrim; the global .overlay
        rule (app.css) layers the blur so the diagnose tab recedes behind it. -->
   <div
@@ -183,7 +206,7 @@
           {m.common_cancel()}
         </button>
         <button type="button" class="run micro" onclick={runFix}>
-          {codeFix ? m.diagnostics_fix_confirm_run_code() : m.diagnostics_fix_confirm_run()}
+          {codeFix ? codeFixRun(confirming) : m.diagnostics_fix_confirm_run()}
         </button>
       </div>
     </div>

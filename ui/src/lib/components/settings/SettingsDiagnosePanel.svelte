@@ -49,16 +49,18 @@
         toasts.info(m.diagnostics_fix_success(), { duration: 3000 });
       } else {
         // A code fix (fixActionKey, no shell command) that didn't clear needs code-appropriate
-        // wording — "the command ran" is wrong for a config seed (e.g. claude folder-trust).
-        toasts.info(
-          target?.fixActionKey
-            ? m.diagnostics_fix_unresolved_code()
-            : m.diagnostics_fix_unresolved(),
-          {
-            alert: true,
-            key: `diagnose-fix:${checkId}`,
-          },
-        );
+        // wording — "the command ran" is wrong for a config seed / a set-property. Each code fix
+        // carries its own unresolved copy (folder-trust restart vs host-capacity take-effect hint).
+        let unresolved = m.diagnostics_fix_unresolved();
+        if (target?.fixActionKey === "diagnostics_fix_action_host_capacity") {
+          unresolved = m.diagnostics_fix_unresolved_host_capacity();
+        } else if (target?.fixActionKey) {
+          unresolved = m.diagnostics_fix_unresolved_code();
+        }
+        toasts.info(unresolved, {
+          alert: true,
+          key: `diagnose-fix:${checkId}`,
+        });
       }
     } catch {
       toasts.info(m.diagnostics_fix_failed(), {

@@ -222,7 +222,14 @@ test("deferSteer false + paneAlive true → replies directly, no resume (unchang
   expect(reply.mock.calls.length).toBe(1);
 });
 
-test("rebase steer fails to deliver → counter NOT bumped", async () => {
+test("rebase steer fails to deliver → attempt IS recorded (was: not bumped)", async () => {
+  // CONTRACT CHANGE. This previously asserted the counter was NOT bumped, on the reasoning that
+  // a steer which never landed shouldn't burn rebase budget. That reasoning cost more than it
+  // saved: an unrecorded attempt leaves no rebaseCount and no rebaseHead, so rebaseAvailable
+  // stays true forever and — because a rebase decision breaks the pump loop — the session
+  // consumes the repo's single rebase slot on every tick, head-of-line blocking its siblings.
+  // doRebase now records every attempt, matching reEngageRebase (autopilot.ts:643-648), so a
+  // session whose steers keep failing marches to rebaseCap and hands back cleanly instead.
   const reply = mock(() => false);
   const setState = mock(() => {});
   const d = deps({
@@ -238,7 +245,7 @@ test("rebase steer fails to deliver → counter NOT bumped", async () => {
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect(reply.mock.calls.length).toBe(1);
-  expect(setState.mock.calls.length).toBe(0);
+  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
 });
 
 // ── multi-session ──────────────────────────────────────────────────────────────
@@ -924,6 +931,52 @@ test("behind rebase on a DEAD pane records the attempt (no head-of-line block on
   expect(reply).not.toHaveBeenCalled();
   // Counted + head recorded, so rebaseAvailable's per-head dedup now suppresses it and the
   // next pump is free to serve a sibling. No rebaseSteeredAt — that stamp is conflict-only.
+  expect((setAutoMergeState as any).mock.calls).toContainEqual([
+    s.id,
+    { rebaseCount: 1, rebaseHead: "h1" },
+  ]);
+});
+
+test("behind rebase whose steer FAILS on a live pane still records (no head-of-line block)", async () => {
+  // The sibling of the dead-pane case, and reachable because the two liveness sources disagree:
+  // paneAlive matches via matchAgent's cwd/name fallback, while reply → operatorReply requires a
+  // strict liveTerminalIds().has(herdrAgentId). A herdr-recreated pane whose agent id hasn't been
+  // re-pointed reads ALIVE here (so resume() is skipped entirely) and DEAD to reply.
+  const setAutoMergeState = mock(() => {});
+  const s = baseSession({ autoMergeRebaseCount: 0 });
+  const resume = mock(() => true);
+  const d = deps({
+    store: {
+      get: () => s as any,
+      list: () => [s as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState,
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
+    } as any,
+    paneAlive: () => true, // alive to THIS gate…
+    service: {
+      archive: mock(() => 1),
+      reply: mock(() => false), // …but the steer does not land
+      resume,
+      resolveMerging: mock(() => {}),
+    } as any,
+    worktree: { behindBase: async () => true } as any,
+    prCache: {
+      snapshot: () => ({
+        [s.id]: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
+      }),
+    } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+
+  expect(resume).not.toHaveBeenCalled(); // proves we took the live-pane arm, not the dead one
   expect((setAutoMergeState as any).mock.calls).toContainEqual([
     s.id,
     { rebaseCount: 1, rebaseHead: "h1" },

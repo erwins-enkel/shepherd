@@ -147,7 +147,10 @@ jobs:
         run: cd extension && bun run test
 
       - name: Build (ui)
-        run: cd ui && bun run build
+        # Builds, and fails on INEFFECTIVE_DYNAMIC_IMPORT (a static import that defeats
+        # a dynamic one — Rollup only warns, so the build would otherwise stay green).
+        # Same script as the pre-push hook's ui build lane, so the two stay in sync.
+        run: ./scripts/check-ui-build.sh
 
       - name: Build (extension)
         run: cd extension && bun run build

@@ -27,8 +27,6 @@
   import Coachmark from "$lib/components/Coachmark.svelte";
   import { pollWhileVisible } from "$lib/visibility";
   import { pullMainAndToast } from "$lib/pull-offer";
-  import { marked } from "marked";
-  import createDOMPurify from "dompurify";
 
   let {
     sessionId,
@@ -83,14 +81,6 @@
   // "no forge / no PR"). Drives the error+Retry fallback so the rail never renders
   // silently empty, and keeps the poll retrying until the forge recovers.
   let loadFailed = $state(false);
-  type DomPurifyApi = { sanitize: (dirty: string) => string };
-  type DomPurifyFactory = ((root: Window) => DomPurifyApi) & Partial<DomPurifyApi>;
-  function getDOMPurify(): DomPurifyApi {
-    const candidate = createDOMPurify as unknown as DomPurifyFactory;
-    return typeof candidate.sanitize === "function"
-      ? (candidate as DomPurifyApi)
-      : candidate(window);
-  }
 
   // Open-PR popover
   let showPr = $state(false);
@@ -482,6 +472,9 @@
           : m.gitrail_review_plan(),
   );
   // Render the (AI-authored) findings as markdown, sanitized before @html.
+  // Dynamically imported so marked/DOMPurify stay off the first-paint critical path;
+  // a static import here would hoist both into the main chunk and defeat the same
+  // lazy-loading in every other consumer (SessionRecap, PlanPanel, ...).
   // Gated on showReview so the browser-only sanitizer never runs during SSR.
   let renderedBody = $state("");
   $effect(() => {
@@ -490,8 +483,20 @@
       renderedBody = "";
       return;
     }
-    const DOMPurify = getDOMPurify();
-    renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+    let alive = true;
+    Promise.all([import("marked"), import("dompurify")])
+      .then(([{ marked }, { default: DOMPurify }]) => {
+        if (alive)
+          renderedBody = DOMPurify.sanitize(marked.parse(body, { async: false }) as string);
+      })
+      .catch((e) => {
+        // Never assigns to renderedBody — a failed load must not leave unsanitized
+        // markup, and the `err` state above is the PR-action error channel, not this.
+        console.warn("Review body markdown render failed", e);
+      });
+    return () => {
+      alive = false;
+    };
   });
   const autoCount = $derived(automationCount(repoConfig.flags(repoPath)));
   let reviewFlash = $state<string | null>(null);

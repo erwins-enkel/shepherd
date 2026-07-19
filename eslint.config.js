@@ -61,12 +61,24 @@ export default [
         extraFileExtensions: [".svelte"],
       },
     },
+  },
+  // marked + DOMPurify are heavy and are lazily imported by every consumer that renders
+  // markdown. A single STATIC import hoists them into a shared chunk and silently
+  // defeats all of them (Rollup: INEFFECTIVE_DYNAMIC_IMPORT) — that is what GitRail did
+  // to seven other components.
+  //
+  // Scoped to ALL of ui/src, not just the Svelte files, because Rollup does not warn for
+  // every static importer: a static import from a plain `ui/src/lib/*.ts` helper produces
+  // NO warning at all, so scripts/check-ui-build.sh cannot see it (measured — see the
+  // table in that script's header). For those files this rule is the ONLY gate.
+  //
+  // One block rather than the rule repeated per-glob, so there is a single definition to
+  // keep correct.
+  {
+    files: ["ui/src/**/*"],
     rules: {
-      // marked + DOMPurify are heavy and are lazily imported by every consumer that
-      // renders markdown. A single STATIC import in an always-mounted component
-      // hoists them into the main chunk and silently defeats all of them, so ban the
-      // static form here. Dynamic `await import("marked")` is unaffected — both
-      // `paths` and `patterns` only match static imports.
+      // Dynamic `await import("marked")` is unaffected — both `paths` and `patterns`
+      // only match static imports.
       "no-restricted-imports": [
         "error",
         {

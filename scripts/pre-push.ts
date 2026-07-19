@@ -562,9 +562,10 @@ function buildLanes(
       { label: "vitest", cmd: "bun", args: ["run", "test", "--maxWorkers", W], cwd: ui },
       // Same script CI's "Build (ui)" step runs (ci.yml:24-29 requires the two to stay
       // in sync): builds, then fails on Rollup's INEFFECTIVE_DYNAMIC_IMPORT — a static
-      // import that defeats a dynamic one, for any module. Not exhaustive: Rollup does
-      // not warn for every static importer, so some (e.g. a plain ui/src/lib/*.ts
-      // helper) slip past this AND eslint. See the header in check-ui-build.sh.
+      // import that defeats a dynamic one, for any module. Rollup does not warn for
+      // every static importer (a plain ui/src/lib/*.ts helper produces none), so the
+      // eslint no-restricted-imports rule covers those files for the named libraries.
+      // The two are complementary; see the header in check-ui-build.sh.
       { label: "build", cmd: join(repoRoot, "scripts/check-ui-build.sh"), args: [], cwd: ui },
     ],
   });

@@ -14,19 +14,24 @@
 #   - It is not library-specific: the `no-restricted-imports` rule in eslint.config.js
 #     names marked/dompurify, while this fires for ANY module that regresses this way.
 #
-# Known hole — do NOT assume this gate is exhaustive. Rollup emits the warning only for
-# some static importers, so a static import is caught in some files and silently
-# ignored in others. Measured on this repo:
+# Do NOT assume this gate alone is exhaustive: Rollup emits the warning only for SOME
+# static importers. Measured on this repo:
 #
-#   ui/src/lib/components/GitRail.svelte  -> warns      (caught here + by eslint)
-#   ui/src/lib/recaps.svelte.ts           -> warns      (caught here + by eslint)
-#   ui/src/lib/api.ts                     -> NO warning (caught by NEITHER)
+#   ui/src/lib/components/GitRail.svelte  -> warns
+#   ui/src/lib/recaps.svelte.ts           -> warns
+#   ui/src/lib/api.ts  (plain .ts)        -> NO warning at all
 #
-# A static import from a plain `.ts` helper can therefore defeat lazy-loading with both
-# gates green, because Rollup itself stays silent. That case is uncovered; review is the
-# only thing standing behind it. (An earlier version of this comment claimed the
-# opposite — that this script covered the plain-`.ts` case the Svelte-scoped lint rule
-# cannot see. That was inference; the measurement above disproved it.)
+# So the two gates are complementary, and neither is a superset of the other:
+#
+#   this script            — ANY library, but only where Rollup actually warns
+#   no-restricted-imports  — ANY file under ui/src, but only the named libraries
+#                            (marked, dompurify)
+#
+# The plain-`.ts` case above is covered by the lint rule, which is scoped to `ui/src/**/*`
+# precisely because this script cannot see it. Residual hole, uncovered by design: a
+# DIFFERENT library, statically imported from a plain `.ts` where Rollup stays silent —
+# add it to the rule's `paths`/`patterns` if one ever matters. Review is what stands
+# behind that case.
 #
 # Note this deliberately does NOT live in ui/vite.config.ts. Both in-build hooks were
 # tried and neither works: `build.rollupOptions.onwarn` is overridden by SvelteKit's

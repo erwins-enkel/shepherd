@@ -43,8 +43,9 @@ trap 'rm -f "$log"' EXIT
 # swallowed by the pipe into tee.
 cd "$repo_root/ui" && bun run build 2>&1 | tee "$log"
 
-# `! grep -q` — NOT `grep -c`, which exits 1 when the count is 0 and would therefore
-# fail on the success case.
+# `grep -q` as the `if` condition, with the failure raised explicitly below — NOT
+# `grep -c`, whose exit status is 1 when the count is 0 and would therefore report
+# failure on the success case.
 if grep -q INEFFECTIVE_DYNAMIC_IMPORT "$log"; then
   echo ""
   echo "✗ INEFFECTIVE_DYNAMIC_IMPORT in the ui build:"

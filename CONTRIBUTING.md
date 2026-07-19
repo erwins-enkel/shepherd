@@ -81,7 +81,7 @@ so a hung child can never wedge the push. The checks (per lane) are:
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)
 - **root-tests:** `bun test ./test`
-- **ui:** `bun run check` → `check:i18n` → `playwright install chromium` → `bun run test` → `bun run build`
+- **ui:** `bun run check` → `check:i18n` → `playwright install chromium` → `bun run test` → `scripts/check-ui-build.sh` (the ui build, plus a fail on Rollup's `INEFFECTIVE_DYNAMIC_IMPORT`; CI's **Build (ui)** step runs the same script)
 - **ext:** `bun run check` → `check:i18n` → `bun run test` → `bun run build`
 - then **`bunx fallow@2.100.0 audit --base origin/main --fail-on-issues`** (delta
   dead-code/complexity audit; version pinned — see note below)

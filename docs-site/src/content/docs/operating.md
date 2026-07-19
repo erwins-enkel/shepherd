@@ -105,12 +105,33 @@ listed in [Configuration](/reference/configuration/).
 host it **warns** when Shepherd's unit has no memory or CPU guardrails
 (`MemoryMax` / `MemoryHigh` / `CPUQuota`), so a runaway fan-out of sessions can
 starve the box. Add limits to the unit — or to a dedicated slice such as
-`shepherd.slice` — before running many concurrent sessions. The check also
+`shepherd.slice` — before running many concurrent sessions.
+
+On a **user-scoped** install the check covers **both** units: Shepherd's own unit
+and `herdr.service`, which runs your agent sessions. It stays `ok` only when
+Shepherd is bounded *and* herdr is not positively unbounded, and it raises a
+distinct warning for the case where Shepherd is bounded but herdr is not. A herdr
+that isn't a loaded user unit (absent, masked, or system-scoped) can't be read, so
+it's excluded from the verdict rather than reported as unbounded. The check also
 **errors** when the kernel reports dangerous live memory/IO pressure (PSI), a cue
 to pause or reduce active agent sessions until the host recovers. On non-systemd
 or local dev hosts it stays quiet. Because sustained pressure is steady-state, the
 background re-check is *not* accelerated on this error — use the Diagnostics
 **Re-run** button for an on-demand live reading.
+
+### Add a limit (one click)
+
+On a user-scoped install with at least 6 GiB of RAM, the warning carries a **Fix**
+button. It proposes a conservative, host-derived pair — `MemoryHigh` leaving
+`clamp(15%, 2 GiB, 8 GiB)` of RAM headroom, `CPUQuota` leaving
+`min(1 core, 15% of cores)` for the OS — and shows the exact values and units in a
+confirm modal before anything is applied. Applying runs `systemctl --user
+set-property` on **only** the units that are currently unbounded, so a limit you
+set deliberately is never overwritten. Like the copy-paste command below, it is
+live and persistent with no restart and no interrupted sessions.
+
+It bounds each unit **on its own**; it does not create the shared cap across
+Shepherd and herdr that a slice gives you — for that, use the slice setup below.
 
 ### Add a limit (copy-paste)
 
@@ -125,14 +146,23 @@ immediately:
 systemctl --user set-property shepherd.service MemoryHigh=6G CPUQuota=300%
 ```
 
-Setting **any** of `MemoryHigh`, `MemoryMax`, or `CPUQuota` clears the **Host
-capacity** warning. `MemoryHigh` throttles and reclaims *before* the harder
-`MemoryMax` OOM-kill ceiling, so it's the safer first lever.
+Setting **any** of `MemoryHigh`, `MemoryMax`, or `CPUQuota` on a unit marks that
+unit bounded. `MemoryHigh` throttles and reclaims *before* the harder `MemoryMax`
+OOM-kill ceiling, so it's the safer first lever.
 
-For **real** protection, prefer a shared **slice**. Agent sessions run under
-**herdr**, a *separate* unit — so a limit on `shepherd.service` alone bounds
-Shepherd but not the sessions that actually consume the box. Put both units in one
-slice and limit the slice instead:
+On a user-scoped install the command above is not enough on its own to clear the
+**Host capacity** warning: agent sessions run under **herdr**, a *separate* unit,
+so a limit on `shepherd.service` alone bounds Shepherd but not the sessions that
+actually consume the box — and where herdr is a loaded user unit, the check keeps
+warning until it is bounded too. Repeat the `set-property` for it:
+
+```sh
+systemctl --user set-property herdr.service MemoryHigh=6G CPUQuota=300%
+```
+
+For **real** protection, prefer a shared **slice** — a per-unit limit on each of
+the two still lets them add up to twice the ceiling. Put both units in one slice
+and limit the slice instead:
 
 ```ini
 # ~/.config/systemd/user/shepherd.slice

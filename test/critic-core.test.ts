@@ -223,6 +223,61 @@ test("reviewPrompt and prReviewPrompt share the identical scope+output tail", ()
   expect(outputContract(a)).toBe(outputContract(b));
 });
 
+// ── #1761 epic LANDING block (prReviewPrompt, purely additive) ──────────────────────────────────
+
+test("prReviewPrompt carries the epic LANDING block, additive with the safety-net line adjacent", () => {
+  const p = prReviewPrompt("BASE", "Land epic", "body", null, {
+    integrationBranch: "epic/1761-landing-critic",
+    childCount: 3,
+  });
+  expect(p).toContain("EPIC LANDING PR");
+  // integration branch + child count surfaced
+  expect(p).toContain("epic/1761-landing-critic");
+  expect(p).toContain("(3 child PRs)");
+  // prioritizes integration-level defect classes
+  expect(p).toContain("INTEGRATION-LEVEL defects");
+  expect(p).toContain("cross-child interaction");
+  // ADDITIVE, not a narrowing — still the whole diff
+  expect(p).toContain("ADDITIVE emphasis, NOT a narrowing");
+  expect(p).toContain("git diff BASE...HEAD");
+  // the safety-net line is present AND adjacent to the reframing (last line of the block, so it
+  // immediately precedes the judge clause) — the additive emphasis can't read as license to drop
+  const safety = "A real bug is a finding no matter which child introduced it";
+  expect(p).toContain(safety);
+  const additiveIdx = p.indexOf("ADDITIVE emphasis, NOT a narrowing");
+  const safetyIdx = p.indexOf(safety);
+  expect(safetyIdx).toBeGreaterThan(additiveIdx);
+  // NO suppression phrasing — this critic has no child-review history and only sees the merged diff
+  expect(p).not.toContain("already reviewed");
+  expect(p).not.toContain("re-litigate");
+  expect(p).not.toContain("do NOT re-raise");
+  // it is NOT the child EPIC CONTEXT block (different frame, base-delta overrides)
+  expect(p).not.toContain("EPIC CONTEXT");
+  expect(p).not.toContain("OVERRIDES the VERIFY rule");
+});
+
+test("prReviewPrompt landing block omits the count parenthetical when childCount is 0 (unknown)", () => {
+  const p = prReviewPrompt("BASE", "Land epic", "body", null, {
+    integrationBranch: "epic/1761-x",
+    childCount: 0,
+  });
+  expect(p).toContain("EPIC LANDING PR");
+  // never a false "0 child" claim — the parenthetical is dropped entirely
+  expect(p).not.toContain("child PRs)");
+  // header reads "...multi-PR epic, merging..." with no count inserted before the comma
+  expect(p).toContain("multi-PR epic, merging the epic integration branch");
+});
+
+test("prReviewPrompt without a landing context leaves the tail byte-identical (non-landing unchanged)", () => {
+  // The title/body fence carries a per-call nonce, so two whole prompts never match there. The
+  // landing block lives in the shared tail (from "SCOPE —" on), which IS deterministic — compare it.
+  const tail = (s: string) => s.slice(s.indexOf("SCOPE — "));
+  const withoutArg = prReviewPrompt("BASE", "My PR", "body");
+  const withNull = prReviewPrompt("BASE", "My PR", "body", null, null);
+  expect(withoutArg).not.toContain("EPIC LANDING PR");
+  expect(tail(withNull)).toBe(tail(withoutArg));
+});
+
 // ── scopeBackstop (pure) ────────────────────────────────────────────────────
 
 test("scopeBackstop drops out-of-diff path-attributed findings, keeps in-diff + unattributed", () => {

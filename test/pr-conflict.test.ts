@@ -1,5 +1,6 @@
 import { describe, expect, it } from "bun:test";
-import { isConflicting, isDefiniteConflict } from "../src/pr-conflict";
+import { readFileSync } from "node:fs";
+import { isConflicting, isDefiniteConflict, type ConflictView } from "../src/pr-conflict";
 
 describe("isConflicting (broad — signal + UI)", () => {
   it("dirty is a conflict regardless of mergeable", () => {
@@ -56,5 +57,22 @@ describe("isDefiniteConflict (gates behaviour — GitHub-shaped)", () => {
     const giteaNonDraft = { mergeable: false, isDraft: false };
     expect(isConflicting(giteaNonDraft)).toBe(true);
     expect(isDefiniteConflict(giteaNonDraft)).toBe(false);
+  });
+});
+
+describe("isConflicting parity fixture", () => {
+  // The UI re-declares this predicate (ui/src/lib/pr-conflict.ts) because ui/ cannot import from
+  // src/. These cases are asserted by BOTH suites off one file, so editing either implementation
+  // without the other fails the opposite suite instead of silently diverging. Mirrors the
+  // plan-question-parity.json lock.
+  const cases = JSON.parse(
+    readFileSync(new URL("./fixtures/pr-conflict-parity.json", import.meta.url), "utf8"),
+  ) as Array<{ name: string; pr: ConflictView; expected: boolean }>;
+
+  it("covers every case in the shared table", () => {
+    expect(cases.length).toBeGreaterThan(0);
+    for (const c of cases) {
+      expect({ name: c.name, r: isConflicting(c.pr) }).toEqual({ name: c.name, r: c.expected });
+    }
   });
 });

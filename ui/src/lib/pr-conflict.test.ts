@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { isConflicting } from "./pr-conflict";
 
 describe("isConflicting (UI copy — must track src/pr-conflict.ts)", () => {
@@ -23,5 +24,24 @@ describe("isConflicting (UI copy — must track src/pr-conflict.ts)", () => {
     expect(isConflicting({ mergeable: true, mergeStateStatus: "clean" })).toBe(false);
     expect(isConflicting({ mergeable: null, mergeStateStatus: "unknown" })).toBe(false);
     expect(isConflicting({})).toBe(false);
+  });
+});
+
+describe("isConflicting parity fixture", () => {
+  // Same table the server suite asserts (test/pr-conflict.test.ts) against src/pr-conflict.ts.
+  // Editing one implementation without the other fails the opposite suite. ui/ cannot import
+  // from src/, so this file is the drift lock. Mirrors the plan-question-parity.json pattern.
+  const cases = JSON.parse(
+    readFileSync(
+      new URL("../../../test/fixtures/pr-conflict-parity.json", import.meta.url),
+      "utf8",
+    ),
+  ) as Array<{ name: string; pr: Parameters<typeof isConflicting>[0]; expected: boolean }>;
+
+  it("covers every case in the shared table", () => {
+    expect(cases.length).toBeGreaterThan(0);
+    for (const c of cases) {
+      expect({ name: c.name, r: isConflicting(c.pr) }).toEqual({ name: c.name, r: c.expected });
+    }
   });
 });

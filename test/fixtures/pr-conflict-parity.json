@@ -1,0 +1,52 @@
+[
+  {
+    "name": "dirty with mergeable null → conflict",
+    "pr": { "mergeStateStatus": "dirty", "mergeable": null },
+    "expected": true
+  },
+  {
+    "name": "dirty with mergeable false → conflict",
+    "pr": { "mergeStateStatus": "dirty", "mergeable": false },
+    "expected": true
+  },
+  {
+    "name": "dirty DRAFT → conflict (DRAFT masks BEHIND, not DIRTY)",
+    "pr": { "mergeStateStatus": "dirty", "isDraft": true },
+    "expected": true
+  },
+  {
+    "name": "mergeable false on a non-draft → conflict",
+    "pr": { "mergeable": false, "isDraft": false },
+    "expected": true
+  },
+  {
+    "name": "mergeable false with no mergeStateStatus (Gitea non-draft) → conflict",
+    "pr": { "mergeable": false },
+    "expected": true
+  },
+  {
+    "name": "mergeable false on a DRAFT → NOT a conflict (Gitea WIP artifact guard)",
+    "pr": { "mergeable": false, "isDraft": true },
+    "expected": false
+  },
+  {
+    "name": "clean → not a conflict",
+    "pr": { "mergeable": true, "mergeStateStatus": "clean" },
+    "expected": false
+  },
+  {
+    "name": "unknown mergeability → not a conflict",
+    "pr": { "mergeable": null, "mergeStateStatus": "unknown" },
+    "expected": false
+  },
+  {
+    "name": "behind but mergeable → not a conflict",
+    "pr": { "mergeable": true, "mergeStateStatus": "behind" },
+    "expected": false
+  },
+  {
+    "name": "empty payload → not a conflict",
+    "pr": {},
+    "expected": false
+  }
+]

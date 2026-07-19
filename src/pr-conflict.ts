@@ -16,6 +16,9 @@ export interface ConflictView {
  * PrRow.svelte's `blocked`), so reading that as a conflict would chip every Gitea draft.
  * `dirty` is unguarded because GitHub reports it for genuinely conflicting drafts too
  * (DRAFT masks BEHIND, not DIRTY) — so a conflicting GitHub draft still surfaces.
+ *
+ *  Drift-locked against the UI copy by test/fixtures/pr-conflict-parity.json — both suites
+ *  assert the same case table, so editing one implementation alone fails the other's test.
  */
 export function isConflicting(pr: ConflictView): boolean {
   return pr.mergeStateStatus === "dirty" || (pr.mergeable === false && !pr.isDraft);

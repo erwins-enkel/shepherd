@@ -425,22 +425,6 @@ test("Gitea (no mergeStateStatus) gets no CI waiver — checks:none stays a hold
   );
 });
 
-test("behind session with failed steers (count up, no head recorded) reaches the rebase_cap hold", () => {
-  // doRebase counts a failed behind attempt WITHOUT recording rebaseHead, precisely so the
-  // permanent per-head dedup doesn't silence both scans. This is the end state that buys:
-  // the session stays visible to `wants()`, marches to the cap, and hands back.
-  const under = computeMerge(
-    state([sess({ behind: true, rebaseCount: 4, rebaseSteeredHead: null })]),
-  );
-  expect(under.kind).toBe("rebase");
-
-  const at = computeMerge(state([sess({ behind: true, rebaseCount: 5, rebaseSteeredHead: null })]));
-  expect(at).toEqual({
-    kind: "hold",
-    reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" },
-  });
-});
-
 test("a behind session whose HEAD was recorded is skipped by BOTH scans (the wedge to avoid)", () => {
   // Documents why the failure arms must not record the head: with it recorded, needsRebase is
   // false, so neither the stale scan nor the capped scan sees the session — it falls through to

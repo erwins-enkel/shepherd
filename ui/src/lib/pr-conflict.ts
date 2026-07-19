@@ -9,7 +9,10 @@ import type { MergeStateStatus } from "./types";
  *  The `!isDraft` guard rides the `mergeable === false` term ONLY: Gitea reports
  *  `mergeable: false` for every draft (WIP-title convention), so reading that as a conflict
  *  would chip every Gitea draft. `dirty` is unguarded because GitHub reports it for genuinely
- *  conflicting drafts too (DRAFT masks BEHIND, not DIRTY). */
+ *  conflicting drafts too (DRAFT masks BEHIND, not DIRTY).
+ *
+ *  Drift-locked against the server copy by test/fixtures/pr-conflict-parity.json — both suites
+ *  assert the same case table, so editing one implementation alone fails the other's test. */
 export function isConflicting(pr: {
   mergeable?: boolean | null;
   mergeStateStatus?: MergeStateStatus;

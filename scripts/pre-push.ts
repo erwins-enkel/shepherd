@@ -560,7 +560,11 @@ function buildLanes(
         cwd: ui,
       },
       { label: "vitest", cmd: "bun", args: ["run", "test", "--maxWorkers", W], cwd: ui },
-      { label: "build", cmd: "bun", args: ["run", "build"], cwd: ui },
+      // Same script CI's "Build (ui)" step runs: builds, then fails on Rollup's
+      // INEFFECTIVE_DYNAMIC_IMPORT. Catches a static import that defeats a dynamic one
+      // — including from a plain ui/src/lib/*.ts helper, which the Svelte-scoped
+      // no-restricted-imports rule cannot see.
+      { label: "build", cmd: join(repoRoot, "scripts/check-ui-build.sh"), args: [], cwd: ui },
     ],
   });
 

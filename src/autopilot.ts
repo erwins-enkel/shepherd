@@ -718,6 +718,15 @@ export class AutopilotService {
    *  Draft PRs are skipped: a rebase alone can't make a draft mergeable (it must be marked
    *  ready-for-review first), and a draft's mergeStateStatus is DRAFT, which masks BEHIND.
    *
+   *  THREE OF THOSE ARE WAIVED UNDER isDefiniteConflict (see rebaseCandidate + rebaseReviewPassed):
+   *    • green      — a conflicting PR's CI can NEVER go green (GitHub can't build the merge ref),
+   *                   so requiring it deadlocks: rebase needs CI, CI needs the rebase.
+   *    • non-draft  — DRAFT masks BEHIND but NOT DIRTY, so GitHub does report a conflicting draft,
+   *                   and a rebase genuinely unblocks its CI.
+   *    • a verdict must exist — the same deadlock stops the critic ever producing one. The
+   *                   changes_requested / error / head-match / ZERO-FINDINGS legs all still stand,
+   *                   so the no-double-steer guarantee above is intact.
+   *
    *  "Behind" is read from the cached GitState's mergeStateStatus rather than a git fetch (the
    *  merge train uses worktree.behindBase); on forges that don't supply mergeStateStatus (Gitea /
    *  local) only the conflict signal (mergeable === false) fires.
@@ -806,8 +815,10 @@ export class AutopilotService {
   }
 
   /** Eligibility half of reEngageRebase: returns the open PR's snapshot when the session is a
-   *  rebase candidate (idle territory, NOT full-auto, open + non-draft + green, and review-passed),
-   *  else null. The behind/conflict + cap + steer decision stays in the caller. Split out to keep
+   *  rebase candidate (idle territory, NOT full-auto, open, review-passed, and — unless the PR is
+   *  a DEFINITE CONFLICT — non-draft + green), else null. Both the non-draft and green gates are
+   *  waived under isDefiniteConflict: see the inline notes below for why each is unsatisfiable
+   *  there. The behind/conflict + cap + steer decision stays in the caller. Split out to keep
    *  each piece simple. */
   private rebaseCandidate(s: Session): GitState | null {
     if (s.mergingSince !== null) return null; // merge-train-marked → the train owns its rebase
@@ -831,9 +842,15 @@ export class AutopilotService {
   /** Review gate for a rebase steer, DELIBERATELY STRICTER than automerge-core.needsRebase: when
    *  critic is enabled, require a CLEAN, head-matched critic sign-off (reuse the tested signedOff
    *  predicate — commented + zero findings + reviewHeadSha === head). needsRebase rebases even with
-   *  no verdict yet; we do not, both because the operator's trigger is a review that PASSED and
-   *  because requiring zero findings guarantees review.ts's auto-address steer loop (which only
-   *  fires on findings) is NOT also driving this idle session. Critic off → green CI alone suffices. */
+   *  no verdict yet; off the conflict path we do not, both because the operator's trigger is a
+   *  review that PASSED and because requiring zero findings guarantees review.ts's auto-address
+   *  steer loop (which only fires on findings) is NOT also driving this idle session. Critic off →
+   *  green CI alone suffices.
+   *
+   *  UNDER isDefiniteConflict exactly ONE leg is waived: "a verdict must exist". The deadlock means
+   *  one can never arrive (no CI → review.ts's consider() skips), so demanding it would re-wedge
+   *  the conflict path. changes_requested / error / head-match / zero-findings all still apply —
+   *  in particular zero-findings, which is what keeps runAutoAddress off the same idle pane. */
   private rebaseReviewPassed(s: Session, git: GitState): boolean {
     if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
     const review = this.deps.getReview(s.id);

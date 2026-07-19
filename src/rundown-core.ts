@@ -196,8 +196,9 @@ const ATTENTION_RULES: Array<{
   // KNOCK-ON, intended: because explainHold surfaces this instead of ci-red, a red+dirty session
   // also loses its row-level "Retry CI" CTA (hold-row.ts keys that on serverHold.code ===
   // "ci-red"). That is correct — a dirty PR's pull_request workflows cannot run at all, so
-  // re-running them is futile; the actionable step is the rebase this line names. Called out in
-  // the PR description because it is user-visible.
+  // re-running them is futile; the actionable step is the rebase this line names. Recorded here
+  // rather than only in the PR that introduced it, since this is the code that causes it and a
+  // reader hitting "why did Retry CI disappear?" will land on this rule, not on a changelog.
   //
   // KNOWN GAP, deliberate: isDefiniteConflict is structurally always false on Gitea and
   // LocalForge (neither sets mergeStateStatus), so a genuinely conflicting PR there gets the

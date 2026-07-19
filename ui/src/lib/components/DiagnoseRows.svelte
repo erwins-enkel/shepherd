@@ -45,8 +45,10 @@
     }
   }
 
-  // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access.
-  const msg = m as unknown as Record<string, () => string>;
+  // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access. The
+  // optional params bag lets code-fix messages (e.g. host_capacity #1839) interpolate their concrete
+  // values; param-less messages simply ignore the extra arg.
+  const msg = m as unknown as Record<string, (p?: Record<string, string>) => string>;
 
   function label(id: string): string {
     return msg[`diagnostics_label_${id}`]?.() ?? id;
@@ -54,6 +56,11 @@
 
   function hint(hintKey: string): string {
     return msg[hintKey]?.() ?? "";
+  }
+
+  // Confirm-modal prose for a `fixActionKey` code fix, interpolating its `fixActionParams` (if any).
+  function fixActionText(check: DiagnosticCheck): string {
+    return check.fixActionKey ? (msg[check.fixActionKey]?.(check.fixActionParams) ?? "") : "";
   }
 
   function stateWord(state: DiagnosticCheck["state"]): string {
@@ -165,7 +172,7 @@
     >
       <span class="micro chead">{title}</span>
       {#if codeFix}
-        <p class="desc">{hint(confirming.fixActionKey!)}</p>
+        <p class="desc">{fixActionText(confirming)}</p>
       {:else}
         <p class="desc">{m.diagnostics_fix_confirm_body()}</p>
         <!-- Verbatim command — data, not chrome → never translated. -->

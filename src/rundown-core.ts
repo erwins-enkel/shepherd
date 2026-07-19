@@ -19,6 +19,7 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { verdictStale } from "./verdict-freshness";
+import { isConflicting } from "./pr-conflict";
 import { fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
@@ -59,6 +60,7 @@ export type SignalCode =
   | "plan-question"
   | "critic-rework"
   | "ci-red"
+  | "pr-conflict"
   | "manual-steps"
   | "awaiting-merge"
   | "stalled"
@@ -78,6 +80,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "plan-question": 1,
   "critic-rework": 1,
   "ci-red": 1,
+  "pr-conflict": 1,
   "manual-steps": 1,
   "halted-usage": 2,
   "awaiting-merge": 2,
@@ -178,6 +181,23 @@ const ATTENTION_RULES: Array<{
   },
   { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
   { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, c.git, now) },
+  // pr-conflict BEFORE ci-red: explainHold takes the first non-"in-flight" signal, so a
+  // later-listed rule could never render its line for a red+dirty PR — the flagship case. A
+  // conflict is also the actionable root cause there ("rebase, CI can't run" beats "CI is
+  // failing"): the red run was against a stale base and the rebase re-runs it.
+  //
+  // (!busy || stalled): a session actively RESOLVING its conflict is protected by the merge
+  // train's busy gate and would otherwise show a Tier-1 line for the whole duration. But a HUNG
+  // session is running/blocked too, and is the one case where this signal is the only backstop
+  // (the busy gate means it never reaches rebaseCap), so `stalled` distinguishes them.
+  {
+    signal: "pr-conflict",
+    when: (s, c) => {
+      if (c.git?.state !== "open" || !isConflicting(c.git)) return false;
+      const busy = s.status === "running" || s.status === "blocked";
+      return !busy || Boolean(c.stalled);
+    },
+  },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
   // auto-merge (#1060). Last in the Tier-1 block so a genuinely-more-urgent co-signal stays the
@@ -276,6 +296,10 @@ const SIGNAL_TO_HOLD: Record<
   "ci-red": (_session, caches) => {
     const pr = caches.git?.number;
     return pr !== undefined ? { code: "ci-red", params: { pr } } : { code: "ci-red" };
+  },
+  "pr-conflict": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "pr-conflict", params: { pr } } : { code: "pr-conflict" };
   },
   "awaiting-merge": (_session, caches) => {
     const pr = caches.git?.number;

@@ -4,6 +4,7 @@
   import { m } from "$lib/paraglide/messages";
   import { mergeBacklogPr, requestDependabotRebase } from "$lib/api";
   import { showRebaseOffer } from "./pr-row";
+  import { isConflicting } from "$lib/pr-conflict";
   import { relativeAge } from "$lib/format";
   import { clock } from "$lib/now.svelte";
 
@@ -51,10 +52,11 @@
   let expanded = $state(false);
   const hasJobs = $derived(pr.jobs.length > 0);
 
-  // A PR with conflicts can't merge. Drafts have no merge button, and some hosts
-  // (Gitea) report mergeable:false for every draft — so don't read that as a real
-  // conflict on a draft, or the row shows a bogus "conflicts" chip.
-  const blocked = $derived(pr.mergeable === false && !pr.isDraft);
+  // A PR with conflicts can't merge. The !isDraft guard rides the mergeable term only: some
+  // hosts (Gitea) report mergeable:false for every draft, which would chip them all — but GitHub
+  // reports DIRTY for genuinely conflicting drafts (DRAFT masks BEHIND, not DIRTY), so those
+  // still chip. Mirrors src/pr-conflict.ts's isConflicting; see ui/src/lib/pr-conflict.ts.
+  const blocked = $derived(isConflicting(pr));
 
   const offerRebase = $derived(showRebaseOffer({ kind: pr.kind, blocked, failed, requested }));
 

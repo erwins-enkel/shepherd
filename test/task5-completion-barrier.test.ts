@@ -264,6 +264,8 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     findings: [],
     rebaseCount: 0,
     rebaseSteeredHead: null,
+    rebaseSteeredAt: null,
+    busy: false,
     mergeBlocked: false,
     manualSteps: [],
     manualStepsAckedAt: null,
@@ -273,6 +275,7 @@ test("computeMerge → merge for a LocalForge-shaped ready view (proves auto-mer
     criticEnabled: false, // standalone critic self-disables in lightweight mode
     draftMode: false,
     signoffAuthority: "human",
+    now: 0,
     rebaseCap: 5,
     sessions: [view],
   };

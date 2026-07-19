@@ -402,6 +402,7 @@
   const mergeBlocked = $derived(
     !git ||
       git.mergeable === false ||
+      git.mergeStateStatus === "dirty" ||
       busy ||
       git.isDraft === true ||
       (git.mergeStateStatus && git.mergeStateStatus !== "unknown"
@@ -416,7 +417,7 @@
         ? m.gitrail_merge_blocked_busy()
         : git?.isDraft === true
           ? m.gitrail_merge_blocked_draft()
-          : git?.mergeable === false
+          : git?.mergeable === false || git?.mergeStateStatus === "dirty"
             ? m.gitrail_merge_blocked_conflict()
             : git?.mergeStateStatus === "behind"
               ? m.gitrail_merge_blocked_behind()

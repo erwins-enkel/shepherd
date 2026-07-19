@@ -167,6 +167,10 @@ export interface PullRequest {
   isDraft: boolean;
   /** null = host still computing mergeability. */
   mergeable: boolean | null;
+  /** GitHub's merge-eligibility signal; absent on forges that don't supply it (Gitea).
+   *  `dirty` is the earlier, definite conflict signal — `mergeable` lags it while GitHub
+   *  computes — so the PRs-tab conflict chip reads both (see ui/src/lib/pr-conflict.ts). */
+  mergeStateStatus?: MergeStateStatus;
   /** Worst-of CI rollup over the head commit. */
   checks: ChecksState;
   /** Per-check breakdown of the head commit (one entry per CI job / status

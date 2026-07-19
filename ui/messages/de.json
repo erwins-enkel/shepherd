@@ -3275,5 +3275,6 @@
   "feat_host_capacity_fix_body": "Wenn Einstellungen → Diagnose warnt, dass Shepherd — oder der herdr-Dienst, der deine Agenten ausführt — keine Speicher- oder CPU-Obergrenze hat, kannst du jetzt mit einem Klick ein konservatives, aus den Host-Ressourcen abgeleitetes Limit anwenden (vorher zur Prüfung angezeigt). Es ist ein sofort wirksames, dauerhaftes systemd-Limit ohne Neustart. Verfügbar bei benutzerbezogenen Installationen; die Guardrail-Prüfung deckt jetzt auch herdr ab.",
   "diagnostics_fix_confirm_title_host_capacity": "Host-Kapazitätslimits anwenden?",
   "diagnostics_fix_confirm_run_host_capacity": "Limits anwenden",
-  "diagnostics_fix_unresolved_host_capacity": "Shepherd hat die Limits angewendet, aber der Check ist weiterhin nicht OK — gib ihm einen Moment oder prüfe, ob die Unit benutzerbezogen ist."
+  "diagnostics_fix_unresolved_host_capacity": "Shepherd hat die Limits angewendet, aber der Check ist weiterhin nicht OK — gib ihm einen Moment oder prüfe, ob die Unit benutzerbezogen ist.",
+  "hold_pr_conflict": "Der PR hat Merge-Konflikte — CI kann bis zum Rebase nicht laufen."
 }

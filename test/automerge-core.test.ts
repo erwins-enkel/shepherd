@@ -1,5 +1,10 @@
 import { test, expect } from "bun:test";
-import { computeMerge, type MergeRepoState, type MergeSessionView } from "../src/automerge-core";
+import {
+  computeMerge,
+  REBASE_DEDUP_TTL_MS,
+  type MergeRepoState,
+  type MergeSessionView,
+} from "../src/automerge-core";
 
 function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
   return {
@@ -19,6 +24,8 @@ function sess(o: Partial<MergeSessionView> = {}): MergeSessionView {
     findings: [],
     rebaseCount: 0,
     rebaseSteeredHead: null,
+    rebaseSteeredAt: null,
+    busy: false,
     mergeBlocked: false,
     manualSteps: [],
     manualStepsAckedAt: null,
@@ -32,6 +39,7 @@ function state(sessions: MergeSessionView[], o: Partial<MergeRepoState> = {}): M
     draftMode: false,
     signoffAuthority: "human",
     rebaseCap: 5,
+    now: 0,
     sessions,
     ...o,
   };
@@ -66,6 +74,7 @@ test("no-CI repo but not mergeable → rebase (mergeable gate still bites)", () 
     kind: "rebase",
     sessionId: "s1",
     headSha: "h1",
+    conflict: false,
   });
 });
 
@@ -74,6 +83,7 @@ test("behind → rebase", () => {
     kind: "rebase",
     sessionId: "s1",
     headSha: "h1",
+    conflict: false,
   });
 });
 
@@ -82,6 +92,7 @@ test("conflicting (mergeable false) → rebase", () => {
     kind: "rebase",
     sessionId: "s1",
     headSha: "h1",
+    conflict: false,
   });
 });
 
@@ -152,7 +163,7 @@ test("rebase already steered for this head → hold idle (no re-steer)", () => {
 
 test("rebase steered for an OLD head + still behind → rebase the new head", () => {
   const d = computeMerge(state([sess({ behind: true, headSha: "h2", rebaseSteeredHead: "h1" })]));
-  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h2" });
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h2", conflict: false });
 });
 
 // ── merge-blocked backoff (Fix 6) ───────────────────────────────────────────────
@@ -212,7 +223,7 @@ test("draftMode + signed + behind → rebase (signed drafts still rebase to stay
       signoffAuthority: "human",
     }),
   );
-  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1" });
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: false });
 });
 
 // ── manual operator steps gate (#1060) ──────────────────────────────────────────
@@ -250,7 +261,7 @@ test("manual_steps hold requires otherwise-ready: a NOT-green PR with steps → 
 
 test("manual_steps hold requires otherwise-ready: a BEHIND PR with steps → rebase, not manual_steps", () => {
   const d = computeMerge(state([sess({ behind: true, manualSteps: [step("flip the flag")] })]));
-  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1" });
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: false });
 });
 
 test("held-on-steps PR is skipped while a ready sibling merges first", () => {
@@ -261,4 +272,155 @@ test("held-on-steps PR is skipped while a ready sibling merges first", () => {
     ]),
   );
   expect(d).toEqual({ kind: "merge", sessionId: "b", prNumber: 7, headSha: "hB" });
+});
+
+// ── Defect A: the CI-green deadlock ─────────────────────────────────────────────
+
+test("A: dirty + checks:none (no CI ever ran) → rebase, not a hold", () => {
+  // GitHub can't build refs/pull/N/merge for a conflicting PR, so no workflow runs and checks
+  // stays "none" forever. Requiring green CI here is a guaranteed deadlock.
+  const d = computeMerge(
+    state([sess({ checks: "none", noCi: false, mergeable: false, mergeStateStatus: "dirty" })]),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
+});
+
+test("A: mergeable:false + unknown + checks:none → still a hold (transient absorbed)", () => {
+  const d = computeMerge(
+    state([sess({ checks: "none", noCi: false, mergeable: false, mergeStateStatus: "unknown" })]),
+  );
+  expect(d.kind).toBe("hold");
+});
+
+test("A: dirty with mergeable:null still triggers (the trigger term)", () => {
+  const d = computeMerge(state([sess({ mergeable: null, mergeStateStatus: "dirty" })]));
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
+});
+
+test("A: behind + checks:pending → no rebase (waiver is conflict-only)", () => {
+  expect(computeMerge(state([sess({ behind: true, checks: "pending" })])).kind).toBe("hold");
+});
+
+// ── Defect D: the expiring dedup makes rebaseCap reachable ──────────────────────
+
+test("D: conflicting head already steered → held inside the dedup TTL", () => {
+  const d = computeMerge(
+    state(
+      [
+        sess({
+          mergeable: false,
+          mergeStateStatus: "dirty",
+          headSha: "h1",
+          rebaseSteeredHead: "h1",
+          rebaseSteeredAt: 0,
+        }),
+      ],
+      { now: REBASE_DEDUP_TTL_MS - 1 },
+    ),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("D: same unchanged conflicting head re-steers once the dedup TTL expires", () => {
+  const d = computeMerge(
+    state(
+      [
+        sess({
+          mergeable: false,
+          mergeStateStatus: "dirty",
+          headSha: "h1",
+          rebaseSteeredHead: "h1",
+          rebaseSteeredAt: 0,
+        }),
+      ],
+      { now: REBASE_DEDUP_TTL_MS },
+    ),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
+});
+
+test("D: a behind-only head keeps the PERMANENT dedup (unchanged behaviour)", () => {
+  const d = computeMerge(
+    state([sess({ behind: true, headSha: "h1", rebaseSteeredHead: "h1", rebaseSteeredAt: 0 })], {
+      now: REBASE_DEDUP_TTL_MS * 100,
+    }),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("D: rebaseSteeredAt null on a conflicting head reads as expired (fails open)", () => {
+  const d = computeMerge(
+    state([
+      sess({
+        mergeable: false,
+        mergeStateStatus: "dirty",
+        headSha: "h1",
+        rebaseSteeredHead: "h1",
+        rebaseSteeredAt: null,
+      }),
+    ]),
+  );
+  expect(d.kind).toBe("rebase");
+});
+
+test("D: conflicting head marches to rebase_cap across successive expiries", () => {
+  const mk = (count: number, now: number) =>
+    computeMerge(
+      state(
+        [
+          sess({
+            mergeable: false,
+            mergeStateStatus: "dirty",
+            headSha: "h1",
+            rebaseSteeredHead: "h1",
+            rebaseSteeredAt: 0,
+            rebaseCount: count,
+          }),
+        ],
+        { now },
+      ),
+    );
+  // Under the cap, once the window expires → another rebase.
+  expect(mk(4, REBASE_DEDUP_TTL_MS).kind).toBe("rebase");
+  // At the cap → the hand-back hold, rather than wedging silently below it.
+  expect(mk(5, REBASE_DEDUP_TTL_MS)).toEqual({
+    kind: "hold",
+    reason: { code: "rebase_cap", detail: "TASK-01", sessionId: "s1" },
+  });
+});
+
+test("H1: a BUSY session is never re-steered mid conflict-resolution", () => {
+  const d = computeMerge(
+    state([sess({ mergeable: false, mergeStateStatus: "dirty", busy: true })]),
+  );
+  expect(d).toEqual({ kind: "hold", reason: { code: "idle" } });
+});
+
+test("no head-of-line block: a capped conflicting session does not starve a behind sibling", () => {
+  const d = computeMerge(
+    state([
+      sess({
+        id: "capped",
+        mergeable: false,
+        mergeStateStatus: "dirty",
+        rebaseCount: 5,
+        headSha: "hC",
+      }),
+      sess({ id: "behind", behind: true, headSha: "hB" }),
+    ]),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "behind", headSha: "hB", conflict: false });
+});
+
+test("B: a conflicting DRAFT is rebased by the train (no isDraft gate in rebaseEligible)", () => {
+  const d = computeMerge(
+    state([sess({ isDraft: true, mergeable: null, mergeStateStatus: "dirty" })]),
+  );
+  expect(d).toEqual({ kind: "rebase", sessionId: "s1", headSha: "h1", conflict: true });
+});
+
+test("Gitea (no mergeStateStatus) gets no CI waiver — checks:none stays a hold", () => {
+  expect(computeMerge(state([sess({ checks: "none", noCi: false, mergeable: false })])).kind).toBe(
+    "hold",
+  );
 });

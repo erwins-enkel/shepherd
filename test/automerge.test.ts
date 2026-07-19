@@ -435,7 +435,10 @@ test("reset-on-progress: behind=false + mergeable=true → rebaseCount reset to 
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   // Counter was reset
-  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 0, rebaseHead: null }]);
+  expect((setState as any).mock.calls).toContainEqual([
+    "s1",
+    { rebaseCount: 0, rebaseHead: null, rebaseSteeredAt: null },
+  ]);
   // Merge was called (session is ready after reset)
   expect(merge.mock.calls.length).toBe(1);
 });
@@ -822,4 +825,59 @@ test("doMerge: non-epic repo (no epic run) records nothing", async () => {
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect((d.store.recordEpicIntegrated as any).mock.calls.length).toBe(0);
+});
+
+// ── Defect D: the conflict path must reach rebaseCap even on a dead pane ─────────
+
+test("conflict rebase on an UNRESUMABLE pane still counts + stamps (cap stays reachable)", async () => {
+  const setAutoMergeState = mock(() => {});
+  const reply = mock(() => true);
+  const s = baseSession({ autoMergeRebaseCount: 0 });
+  const d = deps({
+    store: {
+      get: () => s as any,
+      list: () => [s as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState,
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
+    } as any,
+    // Dead pane that cannot be resumed → doRebase returns before ever replying.
+    paneAlive: () => false,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => false),
+      resolveMerging: mock(() => {}),
+    } as any,
+    prCache: {
+      snapshot: () => ({
+        [s.id]: {
+          state: "open",
+          checks: "none",
+          noCi: false,
+          mergeable: false,
+          mergeStateStatus: "dirty",
+          number: 7,
+          headSha: "h1",
+        },
+      }),
+    } as any,
+    now: () => 12_345,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+
+  // Never steered (the pane is gone) — but the attempt is still recorded, so repeated pumps
+  // march to rebaseCap and hand back rather than wedging silently below it.
+  expect(reply).not.toHaveBeenCalled();
+  expect((setAutoMergeState as any).mock.calls).toContainEqual([
+    s.id,
+    { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: 12_345 },
+  ]);
 });

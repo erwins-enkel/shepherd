@@ -19,6 +19,7 @@ const OPEN_PR_STEER_MAIN = openPrSteer(false, "main");
 import type { AutopilotVerdict, Session, ReviewVerdict } from "../src/types";
 import type { BlockReason } from "../src/blocked";
 import type { GitState } from "../src/forge/types";
+import { OWNERSHIP_TTL_MS } from "../src/automerge-core";
 
 /** Drain the microtask queue to the end. considerCi (the onGit CI-fix path) fire-and-forgets
  *  driveSteer, which bumps the step only AFTER awaiting the now-async steer — two microtask hops
@@ -113,6 +114,8 @@ function harness(opts: {
   criticEnabled?: boolean;
   /** Max rebase steers before reEngageRebase hands back (default 5). */
   rebaseCap?: number;
+  /** Injected clock (default 0) so the conflict-ownership window is deterministic. */
+  now?: number;
 }) {
   let cur = opts.session;
   const events: any[] = [];
@@ -154,7 +157,11 @@ function harness(opts: {
       },
       setAutoMergeState: (
         _id: string,
-        patch: { rebaseCount?: number; rebaseHead?: string | null },
+        patch: {
+          rebaseCount?: number;
+          rebaseHead?: string | null;
+          rebaseSteeredAt?: number | null;
+        },
       ) => {
         setAutoMergeStateCalls.push({ id: _id, patch });
         cur = {
@@ -162,6 +169,10 @@ function harness(opts: {
           autoMergeRebaseCount: patch.rebaseCount ?? cur.autoMergeRebaseCount,
           autoMergeRebaseHead:
             patch.rebaseHead === undefined ? cur.autoMergeRebaseHead : patch.rebaseHead,
+          autoMergeRebaseSteeredAt:
+            patch.rebaseSteeredAt === undefined
+              ? cur.autoMergeRebaseSteeredAt
+              : patch.rebaseSteeredAt,
         };
       },
     } as any,
@@ -195,6 +206,7 @@ function harness(opts: {
     onState: (id) => events.push({ state: id }),
     stepCap: 10,
     rebaseCap: opts.rebaseCap ?? 5,
+    now: () => opts.now ?? 0,
   });
   return {
     svc,
@@ -505,7 +517,7 @@ test("onStatus running after pause resets autoMergeRebaseCount (operator interve
   h.svc.onStatus("s1", "running");
   expect(h.mergeStateCalls).toContainEqual({
     id: "s1",
-    patch: { rebaseCount: 0, rebaseHead: null },
+    patch: { rebaseCount: 0, rebaseHead: null, rebaseSteeredAt: null },
   });
   expect(h.state().autoMergeRebaseCount).toBe(0);
 });
@@ -1492,7 +1504,7 @@ test("rebase: PR mergeable+current again → resets rebaseCount, no steer", asyn
   await h.svc.onDone("s1");
   expect(h.mergeStateCalls).toContainEqual({
     id: "s1",
-    patch: { rebaseCount: 0, rebaseHead: null },
+    patch: { rebaseCount: 0, rebaseHead: null, rebaseSteeredAt: null },
   });
   expect(h.events.some((e) => e.steer === REBASE_STEER_MAIN)).toBe(false);
 });
@@ -1584,4 +1596,133 @@ test("reEngageCi respects the auth stand-down; onStatus(running) clears it", () 
   h.svc.onStatus("s1", "running"); // operator resumed → clears the stand-down
   h.svc.tick();
   expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+// ── Defects A/B/D on the autopilot side ─────────────────────────────────────────
+
+/** An open, conflicting PR snapshot. `checks` defaults to "none" — Defect A's shape, where CI
+ *  never ran because GitHub couldn't build the merge ref. */
+function dirtyGit(over: Partial<GitState> = {}): GitState {
+  return {
+    state: "open",
+    checks: "none",
+    noCi: false,
+    headSha: "sha1",
+    number: 7,
+    deployConfigured: false,
+    mergeable: false,
+    mergeStateStatus: "dirty",
+    ...over,
+  } as GitState;
+}
+
+test("A: an idle non-full-auto session with a conflicting PR + checks:none IS steered", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    prGit: dirtyGit(),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => typeof e.steer === "string")).toBe(true);
+});
+
+test("A: the conflict steer names the conflict and does NOT claim review passed", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    prGit: dirtyGit(),
+  });
+  await h.svc.tick();
+  await flush();
+  const steer = h.events.find((e) => typeof e.steer === "string")?.steer as string;
+  expect(steer).toContain("merge conflicts");
+  expect(steer).not.toContain("passed review");
+});
+
+test("B: a conflicting DRAFT is steered (the draft skip is waived on conflict)", async () => {
+  const h = harness({
+    session: sess({ status: "idle" }),
+    repoEnabled: true,
+    criticEnabled: false,
+    prGit: dirtyGit({ isDraft: true, mergeable: null }),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.events.some((e) => typeof e.steer === "string")).toBe(true);
+});
+
+test("D: reEngageRebase does NOT reset-and-bail on dirty + mergeable:null", async () => {
+  // Previously `mergeable !== false` read this as conflict-free: counter cleared, no steer,
+  // every tick — silently defeating the conflict path.
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseCount: 2 }),
+    repoEnabled: true,
+    criticEnabled: false,
+    prGit: dirtyGit({ checks: "success", mergeable: null }),
+  });
+  await h.svc.tick();
+  await flush();
+  expect(h.mergeStateCalls).not.toContainEqual({
+    id: "s1",
+    patch: { rebaseCount: 0, rebaseHead: null, rebaseSteeredAt: null },
+  });
+  expect(h.events.some((e) => typeof e.steer === "string")).toBe(true);
+});
+
+// ── red + dirty: ownership stand-down, never orphaned, never mid-work ────────────
+
+test("8(a): a RECENT steer stamp stands the CI-fix loop down (the train owns it)", async () => {
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseSteeredAt: 0, autoMergeRebaseCount: 1 }),
+    repoEnabled: true,
+    fullAuto: true,
+    now: 1_000,
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("8(d): a STALE stamp releases ownership — CI-fix resumes despite a non-zero count", async () => {
+  // The counter is deliberately non-zero: the STAMP gates this, not the count.
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseSteeredAt: 0, autoMergeRebaseCount: 3 }),
+    repoEnabled: true,
+    fullAuto: true,
+    now: OWNERSHIP_TTL_MS + 1,
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("8(f): eligibility decaying after a counted rebase still leaves the session acted on", async () => {
+  // changes_requested makes the train decline; once ownership lapses the CI-fix loop must take
+  // the session back rather than leaving it claimed by nobody.
+  const h = harness({
+    session: sess({ status: "idle", autoMergeRebaseSteeredAt: 0, autoMergeRebaseCount: 3 }),
+    repoEnabled: true,
+    fullAuto: true,
+    criticEnabled: true,
+    review: { decision: "changes_requested", findings: ["x"], headSha: "sha1" } as any,
+    now: OWNERSHIP_TTL_MS + 1,
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});
+
+test("8(g): a BUSY full-auto session is not CI-fix-steered mid-resolution, stale stamp or not", async () => {
+  const h = harness({
+    session: sess({ status: "running", autoMergeRebaseSteeredAt: 0, autoMergeRebaseCount: 1 }),
+    repoEnabled: true,
+    fullAuto: true,
+    now: OWNERSHIP_TTL_MS * 10,
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).not.toContainEqual({ steer: CI_FIX_STEER });
 });

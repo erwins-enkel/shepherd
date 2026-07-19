@@ -1157,3 +1157,50 @@ test("de: buildRundownPrompt appends the directive and renders the hold `why` li
   expect(p).toContain("Auf einem Fehler gestoppt");
   expect(p).not.toContain("Halted on an error");
 });
+
+// ── pr-conflict: Tier 1, ahead of ci-red, busy-qualified ────────────────────────
+
+test("pr-conflict is the PRIMARY hold line for a red + dirty PR (ahead of ci-red)", () => {
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeStateStatus: "dirty", number: 7 },
+  } as any;
+  const { tier, signals } = classifyAttention(s, caches, 0);
+  expect(tier).toBe(1);
+  expect(signals).toContain("pr-conflict");
+  // explainHold takes the first non-"in-flight" signal — pr-conflict must precede ci-red,
+  // or its line could never render for the case it exists to describe.
+  expect(signals.indexOf("pr-conflict")).toBeLessThan(signals.indexOf("ci-red"));
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});
+
+test("pr-conflict does NOT fire for a busy session actively resolving the conflict", () => {
+  const s = session({ status: "running" });
+  const caches = { git: { state: "open", mergeStateStatus: "dirty", number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});
+
+test("pr-conflict DOES fire for a busy-but-STALLED session (the hung-session backstop)", () => {
+  // The busy gate means such a session never reaches rebaseCap, so the signal is its only
+  // backstop.
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    stalled: true,
+  } as any;
+  expect(classifyAttention(s, caches, 0).signals).toContain("pr-conflict");
+});
+
+test("pr-conflict is omitted for a merged/closed PR", () => {
+  const s = session({ status: "idle" });
+  for (const state of ["merged", "closed"]) {
+    const caches = { git: { state, mergeStateStatus: "dirty", number: 7 } } as any;
+    expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+  }
+});
+
+test("a Gitea DRAFT (mergeable:false, no mergeStateStatus) does not fire pr-conflict", () => {
+  const s = session({ status: "idle" });
+  const caches = { git: { state: "open", mergeable: false, isDraft: true, number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});

@@ -3275,5 +3275,6 @@
   "feat_host_capacity_fix_body": "When Settings → Diagnostics warns that Shepherd — or the herdr service that runs your agents — has no memory or CPU ceiling, you can now apply a conservative, host-derived limit in one click (shown for your review first). It's a live, persistent systemd limit with no restart. Available on user-scoped installs; the guardrail check now covers herdr too.",
   "diagnostics_fix_confirm_title_host_capacity": "Apply host capacity limits?",
   "diagnostics_fix_confirm_run_host_capacity": "Apply limits",
-  "diagnostics_fix_unresolved_host_capacity": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped."
+  "diagnostics_fix_unresolved_host_capacity": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped.",
+  "hold_pr_conflict": "The PR has merge conflicts — CI can't run until it's rebased."
 }

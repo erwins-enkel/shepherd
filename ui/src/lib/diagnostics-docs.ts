@@ -15,6 +15,10 @@ export const DOC_LINKS: Record<string, string> = {
   // to the operating.md heading by test/host-capacity-doc-anchor.test.ts.
   diagnostics_hint_host_capacity_unbounded:
     "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
+  // Shepherd is bounded but herdr (which runs agent sessions) isn't — same remedy section. Present so
+  // the sub-MIN_TUNABLE herdr-gap row (no one-click Fix) still links an actionable how-to (#1839).
+  diagnostics_hint_host_capacity_herdr_unbounded:
+    "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
   diagnostics_hint_host_capacity_pressure:
     "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails",
 };

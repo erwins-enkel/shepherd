@@ -45,8 +45,10 @@
     }
   }
 
-  // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access.
-  const msg = m as unknown as Record<string, () => string>;
+  // Dynamic message key lookup — m is typed as specific functions; cast for dynamic access. The
+  // optional params bag lets code-fix messages (e.g. host_capacity #1839) interpolate their concrete
+  // values; param-less messages simply ignore the extra arg.
+  const msg = m as unknown as Record<string, (p?: Record<string, string>) => string>;
 
   function label(id: string): string {
     return msg[`diagnostics_label_${id}`]?.() ?? id;
@@ -54,6 +56,36 @@
 
   function hint(hintKey: string): string {
     return msg[hintKey]?.() ?? "";
+  }
+
+  // Confirm-modal prose for a `fixActionKey` code fix, interpolating its `fixActionParams` (if any).
+  function fixActionText(check: DiagnosticCheck): string {
+    return check.fixActionKey ? (msg[check.fixActionKey]?.(check.fixActionParams) ?? "") : "";
+  }
+
+  // Per-code-fix confirm chrome (title + run label). The generic *_code strings are folder-trust
+  // -specific, so each fixActionKey maps to its own copy — a new code fix must register here.
+  const codeFixChrome: Record<string, { title: () => string; run: () => string }> = {
+    diagnostics_fix_action_claude_trust: {
+      title: m.diagnostics_fix_confirm_title_code,
+      run: m.diagnostics_fix_confirm_run_code,
+    },
+    diagnostics_fix_action_host_capacity: {
+      title: m.diagnostics_fix_confirm_title_host_capacity,
+      run: m.diagnostics_fix_confirm_run_host_capacity,
+    },
+  };
+  function codeFixTitle(check: DiagnosticCheck): string {
+    return (
+      (check.fixActionKey && codeFixChrome[check.fixActionKey]?.title()) ||
+      m.diagnostics_fix_confirm_title_code()
+    );
+  }
+  function codeFixRun(check: DiagnosticCheck): string {
+    return (
+      (check.fixActionKey && codeFixChrome[check.fixActionKey]?.run()) ||
+      m.diagnostics_fix_confirm_run_code()
+    );
   }
 
   function stateWord(state: DiagnosticCheck["state"]): string {
@@ -144,9 +176,7 @@
        seed, so the modal uses code-fix chrome (title/run label) and renders the
        `fixActionKey` sentence as PROSE, never the command-styled <code> block. -->
   {@const codeFix = !confirming.remediation && confirming.fixActionKey}
-  {@const title = codeFix
-    ? m.diagnostics_fix_confirm_title_code()
-    : m.diagnostics_fix_confirm_title()}
+  {@const title = codeFix ? codeFixTitle(confirming) : m.diagnostics_fix_confirm_title()}
   <!-- Blocking confirm: scoped .overlay supplies position/scrim; the global .overlay
        rule (app.css) layers the blur so the diagnose tab recedes behind it. -->
   <div
@@ -165,7 +195,7 @@
     >
       <span class="micro chead">{title}</span>
       {#if codeFix}
-        <p class="desc">{hint(confirming.fixActionKey!)}</p>
+        <p class="desc">{fixActionText(confirming)}</p>
       {:else}
         <p class="desc">{m.diagnostics_fix_confirm_body()}</p>
         <!-- Verbatim command — data, not chrome → never translated. -->
@@ -176,7 +206,7 @@
           {m.common_cancel()}
         </button>
         <button type="button" class="run micro" onclick={runFix}>
-          {codeFix ? m.diagnostics_fix_confirm_run_code() : m.diagnostics_fix_confirm_run()}
+          {codeFix ? codeFixRun(confirming) : m.diagnostics_fix_confirm_run()}
         </button>
       </div>
     </div>

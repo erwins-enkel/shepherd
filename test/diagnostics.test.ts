@@ -6,11 +6,14 @@ import {
   defaultReadHerdrFleet,
   defaultRunRemediation,
   hasMeaningfulLimit,
+  herdrLimitFromProps,
   nextDiagnosticsDelay,
   parseCgroupUnit,
+  parseMemTotal,
   parsePsiAvg10,
   parseSwap,
   parseSystemctlShow,
+  proposeHostLimits,
   type DiagnosticsDeps,
   type HostCapacityFacts,
 } from "../src/diagnostics";
@@ -85,9 +88,13 @@ function healthyDeps(): DiagnosticsDeps {
     // per case to model unbounded / pressure / uninspectable.
     readHostResources: async () => ({
       unit: "shepherd.service",
+      userScope: true,
       limited: true,
+      herdrLimited: true,
       swap: { total: 8_000_000_000, used: 100_000_000 },
       pressure: { memory: 0, io: 0 },
+      memTotal: 32 * 1024 ** 3,
+      cpuCount: 8,
     }),
     // herdr_health (#1835): a clean fleet (no live orphans) → ok. Injected because the service has
     // NO functional default (defaultReadHerdrFleet needs the store + herdr driver); without this
@@ -106,13 +113,34 @@ function byId(checks: DiagnosticCheck[], id: string): DiagnosticCheck {
 // Probe-payload purity: a check carries id/state/hintKey + (optionally) the
 // non-secret `remediation` command — and NOTHING else (no stdout/tokens/paths).
 function assertPure(check: DiagnosticCheck) {
-  const allowed = new Set(["hintKey", "id", "remediation", "state", "fixActionKey"]);
+  const allowed = new Set([
+    "hintKey",
+    "id",
+    "remediation",
+    "state",
+    "fixActionKey",
+    "fixActionParams",
+  ]);
   for (const k of Object.keys(check)) expect(allowed.has(k)).toBe(true);
   expect(typeof check.id).toBe("string");
   expect(typeof check.state).toBe("string");
   expect(typeof check.hintKey).toBe("string");
   if ("remediation" in check) expect(typeof check.remediation).toBe("string");
   if ("fixActionKey" in check) expect(typeof check.fixActionKey).toBe("string");
+  // fixActionParams pins the claimed purity boundary: non-secret host facts only — unit names +
+  // limit strings, never a path (`/`), token, or identity shape.
+  if (check.fixActionParams) {
+    for (const v of Object.values(check.fixActionParams)) expect(typeof v).toBe("string");
+    if ("units" in check.fixActionParams) {
+      expect(check.fixActionParams.units).toMatch(/^[\w.-]+( [\w.-]+)*$/);
+    }
+    if ("memoryHigh" in check.fixActionParams) {
+      expect(check.fixActionParams.memoryHigh).toMatch(/^\d+G$/);
+    }
+    if ("cpuQuota" in check.fixActionParams) {
+      expect(check.fixActionParams.cpuQuota).toMatch(/^\d+%$/);
+    }
+  }
 }
 
 describe("DiagnosticsService probes", () => {
@@ -980,6 +1008,89 @@ describe("DiagnosticsService.fix", () => {
   });
 });
 
+// ── host_capacity one-click fix (#1839): code-fix dispatch by fixActionKey ──
+describe("host_capacity fix() dispatch", () => {
+  const GIB = 1024 ** 3;
+  const userUnbounded = (o: Partial<HostCapacityFacts> = {}): HostCapacityFacts => ({
+    unit: "shepherd.service",
+    userScope: true,
+    limited: false,
+    herdrLimited: false,
+    swap: null,
+    pressure: null,
+    memTotal: 32 * GIB,
+    cpuCount: 8,
+    ...o,
+  });
+
+  it("applies the carried units + values, then the re-probe flips to ok", async () => {
+    let bounded = false;
+    const applied: Array<{ units: string[]; limits: { memoryHigh: string; cpuQuota: string } }> =
+      [];
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHostResources: async () =>
+        bounded ? userUnbounded({ limited: true, herdrLimited: true }) : userUnbounded(),
+      applyHostLimits: async (units, limits) => {
+        applied.push({ units, limits });
+        bounded = true;
+      },
+    });
+    const snap = await svc.fix("host_capacity", 0);
+    expect(applied).toHaveLength(1);
+    expect(applied[0]?.units).toEqual(["shepherd.service", "herdr.service"]);
+    expect(applied[0]?.limits).toEqual({ memoryHigh: "27G", cpuQuota: "700%" });
+    expect(byId(snap.checks, "host_capacity").state).toBe("ok");
+  });
+
+  it("no-stomp: Shepherd already bounded → applies only herdr.service", async () => {
+    let units: string[] = [];
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHostResources: async () => userUnbounded({ limited: true, herdrLimited: false }),
+      applyHostLimits: async (u) => {
+        units = u;
+      },
+    });
+    await svc.fix("host_capacity", 0);
+    expect(units).toEqual(["herdr.service"]);
+  });
+
+  it("both code-fix paths coexist: fixActionKey routes host_capacity, hintKey routes claude_trust", async () => {
+    let trustCalls = 0;
+    let applyCalls = 0;
+    const deps = {
+      ...healthyDeps(),
+      readClaudeTrusted: async () => false, // untrusted → claude_trust warning with fixActionKey
+      trustClaude: async () => {
+        trustCalls++;
+      },
+      readHostResources: async () => userUnbounded(),
+      applyHostLimits: async () => {
+        applyCalls++;
+      },
+    };
+    const svc = new DiagnosticsService(deps);
+    await svc.fix("host_capacity", 0);
+    expect(applyCalls).toBe(1);
+    expect(trustCalls).toBe(0); // host_capacity fix did NOT touch the trust path
+    await svc.fix("claude_trust", 0);
+    expect(trustCalls).toBe(1);
+    expect(applyCalls).toBe(1); // claude_trust fix did NOT re-run the host limits
+  });
+
+  it("a system-scoped unbounded check has no fix → fix() throws no remediation", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readHostResources: async () => userUnbounded({ userScope: false, herdrLimited: null }),
+      applyHostLimits: async () => {
+        throw new Error("should not be called");
+      },
+    });
+    await expect(svc.fix("host_capacity", 0)).rejects.toThrow("no remediation for host_capacity");
+  });
+});
+
 // The real spawn-based runner — the riskiest code (detached group, timeout SIGKILL,
 // double-settle guard). Exercised here against actual short-lived `sh` commands; the
 // timeout path uses an injected tiny budget so it doesn't wait the real 120s.
@@ -1116,9 +1227,13 @@ describe("classifyHostCapacity", () => {
   // A systemd-managed, limited, unpressured host → ok. Override per case.
   const base: HostCapacityFacts = {
     unit: "shepherd.service",
+    userScope: true,
     limited: true,
+    herdrLimited: true,
     swap: { total: 8_000_000_000, used: 100_000_000 },
     pressure: { memory: 0, io: 0 },
+    memTotal: 32 * 1024 ** 3,
+    cpuCount: 8,
   };
   const facts = (o: Partial<HostCapacityFacts>): HostCapacityFacts => ({ ...base, ...o });
   const saturated = { total: 8_000_000_000, used: 7_900_000_000 }; // ~98% used
@@ -1139,7 +1254,16 @@ describe("classifyHostCapacity", () => {
     ],
     [
       "non-Linux (all null) → uninspectable",
-      { unit: null, limited: null, swap: null, pressure: null },
+      {
+        unit: null,
+        userScope: false,
+        limited: null,
+        herdrLimited: null,
+        swap: null,
+        pressure: null,
+        memTotal: null,
+        cpuCount: 8,
+      },
       "optional",
       "diagnostics_hint_host_capacity_uninspectable",
     ],
@@ -1185,6 +1309,37 @@ describe("classifyHostCapacity", () => {
       "error",
       "diagnostics_hint_host_capacity_pressure",
     ],
+    // ── herdr dimension (#1839) ──
+    [
+      "Shepherd bounded but herdr unbounded → warning with the DISTINCT herdr hint (durability)",
+      facts({ limited: true, herdrLimited: false }),
+      "warning",
+      "diagnostics_hint_host_capacity_herdr_unbounded",
+    ],
+    [
+      "both bounded (e.g. via shared slice) → ok (slice-greens: no new warning)",
+      facts({ limited: true, herdrLimited: true }),
+      "ok",
+      "diagnostics_hint_host_capacity_ok",
+    ],
+    [
+      "Shepherd bounded, herdr unknown (absent/system/unreadable) → ok, not a spurious warning",
+      facts({ limited: true, herdrLimited: null }),
+      "ok",
+      "diagnostics_hint_host_capacity_ok",
+    ],
+    [
+      "Shepherd unbounded + herdr unknown → warning off Shepherd alone (generic unbounded hint)",
+      facts({ limited: false, herdrLimited: null }),
+      "warning",
+      "diagnostics_hint_host_capacity_unbounded",
+    ],
+    [
+      "both unbounded → warning (generic unbounded hint)",
+      facts({ limited: false, herdrLimited: false }),
+      "warning",
+      "diagnostics_hint_host_capacity_unbounded",
+    ],
   ];
 
   for (const [name, f, state, hintKey] of cases) {
@@ -1196,6 +1351,101 @@ describe("classifyHostCapacity", () => {
       assertPure(c);
     });
   }
+});
+
+describe("host_capacity fix emission (#1839)", () => {
+  const GIB = 1024 ** 3;
+  const facts = (o: Partial<HostCapacityFacts>): HostCapacityFacts => ({
+    unit: "shepherd.service",
+    userScope: true,
+    limited: false,
+    herdrLimited: false,
+    swap: null,
+    pressure: null,
+    memTotal: 32 * GIB,
+    cpuCount: 8,
+    ...o,
+  });
+
+  it("user-scoped, both unbounded → lists BOTH units with computed values", () => {
+    const c = classifyHostCapacity(facts({ limited: false, herdrLimited: false }));
+    expect(c.fixActionKey).toBe("diagnostics_fix_action_host_capacity");
+    expect(c.fixActionParams).toEqual({
+      units: "shepherd.service herdr.service",
+      memoryHigh: "27G",
+      cpuQuota: "700%",
+    });
+    assertPure(c);
+  });
+
+  it("no-stomp: Shepherd already bounded, herdr unbounded → lists ONLY herdr", () => {
+    const c = classifyHostCapacity(facts({ limited: true, herdrLimited: false }));
+    expect(c.fixActionParams?.units).toBe("herdr.service");
+  });
+
+  it("Shepherd unbounded, herdr unknown → lists ONLY Shepherd's unit", () => {
+    const c = classifyHostCapacity(facts({ limited: false, herdrLimited: null }));
+    expect(c.fixActionParams?.units).toBe("shepherd.service");
+  });
+
+  it("system-scoped → doc-link only, no fixActionKey", () => {
+    const c = classifyHostCapacity(facts({ userScope: false, herdrLimited: null }));
+    expect(c.state).toBe("warning");
+    expect(c.fixActionKey).toBeUndefined();
+    expect(c.fixActionParams).toBeUndefined();
+  });
+
+  it("below MIN_TUNABLE (memTotal < 6 GiB) → doc-link only, no fixActionKey", () => {
+    const c = classifyHostCapacity(facts({ memTotal: 4 * GIB }));
+    expect(c.state).toBe("warning");
+    expect(c.fixActionKey).toBeUndefined();
+  });
+});
+
+describe("proposeHostLimits (#1839)", () => {
+  const GIB = 1024 ** 3;
+  it("32 GiB / 8 core → 27G / 700% (reserve capped, one core for OS)", () => {
+    expect(proposeHostLimits(32 * GIB, 8)).toEqual({ memoryHigh: "27G", cpuQuota: "700%" });
+  });
+  it("6 GiB boundary → 4G (reserve floored at 2 GiB, still ≈67% of RAM)", () => {
+    expect(proposeHostLimits(6 * GIB, 8).memoryHigh).toBe("4G");
+  });
+  it("2-core → 170% (85% ceiling, NOT a halved 100%)", () => {
+    expect(proposeHostLimits(32 * GIB, 2).cpuQuota).toBe("170%");
+  });
+  it("4-core → 340%", () => {
+    expect(proposeHostLimits(32 * GIB, 4).cpuQuota).toBe("340%");
+  });
+  it("1-core → 85% (leaves 15% headroom)", () => {
+    expect(proposeHostLimits(32 * GIB, 1).cpuQuota).toBe("85%");
+  });
+  it("very large host → reserve capped at 8 GiB", () => {
+    expect(proposeHostLimits(128 * GIB, 8).memoryHigh).toBe("120G");
+  });
+});
+
+describe("herdrLimitFromProps (#1839 — the not-found regression pin)", () => {
+  it("absent/non-user unit (LoadState=not-found, MemoryHigh=infinity) → null, NOT false", () => {
+    expect(herdrLimitFromProps({ LoadState: "not-found", MemoryHigh: "infinity" })).toBeNull();
+  });
+  it("masked → null", () => {
+    expect(herdrLimitFromProps({ LoadState: "masked" })).toBeNull();
+  });
+  it("loaded + no limit → false", () => {
+    expect(herdrLimitFromProps({ LoadState: "loaded", MemoryHigh: "infinity" })).toBe(false);
+  });
+  it("loaded + a limit → true", () => {
+    expect(herdrLimitFromProps({ LoadState: "loaded", MemoryHigh: "6G" })).toBe(true);
+  });
+});
+
+describe("parseMemTotal (#1839)", () => {
+  it("parses MemTotal kB → bytes", () => {
+    expect(parseMemTotal("MemTotal:       32768000 kB\nSwapTotal: 0 kB\n")).toBe(32768000 * 1024);
+  });
+  it("null when absent", () => {
+    expect(parseMemTotal("SwapTotal: 0 kB\n")).toBeNull();
+  });
 });
 
 describe("host_capacity parsers", () => {
@@ -1283,11 +1533,17 @@ describe("host_capacity probe (via injected readHostResources)", () => {
   it("unbounded facts → warning, degrades overall", async () => {
     const svc = new DiagnosticsService({
       ...healthyDeps(),
+      // system-scoped ⇒ doc-link only (no fixActionKey), so the existing warning/unbounded/pure
+      // assertions are unchanged by the #1839 fix.
       readHostResources: async () => ({
         unit: "shepherd.service",
+        userScope: false,
         limited: false,
+        herdrLimited: null,
         swap: { total: 8_000_000_000, used: 100_000_000 },
         pressure: { memory: 0, io: 0 },
+        memTotal: null,
+        cpuCount: 8,
       }),
     });
     const snap = await svc.check(1000);

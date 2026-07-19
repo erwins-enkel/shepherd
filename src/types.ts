@@ -479,6 +479,12 @@ export interface DiagnosticCheck {
    *  payload-purity bans from `remediation` (claude folder-trust seed). Mutually
    *  exclusive with `remediation`. Still a message key only — no path ever crosses. */
   fixActionKey?: string;
+  /** Non-secret params for a `fixActionKey` code fix: interpolated into the confirm-modal message AND
+   *  consumed server-side by `fix()` to apply exactly what was reviewed. Carries only host facts —
+   *  unit names + RAM/CPU-derived limit strings (e.g. `{units:"shepherd.service herdr.service",
+   *  memoryHigh:"27G", cpuQuota:"700%"}`, host_capacity #1839). NEVER tokens, absolute paths, or
+   *  identity. `undefined` for param-less code fixes (claude folder-trust). */
+  fixActionParams?: Record<string, string>;
 }
 
 /** The full diagnostics payload returned by GET /api/diagnostics and pushed on

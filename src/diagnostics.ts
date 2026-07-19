@@ -1,5 +1,6 @@
 import { execFile, spawn } from "node:child_process";
 import { readFile } from "node:fs/promises";
+import { cpus } from "node:os";
 import { promisify } from "node:util";
 import {
   BUN_MIN_VERSION,
@@ -151,6 +152,13 @@ export interface DiagnosticsDeps {
    *  is a fail-safe reject so an unwired service resolves to `optional`/uninspectable rather than a
    *  false `ok`. Wired in `index.ts` via `defaultReadHerdrFleet`; injected in tests. */
   readHerdrFleet?: () => Promise<HerdrFleetFacts>;
+  /** Apply the `host_capacity` one-click fix (#1839): `systemctl --user set-property <unit>
+   *  MemoryHigh=… CPUQuota=…` on each unbounded unit (live + persistent, no restart). Default runs
+   *  the real command; injected in tests to spy the fix without touching a real unit. */
+  applyHostLimits?: (
+    units: string[],
+    limits: { memoryHigh: string; cpuQuota: string },
+  ) => Promise<void>;
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -310,15 +318,28 @@ export interface HostCapacityFacts {
   /** The `*.service` this process runs under (from `/proc/self/cgroup`), else null when
    *  not run as a managed service (a `bun run` in a login `*.scope`, or non-systemd). */
   unit: string | null;
+  /** Whether the process runs under a systemd `user@…` manager (⇒ `systemctl --user`, and the
+   *  server can `set-property` without root). Gates whether the one-click fix (#1839) is offered. */
+  userScope: boolean;
   /** Whether `unit` OR its custom slice has a meaningful limit (MemoryHigh/MemoryMax/CPUQuota).
    *  null when `unit` is null OR the unit was found but its limits couldn't be read — either
    *  way the guardrail verdict is unknown and `classify` falls through to uninspectable. */
   limited: boolean | null;
+  /** Whether `herdr.service` (the sibling user unit running agent sessions) OR its custom slice has a
+   *  meaningful limit. `null` when it is not a *loaded user* unit (absent / masked / system-scoped) or
+   *  is unreadable — either way it is excluded from the verdict and the fix. Read only on the
+   *  `userScope` path (the only scope the `--user` fix can act on). */
+  herdrLimited: boolean | null;
   /** Swap totals in bytes, or null when `/proc/meminfo` is unreadable. `total: 0` ⇒ no swap. */
   swap: { total: number; used: number } | null;
   /** PSI avg10 (% of the last 10s tasks were stalled) for memory/io; a field is null when that
    *  `/proc/pressure/<res>` is absent, and the whole struct is null when neither exists. */
   pressure: { memory: number | null; io: number | null } | null;
+  /** Total RAM in bytes (`/proc/meminfo` MemTotal), or null when unreadable. Drives `proposeHostLimits`. */
+  memTotal: number | null;
+  /** Host logical core count (`os.cpus().length`) — the box's total cores for CPUQuota headroom
+   *  sizing, deliberately NOT the affinity-masked `os.availableParallelism()`. */
+  cpuCount: number;
 }
 
 /** Parse `/proc/self/cgroup`. cgroup v2 emits a single `0::<path>` line; we trust only that
@@ -331,6 +352,44 @@ export function parseCgroupUnit(cgroup: string): { unit: string | null; userScop
   const userScope = path.includes("/user@");
   const leaf = path.split("/").filter(Boolean).pop() ?? "";
   return { unit: leaf.endsWith(".service") ? leaf : null, userScope };
+}
+
+// ── host_capacity one-click fix (#1839) ──────────────────────────────────────
+// The fix dispatches on HOST_CAPACITY_FIX_ACTION (a `fixActionKey`), NOT a hintKey, because both the
+// Shepherd-unbounded and the herdr-gap warnings can carry it — hintKey alone can't discriminate.
+// HERDR_UNIT is the sibling user unit that runs agent sessions (deploy/herdr.service). MIN_TUNABLE
+// guards auto-tuning implausibly small hosts (the boundary yields MemoryHigh=4G, still conservative).
+const HOST_CAPACITY_UNBOUNDED_HINT = "diagnostics_hint_host_capacity_unbounded";
+const HOST_CAPACITY_HERDR_UNBOUNDED_HINT = "diagnostics_hint_host_capacity_herdr_unbounded";
+const HOST_CAPACITY_FIX_ACTION = "diagnostics_fix_action_host_capacity";
+const HERDR_UNIT = "herdr.service";
+const GIB = 1024 ** 3;
+const MIN_TUNABLE_MEMTOTAL = 6 * GIB;
+
+/** Interpret a `systemctl --user show herdr.service` prop map into herdr's unit-level guardrail state.
+ *  `systemctl show` EXITS 0 for an absent / non-user unit with `LoadState=not-found` (+
+ *  `MemoryHigh=infinity`), so a bare `hasMeaningfulLimit` would read a spurious `false` (positively
+ *  unbounded). Any non-`loaded` LoadState ⇒ `null` (unknown → excluded from verdict + fix); a loaded
+ *  unit ⇒ its unit-level verdict (the caller folds in a custom slice, as for Shepherd's unit). */
+export function herdrLimitFromProps(props: Record<string, string>): boolean | null {
+  if (props.LoadState !== "loaded") return null;
+  return hasMeaningfulLimit(props);
+}
+
+/** Conservative host-derived guardrail values for the one-click fix (#1839). `MemoryHigh` (soft cap,
+ *  reclaim/throttle, never OOM-kills) leaves `clamp(15%, 2GiB, 8GiB)` headroom; `CPUQuota` leaves
+ *  `min(1 core, 15% of cores)` for the OS — so a 2-core host keeps an 85% ceiling (`170%`), not a
+ *  halved `100%`, while large hosts reserve just one core. Whole-GiB / integer-percent strings so
+ *  systemd parses them unambiguously. */
+export function proposeHostLimits(
+  memTotal: number,
+  cpuCount: number,
+): { memoryHigh: string; cpuQuota: string } {
+  const reserve = Math.min(Math.max(0.15 * memTotal, 2 * GIB), 8 * GIB);
+  const memoryHigh = `${Math.floor((memTotal - reserve) / GIB)}G`;
+  const headroomPct = Math.min(100, Math.round(15 * cpuCount));
+  const cpuQuota = `${100 * cpuCount - headroomPct}%`;
+  return { memoryHigh, cpuQuota };
 }
 
 /** Parse `systemctl show` KEY=VALUE lines into a map. */
@@ -359,6 +418,12 @@ export function parsePsiAvg10(psi: string): number | null {
   const some = psi.split("\n").find((l) => l.startsWith("some "));
   const m = some?.match(/avg10=(\d+(?:\.\d+)?)/);
   return m ? Number(m[1]) : null;
+}
+
+/** Parse MemTotal (bytes) from `/proc/meminfo`; null when the field is missing. */
+export function parseMemTotal(meminfo: string): number | null {
+  const m = meminfo.match(/^MemTotal:\s+(\d+)\s+kB/m);
+  return m ? Number(m[1]) * 1024 : null;
 }
 
 /** Parse swap totals (bytes) from `/proc/meminfo`; null when the fields are missing. */
@@ -396,9 +461,37 @@ export function classifyHostCapacity(f: HostCapacityFacts): DiagnosticCheck {
     return { id, state: "error", hintKey: "diagnostics_hint_host_capacity_pressure" };
   }
   if (f.unit !== null && f.limited !== null) {
-    return f.limited
-      ? { id, state: "ok", hintKey: "diagnostics_hint_host_capacity_ok" }
-      : { id, state: "warning", hintKey: "diagnostics_hint_host_capacity_unbounded" };
+    // `ok` only when Shepherd's unit is bounded AND herdr is bounded-or-unknown — so the green pip
+    // durably reflects both units, not just Shepherd's (#1839). A positively-unbounded herdr keeps
+    // the row `warning` even when Shepherd itself is bounded.
+    if (f.limited && f.herdrLimited !== false) {
+      return { id, state: "ok", hintKey: "diagnostics_hint_host_capacity_ok" };
+    }
+    // The currently-unbounded, one-click-fixable units. A unit that is already limited or unknown is
+    // NOT listed — the fix never overwrites a deliberate operator limit nor touches an unknown unit.
+    const units: string[] = [];
+    if (!f.limited) units.push(f.unit);
+    if (f.herdrLimited === false) units.push(HERDR_UNIT);
+    // Distinct hint when only herdr is unbounded — the generic "no guardrails" copy would misdescribe
+    // a bounded Shepherd.
+    const check: DiagnosticCheck = {
+      id,
+      state: "warning",
+      hintKey: f.limited ? HOST_CAPACITY_HERDR_UNBOUNDED_HINT : HOST_CAPACITY_UNBOUNDED_HINT,
+    };
+    // Offer the fix only on a user-scoped, tunable host with at least one unbounded unit. The values
+    // are carried on the check so the modal reviews — and `fix()` applies — exactly what was computed.
+    if (
+      f.userScope &&
+      f.memTotal !== null &&
+      f.memTotal >= MIN_TUNABLE_MEMTOTAL &&
+      units.length > 0
+    ) {
+      const { memoryHigh, cpuQuota } = proposeHostLimits(f.memTotal, f.cpuCount);
+      check.fixActionKey = HOST_CAPACITY_FIX_ACTION;
+      check.fixActionParams = { units: units.join(" "), memoryHigh, cpuQuota };
+    }
+    return check;
   }
   return { id, state: "optional", hintKey: "diagnostics_hint_host_capacity_uninspectable" };
 }
@@ -420,13 +513,17 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
     /* non-Linux / no cgroup v2 ⇒ unit stays null */
   }
 
-  const showLimits = async (target: string): Promise<Record<string, string>> => {
+  // `asUser` is explicit (not the closed-over `userScope`) so the herdr read can force `--user`
+  // regardless of Shepherd's scope — a loaded user herdr is the only thing the `--user` fix can act on.
+  const showLimits = async (target: string, asUser: boolean): Promise<Record<string, string>> => {
     const { stdout } = await execFileAsync(
       "systemctl",
       [
-        ...(userScope ? ["--user"] : []),
+        ...(asUser ? ["--user"] : []),
         "show",
         target,
+        "-p",
+        "LoadState",
         "-p",
         "MemoryHigh",
         "-p",
@@ -443,29 +540,57 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
     return parseSystemctlShow(stdout.toString());
   };
 
+  // Fold a custom slice's limit into a unit-level `false`: a unit with no direct limit still counts as
+  // bounded when it sits under a bounded custom slice (e.g. the recommended `shepherd.slice`).
+  const withSlice = async (
+    base: boolean,
+    props: Record<string, string>,
+    asUser: boolean,
+  ): Promise<boolean> => {
+    if (base) return true;
+    const slice = props.Slice;
+    if (slice && !DEFAULT_SLICES.has(slice)) {
+      try {
+        return hasMeaningfulLimit(await showLimits(slice, asUser));
+      } catch {
+        /* slice unreadable ⇒ keep the service-level verdict (false) */
+      }
+    }
+    return base;
+  };
+
   // null (not false) when the unit is known but its limits can't be read — classify then treats
   // the guardrail verdict as unknown (uninspectable) rather than a false `unbounded`.
   let limited: boolean | null = null;
   if (unit) {
     try {
-      const props = await showLimits(unit);
-      limited = hasMeaningfulLimit(props);
-      const slice = props.Slice;
-      if (!limited && slice && !DEFAULT_SLICES.has(slice)) {
-        try {
-          limited = hasMeaningfulLimit(await showLimits(slice));
-        } catch {
-          /* slice unreadable ⇒ keep the service-level verdict (false) */
-        }
-      }
+      const props = await showLimits(unit, userScope);
+      limited = await withSlice(hasMeaningfulLimit(props), props, userScope);
     } catch {
       limited = null; // systemctl absent/failed ⇒ unknown, not unbounded
     }
   }
 
+  // herdr.service is only read on the userScope path (the fix is user-only) and always via `--user`.
+  // `herdrLimitFromProps` maps a non-loaded unit (absent / masked / system-scoped) to null so it is
+  // excluded from both the verdict and the fix — no spurious warning, no un-appliable button (#1839).
+  let herdrLimited: boolean | null = null;
+  if (userScope) {
+    try {
+      const props = await showLimits(HERDR_UNIT, true);
+      const base = herdrLimitFromProps(props);
+      herdrLimited = base === null ? null : await withSlice(base, props, true);
+    } catch {
+      herdrLimited = null; // systemctl absent/failed ⇒ unknown
+    }
+  }
+
   let swap: { total: number; used: number } | null = null;
+  let memTotal: number | null = null;
   try {
-    swap = parseSwap(await readFile("/proc/meminfo", "utf8"));
+    const meminfo = await readFile("/proc/meminfo", "utf8");
+    swap = parseSwap(meminfo);
+    memTotal = parseMemTotal(meminfo);
   } catch {
     /* no /proc/meminfo */
   }
@@ -480,7 +605,33 @@ async function defaultReadHostResources(): Promise<HostCapacityFacts> {
   const [memory, io] = await Promise.all([readPsi("memory"), readPsi("io")]);
   const pressure = memory !== null || io !== null ? { memory, io } : null;
 
-  return { unit, limited, swap, pressure };
+  return {
+    unit,
+    userScope,
+    limited,
+    herdrLimited,
+    swap,
+    pressure,
+    memTotal,
+    cpuCount: cpus().length,
+  };
+}
+
+/** Default `applyHostLimits`: `systemctl --user set-property <unit> MemoryHigh=… CPUQuota=…` per
+ *  (de-duped) unit — live + persistent, no restart. `--user` is always valid: a fix is only emitted
+ *  for a user-scoped Shepherd, and herdr is only listed once `--user show` proved it a loaded user
+ *  unit. execFile argv (no shell) + server-computed limit strings ⇒ no injection surface (#1839). */
+async function defaultApplyHostLimits(
+  units: string[],
+  { memoryHigh, cpuQuota }: { memoryHigh: string; cpuQuota: string },
+): Promise<void> {
+  for (const unit of new Set(units)) {
+    await execFileAsync(
+      "systemctl",
+      ["--user", "set-property", unit, `MemoryHigh=${memoryHigh}`, `CPUQuota=${cpuQuota}`],
+      { encoding: "utf8", timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS },
+    );
+  }
 }
 
 // ── herdr_health check (#1835) ────────────────────────────────────────────────
@@ -583,6 +734,10 @@ export class DiagnosticsService {
   private isApiKeyAuth: () => boolean;
   private readHostResources: () => Promise<HostCapacityFacts>;
   private readHerdrFleet: () => Promise<HerdrFleetFacts>;
+  private applyHostLimits: (
+    units: string[],
+    limits: { memoryHigh: string; cpuQuota: string },
+  ) => Promise<void>;
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -639,6 +794,7 @@ export class DiagnosticsService {
     // resolves the probe to its `optional`/uninspectable `onTimeout` — never a false ok/warning.
     this.readHerdrFleet =
       deps.readHerdrFleet ?? (() => Promise.reject(new Error("readHerdrFleet unwired")));
+    this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
   }
 
   /**
@@ -1026,15 +1182,17 @@ export class DiagnosticsService {
     return this.check(now);
   }
 
-  /** Run the fix for `checkId`'s current hintKey, then force a fresh probe and return
-   *  the new snapshot. Two dispatch paths, both fail-closed (a rejection propagates so
-   *  the caller maps it to an explicit failure, never a false pass):
-   *   - **code fix** (dispatched by hintKey): the `claude_trust` untrusted check seeds
-   *     `config.repoRoot`'s folder-trust flag — a dynamic path payload-purity keeps out
-   *     of `remediation`, so it has no shell command. Read-gated (skips the write when
-   *     already trusted); same whole-file clobber caveat as the /usage probe seed.
+  /** Run the fix for `checkId`, then force a fresh probe and return the new snapshot. Three dispatch
+   *  paths, all fail-closed (a rejection propagates so the caller maps it to an explicit failure,
+   *  never a false pass):
+   *   - **claude_trust code fix** (dispatched by hintKey): seeds `config.repoRoot`'s folder-trust flag
+   *     — a dynamic path payload-purity keeps out of `remediation`, so it has no shell command.
+   *     Read-gated (skips the write when already trusted); same whole-file clobber caveat as the
+   *     /usage probe seed.
+   *   - **host_capacity code fix** (dispatched by `fixActionKey`): `set-property` the carried
+   *     `MemoryHigh`/`CPUQuota` on the carried unbounded units (#1839).
    *   - **shell remediation**: the verbatim command for the hintKey.
-   *  Throws if the check is unknown or has neither a code fix nor an auto-fix command. */
+   *  Throws if the check is unknown or has no code fix and no auto-fix command. */
   async fix(checkId: string, now: number): Promise<DiagnosticsSnapshot> {
     const snapshot = await this.current(now);
     const check = snapshot.checks.find((c) => c.id === checkId);
@@ -1042,6 +1200,16 @@ export class DiagnosticsService {
     if (check.hintKey === CLAUDE_TRUST_UNTRUSTED_HINT) {
       if (!(await this.readClaudeTrusted())) await this.trustClaude(); // read-gated seed
       return this.check(now); // forced re-probe reflects the fix
+    }
+    // host_capacity code fix (#1839): dispatch on the fixActionKey (NOT hintKey — two warning
+    // hintKeys can carry it) and apply exactly the units + values the snapshot check carried, so the
+    // operator applies precisely what the confirm modal reviewed.
+    if (check.fixActionKey === HOST_CAPACITY_FIX_ACTION && check.fixActionParams) {
+      const { units, memoryHigh, cpuQuota } = check.fixActionParams;
+      if (units && memoryHigh && cpuQuota) {
+        await this.applyHostLimits(units.split(" ").filter(Boolean), { memoryHigh, cpuQuota });
+        return this.check(now); // forced re-probe reflects the fix
+      }
     }
     const cmd = autoFixCommandFor(check.hintKey);
     if (!cmd) throw new Error(`no remediation for ${checkId}`);

@@ -3268,5 +3268,12 @@
   "feat_resizable_repos_title": "Resize the Repos window",
   "feat_resizable_repos_body": "On desktop the Repos window now opens much larger and remembers your size: drag the bottom-right corner to resize the whole window, and drag the divider between the repository list and the detail pane to widen either side. Both sizes are saved in this browser; double-click a handle to reset.",
   "feat_scratchpad_attachments_title": "Task attachments show in the Files tab",
-  "feat_scratchpad_attachments_body": "Screenshots and files you attach when creating a task now appear in the session's Files tab from the start, under a new Attachments folder in the Scratchpad view — alongside any images you paste in mid-session. It works for every agent, including ones without a scratchpad of their own."
+  "feat_scratchpad_attachments_body": "Screenshots and files you attach when creating a task now appear in the session's Files tab from the start, under a new Attachments folder in the Scratchpad view — alongside any images you paste in mid-session. It works for every agent, including ones without a scratchpad of their own.",
+  "diagnostics_hint_host_capacity_herdr_unbounded": "Shepherd's own service is bounded, but the herdr service that runs your agent sessions has no memory or CPU ceiling — a runaway session could still starve the host. Add a [[host-capacity|host capacity]] limit to herdr too.",
+  "diagnostics_fix_action_host_capacity": "Shepherd will set MemoryHigh={memoryHigh} and CPUQuota={cpuQuota} on these units: {units}. This applies a live, persistent limit — no restart, no interrupted sessions. It bounds each unit on its own; for one shared cap across Shepherd and herdr, set up a shepherd.slice (see How to fix).",
+  "feat_host_capacity_fix_title": "One-click host capacity limit",
+  "feat_host_capacity_fix_body": "When Settings → Diagnostics warns that Shepherd — or the herdr service that runs your agents — has no memory or CPU ceiling, you can now apply a conservative, host-derived limit in one click (shown for your review first). It's a live, persistent systemd limit with no restart. Available on user-scoped installs; the guardrail check now covers herdr too.",
+  "diagnostics_fix_confirm_title_host_capacity": "Apply host capacity limits?",
+  "diagnostics_fix_confirm_run_host_capacity": "Apply limits",
+  "diagnostics_fix_unresolved_host_capacity": "Shepherd applied the limits, but the check is still not OK — give it a moment, or check the unit is user-scoped."
 }

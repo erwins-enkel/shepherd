@@ -1584,6 +1584,9 @@ export interface DiagnosticCheck {
    *  rendered as prose in the confirm modal instead of a `<code>` block. Mutually
    *  exclusive with `remediation`; either one enables the Fix button. */
   fixActionKey?: string;
+  /** Non-secret params interpolated into the `fixActionKey` message (host facts only — unit names +
+   *  limit strings, e.g. host_capacity #1839). `undefined` for param-less code fixes. */
+  fixActionParams?: Record<string, string>;
 }
 export interface DiagnosticsSnapshot {
   checks: DiagnosticCheck[];

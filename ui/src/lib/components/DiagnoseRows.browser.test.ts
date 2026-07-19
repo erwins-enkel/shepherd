@@ -232,6 +232,45 @@ describe("DiagnoseRows code-fix (fixActionKey) branch", () => {
     expect(onfix).toHaveBeenCalledTimes(1);
     expect(onfix).toHaveBeenCalledWith("claude_trust");
   });
+
+  // host_capacity (#1839): a code fix WITH fixActionParams — the modal must interpolate the concrete
+  // host-derived values + units, not render raw {placeholders}. (The claude_trust tests above, still
+  // green, prove the widened message cast didn't regress the param-less code-fix path.)
+  it("host_capacity code fix: confirm modal interpolates the concrete values + units", async () => {
+    const params = { units: "shepherd.service herdr.service", memoryHigh: "27G", cpuQuota: "700%" };
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "host_capacity",
+            state: "warning",
+            hintKey: "diagnostics_hint_host_capacity_unbounded",
+            fixActionKey: "diagnostics_fix_action_host_capacity",
+            fixActionParams: params,
+          }),
+        ],
+      },
+    });
+
+    await page.getByRole("button", { name: m.diagnostics_fix() }).click();
+
+    const dlg = document.querySelector('[role="dialog"][aria-modal="true"]');
+    expect(dlg).not.toBeNull();
+    // the fully-interpolated sentence (proves params are threaded through the widened cast)
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_action_host_capacity(params));
+    expect(dlg?.textContent).toContain("27G");
+    expect(dlg?.textContent).toContain("700%");
+    expect(dlg?.textContent).toContain("shepherd.service herdr.service");
+    // still code-fix chrome — prose, not a shell command block
+    expect(dlg?.querySelector("code.cmd")).toBeNull();
+    // host_capacity chrome — NOT the folder-trust title/button (the reported bug)
+    expect(dlg?.getAttribute("aria-label")).toBe(m.diagnostics_fix_confirm_title_host_capacity());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_title_host_capacity());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_run_host_capacity());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_title_code());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_run_code());
+  });
 });
 
 describe("DiagnoseRows host_capacity guidance", () => {

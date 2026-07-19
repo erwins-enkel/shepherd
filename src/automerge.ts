@@ -390,35 +390,42 @@ export class AutoMergeService {
     // liveTerminalIds().has(herdrAgentId) (service.ts). A herdr-recreated pane whose agent id has
     // not been re-pointed therefore reads ALIVE to the resume gate and DEAD to reply — skipping
     // the resume branch entirely and failing at reply.
-    const recordAttempt = (steeredAt?: number) =>
+    // `head` is deliberately NOT recorded on the behind FAILURE arms. rebaseAvailable's
+    // behind-path per-head dedup is PERMANENT, so stamping the head after a steer that never
+    // landed would make needsRebase false forever — and since BOTH computeMerge scans (stale and
+    // capped) are gated on it, the session would fall through to an idle hold with no re-steer,
+    // no rebase_cap and no hand-back. That is the silent wedge reEngageRebase's doc warns about
+    // (autopilot.ts:686-690). Counting without the head instead lets it march to rebaseCap and
+    // surface the hold, bounding the slot it occupies at `rebaseCap` pumps.
+    //
+    // The conflict path DOES record the head, because its dedup expires on REBASE_DEDUP_TTL_MS.
+    const recordAttempt = (opts: { head: boolean; steeredAt?: number }) =>
       this.deps.store.setAutoMergeState(sessionId, {
         rebaseCount: s.autoMergeRebaseCount + 1,
-        rebaseHead: headSha,
-        // Conflict-only: drives the expiring dedup + the CI-fix ownership window. The `behind`
-        // path has no stamp (its per-head dedup is permanent), so leave it untouched there.
-        ...(steeredAt === undefined ? {} : { rebaseSteeredAt: steeredAt }),
+        ...(opts.head ? { rebaseHead: headSha } : {}),
+        ...(opts.steeredAt === undefined ? {} : { rebaseSteeredAt: opts.steeredAt }),
       });
 
     // Conflict path records BEFORE the attempt so the stamp exists even if we bail below.
-    if (conflict) recordAttempt(this.now());
+    if (conflict) recordAttempt({ head: true, steeredAt: this.now() });
 
     if (!this.deps.paneAlive(sessionId) || this.deps.deferSteer?.(sessionId)) {
       // Not live, OR a herdr-restored account husk that must be re-driven first (else the rebase steer
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.
       if (!(await this.deps.service.resume(sessionId))) {
-        if (!conflict) recordAttempt();
+        if (!conflict) recordAttempt({ head: false });
         return;
       }
     }
     if (await this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
-      if (!conflict) recordAttempt(); // conflict path already recorded above — don't double-count
+      if (!conflict) recordAttempt({ head: true }); // conflict path already recorded above
       // A rebase is a fresh procedural task; give autopilot a clean step budget so unblocking
       // the rebase across several gates doesn't trip the runaway cap and pause spuriously.
       this.deps.store.setAutopilotState(sessionId, { stepCount: 0 });
     } else if (!conflict) {
-      // Steer did not land on a pane that read as alive (see the liveness note above). Record it
-      // anyway, or this session head-of-line blocks every sibling on the next pump.
-      recordAttempt();
+      // Steer did not land on a pane that read as alive (see the liveness note above). Record the
+      // attempt — but NOT the head, per the note above, or the permanent dedup wedges it silently.
+      recordAttempt({ head: false });
     }
   }
 

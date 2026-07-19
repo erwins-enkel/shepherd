@@ -245,7 +245,10 @@ test("rebase steer fails to deliver → attempt IS recorded (was: not bumped)", 
   const svc = new AutoMergeService(d);
   await svc.pump("/r");
   expect(reply.mock.calls.length).toBe(1);
-  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 1, rebaseHead: "h1" }]);
+  // Count only — NOT rebaseHead. The behind-path per-head dedup is permanent, so stamping the
+  // head after a steer that never landed would make needsRebase false forever and silence BOTH
+  // computeMerge scans, wedging the session with no cap hold and no hand-back.
+  expect((setState as any).mock.calls).toContainEqual(["s1", { rebaseCount: 1 }]);
 });
 
 // ── multi-session ──────────────────────────────────────────────────────────────
@@ -929,12 +932,10 @@ test("behind rebase on a DEAD pane records the attempt (no head-of-line block on
   await svc.pump("/r");
 
   expect(reply).not.toHaveBeenCalled();
-  // Counted + head recorded, so rebaseAvailable's per-head dedup now suppresses it and the
-  // next pump is free to serve a sibling. No rebaseSteeredAt — that stamp is conflict-only.
-  expect((setAutoMergeState as any).mock.calls).toContainEqual([
-    s.id,
-    { rebaseCount: 1, rebaseHead: "h1" },
-  ]);
+  // Counted, but WITHOUT rebaseHead: the behind dedup is permanent, so recording the head after
+  // a failed steer would wedge the session below the cap forever with no hand-back. Counting
+  // alone lets it march to rebaseCap and surface the hold, bounding the slot it occupies.
+  expect((setAutoMergeState as any).mock.calls).toContainEqual([s.id, { rebaseCount: 1 }]);
 });
 
 test("behind rebase whose steer FAILS on a live pane still records (no head-of-line block)", async () => {
@@ -977,8 +978,5 @@ test("behind rebase whose steer FAILS on a live pane still records (no head-of-l
   await svc.pump("/r");
 
   expect(resume).not.toHaveBeenCalled(); // proves we took the live-pane arm, not the dead one
-  expect((setAutoMergeState as any).mock.calls).toContainEqual([
-    s.id,
-    { rebaseCount: 1, rebaseHead: "h1" },
-  ]);
+  expect((setAutoMergeState as any).mock.calls).toContainEqual([s.id, { rebaseCount: 1 }]);
 });

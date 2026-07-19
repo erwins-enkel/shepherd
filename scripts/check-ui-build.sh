@@ -11,8 +11,22 @@
 #   - `.github/workflows/ci.yml` and `scripts/pre-push.ts` must stay in sync (see the
 #     job header at ci.yml:24-29). Both call this, so there is ONE implementation to
 #     keep correct rather than two copies of the same shell.
-#   - It also covers the case the Svelte-scoped `no-restricted-imports` lint rule
-#     provably cannot: a static import from a plain `ui/src/lib/*.ts` helper.
+#   - It is not library-specific: the `no-restricted-imports` rule in eslint.config.js
+#     names marked/dompurify, while this fires for ANY module that regresses this way.
+#
+# Known hole — do NOT assume this gate is exhaustive. Rollup emits the warning only for
+# some static importers, so a static import is caught in some files and silently
+# ignored in others. Measured on this repo:
+#
+#   ui/src/lib/components/GitRail.svelte  -> warns      (caught here + by eslint)
+#   ui/src/lib/recaps.svelte.ts           -> warns      (caught here + by eslint)
+#   ui/src/lib/api.ts                     -> NO warning (caught by NEITHER)
+#
+# A static import from a plain `.ts` helper can therefore defeat lazy-loading with both
+# gates green, because Rollup itself stays silent. That case is uncovered; review is the
+# only thing standing behind it. (An earlier version of this comment claimed the
+# opposite — that this script covered the plain-`.ts` case the Svelte-scoped lint rule
+# cannot see. That was inference; the measurement above disproved it.)
 #
 # Note this deliberately does NOT live in ui/vite.config.ts. Both in-build hooks were
 # tried and neither works: `build.rollupOptions.onwarn` is overridden by SvelteKit's

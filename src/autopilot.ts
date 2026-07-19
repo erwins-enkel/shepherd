@@ -727,10 +727,16 @@ export class AutopilotService {
       return true;
     }
     // Count the attempt regardless of whether the steer lands (see the no-dedup note above).
-    // rebaseSteeredAt is CONFLICT-ONLY, matching doRebase and both readers: rebaseAvailable
-    // (automerge-core) and conflictOwnedByRebaser below each check it only under
-    // isDefiniteConflict, so a behind-path stamp would be write-only data contradicting the
-    // field's documented contract in store.ts.
+    //
+    // rebaseSteeredAt is written CONFLICT-ONLY here, matching doRebase and the field's documented
+    // contract in store.ts ("the last conflict-path rebase steer"). Note what this is NOT: on
+    // THIS path no consumer ever reads the stamp. reEngageRebase runs only for non-full-auto
+    // sessions (rebaseCandidate bails on fullAuto below), buildState filters to full-auto so
+    // rebaseAvailable never sees them, and conflictOwnedByRebaser's non-full-auto arm returns
+    // rebaseCandidate(s) !== null without consulting it. The sole observer is the reset branch's
+    // `!= null` check above. So the conditional buys contract-honesty, not correctness: it keeps
+    // the column meaning what it says rather than accumulating behind-path values a future reader
+    // would reasonably mistake for a general "last steer" clock.
     const conflict = isDefiniteConflict(git);
     this.deps.store.setAutoMergeState(id, {
       rebaseCount: s.autoMergeRebaseCount + 1,

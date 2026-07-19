@@ -1244,3 +1244,14 @@ test("KNOWN GAP: a conflicting Gitea PR gets no pr-conflict signal (chip only)",
   const caches = { git: { state: "open", mergeable: false, number: 7 } } as any;
   expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
 });
+
+test("red+dirty surfaces pr-conflict, so the row-level Retry CI CTA is intentionally dropped", () => {
+  // hold-row.ts gates that CTA on serverHold.code === "ci-red", and hold-service derives
+  // serverHold from explainHold. Asserting the code here pins the knock-on: a dirty PR's
+  // pull_request workflows can't run at all, so offering a re-run would be futile.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeStateStatus: "dirty", number: 7 },
+  } as any;
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});

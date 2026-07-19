@@ -193,6 +193,12 @@ const ATTENTION_RULES: Array<{
   // a false "has merge conflicts — CI can't run until it's rebased". Where the signal is
   // ambiguous, the accurate one wins.
   //
+  // KNOCK-ON, intended: because explainHold surfaces this instead of ci-red, a red+dirty session
+  // also loses its row-level "Retry CI" CTA (hold-row.ts keys that on serverHold.code ===
+  // "ci-red"). That is correct — a dirty PR's pull_request workflows cannot run at all, so
+  // re-running them is futile; the actionable step is the rebase this line names. Called out in
+  // the PR description because it is user-visible.
+  //
   // KNOWN GAP, deliberate: isDefiniteConflict is structurally always false on Gitea and
   // LocalForge (neither sets mergeStateStatus), so a genuinely conflicting PR there gets the
   // PRs-tab chip but NO rundown/digest signal. Do not "fix" this by widening the predicate: on

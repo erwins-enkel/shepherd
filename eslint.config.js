@@ -61,6 +61,34 @@ export default [
         extraFileExtensions: [".svelte"],
       },
     },
+    rules: {
+      // marked + DOMPurify are heavy and are lazily imported by every consumer that
+      // renders markdown. A single STATIC import in an always-mounted component
+      // hoists them into the main chunk and silently defeats all of them, so ban the
+      // static form here. Dynamic `await import("marked")` is unaffected — both
+      // `paths` and `patterns` only match static imports.
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "marked",
+              message:
+                'Import dynamically — see SessionRecap.svelte: Promise.all([import("marked"), import("dompurify")]).',
+            },
+            {
+              name: "dompurify",
+              message:
+                'Import dynamically — see SessionRecap.svelte: Promise.all([import("marked"), import("dompurify")]).',
+            },
+          ],
+          // `paths` matches the exact specifier only, so it would miss a deep import
+          // like "marked/lib/marked.esm.js" — precisely the path Rollup names in the
+          // INEFFECTIVE_DYNAMIC_IMPORT warning this rule exists to prevent.
+          patterns: ["marked/*", "dompurify/*"],
+        },
+      ],
+    },
   },
   // Generated output — never lint
   {

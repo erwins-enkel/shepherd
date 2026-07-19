@@ -147,7 +147,17 @@ jobs:
         run: cd extension && bun run test
 
       - name: Build (ui)
-        run: cd ui && bun run build
+        # Rollup reports a static import that defeats a dynamic one
+        # (INEFFECTIVE_DYNAMIC_IMPORT) as a WARNING, which does not fail the build —
+        # so assert on it explicitly. One static `import { marked } from "marked"` in
+        # an always-mounted component hoists the lib into the main chunk and silently
+        # cancels the lazy-loading in every other consumer. pipefail so a genuine
+        # build failure still fails the step; `! grep -q` (not `grep -c`, which exits
+        # 1 when the count is 0) so the success case exits 0.
+        run: |
+          set -eo pipefail
+          cd ui && bun run build 2>&1 | tee /tmp/ui-build.log
+          ! grep -q INEFFECTIVE_DYNAMIC_IMPORT /tmp/ui-build.log
 
       - name: Build (extension)
         run: cd extension && bun run build

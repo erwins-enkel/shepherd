@@ -128,6 +128,9 @@ function makeDeps(
       repoPath: string;
       landingPrNumber: number | null;
       landingState?: string;
+      // JSON array of child issue numbers — its length feeds the #1761 landing prompt's "(N child
+      // PRs)" count. Omitted / unparseable → childCount 0 → the count parenthetical is dropped.
+      childrenJson?: string;
     }[];
   } = {},
 ) {
@@ -911,4 +914,76 @@ test("#1757 ordinary PR (base=main): no epic block", async () => {
   const svc = new StandalonePrCriticService(deps as any);
   await svc.sweep();
   expect(spies.started[0]!.argv.at(-1)!).not.toContain("EPIC CONTEXT");
+});
+
+// ── #1761 epic LANDING PR (head = integration branch, base = main) ────────────────────────────────
+//
+// The landing PR is detected off the authoritative epic_completed row (landingPrNumber match), NOT a
+// branch-name heuristic, so it attaches the additive LANDING block. Its base is main → the child
+// EPIC CONTEXT block (which keys on base==integration) stays absent — the two are mutually exclusive.
+
+test("#1761 epic landing PR: the prompt carries the additive LANDING block with the child count", async () => {
+  const { deps, spies } = makeDeps(
+    {},
+    {
+      criticAllPrs: true,
+      epicCompleted: [
+        {
+          repoPath: "/r",
+          landingPrNumber: 7,
+          landingState: "open",
+          childrenJson: "[101,102,103]",
+        },
+      ],
+    },
+  );
+  // head IS the epic integration branch; base stays main (OPEN_META default) → landing, not child.
+  deps.resolveForge = () =>
+    makeForge(spies, {
+      prs: [pr({ number: 7, headRefName: "epic/1761-landing-critic", headSha: "landsha" })],
+    });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC LANDING PR");
+  expect(prompt).toContain("epic/1761-landing-critic");
+  expect(prompt).toContain("(3 child PRs)");
+  expect(prompt).toContain("INTEGRATION-LEVEL defects");
+  // the safety-net line is present so the additive emphasis can't read as license to drop a finding
+  expect(prompt).toContain("A real bug is a finding no matter which child introduced it");
+  // additive, NOT the child block (no base-delta override machinery)
+  expect(prompt).not.toContain("EPIC CONTEXT");
+  expect(prompt).not.toContain("already reviewed");
+});
+
+test("#1761 landing PR with unparseable childrenJson: block emitted, count parenthetical omitted", async () => {
+  const { deps, spies } = makeDeps(
+    {},
+    {
+      criticAllPrs: true,
+      epicCompleted: [
+        { repoPath: "/r", landingPrNumber: 7, landingState: "open", childrenJson: "not json" },
+      ],
+    },
+  );
+  deps.resolveForge = () =>
+    makeForge(spies, {
+      prs: [pr({ number: 7, headRefName: "epic/1761-x", headSha: "landsha" })],
+    });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("EPIC LANDING PR");
+  // childCount falls back to 0 → no "(N child PRs)" and never a false "0 child" claim
+  expect(prompt).not.toContain("child PRs)");
+});
+
+test("#1761 ordinary PR (no matching open landing row): no LANDING block", async () => {
+  // Default makeDeps injects no epic_completed rows → resolveLandingContext returns null.
+  const { deps, spies } = makeDeps();
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  const prompt = spies.started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("EPIC LANDING PR");
+  expect(prompt).not.toContain("EPIC CONTEXT");
 });

@@ -55,6 +55,22 @@ export interface EpicContext {
   delta?: EpicBaseDelta | null;
 }
 
+/** Epic LANDING context (issue #1761). Present iff the reviewed PR is the epic's aggregate LANDING
+ *  PR — head = the integration branch, base = the DEFAULT branch — so the critic reviews the WHOLE
+ *  accumulated epic diff against main. Mutually exclusive with {@link EpicContext} (a child's base
+ *  is the integration branch; a landing PR's base is main), and structurally distinct: the landing
+ *  worktree is the integration-branch tip, which already holds every merged child, so there is NO
+ *  stale-tree problem and NONE of the base-delta / VERIFY-override machinery applies. The block is
+ *  PURELY ADDITIVE — it prioritizes integration-level defect classes without narrowing the diff or
+ *  licensing the critic to drop any in-diff finding. */
+export interface LandingContext {
+  /** The epic integration branch being landed (the PR's head), for the reframing header. */
+  integrationBranch: string;
+  /** Number of child PRs the epic drained; 0 when unknown (childrenJson unparseable) → the count
+   *  parenthetical is omitted rather than emitting a false "0 child" claim. */
+  childCount: number;
+}
+
 // Caps for the embedded delta. Bounded so a long-draining epic can't blow up the prompt; the
 // truncation counts are always stated, and the full lists stay one command away.
 const DELTA_PATH_CAP = 100;
@@ -204,12 +220,15 @@ export function reviewPrompt(
  *  the diff for bugs, security issues, and clear quality problems, using the PR's stated intent
  *  (title + body) only as CONTEXT for what the change is trying to do. Shares the EXACT scope rules
  *  and verdict-output contract with reviewPrompt (via scopeAndOutputTail) so the two never diverge.
+ *  `epic` is set iff the PR's base is an epic integration branch (a child PR); `landing` is set iff
+ *  the PR is the epic's aggregate LANDING PR (#1761) — mutually exclusive, at most one block emits.
  *  NOT UI chrome — never i18n'd. */
 export function prReviewPrompt(
   diffBase: string,
   prTitle: string,
   prBody: string,
   epic?: EpicContext | null,
+  landing?: LandingContext | null,
 ): string {
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
@@ -228,6 +247,7 @@ export function prReviewPrompt(
       diffBase,
       "Judge the diff ONLY for bugs, security issues, and clear quality problems. Use the stated intent above to understand what the change is for — do NOT raise a finding merely because the diff seems incomplete versus that intent. Tests and lint are handled by CI — do not run them.",
       epic,
+      { landing },
     ),
   );
   return lines.join("\n");
@@ -411,11 +431,36 @@ function epicBlock(epic: EpicContext): string[] {
   return lines;
 }
 
+/** The epic LANDING block (issue #1761), emitted ONLY when the reviewed PR is the epic's aggregate
+ *  landing PR (see {@link LandingContext}). Empty array otherwise — so every non-landing prompt
+ *  stays byte-identical.
+ *
+ *  PURELY ADDITIVE. Unlike {@link epicBlock}, it overrides NOTHING and relaxes NOTHING: the landing
+ *  worktree is the integration-branch tip, which already holds every merged child, so the tree is
+ *  complete and the stale-tree / base-citation machinery does not apply. It carries NO "already
+ *  reviewed / do not re-litigate" wording on purpose — this critic has no child-review history and
+ *  sees only the merged diff, so any suppression hint would invite it to drop a genuine in-diff bug.
+ *  It only shifts PRIORITY toward the integration-level defect classes that surface once the
+ *  children are combined, and it keeps an explicit "a real bug is a finding no matter which child
+ *  introduced it" line adjacent to the reframing so the additive emphasis can never read as license
+ *  to narrow the review. */
+function landingBlock(landing: LandingContext, diffBase: string): string[] {
+  // Count parenthetical omitted when unknown (childCount 0) — never emit a false "0 child" claim.
+  const count = landing.childCount > 0 ? ` (${landing.childCount} child PRs)` : "";
+  return [
+    "",
+    `EPIC LANDING PR — this PR is the AGGREGATE landing of a completed multi-PR epic${count}, merging the epic integration branch \`${landing.integrationBranch}\` into the default branch:`,
+    "- The children each shipped as their own PR; this review's HIGHEST-VALUE target is INTEGRATION-LEVEL defects that only surface once the children are combined: cross-child interaction (one child breaking an assumption another child made), merge/rebase artifacts, duplicated or conflicting definitions across children, and whole-diff coherence against the default branch. PRIORITIZE scanning for these.",
+    `- This is ADDITIVE emphasis, NOT a narrowing: you are STILL reviewing the entire \`git diff ${diffBase}...HEAD\` under every rule above.`,
+    "- A real bug is a finding no matter which child introduced it — nothing about this being a landing PR downgrades or excuses an in-diff defect.",
+  ];
+}
+
 function scopeAndOutputTail(
   diffBase: string,
   judgeClause: string,
   epic?: EpicContext | null,
-  opts: { scopeCreep?: boolean; smellLens?: boolean } = {},
+  opts: { scopeCreep?: boolean; smellLens?: boolean; landing?: LandingContext | null } = {},
 ): string[] {
   return [
     // SCOPE: the critic can Read/grep the whole tree, which historically led it to flag
@@ -449,6 +494,11 @@ function scopeAndOutputTail(
     // VERIFY/CANNOT-VERIFY/ATTRIBUTION rules it supersedes — so the override reads against the rule
     // it overrides. Empty for a non-epic base, keeping those prompts byte-identical.
     ...(epic ? epicBlock(epic) : []),
+    // Epic LANDING context (issue #1761). Mutually exclusive with `epic` (child base = integration
+    // branch; landing base = default branch), so at most one of the two blocks ever emits. Purely
+    // ADDITIVE — it overrides nothing above, only prioritizes integration-level defect classes.
+    // Empty for a non-landing PR, keeping those prompts byte-identical.
+    ...(opts.landing ? landingBlock(opts.landing, diffBase) : []),
     "",
     judgeClause,
     "",

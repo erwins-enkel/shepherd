@@ -40,6 +40,7 @@ import {
   reapRun,
   type RawVerdict,
   type EpicContext,
+  type LandingContext,
 } from "./critic-core";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
@@ -294,6 +295,31 @@ export class StandalonePrCriticService {
   }
 
   /**
+   * Epic LANDING context (issue #1761): non-null iff this PR is the aggregate landing PR of an epic
+   * still draining. Detected off the authoritative `epic_completed` row — a PR whose number matches
+   * an OPEN landing row — NOT a branch-name heuristic, so it can't misfire on a hand-opened
+   * `epic/*`→main PR outside the epic flow, and it yields the child count for the prompt. Works
+   * whether the repo is swept via `criticAllPrs` ON or purely for its landing PR (Stage B). Returns
+   * null (→ today's whole-diff behavior) when there is no matching open landing row.
+   */
+  private resolveLandingContext(repoPath: string, pr: PullRequest): LandingContext | null {
+    const row = this.deps.store
+      .listEpicCompleted(repoPath)
+      .find((r) => r.landingPrNumber === pr.number && r.landingState === "open");
+    if (!row) return null;
+    // childCount drives the prompt's "(N child PRs)" parenthetical; an unparseable childrenJson
+    // degrades to 0, and landingBlock then OMITS the count rather than emitting a false "0 child".
+    let childCount = 0;
+    try {
+      const parsed = JSON.parse(row.childrenJson) as unknown;
+      if (Array.isArray(parsed)) childCount = parsed.length;
+    } catch {
+      childCount = 0;
+    }
+    return { integrationBranch: pr.headRefName!, childCount };
+  }
+
+  /**
    * Spawn a critic for one eligible PR. Mirrors ReviewService.begin: claim `starting`
    * synchronously, allocate the disposable worktree at the PR head, fingerprint the diff,
    * patch-id-skip if unchanged, build the session-less prompt, spawn, and record the run +
@@ -385,6 +411,10 @@ export class StandalonePrCriticService {
             delta: baseSha ? await this.collectBaseDelta(wt.worktreePath, baseSha) : null,
           }
         : null;
+      // Epic LANDING PR (#1761): the aggregate landing of a draining epic — head is the integration
+      // branch, base is the default branch (so `epic` above is null; the two are mutually exclusive).
+      // Reframes the whole-epic sweep toward integration-level defects. Cheap synchronous store read.
+      const landing = this.resolveLandingContext(repoPath, pr);
       // Fail-closed guard + membrane-wrapped spawn + spawn-row record live in spawnAndRecord (keeps
       // begin under the cognitive budget). Returns false when nothing spawned (fail-closed / spawn
       // error) — the worktree is reaped inside, so begin just bails.
@@ -394,6 +424,7 @@ export class StandalonePrCriticService {
         files,
         priorReviewedPatchIds: prior?.reviewedPatchIds ?? [],
         epic,
+        landing,
       });
     } finally {
       this.starting.delete(key);
@@ -424,6 +455,8 @@ export class StandalonePrCriticService {
       priorReviewedPatchIds: string[];
       /** Non-null only when the PR's base is an epic integration branch (#1757). */
       epic?: EpicContext | null;
+      /** Non-null only when the PR is the epic's aggregate landing PR (#1761). */
+      landing?: LandingContext | null;
     },
   ): Promise<void> {
     if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
@@ -438,7 +471,7 @@ export class StandalonePrCriticService {
       provider: env.provider,
       model: env.model,
       effort: env.effort,
-      prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null),
+      prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null, fp.landing ?? null),
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).

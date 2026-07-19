@@ -106,6 +106,12 @@ const glossary: readonly GlossaryTerm[] = [
       de: "Telemetrie_(Software)",
     },
   },
+  {
+    id: "host-capacity",
+    kind: "internal",
+    termKey: "gloss_host_capacity_term",
+    bodyKey: "gloss_host_capacity_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

@@ -233,3 +233,52 @@ describe("DiagnoseRows code-fix (fixActionKey) branch", () => {
     expect(onfix).toHaveBeenCalledWith("claude_trust");
   });
 });
+
+describe("DiagnoseRows host_capacity guidance", () => {
+  const hostCheck = (state: DiagnosticCheck["state"], hintKey: string) =>
+    check({ id: "host_capacity", state, hintKey });
+
+  it("renders the unbounded hint with the host-capacity glossary term (not a raw marker)", () => {
+    render(DiagnoseRows, {
+      props: {
+        checks: [hostCheck("warning", "diagnostics_hint_host_capacity_unbounded")],
+      },
+    });
+
+    // The [[host-capacity|host capacity]] marker resolves to a live glossary term…
+    const term = document.querySelector<HTMLButtonElement>("button.gloss-term");
+    expect(term).not.toBeNull();
+    expect(term?.textContent?.trim()).toBe("host capacity");
+    // …and the raw marker syntax never leaks into the rendered hint.
+    const hint = document.querySelector<HTMLParagraphElement>("p.hint");
+    expect(hint?.textContent).toContain("no memory or CPU ceiling");
+    expect(hint?.textContent).not.toContain("[[host-capacity");
+  });
+
+  it("points both non-ok host_capacity states at the operating-guide anchor", () => {
+    const anchor = "https://docs.shepherd.run/operating/#host-tuning--resource-guardrails";
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "host_capacity",
+            state: "warning",
+            hintKey: "diagnostics_hint_host_capacity_unbounded",
+          }),
+          check({
+            id: "host_capacity_pressure",
+            state: "error",
+            hintKey: "diagnostics_hint_host_capacity_pressure",
+          }),
+        ],
+      },
+    });
+
+    const links = document.querySelectorAll<HTMLAnchorElement>("a.doc-link");
+    expect(links.length).toBe(2);
+    for (const link of links) expect(link.getAttribute("href")).toBe(anchor);
+    // guidance-only: no auto-fix button on either row
+    expect(document.querySelector("button.fix")).toBeNull();
+  });
+});

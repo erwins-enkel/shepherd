@@ -634,6 +634,63 @@ test("merge_attention routes to ci category", async () => {
   expect(sent).toEqual(["only-ci"]);
 });
 
+test("buildPayload landing_conflict localizes EN+DE with the epic + PR numbers", () => {
+  const n: NotifyInput = {
+    kind: "landing_conflict",
+    sessionId: "",
+    tag: "landing-conflict:/repo#327",
+    name: "epic",
+    epicNumber: 327,
+    landingPr: 602,
+  };
+  expect(buildPayload(n, "en")).toMatchObject({
+    title: "Landing needs rework",
+    body: "Epic #327's landing PR #602 has a conflict with the default branch — over to you.",
+  });
+  expect(buildPayload(n, "de")).toMatchObject({
+    title: "Landing braucht Überarbeitung",
+    body: "Der Landing-PR #602 von Epic #327 hat einen Konflikt mit dem Standard-Branch — du bist dran.",
+  });
+});
+
+test("buildPayload landing_conflict omits the PR number when absent", () => {
+  const n: NotifyInput = {
+    kind: "landing_conflict",
+    sessionId: "",
+    tag: "landing-conflict:/repo#327",
+    name: "epic",
+    epicNumber: 327,
+  };
+  expect(buildPayload(n, "en").body).toBe(
+    "Epic #327's landing PR has a conflict with the default branch — over to you.",
+  );
+  expect(buildPayload(n, "de").body).toBe(
+    "Der Landing-PR von Epic #327 hat einen Konflikt mit dem Standard-Branch — du bist dran.",
+  );
+});
+
+test("landing_conflict routes to ci category", async () => {
+  const sent: string[] = [];
+  const send: SendFn = async (s) => {
+    sent.push(s.endpoint);
+    return {};
+  };
+  const { store, push } = svc(send);
+  store.putPushSub(sub("only-ci"), "");
+  store.setPushPrefs("only-ci", { agent: false, reviews: false, ci: true });
+  store.putPushSub(sub("no-ci"), "");
+  store.setPushPrefs("no-ci", { agent: true, reviews: true, ci: false });
+  await push.notify({
+    kind: "landing_conflict",
+    sessionId: "",
+    tag: "landing-conflict:/repo#327",
+    name: "epic",
+    epicNumber: 327,
+    landingPr: 602,
+  });
+  expect(sent).toEqual(["only-ci"]);
+});
+
 test("buildPayload usage_limit localizes EN+DE and includes the reset time", () => {
   const n: NotifyInput = {
     kind: "usage_limit",

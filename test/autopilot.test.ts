@@ -1787,3 +1787,26 @@ test("considerCi also stands down at rebaseCap (mirrors reEngageCi's gate)", asy
   // And it does NOT pause — considerCi is a sync event handler; the pause is reEngageCi's job.
   expect(h.events.some((e) => e.pause === "s1")).toBe(false);
 });
+
+test("considerCi's cap gate is fullAuto-only: a NON-full-auto capped session is never orphaned", async () => {
+  // At the cap with a changes_requested verdict, every other actor declines: reEngageRebase bails
+  // before its pause (rebaseCandidate returns null), reEngageCi bails on fullAuto, and
+  // conflictOwnedByRebaser's non-full-auto arm is false. Suppressing the CI-fix steer here would
+  // leave no actor at all — the orphan the ownership gate exists to prevent, via the cap gate.
+  const h = harness({
+    session: sess({
+      status: "idle",
+      autoMergeRebaseSteeredAt: 0,
+      autoMergeRebaseCount: 5, // at the cap
+    }),
+    repoEnabled: true,
+    fullAuto: false, // NON-full-auto
+    criticEnabled: true,
+    review: { decision: "changes_requested", findings: ["x"], headSha: "sha1" } as any,
+    rebaseCap: 5,
+    now: OWNERSHIP_TTL_MS * 10,
+  });
+  h.svc.onGit("s1", dirtyGit({ checks: "failure" }));
+  await flush();
+  expect(h.events).toContainEqual({ steer: CI_FIX_STEER });
+});

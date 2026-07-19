@@ -1191,6 +1191,35 @@ test("pr-conflict DOES fire for a busy-but-STALLED session (the hung-session bac
   expect(classifyAttention(s, caches, 0).signals).toContain("pr-conflict");
 });
 
+test("live hold path: a hung conflicting session surfaces via blocked-decision, not pr-conflict", () => {
+  // HoldReasonService supplies no `stalled` (its caches are git/review/gate/recap/train/block —
+  // the stall probe is fs reads, barred by the zero-I/O rule), so the qualifier degrades to
+  // !busy. The poller's stall block arrives as `block` instead and lights blocked-decision,
+  // which is Tier 1 and ordered ABOVE pr-conflict — so it is the primary line either way.
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    block: { shape: "stall", options: [], tail: [] },
+  } as any;
+  const { tier, signals } = classifyAttention(s, caches, 0);
+  expect(tier).toBe(1);
+  expect(signals).not.toContain("pr-conflict");
+  expect(signals).toContain("blocked-decision");
+  // …and a stall-shaped block renders the more specific `blocked-stall` hold copy.
+  expect(explainHold(s, caches, 0)?.code).toBe("blocked-stall");
+});
+
+test("blocked-decision outranks pr-conflict even when both fire", () => {
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    block: { shape: "stall", options: [], tail: [] },
+    stalled: true,
+  } as any;
+  const { signals } = classifyAttention(s, caches, 0);
+  expect(signals.indexOf("blocked-decision")).toBeLessThan(signals.indexOf("pr-conflict"));
+});
+
 test("pr-conflict is omitted for a merged/closed PR", () => {
   const s = session({ status: "idle" });
   for (const state of ["merged", "closed"]) {

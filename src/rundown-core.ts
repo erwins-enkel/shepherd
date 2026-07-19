@@ -210,9 +210,20 @@ const ATTENTION_RULES: Array<{
   // Gitea does not currently expose.
   //
   // (!busy || stalled): a session actively RESOLVING its conflict is protected by the merge
-  // train's busy gate and would otherwise show a Tier-1 line for the whole duration. But a HUNG
-  // session is running/blocked too, and is the one case where this signal is the only backstop
-  // (the busy gate means it never reaches rebaseCap), so `stalled` distinguishes them.
+  // train's busy gate and would otherwise show a Tier-1 line for the whole duration. A HUNG
+  // session is running/blocked too, so `stalled` re-opens the signal for it.
+  //
+  // SCOPE, deliberate: `stalled` is a RUNDOWN/DIGEST-only input — herd-digest.ts supplies it from
+  // a transcript probe, and HoldReasonService does NOT (hold-service.ts builds its caches with
+  // git/review/gate/recap/train/block only; the probe is sync fs reads per running session, which
+  // the live service's zero-I/O single-loop rule forbids). So on the live hold path this qualifier
+  // degrades to plain `!busy` and a hung conflicting session never renders THIS line.
+  //
+  // That is not a coverage hole: the poller fires a `shape: "stall"` block for exactly that
+  // session, which reaches HoldReasonService as `c.block` and lights `blocked-decision` — Tier 1
+  // and listed ABOVE this rule, so it would win as the primary line even if `stalled` were wired
+  // in. The live backstop is blocked-decision; pr-conflict's stalled arm only affects the
+  // rundown/digest, which has no block snapshot.
   {
     signal: "pr-conflict",
     when: (s, c) => {

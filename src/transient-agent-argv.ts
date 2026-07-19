@@ -159,14 +159,23 @@ export function buildTransientAgentArgv(
   // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
   // `--sandbox workspace-write`.
   //
-  // The `-o` last-message file name is PER-SPAWN unguessable for the `reviewer` kind — the only kind
-  // that runs in an UNTRUSTED checkout (the PR critics), where a fixed name could be pre-committed by
-  // a malicious PR to short-circuit the critic (see codex-last-message.ts). Every other kind runs in a
-  // disposable tmpdir nothing else can write, so it uses the fixed name. The read side reconstructs
-  // the reviewer name from the `sessionId` returned here (recorded per spawn by the critic services).
+  // The `-o` last-message file is emitted ONLY for kinds that READ the fallback, and its name is
+  // chosen for the kind's trust posture:
+  //   - `reviewer` runs in an UNTRUSTED checkout (the PR critics) AND reads the fallback → a PER-SPAWN
+  //     unguessable name, so a PR can't pre-commit a file matching what the real run writes/reads
+  //     (see codex-last-message.ts). The read side reconstructs it from the `sessionId` returned here.
+  //   - `doc` also runs in a checkout (retarget mode = the PR head sha, UNTRUSTED) but NEVER reads the
+  //     fallback (doc-agent's deliverable is file EDITS + a sentinel) → NO `-o` at all, so a committed
+  //     symlink at a fixed `-o` path can't redirect the CLI's final-message write onto a real file.
+  //   - every other kind (`writer-ro`/`writer-only`) runs in a disposable tmpdir nothing else can
+  //     write and reads the fallback → the fixed name, safe there.
   if (opts.provider === "codex") {
     const lastMessageFile =
-      kind === "reviewer" ? codexLastMessageFile(sessionId) : CODEX_LAST_MESSAGE_FILE;
+      kind === "reviewer"
+        ? codexLastMessageFile(sessionId)
+        : kind === "doc"
+          ? null
+          : CODEX_LAST_MESSAGE_FILE;
     return {
       argv: codexRoleArgv(
         opts.model,

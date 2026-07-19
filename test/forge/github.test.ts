@@ -2350,6 +2350,9 @@ test("listOpenPrSnapshot: REST fallback during GraphQL backoff maps PRs and avoi
         createdAt: Date.parse("2026-01-04T00:00:00Z"),
         isDraft: true,
         mergeable: false,
+        // Must match the GraphQL mapper: without it the PRs-tab conflict chip silently stops
+        // seeing DIRTY whenever the REST fallback is in play.
+        mergeStateStatus: "dirty",
         checks: "success",
         jobs: [],
         headSha: "sha9",

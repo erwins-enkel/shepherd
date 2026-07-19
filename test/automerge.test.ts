@@ -881,3 +881,51 @@ test("conflict rebase on an UNRESUMABLE pane still counts + stamps (cap stays re
     { rebaseCount: 1, rebaseHead: "h1", rebaseSteeredAt: 12_345 },
   ]);
 });
+
+test("behind rebase on a DEAD pane records the attempt (no head-of-line block on siblings)", async () => {
+  // Without this the session leaves no trace, rebaseAvailable stays true forever, and since a
+  // rebase decision breaks the pump loop it consumes the repo's one rebase slot every tick —
+  // starving conflicting siblings, i.e. exactly what this change exists to unstick.
+  const setAutoMergeState = mock(() => {});
+  const reply = mock(() => true);
+  const s = baseSession({ autoMergeRebaseCount: 0 });
+  const d = deps({
+    store: {
+      get: () => s as any,
+      list: () => [s as any],
+      getRepoConfig: () =>
+        ({ autoMergeEnabled: true, criticEnabled: false, autopilotEnabled: true }) as any,
+      getReview: () => null,
+      setAutoMergeState,
+      setAutopilotState: mock(() => {}),
+      isEpicIntegratedChild: () => false,
+      getEpicRun: () => null,
+      getEpicIntegrationBranch: () => null,
+      recordEpicIntegrated: mock(() => {}),
+    } as any,
+    paneAlive: () => false,
+    service: {
+      archive: mock(() => 1),
+      reply,
+      resume: mock(() => false),
+      resolveMerging: mock(() => {}),
+    } as any,
+    // behind (not conflicting): mergeable true, but the branch is behind its base.
+    worktree: { behindBase: async () => true } as any,
+    prCache: {
+      snapshot: () => ({
+        [s.id]: { state: "open", checks: "success", mergeable: true, number: 7, headSha: "h1" },
+      }),
+    } as any,
+  });
+  const svc = new AutoMergeService(d);
+  await svc.pump("/r");
+
+  expect(reply).not.toHaveBeenCalled();
+  // Counted + head recorded, so rebaseAvailable's per-head dedup now suppresses it and the
+  // next pump is free to serve a sibling. No rebaseSteeredAt — that stamp is conflict-only.
+  expect((setAutoMergeState as any).mock.calls).toContainEqual([
+    s.id,
+    { rebaseCount: 1, rebaseHead: "h1" },
+  ]);
+});

@@ -487,6 +487,7 @@ export class GithubForge implements GitForge {
       createdAt: Number.isFinite(ts) ? ts : Date.now(),
       isDraft: pr.draft ?? false,
       mergeable: typeof pr.mergeable === "boolean" ? pr.mergeable : null,
+      mergeStateStatus: mapMergeStateStatus(pr.mergeable_state ?? undefined),
       checks,
       jobs: [],
       headSha: pr.head?.sha,

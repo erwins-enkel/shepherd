@@ -388,7 +388,22 @@ export class AutoMergeService {
     if (!this.deps.paneAlive(sessionId) || this.deps.deferSteer?.(sessionId)) {
       // Not live, OR a herdr-restored account husk that must be re-driven first (else the rebase steer
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.
-      if (!(await this.deps.service.resume(sessionId))) return;
+      if (!(await this.deps.service.resume(sessionId))) {
+        // Dead/unresumable pane. Record the attempt on the `behind` path too — otherwise this
+        // session leaves NO trace (no count, no rebaseHead), `rebaseAvailable` stays true
+        // forever, and since a rebase decision breaks the pump loop it consumes the repo's one
+        // rebase slot on every tick — head-of-line blocking its siblings, including exactly the
+        // conflicting sessions this change exists to unstick. Live panes keep
+        // count-on-success-only; only the dead-pane case counts here, mirroring
+        // reEngageRebase's "a dead pane still marches to the cap" design (autopilot.ts:643-648).
+        if (!conflict) {
+          this.deps.store.setAutoMergeState(sessionId, {
+            rebaseCount: s.autoMergeRebaseCount + 1,
+            rebaseHead: headSha,
+          });
+        }
+        return;
+      }
     }
     if (await this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
       // Already recorded above on the conflict path — don't double-count.

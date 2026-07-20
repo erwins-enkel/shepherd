@@ -55,6 +55,7 @@
   import { recentRepos } from "$lib/recentRepos";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { modelOptionLabel } from "$lib/model-guidance";
+  import { selectedProviderCapacity } from "$lib/components/usage-gauges";
   import { deriveReadiness } from "./new-task/readiness";
   import {
     preselectModel,
@@ -891,7 +892,16 @@
 
   function selectRepo(path: string) {
     repoPath = path;
-    queueMicrotask(() => promptInput?.focus());
+    queueMicrotask(() => {
+      // Picking inside the mobile context sheet must keep focus INSIDE the open
+      // aria-modal sheet (land on the in-sheet trigger, same as the Escape
+      // contract); the prompt refocus is the desktop behavior.
+      if (activeSheet === "context") {
+        contextSheetEl?.querySelector<HTMLElement>(".rs-trigger")?.focus();
+      } else {
+        promptInput?.focus();
+      }
+    });
   }
 
   function cycleRepo(dir: 1 | -1) {
@@ -1126,6 +1136,10 @@
   const modelSummary = $derived(
     model === "default" ? m.newtask_model_default() : modelOptionLabel(agentProvider, model),
   );
+
+  // Mobile ready footer shows the selected engine's compact capacity (handoff:
+  // "✓ ready · CX·WK 92% free"); desktop keeps the branch preview line.
+  const footerCapacity = $derived(selectedProviderCapacity(usageLimits, agentProvider));
 </script>
 
 <div
@@ -1484,7 +1498,14 @@
           {:else}
             <span class="r-ok" aria-hidden="true">✓</span>
             {m.newtask_readiness_ready()} ·
-            {m.newtask_readiness_branches({ base: baseBranch })}
+            {#if mobile.current && footerCapacity}
+              <span class="r-cap"
+                >{footerCapacity.code}
+                {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
+              >
+            {:else}
+              {m.newtask_readiness_branches({ base: baseBranch })}
+            {/if}
           {/if}
         </span>
         {#if showDualCta}
@@ -2105,6 +2126,9 @@
   }
   .readiness .r-blocked {
     color: var(--color-faint);
+  }
+  .readiness .r-cap {
+    font-variant-numeric: tabular-nums;
   }
   .run {
     margin-left: auto;

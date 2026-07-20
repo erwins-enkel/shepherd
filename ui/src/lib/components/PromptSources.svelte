@@ -491,9 +491,6 @@
     padding: 2px 8px;
     border-radius: 2px;
     cursor: pointer;
-    transition:
-      color 0.12s,
-      border-color 0.12s;
   }
 
   .tab:hover {
@@ -527,6 +524,12 @@
     border-radius: 2px;
   }
 
+  /* The redesign is motion-free: hover/state changes on this panel are instant,
+     overriding the global .issue-list-row.is-interactive transition. */
+  .ps-body :global(.issue-source-row) {
+    transition: none;
+  }
+
   .muted {
     font-family: var(--font-mono);
     font-size: var(--fs-meta);
@@ -547,9 +550,6 @@
     padding: 4px 10px;
     cursor: pointer;
     border-radius: 2px;
-    transition:
-      background 0.1s,
-      color 0.1s;
     width: 100%;
   }
 

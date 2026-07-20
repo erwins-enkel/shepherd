@@ -2714,6 +2714,31 @@ describe("NewTask geometry (measurable handoff criteria)", () => {
   });
 });
 
+describe("NewTask mobile ready footer", () => {
+  it("shows the selected engine's compact capacity when ready (handoff: CX·WK 92% free)", async () => {
+    await page.viewport(390, 844);
+    const RESET = new Date(2100, 6, 18, 20, 0).getTime();
+    const limits = {
+      session5h: { pct: 16, resetAt: RESET },
+      week: { pct: 31, resetAt: RESET },
+      perModelWeek: [],
+      credits: null,
+      stale: false,
+      calibratedAt: null,
+      subscriptionOnly: false,
+    };
+    render(NewTask, {
+      props: { onsubmit: vi.fn(), initialRepoPath: "/repo/mob-cap", usageLimits: limits },
+    });
+    typePrompt("go");
+    // Claude WK is the hottest window (31% used → 69% free).
+    await expect.poll(() => document.querySelector(".readiness")?.textContent).toContain("CC·WK");
+    expect(document.querySelector(".readiness")?.textContent).toContain(
+      m.newtask_provider_capacity_free({ pct: 69 }),
+    );
+  });
+});
+
 describe("NewTask mobile sheets + shortcuts", () => {
   async function renderMobile(extra: Record<string, unknown> = {}) {
     await page.viewport(390, 844);
@@ -2763,6 +2788,12 @@ describe("NewTask mobile sheets + shortcuts", () => {
       .find((el) => el.textContent?.includes("bravo"))!
       .click();
     await expect.poll(() => chip().textContent).toContain("bravo");
+    // The aria-modal context sheet stays open and focus stays INSIDE it (the
+    // in-sheet trigger), never escaping to the prompt behind the sheet.
+    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
+    await expect
+      .poll(() => document.querySelector(".ctx-sheet")?.contains(document.activeElement))
+      .toBe(true);
 
     // Change only the branch (input fallback or select — the mock lists main only).
     const branchCtl = document.querySelector<HTMLSelectElement | HTMLInputElement>(

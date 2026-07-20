@@ -54,11 +54,10 @@
 </script>
 
 {#if dict.micVisible}
-  <div class="micbtn-anchor" class:inline>
+  <div class={inline ? "micbtn-anchor inline" : "micbtn-anchor"}>
     <button
       type="button"
-      class="micbtn"
-      class:inline
+      class={inline ? "micbtn inline" : "micbtn"}
       class:listening={dict.listening}
       class:transcribing={dict.transcribing}
       class:error={dict.voiceError}

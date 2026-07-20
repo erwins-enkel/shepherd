@@ -840,42 +840,53 @@
     });
   }
 
+  function cycleIndex(index: number, len: number, dir: 1 | -1): number {
+    return len === 0 ? 0 : (index + dir + len) % len;
+  }
+
+  function closeMenus(e: KeyboardEvent) {
+    e.preventDefault();
+    slashOpen = false;
+    issueSearchOpen = false;
+  }
+
+  function onSlashMenuKey(e: KeyboardEvent) {
+    if (slashMatches.length === 0) {
+      if (e.key === "Escape") closeMenus(e);
+      return;
+    }
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      slashIndex = cycleIndex(slashIndex, slashMatches.length, e.key === "ArrowDown" ? 1 : -1);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      pickCommand(slashMatches[slashIndex]!);
+    } else if (e.key === "Escape") {
+      closeMenus(e);
+    }
+  }
+
+  function onIssueMenuKey(e: KeyboardEvent) {
+    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      issueIndex = cycleIndex(issueIndex, issueMatches.length, e.key === "ArrowDown" ? 1 : -1);
+    } else if (e.key === "Enter" || e.key === "Tab") {
+      const pickTarget = issueMatches[issueIndex];
+      if (pickTarget && !epicParents.has(pickTarget.number)) {
+        e.preventDefault();
+        pickIssueFromSearch(pickTarget);
+      }
+    } else if (e.key === "Escape") {
+      closeMenus(e);
+    }
+  }
+
   // While a menu is open it captures the navigation keys; plain Enter inserts a newline.
   // (⌘/Ctrl+Enter submits at the FORM level — see onFormKeydown — so it works from
   // anywhere in the modal, per the design.)
   function onPromptKeydown(e: KeyboardEvent) {
-    const menuOpen = slashOpen ? slashMatches.length > 0 : issueSearchOpen;
-    if ((slashOpen || issueSearchOpen) && menuOpen) {
-      const len = slashOpen ? slashMatches.length : issueMatches.length;
-      if (e.key === "ArrowDown") {
-        e.preventDefault();
-        if (slashOpen) slashIndex = (slashIndex + 1) % len;
-        else issueIndex = len === 0 ? 0 : (issueIndex + 1) % len;
-      } else if (e.key === "ArrowUp") {
-        e.preventDefault();
-        if (slashOpen) slashIndex = (slashIndex - 1 + len) % len;
-        else issueIndex = len === 0 ? 0 : (issueIndex - 1 + len) % len;
-      } else if (e.key === "Enter" || e.key === "Tab") {
-        if (slashOpen) {
-          e.preventDefault();
-          pickCommand(slashMatches[slashIndex]!);
-        } else if (issueMatches.length > 0) {
-          const pickTarget = issueMatches[issueIndex];
-          if (pickTarget && !epicParents.has(pickTarget.number)) {
-            e.preventDefault();
-            pickIssueFromSearch(pickTarget);
-          }
-        }
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        slashOpen = false;
-        issueSearchOpen = false;
-      }
-    } else if ((slashOpen || issueSearchOpen) && e.key === "Escape") {
-      e.preventDefault();
-      slashOpen = false;
-      issueSearchOpen = false;
-    }
+    if (slashOpen) onSlashMenuKey(e);
+    else if (issueSearchOpen) onIssueMenuKey(e);
   }
 
   function selectRepo(path: string) {
@@ -953,6 +964,53 @@
     return touched ? value : null;
   }
 
+  function buildSpawnInput(finalPrompt: string, force: boolean) {
+    return {
+      repoPath: repoPath.trim(),
+      baseBranch: baseBranch.trim() || "main",
+      prompt: finalPrompt,
+      agentProvider,
+      model: model !== "default" ? model : null,
+      effort: effort !== "default" ? effort : null,
+      images: images.map((i) => i.path),
+      attachmentNames: images.map((i) => i.name),
+      issueRef: activeIssue
+        ? {
+            number: activeIssue.number,
+            url: activeIssue.url,
+            title: activeIssue.title,
+            body: activeIssue.body,
+          }
+        : undefined,
+      launchUiState: {
+        researchChecked: research,
+        planGateChecked: planGate,
+        autopilotChecked: autopilot,
+        epicAuthoringChecked: epicAuthoring,
+      },
+      planGateEnabled: planGateFlag(planGateTouched, planGate),
+      autopilotEnabled: automationFlag(autopilotTouched, autopilot),
+      sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
+      research,
+      epicAuthoring,
+      force: force || undefined,
+    };
+  }
+
+  /** Localized message for a failed spawn/edit, per composer variant. */
+  function spawnFailureMessage(err: unknown): string {
+    if (editHeld) return reason(err, m.newtask_edit_held_failed());
+    if (relaunch) return reason(err, m.relaunch_failed());
+    return m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+  }
+
+  /** The active command constraint the final prompt violates, if any. */
+  function violatedConstraint(finalPrompt: string): ProviderTokenConstraint | undefined {
+    return providerTokenConstraints.find(
+      (c) => finalPrompt.includes(c.token) && !c.providers.includes(agentProvider),
+    );
+  }
+
   async function doSpawn(force = false) {
     submitting = true;
     error = null;
@@ -962,9 +1020,7 @@
     const typed = prompt.trim();
     const finalPrompt = typed || (activeIssue ? issueTemplate(activeIssue) : "");
     pruneProviderConstraints(finalPrompt);
-    const incompatible = providerTokenConstraints.find(
-      (c) => finalPrompt.includes(c.token) && !c.providers.includes(agentProvider),
-    );
+    const incompatible = violatedConstraint(finalPrompt);
     if (incompatible) {
       submitting = false;
       error = m.newtask_provider_constraint_error({
@@ -977,47 +1033,12 @@
       return;
     }
     try {
-      await onsubmit({
-        repoPath: repoPath.trim(),
-        baseBranch: baseBranch.trim() || "main",
-        prompt: finalPrompt,
-        agentProvider,
-        model: model !== "default" ? model : null,
-        effort: effort !== "default" ? effort : null,
-        images: images.map((i) => i.path),
-        attachmentNames: images.map((i) => i.name),
-        issueRef: activeIssue
-          ? {
-              number: activeIssue.number,
-              url: activeIssue.url,
-              title: activeIssue.title,
-              body: activeIssue.body,
-            }
-          : undefined,
-        launchUiState: {
-          researchChecked: research,
-          planGateChecked: planGate,
-          autopilotChecked: autopilot,
-          epicAuthoringChecked: epicAuthoring,
-        },
-        planGateEnabled: planGateFlag(planGateTouched, planGate),
-        autopilotEnabled: automationFlag(autopilotTouched, autopilot),
-        sandboxProfile: sandboxProfile === "default" ? undefined : sandboxProfile,
-        research,
-        epicAuthoring,
-        force: force || undefined,
-      });
+      await onsubmit(buildSpawnInput(finalPrompt, force));
     } catch (err) {
       if (isPreviewBlocked(err)) {
         error = (err as Error).message;
-      } else if (editHeld) {
-        error = reason(err, m.newtask_edit_held_failed());
-        retry = () => doSpawn(force);
-      } else if (relaunch) {
-        error = reason(err, m.relaunch_failed());
-        retry = () => doSpawn(force);
       } else {
-        error = m.newtask_create_failed({ reason: reason(err, m.newtask_submit()) });
+        error = spawnFailureMessage(err);
         retry = () => doSpawn(force);
       }
     } finally {
@@ -1449,42 +1470,7 @@
             <span class="group-label">{m.newtask_group_mode()}</span>
             {@render modeSeg()}
             <div class="rule"></div>
-            <RunSettingsGroups
-              {agentProvider}
-              {model}
-              {effort}
-              {sandboxProfile}
-              {planGate}
-              {autopilot}
-              {modeLocked}
-              {planGateLoading}
-              {autopilotLoading}
-              {planGateDefault}
-              {autopilotDefault}
-              {usageLimits}
-              {holdLikely}
-              {fableAvailable}
-              providerConstraint={activeProviderConstraint}
-              {research}
-              onProviderChange={providerChanged}
-              onModelChange={(v) => {
-                model = v;
-                modelTouched = true;
-              }}
-              onEffortChange={(v) => {
-                effort = v;
-                effortTouched = true;
-              }}
-              onSandboxChange={(v) => (sandboxProfile = v)}
-              onPlanGateChange={(v) => {
-                planGate = v;
-                planGateTouched = true;
-              }}
-              onAutopilotChange={(v) => {
-                autopilot = v;
-                autopilotTouched = true;
-              }}
-            />
+            {@render settingsGroups()}
           </div>
         {/if}
       </div>
@@ -1553,42 +1539,7 @@
         onclose={() => (activeSheet = null)}
       >
         {@render modeLockedNote()}
-        <RunSettingsGroups
-          {agentProvider}
-          {model}
-          {effort}
-          {sandboxProfile}
-          {planGate}
-          {autopilot}
-          {modeLocked}
-          {planGateLoading}
-          {autopilotLoading}
-          {planGateDefault}
-          {autopilotDefault}
-          {usageLimits}
-          {holdLikely}
-          {fableAvailable}
-          providerConstraint={activeProviderConstraint}
-          {research}
-          onProviderChange={providerChanged}
-          onModelChange={(v) => {
-            model = v;
-            modelTouched = true;
-          }}
-          onEffortChange={(v) => {
-            effort = v;
-            effortTouched = true;
-          }}
-          onSandboxChange={(v) => (sandboxProfile = v)}
-          onPlanGateChange={(v) => {
-            planGate = v;
-            planGateTouched = true;
-          }}
-          onAutopilotChange={(v) => {
-            autopilot = v;
-            autopilotTouched = true;
-          }}
-        />
+        {@render settingsGroups()}
       </MobileEngineSheet>
     {:else if mobile.current && activeSheet === "context"}
       <MobileEngineSheet
@@ -1639,6 +1590,47 @@
     {/if}
   </form>
 </div>
+
+{#snippet settingsGroups()}
+  <!-- One prop/callback wiring for the single settings owner; rendered in exactly
+       one place at a time (desktop rail or the mobile engine sheet). -->
+  <RunSettingsGroups
+    {agentProvider}
+    {model}
+    {effort}
+    {sandboxProfile}
+    {planGate}
+    {autopilot}
+    {modeLocked}
+    {planGateLoading}
+    {autopilotLoading}
+    {planGateDefault}
+    {autopilotDefault}
+    {usageLimits}
+    {holdLikely}
+    {fableAvailable}
+    providerConstraint={activeProviderConstraint}
+    {research}
+    onProviderChange={providerChanged}
+    onModelChange={(v) => {
+      model = v;
+      modelTouched = true;
+    }}
+    onEffortChange={(v) => {
+      effort = v;
+      effortTouched = true;
+    }}
+    onSandboxChange={(v) => (sandboxProfile = v)}
+    onPlanGateChange={(v) => {
+      planGate = v;
+      planGateTouched = true;
+    }}
+    onAutopilotChange={(v) => {
+      autopilot = v;
+      autopilotTouched = true;
+    }}
+  />
+{/snippet}
 
 {#snippet modeSeg()}
   <div class="seg-row" role="group" aria-label={m.newtask_group_mode()}>

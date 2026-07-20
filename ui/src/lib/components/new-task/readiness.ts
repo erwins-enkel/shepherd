@@ -33,19 +33,16 @@ export interface Readiness {
  * handoff-specified extension: a seeded same-repo issue satisfies the prompt requirement
  * ("prompt non-empty OR an issue is seeded").
  */
-export function deriveReadiness(i: ReadinessInput): Readiness {
-  const blocker: ReadinessBlocker | null = i.submitting
-    ? "submitting"
-    : i.repairing
-      ? "repairing"
-      : !i.repoResolved
-        ? "no_repo"
-        : i.baseMissing
-          ? "base_missing"
-          : i.promptEmpty && !i.issueSeeded
-            ? "empty_prompt"
-            : null;
+function deriveBlocker(i: ReadinessInput): ReadinessBlocker | null {
+  if (i.submitting) return "submitting";
+  if (i.repairing) return "repairing";
+  if (!i.repoResolved) return "no_repo";
+  if (i.baseMissing) return "base_missing";
+  if (i.promptEmpty && !i.issueSeeded) return "empty_prompt";
+  return null;
+}
 
+function deriveAdvisories(i: ReadinessInput): ReadinessAdvisory[] {
   const advisories: ReadinessAdvisory[] = [];
   if (i.upstreamLoading) advisories.push("checking");
   else if (i.upstream?.diverged) advisories.push("diverged");
@@ -53,6 +50,10 @@ export function deriveReadiness(i: ReadinessInput): Readiness {
   // A likely usage hold applies to the Claude quota only; Codex is the suggested
   // alternative, not a held path — so the dual-CTA advisory is Claude-scoped.
   if (i.holdLikely && i.provider === "claude") advisories.push("hold_likely");
+  return advisories;
+}
 
-  return { canSubmit: blocker === null, blocker, advisories };
+export function deriveReadiness(i: ReadinessInput): Readiness {
+  const blocker = deriveBlocker(i);
+  return { canSubmit: blocker === null, blocker, advisories: deriveAdvisories(i) };
 }

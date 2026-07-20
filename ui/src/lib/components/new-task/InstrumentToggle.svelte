@@ -52,7 +52,7 @@
     {#if loading}
       <span class="status loading">{m.common_loading()}</span>
     {:else}
-      <span class="status" class:on={checked} use:statusTip={{ text: defaultTip }}
+      <span class="status" class:on={checked} use:statusTip={{ text: defaultTip, still: true }}
         >{checked ? m.newtask_toggle_on() : m.newtask_toggle_off()}</span
       >
     {/if}

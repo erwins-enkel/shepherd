@@ -112,6 +112,13 @@
   }
   .micbtn.inline {
     position: static;
+    /* The New Task modal is motion-free: no hover transition, no recording pulse
+       (the listening/transcribing state stays visible via the color change). */
+    transition: none;
+  }
+  .micbtn.inline.listening,
+  .micbtn.inline.transcribing {
+    animation: none;
   }
 
   .micbtn {

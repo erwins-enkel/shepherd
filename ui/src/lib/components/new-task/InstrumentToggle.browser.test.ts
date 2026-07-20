@@ -99,6 +99,10 @@ describe("InstrumentToggle", () => {
     await expect
       .poll(() => document.querySelector(".status-tip")?.textContent ?? "")
       .toContain(m.newtask_autopilot_repo_default_off());
+    // Motion-free variant: the popover opts out of the global entrance animation.
+    const tip = document.querySelector<HTMLElement>(".status-tip")!;
+    expect(tip.classList.contains("status-tip-still")).toBe(true);
+    expect(getComputedStyle(tip).animationName).toBe("none");
     expect(onchange).not.toHaveBeenCalled();
     expect(sw().getAttribute("aria-checked")).toBe("false");
     // Redundant AT path: the switch itself is described by the same text.

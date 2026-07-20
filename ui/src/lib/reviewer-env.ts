@@ -9,10 +9,12 @@ function providerLabel(provider: AgentProvider): string {
   return provider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude();
 }
 
-/** Compose a `CLI · model · effort` label for a plan/reviewer environment. A null/absent provider
- *  degrades to a localized "unavailable" (optionally suffixed with whatever model/effort is known);
- *  callers that must NOT surface that string (e.g. the in-flight reviewing button) should gate on a
- *  non-null provider first. `model`/`effort` fall back to their localized "default" when absent. */
+/** Compose a `CLI · model · effort` label for an agent environment — the plan/reviewer strips
+ *  AND the session status bar share this single formatter so their wording can never drift.
+ *  A null/absent provider degrades to a localized "unavailable" (optionally suffixed with
+ *  whatever model/effort is known); callers that must NOT surface that string (e.g. the
+ *  in-flight reviewing button) should gate on a non-null provider first. `model`/`effort`
+ *  fall back to their localized "default" when absent. */
 export function environmentLabel(
   provider: AgentProvider | null | undefined,
   model: string | null | undefined,

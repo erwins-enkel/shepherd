@@ -852,6 +852,33 @@ describe("Viewport active REWORK terminal strip", () => {
     );
   });
 
+  it("keeps the session's OWN model visible in the status bar during active rework", async () => {
+    // The regression this feature exists to prevent: the rework strip shows the REVIEWER's
+    // env, and the task agent's identity used to hide in the hover-only metaPop.
+    const id = "rw-status-bar";
+    planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
+
+    const { container } = await render(Viewport, {
+      session: session({
+        id,
+        status: "running",
+        planPhase: "planning",
+        model: "opus",
+        effort: "high",
+      }),
+      activity: activity("edited .shepherd-plan.md"),
+      previewPort: null,
+      openPreviewTick: 0,
+    });
+
+    await expect
+      .element(page.getByText("REWORK · 1/5 · edited .shepherd-plan.md"))
+      .toBeInTheDocument();
+    const bar = container.querySelector(".ssb");
+    expect(bar, "status bar renders alongside the rework strip").not.toBeNull();
+    expect(bar!.textContent).toContain("Claude Code · opus · High");
+  });
+
   it("hides parked plan-gate rework", async () => {
     const id = "rw-plan-parked";
     planGates.map = { [id]: planGate({ sessionId: id, round: 1, cap: 5 }) };
@@ -970,6 +997,37 @@ describe("Viewport active REWORK terminal strip", () => {
 // the touch starts inside `.vp-body` (tagged data-swipe-page); all chrome is excluded
 // by omission. The handler reads e.touches[0].clientX/clientY on start/move and
 // nothing off touchend, so we dispatch bubbling Events with a `touches` shim.
+describe("Viewport usage refetch on session switch", () => {
+  it("refetches usage for the new session when the session prop switches", async () => {
+    // +page.svelte updates the SAME Viewport instance's session prop on unit switch
+    // (no {#key}), so the usage effect must re-key on session.id — otherwise the
+    // status bar keeps polling (and showing) the PREVIOUS session's tokens.
+    const seen: string[] = [];
+    const origFetch = window.fetch;
+    window.fetch = async (...args: Parameters<typeof fetch>) => {
+      const url = String(args[0]);
+      if (url.includes("/usage")) seen.push(url);
+      return origFetch(...args);
+    };
+    try {
+      const { rerender } = await render(Viewport, {
+        session: session({ id: "switch-a" }),
+        previewPort: null,
+        openPreviewTick: 0,
+      });
+      await vi.waitFor(() =>
+        expect(seen.some((u) => u.includes("/sessions/switch-a/usage"))).toBe(true),
+      );
+      await rerender({ session: session({ id: "switch-b" }) });
+      await vi.waitFor(() =>
+        expect(seen.some((u) => u.includes("/sessions/switch-b/usage"))).toBe(true),
+      );
+    } finally {
+      window.fetch = origFetch;
+    }
+  });
+});
+
 describe("Viewport mobile page-swipe scoping", () => {
   // The structural-invariant test below assumes the header is expanded so
   // `.vp-git-strip` / `.bqp` render; clear the persisted collapse flag so a prior

@@ -1064,6 +1064,11 @@ export interface SessionUsageRow {
   sessionId: string;
   desig: string;
   name: string;
+  /** Provenance: the pinned claude session id the snapshot was taken from ('' on legacy
+   *  pre-provenance rows). Guards the archived-usage read against serving a stale row
+   *  after a restore → replace → re-archive cycle (the replacement gets a new id, and a
+   *  Codex replacement never snapshots at all). */
+  claudeSessionId: string;
   repoPath: string;
   model: string;
   input: number;
@@ -1085,6 +1090,9 @@ export interface SessionUsageSnapshot {
   sessionId: string;
   desig: string;
   name: string;
+  /** Provenance guard (see SessionUsageRow.claudeSessionId); optional so legacy fixtures
+   *  and pre-migration rows (which read back as '') need no change. */
+  claudeSessionId?: string;
   repoPath: string;
   model: string;
   input: number;

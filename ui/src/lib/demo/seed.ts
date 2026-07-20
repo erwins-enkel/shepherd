@@ -1479,44 +1479,59 @@ function buildScratchpad(): Record<string, ScratchListing> {
   };
 }
 
-/** GET /api/sessions/:id/usage — per-session token usage badge (polled while a session is
- *  open). Only the hero has meaningfully large numbers; everyone else is a valid zeroed
- *  record (`usage.total > 0` gates the badge, so a zero record renders nothing — safe, not empty-object). */
+/** GET /api/sessions/:id/usage — per-session token usage (status bar + metaPop). Only the
+ *  hero has meaningfully large numbers; most others are a valid TRUE-ZERO record
+ *  (available:true, total 0 → the bar shows "0 tok", metaPop hides its row). `neon` is the
+ *  one deliberately UNAVAILABLE record so the demo exercises the status bar's explained
+ *  "—" placeholder path. */
 function buildSessionUsage(): Record<string, SessionUsage> {
   const zero: SessionUsage = {
+    available: true,
+    source: "live",
     input: 0,
     output: 0,
     cacheRead: 0,
     cacheWrite: 0,
     total: 0,
     messageCount: 0,
-    lastActivity: null,
     byModel: {},
   };
   return {
     coupon: {
+      available: true,
+      source: "live",
       input: 42_000,
       output: 8_900,
       cacheRead: 120_000,
       cacheWrite: 15_000,
       total: 185_900,
       messageCount: 34,
-      lastActivity: NOW - 20 * SEC,
       byModel: { opus: 185_900 },
     },
     "checkout-child": {
+      available: true,
+      source: "live",
       input: 9_500,
       output: 2_100,
       cacheRead: 30_000,
       cacheWrite: 4_000,
       total: 45_600,
       messageCount: 11,
-      lastActivity: NOW - 40 * SEC,
       byModel: { opus: 45_600 },
     },
     rounding: { ...zero },
     authstore: { ...zero },
-    neon: { ...zero },
+    neon: {
+      available: false,
+      source: "none",
+      input: null,
+      output: null,
+      cacheRead: null,
+      cacheWrite: null,
+      total: 0,
+      messageCount: null,
+      byModel: null,
+    },
     ogimg: { ...zero },
     deps: { ...zero },
   };

@@ -1271,6 +1271,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       sessionId      TEXT PRIMARY KEY,
       desig          TEXT NOT NULL,
       name           TEXT NOT NULL DEFAULT '',
+      claudeSessionId TEXT NOT NULL DEFAULT '',
       repoPath       TEXT NOT NULL,
       model          TEXT NOT NULL,
       input          INTEGER NOT NULL,
@@ -1306,6 +1307,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const usageCols = this.db.query(`PRAGMA table_info(session_usage)`).all() as { name: string }[];
     if (!usageCols.some((c) => c.name === "name")) {
       this.db.run(`ALTER TABLE session_usage ADD COLUMN name TEXT NOT NULL DEFAULT ''`);
+    }
+    // provenance column (see SessionUsageRow.claudeSessionId): legacy rows default to '',
+    // which the archived-usage read tolerates as "pre-provenance"
+    if (!usageCols.some((c) => c.name === "claudeSessionId")) {
+      this.db.run(`ALTER TABLE session_usage ADD COLUMN claudeSessionId TEXT NOT NULL DEFAULT ''`);
     }
   }
 
@@ -2342,6 +2348,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       now,
       id,
     ]);
+    // The archive-time usage snapshot is stale the moment the session is live again (a
+    // replace can even swap its provider/lineage). Drop it so the archived-usage read can't
+    // serve a pre-restore row — including a legacy blank-provenance one — as current; the
+    // next archive re-snapshots the cumulative transcript.
+    this.deleteSessionUsage(id);
   }
 
   // ── usage limit caps (CapStore) ──────────────────────────────────────────
@@ -4939,12 +4950,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   upsertSessionUsage(snap: SessionUsageSnapshot): void {
     this.db.run(
       `INSERT INTO session_usage
-         (sessionId, desig, name, repoPath, model, input, output, cacheRead, cacheWrite, total,
+         (sessionId, desig, name, claudeSessionId, repoPath, model, input, output, cacheRead, cacheWrite, total,
           weightedUnits, cacheReadUnits, messageCount, byModel, createdAt, archivedAt, snapshotAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET
          desig = excluded.desig,
          name = excluded.name,
+         claudeSessionId = excluded.claudeSessionId,
          repoPath = excluded.repoPath,
          model = excluded.model,
          input = excluded.input,
@@ -4963,6 +4975,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         snap.sessionId,
         snap.desig,
         snap.name,
+        snap.claudeSessionId ?? "",
         snap.repoPath,
         snap.model,
         snap.input,
@@ -4988,6 +5001,24 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       ...row,
       byModel: JSON.parse(row.byModel) as Record<string, number>,
     }));
+  }
+
+  /** One session's archive-time usage snapshot, or null when none was recorded
+   *  (writer skips operational archetypes / empty transcripts; backfill can miss). */
+  getSessionUsage(sessionId: string): SessionUsageSnapshot | null {
+    const row = this.db
+      .query(`SELECT * FROM session_usage WHERE sessionId = ?`)
+      .get(sessionId) as SessionUsageRow | null;
+    return row ? { ...row, byModel: JSON.parse(row.byModel) as Record<string, number> } : null;
+  }
+
+  /** Drop a session's archive-time usage snapshot (+ its buckets via FK cascade). Called on
+   *  restore/unarchive: the snapshot is archive-final, so once the session is live again it is
+   *  provisional — the next archive re-snapshots the (cumulative) transcript. This closes the
+   *  restore → replace → re-archive-with-skipped-snapshot staleness: a legacy blank-provenance
+   *  row can't survive a restore to be served as the replacement's usage. Idempotent. */
+  deleteSessionUsage(sessionId: string): void {
+    this.db.run(`DELETE FROM session_usage WHERE sessionId = ?`, [sessionId]);
   }
 
   // ── per-session usage buckets ────────────────────────────────────────────────

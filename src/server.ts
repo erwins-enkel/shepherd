@@ -96,7 +96,7 @@ import { listBranches } from "./branches";
 import { computeDiff, toSessionDiff } from "./diff";
 import { buildDiffNotes } from "./diff-annotations";
 import { resolveDiffBase } from "./diff-base";
-import { sessionTokens, jsonlPathFor, type SessionUsageRollup } from "./usage";
+import { readSessionUsage, jsonlPathFor, type SessionUsageRollup } from "./usage";
 import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
@@ -548,10 +548,87 @@ export interface AppDeps {
   ) => Promise<import("./prompt-recommend").RecommendResult>;
 }
 
-const sessionUsage = (s: Session) =>
-  s.claudeSessionId
-    ? sessionTokens(jsonlPathFor(s.worktreePath, s.claudeSessionId))
-    : sessionTokens("/nonexistent"); // pre-feature session → zeroed usage
+/** Wire DTO for GET /api/sessions/:id/usage (mirrored by ui/src/lib/types.ts SessionUsage —
+ *  the two trees don't share a build, so the shape is deliberately not exported/imported).
+ *  `available: false` is reserved for genuinely absent data — a readable-but-empty transcript
+ *  is `available: true, total: 0`. Splits/messageCount/byModel are null when the resolved
+ *  source doesn't carry them; `byModel` is always RAW tokens per model, never weighted units. */
+interface SessionUsageDto {
+  available: boolean;
+  source: "live" | "snapshot" | "codex" | "none";
+  total: number;
+  input: number | null;
+  output: number | null;
+  cacheRead: number | null;
+  cacheWrite: number | null;
+  messageCount: number | null;
+  byModel: Record<string, number> | null;
+}
+
+const UNAVAILABLE_USAGE: SessionUsageDto = {
+  available: false,
+  source: "none",
+  total: 0,
+  input: null,
+  output: null,
+  cacheRead: null,
+  cacheWrite: null,
+  messageCount: null,
+  byModel: null,
+};
+
+/** Resolve a session's token usage through the source ladder:
+ *  1. archived → the archive-time session_usage snapshot (usage-snapshot.ts; #965 backfill);
+ *  2. snapshot-less archive → fall through to the live source (writer skips operational
+ *     archetypes / empty transcripts, and the backfill can miss);
+ *  3. Claude → live JSONL, spawn-account-aware (a swap/pool session's JSONL lives under
+ *     <spawnAccountDir>/projects — same rule as sessionDiffAnnotationsRead);
+ *  4. Codex → unavailable: per-session state-DB totals are deliberately NOT read here (thread
+ *     overlap semantics across resumes are unproven and a rollout-tree scan has no place in the
+ *     UI's 5s polling path); tracked by the Codex-totals follow-up issue. */
+async function sessionUsageDto(s: Session, store: SessionStore): Promise<SessionUsageDto> {
+  // Snapshot rung applies only to Claude sessions: the writer never snapshots Codex, so any
+  // row under a now-Codex session is by definition from a previous (pre-replacement) cycle.
+  if (s.status === "archived" && (s.agentProvider ?? "claude") === "claude") {
+    const snap = store.getSessionUsage(s.id);
+    // Provenance guard (restore → replace → re-archive): a replaced session keeps its id but
+    // gets a NEW claudeSessionId, and its re-archive may skip snapshotting (empty/missing
+    // transcript) — the leftover row would then report the previous agent's tokens as
+    // current. Serve only a snapshot from the same agent lineage; '' = legacy row from
+    // before the provenance column, tolerated (it predates restore-with-replace staleness
+    // being reachable for it in practice, and new snapshots always stamp the id).
+    if (snap && (!snap.claudeSessionId || snap.claudeSessionId === s.claudeSessionId)) {
+      return {
+        available: true,
+        source: "snapshot",
+        total: snap.total,
+        input: snap.input,
+        output: snap.output,
+        cacheRead: snap.cacheRead,
+        cacheWrite: snap.cacheWrite,
+        messageCount: snap.messageCount,
+        // The snapshot's byModel holds WEIGHTED UNITS per model (SessionUsageSnapshot), which
+        // must never be served in this raw-token field.
+        byModel: null,
+      };
+    }
+  }
+  if ((s.agentProvider ?? "claude") === "codex") return UNAVAILABLE_USAGE;
+  if (!s.claudeSessionId) return UNAVAILABLE_USAGE; // pre-feature session: no pinned id
+  const u = await readSessionUsage(s.worktreePath, s.claudeSessionId, s.spawnAccountDir);
+  if (!u) return UNAVAILABLE_USAGE;
+  return {
+    available: true,
+    source: "live",
+    total: u.total,
+    input: u.input,
+    output: u.output,
+    cacheRead: u.cacheRead,
+    cacheWrite: u.cacheWrite,
+    messageCount: u.messageCount,
+    byModel: u.byModel,
+  };
+}
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json" } });
@@ -2111,7 +2188,7 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
 
 async function sessionUsageRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
-  return s ? json(await sessionUsage(s)) : json({ error: "not found" }, 404);
+  return s ? json(await sessionUsageDto(s, deps.store)) : json({ error: "not found" }, 404);
 }
 
 async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response> {

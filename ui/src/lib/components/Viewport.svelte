@@ -68,6 +68,7 @@
   import { recaps } from "$lib/recaps.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import SteerBar from "$lib/components/SteerBar.svelte";
+  import SessionStatusBar from "$lib/components/SessionStatusBar.svelte";
   import ComposeBar from "$lib/components/ComposeBar.svelte";
   import LeftoverDialog from "$lib/components/LeftoverDialog.svelte";
   import BuildQueuePanel from "$lib/components/BuildQueuePanel.svelte";
@@ -764,10 +765,29 @@
       : null,
   );
 
-  // per-session token usage from ~/.claude JSONL; refresh on select + every 5s
+  // per-session token usage from ~/.claude JSONL; refresh on select + every 5s.
+  // Keyed on unitId (value-level, see its note above): reading session.id here would
+  // re-run this effect on every store-driven prop churn, resetting usage to null and
+  // re-fetching each tick even while the id stays put.
   let usage = $state<SessionUsage | null>(null);
+  // metaPop's split-breakdown hover title needs all four raw splits; sources that don't
+  // carry them (see SessionUsage) show the plain total with no title.
+  const usageSplitsTitle = $derived(
+    usage != null &&
+      usage.input != null &&
+      usage.output != null &&
+      usage.cacheRead != null &&
+      usage.cacheWrite != null
+      ? m.viewport_usage_title({
+          input: usage.input.toLocaleString(),
+          output: usage.output.toLocaleString(),
+          cacheRead: usage.cacheRead.toLocaleString(),
+          cacheWrite: usage.cacheWrite.toLocaleString(),
+        })
+      : undefined,
+  );
   $effect(() => {
-    const id = session.id;
+    const id = unitId;
     usage = null;
     let alive = true;
     const load = () =>
@@ -2419,14 +2439,8 @@
         <span class="dp-section">{m.tasktip_usage()}</span>
         <span class="dp-row">
           <span class="dp-k">{m.viewport_tokens_meta_label()}</span>
-          <span
-            class="dp-v"
-            title={m.viewport_usage_title({
-              input: usage.input.toLocaleString(),
-              output: usage.output.toLocaleString(),
-              cacheRead: usage.cacheRead.toLocaleString(),
-              cacheWrite: usage.cacheWrite.toLocaleString(),
-            })}>{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
+          <span class="dp-v" title={usageSplitsTitle}
+            >{m.viewport_tokens_label({ tokens: formatTokens(usage.total) })}</span
           >
         </span>
       {/if}
@@ -3049,6 +3063,13 @@
       </div>
     {/if}
   </div>
+
+  <!-- Persistent session status strip (#pane): the task agent's own identity + usage +
+       elapsed, identical on every tab and lifecycle stage — during rework/review the
+       ReviewInFlightBanner above shows the REVIEWER's env while this keeps the task's.
+       Sits between .vp-body and SteerBar/controls so the ctrl-row stays bottom-most
+       (the foldable swipe-up compose gesture starts on the bottom-most element). -->
+  <SessionStatusBar {session} {usage} />
 
   {#if tab === "term"}
     <SteerBar

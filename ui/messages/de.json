@@ -3276,5 +3276,13 @@
   "diagnostics_fix_confirm_title_host_capacity": "Host-Kapazitätslimits anwenden?",
   "diagnostics_fix_confirm_run_host_capacity": "Limits anwenden",
   "diagnostics_fix_unresolved_host_capacity": "Shepherd hat die Limits angewendet, aber der Check ist weiterhin nicht OK — gib ihm einen Moment oder prüfe, ob die Unit benutzerbezogen ist.",
-  "hold_pr_conflict": "Der PR hat Merge-Konflikte — CI kann bis zum Rebase nicht laufen."
+  "hold_pr_conflict": "Der PR hat Merge-Konflikte — CI kann bis zum Rebase nicht laufen.",
+  "statusbar_aria": "Session-Status; angezeigtes Modell und Aufwand des Agenten sind die konfigurierten Werte, die zur Laufzeit beim Start ersetzt werden können",
+  "statusbar_tokens_unavailable_title": "Token-Verbrauch ist für diese Session nicht verfügbar",
+  "statusbar_tokens_unavailable_codex_title": "Token-Verbrauch wird für Codex-Sessions noch nicht erfasst",
+  "statusbar_elapsed_live_title": "Session-Alter {elapsed} – Zeit seit Erstellung, nicht aktive Laufzeit",
+  "statusbar_elapsed_done_title": "Session-Alter {elapsed} – von Erstellung bis Archivierung, nicht aktive Laufzeit",
+  "feat_session_status_bar_title": "Eine Statusleiste für jede Session",
+  "feat_session_status_bar_body": "Jede Session-Ansicht endet jetzt in derselben Statusleiste: das CLI, Modell und der Aufwand, mit denen der Agent konfiguriert ist, sein Token-Verbrauch und das Session-Alter. Sie bleibt auf jedem Tab und in jeder Lebensphase an Ort und Stelle – auch beim Rework, wo das Banner darüber den Reviewer zeigt, während die Leiste die Identität des Task-Agenten behält – und bei fertigen Sessions in der Done-Ansicht.",
+  "statusbar_identity_title": "Konfigurierte Umgebung: {identity}. Zur Laufzeit kann beim Start ersetzt werden (Nutzungs-Downgrade, Provider-Begrenzungen), ohne diese Einstellung zu ändern."
 }

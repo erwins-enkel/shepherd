@@ -243,7 +243,14 @@ function recapArgv(
   prompt: string,
   effort?: string | null,
 ): { argv: string[]; sessionId: string } {
-  return buildTransientAgentArgv("writer-only", { provider, model, effort, prompt });
+  // Recap READS the `-o` last-message fallback (a Codex recap may answer in chat) → opt in.
+  return buildTransientAgentArgv("writer-only", {
+    provider,
+    model,
+    effort,
+    prompt,
+    captureLastMessage: true,
+  });
 }
 
 // ── deps interface ────────────────────────────────────────────────────────────

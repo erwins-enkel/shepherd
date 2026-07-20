@@ -74,7 +74,14 @@ function classifierArgv(
   prompt: string,
   effort?: string | null,
 ): string[] {
-  return buildTransientAgentArgv("writer-only", { provider, model, effort, prompt }).argv;
+  // The autopilot classifier READS the `-o` last-message fallback → opt in.
+  return buildTransientAgentArgv("writer-only", {
+    provider,
+    model,
+    effort,
+    prompt,
+    captureLastMessage: true,
+  }).argv;
 }
 
 interface PollClock {

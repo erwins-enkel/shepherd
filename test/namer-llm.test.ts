@@ -110,8 +110,8 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
     readName: () => "mobile footer",
   });
   await llmName("the mobile footer needs settings", deps, "l");
-  // `-o` is emitted for every Codex role (see codex-role-argv.ts). The namer doesn't read the
-  // last-message file — it reads .shepherd-name — but the flag is harmless and part of the shared argv.
+  // The namer READS only `.shepherd-name`, never the `-o` last-message fallback, so it does NOT opt
+  // into capture — its Codex argv carries NO `-o` (and thus no Codex `-o`/version-floor dependency).
   expect(calls.started.argv.map(stripFenceNonce)).toEqual(
     [
       "codex",
@@ -120,11 +120,10 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
       "workspace-write",
       "-m",
       "gpt-5.5",
-      "-o",
-      ".shepherd-last-message.txt",
       namingPrompt("the mobile footer needs settings"),
     ].map(stripFenceNonce),
   );
+  expect(calls.started.argv).not.toContain("-o");
   expect(calls.started.argv).not.toContain("--settings");
 });
 

@@ -224,6 +224,8 @@ export class OptimizerService {
       model: environment.model,
       effort: environment.effort,
       prompt: optimizePrompt(),
+      // The optimizer READS the `-o` last-message fallback → opt in.
+      captureLastMessage: true,
     });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so a same-tick

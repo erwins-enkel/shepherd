@@ -79,6 +79,15 @@ export interface TransientAgentArgvOptions {
    *  on the critic this is the reasoning channel that replaced the retired thinking-budget env
    *  channel (issue #1419), running at `--effort high` by default. */
   effort?: string | null;
+  /** OPT-IN: emit the Codex `-o` last-message file so the CLI captures the agent's final message even
+   *  when it answers in chat instead of writing the result file (see codex-last-message.ts). Set ONLY
+   *  by roles that actually READ that fallback (recap, autopilot, rundown, distiller, optimizer,
+   *  merge-suggest, and the reviewers). Roles that read only their own sentinel/result file — the
+   *  namer (`.shepherd-name`), verify-key (`.shepherd-verify`), doc-agent (edits + sentinel) — leave
+   *  it unset so they carry NO `-o`, and thus no Codex `-o`/version-floor dependency they don't need
+   *  (nor, for the checkout-running kinds, a fixed `-o` target a committed symlink could redirect).
+   *  Claude spawns ignore it (Claude has no `-o`). Default false. */
+  captureLastMessage?: boolean;
 }
 
 /** Read-only git grounding — diff/log/show/status only. NO add/commit/push. Shared by reviewer+doc. */
@@ -159,23 +168,24 @@ export function buildTransientAgentArgv(
   // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
   // `--sandbox workspace-write`.
   //
-  // The `-o` last-message file is emitted ONLY for kinds that READ the fallback, and its name is
-  // chosen for the kind's trust posture:
-  //   - `reviewer` runs in an UNTRUSTED checkout (the PR critics) AND reads the fallback → a PER-SPAWN
-  //     unguessable name, so a PR can't pre-commit a file matching what the real run writes/reads
-  //     (see codex-last-message.ts). The read side reconstructs it from the `sessionId` returned here.
-  //   - `doc` also runs in a checkout (retarget mode = the PR head sha, UNTRUSTED) but NEVER reads the
-  //     fallback (doc-agent's deliverable is file EDITS + a sentinel) → NO `-o` at all, so a committed
-  //     symlink at a fixed `-o` path can't redirect the CLI's final-message write onto a real file.
-  //   - every other kind (`writer-ro`/`writer-only`) runs in a disposable tmpdir nothing else can
-  //     write and reads the fallback → the fixed name, safe there.
+  // The `-o` last-message file is emitted ONLY when the CALLER opts in (`captureLastMessage`) — i.e.
+  // the role actually READS the fallback. Capture is a per-ROLE property, orthogonal to `kind` (which
+  // governs the tool allowlist / MCP isolation): the shared `writer-only` kind covers both consumers
+  // (recap/autopilot/rundown) and non-consumers (namer, verify-key), so the kind alone can't decide.
+  // When capture is on, the NAME is chosen for the kind's trust posture:
+  //   - `reviewer` runs in an UNTRUSTED checkout (the PR critics) → a PER-SPAWN unguessable name, so a
+  //     PR can't pre-commit a file matching what the real run writes/reads (see codex-last-message.ts).
+  //     The read side reconstructs it from the `sessionId` returned here.
+  //   - every consuming tmpdir kind (`writer-ro`/`writer-only`) → the fixed name, safe in a fresh dir.
+  // Non-consumers (namer, verify-key, doc) never set the flag → NO `-o`, so they carry no Codex
+  // `-o`/version-floor dependency, and a checkout-running non-consumer (doc, retarget = PR head sha)
+  // exposes no fixed `-o` target a committed symlink could redirect onto a real file.
   if (opts.provider === "codex") {
-    const lastMessageFile =
-      kind === "reviewer"
+    const lastMessageFile = !opts.captureLastMessage
+      ? null
+      : kind === "reviewer"
         ? codexLastMessageFile(sessionId)
-        : kind === "doc"
-          ? null
-          : CODEX_LAST_MESSAGE_FILE;
+        : CODEX_LAST_MESSAGE_FILE;
     return {
       argv: codexRoleArgv(
         opts.model,

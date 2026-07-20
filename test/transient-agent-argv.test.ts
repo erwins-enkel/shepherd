@@ -320,34 +320,48 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 // argv differs. None of the Claude-only flags (--settings/--safe-mode/--allowedTools) leak.
 
 // The `-o` last-message file lets Codex write its final message to a file even when the agent answers
-// in chat instead of writing the result file (see codex-last-message.ts). It is emitted ONLY for kinds
-// that READ the fallback, with a name matched to the kind's trust posture:
-//   - reviewer → PER-SPAWN unguessable name (untrusted checkout, consumes the fallback).
-//   - doc      → NO `-o` at all (untrusted checkout, but never consumes it — omitting removes the
-//                symlink-redirect surface a fixed target would expose).
-//   - others   → the fixed name (disposable tmpdir, consumes the fallback).
-/** Expected `-o` pair for a codex spawn of `kind` with the given returned `sessionId` — `[]` for the
- *  doc kind, which gets no `-o`. */
-function expectedOPair(kind: string, sessionId: string): string[] {
-  if (kind === "doc") return [];
-  const name =
-    kind === "reviewer" ? `.shepherd-last-message-${sessionId}.txt` : ".shepherd-last-message.txt";
-  return ["-o", name];
-}
+// in chat instead of writing the result file (see codex-last-message.ts). It is OPT-IN — emitted only
+// when the caller sets `captureLastMessage` (i.e. the role READS the fallback). When set, the name
+// matches the kind's trust posture: `reviewer` (untrusted checkout) → a PER-SPAWN unguessable name;
+// every other kind (disposable tmpdir) → the fixed name.
 
-test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] [-o <file>] <prompt>`", () => {
+test("codex: NO `-o` unless captureLastMessage is set (opt-in; default off for every kind)", () => {
+  for (const kind of ALL_KINDS) {
+    const { argv } = buildTransientAgentArgv(kind, {
+      provider: "codex",
+      model: "gpt-5.5",
+      prompt: "DO_IT",
+    });
+    // Roles that never read the fallback (namer, verify-key, doc-agent) get this shape → no `-o`, so
+    // no Codex `-o`/version-floor dependency and no fixed target a committed symlink could redirect.
+    expect(argv).not.toContain("-o");
+    expect(argv.some((a) => a.startsWith(".shepherd-last-message"))).toBe(false);
+    expect(argv).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      "-m",
+      "gpt-5.5",
+      "DO_IT",
+    ]);
+  }
+});
+
+test("codex + captureLastMessage → reviewer PER-SPAWN `-o`, other kinds the fixed `-o`", () => {
   for (const kind of ALL_KINDS) {
     const withModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: "gpt-5.5",
       prompt: "DO_IT",
+      captureLastMessage: true,
     });
+    const name =
+      kind === "reviewer"
+        ? `.shepherd-last-message-${withModel.sessionId}.txt`
+        : ".shepherd-last-message.txt";
     if (kind === "reviewer") {
-      // genuinely per-spawn (not the fixed name)
-      expect(expectedOPair(kind, withModel.sessionId)[1]).not.toBe(".shepherd-last-message.txt");
-    }
-    if (kind === "doc") {
-      expect(withModel.argv).not.toContain("-o"); // the non-consuming, untrusted-checkout kind
+      expect(name).not.toBe(".shepherd-last-message.txt"); // genuinely per-spawn
     }
     expect(withModel.argv).toEqual([
       "codex",
@@ -356,7 +370,8 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       "workspace-write",
       "-m",
       "gpt-5.5",
-      ...expectedOPair(kind, withModel.sessionId),
+      "-o",
+      name,
       "DO_IT",
     ]);
     // No Claude flags leak in.
@@ -368,36 +383,27 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
     ]) {
       expect(withModel.argv).not.toContain(flag);
     }
-    // No model → no -m flag, but the -o pair (if any) + trailing prompt remain.
+    // No model → no -m flag, but the -o pair + trailing prompt remain.
     const noModel = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: null,
       prompt: "DO_IT",
+      captureLastMessage: true,
     });
+    const nName =
+      kind === "reviewer"
+        ? `.shepherd-last-message-${noModel.sessionId}.txt`
+        : ".shepherd-last-message.txt";
     expect(noModel.argv).toEqual([
       "codex",
       "exec",
       "--sandbox",
       "workspace-write",
-      ...expectedOPair(kind, noModel.sessionId),
+      "-o",
+      nName,
       "DO_IT",
     ]);
   }
-});
-
-test("codex `doc` kind emits NO `-o` (never consumes the fallback; runs in an untrusted checkout)", () => {
-  // doc-agent's deliverable is file EDITS + a sentinel — it never reads the `-o` last-message file.
-  // In retarget mode its worktree is the PR head sha (UNTRUSTED), so a fixed `-o` target could be a
-  // committed symlink the CLI's final-message write would follow onto a real file. No consumer, no -o.
-  const { argv } = buildTransientAgentArgv("doc", {
-    provider: "codex",
-    model: "gpt-5.5",
-    prompt: "EDIT_DOCS",
-  });
-  expect(argv).not.toContain("-o");
-  expect(argv.some((a) => a.startsWith(".shepherd-last-message"))).toBe(false);
-  // The prompt is still the trailing positional.
-  expect(argv[argv.length - 1]).toBe("EDIT_DOCS");
 });
 
 test("claude provider (default + explicit) still builds the claude argv", () => {

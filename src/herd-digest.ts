@@ -93,6 +93,8 @@ function rundownArgv(
     model: environment.model,
     effort: environment.effort,
     prompt,
+    // The rundown READS the `-o` last-message fallback → opt in.
+    captureLastMessage: true,
   });
 }
 

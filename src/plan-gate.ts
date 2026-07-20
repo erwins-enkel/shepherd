@@ -155,7 +155,14 @@ export function reviewerArgv(
   // The plan reviewer participates in the session's resolved reasoning effort (no longer force-
   // unbudgeted): it inherits `session.effort` — the tier this session runs at, itself the session
   // override or the drain repo→global resolution. Unset (the default) → no --effort → unchanged.
-  return buildTransientAgentArgv("reviewer", { provider, model, prompt, effort });
+  // The plan reviewer READS the `-o` last-message fallback (per-spawn name for its checkout) → opt in.
+  return buildTransientAgentArgv("reviewer", {
+    provider,
+    model,
+    prompt,
+    effort,
+    captureLastMessage: true,
+  });
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.

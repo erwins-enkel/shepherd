@@ -276,6 +276,8 @@ export class DistillerService {
       model: environment.model,
       effort: environment.effort,
       prompt: distillPrompt(),
+      // The distiller READS the `-o` last-message fallback → opt in.
+      captureLastMessage: true,
     });
     const agentName = DISTILL_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily

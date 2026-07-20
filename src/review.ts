@@ -685,6 +685,8 @@ export class ReviewService {
         plan,
         smellLens,
       }),
+      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+      captureLastMessage: true,
     });
   }
 

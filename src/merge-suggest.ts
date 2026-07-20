@@ -249,6 +249,8 @@ export class MergeSuggestionService {
       model: environment.model,
       effort: environment.effort,
       prompt: kind === "cross" ? crossPrompt() : intraPrompt(),
+      // The merge-suggester READS the `-o` last-message fallback → opt in.
+      captureLastMessage: true,
     });
     const agentName = MERGE_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so the daily

@@ -474,6 +474,8 @@ export class StandalonePrCriticService {
       model: env.model,
       effort: env.effort,
       prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null, fp.landing ?? null),
+      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+      captureLastMessage: true,
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).

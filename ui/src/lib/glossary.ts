@@ -29,6 +29,18 @@ const glossary: readonly GlossaryTerm[] = [
     bodyKey: "gloss_reasoning_effort_def",
   },
   {
+    id: "plan-gate",
+    kind: "internal",
+    termKey: "gloss_plan_gate_term",
+    bodyKey: "gloss_plan_gate_def",
+  },
+  {
+    id: "autopilot",
+    kind: "internal",
+    termKey: "gloss_autopilot_term",
+    bodyKey: "gloss_autopilot_def",
+  },
+  {
     id: "pr",
     kind: "external",
     termKey: "gloss_pr_term",

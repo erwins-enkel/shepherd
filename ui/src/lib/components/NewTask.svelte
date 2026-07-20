@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, tick } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -26,7 +26,6 @@
     type Steer,
     MODELS_BY_PROVIDER,
   } from "$lib/types";
-  import { promoDefaultModel } from "$lib/fable-promo";
   import {
     matchSlashTrigger,
     filterCommands,
@@ -36,13 +35,16 @@
     commandInvocationName,
     commandProviders,
   } from "$lib/slash";
+  import { matchIssueTrigger } from "$lib/issue-trigger";
   import RepoSelect from "./RepoSelect.svelte";
   import PromptSources from "./PromptSources.svelte";
   import SlashCommandMenu from "./SlashCommandMenu.svelte";
+  import IssueSearchMenu from "./IssueSearchMenu.svelte";
   import MicButton from "./MicButton.svelte";
   import BaseRepairNotice from "./new-task/BaseRepairNotice.svelte";
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
-  import NewTaskRunSettings from "./new-task/NewTaskRunSettings.svelte";
+  import RunSettingsGroups from "./new-task/RunSettingsGroups.svelte";
+  import MobileEngineSheet from "./new-task/MobileEngineSheet.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { repoConfig } from "$lib/reviews.svelte";
@@ -51,6 +53,17 @@
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { assignedOthers } from "./issues-panel";
   import { recentRepos } from "$lib/recentRepos";
+  import { projectIcons } from "$lib/projectIcons.svelte";
+  import { modelOptionLabel } from "$lib/model-guidance";
+  import { deriveReadiness } from "./new-task/readiness";
+  import {
+    preselectModel,
+    preselectEffort,
+    reseedRunConfig,
+    normalizeRunConfig,
+    modelForManualProviderChange,
+  } from "./new-task/run-config";
+  import { IssueData } from "./new-task/issue-data.svelte";
   import type { UsageLimits } from "$lib/types";
 
   type TaskAttachment = {
@@ -154,10 +167,10 @@
   // The attached issue: its body is sent separately, NOT dumped into the prompt.
   // svelte-ignore state_referenced_locally
   let issueRef = $state<Issue | null>(initialIssue ?? null);
-  // The repoPath in effect when issueRef was attached, so the "assigned to X — you can
-  // still start" notice (#1694) only fires while the dialog still targets that repo. An
-  // in-dialog repo switch doesn't clear the attachment, and Issue carries no repoPath, so
-  // without this guard the notice would compare a repo-A issue against repo-B's viewer.
+  // The repoPath in effect when issueRef was attached. Guards BOTH the "assigned to X"
+  // notice (#1694) AND the activeIssue predicate below: an in-dialog repo switch doesn't
+  // clear the attachment, and Issue carries no repoPath, so without this a repo-A issue
+  // would satisfy readiness / ride the payload for a repo-B submission.
   // svelte-ignore state_referenced_locally
   let attachedRepoPath = $state<string | null>(initialIssue ? (initialRepoPath ?? "") : null);
   // intentional one-time seed; NewTask remounts per open
@@ -177,43 +190,26 @@
   // svelte-ignore state_referenced_locally
   let agentProvider = $state<AgentProvider>(initialAgentProvider ?? defaultAgentProvider);
 
-  // Picker preselect precedence: explicit initialModel (e.g. the "Try Fable" CTA) wins;
-  // else the selected repo's default-model override; else the operator's global default
-  // if it's an explicit model; else the fresh client promo (configured "auto", or
-  // settings not yet loaded). NewTask remounts per open, so the promo cutoff is honored
-  // fresh each open. `modelTouched` pins a manual pick so switching repos / a late repo
-  // config load doesn't clobber it.
-  function preselectModel(configured: string | undefined, provider: AgentProvider): string {
-    const pick =
-      configured && configured !== "auto"
-        ? configured
-        : provider === "claude"
-          ? promoDefaultModel()
-          : "default";
-    return pick === "fable" && !fableAvailable ? "default" : pick;
-  }
-  // reads initialModel/fableAvailable once to compute the picker's seed (see preselectModel
-  // above); intentionally non-reactive — a one-shot value, not tracked
+  // Model/effort preselect + reseed + validity correction all live HERE (run-config.ts),
+  // never in the conditionally-mounted settings component — a mobile session that never
+  // opens the engine sheet still submits normalized values.
+  // reads initialModel/fableAvailable once to compute the picker's seed; intentionally
+  // non-reactive — a one-shot value, not tracked
   // svelte-ignore state_referenced_locally
   const safeInitial = initialModel === "fable" && !fableAvailable ? "default" : initialModel;
-  // seeds the model picker once; the $effect below re-derives it from the repo/global default
-  // until the user picks one (modelTouched) — initial-value capture is intended here
+  // seeds the model picker once; the reseed $effect below re-derives it from the
+  // repo/global default until the user picks one (modelTouched)
   // svelte-ignore state_referenced_locally
   let model = $state(
     safeInitial ??
       preselectModel(
         agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : defaultModel,
         agentProvider,
+        fableAvailable,
       ),
   );
   let modelTouched = $state(false);
 
-  // Effort picker preselect: a settings SETTING ("default" | <tier>) maps to a picker value; the
-  // repo override → global default is resolved by the $effect below. "default"/"inherit"/absent →
-  // "default" (no flag). `effortTouched` pins a manual pick across repo/config changes.
-  function preselectEffort(setting: string | undefined): string {
-    return setting && setting !== "default" && setting !== "inherit" ? setting : "default";
-  }
   // svelte-ignore state_referenced_locally
   let effort = $state(preselectEffort(initialEffort ?? defaultEffort));
   let effortTouched = $state(false);
@@ -227,16 +223,11 @@
   );
   // Plan gate: defaults to the selected repo's stored flag until the user toggles
   // it. `planGateTouched` pins a manual choice so switching repos doesn't clobber it.
-  // A seeded concrete value (editing a held task with an explicit override) pre-pins it;
-  // a null seed (inherit) leaves it deriving from the repo default.
   // svelte-ignore state_referenced_locally
   let planGate = $state(initialPlanGate ?? false);
   // svelte-ignore state_referenced_locally
   let planGateTouched = $state(initialPlanGate != null);
-  // Autopilot override: defaults to the selected repo's stored flag until the user
-  // toggles it. `autopilotTouched` pins a manual choice so switching repos doesn't
-  // clobber it. Lets a single task opt out of "drive autonomously to a PR" — e.g. to
-  // discuss/iterate and approve each step yourself — without changing the repo default.
+  // Autopilot override: same seed-from-repo-default pattern.
   // svelte-ignore state_referenced_locally
   let autopilot = $state(initialAutopilot ?? false);
   // svelte-ignore state_referenced_locally
@@ -244,7 +235,7 @@
   // Research task kind: web research → report PR or issue; mutually exclusive w/ plan-gate.
   // svelte-ignore state_referenced_locally
   let research = $state(initialResearch);
-  // Epic-authoring task kind (issue #1507): guided shaping → EPIC draft; mutually exclusive w/ research.
+  // Epic-authoring task kind (issue #1507): guided shaping → EPIC draft.
   // svelte-ignore state_referenced_locally
   let epicAuthoring = $state(initialEpicAuthoring);
   // Per-spawn sandbox override; "default" → omit (inherit the repo's configured profile).
@@ -256,8 +247,8 @@
   let retry = $state<(() => void) | null>(null);
   // True while the first-task confirm step is shown (unconfirmed repo intercept)
   let confirmStep = $state(false);
-  // Carries the `force` flag (e.g. "Submit anyway" past a usage hold) across the confirm
-  // step so confirming a first-task repo replays the original intent, not a downgraded force=false.
+  // Carries the `force` flag across the confirm step so confirming a first-task repo
+  // replays the original intent, not a downgraded force=false.
   let pendingForce = $state(false);
 
   function reason(e: unknown, fallback: string): string {
@@ -266,23 +257,19 @@
   }
   let repos = $state<RepoEntry[]>([]);
   // Day count the server computed recentAgentCount over; drives the picker's label.
-  // 0 until listRepos() resolves — the recents group (and its label) only render
-  // once repo data has loaded, which sets this from the server in the same step,
-  // so the sentinel is never shown and there's no duplicated window literal.
   let recentRepoWindowDays = $state(0);
-  // Echoed on the submit button so the destination repo is visible at commit time.
-  const selectedRepoName = $derived(repos.find((r) => r.path === repoPath)?.name ?? "");
-  // Non-viewer assignees of the attached issue, for the soft "you can still start" notice
-  // (#1694). Empty unless the issue is still attached under THIS repo (attachedRepoPath
-  // guard) and the forge viewer is known for it (viewer-cache; fail-closed → no notice).
+  const selectedRepo = $derived(repos.find((r) => r.path === repoPath));
+  const selectedRepoName = $derived(selectedRepo?.name ?? "");
+  // ONE repo-aware seeded-issue predicate: feeds readiness, the submit guard, the
+  // template materialization, and the issueRef payload — they can never disagree.
+  const activeIssue = $derived(issueRef && repoPath === attachedRepoPath ? issueRef : null);
+  // Non-viewer assignees of the attached issue, for the soft "you can still start"
+  // notice (#1694). Fail-closed via viewer-cache.
   const attachedOthers = $derived(
-    issueRef && repoPath === attachedRepoPath
-      ? assignedOthers(issueRef, viewerCache.get(repoPath))
-      : [],
+    activeIssue ? assignedOthers(activeIssue, viewerCache.get(repoPath)) : [],
   );
   let branches = $state<string[]>([]);
-  // The base selected by pickBaseBranch (the repo default / origin/HEAD) need not be a
-  // LOCAL branch — a fresh clone may have `dev` only as `origin/dev`. Surface it as an
+  // The base selected by pickBaseBranch need not be a LOCAL branch — surface it as an
   // option so the dropdown's shown value matches the base actually submitted.
   let baseOptions = $derived(branches.includes(baseBranch) ? branches : [baseBranch, ...branches]);
   let upstream = $state<{
@@ -308,9 +295,18 @@
   let repoSelect: RepoSelect | undefined = $state();
   let mic: MicButton | undefined = $state();
   let isMac = $state(false);
-  // Coarse pointer = touch-primary device with no hardware Ctrl/⌘/⌥ keys: hide
-  // keyboard-combo hints it can't fulfil (submit shortcut badge + repo shortcuts).
+  // Coarse pointer = touch-primary device: hide keyboard-combo hints it can't fulfil.
   const coarse = new MediaQuery("(pointer: coarse)");
+  // Layout breakpoint — drives the SINGLE mounted instance of RunSettingsGroups
+  // (desktop rail vs. mobile engine sheet) and the mobile-only chrome.
+  const mobile = new MediaQuery("(max-width: 768px)");
+  // Single active-sheet invariant: at most one mobile sheet is open, by construction.
+  let activeSheet = $state<"engine" | "context" | null>(null);
+  let contextSheetEl = $state<HTMLElement | null>(null);
+  // Leaving mobile while a sheet is open: the rail takes over; close the sheet.
+  $effect(() => {
+    if (!mobile.current && activeSheet !== null) activeSheet = null;
+  });
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
   let allCommands = $state<SlashCommand[]>([]);
@@ -326,6 +322,26 @@
   );
   let providerTokenConstraints = $state<ProviderTokenConstraint[]>([]);
   const activeProviderConstraint = $derived(providerTokenConstraints[0] ?? null);
+
+  // ── inline `#` issue search (issue-trigger.ts; distinct state from the command menu;
+  //    same allowIssues = !relaunch restriction as the issue panel) ──
+  let issueSearchOpen = $state(false);
+  let issueQuery = $state("");
+  let issueIndex = $state(0);
+  const issueData = new IssueData();
+  $effect(() => {
+    issueData.load(repoPath);
+  });
+  const issueMatches = $derived.by(() => {
+    if (!issueSearchOpen) return [];
+    const q = issueQuery.trim().toLowerCase();
+    const list = q
+      ? issueData.issues.filter(
+          (i) => String(i.number).startsWith(q) || i.title.toLowerCase().includes(q),
+        )
+      : issueData.issues;
+    return list.slice(0, 20);
+  });
 
   /** Default to the most-recently-used repo; fall back to the first in the list. */
   function defaultRepoPath(list: RepoEntry[]): string {
@@ -370,15 +386,13 @@
       .then(({ repos: r, recentWindowDays }) => {
         repos = r;
         recentRepoWindowDays = recentWindowDays;
-        // Prefer the most-recently-used NON-hidden repo so the picker never opens
-        // pre-selected on a hidden repo; if every repo is hidden, fall back to the full
-        // list so repoPath is never left empty.
+        // Prefer the most-recently-used NON-hidden repo; if every repo is hidden,
+        // fall back to the full list so repoPath is never left empty.
         if (!repoPath && r.length > 0)
           repoPath = defaultRepoPath(r.filter((repo) => !repo.hidden)) || r[0]!.path;
       })
       .catch(() => {});
     // Focus the prompt so the user can type immediately when the dialog opens.
-    // Move the caret to the end so a seeded initialPrompt stays editable inline.
     promptInput?.focus();
     promptInput?.setSelectionRange(prompt.length, prompt.length);
     autogrow(); // size to a seeded initialPrompt on open
@@ -412,8 +426,7 @@
   });
 
   // Fetch upstream status for the selected base branch; debounced 300 ms with a
-  // stale-request guard so in-flight requests from a previous (repo, branch) pair
-  // are silently dropped.
+  // stale-request guard.
   $effect(() => {
     const rp = repoPath,
       b = baseBranch;
@@ -456,16 +469,11 @@
     };
   });
 
-  // Seed the plan-gate checkbox from the selected repo's stored default. ensure()
-  // fetches+caches the repo config; the derived default below tracks the cached
-  // flag and re-seeds the checkbox on repo change unless the user has toggled it.
+  // Seed the plan-gate toggle from the selected repo's stored default.
   $effect(() => {
     if (repoPath) repoConfig.ensure(repoPath);
   });
   const planGateDefault = $derived(repoPath ? repoConfig.isPlanGateEnabled(repoPath) : false);
-  // While the repo's config fetch is still in flight (and the user hasn't toggled),
-  // the checkbox would read "off" even for a gate-ON repo. Disable + hint until it
-  // settles; a failed fetch still settles, so the box never wedges disabled.
   const planGateLoading = $derived(
     !!repoPath && !planGateTouched && !repoConfig.isConfigSettled(repoPath),
   );
@@ -483,42 +491,91 @@
     if (!autopilotTouched) autopilot = autopilotDefault;
   });
 
-  // Plan-gate is available for Codex (TASK-413): the gate directive rides inline on the Codex
-  // spawn prompt, and the detection/review/release loop is CLI-agnostic. The checkbox is live for
-  // both providers (see NewTaskRunSettings) and the choice flows through planGateFlag. Autopilot is
-  // likewise available for isolated Codex sessions (#1140) via automationFlag.
-
-  // Effective default model = repo override (if not "inherit") → global default → promo.
-  // Re-seeds the picker when the repo config loads / the repo changes, unless an explicit
-  // initialModel (CTA) pinned it or the user already picked a model by hand.
-  const repoModelOverride = $derived(repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit");
-  const providerModelSetting = $derived(
-    agentProvider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : (defaultModel ?? "auto"),
+  // Research and epic-authoring are non-code modes: both disable the plan-gate/autopilot
+  // toggles and the autonomous sandbox.
+  const modeLocked = $derived(research || epicAuthoring);
+  const mode = $derived<"code" | "research" | "epic">(
+    research ? "research" : epicAuthoring ? "epic" : "code",
   );
-  const effectiveModelSetting = $derived(
-    repoModelOverride !== "inherit" &&
-      (repoModelOverride === "auto" ||
-        repoModelOverride === "default" ||
-        MODELS_BY_PROVIDER[agentProvider].includes(repoModelOverride))
-      ? repoModelOverride
-      : providerModelSetting,
-  );
-  const providerDefaultModel = $derived(preselectModel(effectiveModelSetting, agentProvider));
-  $effect(() => {
-    if (initialModel == null && !modelTouched) model = providerDefaultModel;
-  });
+  /** Mode segmented control: exact checkbox-parity semantics — selecting a non-code mode
+   *  forces the guards off and PINS them touched (so a later repo switch doesn't re-seed);
+   *  returning to Code deliberately does NOT restore them (parity with unchecking). */
+  function setMode(next: "code" | "research" | "epic") {
+    if (next === mode) return;
+    research = next === "research";
+    epicAuthoring = next === "epic";
+    if (next !== "code") {
+      planGate = false;
+      planGateTouched = true;
+      autopilot = false;
+      autopilotTouched = true;
+      if (sandboxProfile === "autonomous") sandboxProfile = "default";
+    }
+  }
 
-  // Effort mirrors the model re-seed: repo override (unless "inherit") → global default effort.
+  /** Effective model SETTING for a provider: repo override (when valid for it) → global. */
+  function modelSettingFor(provider: AgentProvider): string {
+    const override = repoPath ? repoConfig.defaultModelFor(repoPath) : "inherit";
+    const setting =
+      provider === "codex" ? (defaultCodexModel ?? "gpt-5.5") : (defaultModel ?? "auto");
+    return override !== "inherit" &&
+      (override === "auto" ||
+        override === "default" ||
+        MODELS_BY_PROVIDER[provider].includes(override))
+      ? override
+      : setting;
+  }
+  const effectiveModelSetting = $derived(modelSettingFor(agentProvider));
+  const providerDefaultModel = $derived(
+    preselectModel(effectiveModelSetting, agentProvider, fableAvailable),
+  );
+
   const repoEffortOverride = $derived(repoPath ? repoConfig.defaultEffortFor(repoPath) : "inherit");
   const effectiveEffortSetting = $derived(
     repoEffortOverride !== "inherit" ? repoEffortOverride : (defaultEffort ?? "default"),
   );
+
+  // Untouched-reseed: repo/provider change re-derives model+effort until pinned.
   $effect(() => {
-    if (initialEffort == null && !effortTouched) effort = preselectEffort(effectiveEffortSetting);
+    const seeded = reseedRunConfig({
+      provider: agentProvider,
+      modelTouched,
+      effortTouched,
+      hasInitialModel: initialModel != null,
+      hasInitialEffort: initialEffort != null,
+      effectiveModelSetting,
+      effectiveEffortSetting,
+      fableAvailable,
+    });
+    if (seeded.model !== undefined && seeded.model !== model) model = seeded.model;
+    if (seeded.effort !== undefined && seeded.effort !== effort) effort = seeded.effort;
   });
 
-  // (re)load the slash-command list when the target repo changes — a repo's own
-  // .claude/commands + .claude/skills layer on top of the global/user/plugin ones.
+  // Validity correction, applied always (touched or not): constraint-forced provider
+  // flips, unavailable-model snaps, unsupported-effort snaps.
+  $effect(() => {
+    const norm = normalizeRunConfig({
+      provider: agentProvider,
+      model,
+      effort,
+      fableAvailable,
+      constraint: activeProviderConstraint,
+      claudeModelSetting: modelSettingFor("claude"),
+      codexModelSetting: modelSettingFor("codex"),
+    });
+    if (norm.provider !== agentProvider) agentProvider = norm.provider;
+    if (norm.model !== model) model = norm.model;
+    if (norm.effort !== effort) effort = norm.effort;
+  });
+
+  /** Manual CLI-select change — today's semantics preserved: the model resets to the new
+   *  provider's default unconditionally (touched or not). */
+  function providerChanged(p: AgentProvider) {
+    agentProvider = p;
+    model = modelForManualProviderChange(p, modelSettingFor(p), fableAvailable);
+  }
+
+  // (re)load the slash-command list when the target repo changes.
   $effect(() => {
     const rp = repoPath;
     const provider = commandProvider;
@@ -535,9 +592,7 @@
       });
   });
 
-  // Epic-parent tracking issues for the selected repo. The issue picker shows them
-  // disabled (picking one as a manual task collides with the Epic Runner — epics
-  // launch via the epic panel's Start control instead).
+  // Epic-parent tracking issues for the selected repo (issue picker shows them disabled).
   let epicParents = $state<Set<number>>(new Set());
   let nativeSubIssues = $state<Set<number>>(new Set());
   let epicsLoaded = $state(false);
@@ -563,6 +618,39 @@
         epicsLoaded = false;
       });
   });
+
+  // ── readiness: the footer line + CTA disabled-state + submit guard all derive from
+  //    this single presentation-layer model (new-task/readiness.ts) ──
+  const readiness = $derived(
+    deriveReadiness({
+      promptEmpty: !prompt.trim(),
+      issueSeeded: activeIssue != null,
+      repoResolved: !!repoPath.trim(),
+      baseMissing,
+      repairing: repairingBase,
+      submitting,
+      upstreamLoading,
+      upstream: upstream ? { diverged: upstream.diverged, behind: upstream.behind } : null,
+      holdLikely,
+      provider: agentProvider,
+    }),
+  );
+  const showDualCta = $derived(readiness.advisories.includes("hold_likely"));
+
+  function blockerCopy(blocker: NonNullable<typeof readiness.blocker>): string {
+    switch (blocker) {
+      case "empty_prompt":
+        return m.newtask_readiness_empty_prompt();
+      case "no_repo":
+        return m.newtask_readiness_no_repo();
+      case "base_missing":
+        return m.newtask_readiness_base_missing();
+      case "repairing":
+        return m.newtask_readiness_repairing();
+      case "submitting":
+        return m.newtask_spawning();
+    }
+  }
 
   async function addFiles(files: FileList | File[]) {
     const uploads = Array.from(files);
@@ -597,8 +685,7 @@
     if (e.dataTransfer?.files?.length) addFiles(e.dataTransfer.files);
   }
 
-  // Cmd/Ctrl+V of a screenshot: upload any image on the clipboard. A plain-text
-  // paste carries no image item, so handleImagePaste leaves it alone.
+  // Cmd/Ctrl+V of a screenshot: upload any image on the clipboard.
   function onPaste(e: ClipboardEvent) {
     handleImagePaste(e, addFiles);
   }
@@ -618,12 +705,7 @@
     }
   }
 
-  // Inject an issue-scoped steer from PromptSources' per-row context menu: attach the
-  // issue and APPEND the steer's text to the prompt. This matches the backlog
-  // quick-launch payload but does NOT spawn — the dialog stays open for review/edit.
-  // On an empty prompt we set it to the steer text alone (no `#N title` template,
-  // unlike pickIssue): the steer text IS the intended prompt and the issue rides
-  // out-of-band via issueRef, so a title line would be redundant.
+  // Inject an issue-scoped steer from PromptSources' per-row context menu.
   function injectSteer(issue: Issue, steer: Steer) {
     issueRef = issue;
     attachedRepoPath = repoPath;
@@ -637,16 +719,16 @@
   }
 
   // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
-  // iOS Safari has no usable resize handle, so auto-grow is how the field gets bigger.
   function autogrow() {
     if (!promptInput) return;
     promptInput.style.height = "auto";
     promptInput.style.height = `${promptInput.scrollHeight}px`;
   }
 
-  // Open/refresh the slash menu from the caret position, or close it when the text
-  // before the caret is no longer a leading `/token`.
-  function refreshSlash() {
+  // Open/refresh the slash menu OR the issue-search menu from the caret position.
+  // A token starts with exactly one of `/ $ @ #`, so the two menus are mutually
+  // exclusive by construction; `#` obeys the panel's allowIssues = !relaunch rule.
+  function refreshTriggers() {
     const caret = promptInput?.selectionStart ?? prompt.length;
     const trigger = matchSlashTrigger(prompt, caret);
     if (trigger) {
@@ -654,15 +736,24 @@
       slashQuery = trigger.query;
       slashTrigger = trigger.trigger;
       slashIndex = 0;
+      issueSearchOpen = false;
+      return;
+    }
+    slashOpen = false;
+    const issueTrig = !relaunch ? matchIssueTrigger(prompt, caret) : null;
+    if (issueTrig) {
+      issueSearchOpen = true;
+      issueQuery = issueTrig.query;
+      issueIndex = 0;
     } else {
-      slashOpen = false;
+      issueSearchOpen = false;
     }
   }
 
   function onPromptInput() {
     autogrow();
     pruneProviderConstraints(prompt);
-    refreshSlash();
+    refreshTriggers();
   }
 
   function pruneProviderConstraints(text: string) {
@@ -676,10 +767,7 @@
     return providers[0] ?? agentProvider;
   }
 
-  // Replace the typed `/query` token with the chosen command and hoist it to the
-  // front of the prompt — Claude only runs a *leading* slash command, so a command
-  // typed mid-text becomes the leading command with the surrounding text as its
-  // argument. Caret lands past `/name ` so the user can type arguments straight away.
+  // Replace the typed `/query` token with the chosen command and hoist it to the front.
   function pickCommand(cmd: SlashCommand) {
     const caret = promptInput?.selectionStart ?? prompt.length;
     const trigger = matchSlashTrigger(prompt, caret);
@@ -740,31 +828,56 @@
     });
   }
 
-  // Cmd/Ctrl+Enter submits (plain Enter inserts a newline). While the slash menu is
-  // open it captures the navigation keys so arrows/Enter/Tab drive the picker.
+  // Pick from the inline `#` search: remove the typed token, then attach via the same
+  // pickIssue path the panel uses (seeds the template when the prompt goes empty).
+  function pickIssueFromSearch(issue: Issue) {
+    const caret = promptInput?.selectionStart ?? prompt.length;
+    const trig = matchIssueTrigger(prompt, caret);
+    if (trig) prompt = prompt.slice(0, trig.start) + prompt.slice(caret);
+    issueSearchOpen = false;
+    pickIssue(issue);
+    queueMicrotask(() => {
+      autogrow();
+      promptInput?.focus();
+      promptInput?.setSelectionRange(prompt.length, prompt.length);
+    });
+  }
+
+  // While a menu is open it captures the navigation keys; plain Enter inserts a newline.
+  // (⌘/Ctrl+Enter submits at the FORM level — see onFormKeydown — so it works from
+  // anywhere in the modal, per the design.)
   function onPromptKeydown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      submit(e);
-      return;
-    }
-    if (slashOpen && slashMatches.length > 0) {
+    const menuOpen = slashOpen ? slashMatches.length > 0 : issueSearchOpen;
+    if ((slashOpen || issueSearchOpen) && menuOpen) {
+      const len = slashOpen ? slashMatches.length : issueMatches.length;
       if (e.key === "ArrowDown") {
         e.preventDefault();
-        slashIndex = (slashIndex + 1) % slashMatches.length;
+        if (slashOpen) slashIndex = (slashIndex + 1) % len;
+        else issueIndex = len === 0 ? 0 : (issueIndex + 1) % len;
       } else if (e.key === "ArrowUp") {
         e.preventDefault();
-        slashIndex = (slashIndex - 1 + slashMatches.length) % slashMatches.length;
+        if (slashOpen) slashIndex = (slashIndex - 1 + len) % len;
+        else issueIndex = len === 0 ? 0 : (issueIndex - 1 + len) % len;
       } else if (e.key === "Enter" || e.key === "Tab") {
-        e.preventDefault();
-        pickCommand(slashMatches[slashIndex]!);
+        if (slashOpen) {
+          e.preventDefault();
+          pickCommand(slashMatches[slashIndex]!);
+        } else if (issueMatches.length > 0) {
+          const pickTarget = issueMatches[issueIndex];
+          if (pickTarget && !epicParents.has(pickTarget.number)) {
+            e.preventDefault();
+            pickIssueFromSearch(pickTarget);
+          }
+        }
       } else if (e.key === "Escape") {
         e.preventDefault();
         slashOpen = false;
+        issueSearchOpen = false;
       }
-    } else if (slashOpen && e.key === "Escape") {
+    } else if ((slashOpen || issueSearchOpen) && e.key === "Escape") {
       e.preventDefault();
       slashOpen = false;
+      issueSearchOpen = false;
     }
   }
 
@@ -774,14 +887,11 @@
   }
 
   function cycleRepo(dir: 1 | -1) {
-    // Cycle only the non-hidden subset so Alt+[/] can never surface a hidden repo in the
-    // trigger label. If the current repo is hidden (cur === -1) we enter the visible subset.
+    // Cycle only the non-hidden subset so Alt+[/] can never surface a hidden repo.
     const list = repos.filter((r) => !r.hidden);
     const n = list.length;
     if (n === 0) return;
     const cur = list.findIndex((r) => r.path === repoPath);
-    // Current repo hidden (cur === -1): enter the visible subset at its boundary — the
-    // first repo on a forward step, the last on a backward step — so neither end is skipped.
     if (cur === -1) {
       repoPath = list[dir === 1 ? 0 : n - 1]!.path;
       return;
@@ -789,14 +899,25 @@
     repoPath = list[(cur + dir + n) % n]!.path;
   }
 
-  // Alt-tier repo switchers, keyed on physical e.code so they work on any layout
-  // (DE brackets need AltGr; macOS Option+key types glyphs) and while the prompt
-  // textarea holds focus — keydown bubbles from the textarea to the dialog <form>.
-  // Mirrors +page.svelte's handleAltCombo guard. Matched combos are swallowed
-  // (preventDefault + stopPropagation) so no browser default fires and no glyph is
-  // inserted into the prompt; the global Alt tier is already dormant while a modal
-  // is open (anyOverlayOpen), so stopPropagation is belt-and-suspenders.
-  function onRepoShortcut(e: KeyboardEvent) {
+  /** ⌥R: on desktop the RepoSelect panel opens directly; on mobile RepoSelect lives
+   *  inside the context sheet, so the shortcut opens the sheet (closing the engine
+   *  sheet per the single-sheet invariant) and then the panel once mounted. */
+  async function openRepoPicker() {
+    if (mobile.current) {
+      activeSheet = "context";
+      await tick();
+    }
+    repoSelect?.openPanel();
+  }
+
+  // Form-level keydown: ⌘/Ctrl+↵ submits from anywhere in the modal (handoff rule),
+  // then the Alt-tier repo switchers (keyed on physical e.code, mirrors +page.svelte).
+  function onFormKeydown(e: KeyboardEvent) {
+    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
+      e.preventDefault();
+      submit(e);
+      return;
+    }
     if (e.repeat || e.isComposing) return;
     if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
     switch (e.code) {
@@ -810,13 +931,13 @@
       case "Digit2":
       case "Digit3": {
         // Filter hidden BEFORE recentRepos' top-N slice so the digit index matches the
-        // picker's pinned recents group exactly (shared single source of truth).
+        // picker's pinned recents group exactly.
         const target = recentRepos(repos.filter((r) => !r.hidden))[Number(e.code.slice(5)) - 1];
-        if (target) repoPath = target.path; // out of range → no selection change
+        if (target) repoPath = target.path;
         break; // still swallow the chord below
       }
       case "KeyR":
-        repoSelect?.openPanel();
+        void openRepoPicker();
         break;
       default:
         return; // not ours — let it through untouched
@@ -825,16 +946,12 @@
     e.stopPropagation();
   }
 
-  // Per-task autopilot flag at submit: send the user's manual choice, or null to inherit
-  // the repo default — for both providers. Codex autopilot is best-effort/Alpha and the
-  // server stands it down for non-isolated sessions (see AutopilotBadge for the surfacing).
+  // Per-task automation flags at submit: send the user's manual choice, or null to
+  // inherit the repo default.
   function automationFlag(touched: boolean, value: boolean): boolean | null {
     return touched ? value : null;
   }
 
-  // Plan-gate now flows for both providers (TASK-413): Codex receives the gate directive inline
-  // on its spawn prompt (Codex has no --append-system-prompt), and the detection/review/release
-  // machinery is CLI-agnostic. A manual choice rides; otherwise null inherits the repo default.
   function planGateFlag(touched: boolean, value: boolean): boolean | null {
     return touched ? value : null;
   }
@@ -843,7 +960,10 @@
     submitting = true;
     error = null;
     retry = null;
-    const finalPrompt = prompt.trim();
+    // The one predicate: an empty prompt is only submittable with an active (same-repo)
+    // issue, and then materializes as the issue template so the server contract holds.
+    const typed = prompt.trim();
+    const finalPrompt = typed || (activeIssue ? issueTemplate(activeIssue) : "");
     pruneProviderConstraints(finalPrompt);
     const incompatible = providerTokenConstraints.find(
       (c) => finalPrompt.includes(c.token) && !c.providers.includes(agentProvider),
@@ -869,12 +989,12 @@
         effort: effort !== "default" ? effort : null,
         images: images.map((i) => i.path),
         attachmentNames: images.map((i) => i.name),
-        issueRef: issueRef
+        issueRef: activeIssue
           ? {
-              number: issueRef.number,
-              url: issueRef.url,
-              title: issueRef.title,
-              body: issueRef.body,
+              number: activeIssue.number,
+              url: activeIssue.url,
+              title: activeIssue.title,
+              body: activeIssue.body,
             }
           : undefined,
         launchUiState: {
@@ -897,8 +1017,6 @@
         error = reason(err, m.newtask_edit_held_failed());
         retry = () => doSpawn(force);
       } else if (relaunch) {
-        // The page maps relaunch ApiError codes to localized messages before
-        // throwing; render that verbatim, falling back to a generic relaunch error.
         error = reason(err, m.relaunch_failed());
         retry = () => doSpawn(force);
       } else {
@@ -906,9 +1024,8 @@
         retry = () => doSpawn(force);
       }
     } finally {
-      // Clear submitting on every path. This only matters for the error path, where the
-      // dialog stays open showing the error and the buttons must re-enable for a retry;
-      // the success and held paths both close the dialog page-side, so it's harmless there.
+      // Clear submitting on every path (matters for the error path: the dialog stays
+      // open showing the error and the buttons must re-enable for a retry).
       submitting = false;
     }
   }
@@ -943,32 +1060,26 @@
 
   async function submit(e: Event, force = false) {
     e.preventDefault();
-    if (!prompt.trim() || !repoPath.trim() || submitting || repairingBase || baseMissing) return;
-    // A mid-recording submit sends the prompt as it stands: stop the mic and discard the
-    // clip so nothing is uploaded while (or after) the task spawns. Closing the dialog is
-    // covered by MicButton's own unmount teardown.
+    // Single guard: the same readiness model that drives the footer + CTA. Known
+    // pre-existing race (unchanged by this redesign): a second activation during the
+    // awaited repoConfig.ensure() below can pass this guard before doSpawn sets
+    // `submitting` — see the PR body's "Known pre-existing races" note.
+    if (!readiness.canSubmit) return;
+    // A mid-recording submit sends the prompt as it stands: stop the mic and discard
+    // the clip so nothing is uploaded while (or after) the task spawns.
     mic?.teardown();
     const repo = repoPath.trim();
-    // Settle the repo config BEFORE reading confirm/rowExists — an in-flight fetch reads both falsy,
-    // which would spuriously show the step for a confirmed repo AND fail the !rowExists seed guard,
-    // clobbering an existing repo's plan-gate. ensure() is idempotent + populates the maps before it
-    // resolves. (Same settledness concern the inline plan-gate box handles via isConfigSettled.)
-    // Only act on confirmed/rowExists when the fetch SUCCEEDED. On a transient GET failure
-    // ensure() leaves those maps unset (both read falsy), which would misdetect an existing
-    // confirmed repo as new — showing a spurious confirm step AND seeding planGateEnabled:true
-    // over a deliberate planGate=off. On failure we can't know the repo's state, so degrade to
-    // the prior behavior (spawn directly); the gate re-fires next task once the fetch lands.
+    // Settle the repo config BEFORE reading confirm/rowExists (see repoConfig.ensure).
     const configLoaded = await repoConfig.ensure(repo);
     // Editing a held task isn't a create — skip the brand-new-repo automation-confirm
-    // interstitial (and its default-seeding side effects); just persist the edit.
+    // interstitial; just persist the edit.
     if (
       !editHeld &&
       agentProvider === "claude" &&
       configLoaded &&
       !repoConfig.isAutomationConfirmed(repo)
     ) {
-      // Brand-new repo (no row) → seed the raised default posture (plan-gate ON) so the embedded
-      // settings show it. Guarded by !automationRowExists so we never clobber an existing repo's toggles.
+      // Brand-new repo (no row) → seed the raised default posture (plan-gate ON).
       if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
       pendingForce = force; // replay the original force intent after confirmation
       confirmStep = true;
@@ -990,11 +1101,13 @@
       return; // stay on the step; do NOT spawn if the confirm PUT failed
     }
     confirmStep = false;
-    // doSpawn sets submitting=true at entry and resets it in its finally; since we
-    // already set it true above, doSpawn must NOT bail on the guard — it sets it
-    // unconditionally at entry so there is no double-true problem.
     await doSpawn(pendingForce); // replay the force captured when the step opened
   }
+
+  /** Compact model display for the mobile engine summary row. */
+  const modelSummary = $derived(
+    model === "default" ? m.newtask_model_default() : modelOptionLabel(agentProvider, model),
+  );
 </script>
 
 <div
@@ -1008,9 +1121,7 @@
   }}
 >
   <!-- The modal card is a <form> so the prompt submits natively; role="dialog"
-       on it is valid ARIA (a dialog whose content is a form). Svelte's
-       non-interactive→interactive-role heuristic flags <form>, so silence just
-       that one rule here. -->
+       on it is valid ARIA. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
   <form
     class="card bracket"
@@ -1025,7 +1136,7 @@
       },
     }}
     onsubmit={submit}
-    onkeydown={onRepoShortcut}
+    onkeydown={onFormKeydown}
     ondragover={(e) => {
       e.preventDefault();
       dragging = true;
@@ -1036,11 +1147,27 @@
     ondrop={onDrop}
   >
     <div class="chead">
-      <span class="micro heading">{heading}</span>
-      <!-- Phone-only: the REPO label rides up into the head row so it shares the
-           44px line with the ✕ instead of leaving an empty band above it. Hidden
-           on desktop, where the stacked label in .repo-field shows instead. -->
-      <label class="micro chead-repo" for="nt-repo">{m.newtask_repo_label()}</label>
+      <span class="chead-title">{heading}</span>
+      {#if mobile.current}
+        <!-- Combined repo·branch chip: one control naming both payload-critical values;
+             opens the context sheet where each is independently editable. -->
+        <button
+          type="button"
+          class="ctx-chip"
+          aria-haspopup="dialog"
+          aria-expanded={activeSheet === "context"}
+          aria-label={m.newtask_context_chip_aria({
+            repo: selectedRepoName || m.reposelect_placeholder(),
+            branch: baseBranch,
+          })}
+          onclick={() => (activeSheet = "context")}
+        >
+          <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
+          <b>{selectedRepoName || m.reposelect_placeholder()}</b>
+          <span class="ctx-branch">· {baseBranch}</span>
+          <span class="chev" aria-hidden="true">▾</span>
+        </button>
+      {/if}
       <button
         type="button"
         class="x"
@@ -1064,273 +1191,497 @@
       }}
     />
     <div class="composer" class:hidden={confirmStep}>
-      <div class="repo-field" use:coachTarget={"nt-repo"}>
-        <label class="micro" for="nt-repo">{m.newtask_repo_label()}</label>
-        <RepoSelect
-          bind:this={repoSelect}
-          {repos}
-          windowDays={recentRepoWindowDays}
-          value={repoPath}
-          onchange={selectRepo}
-          {onclone}
-          {onfork}
-          {onnewproject}
-          onsync={handleSync}
-          onescape={() => promptInput?.focus()}
-          hideHidden
-        />
-      </div>
-
-      {#if !coarse.current}
-        <span class="hint repo-shortcuts-hint">
-          {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
-        </span>
-      {/if}
-
-      {#if relaunch}
-        <div class="relaunch-note">
-          <span>{m.newtask_relaunch_note()}</span>
-          {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
-            <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+      <div class="cbody">
+        <div class="left">
+          {#if !mobile.current}
+            <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
+            <div class="ctx-row" use:coachTarget={"nt-repo"}>
+              <div class="repo-chip">
+                <RepoSelect
+                  bind:this={repoSelect}
+                  {repos}
+                  windowDays={recentRepoWindowDays}
+                  value={repoPath}
+                  onchange={selectRepo}
+                  {onclone}
+                  {onfork}
+                  {onnewproject}
+                  onsync={handleSync}
+                  onescape={() => promptInput?.focus()}
+                  hideHidden
+                />
+              </div>
+              <span class="ctx-from">{m.newtask_chip_from()}</span>
+              <span class="branch-chip">
+                {#if branches.length > 0}
+                  <select
+                    id="nt-base"
+                    aria-label={m.newtask_branch_label()}
+                    bind:value={baseBranch}
+                  >
+                    {#each baseOptions as b (b)}
+                      <option value={b}>{b}</option>
+                    {/each}
+                  </select>
+                {:else}
+                  <input
+                    id="nt-base"
+                    aria-label={m.newtask_branch_label()}
+                    bind:value={baseBranch}
+                    placeholder={m.newtask_branch_placeholder()}
+                  />
+                {/if}
+                <span class="chev" aria-hidden="true">▾</span>
+              </span>
+              {#if !coarse.current}
+                <span class="ctx-hint">
+                  {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
+                </span>
+              {/if}
+            </div>
           {/if}
-        </div>
-      {/if}
 
-      <label class="micro" for="nt-prompt">{m.newtask_prompt_label()}</label>
-      <div class="prompt-wrap">
-        <textarea
-          id="nt-prompt"
-          bind:this={promptInput}
-          bind:value={prompt}
-          data-1p-ignore
-          rows="3"
-          placeholder={m.newtask_prompt_placeholder()}
-          oninput={onPromptInput}
-          onkeydown={onPromptKeydown}
-          onblur={() => (slashOpen = false)}
-          required></textarea>
-        <!-- Dictation mic (Web Speech / voice-whisper plugin): floats in the textarea's
-             bottom-right corner via its own zero-height anchor, writes the live preview and
-             final transcript into `prompt`. Hidden when neither engine is available. -->
-        <MicButton
-          bind:this={mic}
-          getText={() => prompt}
-          setText={(t) => (prompt = t)}
-          onTextRendered={autogrow}
-        />
-        {#if slashOpen}
-          <SlashCommandMenu
-            commands={slashMatches}
-            activeIndex={slashIndex}
-            provider={commandProvider}
-            onpick={pickCommand}
-            onhover={(i) => (slashIndex = i)}
-          />
-        {/if}
-      </div>
-      <div class="attach-row">
-        <button
-          type="button"
-          class="attach"
-          onclick={() => fileInput?.click()}
-          disabled={uploading}
-        >
-          {uploading ? m.newtask_uploading() : m.newtask_attach_image()}
-        </button>
-        <span class="hint">
-          {coarse.current
-            ? m.newtask_drop_hint()
-            : m.newtask_drop_hint_keyboard({ shortcut: isMac ? "⌘V" : "Ctrl+V" })}
-        </span>
-      </div>
-      {#if relaunch}
-        <span class="hint attach-relaunch-note">{m.newtask_relaunch_image_note()}</span>
-      {/if}
-      <input
-        bind:this={fileInput}
-        type="file"
-        multiple
-        hidden
-        onchange={(e) => {
-          const t = e.currentTarget;
-          if (t.files) addFiles(t.files);
-          t.value = "";
-        }}
-      />
-      {#if images.length > 0}
-        <div class="chips">
-          {#each images as img (img.path)}
-            <AttachmentChip
-              name={img.name}
-              previewFile={img.previewFile}
-              coarse={coarse.current}
-              onremove={() => removeUpload(img.path)}
-            />
-          {/each}
-        </div>
-      {/if}
+          {#if upstreamLoading}
+            <span class="nt-upstream">{m.newtask_upstream_checking()}</span>
+          {:else if upstream?.diverged}
+            <span class="nt-upstream nt-upstream-warn">
+              {m.newtask_upstream_diverged({
+                behind: upstream.behind,
+                ahead: upstream.ahead,
+                base: baseBranch,
+              })}
+            </span>
+          {:else if upstream && upstream.behind > 0}
+            <span class="nt-upstream">{m.newtask_upstream_behind({ count: upstream.behind })}</span>
+          {:else if baseMissing}
+            <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
+          {/if}
 
-      {#if issueRef && !relaunch}
-        <div class="issue-ref">
-          <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
-          <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
-          <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
-            >#{issueRef.number} {issueRef.title}</a
-          >
-          <button
-            type="button"
-            class="issue-ref-x"
-            onclick={() => {
-              issueRef = null;
-              attachedRepoPath = null;
+          {#if relaunch}
+            <div class="relaunch-note">
+              <span>{m.newtask_relaunch_note()}</span>
+              {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
+                <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+              {/if}
+            </div>
+          {/if}
+
+          <!-- Prompt hero: the single visual hero — the only field with a bright border. -->
+          <div class="prompt-block">
+            {#if !mobile.current}
+              <div class="prompt-label-row">
+                <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
+                <span class="syntax-hint">
+                  {coarse.current ? m.newtask_syntax_hint_touch() : m.newtask_syntax_hint()}
+                </span>
+              </div>
+            {/if}
+            <div class="hero">
+              <div class="prompt-wrap">
+                <textarea
+                  id="nt-prompt"
+                  bind:this={promptInput}
+                  bind:value={prompt}
+                  data-1p-ignore
+                  rows="3"
+                  aria-label={m.newtask_prompt_label()}
+                  placeholder={m.newtask_prompt_placeholder()}
+                  oninput={onPromptInput}
+                  onkeydown={onPromptKeydown}
+                  onblur={() => {
+                    slashOpen = false;
+                    issueSearchOpen = false;
+                  }}></textarea>
+                {#if slashOpen}
+                  <SlashCommandMenu
+                    commands={slashMatches}
+                    activeIndex={slashIndex}
+                    provider={commandProvider}
+                    onpick={pickCommand}
+                    onhover={(i) => (slashIndex = i)}
+                  />
+                {:else if issueSearchOpen}
+                  <IssueSearchMenu
+                    issues={issueMatches}
+                    activeIndex={issueIndex}
+                    {epicParents}
+                    onpick={pickIssueFromSearch}
+                    onhover={(i) => (issueIndex = i)}
+                  />
+                {/if}
+              </div>
+              <!-- In-field toolbar: attach, dictate, attachment chips, char counter. -->
+              <div class="toolbar">
+                <button
+                  type="button"
+                  class="tool-btn"
+                  aria-label={m.newtask_attach_aria()}
+                  title={coarse.current
+                    ? m.newtask_drop_hint()
+                    : m.newtask_drop_hint_keyboard({ shortcut: isMac ? "⌘V" : "Ctrl+V" })}
+                  onclick={() => fileInput?.click()}
+                  disabled={uploading}
+                >
+                  {#if uploading}…{:else}↥{/if}
+                </button>
+                <MicButton
+                  bind:this={mic}
+                  inline
+                  getText={() => prompt}
+                  setText={(t) => (prompt = t)}
+                  onTextRendered={autogrow}
+                />
+                {#each images as img (img.path)}
+                  <AttachmentChip
+                    name={img.name}
+                    previewFile={img.previewFile}
+                    coarse={coarse.current}
+                    onremove={() => removeUpload(img.path)}
+                  />
+                {/each}
+                <span class="char-count">
+                  {#if mobile.current}
+                    {m.newtask_syntax_hint_touch()}
+                  {:else}
+                    {m.newtask_char_count({ count: prompt.length })}
+                  {/if}
+                </span>
+              </div>
+            </div>
+            {#if relaunch}
+              <span class="field-note">{m.newtask_relaunch_image_note()}</span>
+            {/if}
+          </div>
+          <input
+            bind:this={fileInput}
+            type="file"
+            multiple
+            hidden
+            onchange={(e) => {
+              const t = e.currentTarget;
+              if (t.files) addFiles(t.files);
+              t.value = "";
             }}
-            aria-label={m.newtask_issue_remove_aria()}>✕</button
-          >
-        </div>
-        {#if attachedOthers.length > 0}
-          <p class="issue-assigned-notice">
-            <span class="glyph" aria-hidden="true">⚠</span>{m.issuerow_assigned_notice({
-              who: attachedOthers.join(", "),
-            })}
-          </p>
-        {/if}
-      {/if}
+          />
 
-      {#if repoPath}
-        <PromptSources
-          {repoPath}
-          {epicParents}
-          {nativeSubIssues}
-          {epicsLoaded}
-          {agentProvider}
-          allowIssues={!relaunch}
-          onpick={(p) => {
-            prompt = p;
-            // resize, then land focus + caret at the end so a seeded command like
-            // "/merge-train " is immediately editable for args
-            queueMicrotask(() => {
-              autogrow();
-              promptInput?.focus();
-              promptInput?.setSelectionRange(prompt.length, prompt.length);
-            });
-          }}
-          onpickcommand={pickCommandFromSource}
-          onpickissue={pickIssue}
-          onpicksteer={injectSteer}
-        />
-      {/if}
+          {#if issueRef && !relaunch}
+            <div class="issue-ref">
+              <span class="issue-ref-label">{m.newtask_issue_attached_label()}</span>
+              <!-- eslint-disable-next-line svelte/no-navigation-without-resolve -- external GitHub URL -->
+              <a class="issue-ref-link" href={issueRef.url} target="_blank" rel="noopener"
+                >#{issueRef.number} {issueRef.title}</a
+              >
+              <button
+                type="button"
+                class="issue-ref-x"
+                onclick={() => {
+                  issueRef = null;
+                  attachedRepoPath = null;
+                }}
+                aria-label={m.newtask_issue_remove_aria()}>✕</button
+              >
+            </div>
+            {#if attachedOthers.length > 0}
+              <p class="issue-assigned-notice">
+                <span class="glyph" aria-hidden="true">⚠</span>{m.issuerow_assigned_notice({
+                  who: attachedOthers.join(", "),
+                })}
+              </p>
+            {/if}
+          {/if}
 
-      <label class="micro" for="nt-base">{m.newtask_branch_label()}</label>
-      {#if branches.length > 0}
-        <select id="nt-base" bind:value={baseBranch}>
-          {#each baseOptions as b (b)}
-            <option value={b}>{b}</option>
-          {/each}
-        </select>
-      {:else}
-        <input id="nt-base" bind:value={baseBranch} placeholder={m.newtask_branch_placeholder()} />
-      {/if}
-      {#if upstreamLoading}
-        <span class="nt-upstream micro">{m.newtask_upstream_checking()}</span>
-      {:else if upstream?.diverged}
-        <span class="nt-upstream micro nt-upstream-warn">
-          {m.newtask_upstream_diverged({
-            behind: upstream.behind,
-            ahead: upstream.ahead,
-            base: baseBranch,
-          })}
-        </span>
-      {:else if upstream && upstream.behind > 0}
-        <span class="nt-upstream micro"
-          >{m.newtask_upstream_behind({ count: upstream.behind })}</span
-        >
-      {:else if baseMissing}
-        <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
-      {/if}
-
-      <NewTaskRunSettings
-        bind:planGate
-        bind:research
-        bind:epicAuthoring
-        bind:autopilot
-        bind:agentProvider
-        bind:model
-        bind:effort
-        bind:sandboxProfile
-        {holdLikely}
-        onPlanGateTouched={() => (planGateTouched = true)}
-        onAutopilotTouched={() => (autopilotTouched = true)}
-        onModelTouched={() => (modelTouched = true)}
-        onEffortTouched={() => (effortTouched = true)}
-        {planGateLoading}
-        {autopilotLoading}
-        {autopilotDefault}
-        {repoPath}
-        {usageLimits}
-        {fableAvailable}
-        {providerDefaultModel}
-        providerConstraint={activeProviderConstraint}
-      />
-
-      {#if error}
-        <div class="err" role="alert">
-          <span>{error}</span>
-          {#if retry}
-            <button type="button" class="retry" onclick={() => retry?.()}>{m.common_retry()}</button
+          {#if mobile.current}
+            <!-- Mobile: Mode segments + the engine summary row (opens the sheet). -->
+            {@render modeSeg()}
+            <button
+              type="button"
+              class="engine-summary"
+              aria-haspopup="dialog"
+              aria-expanded={activeSheet === "engine"}
+              onclick={() => (activeSheet = "engine")}
             >
+              <span class="es-label">{m.newtask_group_engine()}</span>
+              <span class="es-value">
+                {agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()}
+                · {modelSummary} ·
+                <span class="es-gate" class:on={planGate}
+                  >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+                >
+              </span>
+              <span class="chev" aria-hidden="true">▾</span>
+            </button>
           {/if}
-        </div>
-      {/if}
 
-      {#if holdLikely && agentProvider === "claude"}
-        <div class="run-dual">
-          <button
-            class="run run-hold"
-            type="button"
-            disabled={submitting || repairingBase || baseMissing}
-            onclick={(e) => submit(e, false)}
-          >
-            <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
-          </button>
-          <button
-            class="run run-anyway"
-            type="button"
-            disabled={submitting || repairingBase || baseMissing}
-            onclick={(e) => submit(e, true)}
-          >
-            <span>{m.newtask_submit_anyway()}</span>
-          </button>
-        </div>
-      {:else}
-        <button
-          class="run"
-          type="submit"
-          disabled={submitting || repairingBase || baseMissing}
-          title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
-        >
-          <span
-            >{editHeld
-              ? submitting
-                ? m.newtask_edit_held_saving()
-                : m.newtask_edit_held_submit()
-              : submitting
-                ? m.newtask_spawning()
-                : selectedRepoName
-                  ? m.newtask_submit_in_repo({ repo: selectedRepoName })
-                  : m.newtask_submit()}</span
-          >
-          {#if !submitting && !coarse.current}
-            <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
+          {#if repoPath && !mobile.current}
+            <PromptSources
+              {repoPath}
+              {issueData}
+              {epicParents}
+              {nativeSubIssues}
+              {epicsLoaded}
+              {agentProvider}
+              allowIssues={!relaunch}
+              onpick={(p) => {
+                prompt = p;
+                queueMicrotask(() => {
+                  autogrow();
+                  promptInput?.focus();
+                  promptInput?.setSelectionRange(prompt.length, prompt.length);
+                });
+              }}
+              onpickcommand={pickCommandFromSource}
+              onpickissue={pickIssue}
+              onpicksteer={injectSteer}
+            />
           {/if}
-        </button>
-      {/if}
+
+          {#if error}
+            <div class="err" role="alert">
+              <span>{error}</span>
+              {#if retry}
+                <button type="button" class="retry" onclick={() => retry?.()}
+                  >{m.common_retry()}</button
+                >
+              {/if}
+            </div>
+          {/if}
+        </div>
+
+        {#if !mobile.current}
+          <div class="rail">
+            <span class="group-label">{m.newtask_group_mode()}</span>
+            {@render modeSeg()}
+            <div class="rule"></div>
+            <RunSettingsGroups
+              {agentProvider}
+              {model}
+              {effort}
+              {sandboxProfile}
+              {planGate}
+              {autopilot}
+              {modeLocked}
+              {planGateLoading}
+              {autopilotLoading}
+              {planGateDefault}
+              {autopilotDefault}
+              {usageLimits}
+              {holdLikely}
+              {fableAvailable}
+              providerConstraint={activeProviderConstraint}
+              {research}
+              onProviderChange={providerChanged}
+              onModelChange={(v) => {
+                model = v;
+                modelTouched = true;
+              }}
+              onEffortChange={(v) => {
+                effort = v;
+                effortTouched = true;
+              }}
+              onSandboxChange={(v) => (sandboxProfile = v)}
+              onPlanGateChange={(v) => {
+                planGate = v;
+                planGateTouched = true;
+              }}
+              onAutopilotChange={(v) => {
+                autopilot = v;
+                autopilotTouched = true;
+              }}
+            />
+          </div>
+        {/if}
+      </div>
+
+      <!-- Footer: readiness line + always-visible CTA. -->
+      <div class="cfoot">
+        <span class="readiness">
+          {#if readiness.blocker}
+            <span class="r-blocked" aria-hidden="true">·</span>
+            {blockerCopy(readiness.blocker)}
+          {:else}
+            <span class="r-ok" aria-hidden="true">✓</span>
+            {m.newtask_readiness_ready()} ·
+            {m.newtask_readiness_branches({ base: baseBranch })}
+          {/if}
+        </span>
+        {#if showDualCta}
+          <div class="run-dual">
+            <button
+              class="run run-hold"
+              type="button"
+              disabled={!readiness.canSubmit}
+              onclick={(e) => submit(e, false)}
+            >
+              <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
+            </button>
+            <button
+              class="run run-anyway"
+              type="button"
+              disabled={!readiness.canSubmit}
+              onclick={(e) => submit(e, true)}
+            >
+              <span>{m.newtask_submit_anyway()}</span>
+            </button>
+          </div>
+        {:else}
+          <button
+            class="run"
+            type="submit"
+            disabled={!readiness.canSubmit}
+            title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
+          >
+            <span
+              >{editHeld
+                ? submitting
+                  ? m.newtask_edit_held_saving()
+                  : m.newtask_edit_held_submit()
+                : submitting
+                  ? m.newtask_spawning()
+                  : selectedRepoName && !mobile.current
+                    ? m.newtask_submit_in_repo({ repo: selectedRepoName })
+                    : m.newtask_submit()}</span
+            >
+            {#if !submitting && !coarse.current}
+              <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
+            {/if}
+          </button>
+        {/if}
+      </div>
     </div>
+
+    {#if mobile.current && activeSheet === "engine"}
+      <MobileEngineSheet
+        label={m.newtask_engine_sheet_title()}
+        title={m.newtask_engine_sheet_title()}
+        onclose={() => (activeSheet = null)}
+      >
+        {@render modeLockedNote()}
+        <RunSettingsGroups
+          {agentProvider}
+          {model}
+          {effort}
+          {sandboxProfile}
+          {planGate}
+          {autopilot}
+          {modeLocked}
+          {planGateLoading}
+          {autopilotLoading}
+          {planGateDefault}
+          {autopilotDefault}
+          {usageLimits}
+          {holdLikely}
+          {fableAvailable}
+          providerConstraint={activeProviderConstraint}
+          {research}
+          onProviderChange={providerChanged}
+          onModelChange={(v) => {
+            model = v;
+            modelTouched = true;
+          }}
+          onEffortChange={(v) => {
+            effort = v;
+            effortTouched = true;
+          }}
+          onSandboxChange={(v) => (sandboxProfile = v)}
+          onPlanGateChange={(v) => {
+            planGate = v;
+            planGateTouched = true;
+          }}
+          onAutopilotChange={(v) => {
+            autopilot = v;
+            autopilotTouched = true;
+          }}
+        />
+      </MobileEngineSheet>
+    {:else if mobile.current && activeSheet === "context"}
+      <MobileEngineSheet
+        label={m.newtask_context_sheet_title()}
+        title={m.newtask_context_sheet_title()}
+        onclose={() => (activeSheet = null)}
+      >
+        <div class="ctx-sheet" bind:this={contextSheetEl}>
+          <span class="field-label">{m.newtask_repo_label()}</span>
+          <RepoSelect
+            bind:this={repoSelect}
+            {repos}
+            windowDays={recentRepoWindowDays}
+            value={repoPath}
+            onchange={selectRepo}
+            {onclone}
+            {onfork}
+            {onnewproject}
+            onsync={handleSync}
+            onescape={() => {
+              // Keep focus INSIDE the sheet's trap: land it on the RepoSelect trigger
+              // (desktop refocuses the prompt instead — that would escape this trap).
+              contextSheetEl?.querySelector<HTMLElement>(".rs-trigger")?.focus();
+            }}
+            hideHidden
+          />
+          <span class="field-label">{m.newtask_branch_label()}</span>
+          {#if branches.length > 0}
+            <select
+              class="ctx-branch-select"
+              aria-label={m.newtask_branch_label()}
+              bind:value={baseBranch}
+            >
+              {#each baseOptions as b (b)}
+                <option value={b}>{b}</option>
+              {/each}
+            </select>
+          {:else}
+            <input
+              class="ctx-branch-select"
+              aria-label={m.newtask_branch_label()}
+              bind:value={baseBranch}
+              placeholder={m.newtask_branch_placeholder()}
+            />
+          {/if}
+        </div>
+      </MobileEngineSheet>
+    {/if}
   </form>
 </div>
 
+{#snippet modeSeg()}
+  <div class="seg-row" role="group" aria-label={m.newtask_group_mode()}>
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={mode === "code"}
+      aria-pressed={mode === "code"}
+      onclick={() => setMode("code")}>{m.newtask_mode_code()}</button
+    >
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={mode === "research"}
+      aria-pressed={mode === "research"}
+      title={m.newtask_research_hint()}
+      onclick={() => setMode("research")}>{m.newtask_mode_research()}</button
+    >
+    <button
+      type="button"
+      class="seg-btn"
+      class:seg-active={mode === "epic"}
+      aria-pressed={mode === "epic"}
+      title={m.newtask_epic_authoring_hint()}
+      onclick={() => setMode("epic")}>{m.newtask_mode_epic()}</button
+    >
+  </div>
+{/snippet}
+
+{#snippet modeLockedNote()}
+  {#if modeLocked}
+    <span class="sr-only"
+      >{research ? m.newtask_research_locked_aria() : m.newtask_epic_authoring_locked_aria()}</span
+    >
+  {/if}
+{/snippet}
+
 <style>
   /* Boxless wrapper for the compose body — display:contents passes flex layout
-     straight through to children so the card's column gap is undisturbed. */
+     straight through to children so the card's column layout is undisturbed. */
   .composer {
     display: contents;
   }
@@ -1342,11 +1693,8 @@
     inset: 0;
     background: var(--color-scrim);
     display: flex;
-    /* Scroll (not center-clip) when the card outgrows the viewport, so a long
-       auto-grown prompt can never push the Run button out of reach. Centering
-       is done by the card's `margin: auto` rather than align/justify-center:
-       auto margins center when there's room yet still let an over-tall card
-       scroll, sidestepping the flexbox "can't scroll to the top" bug. */
+    /* Scroll (not center-clip) when the card outgrows the viewport. Centering is
+       done by the card's `margin: auto` so an over-tall card can still scroll. */
     overflow-y: auto;
     padding: 24px;
     box-sizing: border-box;
@@ -1355,18 +1703,13 @@
   .card {
     position: relative;
     margin: auto;
-    width: min(760px, 92vw);
+    width: min(880px, 92vw);
+    max-height: 92vh;
+    box-sizing: border-box;
     border: 1px solid var(--color-line-bright);
     background: var(--color-panel);
-    padding: 16px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-  }
-  .repo-field {
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
   }
   .bracket::before,
   .bracket::after {
@@ -1388,10 +1731,21 @@
     border-left: 0;
     border-top: 0;
   }
+
+  /* ── header ── */
   .chead {
+    flex-shrink: 0;
     display: flex;
     align-items: center;
-    margin-bottom: 8px;
+    gap: 10px;
+    padding: 12px 16px 10px;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .chead-title {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
   }
   .x {
     margin-left: auto;
@@ -1401,72 +1755,284 @@
     cursor: pointer;
     font: inherit;
   }
-  /* Phone-only label; the desktop head carries the "New Task" title instead. */
-  .chead-repo {
+  .x:hover {
+    color: var(--color-ink);
+  }
+
+  /* ── body: two columns separated by a hairline; each column owns its scroll ── */
+  .cbody {
+    display: grid;
+    grid-template-columns: 1fr 300px;
+    min-height: 0;
+    flex: 1;
+  }
+  .left {
+    min-width: 0;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    border-right: 1px solid var(--color-line);
+    overflow-y: auto;
+  }
+  /* Never compress content to fit — the column scrolls instead (worst-case fixtures). */
+  .left > :global(*) {
+    flex-shrink: 0;
+  }
+  .rail {
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    background: var(--color-panel-2);
+    overflow-y: auto;
+  }
+  .group-label {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    padding-bottom: 6px;
+  }
+  .rule {
+    flex-shrink: 0;
+    height: 1px;
+    background: var(--color-line);
+    margin: 14px 0 12px;
+  }
+
+  /* ── context chips row ── */
+  .ctx-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    min-width: 0;
+  }
+  /* Chip-style the existing RepoSelect trigger without touching its internals. */
+  .repo-chip {
+    position: relative;
+    flex-shrink: 0;
+    min-width: 0;
+  }
+  .repo-chip :global(.rs-root) {
+    width: auto;
+  }
+  .repo-chip :global(.rs-trigger) {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    width: auto;
+    max-width: 34ch;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel-2);
+    border-radius: 2px;
+    padding: 4px 10px;
+    font-size: var(--fs-meta);
+    color: var(--color-ink-bright);
+  }
+  .repo-chip :global(.rs-trigger b) {
+    font-weight: 600;
+    max-width: 22ch;
+    flex-shrink: 1;
+  }
+  .repo-chip :global(.rs-trigger .dim) {
     display: none;
   }
-  .micro {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-    margin-top: 6px;
+  .repo-chip :global(.rs-panel) {
+    min-width: 320px;
   }
+  .ctx-from {
+    flex-shrink: 0;
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+  }
+  .branch-chip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+  }
+  .branch-chip select,
+  .branch-chip input {
+    appearance: none;
+    max-width: 22ch;
+    border: 1px solid var(--color-line);
+    background: var(--color-panel-2);
+    border-radius: 2px;
+    padding: 4px 22px 4px 10px;
+    font: inherit;
+    font-size: var(--fs-meta);
+    color: var(--color-ink);
+    cursor: pointer;
+  }
+  .branch-chip select:focus,
+  .branch-chip input:focus {
+    outline: none;
+    border-color: var(--color-line-bright);
+  }
+  .branch-chip .chev {
+    position: absolute;
+    right: 8px;
+    pointer-events: none;
+  }
+  .chev {
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+  }
+  .ctx-hint {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
   .nt-upstream {
-    display: block;
-    margin-top: 4px;
-    text-transform: none;
-    letter-spacing: 0;
     font-size: var(--fs-micro);
     color: var(--color-muted);
   }
   .nt-upstream-warn {
-    /* Warn (caution) — the diverged base is a heads-up: not an error (red) and not running (amber); more honest than informational blue for "task will start from local". */
     color: var(--status-warn);
+  }
+
+  /* ── prompt hero ── */
+  .prompt-block {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    min-height: 0;
+  }
+  .prompt-label-row {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .prompt-label {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+  .syntax-hint {
+    margin-left: auto;
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* The hero is ONE bordered object — the only field with the bright border. */
+  .hero {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid var(--color-line-bright);
+    border-radius: 2px;
+    background: var(--color-inset);
   }
   .prompt-wrap {
     position: relative;
+    display: flex;
+    flex-direction: column;
   }
-  /* Reserve the mic's corner only while it is rendered (no engine → no dead padding),
-     so typed text never runs under the floating mic button. */
-  .prompt-wrap:has(:global(.micbtn-anchor)) textarea {
-    padding-right: 58px;
-  }
-  textarea,
-  input,
-  select {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
+  textarea {
+    background: transparent;
+    border: 0;
     color: var(--color-ink-bright);
     font: inherit;
     font-size: var(--fs-base);
-    padding: 8px 10px;
-    border-radius: 2px;
+    line-height: 1.5;
+    padding: 10px;
+    min-height: 132px;
     width: 100%;
     box-sizing: border-box;
-  }
-  textarea {
-    /* JS auto-grows the height with content; cap it here and then scroll,
-       so a long prompt never pushes the rest of the form off-screen.
-       No native resize handle — iOS Safari doesn't render it reliably. */
     resize: none;
-    max-height: 50vh;
+    max-height: 40vh;
     overflow-y: auto;
   }
-  select {
-    appearance: none;
+  textarea::placeholder {
+    color: var(--color-faint);
+  }
+  textarea:focus {
+    outline: none;
+  }
+  /* Focus brightens the hero border (no outer glow ring). */
+  .hero:focus-within {
+    border-color: var(--color-ink);
+  }
+  .toolbar {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 6px 8px;
+    border-top: 1px solid var(--color-line);
+  }
+  .tool-btn {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: transparent;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    color: var(--color-muted);
+    font: inherit;
     cursor: pointer;
   }
-  textarea:focus,
-  input:focus,
-  select:focus {
-    outline: none;
+  .tool-btn:hover {
+    background: var(--color-hover);
     border-color: var(--color-line-bright);
   }
+  .tool-btn:disabled {
+    opacity: 0.6;
+    cursor: default;
+  }
+  .tool-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+  /* Inline mic (MicButton's inline variant) matches the tool-btn footprint. */
+  .toolbar :global(.micbtn-anchor.inline) {
+    position: static;
+    height: auto;
+  }
+  .toolbar :global(.micbtn.inline) {
+    position: static;
+    width: 28px;
+    height: 28px;
+    border-color: var(--color-line);
+    background: transparent;
+    color: var(--color-muted);
+  }
+  .toolbar :global(.micbtn.inline svg) {
+    width: 14px;
+    height: 14px;
+  }
+  .char-count {
+    margin-left: auto;
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .field-note {
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+  }
+  .field-label {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--color-muted);
+  }
+
   .err {
     color: var(--color-red);
     font-size: var(--fs-meta);
-    margin-top: 6px;
     display: flex;
     align-items: center;
     gap: 8px;
@@ -1486,8 +2052,74 @@
   .retry:hover {
     border-color: var(--color-amber);
   }
+
+  /* ── mode segmented control (design-system seg recipe; amber active text) ── */
+  .seg-row {
+    display: flex;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
+    overflow: hidden;
+  }
+  .seg-btn {
+    flex: 1;
+    min-width: 0;
+    border: 0;
+    border-right: 1px solid var(--color-line);
+    background: none;
+    font-family: inherit;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    cursor: pointer;
+    padding: 6px 2px;
+    color: var(--color-muted);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .seg-btn:last-child {
+    border-right: 0;
+  }
+  .seg-btn:hover {
+    color: var(--color-ink);
+  }
+  .seg-btn.seg-active {
+    color: var(--color-amber);
+    background: var(--color-sel);
+  }
+  .seg-btn:focus-visible {
+    outline: none;
+    box-shadow: inset 0 0 0 1px var(--color-amber);
+  }
+
+  /* ── footer ── */
+  .cfoot {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+    border-top: 1px solid var(--color-line);
+    background: var(--color-head);
+  }
+  .readiness {
+    min-width: 0;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .readiness .r-ok {
+    color: var(--color-green);
+  }
+  .readiness .r-blocked {
+    color: var(--color-faint);
+  }
   .run {
-    margin-top: 12px;
+    margin-left: auto;
+    flex-shrink: 0;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1495,7 +2127,7 @@
     border: 1px solid var(--color-amber);
     color: var(--color-amber);
     background: transparent;
-    padding: 9px 14px;
+    padding: 9px 18px;
     letter-spacing: 0.12em;
     text-transform: uppercase;
     font: inherit;
@@ -1516,21 +2148,16 @@
     border-color: var(--color-line);
     box-shadow: none;
   }
-  /* Dual-submit row shown when a hold is likely */
   .run-dual {
-    margin-top: 12px;
+    margin-left: auto;
     display: flex;
     gap: 8px;
+    min-width: 0;
   }
   .run-dual .run {
-    margin-top: 0;
-    flex: 1;
+    margin-left: 0;
+    flex-shrink: 1;
   }
-  /* "Hold for reset" is the primary (amber, full glow) */
-  .run-hold {
-    flex: 2 !important;
-  }
-  /* "Submit anyway" is the secondary (muted, no glow) */
   .run-anyway {
     border-color: var(--color-line-bright);
     color: var(--color-ink);
@@ -1553,145 +2180,15 @@
     opacity: 0.75;
   }
 
-  @media (max-width: 768px) {
-    .overlay {
-      align-items: stretch;
-      justify-content: stretch;
-      /* Full-bleed sheet: drop the desktop breathing-room padding so the
-         100dvh card fills the screen edge-to-edge. */
-      padding: 0;
-    }
-    .card {
-      width: 100%;
-      max-width: none;
-      height: 100dvh;
-      border: 0;
-      overflow-y: auto;
-      animation: sheet-up 0.18s ease-out;
-    }
-    /* 16px no-zoom font-size for textarea/input/select comes from the global
-       iOS guard in app.css */
-    input,
-    select,
-    .run {
-      min-height: 44px;
-    }
-    /* Compact head on phones: the "New Task" title is redundant once the sheet
-       is open (the placeholder makes the intent obvious), so drop it — but don't
-       leave the 44px head row empty with the ✕ stranded over a band of dead
-       space. Promote the REPO label into the row so REPO (left, a touch larger)
-       and the close ✕ (right) share one line, with the repo dropdown directly
-       below. The prompt label is likewise redundant against its placeholder. */
-    .chead {
-      margin-bottom: 6px;
-      min-height: 44px;
-    }
-    .chead .heading {
-      display: none;
-    }
-    .chead-repo {
-      display: block;
-      margin-top: 0;
-      font-size: var(--fs-base);
-    }
-    .repo-field > .micro {
-      display: none;
-    }
-    .x {
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      width: 44px;
-      height: 44px;
-      margin-right: -10px; /* nudge the glyph toward the sheet edge */
-      font-size: var(--fs-lg);
-    }
-    label[for="nt-prompt"] {
-      display: none;
-    }
-    textarea {
-      /* Inset like every other field (REPO/BRANCH/MODEL) so the border stays
-         within the viewport. The earlier full-bleed breakout (negative margin +
-         calc width) pushed the border past the edge and left the ✕ visually
-         detached. Comfortable starting size; auto-grow takes it up to 40dvh,
-         then scrolls. */
-      min-height: 120px;
-      max-height: 40dvh;
-      overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
-    }
-  }
-
-  @keyframes sheet-up {
-    from {
-      transform: translateY(12px);
-      opacity: 0.6;
-    }
-    to {
-      transform: translateY(0);
-      opacity: 1;
-    }
-  }
   .card.dragging {
     border-color: var(--color-amber);
     box-shadow: inset 0 0 30px -16px var(--color-amber);
   }
-  .attach-row {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 8px;
-    margin-top: 4px;
-  }
-  .attach {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-meta);
-    letter-spacing: 0.06em;
-    padding: 6px 10px;
-    border-radius: 2px;
-    cursor: pointer;
-  }
-  .attach:disabled {
-    opacity: 0.6;
-    cursor: default;
-  }
-  .hint {
-    font-size: var(--fs-meta);
-    line-height: 1.35;
-    color: var(--color-muted);
-  }
-  .attach-row .hint {
-    flex: 1 1 18ch;
-    min-width: 0;
-  }
-  .repo-shortcuts-hint {
-    display: block;
-    margin-top: 4px;
-  }
-  /* keyboard-only affordance — irrelevant on the phone sheet (mobile-declutter) */
-  @media (max-width: 768px) {
-    .repo-shortcuts-hint {
-      display: none;
-    }
-  }
-  .attach-relaunch-note {
-    display: block;
-    margin-top: 4px;
-  }
-  .chips {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 6px;
-    margin-top: 6px;
-  }
+
   .relaunch-note {
     display: flex;
     flex-direction: column;
     gap: 3px;
-    margin-top: 6px;
     padding: 6px 8px;
     border: 1px solid var(--color-line);
     border-radius: 2px;
@@ -1703,17 +2200,14 @@
     display: flex;
     align-items: center;
     gap: 8px;
-    margin-top: 6px;
     padding: 6px 8px;
     border: 1px solid var(--color-line);
     border-radius: 2px;
     background: var(--color-inset);
     font-size: var(--fs-meta);
   }
-  /* Soft "assigned to X — you can still start" advisory under the attached issue (#1694).
-     Non-blocking (Run is never intercepted); muted-warn tone, mirrors EpicPanel's notice. */
   .issue-assigned-notice {
-    margin: 4px 0 0;
+    margin: -6px 0 0;
     display: flex;
     align-items: baseline;
     gap: 4px;
@@ -1751,9 +2245,215 @@
     font: inherit;
     line-height: 1;
   }
+
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ── */
   @media (max-width: 768px) {
-    .attach {
+    .overlay {
+      align-items: stretch;
+      justify-content: stretch;
+      padding: 0;
+    }
+    .card {
+      width: 100%;
+      max-width: none;
+      max-height: none;
+      height: 100dvh;
+      margin: 0;
+      border: 0;
+    }
+    .bracket::before,
+    .bracket::after {
+      display: none;
+    }
+    .chead {
       min-height: 44px;
+      box-sizing: border-box;
+      padding: 8px 6px 8px 16px;
+    }
+    .chead-title {
+      display: none;
+    }
+    .ctx-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      max-width: 80vw;
+      border: 1px solid var(--color-line);
+      background: var(--color-panel-2);
+      border-radius: 2px;
+      padding: 6px 10px;
+      font: inherit;
+      font-size: var(--fs-base);
+      color: var(--color-ink-bright);
+      cursor: pointer;
+    }
+    .ctx-chip b {
+      font-weight: 600;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ctx-chip .ctx-branch {
+      color: var(--color-faint);
+      font-size: var(--fs-meta);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .x {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 44px;
+      height: 44px;
+      font-size: var(--fs-lg);
+    }
+    .cbody {
+      display: flex;
+      min-height: 0;
+      flex: 1;
+    }
+    .left {
+      flex: 1;
+      border-right: 0;
+      padding: 12px 16px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+    }
+    /* Hero fills the remaining height; 16px text prevents iOS zoom. */
+    .prompt-block {
+      flex: 1;
+      display: flex;
+      min-height: 0;
+    }
+    .hero {
+      flex: 1;
+      min-height: 180px;
+    }
+    .prompt-wrap {
+      flex: 1;
+      min-height: 0;
+    }
+    textarea {
+      /* Full-height hero: the wrap flexes, the textarea fills it. 16px comes from
+         the global iOS no-zoom guard in app.css; restated for the geometry tests. */
+      height: 100%;
+      min-height: 120px;
+      max-height: none;
+      font-size: var(--fs-lg);
+      line-height: 1.45;
+      -webkit-overflow-scrolling: touch;
+    }
+    .toolbar {
+      padding: 8px;
+    }
+    .tool-btn {
+      width: 44px;
+      height: 44px;
+    }
+    .toolbar :global(.micbtn.inline) {
+      width: 44px;
+      height: 44px;
+    }
+    .toolbar :global(.micbtn.inline svg) {
+      width: var(--icon-btn-glyph);
+      height: var(--icon-btn-glyph);
+    }
+    .char-count {
+      font-size: var(--fs-meta);
+    }
+    .seg-btn {
+      min-height: 44px;
+      font-size: var(--fs-meta);
+      letter-spacing: 0.1em;
+    }
+    .engine-summary {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 44px;
+      box-sizing: border-box;
+      padding: 12px;
+      border: 1px solid var(--color-line);
+      border-radius: 2px;
+      background: var(--color-panel-2);
+      font: inherit;
+      cursor: pointer;
+      text-align: left;
+    }
+    .es-label {
+      flex-shrink: 0;
+      font-size: var(--fs-micro);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--color-muted);
+    }
+    .es-value {
+      min-width: 0;
+      font-size: var(--fs-meta);
+      color: var(--color-ink);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .es-gate {
+      color: var(--color-faint);
+    }
+    .es-gate.on {
+      color: var(--color-amber);
+    }
+    .engine-summary .chev {
+      margin-left: auto;
+    }
+    .cfoot {
+      flex-direction: column;
+      align-items: stretch;
+      gap: 8px;
+      padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
+    }
+    .readiness {
+      white-space: normal;
+    }
+    .run,
+    .run-dual .run {
+      margin-left: 0;
+      min-height: 44px;
+      width: 100%;
+      font-size: var(--fs-meta);
+    }
+    .run-dual {
+      margin-left: 0;
+      flex-direction: column;
+    }
+    .ctx-sheet {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .ctx-sheet .ctx-branch-select {
+      background: var(--color-inset);
+      border: 1px solid var(--color-line);
+      color: var(--color-ink-bright);
+      font: inherit;
+      font-size: var(--fs-lg);
+      padding: 8px 10px;
+      border-radius: 2px;
+      min-height: 44px;
+      width: 100%;
+      box-sizing: border-box;
     }
   }
 </style>

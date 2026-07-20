@@ -16,6 +16,7 @@
     getText,
     setText,
     onTextRendered,
+    inline = false,
   }: {
     /** Current field text (dictation appends after it). */
     getText: () => string;
@@ -23,6 +24,9 @@
     setText: (text: string) => void;
     /** Fires deferred after every setText — wire the field's autogrow here. */
     onTextRendered?: () => void;
+    /** In-flow toolbar variant: the button sits in normal flow (no floating anchor);
+     *  the host sizes it via the .inline classes (New Task's in-field toolbar). */
+    inline?: boolean;
   } = $props();
 
   // Closures (not the bare props) so the controller always calls the CURRENT prop value —
@@ -50,10 +54,11 @@
 </script>
 
 {#if dict.micVisible}
-  <div class="micbtn-anchor">
+  <div class="micbtn-anchor" class:inline>
     <button
       type="button"
       class="micbtn"
+      class:inline
       class:listening={dict.listening}
       class:transcribing={dict.transcribing}
       class:error={dict.voiceError}
@@ -99,6 +104,15 @@
   .micbtn-anchor {
     position: relative;
     height: 0;
+  }
+  /* Inline variant: in-flow inside the host's toolbar; the host provides sizing. */
+  .micbtn-anchor.inline {
+    position: static;
+    height: auto;
+    display: contents;
+  }
+  .micbtn.inline {
+    position: static;
   }
 
   .micbtn {

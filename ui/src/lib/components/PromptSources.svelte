@@ -1,7 +1,7 @@
 <script lang="ts">
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
-  import { getTodo, listIssues, getCommands } from "$lib/api";
+  import { getCommands } from "$lib/api";
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import {
@@ -22,7 +22,7 @@
     labelColorMap,
   } from "./issues-panel";
   import { issuesFilter } from "$lib/issues-filter.svelte";
-  import { viewerCache } from "$lib/viewer-cache.svelte";
+  import type { IssueData } from "./new-task/issue-data.svelte";
   import IssueFilterPopover from "./IssueFilterPopover.svelte";
   import IssueMenuLayer from "./IssueMenuLayer.svelte";
   import { issueMenuTrigger } from "./issue-menu-trigger";
@@ -33,6 +33,7 @@
 
   let {
     repoPath,
+    issueData,
     onpick,
     onpickcommand,
     onpickissue,
@@ -44,6 +45,8 @@
     epicsLoaded = false,
   }: {
     repoPath: string;
+    /** Shared issue loader (one fetch per repo selection, owned by NewTask). */
+    issueData: IssueData;
     onpick: (prompt: string) => void;
     onpickcommand?: (cmd: SlashCommand) => void;
     onpickissue: (issue: Issue) => void;
@@ -103,16 +106,18 @@
     details = null;
   }
 
-  let tab = $state<"todo" | "issues" | "commands">("todo");
-  let todos = $state<string[]>([]);
-  let issues = $state<Issue[]>([]);
+  // Issues render from the SHARED loader (NewTask's IssueData) — this panel and the
+  // inline # search observe the same single fetch per repo selection.
+  // svelte-ignore state_referenced_locally
+  let tab = $state<"issues" | "commands">(allowIssues ? "issues" : "commands");
   let commands = $state<SlashCommand[]>([]);
-  let slug = $state<string | null>(null);
-  let viewer = $state<string | null>(null);
-  let loading = $state(false);
-  // True when the issue fetch failed (rate-limit/unauth/network) rather than the
-  // repo genuinely having no open issues — drives a distinct empty state.
-  let loadError = $state(false);
+  const issues = $derived(issueData.issues);
+  const slug = $derived(issueData.slug);
+  const viewer = $derived(issueData.viewer);
+  const loadError = $derived(issueData.loadError);
+  let commandsLoading = $state(false);
+  // Collapsed by default: the first 3 rows + a "N more" expander (mock's bounded panel).
+  let expanded = $state(false);
   // "Mine & unassigned" filter (#824), shared with IssuesPanel via issuesFilter.
   // No-op identity when the chip is hidden (viewer unknown) → fail open. Composed
   // with the viewer-agnostic "hide in progress" filter; the explicit
@@ -176,83 +181,37 @@
   );
   let filter = $state("");
   let filterInput = $state<HTMLInputElement>();
-  // null = TODO.md presence not yet resolved for this repo; hide the tab until known.
-  let hasTodo = $state<boolean | null>(null);
 
-  const OPEN_RE = /^\s*-\s\[ \]\s+(.*)$/;
-
-  // Resolve TODO.md eagerly per repo (independent of the active tab) so the To-Do
-  // tab is hidden outright when the repo has no TODO.md, and the panel opens on
-  // Issues instead of a dead empty To-Do tab.
+  // Repo-scoped author/label selection + the row expansion reset on repo change (their
+  // option sets are repo-specific). Keyed on repoPath, so switching tabs never clears
+  // an active filter.
   $effect(() => {
-    const rp = repoPath;
-    hasTodo = null;
-    todos = [];
-    // Repo-scoped author/label selection resets on repo change (its option sets are
-    // repo-specific). Keyed on repoPath here (not the tab/issues fetch), so switching tabs
-    // never clears an active filter.
-    selectedAuthor = null;
-    selectedLabels.clear();
-    if (!rp) return;
-    getTodo(rp)
-      .then((r) => {
-        if (rp !== repoPath) return;
-        hasTodo = r.exists;
-        const matches: string[] = [];
-        for (const line of r.content.split("\n")) {
-          const match = OPEN_RE.exec(line);
-          if (match) matches.push(match[1].trim());
-        }
-        todos = matches;
-        // Don't leave the user on a tab that's about to vanish.
-        if (!r.exists) untrack(() => tab === "todo" && (tab = allowIssues ? "issues" : "commands"));
-      })
-      .catch(() => {
-        if (rp !== repoPath) return;
-        hasTodo = false;
-        todos = [];
-        untrack(() => tab === "todo" && (tab = allowIssues ? "issues" : "commands"));
-      });
+    void repoPath;
+    untrack(() => {
+      selectedAuthor = null;
+      selectedLabels.clear();
+      expanded = false;
+    });
   });
 
+  // Commands are still fetched here (repo + provider scoped); issues come from the loader.
   $effect(() => {
     const rp = repoPath;
     const provider = agentProvider;
     const t = tab;
-    if (!rp || t === "todo") return; // todo is loaded eagerly above
-    loading = true;
-    if (t === "commands") {
-      getCommands(rp, { provider })
-        .then((r) => {
-          if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
-          commands = r.commands;
-          loading = false;
-        })
-        .catch(() => {
-          if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
-          commands = [];
-          loading = false;
-        });
-    } else {
-      listIssues(rp)
-        .then((r) => {
-          if (rp !== repoPath || t !== tab) return;
-          slug = r.slug;
-          issues = r.issues;
-          viewer = r.viewer;
-          viewerCache.set(rp, r.viewer);
-          loadError = r.error != null;
-          loading = false;
-        })
-        .catch(() => {
-          if (rp !== repoPath || t !== tab) return;
-          slug = null;
-          issues = [];
-          viewer = null;
-          loadError = true;
-          loading = false;
-        });
-    }
+    if (!rp || t !== "commands") return;
+    commandsLoading = true;
+    getCommands(rp, { provider })
+      .then((r) => {
+        if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
+        commands = r.commands;
+        commandsLoading = false;
+      })
+      .catch(() => {
+        if (rp !== repoPath || provider !== agentProvider || t !== tab) return;
+        commands = [];
+        commandsLoading = false;
+      });
   });
 
   // Case-insensitive typeahead over name + description (the list spans every
@@ -269,7 +228,7 @@
   // user can just start typing to narrow. Deps are tab/loading only — typing in
   // the filter doesn't re-run this, so it never steals focus mid-search.
   $effect(() => {
-    if (tab === "commands" && !loading) filterInput?.focus();
+    if (tab === "commands" && !commandsLoading) filterInput?.focus();
   });
 
   // Prune any selected author/label a refresh removed from the current set (mirrors
@@ -296,6 +255,10 @@
     if (selectedLabels.has(label)) selectedLabels.delete(label);
     else selectedLabels.add(label);
   }
+
+  const COLLAPSED_ROWS = 3;
+  const shownIssues = $derived(expanded ? visibleIssues : visibleIssues.slice(0, COLLAPSED_ROWS));
+  const moreCount = $derived(Math.max(0, visibleIssues.length - COLLAPSED_ROWS));
 
   function providerBadge(cmd: SlashCommand): string {
     const providers = commandProviders(cmd);
@@ -325,17 +288,22 @@
 <div class="ps-wrap">
   <div class="ps-head">
     <span class="micro seed-label">{m.promptsources_title()}</span>
+    {#if allowIssues && slug !== null && !loadError}
+      <span class="open-count">{m.promptsources_open_count({ count: issues.length })}</span>
+    {/if}
+    {#if allowIssues && tab === "issues" && issues.length > 0}
+      <IssueFilterPopover
+        showMine={viewer != null}
+        authors={availableAuthors}
+        labels={availableLabels}
+        labelColors={labelColorsMap}
+        {selectedAuthor}
+        selectedLabels={[...selectedLabels]}
+        onauthor={pickAuthor}
+        ontogglelabel={toggleLabel}
+      />
+    {/if}
     <div class="tabs">
-      {#if hasTodo}
-        <button
-          class="tab"
-          class:active={tab === "todo"}
-          type="button"
-          onclick={() => (tab = "todo")}
-        >
-          {m.promptsources_todo_tab()}
-        </button>
-      {/if}
       {#if allowIssues}
         <button
           class="tab"
@@ -358,19 +326,8 @@
   </div>
 
   <div class="ps-body">
-    {#if loading || (tab === "todo" && hasTodo === null)}
+    {#if tab === "commands" && commandsLoading}
       <div class="muted">{m.common_loading()}</div>
-    {:else if tab === "todo"}
-      {#if todos.length === 0}
-        <div class="muted">{m.promptsources_no_todos()}</div>
-      {:else}
-        {#each todos as text (text)}
-          <button class="row" type="button" onclick={() => onpick(text)}>
-            <span class="row-marker">□</span>
-            <span class="row-text">{text}</span>
-          </button>
-        {/each}
-      {/if}
     {:else if tab === "commands"}
       <div class="ps-filter-bar">
         <input
@@ -401,28 +358,16 @@
         {/each}
       {/if}
     {:else if allowIssues}
-      <!-- Issues path: only reachable when allowIssues. The "issues" tab is
-           absent and the no-TODO auto-switch is redirected to Commands when
-           !allowIssues, so this branch is provably unreachable in that mode. -->
-      {#if loadError}
+      <!-- Issues path: only reachable when allowIssues (the tab is absent otherwise). -->
+      {#if issueData.loading}
+        <div class="muted">{m.common_loading()}</div>
+      {:else if loadError}
         <div class="muted">{m.common_issues_load_failed()}</div>
       {:else if slug === null}
         <div class="muted">{m.promptsources_no_github()}</div>
       {:else if issues.length === 0}
         <div class="muted">{m.common_no_open_issues()}</div>
       {:else}
-        <div class="ps-filter-bar">
-          <IssueFilterPopover
-            showMine={viewer != null}
-            authors={availableAuthors}
-            labels={availableLabels}
-            labelColors={labelColorsMap}
-            {selectedAuthor}
-            selectedLabels={[...selectedLabels]}
-            onauthor={pickAuthor}
-            ontogglelabel={toggleLabel}
-          />
-        </div>
         {#if allHiddenByAssignee}
           <div class="muted">{m.issues_filter_all_assigned_to_others()}</div>
         {:else if allHiddenByActive}
@@ -435,7 +380,7 @@
           <!-- Author/label filters emptied the list (no text search on this tab). -->
           <div class="muted">{m.issues_filter_no_match()}</div>
         {/if}
-        {#each visibleIssues as i (i.number)}
+        {#each shownIssues as i (i.number)}
           {#if epicParents.has(i.number)}
             <!-- Epic-parent tracking issue: not pickable as a manual task (it would
                  collide with the Epic Runner). Shown disabled with an EPIC tag + hint;
@@ -468,6 +413,13 @@
             </button>
           {/if}
         {/each}
+        {#if moreCount > 0 || expanded}
+          <button class="more-row" type="button" onclick={() => (expanded = !expanded)}>
+            {expanded
+              ? m.promptsources_collapse_row()
+              : m.promptsources_more_row({ count: moreCount })}
+          </button>
+        {/if}
       {/if}
     {/if}
   </div>
@@ -696,6 +648,27 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+  }
+
+  .open-count {
+    flex-shrink: 0;
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .more-row {
+    background: transparent;
+    border: none;
+    text-align: left;
+    padding: 3px 10px 1px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    cursor: pointer;
+  }
+  .more-row:hover {
+    color: var(--color-ink);
   }
 
   .chip {

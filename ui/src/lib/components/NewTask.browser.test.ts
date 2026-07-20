@@ -94,7 +94,11 @@ function repoConfig(
   };
 }
 
-beforeEach(() => {
+beforeEach(async () => {
+  // The redesigned modal is responsive (MediaQuery-switched rail vs. mobile sheet);
+  // vitest-browser's default viewport is mobile-width, so pin desktop here. Tests
+  // that exercise the mobile layout set their own viewport explicitly.
+  await page.viewport(1280, 900);
   mockListIssues.mockReset();
   mockGetEpics.mockReset();
   mockGetTodo.mockReset();
@@ -227,6 +231,25 @@ function slashCommand(name: string, providers: SlashCommand["providers"]): Slash
   };
 }
 
+// ── redesigned-DOM helpers: Guards switches (role=switch) + Mode segments ──
+// The label part of a glossary marker ("[[plan-gate|Plan gate]]" → "Plan gate").
+function glossLabel(markup: string): string {
+  const match = /\[\[[^|]+\|([^\]]+)\]\]/.exec(markup);
+  return match ? match[1]! : markup;
+}
+const switchByLabel = (label: string) =>
+  Array.from(document.querySelectorAll<HTMLButtonElement>('button[role="switch"]')).find((el) =>
+    el.closest(".toggle-row")?.querySelector(".label")?.textContent?.includes(label),
+  )!;
+const planGateSwitch = () => switchByLabel(glossLabel(m.newtask_guard_plan_gate()));
+const autopilotSwitch = () => switchByLabel(glossLabel(m.newtask_guard_autopilot()));
+const isOn = (sw: HTMLButtonElement | undefined) => sw?.getAttribute("aria-checked") === "true";
+const segButton = (label: string) =>
+  Array.from(document.querySelectorAll<HTMLButtonElement>(".seg-btn")).find(
+    (el) => el.textContent?.trim() === label,
+  )!;
+const segActive = (label: string) => segButton(label)?.getAttribute("aria-pressed") === "true";
+
 describe("NewTask initialImages seed", () => {
   it("renders a removable chip per seeded attachment", async () => {
     render(NewTask, {
@@ -339,41 +362,35 @@ describe("NewTask task attachments", () => {
     revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   }
 
-  it("shows file/image attach copy and the keyboard paste-image hint", async () => {
+  it("renders the toolbar attach button with the keyboard paste-image hint as its title", async () => {
     mockPointer(false);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
 
     await expect.element(page.getByPlaceholder(m.newtask_prompt_placeholder())).toBeInTheDocument();
-    await expect
-      .element(page.getByRole("button", { name: m.newtask_attach_image() }))
-      .toBeVisible();
-    await expect
-      .element(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })))
-      .toBeVisible();
+    const attach = document.querySelector<HTMLButtonElement>(".toolbar .tool-btn")!;
+    expect(attach.getAttribute("aria-label")).toBe(m.newtask_attach_aria());
+    expect(attach.title).toBe(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" }));
   });
 
   it("uses the short touch hint in coarse pointer contexts", async () => {
     mockPointer(true);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
 
-    await expect.element(page.getByText(m.newtask_drop_hint())).toBeVisible();
-    expect(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })).query()).toBeNull();
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".toolbar .tool-btn"))
+      .toBeTruthy();
+    const attach = document.querySelector<HTMLButtonElement>(".toolbar .tool-btn")!;
+    expect(attach.title).toBe(m.newtask_drop_hint());
   });
 
-  it("keeps the longer German attachment row inside a mobile-width sheet", async () => {
+  it("keeps the German in-field toolbar inside a mobile-width sheet", async () => {
     await page.viewport(390, 800);
     overwriteGetLocale(() => "de");
     mockPointer(false);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
 
-    await expect
-      .element(page.getByRole("button", { name: m.newtask_attach_image() }))
-      .toBeVisible();
-    await expect
-      .element(page.getByText(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" })))
-      .toBeVisible();
-
-    const row = document.querySelector<HTMLElement>(".attach-row")!;
+    await expect.poll(() => document.querySelector<HTMLElement>(".toolbar")).toBeTruthy();
+    const row = document.querySelector<HTMLElement>(".toolbar")!;
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 
@@ -596,122 +613,6 @@ describe("NewTask task attachments", () => {
   });
 });
 
-describe("NewTask provider capacity gauge", () => {
-  it("renders both usage windows per provider, labelled and in 5h→weekly order", async () => {
-    render(NewTask, {
-      props: base({
-        initialRepoPath: "/repo",
-        usageLimits: capacityLimits(),
-      }),
-    });
-
-    await expect.element(page.getByText(m.newtask_provider_capacity_title())).toBeInTheDocument();
-    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
-
-    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
-
-    // Claude: 5h window (30% used → 70% free), then weekly (60% used → 40% free).
-    const claudeWins = providers[0]!.querySelectorAll<HTMLElement>(".pcap-window");
-    expect(claudeWins.length).toBe(2);
-    expect(claudeWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
-      m.newtask_provider_capacity_window_5h(),
-    );
-    expect(claudeWins[0]?.textContent).toContain(
-      m.newtask_provider_capacity_free_until({ pct: 70, time: "18.7. 20:00" }),
-    );
-    expect(claudeWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
-      m.newtask_provider_capacity_window_week(),
-    );
-    expect(claudeWins[1]?.textContent).toContain(
-      m.newtask_provider_capacity_free_until({ pct: 40, time: "18.7. 20:00" }),
-    );
-
-    // Meter exposes provider + full window name + free% to assistive tech.
-    expect(claudeWins[0]?.querySelector('[role="meter"]')?.getAttribute("aria-valuetext")).toBe(
-      m.newtask_provider_capacity_meter_window_aria_until({
-        provider: m.agent_provider_claude(),
-        window: m.usage_limits_window_5h(),
-        free: 70,
-        time: "18.7. 20:00",
-      }),
-    );
-
-    // Codex: 5h (20% used → 80% free), then weekly (80% used → 20% free).
-    const codexWins = providers[1]!.querySelectorAll<HTMLElement>(".pcap-window");
-    expect(codexWins.length).toBe(2);
-    expect(codexWins[0]?.querySelector(".pcap-win-key")?.textContent).toBe(
-      m.newtask_provider_capacity_window_5h(),
-    );
-    expect(codexWins[0]?.textContent).toContain(
-      m.newtask_provider_capacity_free_until({ pct: 80, time: "18.7. 20:00" }),
-    );
-    expect(codexWins[1]?.querySelector(".pcap-win-key")?.textContent).toBe(
-      m.newtask_provider_capacity_window_week(),
-    );
-    expect(codexWins[1]?.textContent).toContain(
-      m.newtask_provider_capacity_free_until({ pct: 20, time: "18.7. 20:00" }),
-    );
-  });
-
-  it("falls back to plain free text when resetAt is unusable", async () => {
-    render(NewTask, {
-      props: base({
-        initialRepoPath: "/repo",
-        usageLimits: capacityLimits({}, 0),
-      }),
-    });
-
-    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
-    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
-    const claudeWins = providers[0]!.querySelectorAll<HTMLElement>(".pcap-window");
-
-    expect(claudeWins[0]?.textContent).toContain(m.newtask_provider_capacity_free({ pct: 70 }));
-    expect(claudeWins[0]?.textContent).not.toContain("til");
-    expect(claudeWins[0]?.querySelector('[role="meter"]')?.getAttribute("aria-valuetext")).toBe(
-      m.newtask_provider_capacity_meter_window_aria({
-        provider: m.agent_provider_claude(),
-        window: m.usage_limits_window_5h(),
-        free: 70,
-      }),
-    );
-  });
-
-  it("shows Codex as unavailable when rollout limits are missing", async () => {
-    render(NewTask, {
-      props: base({
-        initialRepoPath: "/repo",
-        usageLimits: capacityLimits({ session5h: false, week: false }),
-      }),
-    });
-
-    await expect.poll(() => document.querySelectorAll(".pcap-provider").length).toBe(2);
-    const providers = Array.from(document.querySelectorAll<HTMLElement>(".pcap-provider"));
-    // Claude keeps both window bars; Codex shows the unavailable line and no bars.
-    expect(providers[0]!.querySelectorAll(".pcap-window").length).toBe(2);
-    expect(providers[1]!.querySelectorAll(".pcap-window").length).toBe(0);
-    expect(providers[1]?.textContent).toContain(m.newtask_provider_capacity_unavailable());
-    expect(providers[1]?.textContent).not.toContain("100%");
-  });
-
-  it("wraps the window rows on narrow widths instead of overflowing the field", async () => {
-    await page.viewport(390, 800);
-    render(NewTask, {
-      props: base({
-        initialRepoPath: "/repo",
-        usageLimits: capacityLimits(),
-      }),
-    });
-
-    await expect.poll(() => document.querySelectorAll(".pcap-window").length).toBe(4);
-
-    const wins = Array.from(document.querySelectorAll<HTMLElement>(".pcap-window"));
-    for (const win of wins) {
-      expect(win.scrollWidth).toBeLessThanOrEqual(win.clientWidth);
-      expect(win.querySelector<HTMLElement>(".pcap-bar")!.clientWidth).toBeGreaterThan(48);
-    }
-  });
-});
-
 describe("NewTask issue picker epic-parent rows", () => {
   function issue(number: number, title: string, labels: string[] = []): Issue {
     return {
@@ -802,12 +703,9 @@ describe("NewTask plan-gate inheritance", () => {
     return { promise, resolve, reject };
   }
 
-  // Research renders first in the stack, so match the plan-gate row by label
-  // instead of grabbing the first `.plan-gate input`.
-  const planGateBox = () =>
-    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-      el.closest("label")?.textContent?.includes(m.newtask_plan_gate_label()),
-    )!;
+  // Migrated to the redesigned Guards toggles: selectors move to role="switch" +
+  // aria-checked; the behavioral assertions are preserved verbatim.
+  const planGateBox = planGateSwitch;
   const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
 
   async function fillAndSubmit() {
@@ -826,7 +724,7 @@ describe("NewTask plan-gate inheritance", () => {
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
     // box mirrors the gate-ON default once config settles
-    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -840,9 +738,9 @@ describe("NewTask plan-gate inheritance", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => planGateBox().disabled).toBe(false);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
     planGateBox().click(); // toggles + pins planGateTouched
-    expect(planGateBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -855,9 +753,9 @@ describe("NewTask plan-gate inheritance", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
     planGateBox().click(); // untick → explicit false
-    expect(planGateBox().checked).toBe(false);
+    await expect.poll(() => isOn(planGateBox())).toBe(false);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -871,12 +769,12 @@ describe("NewTask plan-gate inheritance", () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repoPath } });
 
     // in flight: disabled + loading hint (both gate + autopilot show it, so match the first)
-    await expect.poll(() => planGateBox().disabled).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(true);
     await expect.element(page.getByText(m.common_loading()).first()).toBeInTheDocument();
 
     d.resolve(repoConfig(true));
-    await expect.poll(() => planGateBox().disabled).toBe(false);
-    expect(planGateBox().checked).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
+    expect(isOn(planGateBox())).toBe(true);
   });
 
   it("never wedges disabled when the config fetch fails", async () => {
@@ -886,12 +784,12 @@ describe("NewTask plan-gate inheritance", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => planGateBox().disabled).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(true);
 
     d.reject(new Error("boom"));
     // failure still settles → box re-enables (unchecked) and inherits via null
-    await expect.poll(() => planGateBox().disabled).toBe(false);
-    expect(planGateBox().checked).toBe(false);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
+    expect(isOn(planGateBox())).toBe(false);
 
     // A FAILED fetch leaves confirmed/rowExists unset. The submit gate must NOT treat that
     // as a new repo: it must spawn DIRECTLY (no confirm step) and must NOT seed (no PUT that
@@ -944,10 +842,7 @@ describe("NewTask plan-gate inheritance", () => {
 });
 
 describe("NewTask autopilot override", () => {
-  const autopilotBox = () =>
-    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-      el.closest("label")?.textContent?.includes(m.newtask_autopilot_label()),
-    )!;
+  const autopilotBox = autopilotSwitch;
   const submitBtn = () => document.querySelector<HTMLButtonElement>("button.run")!;
 
   async function fillAndSubmit() {
@@ -965,7 +860,7 @@ describe("NewTask autopilot override", () => {
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
     // box mirrors the autopilot-ON default once config settles
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -978,9 +873,9 @@ describe("NewTask autopilot override", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     autopilotBox().click(); // untick → explicit opt-out for this task
-    expect(autopilotBox().checked).toBe(false);
+    await expect.poll(() => isOn(autopilotBox())).toBe(false);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -994,9 +889,9 @@ describe("NewTask autopilot override", () => {
     render(NewTask, { props: base({ onsubmit, relaunch: true, initialRepoPath: repoPath }) });
 
     // An untouched relaunch follows the destination repo's default.
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     autopilotBox().click();
-    expect(autopilotBox().checked).toBe(false);
+    await expect.poll(() => isOn(autopilotBox())).toBe(false);
     await fillAndSubmit();
 
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
@@ -1004,19 +899,15 @@ describe("NewTask autopilot override", () => {
   });
 });
 
-describe("NewTask research toggle", () => {
-  const researchBox = () =>
-    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-      el.closest("label")?.textContent?.includes(m.newtask_research_label()),
-    )!;
-  const planGateBox = () =>
-    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-      el.closest("label")?.textContent?.includes(m.newtask_plan_gate_label()),
-    )!;
-  const autopilotBox = () =>
-    Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-      el.closest("label")?.textContent?.includes(m.newtask_autopilot_label()),
-    )!;
+describe("NewTask research mode (segmented control)", () => {
+  // The two research/epic checkboxes became the Mode segments; "checking Research"
+  // = clicking the Research segment, "unchecking" = returning to Code. The
+  // behavioral assertions (mutual exclusion, guard lock, sandbox reset, payload)
+  // are preserved verbatim.
+  const researchSeg = () => segButton(m.newtask_mode_research());
+  const codeSeg = () => segButton(m.newtask_mode_code());
+  const planGateBox = planGateSwitch;
+  const autopilotBox = autopilotSwitch;
   const autonomousOption = () =>
     document.querySelector<HTMLOptionElement>('#nt-sandbox option[value="autonomous"]')!;
   const sandboxSelect = () => document.querySelector<HTMLSelectElement>("#nt-sandbox")!;
@@ -1030,10 +921,11 @@ describe("NewTask research toggle", () => {
     submitBtn().click();
   }
 
-  it("renders the Research checkbox", async () => {
+  it("renders the Mode segments with Code active", async () => {
     render(NewTask, { props: base() });
-    await expect.poll(() => researchBox()).toBeTruthy();
-    expect(researchBox().checked).toBe(false);
+    await expect.poll(() => researchSeg()).toBeTruthy();
+    expect(segActive(m.newtask_mode_research())).toBe(false);
+    expect(segActive(m.newtask_mode_code())).toBe(true);
   });
 
   it("toggling Research on unchecks plan-gate", async () => {
@@ -1042,11 +934,11 @@ describe("NewTask research toggle", () => {
     render(NewTask, { props: base({ initialRepoPath: repoPath }) });
 
     // wait for plan-gate to reflect repo default
-    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
 
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
-    await expect.poll(() => planGateBox().checked).toBe(false);
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(false);
   });
 
   it("toggling Research on unchecks Autopilot", async () => {
@@ -1055,11 +947,11 @@ describe("NewTask research toggle", () => {
     render(NewTask, { props: base({ initialRepoPath: repoPath }) });
 
     // box mirrors the autopilot-ON default once config settles
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
 
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(false);
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(false);
   });
 
   it("keeps Autopilot unchecked after a repo switch (touched pin survives)", async () => {
@@ -1081,11 +973,11 @@ describe("NewTask research toggle", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoA.path } });
 
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
 
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(false);
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(false);
 
     // switch to repo B via the RepoSelect combobox
     const trigger = document.querySelector<HTMLButtonElement>(".rs-trigger")!;
@@ -1103,8 +995,8 @@ describe("NewTask research toggle", () => {
     optB.click();
 
     // with autopilotTouched pinned, the re-seed $effect must NOT flip it back on
-    await expect.poll(() => researchBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(false);
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(false);
 
     // backstop: submit carries explicit false (not null) — proves the touched pin held
     await fillAndSubmit();
@@ -1112,30 +1004,30 @@ describe("NewTask research toggle", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ autopilotEnabled: false, research: true });
   });
 
-  it("disables plan-gate and Autopilot while Research is on, re-enables on uncheck", async () => {
+  it("disables plan-gate and Autopilot while Research is on, re-enables back on Code", async () => {
     render(NewTask, { props: base() });
-    await expect.poll(() => researchBox()).toBeTruthy();
+    await expect.poll(() => researchSeg()).toBeTruthy();
 
-    // tick Research on → both rows lock (visible exclusivity, not silent re-checkable)
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
-    await expect.poll(() => planGateBox().disabled).toBe(true);
-    await expect.poll(() => autopilotBox().disabled).toBe(true);
+    // Research on → both rows lock (visible exclusivity, not silent re-checkable)
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(true);
+    await expect.poll(() => autopilotBox()?.disabled).toBe(true);
 
-    // untick Research → both rows unlock
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(false);
-    await expect.poll(() => planGateBox().disabled).toBe(false);
-    await expect.poll(() => autopilotBox().disabled).toBe(false);
+    // back to Code → both rows unlock (values stay pinned off — checkbox parity)
+    codeSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
+    await expect.poll(() => autopilotBox()?.disabled).toBe(false);
   });
 
   it("disables the autonomous sandbox option when Research is on", async () => {
     render(NewTask, { props: base() });
-    await expect.poll(() => researchBox()).toBeTruthy();
+    await expect.poll(() => researchSeg()).toBeTruthy();
 
     expect(autonomousOption().disabled).toBe(false);
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
     await expect.poll(() => autonomousOption().disabled).toBe(true);
   });
 
@@ -1148,9 +1040,9 @@ describe("NewTask research toggle", () => {
     sandboxSelect().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => sandboxSelect().value).toBe("autonomous");
 
-    // toggle research on → sandbox should reset
-    researchBox().click();
-    await expect.poll(() => researchBox().checked).toBe(true);
+    // switch to research → sandbox should reset
+    researchSeg().click();
+    await expect.poll(() => segActive(m.newtask_mode_research())).toBe(true);
     await expect.poll(() => sandboxSelect().value).toBe("default");
   });
 
@@ -1159,9 +1051,9 @@ describe("NewTask research toggle", () => {
     render(NewTask, {
       props: base({ onsubmit: captured, initialRepoPath: "/repo/research-submit" }),
     });
-    await expect.poll(() => researchBox()).toBeTruthy();
+    await expect.poll(() => researchSeg()).toBeTruthy();
 
-    researchBox().click();
+    researchSeg().click();
     await fillAndSubmit();
 
     await expect.poll(() => captured.mock.calls.length).toBe(1);
@@ -1439,11 +1331,13 @@ describe("NewTask upstream status hint", () => {
     await expect.poll(() => mockInitEmptyCommit.mock.calls.length).toBe(1);
     expect(mockInitEmptyCommit).toHaveBeenCalledWith("/repo/unborn", "main");
     await expect.poll(() => document.querySelector(".nt-base-repair")).toBeNull();
-    expect(run.disabled).toBe(false);
 
+    // The CTA stays disabled until the prompt is non-empty (readiness rule) — the
+    // base_missing blocker itself is cleared, which typing proves:
     const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
     promptField.value = "do the thing";
     promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => run.disabled).toBe(false);
     run.click();
     await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
   });
@@ -1539,16 +1433,14 @@ describe("NewTask fableAvailable prop", () => {
   it("shows the unavailability hint when fableAvailable=false", async () => {
     render(NewTask, { props: base({ fableAvailable: false }) });
 
-    // The hint is a <p class="micro"> inside .model-field, distinct from the <label class="micro">
-    const hint = document.querySelector(".model-field p.micro");
-    expect(hint?.textContent).toContain("Fable is temporarily unavailable");
+    const hint = document.querySelector(".field .field-note");
+    expect(hint?.textContent).toContain(m.newtask_fable_unavailable());
   });
 
   it("does not show the unavailability hint when fableAvailable=true", async () => {
     render(NewTask, { props: base({ fableAvailable: true }) });
 
-    // No <p class="micro"> inside .model-field should render when fable is available
-    expect(document.querySelector(".model-field p.micro")).toBeNull();
+    expect(document.querySelector(".field .field-note")).toBeNull();
   });
 });
 
@@ -1742,6 +1634,12 @@ describe("NewTask first-task confirm step", () => {
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
     await expect.poll(() => provider().value).toBe("codex");
+    // The full Codex notes (incl. the hold note) live behind the one-line alpha
+    // caution's "details" expander in the redesign.
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>(".alpha-details"))
+      .toBeTruthy();
+    document.querySelector<HTMLButtonElement>(".alpha-details")!.click();
     await expect
       .element(page.getByText(m.newtask_agent_provider_codex_suggested_for_hold()))
       .toBeInTheDocument();
@@ -1759,30 +1657,26 @@ describe("NewTask first-task confirm step", () => {
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
     const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
-    const boxByLabel = (label: string) =>
-      Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-        el.closest("label")?.textContent?.includes(label),
-      )!;
-    const planGateBox = () => boxByLabel(m.newtask_plan_gate_label());
-    const autopilotBox = () => boxByLabel(m.newtask_autopilot_label());
+    const planGateBox = planGateSwitch;
+    const autopilotBox = autopilotSwitch;
 
     // Seeded ON from the repo default.
-    await expect.poll(() => planGateBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
 
     // Codex: plan-gate is now available (live + enabled, not forced off); autopilot too.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().disabled).toBe(false);
-    expect(planGateBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
+    expect(isOn(planGateBox())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 
     // Back to Claude → unchanged, still on/enabled.
     provider().value = "claude";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     expect(planGateBox().disabled).toBe(false);
     expect(autopilotBox().disabled).toBe(false);
   });
@@ -1795,33 +1689,29 @@ describe("NewTask first-task confirm step", () => {
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
     const provider = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
-    const boxByLabel = (label: string) =>
-      Array.from(document.querySelectorAll<HTMLInputElement>(".plan-gate input")).find((el) =>
-        el.closest("label")?.textContent?.includes(label),
-      )!;
-    const planGateBox = () => boxByLabel(m.newtask_plan_gate_label());
-    const autopilotBox = () => boxByLabel(m.newtask_autopilot_label());
+    const planGateBox = planGateSwitch;
+    const autopilotBox = autopilotSwitch;
 
     // Settle, then manually turn BOTH on — differs from the repo default.
-    await expect.poll(() => planGateBox().disabled).toBe(false);
+    await expect.poll(() => planGateBox()?.disabled).toBe(false);
     planGateBox().click();
     autopilotBox().click();
-    await expect.poll(() => planGateBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
 
     // Codex: plan-gate stays ON and the box stays live (no forced-off display anymore); autopilot too.
     provider().value = "codex";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
     expect(planGateBox().disabled).toBe(false);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
     expect(autopilotBox().disabled).toBe(false);
 
     // Back to Claude → the manual override is intact.
     provider().value = "claude";
     provider().dispatchEvent(new Event("change", { bubbles: true }));
-    await expect.poll(() => planGateBox().checked).toBe(true);
-    await expect.poll(() => autopilotBox().checked).toBe(true);
+    await expect.poll(() => isOn(planGateBox())).toBe(true);
+    await expect.poll(() => isOn(autopilotBox())).toBe(true);
   });
 
   it("confirmed repo: Run calls onsubmit directly, no confirm step shown", async () => {
@@ -1831,7 +1721,7 @@ describe("NewTask first-task confirm step", () => {
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
     // Wait for config to settle (plan-gate box becomes enabled)
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
 
     await fillPromptAndClickRun();
 
@@ -1849,7 +1739,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Confirm step appears
@@ -1870,7 +1760,7 @@ describe("NewTask first-task confirm step", () => {
       props: { onsubmit, initialRepoPath: repoPath, defaultAgentProvider: "codex" },
     });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     expect(document.querySelector(".ftac")).toBeNull();
@@ -1885,7 +1775,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Confirm step appears
@@ -1905,7 +1795,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Wait for confirm step
@@ -1931,7 +1821,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Wait for confirm step
@@ -1957,7 +1847,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn();
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Confirm step appears
@@ -1996,7 +1886,7 @@ describe("NewTask first-task confirm step", () => {
     const onsubmit = vi.fn().mockResolvedValue(undefined);
     render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
 
-    await expect.poll(() => document.querySelector(".plan-gate input")).toBeTruthy();
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
     await fillPromptAndClickRun();
 
     // Confirm step must appear
@@ -2434,5 +2324,607 @@ describe("NewTask assigned-to-others notice (#1694)", () => {
 
     await expect.poll(() => document.querySelector(".issue-ref-link")).toBeTruthy();
     expect(notice()).toBeNull();
+  });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Redesign integration coverage (cross-component wiring + payload + geometry).
+// Component-level behavior lives in the focused suites (InstrumentToggle,
+// EngineCapacityLine, MobileEngineSheet); unit rules live in readiness/run-config/
+// issue-trigger/issue-data tests.
+// ─────────────────────────────────────────────────────────────────────────────
+
+function typePrompt(text: string) {
+  const el = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  el.value = text;
+  el.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function pressCmdEnter(target?: HTMLElement) {
+  (target ?? document.querySelector<HTMLElement>("form.card")!).dispatchEvent(
+    new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+  );
+}
+
+function seedIssues(issues: Issue[]) {
+  mockListIssues.mockResolvedValue({ slug: "owner/repo", webUrl: null, issues, viewer: null });
+}
+
+function mkIssue(n: number, title = `Issue ${n}`): Issue {
+  return {
+    number: n,
+    title,
+    body: "issue body",
+    url: `https://example.com/issues/${n}`,
+    labels: [],
+    createdAt: 0,
+    assignees: [],
+  };
+}
+
+describe("NewTask form-level ⌘↵ guard (readiness)", () => {
+  it("blocks with an empty prompt from outside the textarea, submits once typed", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/kbd-guard" } });
+    await expect.poll(() => document.querySelector("form.card")).toBeTruthy();
+
+    // Focus is NOT in the textarea: dispatch on the form itself. Blocker active →
+    // no submission.
+    pressCmdEnter();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(onsubmit).not.toHaveBeenCalled();
+    // The footer explains the blocker.
+    expect(document.querySelector(".readiness")?.textContent).toContain(
+      m.newtask_readiness_empty_prompt(),
+    );
+
+    typePrompt("do the thing");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    // Ready state shows the branch preview line.
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ prompt: "do the thing" });
+  });
+});
+
+describe("NewTask issue-seeded submission (repo-aware activeIssue predicate)", () => {
+  it("attach issue → clear prompt → CTA enabled, ⌘↵ submits template + issueRef", async () => {
+    const issue = mkIssue(42, "Fix the flux capacitor");
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: "/repo/seeded", initialIssue: issue },
+    });
+    // The seeded template prefills the prompt; the user deletes it all.
+    await expect
+      .poll(() => document.querySelector<HTMLTextAreaElement>("#nt-prompt")?.value ?? "")
+      .not.toBe("");
+    typePrompt("");
+    // CTA stays enabled: the seeded issue satisfies the prompt rule.
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const payload = onsubmit.mock.calls[0]![0];
+    // An empty prompt materializes as the issue template; issueRef rides out-of-band.
+    expect(payload.prompt).toBe(
+      m.newtask_issue_prompt_template({ number: issue.number, title: issue.title }),
+    );
+    expect(payload.issueRef).toMatchObject({ number: 42 });
+  });
+
+  it("repo A issue → empty prompt → switch to repo B: both submit paths blocked", async () => {
+    const repoA: RepoEntry = {
+      name: "alpha",
+      path: "/repo/seed-a",
+      display: "alpha",
+      realPath: "/repo/seed-a",
+    };
+    const repoB: RepoEntry = {
+      name: "bravo",
+      path: "/repo/seed-b",
+      display: "bravo",
+      realPath: "/repo/seed-b",
+    };
+    mockListRepos.mockResolvedValue({ repos: [repoA, repoB], recentWindowDays: 30 });
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: repoA.path, initialIssue: mkIssue(7) },
+    });
+    await expect
+      .poll(() => document.querySelector<HTMLTextAreaElement>("#nt-prompt")?.value ?? "")
+      .not.toBe("");
+    typePrompt("");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+
+    // Switch to repo B via ⌥] (mutates repoPath directly).
+    document
+      .querySelector<HTMLElement>("form.card")!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { code: "BracketRight", altKey: true, bubbles: true }),
+      );
+    // The stale cross-repo attachment no longer satisfies the prompt rule.
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(true);
+    // Native form submit: blocked.
+    document
+      .querySelector<HTMLFormElement>("form.card")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    // Form-level shortcut: blocked.
+    pressCmdEnter();
+    await new Promise((r) => setTimeout(r, 150));
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("a non-empty repo-B submission does NOT carry the stale repo-A issueRef", async () => {
+    const repoA: RepoEntry = {
+      name: "alpha",
+      path: "/repo/stale-a",
+      display: "alpha",
+      realPath: "/repo/stale-a",
+    };
+    const repoB: RepoEntry = {
+      name: "bravo",
+      path: "/repo/stale-b",
+      display: "bravo",
+      realPath: "/repo/stale-b",
+    };
+    mockListRepos.mockResolvedValue({ repos: [repoA, repoB], recentWindowDays: 30 });
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: { onsubmit, initialRepoPath: repoA.path, initialIssue: mkIssue(7) },
+    });
+    await expect
+      .poll(() => document.querySelector<HTMLTextAreaElement>("#nt-prompt")?.value ?? "")
+      .not.toBe("");
+    document
+      .querySelector<HTMLElement>("form.card")!
+      .dispatchEvent(
+        new KeyboardEvent("keydown", { code: "BracketRight", altKey: true, bubbles: true }),
+      );
+    typePrompt("ship it in bravo");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const payload = onsubmit.mock.calls[0]![0];
+    expect(payload.repoPath).toBe(repoB.path);
+    expect(payload.issueRef).toBeUndefined();
+  });
+});
+
+describe("NewTask inline # issue search", () => {
+  it("typing #4 filters and Enter attaches the issue + seeds the prompt", async () => {
+    seedIssues([mkIssue(42, "Fix the flux capacitor"), mkIssue(7, "Other thing")]);
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/hash-pick" } });
+
+    const promptEl = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => promptEl()).toBeTruthy();
+    promptEl().focus();
+    promptEl().value = "#4";
+    promptEl().setSelectionRange(2, 2);
+    promptEl().dispatchEvent(new Event("input", { bubbles: true }));
+
+    // The menu opens filtered to #42.
+    await expect.poll(() => document.querySelectorAll(".ism-row").length).toBe(1);
+    expect(document.querySelector(".ism-row")?.textContent).toContain("#42");
+
+    promptEl().dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
+    );
+    // Token removed → prompt empty → the issue template seeds it; issueRef attached.
+    await expect
+      .poll(() => promptEl().value)
+      .toBe(m.newtask_issue_prompt_template({ number: 42, title: "Fix the flux capacitor" }));
+    await expect.poll(() => document.querySelector(".issue-ref")).toBeTruthy();
+    expect(document.querySelector(".issue-ref")?.textContent).toContain("#42");
+  });
+
+  it("relaunch mode: # stays plain text (allowIssues = !relaunch parity)", async () => {
+    seedIssues([mkIssue(42)]);
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo/hash-relaunch", relaunch: true }),
+    });
+    const promptEl = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => promptEl()).toBeTruthy();
+    promptEl().focus();
+    promptEl().value = "#4";
+    promptEl().setSelectionRange(2, 2);
+    promptEl().dispatchEvent(new Event("input", { bubbles: true }));
+    await new Promise((r) => setTimeout(r, 200));
+    expect(document.querySelector(".ism-panel")).toBeNull();
+    expect(promptEl().value).toBe("#4");
+  });
+
+  it("a non-matching #token submits as plain prompt text", async () => {
+    seedIssues([mkIssue(42)]);
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/hash-fallback" } });
+    const promptEl = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    await expect.poll(() => promptEl()).toBeTruthy();
+    typePrompt("tint it color #fff please");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ prompt: "tint it color #fff please" });
+    expect(onsubmit.mock.calls[0]![0].issueRef).toBeUndefined();
+  });
+});
+
+describe("NewTask mode segments payload parity", () => {
+  it("epic mode submits epicAuthoring:true and back to code resets both flags", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/mode-epic" } });
+    await expect.poll(() => segButton(m.newtask_mode_epic())).toBeTruthy();
+
+    segButton(m.newtask_mode_epic()).click();
+    await expect.poll(() => segActive(m.newtask_mode_epic())).toBe(true);
+    typePrompt("shape an epic");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ epicAuthoring: true, research: false });
+  });
+
+  it("research → code leaves the guards pinned off (checkbox parity), payload explicit false", async () => {
+    const onsubmit = vi.fn();
+    mockGetRepoConfig.mockResolvedValue(repoConfig(true)); // gate-ON repo
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/mode-roundtrip" } });
+    await expect.poll(() => isOn(planGateSwitch())).toBe(true);
+
+    segButton(m.newtask_mode_research()).click();
+    await expect.poll(() => isOn(planGateSwitch())).toBe(false);
+    segButton(m.newtask_mode_code()).click();
+    await expect.poll(() => segActive(m.newtask_mode_code())).toBe(true);
+    // Parity with unchecking the old Research checkbox: the guards stay off + pinned.
+    expect(isOn(planGateSwitch())).toBe(false);
+
+    typePrompt("do the thing");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    pressCmdEnter();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      research: false,
+      epicAuthoring: false,
+      planGateEnabled: false, // pinned explicit false, not null-inherit
+    });
+  });
+});
+
+describe("NewTask manual provider change (preserved reset semantics)", () => {
+  it("resets a touched model to the new provider default on CLI-select change", async () => {
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: "/repo/manual-reset" } });
+    const modelSel = () => document.querySelector<HTMLSelectElement>("#nt-model")!;
+    const providerSel = () => document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    await expect.poll(() => modelSel()).toBeTruthy();
+
+    // Touch the model by hand.
+    modelSel().value = "opus";
+    modelSel().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSel().value).toBe("opus");
+
+    // Manual provider change: unconditional reset to the new provider's default.
+    providerSel().value = "codex";
+    providerSel().dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.poll(() => modelSel().value).toBe("gpt-5.5");
+  });
+});
+
+describe("NewTask geometry (measurable handoff criteria)", () => {
+  // Fixture A (desktop, Claude): autogrow-capped prompt + 8 chips + diverged notice +
+  // submit error + hold-likely dual CTA — every state individually realizable together.
+  it("fixture A: desktop 1280×800 — card 880, rail 300, surface + no overflow", async () => {
+    await page.viewport(1280, 800);
+    mockBranchStatus.mockResolvedValue({
+      behind: 3,
+      ahead: 2,
+      diverged: true,
+      hasUpstream: true,
+      localExists: true,
+    });
+    const onsubmit = vi.fn().mockRejectedValue(new Error("spawn failed"));
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: "/repo/geo-a",
+        holdLikely: true,
+        initialImages: Array.from({ length: 8 }, (_, i) => ({
+          path: `/staged/f${i}.png`,
+          name: `file-with-a-longish-name-${i}.png`,
+        })),
+      },
+    });
+    typePrompt(Array.from({ length: 60 }, (_, i) => `long prompt line ${i}`).join("\n"));
+
+    const card = document.querySelector<HTMLElement>("form.card")!;
+    // Modal surface: exactly 880 wide, square corners, bright border, brackets, no shadow.
+    await expect.poll(() => Math.round(card.getBoundingClientRect().width)).toBe(880);
+    const cs = getComputedStyle(card);
+    expect(cs.borderRadius).toBe("0px");
+    expect(cs.boxShadow).toBe("none");
+    const brackets = [getComputedStyle(card, "::before"), getComputedStyle(card, "::after")];
+    for (const b of brackets) {
+      expect(b.width).toBe("10px");
+      expect(b.height).toBe("10px");
+    }
+    // Two-column grid: right rail exactly 300px.
+    expect(
+      Math.round(document.querySelector<HTMLElement>(".rail")!.getBoundingClientRect().width),
+    ).toBe(300);
+    // Prompt hero ≥132px; toolbar buttons 28×28.
+    expect(
+      document.querySelector<HTMLElement>("#nt-prompt")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(132);
+    const tool = document.querySelector<HTMLElement>(".tool-btn")!.getBoundingClientRect();
+    expect(Math.round(tool.width)).toBe(28);
+    expect(Math.round(tool.height)).toBe(28);
+
+    // Dual CTA present (hold-likely, Claude) and fully inside the viewport.
+    await expect.poll(() => document.querySelector("button.run-hold")).toBeTruthy();
+    const foot = document.querySelector<HTMLElement>(".cfoot")!.getBoundingClientRect();
+    expect(foot.bottom).toBeLessThanOrEqual(800);
+    expect(foot.top).toBeGreaterThanOrEqual(0);
+    // No horizontal document overflow.
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1280);
+    // The left column scrolls internally rather than displacing the footer.
+    const left = document.querySelector<HTMLElement>(".left")!;
+    expect(left.scrollHeight).toBeGreaterThan(left.clientHeight);
+  });
+
+  // Fixture B (desktop, Codex relaunch): constraint callout + relaunch note.
+  it("fixture B: codex relaunch with constraint callout keeps the footer in-viewport", async () => {
+    await page.viewport(1280, 800);
+    mockGetCommands.mockResolvedValue({ commands: [slashCommand("codex-skill", ["codex"])] });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo/geo-b", relaunch: true, initialPrompt: "again" }),
+    });
+    // Relaunch opens the panel on the Commands tab, whose filter autofocuses at first
+    // flush (existing behavior) — settle first, then take focus back for the prompt.
+    await expect.poll(() => document.querySelector(".cmd-filter")).toBeTruthy();
+    const promptEl = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptEl.focus();
+    promptEl.value = "$cod";
+    promptEl.setSelectionRange(4, 4);
+    promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$codex-skill")).toBeVisible();
+    await page.getByText("$codex-skill").click();
+    // Constraint callout renders in the rail; relaunch note in the left column.
+    await expect.element(page.getByText(m.newtask_provider_constraint_title())).toBeVisible();
+    expect(document.querySelector(".relaunch-note")).toBeTruthy();
+    const foot = document.querySelector<HTMLElement>(".cfoot")!.getBoundingClientRect();
+    expect(foot.bottom).toBeLessThanOrEqual(800);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1280);
+  });
+
+  // Fixture C (mobile): the sheet fills the viewport; 44px targets; 16px prompt.
+  it("fixture C: mobile 390×844 — sheet fills viewport, safe-area declared, 44px targets", async () => {
+    await page.viewport(390, 844);
+    const onsubmit = vi.fn();
+    render(NewTask, {
+      props: {
+        onsubmit,
+        initialRepoPath: "/repo/geo-c",
+        initialImages: [{ path: "/staged/a.png", name: "a.png" }],
+      },
+    });
+    const card = document.querySelector<HTMLElement>("form.card")!;
+    await expect.poll(() => Math.round(card.getBoundingClientRect().width)).toBe(390);
+    const rect = card.getBoundingClientRect();
+    expect(Math.round(rect.height)).toBe(844);
+    expect(Math.round(rect.top)).toBe(0);
+    expect(Math.round(rect.left)).toBe(0);
+    // Footer flush to the viewport bottom; safe-area declared on its padding.
+    const foot = document.querySelector<HTMLElement>(".cfoot")!;
+    expect(Math.round(foot.getBoundingClientRect().bottom)).toBe(844);
+    // env() resolves to 0 in test browsers — assert the declaration carries it.
+    const sheet = Array.from(document.styleSheets).some((ss) => {
+      try {
+        return Array.from(ss.cssRules).some((r) => r.cssText.includes("safe-area-inset-bottom"));
+      } catch {
+        return false;
+      }
+    });
+    expect(sheet).toBe(true);
+    // 44px targets: toolbar buttons, close ✕, mode segments, CTA; 16px prompt.
+    expect(
+      document.querySelector<HTMLElement>(".tool-btn")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      document.querySelector<HTMLElement>(".x")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      document.querySelector<HTMLElement>(".seg-btn")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+    expect(
+      document.querySelector<HTMLElement>("button.run")!.getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44);
+    expect(getComputedStyle(document.querySelector("#nt-prompt")!).fontSize).toBe("16px");
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
+  });
+});
+
+describe("NewTask mobile sheets + shortcuts", () => {
+  async function renderMobile(extra: Record<string, unknown> = {}) {
+    await page.viewport(390, 844);
+    const repoA: RepoEntry = {
+      name: "alpha",
+      path: "/repo/mob-a",
+      display: "alpha",
+      realPath: "/repo/mob-a",
+    };
+    const repoB: RepoEntry = {
+      name: "bravo",
+      path: "/repo/mob-b",
+      display: "bravo",
+      realPath: "/repo/mob-b",
+    };
+    mockListRepos.mockResolvedValue({ repos: [repoA, repoB], recentWindowDays: 30 });
+    const onsubmit = vi.fn();
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoA.path, ...extra } });
+    await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+    return { onsubmit, repoA, repoB };
+  }
+
+  it("combined chip names both values, opens the context sheet, edits independently", async () => {
+    const { onsubmit, repoB } = await renderMobile();
+    const chip = () => document.querySelector<HTMLButtonElement>(".ctx-chip")!;
+    await expect.poll(() => chip().textContent).toContain("alpha");
+    expect(chip().getAttribute("aria-haspopup")).toBe("dialog");
+    expect(chip().getAttribute("aria-expanded")).toBe("false");
+    expect(chip().getAttribute("aria-label")).toContain("alpha");
+    expect(chip().getAttribute("aria-label")).toContain("main");
+
+    chip().focus();
+    chip().click();
+    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
+    expect(chip().getAttribute("aria-expanded")).toBe("true");
+
+    // Change only the repo: chip + payload repoPath update; base re-derives.
+    document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
+    await expect
+      .poll(() =>
+        Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find((el) =>
+          el.textContent?.includes("bravo"),
+        ),
+      )
+      .toBeTruthy();
+    Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]'))
+      .find((el) => el.textContent?.includes("bravo"))!
+      .click();
+    await expect.poll(() => chip().textContent).toContain("bravo");
+
+    // Change only the branch (input fallback or select — the mock lists main only).
+    const branchCtl = document.querySelector<HTMLSelectElement | HTMLInputElement>(
+      ".ctx-sheet .ctx-branch-select",
+    )!;
+    branchCtl.value = "main";
+    branchCtl.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Close the sheet: focus returns to the chip.
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
+    // (dispatch on the sheet so the dialog action sees it)
+    document
+      .querySelector<HTMLElement>('[role="dialog"][aria-modal="true"].sheet')
+      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeNull();
+
+    typePrompt("mobile task");
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    document.querySelector<HTMLButtonElement>("button.run")!.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ repoPath: repoB.path, baseBranch: "main" });
+  });
+
+  it("three-press Escape: repo panel → focus in-sheet trigger; sheet → focus chip", async () => {
+    await renderMobile();
+    const chip = document.querySelector<HTMLButtonElement>(".ctx-chip")!;
+    // A real pointer/keyboard activation focuses the chip; JS .click() alone doesn't.
+    chip.focus();
+    chip.click();
+    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
+
+    const trigger = () => document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!;
+    trigger().click();
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeTruthy();
+    const filter = document.querySelector<HTMLInputElement>(".rs-filter")!;
+    filter.focus();
+
+    // Esc 1: RepoSelect consumes it (preventDefault) → panel closes, focus lands on
+    // the in-sheet trigger, the sheet stays open.
+    filter.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeNull();
+    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
+    await expect.poll(() => document.activeElement?.classList.contains("rs-trigger")).toBe(true);
+
+    // Esc 2: the sheet's dialog action consumes it → sheet closes, focus back on chip.
+    document.activeElement!.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }),
+    );
+    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeNull();
+    await expect.poll(() => document.activeElement?.classList.contains("ctx-chip")).toBe(true);
+    // The modal itself is still open (Esc was consumed by the sheet level).
+    expect(document.querySelector("form.card")).toBeTruthy();
+  });
+
+  it("⌥R opens the context sheet with the repo panel; ⌥] cycles without opening; engine sheet switches", async () => {
+    await renderMobile();
+    const form = document.querySelector<HTMLElement>("form.card")!;
+
+    // ⌥] cycles the repo with the sheet closed — chip label updates, nothing opens.
+    form.dispatchEvent(
+      new KeyboardEvent("keydown", { code: "BracketRight", altKey: true, bubbles: true }),
+    );
+    await expect.poll(() => document.querySelector(".ctx-chip")?.textContent).toContain("bravo");
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+
+    // Open the ENGINE sheet, then ⌥R: single-sheet invariant switches to the context
+    // sheet and opens the repo panel once mounted.
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet .group")).toBeTruthy();
+    form.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyR", altKey: true, bubbles: true }));
+    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
+    expect(document.querySelector(".sheet .guards")).toBeNull(); // engine sheet closed
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeTruthy();
+  });
+
+  it("no-sheet normalization: a Codex-only command flips the provider and submits valid values", async () => {
+    mockGetCommands.mockResolvedValue({ commands: [slashCommand("codex-skill", ["codex"])] });
+    const { onsubmit } = await renderMobile();
+
+    const promptEl = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptEl.focus();
+    promptEl.value = "$cod";
+    promptEl.setSelectionRange(4, 4);
+    promptEl.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$codex-skill")).toBeVisible();
+    await page.getByText("$codex-skill").click();
+
+    // The engine summary reflects the flip WITHOUT the sheet ever opening.
+    await expect
+      .poll(() => document.querySelector(".engine-summary")?.textContent)
+      .toContain(m.agent_provider_codex());
+    await expect
+      .poll(() => document.querySelector<HTMLButtonElement>("button.run")?.disabled)
+      .toBe(false);
+    document.querySelector<HTMLButtonElement>("button.run")!.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    const payload = onsubmit.mock.calls[0]![0];
+    expect(payload.agentProvider).toBe("codex");
+    // Normalized: never a Claude-only model on a codex submission.
+    expect(payload.model === null || payload.model.startsWith("gpt")).toBe(true);
+  });
+
+  it("breakpoint change with the engine sheet open: sheet closes, rail takes over, values survive", async () => {
+    await renderMobile();
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet .guards")).toBeTruthy();
+
+    // Toggle plan gate ON inside the sheet.
+    planGateSwitch().click();
+    await expect.poll(() => isOn(planGateSwitch())).toBe(true);
+
+    // Cross to desktop: the sheet closes, the rail renders, the toggled value survives.
+    await page.viewport(1280, 900);
+    await expect.poll(() => document.querySelector(".sheet")).toBeNull();
+    await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+    expect(isOn(planGateSwitch())).toBe(true);
   });
 });

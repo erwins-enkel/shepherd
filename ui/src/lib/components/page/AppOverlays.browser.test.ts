@@ -6,6 +6,12 @@ import AppOverlays from "./AppOverlays.svelte";
 import type { HerdStore } from "$lib/store.svelte";
 import type { AgentProvider, DiagnosticsSnapshot } from "$lib/types";
 
+// The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
+// default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
+beforeEach(async () => {
+  await page.viewport(1280, 900);
+});
+
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
 // Keep every other $lib/api export real (AppOverlays imports many for the
 // learnings drawer, but those only fire on interaction, not on mount).

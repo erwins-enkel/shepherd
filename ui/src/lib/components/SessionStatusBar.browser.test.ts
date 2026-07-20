@@ -240,8 +240,9 @@ describe("SessionStatusBar", () => {
 
   it("labels the identity as configured intent — spawn may substitute the model", async () => {
     // pushModelFlag applies usage-downgrade/availability fallbacks argv-only (never rewrites
-    // session.model), so the bar knowingly shows the CONFIGURED model with an explanatory
-    // title rather than claiming to know the effective spawn value.
+    // session.model), so the bar knowingly shows the CONFIGURED model. The caveat is carried
+    // by the segment's ACCESSIBLE NAME (aria-label), not only the mouse-hover title, so
+    // keyboard/touch/AT users get it too.
     render(SessionStatusBar, {
       session: session({ id: "l", model: "fable", effort: "high" }),
       usage: usage(),
@@ -249,27 +250,35 @@ describe("SessionStatusBar", () => {
     const id = document.querySelector(".ssb-identity") as HTMLElement;
     expect(id.textContent).toBe("Claude Code · fable · High");
     expect(id.title).toContain("Configured environment: Claude Code · fable · High");
-    expect(id.title).toContain("usage downgrade");
+    expect(id.getAttribute("aria-label")).toContain(
+      "Configured environment: Claude Code · fable · High",
+    );
+    expect(id.getAttribute("aria-label")).toContain("usage downgrade");
   });
 
   it("labels a clamped codex effort tier as configured intent", async () => {
     // Codex clamps max → high at spawn while the stored intent keeps "max" — the bar shows
-    // the stored tier, explicitly labeled as configuration, not the effective value.
+    // the stored tier, labeled as configuration in both the title and the accessible name.
     render(SessionStatusBar, {
       session: session({ id: "m", agentProvider: "codex", model: "gpt-5.5", effort: "max" }),
       usage: usage({ available: false, source: "none", total: 0 }),
     });
     const id = document.querySelector(".ssb-identity") as HTMLElement;
     expect(id.textContent).toBe("Codex · gpt-5.5 · Max");
-    expect(id.title).toContain("Configured environment: Codex · gpt-5.5 · Max");
-    expect(id.title).toContain("provider clamps");
+    expect(id.getAttribute("aria-label")).toContain(
+      "Configured environment: Codex · gpt-5.5 · Max",
+    );
+    expect(id.getAttribute("aria-label")).toContain("provider clamps");
   });
 
-  it("is a labelled group and never an ARIA live region", async () => {
+  it("group name frames the identity as configured, and never an ARIA live region", async () => {
     render(SessionStatusBar, { session: session({ id: "j" }), usage: usage() });
     const bar = document.querySelector(".ssb") as HTMLElement;
     expect(bar.getAttribute("role")).toBe("group");
-    expect(bar.getAttribute("aria-label")).toBe("Session status");
+    // The accessible group name — not just a mouse-only tooltip — states the identity is the
+    // CONFIGURED environment (finding: keyboard/touch/AT must get the caveat).
+    expect(bar.getAttribute("aria-label")).toContain("configured");
+    expect(bar.getAttribute("aria-label")).toContain("substitute");
     expect(bar.getAttribute("aria-live")).toBeNull();
     expect(document.querySelector('[role="status"]')).toBeNull();
   });

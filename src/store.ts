@@ -2348,6 +2348,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       now,
       id,
     ]);
+    // The archive-time usage snapshot is stale the moment the session is live again (a
+    // replace can even swap its provider/lineage). Drop it so the archived-usage read can't
+    // serve a pre-restore row — including a legacy blank-provenance one — as current; the
+    // next archive re-snapshots the cumulative transcript.
+    this.deleteSessionUsage(id);
   }
 
   // ── usage limit caps (CapStore) ──────────────────────────────────────────
@@ -5005,6 +5010,15 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT * FROM session_usage WHERE sessionId = ?`)
       .get(sessionId) as SessionUsageRow | null;
     return row ? { ...row, byModel: JSON.parse(row.byModel) as Record<string, number> } : null;
+  }
+
+  /** Drop a session's archive-time usage snapshot (+ its buckets via FK cascade). Called on
+   *  restore/unarchive: the snapshot is archive-final, so once the session is live again it is
+   *  provisional — the next archive re-snapshots the (cumulative) transcript. This closes the
+   *  restore → replace → re-archive-with-skipped-snapshot staleness: a legacy blank-provenance
+   *  row can't survive a restore to be served as the replacement's usage. Idempotent. */
+  deleteSessionUsage(sessionId: string): void {
+    this.db.run(`DELETE FROM session_usage WHERE sessionId = ?`, [sessionId]);
   }
 
   // ── per-session usage buckets ────────────────────────────────────────────────

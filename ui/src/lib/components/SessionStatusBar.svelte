@@ -66,9 +66,12 @@
 </script>
 
 <!-- Deliberately NOT a live region (no role="status"/aria-live): the elapsed tick and the
-     usage poll would re-announce to screen readers continuously. -->
+     usage poll would re-announce to screen readers continuously.
+     The group name and the identity segment's accessible name both carry the configured-
+     intent caveat (not just the mouse-only hover title), so keyboard/touch/AT users get it
+     too — the runtime may substitute model/effort at spawn without rewriting the row. -->
 <div class="ssb" role="group" aria-label={m.statusbar_aria()}>
-  <span class="ssb-identity" title={identityTitle}>{identity}</span>
+  <span class="ssb-identity" title={identityTitle} aria-label={identityTitle}>{identity}</span>
   <span class="ssb-sep" aria-hidden="true">·</span>
   {#if tokensKnown}
     <span class="ssb-tokens">{tokensText}</span>

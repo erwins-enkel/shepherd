@@ -301,6 +301,7 @@ type NewSession = Omit<
   | "autoMergeEnabled"
   | "autoMergeRebaseCount"
   | "autoMergeRebaseHead"
+  | "autoMergeRebaseSteeredAt"
   | "auto"
   | "issueNumber"
   | "sandboxApplied"
@@ -346,7 +347,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   isolated, herdrSession, herdrAgentId, claudeSessionId, agentProvider, model, effort, readyToMerge, status, lastState,
   autopilotEnabled, autopilotStepCount, autopilotPaused, autopilotComplete, autopilotQuestion, completionRepromptCount,
   planGateEnabled, planPhase,
-  autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead,
+  autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead, autoMergeRebaseSteeredAt,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
   research, epicAuthoring, landingRepair,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
@@ -387,6 +388,7 @@ type SessionRow = {
   autoMergeEnabled: number | null;
   autoMergeRebaseCount: number | null;
   autoMergeRebaseHead: string | null;
+  autoMergeRebaseSteeredAt: number | null;
   auto: number;
   issueNumber: number | null;
   sandboxApplied: string | null;
@@ -1983,6 +1985,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeEnabled: null,
       autoMergeRebaseCount: 0,
       autoMergeRebaseHead: null,
+      autoMergeRebaseSteeredAt: null,
       auto: input.auto ?? false,
       issueNumber: input.issueNumber ?? null,
       sandboxApplied: input.sandboxApplied ?? null,
@@ -2022,7 +2025,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2053,6 +2056,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           null, // autoMergeEnabled — inherit repo default
           0, // autoMergeRebaseCount
           null, // autoMergeRebaseHead — none outstanding
+          null, // autoMergeRebaseSteeredAt — never steered
           s.auto ? 1 : 0,
           s.issueNumber,
           s.sandboxApplied,
@@ -2242,7 +2246,14 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
    *  `rebaseHead`: the head SHA last steered for (string), or null to clear. */
   setAutoMergeState(
     id: string,
-    patch: { enabled?: boolean | null; rebaseCount?: number; rebaseHead?: string | null },
+    patch: {
+      enabled?: boolean | null;
+      rebaseCount?: number;
+      rebaseHead?: string | null;
+      /** Epoch ms of the last conflict-path rebase steer. Drives the expiring dedup AND the
+       *  CI-fix stand-down's ownership window — cleared wherever rebaseHead is cleared. */
+      rebaseSteeredAt?: number | null;
+    },
   ): void {
     const cur = this.get(id);
     if (!cur) return;
@@ -2250,9 +2261,20 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     const rebaseCount =
       patch.rebaseCount === undefined ? cur.autoMergeRebaseCount : patch.rebaseCount;
     const rebaseHead = patch.rebaseHead === undefined ? cur.autoMergeRebaseHead : patch.rebaseHead;
+    const rebaseSteeredAt =
+      patch.rebaseSteeredAt === undefined
+        ? (cur.autoMergeRebaseSteeredAt ?? null)
+        : patch.rebaseSteeredAt;
     this.db.run(
-      `UPDATE sessions SET autoMergeEnabled=?, autoMergeRebaseCount=?, autoMergeRebaseHead=?, updatedAt=? WHERE id=?`,
-      [enabled === null ? null : enabled ? 1 : 0, rebaseCount, rebaseHead, Date.now(), id],
+      `UPDATE sessions SET autoMergeEnabled=?, autoMergeRebaseCount=?, autoMergeRebaseHead=?, autoMergeRebaseSteeredAt=?, updatedAt=? WHERE id=?`,
+      [
+        enabled === null ? null : enabled ? 1 : 0,
+        rebaseCount,
+        rebaseHead,
+        rebaseSteeredAt,
+        Date.now(),
+        id,
+      ],
     );
   }
 
@@ -3308,6 +3330,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("autoMergeEnabled", `autoMergeEnabled INTEGER`);
     add("autoMergeRebaseCount", `autoMergeRebaseCount INTEGER NOT NULL DEFAULT 0`);
     add("autoMergeRebaseHead", `autoMergeRebaseHead TEXT`);
+    add("autoMergeRebaseSteeredAt", `autoMergeRebaseSteeredAt INTEGER`);
     add("auto", `auto INTEGER NOT NULL DEFAULT 0`);
     add("issueNumber", `issueNumber INTEGER`);
     // sandbox badge/banner: applied profile (nullable for legacy rows) + degrade flag.
@@ -4808,6 +4831,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       autoMergeEnabled: nullableBool(r.autoMergeEnabled),
       autoMergeRebaseCount: r.autoMergeRebaseCount ?? 0,
       autoMergeRebaseHead: r.autoMergeRebaseHead ?? null,
+      autoMergeRebaseSteeredAt: r.autoMergeRebaseSteeredAt,
       auto: !!r.auto,
       issueNumber: r.issueNumber ?? null,
       sandboxApplied: isSandboxProfile(r.sandboxApplied) ? r.sandboxApplied : null,

@@ -179,6 +179,9 @@ export class AutoMergeService {
       ...AutoMergeService.reviewFields(this.deps.store.getReview(s.id)),
       rebaseCount: s.autoMergeRebaseCount,
       rebaseSteeredHead: s.autoMergeRebaseHead,
+      rebaseSteeredAt: s.autoMergeRebaseSteeredAt ?? null,
+      // Mirrors autopilot.tick()'s running/blocked skip, which the train otherwise lacks.
+      busy: s.status === "running" || s.status === "blocked",
       mergeBlocked: this.computeMergeBlocked(s.id, pr.headSha),
       manualSteps: s.manualSteps,
       manualStepsAckedAt: s.manualStepsAckedAt,
@@ -196,6 +199,7 @@ export class AutoMergeService {
     );
     return {
       enabled: sessions.length > 0,
+      now: this.now(),
       criticEnabled: cfg.criticEnabled,
       draftMode: cfg.draftMode,
       signoffAuthority: cfg.signoffAuthority,
@@ -218,7 +222,11 @@ export class AutoMergeService {
   private resetClearedCounters(state: MergeRepoState): void {
     for (const s of state.sessions) {
       if (s.rebaseCount > 0 && s.behind === false && s.mergeable === true) {
-        this.deps.store.setAutoMergeState(s.id, { rebaseCount: 0, rebaseHead: null });
+        this.deps.store.setAutoMergeState(s.id, {
+          rebaseCount: 0,
+          rebaseHead: null,
+          rebaseSteeredAt: null,
+        });
       }
     }
   }
@@ -246,7 +254,7 @@ export class AutoMergeService {
     if (decision.kind === "rebase") {
       if (attempted.has(decision.sessionId)) return "break";
       attempted.add(decision.sessionId);
-      await this.doRebase(repoPath, decision.sessionId, decision.headSha);
+      await this.doRebase(repoPath, decision.sessionId, decision.headSha, decision.conflict);
       return "break";
     }
     const reason = decision.reason.code === "idle" ? null : decision.reason.code;
@@ -361,20 +369,49 @@ export class AutoMergeService {
     repoPath: string,
     sessionId: string,
     headSha: string | null,
+    conflict: boolean,
   ): Promise<void> {
     const s = this.deps.store.get(sessionId);
     if (!s) return;
     this.deps.emitStatus(this.status(repoPath, true, "rebasing", s.desig, s.id));
+
+    // CONFLICT PATH ONLY: record the attempt (count + head + the dedup/ownership stamp) BEFORE
+    // the resume/reply, so an unresumable pane still marches to rebaseCap and hands back — the
+    // property reEngageRebase relies on (autopilot.ts). Safe here because the conflict dedup
+    // EXPIRES on REBASE_DEDUP_TTL_MS, so recording the head neither wedges the session nor lets
+    // it monopolise the pump's single rebase slot.
+    //
+    // The `behind` path deliberately keeps count-on-success-only. Counting its delivery failures
+    // was tried and reverted: `resetClearedCounters` only clears once the PR is current AND
+    // mergeable, and reEngageRebase's reset is unreachable for full-auto sessions
+    // (rebaseCandidate bails on fullAuto), so a transient pane/herdr outage spanning rebaseCap
+    // pumps would permanently park a behind PR at the rebase_cap hold with no automatic
+    // recovery. A transient outage must not become a permanent park.
+    //
+    // KNOWN, PRE-EXISTING: a behind session whose steer never lands records nothing, stays
+    // eligible, and — since a rebase decision breaks the pump loop — occupies the repo's single
+    // rebase slot until its pane recovers. That behaviour is unchanged from main and is not
+    // introduced here; fixing it needs a release path this change deliberately does not invent.
+    if (conflict) {
+      this.deps.store.setAutoMergeState(sessionId, {
+        rebaseCount: s.autoMergeRebaseCount + 1,
+        rebaseHead: headSha,
+        rebaseSteeredAt: this.now(),
+      });
+    }
     if (!this.deps.paneAlive(sessionId) || this.deps.deferSteer?.(sessionId)) {
       // Not live, OR a herdr-restored account husk that must be re-driven first (else the rebase steer
       // lands on the wrong-account pane). resume() re-drives (Locus B) before we reply below.
       if (!(await this.deps.service.resume(sessionId))) return;
     }
     if (await this.deps.service.reply(sessionId, rebaseSteer(s.baseBranch))) {
-      this.deps.store.setAutoMergeState(sessionId, {
-        rebaseCount: s.autoMergeRebaseCount + 1,
-        rebaseHead: headSha,
-      });
+      // Already recorded above on the conflict path — don't double-count.
+      if (!conflict) {
+        this.deps.store.setAutoMergeState(sessionId, {
+          rebaseCount: s.autoMergeRebaseCount + 1,
+          rebaseHead: headSha,
+        });
+      }
       // A rebase is a fresh procedural task; give autopilot a clean step budget so unblocking
       // the rebase across several gates doesn't trip the runaway cap and pause spuriously.
       this.deps.store.setAutopilotState(sessionId, { stepCount: 0 });

@@ -16,6 +16,7 @@
   import { m } from "$lib/paraglide/messages";
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { checksCleared } from "$lib/checks-cleared";
+  import { isConflicting } from "$lib/pr-conflict";
   import { criticChip, criticBadgeLabel } from "./critic-badge";
   import { canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
@@ -342,7 +343,7 @@
       err =
         git?.checks === "failure"
           ? m.gitrail_merge_failed_checks()
-          : git?.mergeable === false
+          : git && isConflicting(git)
             ? m.gitrail_merge_failed_unmergeable()
             : m.gitrail_merge_failed({ reason: reason(e, m.gitrail_merge()) });
       retry = () => doMerge(true);
@@ -391,7 +392,7 @@
 
   const mergeBlocked = $derived(
     !git ||
-      git.mergeable === false ||
+      isConflicting(git) ||
       busy ||
       git.isDraft === true ||
       (git.mergeStateStatus && git.mergeStateStatus !== "unknown"
@@ -406,7 +407,7 @@
         ? m.gitrail_merge_blocked_busy()
         : git?.isDraft === true
           ? m.gitrail_merge_blocked_draft()
-          : git?.mergeable === false
+          : git && isConflicting(git)
             ? m.gitrail_merge_blocked_conflict()
             : git?.mergeStateStatus === "behind"
               ? m.gitrail_merge_blocked_behind()

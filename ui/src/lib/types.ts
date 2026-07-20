@@ -334,6 +334,7 @@ export type HoldCode =
   | "plan-question"
   | "critic-rework"
   | "ci-red"
+  | "pr-conflict"
   | "awaiting-merge"
   | "train-error"
   | "stalled"
@@ -416,6 +417,9 @@ export interface PullRequest {
   isDraft: boolean;
   /** null = host still computing mergeability. */
   mergeable: boolean | null;
+  /** GitHub's merge-eligibility signal; absent for Gitea. `dirty` is the earlier, definite
+   *  conflict signal (mergeable lags it) — the conflict chip reads both. */
+  mergeStateStatus?: MergeStateStatus;
   checks: ChecksState;
   /** Per-check breakdown of the head commit, expanded from the rollup dot. */
   jobs: WorkflowJob[];

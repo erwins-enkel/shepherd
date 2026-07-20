@@ -96,3 +96,41 @@ describe("PrRow awaiting-approval chip", () => {
     expect(document.body.querySelector(".needs-approval")).toBeNull();
   });
 });
+
+describe("conflict chip — mirrors isConflicting", () => {
+  it("shows for mergeable:false on a non-draft", async () => {
+    render(PrRow, { props: { pr: pr({ mergeable: false }), repoPath: "/r" } as any });
+    await expect.element(page.getByText(m.prspanel_conflicts())).toBeVisible();
+  });
+
+  it("shows for mergeStateStatus 'dirty' even while mergeable is still null", async () => {
+    // GitHub computes mergeability lazily; dirty is the earlier, definite signal.
+    render(PrRow, {
+      props: { pr: pr({ mergeable: null, mergeStateStatus: "dirty" }), repoPath: "/r" } as any,
+    });
+    await expect.element(page.getByText(m.prspanel_conflicts())).toBeVisible();
+  });
+
+  it("shows for a DIRTY draft — DRAFT masks BEHIND, not DIRTY", async () => {
+    render(PrRow, {
+      props: {
+        pr: pr({ isDraft: true, mergeable: null, mergeStateStatus: "dirty" }),
+        repoPath: "/r",
+      } as any,
+    });
+    await expect.element(page.getByText(m.prspanel_conflicts())).toBeVisible();
+  });
+
+  it("does NOT show for a Gitea-style draft (mergeable:false, no mergeStateStatus)", async () => {
+    // Gitea reports mergeable:false for every WIP-prefixed draft — chipping those is a bug.
+    render(PrRow, {
+      props: { pr: pr({ isDraft: true, mergeable: false }), repoPath: "/r" } as any,
+    });
+    await expect.element(page.getByText(m.prspanel_conflicts())).not.toBeInTheDocument();
+  });
+
+  it("does NOT show for a clean PR", async () => {
+    render(PrRow, { props: { pr: pr({ mergeable: true }), repoPath: "/r" } as any });
+    await expect.element(page.getByText(m.prspanel_conflicts())).not.toBeInTheDocument();
+  });
+});

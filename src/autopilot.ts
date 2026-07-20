@@ -6,6 +6,8 @@ import type { SessionStateChange } from "./session-snapshot";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { signedOff } from "./signoff";
 import { checksCleared } from "./checks-gate";
+import { isConflicting, isDefiniteConflict } from "./pr-conflict";
+import { OWNERSHIP_TTL_MS } from "./automerge-core";
 import { DRAFT_PR_NOTE } from "./service";
 import { resumeThenSteer } from "./resume-then-steer";
 
@@ -95,6 +97,20 @@ export function rebaseSteer(baseBranch: string): string {
   ].join("\n");
 }
 
+/** Conflict-path steer. `rebaseSteer` above opens with "your PR has passed review", which is
+ *  FALSE here: on the conflict path the critic never ran (no CI, because GitHub can't build the
+ *  merge ref), so no verdict exists. Names the real blocker instead. Agent-facing English typed
+ *  into the PTY — never i18n'd, same as its sibling. */
+function conflictRebaseSteer(baseBranch: string): string {
+  return [
+    "You're in autopilot and your PR has merge conflicts with its base branch, so CI can't run on",
+    `it at all. Fetch origin, rebase your branch onto origin/${baseBranch}, resolve the conflicts,`,
+    "and force-push with --force-with-lease. Do NOT merge the base branch into yours (it breaks",
+    "the linear-history gate). Once the rebase lands CI runs and review follows. If something",
+    "genuinely blocks this, say specifically what you need.",
+  ].join("\n");
+}
+
 /** Hand-back when the rebase loop can't get the PR mergeable after repeated attempts (e.g. a
  *  genuine conflict the agent can't resolve). Plain English, mirrors CI_CAP_MESSAGE — stored as
  *  the autopilotQuestion hand-back summary, never i18n'd. */
@@ -179,6 +195,9 @@ export interface AutopilotDeps {
   /** Max consecutive rebase steers (on a single behind-streak) before handing back — defaults to
    *  DEFAULT_REBASE_CAP. Wired from config.autoMergeRebaseCap so it tracks the merge train's cap. */
   rebaseCap?: number;
+  /** Injectable clock (defaults to Date.now). Needed so the conflict-ownership window can be
+   *  driven deterministically in tests — autopilot had no clock seam, unlike AutoMergeService. */
+  now?: () => number;
 }
 
 const DEFAULT_STEP_CAP = 10;
@@ -214,10 +233,12 @@ export class AutopilotService {
   private authPending = new Set<string>();
   private stepCap: number;
   private rebaseCap: number;
+  private now: () => number;
 
   constructor(private deps: AutopilotDeps) {
     this.stepCap = deps.stepCap ?? DEFAULT_STEP_CAP;
     this.rebaseCap = deps.rebaseCap ?? DEFAULT_REBASE_CAP;
+    this.now = deps.now ?? Date.now;
   }
 
   /** Resolve a session's effective autopilot opt-in: override wins; null inherits the repo. */
@@ -481,7 +502,11 @@ export class AutopilotService {
       stepCount: 0,
       completionReprompt: 0,
     });
-    this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
+    this.deps.store.setAutoMergeState(id, {
+      rebaseCount: 0,
+      rebaseHead: null,
+      rebaseSteeredAt: null,
+    });
     this.deps.onState?.(id);
   }
 
@@ -555,6 +580,38 @@ export class AutopilotService {
     if (s.mergingSince !== null) return; // merge train owns this session; don't double-steer its rebase
     if (s.autopilotPaused) return; // already handed back; waits for operator
     if (this.pending.has(s.id)) return; // a classify (gate/done path) is mid-flight
+    // Cap gate FIRST, matching reEngageCi where that order is load-bearing (there the stand-down
+    // claims-without-acting, so evaluating it first would make the pause unreachable). Here both
+    // arms are plain returns, so order does not affect behaviour — they are kept in the same
+    // order anyway so the two entry points read as the mirror the comments claim, and so this
+    // stays correct if either arm ever gains a side effect. It also skips the stand-down's
+    // rebaseCandidate call for an already-capped full-auto session.
+    //
+    // Once the train caps a conflicting session it stops refreshing rebaseSteeredAt, so ownership
+    // lapses after OWNERSHIP_TTL_MS and the stand-down below stops firing — without this, an
+    // already-exhausted session takes a spurious CI-fix steer. Unlike reEngageCi this only stands
+    // down, it does NOT pause: considerCi is a sync event handler and must not write terminal
+    // state mid-work; the pause is the idle sweep's job.
+    //
+    // fullAuto-gated, matching the branch it mirrors (reEngageCi reaches its cap check only after
+    // its own fullAuto gate). Without that term this orphans a NON-full-auto conflicting session
+    // at the cap whose rebaseCandidate declines — e.g. a changes_requested verdict, where
+    // rebaseReviewPassed's conflict branch returns false: reEngageRebase then bails at
+    // `if (!git) return false` BEFORE its pause, reEngageCi bails on fullAuto, and
+    // conflictOwnedByRebaser's non-full-auto arm is false too, so suppressing here would leave
+    // no actor at all — the same orphan the stand-down below exists to prevent, reached through
+    // the cap gate instead. For non-full-auto the CI-fix loop stays the backstop.
+    if (
+      this.deps.fullAuto(s.id) &&
+      isDefiniteConflict(git) &&
+      s.autoMergeRebaseCount >= this.rebaseCap
+    )
+      return;
+    // A red PR that is ALSO conflicting failed CI against a STALE base — fixing that CI is wasted
+    // work, and the rebase re-runs it anyway. Stand down only where a rebase actor has actually
+    // taken the session; a declined one must keep its CI-fix loop or it is left with no actor at
+    // all. After the cheap guards above because the non-full-auto arm re-runs rebaseCandidate.
+    if (this.conflictOwnedByRebaser(s, git)) return;
     if (!git.headSha) return; // can't dedup a headless rollup → skip rather than spam
     if (this.ciNudged.get(s.id) === git.headSha) return; // already nudged this exact red head
     if (s.autopilotStepCount >= this.stepCap) {
@@ -597,6 +654,31 @@ export class AutopilotService {
     if (!this.deps.fullAuto(id)) return false; // only full-auto owns the post-PR CI loop
     const git = this.deps.prGit(id);
     if (!git || git.state !== "open" || git.checks !== "failure") return false;
+    // The budget is SHARED with the `behind` path, deliberately, and does NOT reset when a PR
+    // transitions behind→dirty. So a PR that already spent all `rebaseCap` attempts on behind
+    // rebases and then goes conflicting is handed back immediately, with zero attempts spent on
+    // the conflict itself. That is a continuation, not a regression: resetClearedCounters
+    // (automerge.ts) zeroes the counter the moment a PR reaches clean, so reaching the cap means
+    // `rebaseCap` rebases that each failed to leave it clean — the merge train is already
+    // emitting the rebase_cap hold for that session before the conflict appears. The alternative
+    // (a separate conflict budget, or resetting on the behind→dirty edge) would hand a session
+    // that has already exhausted its budget a second full one, doubling worst-case CI churn on
+    // exactly the sessions the cap exists to stop. If a reviewer prefers that trade it is a small
+    // change; it is a judgement call, not an oversight.
+    //
+    // Conflict cap hand-back, BEFORE the ownership stand-down below. Not because the pause would
+    // otherwise be unreachable — a capped session never refreshes its steer stamp, so ownership
+    // does eventually lapse — but because that lapse takes OWNERSHIP_TTL_MS, and in the meantime
+    // an already-exhausted session would take spurious CI-fix steers. Sits after the mergingSince
+    // guard above: a LIVE train member must never have terminal state written under the mark
+    // (it would survive mark-clear); its hand-back is the train's own rebase_cap hold + push.
+    if (isDefiniteConflict(git) && s.autoMergeRebaseCount >= this.rebaseCap) {
+      this.pause(s, REBASE_CAP_MESSAGE);
+      return true;
+    }
+    // A rebase actor already owns this conflicting session → claim it (so onDone short-circuits
+    // before classify) but don't steer, exactly like the mergingSince guard above.
+    if (this.conflictOwnedByRebaser(s, git)) return true;
     // Cap check BEFORE any bump/steer: at the budget, hand back instead of thrashing CI.
     if (s.autopilotStepCount >= this.stepCap) {
       this.pause(s, CI_CAP_MESSAGE);
@@ -636,6 +718,15 @@ export class AutopilotService {
    *  Draft PRs are skipped: a rebase alone can't make a draft mergeable (it must be marked
    *  ready-for-review first), and a draft's mergeStateStatus is DRAFT, which masks BEHIND.
    *
+   *  THREE OF THOSE ARE WAIVED UNDER isDefiniteConflict (see rebaseCandidate + rebaseReviewPassed):
+   *    • green      — a conflicting PR's CI can NEVER go green (GitHub can't build the merge ref),
+   *                   so requiring it deadlocks: rebase needs CI, CI needs the rebase.
+   *    • non-draft  — DRAFT masks BEHIND but NOT DIRTY, so GitHub does report a conflicting draft,
+   *                   and a rebase genuinely unblocks its CI.
+   *    • a verdict must exist — the same deadlock stops the critic ever producing one. The
+   *                   changes_requested / error / head-match / ZERO-FINDINGS legs all still stand,
+   *                   so the no-double-steer guarantee above is intact.
+   *
    *  "Behind" is read from the cached GitState's mergeStateStatus rather than a git fetch (the
    *  merge train uses worktree.behindBase); on forges that don't supply mergeStateStatus (Gitea /
    *  local) only the conflict signal (mergeable === false) fires.
@@ -654,11 +745,22 @@ export class AutopilotService {
     if (!s || s.status === "archived") return false;
     const git = this.rebaseCandidate(s);
     if (!git) return false;
-    if (git.mergeStateStatus !== "behind" && git.mergeable !== false) {
+    // `!isConflicting` rather than `mergeable !== false`: a `dirty` PR whose `mergeable` is still
+    // null would otherwise clear the waived rebaseCandidate above and then be treated as
+    // conflict-free HERE — counter cleared, no steer, every tick.
+    if (git.mergeStateStatus !== "behind" && !isConflicting(git)) {
       // PR is current + conflict-free again → clear any spent rebase budget so a future re-behind
       // gets a fresh cap (mirrors the merge train's resetClearedCounters).
-      if (s.autoMergeRebaseCount > 0 || s.autoMergeRebaseHead !== null)
-        this.deps.store.setAutoMergeState(id, { rebaseCount: 0, rebaseHead: null });
+      if (
+        s.autoMergeRebaseCount > 0 ||
+        s.autoMergeRebaseHead !== null ||
+        s.autoMergeRebaseSteeredAt != null
+      )
+        this.deps.store.setAutoMergeState(id, {
+          rebaseCount: 0,
+          rebaseHead: null,
+          rebaseSteeredAt: null,
+        });
       return false;
     }
     // Cap BEFORE any bump/steer: hand back rather than thrash on a PR the agent can't unstick.
@@ -667,16 +769,56 @@ export class AutopilotService {
       return true;
     }
     // Count the attempt regardless of whether the steer lands (see the no-dedup note above).
-    this.deps.store.setAutoMergeState(id, { rebaseCount: s.autoMergeRebaseCount + 1 });
-    void this.sendSteer(s, rebaseSteer(s.baseBranch)).catch((err) =>
+    //
+    // rebaseSteeredAt is written CONFLICT-ONLY here, matching doRebase and the field's documented
+    // contract in store.ts ("the last conflict-path rebase steer"). Note what this is NOT: on
+    // THIS path no consumer ever reads the stamp. reEngageRebase runs only for non-full-auto
+    // sessions (rebaseCandidate bails on fullAuto below), buildState filters to full-auto so
+    // rebaseAvailable never sees them, and conflictOwnedByRebaser's non-full-auto arm returns
+    // rebaseCandidate(s) !== null without consulting it. The sole observer is the reset branch's
+    // `!= null` check above. So the conditional buys contract-honesty, not correctness: it keeps
+    // the column meaning what it says rather than accumulating behind-path values a future reader
+    // would reasonably mistake for a general "last steer" clock.
+    const conflict = isDefiniteConflict(git);
+    this.deps.store.setAutoMergeState(id, {
+      rebaseCount: s.autoMergeRebaseCount + 1,
+      ...(conflict ? { rebaseSteeredAt: this.now() } : {}),
+    });
+    const steer = conflict ? conflictRebaseSteer(s.baseBranch) : rebaseSteer(s.baseBranch);
+    void this.sendSteer(s, steer).catch((err) =>
       console.warn("[autopilot] rebase re-engage steer:", err),
     );
     return true;
   }
 
+  /** True when a rebase actor has ALREADY taken this conflicting session, so the CI-fix loop must
+   *  stand down rather than double-steer it.
+   *
+   *  Read from `autoMergeRebaseSteeredAt`, NOT from the rebase counter. A count records that the
+   *  train once rebased; it is not evidence the train is STILL willing — rebaseEligible can go
+   *  false after a counted rebase (changes_requested / error / a verdict on a newer head), and a
+   *  count-based stand-down would then claim the session while nothing acted on it: no train
+   *  rebase, no CI-fix steer, no critic run (consider() needs green CI) and no cap march. The
+   *  timestamp self-releases instead — the train refreshes it on every re-steer while it stays
+   *  eligible, and it goes stale the moment the train stops.
+   *
+   *  The `busy` arm covers the gap in between: the train's own busy gate silences it for the whole
+   *  resolution, which can outlast OWNERSHIP_TTL_MS, and considerCi (event-driven) has no busy
+   *  gate of its own. Without it a long resolution takes a CI_FIX_STEER mid-work. */
+  private conflictOwnedByRebaser(s: Session, git: GitState): boolean {
+    if (!isDefiniteConflict(git)) return false;
+    if (!this.deps.fullAuto(s.id)) return this.rebaseCandidate(s) !== null;
+    const busy = s.status === "running" || s.status === "blocked";
+    if (busy) return true;
+    const at = s.autoMergeRebaseSteeredAt;
+    return at != null && this.now() - at < OWNERSHIP_TTL_MS;
+  }
+
   /** Eligibility half of reEngageRebase: returns the open PR's snapshot when the session is a
-   *  rebase candidate (idle territory, NOT full-auto, open + non-draft + green, and review-passed),
-   *  else null. The behind/conflict + cap + steer decision stays in the caller. Split out to keep
+   *  rebase candidate (idle territory, NOT full-auto, open, review-passed, and — unless the PR is
+   *  a DEFINITE CONFLICT — non-draft + green), else null. Both the non-draft and green gates are
+   *  waived under isDefiniteConflict: see the inline notes below for why each is unsatisfiable
+   *  there. The behind/conflict + cap + steer decision stays in the caller. Split out to keep
    *  each piece simple. */
   private rebaseCandidate(s: Session): GitState | null {
     if (s.mergingSince !== null) return null; // merge-train-marked → the train owns its rebase
@@ -686,25 +828,44 @@ export class AutopilotService {
     if (this.pending.has(s.id)) return null; // a classify (onDone/onBlock) is mid-flight — don't race it
     if (this.deps.fullAuto(s.id)) return null; // full-auto is the merge train's job, not autopilot's
     const git = this.deps.prGit(s.id);
-    if (
-      !git ||
-      git.state !== "open" ||
-      git.isDraft ||
-      !checksCleared(git.checks, git.noCi ?? false)
-    )
-      return null;
+    if (!git || git.state !== "open") return null;
+    const conflict = isDefiniteConflict(git);
+    // Draft waiver (Defect B): a rebase alone can't make a BEHIND draft mergeable, but it does
+    // unblock a CONFLICTING one — GitHub reports DIRTY for those (DRAFT masks BEHIND, not DIRTY).
+    if (git.isDraft && !conflict) return null;
+    // CI-green waiver (Defect A): a conflicting PR's CI can never go green, because GitHub can't
+    // build the merge ref. Requiring it here is a guaranteed deadlock.
+    if (!checksCleared(git.checks, git.noCi ?? false) && !conflict) return null;
     return this.rebaseReviewPassed(s, git) ? git : null;
   }
 
   /** Review gate for a rebase steer, DELIBERATELY STRICTER than automerge-core.needsRebase: when
    *  critic is enabled, require a CLEAN, head-matched critic sign-off (reuse the tested signedOff
    *  predicate — commented + zero findings + reviewHeadSha === head). needsRebase rebases even with
-   *  no verdict yet; we do not, both because the operator's trigger is a review that PASSED and
-   *  because requiring zero findings guarantees review.ts's auto-address steer loop (which only
-   *  fires on findings) is NOT also driving this idle session. Critic off → green CI alone suffices. */
+   *  no verdict yet; off the conflict path we do not, both because the operator's trigger is a
+   *  review that PASSED and because requiring zero findings guarantees review.ts's auto-address
+   *  steer loop (which only fires on findings) is NOT also driving this idle session. Critic off →
+   *  green CI alone suffices.
+   *
+   *  UNDER isDefiniteConflict exactly ONE leg is waived: "a verdict must exist". The deadlock means
+   *  one can never arrive (no CI → review.ts's consider() skips), so demanding it would re-wedge
+   *  the conflict path. changes_requested / error / head-match / zero-findings all still apply —
+   *  in particular zero-findings, which is what keeps runAutoAddress off the same idle pane. */
   private rebaseReviewPassed(s: Session, git: GitState): boolean {
     if (!this.deps.store.getRepoConfig(s.repoPath).criticEnabled) return true;
     const review = this.deps.getReview(s.id);
+    if (isDefiniteConflict(git)) {
+      // Waive EXACTLY ONE leg of signedOff — "a verdict must exist" — because the deadlock means
+      // one can never arrive (no CI → review.ts's consider() skips). Every other leg stands.
+      if (review?.decision == null) return true;
+      if (review.decision === "changes_requested" || review.decision === "error") return false;
+      // Zero-findings is KEPT and is NOT redundant with the check above: review.ts's
+      // runAutoAddress bails only on findings.length === 0 and steers regardless of `decision`,
+      // so admitting a findings-bearing "commented" verdict would put the auto-address loop and
+      // the rebase loop on the same idle pane.
+      if ((review.findings ?? []).length > 0) return false;
+      return review.headSha === git.headSha;
+    }
     return signedOff("critic", {
       humanApproved: git.latestReview?.state === "approved",
       reviewDecision: review?.decision ?? null,

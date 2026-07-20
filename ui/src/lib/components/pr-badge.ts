@@ -1,3 +1,4 @@
+import { isConflicting } from "$lib/pr-conflict";
 import type { GitState } from "../types";
 import { m } from "$lib/paraglide/messages";
 
@@ -32,7 +33,10 @@ export function prBadgeIsDraft(git: GitState | undefined): boolean {
 export function prMergeAvailable(git: GitState | undefined): boolean {
   if (!git || (git.kind !== "github" && git.kind !== "gitea")) return false;
   if (git.state !== "open" || !git.number) return false;
-  if (git.isDraft === true || git.mergeable === false) return false;
+  // isConflicting, not `mergeable === false`: the mergeStateStatus branch below excludes only
+  // blocked/behind, so a `dirty` PR whose mergeable is still null would otherwise be offered a
+  // merge button it cannot use.
+  if (git.isDraft === true || isConflicting(git)) return false;
   return git.mergeStateStatus && git.mergeStateStatus !== "unknown"
     ? git.mergeStateStatus !== "blocked" && git.mergeStateStatus !== "behind"
     : git.checks !== "failure";

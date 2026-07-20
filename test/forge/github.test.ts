@@ -2118,6 +2118,7 @@ const EXPECTED_PRS: PullRequest[] = [
     createdAt: Date.parse("2026-01-02T03:04:05Z"),
     isDraft: false,
     mergeable: true,
+    mergeStateStatus: "clean",
     checks: "success",
     jobs: [{ name: "CI / ci", state: "success", url: "https://gh/job/ci" }],
     latestReview: {
@@ -2138,6 +2139,7 @@ const EXPECTED_PRS: PullRequest[] = [
     createdAt: Date.parse("2026-01-03T00:00:00Z"),
     isDraft: true,
     mergeable: false,
+    mergeStateStatus: "dirty",
     checks: "none",
     jobs: [],
     latestReview: undefined,
@@ -2348,6 +2350,9 @@ test("listOpenPrSnapshot: REST fallback during GraphQL backoff maps PRs and avoi
         createdAt: Date.parse("2026-01-04T00:00:00Z"),
         isDraft: true,
         mergeable: false,
+        // Must match the GraphQL mapper: without it the PRs-tab conflict chip silently stops
+        // seeing DIRTY whenever the REST fallback is in play.
+        mergeStateStatus: "dirty",
         checks: "success",
         jobs: [],
         headSha: "sha9",
@@ -2797,4 +2802,29 @@ test("latestFailedRunForPr: no failed runs → null", async () => {
 test("latestFailedRunForPr: unresolvable PR (no head ref) → null", async () => {
   const { run } = fakeRunner({ "pr view": "{}" });
   expect(await new GithubForge("o/r", {}, run).latestFailedRunForPr!(42)).toBeNull();
+});
+
+test("GithubForge.listPullRequests: maps mergeStateStatus so the PRs-tab conflict chip can read DIRTY", async () => {
+  // A conflicting DRAFT: GitHub reports mergeStateStatus DIRTY (DRAFT masks BEHIND, not DIRTY)
+  // while `mergeable` may still be UNKNOWN. The chip keys off `dirty` for exactly this case, so
+  // the field has to survive the PullRequest mapper — not just the PrStatus one.
+  const prsJson = JSON.stringify([
+    {
+      number: 11,
+      title: "wip: thing",
+      url: "https://github.com/o/r/pull/11",
+      author: { login: "alice" },
+      createdAt: "2024-02-02T00:00:00Z",
+      isDraft: true,
+      mergeable: "UNKNOWN",
+      mergeStateStatus: "DIRTY",
+      statusCheckRollup: [],
+      reviews: [],
+    },
+  ]);
+  const { run } = fakeRunner({ "pr list": prsJson });
+  const forge = new GithubForge("o/r", {}, run);
+  const prs = await forge.listPullRequests();
+  expect(prs[0]!.mergeStateStatus).toBe("dirty");
+  expect(prs[0]!.mergeable).toBeNull();
 });

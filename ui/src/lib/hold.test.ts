@@ -25,6 +25,7 @@ const EXPECTED: Record<HoldCode, boolean> = {
   "quota-plan": false,
   "critic-rework": false,
   "ci-red": false,
+  "pr-conflict": false,
   "awaiting-merge": false,
   "train-error": false,
   stalled: false,

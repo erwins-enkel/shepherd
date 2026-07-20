@@ -88,6 +88,11 @@ export interface Session {
   /** The head SHA the merge train last steered a rebase for; null when none outstanding.
    *  Guards against re-steering / re-bumping while a rebase for the same head is in flight. */
   autoMergeRebaseHead: string | null;
+  /** Epoch ms of the last conflict-path rebase steer; null/absent when never steered.
+   *  Drives the expiring dedup (automerge-core) and the CI-fix stand-down's ownership window.
+   *  OPTIONAL so existing Session fixtures stay valid — absent and null are equivalent
+   *  ("never steered" → dedup treated as expired), so every read uses `!= null`. */
+  autoMergeRebaseSteeredAt?: number | null;
   /** True when this session was auto-spawned by the drain queue. */
   auto: boolean;
   /** Backlog issue number this session was spawned for; null for manual/non-issue sessions. */
@@ -1260,6 +1265,7 @@ export type HoldCode =
   | "plan-question"
   | "critic-rework"
   | "ci-red"
+  | "pr-conflict"
   | "awaiting-merge"
   | "train-error"
   | "stalled"

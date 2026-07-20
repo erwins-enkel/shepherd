@@ -19,6 +19,7 @@ import type { GitState } from "./forge/types";
 import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { verdictStale } from "./verdict-freshness";
+import { isDefiniteConflict } from "./pr-conflict";
 import { fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
@@ -59,6 +60,7 @@ export type SignalCode =
   | "plan-question"
   | "critic-rework"
   | "ci-red"
+  | "pr-conflict"
   | "manual-steps"
   | "awaiting-merge"
   | "stalled"
@@ -78,6 +80,7 @@ const SIGNAL_TIER: Record<SignalCode, AttentionTier> = {
   "plan-question": 1,
   "critic-rework": 1,
   "ci-red": 1,
+  "pr-conflict": 1,
   "manual-steps": 1,
   "halted-usage": 2,
   "awaiting-merge": 2,
@@ -178,6 +181,57 @@ const ATTENTION_RULES: Array<{
   },
   { signal: "plan-rework", when: (s, c) => planReworkActive(s, c.gate) },
   { signal: "critic-rework", when: (s, c, now) => criticReworkActive(s, c.review, c.git, now) },
+  // pr-conflict BEFORE ci-red: explainHold takes the first non-"in-flight" signal, so a
+  // later-listed rule could never render its line for a red+dirty PR — the flagship case. A
+  // conflict is also the actionable root cause there ("rebase, CI can't run" beats "CI is
+  // failing"): the red run was against a stale base and the rebase re-runs it.
+  //
+  // isDefiniteConflict, NOT the broad isConflicting: this rule OUTRANKS ci-red, so it may only
+  // fire where the conflict is certain. Gitea never sets mergeStateStatus and folds
+  // branch-protection into `mergeable`, so a red-but-perfectly-mergeable Gitea PR reports
+  // `mergeable: false` — the broad predicate would replace an accurate "CI is failing" line with
+  // a false "has merge conflicts — CI can't run until it's rebased". Where the signal is
+  // ambiguous, the accurate one wins.
+  //
+  // KNOCK-ON, intended: because explainHold surfaces this instead of ci-red, a red+dirty session
+  // also loses its row-level "Retry CI" CTA (hold-row.ts keys that on serverHold.code ===
+  // "ci-red"). That is correct — a dirty PR's pull_request workflows cannot run at all, so
+  // re-running them is futile; the actionable step is the rebase this line names. Recorded here
+  // rather than only in the PR that introduced it, since this is the code that causes it and a
+  // reader hitting "why did Retry CI disappear?" will land on this rule, not on a changelog.
+  //
+  // KNOWN GAP, deliberate: isDefiniteConflict is structurally always false on Gitea and
+  // LocalForge (neither sets mergeStateStatus), so a genuinely conflicting PR there gets the
+  // PRs-tab chip but NO rundown/digest signal. Do not "fix" this by widening the predicate: on
+  // Gitea `mergeable: false` cannot be told apart from branch protection, and this hold line
+  // makes a specific actionable claim ("rebase it") that would then be wrong. A missing signal
+  // is recoverable — the chip still marks the PR; a false instruction sends the operator to
+  // rebase a PR that has no conflict. Closing it properly needs a per-forge conflict signal
+  // Gitea does not currently expose.
+  //
+  // (!busy || stalled): a session actively RESOLVING its conflict is protected by the merge
+  // train's busy gate and would otherwise show a Tier-1 line for the whole duration. A HUNG
+  // session is running/blocked too, so `stalled` re-opens the signal for it.
+  //
+  // SCOPE, deliberate: `stalled` is a RUNDOWN/DIGEST-only input — herd-digest.ts supplies it from
+  // a transcript probe, and HoldReasonService does NOT (hold-service.ts builds its caches with
+  // git/review/gate/recap/train/block only; the probe is sync fs reads per running session, which
+  // the live service's zero-I/O single-loop rule forbids). So on the live hold path this qualifier
+  // degrades to plain `!busy` and a hung conflicting session never renders THIS line.
+  //
+  // That is not a coverage hole: the poller fires a `shape: "stall"` block for exactly that
+  // session, which reaches HoldReasonService as `c.block` and lights `blocked-decision` — Tier 1
+  // and listed ABOVE this rule, so it would win as the primary line even if `stalled` were wired
+  // in. The live backstop is blocked-decision; pr-conflict's stalled arm only affects the
+  // rundown/digest, which has no block snapshot.
+  {
+    signal: "pr-conflict",
+    when: (s, c) => {
+      if (c.git?.state !== "open" || !isDefiniteConflict(c.git)) return false;
+      const busy = s.status === "running" || s.status === "blocked";
+      return !busy || Boolean(c.stalled);
+    },
+  },
   { signal: "ci-red", when: (_s, c) => c.git?.checks === "failure" },
   // manual-steps: a PR declares un-acked, non-POST-MERGE manual operator steps that gate its
   // auto-merge (#1060). Last in the Tier-1 block so a genuinely-more-urgent co-signal stays the
@@ -276,6 +330,10 @@ const SIGNAL_TO_HOLD: Record<
   "ci-red": (_session, caches) => {
     const pr = caches.git?.number;
     return pr !== undefined ? { code: "ci-red", params: { pr } } : { code: "ci-red" };
+  },
+  "pr-conflict": (_session, caches) => {
+    const pr = caches.git?.number;
+    return pr !== undefined ? { code: "pr-conflict", params: { pr } } : { code: "pr-conflict" };
   },
   "awaiting-merge": (_session, caches) => {
     const pr = caches.git?.number;

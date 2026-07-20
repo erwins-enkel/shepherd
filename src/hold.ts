@@ -70,6 +70,8 @@ const EN: CopyMap = {
       ? `Critic requested changes (${p.findings} open) — steered back to the agent.`
       : "Critic requested changes — steered back to the agent.",
   "ci-red": (p) => `CI is failing${p.pr !== undefined ? ` on PR #${p.pr}` : ""} — needs a fix.`,
+  "pr-conflict": (p) =>
+    `${p.pr !== undefined ? `PR #${p.pr} has` : "The PR has"} merge conflicts — CI can't run until it's rebased.`,
   "awaiting-merge": (p) =>
     `Ready and handed to a merger${p.pr !== undefined ? ` (PR #${p.pr})` : ""}.`,
   "train-error": (p) =>
@@ -112,6 +114,8 @@ const DE: CopyMap = {
       : "Kritiker fordert Änderungen — zurück zum Agenten gesteuert.",
   "ci-red": (p) =>
     `CI schlägt fehl${p.pr !== undefined ? ` bei PR #${p.pr}` : ""} — braucht eine Korrektur.`,
+  "pr-conflict": (p) =>
+    `${p.pr !== undefined ? `PR #${p.pr} hat` : "Der PR hat"} Merge-Konflikte — CI kann bis zum Rebase nicht laufen.`,
   "awaiting-merge": (p) =>
     `Bereit und an einen Merger übergeben${p.pr !== undefined ? ` (PR #${p.pr})` : ""}.`,
   "train-error": (p) =>

@@ -42,11 +42,22 @@ describe("hasConflicts", () => {
   it("false for a draft even if unmergeable", () => {
     expect(hasConflicts(pr({ mergeable: false, isDraft: true }))).toBe(false);
   });
-  it("false when host still computing (null)", () => {
+  it("false when host still computing (null) and no mergeStateStatus", () => {
     expect(hasConflicts(pr({ mergeable: null }))).toBe(false);
   });
   it("false when mergeable", () => {
     expect(hasConflicts(pr({ mergeable: true }))).toBe(false);
+  });
+
+  // Delegates to isConflicting, so it must agree with PrRow's chip on the dirty cases too —
+  // otherwise "Hide conflicts" leaves chipped PRs on screen.
+  it("true for dirty even while mergeable is still null (chip parity)", () => {
+    expect(hasConflicts(pr({ mergeable: null, mergeStateStatus: "dirty" }))).toBe(true);
+  });
+  it("true for a DIRTY draft — DRAFT masks BEHIND, not DIRTY (chip parity)", () => {
+    expect(hasConflicts(pr({ isDraft: true, mergeable: null, mergeStateStatus: "dirty" }))).toBe(
+      true,
+    );
   });
 });
 

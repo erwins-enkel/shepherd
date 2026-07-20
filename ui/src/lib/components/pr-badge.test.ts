@@ -96,3 +96,17 @@ describe("prMergeAvailable", () => {
     expect(prMergeAvailable(git({ ...open, checks: "pending" }))).toBe(true);
   });
 });
+
+describe("prMergeAvailable — conflict recognition", () => {
+  const base = { kind: "github", state: "open", number: 7, checks: "success" } as any;
+
+  it("is false for a dirty PR even while mergeable is still null", () => {
+    // The mergeStateStatus branch excludes only blocked/behind, so without the isConflicting
+    // guard this offered a merge button on a PR that cannot merge.
+    expect(prMergeAvailable({ ...base, mergeable: null, mergeStateStatus: "dirty" })).toBe(false);
+  });
+
+  it("stays true for a clean PR", () => {
+    expect(prMergeAvailable({ ...base, mergeable: true, mergeStateStatus: "clean" })).toBe(true);
+  });
+});

@@ -182,6 +182,7 @@ const ALL_CODES: HoldCode[] = [
   "plan-rework",
   "critic-rework",
   "ci-red",
+  "pr-conflict",
   "awaiting-merge",
   "train-error",
   "stalled",

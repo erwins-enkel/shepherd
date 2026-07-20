@@ -1157,3 +1157,130 @@ test("de: buildRundownPrompt appends the directive and renders the hold `why` li
   expect(p).toContain("Auf einem Fehler gestoppt");
   expect(p).not.toContain("Halted on an error");
 });
+
+// ── pr-conflict: Tier 1, ahead of ci-red, busy-qualified ────────────────────────
+
+test("pr-conflict is the PRIMARY hold line for a red + dirty PR (ahead of ci-red)", () => {
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeStateStatus: "dirty", number: 7 },
+  } as any;
+  const { tier, signals } = classifyAttention(s, caches, 0);
+  expect(tier).toBe(1);
+  expect(signals).toContain("pr-conflict");
+  // explainHold takes the first non-"in-flight" signal — pr-conflict must precede ci-red,
+  // or its line could never render for the case it exists to describe.
+  expect(signals.indexOf("pr-conflict")).toBeLessThan(signals.indexOf("ci-red"));
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});
+
+test("pr-conflict does NOT fire for a busy session actively resolving the conflict", () => {
+  const s = session({ status: "running" });
+  const caches = { git: { state: "open", mergeStateStatus: "dirty", number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});
+
+test("pr-conflict DOES fire for a busy-but-STALLED session (the hung-session backstop)", () => {
+  // The busy gate means such a session never reaches rebaseCap, so the signal is its only
+  // backstop.
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    stalled: true,
+  } as any;
+  expect(classifyAttention(s, caches, 0).signals).toContain("pr-conflict");
+});
+
+test("live hold path: a hung conflicting session surfaces via blocked-decision, not pr-conflict", () => {
+  // HoldReasonService supplies no `stalled` (its caches are git/review/gate/recap/train/block —
+  // the stall probe is fs reads, barred by the zero-I/O rule), so the qualifier degrades to
+  // !busy. The poller's stall block arrives as `block` instead and lights blocked-decision,
+  // which is Tier 1 and ordered ABOVE pr-conflict — so it is the primary line either way.
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    block: { shape: "stall", options: [], tail: [] },
+  } as any;
+  const { tier, signals } = classifyAttention(s, caches, 0);
+  expect(tier).toBe(1);
+  expect(signals).not.toContain("pr-conflict");
+  expect(signals).toContain("blocked-decision");
+  // …and a stall-shaped block renders the more specific `blocked-stall` hold copy.
+  expect(explainHold(s, caches, 0)?.code).toBe("blocked-stall");
+});
+
+test("blocked-decision outranks pr-conflict even when both fire", () => {
+  const s = session({ status: "running" });
+  const caches = {
+    git: { state: "open", mergeStateStatus: "dirty", number: 7 },
+    block: { shape: "stall", options: [], tail: [] },
+    stalled: true,
+  } as any;
+  const { signals } = classifyAttention(s, caches, 0);
+  expect(signals.indexOf("blocked-decision")).toBeLessThan(signals.indexOf("pr-conflict"));
+});
+
+test("pr-conflict is omitted for a merged/closed PR", () => {
+  const s = session({ status: "idle" });
+  for (const state of ["merged", "closed"]) {
+    const caches = { git: { state, mergeStateStatus: "dirty", number: 7 } } as any;
+    expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+  }
+});
+
+test("a Gitea DRAFT (mergeable:false, no mergeStateStatus) does not fire pr-conflict", () => {
+  const s = session({ status: "idle" });
+  const caches = { git: { state: "open", mergeable: false, isDraft: true, number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});
+
+test("a red Gitea PR (mergeable:false, no mergeStateStatus) keeps the accurate ci-red line", () => {
+  // Gitea folds branch-protection into `mergeable`, so a red-but-perfectly-mergeable PR reports
+  // mergeable:false. Because pr-conflict OUTRANKS ci-red, firing it here would replace an
+  // accurate "CI is failing" hold with a false "has merge conflicts — CI can't run until it's
+  // rebased". The rule gates on isDefiniteConflict precisely to prevent that.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeable: false, number: 7 },
+  } as any;
+  const { signals } = classifyAttention(s, caches, 0);
+  expect(signals).not.toContain("pr-conflict");
+  expect(signals).toContain("ci-red");
+  expect(explainHold(s, caches, 0)?.code).toBe("ci-red");
+});
+
+test("mergeable:false + a settled non-dirty mergeStateStatus is definite → pr-conflict wins", () => {
+  // On GitHub `mergeable:false` is unambiguous (mapMergeable: false ⟺ CONFLICTING), so the
+  // conflict line is the accurate one even without `dirty`.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: {
+      state: "open",
+      checks: "failure",
+      mergeable: false,
+      mergeStateStatus: "blocked",
+      number: 7,
+    },
+  } as any;
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});
+
+test("KNOWN GAP: a conflicting Gitea PR gets no pr-conflict signal (chip only)", () => {
+  // Deliberate and documented at the rule. Gitea never sets mergeStateStatus, so a genuine
+  // conflict is indistinguishable from branch protection — and this rule outranks ci-red while
+  // emitting a specific actionable claim. Asserted so the gap is a decision, not a surprise.
+  const s = session({ status: "idle" });
+  const caches = { git: { state: "open", mergeable: false, number: 7 } } as any;
+  expect(classifyAttention(s, caches, 0).signals).not.toContain("pr-conflict");
+});
+
+test("red+dirty surfaces pr-conflict, so the row-level Retry CI CTA is intentionally dropped", () => {
+  // hold-row.ts gates that CTA on serverHold.code === "ci-red", and hold-service derives
+  // serverHold from explainHold. Asserting the code here pins the knock-on: a dirty PR's
+  // pull_request workflows can't run at all, so offering a re-run would be futile.
+  const s = session({ status: "idle" });
+  const caches = {
+    git: { state: "open", checks: "failure", mergeStateStatus: "dirty", number: 7 },
+  } as any;
+  expect(explainHold(s, caches, 0)?.code).toBe("pr-conflict");
+});

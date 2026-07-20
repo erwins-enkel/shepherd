@@ -3,6 +3,7 @@
  * Mirrors issues-panel.ts. Each `hide*` helper fails open (returns every PR
  * unchanged) when its flag is false, so a disabled filter never hides anything.
  */
+import { isConflicting } from "$lib/pr-conflict";
 import type { PullRequest } from "$lib/types";
 
 /**
@@ -14,12 +15,14 @@ export function hideDraftPrs(prs: readonly PullRequest[], on: boolean): PullRequ
 }
 
 /**
- * Whether a PR has merge conflicts — the exact predicate PrRow uses for its
- * "conflicts" chip: mergeable resolved to false AND not a draft. `mergeable === null`
- * (the host is still computing mergeability) is NOT a conflict.
+ * Whether a PR has merge conflicts — delegates to the shared `isConflicting`, which is also
+ * what PrRow's "conflicts" chip uses. Keeping them one function matters because this backs the
+ * user-facing "Hide conflicts" filter: any divergence leaves a chipped PR visible when the
+ * operator has asked to hide conflicts. (It previously inlined `mergeable === false && !isDraft`
+ * and silently drifted when the chip gained the `dirty` term.)
  */
 export function hasConflicts(pr: PullRequest): boolean {
-  return pr.mergeable === false && !pr.isDraft;
+  return isConflicting(pr);
 }
 
 /**

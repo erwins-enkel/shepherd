@@ -318,6 +318,8 @@ test("distill spawn: a resolved Codex environment uses codex exec with its model
     "gpt-5.5",
     "-c",
     "model_reasoning_effort=high",
+    "-o",
+    ".shepherd-last-message.txt",
     expect.any(String),
   ]);
   expect(cap.env).toBeUndefined();

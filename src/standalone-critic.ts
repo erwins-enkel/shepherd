@@ -38,10 +38,12 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  VERDICT_FILE,
   type RawVerdict,
   type EpicContext,
   type LandingContext,
 } from "./critic-core";
+import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
@@ -102,7 +104,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
   /** Deferral/skip logging. Default console.log/console.warn. */
   log?: (msg: string) => void;
   /** Injectable verdict reader (default: read VERDICT_FILE from the worktree). */
-  readVerdict?: (worktreePath: string) => VerdictRead<RawVerdict>;
+  readVerdict?: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   /** Injectable diff fingerprint (default: real `git patch-id`). See ReviewService for the
    *  patchId/baseSha/files contract — identical here. */
   computePatchId?: (
@@ -131,7 +133,7 @@ export class StandalonePrCriticService {
   private timeoutMs: number;
   private concurrency: number;
   private log: (msg: string) => void;
-  private readVerdict: (worktreePath: string) => VerdictRead<RawVerdict>;
+  private readVerdict: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   private computePatchId: StandalonePrCriticDeps["computePatchId"] & {};
   private collectBaseDelta: typeof defaultCollectBaseDelta;
   private readUsage: (
@@ -472,6 +474,8 @@ export class StandalonePrCriticService {
       model: env.model,
       effort: env.effort,
       prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null, fp.landing ?? null),
+      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+      captureLastMessage: true,
     });
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).
@@ -493,6 +497,10 @@ export class StandalonePrCriticService {
       return;
     }
 
+    // The worktree is checked out at the UNTRUSTED PR head (a fork's `refs/pull/<n>/head`); a
+    // malicious PR could commit a strict-JSON verdict / `-o` fallback to short-circuit the real critic
+    // (see scrubStaleVerdictArtifacts). Scrub right before spawn.
+    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (
@@ -544,7 +552,9 @@ export class StandalonePrCriticService {
   async tick(): Promise<void> {
     for (const f of [...this.inFlight.values()]) {
       if (f.finalizing) continue; // an overlapping tick already owns it
-      const read = this.readVerdict(f.worktreePath);
+      // Per-spawn session id → reconstructs this run's unguessable `-o` fallback name (a PR can't
+      // pre-commit a match; a Claude critic passes its id too but wrote no `-o` file → no fallback).
+      const read = this.readVerdict(f.worktreePath, f.criticSessionId);
       const timedOut = this.now() - f.startedAt > this.timeoutMs;
       // A strict OR repaired parse is a usable verdict → finalize (repair recovers a malformed-but-
       // complete verdict that JSON.parse would have rejected). `absent`/`unparseable` mean no usable

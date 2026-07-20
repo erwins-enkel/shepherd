@@ -24,10 +24,12 @@ import {
   shouldSkipForPatchId,
   captureUsage,
   reapRun,
+  VERDICT_FILE,
   type RawVerdict,
   type EpicBaseDelta,
   type EpicContext,
 } from "./critic-core";
+import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
@@ -183,7 +185,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
   /** Injectable verdict reader (default: read VERDICT_FILE from the worktree). 3-way result so
    *  tick() can fail fast on a present-but-unparseable verdict and gate a repaired parse on the
    *  critic spawn having finished. */
-  readVerdict?: (worktreePath: string) => VerdictRead<RawVerdict>;
+  readVerdict?: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   /** Injectable content fingerprint of `git diff base...HEAD` in the worktree (default:
    *  real `git patch-id`). Returns the patch-id (null when there's no diff or git fails →
    *  never skips), the concrete base SHA it fetched-and-diffed (null on a total git failure →
@@ -225,7 +227,7 @@ export class ReviewService {
   private get cap(): number {
     return this.capFn();
   }
-  private readVerdict: (worktreePath: string) => VerdictRead<RawVerdict>;
+  private readVerdict: (worktreePath: string, spawnSessionId?: string) => VerdictRead<RawVerdict>;
   private computePatchId: (
     worktreePath: string,
     base: string,
@@ -452,6 +454,10 @@ export class ReviewService {
       this.publishSpawnAbort(session, git, aux.aborted.reason, prior);
       return;
     }
+    // The worktree is checked out at the UNTRUSTED PR head; a malicious PR could commit a strict-JSON
+    // verdict / `-o` fallback to short-circuit the real critic (see scrubStaleVerdictArtifacts).
+    // Scrub HERE — after rebaseSkip, which can re-materialize a committed artifact — right before spawn.
+    scrubStaleVerdictArtifacts(wt.worktreePath, VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (
@@ -679,6 +685,8 @@ export class ReviewService {
         plan,
         smellLens,
       }),
+      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+      captureLastMessage: true,
     });
   }
 
@@ -765,7 +773,9 @@ export class ReviewService {
       let action: VerdictAction;
       let read: VerdictRead<RawVerdict>;
       try {
-        read = this.readVerdict(f.worktreePath);
+        // Pass the critic's per-spawn session id so the read reconstructs the unguessable `-o`
+        // fallback name for THIS run — a PR can't pre-commit a matching file (see codex-last-message).
+        read = this.readVerdict(f.worktreePath, f.criticSessionId);
         const elapsed = this.now() - f.startedAt;
         const timedOut = elapsed > this.timeoutMs;
         // Use ground-truth process liveness (paneForegroundProcs) rather than the transient

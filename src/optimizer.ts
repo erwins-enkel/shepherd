@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import type { SessionStore } from "./store";
@@ -223,6 +224,8 @@ export class OptimizerService {
       model: environment.model,
       effort: environment.effort,
       prompt: optimizePrompt(),
+      // The optimizer READS the `-o` last-message fallback → opt in.
+      captureLastMessage: true,
     });
     const agentName = OPTIMIZE_LABEL + sessionId.slice(0, 8);
     // Reserve the inflight slot SYNCHRONOUSLY — before the async spawn yields — so a same-tick
@@ -374,10 +377,13 @@ function defaultWriteInput(dir: string, targets: OptimizerTarget[]): void {
 }
 
 function defaultReadOutput(dir: string): RawOptimized | null {
-  const p = join(dir, OUTPUT_FILE);
-  if (!existsSync(p)) return null;
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex optimizer that answers
+  // in chat never writes the result file — see codex-last-message.ts).
+  // Disposable-tmpdir role → fixed fallback name (fresh empty cwd, no pre-seed risk).
+  const text = readRoleResultText(dir, OUTPUT_FILE, CODEX_LAST_MESSAGE_FILE);
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawOptimized;
+    return JSON.parse(text) as RawOptimized;
   } catch {
     return null; // partial write; retry next tick
   }

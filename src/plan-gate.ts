@@ -1,4 +1,9 @@
 import { existsSync, readFileSync } from "node:fs";
+import {
+  readRoleResultText,
+  scrubStaleVerdictArtifacts,
+  codexLastMessageFile,
+} from "./codex-last-message";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { execFileSync } from "./instrument";
@@ -150,7 +155,14 @@ export function reviewerArgv(
   // The plan reviewer participates in the session's resolved reasoning effort (no longer force-
   // unbudgeted): it inherits `session.effort` — the tier this session runs at, itself the session
   // override or the drain repo→global resolution. Unset (the default) → no --effort → unchanged.
-  return buildTransientAgentArgv("reviewer", { provider, model, prompt, effort });
+  // The plan reviewer READS the `-o` last-message fallback (per-spawn name for its checkout) → opt in.
+  return buildTransientAgentArgv("reviewer", {
+    provider,
+    model,
+    prompt,
+    effort,
+    captureLastMessage: true,
+  });
 }
 
 // How long an in-flight plan review may run before tick() (Task 6) gives up on the verdict.
@@ -257,7 +269,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  already-finalized review (finalize reaps the worktree). */
   worktreeExists?: (worktreePath: string) => boolean;
   /** default: read PLAN_VERDICT_FILE from the reviewer's disposable worktree. */
-  readVerdict?: (worktreePath: string) => RawPlanVerdict | null;
+  readVerdict?: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
   /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
   baseSha?: (repoPath: string, base: string) => string;
   /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
@@ -317,7 +329,7 @@ export class PlanGateService {
   }
   private readPlan: (worktreePath: string) => string | null;
   private readPlanBlocks: (worktreePath: string) => VisualBlock[];
-  private readVerdict: (worktreePath: string) => RawPlanVerdict | null;
+  private readVerdict: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string) => string;
   private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
@@ -505,6 +517,10 @@ export class PlanGateService {
       this.deps.worktree.remove(wt.worktreePath);
       return "error-spawn";
     }
+    // Defense-in-depth: the plan reviewer detaches at the TRUSTED base sha (not the plan author's
+    // live worktree), so a pre-seed can't ride in the checkout — but scrub uniformly with the PR
+    // critics so no future base change silently opens the hole (see scrubStaleVerdictArtifacts).
+    scrubStaleVerdictArtifacts(wt.worktreePath, PLAN_VERDICT_FILE);
     let terminalId: string;
     try {
       terminalId = (
@@ -713,7 +729,7 @@ export class PlanGateService {
   async tick(): Promise<void> {
     for (const f of [...this.inflight.values()]) {
       if (f.finalizing) continue; // already being finalized by an overlapping tick
-      const raw = this.readVerdict(f.worktreePath);
+      const raw = this.readVerdict(f.worktreePath, f.reviewerSessionId);
       const now = this.now();
       const timedOut = now - f.startedAt > this.timeoutMs;
       const exited = !raw && this.codexReviewerExited(f, now);
@@ -1256,11 +1272,20 @@ function defaultReadActivity(worktreePath: string, reviewerSessionId: string): s
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */
-function defaultReadVerdict(worktreePath: string): RawPlanVerdict | null {
-  const p = join(worktreePath, PLAN_VERDICT_FILE);
-  if (!existsSync(p)) return null;
+function defaultReadVerdict(worktreePath: string, spawnSessionId?: string): RawPlanVerdict | null {
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex plan reviewer that
+  // answers in chat never writes the result file — see codex-last-message.ts). The fallback is read
+  // from the PER-SPAWN unguessable name keyed on this run's session id, uniform with the PR critics
+  // (this reviewer detaches at the TRUSTED base, so it isn't pre-seedable, but keeping the contract
+  // identical everywhere means a future base change can't silently open a hole).
+  const text = readRoleResultText(
+    worktreePath,
+    PLAN_VERDICT_FILE,
+    spawnSessionId ? codexLastMessageFile(spawnSessionId) : undefined,
+  );
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawPlanVerdict;
+    return JSON.parse(text) as RawPlanVerdict;
   } catch {
     return null; // partial write; try again next tick
   }

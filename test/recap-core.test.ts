@@ -155,6 +155,58 @@ test("TASK-561: defaultReadVerdict carries raw bytes on unparseable (for failure
   expect(read.raw).toBe(garbage);
 });
 
+// ── Codex `-o` last-message fallback (TASK-737) ─────────────────────────────────
+//
+// A Codex recap sometimes ANSWERS the verdict in chat and never writes .shepherd-recap.json (observed
+// live: TASK-737 produced a complete, correct recap in 9s, zero tool calls, then finalized `failed`/
+// `no-result` because Shepherd only read the file). codexRoleArgv now passes `-o`, so the CLI writes
+// the final message to .shepherd-last-message.txt; defaultReadVerdict falls back to it when the
+// result file is absent, recovering the verdict through the unchanged parse path.
+
+test("TASK-737 read path: chat-only Codex recap recovers from the last-message file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-737-fallback-"));
+  // No .shepherd-recap.json — the agent answered in chat; the -o file holds the verdict JSON.
+  writeFileSync(
+    join(dir, ".shepherd-last-message.txt"),
+    JSON.stringify({ verdict: "parked", headline: "planned only", body: "no diff", openItems: [] }),
+  );
+
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  const parsed = parseRecapVerdict(read.value);
+  expect(parsed).not.toBeNull();
+  expect(parsed!.verdict).toBe("parked");
+  expect(parsed!.headline).toBe("planned only");
+});
+
+test("last-message fallback does NOT override a present result file", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-737-primary-"));
+  // Both files present (the normal success case: agent wrote the result, CLI wrote its exit ack).
+  writeFileSync(
+    join(dir, ".shepherd-recap.json"),
+    JSON.stringify({ verdict: "ready", headline: "real verdict", body: "b", openItems: [] }),
+  );
+  writeFileSync(join(dir, ".shepherd-last-message.txt"), "Created .shepherd-recap.json.");
+
+  const read = defaultReadVerdict(dir);
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  expect(parseRecapVerdict(read.value)!.headline).toBe("real verdict");
+});
+
+test("prose-only last-message → parseRecapVerdict fails closed (no invented verdict)", () => {
+  const dir = mkdtempSync(join(tmpdir(), "recap-737-prose-"));
+  writeFileSync(join(dir, ".shepherd-last-message.txt"), "I was unable to produce a recap.");
+
+  // jsonrepair coerces bare prose into a JSON *string*, so the read succeeds — but the fail-closed
+  // guard is parseRecapVerdict, which rejects anything that isn't a recap object. The fallback can
+  // never invent a verdict: a prose last-message finalizes `failed`, exactly as an absent one would.
+  const read = defaultReadVerdict(dir);
+  const value = read.status === "parsed" ? read.value : null;
+  expect(parseRecapVerdict(value)).toBeNull();
+});
+
 // ── parseRecapVerdict ────────────────────────────────────────────────────────
 
 test("parseRecapVerdict: valid object returns normalized shape", () => {

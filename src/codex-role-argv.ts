@@ -12,6 +12,13 @@
  *   for inspecting UNTRUSTED input (a PR diff / agent-written plan).
  * - The role PROMPT already instructs the agent to "write your verdict/result to <file>", so it is
  *   reused verbatim as the positional argument — the result contract is identical across CLIs.
+ * - `-o <lastMessageFile>` makes the CLI write the agent's FINAL message to a file at exit,
+ *   independent of the model calling a write tool. Codex sometimes answers the verdict in chat and
+ *   never writes the result file (the recap black-hole in codex-last-message.ts); the role read path
+ *   falls back to this file when the result file is absent. The caller supplies the exact filename —
+ *   a PER-SPAWN unguessable name for reviewer roles that run in an untrusted checkout, the fixed name
+ *   for disposable-tmpdir roles (see codex-last-message.ts). The relative path resolves against the
+ *   spawn's cwd, so this stays a plain argv addition (no cwd threading needed).
  *
  * Codex produces no Claude JSONL transcript, so token totals + live tool-use surfacing degrade to
  * null for a Codex role (handled by the callers); the file-based result is unaffected.
@@ -21,12 +28,18 @@ import { effortForSpawn } from "./default-effort";
 export function codexRoleArgv(
   model: string | null,
   prompt: string,
-  effort: string | null = null,
+  effort: string | null,
+  lastMessageFile: string | null,
 ): string[] {
   const argv = ["codex", "exec", "--sandbox", "workspace-write"];
   if (model) argv.push("-m", model);
   const tier = effortForSpawn("codex", effort);
   if (tier) argv.push("-c", `model_reasoning_effort=${tier}`);
+  // `-o` is emitted ONLY for roles that READ the last-message fallback. A role that never consumes it
+  // (the `doc` kind) passes null: emitting a fixed `-o` target into its worktree — which in retarget
+  // mode is an UNTRUSTED PR-head checkout — would let a committed symlink at that path redirect the
+  // CLI's final-message write onto a real file. No consumer ⇒ no `-o` ⇒ no such surface.
+  if (lastMessageFile !== null) argv.push("-o", lastMessageFile);
   argv.push(prompt);
   return argv;
 }

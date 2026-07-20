@@ -1,4 +1,5 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
+import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
@@ -44,10 +45,13 @@ function defaultMakeTmpDir(): string {
   return mkdtempSync(join(tmpdir(), "shepherd-autopilot-"));
 }
 function defaultReadVerdict(cwd: string): RawVerdict | null {
-  const p = join(cwd, VERDICT_FILE);
-  if (!existsSync(p)) return null;
+  // Result file first, Codex `-o` last-message fallback when absent (a Codex classifier that answers
+  // in chat never writes the result file — see codex-last-message.ts).
+  // Disposable-tmpdir role → fixed fallback name (fresh empty cwd, no pre-seed risk).
+  const text = readRoleResultText(cwd, VERDICT_FILE, CODEX_LAST_MESSAGE_FILE);
+  if (text === null) return null;
   try {
-    return JSON.parse(readFileSync(p, "utf8")) as RawVerdict;
+    return JSON.parse(text) as RawVerdict;
   } catch {
     return null; // partial write; try again next poll
   }
@@ -70,7 +74,14 @@ function classifierArgv(
   prompt: string,
   effort?: string | null,
 ): string[] {
-  return buildTransientAgentArgv("writer-only", { provider, model, effort, prompt }).argv;
+  // The autopilot classifier READS the `-o` last-message fallback → opt in.
+  return buildTransientAgentArgv("writer-only", {
+    provider,
+    model,
+    effort,
+    prompt,
+    captureLastMessage: true,
+  }).argv;
 }
 
 interface PollClock {

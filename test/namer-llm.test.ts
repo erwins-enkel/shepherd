@@ -110,6 +110,8 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
     readName: () => "mobile footer",
   });
   await llmName("the mobile footer needs settings", deps, "l");
+  // The namer READS only `.shepherd-name`, never the `-o` last-message fallback, so it does NOT opt
+  // into capture — its Codex argv carries NO `-o` (and thus no Codex `-o`/version-floor dependency).
   expect(calls.started.argv.map(stripFenceNonce)).toEqual(
     [
       "codex",
@@ -121,6 +123,7 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
       namingPrompt("the mobile footer needs settings"),
     ].map(stripFenceNonce),
   );
+  expect(calls.started.argv).not.toContain("-o");
   expect(calls.started.argv).not.toContain("--settings");
 });
 

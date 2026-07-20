@@ -719,14 +719,14 @@ export interface DocAgentRun {
   outcome: DocAgentOutcome;
 }
 
-/** Append-only, archive-decoupled record of one spawned critic/plan-gate reviewer
- *  session and its token total. Keyed by the *reviewer* session id (NOT the task) and
+/** Append-only, archive-decoupled record of one spawned satellite LLM session and its token total.
+ *  Keyed by the *reviewer* session id (NOT the task) and
  *  deliberately carries no FK to `sessions`, so it outlives task archive + prune —
  *  letting post-hoc cost reports attribute reviewer token burn the task row can't. */
 export interface ReviewerSpawnRow {
   reviewerSessionId: string;
   taskSessionId: string;
-  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+  kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "classifier";
   worktreePath: string;
   reviewerProvider: AgentProvider | null;
   model: string | null;
@@ -1114,12 +1114,13 @@ export interface UsageRepoBreakdown {
 // per-task `satelliteUnits` attribution (different filter axis + includes unattributed
 // buckets like rundown/doc_agent/standalone-critic) — see buildUsageBreakdown.
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "classifier" — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
 
-export type UsageRole = "coding" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+export type UsageRole =
+  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
 export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
 
 export interface UsageModelBreakdown {

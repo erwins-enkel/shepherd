@@ -3051,13 +3051,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   }
 
   // ── reviewer spawn cost attribution ──────────────────────────────────────────
-  /** Record a freshly-spawned reviewer session. Token/completed columns stay NULL until
+  /** Record a freshly-spawned reviewer/satellite session. Token/completed columns stay NULL until
    *  finalize (`completeReviewerSpawn`). A plain INSERT is correct — every spawn forces a
    *  fresh reviewerSessionId UUID, so the PK never collides. */
   recordReviewerSpawn(r: {
     reviewerSessionId: string;
     taskSessionId: string;
-    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "classifier";
     worktreePath: string;
     reviewerProvider?: AgentProvider | null;
     model: string | null;

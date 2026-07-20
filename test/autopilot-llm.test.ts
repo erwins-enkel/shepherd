@@ -1,7 +1,9 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import { classifyStop, classifierPrompt, preClassify, VERDICT_FILE } from "../src/autopilot-llm";
 import { config } from "../src/config";
+import { SessionStore } from "../src/store";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import type { SessionUsage } from "../src/usage";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -29,21 +31,35 @@ async function withAuth<T>(
 }
 
 function makeDeps(over: Partial<import("../src/autopilot-llm").ClassifierDeps> = {}) {
-  const calls: any = { started: null, stopped: false, cleaned: false };
+  const calls: any = { started: null, stopped: false, cleaned: false, order: [] };
   const base = {
     herdr: {
       start: async (name: string, cwd: string, argv: string[], env?: Record<string, string>) => {
+        calls.order.push("start");
         calls.started = { name, cwd, argv, env };
         return { terminalId: "term_c", cwd } as any;
       },
       stop: async () => {
+        calls.order.push("stop");
         calls.stopped = true;
       },
     },
+    store: {
+      recordReviewerSpawn: () => {
+        calls.order.push("record");
+      },
+      completeReviewerSpawn: () => {
+        calls.order.push("complete");
+      },
+    },
+    taskSessionId: "task-s1",
+    readUsage: async () => null,
     makeTmpDir: () => "/tmp/autopilot-xyz",
     cleanup: () => {
+      calls.order.push("cleanup");
       calls.cleaned = true;
     },
+    warn: () => {},
     now: () => 0,
     sleep: async () => {},
     timeoutMs: 30_000,
@@ -52,6 +68,19 @@ function makeDeps(over: Partial<import("../src/autopilot-llm").ClassifierDeps> =
   };
   return { deps: base as any, calls };
 }
+
+const CLASSIFIER_USAGE: SessionUsage = {
+  input: 10,
+  output: 20,
+  cacheRead: 30,
+  cacheWrite: 40,
+  total: 100,
+  messageCount: 1,
+  lastActivity: 123,
+  byModel: { "claude-haiku-4-5": 100 },
+  fullRecaches: 0,
+  sidechainCount: 0,
+};
 
 test("classifierPrompt embeds the tail + task and asks for the verdict file", () => {
   const p = classifierPrompt(["agent: Shall I write the spec first? (y/n)"], "Build a login page");
@@ -155,6 +184,132 @@ test("classifyStop: parses a gate verdict; spawns haiku, dontAsk, Write-only", a
   expect(calls.cleaned).toBe(true);
 });
 
+test("classifyStop persists classifier usage after stop and immediately finalizes before cleanup", async () => {
+  const store = new SessionStore(":memory:");
+  const { deps, calls } = makeDeps({
+    store,
+    taskSessionId: "task-session-1727",
+    model: "haiku",
+    effort: "low",
+    now: () => 1_750_000_000_000,
+    readVerdict: () => ({ kind: "gate", summary: "continue" }),
+    readUsage: async (cwd, sessionId, spawnAccountDir) => {
+      calls.order.push("read");
+      calls.usageRead = { cwd, sessionId, spawnAccountDir };
+      return CLASSIFIER_USAGE;
+    },
+  });
+  const record = store.recordReviewerSpawn.bind(store);
+  store.recordReviewerSpawn = ((row) => {
+    calls.order.push("record");
+    record(row);
+  }) as typeof store.recordReviewerSpawn;
+  const complete = store.completeReviewerSpawn.bind(store);
+  store.completeReviewerSpawn = ((sessionId, usage, completedAt) => {
+    calls.order.push("complete");
+    complete(sessionId, usage, completedAt);
+  }) as typeof store.completeReviewerSpawn;
+
+  const verdict = await classifyStop(["Ready to start? (y/n)"], "task", deps, "autopilot task");
+
+  expect(verdict).toEqual({ kind: "gate", summary: "continue" });
+  expect(calls.order).toEqual(["start", "stop", "read", "record", "complete", "cleanup"]);
+  const [row] = store.listReviewerSpawns();
+  expect(row).toMatchObject({
+    taskSessionId: "task-session-1727",
+    kind: "classifier",
+    worktreePath: "/tmp/autopilot-xyz",
+    reviewerProvider: "claude",
+    model: "claude-haiku-4-5",
+    reviewerEffort: "low",
+    spawnedAt: 1_750_000_000_000,
+    completedAt: 1_750_000_000_000,
+    inputTokens: 10,
+    outputTokens: 20,
+    cacheReadTokens: 30,
+    cacheWriteTokens: 40,
+    totalTokens: 100,
+  });
+  expect(calls.usageRead.cwd).toBe("/tmp/autopilot-xyz");
+  expect(calls.usageRead.sessionId).toBe(row?.reviewerSessionId);
+  expect(calls.usageRead.spawnAccountDir).toBeUndefined();
+});
+
+test("classifyStop finalizes a zero-token classifier row when usage parsing throws", async () => {
+  const store = new SessionStore(":memory:");
+  const { deps } = makeDeps({
+    store,
+    taskSessionId: "task-session-1727",
+    readVerdict: () => ({ kind: "question", summary: "Need input" }),
+    readUsage: async () => {
+      throw new Error("malformed transcript");
+    },
+  });
+
+  const verdict = await classifyStop(["Which option?"], "task", deps, "autopilot task");
+
+  expect(verdict).toEqual({ kind: "question", summary: "Need input" });
+  expect(store.listReviewerSpawns()).toHaveLength(1);
+  expect(store.listReviewerSpawns()[0]).toMatchObject({
+    kind: "classifier",
+    completedAt: 0,
+    inputTokens: 0,
+    outputTokens: 0,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 0,
+    totalTokens: 0,
+  });
+});
+
+for (const failingStage of ["stop", "record", "complete", "cleanup"] as const) {
+  test(`classifyStop preserves the verdict when ${failingStage} fails`, async () => {
+    const order: string[] = [];
+    const completedUsages: SessionUsage[] = [];
+    const { deps } = makeDeps({
+      herdr: {
+        start: async (_name, cwd) => ({ terminalId: "term_failure", cwd }) as any,
+        stop: async () => {
+          order.push("stop");
+          if (failingStage === "stop") throw new Error("stop failed");
+        },
+      },
+      store: {
+        recordReviewerSpawn: () => {
+          order.push("record");
+          if (failingStage === "record") throw new Error("record failed");
+        },
+        completeReviewerSpawn: (_sessionId, usage) => {
+          order.push("complete");
+          completedUsages.push(usage);
+          if (failingStage === "complete") throw new Error("complete failed");
+        },
+      },
+      readVerdict: () => ({ kind: "gate", summary: "continue" }),
+      readUsage: async () => {
+        order.push("read");
+        return CLASSIFIER_USAGE;
+      },
+      cleanup: () => {
+        order.push("cleanup");
+        if (failingStage === "cleanup") throw new Error("cleanup failed");
+      },
+      warn: () => {},
+    });
+
+    const verdict = await classifyStop(["Ready?"], "task", deps, "autopilot task");
+
+    expect(verdict).toEqual({ kind: "gate", summary: "continue" });
+    expect(order).toContain("cleanup");
+    expect(order.slice(0, 3)).toEqual(["stop", "read", "record"]);
+    if (failingStage === "record") {
+      expect(order).not.toContain("complete");
+    } else {
+      expect(order).toContain("complete");
+      expect(completedUsages).toEqual([CLASSIFIER_USAGE]);
+    }
+  });
+}
+
 test("classifyStop: threads effort into the classifier argv (issue #1418)", async () => {
   const { deps, calls } = makeDeps({
     effort: "high",
@@ -206,8 +361,19 @@ test("classifyStop: subscription mode — --settings unchanged + no env 4th arg"
 });
 
 test("classifyStop: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR env", async () => {
+  const usageReads: Array<{
+    cwd: string;
+    sessionId: string;
+    spawnAccountDir?: string | null;
+  }> = [];
   const { calls } = await withAuth("api-key", "/helper.sh", async () => {
-    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    const d = makeDeps({
+      readVerdict: () => ({ kind: "gate", summary: "x" }),
+      readUsage: async (cwd, sessionId, spawnAccountDir) => {
+        usageReads.push({ cwd, sessionId, spawnAccountDir });
+        return null;
+      },
+    });
     await classifyStop(["…"], "task", d.deps, "l");
     return d;
   });
@@ -216,6 +382,7 @@ test("classifyStop: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_
   expect(settings.disableAllHooks).toBe(true);
   expect(settings.apiKeyHelper).toBe("/helper.sh");
   expect(Object.keys(calls.started.env)).toEqual(["CLAUDE_CONFIG_DIR"]);
+  expect(usageReads[0]?.spawnAccountDir).toBe("/tmp/shepherd-test-apikey-config");
 });
 
 test("classifyStop: api-key without configured key fails closed → SURFACE, no spawn", async () => {
@@ -226,6 +393,22 @@ test("classifyStop: api-key without configured key fails closed → SURFACE, no 
   });
   expect(result).toEqual({ kind: "unknown", summary: "" });
   expect(calls.started).toBeNull();
+});
+
+test("classifyStop: spawn setup failure surfaces and still cleans up", async () => {
+  const { result, calls } = await withAuth("api-key", "/helper.sh", async () => {
+    __setApiKeyConfigDirProvisionForTest(() => {
+      throw new Error("provision failed");
+    });
+    const d = makeDeps({ readVerdict: () => ({ kind: "gate", summary: "x" }) });
+    const r = await classifyStop(["…"], "task", d.deps, "l");
+    return { result: r, calls: d.calls };
+  });
+
+  expect(result).toEqual({ kind: "unknown", summary: "" });
+  expect(calls.started).toBeNull();
+  expect(calls.cleaned).toBe(true);
+  expect(calls.order).not.toContain("record");
 });
 
 test("classifyStop: unknown/surface on timeout (null verdict)", async () => {
@@ -256,13 +439,26 @@ test("classifyStop: valid kind but non-string summary → summary dropped, kind 
 });
 
 test("classifyStop: surfaces (and cleans up) when the spawn throws", async () => {
-  const calls: any = { cleaned: false };
+  const calls: any = { cleaned: false, recorded: false, completed: false, usageRead: false };
   const deps: any = {
     herdr: {
       start: async () => {
         throw new Error("herdr down");
       },
       stop: async () => {},
+    },
+    store: {
+      recordReviewerSpawn: () => {
+        calls.recorded = true;
+      },
+      completeReviewerSpawn: () => {
+        calls.completed = true;
+      },
+    },
+    taskSessionId: "task-s1",
+    readUsage: async () => {
+      calls.usageRead = true;
+      return CLASSIFIER_USAGE;
     },
     makeTmpDir: () => "/tmp/autopilot-xyz",
     cleanup: () => {
@@ -274,6 +470,9 @@ test("classifyStop: surfaces (and cleans up) when the spawn throws", async () =>
   const v = await classifyStop(["…"], "task", deps, "l");
   expect(v).toEqual({ kind: "unknown", summary: "" });
   expect(calls.cleaned).toBe(true); // temp dir still removed
+  expect(calls.recorded).toBe(false);
+  expect(calls.completed).toBe(false);
+  expect(calls.usageRead).toBe(false);
 });
 
 // --- preClassify unit tests ---

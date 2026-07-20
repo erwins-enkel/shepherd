@@ -114,10 +114,15 @@ describe("ModelsLens", () => {
     render(ModelsLens, {
       models: {
         claude: {
-          totalTokens: 500,
-          byModel: { "claude-opus-4-8": 200, "claude-sonnet-4-5": 300 },
+          totalTokens: 600,
+          byModel: {
+            "claude-opus-4-8": 200,
+            "claude-sonnet-4-5": 300,
+            "claude-haiku-4-5": 100,
+          },
           byRole: {
             coding: { "claude-sonnet-4-5": 300 },
+            classifier: { "claude-haiku-4-5": 100 },
             review: { "claude-opus-4-8": 100 },
             plan_gate: { "claude-opus-4-8": 100 },
           },
@@ -128,11 +133,23 @@ describe("ModelsLens", () => {
 
     const claude = document.querySelector<HTMLElement>('[data-provider="claude"]')!;
     const roles = claude.querySelectorAll<HTMLDetailsElement>(".role-detail");
-    expect(roles).toHaveLength(3);
-    expect([...roles].map((role) => role.dataset.role)).toEqual(["coding", "review", "plan_gate"]);
+    expect(roles).toHaveLength(4);
+    expect([...roles].map((role) => role.dataset.role)).toEqual([
+      "coding",
+      "classifier",
+      "review",
+      "plan_gate",
+    ]);
+
+    const classifier = claude.querySelector<HTMLDetailsElement>('[data-role="classifier"]')!;
+    expect(classifier.querySelector("summary")?.textContent).toContain("Classifier");
+    expect(classifier.querySelector("summary")?.textContent).toContain("16.7%");
+    classifier.querySelector<HTMLElement>("summary")!.click();
+    expect(classifier.textContent).toContain("Haiku 4.5");
+    expect(classifier.textContent).toContain(formatTokenLabel(100));
 
     const planGate = claude.querySelector<HTMLDetailsElement>('[data-role="plan_gate"]')!;
-    expect(planGate.querySelector("summary")?.textContent).toContain("20.0%");
+    expect(planGate.querySelector("summary")?.textContent).toContain("16.7%");
     planGate.querySelector<HTMLElement>("summary")!.click();
     expect(planGate.open).toBe(true);
 

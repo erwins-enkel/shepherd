@@ -57,4 +57,51 @@ describe("ViewportTermBanners auth banner", () => {
     render(ViewportTermBanners, { ...baseProps, authUrl: null });
     await expect.element(page.getByRole("button", { name: /open/i })).not.toBeInTheDocument();
   });
+
+  it("rest state: amber wash that preserves the strip's translucency", async () => {
+    render(ViewportTermBanners, { ...baseProps, authUrl: AUTH_URL });
+    const banner = document.querySelector<HTMLElement>(".auth-banner");
+    expect(banner).not.toBeNull();
+    // Resolve the intended wash through a probe element so the assertion tracks the
+    // design tokens instead of hard-coding channel values.
+    const probe = document.createElement("div");
+    document.body.appendChild(probe);
+    probe.style.background =
+      "color-mix(in srgb, color-mix(in srgb, var(--color-amber) 14%, var(--color-head)) 96%, transparent)";
+    const expected = getComputedStyle(probe).backgroundColor;
+    expect(getComputedStyle(banner!).backgroundColor).toBe(expected);
+    // Translucency guard: the pre-existing 96% alpha must survive the amber wash.
+    expect(alphaOf(expected)).toBeGreaterThan(0.9);
+    expect(alphaOf(expected)).toBeLessThan(1);
+    // Wash guard: the surface is genuinely tinted, not the plain head tone.
+    probe.style.background = "color-mix(in srgb, var(--color-head) 96%, transparent)";
+    expect(getComputedStyle(banner!).backgroundColor).not.toBe(
+      getComputedStyle(probe).backgroundColor,
+    );
+  });
+
+  it("pulsing ::after halo: pointer-transparent, glowing, and continuous", async () => {
+    render(ViewportTermBanners, { ...baseProps, authUrl: AUTH_URL });
+    const banner = document.querySelector<HTMLElement>(".auth-banner");
+    expect(banner).not.toBeNull();
+    const after = getComputedStyle(banner!, "::after");
+    expect(after.content).toBe('""');
+    // The overlay-interaction guard: the halo layer must never intercept input.
+    expect(after.pointerEvents).toBe("none");
+    expect(after.boxShadow).not.toBe("none");
+    // Svelte hashes component-local keyframe names, so match the authored substring,
+    // never the unscoped literal.
+    expect(after.animationName).not.toBe("none");
+    expect(after.animationName).toContain("auth-banner-glow");
+    expect(parseFloat(after.animationDuration)).toBeGreaterThan(0);
+    expect(after.animationIterationCount).toBe("infinite");
+  });
 });
+
+/** Alpha channel of a computed color, handling both `rgba(r, g, b, a)` and
+ *  `color(srgb r g b / a)` serializations; a fully-opaque serialization has no
+ *  alpha component, which reads as 1. */
+function alphaOf(color: string): number {
+  const m = /\/\s*([\d.]+)\)\s*$/.exec(color) ?? /rgba\([^)]*,\s*([\d.]+)\)\s*$/.exec(color);
+  return m ? parseFloat(m[1]) : 1;
+}

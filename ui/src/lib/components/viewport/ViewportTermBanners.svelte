@@ -131,7 +131,9 @@
 <style>
   /* auth-banner: non-modal top strip surfacing a pending MCP OAuth URL. Anchored at the
      top so it never covers the prompt/input at the terminal's bottom. Amber accent — an
-     actionable "needs you" state, not a success. */
+     actionable "needs you" state, not a success. The session stalls silently until the
+     operator acts, so the strip is deliberately loud: amber-washed surface, slide-down
+     entry, and a continuous "breathing" halo (below) for as long as the URL is pending. */
   .auth-banner {
     position: absolute;
     top: 0;
@@ -142,10 +144,63 @@
     align-items: center;
     gap: 10px;
     padding: 8px 12px;
-    background: color-mix(in srgb, var(--color-head) 96%, transparent);
+    /* Nested mix: the inner mix tints the head tone amber; the outer mix restores the
+       strip's 96% translucency so the backdrop blur keeps reading through (a single
+       amber/head mix would silently produce an opaque surface). */
+    background: color-mix(
+      in srgb,
+      color-mix(in srgb, var(--color-amber) 14%, var(--color-head)) 96%,
+      transparent
+    );
     backdrop-filter: blur(2px);
-    border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 55%, var(--color-line-bright));
+    border-bottom: 1px solid color-mix(in srgb, var(--color-amber) 80%, var(--color-line-bright));
     box-shadow: 0 3px 12px rgba(0, 0, 0, 0.35);
+    animation: auth-banner-in 0.14s ease;
+  }
+  /* Continuous amber halo, pulsed by animating this pseudo's OPACITY only — an infinite
+     box-shadow animation would repaint the full-width strip every frame. Downward-only
+     geometry: .vp-body clips at overflow:hidden and the banner sits flush with its
+     top/left/right edges, so a symmetric halo would clip on three sides. An outer
+     box-shadow renders outside the border-box only, so nothing inside the strip is
+     tinted; z-index -1 keeps it under the text/buttons within the banner's own
+     stacking context (z-index 3 above). */
+  .auth-banner::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: -1;
+    box-shadow: 0 4px 18px color-mix(in srgb, var(--color-amber) 55%, transparent);
+    animation: auth-banner-glow 2s ease-in-out infinite alternate;
+  }
+  @keyframes auth-banner-in {
+    from {
+      opacity: 0;
+      transform: translateY(-6px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  @keyframes auth-banner-glow {
+    from {
+      opacity: 0.35;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .auth-banner {
+      animation: none;
+    }
+    .auth-banner::after {
+      /* No motion — the halo rests at a steady mid opacity so the banner still reads
+         clearly louder than the terminal behind it. */
+      animation: none;
+      opacity: 0.6;
+    }
   }
   .auth-icon {
     color: var(--color-amber);
@@ -166,7 +221,9 @@
     line-height: 1.2;
   }
   .auth-url {
-    color: var(--color-muted);
+    /* --color-ink, not muted: muted lands marginally under the 4.5:1 AA floor on the
+       amber-washed surface (≈4.4:1 in dark and light themes). */
+    color: var(--color-ink);
     font-size: var(--fs-base);
     font-family: var(--font-mono, monospace);
     white-space: nowrap;

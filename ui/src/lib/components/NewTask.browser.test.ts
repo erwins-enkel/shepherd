@@ -4,7 +4,6 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import { overwriteGetLocale } from "$lib/paraglide/runtime";
 import type { Issue, RepoConfig, RepoEntry, SlashCommand, Steer } from "$lib/types";
-import type { UsageLimits } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { steers } from "$lib/steers.svelte";
 import { viewerCache } from "$lib/viewer-cache.svelte";
@@ -170,48 +169,6 @@ const base = (extra: Record<string, unknown> = {}) => ({
   onsubmit: vi.fn(),
   ...extra,
 });
-
-const FUTURE_CAPACITY_RESET = new Date(2100, 6, 18, 20, 0).getTime();
-
-function capacityLimits(
-  codexWindows: { session5h?: boolean; week?: boolean } = {},
-  resetAt = FUTURE_CAPACITY_RESET,
-) {
-  const codex = {
-    provider: "codex" as const,
-    kind: "tokens" as const,
-    totalTokens: 12_000,
-    session5hTokens: 1_000,
-    weekTokens: 9_000,
-    updatedAt: 123,
-    stale: false,
-    session5h: codexWindows.session5h === false ? null : { pct: 20, resetAt },
-    week: codexWindows.week === false ? null : { pct: 80, resetAt },
-  };
-  return {
-    session5h: { pct: 30, resetAt },
-    week: { pct: 60, resetAt },
-    perModelWeek: [],
-    credits: null,
-    stale: false,
-    calibratedAt: null,
-    subscriptionOnly: false,
-    providers: [
-      {
-        provider: "claude" as const,
-        kind: "limits" as const,
-        session5h: { pct: 30, resetAt },
-        week: { pct: 60, resetAt },
-        perModelWeek: [],
-        credits: null,
-        stale: false,
-        calibratedAt: null,
-        subscriptionOnly: false,
-      },
-      codex,
-    ],
-  } satisfies UsageLimits;
-}
 
 function slashCommand(name: string, providers: SlashCommand["providers"]): SlashCommand {
   return {

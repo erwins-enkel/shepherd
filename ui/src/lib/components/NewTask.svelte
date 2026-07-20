@@ -526,9 +526,6 @@
       : setting;
   }
   const effectiveModelSetting = $derived(modelSettingFor(agentProvider));
-  const providerDefaultModel = $derived(
-    preselectModel(effectiveModelSetting, agentProvider, fableAvailable),
-  );
 
   const repoEffortOverride = $derived(repoPath ? repoConfig.defaultEffortFor(repoPath) : "inherit");
   const effectiveEffortSetting = $derived(

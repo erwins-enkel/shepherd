@@ -57,9 +57,6 @@ describe("MobileEngineSheet contract", () => {
     document.activeElement!.dispatchEvent(ev);
     expect(ev.defaultPrevented).toBe(true); // an OUTER dialog would skip this event
     expect(onclose).toHaveBeenCalledTimes(1);
-
-    // Unmount (what the parent does on close) restores focus to the opener.
-    document.querySelector(".sheet")?.parentElement; // no-op read
   });
 
   it("traps Tab within the sheet", async () => {

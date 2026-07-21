@@ -246,3 +246,18 @@ test("worktree-stash-notice recommends read-only + create/apply, never store or 
   // Bare stash/pop explicitly prohibited.
   expect(p).toContain("never bare `git stash`");
 });
+
+test("both plan-gate directives tell the planner to reference code by path + symbol", () => {
+  // The reviewer is barred from raising location findings, so a planner still emitting line
+  // numbers produces noise that cannot be acted on. Both directives must carry the rule.
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).toContain("FILE PATH + SYMBOL");
+    expect(d).toContain("never by line number");
+    // The stripping claim must stay QUALIFIED: stripPlanLineRefs only removes refs bound to an
+    // extension-bearing path, so `Makefile:88` and `foo.ts (line 411)` survive (pinned in
+    // plan-gate-prompt.test.ts). An unqualified "line numbers are stripped" would promise a
+    // guarantee the code does not make.
+    expect(d).toContain("path-attached line refs are stripped");
+    expect(d).not.toContain("line numbers are stripped");
+  }
+});

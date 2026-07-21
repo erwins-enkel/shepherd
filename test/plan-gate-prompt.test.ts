@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { planReviewPrompt, reviewerArgv, PLAN_VERDICT_FILE } from "../src/plan-gate";
+import {
+  planReviewPrompt,
+  reviewerArgv,
+  stripPlanLineRefs,
+  PLAN_VERDICT_FILE,
+} from "../src/plan-gate";
 
 test("prompt embeds task + plan + prior findings + verdict file + read-only", () => {
   const p = planReviewPrompt("do X", "PLAN TEXT", ["earlier nit"]);
@@ -79,4 +84,198 @@ test("de: planReviewPrompt names summary/body/findings as German-prose fields, k
   expect(p).toContain("findings");
   expect(p).toContain("decision");
   expect(p).toContain('"approve" | "request-changes"');
+});
+
+// ─── line-reference stripping ────────────────────────────────────────────────────────────────
+// The strip is a NARROW deterministic backstop, not a sanitiser: it requires an extension-bearing
+// path token immediately before the ref. The "survives" cases below are the deliberate trade —
+// widening the pattern to catch them would start eating timestamps, ports and ratios. They are
+// asserted here so the trade-off is pinned by a test rather than by prose in the plan.
+
+test("stripPlanLineRefs removes extension-bearing path:line and #Lline refs", () => {
+  expect(stripPlanLineRefs("see src/ui/mod.rs:1385-1388 now")).toBe("see src/ui/mod.rs now");
+  expect(stripPlanLineRefs("foo.ts:12")).toBe("foo.ts");
+  expect(stripPlanLineRefs("a/b/x.svelte#L20-L40")).toBe("a/b/x.svelte");
+  expect(stripPlanLineRefs("a/b/x.svelte#L20")).toBe("a/b/x.svelte");
+  expect(stripPlanLineRefs("plan-gate.ts:1227-1231, review.ts:312")).toBe(
+    "plan-gate.ts, review.ts",
+  );
+});
+
+test("stripPlanLineRefs consumes grep/compiler file:line:col refs WHOLE", () => {
+  // Matching only the `:line` half would leave `foo.ts:5` — a surviving, plausible-looking
+  // reference to the WRONG line. That is strictly worse than not matching at all, since it
+  // re-arms the exact argument the strip exists to prevent, now pointing somewhere bogus.
+  expect(stripPlanLineRefs("foo.ts:12:5")).toBe("foo.ts");
+  expect(stripPlanLineRefs("src/a.rs:10:3: error")).toBe("src/a.rs: error");
+  expect(stripPlanLineRefs("src/a.ts:1:2:3")).toBe("src/a.ts");
+});
+
+test("stripPlanLineRefs leaves host:port/path alone even without a scheme prefix", () => {
+  // The token-boundary lookbehind only defuses a URL when `//` is present; a bare registry ref
+  // has no scheme, so the trailing (?!/) does the work — a port is followed by a path, a line
+  // number never is.
+  for (const s of ["ghcr.io:443/x", "registry.io:5000/img:tag", "docker.io:5000/a/b"]) {
+    expect(stripPlanLineRefs(s)).toBe(s);
+  }
+});
+
+test("stripPlanLineRefs: bare host:port is a KNOWN, accepted false positive", () => {
+  // With no path there is nothing left to distinguish `ghcr.io:443` from `foo.ts:443`, and a TLD
+  // blocklist is not an option: `.rs`, `.sh`, `.pl` and `.ml` are all simultaneously real code
+  // extensions and real TLDs. Accepted because it is cosmetic — the reviewer's copy of the plan
+  // loses a port number, which costs nothing. Asserted so the behaviour is pinned, not forgotten.
+  expect(stripPlanLineRefs("ghcr.io:443")).toBe("ghcr.io");
+});
+
+test("stripPlanLineRefs leaves non-path colon forms alone (false-positive guard)", () => {
+  for (const s of [
+    "10:30",
+    "http://host:8080",
+    "--flag=3:4",
+    "ratio 16:9",
+    "https://example.com:443/x",
+    // DECIMAL-bearing forms: `16.9` would read as "file 16.9" and `:1` as its line number unless
+    // the extension is required to start with a letter. Aspect ratios, versions and clock times
+    // with a fractional part all land in this class.
+    "16.9:1",
+    "1.5:30",
+    "v2.0:5",
+    "cpu 0.75:1",
+  ]) {
+    expect(stripPlanLineRefs(s)).toBe(s);
+  }
+});
+
+test("stripPlanLineRefs: documented gaps survive (governed by the prompt rule, not the regex)", () => {
+  // bare `:NNN` continuation — the leading path ref goes, the detached one stays
+  expect(stripPlanLineRefs("foo.ts:1085, :1090")).toBe("foo.ts, :1090");
+  // prose forms and extension-less paths are untouched entirely
+  for (const s of ["foo.ts (line 411)", "line 411 of foo.ts", "Makefile:88", "Dockerfile:12"]) {
+    expect(stripPlanLineRefs(s)).toBe(s);
+  }
+});
+
+test("prompt strips line refs from the PLAN but never from task / issueBody / prior findings", () => {
+  const p = planReviewPrompt(
+    "fix the clamp at task.ts:120",
+    "rewrite handleX in src/plan.ts:412",
+    ["the ref src/old.ts:99 points at the wrong function"],
+    "issue mentions src/issue.ts:7",
+  );
+  // plan: stripped
+  expect(p).toContain("rewrite handleX in src/plan.ts");
+  expect(p).not.toContain("src/plan.ts:412");
+  // task / issueBody / prior findings: verbatim — human-authored ground truth, and findings are
+  // re-raised verbatim, so mutating them would make them un-addressable.
+  expect(p).toContain("task.ts:120");
+  expect(p).toContain("src/issue.ts:7");
+  expect(p).toContain("src/old.ts:99");
+});
+
+// ─── the three tiers + the unconditional referencing rules ───────────────────────────────────
+
+const STRONG = { sha: "abc1234", ahead: 0 };
+const AHEAD = { sha: "abc1234", ahead: 3 };
+
+test("strong tier (anchored, ahead=0): names the anchor and makes an unresolvable ref a finding", () => {
+  const p = planReviewPrompt("t", "plan", [], null, "en", STRONG);
+  expect(p).toContain("abc1234");
+  expect(p).toContain("reads IDENTICALLY");
+  expect(p).toContain("IS therefore a finding");
+  expect(p).not.toContain("commit(s) SINCE that merge-base");
+  expect(p).not.toContain("could NOT be tied");
+});
+
+test("strong tier scopes its claim to COMMITTED code and carves out the planner's dirty tree", () => {
+  // `ahead` counts commits, so uncommitted working-tree edits are invisible even at ahead=0 —
+  // and there is always at least one (the plan file). An unqualified "every file reads
+  // identically" would be the premise of this block's ONLY blocking rule, so the overclaim would
+  // license false findings against symbols that exist solely in the planner's dirty tree.
+  const p = planReviewPrompt("t", "plan", [], null, "en", STRONG);
+  expect(p).toContain("every file COMMITTED at that point reads IDENTICALLY");
+  expect(p).toContain("such already-committed code");
+  expect(p).toContain("UNCOMMITTED working-tree edits are still invisible");
+  expect(p).toContain('report it in "body", NOT in "findings"');
+});
+
+test("ahead tier (anchored, ahead>0): unresolvable refs route to body, never findings", () => {
+  const p = planReviewPrompt("t", "plan", [], null, "en", AHEAD);
+  expect(p).toContain("3 commit(s) SINCE that merge-base");
+  expect(p).toContain('report it in "body"');
+  expect(p).toContain('NEVER in "findings"');
+  // the blocking form must NOT appear — this is the regression that manufactured junk findings
+  // on long multi-round sessions (round 3 citing round 1's committed scaffolding).
+  expect(p).not.toContain("IS therefore a finding");
+  // ...and neither may the co-location claim: with commits past the anchor, a pre-existing file
+  // the agent has since edited does NOT read the same on both sides, so asserting it would
+  // license the very false findings this tier exists to prevent.
+  expect(p).not.toContain("reads IDENTICALLY");
+});
+
+test("degraded tier (no anchor): no anchor claim, unresolvable refs go to body", () => {
+  const p = planReviewPrompt("t", "plan");
+  expect(p).toContain("could NOT be tied");
+  expect(p).toContain('report it in "body"');
+  expect(p).not.toContain("reads IDENTICALLY");
+  expect(p).not.toContain("IS therefore a finding");
+});
+
+test("every tier carries the same carve-out, line-number ban and output rule", () => {
+  for (const p of [
+    planReviewPrompt("t", "plan", [], null, "en", STRONG),
+    planReviewPrompt("t", "plan", [], null, "en", AHEAD),
+    planReviewPrompt("t", "plan"),
+  ]) {
+    expect(p).toContain("ADD, RENAME or MOVE are NEVER findings");
+    expect(p).toContain("precision of a location reference is NEVER a finding");
+    // The reviewer must NOT be told line numbers were exhaustively removed: the strip only
+    // catches path-attached refs, so `Makefile:88` reaches it intact and a blanket promise would
+    // be visibly false the first time one survives — discrediting the rule it justifies.
+    expect(p).toContain("line numbers are not part of the contract");
+    expect(p).not.toContain("have been removed from the plan you were shown");
+    expect(p).toContain("When you AUTHOR A NEW finding");
+  }
+});
+
+test("the re-raise exemption tracks the re-review block it cites, in every tier", () => {
+  const EXEMPTION = "EXEMPTION: re-raising a prior finding verbatim is REQUIRED";
+  const anchors = [STRONG, AHEAD, undefined];
+  for (const a of anchors) {
+    // First round: no prior findings ⇒ no "re-raise it verbatim" instruction ⇒ the exemption
+    // would cite text the reviewer was never given.
+    const first = planReviewPrompt("t", "plan", [], null, "en", a);
+    expect(first).not.toContain("RE-REVIEW");
+    expect(first).not.toContain(EXEMPTION);
+
+    // Re-review: both appear, and the exemption's "above" now resolves.
+    const re = planReviewPrompt("t", "plan", ["prior: src/a.ts:9 wrong"], null, "en", a);
+    expect(re).toContain("re-raise it verbatim");
+    expect(re).toContain(EXEMPTION);
+    expect(re.indexOf("re-raise it verbatim")).toBeLessThan(re.indexOf(EXEMPTION));
+  }
+});
+
+test("staleness block: emitted only with behind>0 AND changed paths, and is body-only", () => {
+  const p = planReviewPrompt("t", "plan", [], null, "en", STRONG, {
+    behind: 12,
+    changedSince: ["src/a.ts", "src/b.ts"],
+    more: 4,
+  });
+  expect(p).toContain("12 commit(s) behind");
+  expect(p).toContain("src/a.ts, src/b.ts");
+  expect(p).toContain("and 4 more");
+  expect(p).toContain("Anchor staleness (informational, non-blocking):");
+  expect(p).toContain("NEVER a finding");
+
+  // omitted entirely when there is nothing material to say
+  for (const s of [
+    null,
+    { behind: 0, changedSince: ["src/a.ts"] },
+    { behind: 5, changedSince: [] },
+  ]) {
+    expect(planReviewPrompt("t", "plan", [], null, "en", STRONG, s)).not.toContain(
+      "Anchor staleness",
+    );
+  }
 });

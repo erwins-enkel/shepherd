@@ -1,6 +1,6 @@
 import { promises as fsp } from "node:fs";
 import { join, basename, extname, sep, normalize, isAbsolute } from "node:path";
-import { sessionScratchpadDir } from "./tmp-sweep";
+import { existingScratchpadDir } from "./tmp-sweep";
 import { worktreeUploadsDir } from "./uploads";
 import {
   within,
@@ -35,7 +35,7 @@ export async function resolveScratchpadPath(
   relPath: string,
 ): Promise<{ rootReal: string; resolved: string } | null> {
   if (!claudeSessionId) return null;
-  return resolveInRoot(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
+  return resolveInRoot(await existingScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**
@@ -51,7 +51,7 @@ export async function listScratchpad(
   relPath: string,
 ): Promise<ScratchListing | null> {
   if (!claudeSessionId) return null;
-  return listDir(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
+  return listDir(await existingScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**
@@ -64,7 +64,7 @@ export async function resolveScratchpadFile(
   relPath: string,
 ): Promise<string | null> {
   if (!claudeSessionId) return null;
-  return resolveFileInRoot(sessionScratchpadDir(worktreePath, claudeSessionId), relPath);
+  return resolveFileInRoot(await existingScratchpadDir(worktreePath, claudeSessionId), relPath);
 }
 
 /**
@@ -237,8 +237,10 @@ export async function resolveScratchpadUploadDir(
 ): Promise<{ rootReal: string; dirReal: string } | null> {
   if (!claudeSessionId) return null;
 
-  // Ensure the root exists — async mkdir so the event loop isn't blocked.
-  const root = sessionScratchpadDir(worktreePath, claudeSessionId);
+  // Ensure the root exists — async mkdir so the event loop isn't blocked. Uploads target the SAME
+  // root the reads use (#1875): a legacy-only (adopted) session's uploads land beside its agent's
+  // files on the tmpfs; otherwise the disk primary is created on demand.
+  const root = await existingScratchpadDir(worktreePath, claudeSessionId);
   await fsp.mkdir(root, { recursive: true });
 
   let rootReal: string;

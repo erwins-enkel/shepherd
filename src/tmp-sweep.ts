@@ -61,12 +61,70 @@ export function compileCacheDir(): string {
 }
 
 /**
+ * The disk-backed `TMPDIR` that spawned (trusted) agents are pointed at (#1875), so ALL their temp
+ * I/O — the per-session scratch tree, git worktrees, dependency installs, and bare-`$TMPDIR` tool
+ * caches (fallow/bunx/agent-browser) — lands on a real filesystem instead of the `/tmp` tmpfs, whose
+ * INODE table it otherwise exhausts (ENOSPC with bytes to spare). Default mirrors `compileCacheDir()`'s
+ * `~/.cache/shepherd/*` home. Read from env at call time.
+ *
+ * Returns `null` when the redirect is DISABLED — the operator set `SHEPHERD_AGENT_TMPDIR` to the
+ * empty string — restoring the pre-#1875 tmpfs inheritance as a one-env-var rollback (the write
+ * traffic this relocates to disk is unmeasured). A non-empty value overrides the default path.
+ */
+export function agentTmpDir(): string | null {
+  const v = process.env.SHEPHERD_AGENT_TMPDIR;
+  if (v === "") return null; // explicitly disabled
+  return v ?? join(homedir(), ".cache", "shepherd", "tmp");
+}
+
+/**
+ * The value the SERVER sets as its own `CLAUDE_CODE_TMPDIR` at boot so `claudeTmpRoot()` (and every
+ * scratch consumer) follows trusted agents onto the disk `agentTmpDir()`. It is `agentTmpDir()` plus
+ * the `claude-$uid` suffix, because `claudeTmpRoot()` treats `CLAUDE_CODE_TMPDIR` as the FINAL root
+ * (returns it verbatim). Null when the redirect is disabled.
+ *
+ * The spawn shim STRIPS `CLAUDE_CODE_TMPDIR` from the agent (`env -u`, see `buildWrappedArgv`): claude
+ * honours it as a BASE and appends its OWN `claude-$uid`, so an inherited value would double-suffix the
+ * agent's root (`<disk>/claude-$uid/claude-$uid`) and desync it from this server-side read path. Instead
+ * the agent re-derives this SAME path from `TMPDIR=agentTmpDir()` alone.
+ */
+export function agentClaudeTmpRoot(): string | null {
+  const base = agentTmpDir();
+  return base === null ? null : join(base, `claude-${uid()}`);
+}
+
+/**
+ * The pre-#1875 claude tmp root on the system tmpfs — `<os.tmpdir()>/claude-$uid`. After the boot
+ * override moves `claudeTmpRoot()` to the disk `agentClaudeTmpRoot()`, this is where an ADOPTED
+ * (pre-upgrade) session's live agent — which kept its spawn-time `TMPDIR=/tmp` across the deploy —
+ * still writes. The dual-read / dual-clean / sweep paths consult it so those sessions are not orphaned.
+ * Read at call time.
+ */
+export function legacyClaudeTmpRoot(): string {
+  return join(tmpdir(), `claude-${uid()}`);
+}
+
+/**
  * The per-session scratch dir a NESTED claude derives for a given worktree cwd:
  * `<claudeTmpRoot>/claude-$uid/<dashified-worktree-path>`. The doubled `claude-$uid`
  * is real — our spawned agents inherit TMPDIR and re-derive their own claude root under it.
  */
 export function worktreeScratchDir(worktreePath: string): string {
   return join(claudeTmpRoot(), `claude-${uid()}`, dashify(worktreePath));
+}
+
+/**
+ * Ordered, DEDUPED nested-scratch-dir candidates for a worktree (#1875 migration). Primary is the
+ * live `worktreeScratchDir()` (disk after the boot override); the second is the same doubled
+ * `claude-$uid/<dashified>` tail under the legacy tmpfs root, where an ADOPTED pre-upgrade session's
+ * live agent still writes. `removeWorktreeScratch` reclaims BOTH on archival — without this the
+ * disk-only primary would silently stop reclaiming those tmpfs dirs, regressing an existing
+ * automatic tmpfs-inode reclaim. No override → the two collapse and dedupe to one → unchanged.
+ */
+export function worktreeScratchDirCandidates(worktreePath: string): string[] {
+  const primary = worktreeScratchDir(worktreePath);
+  const legacy = join(legacyClaudeTmpRoot(), `claude-${uid()}`, dashify(worktreePath));
+  return [...new Set([primary, legacy])];
 }
 
 /**
@@ -86,22 +144,67 @@ export function sessionScratchpadDir(worktreePath: string, claudeSessionId: stri
 }
 
 /**
+ * Ordered, DEDUPED scratchpad-dir candidates for a session (#1875 migration). The primary is the
+ * live `sessionScratchpadDir()` (disk after the boot override); the second is the same tail under
+ * the legacy tmpfs root, where an ADOPTED pre-upgrade session's live agent — which kept its
+ * spawn-time `TMPDIR=/tmp` — still writes. When no override is active (`claudeTmpRoot()` ===
+ * `legacyClaudeTmpRoot()`) the two collapse and the list dedupes to a single entry, so every
+ * non-migration consumer is byte-for-byte unchanged.
+ */
+export function sessionScratchpadDirCandidates(
+  worktreePath: string,
+  claudeSessionId: string,
+): string[] {
+  const primary = sessionScratchpadDir(worktreePath, claudeSessionId);
+  const legacy = join(legacyClaudeTmpRoot(), dashify(worktreePath), claudeSessionId, "scratchpad");
+  return [...new Set([primary, legacy])];
+}
+
+/**
+ * Resolve which scratchpad root a session ACTUALLY uses: the first candidate that exists, else the
+ * primary (for creation). Rule: a live disk session → disk; a legacy-only (adopted) session →
+ * legacy tmpfs; if BOTH exist (e.g. a respawned session) → prefer disk (the live root). Keeps a
+ * SINGLE root per session so reads, downloads, and uploads never split across roots. Returns the
+ * primary on a blank `claudeSessionId` (callers already guard that separately).
+ */
+export async function existingScratchpadDir(
+  worktreePath: string,
+  claudeSessionId: string,
+): Promise<string> {
+  const primary = sessionScratchpadDir(worktreePath, claudeSessionId);
+  for (const dir of sessionScratchpadDirCandidates(worktreePath, claudeSessionId)) {
+    try {
+      await fsp.access(dir);
+      return dir;
+    } catch {
+      // try the next candidate
+    }
+  }
+  return primary;
+}
+
+/**
  * Shallow, async, non-throwing "does this session's scratchpad hold any entry?" probe — the
  * cheap signal that gates the UI's Files tab (#1164). Counts ANY entry (files OR subdirs,
  * dotfiles included). Returns false on a blank `claudeSessionId` (pre-`--session-id` session /
- * agent not yet started), a missing dir, or any read error. Single shallow `readdir`.
+ * agent not yet started), a missing dir, or any read error. Dual-read across the disk + legacy
+ * candidates (#1875) so an adopted pre-upgrade session on the tmpfs still lights the tab; a single
+ * shallow `readdir` per candidate, short-circuiting on the first non-empty hit.
  */
 export async function scratchpadHasFiles(
   worktreePath: string,
   claudeSessionId: string,
 ): Promise<boolean> {
   if (!claudeSessionId) return false;
-  try {
-    const entries = await fsp.readdir(sessionScratchpadDir(worktreePath, claudeSessionId));
-    return entries.length > 0;
-  } catch {
-    return false;
+  for (const dir of sessionScratchpadDirCandidates(worktreePath, claudeSessionId)) {
+    try {
+      const entries = await fsp.readdir(dir);
+      if (entries.length > 0) return true;
+    } catch {
+      // missing/unreadable candidate — try the next
+    }
   }
+  return false;
 }
 
 export interface SweepResult {
@@ -322,6 +425,29 @@ async function sweepDir(dir: string, ctx: SweepCtx): Promise<number> {
 }
 
 /**
+ * The directories one sweep visits. An explicit `root` (`explicitRoot`, tests) sweeps ONLY that
+ * root + its nested `claude-$uid` dir — today's behavior, byte-for-byte, and never touches the real
+ * disk/legacy roots. The default (production) path expands (#1875) to the DEDUPED set of the bare
+ * disk `agentTmpDir()` — where bare-`$TMPDIR` tool caches (fallow/bunx/agent-browser) land — the
+ * disk claude `root` + nested, and the legacy tmpfs root + nested — where an adopted pre-upgrade
+ * session's live agent still writes. No override → the roots collapse and dedupe to today's pair.
+ */
+function resolveSweepRoots(root: string, nestedName: string, explicitRoot: boolean): string[] {
+  if (explicitRoot) return [root, join(root, nestedName)];
+  const agentTmp = agentTmpDir();
+  const legacy = legacyClaudeTmpRoot();
+  return [
+    ...new Set([
+      ...(agentTmp ? [agentTmp] : []),
+      root,
+      join(root, nestedName),
+      legacy,
+      join(legacy, nestedName),
+    ]),
+  ];
+}
+
+/**
  * Threshold-gated inode guard. TOTAL by contract: it NEVER throws or rejects — any
  * unexpected error resolves to `{ swept:false, reason:"error", removed:0 }` after logging,
  * so a caller can fire-and-forget it on a timer without a guard.
@@ -382,7 +508,7 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
 
     const nestedName = `claude-${uid()}`;
     const ctx: SweepCtx = { ops, now, staleMs, nestedName, log };
-    const sweepRoots = [root, join(root, nestedName)];
+    const sweepRoots = resolveSweepRoots(root, nestedName, opts?.root !== undefined);
 
     let removed = 0;
     for (const dir of sweepRoots) removed += await sweepDir(dir, ctx);
@@ -399,19 +525,23 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
 }
 
 /**
- * Best-effort targeted teardown of one worktree's scratch dir (e.g. on session retire).
- * No-op when absent (`force:true`), swallows every error — never throws.
+ * Best-effort targeted teardown of one worktree's scratch dir (e.g. on session retire). Reclaims
+ * BOTH the disk and legacy-tmpfs candidates (#1875) so an adopted pre-upgrade session's nested
+ * scratch on the tmpfs is still freed. No-op per candidate when absent (`force:true`), swallows
+ * every error — never throws. An explicit `opts.dir` (tests) targets exactly that one dir.
  */
 export async function removeWorktreeScratch(
   worktreePath: string,
   opts?: { dir?: string; rm?: typeof fsp.rm },
 ): Promise<void> {
-  const dir = opts?.dir ?? worktreeScratchDir(worktreePath);
+  const dirs = opts?.dir ? [opts.dir] : worktreeScratchDirCandidates(worktreePath);
   const rm = opts?.rm ?? fsp.rm;
-  try {
-    await rm(dir, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
+  for (const dir of dirs) {
+    try {
+      await rm(dir, { recursive: true, force: true });
+    } catch {
+      /* best-effort — continue to the next candidate */
+    }
   }
 }
 
@@ -507,15 +637,19 @@ export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallo
     rm: fsp.rm,
   };
 
-  // Dedupe roots: claudeTmpRoot(), claude-$uid subdir, and bare tmpdir() for caches whose
-  // TMPDIR was the system default. Using a Set so a reconfigured env can't double-scan.
-  // opts?.roots overrides the computed set (lets tests isolate from bare /tmp — #817).
+  // Dedupe roots: claudeTmpRoot(), claude-$uid subdir, bare tmpdir() for caches whose TMPDIR was
+  // the system default, and (when enabled) the bare disk agentTmpDir() — where an agent's Bash tool
+  // running fallow writes `fallow-audit-base-cache-*` at its bare `$TMPDIR` (#1875). Without the
+  // agentTmpDir() root those disk caches are reaped by NEITHER this pass nor sweepClaudeTmp, so they
+  // accrete unbounded on disk. Using a Set so a reconfigured env can't double-scan. opts?.roots
+  // overrides the computed set (lets tests isolate from bare /tmp — #817).
   const claudeRoot = claudeTmpRoot();
   const nestedRoot = join(claudeRoot, `claude-${uid()}`);
   const systemTmp = tmpdir();
+  const agentTmp = agentTmpDir();
   const roots = opts?.roots
     ? [...new Set(opts.roots)]
-    : [...new Set([claudeRoot, nestedRoot, systemTmp])];
+    : [...new Set([claudeRoot, nestedRoot, systemTmp, ...(agentTmp ? [agentTmp] : [])])];
 
   const ctx: ReapFallowCtx = { ops, now, staleMs, log };
   let removed = 0;

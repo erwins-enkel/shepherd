@@ -3,7 +3,7 @@ import { promisify } from "node:util";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { maintenance } from "./maintenance";
-import { compileCacheDir } from "./tmp-sweep";
+import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 
 const execFileAsync = promisify(execFile);
@@ -363,6 +363,16 @@ export function parseAgentInfo(agent: unknown): HerdrAgent {
  * xterm keystrokes). The main-session spawn computes its own renderer env and routes it
  * through both the membrane --setenv and this shim, so re-adding the pin here would
  * duplicate it (and `env`'s last-wins would let the pin override an intended NO_FLICKER).
+ *
+ * Points the agent at the disk-backed `agentTmpDir()` via `TMPDIR=` (#1875) so its temp I/O stays
+ * off the `/tmp` tmpfs whose inode table it exhausts, and STRIPS the inherited `CLAUDE_CODE_TMPDIR`
+ * via `env -u`: the server sets that on its OWN env so `claudeTmpRoot()` follows, but claude honours
+ * it as a BASE and appends its own `claude-$uid`, so letting it reach the agent would double-suffix
+ * the agent's root and desync it from the server's read path. Both are skipped when the redirect is
+ * disabled (`agentTmpDir()===null`); the `TMPDIR=` token is skipped if the caller already set one.
+ * NOTE: for a membrane-wrapped (sandboxed) spawn this OUTER `env` shim is wiped by `bwrap --clearenv`
+ * (identically to `NODE_COMPILE_CACHE`), so the redirect is a TRUSTED-spawn guarantee — a sandbox's
+ * own ephemeral `--tmpfs /tmp` never threatens the host inode table.
  */
 export function buildWrappedArgv(argv: string[], env?: Record<string, string>): string[] {
   const envTokens = env
@@ -372,8 +382,17 @@ export function buildWrappedArgv(argv: string[], env?: Record<string, string>): 
     : [];
   const callerSetRenderer =
     !!env && ("CLAUDE_CODE_NO_FLICKER" in env || "CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN" in env);
+  // `-u CLAUDE_CODE_TMPDIR` must precede the KEY=VALUE assignments (coreutils `env` stops option
+  // parsing at the first operand). When enabled we ALWAYS strip CLAUDE_CODE_TMPDIR (even if a caller
+  // set TMPDIR — claude prefers CLAUDE_CODE_TMPDIR over TMPDIR, so a leak would still double-suffix),
+  // and add our TMPDIR= only when the caller didn't provide one.
+  const agentTmp = agentTmpDir();
+  const tmpTokens = agentTmp
+    ? ["-u", "CLAUDE_CODE_TMPDIR", ...(env && "TMPDIR" in env ? [] : [`TMPDIR=${agentTmp}`])]
+    : [];
   return [
     "env",
+    ...tmpTokens,
     `NODE_COMPILE_CACHE=${compileCacheDir()}`,
     ...(callerSetRenderer ? [] : ["CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1"]),
     ...envTokens,

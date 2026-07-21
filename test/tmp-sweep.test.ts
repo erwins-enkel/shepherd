@@ -1,10 +1,11 @@
 import { test, expect, describe, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, existsSync } from "node:fs";
 import * as fsp from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   worktreeScratchDir,
+  worktreeScratchDirCandidates,
   sweepClaudeTmp,
   removeWorktreeScratch,
   reapFallowCaches,
@@ -13,6 +14,12 @@ import {
   tmpInodeBands,
   TMP_INODE_ERROR_PCT,
   FALLOW_CACHE_PREFIX,
+  agentTmpDir,
+  agentClaudeTmpRoot,
+  legacyClaudeTmpRoot,
+  sessionScratchpadDirCandidates,
+  existingScratchpadDir,
+  scratchpadHasFiles,
 } from "../src/tmp-sweep";
 
 const uid = (): number => process.getuid?.() ?? 1000;
@@ -541,6 +548,154 @@ describe("removeWorktreeScratch", () => {
         },
       }),
     ).resolves.toBeUndefined();
+  });
+
+  test("dual-cleans BOTH the disk and legacy roots (#1875)", async () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root"); // claudeTmpRoot() → disk
+    setEnv("TMPDIR", "/legacy/base"); // legacyClaudeTmpRoot() → /legacy/base/claude-$uid
+    const wt = "/home/u/Work/proj";
+    const calls: string[] = [];
+    await removeWorktreeScratch(wt, {
+      rm: (async (p: string) => {
+        calls.push(String(p));
+      }) as never,
+    });
+    // rm is called once per DEDUPED candidate, in order (disk primary, then legacy tmpfs).
+    expect(calls).toEqual(worktreeScratchDirCandidates(wt));
+    expect(calls.length).toBe(2);
+  });
+
+  test("no-override collapses the two roots to a single rm call", async () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", legacyClaudeTmpRoot()); // claudeTmpRoot() === legacy
+    const calls: string[] = [];
+    await removeWorktreeScratch("/home/u/Work/proj", {
+      rm: (async (p: string) => {
+        calls.push(String(p));
+      }) as never,
+    });
+    expect(calls.length).toBe(1);
+  });
+});
+
+// ── #1875: disk-backed agent TMPDIR geometry + migration helpers ────────────────
+describe("agent tmp dir geometry (#1875)", () => {
+  test("agentTmpDir(): default is ~/.cache/shepherd/tmp", () => {
+    expect(agentTmpDir()).toBe(join(homedir(), ".cache", "shepherd", "tmp"));
+  });
+
+  test("agentTmpDir(): honors an explicit override", () => {
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/custom/disk");
+    expect(agentTmpDir()).toBe("/custom/disk");
+  });
+
+  test("agentTmpDir(): an empty string disables the redirect (null)", () => {
+    setEnv("SHEPHERD_AGENT_TMPDIR", "");
+    expect(agentTmpDir()).toBeNull();
+  });
+
+  test("agentClaudeTmpRoot(): agentTmpDir + claude-$uid, null when disabled", () => {
+    setEnv("SHEPHERD_AGENT_TMPDIR", "/custom/disk");
+    expect(agentClaudeTmpRoot()).toBe(join("/custom/disk", nested));
+    setEnv("SHEPHERD_AGENT_TMPDIR", "");
+    expect(agentClaudeTmpRoot()).toBeNull();
+  });
+
+  test("legacyClaudeTmpRoot(): <tmpdir>/claude-$uid", () => {
+    expect(legacyClaudeTmpRoot()).toBe(join(tmpdir(), nested));
+  });
+
+  test("sessionScratchpadDirCandidates: dedupes to one with no override, two under an override", () => {
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", legacyClaudeTmpRoot()); // primary === legacy
+    expect(sessionScratchpadDirCandidates("/home/u/Work/proj", "sid").length).toBe(1);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", "/disk/root"); // primary !== legacy
+    expect(sessionScratchpadDirCandidates("/home/u/Work/proj", "sid").length).toBe(2);
+  });
+
+  test("existingScratchpadDir + scratchpadHasFiles: fall back to the legacy tmpfs root", async () => {
+    const diskRoot = mkTmp();
+    const legacyBase = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", diskRoot); // claudeTmpRoot() → disk (primary, absent)
+    setEnv("TMPDIR", legacyBase); // legacyClaudeTmpRoot() → legacyBase/claude-$uid
+    const wt = "/home/u/Work/proj";
+    const sid = "sess-legacy";
+    const dash = wt.replace(/[/.]/g, "-");
+    const legacyDir = join(legacyBase, nested, dash, sid, "scratchpad");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "note.txt"), "x");
+    // Only the legacy dir exists → resolver falls back to it, and the Files-tab gate lights.
+    expect(await existingScratchpadDir(wt, sid)).toBe(legacyDir);
+    expect(await scratchpadHasFiles(wt, sid)).toBe(true);
+  });
+
+  test("existingScratchpadDir: prefers the disk root when BOTH exist", async () => {
+    const diskRoot = mkTmp();
+    const legacyBase = mkTmp();
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", diskRoot);
+    setEnv("TMPDIR", legacyBase);
+    const wt = "/home/u/Work/proj";
+    const sid = "sess-both";
+    const dash = wt.replace(/[/.]/g, "-");
+    const primaryDir = join(diskRoot, dash, sid, "scratchpad");
+    const legacyDir = join(legacyBase, nested, dash, sid, "scratchpad");
+    mkdirSync(primaryDir, { recursive: true });
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(primaryDir, "b"), "y");
+    writeFileSync(join(legacyDir, "a"), "x");
+    expect(await existingScratchpadDir(wt, sid)).toBe(primaryDir);
+  });
+
+  test("reapFallowCaches: default set reaps a stale fallow cache at the bare agentTmpDir() root", async () => {
+    const agentRoot = mkTmp();
+    const claudeRootDir = mkTmp();
+    const tmpBase = mkTmp(); // empty — keeps the other default roots (+bare /tmp) out of play
+    setEnv("SHEPHERD_AGENT_TMPDIR", agentRoot);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", claudeRootDir);
+    setEnv("TMPDIR", tmpBase);
+    const dir = join(agentRoot, `${FALLOW_CACHE_PREFIX}bare`);
+    mkdirSync(dir);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+    // NO `roots` override → exercises the DEFAULT computed set, which must include agentTmpDir().
+    await reapFallowCaches({ now, staleMs: 24 * 3600_000, fsOps: fsp, log: () => {} });
+    expect(existsSync(dir)).toBe(false);
+  });
+
+  test("reapFallowCaches: a DISABLED agent tmp dir is not scanned", async () => {
+    const agentRoot = mkTmp();
+    const claudeRootDir = mkTmp();
+    const tmpBase = mkTmp();
+    setEnv("SHEPHERD_AGENT_TMPDIR", ""); // disabled
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", claudeRootDir);
+    setEnv("TMPDIR", tmpBase);
+    const dir = join(agentRoot, `${FALLOW_CACHE_PREFIX}x`);
+    mkdirSync(dir);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(dir, old, old);
+    await reapFallowCaches({ now, staleMs: 24 * 3600_000, fsOps: fsp, log: () => {} });
+    expect(existsSync(dir)).toBe(true); // survives — bare agent root not in the default set
+  });
+
+  test("sweepClaudeTmp: the default (forced) path also sweeps the bare agentTmpDir() root", async () => {
+    const agentRoot = mkTmp();
+    const claudeRootDir = mkTmp();
+    const tmpBase = mkTmp();
+    setEnv("SHEPHERD_AGENT_TMPDIR", agentRoot);
+    setEnv("SHEPHERD_TMP_SWEEP_DIR", claudeRootDir);
+    setEnv("TMPDIR", tmpBase);
+    const ncc = join(agentRoot, "node-compile-cache");
+    mkdirSync(ncc);
+    const staleBunx = join(agentRoot, "bunx-1000-x");
+    mkdirSync(staleBunx);
+    const now = Date.now();
+    const old = new Date(now - 48 * 3600_000);
+    utimesSync(staleBunx, old, old);
+    // thresholdPct: 0 forces the sweep (gate bypassed); NO `root` override → default sweepRoots.
+    const res = await sweepClaudeTmp({ thresholdPct: 0, now, fsOps: fsp, log: () => {} });
+    expect(res.swept).toBe(true);
+    expect(existsSync(ncc)).toBe(false); // wholesale, at the bare agent root
+    expect(existsSync(staleBunx)).toBe(false); // stale regenerable cache, at the bare agent root
   });
 });
 

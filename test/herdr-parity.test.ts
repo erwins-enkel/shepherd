@@ -95,3 +95,57 @@ describe("buildWrappedArgv — shared spawn argv", () => {
     expect(w.indexOf("CLAUDE_CODE_NO_FLICKER=1")).toBeLessThan(w.indexOf("FOO=b"));
   });
 });
+
+/**
+ * #1875: the shim points trusted agents at the disk-backed TMPDIR and strips the inherited
+ * CLAUDE_CODE_TMPDIR (which claude would double-suffix). These assertions run on the UNWRAPPED
+ * (trusted) argv shape — the token is effective ONLY when it directly precedes the agent with no
+ * `bwrap --clearenv` between them; asserting it on a bwrap-wrapped argv would falsely pass while the
+ * variable is inert inside the sandbox.
+ */
+describe("buildWrappedArgv — disk TMPDIR redirect (#1875)", () => {
+  const KEY = "SHEPHERD_AGENT_TMPDIR";
+  function withEnv(val: string | undefined, fn: () => void) {
+    const prev = process.env[KEY];
+    if (val === undefined) delete process.env[KEY];
+    else process.env[KEY] = val;
+    try {
+      fn();
+    } finally {
+      if (prev === undefined) delete process.env[KEY];
+      else process.env[KEY] = prev;
+    }
+  }
+
+  it("adds `-u CLAUDE_CODE_TMPDIR` then `TMPDIR=<disk>`, before NODE_COMPILE_CACHE, unwrapped", () => {
+    withEnv("/disk/agent", () => {
+      const w = buildWrappedArgv(["claude", "go"]);
+      expect(w).not.toContain("bwrap"); // trusted/unwrapped shape — where the token is effective
+      const uIdx = w.indexOf("-u");
+      expect(uIdx).toBeGreaterThan(0);
+      expect(w[uIdx + 1]).toBe("CLAUDE_CODE_TMPDIR");
+      const tmpIdx = w.indexOf("TMPDIR=/disk/agent");
+      const nccIdx = w.findIndex((t) => t.startsWith("NODE_COMPILE_CACHE="));
+      expect(tmpIdx).toBeGreaterThan(uIdx);
+      expect(tmpIdx).toBeLessThan(nccIdx); // options + TMPDIR precede the other assignments
+      expect(w.slice(-2)).toEqual(["claude", "go"]);
+    });
+  });
+
+  it("omits both the `-u` and the TMPDIR token when disabled (empty string)", () => {
+    withEnv("", () => {
+      const w = buildWrappedArgv(["claude"]);
+      expect(w).not.toContain("-u");
+      expect(w.some((t) => t.startsWith("TMPDIR="))).toBe(false);
+    });
+  });
+
+  it("still strips CLAUDE_CODE_TMPDIR but skips our token when the caller set TMPDIR", () => {
+    withEnv("/disk/agent", () => {
+      const w = buildWrappedArgv(["claude"], { TMPDIR: "/caller/tmp" });
+      expect(w[w.indexOf("-u") + 1]).toBe("CLAUDE_CODE_TMPDIR"); // always strip when enabled
+      expect(w).toContain("TMPDIR=/caller/tmp"); // caller's value, via the sorted env tokens
+      expect(w).not.toContain("TMPDIR=/disk/agent"); // our token is skipped
+    });
+  });
+});

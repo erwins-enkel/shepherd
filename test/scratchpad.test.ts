@@ -7,6 +7,7 @@ import {
   listScratchpad,
   resolveScratchpadPath,
   resolveScratchpadFile,
+  resolveScratchpadUploadDir,
   attachmentDisposition,
 } from "../src/scratchpad";
 
@@ -39,6 +40,67 @@ afterEach(() => {
   rmSync(outside, { recursive: true, force: true });
   if (prevEnv === undefined) delete process.env.SHEPHERD_TMP_SWEEP_DIR;
   else process.env.SHEPHERD_TMP_SWEEP_DIR = prevEnv;
+});
+
+// ── #1875 dual-read migration: reads/uploads follow an adopted session onto the legacy tmpfs ──
+
+/**
+ * Set up disk (primary, via SHEPHERD_TMP_SWEEP_DIR) + legacy (via TMPDIR) roots, run `fn`, and
+ * restore TMPDIR. SHEPHERD_TMP_SWEEP_DIR is restored by the file-level afterEach.
+ */
+async function withDualRoots(
+  fn: (ctx: { diskRoot: string; legacyBase: string; uidn: number }) => Promise<void>,
+): Promise<void> {
+  const prevTmp = process.env.TMPDIR;
+  const diskRoot = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-disk-")));
+  const legacyBase = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-legacy-")));
+  process.env.SHEPHERD_TMP_SWEEP_DIR = diskRoot; // claudeTmpRoot() → disk primary
+  process.env.TMPDIR = legacyBase; // legacyClaudeTmpRoot() → legacyBase/claude-$uid
+  try {
+    await fn({ diskRoot, legacyBase, uidn: process.getuid?.() ?? 1000 });
+  } finally {
+    rmSync(diskRoot, { recursive: true, force: true });
+    rmSync(legacyBase, { recursive: true, force: true });
+    if (prevTmp === undefined) delete process.env.TMPDIR;
+    else process.env.TMPDIR = prevTmp;
+  }
+}
+
+test("dual-read: resolves reads against the legacy tmpfs root when only it exists", async () => {
+  await withDualRoots(async ({ legacyBase, uidn }) => {
+    const wt = "/home/u/Work/legacyproj";
+    const sid = "legacy-sid";
+    const dash = wt.replace(/[/.]/g, "-");
+    const legacyDir = join(legacyBase, `claude-${uidn}`, dash, sid, "scratchpad");
+    mkdirSync(legacyDir, { recursive: true });
+    writeFileSync(join(legacyDir, "hello.txt"), "hi");
+    // The disk primary does NOT exist → list/resolve fall back to the legacy root.
+    const listing = await listScratchpad(wt, sid, "");
+    expect(listing?.entries.map((e) => e.name)).toEqual(["hello.txt"]);
+    const file = await resolveScratchpadFile(wt, sid, "hello.txt");
+    expect(file).toContain(legacyBase);
+    expect(file?.endsWith("hello.txt")).toBe(true);
+    const path = await resolveScratchpadPath(wt, sid, "hello.txt");
+    expect(path?.rootReal).toBe(realpathSync(legacyDir));
+  });
+});
+
+test("upload: targets the session's existing (legacy) root, else creates the disk primary", async () => {
+  await withDualRoots(async ({ diskRoot, legacyBase, uidn }) => {
+    // Adopted session: legacy scratchpad already exists → uploads land there, beside the agent's files.
+    const wt = "/home/u/Work/legacyproj";
+    const sid = "legacy-sid";
+    const dash = wt.replace(/[/.]/g, "-");
+    const legacyDir = join(legacyBase, `claude-${uidn}`, dash, sid, "scratchpad");
+    mkdirSync(legacyDir, { recursive: true });
+    const adopted = await resolveScratchpadUploadDir(wt, sid, "");
+    expect(adopted?.rootReal).toBe(realpathSync(legacyDir));
+
+    // Brand-new session: neither root exists → the disk primary is created on demand.
+    const freshSid = "fresh-sid";
+    const fresh = await resolveScratchpadUploadDir(wt, freshSid, "");
+    expect(fresh?.rootReal).toBe(realpathSync(join(diskRoot, dash, freshSid, "scratchpad")));
+  });
 });
 
 // ── scratchpadHasFiles ──────────────────────────────────────────────────────────

@@ -9,16 +9,23 @@ import {
 } from "../src/herdr";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
-// shim that start() prepends to every agent argv is assertable.
+// shim that start() prepends to every agent argv is assertable. Also disable the disk-TMPDIR
+// redirect (#1875) here so these argv-shape assertions stay scoped to the #560 compile-cache
+// shim + env sorting; the TMPDIR / `-u CLAUDE_CODE_TMPDIR` tokens are covered by herdr-parity.test.ts.
 const NCC_SENTINEL = "/disk/ncc";
 let prevNcc: string | undefined;
+let prevAgentTmp: string | undefined;
 beforeEach(() => {
   prevNcc = process.env.SHEPHERD_NODE_COMPILE_CACHE;
   process.env.SHEPHERD_NODE_COMPILE_CACHE = NCC_SENTINEL;
+  prevAgentTmp = process.env.SHEPHERD_AGENT_TMPDIR;
+  process.env.SHEPHERD_AGENT_TMPDIR = ""; // disabled → no TMPDIR token in the wrapped argv
 });
 afterEach(() => {
   if (prevNcc === undefined) delete process.env.SHEPHERD_NODE_COMPILE_CACHE;
   else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
+  if (prevAgentTmp === undefined) delete process.env.SHEPHERD_AGENT_TMPDIR;
+  else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
 });
 
 /** Build a HerdrDriver whose sync AND async runners share ONE fake. The write surface

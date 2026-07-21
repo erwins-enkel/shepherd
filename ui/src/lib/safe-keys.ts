@@ -42,8 +42,8 @@
 /** Server-minted ids (`randomUUID()` — hex + hyphens) match. `__proto__` cannot: underscores are
  *  outside the class, which is what makes this a prototype-pollution barrier.
  *
- *  NOTE `constructor` and `prototype` DO match — they are pure letters. Safe for BOTH consumers,
- *  including the `[[Set]]` one:
+ *  NOTE `constructor` and `prototype` DO match — they are pure letters. That is safe for every
+ *  consumer, including the one that performs a real `[[Set]]` write:
  *  - `Object.prototype.constructor` is a writable DATA property, not an accessor, so assigning it
  *    on a plain record creates an ordinary own property on the receiver — no setter runs.
  *  - `Object.prototype.prototype` does not exist at all, so that name is a plain own-property
@@ -53,8 +53,12 @@
  *  three: their keys are arbitrary path/payload input, so shadowing a builtin is worth avoiding
  *  even when it cannot pollute.)
  *
- *  Shared by {@link setKey} and `HerdStore.setClaudeAlive`'s stranded-id loop so the two
- *  validations cannot drift (#1630). */
+ *  Exported so that every session-id guard in the stores tests against THIS regex rather than
+ *  re-deriving the charset — that shared identity is the anti-drift property (#1630). Consumers are
+ *  deliberately not enumerated here: the list has gone stale before, and `grep SAFE_ID` is both
+ *  accurate and cheaper than a comment. Some consumers call it directly rather than going through
+ *  {@link setKey}, because they must reject a key BEFORE reading `map[id]` — an unguarded read of
+ *  `"__proto__"` resolves up the prototype chain and hands back `Object.prototype`. */
 export const SAFE_ID = /^[0-9a-zA-Z-]+$/;
 
 /** Property names that reach `Object.prototype`'s setter (or shadow a builtin) on a `[[Set]]` write. */

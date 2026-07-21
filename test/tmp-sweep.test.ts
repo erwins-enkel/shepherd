@@ -1156,7 +1156,10 @@ describe("reclaimForkedPnpmStore", () => {
   const NOW = 1_700_000_000_000;
   const ROOT = "/tmp/.pnpm-store";
 
-  // A removable store: v10 with files/ + index/, all stale, every content file nlink 1.
+  // A reclaimable store: v10 with files/ (one bucket, one content file) + index/, all stale,
+  // every content file nlink 1. The harness fakes fs entirely in memory — `unlink`/`rmdir`
+  // just record paths; emptiness is derived by reclaimContentDir from the per-entry pass, so
+  // the recorded paths (not a mutated tree) are what the assertions read.
   function storeHarness() {
     const R: Record<string, Dirent[]> = {
       [ROOT]: [dirent("v10", true)],
@@ -1167,10 +1170,11 @@ describe("reclaimForkedPnpmStore", () => {
     };
     const mtimes: Record<string, number> = {};
     const nlinks: Record<string, number> = {};
-    const removed: string[] = [];
+    const unlinked: string[] = [];
+    const rmdirs: string[] = [];
+    const unlinkErrors = new Set<string>();
     const opts = {
       storeRoot: ROOT,
-      retained: 0,
       now: NOW,
       statfs: fakeStatfs(1000, 100), // 90% ≥ 80
       fsOps: {
@@ -1184,35 +1188,52 @@ describe("reclaimForkedPnpmStore", () => {
             mtimeMs: mtimes[String(p)] ?? 0,
             nlink: nlinks[String(p)] ?? 1,
           }) as unknown as Awaited<ReturnType<typeof fsp.stat>>,
-        rm: async (p: string) => {
-          removed.push(String(p));
+        unlink: async (p: string) => {
+          if (unlinkErrors.has(String(p))) throw new Error("EACCES " + p);
+          unlinked.push(String(p));
+        },
+        rmdir: async (p: string) => {
+          rmdirs.push(String(p));
         },
       },
       log: () => {},
     };
-    return { opts, R, mtimes, nlinks, removed };
+    return { opts, R, mtimes, nlinks, unlinked, rmdirs, unlinkErrors };
   }
 
-  test("fully idle + unlinked → removes the whole store root", async () => {
-    const { opts, removed } = storeHarness();
+  test("fully idle + unlinked → frees every file, prunes the bucket, leaves index/", async () => {
+    const { opts, unlinked, rmdirs } = storeHarness();
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(true);
-    expect(removed).toEqual([ROOT]);
+    expect(r.reason).toBe("reclaimed");
+    expect(r.freedFiles).toBe(1);
+    expect(r.freedDirs).toBe(1);
+    expect(unlinked).toEqual([`${ROOT}/v10/files/9f/abc`]);
+    expect(rmdirs).toEqual([`${ROOT}/v10/files/9f`]); // emptied bucket pruned
+    // index/ metadata and the files/ dir itself are never touched.
+    expect(unlinked).not.toContain(`${ROOT}/v10/index/meta`);
+    expect(rmdirs).not.toContain(`${ROOT}/v10/files`);
   });
 
-  test("retained > 0 → skip", async () => {
-    const { opts, removed } = storeHarness();
-    opts.retained = 1;
+  test("retained worktrees no longer gate: the pass still frees the unlinked fraction", async () => {
+    // #1880 relaxed the retained skip — a linked (nlink>1) file is kept, an unlinked sibling freed.
+    const { opts, R, nlinks, unlinked, rmdirs } = storeHarness();
+    R[`${ROOT}/v10/files/9f`] = [dirent("abc", false), dirent("def", false)];
+    nlinks[`${ROOT}/v10/files/9f/abc`] = 2; // still linked by a surviving worktree → keep
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
-    expect(r.reason).toContain("retained");
-    expect(removed).toEqual([]);
+    expect(r.reason).toBe("reclaimed");
+    expect(r.freedFiles).toBe(1);
+    expect(unlinked).toEqual([`${ROOT}/v10/files/9f/def`]); // only the nlink===1 file
+    expect(r.freedDirs).toBe(0);
+    expect(rmdirs).toEqual([]); // bucket still holds the linked file → not pruned
   });
 
-  test("inode pressure below threshold → skip", async () => {
-    const { opts } = storeHarness();
+  test("inode pressure below threshold → skip, nothing freed", async () => {
+    const { opts, unlinked } = storeHarness();
     opts.statfs = fakeStatfs(1000, 900); // 10%
-    expect((await reclaimForkedPnpmStore(opts as never)).removed).toBe(false);
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.reason).toContain("below-threshold");
+    expect(r.freedFiles).toBe(0);
+    expect(unlinked).toEqual([]);
   });
 
   test("missing store dir → no-store", async () => {
@@ -1220,7 +1241,9 @@ describe("reclaimForkedPnpmStore", () => {
     opts.fsOps.readdir = async () => {
       throw new Error("ENOENT");
     };
-    expect((await reclaimForkedPnpmStore(opts as never)).reason).toBe("no-store");
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.reason).toBe("no-store");
+    expect(r.freedFiles).toBe(0);
   });
 
   test("no v* dir → no-version-dir", async () => {
@@ -1229,46 +1252,66 @@ describe("reclaimForkedPnpmStore", () => {
     expect((await reclaimForkedPnpmStore(opts as never)).reason).toBe("no-version-dir");
   });
 
-  test("fresh non-v* sibling → skip", async () => {
-    const { opts, R, mtimes } = storeHarness();
+  test("fresh non-v* sibling → whole-store skip", async () => {
+    const { opts, R, mtimes, unlinked } = storeHarness();
     R[ROOT] = [dirent("v10", true), dirent("staging.lock", false)];
     mtimes[`${ROOT}/staging.lock`] = NOW; // fresh
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
     expect(r.reason).toContain("sibling-fresh");
+    expect(unlinked).toEqual([]);
   });
 
-  test("stale but unrecognized non-v* directory sibling → skip", async () => {
-    const { opts, R } = storeHarness();
+  test("stale but unrecognized non-v* directory sibling → whole-store skip", async () => {
+    const { opts, R, unlinked } = storeHarness();
     R[ROOT] = [dirent("v10", true), dirent("staging", true)]; // stale dir, unknown
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
     expect(r.reason).toContain("sibling-unrecognized");
+    expect(unlinked).toEqual([]);
   });
 
-  test("a depth-2 entry with a recent mtime → store-busy (idleness probes at depth 2)", async () => {
-    const { opts, mtimes } = storeHarness();
+  test("a busy version dir (recent depth-2 mtime) is skipped per-dir, nothing freed", async () => {
+    const { opts, mtimes, unlinked } = storeHarness();
     mtimes[`${ROOT}/v10/files/9f`] = NOW; // a bucket (depth 2) touched recently
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
-    expect(r.reason).toContain("store-busy");
+    expect(r.reason).toBe("reclaimed"); // pass ran; the busy dir was just skipped
+    expect(r.freedFiles).toBe(0);
+    expect(unlinked).toEqual([]);
   });
 
-  test("any file with nlink > 1 → store-linked (skip)", async () => {
-    const { opts, nlinks } = storeHarness();
-    nlinks[`${ROOT}/v10/files/9f/abc`] = 2; // a worktree still links it
+  test("busy version dir skipped, idle sibling version dir still reclaimed", async () => {
+    const { opts, R, mtimes, unlinked } = storeHarness();
+    R[ROOT] = [dirent("v10", true), dirent("v11", true)];
+    R[`${ROOT}/v11`] = [dirent("files", true), dirent("index", true)];
+    R[`${ROOT}/v11/files`] = [dirent("aa", true)];
+    R[`${ROOT}/v11/files/aa`] = [dirent("xyz", false)];
+    R[`${ROOT}/v11/index`] = [dirent("meta", false)];
+    mtimes[`${ROOT}/v10/files/9f`] = NOW; // v10 busy → skipped
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
-    expect(r.reason).toContain("store-linked");
+    expect(r.freedFiles).toBe(1);
+    expect(unlinked).toEqual([`${ROOT}/v11/files/aa/xyz`]); // only the idle dir reclaimed
   });
 
-  test("a bucket unreadable during the nlink walk → keep (not provably unlinked)", async () => {
-    // Idleness passes (depth-2 only stats the bucket dir), but the exhaustive nlink walk must
-    // descend into it — a readdir error there resolves to keep, never a removal.
-    const { opts, R } = storeHarness();
-    delete R[`${ROOT}/v10/files/9f`]; // readdir(bucket) throws inside storeVersionDirHasLinks
+  test("a bucket unreadable during the walk → kept (not provably unlinked), no throw", async () => {
+    // Idleness passes (depth-2 only stats the bucket dir), but the reclaim walk must descend
+    // into it — a readdir error there leaves the bucket standing, never an unlink/prune.
+    const { opts, R, unlinked, rmdirs } = storeHarness();
+    delete R[`${ROOT}/v10/files/9f`]; // readdir(bucket) throws inside reclaimContentDir
     const r = await reclaimForkedPnpmStore(opts as never);
-    expect(r.removed).toBe(false);
-    expect(r.reason).toContain("store-linked-or-unprobed");
+    expect(r.reason).toBe("reclaimed");
+    expect(r.freedFiles).toBe(0);
+    expect(unlinked).toEqual([]);
+    expect(rmdirs).toEqual([]); // bucket not pruned
+  });
+
+  test("an unlink error leaves that file and its bucket in place, others still freed", async () => {
+    const { opts, R, unlinked, rmdirs, unlinkErrors } = storeHarness();
+    R[`${ROOT}/v10/files/9f`] = [dirent("abc", false), dirent("def", false)];
+    unlinkErrors.add(`${ROOT}/v10/files/9f/def`); // unlink throws for def
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.reason).toBe("reclaimed");
+    expect(r.freedFiles).toBe(1);
+    expect(unlinked).toEqual([`${ROOT}/v10/files/9f/abc`]); // abc freed, def kept
+    expect(r.freedDirs).toBe(0);
+    expect(rmdirs).toEqual([]); // def remains → bucket not pruned
   });
 });

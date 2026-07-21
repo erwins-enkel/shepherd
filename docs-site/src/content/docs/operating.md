@@ -109,9 +109,14 @@ the real cause.
 
 Its **Fix** button runs the sweep immediately, ignoring the usage threshold. It reclaims
 what Shepherd owns — the compile cache and stale tool caches — so the row can legitimately
-stay non-OK afterwards: a package-manager store or a leftover git worktree that an agent
-put in the temp filesystem is **not** reclaimed yet. Those are the two largest consumers
-when an agent has run a dependency install there, and removing them is tracked separately.
+stay non-OK right after you click it: the two largest consumers when an agent has run a
+dependency install in the temp filesystem — a leftover git worktree and the forked
+package-manager (pnpm) store it pinned — are **not** touched by the on-demand Fix button.
+They are reclaimed by the background sweep that runs at boot and daily: abandoned agent
+worktrees are reaped, then the forked pnpm store is **partially** reclaimed — under inode
+pressure it unlinks the store content nothing still references and prunes the emptied bucket
+dirs, while keeping content a surviving worktree still hardlinks. So a store that is still
+partly pinned frees its unlinked fraction rather than nothing at all.
 
 ## Host tuning — resource guardrails
 

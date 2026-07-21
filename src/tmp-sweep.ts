@@ -226,6 +226,8 @@ interface FsOps {
   readdir: typeof fsp.readdir;
   stat: typeof fsp.stat;
   rm: typeof fsp.rm;
+  unlink: typeof fsp.unlink;
+  rmdir: typeof fsp.rmdir;
 }
 
 interface SweepOpts {
@@ -486,6 +488,8 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
       readdir: fsp.readdir,
       stat: fsp.stat,
       rm: fsp.rm,
+      unlink: fsp.unlink,
+      rmdir: fsp.rmdir,
     };
 
     // FORCED sweep (#1862): `thresholdPct <= 0` means "sweep unconditionally" — the operator's
@@ -1018,15 +1022,21 @@ export async function reapAbandonedWorktrees(
 // ── forked pnpm store reclaimer ─────────────────────────────────────────────
 //
 // pnpm forks a content-addressable store onto the tmpfs (`<tmp>/.pnpm-store/v<N>/`) to
-// stay same-filesystem for hardlinking. Once every worktree that linked it is gone, the
-// store is dead weight pinning inodes. Removal is ALL-OR-NOTHING (skip the whole store if
-// ANY file still has `nlink > 1`): measured, pnpm re-fetches cleanly online after content
-// is deleted, but partial reclaim is deferred (see the issue's follow-up). Every
-// non-exhaustive outcome resolves to KEEP — `removed:false` means *provably idle*, never
-// *failed to probe*.
+// stay same-filesystem for hardlinking. Store content lingers pinning inodes long after the
+// worktrees that linked it are gone. Reclaim is PARTIAL (#1880): under each idle version dir,
+// unlink only the `nlink === 1` content (nothing else references it) and prune the bucket dirs
+// that empty out, leaving still-linked (`nlink > 1`) content and the `index/` metadata intact.
+// `index/` pointing at removed content is a clean re-fetch trigger, not a hard error — measured
+// on pnpm 10.28.2: offline reinstall reports `ERR_PNPM_NO_OFFLINE_TARBALL` (it *wants* to
+// download), online reinstall re-fetches cleanly. So partial reclaim is safe GIVEN NETWORK AT
+// REINSTALL TIME. This supersedes #1874's all-or-nothing removal: the residual case where some
+// content is still hardlinked (a surviving worktree, an orphaned `node_modules`) — where
+// all-or-nothing freed ZERO — now frees the unlinked fraction. Every unprobable subtree or
+// per-entry error resolves to KEEP: we only ever remove content we positively proved is
+// `nlink === 1`, never on a failure-to-probe.
 
-/** The `/^v\d+$/` version subdirs of a store root. Shared by both probes: an empty result
- *  makes the caller skip (an unrecognized layout is never removed) — the harmless direction. */
+/** The `/^v\d+$/` version subdirs of a store root. An empty result makes the caller skip (an
+ *  unrecognized layout is never touched) — the harmless direction. */
 export function resolveStoreVersionDirs(rootEntries: Dirent[]): string[] {
   return rootEntries.filter((e) => e.isDirectory() && /^v\d+$/.test(e.name)).map((e) => e.name);
 }
@@ -1074,54 +1084,98 @@ async function storeVersionDirIsIdle(
   }
 }
 
-/**
- * `true` when the version dir's `files/` tree still holds a hardlink (some `nlink > 1`) OR
- * could not be exhaustively probed (missing `files/`, any readdir/stat error) — i.e. NOT
- * safe to remove. `false` only after a full walk proves every content file is `nlink === 1`.
- * Exhaustive with early exit on the first surviving link: the dangerous case is the cheap
- * one, and the full walk only completes when we are about to `rm -rf` these files anyway.
- */
-async function storeVersionDirHasLinks(
-  filesDir: string,
-  stat: FsOps["stat"],
-  readdir: FsOps["readdir"],
+/** Running tally of a partial reclaim: content files unlinked + bucket dirs pruned. */
+interface ReclaimCounters {
+  freedFiles: number;
+  freedDirs: number;
+}
+type ContentOps = Pick<FsOps, "readdir" | "stat" | "unlink" | "rmdir">;
+
+/** Reclaim a subdir, then prune it if it emptied out. `true` iff it was pruned (`rmdir` ok). */
+async function reclaimAndPruneSubdir(
+  p: string,
+  ops: ContentOps,
+  c: ReclaimCounters,
 ): Promise<boolean> {
-  const stack: string[] = [filesDir];
+  if (!(await reclaimContentDir(p, ops, c))) return false; // still holds linked/unprobable content
   try {
-    while (stack.length > 0) {
-      const dir = stack.pop() as string;
-      const entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
-      for (const ent of entries) {
-        const p = join(dir, ent.name);
-        if (ent.isDirectory()) {
-          stack.push(p);
-          continue;
-        }
-        if (Number((await stat(p)).nlink) > 1) return true; // a link survives — early exit
-      }
-    }
-    return false; // fully walked, every file nlink === 1
+    await ops.rmdir(p);
+    c.freedDirs += 1;
+    return true;
   } catch {
-    return true; // missing files/ or any error → not provably unlinked → keep
+    return false; // rmdir raced/failed → keep
   }
+}
+
+/** Unlink a content file iff it is provably `nlink === 1`. `true` iff it was unlinked. Any
+ *  stat/unlink error or a surviving reference (`nlink > 1`) leaves it in place → `false`. */
+async function unlinkIfUnlinked(p: string, ops: ContentOps, c: ReclaimCounters): Promise<boolean> {
+  let nlink: number;
+  try {
+    nlink = Number((await ops.stat(p)).nlink);
+  } catch {
+    return false; // unstattable → keep
+  }
+  if (nlink > 1) return false; // another reference survives → keep
+  try {
+    await ops.unlink(p);
+    c.freedFiles += 1;
+    return true;
+  } catch {
+    return false; // unlink failed → keep
+  }
+}
+
+/**
+ * Recursive post-order reclaim of one content dir: unlink every file that is provably
+ * `nlink === 1` (no other reference), recurse into subdirs and `rmdir` any that empty out, and
+ * leave still-linked (`nlink > 1`) files in place. NEVER throws — an unreadable dir or a
+ * per-entry stat/unlink/rmdir error just leaves that entry standing (counted as remaining), so
+ * we only ever remove content we positively proved is unlinked. Returns `true` iff `dir` has
+ * ZERO remaining entries after the pass (so the caller can prune it). Exhaustive, unbudgeted:
+ * the full walk is the point, and it runs microtask-deferred off the event loop.
+ */
+async function reclaimContentDir(
+  dir: string,
+  ops: ContentOps,
+  c: ReclaimCounters,
+): Promise<boolean> {
+  let entries: Dirent[];
+  try {
+    entries = (await ops.readdir(dir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return false; // unprobable subtree → keep, treat as non-empty
+  }
+  let remaining = 0;
+  for (const ent of entries) {
+    const p = join(dir, ent.name);
+    const reclaimed = ent.isDirectory()
+      ? await reclaimAndPruneSubdir(p, ops, c)
+      : await unlinkIfUnlinked(p, ops, c);
+    if (!reclaimed) remaining += 1;
+  }
+  return remaining === 0;
 }
 
 export interface ReclaimStoreOpts {
   /** The forked store root. Default `<tmpdir>/.pnpm-store` — the only name allowed to reach
    *  bare `tmpdir()`. A wrong mount root just yields a missing dir → safe skip. */
   storeRoot?: string;
-  /** Worktree candidates still on disk (from `reapAbandonedWorktrees`). > 0 ⇒ skip. */
-  retained: number;
   thresholdPct?: number;
   staleMs?: number;
   now?: number;
   statfs?: FsOps["statfs"];
-  fsOps?: Pick<FsOps, "readdir" | "stat" | "rm">;
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "unlink" | "rmdir">;
   log?: (msg: string) => void;
 }
 
 export interface ReclaimStoreResult {
-  removed: boolean;
+  /** Content files unlinked (`nlink === 1`) across all idle version dirs. */
+  freedFiles: number;
+  /** Bucket dirs pruned after emptying out. */
+  freedDirs: number;
+  /** A whole-store skip reason (`below-threshold …`, `no-store`, `sibling-fresh …`, …), or
+   *  `reclaimed` when the per-file pass ran (freed counts carry the detail). */
   reason: string;
 }
 
@@ -1147,67 +1201,75 @@ async function siblingBlocker(
   return null;
 }
 
-/** A skip reason for any version dir that is not depth-2-idle or not fully unlinked — else `null`. */
-async function versionDirBlocker(
+/** Partial-reclaim every depth-2-idle version dir's `files/` tree into `c`; a busy dir is
+ *  skipped (logged), never touched. `index/` metadata is left intact as a re-fetch trigger. */
+async function reclaimIdleVersionDirs(
   storeRoot: string,
   versionDirs: string[],
   cutoff: number,
-  readdir: FsOps["readdir"],
-  stat: FsOps["stat"],
-): Promise<string | null> {
+  ops: ContentOps,
+  c: ReclaimCounters,
+  log: (msg: string) => void,
+): Promise<void> {
   for (const v of versionDirs) {
     const vdir = join(storeRoot, v);
-    if (!(await storeVersionDirIsIdle(vdir, cutoff, readdir, stat))) return `store-busy ${v}`;
-    if (await storeVersionDirHasLinks(join(vdir, "files"), stat, readdir))
-      return `store-linked-or-unprobed ${v}`;
+    if (!(await storeVersionDirIsIdle(vdir, cutoff, ops.readdir, ops.stat))) {
+      log(`[tmp-sweep] store reclaim: skip busy version dir ${v}`);
+      continue;
+    }
+    await reclaimContentDir(join(vdir, "files"), ops, c);
   }
-  return null;
 }
 
 /**
- * All-or-nothing reclaim of the forked pnpm store. TOTAL by contract — never throws. Removes
- * `<storeRoot>` only when: `retained === 0`, inode pressure >= threshold, the layout is a
- * recognized `v<N>` store, no non-`v*` sibling is fresh or an unrecognized dir, and EVERY
- * version dir is depth-2-idle AND fully unlinked. Any other outcome is a keep with a reason.
+ * Partial reclaim of the forked pnpm store. TOTAL by contract — never throws. Under sustained
+ * inode pressure, for each depth-2-idle version dir it unlinks the `nlink === 1` content in
+ * `files/`, prunes the bucket dirs that empty out, and leaves still-linked content, `index/`,
+ * and the store root intact. WHOLE-STORE skip gates (return freed 0): inode pressure below
+ * threshold, an unreadable / non-`v<N>` store, or a fresh / unrecognized non-`v*` sibling
+ * (active install → touch nothing). A NON-idle version dir is skipped per-dir (logged), so an
+ * idle sibling version dir is still reclaimed. Unlike #1874's all-or-nothing removal, a
+ * surviving hardlink no longer blocks the reclaim — the linked file is simply kept. The caller
+ * runs the worktree reaper FIRST so a truly-abandoned worktree's links drop to `nlink === 1`
+ * before this pass. Safe GIVEN NETWORK AT REINSTALL TIME (see module header).
  */
 export async function reclaimForkedPnpmStore(opts: ReclaimStoreOpts): Promise<ReclaimStoreResult> {
   const log = opts.log ?? console.warn;
+  const c: ReclaimCounters = { freedFiles: 0, freedDirs: 0 };
   try {
     const storeRoot = opts.storeRoot ?? join(tmpdir(), ".pnpm-store");
     const { cutoff, thresholdPct } = resolveTmpGate(opts);
     const readdir = opts.fsOps?.readdir ?? fsp.readdir;
     const stat = opts.fsOps?.stat ?? fsp.stat;
-    const rm = opts.fsOps?.rm ?? fsp.rm;
+    const unlink = opts.fsOps?.unlink ?? fsp.unlink;
+    const rmdir = opts.fsOps?.rmdir ?? fsp.rmdir;
     const statfs = opts.statfs ?? fsp.statfs;
 
-    if (opts.retained > 0) return { removed: false, reason: `retained-worktrees ${opts.retained}` };
-
     const usePct = await inodeUsePct(tmpdir(), statfs, log);
-    if (typeof usePct === "string") return { removed: false, reason: usePct };
+    if (typeof usePct === "string") return { ...c, reason: usePct };
     if (usePct < thresholdPct) {
-      return { removed: false, reason: `below-threshold ${usePct.toFixed(1)}%` };
+      return { ...c, reason: `below-threshold ${usePct.toFixed(1)}%` };
     }
 
     let rootEntries: Dirent[];
     try {
       rootEntries = (await readdir(storeRoot, { withFileTypes: true })) as Dirent[];
     } catch {
-      return { removed: false, reason: "no-store" };
+      return { ...c, reason: "no-store" };
     }
 
     const versionDirs = resolveStoreVersionDirs(rootEntries);
-    if (versionDirs.length === 0) return { removed: false, reason: "no-version-dir" };
+    if (versionDirs.length === 0) return { ...c, reason: "no-version-dir" };
 
-    const blocker =
-      (await siblingBlocker(rootEntries, storeRoot, cutoff, stat)) ??
-      (await versionDirBlocker(storeRoot, versionDirs, cutoff, readdir, stat));
-    if (blocker) return { removed: false, reason: blocker };
+    const sibling = await siblingBlocker(rootEntries, storeRoot, cutoff, stat);
+    if (sibling) return { ...c, reason: sibling };
 
-    await rm(storeRoot, { recursive: true, force: true });
-    return { removed: true, reason: `reclaimed ${storeRoot}` };
+    const contentOps: ContentOps = { readdir, stat, unlink, rmdir };
+    await reclaimIdleVersionDirs(storeRoot, versionDirs, cutoff, contentOps, c, log);
+    return { ...c, reason: "reclaimed" };
   } catch (err) {
     log(`[tmp-sweep] store reclaim unexpected error: ${String(err)}`);
-    return { removed: false, reason: "error" };
+    return { ...c, reason: "error" };
   }
 }
 

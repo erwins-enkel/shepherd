@@ -1,5 +1,5 @@
 import { join } from "node:path";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrDriver, HerdrPane } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
@@ -159,45 +159,18 @@ export async function reapOrphanTabs(
     };
   }
 
-  // Group helper panes by their owning tab — the reap unit is the TAB (#1852).
-  const byTab = new Map<string, typeof panes>();
-  for (const p of panes) {
-    if (!isShepherdHelperLabel(p.label)) continue;
-    const group = byTab.get(p.tabId);
-    if (group) group.push(p);
-    else byTab.set(p.tabId, [p]);
-  }
-
   let sparedLive = 0;
   let sparedError = 0;
   const shellOnly = new Set<string>();
   const toReap: string[] = [];
 
-  for (const [tabId, group] of byTab) {
-    let live = false;
-    let undetermined = false;
-    for (const p of group) {
-      let procs: string[];
-      try {
-        procs = await herdr.paneForegroundProcs(p.paneId);
-      } catch {
-        undetermined = true; // transient process-info failure — no evidence for this pane
-        continue;
-      }
-      if (procs.length === 0) {
-        undetermined = true; // undeterminable — never reap on no evidence
-        continue;
-      }
-      if (!procs.every((n) => SHELLS.has(n))) {
-        live = true; // a non-shell proc is running — the tab hosts a live agent
-        break; // short-circuit: remaining panes can't change the classification
-      }
-    }
-    if (live) {
+  for (const [tabId, group] of groupHelperPanesByTab(panes)) {
+    const cls = await classifyHelperTab(herdr, group);
+    if (cls === "live") {
       sparedLive++;
       continue; // spared AND de-primed: not added to shellOnly
     }
-    if (undetermined) {
+    if (cls === "undetermined") {
       sparedError++;
       continue; // fail-closed spare, likewise de-primed
     }
@@ -208,6 +181,46 @@ export async function reapOrphanTabs(
 
   for (const tabId of toReap) await herdr.closeTab(tabId);
   return { closed: toReap, sparedLive, sparedError, shellOnly, panesFailed: false };
+}
+
+/** Group helper-labeled panes by their owning tab — the reap unit is the TAB (#1852). */
+function groupHelperPanesByTab(panes: HerdrPane[]): Map<string, HerdrPane[]> {
+  const byTab = new Map<string, HerdrPane[]>();
+  for (const p of panes) {
+    if (!isShepherdHelperLabel(p.label)) continue;
+    const group = byTab.get(p.tabId);
+    if (group) group.push(p);
+    else byTab.set(p.tabId, [p]);
+  }
+  return byTab;
+}
+
+/** Classify one helper TAB from its panes' foreground processes, with the fail-safe
+ *  precedence documented on {@link reapOrphanTabs}: any live pane wins (short-circuit),
+ *  else any errored/empty pane makes the tab undetermined, else it is positively
+ *  shell-only. */
+async function classifyHelperTab(
+  herdr: ReapableHerdr,
+  group: HerdrPane[],
+): Promise<"live" | "undetermined" | "shell-only"> {
+  let undetermined = false;
+  for (const p of group) {
+    let procs: string[];
+    try {
+      procs = await herdr.paneForegroundProcs(p.paneId);
+    } catch {
+      undetermined = true; // transient process-info failure — no evidence for this pane
+      continue;
+    }
+    if (procs.length === 0) {
+      undetermined = true; // undeterminable — never reap on no evidence
+      continue;
+    }
+    if (!procs.every((n) => SHELLS.has(n))) {
+      return "live"; // a non-shell proc runs here — remaining panes can't change this
+    }
+  }
+  return undetermined ? "undetermined" : "shell-only";
 }
 
 // ── Orphan-tab sweep orchestration (#1852) ───────────────────────────────────

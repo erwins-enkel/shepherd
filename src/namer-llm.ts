@@ -1,7 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
+import {
+  cleanupHelperDir,
+  makeHelperTmpDir,
+  reapHelperRun,
+  realSleep,
+} from "./transient-helper-lifecycle";
 import type { AgentProvider } from "./types";
 import { slugifyManual } from "./namer";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
@@ -40,11 +45,7 @@ export function namingPrompt(taskText: string): string {
   ].join("\n");
 }
 
-const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function defaultMakeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "shepherd-namer-"));
-}
+const defaultMakeTmpDir = (): string => makeHelperTmpDir("shepherd-namer-");
 function defaultReadName(cwd: string): string | null {
   const p = join(cwd, NAME_FILE);
   if (!existsSync(p)) return null;
@@ -52,13 +53,6 @@ function defaultReadName(cwd: string): string | null {
     return readFileSync(p, "utf8");
   } catch {
     return null; // partial write; try again next poll
-  }
-}
-function defaultCleanup(cwd: string): void {
-  try {
-    rmSync(cwd, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
   }
 }
 
@@ -131,7 +125,7 @@ export async function llmName(
   const {
     makeTmpDir = defaultMakeTmpDir,
     readName = defaultReadName,
-    cleanup = defaultCleanup,
+    cleanup = cleanupHelperDir,
     provider = "claude",
     model = "haiku",
     effort = null,
@@ -165,13 +159,6 @@ export async function llmName(
     const raw = await pollForRaw(readName, cwd, { now, sleep, timeoutMs, pollMs });
     return raw === null ? null : extractSlug(raw);
   } finally {
-    if (terminalId) {
-      try {
-        await deps.herdr.stop(terminalId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (cwd) cleanup(cwd);
+    await reapHelperRun(deps.herdr, terminalId, cwd, cleanup);
   }
 }

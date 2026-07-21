@@ -1,8 +1,11 @@
-import { mkdtempSync, rmSync } from "node:fs";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
+import {
+  cleanupHelperDir,
+  makeHelperTmpDir,
+  reapHelperRun,
+  realSleep,
+} from "./transient-helper-lifecycle";
 import type { AutopilotVerdict, AgentProvider } from "./types";
 import type { OperatorLanguage } from "./operator-language";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
@@ -39,11 +42,7 @@ export interface ClassifierDeps {
   pollMs?: number;
 }
 
-const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function defaultMakeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "shepherd-autopilot-"));
-}
+const defaultMakeTmpDir = (): string => makeHelperTmpDir("shepherd-autopilot-");
 function defaultReadVerdict(cwd: string): RawVerdict | null {
   // Result file first, Codex `-o` last-message fallback when absent (a Codex classifier that answers
   // in chat never writes the result file — see codex-last-message.ts).
@@ -54,13 +53,6 @@ function defaultReadVerdict(cwd: string): RawVerdict | null {
     return JSON.parse(text) as RawVerdict;
   } catch {
     return null; // partial write; try again next poll
-  }
-}
-function defaultCleanup(cwd: string): void {
-  try {
-    rmSync(cwd, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
   }
 }
 
@@ -120,7 +112,7 @@ export async function classifyStop(
   const {
     makeTmpDir = defaultMakeTmpDir,
     readVerdict = defaultReadVerdict,
-    cleanup = defaultCleanup,
+    cleanup = cleanupHelperDir,
     provider = "claude",
     model = "haiku",
     effort = null,
@@ -163,13 +155,6 @@ export async function classifyStop(
     const raw = await pollForVerdict(readVerdict, cwd, { now, sleep, timeoutMs, pollMs });
     return normalize(raw);
   } finally {
-    if (terminalId) {
-      try {
-        await deps.herdr.stop(terminalId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (cwd) cleanup(cwd);
+    await reapHelperRun(deps.herdr, terminalId, cwd, cleanup);
   }
 }

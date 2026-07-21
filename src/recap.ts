@@ -567,19 +567,25 @@ export class RecapService {
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
 
-  /** Reap any existing generating row for this session (stop pane + cleanup dir + drop row). */
-  private reapGenerating(sessionId: string): void {
-    const existing = this.deps.store.getRecap(sessionId);
-    if (!existing || existing.state !== "generating") return;
+  /** Stop a generating run's pane — spawn-recorded terminalId first (#1852; the cwd
+   *  lookup is only for rows adopted across a restart and yields "" once the agent
+   *  exited, a safe stop() no-op) — then drop the in-memory handle. Never throws. */
+  private async reapPane(sessionId: string, cwd: string): Promise<void> {
     try {
-      // Spawn-recorded terminalId first (#1852) — see the finalize `finally`.
-      void this.deps.herdr
-        .stop(this.generatingTerminals.get(sessionId) ?? this.resolveTerminal(existing.cwd))
-        .catch(() => {});
+      await this.deps.herdr.stop(
+        this.generatingTerminals.get(sessionId) ?? this.resolveTerminal(cwd),
+      );
     } catch {
       /* best-effort */
     }
     this.generatingTerminals.delete(sessionId);
+  }
+
+  /** Reap any existing generating row for this session (stop pane + cleanup dir + drop row). */
+  private reapGenerating(sessionId: string): void {
+    const existing = this.deps.store.getRecap(sessionId);
+    if (!existing || existing.state !== "generating") return;
+    void this.reapPane(sessionId, existing.cwd);
     this._cleanup(existing.cwd);
     this.deps.store.dropRecap(sessionId);
   }
@@ -1052,17 +1058,8 @@ export class RecapService {
         console.warn(`[recap] usage capture failed for ${r.sessionId}:`, err);
       }
     } finally {
-      // Always reap pane + tmpdir. Prefer the spawn-recorded terminalId (#1852) — the
-      // cwd lookup is only for rows adopted across a restart, and returns "" once the
-      // agent exited (herdr.stop("") is a no-op; the orphan sweep covers that residue).
-      try {
-        await this.deps.herdr.stop(
-          this.generatingTerminals.get(r.sessionId) ?? this.resolveTerminal(r.cwd),
-        );
-      } catch {
-        /* best-effort */
-      }
-      this.generatingTerminals.delete(r.sessionId);
+      // Always reap pane + tmpdir (spawn-recorded terminal first — see reapPane, #1852).
+      await this.reapPane(r.sessionId, r.cwd);
       this._cleanup(r.cwd);
     }
   }

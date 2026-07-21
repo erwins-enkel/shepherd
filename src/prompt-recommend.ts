@@ -1,7 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
+import {
+  cleanupHelperDir,
+  makeHelperTmpDir,
+  reapHelperRun,
+  realSleep,
+} from "./transient-helper-lifecycle";
 import type { HerdrDriver } from "./herdr";
 import type { AgentProvider } from "./types";
 import {
@@ -109,11 +114,7 @@ export function recommenderPrompt(
   return lines.join("\n");
 }
 
-const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function defaultMakeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "shepherd-recommend-"));
-}
+const defaultMakeTmpDir = (): string => makeHelperTmpDir("shepherd-recommend-");
 function defaultReadSuggestion(cwd: string): RawSuggestion | null {
   const p = join(cwd, RECOMMEND_FILE);
   if (!existsSync(p)) return null;
@@ -121,13 +122,6 @@ function defaultReadSuggestion(cwd: string): RawSuggestion | null {
     return JSON.parse(readFileSync(p, "utf8")) as RawSuggestion;
   } catch {
     return null; // partial write; try again next poll
-  }
-}
-function defaultCleanup(cwd: string): void {
-  try {
-    rmSync(cwd, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
   }
 }
 
@@ -212,7 +206,7 @@ export async function recommendPrompt(
   const {
     makeTmpDir = defaultMakeTmpDir,
     readSuggestion = defaultReadSuggestion,
-    cleanup = defaultCleanup,
+    cleanup = cleanupHelperDir,
     now = Date.now,
     sleep = realSleep,
     timeoutMs = 180_000,
@@ -246,13 +240,6 @@ export async function recommendPrompt(
     const raw = await pollForSuggestion(readSuggestion, cwd, { now, sleep, timeoutMs, pollMs });
     return normalize(raw);
   } finally {
-    if (terminalId) {
-      try {
-        await deps.herdr.stop(terminalId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (cwd) cleanup(cwd);
+    await reapHelperRun(deps.herdr, terminalId, cwd, cleanup);
   }
 }

@@ -298,19 +298,25 @@ type AgentListResult = { agents?: Record<string, string>[] } | null;
  */
 export function parseAgents(result: unknown): HerdrAgent[] {
   const agents = (result as AgentListResult)?.agents ?? [];
-  return agents.map((a: Record<string, string>) => ({
+  return agents.map(mapAgentRecord);
+}
+
+/** The one snake_case→HerdrAgent field mapping, shared by `parseAgents` and
+ *  `parseAgentInfo` so the two reply shapes can't drift apart.
+ *  `noUncheckedIndexedAccess` widens Record<string,string> indexing to `| undefined`;
+ *  `?? ""` keeps these required-string fields honest — herdr always supplies them in
+ *  practice. */
+function mapAgentRecord(a: Record<string, string>): HerdrAgent {
+  return {
     agent: a.agent ?? "",
     agentStatus: (a.agent_status ?? "unknown") as HerdrState,
-    // `noUncheckedIndexedAccess` widens Record<string,string> indexing to `| undefined`;
-    // `?? ""` keeps these required-string fields honest without changing the intent of
-    // the original (untyped) mapping — herdr always supplies them in practice.
     cwd: a.cwd ?? "",
     name: a.name ?? "",
     paneId: a.pane_id ?? "",
     tabId: a.tab_id ?? "",
     terminalId: a.terminal_id ?? "",
     workspaceId: a.workspace_id ?? "",
-  }));
+  };
 }
 
 /**
@@ -337,17 +343,7 @@ export function parseTabs(result: unknown): HerdrTab[] {
  * (confirmed against live herdr 0.7.3), so no post-start re-list is needed.
  */
 export function parseAgentInfo(agent: unknown): HerdrAgent {
-  const a = (agent ?? {}) as Record<string, string>;
-  return {
-    agent: a.agent ?? "",
-    agentStatus: (a.agent_status ?? "unknown") as HerdrState,
-    cwd: a.cwd ?? "",
-    name: a.name ?? "",
-    paneId: a.pane_id ?? "",
-    tabId: a.tab_id ?? "",
-    terminalId: a.terminal_id ?? "",
-    workspaceId: a.workspace_id ?? "",
-  };
+  return mapAgentRecord((agent ?? {}) as Record<string, string>);
 }
 
 /**

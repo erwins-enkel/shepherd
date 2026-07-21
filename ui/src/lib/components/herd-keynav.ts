@@ -230,3 +230,11 @@ export function isSettingsChord(e: KeyboardEvent): boolean {
 export function settingsChordHint(mac: boolean): string {
   return mac ? "⌘," : "Ctrl+,";
 }
+
+/** Union of every chord Viewport's PTY key handler must swallow (the window-level
+ *  openers act on the same keydown as it bubbles). One predicate so the handler
+ *  stays a single branch — its complexity budget is tight — and the suppression
+ *  list can't drift from the chords defined above. */
+export function isPtySuppressedChord(e: KeyboardEvent): boolean {
+  return isCommandBarChord(e) || isSettingsChord(e);
+}

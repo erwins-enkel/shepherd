@@ -9,6 +9,7 @@ import {
   jumpDigitIndex,
   isSettingsChord,
   settingsChordHint,
+  isPtySuppressedChord,
 } from "./herd-keynav";
 import { GROUP_KEY_BY_STAGE, type HerdFilter } from "./herd-partition";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
@@ -591,4 +592,11 @@ test("isSettingsChord rejects a bare comma and other chords", () => {
 test("settingsChordHint formats per platform", () => {
   expect(settingsChordHint(true)).toBe("⌘,");
   expect(settingsChordHint(false)).toBe("Ctrl+,");
+});
+
+test("isPtySuppressedChord unions the command-bar and settings chords", () => {
+  expect(isPtySuppressedChord(chordEvent("k", { ctrlKey: true }))).toBe(true);
+  expect(isPtySuppressedChord(chordEvent(",", { metaKey: true }))).toBe(true);
+  expect(isPtySuppressedChord(chordEvent("k", {}))).toBe(false);
+  expect(isPtySuppressedChord(chordEvent(",", { ctrlKey: true, shiftKey: true }))).toBe(false);
 });

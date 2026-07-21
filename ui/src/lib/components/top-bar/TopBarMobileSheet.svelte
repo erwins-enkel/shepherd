@@ -5,7 +5,11 @@
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
   import GearMenuUsage from "./GearMenuUsage.svelte";
-  import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
+  import GearIdent from "./GearIdent.svelte";
+  import GearHaltHero from "./GearHaltHero.svelte";
+  import GearGroupHead from "./GearGroupHead.svelte";
+  import GearRow from "./GearRow.svelte";
+  import { REPO_URL, DOCS_URL } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
   import { dialog } from "$lib/a11yDialog";
@@ -152,6 +156,13 @@
     if (dragY > 0) settling = true;
     dragY = 0;
   }
+
+  function closeAnd(action: (() => void) | undefined): () => void {
+    return () => {
+      closeMenu();
+      action?.();
+    };
+  }
 </script>
 
 <!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
@@ -193,41 +204,20 @@
       <div class="sheet-handle"></div>
     </div>
 
-    <!-- Identity header: brand + version + neutral connection readout (+ explicit ✕
-         for AT users; scrim tap / Esc / swipe stay the primary dismissals). -->
-    <div class="ident">
-      <span class="ident-brand">SHEPHERD</span>
-      <span class="ident-conn">
-        v{version} · <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
-        {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
-      </span>
-      <button
-        type="button"
-        class="sheet-close"
-        onclick={() => closeMenu()}
-        aria-label={m.common_close()}>✕</button
-      >
+    <!-- Identity header (+ explicit ✕ for AT users; scrim tap / Esc / swipe stay the
+         primary dismissals). -->
+    <div class="ident-wrap">
+      <GearIdent mobile {connected}>
+        <button
+          type="button"
+          class="sheet-close"
+          onclick={() => closeMenu()}
+          aria-label={m.common_close()}>✕</button
+        >
+      </GearIdent>
     </div>
 
-    <!-- Hero action: halt herd (52px tier). Disabled + chip-less at 0 working. -->
-    <button
-      class="hero"
-      class:armed
-      type="button"
-      disabled={haltable === 0}
-      onclick={clickHalt}
-      aria-label={haltable === 0
-        ? m.gearmenu_halt_herd()
-        : armed
-          ? m.halt_arm_aria({ count: haltable })
-          : m.halt_all_aria({ count: haltable })}
-    >
-      <span class="hero-glyph" aria-hidden="true">■</span>
-      <span>{armed ? m.halt_arm({ count: haltable }) : m.gearmenu_halt_herd()}</span>
-      {#if haltable > 0}
-        <span class="chip">{m.gearmenu_working_chip({ count: haltable })}</span>
-      {/if}
-    </button>
+    <GearHaltHero mobile {haltable} {armed} onclick={clickHalt} />
 
     <!-- Live token-usage gauge; "all ▾" discloses the full per-window breakdown. -->
     <GearMenuUsage
@@ -241,10 +231,7 @@
       {refreshError}
       {onRefresh}
       {periodLabel}
-      onOpenUsage={() => {
-        chooseUsage();
-        closeMenu();
-      }}
+      onOpenUsage={closeAnd(chooseUsage)}
     />
 
     <!-- Attention rows (conditional): diagnostics / updates / What's-New keep their
@@ -252,112 +239,93 @@
     {#if diagnosticsOverall !== "ok" || updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew}
       <div class="grp">
         {#if diagnosticsOverall !== "ok"}
-          <button
-            type="button"
-            class="row"
-            class:alert={diagnosticsOverall === "error"}
-            onclick={() => {
-              closeMenu();
-              ondiagnose?.();
-            }}
-            aria-label={m.diagnostics_pip_label()}
-          >
-            <span class="glyph" aria-hidden="true"
-              >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
-            >
-            <span>{m.diagnostics_pip_label()}</span>
-          </button>
+          <GearRow
+            mobile
+            warm={diagnosticsOverall === "error"}
+            glyph={diagnosticsOverall === "error" ? "✕" : "⚠"}
+            label={m.diagnostics_pip_label()}
+            onclick={closeAnd(ondiagnose)}
+          />
         {/if}
         {#if updateAvailable}
-          <button
-            type="button"
-            class="row update"
-            onclick={() => {
-              closeMenu();
-              onupdate?.();
-            }}
-            aria-label={m.topbar_update_badge()}
+          <GearRow
+            mobile
+            warm
+            label={`${m.topbar_update_badge()} · ${update!.behind}`}
+            onclick={closeAnd(onupdate)}
           >
-            <svg
-              class="glyph glyph-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
-            </svg>
-            <span>{m.topbar_update_badge()} · {update!.behind}</span>
-          </button>
+            {#snippet glyphIcon()}
+              <svg
+                class="glyph-svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+              </svg>
+            {/snippet}
+          </GearRow>
         {/if}
         {#if herdrUpdateAvailable}
-          <button
-            type="button"
-            class="row update"
-            onclick={() => {
-              closeMenu();
-              onherdrupdate?.();
-            }}
-            aria-label={m.topbar_herdr_update_badge()}
+          <GearRow
+            mobile
+            warm
+            label={m.topbar_herdr_update_badge()}
+            onclick={closeAnd(onherdrupdate)}
           >
-            <svg
-              class="glyph glyph-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="M12 19V5" />
-              <path d="m5 12 7-7 7 7" />
-            </svg>
-            <span>{m.topbar_herdr_update_badge()}</span>
-          </button>
+            {#snippet glyphIcon()}
+              <svg
+                class="glyph-svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M12 19V5" />
+                <path d="m5 12 7-7 7 7" />
+              </svg>
+            {/snippet}
+          </GearRow>
         {/if}
         {#if codexUpdateAvailable}
-          <button
-            type="button"
-            class="row update"
-            onclick={() => {
-              closeMenu();
-              oncodexupdate?.();
-            }}
-            aria-label={m.topbar_codex_update_badge()}
+          <GearRow
+            mobile
+            warm
+            label={m.topbar_codex_update_badge()}
+            onclick={closeAnd(oncodexupdate)}
           >
-            <svg
-              class="glyph glyph-svg"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              stroke-width="2"
-              stroke-linecap="round"
-              stroke-linejoin="round"
-              aria-hidden="true"
-            >
-              <path d="m6 15 6-6 6 6" />
-              <path d="m6 9 6-6 6 6" />
-            </svg>
-            <span>{m.topbar_codex_update_badge()}</span>
-          </button>
+            {#snippet glyphIcon()}
+              <svg
+                class="glyph-svg"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path d="m6 15 6-6 6 6" />
+                <path d="m6 9 6-6 6 6" />
+              </svg>
+            {/snippet}
+          </GearRow>
         {/if}
         {#if whatsNew}
-          <button
-            type="button"
-            class="row"
-            onclick={() => {
-              closeMenu();
-              onwhatsnew?.();
-            }}
-            aria-label={m.whatsnew_topbar_aria()}
-          >
-            <span class="glyph" aria-hidden="true">●</span>
-            <span>{m.whatsnew_open()}</span>
-          </button>
+          <GearRow
+            mobile
+            glyph="●"
+            label={m.whatsnew_open()}
+            ariaLabel={m.whatsnew_topbar_aria()}
+            onclick={closeAnd(onwhatsnew)}
+          />
         {/if}
       </div>
     {/if}
@@ -365,47 +333,33 @@
     <!-- Workspace rows -->
     <div class="grp">
       {#if learningsPresent}
-        <button
-          type="button"
-          class="row"
-          onclick={() => {
-            closeMenu();
-            onlearnings?.();
-          }}
-          aria-label={learnings > 0
+        <GearRow
+          mobile
+          glyph="✦"
+          label={learningsLabel}
+          meta={String(learningsCount)}
+          ariaLabel={learnings > 0
             ? m.learnings_open_aria({ count: learnings })
             : m.learnings_open_curate_aria({ count: learningsCurate })}
-        >
-          <span class="glyph" aria-hidden="true">✦</span>
-          <span>{learningsLabel}</span>
-          <span class="row-meta">{learningsCount}</span>
-        </button>
+          onclick={closeAnd(onlearnings)}
+        />
       {/if}
-      <button type="button" class="row" onclick={chooseSettings}>
-        <span class="glyph" aria-hidden="true">⚙</span>
-        <span>{m.settings_title()}</span>
-      </button>
+      <GearRow mobile glyph="⚙" label={m.settings_title()} onclick={chooseSettings} />
       <!-- Hosted documentation site — distinct from the GitHub repo link below. -->
-      <a
-        class="row"
+      <GearRow
+        mobile
+        glyph="↗"
+        label={m.topbar_docs()}
         href={DOCS_URL}
-        target="_blank"
-        rel="external noreferrer noopener"
         onclick={() => closeMenu()}
-      >
-        <span class="glyph" aria-hidden="true">↗</span>
-        <span>{m.topbar_docs()}</span>
-      </a>
-      <a
-        class="row"
+      />
+      <GearRow
+        mobile
+        glyph="↗"
+        label={m.topbar_menu_docs()}
         href={REPO_URL}
-        target="_blank"
-        rel="external noreferrer noopener"
         onclick={() => closeMenu()}
-      >
-        <span class="glyph" aria-hidden="true">↗</span>
-        <span>{m.topbar_menu_docs()}</span>
-      </a>
+      />
       <!-- Quick appearance: dark/light theme + high-contrast toggle -->
       <div class="quick">
         <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
@@ -433,57 +387,50 @@
 
     <!-- Plugins group: dynamic — verbatim plugin-authored labels/icons/hints (not i18n). -->
     {#if pluginItems.length > 0}
-      <div class="grp plugins">
-        <div class="grp-head">
-          <span class="grp-label">{m.gearmenu_plugins_label()} · {pluginItems.length}</span>
-          <button
-            class="grp-action"
-            type="button"
-            aria-haspopup="dialog"
-            onclick={() => {
-              closeMenu();
-              onManagePlugins?.();
-            }}
-          >
-            {m.gearmenu_plugins_manage()} ▾
-          </button>
-        </div>
+      <div class="grp">
+        <GearGroupHead
+          mobile
+          label={`${m.gearmenu_plugins_label()} · ${pluginItems.length}`}
+          action={m.gearmenu_plugins_manage()}
+          onAction={closeAnd(onManagePlugins)}
+        />
         {#each pluginItems as item (item.id)}
-          <button
-            type="button"
-            class="row"
-            onclick={() => {
-              closeMenu();
-              onPluginItem?.(item.id);
-            }}
-          >
-            <span class="glyph" aria-hidden="true">{item.icon ?? "⌁"}</span>
-            <span>{item.label}</span>
-            {#if item.hint && item.hint !== item.label}
-              <span class="row-meta faint">{item.hint}</span>
-            {/if}
-          </button>
+          <GearRow
+            mobile
+            glyph={item.icon ?? "⌁"}
+            label={item.label}
+            meta={item.hint && item.hint !== item.label ? item.hint : ""}
+            metaFaint
+            onclick={closeAnd(() => onPluginItem?.(item.id))}
+          />
         {/each}
       </div>
     {/if}
 
     <!-- Support group, demoted onto the darker head ground (44px tier). -->
     <div class="grp support">
-      <div class="grp-head">
-        <span class="grp-label">{m.gearmenu_support_label()}</span>
-      </div>
-      <button type="button" class="row support-row" onclick={() => onFeedback("bug")}>
-        <span class="glyph" aria-hidden="true">⚠</span>
-        <span>{m.feedback_dialog_title_bug()}</span>
-      </button>
-      <button type="button" class="row support-row" onclick={() => onFeedback("feature")}>
-        <span class="glyph" aria-hidden="true">✧</span>
-        <span>{m.feedback_dialog_title_feature()}</span>
-      </button>
-      <button type="button" class="row support-row" onclick={() => onFeedback("feedback")}>
-        <span class="glyph" aria-hidden="true">↵</span>
-        <span>{m.feedback_dialog_title_feedback()}</span>
-      </button>
+      <GearGroupHead mobile label={m.gearmenu_support_label()} />
+      <GearRow
+        mobile
+        support
+        glyph="⚠"
+        label={m.feedback_dialog_title_bug()}
+        onclick={() => onFeedback("bug")}
+      />
+      <GearRow
+        mobile
+        support
+        glyph="✧"
+        label={m.feedback_dialog_title_feature()}
+        onclick={() => onFeedback("feature")}
+      />
+      <GearRow
+        mobile
+        support
+        glyph="↵"
+        label={m.feedback_dialog_title_feedback()}
+        onclick={() => onFeedback("feedback")}
+      />
     </div>
   </div>
 </div>
@@ -538,35 +485,8 @@
     border-radius: 2px;
     background: var(--color-line-bright);
   }
-  .ident {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    padding: 6px 20px 10px;
-    border-bottom: 1px solid var(--color-line);
+  .ident-wrap {
     flex-shrink: 0;
-  }
-  .ident-brand {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--color-muted);
-  }
-  .ident-conn {
-    margin-left: auto;
-    display: inline-flex;
-    align-items: center;
-    gap: 5px;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  /* Connectivity stays in the neutral ink ramp: brightness, not a status hue. */
-  .ident-dot {
-    color: var(--color-faint);
-  }
-  .ident-dot.on {
-    color: var(--color-ink-bright);
   }
   .sheet-close {
     background: none;
@@ -581,160 +501,28 @@
     align-items: center;
     justify-content: center;
   }
-  /* Hero action: 52px tier, 16px text, amber e-stop glyph + WORKING chip. */
-  .hero {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 52px;
-    padding: 0 20px;
-    background: transparent;
-    border: 0;
-    border-bottom: 1px solid var(--color-line);
-    font: inherit;
-    font-size: var(--fs-lg);
-    color: var(--color-ink-bright);
-    text-align: left;
-    cursor: pointer;
-    flex-shrink: 0;
-  }
-  .hero-glyph {
-    width: 20px;
-    text-align: center;
-    color: var(--color-amber);
-    flex-shrink: 0;
-  }
-  .hero:disabled {
-    color: var(--color-muted);
-    cursor: default;
-    opacity: 0.4;
-  }
-  .hero:disabled .hero-glyph {
-    color: var(--color-muted);
-  }
-  .chip {
-    margin-left: auto;
-    border: 1px solid color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
-    color: var(--color-amber);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.1em;
-    text-transform: uppercase;
-    padding: 2px 8px;
-    border-radius: 2px;
-    font-variant-numeric: tabular-nums;
-  }
-  .hero.armed {
-    background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    color: var(--color-red);
-    text-transform: uppercase;
-    letter-spacing: 0.1em;
-    font-size: var(--fs-base);
-  }
-  .hero.armed .hero-glyph,
-  .hero.armed .chip {
-    color: var(--color-red);
-    border-color: var(--color-red);
+  .sheet-close:focus-visible {
+    outline: none;
+    background: var(--color-hover);
+    box-shadow: inset 0 0 0 1px var(--color-line-bright);
   }
   .grp {
     padding: 4px 0;
     border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
   }
-  .grp-head {
-    display: flex;
-    align-items: baseline;
-    gap: 8px;
-    padding: 8px 20px 0;
-  }
-  .grp-label {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.2em;
-    text-transform: uppercase;
-    color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
-  }
-  .grp-action {
-    margin-left: auto;
-    background: transparent;
-    border: 0;
-    padding: 8px 4px;
-    font: inherit;
-    font-size: var(--fs-meta);
-    color: var(--color-faint);
-    cursor: pointer;
-  }
-  /* Rows: 48px workspace/plugin tier, 16px text, 20px glyph column, flat states. */
-  .row {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    width: 100%;
-    min-height: 48px;
-    padding: 0 20px;
-    background: transparent;
-    border: 0;
-    font: inherit;
-    font-size: var(--fs-lg);
-    color: var(--color-ink);
-    text-align: left;
-    cursor: pointer;
-    white-space: nowrap;
-    text-decoration: none;
-    box-sizing: border-box;
-  }
-  .glyph {
-    width: 20px;
-    text-align: center;
-    color: var(--color-muted);
-    flex-shrink: 0;
-  }
-  .glyph-svg {
-    height: var(--fs-lg);
-    display: block;
-  }
-  .row-meta {
-    margin-left: auto;
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-    font-variant-numeric: tabular-nums;
-  }
-  .row-meta.faint {
-    color: var(--color-faint);
-  }
-  .row:hover {
-    background: var(--color-hover);
-  }
-  .row:focus-visible,
-  .hero:focus-visible,
-  .grp-action:focus-visible,
-  .sheet-close:focus-visible {
-    outline: none;
-    background: var(--color-hover);
-    box-shadow: inset 0 0 0 1px var(--color-line-bright);
-  }
-  .row.alert {
-    color: var(--color-amber);
-  }
-  .row.alert .glyph {
-    color: var(--color-amber);
-  }
-  /* Update rows: amber accent (same semantic hue as the inline update badge). */
-  .row.update {
-    color: var(--color-amber);
-  }
-  .row.update .glyph {
-    color: var(--color-amber);
-  }
-  /* Support group: demoted onto the head ground, 44px tier, quieter text size. */
   .grp.support {
     background: var(--color-head);
     border-bottom: 0;
     padding: 4px 0 10px;
   }
-  .row.support-row {
-    min-height: 44px;
-    font-size: var(--fs-base);
+  /* SVG glyphs in attention rows: sized here (snippet content carries this
+     component's scope, not GearRow's), aligned to the 20px glyph column. */
+  .glyph-svg {
+    width: 20px;
+    height: var(--fs-lg);
+    flex-shrink: 0;
+    display: block;
   }
   /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
      desktop ActionBar but sized up for touch (44px tap targets). */

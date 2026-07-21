@@ -32,6 +32,7 @@ mkdir -p "$PROJ/assets"; cp -r "$HERE/assets/." "$PROJ/assets/"
 # 1. Narration wavs from the committed script (voice: am_michael).
 while IFS=$'\t' read -r id text; do
   [ -n "$id" ] || continue
+  case "$id" in \#*) continue ;; esac  # skip comment lines
   $HF tts "$text" -v am_michael -o "$PROJ/assets/$id.wav" </dev/null
 done < "$HERE/assets/narration.tsv"
 

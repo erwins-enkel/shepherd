@@ -106,6 +106,7 @@ import {
   ProcessReaper,
   reapDeletedWorktreeOrphans,
   reapMarkedOrphans,
+  liveProcCwds,
   SESSION_MARKER_ENV,
 } from "./process-reaper";
 import {
@@ -113,6 +114,8 @@ import {
   compileCacheDir,
   reapFallowCaches,
   pruneRepoWorktrees,
+  reapAbandonedWorktrees,
+  reclaimForkedPnpmStore,
   scratchpadHasFiles,
 } from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
@@ -820,6 +823,31 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
         console.warn(`[tmp-sweep] ${phase}: reaped ${reaped} deleted-worktree orphan(s)`);
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} orphan reap failed:`, err));
+
+  // #1874: reclaim abandoned agent worktrees under /tmp, THEN the forked pnpm store they
+  // pinned. Order is load-bearing — while a tmp worktree survives, every store file sits at
+  // nlink=2, so removing the store first reclaims ~zero and the next install re-forks it.
+  // The reaper's `retained` count is the store pass's go/no-go gate. A single microtask-
+  // deferred liveProcCwds() snapshot keeps that synchronous /proc scan off the event loop
+  // and out of the all-async tmp-sweep module.
+  void Promise.resolve()
+    .then(async () => {
+      const liveWorktreePaths = store
+        .list({ activeOnly: true })
+        .map((s) => s.worktreePath)
+        .filter(Boolean);
+      const reap = await reapAbandonedWorktrees({
+        repoPaths: listRepos(config.repoRoot).map((r) => r.path),
+        liveWorktreePaths,
+        liveCwds: liveProcCwds(),
+      });
+      const storeResult = await reclaimForkedPnpmStore({ retained: reap.retained });
+      console.warn(
+        `[tmp-sweep] ${phase}: worktree reap removed ${reap.reaped} (retained ${reap.retained}), ` +
+          `pnpm store ${storeResult.removed ? "reclaimed" : `kept (${storeResult.reason})`}`,
+      );
+    })
+    .catch((err) => console.warn(`[tmp-sweep] ${phase} worktree/store reclaim failed:`, err));
 };
 
 deferredStarts.push(() => {

@@ -164,32 +164,58 @@ export async function mergeTreeWriteTree(
   );
 }
 
-interface WorktreeEntry {
+export interface WorktreeEntry {
   path: string;
   head?: string;
   branch?: string; // short name (refs/heads/ stripped)
   detached: boolean;
+  /** worktree is locked (`git worktree lock`); its record can't be pruned. */
+  locked: boolean;
+  /** the main worktree of a bare-ish checkout (`bare` line). */
+  bare: boolean;
+  /** git considers the record prunable (its working dir is gone / broken). */
+  prunable: boolean;
+}
+
+/** Apply one non-`worktree` porcelain line to the current entry.
+ *
+ *  `locked`/`prunable` MUST be prefix-matched: git emits a bare `locked` /
+ *  `prunable` line when no reason is present, but `locked <reason>` /
+ *  `prunable <reason>` when one is. An exact match (as for `detached`/`bare`,
+ *  which never carry a reason) would silently drop the flag on the
+ *  reason-carrying form — and a dropped `locked`/`prunable` is exactly the
+ *  worktree whose dangling record cannot be pruned, so a reaper must never
+ *  treat it as reapable. */
+function applyWorktreeAttr(cur: WorktreeEntry, line: string): void {
+  if (line.startsWith("HEAD ")) cur.head = line.slice("HEAD ".length);
+  else if (line.startsWith("branch "))
+    cur.branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
+  else if (line === "detached") cur.detached = true;
+  else if (line === "bare") cur.bare = true;
+  else if (line === "locked" || line.startsWith("locked ")) cur.locked = true;
+  else if (line === "prunable" || line.startsWith("prunable ")) cur.prunable = true;
 }
 
 /** Parse `git worktree list --porcelain` into structured entries. Blocks are
  *  separated by blank lines; lines are `worktree <path>`, `HEAD <sha>`,
- *  `branch refs/heads/<name>`, or `detached`. */
-function parseWorktrees(porcelain: string): WorktreeEntry[] {
+ *  `branch refs/heads/<name>`, `detached`, `bare`, `locked [<reason>]`, or
+ *  `prunable [<reason>]` (per-line handling in `applyWorktreeAttr`). */
+export function parseWorktrees(porcelain: string): WorktreeEntry[] {
   const out: WorktreeEntry[] = [];
   let cur: WorktreeEntry | null = null;
   for (const raw of porcelain.split("\n")) {
     const line = raw.trimEnd();
     if (line.startsWith("worktree ")) {
       if (cur) out.push(cur);
-      cur = { path: line.slice("worktree ".length), detached: false };
-    } else if (!cur) {
-      continue;
-    } else if (line.startsWith("HEAD ")) {
-      cur.head = line.slice("HEAD ".length);
-    } else if (line.startsWith("branch ")) {
-      cur.branch = line.slice("branch ".length).replace(/^refs\/heads\//, "");
-    } else if (line === "detached") {
-      cur.detached = true;
+      cur = {
+        path: line.slice("worktree ".length),
+        detached: false,
+        locked: false,
+        bare: false,
+        prunable: false,
+      };
+    } else if (cur) {
+      applyWorktreeAttr(cur, line);
     }
   }
   if (cur) out.push(cur);

@@ -147,7 +147,9 @@ function isGitComm(comm: string): boolean {
 // Path segment every shepherd session/review worktree lives under. The orphan
 // sweeps refuse to act on any path lacking it, so a mistaken caller passing a repo
 // root (or any non-worktree path) can never SIGKILL unrelated host processes.
-const WORKTREE_MARKER = "/.shepherd-worktrees/";
+// Exported so the tmp-sweep worktree reaper shares the exact same marker rather
+// than forking the definition.
+export const WORKTREE_MARKER = "/.shepherd-worktrees/";
 
 // readlink(/proc/<pid>/cwd) appends this once the directory is unlinked; the kernel
 // keeps the inode alive for the still-running process. A "(deleted)" cwd under the
@@ -159,7 +161,10 @@ export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">)
   return l.kind === "process" ? `process:${l.pid}` : `system:${l.name}:${l.port ?? ""}`;
 }
 
-function isUnder(path: string, root: string): boolean {
+/** Segment-aligned containment: `path` is `root` itself or lives under it. Exported
+ *  so the tmp-sweep reaper reuses the same idiom (a `startsWith` without the `/`
+ *  guard would treat `/a/bc` as under `/a/b`). */
+export function isUnder(path: string, root: string): boolean {
   return path === root || path.startsWith(root + "/");
 }
 
@@ -426,6 +431,23 @@ const defaultProbes: ReaperProbes = {
     execFileSync(bin, args, { stdio: "ignore" });
   },
 };
+
+/**
+ * A snapshot of every same-uid process's current working directory (raw
+ * `/proc/<pid>/cwd` readlink targets), reusing the existing synchronous
+ * `scanProcs` /proc scan. `readlink` on another user's process yields `EACCES`
+ * and is skipped by `scanProcs` — so this is a same-uid guarantee, not absolute.
+ *
+ * SYNCHRONOUS by design: the tmp-sweep worktree reaper's live-cwd refusal needs
+ * this signal, but that module is all-async — so the caller (`fireTmpSweep`) takes
+ * ONE deferred snapshot here and passes the resolved set in, keeping the sync
+ * `/proc` walk out of the async module. A deleted cwd carries a `" (deleted)"`
+ * suffix; that never resolves to an on-disk worktree, so it is harmless noise the
+ * reaper's realpath step drops.
+ */
+export function liveProcCwds(probes: ReaperProbes = defaultProbes): string[] {
+  return probes.scanProcs().map((p) => p.cwd);
+}
 
 export class ProcessReaper {
   constructor(private probes: ReaperProbes = defaultProbes) {}

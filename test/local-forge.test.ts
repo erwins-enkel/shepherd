@@ -11,6 +11,7 @@ import {
   mergeTreeWriteTree,
   parseGitVersion,
   gitVersionAtLeast,
+  parseWorktrees,
   BaseCheckoutBusyError,
   MergeConflictError,
 } from "../src/forge/local";
@@ -443,4 +444,58 @@ test("squashMergeLocal surfaces a clear error when git is too old (injected prob
   } finally {
     rmSync(repo, { recursive: true, force: true });
   }
+});
+
+// ── parseWorktrees annotations (locked/bare/prunable) ────────────────────────
+
+test("parseWorktrees: bare AND reason-carrying locked/prunable both set the flag", () => {
+  const porcelain = [
+    "worktree /repo",
+    "HEAD abc123",
+    "branch refs/heads/main",
+    "",
+    "worktree /tmp/wt-locked-bare",
+    "HEAD def456",
+    "detached",
+    "locked", // bare form, no reason
+    "",
+    "worktree /tmp/wt-reason",
+    "HEAD 789abc",
+    "branch refs/heads/feat",
+    "locked on another host", // reason-carrying form — MUST still set the flag
+    "prunable gitdir file points to non-existent location", // reason-carrying
+    "",
+    "worktree /tmp/wt-bare",
+    "bare",
+    "",
+  ].join("\n");
+  const wts = parseWorktrees(porcelain);
+  expect(wts).toHaveLength(4);
+
+  // main worktree — every annotation false
+  expect(wts[0]).toMatchObject({
+    path: "/repo",
+    branch: "main",
+    detached: false,
+    locked: false,
+    bare: false,
+    prunable: false,
+  });
+  // bare `locked` line
+  expect(wts[1]).toMatchObject({ path: "/tmp/wt-locked-bare", detached: true, locked: true });
+  // reason-carrying locked + prunable both flagged (the prefix-match guard)
+  expect(wts[2]).toMatchObject({
+    path: "/tmp/wt-reason",
+    branch: "feat",
+    locked: true,
+    prunable: true,
+  });
+  // `bare` annotation
+  expect(wts[3]).toMatchObject({ path: "/tmp/wt-bare", bare: true });
+});
+
+test("parseWorktrees: absent annotations default to false", () => {
+  const wts = parseWorktrees("worktree /repo\nHEAD abc\nbranch refs/heads/main\n");
+  expect(wts).toHaveLength(1);
+  expect(wts[0]).toMatchObject({ locked: false, bare: false, prunable: false, detached: false });
 });

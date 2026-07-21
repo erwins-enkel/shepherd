@@ -3,6 +3,14 @@ import { execFile } from "node:child_process";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import {
+  parseWorktrees,
+  parseGitVersion,
+  gitVersionAtLeast,
+  MIN_GIT_MAJOR,
+  MIN_GIT_MINOR,
+} from "./forge/local";
+import { WORKTREE_MARKER, isUnder } from "./process-reaper";
 
 const execFileAsync = promisify(execFile);
 
@@ -522,6 +530,551 @@ export async function reapFallowCaches(opts?: ReapFallowOpts): Promise<ReapFallo
   for (const root of roots) removed += await reapFallowRoot(root, ctx);
 
   return { removed };
+}
+
+// ── worktree reaper ─────────────────────────────────────────────────────────
+//
+// Removes abandoned agent git worktrees that live under a tmp root: a nested agent
+// creates its own `git worktree add /tmp/…` for a configured repo, then finishes
+// without removing it. Those worktrees hardlink `node_modules` into the forked pnpm
+// store, so their survival pins every store file at `nlink = 2` — the store pass
+// can only reclaim once they are gone. This reaper drops them; its `retained` count
+// is the store pass's go/no-go signal.
+//
+// The removal is DESTRUCTIVE against possibly-unrecoverable data (a worktree can hold
+// uncommitted edits + untracked files existing nowhere else), so it is guarded by a
+// wall of refusals AND gated on live inode pressure — a destructive act needs a live
+// justification. Every path comparison is realpath-normalized: porcelain emits resolved
+// paths while a stored `worktreePath` / `tmpdir()` may be a symlink (macOS `/private/tmp`),
+// and a non-match on the protective side is the dangerous direction.
+
+/** Injectable git exec for the reaper: runs `git -C <cwd> <args>`, resolves stdout,
+ *  rejects on non-zero exit or spawn failure. */
+type ExecGit = (cwd: string, args: string[]) => Promise<string>;
+
+const defaultExecGit: ExecGit = (cwd, args) =>
+  execFileAsync("git", ["-C", cwd, ...args], { timeout: 60_000 }).then((r) => r.stdout);
+
+export interface ReapWorktreesOpts {
+  /** Configured repo paths to enumerate worktrees for (`listRepos(...).map(r => r.path)`). */
+  repoPaths: string[];
+  /** Live-session worktree dirs to spare (from `store.list({ activeOnly: true })`). */
+  liveWorktreePaths?: string[];
+  /** A RESOLVED snapshot of same-uid process cwds (from `liveProcCwds()`), taken by the
+   *  caller so the synchronous `/proc` scan stays out of this async module. */
+  liveCwds?: string[];
+  /** Tmp roots a candidate must live under to be eligible. Default `[claudeTmpRoot(), tmpdir()]`. */
+  tmpRoots?: string[];
+  thresholdPct?: number;
+  staleMs?: number;
+  now?: number;
+  log?: (msg: string) => void;
+  execGit?: ExecGit;
+  realpath?: (p: string) => Promise<string>;
+  statfs?: FsOps["statfs"];
+  fsOps?: Pick<FsOps, "readdir" | "stat">;
+  /** Injectable removal (default `git worktree remove`, no `--force` — cleanliness proven). */
+  removeWorktree?: (repo: string, worktreePath: string) => Promise<void>;
+}
+
+export interface ReapWorktreesResult {
+  reaped: number;
+  /** Candidates under a tmp root still on disk after the pass — the store pass skips when > 0. */
+  retained: number;
+}
+
+/** A discovered, realpath-resolved worktree candidate under a tmp root. */
+interface WorktreeCandidate {
+  repo: string;
+  path: string; // git-registered path
+  real: string; // realpath-resolved (implies on-disk: realpath threw ⇒ not a candidate)
+  locked: boolean;
+  bare: boolean;
+  prunable: boolean;
+}
+
+/** Realpath-resolve each path, dropping unresolvable ones, deduped. */
+async function resolveAllRealpaths(
+  paths: string[],
+  realpath: (p: string) => Promise<string>,
+): Promise<string[]> {
+  const out: string[] = [];
+  for (const p of paths) {
+    try {
+      out.push(await realpath(p));
+    } catch {
+      /* unresolvable (gone / broken) — drop */
+    }
+  }
+  return [...new Set(out)];
+}
+
+/** Max entries the freshness walk will stat before giving up. Sized for a source tree
+ *  with `node_modules`/`.git` pruned from descent; exhaustion resolves to *keep*. */
+const FRESHNESS_ENTRY_BUDGET = 10_000;
+
+/**
+ * True when the worktree looks fresh (recently touched) — the KEEP-biased direction.
+ * Bounded DFS from `root`, statting every entry for its mtime but pruning `node_modules`
+ * and `.git` from DESCENT (they are stat'd for their own mtime — a recent install/git op
+ * shows there — but never walked: `node_modules/.pnpm` alone is thousands of dirs and
+ * would exhaust the budget). ANY of {a mtime within the window, a stat/readdir error,
+ * budget exhaustion} ⇒ `true` (keep). Only a full, error-free walk finding nothing fresh
+ * ⇒ `false` (provably stale ⇒ reapable).
+ */
+/** Mutable entry budget shared across a single freshness/idle walk. */
+interface Budget {
+  n: number;
+}
+
+/**
+ * Scan ONE directory for the freshness walk. `stop: true` is the KEEP-biased outcome (a fresh
+ * mtime, a stat/readdir error, or budget exhaustion); otherwise `children` are the sub-dirs to
+ * descend, with `node_modules`/`.git` pruned from descent (stat'd for mtime, never walked).
+ */
+async function scanFreshDir(
+  dir: string,
+  cutoff: number,
+  budget: Budget,
+  readdir: FsOps["readdir"],
+  stat: FsOps["stat"],
+): Promise<{ stop: boolean; children: string[] }> {
+  const keep = { stop: true, children: [] as string[] };
+  let entries: Dirent[];
+  try {
+    entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
+  } catch {
+    return keep; // unreadable subtree → keep
+  }
+  const children: string[] = [];
+  for (const ent of entries) {
+    if (--budget.n < 0) return keep; // budget exhausted → keep (never a reap by omission)
+    const p = join(dir, ent.name);
+    try {
+      if (Number((await stat(p)).mtimeMs) > cutoff) return keep; // a fresh entry → keep
+    } catch {
+      return keep; // stat error → keep
+    }
+    if (ent.isDirectory() && ent.name !== "node_modules" && ent.name !== ".git") children.push(p);
+  }
+  return { stop: false, children };
+}
+
+async function worktreeIsFresh(
+  root: string,
+  cutoff: number,
+  readdir: FsOps["readdir"],
+  stat: FsOps["stat"],
+): Promise<boolean> {
+  try {
+    if (Number((await stat(root)).mtimeMs) > cutoff) return true;
+  } catch {
+    return true; // can't even stat the root → keep
+  }
+  const budget: Budget = { n: FRESHNESS_ENTRY_BUDGET };
+  const stack: string[] = [root];
+  while (stack.length > 0) {
+    const scan = await scanFreshDir(stack.pop() as string, cutoff, budget, readdir, stat);
+    if (scan.stop) return true;
+    stack.push(...scan.children);
+  }
+  return false; // fully walked within budget, nothing fresh
+}
+
+/**
+ * The refusal reason for a candidate, or `null` when it is safe to reap. Cheap checks
+ * (porcelain annotations, the Shepherd-worktree marker, the live sets) run before the
+ * `git status` spawn, which runs before the freshness fs-walk.
+ */
+async function worktreeRefusal(
+  c: WorktreeCandidate,
+  ctx: {
+    liveWorktreePaths: string[];
+    liveCwds: string[];
+    cutoff: number;
+    execGit: ExecGit;
+    readdir: FsOps["readdir"];
+    stat: FsOps["stat"];
+  },
+): Promise<string | null> {
+  if (c.locked) return "locked";
+  if (c.bare) return "bare";
+  if (c.prunable) return "prunable";
+  if (c.real.includes(WORKTREE_MARKER) || c.path.includes(WORKTREE_MARKER))
+    return "shepherd-worktree";
+  if (ctx.liveWorktreePaths.includes(c.real)) return "live-session";
+  if (ctx.liveCwds.some((cwd) => isUnder(cwd, c.real))) return "live-cwd";
+
+  // Dirty check — the `src/worktree.ts` idiom: ANY error counts as dirty (safe default),
+  // because a worktree can hold work that exists nowhere else.
+  let status: string;
+  try {
+    status = await ctx.execGit(c.path, ["status", "--porcelain"]);
+  } catch {
+    return "dirty";
+  }
+  if (status.trim().length > 0) return "dirty";
+
+  if (await worktreeIsFresh(c.real, ctx.cutoff, ctx.readdir, ctx.stat)) return "fresh";
+  return null;
+}
+
+/** Shared option resolution for the two tmp reclaimers: current time, the staleness `cutoff`
+ *  (`SHEPHERD_TMP_STALE_HOURS`, default 24h), and the inode-pressure gate (`SHEPHERD_TMP_INODE_PCT`). */
+function resolveTmpGate(opts: { now?: number; staleMs?: number; thresholdPct?: number }): {
+  now: number;
+  cutoff: number;
+  thresholdPct: number;
+} {
+  const now = opts.now ?? Date.now();
+  const cutoff =
+    now - (opts.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000);
+  const thresholdPct =
+    opts.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, DEFAULT_TMP_INODE_PCT);
+  return { now, cutoff, thresholdPct };
+}
+
+/** True iff the installed git meets the worktree-annotation floor (>= 2.38); unreadable ⇒ false. */
+async function gitMeetsFloor(execGit: ExecGit, repo: string): Promise<boolean> {
+  try {
+    const v = parseGitVersion(await execGit(repo, ["--version"]));
+    return !!v && gitVersionAtLeast(v, MIN_GIT_MAJOR, MIN_GIT_MINOR);
+  } catch {
+    return false;
+  }
+}
+
+/** Enumerate every worktree of the configured repos that realpath-resolves under a tmp root,
+ *  deduped by resolved path (overlapping repo configs can list the same tmp worktree twice). A
+ *  path that fails realpath is gone (not on disk) and skipped. */
+async function discoverTmpWorktreeCandidates(ctx: {
+  repoPaths: string[];
+  tmpRoots: string[];
+  execGit: ExecGit;
+  realpath: (p: string) => Promise<string>;
+  log: (msg: string) => void;
+}): Promise<WorktreeCandidate[]> {
+  const candidates: WorktreeCandidate[] = [];
+  const seen = new Set<string>();
+  for (const repo of ctx.repoPaths) {
+    let porcelain: string;
+    try {
+      porcelain = await ctx.execGit(repo, ["worktree", "list", "--porcelain"]);
+    } catch (err) {
+      ctx.log(`[tmp-sweep] worktree list failed for ${repo}: ${String(err)}`);
+      continue;
+    }
+    for (const e of parseWorktrees(porcelain)) {
+      let real: string;
+      try {
+        real = await ctx.realpath(e.path); // resolves ⇒ on disk; throws ⇒ gone, not a candidate
+      } catch {
+        continue;
+      }
+      if (!ctx.tmpRoots.some((r) => isUnder(real, r)) || seen.has(real)) continue;
+      seen.add(real);
+      candidates.push({
+        repo,
+        path: e.path,
+        real,
+        locked: e.locked,
+        bare: e.bare,
+        prunable: e.prunable,
+      });
+    }
+  }
+  return candidates;
+}
+
+/** Apply refusals to each candidate and reap those with a live justification. Returns the count
+ *  removed. `canRemove` folds the git-floor + inode-pressure gate: false ⇒ discover-only. */
+async function reapCandidates(
+  candidates: WorktreeCandidate[],
+  canRemove: boolean,
+  refusalCtx: Parameters<typeof worktreeRefusal>[1],
+  removeWorktree: (repo: string, worktreePath: string) => Promise<void>,
+  log: (msg: string) => void,
+): Promise<number> {
+  let reaped = 0;
+  for (const c of candidates) {
+    const reason = await worktreeRefusal(c, refusalCtx);
+    if (reason) {
+      log(`[tmp-sweep] keep worktree ${c.real}: ${reason}`);
+      continue;
+    }
+    if (!canRemove) continue; // reapable but no live justification to act
+    try {
+      await removeWorktree(c.repo, c.path);
+      reaped += 1;
+      log(`[tmp-sweep] reaped abandoned worktree ${c.real}`);
+    } catch (err) {
+      log(`[tmp-sweep] worktree remove failed for ${c.real}: ${String(err)}`);
+    }
+  }
+  return reaped;
+}
+
+/**
+ * Reap abandoned tmp worktrees of the configured repos. TOTAL by contract — never throws;
+ * any unexpected failure resolves to a conservative `retained >= 1` so the store pass skips.
+ *
+ * Discovery + refusal always run; only the actual REMOVAL is gated on git >= 2.38 (the floor
+ * for the `locked`/`prunable` annotations that keep a dangling record from being reaped) AND
+ * inode pressure >= `thresholdPct`. `retained` = candidates under a tmp root still on disk
+ * after the pass (every candidate was realpath-resolved, so it exists) minus those removed —
+ * deliberately NOT the raw refusal list, whose off-tmp entries would pin it non-zero forever.
+ */
+export async function reapAbandonedWorktrees(
+  opts: ReapWorktreesOpts,
+): Promise<ReapWorktreesResult> {
+  const log = opts.log ?? console.warn;
+  try {
+    const firstRepo = opts.repoPaths[0];
+    if (firstRepo === undefined) return { reaped: 0, retained: 0 };
+
+    const { cutoff, thresholdPct } = resolveTmpGate(opts);
+    const realpath = opts.realpath ?? fsp.realpath;
+    const statfs = opts.statfs ?? fsp.statfs;
+    const readdir = opts.fsOps?.readdir ?? fsp.readdir;
+    const stat = opts.fsOps?.stat ?? fsp.stat;
+    const execGit = opts.execGit ?? defaultExecGit;
+    const removeWorktree =
+      opts.removeWorktree ??
+      ((repo: string, wt: string) => execGit(repo, ["worktree", "remove", wt]).then(() => {}));
+
+    const [tmpRoots, liveWorktreePaths, liveCwds] = await Promise.all([
+      resolveAllRealpaths(opts.tmpRoots ?? [claudeTmpRoot(), tmpdir()], realpath),
+      resolveAllRealpaths(opts.liveWorktreePaths ?? [], realpath),
+      resolveAllRealpaths(opts.liveCwds ?? [], realpath),
+    ]);
+
+    // Git floor: without the 2.36+ porcelain annotations a locked/prunable worktree looks
+    // reapable while its record can't be pruned — a dangling entry. Below the floor we still
+    // discover (so `retained` reflects reality and the store skips) but never remove.
+    const gitOk = await gitMeetsFloor(execGit, firstRepo);
+    if (!gitOk) log("[tmp-sweep] worktree reap: git < 2.38 or unreadable — discovering only");
+    const usePct = await inodeUsePct(tmpdir(), statfs, log);
+    const pressureOk = typeof usePct === "number" && usePct >= thresholdPct;
+
+    const candidates = await discoverTmpWorktreeCandidates({
+      repoPaths: opts.repoPaths,
+      tmpRoots,
+      execGit,
+      realpath,
+      log,
+    });
+
+    const refusalCtx = { liveWorktreePaths, liveCwds, cutoff, execGit, readdir, stat };
+    const reaped = await reapCandidates(
+      candidates,
+      gitOk && pressureOk,
+      refusalCtx,
+      removeWorktree,
+      log,
+    );
+    // Every candidate is on-disk-under-tmp (realpath-resolved); those not reaped remain.
+    return { reaped, retained: candidates.length - reaped };
+  } catch (err) {
+    log(`[tmp-sweep] worktree reap unexpected error: ${String(err)}`);
+    // Defensive: an unknown failure must NOT let the store pass proceed.
+    return { reaped: 0, retained: 1 };
+  }
+}
+
+// ── forked pnpm store reclaimer ─────────────────────────────────────────────
+//
+// pnpm forks a content-addressable store onto the tmpfs (`<tmp>/.pnpm-store/v<N>/`) to
+// stay same-filesystem for hardlinking. Once every worktree that linked it is gone, the
+// store is dead weight pinning inodes. Removal is ALL-OR-NOTHING (skip the whole store if
+// ANY file still has `nlink > 1`): measured, pnpm re-fetches cleanly online after content
+// is deleted, but partial reclaim is deferred (see the issue's follow-up). Every
+// non-exhaustive outcome resolves to KEEP — `removed:false` means *provably idle*, never
+// *failed to probe*.
+
+/** The `/^v\d+$/` version subdirs of a store root. Shared by both probes: an empty result
+ *  makes the caller skip (an unrecognized layout is never removed) — the harmless direction. */
+export function resolveStoreVersionDirs(rootEntries: Dirent[]): string[] {
+  return rootEntries.filter((e) => e.isDirectory() && /^v\d+$/.test(e.name)).map((e) => e.name);
+}
+
+/**
+ * Provably idle iff a full depth-2 enumeration from the versioned dir finds every mtime
+ * <= `cutoff`. Depth 2 is load-bearing: a mid-install store's depth-<=1 mtimes stop moving
+ * once the buckets exist, so a shallower probe reads a busy store as idle. Any error, or a
+ * budget overrun, ⇒ `false` (keep).
+ */
+/** Every entry directly under `dir` has an mtime <= `cutoff` (and budget wasn't exhausted).
+ *  Throws propagate to the caller's catch. */
+async function childrenAllStale(
+  dir: string,
+  cutoff: number,
+  budget: Budget,
+  readdir: FsOps["readdir"],
+  stat: FsOps["stat"],
+): Promise<boolean> {
+  for (const e of (await readdir(dir, { withFileTypes: true })) as Dirent[]) {
+    if (--budget.n < 0) return false;
+    if (Number((await stat(join(dir, e.name))).mtimeMs) > cutoff) return false;
+  }
+  return true;
+}
+
+async function storeVersionDirIsIdle(
+  vdir: string,
+  cutoff: number,
+  readdir: FsOps["readdir"],
+  stat: FsOps["stat"],
+): Promise<boolean> {
+  const budget: Budget = { n: 100_000 };
+  try {
+    for (const e1 of (await readdir(vdir, { withFileTypes: true })) as Dirent[]) {
+      if (--budget.n < 0) return false;
+      const p1 = join(vdir, e1.name);
+      if (Number((await stat(p1)).mtimeMs) > cutoff) return false;
+      if (e1.isDirectory() && !(await childrenAllStale(p1, cutoff, budget, readdir, stat)))
+        return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * `true` when the version dir's `files/` tree still holds a hardlink (some `nlink > 1`) OR
+ * could not be exhaustively probed (missing `files/`, any readdir/stat error) — i.e. NOT
+ * safe to remove. `false` only after a full walk proves every content file is `nlink === 1`.
+ * Exhaustive with early exit on the first surviving link: the dangerous case is the cheap
+ * one, and the full walk only completes when we are about to `rm -rf` these files anyway.
+ */
+async function storeVersionDirHasLinks(
+  filesDir: string,
+  stat: FsOps["stat"],
+  readdir: FsOps["readdir"],
+): Promise<boolean> {
+  const stack: string[] = [filesDir];
+  try {
+    while (stack.length > 0) {
+      const dir = stack.pop() as string;
+      const entries = (await readdir(dir, { withFileTypes: true })) as Dirent[];
+      for (const ent of entries) {
+        const p = join(dir, ent.name);
+        if (ent.isDirectory()) {
+          stack.push(p);
+          continue;
+        }
+        if (Number((await stat(p)).nlink) > 1) return true; // a link survives — early exit
+      }
+    }
+    return false; // fully walked, every file nlink === 1
+  } catch {
+    return true; // missing files/ or any error → not provably unlinked → keep
+  }
+}
+
+export interface ReclaimStoreOpts {
+  /** The forked store root. Default `<tmpdir>/.pnpm-store` — the only name allowed to reach
+   *  bare `tmpdir()`. A wrong mount root just yields a missing dir → safe skip. */
+  storeRoot?: string;
+  /** Worktree candidates still on disk (from `reapAbandonedWorktrees`). > 0 ⇒ skip. */
+  retained: number;
+  thresholdPct?: number;
+  staleMs?: number;
+  now?: number;
+  statfs?: FsOps["statfs"];
+  fsOps?: Pick<FsOps, "readdir" | "stat" | "rm">;
+  log?: (msg: string) => void;
+}
+
+export interface ReclaimStoreResult {
+  removed: boolean;
+  reason: string;
+}
+
+/** A skip reason for any non-`v*` sibling of the store root that could be freshly written while
+ *  the two v-dir probes (which only look inside `v*`) read "idle" — else `null`. */
+async function siblingBlocker(
+  rootEntries: Dirent[],
+  storeRoot: string,
+  cutoff: number,
+  stat: FsOps["stat"],
+): Promise<string | null> {
+  for (const e of rootEntries) {
+    if (/^v\d+$/.test(e.name)) continue;
+    let st: Awaited<ReturnType<FsOps["stat"]>>;
+    try {
+      st = await stat(join(storeRoot, e.name));
+    } catch {
+      return `sibling-unstattable ${e.name}`;
+    }
+    if (Number(st.mtimeMs) > cutoff) return `sibling-fresh ${e.name}`;
+    if (e.isDirectory()) return `sibling-unrecognized ${e.name}`;
+  }
+  return null;
+}
+
+/** A skip reason for any version dir that is not depth-2-idle or not fully unlinked — else `null`. */
+async function versionDirBlocker(
+  storeRoot: string,
+  versionDirs: string[],
+  cutoff: number,
+  readdir: FsOps["readdir"],
+  stat: FsOps["stat"],
+): Promise<string | null> {
+  for (const v of versionDirs) {
+    const vdir = join(storeRoot, v);
+    if (!(await storeVersionDirIsIdle(vdir, cutoff, readdir, stat))) return `store-busy ${v}`;
+    if (await storeVersionDirHasLinks(join(vdir, "files"), stat, readdir))
+      return `store-linked-or-unprobed ${v}`;
+  }
+  return null;
+}
+
+/**
+ * All-or-nothing reclaim of the forked pnpm store. TOTAL by contract — never throws. Removes
+ * `<storeRoot>` only when: `retained === 0`, inode pressure >= threshold, the layout is a
+ * recognized `v<N>` store, no non-`v*` sibling is fresh or an unrecognized dir, and EVERY
+ * version dir is depth-2-idle AND fully unlinked. Any other outcome is a keep with a reason.
+ */
+export async function reclaimForkedPnpmStore(opts: ReclaimStoreOpts): Promise<ReclaimStoreResult> {
+  const log = opts.log ?? console.warn;
+  try {
+    const storeRoot = opts.storeRoot ?? join(tmpdir(), ".pnpm-store");
+    const { cutoff, thresholdPct } = resolveTmpGate(opts);
+    const readdir = opts.fsOps?.readdir ?? fsp.readdir;
+    const stat = opts.fsOps?.stat ?? fsp.stat;
+    const rm = opts.fsOps?.rm ?? fsp.rm;
+    const statfs = opts.statfs ?? fsp.statfs;
+
+    if (opts.retained > 0) return { removed: false, reason: `retained-worktrees ${opts.retained}` };
+
+    const usePct = await inodeUsePct(tmpdir(), statfs, log);
+    if (typeof usePct === "string") return { removed: false, reason: usePct };
+    if (usePct < thresholdPct) {
+      return { removed: false, reason: `below-threshold ${usePct.toFixed(1)}%` };
+    }
+
+    let rootEntries: Dirent[];
+    try {
+      rootEntries = (await readdir(storeRoot, { withFileTypes: true })) as Dirent[];
+    } catch {
+      return { removed: false, reason: "no-store" };
+    }
+
+    const versionDirs = resolveStoreVersionDirs(rootEntries);
+    if (versionDirs.length === 0) return { removed: false, reason: "no-version-dir" };
+
+    const blocker =
+      (await siblingBlocker(rootEntries, storeRoot, cutoff, stat)) ??
+      (await versionDirBlocker(storeRoot, versionDirs, cutoff, readdir, stat));
+    if (blocker) return { removed: false, reason: blocker };
+
+    await rm(storeRoot, { recursive: true, force: true });
+    return { removed: true, reason: `reclaimed ${storeRoot}` };
+  } catch (err) {
+    log(`[tmp-sweep] store reclaim unexpected error: ${String(err)}`);
+    return { removed: false, reason: "error" };
+  }
 }
 
 interface PruneOpts {

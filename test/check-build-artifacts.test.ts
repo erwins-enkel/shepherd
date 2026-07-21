@@ -17,6 +17,16 @@ const JB = "JetBrains Mono-b581649cf8f10209";
 let fixture: string;
 let pages: string;
 let dist: string;
+let config: string;
+
+/** A stand-in astro.config.mjs — the gate reads its `cssVariable` entries as the
+ *  source of truth for which font families must be present. */
+function writeConfig(cssVars: string[]) {
+  const entries = cssVars
+    .map((v) => `    { name: "X", cssVariable: "${v}", provider: fontProviders.npm() },`)
+    .join("\n");
+  writeFileSync(config, `export default defineConfig({\n  fonts: [\n${entries}\n  ],\n});\n`);
+}
 
 function write(root: string, rel: string, contents: string) {
   const abs = join(root, rel);
@@ -84,7 +94,7 @@ function seedHealthy() {
 
 function runGate(): { code: number; out: string } {
   const r = spawnSync("bun", [SCRIPT], {
-    env: { ...process.env, SITE_DIST: dist, SITE_PAGES: pages },
+    env: { ...process.env, SITE_DIST: dist, SITE_PAGES: pages, SITE_CONFIG: config },
     encoding: "utf8",
   });
   return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
@@ -94,8 +104,10 @@ beforeEach(() => {
   fixture = mkdtempSync(join(tmpdir(), "shepherd-site-artifacts-"));
   pages = join(fixture, "src", "pages");
   dist = join(fixture, "dist");
+  config = join(fixture, "astro.config.mjs");
   mkdirSync(pages, { recursive: true });
   mkdirSync(dist, { recursive: true });
+  writeConfig(["--font-space-grotesk", "--font-jetbrains-mono"]);
 });
 afterEach(() => rmSync(fixture, { recursive: true, force: true }));
 
@@ -219,6 +231,46 @@ test("a pages directory of only non-routed files fails rather than passing vacuo
   const { code, out } = runGate();
   expect(code).toBe(1);
   expect(out).toContain("no pages found");
+});
+
+test("dot-prefixed junk under src/pages is ignored", () => {
+  seedHealthy();
+  write(pages, ".DS_Store", "junk\n");
+  expect(runGate().code).toBe(0);
+});
+
+// The expected font list is read from astro.config.mjs rather than hardcoded, so a
+// family added to the config is checked immediately instead of drifting out of
+// coverage while the gate keeps reporting green.
+test("a family added to the config is checked without touching the script", () => {
+  seedHealthy();
+  writeConfig(["--font-space-grotesk", "--font-jetbrains-mono", "--font-newly-added"]);
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("--font-newly-added is not declared");
+});
+
+test("a family removed from the config is no longer required", () => {
+  seedHealthy();
+  writeConfig(["--font-space-grotesk"]);
+  write(dist, "index.html", pageHtml({ webfontFamilies: [SG] }));
+  expect(runGate().code).toBe(0);
+});
+
+test("an unreadable font config fails rather than checking nothing", () => {
+  seedHealthy();
+  rmSync(config);
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("cannot read font config");
+});
+
+test("a font config with no cssVariable entries fails", () => {
+  seedHealthy();
+  writeFileSync(config, "export default defineConfig({ fonts: [] });\n");
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no cssVariable entries");
 });
 
 // statSync reports a nonzero size for a directory, so without an isFile() guard a

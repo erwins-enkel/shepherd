@@ -18,8 +18,9 @@
 // vacuously pass). Both are env-overridable so the gate can be exercised against
 // synthetic fixtures — see test/check-build-artifacts.test.ts.
 //
-//   SITE_DIST  (or argv[2])  build output to validate      default <pkg>/dist
-//   SITE_PAGES               route source of truth         default <pkg>/src/pages
+//   SITE_DIST   (or argv[2])  build output to validate     default <pkg>/dist
+//   SITE_PAGES                route source of truth        default <pkg>/src/pages
+//   SITE_CONFIG               font config source of truth  default <pkg>/astro.config.mjs
 
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve, sep } from "node:path";
@@ -28,12 +29,7 @@ import { fileURLToPath } from "node:url";
 const PKG_ROOT = resolve(fileURLToPath(import.meta.url), "..", "..");
 const DIST = resolve(process.argv[2] ?? process.env.SITE_DIST ?? join(PKG_ROOT, "dist"));
 const PAGES = resolve(process.env.SITE_PAGES ?? join(PKG_ROOT, "src", "pages"));
-
-/** CSS custom properties every built page must declare, one per configured font
- *  family (see `fonts` in astro.config.mjs). Listed explicitly rather than derived
- *  from the built CSS: deriving from the output would make the check vacuous if a
- *  family were dropped from the config entirely. */
-const EXPECTED_FONT_VARS = ["--font-space-grotesk", "--font-jetbrains-mono"];
+const CONFIG = resolve(process.env.SITE_CONFIG ?? join(PKG_ROOT, "astro.config.mjs"));
 
 /** Minimum size of an emitted route's HTML. The three real routes measure
  *  28825 / 13862 / 12778 bytes, so this only catches an empty/stub write. */
@@ -106,8 +102,10 @@ function routeForPage(rel) {
   const segments = rel.split(sep);
   // Astro excludes any path with an underscore-prefixed segment from routing
   // (_components/, _draft.astro), so these are not missing routes — asserting on
-  // them would be a false failure.
-  if (segments.some((s) => s.startsWith("_"))) return "";
+  // them would be a false failure. Dot-prefixed entries are skipped for the same
+  // reason plus one more: a stray .DS_Store is gitignored, so it would red a local
+  // run for a confusing reason while CI never saw it.
+  if (segments.some((s) => s.startsWith("_") || s.startsWith("."))) return "";
   if (!rel.endsWith(".astro")) return null;
   segments[segments.length - 1] = segments[segments.length - 1].slice(0, -".astro".length);
   // Dynamic and spread routes ([slug].astro, [...rest].astro) expand via
@@ -151,6 +149,35 @@ function checkRoutes() {
 
 // ── Fonts ────────────────────────────────────────────────────────────────────
 
+/** The CSS custom properties the build is expected to declare — read straight from
+ *  the `fonts` config's `cssVariable` entries rather than hardcoded here, so adding
+ *  a family to astro.config.mjs automatically brings it under the gate. A hardcoded
+ *  list would drift silently: the new family would never be checked and the gate
+ *  would keep reporting green.
+ *
+ *  Deriving the list from the built CSS instead was rejected — global.css layers its
+ *  own semantic aliases (--font-display, --font-mono) on top of these, so any
+ *  "unexpected --font-* in the output" rule would red the moment Astro inlines that
+ *  stylesheet. The config is the actual source of truth.
+ *
+ *  Parsed textually because this is a plain script with no bundler: astro.config.mjs
+ *  imports from "astro/config", so importing it would drag in the whole toolchain. */
+function expectedFontVars() {
+  let source;
+  try {
+    source = readFileSync(CONFIG, "utf8");
+  } catch {
+    fail(`cannot read font config at ${CONFIG}`);
+    return [];
+  }
+  const vars = [...source.matchAll(/cssVariable:\s*["']([^"']+)["']/g)].map((m) => m[1]);
+  if (vars.length === 0) {
+    fail(`no cssVariable entries found in ${CONFIG} — cannot derive the expected font list`);
+    return [];
+  }
+  return [...new Set(vars)];
+}
+
 /** Every `@font-face` block in `html`, as { family, src }. Tolerates both minified
  *  and expanded CSS. Nested braces do not occur inside `@font-face`. */
 function parseFontFaces(html) {
@@ -174,7 +201,7 @@ function primaryFamily(declarationValue) {
   return unquote(declarationValue.split(",")[0] ?? "");
 }
 
-function checkFontsForRoute(route) {
+function checkFontsForRoute(route, expectedVars) {
   const file = join(DIST, route);
   let html;
   try {
@@ -191,7 +218,7 @@ function checkFontsForRoute(route) {
     faces.filter((f) => f.src.includes("url(")).map((f) => f.family),
   );
 
-  for (const varName of EXPECTED_FONT_VARS) {
+  for (const varName of expectedVars) {
     const declaration = new RegExp(`${varName}\\s*:\\s*([^;}]+)`).exec(html)?.[1];
     if (!declaration) {
       fail(`${route}: CSS variable ${varName} is not declared`);
@@ -233,7 +260,11 @@ function checkFontFiles() {
 
 console.log(`Checking build artifacts in ${DIST}`);
 const routes = checkRoutes();
-for (const route of routes) checkFontsForRoute(route);
+const expectedVars = expectedFontVars();
+if (expectedVars.length > 0) {
+  pass(`font config declares ${expectedVars.length} family variable(s): ${expectedVars.join(", ")}`);
+}
+for (const route of routes) checkFontsForRoute(route, expectedVars);
 checkFontFiles();
 
 if (failed) {

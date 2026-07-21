@@ -233,8 +233,9 @@ jobs:
   #
   # Deliberately NOT filtered with `paths:` (#1859). A path-filtered job reports no
   # status at all on PRs that don't touch those paths, and a required check that never
-  # reports blocks the PR from merging forever. It runs on every PR instead; the build
-  # is sub-second.
+  # reports blocks the PR from merging forever. So it runs on every PR instead — the
+  # job is small next to `verify`, and correctness of the required-check contract is
+  # the reason, not cost.
   #
   # NB the fonts pipeline reaches cdn.jsdelivr.net at BUILD time (the npm font provider
   # fetches the woff2 for the lockfile-pinned @fontsource version), so this job needs

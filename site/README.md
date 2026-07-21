@@ -34,8 +34,23 @@ build, every aggregate signal survives — `@font-face` blocks are still present
 emitted. The one check that discriminates is per-family: does the family each
 `--font-*` variable names actually have a `url()`-backed `@font-face`?
 
-`scripts/check-build-artifacts.mjs` asserts that, plus route coverage (derived from
-`src/pages/**`, so a new page is covered automatically) and font-file size floors.
+`scripts/check-build-artifacts.mjs` asserts that, plus route coverage and font-file
+size floors. The expected font families are read from `astro.config.mjs`, so adding
+one brings it under the gate automatically.
+
+Routes are derived from `src/pages/**`, so a new **static `.astro`** page — nested
+included — is covered with no change to the script. Anything the directory-format
+mapping cannot resolve to a single output path **fails the gate by design**, rather
+than being silently skipped:
+
+- a Markdown/MDX page (`about.md`) — the mapping only understands `.astro`
+- a dynamic or spread route (`[slug].astro`) — its outputs come from
+  `getStaticPaths` at build time, so they cannot be derived from the filename
+
+If you add either, extend `routeForPage()` to cover it; the red is telling you the
+gate would otherwise stop covering a route. Underscore- and dot-prefixed entries
+(`_components/`, `.DS_Store`) are not routes and are skipped.
+
 Its logic is unit-tested from the monorepo root in `test/check-build-artifacts.test.ts`,
 alongside the repo's other gate-script tests.
 

@@ -4,7 +4,8 @@ Build-time source for `docs/media/shepherd-explainer.mp4` (+ `.en.srt`, `-poster
 The video is a narrated re-cut of the on-site pipeline animation
 (`site/src/components/PipelineAnimation.astro`, #1878): same node coordinates, gate
 positions, semantic palette, motion and per-beat copy — the 17s loop stretched to a
-single 60s play, the beat-8 "needs you" payload held at the end, and a closing thesis.
+single 38s play (~44s total with the closing thesis), the beat-8 "needs you" payload
+held at the end.
 
 This is a **build-time asset generator**. Nothing here is a runtime dependency; the repo
 carries only the rendered artifacts. The HyperFrames project scaffold

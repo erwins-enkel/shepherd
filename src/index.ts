@@ -844,12 +844,13 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} orphan reap failed:`, err));
 
-  // #1874: reclaim abandoned agent worktrees under /tmp, THEN the forked pnpm store they
-  // pinned. Order is load-bearing — while a tmp worktree survives, every store file sits at
-  // nlink=2, so removing the store first reclaims ~zero and the next install re-forks it.
-  // The reaper's `retained` count is the store pass's go/no-go gate. A single microtask-
-  // deferred liveProcCwds() snapshot keeps that synchronous /proc scan off the event loop
-  // and out of the all-async tmp-sweep module.
+  // #1874/#1880: reap abandoned agent worktrees under /tmp, THEN partially reclaim the forked
+  // pnpm store they pinned. Order is load-bearing — reaping a truly-abandoned worktree drops the
+  // store files it linked from nlink=2 to nlink=1, making them reclaimable by the store pass.
+  // Partial reclaim (#1880) frees the nlink=1 fraction regardless of `retained`: a surviving
+  // worktree's still-linked (nlink>1) content is kept, not a blocker. A single microtask-
+  // deferred liveProcCwds() snapshot keeps that synchronous /proc scan off the event loop and
+  // out of the all-async tmp-sweep module.
   void Promise.resolve()
     .then(async () => {
       const liveWorktreePaths = store
@@ -861,10 +862,11 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
         liveWorktreePaths,
         liveCwds: liveProcCwds(),
       });
-      const storeResult = await reclaimForkedPnpmStore({ retained: reap.retained });
+      const storeResult = await reclaimForkedPnpmStore({});
       console.warn(
         `[tmp-sweep] ${phase}: worktree reap removed ${reap.reaped} (retained ${reap.retained}), ` +
-          `pnpm store ${storeResult.removed ? "reclaimed" : `kept (${storeResult.reason})`}`,
+          `pnpm store freed ${storeResult.freedFiles} file(s)/${storeResult.freedDirs} dir(s) ` +
+          `(${storeResult.reason})`,
       );
     })
     .catch((err) => console.warn(`[tmp-sweep] ${phase} worktree/store reclaim failed:`, err));

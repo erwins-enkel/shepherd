@@ -1,0 +1,35 @@
+1
+00:00:00,600 --> 00:00:02,180
+It starts as an issue.
+
+2
+00:00:06,540 --> 00:00:09,630
+Its own worktree. Its own real terminal.
+
+3
+00:00:11,940 --> 00:00:13,600
+A dozen of these at once.
+
+4
+00:00:16,260 --> 00:00:20,590
+It writes a plan — and stops. A second agent tries to refute it.
+
+5
+00:00:26,520 --> 00:00:27,650
+Then it works.
+
+6
+00:00:30,840 --> 00:00:34,380
+CI. Hygiene. Then a third agent reads the diff.
+
+7
+00:00:38,940 --> 00:00:40,770
+Only what survives lands.
+
+8
+00:00:44,880 --> 00:00:47,670
+And when it can't, it stops and tells you why.
+
+9
+00:00:54,600 --> 00:00:58,440
+Shepherd runs many agents at once — and it is built to stop.

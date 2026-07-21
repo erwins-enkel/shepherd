@@ -54,10 +54,7 @@
 
 {#if href}
   <a
-    class="row"
-    class:mobile
-    class:support
-    class:warm
+    class={["row", { mobile, support, warm }]}
     data-gear-row
     {href}
     target="_blank"
@@ -69,10 +66,7 @@
   </a>
 {:else}
   <button
-    class="row"
-    class:mobile
-    class:support
-    class:warm
+    class={["row", { mobile, support, warm }]}
     type="button"
     data-gear-row
     aria-label={ariaLabel || undefined}

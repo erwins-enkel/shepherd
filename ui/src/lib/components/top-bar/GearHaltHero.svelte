@@ -19,9 +19,7 @@
 </script>
 
 <button
-  class="hero"
-  class:armed
-  class:mobile
+  class={["hero", { armed, mobile }]}
   type="button"
   data-gear-row
   disabled={haltable === 0}

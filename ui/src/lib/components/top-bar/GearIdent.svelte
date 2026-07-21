@@ -19,7 +19,7 @@
   } = $props();
 </script>
 
-<div class="ident" class:mobile>
+<div class={["ident", { mobile }]}>
   <span class="ident-brand">SHEPHERD</span>
   <span class="ident-conn">
     v{version} · <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>

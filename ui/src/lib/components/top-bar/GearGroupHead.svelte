@@ -15,7 +15,7 @@
   } = $props();
 </script>
 
-<div class="grp-head" class:mobile>
+<div class={["grp-head", { mobile }]}>
   <span class="grp-label">{label}</span>
   {#if action}
     <button

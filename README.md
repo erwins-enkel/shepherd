@@ -29,16 +29,16 @@ discipline that parallel agent work otherwise erodes: every plan and PR faces ad
 and nothing merges while behind its base — a stale PR is sent back to its agent to rebase, and CI and the critic re-run first.
 
 <p align="center">
-  <a href="docs/media/shepherd-explainer.mp4">
-    <img
-      src="docs/media/shepherd-explainer-poster.png"
-      alt="Shepherd explainer: a task travels the gated pipeline from issue to merge — many lanes run in parallel while one bounces off a gate and asks for you."
-      width="720"
-    >
-  </a>
+  <video
+    src="https://github.com/user-attachments/assets/bb88eabc-fdb5-4ff1-bec8-cf9c859d01e9"
+    poster="docs/media/shepherd-explainer-poster.png"
+    controls
+    muted
+    width="720"
+  ></video>
   <br>
   <em>▶ 30-second explainer — how a task moves from issue to merge, and why it stops
-  (<a href="docs/media/shepherd-explainer.mp4">MP4</a> ·
+  (<a href="docs/media/shepherd-explainer.mp4">download</a> ·
   <a href="docs/media/shepherd-explainer.en.srt">captions</a> ·
   <a href="docs/media/explainer/">source</a>).</em>
 </p>

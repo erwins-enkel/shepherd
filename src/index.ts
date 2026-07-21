@@ -44,7 +44,7 @@ import { PrPoller } from "./pr-poller";
 import { resolveDiffBase } from "./diff-base";
 import { BranchPruner } from "./branch-pruner";
 import { reconcile } from "./reconcile";
-import { reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
+import { createOrphanTabSweeper, reapOrphanTabs, reapStaleReviewWorktrees } from "./tab-reaper";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import { scanClaudeAliveByWorktree } from "./process-reaper";
 import { serve, serveAgentIngress, buildBacklogPayload, type AppDeps } from "./server";
@@ -895,29 +895,37 @@ deferredStarts.push(() => {
 // Reap orphaned helper tabs (usage-probe / review husks no live agent backs). The
 // teardown paths close these at the source; this sweep is the safety net for husks
 // they miss — agents that crashed out of `agent list`, or anything left over after a
-// shepherd restart cleared the in-memory review tracking. Run once on boot, then hourly.
-// Debounce state for reapOrphanTabs' two-sweep husk confirmation (#721): the shell-only
-// tabIds seen last sweep, threaded back in as `prevShellOnly` so a husk is only reaped when
-// it read shell-only on two consecutive sweeps (avoids reaping an agent's pre-`exec` window).
-let shellOnlyTabs = new Set<string>();
-const sweepOrphanTabs = () => {
-  if (maintenance.active) return;
-  void reapOrphanTabs(herdr, shellOnlyTabs)
-    .then((r) => {
-      shellOnlyTabs = r.shellOnly;
-      if (r.closed.length || r.sparedError)
-        console.warn(
-          `[tabs] reaped ${r.closed.length} husk tab(s); spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
-        );
-    })
-    .catch((err) => console.warn("[tabs] orphan sweep failed:", err));
-};
+// shepherd restart cleared the in-memory review tracking. Passes are serialized,
+// coalesced, and self-confirming via `createOrphanTabSweeper` (#1852): the debounce set
+// is threaded through the serialized chain (never raced by an overlapping boot pass),
+// and any pass that sights NEW shell-only candidates schedules its own confirming pass
+// 30s later — so convergence survives restarts and skipped boot sweeps without
+// persisting anything. A `panes()` failure surfaces as a warning instead of reading as
+// "nothing to do".
+const orphanTabSweeper = createOrphanTabSweeper({
+  reap: (prev) => reapOrphanTabs(herdr, prev),
+  schedule: (fn, ms) => void setTimeout(fn, ms),
+  maintenanceActive: () => maintenance.active,
+  confirmDelayMs: 30_000,
+  onResult: (r) => {
+    if (r.panesFailed) {
+      console.warn("[tabs] orphan sweep: panes() unavailable — reaped nothing, debounce preserved");
+      return;
+    }
+    if (r.closed.length || r.sparedError)
+      console.warn(
+        `[tabs] reaped ${r.closed.length} husk tab(s); spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
+      );
+  },
+  onError: (err) => console.warn("[tabs] orphan sweep failed:", err),
+});
 // Boot + a confirming pass @45s so pre-existing husks clear despite the two-sweep debounce,
-// then hourly.
+// then hourly. (The self-confirming pass makes the 45s trigger redundant in the common case;
+// it stays as a cheap belt-and-suspenders for a boot pass that sighted nothing yet.)
 deferredStarts.push(() => {
-  setTimeout(sweepOrphanTabs, 5_000);
-  setTimeout(sweepOrphanTabs, 45_000);
-  setInterval(sweepOrphanTabs, 60 * 60 * 1000);
+  setTimeout(orphanTabSweeper.trigger, 5_000);
+  setTimeout(orphanTabSweeper.trigger, 45_000);
+  setInterval(orphanTabSweeper.trigger, 60 * 60 * 1000);
 });
 
 const tailscaleServe = new TailscaleServeService({

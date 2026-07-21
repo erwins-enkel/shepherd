@@ -8,7 +8,8 @@
          Shepherd explainer — narrated video re-cut of the on-site
          PipelineAnimation.astro (#1878). Same coordinates, gates,
          semantic palette, motion and copy; the 17s loop is stretched
-         to a single 54s play, the beat-8 "needs you" payload is held
+         to a single 38s play (~44s with the closing thesis), the
+         beat-8 "needs you" payload is held
          at the end, and a closing thesis card is added. Narration
          (Kokoro TTS) rides on top as timed <audio> tracks.
          ============================================================ */
@@ -28,7 +29,7 @@
         --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
         --e-quint: cubic-bezier(0.22, 1, 0.36, 1);
         --e-expo: cubic-bezier(0.16, 1, 0.3, 1);
-        --body: 54s; /* stretched master timeline (was 17s loop) */
+        --body: 38s; /* stretched master timeline (was 17s loop) */
       }
 
       * {
@@ -441,13 +442,13 @@
         animation-timing-function: var(--e-expo);
       }
       .diff2 {
-        animation-delay: 0.79s;
+        animation-delay: 0.56s;
       }
       .diff3 {
-        animation-delay: 1.59s;
+        animation-delay: 1.12s;
       }
       .diff4 {
-        animation-delay: 2.38s;
+        animation-delay: 1.68s;
       }
       @keyframes diffIn {
         0%,
@@ -477,7 +478,7 @@
         animation-name: passFlash;
       }
       .pass-c {
-        animation-delay: 2.7s;
+        animation-delay: 1.9s;
       }
       @keyframes passFlash {
         0%,
@@ -744,7 +745,7 @@
         font-size: 30px;
         letter-spacing: 0.01em;
         opacity: 0;
-        animation: thesisIn 6s var(--e-expo) 54s 1 both;
+        animation: thesisIn 6s var(--e-expo) 38s 1 both;
       }
       .thesis b {
         color: var(--green);
@@ -769,7 +770,7 @@
       data-composition-id="main"
       data-no-timeline
       data-start="0"
-      data-duration="60"
+      data-duration="44"
       data-width="1920"
       data-height="1080"
     >
@@ -887,64 +888,64 @@
       <audio
         id="vo-1"
         src="assets/n1.wav"
-        data-start="0.6"
+        data-start="0.4"
         data-duration="1.58"
         data-volume="1"
       ></audio>
       <audio
         id="vo-2"
         src="assets/n2.wav"
-        data-start="6.54"
+        data-start="4.58"
         data-duration="3.09"
         data-volume="1"
       ></audio>
       <audio
         id="vo-3"
         src="assets/n3.wav"
-        data-start="11.94"
+        data-start="8.38"
         data-duration="1.66"
         data-volume="1"
       ></audio>
       <audio
         id="vo-4"
         src="assets/n4.wav"
-        data-start="16.26"
-        data-duration="4.33"
+        data-start="11.42"
+        data-duration="4.29"
         data-volume="1"
       ></audio>
       <audio
         id="vo-5"
         src="assets/n5.wav"
-        data-start="26.52"
+        data-start="18.64"
         data-duration="1.13"
         data-volume="1"
       ></audio>
       <audio
         id="vo-6"
         src="assets/n6.wav"
-        data-start="30.84"
-        data-duration="3.54"
+        data-start="21.68"
+        data-duration="3.78"
         data-volume="1"
       ></audio>
       <audio
         id="vo-7"
         src="assets/n7.wav"
-        data-start="38.94"
+        data-start="27.38"
         data-duration="1.83"
         data-volume="1"
       ></audio>
       <audio
         id="vo-8"
         src="assets/n8.wav"
-        data-start="44.88"
+        data-start="31.56"
         data-duration="2.79"
         data-volume="1"
       ></audio>
       <audio
         id="vo-9"
         src="assets/n9.wav"
-        data-start="54.6"
-        data-duration="3.84"
+        data-start="38.5"
+        data-duration="3.82"
         data-volume="1"
       ></audio>
     </div>

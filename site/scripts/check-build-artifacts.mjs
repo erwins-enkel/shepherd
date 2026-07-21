@@ -154,6 +154,51 @@ function checkRoutes() {
 
 // ── Fonts ────────────────────────────────────────────────────────────────────
 
+/** Strip `//` and block comments from JS source, leaving string literals intact.
+ *  String-aware on purpose: a blunt line-comment regex would truncate at the `//`
+ *  inside a URL string (`"https://…"`) and could drop real config after it on the
+ *  same line — trading a false red for a silent under-check, which is worse.
+ *
+ *  Does not track regex literals; a `/…/` pattern containing a quote would confuse
+ *  it. That does not occur in an Astro font config, and the failure mode is a loud
+ *  "no cssVariable entries" rather than a silent pass. */
+function stripComments(source) {
+  let out = "";
+  for (let i = 0; i < source.length; ) {
+    const c = source[i];
+    const next = source[i + 1];
+    if (c === '"' || c === "'" || c === "`") {
+      out += c;
+      i++;
+      while (i < source.length) {
+        if (source[i] === "\\") {
+          out += source[i] + (source[i + 1] ?? "");
+          i += 2;
+          continue;
+        }
+        out += source[i];
+        const closed = source[i] === c;
+        i++;
+        if (closed) break;
+      }
+      continue;
+    }
+    if (c === "/" && next === "/") {
+      while (i < source.length && source[i] !== "\n") i++;
+      continue;
+    }
+    if (c === "/" && next === "*") {
+      i += 2;
+      while (i < source.length && !(source[i] === "*" && source[i + 1] === "/")) i++;
+      i += 2;
+      continue;
+    }
+    out += c;
+    i++;
+  }
+  return out;
+}
+
 /** The CSS custom properties the build is expected to declare — read straight from
  *  the `fonts` config's `cssVariable` entries rather than hardcoded here, so adding
  *  a family to astro.config.mjs automatically brings it under the gate. A hardcoded
@@ -175,7 +220,11 @@ function expectedFontVars() {
     fail(`cannot read font config at ${CONFIG}`);
     return [];
   }
-  const vars = [...source.matchAll(/cssVariable:\s*["']([^"']+)["']/g)].map((m) => m[1]);
+  // Comments first: a family left commented out during a swap is NOT configured,
+  // and requiring it would red the gate for a font the site no longer ships.
+  const vars = [...stripComments(source).matchAll(/cssVariable:\s*["']([^"']+)["']/g)].map(
+    (m) => m[1],
+  );
   if (vars.length === 0) {
     fail(`no cssVariable entries found in ${CONFIG} — cannot derive the expected font list`);
     return [];

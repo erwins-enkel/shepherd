@@ -282,6 +282,65 @@ test("a '.' in a cssVariable does not match a similarly-named declaration", () =
   expect(runGate().code).toBe(0);
 });
 
+// A family left commented out during a swap is not configured — requiring it would
+// red the gate for a font the site no longer ships.
+test("a commented-out cssVariable is not required", () => {
+  seedHealthy();
+  writeFileSync(
+    config,
+    `export default defineConfig({
+  fonts: [
+    { cssVariable: "--font-space-grotesk" },
+    { cssVariable: "--font-jetbrains-mono" },
+    // { cssVariable: "--font-old-and-removed" },
+  ],
+});
+`,
+  );
+  expect(runGate().code).toBe(0);
+});
+
+test("a block-commented family entry is not required", () => {
+  seedHealthy();
+  writeFileSync(
+    config,
+    `export default defineConfig({
+  fonts: [
+    { cssVariable: "--font-space-grotesk" },
+    { cssVariable: "--font-jetbrains-mono" },
+    /* swapped out:
+       { cssVariable: "--font-old-and-removed" }, */
+  ],
+});
+`,
+  );
+  expect(runGate().code).toBe(0);
+});
+
+// Comment stripping must be string-aware: truncating at the `//` of a URL would
+// drop the real entry after it, silently under-checking instead of false-reding.
+test("a // inside a string does not hide a later cssVariable", () => {
+  seedHealthy();
+  writeFileSync(
+    config,
+    `export default defineConfig({
+  fonts: [
+    { url: "https://example.com/f.css", cssVariable: "--font-space-grotesk" },
+    { cssVariable: "--font-jetbrains-mono" },
+    { cssVariable: "--font-not-in-html" },
+  ],
+});
+`,
+  );
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("--font-not-in-html is not declared");
+  // The entry sharing a line with the URL must survive: a naive line-strip would
+  // truncate at the `//` and quietly stop checking --font-space-grotesk.
+  expect(out).toContain("declares 3 family variable(s)");
+  expect(out).toContain("--font-space-grotesk");
+});
+
 test("an unreadable font config fails rather than checking nothing", () => {
   seedHealthy();
   rmSync(config);

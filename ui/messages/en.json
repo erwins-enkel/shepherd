@@ -3327,5 +3327,18 @@
   "gloss_autopilot_term": "autopilot",
   "gloss_autopilot_def": "Best-effort automation that drives a task autonomously through to an open pull request. Switched off, each step stays with the operator to discuss, iterate and approve; the per-task toggle overrides the repo's standing Autopilot default.",
   "feat_new_task_redesign_title": "New Task, one screen",
-  "feat_new_task_redesign_body": "The New Task dialog is now a single view: the prompt front and center with an in-field toolbar, run settings grouped in a side rail, and the Create & Run button always visible. Type # in the prompt to search open issues inline."
+  "feat_new_task_redesign_body": "The New Task dialog is now a single view: the prompt front and center with an in-field toolbar, run settings grouped in a side rail, and the Create & Run button always visible. Type # in the prompt to search open issues inline.",
+  "gearmenu_usage_label": "Token usage",
+  "gearmenu_usage_all": "all",
+  "gearmenu_usage_all_aria": "Toggle the per-window usage breakdown",
+  "gearmenu_pct_free": "{pct}% free",
+  "gearmenu_conn_live": "live",
+  "gearmenu_conn_offline": "offline",
+  "gearmenu_halt_herd": "Halt herd",
+  "gearmenu_working_chip": "{count} working",
+  "gearmenu_plugins_label": "Plugins",
+  "gearmenu_plugins_manage": "manage",
+  "gearmenu_support_label": "Support",
+  "feat_gear_menu_redesign_title": "The gear menu is now a telemetry panel",
+  "feat_gear_menu_redesign_body": "The gear now always opens a redesigned menu: a live token-usage gauge (tap “all” for the per-window breakdown), a Halt-herd action with a live working count, grouped workspace, plugin and support rows, and the app version + connection state up top. On desktop, Cmd/Ctrl+, opens Settings from anywhere."
 }

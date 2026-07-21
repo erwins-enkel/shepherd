@@ -299,3 +299,36 @@ export function providerCapacityRows(limits: UsageLimits | null): ProviderCapaci
     },
   ];
 }
+
+export interface HottestCapacityWindow {
+  provider: AgentProvider;
+  window: ProviderCapacityWindow;
+  /** Staleness of the SELECTED window's provider row — drives dimmed presentation only. */
+  stale: boolean;
+}
+
+/**
+ * The single window closest to its cap across every provider — what the gear menu's
+ * one-line gauge shows. Stale rows participate normally: staleness dims presentation,
+ * it never reroutes selection (a stale 95%-used window is a more operator-relevant
+ * signal than a fresh cool one). Ties break toward WK over 5H (same rationale as
+ * `hotterGauge`), then toward earlier row order (the order `providerCapacityRows`
+ * emits: Claude before Codex). Null when no row has any window data.
+ */
+export function hottestCapacityWindow(rows: ProviderCapacityRow[]): HottestCapacityWindow | null {
+  let hottest: HottestCapacityWindow | null = null;
+  for (const row of rows) {
+    for (const window of row.windows) {
+      if (
+        !hottest ||
+        window.usedPct > hottest.window.usedPct ||
+        (window.usedPct === hottest.window.usedPct &&
+          window.key === "WK" &&
+          hottest.window.key === "5H")
+      ) {
+        hottest = { provider: row.provider, window, stale: row.stale };
+      }
+    }
+  }
+  return hottest;
+}

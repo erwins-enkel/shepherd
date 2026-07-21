@@ -31,6 +31,7 @@
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { modeOf, badgeCount } from "./top-bar-layout";
+  import { isSettingsChord } from "./herd-keynav";
   import TopBarTallies from "./top-bar/TopBarTallies.svelte";
   import TopBarHeldBadge from "./top-bar/TopBarHeldBadge.svelte";
   import TopBarUsage from "./top-bar/TopBarUsage.svelte";
@@ -72,6 +73,8 @@
     pluginItems = [],
     onpluginitem,
     oncommandbar,
+    onmanageplugins,
+    settingsChordAllowed = () => true,
   }: {
     sessions: Session[];
     nowMs: number;
@@ -111,11 +114,15 @@
     /** Edit a held task: page opens the New Task composer pre-filled from its input. */
     onedithheld?: (task: HeldTask) => void;
     /** Plugin-contributed gear-menu items (verbatim plugin data). */
-    pluginItems?: { id: string; label: string; icon?: string }[];
+    pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     /** Called when a plugin item is selected from the gear menu. */
     onpluginitem?: (id: string) => void;
     /** Opens the command bar (search-pill click). */
     oncommandbar?: () => void;
+    /** Opens Settings → Plugins (the gear menu's "manage" affordance). */
+    onmanageplugins?: () => void;
+    /** Page-level gate for the Cmd/Ctrl+, chord (e.g. "no overlay open"). */
+    settingsChordAllowed?: () => boolean;
   } = $props();
 
   // tally click: toggle — clicking the active status clears the filter
@@ -587,18 +594,6 @@
     closeMenu();
     openFeedback(kind);
   }
-  // On mobile the gear ALWAYS opens the menu — it now also hosts the quick theme /
-  // contrast controls, which must be reachable with an idle herd. On desktop those
-  // controls live in the ActionBar, so the gear keeps its leaner behaviour: idle herd
-  // opens Settings directly; only a haltable herd turns it into a menu button — EXCEPT
-  // under measured overflow (compactBadges), where the gear opens the menu (which
-  // carries Documentation + Settings) even with an idle herd, so those stay reachable
-  // once the bar has crowded down to icons.
-  // Learnings and plugin items also force menu mode: their actions live in the menu,
-  // not the gear's direct-to-Settings click.
-  const gearOpensMenu = $derived(
-    mobile || haltable > 0 || compactBadges || learningsPresent || pluginItems.length > 0,
-  );
   // Mobile only: settings-owned diagnostics attention collapses into one dot on
   // the gear, because the Diagnose row lives inside the gear sheet on phones.
   // Herd/session state stays on the tallies and rows instead of duplicating here.
@@ -612,11 +607,10 @@
           ? "yellow"
           : null,
   );
+  // The gear ALWAYS toggles the menu (design handoff 3b/3c): the telemetry popover /
+  // sheet now carries the identity header, usage gauge, docs and support rows, so it
+  // is valid with an idle herd on every surface.
   function clickGear() {
-    if (!gearOpensMenu) {
-      onsettings?.();
-      return;
-    }
     toggleMenu();
   }
   function clickHalt() {
@@ -649,11 +643,20 @@
     disarmHalt();
     onpluginitem?.(id);
   }
-  // On open, move focus to the first menu item (proper menu-button keyboard flow).
+  function chooseManagePlugins() {
+    menuOpen = false;
+    disarmHalt();
+    onmanageplugins?.();
+  }
+  // On open, move focus to the first ENABLED row (the halt hero is natively disabled
+  // at 0 working, so it is skipped by both this and the arrow roving below).
+  const GEAR_ROW_SELECTOR = "[data-gear-row]:not(:disabled)";
   $effect(() => {
-    if (menuOpen) menuEl?.querySelector<HTMLElement>("[role='menuitem']")?.focus();
+    if (menuOpen) menuEl?.querySelector<HTMLElement>(GEAR_ROW_SELECTOR)?.focus();
   });
-  // ArrowUp/Down cycle between the menu items; Escape closes and returns focus to the gear.
+  // ArrowUp/Down cycle between the enabled rows (roving enhancement — natural Tab
+  // order also works, this is a non-modal dialog, not a menu); Escape closes and
+  // returns focus to the gear.
   function onMenuKey(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
@@ -662,50 +665,35 @@
     }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
-    const items = Array.from(menuEl?.querySelectorAll<HTMLElement>("[role='menuitem']") ?? []);
+    const items = Array.from(menuEl?.querySelectorAll<HTMLElement>(GEAR_ROW_SELECTOR) ?? []);
     if (!items.length) return;
     const here = items.indexOf(document.activeElement as HTMLElement);
     const next =
       e.key === "ArrowDown" ? (here + 1) % items.length : (here - 1 + items.length) % items.length;
     items[next]?.focus();
   }
-  // If the herd goes quiet underneath the gear (agents finished), dismiss the menu and
-  // drop any armed state. Otherwise the e-stop row vanishes from the open menu, leaving a
-  // stale lone-Settings popup — and since an idle gear opens Settings directly, the next
-  // click would surface Settings without first dismissing it. When the menu wasn't open we
-  // still disarm, so a later run never surfaces a pre-armed row.
+  // If the herd goes quiet underneath the gear (agents finished), just drop any armed
+  // e-stop state. The menu itself STAYS open on every surface — it now carries the
+  // identity header, usage gauge, docs and support rows, so it is always valid; the
+  // halt hero simply renders disabled with its chip hidden.
   $effect(() => {
-    if (haltable !== 0) return;
-    // On mobile the menu also hosts the quick theme/contrast controls, so it stays
-    // valid with an idle herd — keep it open and just drop any armed e-stop state.
-    if (mobile) {
-      disarmHalt();
-      return;
-    }
-    // Under measured overflow the gear is a menu button even with an idle herd, so keep
-    // the menu open here too — just drop armed state.
-    if (compactBadges) {
-      disarmHalt();
-      return;
-    }
-    // Pending Learnings keep the desktop menu valid with an idle herd so the row stays reachable.
-    if (learningsPresent) {
-      disarmHalt();
-      return;
-    }
-    // Plugin items keep the menu valid with an idle herd — a menu opened to reach a plugin
-    // action must not be dismissed just because the last agent finished while it was open.
-    if (pluginItems.length > 0) {
-      disarmHalt();
-      return;
-    }
-    if (menuOpen) closeMenu(true);
-    else disarmHalt();
+    if (haltable === 0) disarmHalt();
   });
   // Destroy-only cleanup (no tracked reads → runs once): never leak the disarm timer.
   $effect(() => () => clearTimeout(armTimer));
 
   function dismissOnEscape(e: KeyboardEvent) {
+    // Cmd/Ctrl+, opens Settings globally (desktop). Lives here — not +page's
+    // onShortcut — because TopBar owns onsettings, giving the action an automated
+    // browser-test seam. The guard prop carries +page's overlay gate; Viewport's
+    // PTY handler suppresses the same chord so no byte leaks to the terminal.
+    if (!mobile && isSettingsChord(e)) {
+      if (settingsChordAllowed()) {
+        e.preventDefault();
+        chooseSettings();
+      }
+      return;
+    }
     if (e.key !== "Escape") return;
     if (popoverOpen) popoverOpen = false;
     if (heldPopOpen) {
@@ -828,23 +816,23 @@
     {#if !mobile}
       <TopBarSearch compact={compactBadges} oncommandbar={() => oncommandbar?.()} />
     {/if}
-    <!-- The gear adapts to state: idle herd → a click opens Settings directly;
-         when something is haltable it becomes a menu button opening the e-stop above
-         the Settings entry. The gear's dot is settings-owned attention only:
-         diagnostics have a standalone desktop pip, and fold into the gear on mobile
-         because the Diagnose row lives in that sheet. -->
+    <!-- The gear always toggles the telemetry menu (popover on desktop, sheet on
+         mobile). The gear's dot is settings-owned attention only: diagnostics have a
+         standalone desktop pip, and fold into the gear on mobile because the Diagnose
+         row lives in that sheet. -->
     <TopBarGear
       {mobile}
       {haltable}
       {gearPipTier}
-      {gearOpensMenu}
       {armed}
+      {connected}
       bind:menuOpen
       bind:gearWrap
       bind:gearBtn
       bind:menuEl
       {clickGear}
       {clickHalt}
+      closeMenu={() => closeMenu()}
       {chooseSettings}
       {chooseUsage}
       {learningsPresent}
@@ -857,18 +845,24 @@
       {onFeedback}
       {pluginItems}
       onPluginItem={choosePlugin}
+      onManagePlugins={chooseManagePlugins}
+      {limits}
+      {nowMs}
+      {creditFill}
+      {creditColor}
+      {creditAmount}
+      {refreshing}
+      {refreshError}
+      onRefresh={doRefresh}
+      {periodLabel}
     />
   </div>
 </div>
 
 {#if menuOpen && mobile}
   <TopBarMobileSheet
-    {gauges}
-    {perModel}
-    {credits}
-    {codexUsage}
-    {subscriptionOnly}
-    stale={limits?.stale ?? false}
+    {limits}
+    {connected}
     {diagnosticsOverall}
     {updateAvailable}
     {update}
@@ -903,6 +897,7 @@
     {onFeedback}
     {pluginItems}
     onPluginItem={choosePlugin}
+    onManagePlugins={chooseManagePlugins}
   />
 {/if}
 

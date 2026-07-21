@@ -1,0 +1,626 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Gear menu — design reference (3b desktop popover · 3c mobile bottom sheet)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Shepherd tokens (dark theme) — from the Shepherd Design System */
+      :root {
+        --bg: #0a0d0c;
+        --inset: #070a09;
+        --panel-2: #0c100f;
+        --head: #0a0f0d;
+        --panel: #0f1413;
+        --sel: #18211e;
+        --faint: #4a5752;
+        --muted: #7c8c86;
+        --ink: #c4d0cb;
+        --ink-bright: #eef4f0;
+        --amber: #e8a13a;
+        --green: #5ad19a;
+        --red: #e5484d;
+        --slate: #566460;
+        --blue: #4a90d9;
+        --line: #1b2422;
+        --line-bright: #2c3835;
+        --hover: #131a18;
+        --shadow-sheet: 0 -8px 40px rgba(0, 0, 0, 0.5);
+        --shadow-popover: 0 6px 24px rgba(0, 0, 0, 0.45);
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        font-family: "Berkeley Mono", "JetBrains Mono", ui-monospace, monospace;
+        color: var(--ink);
+      }
+      .row:hover,
+      .support-row:hover,
+      .usage:hover {
+        background: var(--hover);
+      }
+      .glyph {
+        width: 16px;
+        text-align: center;
+        color: var(--muted);
+      }
+    </style>
+  </head>
+  <body>
+    <div style="display: flex; flex-wrap: wrap; gap: 48px; align-items: flex-start; padding: 48px">
+      <!-- 3B — DESKTOP GEAR-MENU POPOVER -->
+      <div
+        style="display: flex; flex-direction: column; align-items: flex-end; gap: 6px; width: 320px"
+      >
+        <span
+          style="
+            width: 32px;
+            height: 32px;
+            border: 1px solid var(--line-bright);
+            background: var(--sel);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: var(--ink-bright);
+            font-size: 14px;
+          "
+          >⚙</span
+        >
+        <div
+          style="
+            width: 300px;
+            border: 1px solid var(--line-bright);
+            background: var(--panel);
+            box-shadow: var(--shadow-popover);
+            box-sizing: border-box;
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <!-- identity header -->
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 8px 12px;
+              background: var(--head);
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+              "
+              >Shepherd</span
+            >
+            <span
+              style="
+                margin-left: auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 10px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+              "
+              >v0.9.4 · <span style="color: var(--green)">● live</span></span
+            >
+          </div>
+          <!-- hero action: halt herd -->
+          <div
+            class="row"
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 9px 12px;
+              font-size: 13px;
+              color: var(--ink-bright);
+              cursor: pointer;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            <span style="width: 16px; text-align: center; color: var(--amber)">■</span
+            ><span>Halt herd</span
+            ><span
+              style="
+                margin-left: auto;
+                border: 1px solid color-mix(in srgb, var(--amber) 62%, var(--line));
+                color: var(--amber);
+                font-size: 9px;
+                letter-spacing: 0.1em;
+                padding: 1px 6px;
+                border-radius: 2px;
+                font-variant-numeric: tabular-nums;
+              "
+              >1 WORKING</span
+            >
+          </div>
+          <!-- live token-usage gauge -->
+          <div
+            class="usage"
+            style="
+              display: flex;
+              flex-direction: column;
+              gap: 6px;
+              padding: 9px 12px;
+              border-bottom: 1px solid var(--line);
+              cursor: pointer;
+            "
+          >
+            <div style="display: flex; align-items: baseline; gap: 8px">
+              <span
+                style="
+                  font-size: 10px;
+                  letter-spacing: 0.18em;
+                  text-transform: uppercase;
+                  color: var(--faint);
+                "
+                >Token usage</span
+              ><span style="margin-left: auto; font-size: 10px; color: var(--faint)">all ▾</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 10px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+              "
+            >
+              <span style="letter-spacing: 0.08em">CX·WK</span
+              ><span
+                style="
+                  flex: 1;
+                  height: 4px;
+                  background: var(--inset);
+                  border: 1px solid var(--line-bright);
+                "
+                ><span
+                  style="display: block; height: 100%; width: 91%; background: var(--green)"
+                ></span></span
+              ><span>91% free</span>
+            </div>
+          </div>
+          <!-- workspace rows -->
+          <div style="padding: 4px 0">
+            <div
+              class="row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 7px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">✦</span><span>Learnings</span
+              ><span
+                style="
+                  margin-left: auto;
+                  font-size: 10px;
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >71</span
+              >
+            </div>
+            <div
+              class="row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 7px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">⚙</span><span>Settings</span
+              ><span style="margin-left: auto; font-size: 10px; color: var(--faint)">⌘,</span>
+            </div>
+            <div
+              class="row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 7px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">↗</span><span>Documentation</span>
+            </div>
+          </div>
+          <!-- plugins group -->
+          <div style="border-top: 1px solid var(--line); padding: 4px 0">
+            <div style="display: flex; align-items: baseline; gap: 8px; padding: 6px 12px 2px">
+              <span
+                style="
+                  font-size: 10px;
+                  letter-spacing: 0.2em;
+                  text-transform: uppercase;
+                  color: var(--faint);
+                "
+                >Plugins · 1</span
+              ><span
+                style="margin-left: auto; font-size: 10px; color: var(--faint); cursor: pointer"
+                >manage ▾</span
+              >
+            </div>
+            <div
+              class="row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 7px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">⌁</span><span>Voice input</span
+              ><span style="margin-left: auto; font-size: 10px; color: var(--faint)">Whisper</span>
+            </div>
+          </div>
+          <!-- support group on darker ground -->
+          <div
+            style="border-top: 1px solid var(--line); background: var(--head); padding: 4px 0 6px"
+          >
+            <div
+              style="
+                padding: 6px 12px 2px;
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+              "
+            >
+              Support
+            </div>
+            <div
+              class="support-row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 6px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">⚠</span><span>Report a bug</span>
+            </div>
+            <div
+              class="support-row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 6px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">✧</span><span>Request a feature</span>
+            </div>
+            <div
+              class="support-row"
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 6px 12px;
+                font-size: 13px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span class="glyph">↵</span><span>Send feedback</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3C — MOBILE BOTTOM SHEET (shown inside a 390px phone frame) -->
+      <div
+        style="
+          width: 390px;
+          height: 720px;
+          border: 1px solid var(--line-bright);
+          background: var(--inset);
+          display: flex;
+          flex-direction: column;
+          justify-content: flex-end;
+          box-sizing: border-box;
+        "
+      >
+        <div
+          style="
+            border-top: 1px solid var(--line-bright);
+            background: var(--panel);
+            border-radius: 12px 12px 0 0;
+            box-shadow: var(--shadow-sheet);
+            display: flex;
+            flex-direction: column;
+          "
+        >
+          <div style="display: flex; justify-content: center; padding: 10px 0 2px">
+            <span
+              style="width: 36px; height: 4px; border-radius: 2px; background: var(--line-bright)"
+            ></span>
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              padding: 6px 20px 10px;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            <span
+              style="
+                font-size: 11px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--muted);
+              "
+              >Shepherd</span
+            >
+            <span
+              style="
+                margin-left: auto;
+                display: inline-flex;
+                align-items: center;
+                gap: 6px;
+                font-size: 11px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+              "
+              >v0.9.4 · <span style="color: var(--green)">● live</span></span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              padding: 0 20px;
+              min-height: 52px;
+              font-size: 16px;
+              color: var(--ink-bright);
+              cursor: pointer;
+              border-bottom: 1px solid var(--line);
+            "
+          >
+            <span style="width: 20px; text-align: center; color: var(--amber)">■</span
+            ><span>Halt herd</span
+            ><span
+              style="
+                margin-left: auto;
+                border: 1px solid color-mix(in srgb, var(--amber) 62%, var(--line));
+                color: var(--amber);
+                font-size: 11px;
+                letter-spacing: 0.1em;
+                padding: 2px 8px;
+                border-radius: 2px;
+                font-variant-numeric: tabular-nums;
+              "
+              >1 WORKING</span
+            >
+          </div>
+          <div
+            style="
+              display: flex;
+              flex-direction: column;
+              gap: 8px;
+              padding: 12px 20px;
+              border-bottom: 1px solid var(--line);
+              cursor: pointer;
+            "
+          >
+            <div style="display: flex; align-items: baseline; gap: 8px">
+              <span
+                style="
+                  font-size: 11px;
+                  letter-spacing: 0.18em;
+                  text-transform: uppercase;
+                  color: var(--faint);
+                "
+                >Token usage</span
+              ><span style="margin-left: auto; font-size: 11px; color: var(--faint)">all ▾</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 8px;
+                font-size: 11px;
+                color: var(--muted);
+                font-variant-numeric: tabular-nums;
+              "
+            >
+              <span style="letter-spacing: 0.08em">CX·WK</span
+              ><span
+                style="
+                  flex: 1;
+                  height: 5px;
+                  background: var(--inset);
+                  border: 1px solid var(--line-bright);
+                "
+                ><span
+                  style="display: block; height: 100%; width: 91%; background: var(--green)"
+                ></span></span
+              ><span>91% free</span>
+            </div>
+          </div>
+          <div style="padding: 4px 0; border-bottom: 1px solid var(--line)">
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 48px;
+                font-size: 16px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">✦</span
+              ><span>Learnings</span
+              ><span
+                style="
+                  margin-left: auto;
+                  font-size: 12px;
+                  color: var(--muted);
+                  font-variant-numeric: tabular-nums;
+                "
+                >71</span
+              >
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 48px;
+                font-size: 16px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">⚙</span
+              ><span>Settings</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 48px;
+                font-size: 16px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">↗</span
+              ><span>Documentation</span>
+            </div>
+          </div>
+          <div style="padding: 4px 0; border-bottom: 1px solid var(--line)">
+            <div style="display: flex; align-items: baseline; gap: 8px; padding: 8px 20px 0">
+              <span
+                style="
+                  font-size: 11px;
+                  letter-spacing: 0.2em;
+                  text-transform: uppercase;
+                  color: var(--faint);
+                "
+                >Plugins · 1</span
+              ><span
+                style="margin-left: auto; font-size: 11px; color: var(--faint); cursor: pointer"
+                >manage ▾</span
+              >
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 48px;
+                font-size: 16px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">⌁</span
+              ><span>Voice input</span
+              ><span style="margin-left: auto; font-size: 12px; color: var(--faint)">Whisper</span>
+            </div>
+          </div>
+          <div style="padding: 4px 0 10px; background: var(--head)">
+            <div
+              style="
+                padding: 8px 20px 0;
+                font-size: 11px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+              "
+            >
+              Support
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 44px;
+                font-size: 15px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">⚠</span
+              ><span>Report a bug</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 44px;
+                font-size: 15px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">✧</span
+              ><span>Request a feature</span>
+            </div>
+            <div
+              style="
+                display: flex;
+                align-items: center;
+                gap: 10px;
+                padding: 0 20px;
+                min-height: 44px;
+                font-size: 15px;
+                color: var(--ink);
+                cursor: pointer;
+              "
+            >
+              <span style="width: 20px; text-align: center; color: var(--muted)">↵</span
+              ><span>Send feedback</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

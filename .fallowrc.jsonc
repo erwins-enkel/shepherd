@@ -412,5 +412,21 @@
       "**/*.spec.ts",
       "**/*.svelte.test.ts"
     ]
+  },
+
+  // Duplication baseline (fallow dupes --save-baseline): grandfathers the clone
+  // groups that exist at the time of capture WITHOUT exempting whole files from
+  // future detection — the precise alternative to a duplicates.ignore entry when
+  // a file rewrite surfaces pre-existing recipe copies as "introduced". Current
+  // capture covers (among the repo-wide inherited set) the quick theme/contrast
+  // controls recipe the mobile gear sheet shares verbatim with ActionBar and
+  // SettingsDevicePanel: three deliberate per-surface variants (different theme
+  // sets, pref- vs resolved-keying, different adornments/scales), so a shared
+  // component would be a config-heavy forced abstraction — same parallel-impl
+  // class as the forge adapters above. New clone groups anywhere (including in
+  // the sheet) still gate. Regenerate after intentional dedup work:
+  //   bunx fallow@2.100.0 dupes --save-baseline .fallow-dupes-baseline.json
+  "audit": {
+    "dupesBaseline": ".fallow-dupes-baseline.json"
   }
 }

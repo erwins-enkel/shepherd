@@ -217,3 +217,24 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
 export function isCommandBarChord(e: KeyboardEvent): boolean {
   return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
 }
+
+/** The open-Settings chord: Cmd/Ctrl+, with no other modifier held. Same shared-predicate
+ *  split as `isCommandBarChord` above: TopBar's window listener opens Settings while
+ *  Viewport's PTY key handler suppresses the byte, so trigger and suppression can't drift. */
+export function isSettingsChord(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === ",";
+}
+
+/** Display hint for the settings chord — ⌘, on Mac platforms, Ctrl+, elsewhere.
+ *  Pure formatter: callers pass `isMacPlatform()` from $lib/platform. */
+export function settingsChordHint(mac: boolean): string {
+  return mac ? "⌘," : "Ctrl+,";
+}
+
+/** Union of every chord Viewport's PTY key handler must swallow (the window-level
+ *  openers act on the same keydown as it bubbles). One predicate so the handler
+ *  stays a single branch — its complexity budget is tight — and the suppression
+ *  list can't drift from the chords defined above. */
+export function isPtySuppressedChord(e: KeyboardEvent): boolean {
+  return isCommandBarChord(e) || isSettingsChord(e);
+}

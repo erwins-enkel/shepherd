@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
-import { page } from "vitest/browser";
+import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus, HeldTask } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
@@ -1124,7 +1124,7 @@ describe("TopBar — working-while-blocked counts in the working tally, not bloc
     // offers "Halt 1", not 2 (the server's haltAll can't reach the latched session)
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     await expect
-      .element(page.getByRole("menuitem", { name: m.halt_all_aria({ count: 1 }) }))
+      .element(page.getByRole("button", { name: m.halt_all_aria({ count: 1 }) }))
       .toBeInTheDocument();
   });
 });
@@ -1147,7 +1147,7 @@ describe("TopBar — gear attention dot is settings-owned", () => {
     expect(document.querySelector(".halt-pip")).toBeNull();
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     await expect
-      .element(page.getByRole("menuitem", { name: m.halt_all_aria({ count: 1 }) }))
+      .element(page.getByRole("button", { name: m.halt_all_aria({ count: 1 }) }))
       .toBeInTheDocument();
   });
 
@@ -1197,8 +1197,8 @@ describe("TopBar — gear attention dot is settings-owned", () => {
   });
 });
 
-describe("TopBar — idle gear opens Settings directly", () => {
-  it("desktop: an idle herd's gear opens Settings without a menu", async () => {
+describe("TopBar — gear always opens the telemetry menu", () => {
+  it("desktop: an idle herd's gear opens the menu; only the Settings row calls onsettings", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
     const onsettings = vi.fn();
@@ -1213,16 +1213,20 @@ describe("TopBar — idle gear opens Settings directly", () => {
       sessions: list,
       onsettings,
     });
-    // idle → the gear's accessible name is the settings label, not the menu label
-    await page.getByRole("button", { name: m.topbar_settings_aria() }).click();
+    // the gear is ALWAYS a menu button now — clicking opens the popover, not Settings
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    expect(onsettings).not.toHaveBeenCalled();
+    const settingsRow = page.getByRole("button", { name: m.settings_title() });
+    await expect.element(settingsRow).toBeInTheDocument();
+    // idle herd → the halt hero renders natively disabled with no WORKING chip
+    const hero = page.getByRole("button", { name: m.gearmenu_halt_herd() });
+    await expect.element(hero).toBeDisabled();
+    expect(document.querySelector(".gear-menu .chip")).toBeNull();
+    await settingsRow.click();
     expect(onsettings).toHaveBeenCalledTimes(1);
-    // no menu opened: neither the dropdown Settings row nor any menuitem exists
-    await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
-      .not.toBeInTheDocument();
   });
 
-  it("desktop: a running herd's gear still opens the menu, only the row calls onsettings", async () => {
+  it("desktop: a running herd's gear opens the menu with the enabled halt hero + chip", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
     const onsettings = vi.fn();
@@ -1233,16 +1237,18 @@ describe("TopBar — idle gear opens Settings directly", () => {
       sessions: sessions(1),
       onsettings,
     });
-    // running → gear is a menu button; clicking it opens the menu, not Settings
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     expect(onsettings).not.toHaveBeenCalled();
-    const settingsRow = page.getByRole("menuitem", { name: m.settings_title() });
-    await expect.element(settingsRow).toBeInTheDocument();
+    // running → the halt hero is enabled and carries the live WORKING chip
+    const hero = page.getByRole("button", { name: m.halt_all_aria({ count: 1 }) });
+    await expect.element(hero).toBeInTheDocument();
+    await expect.element(page.getByText(m.gearmenu_working_chip({ count: 1 }))).toBeInTheDocument();
+    const settingsRow = page.getByRole("button", { name: m.settings_title() });
     await settingsRow.click();
     expect(onsettings).toHaveBeenCalledTimes(1);
   });
 
-  it("desktop: the open menu dismisses itself when the herd goes quiet underneath it", async () => {
+  it("desktop: the menu STAYS open when the herd goes quiet — halt hero just disables", async () => {
     await page.viewport(1280, 900);
     document.body.style.width = "1280px";
     const { rerender } = await render(TopBar, {
@@ -1254,9 +1260,10 @@ describe("TopBar — idle gear opens Settings directly", () => {
     // running → open the menu
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .element(page.getByRole("button", { name: m.settings_title() }))
       .toBeInTheDocument();
-    // agents finish → no haltable session left; the stale menu must close itself
+    // agents finish → the menu is still valid (usage, docs, support), so it stays
+    // open; the halt hero flips to disabled and drops its chip
     await rerender({
       nowMs: 1_700_000_000_000,
       connected: true,
@@ -1264,8 +1271,10 @@ describe("TopBar — idle gear opens Settings directly", () => {
       sessions: sessions(0),
     });
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
-      .not.toBeInTheDocument();
+      .element(page.getByRole("button", { name: m.settings_title() }))
+      .toBeInTheDocument();
+    await expect.element(page.getByRole("button", { name: m.gearmenu_halt_herd() })).toBeDisabled();
+    expect(document.querySelector(".gear-menu .chip")).toBeNull();
   });
 
   it("mobile: an idle gear opens the menu with the quick theme/contrast controls", async () => {
@@ -1320,18 +1329,18 @@ describe("TopBar — idle gear opens Settings directly", () => {
     // running desktop → menu opens, but the quick controls stay ActionBar-only
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .element(page.getByRole("button", { name: m.settings_title() }))
       .toBeInTheDocument();
     await expect
       .element(page.getByRole("button", { name: m.actionbar_contrast_toggle() }))
       .not.toBeInTheDocument();
     // the documentation entry (docs.shepherd.run) lives in the desktop gear menu too
-    const docs = page.getByRole("menuitem", { name: m.topbar_docs() });
+    const docs = page.getByRole("link", { name: m.topbar_docs() });
     await expect.element(docs).toBeInTheDocument();
     await expect.element(docs).toHaveAttribute("href", DOCS_URL);
     // the GitHub README link + version footer stay mobile-only (desktop has the ActionBar footer)
     await expect
-      .element(page.getByRole("menuitem", { name: m.topbar_menu_docs() }))
+      .element(page.getByRole("link", { name: m.topbar_menu_docs() }))
       .not.toBeInTheDocument();
   });
 
@@ -1358,7 +1367,7 @@ describe("TopBar — idle gear opens Settings directly", () => {
       "bar is compacted at 1236 with full chrome",
     ).toBe(true);
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    const docs = page.getByRole("menuitem", { name: m.topbar_docs() });
+    const docs = page.getByRole("link", { name: m.topbar_docs() });
     await expect.element(docs).toBeInTheDocument();
     await expect.element(docs).toHaveAttribute("href", DOCS_URL);
   });
@@ -1898,6 +1907,8 @@ describe("TopBar — CR extra-credit gauge", () => {
     });
 
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // the per-window breakdown now lives behind the usage block's "all" disclosure
+    await page.getByRole("button", { name: m.gearmenu_usage_all_aria() }).click();
     const sheet = document.querySelector<HTMLElement>(".gear-sheet");
     expect(sheet, "mobile sheet rendered").not.toBeNull();
     const text = sheet!.textContent ?? "";
@@ -1992,8 +2003,10 @@ describe("TopBar — CR extra-credit gauge", () => {
       ...sessionsProp(0),
       limits: limitsWithCredit({}),
     });
-    // Open the gear sheet.
+    // Open the gear sheet, then the usage block's "all" disclosure (the breakdown
+    // now renders inside it).
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await page.getByRole("button", { name: m.gearmenu_usage_all_aria() }).click();
     // The sheet renders a usage section with gauge rows + credit detail.
     const creditBar = document.querySelector<HTMLElement>(".credit-detail .g-bar");
     expect(creditBar, "credit bar rendered in mobile sheet").not.toBeNull();
@@ -2067,7 +2080,7 @@ describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnO
     // Open the desktop dropdown.
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .element(page.getByRole("button", { name: m.settings_title() }))
       .toBeInTheDocument();
 
     // Simulate an outside click by dispatching a MouseEvent on document.body (which
@@ -2076,7 +2089,7 @@ describe("TopBar — mobile gear sheet stays open on in-sheet clicks (dismissOnO
     await nextFrame();
 
     await expect
-      .element(page.getByRole("menuitem", { name: m.settings_title() }))
+      .element(page.getByRole("button", { name: m.settings_title() }))
       .not.toBeInTheDocument();
   });
 });
@@ -2154,7 +2167,7 @@ describe("TopBar — desktop learnings menu row", () => {
     });
 
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    const learningsItem = page.getByRole("menuitem", {
+    const learningsItem = page.getByRole("button", {
       name: m.learnings_open_aria({ count: 2 }),
     });
     await expect.element(learningsItem).toBeInTheDocument();
@@ -2177,7 +2190,7 @@ describe("TopBar — desktop learnings menu row", () => {
     });
 
     const menuItem = (name: string) =>
-      [...document.querySelectorAll<HTMLButtonElement>("[role='menuitem']")].find(
+      [...document.querySelectorAll<HTMLButtonElement>("[data-gear-row]")].find(
         (item) => item.getAttribute("aria-label") === name,
       );
     const gear = document.querySelector<HTMLButtonElement>(".gear")!;
@@ -2274,13 +2287,22 @@ describe("TopBar — plugin gear items", () => {
     render(TopBar, {
       ...pluginBase,
       ...FLAGS.desktop,
-      pluginItems: [{ id: "my-plugin", label: "My Action", icon: "🔌" }],
+      pluginItems: [
+        { id: "my-plugin", label: "My Action", icon: "🔌", hint: "Whisper" },
+        // hint === label → the right-side hint is suppressed (it would just repeat)
+        { id: "dup", label: "Echo", hint: "Echo" },
+      ],
     });
-    // Click the gear to open the menu (pluginItems forces gearOpensMenu=true)
+    // Click the gear to open the menu (the gear always opens the menu now)
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    // Plugin item button is visible with verbatim label
-    await expect.element(page.getByRole("menuitem", { name: "My Action" })).toBeVisible();
+    // Plugin item button is visible with verbatim label under the counted group label
+    await expect.element(page.getByText(`${m.gearmenu_plugins_label()} · 2`)).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "My Action" })).toBeVisible();
     await expect.element(page.getByText("🔌")).toBeVisible();
+    // hint renders only when it differs from the label
+    await expect.element(page.getByText("Whisper")).toBeVisible();
+    const echoRow = page.getByRole("button", { name: "Echo" }).element();
+    expect(echoRow.querySelector(".row-meta")).toBeNull();
   });
 
   it("desktop: clicking a plugin item calls onpluginitem with its id", async () => {
@@ -2294,7 +2316,7 @@ describe("TopBar — plugin gear items", () => {
       onpluginitem,
     });
     await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
-    await page.getByRole("menuitem", { name: "Do Something" }).click();
+    await page.getByRole("button", { name: "Do Something" }).click();
     expect(onpluginitem).toHaveBeenCalledWith("act-plugin");
   });
 
@@ -2313,7 +2335,412 @@ describe("TopBar — plugin gear items", () => {
     await expect.element(gear).toBeVisible();
     await gear.click();
     // Menu is open — the plugin item is visible, settings was NOT called directly
-    await expect.element(page.getByRole("menuitem", { name: "Plugin Action" })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Plugin Action" })).toBeVisible();
     expect(onsettings).not.toHaveBeenCalled();
+  });
+});
+
+// ── Telemetry menu (design handoff 3b/3c) — novel contracts ─────────────────
+// One visual/geometry path (desktop + mobile phase) + behavioral cases. All other
+// menu behavior is covered by the updated legacy describes above.
+
+describe("TopBar — telemetry menu visual/geometry path", () => {
+  it("desktop: square 300px popover, gear-anchored, clamped + scrollable on a short viewport", async () => {
+    // Short viewport + plugins + expanded usage: the worst-case height.
+    await page.viewport(900, 500);
+    document.body.style.width = "900px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      ...sessionsProp(1),
+      limits: fullLimits,
+      pluginItems: [
+        { id: "p1", label: "Plugin One" },
+        { id: "p2", label: "Plugin Two" },
+        { id: "p3", label: "Plugin Three" },
+      ],
+    });
+    // Open via KEYBOARD so the focus-visible treatment applies to the auto-focused row.
+    const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
+    (gear.element() as HTMLButtonElement).focus();
+    await userEvent.keyboard("{Enter}");
+    const menu = document.querySelector<HTMLElement>(".gear-menu");
+    expect(menu, "popover rendered").not.toBeNull();
+    // Square + 300px wide, anchored below the gear with right edges aligned.
+    expect(getComputedStyle(menu!).borderRadius).toBe("0px");
+    const rect = menu!.getBoundingClientRect();
+    expect(Math.abs(rect.width - 300)).toBeLessThanOrEqual(1);
+    const wrapRect = document.querySelector(".gear-wrap")!.getBoundingClientRect();
+    expect(Math.abs(rect.right - wrapRect.right)).toBeLessThanOrEqual(1);
+    expect(rect.top).toBeGreaterThan(wrapRect.bottom);
+    // Focus landed on the first enabled row and shows the tokenized treatment.
+    const focused = document.activeElement as HTMLElement;
+    expect(focused.hasAttribute("data-gear-row"), "first enabled row focused").toBe(true);
+    const fs = getComputedStyle(focused);
+    const hover = getComputedStyle(document.documentElement).getPropertyValue("--hover").trim();
+    // resolve the token to rgb via a probe element for a robust comparison
+    const probe = document.createElement("div");
+    probe.style.backgroundColor = hover;
+    document.body.appendChild(probe);
+    expect(fs.backgroundColor).toBe(getComputedStyle(probe).backgroundColor);
+    probe.remove();
+    expect(fs.boxShadow).not.toBe("none");
+    // Expand the usage breakdown → the popover must clamp and scroll internally.
+    await page.getByRole("button", { name: m.gearmenu_usage_all_aria() }).click();
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
+    const clamped = menu!.getBoundingClientRect();
+    expect(clamped.bottom).toBeLessThanOrEqual(window.innerHeight);
+    expect(menu!.scrollHeight).toBeGreaterThan(menu!.clientHeight);
+    // The last Support row stays reachable: scroll it into view and click it.
+    const sendRow = page.getByRole("button", { name: m.feedback_dialog_title_feedback() });
+    (sendRow.element() as HTMLElement).scrollIntoView({ block: "nearest" });
+    await expect.element(sendRow).toBeVisible();
+  });
+
+  it("mobile: 12px-top-radius full-bleed sheet with the 52/48/44px row tiers", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      ...sessionsProp(1),
+      pluginItems: [{ id: "p1", label: "Plugin One" }],
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const sheet = document.querySelector<HTMLElement>(".gear-sheet");
+    expect(sheet, "sheet rendered").not.toBeNull();
+    // wait out the rise transition so geometry is settled
+    await vi.waitFor(() => {
+      const r = sheet!.getBoundingClientRect();
+      expect(Math.abs(r.bottom - window.innerHeight)).toBeLessThanOrEqual(1);
+    });
+    const cs = getComputedStyle(sheet!);
+    expect(cs.borderTopLeftRadius).toBe("12px");
+    expect(cs.borderTopRightRadius).toBe("12px");
+    expect(cs.borderBottomLeftRadius).toBe("0px");
+    const r = sheet!.getBoundingClientRect();
+    expect(Math.abs(r.width - window.innerWidth)).toBeLessThanOrEqual(1);
+    // Touch tiers: Halt 52 / workspace+plugin 48 / support 44.
+    const hero = page.getByRole("button", { name: m.halt_all_aria({ count: 1 }) }).element();
+    expect(hero.getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
+    const settingsRow = page.getByRole("button", { name: m.settings_title() }).element();
+    expect(settingsRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
+    const pluginRow = page.getByRole("button", { name: "Plugin One" }).element();
+    expect(pluginRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
+    const supportRow = page.getByRole("button", { name: m.feedback_dialog_title_bug() }).element();
+    expect(supportRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+  });
+});
+
+describe("TopBar — telemetry menu behavior", () => {
+  const base = {
+    nowMs: 1_700_000_000_000,
+    connected: true,
+  };
+
+  it("desktop: `all ▾` disclosure flips aria-expanded + region; block click opens the usage view and closes", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onusage = vi.fn();
+    render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      limits: fullLimits,
+      onusage,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const all = page.getByRole("button", { name: m.gearmenu_usage_all_aria() });
+    await expect.element(all).toHaveAttribute("aria-expanded", "false");
+    const controlsId = all.element().getAttribute("aria-controls")!;
+    expect(document.getElementById(controlsId)).toBeNull();
+    await all.click();
+    await expect.element(all).toHaveAttribute("aria-expanded", "true");
+    const region = document.getElementById(controlsId);
+    expect(region, "breakdown region rendered").not.toBeNull();
+    expect(region!.textContent).toContain(
+      m.topbar_usage_provider_title({ provider: m.agent_provider_claude() }),
+    );
+    await all.click();
+    await expect.element(all).toHaveAttribute("aria-expanded", "false");
+    // Block click-through → usage view, menu closes.
+    await page.getByRole("button", { name: m.topbar_usage_link() }).click();
+    expect(onusage).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".gear-menu")).toBeNull();
+  });
+
+  it("desktop: no-data usage block keeps the label-row click-through; stale hottest window is marked", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const { rerender } = await render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      limits: null,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // no windows → no gauge line, but the block still opens the usage view
+    expect(document.querySelector(".gm-line")).toBeNull();
+    await expect.element(page.getByRole("button", { name: m.topbar_usage_link() })).toBeVisible();
+    // stale limits → the selected window renders with the stale marker (dim treatment)
+    await rerender({
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      limits: { ...fullLimits, stale: true },
+    });
+    await expect.element(page.getByRole("button", { name: m.topbar_usage_link() })).toBeVisible();
+    expect(document.querySelector(".gm[data-stale]")).not.toBeNull();
+    expect(document.querySelector(".gm-line")).not.toBeNull();
+  });
+
+  it("desktop: `manage ▾` is a plain action (no aria-expanded, aria-haspopup=dialog) → onmanageplugins", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onmanageplugins = vi.fn();
+    render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      pluginItems: [{ id: "p1", label: "Plugin One" }],
+      onmanageplugins,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const manage = page.getByRole("button", { name: `${m.gearmenu_plugins_manage()} ▾` });
+    await expect.element(manage).toBeVisible();
+    expect(manage.element().hasAttribute("aria-expanded")).toBe(false);
+    expect(manage.element().getAttribute("aria-haspopup")).toBe("dialog");
+    await manage.click();
+    expect(onmanageplugins).toHaveBeenCalledTimes(1);
+    expect(document.querySelector(".gear-menu")).toBeNull();
+  });
+
+  it("desktop: identity header swaps live ↔ offline with the connection state", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const { rerender } = await render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const ident = document.querySelector<HTMLElement>(".gear-menu .ident");
+    expect(ident!.textContent).toContain(m.gearmenu_conn_live());
+    expect(ident!.querySelector(".ident-dot.on")).not.toBeNull();
+    await rerender({ ...base, connected: false, ...FLAGS.desktop, ...sessionsProp(0) });
+    expect(ident!.textContent).toContain(m.gearmenu_conn_offline());
+    expect(ident!.querySelector(".ident-dot.on")).toBeNull();
+  });
+
+  it("desktop keyboard: open focuses the first ENABLED row, arrows cycle, Esc refocuses the gear", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0), // idle → halt hero disabled, must be SKIPPED by focus + roving
+      limits: fullLimits,
+    });
+    const gear = page.getByRole("button", { name: m.topbar_menu_aria() });
+    (gear.element() as HTMLButtonElement).focus();
+    await userEvent.keyboard("{Enter}");
+    await vi.waitFor(() => {
+      const a = document.activeElement as HTMLElement;
+      expect(a.hasAttribute("data-gear-row")).toBe(true);
+    });
+    const first = document.activeElement as HTMLElement;
+    expect((first as HTMLButtonElement).disabled ?? false).toBe(false);
+    // ArrowDown → next enabled row; ArrowUp → back to the first.
+    await userEvent.keyboard("{ArrowDown}");
+    const second = document.activeElement as HTMLElement;
+    expect(second).not.toBe(first);
+    expect(second.hasAttribute("data-gear-row")).toBe(true);
+    await userEvent.keyboard("{ArrowUp}");
+    expect(document.activeElement).toBe(first);
+    // Esc closes and returns focus to the gear.
+    await userEvent.keyboard("{Escape}");
+    expect(document.querySelector(".gear-menu")).toBeNull();
+    expect(document.activeElement).toBe(gear.element());
+  });
+
+  it("settings chord: Ctrl+, → onsettings (defaultPrevented); guard-false blocks; input focus doesn't", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onsettings = vi.fn();
+    let allowed = true;
+    render(TopBar, {
+      ...base,
+      ...FLAGS.desktop,
+      ...sessionsProp(0),
+      onsettings,
+      settingsChordAllowed: () => allowed,
+    });
+    const chord = () => {
+      const e = new KeyboardEvent("keydown", {
+        key: ",",
+        ctrlKey: true,
+        bubbles: true,
+        cancelable: true,
+      });
+      window.dispatchEvent(e);
+      return e;
+    };
+    const e1 = chord();
+    expect(onsettings).toHaveBeenCalledTimes(1);
+    expect(e1.defaultPrevented).toBe(true);
+    // Page-level guard (e.g. an overlay is open) blocks the chord.
+    allowed = false;
+    chord();
+    expect(onsettings).toHaveBeenCalledTimes(1);
+    allowed = true;
+    // Modifier chords bypass the typing bail (Cmd+K parity): fire from a focused input.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    input.focus();
+    const e2 = new KeyboardEvent("keydown", {
+      key: ",",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(e2);
+    expect(onsettings).toHaveBeenCalledTimes(2);
+    input.remove();
+  });
+
+  it("mobile: the chord is not bound (desktop-only affordance)", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const onsettings = vi.fn();
+    render(TopBar, {
+      ...base,
+      ...FLAGS.mobile,
+      ...sessionsProp(0),
+      onsettings,
+    });
+    window.dispatchEvent(
+      new KeyboardEvent("keydown", { key: ",", ctrlKey: true, bubbles: true, cancelable: true }),
+    );
+    expect(onsettings).not.toHaveBeenCalled();
+  });
+});
+
+describe("TopBar — mobile sheet swipe-down", () => {
+  // Synthetic pointer events aren't retargeted by pointer capture, so the capture
+  // call itself is spied and the post-capture stream is dispatched on the handle —
+  // the exact stream capture would deliver for a drag that leaves the handle.
+  function pt(type: string, pointerId: number, clientY: number): PointerEvent {
+    return new PointerEvent(type, { pointerId, clientY, bubbles: true, cancelable: true });
+  }
+
+  async function openSheet() {
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    const handle = document.querySelector<HTMLElement>(".sheet-handle-row");
+    expect(handle, "handle rendered").not.toBeNull();
+    const sheet = document.querySelector<HTMLElement>(".gear-sheet")!;
+    // wait for the fly intro to finish (drag state is inert until introend)
+    await vi.waitFor(
+      () => {
+        const r = sheet.getBoundingClientRect();
+        expect(Math.abs(r.bottom - window.innerHeight)).toBeLessThanOrEqual(1);
+      },
+      { timeout: 2000 },
+    );
+    await new Promise((r) => setTimeout(r, 250));
+    return { handle: handle!, sheet };
+  }
+
+  it("a captured drag past 64px closes; a short drag settles back open", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const capture = vi.spyOn(Element.prototype, "setPointerCapture").mockImplementation(() => {});
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      ...sessionsProp(0),
+    });
+    const { handle, sheet } = await openSheet();
+
+    // Short drag (dy=30): stays open, inline transform resets to the baseline.
+    handle.dispatchEvent(pt("pointerdown", 1, 200));
+    expect(capture).toHaveBeenCalledWith(1);
+    handle.dispatchEvent(pt("pointermove", 1, 230));
+    await vi.waitFor(() => expect(sheet.style.transform).toContain("translateY(30px)"));
+    handle.dispatchEvent(pt("pointerup", 1, 230));
+    expect(document.querySelector(".gear-sheet"), "short drag keeps the sheet").not.toBeNull();
+    await vi.waitFor(() => expect(sheet.style.transform).toBe(""));
+
+    // Long drag (dy=150, wandering off the handle mid-way): closes on release.
+    handle.dispatchEvent(pt("pointerdown", 2, 200));
+    handle.dispatchEvent(pt("pointermove", 2, 350));
+    handle.dispatchEvent(pt("pointerup", 2, 350));
+    await vi.waitFor(() => expect(document.querySelector(".gear-sheet")).toBeNull());
+    capture.mockRestore();
+  });
+
+  it("pointercancel / lost capture resets cleanly and the next drag still works", async () => {
+    await page.viewport(390, 800);
+    document.body.style.width = "390px";
+    const capture = vi.spyOn(Element.prototype, "setPointerCapture").mockImplementation(() => {});
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.mobile,
+      ...sessionsProp(0),
+    });
+    const { handle, sheet } = await openSheet();
+
+    // Cancel mid-drag at dy=100 (>64): must NOT close, transform resets.
+    handle.dispatchEvent(pt("pointerdown", 1, 200));
+    handle.dispatchEvent(pt("pointermove", 1, 300));
+    await vi.waitFor(() => expect(sheet.style.transform).toContain("translateY(100px)"));
+    handle.dispatchEvent(pt("pointercancel", 1, 300));
+    handle.dispatchEvent(pt("lostpointercapture", 1, 300));
+    expect(document.querySelector(".gear-sheet"), "cancel keeps the sheet").not.toBeNull();
+    await vi.waitFor(() => expect(sheet.style.transform).toBe(""));
+
+    // State fully reset: a fresh drag closes as normal.
+    handle.dispatchEvent(pt("pointerdown", 3, 200));
+    handle.dispatchEvent(pt("pointermove", 3, 340));
+    handle.dispatchEvent(pt("pointerup", 3, 340));
+    await vi.waitFor(() => expect(document.querySelector(".gear-sheet")).toBeNull());
+    capture.mockRestore();
+  });
+});
+
+describe("TopBar — every menu close path disarms the e-stop", () => {
+  it("desktop: closing via the Documentation link disarms; a later single click cannot halt", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onhalt = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(2),
+      onhalt,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // First activation ARMS the red confirm state.
+    await page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.halt_arm_aria({ count: 2 }) }))
+      .toBeInTheDocument();
+    // Close the menu via the Documentation link (navigation itself suppressed).
+    const docs = page.getByRole("link", { name: m.topbar_docs() });
+    (docs.element() as HTMLAnchorElement).addEventListener("click", (e) => e.preventDefault());
+    await docs.click();
+    expect(document.querySelector(".gear-menu")).toBeNull();
+    // Reopen: the hero must be back in the UNARMED state — a single click arms
+    // again instead of committing the halt.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }))
+      .toBeInTheDocument();
+    await page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }).click();
+    expect(onhalt).not.toHaveBeenCalled();
   });
 });

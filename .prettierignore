@@ -58,3 +58,7 @@ test/fixtures/fullscreen
 # herdr protocol codegen output — already formatted by gen-herdr-types.ts;
 # same precedent as ui/src/lib/paraglide above (keeps check:herdr-types honest).
 src/generated
+
+# Generated fallow duplication baseline (fallow dupes --save-baseline) — machine-
+# written on regeneration; formatting it by hand would churn every re-capture.
+.fallow-dupes-baseline.json

@@ -2342,10 +2342,12 @@
 
   // Plugin gear items: one entry per plugin that published a gearItem.
   // Verbatim plugin-authored data — never run through i18n.
+  // `hint` = the plugin's display name (verbatim, never i18n) — the gear menu shows it
+  // right-aligned when it differs from the gear-item label (e.g. "Voice input" · "Whisper").
   const pluginGearItems = $derived(
     store.plugins
       .filter((p) => p.gearItem)
-      .map((p) => ({ id: p.id, label: p.gearItem!.label, icon: p.gearItem!.icon })),
+      .map((p) => ({ id: p.id, label: p.gearItem!.label, icon: p.gearItem!.icon, hint: p.name })),
   );
 
   async function handlePluginGearItem(id: string) {
@@ -2658,6 +2660,11 @@
         pluginItems={pluginGearItems}
         onpluginitem={handlePluginGearItem}
         oncommandbar={() => (showCommandBar = true)}
+        onmanageplugins={() => {
+          settingsTab = "plugins";
+          showSettings = true;
+        }}
+        settingsChordAllowed={() => !anyOverlayOpen()}
       />
       <RepoSwitcher
         chips={repoChips}

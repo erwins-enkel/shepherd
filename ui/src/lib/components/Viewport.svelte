@@ -50,7 +50,7 @@
   import { findCommandLinks } from "$lib/slashLinks";
   import { createTypingCounter } from "$lib/terminal-input";
   import { shouldForwardEscape } from "$lib/terminalEscape";
-  import { altComboKey, isCommandBarChord } from "./herd-keynav";
+  import { altComboKey, isPtySuppressedChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
@@ -1834,12 +1834,13 @@
         e.preventDefault();
         return false;
       }
-      // Cmd/Ctrl+K: opens the command bar (#1334). xterm would otherwise forward the
-      // control byte 0x0B (Ctrl+K = kill-line) to the agent. preventDefault stops that
-      // byte; returning false stops xterm's own handling. preventDefault does NOT stop
-      // propagation, so the keydown still bubbles to the window, where +page.svelte's
-      // onShortcut opens the bar — same split as the Alt combos above.
-      if (e.type === "keydown" && isCommandBarChord(e)) {
+      // Global chords (Cmd/Ctrl+K → command bar #1334; Cmd/Ctrl+, → Settings): xterm
+      // would otherwise forward a control byte (e.g. 0x0B, Ctrl+K = kill-line) to the
+      // agent. preventDefault stops the byte; returning false stops xterm's own
+      // handling. preventDefault does NOT stop propagation, so the keydown still
+      // bubbles to the window, where +page's onShortcut / TopBar's chord listener
+      // act — same split as the Alt combos above.
+      if (e.type === "keydown" && isPtySuppressedChord(e)) {
         e.preventDefault();
         return false;
       }

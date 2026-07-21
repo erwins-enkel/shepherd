@@ -9,6 +9,7 @@ import {
   gaugeColor,
   providerCapacityRows,
   selectedProviderCapacity,
+  hottestCapacityWindow,
 } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
@@ -429,5 +430,98 @@ describe("gaugeColor mapping (pinned for the compact capacity line)", () => {
     expect(gaugeColor(8)).toBe("var(--color-muted)");
     expect(gaugeColor(60)).toBe("var(--color-amber)");
     expect(gaugeColor(95)).toBe("var(--color-red)");
+  });
+});
+
+describe("hottestCapacityWindow", () => {
+  function row(
+    provider: "claude" | "codex",
+    windows: { key: "5H" | "WK"; usedPct: number }[],
+    stale = false,
+  ) {
+    return {
+      provider,
+      windows: windows.map((win) => ({
+        key: win.key,
+        usedPct: win.usedPct,
+        remainingPct: Math.max(0, 100 - win.usedPct),
+        resetAt: 0,
+      })),
+      available: windows.length > 0,
+      stale,
+    };
+  }
+
+  it("selects the max usedPct window across providers", () => {
+    const rows = [
+      row("claude", [
+        { key: "5H", usedPct: 30 },
+        { key: "WK", usedPct: 60 },
+      ]),
+      row("codex", [
+        { key: "5H", usedPct: 20 },
+        { key: "WK", usedPct: 91 },
+      ]),
+    ];
+    expect(hottestCapacityWindow(rows)).toEqual({
+      provider: "codex",
+      window: { key: "WK", usedPct: 91, remainingPct: 9, resetAt: 0 },
+      stale: false,
+    });
+  });
+
+  it("breaks an exact tie toward WK over 5H, even across providers", () => {
+    const rows = [
+      row("claude", [{ key: "5H", usedPct: 80 }]),
+      row("codex", [{ key: "WK", usedPct: 80 }]),
+    ];
+    expect(hottestCapacityWindow(rows)).toMatchObject({ provider: "codex", window: { key: "WK" } });
+  });
+
+  it("breaks a same-kind tie toward the earlier provider row (Claude before Codex)", () => {
+    const rows = [
+      row("claude", [{ key: "WK", usedPct: 80 }]),
+      row("codex", [{ key: "WK", usedPct: 80 }]),
+    ];
+    expect(hottestCapacityWindow(rows)).toMatchObject({
+      provider: "claude",
+      window: { key: "WK" },
+    });
+  });
+
+  it("inherits clamping from providerCapacityRows (usedPct capped, remainingPct floored)", () => {
+    const l = limits({ session5h: w(150) });
+    const rows = providerCapacityRows(l);
+    expect(hottestCapacityWindow(rows)).toEqual({
+      provider: "claude",
+      window: { key: "5H", usedPct: 100, remainingPct: 0, resetAt: 0 },
+      stale: false,
+    });
+  });
+
+  it("returns null when no row has window data", () => {
+    expect(hottestCapacityWindow([])).toBeNull();
+    expect(hottestCapacityWindow([row("claude", []), row("codex", [])])).toBeNull();
+  });
+
+  it("exposes remainingPct as 100 minus usedPct on the selected window", () => {
+    const rows = [row("claude", [{ key: "WK", usedPct: 37 }])];
+    expect(hottestCapacityWindow(rows)?.window.remainingPct).toBe(63);
+  });
+
+  it("lets a STALE hotter window win over a fresh cooler one (staleness never reroutes)", () => {
+    const rows = [
+      row("claude", [{ key: "WK", usedPct: 40 }], false),
+      row("codex", [{ key: "WK", usedPct: 95 }], true),
+    ];
+    expect(hottestCapacityWindow(rows)).toMatchObject({ provider: "codex", stale: true });
+  });
+
+  it("propagates the selected row's stale flag for fresh selections too", () => {
+    const rows = [
+      row("claude", [{ key: "WK", usedPct: 95 }], false),
+      row("codex", [{ key: "WK", usedPct: 40 }], true),
+    ];
+    expect(hottestCapacityWindow(rows)).toMatchObject({ provider: "claude", stale: false });
   });
 });

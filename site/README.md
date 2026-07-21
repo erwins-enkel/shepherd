@@ -36,7 +36,11 @@ emitted. The one check that discriminates is per-family: does the family each
 
 `scripts/check-build-artifacts.mjs` asserts that, plus route coverage and font-file
 size floors. The expected font families are read from `astro.config.mjs`, so adding
-one brings it under the gate automatically.
+one brings it under the gate automatically — and every configured family is required
+on **every** route. That holds because `src/layouts/Base.astro` renders one `<Font>`
+tag per family and all pages use that layout. A family scoped to a single page or
+layout would therefore fail the gate; supporting one means teaching the check which
+routes a family applies to, rather than assuming all of them.
 
 Routes are derived from `src/pages/**`, so a new **static `.astro`** page — nested
 included — is covered with no change to the script. Anything the directory-format

@@ -13,6 +13,11 @@
 //
 // Run after `astro build`: `bun run check:artifacts`.
 //
+// ASSUMPTION: every font family in astro.config.mjs is expected on EVERY route,
+// because Base.astro renders one <Font> tag per family and every page uses that
+// layout. A family scoped to a single page or layout would false-red — see the
+// note on checkFontsForRoute().
+//
 // Roots default to this package (resolved from import.meta.url, never process.cwd(),
 // so running it from the repo root cannot silently derive an empty route list and
 // vacuously pass). Both are env-overridable so the gate can be exercised against
@@ -201,6 +206,18 @@ function primaryFamily(declarationValue) {
   return unquote(declarationValue.split(",")[0] ?? "");
 }
 
+/** Escape a string for literal use inside a RegExp. The variable names come from
+ *  astro.config.mjs, so a `cssVariable` containing a metacharacter would otherwise
+ *  either throw or — worse — silently match the wrong thing and report a pass. */
+function escapeRegExp(value) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/** Every family in the config must be declared on EVERY route. That holds because
+ *  Base.astro renders one <Font> tag per family and every page uses that layout, so
+ *  all routes carry the full font head. A family scoped to a single page or layout
+ *  would therefore false-red here — if that is ever wanted, this check needs to
+ *  learn which routes a family applies to rather than assuming all of them. */
 function checkFontsForRoute(route, expectedVars) {
   const file = join(DIST, route);
   let html;
@@ -219,7 +236,7 @@ function checkFontsForRoute(route, expectedVars) {
   );
 
   for (const varName of expectedVars) {
-    const declaration = new RegExp(`${varName}\\s*:\\s*([^;}]+)`).exec(html)?.[1];
+    const declaration = new RegExp(`${escapeRegExp(varName)}\\s*:\\s*([^;}]+)`).exec(html)?.[1];
     if (!declaration) {
       fail(`${route}: CSS variable ${varName} is not declared`);
       continue;

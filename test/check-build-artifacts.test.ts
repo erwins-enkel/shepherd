@@ -257,6 +257,31 @@ test("a family removed from the config is no longer required", () => {
   expect(runGate().code).toBe(0);
 });
 
+// The variable name is interpolated into a RegExp, so an unescaped metacharacter
+// either throws (unbalanced paren) or matches the wrong declaration. Both tests
+// below fail if the escaping is removed.
+test("a cssVariable with an unbalanced paren reports cleanly instead of throwing", () => {
+  seedHealthy();
+  writeConfig(["--font-space-grotesk", "--font-jetbrains-mono", "--font-a(b"]);
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("--font-a(b is not declared");
+  expect(out).not.toContain("Invalid regular expression");
+});
+
+test("a '.' in a cssVariable does not match a similarly-named declaration", () => {
+  seedHealthy();
+  writeConfig(["--font-a.c"]);
+  // The decoy is declared FIRST and resolves to a family with no webfont, so an
+  // unescaped `.` matches it and the run fails; matching literally finds the real
+  // declaration and passes.
+  const vars = { "--font-a-c": `"${JB}"`, "--font-a.c": `"${SG}"` };
+  for (const route of ["index.html", "privacy/index.html", "impressum/index.html"]) {
+    write(dist, route, pageHtml({ webfontFamilies: [SG], vars }));
+  }
+  expect(runGate().code).toBe(0);
+});
+
 test("an unreadable font config fails rather than checking nothing", () => {
   seedHealthy();
   rmSync(config);

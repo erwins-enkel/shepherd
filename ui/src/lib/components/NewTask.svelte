@@ -302,20 +302,24 @@
   let isMac = $state(false);
   // Coarse pointer = touch-primary device: hide keyboard-combo hints it can't fulfil.
   const coarse = new MediaQuery("(pointer: coarse)");
-  // Layout breakpoint — drives the SINGLE mounted instance of RunSettingsGroups
+  // Small-screen layout gate — drives the SINGLE mounted instance of RunSettingsGroups
   // (desktop rail vs. mobile engine sheet), the mobile-only chrome, and the
-  // keyboard-aware viewport effect below. Short-height is OR'd in so wide-but-short
-  // phone LANDSCAPE (e.g. 852×393) — where the keyboard eats the most vertical space —
-  // gets the mobile layout + keyboard handling instead of the desktop rail. Keyed on
-  // the layout viewport, which iOS keeps stable when the keyboard opens (no thrash).
-  // The matching CSS media queries (NewTask/RepoSelect/RunSettingsGroups) mirror this.
-  const mobile = new MediaQuery("(max-width: 768px), (max-height: 480px)");
+  // keyboard-aware viewport effect below. True when NARROW (portrait phones / narrow
+  // windows) OR SHORT-AND-TOUCH (phone/tablet LANDSCAPE, e.g. 852×393, where the
+  // keyboard eats the height). Gating the short branch on a coarse pointer keeps
+  // ordinary short DESKTOP windows on the desktop layout — they have a hardware
+  // keyboard, so the visualViewport mirror must never touch them. Keyed on the layout
+  // viewport, which iOS keeps stable when the keyboard opens (no thrash). The matching
+  // CSS media queries (NewTask/RepoSelect/RunSettingsGroups) mirror this exact logic.
+  const narrowViewport = new MediaQuery("(max-width: 768px)");
+  const shortViewport = new MediaQuery("(max-height: 480px)");
+  const mobile = $derived(narrowViewport.current || (shortViewport.current && coarse.current));
   // Single active-sheet invariant: at most one mobile sheet is open, by construction.
   let activeSheet = $state<"engine" | "context" | null>(null);
   let contextSheetEl = $state<HTMLElement | null>(null);
   // Leaving mobile while a sheet is open: the rail takes over; close the sheet.
   $effect(() => {
-    if (!mobile.current && activeSheet !== null) activeSheet = null;
+    if (!mobile && activeSheet !== null) activeSheet = null;
   });
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
@@ -433,7 +437,7 @@
   // both detaches the listeners and clears the inline geometry left from the mobile
   // state (reset-on-breakpoint), so a stale height/transform never survives onto desktop.
   $effect(() => {
-    if (!overlayEl || !mobile.current) return;
+    if (!overlayEl || !mobile) return;
     syncViewport();
     const vv = window.visualViewport;
     vv?.addEventListener("resize", syncViewport);
@@ -964,7 +968,7 @@
    *  inside the context sheet, so the shortcut opens the sheet (closing the engine
    *  sheet per the single-sheet invariant) and then the panel once mounted. */
   async function openRepoPicker() {
-    if (mobile.current) {
+    if (mobile) {
       activeSheet = "context";
       await tick();
     }
@@ -1224,7 +1228,7 @@
   >
     <div class="chead">
       <span class="chead-title">{heading}</span>
-      {#if mobile.current}
+      {#if mobile}
         <!-- Combined repo·branch chip: one control naming both payload-critical values;
              opens the context sheet where each is independently editable. -->
         <button
@@ -1269,7 +1273,7 @@
     <div class="composer" class:hidden={confirmStep}>
       <div class="cbody">
         <div class="left">
-          {#if !mobile.current}
+          {#if !mobile}
             <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
             <div class="ctx-row" use:coachTarget={"nt-repo"}>
               <div class="repo-chip">
@@ -1344,7 +1348,7 @@
 
           <!-- Prompt hero: the single visual hero — the only field with a bright border. -->
           <div class="prompt-block">
-            {#if !mobile.current}
+            {#if !mobile}
               <div class="prompt-label-row">
                 <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
                 <span class="syntax-hint">
@@ -1416,7 +1420,7 @@
                   />
                 {/each}
                 <span class="char-count">
-                  {#if mobile.current}
+                  {#if mobile}
                     {m.newtask_syntax_hint_touch()}
                   {:else}
                     {m.newtask_char_count({ count: prompt.length })}
@@ -1466,7 +1470,7 @@
             {/if}
           {/if}
 
-          {#if mobile.current}
+          {#if mobile}
             <!-- Mobile: Mode segments + the engine summary row (opens the sheet). -->
             {@render modeSeg()}
             <button
@@ -1488,7 +1492,7 @@
             </button>
           {/if}
 
-          {#if repoPath && !mobile.current}
+          {#if repoPath && !mobile}
             <PromptSources
               {repoPath}
               {issueData}
@@ -1523,7 +1527,7 @@
           {/if}
         </div>
 
-        {#if !mobile.current}
+        {#if !mobile}
           <div class="rail">
             <span class="group-label">{m.newtask_group_mode()}</span>
             {@render modeSeg()}
@@ -1542,7 +1546,7 @@
           {:else}
             <span class="r-ok" aria-hidden="true">✓</span>
             {m.newtask_readiness_ready()} ·
-            {#if mobile.current && footerCapacity}
+            {#if mobile && footerCapacity}
               <span class="r-cap"
                 >{footerCapacity.code}
                 {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
@@ -1585,7 +1589,7 @@
                   : m.newtask_edit_held_submit()
                 : submitting
                   ? m.newtask_spawning()
-                  : selectedRepoName && !mobile.current
+                  : selectedRepoName && !mobile
                     ? m.newtask_submit_in_repo({ repo: selectedRepoName })
                     : m.newtask_submit()}</span
             >
@@ -1597,7 +1601,7 @@
       </div>
     </div>
 
-    {#if mobile.current && activeSheet === "engine"}
+    {#if mobile && activeSheet === "engine"}
       <MobileEngineSheet
         label={m.newtask_engine_sheet_title()}
         title={m.newtask_engine_sheet_title()}
@@ -1606,7 +1610,7 @@
         {@render modeLockedNote()}
         {@render settingsGroups()}
       </MobileEngineSheet>
-    {:else if mobile.current && activeSheet === "context"}
+    {:else if mobile && activeSheet === "context"}
       <MobileEngineSheet
         label={m.newtask_context_sheet_title()}
         title={m.newtask_context_sheet_title()}
@@ -2316,9 +2320,9 @@
   }
 
   /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ──
-     Short-height is OR'd in so phone landscape gets this layout too — mirrors the
-     `mobile` MediaQuery gate in the script. */
-  @media (max-width: 768px), (max-height: 480px) {
+     Short-and-touch is OR'd in so phone LANDSCAPE gets this layout too, while a short
+     DESKTOP window (fine pointer) stays on the rail — mirrors the `mobile` gate. */
+  @media (max-width: 768px), (max-height: 480px) and (pointer: coarse) {
     .overlay {
       align-items: stretch;
       justify-content: stretch;

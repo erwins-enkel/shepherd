@@ -3040,12 +3040,13 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
     }
   });
 
-  it("runs the mobile layout + keyboard handling in wide-but-short phone landscape", async () => {
-    // Keyboard already open on a landscape phone: width > 768 (would be the desktop
-    // rail under a width-only gate) but short height must still get the mobile layout
-    // AND the overlay mirror, else content hides behind the keyboard.
+  it("runs the mobile layout + keyboard handling in wide-but-short TOUCH landscape", async () => {
+    // Keyboard already open on a landscape phone (coarse pointer): width > 768 (would be
+    // the desktop rail under a width-only gate) but short-and-touch must still get the
+    // mobile layout AND the overlay mirror, else content hides behind the keyboard.
     const { restore } = installFakeViewport(200, 0);
     try {
+      mockPointer(true); // coarse pointer = phone/tablet with a soft keyboard
       await page.viewport(852, 393);
       mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
       render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
@@ -3054,6 +3055,24 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       expect(document.querySelector(".rail")).toBeNull();
       // The overlay is mirrored to the visible region above the keyboard.
       await expect.poll(() => overlay()?.style.height).toBe("200px");
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves a short DESKTOP window (fine pointer) on the desktop layout, overlay untouched", async () => {
+    // Same short-and-wide viewport, but a fine pointer = hardware keyboard: it must stay
+    // on the desktop rail with the overlay never mutated — the no-desktop-change boundary
+    // (the height gate is touch-only, so a resized desktop window doesn't flip to mobile).
+    const { restore } = installFakeViewport(200, 0);
+    try {
+      mockPointer(false);
+      await page.viewport(852, 393);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+      expect(document.querySelector(".ctx-chip")).toBeNull();
+      expect(overlay().style.height).toBe("");
     } finally {
       restore();
     }

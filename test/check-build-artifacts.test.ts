@@ -1,0 +1,233 @@
+import { test, expect, beforeEach, afterEach } from "bun:test";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join, dirname } from "node:path";
+import { spawnSync } from "node:child_process";
+
+// The gate under test lives with the package it validates; the test lives here,
+// matching check-generated-docs.test.ts / check-feature-catalog.test.ts (both of
+// which also reach into a standalone package's tree from root test/).
+const SCRIPT = join(import.meta.dir, "..", "site", "scripts", "check-build-artifacts.mjs");
+
+// Family names as Astro emits them: the human name plus a content hash. The hash
+// is arbitrary here — the gate must never depend on its value.
+const SG = "Space Grotesk-e5e3653021f8a4c5";
+const JB = "JetBrains Mono-b581649cf8f10209";
+
+let fixture: string;
+let pages: string;
+let dist: string;
+
+function write(root: string, rel: string, contents: string) {
+  const abs = join(root, rel);
+  mkdirSync(dirname(abs), { recursive: true });
+  writeFileSync(abs, contents);
+}
+
+interface PageOpts {
+  /** Families given a real `url()`-backed @font-face. Omitting one models the
+   *  measured silent-fallback build, where the variable is still declared but the
+   *  family it names has no webfont. */
+  webfontFamilies?: string[];
+  /** CSS variables to declare. */
+  vars?: Record<string, string>;
+}
+
+/** Build page HTML shaped like Astro's minified output: the font `@font-face`
+ *  blocks (webfont + `local()` metric fallback) and the `--font-*` stack. */
+function pageHtml({
+  webfontFamilies = [SG, JB],
+  vars = {
+    "--font-space-grotesk": `"${SG}","${SG} fallback: Arial",system-ui,sans-serif`,
+    "--font-jetbrains-mono": `"${JB}","${JB} fallback: Courier New",ui-monospace,monospace`,
+  },
+}: PageOpts = {}) {
+  const faces: string[] = [];
+  for (const family of [SG, JB]) {
+    if (webfontFamilies.includes(family)) {
+      const file = family.startsWith("Space") ? "sg.woff2" : "jb.woff2";
+      faces.push(
+        `@font-face{font-family:"${family}";src:url("/_astro/fonts/${file}") format("woff2")}`,
+      );
+    }
+    // The metric-adjusted local() fallback is emitted either way — which is
+    // precisely why matching on the family name alone cannot discriminate.
+    const fallback = family.startsWith("Space") ? "Arial" : "Courier New";
+    faces.push(
+      `@font-face{font-family:"${family} fallback: ${fallback}";src:local("${fallback}")}`,
+    );
+  }
+  const decls = Object.entries(vars)
+    .map(([k, v]) => `${k}:${v}`)
+    .join(";");
+  // Padded past the gate's 2000-byte route floor, as a real page is.
+  const filler = `<p>${"marketing copy ".repeat(150)}</p>`;
+  return `<!DOCTYPE html><html><head><style>${faces.join("")}:root{${decls}}</style></head><body>${filler}</body></html>`;
+}
+
+/** A woff2 comfortably over the gate's 512-byte truncation floor. */
+function woff2(bytes = 4096) {
+  return "w".repeat(bytes);
+}
+
+/** Seed a healthy three-route site: pages + matching dist + two font files. */
+function seedHealthy() {
+  for (const name of ["index", "privacy", "impressum"]) {
+    write(pages, `${name}.astro`, "<h1>page</h1>\n");
+  }
+  write(dist, "index.html", pageHtml());
+  write(dist, "privacy/index.html", pageHtml());
+  write(dist, "impressum/index.html", pageHtml());
+  write(dist, "_astro/fonts/sg.woff2", woff2());
+  write(dist, "_astro/fonts/jb.woff2", woff2());
+}
+
+function runGate(): { code: number; out: string } {
+  const r = spawnSync("bun", [SCRIPT], {
+    env: { ...process.env, SITE_DIST: dist, SITE_PAGES: pages },
+    encoding: "utf8",
+  });
+  return { code: r.status ?? -1, out: `${r.stdout}${r.stderr}` };
+}
+
+beforeEach(() => {
+  fixture = mkdtempSync(join(tmpdir(), "shepherd-site-artifacts-"));
+  pages = join(fixture, "src", "pages");
+  dist = join(fixture, "dist");
+  mkdirSync(pages, { recursive: true });
+  mkdirSync(dist, { recursive: true });
+});
+afterEach(() => rmSync(fixture, { recursive: true, force: true }));
+
+test("healthy build passes", () => {
+  seedHealthy();
+  const { code, out } = runGate();
+  expect(code).toBe(0);
+  expect(out).toContain("All build artifact checks passed");
+});
+
+// THE load-bearing case: the measured silent-fallback shape. The variable is
+// declared and `@font-face` blocks exist, but the family the variable names has
+// only a local() fallback. Every aggregate check passes here — if this test ever
+// goes green on a loosened assertion, the gate has stopped doing its job.
+test("family with only a local() fallback fails", () => {
+  seedHealthy();
+  const degraded = pageHtml({ webfontFamilies: [SG] });
+  write(dist, "index.html", degraded);
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("--font-jetbrains-mono");
+  expect(out).toContain("no url()-backed @font-face");
+});
+
+test("truncated woff2 fails", () => {
+  seedHealthy();
+  write(dist, "_astro/fonts/jb.woff2", "xx");
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("truncated font file");
+});
+
+test("missing route fails", () => {
+  seedHealthy();
+  rmSync(join(dist, "privacy"), { recursive: true, force: true });
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("privacy/index.html");
+  expect(out).toContain("was not emitted");
+});
+
+test("undersized route fails", () => {
+  seedHealthy();
+  write(dist, "privacy/index.html", "<html></html>");
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("is only");
+});
+
+test("missing --font-* declaration fails", () => {
+  seedHealthy();
+  write(dist, "index.html", pageHtml({ vars: { "--font-space-grotesk": `"${SG}",system-ui` } }));
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("--font-jetbrains-mono is not declared");
+});
+
+test("no woff2 emitted fails", () => {
+  seedHealthy();
+  rmSync(join(dist, "_astro"), { recursive: true, force: true });
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no .woff2 files were emitted");
+});
+
+// Route derivation must walk subdirectories: a flat glob would silently under-cover
+// a nested page while the gate still reported green.
+test("nested page is asserted on", () => {
+  seedHealthy();
+  write(pages, join("legal", "terms.astro"), "<h1>terms</h1>\n");
+  const missing = runGate();
+  expect(missing.code).toBe(1);
+  expect(missing.out).toContain("legal/terms/index.html");
+
+  write(dist, "legal/terms/index.html", pageHtml());
+  expect(runGate().code).toBe(0);
+});
+
+test("nested index page maps to its directory", () => {
+  seedHealthy();
+  write(pages, join("legal", "index.astro"), "<h1>legal</h1>\n");
+  write(dist, "legal/index.html", pageHtml());
+  expect(runGate().code).toBe(0);
+});
+
+test("unmappable page extension fails loudly", () => {
+  seedHealthy();
+  write(pages, "notes.md", "# notes\n");
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no known output mapping");
+});
+
+test("dynamic route fails loudly", () => {
+  seedHealthy();
+  write(pages, "[slug].astro", "<h1>dynamic</h1>\n");
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no known output mapping");
+});
+
+test("empty pages directory fails rather than passing vacuously", () => {
+  write(dist, "index.html", pageHtml());
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no pages found");
+});
+
+// Astro excludes underscore-prefixed paths from routing, so asserting on them
+// would be a false failure — but they must not be able to make the run vacuous.
+test("underscore-prefixed pages are not treated as routes", () => {
+  seedHealthy();
+  write(pages, "_draft.astro", "<h1>draft</h1>\n");
+  write(pages, join("_components", "Card.astro"), "<div>card</div>\n");
+  expect(runGate().code).toBe(0);
+});
+
+test("a pages directory of only non-routed files fails rather than passing vacuously", () => {
+  write(pages, "_draft.astro", "<h1>draft</h1>\n");
+  write(dist, "index.html", pageHtml());
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("no pages found");
+});
+
+// statSync reports a nonzero size for a directory, so without an isFile() guard a
+// directory sitting where a route's index.html belongs would clear the size floor.
+test("a directory in place of a route's html fails", () => {
+  seedHealthy();
+  rmSync(join(dist, "privacy", "index.html"));
+  mkdirSync(join(dist, "privacy", "index.html"), { recursive: true });
+  const { code, out } = runGate();
+  expect(code).toBe(1);
+  expect(out).toContain("was not emitted");
+});

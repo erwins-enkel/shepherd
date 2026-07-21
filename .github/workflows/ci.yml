@@ -225,3 +225,60 @@ jobs:
         run: |
           bun run check
           bun run build
+
+  # The shepherd.run marketing site (site/) is the 5th in-monorepo package with its
+  # own lockfile. Like docs-site it builds self-contained, so it needs only a plain
+  # checkout + its own install, and it lives in its OWN job for the same reason: an
+  # install flake there must not red the whole suite.
+  #
+  # Deliberately NOT filtered with `paths:` (#1859). A path-filtered job reports no
+  # status at all on PRs that don't touch those paths, and a required check that never
+  # reports blocks the PR from merging forever. It runs on every PR instead; the build
+  # is sub-second.
+  #
+  # NB the fonts pipeline reaches cdn.jsdelivr.net at BUILD time (the npm font provider
+  # fetches the woff2 for the lockfile-pinned @fontsource version), so this job needs
+  # network during `build`, not just during install. A fetch failure fails the build
+  # loudly. That is deliberately left unretried, matching every other build step here —
+  # `bun-install-retry` wraps installs only, and the repo adds retries in response to
+  # observed flakes (#944, #1134), not in anticipation of one.
+  site:
+    name: site
+    # Skip release-please's generated PR, mirroring the two jobs above.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    # Pinned to GitHub-hosted like the others — public repo, no CI_RUNNER toggle.
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Cache bun store (site)
+        uses: actions/cache@v6
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-site-${{ hashFiles('site/bun.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-bun-site-
+
+      - name: Install (site)
+        uses: ./.github/actions/bun-install-retry
+        with:
+          working-directory: site
+
+      # check + build, then assert on what the build actually emitted: a green
+      # `astro build` does NOT prove the site is correct. Point a font family's
+      # provider at a package it can't resolve and the build still exits 0 with only
+      # a [WARN], shipping a dist/ where that family silently degraded to system
+      # fonts. check:artifacts is what catches that; its own logic is unit-tested in
+      # test/check-build-artifacts.test.ts, which runs in `verify`.
+      - name: Build (site)
+        working-directory: site
+        run: |
+          bun run check
+          bun run build
+          bun run check:artifacts

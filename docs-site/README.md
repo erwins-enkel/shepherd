@@ -28,9 +28,9 @@ Those gates are scoped to `ui/` + `extension/` and to `feat(...)` commits touchi
 root `tsconfig.json` `exclude` (it type-checks via `astro check`, not the server
 `tsc`).
 
-Unlike `site/`, this package **stays in the monorepo** and **is wired into CI**
-(`.github/workflows/ci.yml`): `cd docs-site && bun install --frozen-lockfile &&
-bun run check && bun run build`.
+Unlike `site/`, this package **stays in the monorepo**. Both are wired into CI
+(`.github/workflows/ci.yml`), each in its own job: `cd docs-site && bun install
+--frozen-lockfile && bun run check && bun run build`.
 
 ## Generated content
 

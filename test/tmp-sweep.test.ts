@@ -3,17 +3,25 @@ import { mkdtempSync, mkdirSync, writeFileSync, rmSync, utimesSync, existsSync }
 import * as fsp from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { Dirent } from "node:fs";
 import {
   worktreeScratchDir,
   sweepClaudeTmp,
   removeWorktreeScratch,
   reapFallowCaches,
   pruneRepoWorktrees,
+  reapAbandonedWorktrees,
+  reclaimForkedPnpmStore,
+  resolveStoreVersionDirs,
   readTmpInodeUsePct,
   tmpInodeBands,
   TMP_INODE_ERROR_PCT,
   FALLOW_CACHE_PREFIX,
 } from "../src/tmp-sweep";
+
+/** Minimal `Dirent` fake — the reclaimers only read `.name` + `.isDirectory()`. */
+const dirent = (name: string, isDir: boolean): Dirent =>
+  ({ name, isDirectory: () => isDir }) as unknown as Dirent;
 
 const uid = (): number => process.getuid?.() ?? 1000;
 const nested = `claude-${uid()}`;
@@ -795,5 +803,317 @@ describe("pruneRepoWorktrees", () => {
   test("never rejects; empty list returns zeroes", async () => {
     const res = await pruneRepoWorktrees([], { execGit: async () => {}, log: () => {} });
     expect(res).toEqual({ pruned: 0, failed: 0 });
+  });
+});
+
+// ── reapAbandonedWorktrees ───────────────────────────────────────────────────
+
+describe("reapAbandonedWorktrees", () => {
+  const NOW = 1_700_000_000_000;
+  // one worktree block; `extra` carries porcelain annotation lines.
+  const porc = (path: string, extra: string[] = []) =>
+    ["worktree " + path, "HEAD abcdef", "branch refs/heads/feat", ...extra, ""].join("\n");
+
+  // Default: a single stale, clean worktree at /tmp/wt-a, high inode pressure, modern git.
+  function reaperOpts(over: Record<string, unknown> = {}) {
+    const removed: string[] = [];
+    const opts = {
+      repoPaths: ["/repo"],
+      liveWorktreePaths: [] as string[],
+      liveCwds: [] as string[],
+      tmpRoots: ["/tmp"],
+      now: NOW,
+      statfs: fakeStatfs(1000, 100), // 90% used ≥ default 80
+      realpath: async (p: string) => p,
+      execGit: async (_cwd: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/tmp/wt-a");
+        if (args[0] === "status") return ""; // clean
+        return "";
+      },
+      fsOps: {
+        readdir: async () => [] as Dirent[], // empty tree → freshness walk finds nothing
+        stat: async () => ({ mtimeMs: 0 }) as unknown as Awaited<ReturnType<typeof fsp.stat>>,
+      },
+      removeWorktree: async (_repo: string, wt: string) => {
+        removed.push(wt);
+      },
+      log: () => {},
+      ...over,
+    };
+    return { opts, removed };
+  }
+
+  test("stale + clean + high pressure + modern git → reaped, retained 0", async () => {
+    const { opts, removed } = reaperOpts();
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(r).toEqual({ reaped: 1, retained: 0 });
+    expect(removed).toEqual(["/tmp/wt-a"]);
+  });
+
+  test("dirty (git status non-empty) → kept, retained 1", async () => {
+    const { opts, removed } = reaperOpts({
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/tmp/wt-a");
+        if (args[0] === "status") return " M file.ts\n"; // dirty
+        return "";
+      },
+    });
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(r).toEqual({ reaped: 0, retained: 1 });
+    expect(removed).toEqual([]);
+  });
+
+  test("git status THROWS → treated as dirty → kept", async () => {
+    const { opts } = reaperOpts({
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/tmp/wt-a");
+        if (args[0] === "status") throw new Error("git blew up");
+        return "";
+      },
+    });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+  });
+
+  for (const ann of ["locked", "bare", "prunable"]) {
+    test(`porcelain '${ann}' annotation → kept`, async () => {
+      const { opts, removed } = reaperOpts({
+        execGit: async (_c: string, args: string[]) => {
+          if (args[0] === "--version") return "git version 2.54.0";
+          if (args[0] === "worktree" && args[1] === "list")
+            return porc("/tmp/wt-a", [ann === "bare" ? "bare" : `${ann} some reason here`]);
+          if (args[0] === "status") return "";
+          return "";
+        },
+      });
+      const r = await reapAbandonedWorktrees(opts as never);
+      expect(r).toEqual({ reaped: 0, retained: 1 });
+      expect(removed).toEqual([]);
+    });
+  }
+
+  test("Shepherd session worktree marker → kept", async () => {
+    const marked = "/tmp/x/.shepherd-worktrees/sess-1";
+    const { opts } = reaperOpts({
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc(marked);
+        if (args[0] === "status") return "";
+        return "";
+      },
+    });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+  });
+
+  test("live-session worktreePath → kept", async () => {
+    const { opts } = reaperOpts({ liveWorktreePaths: ["/tmp/wt-a"] });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+  });
+
+  test("live /proc cwd under the candidate → kept", async () => {
+    const { opts } = reaperOpts({ liveCwds: ["/tmp/wt-a/packages/x"] });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+  });
+
+  test("fresh (recent mtime) → kept", async () => {
+    const { opts } = reaperOpts({
+      fsOps: {
+        readdir: async () => [] as Dirent[],
+        stat: async () => ({ mtimeMs: NOW }) as unknown as Awaited<ReturnType<typeof fsp.stat>>,
+      },
+    });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+  });
+
+  test("below inode threshold → discovered but NOT removed; retained reflects it", async () => {
+    const { opts, removed } = reaperOpts({ statfs: fakeStatfs(1000, 900) }); // 10% < 80
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(r).toEqual({ reaped: 0, retained: 1 });
+    expect(removed).toEqual([]);
+  });
+
+  test("git below the 2.38 floor → discovered but NOT removed", async () => {
+    const { opts, removed } = reaperOpts({
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.35.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/tmp/wt-a");
+        if (args[0] === "status") return "";
+        return "";
+      },
+    });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 1 });
+    expect(removed).toEqual([]);
+  });
+
+  test("candidate NOT under any tmp root → not a candidate", async () => {
+    const { opts } = reaperOpts({
+      execGit: async (_c: string, args: string[]) => {
+        if (args[0] === "--version") return "git version 2.54.0";
+        if (args[0] === "worktree" && args[1] === "list") return porc("/home/me/work/wt");
+        if (args[0] === "status") return "";
+        return "";
+      },
+    });
+    expect(await reapAbandonedWorktrees(opts as never)).toEqual({ reaped: 0, retained: 0 });
+  });
+
+  test("symlinked tmp root: resolved candidate still segment-aligns and is refused", async () => {
+    // Porcelain emits /tmp/wt-a; realpath resolves /tmp → /private/tmp (macOS-style), while
+    // tmpRoots + liveCwds arrive in the /private/tmp form. The resolved candidate must still
+    // match a tmp root AND the live-cwd, and be kept — a non-match would read as "not protected".
+    const realpath = async (p: string) => p.replace(/^\/tmp(\/|$)/, "/private/tmp$1");
+    const { opts, removed } = reaperOpts({
+      realpath,
+      tmpRoots: ["/private/tmp"],
+      liveCwds: ["/private/tmp/wt-a/sub"],
+    });
+    const r = await reapAbandonedWorktrees(opts as never);
+    expect(r).toEqual({ reaped: 0, retained: 1 }); // under tmp (so a candidate) AND live-cwd (so kept)
+    expect(removed).toEqual([]);
+  });
+});
+
+// ── resolveStoreVersionDirs ──────────────────────────────────────────────────
+
+describe("resolveStoreVersionDirs", () => {
+  test("keeps only /^v\\d+$/ directories", () => {
+    const entries = [
+      dirent("v10", true),
+      dirent("v9", true),
+      dirent("v10", false), // a FILE named v10 — excluded (not a dir)
+      dirent("index", true),
+      dirent("version", true), // not v<digits>
+      dirent(".lock", false),
+    ];
+    expect(resolveStoreVersionDirs(entries)).toEqual(["v10", "v9"]);
+  });
+
+  test("empty when nothing matches", () => {
+    expect(resolveStoreVersionDirs([dirent("garbage", true)])).toEqual([]);
+  });
+});
+
+// ── reclaimForkedPnpmStore ───────────────────────────────────────────────────
+
+describe("reclaimForkedPnpmStore", () => {
+  const NOW = 1_700_000_000_000;
+  const ROOT = "/tmp/.pnpm-store";
+
+  // A removable store: v10 with files/ + index/, all stale, every content file nlink 1.
+  function storeHarness() {
+    const R: Record<string, Dirent[]> = {
+      [ROOT]: [dirent("v10", true)],
+      [`${ROOT}/v10`]: [dirent("files", true), dirent("index", true)],
+      [`${ROOT}/v10/files`]: [dirent("9f", true)],
+      [`${ROOT}/v10/files/9f`]: [dirent("abc", false)],
+      [`${ROOT}/v10/index`]: [dirent("meta", false)],
+    };
+    const mtimes: Record<string, number> = {};
+    const nlinks: Record<string, number> = {};
+    const removed: string[] = [];
+    const opts = {
+      storeRoot: ROOT,
+      retained: 0,
+      now: NOW,
+      statfs: fakeStatfs(1000, 100), // 90% ≥ 80
+      fsOps: {
+        readdir: async (p: string) => {
+          const e = R[String(p)];
+          if (!e) throw new Error("ENOENT " + p);
+          return e;
+        },
+        stat: async (p: string) =>
+          ({
+            mtimeMs: mtimes[String(p)] ?? 0,
+            nlink: nlinks[String(p)] ?? 1,
+          }) as unknown as Awaited<ReturnType<typeof fsp.stat>>,
+        rm: async (p: string) => {
+          removed.push(String(p));
+        },
+      },
+      log: () => {},
+    };
+    return { opts, R, mtimes, nlinks, removed };
+  }
+
+  test("fully idle + unlinked → removes the whole store root", async () => {
+    const { opts, removed } = storeHarness();
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(true);
+    expect(removed).toEqual([ROOT]);
+  });
+
+  test("retained > 0 → skip", async () => {
+    const { opts, removed } = storeHarness();
+    opts.retained = 1;
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("retained");
+    expect(removed).toEqual([]);
+  });
+
+  test("inode pressure below threshold → skip", async () => {
+    const { opts } = storeHarness();
+    opts.statfs = fakeStatfs(1000, 900); // 10%
+    expect((await reclaimForkedPnpmStore(opts as never)).removed).toBe(false);
+  });
+
+  test("missing store dir → no-store", async () => {
+    const { opts } = storeHarness();
+    opts.fsOps.readdir = async () => {
+      throw new Error("ENOENT");
+    };
+    expect((await reclaimForkedPnpmStore(opts as never)).reason).toBe("no-store");
+  });
+
+  test("no v* dir → no-version-dir", async () => {
+    const { opts, R } = storeHarness();
+    R[ROOT] = [dirent("garbage", true)];
+    expect((await reclaimForkedPnpmStore(opts as never)).reason).toBe("no-version-dir");
+  });
+
+  test("fresh non-v* sibling → skip", async () => {
+    const { opts, R, mtimes } = storeHarness();
+    R[ROOT] = [dirent("v10", true), dirent("staging.lock", false)];
+    mtimes[`${ROOT}/staging.lock`] = NOW; // fresh
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("sibling-fresh");
+  });
+
+  test("stale but unrecognized non-v* directory sibling → skip", async () => {
+    const { opts, R } = storeHarness();
+    R[ROOT] = [dirent("v10", true), dirent("staging", true)]; // stale dir, unknown
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("sibling-unrecognized");
+  });
+
+  test("a depth-2 entry with a recent mtime → store-busy (idleness probes at depth 2)", async () => {
+    const { opts, mtimes } = storeHarness();
+    mtimes[`${ROOT}/v10/files/9f`] = NOW; // a bucket (depth 2) touched recently
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("store-busy");
+  });
+
+  test("any file with nlink > 1 → store-linked (skip)", async () => {
+    const { opts, nlinks } = storeHarness();
+    nlinks[`${ROOT}/v10/files/9f/abc`] = 2; // a worktree still links it
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("store-linked");
+  });
+
+  test("a bucket unreadable during the nlink walk → keep (not provably unlinked)", async () => {
+    // Idleness passes (depth-2 only stats the bucket dir), but the exhaustive nlink walk must
+    // descend into it — a readdir error there resolves to keep, never a removal.
+    const { opts, R } = storeHarness();
+    delete R[`${ROOT}/v10/files/9f`]; // readdir(bucket) throws inside storeVersionDirHasLinks
+    const r = await reclaimForkedPnpmStore(opts as never);
+    expect(r.removed).toBe(false);
+    expect(r.reason).toContain("store-linked-or-unprobed");
   });
 });

@@ -253,6 +253,32 @@ function capacityWindows(gauges: Gauge[]): ProviderCapacityWindow[] {
   });
 }
 
+/** The New Task compact capacity line: the selected provider's hottest window (lowest
+ *  remaining %) with its designation code (untranslated, like TASK-07). `stale` mirrors the
+ *  row (rendered dimmed, matching ProviderCapacityGauge); `null` = provider unavailable
+ *  (line hidden). Layered on providerCapacityRows so the two never disagree. */
+export interface SelectedProviderCapacity {
+  code: string; // "CC·5H" | "CC·WK" | "CX·5H" | "CX·WK"
+  freePct: number;
+  usedPct: number;
+  stale: boolean;
+}
+
+export function selectedProviderCapacity(
+  limits: UsageLimits | null,
+  provider: AgentProvider,
+): SelectedProviderCapacity | null {
+  const row = providerCapacityRows(limits).find((r) => r.provider === provider);
+  if (!row?.available || row.windows.length === 0) return null;
+  const hottest = row.windows.reduce((hot, w) => (w.remainingPct < hot.remainingPct ? w : hot));
+  return {
+    code: `${provider === "claude" ? "CC" : "CX"}·${hottest.key}`,
+    freePct: hottest.remainingPct,
+    usedPct: hottest.usedPct,
+    stale: row.stale,
+  };
+}
+
 export function providerCapacityRows(limits: UsageLimits | null): ProviderCapacityRow[] {
   const codexUsage = codexTokenUsage(limits);
   const claudeWindows = capacityWindows(gaugeList(limits));

@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../app.css";
 import type { Issue, SlashCommand } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
-import { getTodo, listIssues, getCommands } from "$lib/api";
+import { listIssues, getCommands } from "$lib/api";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 
 // Mock the API so no network fires; each test seeds the data it needs.
@@ -12,26 +12,30 @@ vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {
     ...actual,
-    getTodo: vi.fn(),
     listIssues: vi.fn(),
     getCommands: vi.fn(),
   };
 });
 
 const { default: PromptSources } = await import("./PromptSources.svelte");
+const { IssueData } = await import("./new-task/issue-data.svelte");
 
-const mockGetTodo = vi.mocked(getTodo);
 const mockListIssues = vi.mocked(listIssues);
 const mockGetCommands = vi.mocked(getCommands);
 
 const noop = () => {};
 
+/** The shared loader instance the panel renders from (NewTask owns it in the app).
+ *  Seed mockListIssues BEFORE calling this — load() fires immediately. */
+function makeIssueData(repoPath: string) {
+  const d = new IssueData();
+  d.load(repoPath);
+  return d;
+}
+
 beforeEach(() => {
-  mockGetTodo.mockReset();
   mockListIssues.mockReset();
   mockGetCommands.mockReset();
-  // No TODO.md → the panel auto-switches off the To-Do tab to Issues.
-  mockGetTodo.mockResolvedValue({ exists: false, content: "" });
 });
 
 afterEach(() => {
@@ -107,17 +111,22 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
       viewer: "me",
     });
 
-    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
 
     // Wait for the issues to load.
     await expect
       .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
       .toBeGreaterThan(0);
 
-    // The Filters trigger button renders inside .ps-filter-bar.
-    const filterBar = document.querySelector(".ps-body .ps-filter-bar");
-    expect(filterBar).not.toBeNull();
-    const triggerBtn = filterBar!.querySelector<HTMLButtonElement>("button");
+    // The Filters trigger chip renders in the panel header.
+    const head = document.querySelector(".ps-head");
+    expect(head).not.toBeNull();
+    const triggerBtn = head!.querySelector<HTMLButtonElement>(".filter-chip");
     expect(triggerBtn).not.toBeNull();
     expect(triggerBtn!.textContent).toContain(m.issue_filter_button());
 
@@ -166,7 +175,12 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
       error: "fetch_failed",
     });
 
-    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
 
     await expect
       .poll(() => document.querySelector(".ps-body")?.textContent)
@@ -187,7 +201,12 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
       commands: Array.from({ length: 20 }, (_, i) => command(i)),
     });
 
-    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
 
     // Switch to the Commands tab.
     const commandsTab = [...document.querySelectorAll<HTMLButtonElement>(".tabs .tab")].find(
@@ -216,7 +235,12 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
     });
     const onpick = vi.fn();
 
-    render(PromptSources, { repoPath: "/repo", onpick, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick,
+      onpickissue: noop,
+    });
 
     const commandsTab = [...document.querySelectorAll<HTMLButtonElement>(".tabs .tab")].find(
       (b) => b.textContent?.trim() === m.promptsources_commands_tab(),
@@ -253,6 +277,7 @@ describe("PromptSources filter bar (popover + sticky coverage)", () => {
 
     render(PromptSources, {
       repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
       agentProvider: "codex",
       onpick,
       onpickissue: noop,
@@ -309,7 +334,12 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
       viewer: null,
     });
 
-    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
     await expect
       .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
       .toBeGreaterThan(0);
@@ -331,7 +361,12 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
       viewer: null,
     });
 
-    render(PromptSources, { repoPath: "/repo", onpick: noop, onpickissue: noop });
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
     await expect
       .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
       .toBeGreaterThan(0);
@@ -352,5 +387,80 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
     expect(
       document.querySelector<HTMLElement>(".issue-source-row")!.getBoundingClientRect().height,
     ).toBeGreaterThanOrEqual(hitSize);
+  });
+});
+
+describe("PromptSources collapsed rows + show-all expansion", () => {
+  it("collapses to 3 rows with an expander; activating it reveals all and collapses back", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: Array.from({ length: 12 }, (_, i) => issue(i + 1)),
+      viewer: null,
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+
+    // Collapsed: exactly 3 rows + the "9 more" expander (keyboard-activatable button).
+    await expect.poll(() => document.querySelectorAll(".ps-body .issue-source-row").length).toBe(3);
+    const more = document.querySelector<HTMLButtonElement>(".ps-body .more-row");
+    expect(more).not.toBeNull();
+    expect(more!.textContent).toContain(m.promptsources_more_row({ count: 9 }));
+
+    // Expand (a real <button>, so Enter/Space work natively) → every issue selectable.
+    more!.click();
+    await expect
+      .poll(() => document.querySelectorAll(".ps-body .issue-source-row").length)
+      .toBe(12);
+    expect(document.querySelector(".ps-body .more-row")!.textContent).toContain(
+      m.promptsources_collapse_row(),
+    );
+
+    // Collapse back.
+    (document.querySelector(".ps-body .more-row") as HTMLButtonElement).click();
+    await expect.poll(() => document.querySelectorAll(".ps-body .issue-source-row").length).toBe(3);
+  });
+
+  it("renders from the shared loader: one listIssues call per repo selection", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [issue(1)],
+      viewer: null,
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+    await expect.poll(() => document.querySelectorAll(".ps-body .issue-source-row").length).toBe(1);
+    // The panel itself fetches nothing — the single load() above is the only call.
+    expect(mockListIssues).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the open count in the header", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: Array.from({ length: 5 }, (_, i) => issue(i + 1)),
+      viewer: null,
+    });
+
+    render(PromptSources, {
+      repoPath: "/repo",
+      issueData: makeIssueData("/repo"),
+      onpick: noop,
+      onpickissue: noop,
+    });
+    await expect
+      .poll(() => document.querySelector(".ps-head .open-count")?.textContent)
+      .toContain(m.promptsources_open_count({ count: 5 }));
   });
 });

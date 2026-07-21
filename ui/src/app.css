@@ -632,3 +632,7 @@ a.issue-list-title:hover {
 .status-tip-dialog[popover]:popover-open {
   animation: status-tip-in 120ms ease-out;
 }
+/* Motion-free surfaces (New Task modal) opt out via statusTip's `still` param. */
+.status-tip.status-tip-still[popover]:popover-open {
+  animation: none;
+}

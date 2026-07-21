@@ -6,6 +6,8 @@ export interface StatusTipParams {
   text: string;
   /** Set false for actionable controls whose delegated click handler must run. */
   stopClickPropagation?: boolean;
+  /** Suppress the entrance animation (motion-free surfaces like the New Task modal). */
+  still?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -39,6 +41,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let pop: HTMLDivElement | null = null;
   let text = "";
   let stopClickPropagation = true;
+  let still = false;
   let open = false;
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
@@ -53,7 +56,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     }
     pop = document.createElement("div");
     pop.id = `status-tip-${++uid}`;
-    pop.className = "status-tip";
+    pop.className = still ? "status-tip status-tip-still" : "status-tip";
     pop.setAttribute("role", "tooltip");
     pop.setAttribute("popover", "manual");
     pop.textContent = text;
@@ -122,6 +125,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   function enable(next: StatusTipParams) {
     text = next.text;
     stopClickPropagation = next.stopClickPropagation ?? true;
+    still = next.still ?? false;
     if (pop) pop.textContent = text;
     // Expose the explanation to assistive tech directly (no referenced element).
     node.setAttribute("aria-description", text);

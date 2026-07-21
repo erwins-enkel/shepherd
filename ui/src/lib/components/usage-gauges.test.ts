@@ -8,6 +8,7 @@ import {
   providerSnapshots,
   gaugeColor,
   providerCapacityRows,
+  selectedProviderCapacity,
 } from "./usage-gauges";
 import type { UsageLimits, LimitWindow, CreditWindow } from "../types";
 
@@ -373,5 +374,60 @@ describe("providerCapacityRows", () => {
       available: false,
       windows: [],
     });
+  });
+});
+
+describe("selectedProviderCapacity", () => {
+  it("picks the hottest window (lowest remaining) when both are present", () => {
+    const cap = selectedProviderCapacity(
+      limits({ session5h: w(16), week: w(31) }), // 84% vs 69% free → WK is hotter
+      "claude",
+    );
+    expect(cap).toEqual({ code: "CC·WK", freePct: 69, usedPct: 31, stale: false });
+  });
+
+  it("uses the single window when only one exists", () => {
+    const cap = selectedProviderCapacity(limits({ session5h: w(8) }), "claude");
+    expect(cap).toEqual({ code: "CC·5H", freePct: 92, usedPct: 8, stale: false });
+  });
+
+  it("returns null for an unavailable provider (no usable limits)", () => {
+    expect(selectedProviderCapacity(limits({}), "claude")).toBeNull();
+    expect(selectedProviderCapacity(null, "codex")).toBeNull();
+    // Codex has no rate-limit snapshot in a plain-claude limits object.
+    expect(selectedProviderCapacity(limits({ session5h: w(10) }), "codex")).toBeNull();
+  });
+
+  it("keeps a stale row visible: stale flag true, hottest window still computed", () => {
+    const cap = selectedProviderCapacity(
+      limits({ stale: true, session5h: w(60), week: w(20) }),
+      "claude",
+    );
+    expect(cap).toEqual({ code: "CC·5H", freePct: 40, usedPct: 60, stale: true });
+  });
+
+  it("formats codex window codes from the codex snapshot", () => {
+    const lim = limits({
+      providers: [
+        {
+          provider: "codex",
+          kind: "tokens",
+          totalTokens: 1,
+          session5h: w(8),
+          week: w(2),
+          stale: false,
+        },
+      ],
+    } as Partial<UsageLimits>);
+    const cap = selectedProviderCapacity(lim, "codex");
+    expect(cap).toEqual({ code: "CX·5H", freePct: 92, usedPct: 8, stale: false });
+  });
+});
+
+describe("gaugeColor mapping (pinned for the compact capacity line)", () => {
+  it("muted through 50% used, amber above 50, red above 90", () => {
+    expect(gaugeColor(8)).toBe("var(--color-muted)");
+    expect(gaugeColor(60)).toBe("var(--color-amber)");
+    expect(gaugeColor(95)).toBe("var(--color-red)");
   });
 });

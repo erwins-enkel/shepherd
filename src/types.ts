@@ -451,6 +451,18 @@ export interface CodexUpdateStatus {
   error?: string;
 }
 
+export interface CodexReleaseNote {
+  version: string;
+  body: string;
+}
+
+export interface CodexReleaseNotesResult {
+  current: string | null;
+  latest: string | null;
+  notes: CodexReleaseNote[];
+  complete: boolean;
+}
+
 // ── plugin update check (informational only) ────────────────────────────────
 /** Per-plugin update state. `no-source` = no way to check (no declared
  *  repository and not a git checkout); `incompatible` = a newer version exists

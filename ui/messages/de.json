@@ -3369,5 +3369,10 @@
   "feat_herdr_sandbox_advisory_title": "Sandboxed-Sitzungen unter herdr 0.7.5: eine Status-Einschränkung",
   "feat_herdr_sandbox_advisory_body": "Unter herdr 0.7.5 erscheint ein ruhender sandboxed Agent als „arbeitet\", bis er eine Frage stellt oder fertig ist — herdr kann seinen Ruhezustand nicht melden (Issue #1716). Trusted-Sitzungen sind nicht betroffen. Wenn du auf sandboxed Sitzungen angewiesen bist und einen korrekten Ruhestatus möchtest, bietet der herdr-Update-Dialog jetzt ein Downgrade mit einem Klick auf eine Version ohne diese Einschränkung.",
   "feat_herdr_downgrade_title": "Auf kaputtem herdr gestrandet? Downgrade mit einem Klick",
-  "feat_herdr_downgrade_body": "Wenn herdr sich per Auto-Update auf eine Version aktualisiert hat, die Shepherd nicht ansteuern kann (0.7.5+ hat das Starten von Agenten kaputt gemacht), heilt sich Shepherd jetzt selbst: Update-Dialog und Diagnose-Tab bieten ein Ein-Klick-Downgrade auf die höchste unterstützte Version — heruntergeladen, verifiziert, getauscht und neu gestartet komplett in der App, mit Schritt-für-Schritt-Audit-Log."
+  "feat_herdr_downgrade_body": "Wenn herdr sich per Auto-Update auf eine Version aktualisiert hat, die Shepherd nicht ansteuern kann (0.7.5+ hat das Starten von Agenten kaputt gemacht), heilt sich Shepherd jetzt selbst: Update-Dialog und Diagnose-Tab bieten ein Ein-Klick-Downgrade auf die höchste unterstützte Version — heruntergeladen, verifiziert, getauscht und neu gestartet komplett in der App, mit Schritt-für-Schritt-Audit-Log.",
+  "codexupdate_notes_heading": "Release-Notes",
+  "codexupdate_notes_loading": "Release-Notes werden geladen…",
+  "codexupdate_notes_incomplete": "Der vollständige Release-Verlauf ist hier noch nicht verfügbar. Du kannst trotzdem jetzt aktualisieren oder die Quelle auf GitHub ansehen.",
+  "feat_codex_release_notes_title": "Codex-Änderungen vor dem Update lesen",
+  "feat_codex_release_notes_body": "Das Codex-Update-Fenster zeigt jetzt die originalen GitHub-Release-Notes für jede auf npm veröffentlichte stabile Version in deinem Update-Bereich – neueste zuerst."
 }

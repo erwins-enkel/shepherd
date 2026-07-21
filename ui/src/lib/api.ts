@@ -25,6 +25,7 @@ import type {
   DirtyStatus,
   HerdrUpdateStatus,
   CodexUpdateStatus,
+  CodexReleaseNotesResult,
   DiagnosticsSnapshot,
   PluginInfo,
   InstalledPlugin,
@@ -1402,6 +1403,15 @@ export async function getHerdrUpdate(): Promise<HerdrUpdateStatus> {
 export async function getCodexUpdate(): Promise<CodexUpdateStatus> {
   const r = await fetch("/api/codex-update");
   if (!r.ok) throw await failed(r, "codex update status");
+  return r.json();
+}
+
+/** Original GitHub release bodies for the currently available Codex update range. */
+export async function fetchCodexReleaseNotes(
+  signal: AbortSignal,
+): Promise<CodexReleaseNotesResult> {
+  const r = await fetch("/api/codex-update/notes", { signal });
+  if (!r.ok) throw await failed(r, "codex update release notes");
   return r.json();
 }
 

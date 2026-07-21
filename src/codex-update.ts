@@ -2,17 +2,92 @@ import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
-import { compareSemver } from "./herdr-update";
 import { runScriptChild } from "./script-child";
 import { readInstalledVersion, readActualVersion } from "./version-probe";
-import type { CodexUpdateStatus } from "./types";
+import type { CodexReleaseNotesResult, CodexUpdateStatus } from "./types";
 
-export type { CodexUpdateStatus };
+export type { CodexReleaseNotesResult, CodexUpdateStatus };
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
+const NPM_STABLE_VERSION_RE = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/;
 /** npm registry manifest for the latest published @openai/codex. Returns the
  *  full packument for the `latest` dist-tag, which carries the `version` field. */
 const LATEST_URL = "https://registry.npmjs.org/@openai/codex/latest";
+const CATALOG_URL = "https://registry.npmjs.org/@openai%2Fcodex";
+const RELEASES_URL = "https://api.github.com/repos/openai/codex/releases";
+const HISTORY_PROGRESS_INTERVAL_MS = 60_000;
+const HISTORY_REQUEST_TIMEOUT_MS = 5_000;
+const HISTORY_LOAD_TIMEOUT_MS = 15_000;
+const NPM_RESPONSE_LIMIT = 8 * 1024 * 1024;
+const GITHUB_RESPONSE_LIMIT = 12 * 1024 * 1024;
+const INVOCATION_RESPONSE_LIMIT = 32 * 1024 * 1024;
+const RELEASE_BODY_LIMIT = 256 * 1024;
+const RELEASE_BODIES_LIMIT = 1024 * 1024;
+const GITHUB_RATE_RESERVE = 10;
+
+let githubBlockedUntil = 0;
+
+function parseNpmStableVersion(value: unknown): string | null {
+  return typeof value === "string" && NPM_STABLE_VERSION_RE.test(value) ? value : null;
+}
+
+function compareVersionComponent(a: string, b: string): number {
+  const normalizedA = a.replace(/^0+(?=\d)/, "");
+  const normalizedB = b.replace(/^0+(?=\d)/, "");
+  if (normalizedA.length !== normalizedB.length) {
+    return normalizedA.length < normalizedB.length ? -1 : 1;
+  }
+  return normalizedA === normalizedB ? 0 : normalizedA < normalizedB ? -1 : 1;
+}
+
+function compareStableVersions(a: string, b: string): number {
+  const aParts = a.split(".");
+  const bParts = b.split(".");
+  for (let i = 0; i < 3; i++) {
+    const compared = compareVersionComponent(aParts[i]!, bParts[i]!);
+    if (compared !== 0) return compared;
+  }
+  return 0;
+}
+
+interface ReleaseNotesProgress {
+  key: string;
+  current: string;
+  latest: string;
+  inFlight?: Promise<CodexReleaseNotesResult>;
+  result?: CodexReleaseNotesResult;
+  catalogLoaded: boolean;
+  catalogComplete: boolean;
+  targets: Set<string>;
+  unresolved: Set<string>;
+  notesByVersion: Map<string, string>;
+  terminalFailures: Set<string>;
+  nextListPage: number;
+  listExhausted: boolean;
+  outputIncomplete: boolean;
+  bodyBytes: number;
+  nextAttemptAt: number;
+}
+
+interface HistoryBudget {
+  bytes: number;
+}
+
+interface BoundedJsonResult {
+  value: unknown;
+  headers: Headers;
+}
+
+type HistoryFetch = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+
+class HistoryHttpError extends Error {
+  constructor(
+    readonly status: number,
+    readonly headers: Headers,
+  ) {
+    super(`history request failed: ${status}`);
+  }
+}
 
 /** Prefix every step marker the update script echoes. Stable + greppable so the
  *  operator can `cat ~/.shepherd/codex-update.log | grep '>>> codex-update'` and
@@ -211,6 +286,13 @@ export interface CodexUpdateDeps {
   versionRunner?: () => string;
   /** inject point for tests; defaults to fetching the npm registry manifest */
   fetchLatest?: () => Promise<{ version: string }>;
+  /** on-demand npm/GitHub transport; separate from periodic status checks */
+  fetchHistory?: HistoryFetch;
+  /** deterministic clock and retry interval seams for bounded history tests */
+  historyNow?: () => number;
+  historyProgressIntervalMs?: number;
+  historyRequestTimeoutMs?: number;
+  historyLoadTimeoutMs?: number;
   /**
    * Run the update child, streaming each output line to onLine, resolving when
    * it exits. The AbortSignal fires on watchdog timeout — the default kills the
@@ -270,6 +352,11 @@ export interface CodexUpdateDeps {
 export class CodexUpdateService {
   private versionRunner: () => string;
   private fetchLatest: () => Promise<{ version: string }>;
+  private fetchHistory: HistoryFetch;
+  private historyNow: () => number;
+  private historyProgressIntervalMs: number;
+  private historyRequestTimeoutMs: number;
+  private historyLoadTimeoutMs: number;
   private runUpdate: (
     onLine: (line: string) => void,
     signal: AbortSignal,
@@ -284,14 +371,29 @@ export class CodexUpdateService {
   private watchdogMs: number;
   private last: CodexUpdateStatus | null = null;
   private applying = false;
+  private notesCache: ReleaseNotesProgress | null = null;
 
   constructor(deps: CodexUpdateDeps = {}) {
     this.versionRunner =
       deps.versionRunner ??
       (() => execFileSync(config.codexBin, ["--version"], { encoding: "utf8" }));
+    this.fetchHistory = deps.fetchHistory ?? ((input, init) => fetch(input, init));
+    this.historyNow = deps.historyNow ?? Date.now;
+    this.historyProgressIntervalMs = deps.historyProgressIntervalMs ?? HISTORY_PROGRESS_INTERVAL_MS;
+    this.historyRequestTimeoutMs = deps.historyRequestTimeoutMs ?? HISTORY_REQUEST_TIMEOUT_MS;
+    this.historyLoadTimeoutMs = deps.historyLoadTimeoutMs ?? HISTORY_LOAD_TIMEOUT_MS;
     this.fetchLatest =
       deps.fetchLatest ??
-      (() => fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string }>));
+      (async () => {
+        const controller = new AbortController();
+        const { value } = await this.boundedJson(
+          LATEST_URL,
+          NPM_RESPONSE_LIMIT,
+          { bytes: 0 },
+          controller.signal,
+        );
+        return value as { version: string };
+      });
     this.runUpdate =
       deps.runUpdate ??
       ((onLine, signal, preferred) => this.defaultRunUpdate(onLine, signal, preferred));
@@ -343,6 +445,353 @@ export class CodexUpdateService {
   /** Parse the installed version from `codex --version`; null if unreadable. */
   private installedVersion(): string | null {
     return readInstalledVersion(this.versionRunner, SEMVER_RE);
+  }
+
+  private liveNotesRange(): { current: string; latest: string; key: string } | null {
+    const current = this.last?.current;
+    const latest = parseNpmStableVersion(this.last?.latest);
+    if (
+      !this.last?.updateAvailable ||
+      !current ||
+      !latest ||
+      compareStableVersions(latest, current) <= 0
+    ) {
+      return null;
+    }
+    return { current, latest, key: `${current} -> ${latest}` };
+  }
+
+  private releaseNotesResult(progress: ReleaseNotesProgress): CodexReleaseNotesResult {
+    const notes = [...progress.notesByVersion.entries()]
+      .filter(([, body]) => body !== "")
+      .sort(([a], [b]) => compareStableVersions(b, a))
+      .map(([version, body]) => ({ version, body }));
+    return {
+      current: progress.current,
+      latest: progress.latest,
+      notes,
+      complete:
+        progress.catalogComplete &&
+        progress.unresolved.size === 0 &&
+        progress.terminalFailures.size === 0 &&
+        !progress.outputIncomplete,
+    };
+  }
+
+  private async boundedJson(
+    url: string,
+    perResponseLimit: number,
+    budget: HistoryBudget,
+    loadSignal: AbortSignal,
+    github = false,
+  ): Promise<BoundedJsonResult> {
+    const controller = new AbortController();
+    const abort = () => controller.abort();
+    if (loadSignal.aborted) controller.abort();
+    else loadSignal.addEventListener("abort", abort, { once: true });
+    const timeout = setTimeout(abort, this.historyRequestTimeoutMs);
+    try {
+      const response = await this.fetchHistory(url, {
+        signal: controller.signal,
+        headers: github
+          ? {
+              Accept: "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "User-Agent": "Shepherd",
+            }
+          : { Accept: "application/vnd.npm.install-v1+json" },
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new HistoryHttpError(response.status, response.headers);
+      }
+      const declared = Number(response.headers.get("content-length"));
+      if (Number.isFinite(declared) && declared > perResponseLimit) {
+        await response.body?.cancel();
+        throw new Error("history response too large");
+      }
+      if (!response.body) throw new Error("history response has no body");
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let responseBytes = 0;
+      try {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          responseBytes += value.byteLength;
+          budget.bytes += value.byteLength;
+          if (responseBytes > perResponseLimit || budget.bytes > INVOCATION_RESPONSE_LIMIT) {
+            await reader.cancel();
+            throw new Error("history response too large");
+          }
+          chunks.push(value);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      const joined = new Uint8Array(responseBytes);
+      let offset = 0;
+      for (const chunk of chunks) {
+        joined.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      const decoded = new TextDecoder("utf-8", { fatal: true }).decode(joined);
+      return { value: JSON.parse(decoded), headers: response.headers };
+    } finally {
+      clearTimeout(timeout);
+      loadSignal.removeEventListener("abort", abort);
+    }
+  }
+
+  private noteRateLimit(headers: Headers): boolean {
+    const now = this.historyNow();
+    const remainingRaw = headers.get("x-ratelimit-remaining");
+    const resetRaw = headers.get("x-ratelimit-reset");
+    if (remainingRaw === null && resetRaw === null) {
+      githubBlockedUntil = Math.max(githubBlockedUntil, now + this.historyProgressIntervalMs);
+      return false;
+    }
+    const remaining = Number(remainingRaw);
+    const reset = Number(resetRaw);
+    if (!Number.isFinite(remaining) || !Number.isFinite(reset)) {
+      githubBlockedUntil = Math.max(githubBlockedUntil, now + this.historyProgressIntervalMs);
+      return false;
+    }
+    if (remaining <= GITHUB_RATE_RESERVE) {
+      githubBlockedUntil = Math.max(githubBlockedUntil, reset * 1000);
+      return false;
+    }
+    return true;
+  }
+
+  private noteRateFailure(error: unknown): boolean {
+    if (!(error instanceof HistoryHttpError) || (error.status !== 403 && error.status !== 429)) {
+      return false;
+    }
+    const now = this.historyNow();
+    const retryAfter = Number(error.headers.get("retry-after"));
+    const reset = Number(error.headers.get("x-ratelimit-reset"));
+    const retryAt = Number.isFinite(retryAfter) ? now + retryAfter * 1000 : 0;
+    const resetAt = Number.isFinite(reset) ? reset * 1000 : 0;
+    githubBlockedUntil = Math.max(
+      githubBlockedUntil,
+      retryAt,
+      resetAt,
+      now + this.historyProgressIntervalMs,
+    );
+    return true;
+  }
+
+  private admitRelease(progress: ReleaseNotesProgress, raw: unknown, exact?: string): boolean {
+    const release = this.parseRelease(raw, exact, progress.targets);
+    if (!release) return false;
+    const { version, body } = release;
+    if (!progress.unresolved.has(version)) {
+      if (progress.notesByVersion.get(version) !== body) progress.terminalFailures.add(version);
+      return true;
+    }
+    const bodyBytes = new TextEncoder().encode(body).byteLength;
+    progress.unresolved.delete(version);
+    if (bodyBytes > RELEASE_BODY_LIMIT || progress.bodyBytes + bodyBytes > RELEASE_BODIES_LIMIT) {
+      progress.outputIncomplete = true;
+      progress.terminalFailures.add(version);
+      return true;
+    }
+    progress.notesByVersion.set(version, body);
+    progress.bodyBytes += bodyBytes;
+    return true;
+  }
+
+  private parseRelease(
+    raw: unknown,
+    exact: string | undefined,
+    targets: Set<string>,
+  ): { version: string; body: string } | null {
+    if (!raw || typeof raw !== "object") return null;
+    const value = raw as Record<string, unknown>;
+    const tag = typeof value.tag_name === "string" ? value.tag_name : "";
+    const version = tag.startsWith("rust-v") ? parseNpmStableVersion(tag.slice(6)) : null;
+    if (!version || (exact && version !== exact) || !targets.has(version)) return null;
+    if (value.draft !== false || value.prerelease !== false) return null;
+    if (value.body !== null && typeof value.body !== "string") return null;
+    return { version, body: value.body ?? "" };
+  }
+
+  private newestUnresolved(progress: ReleaseNotesProgress): string | null {
+    return [...progress.unresolved].sort(compareStableVersions).at(-1) ?? null;
+  }
+
+  private async loadReleaseCatalog(
+    progress: ReleaseNotesProgress,
+    budget: HistoryBudget,
+    signal: AbortSignal,
+  ): Promise<void> {
+    progress.catalogLoaded = true;
+    try {
+      const { value } = await this.boundedJson(CATALOG_URL, NPM_RESPONSE_LIMIT, budget, signal);
+      if (!value || typeof value !== "object" || !("versions" in value)) {
+        throw new Error("invalid npm catalog");
+      }
+      const versions = (value as { versions?: unknown }).versions;
+      if (!versions || typeof versions !== "object" || Array.isArray(versions)) {
+        throw new Error("invalid npm catalog");
+      }
+      let includesLatest = false;
+      for (const candidate of Object.keys(versions)) {
+        const version = parseNpmStableVersion(candidate);
+        if (!version) continue;
+        if (version === progress.latest) includesLatest = true;
+        if (
+          compareStableVersions(version, progress.current) > 0 &&
+          compareStableVersions(version, progress.latest) <= 0
+        ) {
+          progress.targets.add(version);
+          progress.unresolved.add(version);
+        }
+      }
+      progress.catalogComplete = includesLatest;
+    } catch {
+      progress.catalogComplete = false;
+      progress.listExhausted = true;
+    }
+  }
+
+  private async loadReleasePage(
+    progress: ReleaseNotesProgress,
+    budget: HistoryBudget,
+    signal: AbortSignal,
+  ): Promise<boolean> {
+    try {
+      const { value, headers } = await this.boundedJson(
+        `${RELEASES_URL}?per_page=30&page=${progress.nextListPage}`,
+        GITHUB_RESPONSE_LIMIT,
+        budget,
+        signal,
+        true,
+      );
+      if (!Array.isArray(value)) throw new Error("invalid GitHub releases page");
+      for (const record of value) this.admitRelease(progress, record);
+      const link = headers.get("link") ?? "";
+      if (link.includes('rel="next"')) progress.nextListPage++;
+      else progress.listExhausted = true;
+      return this.noteRateLimit(headers);
+    } catch (error) {
+      if (this.noteRateFailure(error)) return false;
+      progress.listExhausted = true;
+      return true;
+    }
+  }
+
+  private async loadExactReleases(
+    progress: ReleaseNotesProgress,
+    budget: HistoryBudget,
+    signal: AbortSignal,
+    requestLimit: number,
+  ): Promise<void> {
+    for (let request = 0; request < requestLimit && progress.unresolved.size > 0; request++) {
+      const version = this.newestUnresolved(progress);
+      if (!version) return;
+      try {
+        const { value, headers } = await this.boundedJson(
+          `${RELEASES_URL}/tags/rust-v${version}`,
+          GITHUB_RESPONSE_LIMIT,
+          budget,
+          signal,
+          true,
+        );
+        if (!this.admitRelease(progress, value, version)) {
+          progress.unresolved.delete(version);
+          progress.terminalFailures.add(version);
+        }
+        if (!this.noteRateLimit(headers)) return;
+      } catch (error) {
+        if (error instanceof HistoryHttpError && error.status === 404) {
+          progress.unresolved.delete(version);
+          progress.terminalFailures.add(version);
+        } else {
+          this.noteRateFailure(error);
+        }
+        return;
+      }
+    }
+  }
+
+  private async loadReleaseNotes(progress: ReleaseNotesProgress): Promise<CodexReleaseNotesResult> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), this.historyLoadTimeoutMs);
+    const budget: HistoryBudget = { bytes: 0 };
+    let githubRequests = 0;
+    try {
+      if (!progress.catalogLoaded)
+        await this.loadReleaseCatalog(progress, budget, controller.signal);
+
+      if (this.historyNow() < githubBlockedUntil) return this.releaseNotesResult(progress);
+
+      if (!progress.listExhausted && progress.unresolved.size > 0) {
+        githubRequests++;
+        const canContinue = await this.loadReleasePage(progress, budget, controller.signal);
+        if (!canContinue) return this.releaseNotesResult(progress);
+      }
+
+      await this.loadExactReleases(progress, budget, controller.signal, 2 - githubRequests);
+    } catch {
+      // The public contract is total: accumulated notes remain available.
+    } finally {
+      clearTimeout(timeout);
+      progress.nextAttemptAt = Math.max(
+        this.historyNow() + this.historyProgressIntervalMs,
+        githubBlockedUntil,
+      );
+    }
+    return this.releaseNotesResult(progress);
+  }
+
+  /** Load original GitHub release bodies only when the update dialog asks. */
+  releaseNotes(): Promise<CodexReleaseNotesResult> {
+    const range = this.liveNotesRange();
+    if (!range) {
+      this.notesCache = null;
+      return Promise.resolve({
+        current: this.last?.current ?? null,
+        latest: this.last?.latest ?? null,
+        notes: [],
+        complete: true,
+      });
+    }
+
+    let entry = this.notesCache;
+    if (!entry || entry.key !== range.key) {
+      entry = {
+        ...range,
+        catalogLoaded: false,
+        catalogComplete: false,
+        targets: new Set([range.latest]),
+        unresolved: new Set([range.latest]),
+        notesByVersion: new Map(),
+        terminalFailures: new Set(),
+        nextListPage: 1,
+        listExhausted: false,
+        outputIncomplete: false,
+        bodyBytes: 0,
+        nextAttemptAt: 0,
+      };
+      this.notesCache = entry;
+    }
+    if (entry.inFlight) return entry.inFlight;
+    if (entry.result?.complete || (entry.result && this.historyNow() < entry.nextAttemptAt)) {
+      return Promise.resolve(entry.result);
+    }
+
+    const capturedEntry = entry;
+    const promise = this.loadReleaseNotes(capturedEntry).then((result) => {
+      if (this.notesCache === capturedEntry && capturedEntry.inFlight === promise) {
+        capturedEntry.result = result;
+        capturedEntry.inFlight = undefined;
+      }
+      return result;
+    });
+    capturedEntry.inFlight = promise;
+    return promise;
   }
 
   /** Best-effort installed version for the "what are we ACTUALLY on?" report.
@@ -463,7 +912,7 @@ export class CodexUpdateService {
     // A force-killed run proves nothing: return BEFORE the memo write below, so a
     // later refactor cannot start memoizing a channel from a killed update.
     if (aborted) return { ok: false, from, to: after, error: "codex update timed out" };
-    const ok = !!after && !!from && compareSemver(after, from) > 0;
+    const ok = !!after && !!from && compareStableVersions(after, from) > 0;
     // Memo the winner ONLY when we converged AND the script named the channel that
     // did it. `ok` is our own compareSemver verdict — it says THAT codex advanced,
     // never BY WHAT — so with no marker there is nothing to attribute and we leave
@@ -488,7 +937,7 @@ export class CodexUpdateService {
     this.last = {
       current: after,
       latest: to,
-      updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
+      updateAvailable: !!after && !!to && compareStableVersions(to, after) > 0,
       notes: null,
       checkedAt: Date.now(),
       error: ok ? undefined : "codex was not updated",
@@ -507,10 +956,9 @@ export class CodexUpdateService {
       const current = currentMatch ? currentMatch[1]! : null;
 
       const latestRaw = await this.fetchLatest();
-      const latestMatch = latestRaw?.version ? SEMVER_RE.exec(latestRaw.version) : null;
-      const latest = latestMatch ? latestMatch[1]! : null;
+      const latest = parseNpmStableVersion(latestRaw?.version);
 
-      const updateAvailable = !!current && !!latest && compareSemver(latest, current) > 0;
+      const updateAvailable = !!current && !!latest && compareStableVersions(latest, current) > 0;
 
       this.last = {
         current,

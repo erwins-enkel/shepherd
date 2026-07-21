@@ -84,6 +84,42 @@ function harness() {
   return makeApp(deps);
 }
 
+test("GET /api/codex-update/notes has a total empty fallback", async () => {
+  const res = await harness().fetch(new Request("http://x/api/codex-update/notes"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ current: null, latest: null, notes: [], complete: true });
+});
+
+test("GET /api/codex-update keeps the existing notes:null fallback contract", async () => {
+  const res = await harness().fetch(new Request("http://x/api/codex-update"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toMatchObject({
+    current: null,
+    latest: null,
+    updateAvailable: false,
+    notes: null,
+  });
+});
+
+test("GET /api/codex-update/notes returns the on-demand service result", async () => {
+  const deps = makeDeps();
+  const result = {
+    current: "0.144.0",
+    latest: "0.145.0",
+    notes: [{ version: "0.145.0", body: "original body" }],
+    complete: false,
+  };
+  deps.codexUpdates = {
+    current: () => null,
+    apply: () => ({ started: false }),
+    releaseNotes: async () => result,
+  };
+
+  const res = await makeApp(deps).fetch(new Request("http://x/api/codex-update/notes"));
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual(result);
+});
+
 test("GET /api/usage/limits returns limits + projections", async () => {
   const res = await harness().fetch(new Request("http://x/api/usage/limits"));
   expect(res.status).toBe(200);

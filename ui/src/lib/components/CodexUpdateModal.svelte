@@ -1,9 +1,10 @@
 <script lang="ts">
-  import { tick } from "svelte";
-  import type { CodexUpdateStatus, CodexUpdateResult } from "$lib/types";
-  import { applyCodexUpdate } from "$lib/api";
+  import { onMount, tick } from "svelte";
+  import type { CodexReleaseNotesResult, CodexUpdateStatus, CodexUpdateResult } from "$lib/types";
+  import { applyCodexUpdate, fetchCodexReleaseNotes } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
+  import CodexReleaseNotes from "./CodexReleaseNotes.svelte";
 
   let {
     update,
@@ -11,21 +12,59 @@
     done = null,
     onconfirm,
     onclose,
+    loadReleaseNotes = fetchCodexReleaseNotes,
+    notesTimeoutMs = 16_000,
   }: {
     update: CodexUpdateStatus;
     log?: string[];
     done?: CodexUpdateResult | null;
     onconfirm?: () => void;
     onclose?: () => void;
+    loadReleaseNotes?: (signal: AbortSignal) => Promise<CodexReleaseNotesResult>;
+    notesTimeoutMs?: number;
   } = $props();
 
   let submitting = $state(false);
   let error = $state<string | null>(null);
   let logEl = $state<HTMLPreElement | null>(null);
+  let releaseNotes = $state<CodexReleaseNotesResult | null>(null);
+  let notesFinished = $state(false);
 
   const CODEX_RELEASES_URL = "https://github.com/openai/codex/releases";
   const displayedCurrent = $derived(done?.from ?? update.current);
   const displayedLatest = $derived(done?.to ?? update.latest);
+  const visibleReleaseNotes = $derived(
+    releaseNotes?.current === update.current && releaseNotes?.latest === update.latest
+      ? releaseNotes
+      : null,
+  );
+
+  onMount(() => {
+    const controller = new AbortController();
+    let alive = true;
+    let settled = false;
+    const timeout = setTimeout(() => {
+      controller.abort();
+      if (alive && !settled) notesFinished = true;
+    }, notesTimeoutMs);
+    loadReleaseNotes(controller.signal)
+      .then((result) => {
+        if (alive && !controller.signal.aborted) releaseNotes = result;
+      })
+      .catch(() => {
+        if (alive) releaseNotes = null;
+      })
+      .finally(() => {
+        settled = true;
+        clearTimeout(timeout);
+        if (alive) notesFinished = true;
+      });
+    return () => {
+      alive = false;
+      clearTimeout(timeout);
+      controller.abort();
+    };
+  });
 
   // `codex update` runs server-side in a managed child; shepherd stays up and the
   // modal resolves itself via the `done` result. Busy only while the update is in
@@ -93,6 +132,29 @@
     <a class="all-notes" href={CODEX_RELEASES_URL} target="_blank" rel="noopener noreferrer"
       >{m.codexupdate_all_notes_link()} ↗</a
     >
+
+    {#if !submitting}
+      <section class="release-history" aria-labelledby="codex-release-notes-heading">
+        <h2 id="codex-release-notes-heading" class="micro">{m.codexupdate_notes_heading()}</h2>
+        {#if !notesFinished}
+          <div class="notes-state" aria-live="polite">{m.codexupdate_notes_loading()}</div>
+        {:else}
+          {#if visibleReleaseNotes}
+            {#each visibleReleaseNotes.notes as note (note.version)}
+              <article class="release-note">
+                <h3>v{note.version}</h3>
+                <CodexReleaseNotes version={note.version} body={note.body} />
+              </article>
+            {/each}
+          {/if}
+          {#if !visibleReleaseNotes || !visibleReleaseNotes.complete}
+            <div class="notes-state incomplete" aria-live="polite">
+              {m.codexupdate_notes_incomplete()}
+            </div>
+          {/if}
+        {/if}
+      </section>
+    {/if}
 
     <div class="instructions">{m.codexupdate_instructions()}</div>
 
@@ -230,6 +292,38 @@
     font-size: var(--fs-base);
     line-height: 1.5;
     color: var(--color-ink-bright);
+  }
+  .release-history {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 48px;
+    max-height: 36dvh;
+    overflow-y: auto;
+    padding: 12px;
+    border: 1px solid var(--color-line);
+    background: var(--color-inset);
+  }
+  .release-history h2,
+  .release-history h3 {
+    margin: 0;
+  }
+  .release-note {
+    padding-top: 10px;
+    border-top: 1px solid var(--color-line);
+  }
+  .release-note h3 {
+    margin-bottom: 8px;
+    color: var(--color-blue);
+    font-size: var(--fs-base);
+  }
+  .notes-state {
+    color: var(--color-muted);
+    font-size: var(--fs-base);
+    line-height: 1.5;
+  }
+  .notes-state.incomplete {
+    color: var(--color-warn);
   }
   .status {
     color: var(--color-blue);

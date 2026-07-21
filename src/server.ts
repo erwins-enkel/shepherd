@@ -297,7 +297,7 @@ export interface AppDeps {
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
   herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply" | "downgrade">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
-  codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
+  codexUpdates?: Pick<CodexUpdateService, "current" | "apply" | "releaseNotes">;
   /** installed-plugin update tracker: `current()` for the badge/status, `check()` for
    *  an on-demand re-scan, `apply()` to fetch-and-swap a plugin's new version on disk
    *  (issue #1124); absent when unwired. */
@@ -4243,8 +4243,32 @@ function handleHerdrDowngrade({ req, parts, deps }: Ctx): Response | null {
 }
 
 // ── codex update: status + (non-destructive) apply ─────────────────────
-function handleCodexUpdate({ req, parts, deps }: Ctx): Response | null {
-  if (!(parts[0] === "api" && parts[1] === "codex-update" && !parts[2])) return null;
+async function codexReleaseNotesResponse(deps: Ctx["deps"]): Promise<Response> {
+  if (!deps.codexUpdates) {
+    return json({ current: null, latest: null, notes: [], complete: true });
+  }
+  try {
+    return json(await deps.codexUpdates.releaseNotes());
+  } catch (error) {
+    console.warn(
+      `[codex-update] release notes unavailable: ${error instanceof Error ? error.message : String(error)}`,
+    );
+    const status = deps.codexUpdates.current();
+    return json({
+      current: status?.current ?? null,
+      latest: status?.latest ?? null,
+      notes: [],
+      complete: false,
+    });
+  }
+}
+
+async function handleCodexUpdate({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "codex-update")) return null;
+  if (req.method === "GET" && parts[2] === "notes" && !parts[3]) {
+    return codexReleaseNotesResponse(deps);
+  }
+  if (parts[2]) return null;
   if (req.method === "GET") {
     return json(deps.codexUpdates?.current() ?? { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() });
   }

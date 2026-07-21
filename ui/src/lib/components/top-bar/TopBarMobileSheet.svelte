@@ -1,21 +1,10 @@
 <script lang="ts">
-  import type { Gauge, GaugeKey } from "../usage-gauges";
-  import type {
-    CreditWindow,
-    ModelWeekWindow,
-    UpdateStatus,
-    DiagnosticState,
-    UsageProviderSnapshot,
-  } from "$lib/types";
+  import type { GaugeKey } from "../usage-gauges";
+  import type { UpdateStatus, DiagnosticState, UsageLimits } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { theme, type ThemePref } from "$lib/theme.svelte";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
-  import CreditDetail from "./CreditDetail.svelte";
-  import LimitGaugeRow from "./LimitGaugeRow.svelte";
-  import ModelWeekGauge from "../usage/ModelWeekGauge.svelte";
-  import UsageRefreshButton from "./UsageRefreshButton.svelte";
-  import { codexGaugeList } from "../usage-gauges";
-  import { formatTokenLabel } from "$lib/format";
+  import GearMenuUsage from "./GearMenuUsage.svelte";
   import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
   import { fly } from "svelte/transition";
@@ -40,12 +29,8 @@
     window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   let {
-    gauges,
-    perModel,
-    credits,
-    codexUsage,
-    subscriptionOnly,
-    stale,
+    limits,
+    connected,
     diagnosticsOverall,
     updateAvailable,
     update,
@@ -80,13 +65,10 @@
     onFeedback,
     pluginItems = [],
     onPluginItem,
+    onManagePlugins,
   }: {
-    gauges: Gauge[];
-    perModel: ModelWeekWindow[];
-    credits: CreditWindow | null;
-    codexUsage: Extract<UsageProviderSnapshot, { provider: "codex"; kind: "tokens" }> | null;
-    subscriptionOnly: boolean;
-    stale: boolean;
+    limits: UsageLimits | null;
+    connected: boolean;
     diagnosticsOverall: DiagnosticState;
     updateAvailable: boolean;
     update: UpdateStatus | null;
@@ -119,15 +101,57 @@
     onwhatsnew: (() => void) | undefined;
     onlearnings: (() => void) | undefined;
     onFeedback: (kind: FeedbackKind) => void;
-    pluginItems?: { id: string; label: string; icon?: string }[];
+    pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     onPluginItem?: (id: string) => void;
+    onManagePlugins?: () => void;
   } = $props();
 
-  // Codex's own 5h/weekly rate-limit windows as Claude-style gauges, so both CLIs read alike.
-  // Empty when Shepherd cannot find a rate-limit event in Codex rollouts.
-  const codexWindows = $derived(codexGaugeList(codexUsage));
-  // Claude vs Codex are distinct providers with their own labelled sections.
-  const hasClaude = $derived(gauges.length > 0 || perModel.length > 0 || !!credits);
+  // ── Swipe-down dismiss ─────────────────────────────────────────────────────
+  // Armed ONLY by a pointerdown on the grab-handle row (touch-action:none there),
+  // so sheet content scrolling never conflicts. setPointerCapture keeps a drag
+  // that wanders off the handle tracking; other pointer ids are ignored. The drag
+  // offset is the ONLY inline transform the sheet carries — inert until the fly
+  // intro ends (Svelte drops the transition's inline transform at introend), and
+  // the empty-string binding restores the stylesheet baseline after release.
+  // Close iff dy > 64px at release (displacement-only — deterministic); shorter
+  // drags and pointercancel/lostpointercapture settle back via the `settling`
+  // transition class. One shared reset path covers up/cancel/lost-capture.
+  const SWIPE_CLOSE_PX = 64;
+  let dragPointer: number | null = null;
+  let dragStartY = 0;
+  let dragY = $state(0);
+  let settling = $state(false);
+  let introDone = $state(false);
+
+  function onHandleDown(e: PointerEvent) {
+    if (!introDone || dragPointer !== null) return;
+    dragPointer = e.pointerId;
+    dragStartY = e.clientY;
+    settling = false;
+    (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  }
+  function onHandleMove(e: PointerEvent) {
+    if (e.pointerId !== dragPointer) return;
+    dragY = Math.max(0, e.clientY - dragStartY);
+  }
+  function onHandleUp(e: PointerEvent) {
+    if (e.pointerId !== dragPointer) return;
+    finishDrag(dragY > SWIPE_CLOSE_PX);
+  }
+  function onHandleCancel(e: PointerEvent) {
+    if (e.pointerId !== dragPointer) return;
+    finishDrag(false);
+  }
+  function finishDrag(close: boolean) {
+    dragPointer = null;
+    if (close) {
+      dragY = 0;
+      closeMenu();
+      return;
+    }
+    if (dragY > 0) settling = true;
+    dragY = 0;
+  }
 </script>
 
 <!-- Blur backdrop behind the opened mobile bottom sheet, so the panel reads as the focus
@@ -139,23 +163,44 @@
      containing block of its own. -->
 <div class="gear-sheet-portal" use:portal>
   <div class="menu-scrim scrim" aria-hidden="true" onclick={() => closeMenu()}></div>
-  <!-- Mobile bottom sheet: slides up from the bottom of the screen. role=dialog + use:dialog
-       provides focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
+  <!-- Rising telemetry sheet (design handoff 3c): 12px top radius (reserved for rising
+       sheets), no shadow — the scrim provides the separation. role=dialog + use:dialog
+       gives focus-trap + Esc→closeMenu + focus-restore. Children are plain buttons/links,
        NOT role="menuitem" (that role is invalid inside a dialog). -->
   <div
     class="gear-sheet"
+    class:settling
     role="dialog"
     aria-modal="true"
     aria-label={m.topbar_sheet_title()}
     use:dialog={{ onclose: closeMenu }}
-    transition:fly={{ y: 520, duration: reduceMotion ? 0 : 220, opacity: 1 }}
+    style:transform={dragY > 0 ? `translateY(${dragY}px)` : ""}
+    ontransitionend={() => (settling = false)}
+    onintroend={() => (introDone = true)}
+    transition:fly={{ y: 520, duration: reduceMotion ? 0 : 180, opacity: 1 }}
   >
-    <!-- Grab handle + title row -->
-    <div class="sheet-handle-row" aria-hidden="true">
+    <!-- Grab handle: the swipe-down arm zone. Purely gestural sugar (scrim tap, Esc
+         and the ✕ all dismiss too), so it stays presentational for AT. -->
+    <div
+      class="sheet-handle-row"
+      role="presentation"
+      onpointerdown={onHandleDown}
+      onpointermove={onHandleMove}
+      onpointerup={onHandleUp}
+      onpointercancel={onHandleCancel}
+      onlostpointercapture={onHandleCancel}
+    >
       <div class="sheet-handle"></div>
     </div>
-    <div class="sheet-title-row">
-      <span class="sheet-title micro">{m.topbar_sheet_title()}</span>
+
+    <!-- Identity header: brand + version + neutral connection readout (+ explicit ✕
+         for AT users; scrim tap / Esc / swipe stay the primary dismissals). -->
+    <div class="ident">
+      <span class="ident-brand">SHEPHERD</span>
+      <span class="ident-conn">
+        v{version} · <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
+        {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
+      </span>
       <button
         type="button"
         class="sheet-close"
@@ -164,321 +209,282 @@
       >
     </div>
 
-    <!-- Quick appearance: dark/light theme + high-contrast toggle -->
-    <div class="quick">
-      <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
-        {#each QUICK_THEMES as t (t.pref)}
-          <button
-            type="button"
-            class="t-opt"
-            class:on={theme.resolved === t.pref}
-            aria-pressed={theme.resolved === t.pref}
-            aria-label={m.actionbar_theme_option({ label: t.label() })}
-            onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
-          >
-        {/each}
-      </div>
-      <button
-        type="button"
-        class="contrast-toggle"
-        class:on={theme.contrast}
-        aria-pressed={theme.contrast}
-        aria-label={m.actionbar_contrast_toggle()}
-        onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
-      >
-    </div>
-    <div class="sheet-sep"></div>
-
-    <!-- Usage section: full gauge breakdown (mirrors the touch popover content) -->
-    {#if gauges.length || perModel.length || credits || subscriptionOnly || codexUsage}
-      {#if subscriptionOnly && !codexUsage}
-        <div class="sheet-section-label micro">
-          {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
-        </div>
-        <div class="sheet-row-text micro">{m.usage_subscription_only()}</div>
-      {:else}
-        {#if hasClaude}
-          <div class="sheet-section-label micro">
-            {m.topbar_usage_provider_title({ provider: m.agent_provider_claude() })}
-          </div>
-          <div class="sheet-gauges {stale ? 'stale' : ''}">
-            {#each gauges as g (g.label)}
-              <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
-            {/each}
-            {#each perModel as entry (entry.model)}
-              <div class="sheet-model-row">
-                <ModelWeekGauge {entry} {nowMs} />
-              </div>
-            {/each}
-            <CreditDetail {credits} {creditFill} {creditColor} {creditAmount} {nowMs} />
-            <!-- Section-level refresh (not inside the credits block) so it survives credits being
-                 hidden — a dead/absent credits panel must not take the only refresh control with it. -->
-            <UsageRefreshButton {refreshing} {refreshError} {onRefresh} />
-          </div>
-        {/if}
-        {#if codexUsage}
-          <div class="sheet-section-label micro">
-            {m.topbar_usage_provider_title({ provider: m.agent_provider_codex() })}
-          </div>
-          <div class="sheet-gauges {codexUsage.stale ? 'stale' : ''}">
-            {#each codexWindows as g (g.label)}
-              <LimitGaugeRow label={periodLabel(g.label)} limit={g.w} {nowMs} />
-            {/each}
-            {#if codexWindows.length === 0}
-              <div class="limits-unavailable micro">{m.topbar_codex_limits_unavailable()}</div>
-            {/if}
-            <div class="token-line">
-              <span>{m.topbar_tokens_window({ period: "5H" })}</span>
-              <span>{formatTokenLabel(codexUsage.session5hTokens)}</span>
-            </div>
-            <div class="token-line">
-              <span>{m.topbar_tokens_window({ period: "WK" })}</span>
-              <span>{formatTokenLabel(codexUsage.weekTokens)}</span>
-            </div>
-            <div class="token-line">
-              <span>{m.topbar_tokens_total()}</span>
-              <span>{formatTokenLabel(codexUsage.totalTokens)}</span>
-            </div>
-          </div>
-        {/if}
-      {/if}
-      <button
-        type="button"
-        class="sheet-item"
-        aria-haspopup="dialog"
-        onclick={() => {
-          chooseUsage();
-          closeMenu();
-        }}
-      >
-        <span class="sheet-glyph" aria-hidden="true">▦</span>
-        <span class="sheet-label">{m.topbar_usage_link()}</span>
-      </button>
-      <div class="sheet-sep"></div>
-    {/if}
-
-    <!-- Diagnose row: only when health is not ok -->
-    {#if diagnosticsOverall !== "ok"}
-      <button
-        type="button"
-        class="sheet-item"
-        class:alert={diagnosticsOverall === "error"}
-        onclick={() => {
-          closeMenu();
-          ondiagnose?.();
-        }}
-        aria-label={m.diagnostics_pip_label()}
-      >
-        <span class="sheet-glyph" aria-hidden="true"
-          >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
-        >
-        <span class="sheet-label">{m.diagnostics_pip_label()}</span>
-      </button>
-    {/if}
-
-    <!-- Update row: when shepherd update is available -->
-    {#if updateAvailable}
-      <button
-        type="button"
-        class="sheet-item sheet-update"
-        onclick={() => {
-          closeMenu();
-          onupdate?.();
-        }}
-        aria-label={m.topbar_update_badge()}
-      >
-        <svg
-          class="sheet-glyph sheet-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
-        </svg>
-        <span class="sheet-label">{m.topbar_update_badge()} · {update!.behind}</span>
-      </button>
-    {/if}
-
-    <!-- Herdr update row: when herdr update is available -->
-    {#if herdrUpdateAvailable}
-      <button
-        type="button"
-        class="sheet-item sheet-update"
-        onclick={() => {
-          closeMenu();
-          onherdrupdate?.();
-        }}
-        aria-label={m.topbar_herdr_update_badge()}
-      >
-        <svg
-          class="sheet-glyph sheet-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="M12 19V5" />
-          <path d="m5 12 7-7 7 7" />
-        </svg>
-        <span class="sheet-label">{m.topbar_herdr_update_badge()}</span>
-      </button>
-    {/if}
-
-    <!-- Codex update row: when a newer @openai/codex is published -->
-    {#if codexUpdateAvailable}
-      <button
-        type="button"
-        class="sheet-item sheet-update"
-        onclick={() => {
-          closeMenu();
-          oncodexupdate?.();
-        }}
-        aria-label={m.topbar_codex_update_badge()}
-      >
-        <svg
-          class="sheet-glyph sheet-svg"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="2"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="m6 15 6-6 6 6" />
-          <path d="m6 9 6-6 6 6" />
-        </svg>
-        <span class="sheet-label">{m.topbar_codex_update_badge()}</span>
-      </button>
-    {/if}
-
-    <!-- What's New row -->
-    {#if whatsNew}
-      <button
-        type="button"
-        class="sheet-item"
-        onclick={() => {
-          closeMenu();
-          onwhatsnew?.();
-        }}
-        aria-label={m.whatsnew_topbar_aria()}
-      >
-        <span class="sheet-glyph" aria-hidden="true">●</span>
-        <span class="sheet-label">{m.whatsnew_open()}</span>
-      </button>
-    {/if}
-
-    <!-- Learnings row: review proposed house rules across all repos -->
-    {#if learningsPresent}
-      <button
-        type="button"
-        class="sheet-item"
-        onclick={() => {
-          closeMenu();
-          onlearnings?.();
-        }}
-        aria-label={learnings > 0
-          ? m.learnings_open_aria({ count: learnings })
-          : m.learnings_open_curate_aria({ count: learningsCurate })}
-      >
-        <span class="sheet-glyph" aria-hidden="true">✦</span>
-        <span class="sheet-label">{learningsLabel} · {learningsCount}</span>
-      </button>
-    {/if}
-
-    <div class="sheet-sep"></div>
-
-    <!-- Halt e-stop: two-step arm→confirm, same as desktop -->
-    {#if haltable > 0}
-      <button
-        class="sheet-item halt-item"
-        class:armed
-        type="button"
-        onclick={clickHalt}
-        aria-label={armed
+    <!-- Hero action: halt herd (52px tier). Disabled + chip-less at 0 working. -->
+    <button
+      class="hero"
+      class:armed
+      type="button"
+      disabled={haltable === 0}
+      onclick={clickHalt}
+      aria-label={haltable === 0
+        ? m.gearmenu_halt_herd()
+        : armed
           ? m.halt_arm_aria({ count: haltable })
           : m.halt_all_aria({ count: haltable })}
-      >
-        <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-          <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-        </svg>
-        <span class="sheet-label"
-          >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
-        >
-      </button>
-      <div class="sheet-sep"></div>
+    >
+      <span class="hero-glyph" aria-hidden="true">■</span>
+      <span>{armed ? m.halt_arm({ count: haltable }) : m.gearmenu_halt_herd()}</span>
+      {#if haltable > 0}
+        <span class="chip">{m.gearmenu_working_chip({ count: haltable })}</span>
+      {/if}
+    </button>
+
+    <!-- Live token-usage gauge; "all ▾" discloses the full per-window breakdown. -->
+    <GearMenuUsage
+      mobile
+      {limits}
+      {nowMs}
+      {creditFill}
+      {creditColor}
+      {creditAmount}
+      {refreshing}
+      {refreshError}
+      {onRefresh}
+      {periodLabel}
+      onOpenUsage={() => {
+        chooseUsage();
+        closeMenu();
+      }}
+    />
+
+    <!-- Attention rows (conditional): diagnostics / updates / What's-New keep their
+         amber-alert accents, grouped between the gauge and the workspace rows. -->
+    {#if diagnosticsOverall !== "ok" || updateAvailable || herdrUpdateAvailable || codexUpdateAvailable || whatsNew}
+      <div class="grp">
+        {#if diagnosticsOverall !== "ok"}
+          <button
+            type="button"
+            class="row"
+            class:alert={diagnosticsOverall === "error"}
+            onclick={() => {
+              closeMenu();
+              ondiagnose?.();
+            }}
+            aria-label={m.diagnostics_pip_label()}
+          >
+            <span class="glyph" aria-hidden="true"
+              >{diagnosticsOverall === "error" ? "✕" : "⚠"}</span
+            >
+            <span>{m.diagnostics_pip_label()}</span>
+          </button>
+        {/if}
+        {#if updateAvailable}
+          <button
+            type="button"
+            class="row update"
+            onclick={() => {
+              closeMenu();
+              onupdate?.();
+            }}
+            aria-label={m.topbar_update_badge()}
+          >
+            <svg
+              class="glyph glyph-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M13 2 3 14h9l-1 8 10-12h-9l1-8Z" />
+            </svg>
+            <span>{m.topbar_update_badge()} · {update!.behind}</span>
+          </button>
+        {/if}
+        {#if herdrUpdateAvailable}
+          <button
+            type="button"
+            class="row update"
+            onclick={() => {
+              closeMenu();
+              onherdrupdate?.();
+            }}
+            aria-label={m.topbar_herdr_update_badge()}
+          >
+            <svg
+              class="glyph glyph-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M12 19V5" />
+              <path d="m5 12 7-7 7 7" />
+            </svg>
+            <span>{m.topbar_herdr_update_badge()}</span>
+          </button>
+        {/if}
+        {#if codexUpdateAvailable}
+          <button
+            type="button"
+            class="row update"
+            onclick={() => {
+              closeMenu();
+              oncodexupdate?.();
+            }}
+            aria-label={m.topbar_codex_update_badge()}
+          >
+            <svg
+              class="glyph glyph-svg"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="m6 15 6-6 6 6" />
+              <path d="m6 9 6-6 6 6" />
+            </svg>
+            <span>{m.topbar_codex_update_badge()}</span>
+          </button>
+        {/if}
+        {#if whatsNew}
+          <button
+            type="button"
+            class="row"
+            onclick={() => {
+              closeMenu();
+              onwhatsnew?.();
+            }}
+            aria-label={m.whatsnew_topbar_aria()}
+          >
+            <span class="glyph" aria-hidden="true">●</span>
+            <span>{m.whatsnew_open()}</span>
+          </button>
+        {/if}
+      </div>
     {/if}
 
-    <!-- Settings -->
-    <button type="button" class="sheet-item" onclick={chooseSettings}>
-      <span class="sheet-glyph" aria-hidden="true">⚙</span>
-      <span class="sheet-label">{m.settings_title()}</span>
-    </button>
-    <div class="sheet-sep"></div>
-
-    <!-- Plugin items: verbatim plugin-authored label/icon (not i18n) -->
-    {#if pluginItems.length > 0}
-      {#each pluginItems as item (item.id)}
+    <!-- Workspace rows -->
+    <div class="grp">
+      {#if learningsPresent}
         <button
           type="button"
-          class="sheet-item"
+          class="row"
           onclick={() => {
             closeMenu();
-            onPluginItem?.(item.id);
+            onlearnings?.();
           }}
+          aria-label={learnings > 0
+            ? m.learnings_open_aria({ count: learnings })
+            : m.learnings_open_curate_aria({ count: learningsCurate })}
         >
-          {#if item.icon}<span class="sheet-glyph" aria-hidden="true">{item.icon}</span>{/if}
-          <span class="sheet-label">{item.label}</span>
+          <span class="glyph" aria-hidden="true">✦</span>
+          <span>{learningsLabel}</span>
+          <span class="row-meta">{learningsCount}</span>
         </button>
-      {/each}
-      <div class="sheet-sep"></div>
+      {/if}
+      <button type="button" class="row" onclick={chooseSettings}>
+        <span class="glyph" aria-hidden="true">⚙</span>
+        <span>{m.settings_title()}</span>
+      </button>
+      <!-- Hosted documentation site — distinct from the GitHub repo link below. -->
+      <a
+        class="row"
+        href={DOCS_URL}
+        target="_blank"
+        rel="external noreferrer noopener"
+        onclick={() => closeMenu()}
+      >
+        <span class="glyph" aria-hidden="true">↗</span>
+        <span>{m.topbar_docs()}</span>
+      </a>
+      <a
+        class="row"
+        href={REPO_URL}
+        target="_blank"
+        rel="external noreferrer noopener"
+        onclick={() => closeMenu()}
+      >
+        <span class="glyph" aria-hidden="true">↗</span>
+        <span>{m.topbar_menu_docs()}</span>
+      </a>
+      <!-- Quick appearance: dark/light theme + high-contrast toggle -->
+      <div class="quick">
+        <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
+          {#each QUICK_THEMES as t (t.pref)}
+            <button
+              type="button"
+              class="t-opt"
+              class:on={theme.resolved === t.pref}
+              aria-pressed={theme.resolved === t.pref}
+              aria-label={m.actionbar_theme_option({ label: t.label() })}
+              onclick={() => theme.setPref(t.pref)}><ThemeIcon icon={t.icon} /></button
+            >
+          {/each}
+        </div>
+        <button
+          type="button"
+          class="contrast-toggle"
+          class:on={theme.contrast}
+          aria-pressed={theme.contrast}
+          aria-label={m.actionbar_contrast_toggle()}
+          onclick={() => theme.toggleContrast()}><ThemeIcon icon="contrast" /></button
+        >
+      </div>
+    </div>
+
+    <!-- Plugins group: dynamic — verbatim plugin-authored labels/icons/hints (not i18n). -->
+    {#if pluginItems.length > 0}
+      <div class="grp plugins">
+        <div class="grp-head">
+          <span class="grp-label">{m.gearmenu_plugins_label()} · {pluginItems.length}</span>
+          <button
+            class="grp-action"
+            type="button"
+            aria-haspopup="dialog"
+            onclick={() => {
+              closeMenu();
+              onManagePlugins?.();
+            }}
+          >
+            {m.gearmenu_plugins_manage()} ▾
+          </button>
+        </div>
+        {#each pluginItems as item (item.id)}
+          <button
+            type="button"
+            class="row"
+            onclick={() => {
+              closeMenu();
+              onPluginItem?.(item.id);
+            }}
+          >
+            <span class="glyph" aria-hidden="true">{item.icon ?? "⌁"}</span>
+            <span>{item.label}</span>
+            {#if item.hint && item.hint !== item.label}
+              <span class="row-meta faint">{item.hint}</span>
+            {/if}
+          </button>
+        {/each}
+      </div>
     {/if}
 
-    <!-- Feedback -->
-    <button type="button" class="sheet-item" onclick={() => onFeedback("bug")}>
-      <span class="sheet-glyph" aria-hidden="true">🐛</span>
-      <span class="sheet-label">{m.feedback_dialog_title_bug()}</span>
-    </button>
-    <button type="button" class="sheet-item" onclick={() => onFeedback("feature")}>
-      <span class="sheet-glyph" aria-hidden="true">✨</span>
-      <span class="sheet-label">{m.feedback_dialog_title_feature()}</span>
-    </button>
-    <button type="button" class="sheet-item" onclick={() => onFeedback("feedback")}>
-      <span class="sheet-glyph" aria-hidden="true">💬</span>
-      <span class="sheet-label">{m.feedback_dialog_title_feedback()}</span>
-    </button>
-
-    <!-- Docs + version footer -->
-    <div class="sheet-sep"></div>
-    <!-- Hosted documentation site (docs.shepherd.run) — distinct from the GitHub README below. -->
-    <a
-      class="sheet-item"
-      href={DOCS_URL}
-      target="_blank"
-      rel="external noreferrer noopener"
-      onclick={() => closeMenu()}
-    >
-      <span class="sheet-glyph" aria-hidden="true">↗</span>
-      <span class="sheet-label">{m.topbar_docs()}</span>
-    </a>
-    <a
-      class="sheet-item"
-      href={REPO_URL}
-      target="_blank"
-      rel="external noreferrer noopener"
-      onclick={() => closeMenu()}
-    >
-      <span class="sheet-glyph" aria-hidden="true">↗</span>
-      <span class="sheet-label">{m.topbar_menu_docs()}</span>
-    </a>
-    <div class="sheet-foot micro">v{version}</div>
+    <!-- Support group, demoted onto the darker head ground (44px tier). -->
+    <div class="grp support">
+      <div class="grp-head">
+        <span class="grp-label">{m.gearmenu_support_label()}</span>
+      </div>
+      <button type="button" class="row support-row" onclick={() => onFeedback("bug")}>
+        <span class="glyph" aria-hidden="true">⚠</span>
+        <span>{m.feedback_dialog_title_bug()}</span>
+      </button>
+      <button type="button" class="row support-row" onclick={() => onFeedback("feature")}>
+        <span class="glyph" aria-hidden="true">✧</span>
+        <span>{m.feedback_dialog_title_feature()}</span>
+      </button>
+      <button type="button" class="row support-row" onclick={() => onFeedback("feedback")}>
+        <span class="glyph" aria-hidden="true">↵</span>
+        <span>{m.feedback_dialog_title_feedback()}</span>
+      </button>
+    </div>
   </div>
 </div>
 
@@ -496,9 +502,9 @@
     z-index: 49;
   }
 
-  /* Mobile bottom sheet: slides up from the bottom. Fixed to left/right/bottom edges,
-     tall enough to hold all sections without viewport overflow. The sheet itself is
-     opaque panel chrome — the .scrim behind it dims+blurs the herd content. */
+  /* Rising sheet: full-width, bright top hairline, 12px top radius (reserved for
+     rising sheets), opaque panel chrome — the .scrim behind it dims+blurs the herd.
+     No shadow: the scrim already separates it. */
   .gear-sheet {
     position: fixed;
     left: 0;
@@ -507,35 +513,60 @@
     z-index: 50;
     background: var(--color-panel);
     border-top: 1px solid var(--color-line-bright);
-    border-radius: 10px 10px 0 0;
+    border-radius: 12px 12px 0 0;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 0 8px 12px;
-    /* safe-area bottom for notched phones */
-    padding-bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
     max-height: 90dvh;
     overflow-y: auto;
+  }
+  /* Settle-back after a released (non-closing) drag. */
+  .gear-sheet.settling {
+    transition: transform 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
   }
   .sheet-handle-row {
     display: flex;
     justify-content: center;
-    padding: 10px 0 4px;
+    padding: 10px 0 2px;
+    touch-action: none;
+    cursor: grab;
+    flex-shrink: 0;
   }
   .sheet-handle {
-    width: 40px;
+    width: 36px;
     height: 4px;
     border-radius: 2px;
     background: var(--color-line-bright);
   }
-  .sheet-title-row {
+  .ident {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 2px 4px 6px;
+    gap: 8px;
+    padding: 6px 20px 10px;
+    border-bottom: 1px solid var(--color-line);
+    flex-shrink: 0;
   }
-  .sheet-title {
+  .ident-brand {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     color: var(--color-muted);
+  }
+  .ident-conn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Connectivity stays in the neutral ink ramp: brightness, not a status hue. */
+  .ident-dot {
+    color: var(--color-faint);
+  }
+  .ident-dot.on {
+    color: var(--color-ink-bright);
   }
   .sheet-close {
     background: none;
@@ -544,138 +575,166 @@
     cursor: pointer;
     min-width: 44px;
     min-height: 44px;
+    margin: -10px -12px -10px 0;
     font-size: var(--fs-lg);
     display: flex;
     align-items: center;
     justify-content: center;
   }
-  .sheet-sep {
-    height: 1px;
-    margin: 5px 4px;
-    background: var(--color-line);
-  }
-  .sheet-section-label {
-    padding: 6px 8px 2px;
-    color: var(--color-muted);
-  }
-  .sheet-row-text {
-    padding: 6px 8px;
-    color: var(--color-muted);
-  }
-  /* Full gauge breakdown in the sheet — one row per window, wider bars. */
-  .sheet-gauges {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding: 4px 8px 4px;
-  }
-  .sheet-gauges.stale {
-    opacity: 0.5;
-  }
-  .sheet-model-row {
-    display: flex;
-    flex-direction: column;
-    gap: 5px;
-    padding-top: 6px;
-    border-top: 1px solid var(--color-line);
-  }
-  .limits-unavailable {
-    padding: 6px 0;
-    border-top: 1px solid var(--color-line);
-    border-bottom: 1px solid var(--color-line);
-    color: var(--color-faint);
-    letter-spacing: 0.08em;
-    line-height: 1.35;
-  }
-  .token-line {
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    font-variant-numeric: tabular-nums;
-    display: flex;
-    justify-content: space-between;
-    gap: 16px;
-  }
-  .token-line span:first-child {
-    color: var(--color-faint);
-    text-transform: uppercase;
-    letter-spacing: 0.08em;
-  }
-  /* Sheet action rows: ≥44px targets, token-driven, no role=menuitem (invalid in dialog). */
-  .sheet-item {
+  /* Hero action: 52px tier, 16px text, amber e-stop glyph + WORKING chip. */
+  .hero {
     display: flex;
     align-items: center;
-    gap: 12px;
+    gap: 10px;
     width: 100%;
-    min-height: 44px;
+    min-height: 52px;
+    padding: 0 20px;
     background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
     font: inherit;
     font-size: var(--fs-lg);
+    color: var(--color-ink-bright);
     text-align: left;
-    padding: 10px 12px;
     cursor: pointer;
-    white-space: nowrap;
-    text-decoration: none;
+    flex-shrink: 0;
   }
-  .sheet-item:hover,
-  .sheet-item:focus-visible {
-    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
-    outline: none;
-  }
-  .sheet-item.alert {
+  .hero-glyph {
+    width: 20px;
+    text-align: center;
     color: var(--color-amber);
+    flex-shrink: 0;
   }
-  .sheet-item.alert:hover,
-  .sheet-item.alert:focus-visible {
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
+  .hero:disabled {
+    color: var(--color-muted);
+    cursor: default;
+    opacity: 0.4;
   }
-  /* Update rows: amber accent (same semantic hue as the inline update badge). */
-  .sheet-item.sheet-update {
-    color: var(--color-amber);
-  }
-  .sheet-item.sheet-update:hover,
-  .sheet-item.sheet-update:focus-visible {
-    background: color-mix(in srgb, var(--color-amber) 12%, transparent);
-  }
-  /* e-stop row in the sheet — same muted-then-red pattern as the desktop menu. */
-  .sheet-item.halt-item {
+  .hero:disabled .hero-glyph {
     color: var(--color-muted);
   }
-  .sheet-item.halt-item:hover,
-  .sheet-item.halt-item:focus-visible {
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    color: var(--color-red);
+  .chip {
+    margin-left: auto;
+    border: 1px solid color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
+    color: var(--color-amber);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 2px;
+    font-variant-numeric: tabular-nums;
   }
-  .sheet-item.halt-item.armed {
+  .hero.armed {
     background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border-color: var(--color-red);
     color: var(--color-red);
     text-transform: uppercase;
     letter-spacing: 0.1em;
-    font-size: var(--fs-meta);
+    font-size: var(--fs-base);
   }
-  .sheet-item.halt-item.armed .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
+  .hero.armed .hero-glyph,
+  .hero.armed .chip {
+    color: var(--color-red);
+    border-color: var(--color-red);
   }
-  .sheet-glyph {
-    width: var(--fs-lg);
-    text-align: center;
+  .grp {
+    padding: 4px 0;
+    border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
   }
-  .sheet-svg {
+  .grp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 8px 20px 0;
+  }
+  .grp-label {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .grp-action {
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    padding: 8px 4px;
+    font: inherit;
+    font-size: var(--fs-meta);
+    color: var(--color-faint);
+    cursor: pointer;
+  }
+  /* Rows: 48px workspace/plugin tier, 16px text, 20px glyph column, flat states. */
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    min-height: 48px;
+    padding: 0 20px;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    font-size: var(--fs-lg);
+    color: var(--color-ink);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+  .glyph {
+    width: 20px;
+    text-align: center;
+    color: var(--color-muted);
+    flex-shrink: 0;
+  }
+  .glyph-svg {
     height: var(--fs-lg);
     display: block;
   }
-  .sheet-label {
+  .row-meta {
+    margin-left: auto;
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
     font-variant-numeric: tabular-nums;
   }
-  .sheet-foot {
-    padding: 6px 12px 2px;
+  .row-meta.faint {
     color: var(--color-faint);
-    font-variant-numeric: tabular-nums;
+  }
+  .row:hover {
+    background: var(--color-hover);
+  }
+  .row:focus-visible,
+  .hero:focus-visible,
+  .grp-action:focus-visible,
+  .sheet-close:focus-visible {
+    outline: none;
+    background: var(--color-hover);
+    box-shadow: inset 0 0 0 1px var(--color-line-bright);
+  }
+  .row.alert {
+    color: var(--color-amber);
+  }
+  .row.alert .glyph {
+    color: var(--color-amber);
+  }
+  /* Update rows: amber accent (same semantic hue as the inline update badge). */
+  .row.update {
+    color: var(--color-amber);
+  }
+  .row.update .glyph {
+    color: var(--color-amber);
+  }
+  /* Support group: demoted onto the head ground, 44px tier, quieter text size. */
+  .grp.support {
+    background: var(--color-head);
+    border-bottom: 0;
+    padding: 4px 0 10px;
+  }
+  .row.support-row {
+    min-height: 44px;
+    font-size: var(--fs-base);
   }
   /* Quick appearance row: dark/light segment + high-contrast toggle, mirroring the
      desktop ActionBar but sized up for touch (44px tap targets). */
@@ -683,7 +742,7 @@
     display: flex;
     align-items: stretch;
     gap: 8px;
-    padding: 2px;
+    padding: 6px 20px 4px;
   }
   .theme-seg {
     display: flex;
@@ -745,18 +804,5 @@
     color: var(--color-amber);
     background: var(--color-inset);
     border-color: var(--color-amber);
-  }
-  /* Copied from parent: octagon halt icon shared between desktop gear-menu and this sheet. */
-  .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-    display: block;
-    flex-shrink: 0;
-  }
-  .micro {
-    font-size: var(--fs-meta);
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: var(--color-muted);
   }
 </style>

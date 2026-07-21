@@ -217,3 +217,16 @@ export function nextNeedsYou(blockedIds: string[], currentId: string | null): st
 export function isCommandBarChord(e: KeyboardEvent): boolean {
   return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === "k";
 }
+
+/** The open-Settings chord: Cmd/Ctrl+, with no other modifier held. Same shared-predicate
+ *  split as `isCommandBarChord` above: TopBar's window listener opens Settings while
+ *  Viewport's PTY key handler suppresses the byte, so trigger and suppression can't drift. */
+export function isSettingsChord(e: KeyboardEvent): boolean {
+  return (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === ",";
+}
+
+/** Display hint for the settings chord — ⌘, on Mac platforms, Ctrl+, elsewhere.
+ *  Pure formatter: callers pass `isMacPlatform()` from $lib/platform. */
+export function settingsChordHint(mac: boolean): string {
+  return mac ? "⌘," : "Ctrl+,";
+}

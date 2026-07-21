@@ -7,6 +7,8 @@ import {
   nextNeedsYou,
   altComboKey,
   jumpDigitIndex,
+  isSettingsChord,
+  settingsChordHint,
 } from "./herd-keynav";
 import { GROUP_KEY_BY_STAGE, type HerdFilter } from "./herd-partition";
 import type { Session, GitState, Epic, EpicChild, SessionStatus } from "$lib/types";
@@ -552,4 +554,41 @@ test("jumpDigitIndex returns null for non-digit codes", () => {
   expect(jumpDigitIndex(altDigit("KeyA"))).toBeNull();
   expect(jumpDigitIndex(altDigit("Enter"))).toBeNull();
   expect(jumpDigitIndex(altDigit("Minus"))).toBeNull();
+});
+
+// ── isSettingsChord / settingsChordHint — the Cmd/Ctrl+, open-Settings chord ──
+
+function chordEvent(
+  key: string,
+  mods: Partial<Pick<KeyboardEvent, "altKey" | "ctrlKey" | "metaKey" | "shiftKey">> = {},
+): KeyboardEvent {
+  return {
+    key,
+    code: "",
+    altKey: false,
+    ctrlKey: false,
+    metaKey: false,
+    shiftKey: false,
+    ...mods,
+  } as KeyboardEvent;
+}
+
+test("isSettingsChord matches Ctrl+, and Cmd+,", () => {
+  expect(isSettingsChord(chordEvent(",", { ctrlKey: true }))).toBe(true);
+  expect(isSettingsChord(chordEvent(",", { metaKey: true }))).toBe(true);
+});
+
+test("isSettingsChord rejects extra modifiers", () => {
+  expect(isSettingsChord(chordEvent(",", { ctrlKey: true, altKey: true }))).toBe(false);
+  expect(isSettingsChord(chordEvent(",", { metaKey: true, shiftKey: true }))).toBe(false);
+});
+
+test("isSettingsChord rejects a bare comma and other chords", () => {
+  expect(isSettingsChord(chordEvent(","))).toBe(false);
+  expect(isSettingsChord(chordEvent("k", { ctrlKey: true }))).toBe(false);
+});
+
+test("settingsChordHint formats per platform", () => {
+  expect(settingsChordHint(true)).toBe("⌘,");
+  expect(settingsChordHint(false)).toBe("Ctrl+,");
 });

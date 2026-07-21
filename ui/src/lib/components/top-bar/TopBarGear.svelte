@@ -1,8 +1,13 @@
 <script lang="ts">
   import { m } from "$lib/paraglide/messages";
-  import { DOCS_URL } from "$lib/build-info";
+  import { DOCS_URL, version } from "$lib/build-info";
   import type { FeedbackKind } from "$lib/feedback-link";
+  import type { UsageLimits } from "$lib/types";
+  import { isMacPlatform } from "$lib/platform";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
+  import { settingsChordHint } from "../herd-keynav";
+  import type { GaugeKey } from "../usage-gauges";
+  import GearMenuUsage from "./GearMenuUsage.svelte";
 
   type GearPipTier = "red" | "yellow" | null;
 
@@ -10,8 +15,8 @@
     mobile,
     haltable,
     gearPipTier,
-    gearOpensMenu,
     armed,
+    connected,
     menuOpen = $bindable(),
     gearWrap = $bindable(null),
     gearBtn = $bindable(null),
@@ -30,12 +35,22 @@
     onFeedback,
     pluginItems = [],
     onPluginItem,
+    onManagePlugins,
+    limits,
+    nowMs,
+    creditFill,
+    creditColor,
+    creditAmount,
+    refreshing,
+    refreshError,
+    onRefresh,
+    periodLabel,
   }: {
     mobile: boolean;
     haltable: number;
     gearPipTier: GearPipTier;
-    gearOpensMenu: boolean;
     armed: boolean;
+    connected: boolean;
     menuOpen: boolean;
     gearWrap: HTMLElement | null;
     gearBtn: HTMLButtonElement | null;
@@ -52,9 +67,49 @@
     chooseLearnings: () => void;
     onMenuKey: (e: KeyboardEvent) => void;
     onFeedback: (kind: FeedbackKind) => void;
-    pluginItems?: { id: string; label: string; icon?: string }[];
+    pluginItems?: { id: string; label: string; icon?: string; hint?: string }[];
     onPluginItem?: (id: string) => void;
+    onManagePlugins?: () => void;
+    limits: UsageLimits | null;
+    nowMs: number;
+    creditFill: number;
+    creditColor: string;
+    creditAmount: string;
+    refreshing: boolean;
+    refreshError: boolean;
+    onRefresh: () => void;
+    periodLabel: (k: GaugeKey) => string;
   } = $props();
+
+  const chordHint = settingsChordHint(isMacPlatform());
+
+  // Clamp the popover to the space below its anchor (the gear sits near the viewport
+  // top, so no flip-up branch) — same recipe as the held-tasks popover in TopBar.
+  const EDGE_GAP = 12;
+  $effect(() => {
+    const el = menuEl;
+    if (!el || mobile) return;
+    const clamp = () => {
+      const anchor = gearWrap;
+      if (!anchor) return;
+      const below = window.innerHeight - anchor.getBoundingClientRect().bottom - 6 - EDGE_GAP;
+      el.style.maxHeight = `${Math.max(120, below)}px`;
+    };
+    let raf = 0;
+    const schedule = () => {
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        clamp();
+      });
+    };
+    clamp();
+    window.addEventListener("resize", schedule);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener("resize", schedule);
+    };
+  });
 </script>
 
 <div class="gear-wrap" bind:this={gearWrap}>
@@ -62,213 +117,355 @@
     bind:this={gearBtn}
     class="gear tip"
     class:mobile
+    class:open={menuOpen}
     type="button"
+    use:coachTarget={"gear-menu"}
     onclick={clickGear}
-    data-tip={gearOpensMenu ? m.topbar_menu_aria() : m.settings_title()}
-    aria-haspopup={gearOpensMenu ? (mobile ? "dialog" : "menu") : undefined}
-    aria-expanded={gearOpensMenu ? menuOpen : undefined}
-    aria-label={gearOpensMenu ? m.topbar_menu_aria() : m.topbar_settings_aria()}
+    data-tip={m.topbar_menu_aria()}
+    aria-haspopup="dialog"
+    aria-expanded={menuOpen}
+    aria-label={m.topbar_menu_aria()}
     >⚙{#if mobile && gearPipTier}<span class="gear-pip" data-tier={gearPipTier} aria-hidden="true"
       ></span>{/if}</button
   >
   {#if menuOpen && !mobile}
-    <!-- Desktop dropdown: role=menu/menuitem + arrow-key cycling. Zero change vs before. -->
+    <!-- Telemetry popover (design handoff 3b): anchored NON-MODAL dialog — plain
+         buttons/links (no role=menuitem), square chrome, grouped rows. Arrow-key
+         roving + Esc live in TopBar's onMenuKey over [data-gear-row]. -->
     <div
       class="gear-menu"
-      role="menu"
+      role="dialog"
       tabindex="-1"
       aria-label={m.topbar_menu_label()}
       bind:this={menuEl}
       onkeydown={onMenuKey}
     >
-      {#if haltable > 0}
-        <!-- e-stop row: first activation arms (red "Halt N?"), a second commits.
-             Full intent stays in the aria-label. -->
-        <button
-          class="menu-item halt-item"
-          class:armed
-          type="button"
-          role="menuitem"
-          onclick={clickHalt}
-          aria-label={armed
+      <!-- Identity header: brand mark + version + connection readout. Neutral ink ramp
+           for connectivity (brightness carries the cue, per canon — not green). -->
+      <div class="ident">
+        <span class="ident-brand">SHEPHERD</span>
+        <span class="ident-conn">
+          v{version} · <span class="ident-dot" class:on={connected} aria-hidden="true">●</span>
+          {connected ? m.gearmenu_conn_live() : m.gearmenu_conn_offline()}
+        </span>
+      </div>
+
+      <!-- Hero action: halt herd. Two-step arm→confirm; natively disabled (and
+           chip-less) when nothing is running. -->
+      <button
+        class="hero"
+        class:armed
+        type="button"
+        data-gear-row
+        disabled={haltable === 0}
+        onclick={clickHalt}
+        aria-label={haltable === 0
+          ? m.gearmenu_halt_herd()
+          : armed
             ? m.halt_arm_aria({ count: haltable })
             : m.halt_all_aria({ count: haltable })}
-        >
-          <svg class="menu-icon" viewBox="0 0 24 24" aria-hidden="true">
-            <path d="M8 2 H16 L22 8 V16 L16 22 H8 L2 16 V8 Z" fill="currentColor" />
-          </svg>
-          <span class="menu-label"
-            >{armed ? m.halt_arm({ count: haltable }) : m.halt_menu_item({ count: haltable })}</span
-          >
-        </button>
-        <div class="menu-sep" role="separator"></div>
-      {/if}
-      <button class="menu-item" type="button" role="menuitem" onclick={chooseSettings}>
-        <span class="menu-glyph" aria-hidden="true">⚙</span>
-        <span class="menu-label">{m.settings_title()}</span>
-      </button>
-      <div class="menu-sep" role="separator"></div>
-      <button
-        class="menu-item"
-        type="button"
-        role="menuitem"
-        aria-haspopup="dialog"
-        use:coachTarget={"usage-link"}
-        onclick={() => {
-          menuOpen = false;
-          chooseUsage();
-        }}
       >
-        <span class="menu-glyph" aria-hidden="true">▦</span>
-        <span class="menu-label">{m.topbar_usage_link()}</span>
-      </button>
-      {#if learningsPresent}
-        <button
-          class="menu-item"
-          type="button"
-          role="menuitem"
-          aria-label={learnings > 0
-            ? m.learnings_open_aria({ count: learnings })
-            : m.learnings_open_curate_aria({ count: learningsCurate })}
-          onclick={chooseLearnings}
+        <span class="hero-glyph" aria-hidden="true">■</span>
+        <span class="hero-label"
+          >{armed ? m.halt_arm({ count: haltable }) : m.gearmenu_halt_herd()}</span
         >
-          <span class="menu-glyph" aria-hidden="true">✦</span>
-          <span class="menu-label">{learningsLabel} · {learningsCount}</span>
-        </button>
-      {/if}
-      <!-- External docs site — opens in a new tab; ↗ marks it external, matching the
-           mobile sheet + Settings → About link convention. Closes the menu on click. -->
-      <a
-        class="menu-item"
-        role="menuitem"
-        href={DOCS_URL}
-        target="_blank"
-        rel="external noreferrer noopener"
-        onclick={() => (menuOpen = false)}
-      >
-        <span class="menu-glyph" aria-hidden="true">↗</span>
-        <span class="menu-label">{m.topbar_docs()}</span>
-      </a>
-      {#if pluginItems.length > 0}
-        <div class="menu-sep" role="separator"></div>
-        {#each pluginItems as item (item.id)}
+        {#if haltable > 0}
+          <span class="chip">{m.gearmenu_working_chip({ count: haltable })}</span>
+        {/if}
+      </button>
+
+      <!-- Live token-usage gauge block; "all ▾" discloses the per-window breakdown. -->
+      <GearMenuUsage
+        {limits}
+        {nowMs}
+        {creditFill}
+        {creditColor}
+        {creditAmount}
+        {refreshing}
+        {refreshError}
+        {onRefresh}
+        {periodLabel}
+        onOpenUsage={chooseUsage}
+        coachId="usage-link"
+      />
+
+      <!-- Workspace rows -->
+      <div class="grp">
+        {#if learningsPresent}
           <button
-            class="menu-item"
+            class="row"
             type="button"
-            role="menuitem"
-            onclick={() => onPluginItem?.(item.id)}
+            data-gear-row
+            aria-label={learnings > 0
+              ? m.learnings_open_aria({ count: learnings })
+              : m.learnings_open_curate_aria({ count: learningsCurate })}
+            onclick={chooseLearnings}
           >
-            {#if item.icon}<span class="menu-glyph" aria-hidden="true">{item.icon}</span>{/if}
-            <span class="menu-label">{item.label}</span>
+            <span class="glyph" aria-hidden="true">✦</span>
+            <span class="row-label">{learningsLabel}</span>
+            <span class="row-meta">{learningsCount}</span>
           </button>
-        {/each}
+        {/if}
+        <button class="row" type="button" data-gear-row onclick={chooseSettings}>
+          <span class="glyph" aria-hidden="true">⚙</span>
+          <span class="row-label">{m.settings_title()}</span>
+          <span class="row-meta faint">{chordHint}</span>
+        </button>
+        <a
+          class="row"
+          data-gear-row
+          href={DOCS_URL}
+          target="_blank"
+          rel="external noreferrer noopener"
+          onclick={() => (menuOpen = false)}
+        >
+          <span class="glyph" aria-hidden="true">↗</span>
+          <span class="row-label">{m.topbar_docs()}</span>
+        </a>
+      </div>
+
+      <!-- Plugins group: dynamic — one row per installed plugin with a gear item. -->
+      {#if pluginItems.length > 0}
+        <div class="grp plugins">
+          <div class="grp-head">
+            <span class="grp-label">{m.gearmenu_plugins_label()} · {pluginItems.length}</span>
+            <button
+              class="grp-action"
+              type="button"
+              data-gear-row
+              aria-haspopup="dialog"
+              onclick={() => onManagePlugins?.()}
+            >
+              {m.gearmenu_plugins_manage()} ▾
+            </button>
+          </div>
+          {#each pluginItems as item (item.id)}
+            <button class="row" type="button" data-gear-row onclick={() => onPluginItem?.(item.id)}>
+              <span class="glyph" aria-hidden="true">{item.icon ?? "⌁"}</span>
+              <span class="row-label">{item.label}</span>
+              {#if item.hint && item.hint !== item.label}
+                <span class="row-meta faint">{item.hint}</span>
+              {/if}
+            </button>
+          {/each}
+        </div>
       {/if}
-      <button class="menu-item" type="button" role="menuitem" onclick={() => onFeedback("bug")}>
-        <span class="menu-glyph" aria-hidden="true">🐛</span>
-        <span class="menu-label">{m.feedback_dialog_title_bug()}</span>
-      </button>
-      <button class="menu-item" type="button" role="menuitem" onclick={() => onFeedback("feature")}>
-        <span class="menu-glyph" aria-hidden="true">✨</span>
-        <span class="menu-label">{m.feedback_dialog_title_feature()}</span>
-      </button>
-      <button
-        class="menu-item"
-        type="button"
-        role="menuitem"
-        onclick={() => onFeedback("feedback")}
-      >
-        <span class="menu-glyph" aria-hidden="true">💬</span>
-        <span class="menu-label">{m.feedback_dialog_title_feedback()}</span>
-      </button>
+
+      <!-- Support group, demoted onto the darker head ground. -->
+      <div class="grp support">
+        <div class="grp-head">
+          <span class="grp-label">{m.gearmenu_support_label()}</span>
+        </div>
+        <button class="row" type="button" data-gear-row onclick={() => onFeedback("bug")}>
+          <span class="glyph" aria-hidden="true">⚠</span>
+          <span class="row-label">{m.feedback_dialog_title_bug()}</span>
+        </button>
+        <button class="row" type="button" data-gear-row onclick={() => onFeedback("feature")}>
+          <span class="glyph" aria-hidden="true">✧</span>
+          <span class="row-label">{m.feedback_dialog_title_feature()}</span>
+        </button>
+        <button class="row" type="button" data-gear-row onclick={() => onFeedback("feedback")}>
+          <span class="glyph" aria-hidden="true">↵</span>
+          <span class="row-label">{m.feedback_dialog_title_feedback()}</span>
+        </button>
+      </div>
     </div>
   {/if}
 </div>
 
 <style>
-  /* Gear menu: a small popup hung below-right of the gear, holding the e-stop (when
-     working) above the Settings entry. Quiet panel chrome matching the gauge popover. */
   .gear-wrap {
     position: relative;
     display: inline-flex;
   }
+  /* Telemetry popover: square (radius 0 — popovers earn a shadow, never a radius),
+     300px, panel ground, bright hairline, canonical popover shadow. */
   .gear-menu {
     position: absolute;
     top: calc(100% + 6px);
     right: 0;
     z-index: 30;
-    min-width: 184px;
+    width: 300px;
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
-    gap: 2px;
-    padding: 5px;
     background: var(--color-panel);
     border: 1px solid var(--color-line-bright);
-    border-radius: 3px;
-    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+    border-radius: 0;
+    box-shadow: var(--shadow-popover);
+    overflow-y: auto;
   }
-  .menu-item {
+  .ident {
     display: flex;
     align-items: center;
-    gap: 9px;
-    width: 100%;
-    background: transparent;
-    border: 1px solid transparent;
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-base);
-    text-align: left;
-    padding: 8px 10px;
-    cursor: pointer;
-    white-space: nowrap;
-    text-decoration: none;
-  }
-  .menu-item:hover,
-  .menu-item:focus-visible {
-    background: color-mix(in srgb, var(--color-line-bright) 40%, transparent);
-    outline: none;
-  }
-  .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
-    display: block;
+    gap: 8px;
+    padding: 8px 12px;
+    background: var(--color-head);
+    border-bottom: 1px solid var(--color-line);
     flex-shrink: 0;
   }
-  .menu-glyph {
-    width: var(--fs-lg);
-    text-align: center;
-    flex-shrink: 0;
-  }
-  .menu-label {
-    font-variant-numeric: tabular-nums;
-  }
-  /* e-stop row: muted by default, goes loud (red) only on hover/focus and once armed —
-     so a rarely-pressed control never dominates the menu. */
-  .halt-item {
+  .ident-brand {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
     color: var(--color-muted);
   }
-  .halt-item:hover,
-  .halt-item:focus-visible {
-    background: color-mix(in srgb, var(--color-red) 14%, transparent);
-    color: var(--color-red);
+  .ident-conn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
   }
-  .halt-item.armed {
+  /* Connectivity stays in the neutral ink ramp: brightness, not a status hue. */
+  .ident-dot {
+    color: var(--color-faint);
+  }
+  .ident-dot.on {
+    color: var(--color-ink-bright);
+  }
+  .hero {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 9px 12px;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid var(--color-line);
+    font: inherit;
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+    text-align: left;
+    cursor: pointer;
+  }
+  .hero-glyph {
+    width: 16px;
+    text-align: center;
+    color: var(--color-amber);
+    flex-shrink: 0;
+  }
+  .hero:disabled {
+    color: var(--color-muted);
+    cursor: default;
+    opacity: 0.4;
+  }
+  .hero:disabled .hero-glyph {
+    color: var(--color-muted);
+  }
+  .hero:hover:not(:disabled) {
+    background: var(--color-hover);
+  }
+  .chip {
+    margin-left: auto;
+    border: 1px solid color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
+    color: var(--color-amber);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    padding: 1px 6px;
+    border-radius: 2px;
+    font-variant-numeric: tabular-nums;
+  }
+  /* Armed e-stop: loud red confirm state, same convention as the old menu row. */
+  .hero.armed {
     background: color-mix(in srgb, var(--color-red) 22%, transparent);
-    border-color: var(--color-red);
     color: var(--color-red);
     text-transform: uppercase;
     letter-spacing: 0.1em;
     font-size: var(--fs-meta);
   }
-  /* Keep the octagon glyph at full size even when arming drops the row font-size. */
-  .halt-item.armed .menu-icon {
-    width: var(--fs-lg);
-    height: var(--fs-lg);
+  .hero.armed .hero-glyph,
+  .hero.armed .chip {
+    color: var(--color-red);
+    border-color: var(--color-red);
   }
-  .menu-sep {
-    height: 1px;
-    margin: 3px 2px;
-    background: var(--color-line);
+  .grp {
+    padding: 4px 0;
+    flex-shrink: 0;
+  }
+  .grp.plugins {
+    border-top: 1px solid var(--color-line);
+  }
+  .grp.support {
+    border-top: 1px solid var(--color-line);
+    background: var(--color-head);
+    padding: 4px 0 6px;
+  }
+  .grp-head {
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+    padding: 6px 12px 2px;
+  }
+  .grp-label {
+    font-size: var(--fs-micro);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--color-faint);
+    font-variant-numeric: tabular-nums;
+  }
+  .grp-action {
+    margin-left: auto;
+    background: transparent;
+    border: 0;
+    padding: 0 2px;
+    font: inherit;
+    font-size: var(--fs-micro);
+    color: var(--color-faint);
+    cursor: pointer;
+  }
+  .grp-action:hover {
+    color: var(--color-ink);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 7px 12px;
+    background: transparent;
+    border: 0;
+    font: inherit;
+    font-size: var(--fs-base);
+    color: var(--color-ink);
+    text-align: left;
+    cursor: pointer;
+    white-space: nowrap;
+    text-decoration: none;
+    box-sizing: border-box;
+  }
+  .grp.support .row {
+    padding: 6px 12px;
+  }
+  .glyph {
+    width: 16px;
+    text-align: center;
+    color: var(--color-muted);
+    flex-shrink: 0;
+  }
+  .row-meta {
+    margin-left: auto;
+    font-size: var(--fs-micro);
+    color: var(--color-muted);
+    font-variant-numeric: tabular-nums;
+  }
+  .row-meta.faint {
+    color: var(--color-faint);
+  }
+  /* Flat tonal states only: hover lift, focus = same lift + brightened hairline ring
+     ("no glow rings" per the handoff — but never no-indicator). */
+  .row:hover {
+    background: var(--color-hover);
+  }
+  .row:focus-visible,
+  .hero:focus-visible,
+  .grp-action:focus-visible {
+    outline: none;
+    background: var(--color-hover);
+    box-shadow: inset 0 0 0 1px var(--color-line-bright);
   }
   .gear {
     box-sizing: border-box;
@@ -277,10 +474,10 @@
     align-items: center;
     justify-content: center;
     /* shared bar control height — its 20px glyph defined the token, so it's unchanged;
-       border-box keeps this borderless button level with the 1px-bordered badges */
+       border-box keeps this button level with the 1px-bordered badges */
     min-height: var(--topbar-ctl-h);
     background: transparent;
-    border: none;
+    border: 1px solid transparent;
     color: var(--color-muted);
     font-size: var(--fs-xl);
     line-height: 1;
@@ -289,6 +486,12 @@
   }
   .gear:hover {
     color: var(--color-amber);
+  }
+  /* Active (menu open): selected ground + bright hairline, per the handoff. */
+  .gear.open {
+    background: var(--color-sel);
+    border-color: var(--color-line-bright);
+    color: var(--color-ink-bright);
   }
   /* Mobile only: single settings-attention dot for diagnostics surfaced inside
      the gear sheet. Session state has its own stronger affordances elsewhere. */
@@ -307,10 +510,7 @@
   .gear-pip[data-tier="yellow"] {
     background: var(--color-amber);
   }
-  /* Mobile: finger-sized tap targets (≥44px) — the desktop sizes are tuned for a
-     cursor and are too small to hit reliably on a phone. These rules (.gear.mobile)
-     outrank the @media (pointer: coarse) block below on specificity, so the 44px
-     floor must live here too. */
+  /* Mobile: finger-sized tap targets (≥44px). */
   .gear.mobile {
     min-height: 44px;
     min-width: 44px;
@@ -324,8 +524,8 @@
       min-height: 44px;
       min-width: 44px;
     }
-    /* Menu rows get the same ≥44px touch floor without enlarging the desktop layout. */
-    .menu-item {
+    .row,
+    .hero {
       min-height: 44px;
     }
   }
@@ -362,6 +562,11 @@
     .tip:focus-visible::after {
       opacity: 1;
       transform: translateY(0);
+    }
+    /* Menu open: the popover's identity header sits where the tooltip lands —
+       the open state already answers what the button does. */
+    .gear.open::after {
+      display: none;
     }
   }
 </style>

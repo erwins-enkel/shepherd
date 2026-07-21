@@ -50,7 +50,7 @@
   import { findCommandLinks } from "$lib/slashLinks";
   import { createTypingCounter } from "$lib/terminal-input";
   import { shouldForwardEscape } from "$lib/terminalEscape";
-  import { altComboKey, isCommandBarChord } from "./herd-keynav";
+  import { altComboKey, isCommandBarChord, isSettingsChord } from "./herd-keynav";
   import { detectNotesKey } from "$lib/notesAffordance";
   import { isScrolledAwayFromBottom, SCROLL_UP_PX } from "$lib/scrollAffordance";
   import { pollWhileVisible } from "$lib/visibility";
@@ -1840,6 +1840,13 @@
       // propagation, so the keydown still bubbles to the window, where +page.svelte's
       // onShortcut opens the bar — same split as the Alt combos above.
       if (e.type === "keydown" && isCommandBarChord(e)) {
+        e.preventDefault();
+        return false;
+      }
+      // Cmd/Ctrl+,: opens Settings (TopBar's window listener). Same split as Cmd+K
+      // above — suppress xterm's handling so no byte reaches the PTY, let the keydown
+      // bubble to the window where TopBar acts.
+      if (e.type === "keydown" && isSettingsChord(e)) {
         e.preventDefault();
         return false;
       }

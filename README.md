@@ -443,7 +443,11 @@ ceiling protects against any tmpfs consumer.
 Settings → Diagnose carries a **Temp filesystem inodes** row so this is visible before it bites:
 inode exhaustion otherwise reads as "disk full" while `df -h` shows plenty free (`df -i` is what
 shows it). The row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold that gates the sweep, so
-raising the knob moves both — and errors at 95%. Its one-click fix runs the sweep immediately,
+raising the knob moves both — and errors at 95%. The row's bands are kept ordered and in range: a
+knob above 95 raises the error band with it (so the row never alarms below the line you set), and a
+value outside `(0, 100]` — including the legitimate `0` "always sweep" gate setting, which as a
+display band would mean "always warn" — falls back to 80 for the row only; the sweep itself still
+honours it. Its one-click fix runs the sweep immediately,
 ignoring the threshold; it reclaims the caches Shepherd owns, so the row can legitimately stay
 non-OK afterwards when the pressure is a package-manager store or a leftover worktree an agent left
 in the temp filesystem (not reclaimed yet).

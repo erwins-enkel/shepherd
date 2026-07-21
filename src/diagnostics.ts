@@ -33,12 +33,7 @@ import {
 } from "./default-model";
 import { matchAgents, type IHerdrDriver } from "./herdr";
 import { isShepherdHelperLabel } from "./tab-reaper";
-import {
-  TMP_INODE_ERROR_PCT,
-  readTmpInodeUsePct,
-  sweepClaudeTmp,
-  tmpInodeWarnPct,
-} from "./tmp-sweep";
+import { readTmpInodeUsePct, sweepClaudeTmp, tmpInodeBands } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
@@ -708,14 +703,18 @@ export interface TmpInodeFacts {
   usePct: number | null;
   /** Warning band — `SHEPHERD_TMP_INODE_PCT`, the SAME knob that gates the sweep. */
   warnPct: number;
-  /** Error band — `TMP_INODE_ERROR_PCT`. */
+  /** Error band — `TMP_INODE_ERROR_PCT`, raised to `warnPct` when the knob exceeds it. */
   errorPct: number;
 }
 
 /** Map inode facts → check. `null` use% is `optional`/uninspectable (never degrades the health
  *  pip) — matching the `host_capacity` precedent for a host we cannot assess. The row warns at
  *  exactly the point the sweeper starts acting, so an operator who raised `SHEPHERD_TMP_INODE_PCT`
- *  is not warned about a state they deliberately told the sweeper to ignore. */
+ *  is not warned about a state they deliberately told the sweeper to ignore.
+ *
+ *  Expects ORDERED, in-range bands (`0 < warnPct <= errorPct`) — `tmpInodeBands()` guarantees that,
+ *  precisely because the raw knob does not: `0` means "always sweep" for the gate but would mean
+ *  "always warn" here, which no fix could clear. */
 export function classifyTmpInodes(f: TmpInodeFacts): DiagnosticCheck {
   const id = "tmp_inodes";
   if (f.usePct === null) {
@@ -742,11 +741,7 @@ export function classifyTmpInodes(f: TmpInodeFacts): DiagnosticCheck {
 
 /** Default `readTmpInodes`: statfs the temp filesystem and pair it with the live bands. */
 async function defaultReadTmpInodes(): Promise<TmpInodeFacts> {
-  return {
-    usePct: await readTmpInodeUsePct(),
-    warnPct: tmpInodeWarnPct(),
-    errorPct: TMP_INODE_ERROR_PCT,
-  };
+  return { usePct: await readTmpInodeUsePct(), ...tmpInodeBands() };
 }
 
 /** Default `runTmpSweep`: the operator's forced sweep. `thresholdPct: 0` bypasses the inode gate

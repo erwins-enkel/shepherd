@@ -176,14 +176,34 @@ async function inodeUsePct(
  */
 export const TMP_INODE_ERROR_PCT = 95;
 
+/** Fallback warning band, and the documented default of `SHEPHERD_TMP_INODE_PCT`. */
+const DEFAULT_TMP_INODE_PCT = 80;
+
 /**
- * The sweep threshold, resolved the same way `sweepClaudeTmp` resolves it. Exported so the
- * `tmp_inodes` diagnostics row warns at exactly the point the sweeper starts acting: hardcoding 80
- * there would warn about a state an operator who raised `SHEPHERD_TMP_INODE_PCT` deliberately told
- * the sweeper to ignore, and would contradict the documented meaning of the knob.
+ * Ordered display bands for the `tmp_inodes` diagnostics row.
+ *
+ * The warning band tracks `SHEPHERD_TMP_INODE_PCT` so the row warns at exactly the point the
+ * sweeper starts acting — hardcoding 80 would warn about a state an operator who raised the knob
+ * deliberately told the sweeper to ignore. But the knob CANNOT be forwarded raw, because it is a
+ * sweep-GATE value and this is a DISPLAY band, and the two disagree at both extremes:
+ *
+ *  - `0` is a legitimate gate setting meaning "always sweep" (`envNum` deliberately honours it —
+ *    see its doc). Forwarded raw it means "always WARN": `usePct >= 0` holds on every host, so a
+ *    healthy machine shows a permanent warning that no fix can clear, degrading the health pip
+ *    forever. There is no useful display band derivable from it, so fall back to the default.
+ *  - A value above `TMP_INODE_ERROR_PCT` inverts the bands: the warning range `[warn, error)` is
+ *    empty, and `error` fires at 95% — BELOW the threshold the operator set — so the row alarms
+ *    about a state they explicitly told Shepherd to leave alone. Raise the error band to match
+ *    instead, so it never fires below the operator's own line.
+ *  - A value above 100 (or otherwise outside `(0, 100]`) is not a percentage at all; treat it as
+ *    misconfiguration and fall back rather than silently disabling the row.
+ *
+ * Postcondition, relied on by `classifyTmpInodes`: `0 < warnPct <= errorPct`.
  */
-export function tmpInodeWarnPct(): number {
-  return envNum(process.env.SHEPHERD_TMP_INODE_PCT, 80);
+export function tmpInodeBands(): { warnPct: number; errorPct: number } {
+  const configured = envNum(process.env.SHEPHERD_TMP_INODE_PCT, DEFAULT_TMP_INODE_PCT);
+  const warnPct = configured > 0 && configured <= 100 ? configured : DEFAULT_TMP_INODE_PCT;
+  return { warnPct, errorPct: Math.max(TMP_INODE_ERROR_PCT, warnPct) };
 }
 
 /**

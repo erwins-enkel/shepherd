@@ -10,6 +10,8 @@ import {
   reapFallowCaches,
   pruneRepoWorktrees,
   readTmpInodeUsePct,
+  tmpInodeBands,
+  TMP_INODE_ERROR_PCT,
   FALLOW_CACHE_PREFIX,
 } from "../src/tmp-sweep";
 
@@ -440,6 +442,54 @@ describe("readTmpInodeUsePct", () => {
         throw new Error("ENOENT");
       }) as never),
     ).toBeNull();
+  });
+});
+
+// tmpInodeBands (#1862) — SHEPHERD_TMP_INODE_PCT is a sweep-GATE value being reused as a DISPLAY
+// band, and the two disagree at both extremes. Forwarding it raw is a real bug, not a hypothetical.
+describe("tmpInodeBands", () => {
+  test("default: warns at 80, errors at 95", () => {
+    expect(tmpInodeBands()).toEqual({ warnPct: 80, errorPct: TMP_INODE_ERROR_PCT });
+  });
+
+  test("an operator-raised threshold moves the warning band", () => {
+    setEnv("SHEPHERD_TMP_INODE_PCT", "90");
+    expect(tmpInodeBands()).toEqual({ warnPct: 90, errorPct: TMP_INODE_ERROR_PCT });
+  });
+
+  test("0 ('always sweep') does NOT become 'always warn'", () => {
+    // envNum deliberately honours a configured 0 — it means "always sweep" for the GATE. Forwarded
+    // raw as a display band it means usePct >= 0, i.e. a permanent warning on a healthy host that
+    // no fix can clear. There is no useful band derivable from it, so fall back to the default.
+    setEnv("SHEPHERD_TMP_INODE_PCT", "0");
+    expect(tmpInodeBands().warnPct).toBe(80);
+  });
+
+  test("a negative threshold likewise falls back", () => {
+    setEnv("SHEPHERD_TMP_INODE_PCT", "-5");
+    expect(tmpInodeBands().warnPct).toBe(80);
+  });
+
+  test("a threshold above the error band raises the error band with it", () => {
+    // Otherwise the warning range [warn, error) is empty AND error fires at 95 — below the line the
+    // operator explicitly set — alarming about a state they told Shepherd to leave alone.
+    setEnv("SHEPHERD_TMP_INODE_PCT", "98");
+    expect(tmpInodeBands()).toEqual({ warnPct: 98, errorPct: 98 });
+  });
+
+  test("a non-percentage threshold (>100) is misconfiguration, not a disabled row", () => {
+    setEnv("SHEPHERD_TMP_INODE_PCT", "150");
+    expect(tmpInodeBands()).toEqual({ warnPct: 80, errorPct: TMP_INODE_ERROR_PCT });
+  });
+
+  test("bands are always ordered and in range — the postcondition classifyTmpInodes relies on", () => {
+    for (const v of ["0", "-1", "1", "50", "80", "95", "96", "100", "150", "abc", ""]) {
+      setEnv("SHEPHERD_TMP_INODE_PCT", v);
+      const { warnPct, errorPct } = tmpInodeBands();
+      expect(warnPct).toBeGreaterThan(0);
+      expect(warnPct).toBeLessThanOrEqual(100);
+      expect(errorPct).toBeGreaterThanOrEqual(warnPct);
+    }
   });
 });
 

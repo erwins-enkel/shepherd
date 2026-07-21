@@ -482,6 +482,32 @@ describe("tmpInodeBands", () => {
     expect(tmpInodeBands()).toEqual({ warnPct: 80, errorPct: TMP_INODE_ERROR_PCT });
   });
 
+  test("the sweep gate starts acting exactly where the row warns", async () => {
+    // The row's entire premise. Both consumers now read one shared default, so this can only fail
+    // if someone re-hardcodes a literal in either place — which is exactly the drift being guarded.
+    const { warnPct } = tmpInodeBands();
+    const fsp = await import("node:fs/promises");
+    const at = async (usePct: number) => {
+      const root = mkTmp();
+      const ncc = join(root, "node-compile-cache");
+      mkdirSync(ncc);
+      // files=10000 so a whole-percent usePct is exact (no rounding at the boundary).
+      const res = await sweepClaudeTmp({
+        root,
+        fsOps: {
+          statfs: fakeStatfs(10_000, 10_000 - usePct * 100),
+          readdir: fsp.readdir,
+          stat: fsp.stat,
+          rm: fsp.rm,
+        } as never,
+        log: () => {},
+      });
+      return res.swept;
+    };
+    expect(await at(warnPct - 1)).toBe(false); // below the row's warn band → sweeper idle
+    expect(await at(warnPct)).toBe(true); // at the row's warn band → sweeper acts
+  });
+
   test("bands are always ordered and in range — the postcondition classifyTmpInodes relies on", () => {
     for (const v of ["0", "-1", "1", "50", "80", "95", "96", "100", "150", "abc", ""]) {
       setEnv("SHEPHERD_TMP_INODE_PCT", v);

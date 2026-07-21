@@ -100,7 +100,9 @@ The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
 listed in [Configuration](/reference/configuration/).
 
 The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns
-at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95%.
+at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95% by
+default. The bands stay ordered: if you raise the knob above 95 the error band rises with it, so
+the row never alarms below the line you set.
 This matters because inode exhaustion is easy to misdiagnose — writes start failing with
 "no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
 the real cause.

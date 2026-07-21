@@ -176,7 +176,12 @@ async function inodeUsePct(
  */
 export const TMP_INODE_ERROR_PCT = 95;
 
-/** Fallback warning band, and the documented default of `SHEPHERD_TMP_INODE_PCT`. */
+/**
+ * The documented default of `SHEPHERD_TMP_INODE_PCT` — the SINGLE source for both consumers: the
+ * sweep gate in `sweepClaudeTmp` and the `tmp_inodes` row's warning band via `tmpInodeBands`. The
+ * row's whole premise is that it warns exactly where the sweeper starts acting, so two independent
+ * literals would let one drift and silently break that correspondence.
+ */
 const DEFAULT_TMP_INODE_PCT = 80;
 
 /**
@@ -338,7 +343,8 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
   const log = opts?.log ?? console.warn;
   try {
     const root = opts?.root ?? claudeTmpRoot();
-    const thresholdPct = opts?.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, 80);
+    const thresholdPct =
+      opts?.thresholdPct ?? envNum(process.env.SHEPHERD_TMP_INODE_PCT, DEFAULT_TMP_INODE_PCT);
     const staleMs = opts?.staleMs ?? envNum(process.env.SHEPHERD_TMP_STALE_HOURS, 24) * 3600_000;
     const now = opts?.now ?? Date.now();
     const ops: FsOps = opts?.fsOps ?? {

@@ -885,7 +885,7 @@ test("reviewing/env/activity maps reject __proto__ without dropping real ids", (
 });
 
 test("repoPath-keyed automation state still round-trips (charset would reject a path)", async () => {
-  // Regression guard for the highest-risk failure mode of this change: AutomationStore is keyed
+  // Regression guard for the highest-risk failure mode of this change: RepoConfigStore is keyed
   // by filesystem path, which the session-id charset REJECTS. Routing these writes through the
   // session-id guard would silently no-op every toggle and freeze the automation UI with no error.
   const repoPath = "/home/u/Work/my-repo.git";

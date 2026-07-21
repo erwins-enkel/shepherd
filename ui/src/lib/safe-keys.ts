@@ -25,7 +25,8 @@
  *  - `dropKey` and the inline `delete copy[id]` forms. A delete cannot create or redirect a
  *    prototype, so a guard adds nothing — but a REJECTED key would silently fail to delete,
  *    pinning a session as "Reviewing…" or leaving a stale verdict. Guarding there is a net loss.
- *  - `AutomationStore`'s ~90 `repoPath` writes and `HerdStore`'s `epics` composite key
+ *  - `RepoConfigStore`'s 93 `repoPath` writes (`reviews.svelte.ts`, exported as `repoConfig`) and
+ *    `HerdStore`'s `epics` composite key
  *    (`${repoPath}#${issue}`). Out of the remediated set; note they would need `setPathKey`, since
  *    {@link SAFE_ID} rejects both shapes.
  *  - `HerdStore`'s bulk-replace seeds (`setBuildQueues`, `setGit`, `setDrain`, …) that assign a
@@ -98,8 +99,9 @@ export function setPathKey<T>(rec: Record<string, T>, key: string, value: T): Re
  *
  *  Needed because `Object.assign` uses `[[Set]]`: an own `__proto__` key — which `JSON.parse`
  *  *does* create, and object spread faithfully copies — would invoke the setter on the target
- *  rather than land as an ordinary property. `Object.keys` sees exactly the enumerable own keys a
- *  decoded WS payload carries.
+ *  rather than land as an ordinary property. The probe uses `Object.hasOwn`, so it catches such a
+ *  key regardless of enumerability; the rebuild uses `Object.entries`, which keeps exactly the
+ *  enumerable own keys a decoded WS payload carries.
  *
  *  Returns the input unchanged when there is nothing to strip. `patchSession` runs on every
  *  session push, so the clean path is kept allocation-free (three `hasOwn` probes, no key array). */

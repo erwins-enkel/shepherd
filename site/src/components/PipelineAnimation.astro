@@ -12,21 +12,23 @@
 // time) and is built to stop (near the end one lane bounces off a gate, turns
 // amber, asks for you, while the others keep flowing).
 //
-// One shared ~14s master timeline: every beat-driven element uses the same
+// One shared ~17s master timeline: every beat-driven element uses the same
 // duration + infinite iteration, so all keyframe clocks stay in lockstep and
-// the loop restarts as one. Ambient motion (rail flow, cursor, live pip) runs
+// the loop restarts as one. Windows are weighted, not uniform — the wordy
+// beats (4 and 6) get more time so their captions stay readable, while the
+// short beats stay snappy. Ambient motion (rail flow, cursor, live pip) runs
 // on its own short clock. The beat → % map below is the single source of
 // truth.
 //
-//   Beat                          window (% of ~14s loop)
-//   1 issue                         0 – 12
-//   2 worktree + terminal          12 – 22
-//   3 many at once (lanes brighten)22 – 31
-//   4 plan, then stop (review)     31 – 46
-//   5 work / diff                  46 – 54
-//   6 CI · hygiene · review        54 – 67
-//   7 land                         67 – 79
-//   8 payload (bounce / needs you) 79 – 100
+//   Beat                          window (% of ~17s loop)
+//   1 issue                         0 – 11
+//   2 worktree + terminal          11 – 21
+//   3 many at once (lanes brighten)21 – 29
+//   4 plan, then stop (review)     29 – 48
+//   5 work / diff                  48 – 56
+//   6 CI · hygiene · review        56 – 71
+//   7 land                         71 – 82
+//   8 payload (bounce / needs you) 82 – 100
 //
 // Accessibility: the animated figure is role="img" with a full aria-label, so
 // AT reads the summary and ignores the decorative internals. A separate static
@@ -435,12 +437,12 @@ const ariaSummary =
   }
 
   /* ============================================================
-     Master timeline — beat-driven elements share ~14s / infinite.
+     Master timeline — beat-driven elements share ~17s / infinite.
      ============================================================ */
   .pipe-anim :where(.tok-hero, .lanes, .gate-a .gate-bar, .review, .verdict,
       .diff, .pass-b, .pass-c, .trunk-pulse, .block, .tok-block, .needs,
       .beat) {
-    animation-duration: 14s;
+    animation-duration: 17s;
     animation-iteration-count: infinite;
     animation-timing-function: var(--e-quint);
     animation-fill-mode: backwards;
@@ -458,35 +460,35 @@ const ariaSummary =
     2% {
       opacity: 1;
     }
-    8% {
+    9% {
       transform: translateX(0);
     }
-    18% {
+    19% {
       transform: translateX(124px);
     }
-    26% {
+    27% {
       transform: translateX(124px);
     }
-    34% {
+    36% {
       transform: translateX(226px);
     }
-    44% {
+    46% {
       transform: translateX(226px);
     }
-    52% {
+    54% {
       transform: translateX(300px);
     }
-    62% {
+    64% {
       transform: translateX(392px);
     }
-    70% {
+    69% {
       transform: translateX(464px);
     }
-    79% {
+    80% {
       transform: translateX(568px);
       opacity: 1;
     }
-    83% {
+    84% {
       transform: translateX(568px);
       opacity: 0;
     }
@@ -503,13 +505,13 @@ const ariaSummary =
   }
   @keyframes lanesPulse {
     0%,
-    20% {
+    19% {
       opacity: 0.5;
     }
-    27% {
+    25% {
       opacity: 0.9;
     }
-    33%,
+    30%,
     100% {
       opacity: 0.5;
     }
@@ -522,21 +524,21 @@ const ariaSummary =
   }
   @keyframes gateOpen {
     0%,
-    32% {
+    34% {
       transform: scaleY(1);
       stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
     }
-    36%,
-    42% {
+    37%,
+    44% {
       transform: scaleY(1);
       stroke: var(--amber);
     }
-    46%,
+    47%,
     80% {
       transform: scaleY(0.06);
       stroke: color-mix(in srgb, var(--green) 80%, transparent);
     }
-    86%,
+    84%,
     100% {
       transform: scaleY(1);
       stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
@@ -547,11 +549,11 @@ const ariaSummary =
   }
   @keyframes reviewIn {
     0%,
-    31% {
+    29% {
       opacity: 0;
     }
-    36%,
-    44% {
+    34%,
+    45% {
       opacity: 1;
     }
     48%,
@@ -565,12 +567,12 @@ const ariaSummary =
   }
   @keyframes stamp {
     0%,
-    39% {
+    40% {
       opacity: 0;
       transform: scale(0.4);
     }
-    43%,
-    45% {
+    44%,
+    46% {
       opacity: 1;
       transform: scale(1);
     }
@@ -597,22 +599,22 @@ const ariaSummary =
   }
   @keyframes diffIn {
     0%,
-    46% {
+    47% {
       stroke-dashoffset: 100;
       opacity: 0;
     }
-    48% {
+    49% {
       opacity: 1;
     }
-    54% {
+    56% {
       stroke-dashoffset: 0;
       opacity: 1;
     }
-    80% {
+    82% {
       stroke-dashoffset: 0;
       opacity: 1;
     }
-    84%,
+    86%,
     100% {
       opacity: 0;
     }
@@ -624,25 +626,25 @@ const ariaSummary =
     animation-name: passFlash;
   }
   .pass-c {
-    animation-delay: 0.7s;
+    animation-delay: 0.85s;
   }
   @keyframes passFlash {
     0%,
-    60% {
+    61% {
       stroke: var(--green);
       stroke-width: 0;
       opacity: 0;
     }
-    64% {
+    65% {
       stroke: var(--green);
       stroke-width: 3;
       opacity: 1;
       filter: drop-shadow(0 0 5px color-mix(in srgb, var(--green) 60%, transparent));
     }
-    78% {
+    79% {
       opacity: 1;
     }
-    82%,
+    83%,
     100% {
       opacity: 0;
     }
@@ -655,15 +657,15 @@ const ariaSummary =
   }
   @keyframes landPulse {
     0%,
-    76% {
+    77% {
       opacity: 0;
       transform: scale(0.6);
     }
-    80% {
+    81% {
       opacity: 1;
       transform: scale(1);
     }
-    94% {
+    93% {
       opacity: 0.6;
       transform: scale(2.4);
     }
@@ -686,19 +688,19 @@ const ariaSummary =
       opacity: 1;
       transform: translateX(30px);
     }
-    62% {
+    64% {
       opacity: 1;
       transform: translateX(150px);
     }
-    76% {
+    78% {
       opacity: 1;
       transform: translateX(172px);
     }
-    82% {
+    84% {
       opacity: 1;
       transform: translateX(140px);
     }
-    96% {
+    97% {
       opacity: 1;
       transform: translateX(140px);
     }
@@ -712,10 +714,10 @@ const ariaSummary =
   }
   @keyframes blockAmber {
     0%,
-    77% {
+    79% {
       fill: var(--blue);
     }
-    81%,
+    83%,
     100% {
       fill: var(--amber);
       filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 60%, transparent));
@@ -727,12 +729,12 @@ const ariaSummary =
   }
   @keyframes needsIn {
     0%,
-    79% {
+    81% {
       opacity: 0;
       transform: translateX(-6px);
     }
-    84%,
-    96% {
+    86%,
+    97% {
       opacity: 1;
       transform: translateX(0);
     }
@@ -746,8 +748,17 @@ const ariaSummary =
   .caption {
     position: relative;
     margin-top: clamp(0.7rem, 2vw, 1.1rem);
-    min-height: 4.4em;
+    /* Reserve enough height for the tallest caption so the absolutely
+       positioned lines never overlap the copy below. The longest line
+       (beat 4) wraps to more lines as the viewport narrows, so the
+       reserved height grows on small screens. */
+    min-height: 4.6em;
     text-align: center;
+  }
+  @media (max-width: 640px) {
+    .caption {
+      min-height: 7.4em;
+    }
   }
   .beat {
     position: absolute;
@@ -785,104 +796,104 @@ const ariaSummary =
   }
   @keyframes cap1 {
     0%,
-    10% {
+    9% {
       opacity: 1;
     }
-    12%,
+    11%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap2 {
     0%,
-    12% {
+    11% {
       opacity: 0;
     }
-    14%,
-    20% {
+    13%,
+    19% {
       opacity: 1;
     }
-    22%,
+    21%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap3 {
     0%,
-    22% {
+    21% {
       opacity: 0;
     }
-    24%,
-    29% {
+    23%,
+    27% {
       opacity: 1;
     }
-    31%,
+    29%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap4 {
     0%,
-    31% {
+    29% {
       opacity: 0;
     }
-    34%,
-    44% {
+    32%,
+    46% {
       opacity: 1;
     }
-    46%,
+    48%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap5 {
     0%,
-    46% {
+    48% {
       opacity: 0;
     }
-    48%,
-    52% {
+    50%,
+    54% {
       opacity: 1;
     }
-    54%,
+    56%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap6 {
     0%,
-    54% {
+    56% {
       opacity: 0;
     }
-    56%,
-    65% {
+    58%,
+    69% {
       opacity: 1;
     }
-    67%,
+    71%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap7 {
     0%,
-    67% {
+    71% {
       opacity: 0;
     }
-    69%,
-    77% {
+    73%,
+    80% {
       opacity: 1;
     }
-    79%,
+    82%,
     100% {
       opacity: 0;
     }
   }
   @keyframes cap8 {
     0%,
-    79% {
+    82% {
       opacity: 0;
     }
-    82%,
+    85%,
     98% {
       opacity: 1;
     }

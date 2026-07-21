@@ -3039,4 +3039,23 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       restore();
     }
   });
+
+  it("runs the mobile layout + keyboard handling in wide-but-short phone landscape", async () => {
+    // Keyboard already open on a landscape phone: width > 768 (would be the desktop
+    // rail under a width-only gate) but short height must still get the mobile layout
+    // AND the overlay mirror, else content hides behind the keyboard.
+    const { restore } = installFakeViewport(200, 0);
+    try {
+      await page.viewport(852, 393);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      // The combined repo·branch chip only renders in the mobile layout.
+      await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+      expect(document.querySelector(".rail")).toBeNull();
+      // The overlay is mirrored to the visible region above the keyboard.
+      await expect.poll(() => overlay()?.style.height).toBe("200px");
+    } finally {
+      restore();
+    }
+  });
 });

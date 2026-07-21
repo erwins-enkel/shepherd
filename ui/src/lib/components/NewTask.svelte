@@ -303,8 +303,13 @@
   // Coarse pointer = touch-primary device: hide keyboard-combo hints it can't fulfil.
   const coarse = new MediaQuery("(pointer: coarse)");
   // Layout breakpoint — drives the SINGLE mounted instance of RunSettingsGroups
-  // (desktop rail vs. mobile engine sheet) and the mobile-only chrome.
-  const mobile = new MediaQuery("(max-width: 768px)");
+  // (desktop rail vs. mobile engine sheet), the mobile-only chrome, and the
+  // keyboard-aware viewport effect below. Short-height is OR'd in so wide-but-short
+  // phone LANDSCAPE (e.g. 852×393) — where the keyboard eats the most vertical space —
+  // gets the mobile layout + keyboard handling instead of the desktop rail. Keyed on
+  // the layout viewport, which iOS keeps stable when the keyboard opens (no thrash).
+  // The matching CSS media queries (NewTask/RepoSelect/RunSettingsGroups) mirror this.
+  const mobile = new MediaQuery("(max-width: 768px), (max-height: 480px)");
   // Single active-sheet invariant: at most one mobile sheet is open, by construction.
   let activeSheet = $state<"engine" | "context" | null>(null);
   let contextSheetEl = $state<HTMLElement | null>(null);
@@ -2310,8 +2315,10 @@
     border: 0;
   }
 
-  /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ── */
-  @media (max-width: 768px) {
+  /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ──
+     Short-height is OR'd in so phone landscape gets this layout too — mirrors the
+     `mobile` MediaQuery gate in the script. */
+  @media (max-width: 768px), (max-height: 480px) {
     .overlay {
       align-items: stretch;
       justify-content: stretch;

@@ -434,7 +434,9 @@
     white-space: nowrap;
     border: 0;
   }
-  @media (max-width: 768px) {
+  /* Short-height OR'd in so phone landscape keeps 44px select targets — mirrors
+     NewTask's `mobile` breakpoint (this renders in the engine sheet in that layout). */
+  @media (max-width: 768px), (max-height: 480px) {
     .field-select select {
       min-height: 44px;
       font-size: var(--fs-lg);

@@ -2,6 +2,7 @@ import type { ReviewVerdict, PlanGate, ReviewerEnv, RepoConfig, SandboxProfile }
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import type { RepoConfigResponse } from "./api";
+import { SAFE_ID, setKey } from "./safe-keys";
 import {
   getReviews,
   getReviewingIds,
@@ -21,7 +22,12 @@ export const MAX_ACTIVITY_LINES = 2;
  *  re-emits the same summary every tick → no churn). Returns the SAME array reference when
  *  nothing changed so callers can skip a reactive write. */
 function pushActivity(cur: string[] | undefined, summary: string): string[] {
-  const feed = cur ?? [];
+  // `cur` comes from a bracket read of a `Record` (`this.activity[id]`), so a hostile id that names
+  // an inherited `Object.prototype` member — `constructor`, `toString`, `valueOf`, … — resolves up
+  // the chain to a non-array (a function / the prototype object) and the spread below would throw.
+  // `SAFE_ID` on the caller rejects `__proto__` but NOT those letter-only names, so treat any
+  // non-array as "no feed yet". Unreachable with real `randomUUID()` ids; defence in depth.
+  const feed = Array.isArray(cur) ? cur : [];
   if (feed[feed.length - 1] === summary) return feed; // unchanged → signal no-op to caller
   return [...feed, summary].slice(-MAX_ACTIVITY_LINES);
 }
@@ -63,7 +69,7 @@ class ReviewsStore {
   }
 
   apply(d: { id: string; review: ReviewVerdict | null }) {
-    if (d.review) this.map = { ...this.map, [d.id]: d.review };
+    if (d.review) this.map = setKey(this.map, d.id, d.review);
     else {
       const copy = { ...this.map };
       delete copy[d.id];
@@ -75,7 +81,7 @@ class ReviewsStore {
 
   setReviewing(id: string, on: boolean, env?: ReviewerEnv) {
     if (on) {
-      if (env) this.reviewerEnv = { ...this.reviewerEnv, [id]: env };
+      if (env) this.reviewerEnv = setKey(this.reviewerEnv, id, env);
     } else if (id in this.reviewerEnv) {
       const copy = { ...this.reviewerEnv };
       delete copy[id];
@@ -86,7 +92,7 @@ class ReviewsStore {
     // against a missed end-clear), on END the finished run's live tail is stale. Guarded by the
     // early return above so a repeated same-state call doesn't clear.
     this.clearActivity(id);
-    if (on) this.reviewing = { ...this.reviewing, [id]: true };
+    if (on) this.reviewing = setKey(this.reviewing, id, true);
     else {
       const copy = { ...this.reviewing };
       delete copy[id];
@@ -100,9 +106,14 @@ class ReviewsStore {
    *  only renders in-flight and every run starts empty, so a straggler tick after the end can
    *  never surface (see staleness invariant). */
   setActivity(id: string, summary: string) {
+    // Reject a non-session-id key at the boundary so no junk entry is created for it. This is NOT
+    // what makes the subsequent read safe — a letter-only inherited name (`constructor`, `toString`)
+    // passes SAFE_ID yet reads as a non-array; pushActivity is hardened against that. Write-safety
+    // is setKey's job. Together: unreachable-hostile-id in, no crash and no pollution out.
+    if (!SAFE_ID.test(id)) return;
     const next = pushActivity(this.activity[id], summary);
     if (next === this.activity[id]) return; // unchanged reference → no churn
-    this.activity = { ...this.activity, [id]: next };
+    this.activity = setKey(this.activity, id, next);
   }
 
   private clearActivity(id: string) {
@@ -192,7 +203,7 @@ export class PlanGateStore {
   }
 
   apply(id: string, gate: PlanGate) {
-    this.map = { ...this.map, [id]: gate };
+    this.map = setKey(this.map, id, gate);
     // a landing verdict means the review is no longer in flight
     this.applyReviewing(id, false);
   }
@@ -202,7 +213,7 @@ export class PlanGateStore {
     // interleave on reload, or a re-emitted signal) doesn't transition `reviewing`, but must still
     // refresh the identity. On end (`false`) drop it so a stale env can't linger past the run.
     if (on) {
-      if (env) this.reviewerEnv = { ...this.reviewerEnv, [id]: env };
+      if (env) this.reviewerEnv = setKey(this.reviewerEnv, id, env);
     } else if (id in this.reviewerEnv) {
       const copy = { ...this.reviewerEnv };
       delete copy[id];
@@ -211,7 +222,7 @@ export class PlanGateStore {
     if (!!this.reviewing[id] === on) return;
     // Reset the feed on both ends of a transition (start = fresh empty run, end = stale tail).
     this.clearActivity(id);
-    if (on) this.reviewing = { ...this.reviewing, [id]: true };
+    if (on) this.reviewing = setKey(this.reviewing, id, true);
     else {
       const copy = { ...this.reviewing };
       delete copy[id];
@@ -228,9 +239,14 @@ export class PlanGateStore {
   /** Append the in-flight plan reviewer's latest tool-use summary to its bounded rolling feed
    *  (last MAX_ACTIVITY_LINES), deduping against the last line. Mirrors ReviewsStore.setActivity. */
   setActivity(id: string, summary: string) {
+    // Reject a non-session-id key at the boundary so no junk entry is created for it. This is NOT
+    // what makes the subsequent read safe — a letter-only inherited name (`constructor`, `toString`)
+    // passes SAFE_ID yet reads as a non-array; pushActivity is hardened against that. Write-safety
+    // is setKey's job. Together: unreachable-hostile-id in, no crash and no pollution out.
+    if (!SAFE_ID.test(id)) return;
     const next = pushActivity(this.activity[id], summary);
     if (next === this.activity[id]) return; // unchanged reference → no churn
-    this.activity = { ...this.activity, [id]: next };
+    this.activity = setKey(this.activity, id, next);
   }
 
   private clearActivity(id: string) {

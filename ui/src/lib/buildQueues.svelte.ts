@@ -1,4 +1,5 @@
 import type { BuildQueue } from "./types";
+import { setKey } from "./safe-keys";
 
 /** Module-level reactive build-queue map keyed by sessionId.
  *  Driven by two sources:
@@ -10,7 +11,7 @@ class BuildQueuesStore {
   map = $state<Record<string, BuildQueue>>({});
 
   upsert(q: BuildQueue) {
-    this.map = { ...this.map, [q.sessionId]: q };
+    this.map = setKey(this.map, q.sessionId, q);
   }
 
   seed(queues: Record<string, BuildQueue>) {

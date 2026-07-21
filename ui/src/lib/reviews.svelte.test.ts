@@ -851,3 +851,60 @@ test("applyHandsOffDefaults reverts every optimistic field AND rethrows on a fai
   expect(repoConfig.isAutoMergeEnabled("/repo")).toBe(false);
   expect(repoConfig.isAutoAddressEnabled("/repo")).toBe(false);
 });
+
+// ── prototype-pollution guards (CodeQL js/remote-property-injection) ────────
+
+test("session-id maps reject a __proto__ key but still store real ids", () => {
+  reviews.apply({ id: "__proto__", review: verdict("__proto__") });
+  expect(Object.hasOwn(reviews.map, "__proto__")).toBe(false);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+
+  const v = verdict("sess-1");
+  reviews.apply({ id: "sess-1", review: v });
+  expect(reviews.map["sess-1"]).toBe(v);
+
+  planGates.apply("__proto__", planGate("__proto__"));
+  expect(Object.hasOwn(planGates.map, "__proto__")).toBe(false);
+  const g = planGate("sess-2");
+  planGates.apply("sess-2", g);
+  expect(planGates.map["sess-2"]).toBe(g);
+});
+
+test("reviewing/env/activity maps reject __proto__ without dropping real ids", () => {
+  reviews.setReviewing("__proto__", true, { provider: "claude", model: "opus", effort: "high" });
+  expect(Object.hasOwn(reviews.reviewing, "__proto__")).toBe(false);
+  expect(Object.hasOwn(reviews.reviewerEnv, "__proto__")).toBe(false);
+  reviews.setActivity("__proto__", "reading files");
+  expect(Object.hasOwn(reviews.activity, "__proto__")).toBe(false);
+
+  reviews.setReviewing("sess-3", true, { provider: "claude", model: "opus", effort: "high" });
+  reviews.setActivity("sess-3", "reading files");
+  expect(reviews.isReviewing("sess-3")).toBe(true);
+  expect(reviews.reviewerEnvFor("sess-3")?.model).toBe("opus");
+  expect(reviews.activity["sess-3"]).toEqual(["reading files"]);
+});
+
+test("repoPath-keyed automation state still round-trips (charset would reject a path)", async () => {
+  // Regression guard for the highest-risk failure mode of this change: RepoConfigStore is keyed
+  // by filesystem path, which the session-id charset REJECTS. Routing these writes through the
+  // session-id guard would silently no-op every toggle and freeze the automation UI with no error.
+  const repoPath = "/home/u/Work/my-repo.git";
+  vi.mocked(putRepoConfig).mockResolvedValue(rc({ autopilotEnabled: true }));
+  repoConfig.autopilot = { [repoPath]: false };
+  await repoConfig.toggleAutopilot(repoPath);
+  expect(repoConfig.isAutopilotEnabled(repoPath)).toBe(true);
+});
+
+test("setActivity survives a hostile inherited-property id (constructor/toString)", () => {
+  // Regression: SAFE_ID admits letter-only names, and `this.activity["constructor"]` reads the
+  // Object function off the prototype chain — pushActivity used to spread it and throw a TypeError
+  // inside WS dispatch. Unreachable with randomUUID ids, but must not crash.
+  for (const evil of ["constructor", "toString", "valueOf", "__proto__"]) {
+    expect(() => reviews.setActivity(evil, "x")).not.toThrow();
+    expect(() => planGates.setActivity(evil, "x")).not.toThrow();
+  }
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  // a real id still accumulates normally after the hostile traffic
+  reviews.setActivity("sess-ok", "line one");
+  expect(reviews.activityFeed("sess-ok")).toEqual(["line one"]);
+});

@@ -1,5 +1,6 @@
 import type { EpicDraft } from "./types";
 import { getEpicDraft } from "./api";
+import { setKey } from "./safe-keys";
 
 /** Module-level reactive epic-draft map keyed by sessionId (issue #1507).
  *  Driven by two sources:
@@ -27,7 +28,7 @@ class EpicDraftsStore {
   }
 
   upsert(d: EpicDraft) {
-    this.map = { ...this.map, [d.sessionId]: d };
+    this.map = setKey(this.map, d.sessionId, d);
     for (const fn of this.listeners) fn(d);
   }
 

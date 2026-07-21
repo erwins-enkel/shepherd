@@ -283,7 +283,12 @@ function locationReferenceBlock(
   }
   lines.push(
     "- Files, symbols, tests and message keys the plan proposes to ADD, RENAME or MOVE are NEVER findings on resolution grounds. A plan describes code that does not exist yet.",
-    "- Identify code by FILE PATH + SYMBOL (function / type / const / message key). A line number, a line range, or the precision of a location reference is NEVER a finding — line numbers have been removed from the plan you were shown and are not part of the contract.",
+    // Deliberately NOT "line numbers have been removed": stripPlanLineRefs only removes refs
+    // attached to an extension-bearing path, so `Makefile:88` and prose like `foo.ts (line 411)`
+    // reach the reviewer intact. Promising exhaustive removal would be visibly false the first
+    // time one survives, which discredits the rule it is meant to justify. The load-bearing claim
+    // is that line numbers are not part of the contract — true whatever survived.
+    "- Identify code by FILE PATH + SYMBOL (function / type / const / message key). A line number, a line range, or the precision of a location reference is NEVER a finding — line numbers are not part of the contract, and any you do see in the plan carry no authority.",
     '- When you AUTHOR A NEW finding, cite path + symbol, not line numbers, in "findings" and "body".',
     "- EXEMPTION: re-raising a prior finding verbatim is REQUIRED by the re-review instruction above and OVERRIDES the previous rule. Reproduce its text unchanged, line numbers included; a re-raised prior finding is not itself a location complaint, and must not be dropped, reworded or reclassified on those grounds.",
   );

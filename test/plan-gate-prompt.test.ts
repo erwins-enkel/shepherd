@@ -229,6 +229,11 @@ test("every tier carries the same carve-out, line-number ban, output rule and re
   ]) {
     expect(p).toContain("ADD, RENAME or MOVE are NEVER findings");
     expect(p).toContain("precision of a location reference is NEVER a finding");
+    // The reviewer must NOT be told line numbers were exhaustively removed: the strip only
+    // catches path-attached refs, so `Makefile:88` reaches it intact and a blanket promise would
+    // be visibly false the first time one survives — discrediting the rule it justifies.
+    expect(p).toContain("line numbers are not part of the contract");
+    expect(p).not.toContain("have been removed from the plan you were shown");
     expect(p).toContain("When you AUTHOR A NEW finding");
     expect(p).toContain("EXEMPTION: re-raising a prior finding verbatim is REQUIRED");
   }

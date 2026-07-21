@@ -1047,13 +1047,17 @@ export function planBlockInstructions(opts: {
  *  Line numbers were the single biggest source of wasted rework rounds: the planner and the
  *  adversarial reviewer historically read different trees, so a line number correct on one side
  *  was wrong on the other, and rounds were spent re-numbering rather than improving the plan. The
- *  reviewer now reads the planner's own merge-base AND has line refs stripped from the plan it is
- *  shown, so a line citation is invisible to it — stating that here is what stops the planner
- *  producing them in the first place. */
+ *  reviewer now reads the planner's own merge-base and is barred from raising location findings —
+ *  stating that here is what stops the planner producing them in the first place.
+ *
+ *  The stripping clause is deliberately qualified ("path-attached"): `stripPlanLineRefs` only
+ *  removes refs bound to an extension-bearing path, so `Makefile:88` and prose like
+ *  `foo.ts (line 411)` reach the reviewer intact. Claiming blanket removal would overstate the
+ *  guarantee, and the barred-from-findings half is the part that actually holds unconditionally. */
 const PLAN_REFERENCE_STYLE =
   "Reference code by FILE PATH + SYMBOL (e.g. `src/foo.ts` → `handleX()`), never by line number: " +
-  "line numbers are stripped from the plan the reviewer is shown, so a line citation is noise, not " +
-  "evidence.\n";
+  "path-attached line refs are stripped from the plan the reviewer is shown, and it is barred from " +
+  "raising location findings either way, so a line citation is noise, not evidence.\n";
 
 /**
  * The interactive plan-gate directive, provider-adjusted. Two Codex-specific divergences:

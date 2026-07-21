@@ -77,7 +77,9 @@ describe.each([
   ["tiny", 240, "1.3"],
 ])("EpicDraftPanel bar — CTA horizontal containment (%s)", (label, width, uiScale) => {
   it("keeps the CTA inside the bar", async () => {
-    const sessionId = `epic-draft-bar-fit-${label}`;
+    // Slugified: real session ids are `randomUUID()`s, and `epicDrafts.upsert` now validates the
+    // key against that charset (safe-keys.ts), so a raw label with spaces/commas would be dropped.
+    const sessionId = `epic-draft-bar-fit-${label.replace(/[^0-9a-zA-Z-]+/g, "-")}`;
     epicDrafts.upsert(longDraft(sessionId));
 
     const { container, unmount } = await render(EpicDraftPanel, {

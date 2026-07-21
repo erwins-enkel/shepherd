@@ -76,3 +76,12 @@ test("drop() is a no-op for unknown id", () => {
   // map object is the same reference (no copy was made)
   expect(recaps.map).toBe(before);
 });
+
+test("recap upsert rejects a __proto__ id but still stores a real one", () => {
+  recaps.apply({ id: "__proto__", recap: recap("__proto__") });
+  expect(Object.hasOwn(recaps.map, "__proto__")).toBe(false);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  const r = recap("sess-1");
+  recaps.apply({ id: "sess-1", recap: r });
+  expect(recaps.map["sess-1"]).toBe(r);
+});

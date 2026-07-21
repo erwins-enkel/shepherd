@@ -42,6 +42,7 @@ import { m } from "$lib/paraglide/messages";
 import { buildQueues as buildQueuesStore } from "./buildQueues.svelte";
 import { epicDrafts as epicDraftsStore } from "./epic-draft.svelte";
 import { postMergeSteps as postMergeStepsStore } from "./post-merge-steps.svelte";
+import { SAFE_ID, safeMerge, setKey, setPathKey } from "./safe-keys";
 
 /** Only follow http(s) URLs when opening a link from event-carried data — a `javascript:`
  *  (or other-scheme) value would be an open-redirect / script-execution vector
@@ -193,7 +194,12 @@ export class HerdStore {
     const folded: Record<string, LivenessState> = Object.fromEntries(
       Object.entries(map).map(([id, alive]) => [id, alive ? "alive" : "husk"]),
     );
-    for (const id of strandedIds) folded[id] = "stranded";
+    // Guarded computed ASSIGNMENT (not the literal-spread form used elsewhere): `folded[id] = …`
+    // goes through [[Set]], so an `__proto__` id would hit the prototype setter. Inert only while
+    // `LivenessState` is a string union — the setter ignores non-object values — so guard the key
+    // rather than rely on that. A rejected id is dropped: it keeps `husk` instead of upgrading to
+    // `stranded` (losing the revive banner), which no real `randomUUID()` id can trigger.
+    for (const id of strandedIds) if (SAFE_ID.test(id)) folded[id] = "stranded";
     this.claudeAlive = folded;
   }
   /** Seed (or replace) the working-while-blocked flag map after a bootstrap GET. */
@@ -260,7 +266,9 @@ export class HerdStore {
   }
   /** Seed (or replace) the build queue for a session — called after a bootstrap GET. */
   setBuildQueue(q: BuildQueue) {
-    this.buildQueues = { ...this.buildQueues, [q.sessionId]: q };
+    // Guarded even though CodeQL flags only the `queue:update` twin below: same map, same key
+    // shape, same form — leaving this open would be a bypass sitting beside the guard.
+    this.buildQueues = setKey(this.buildQueues, q.sessionId, q);
     buildQueuesStore.upsert(q);
   }
   /** Bulk-replace the build queue map — called after a resync GET /api/queues. */
@@ -339,7 +347,7 @@ export class HerdStore {
       return;
     }
     const prev = this.blocks[id];
-    this.blocks = { ...this.blocks, [id]: { reason, since: prev?.since ?? Date.now() } };
+    this.blocks = setKey(this.blocks, id, { reason, since: prev?.since ?? Date.now() });
   }
 
   /** Set or clear a session's live preview-listener port (null tears the entry
@@ -347,7 +355,7 @@ export class HerdStore {
    *  from apply() to keep that dispatch switch under the complexity gate. */
   private setPreviewPort(id: string, port: number | null) {
     if (port == null) this.preview = dropKey(this.preview, id);
-    else this.preview = { ...this.preview, [id]: port };
+    else this.preview = setKey(this.preview, id, port);
   }
 
   /** Set or clear a session's tailscale-serve registration status. null drops the
@@ -355,14 +363,14 @@ export class HerdStore {
    *  apply() to keep that dispatch switch under the complexity gate. */
   private setServe(id: string, serve: "ok" | "failed" | null) {
     if (serve == null) this.previewServe = dropKey(this.previewServe, id);
-    else this.previewServe = { ...this.previewServe, [id]: serve };
+    else this.previewServe = setKey(this.previewServe, id, serve);
   }
 
   /** Set or clear a session's working-while-blocked display flag. false drops the
    *  entry (keeps the map small — absent reads the same as false). Extracted from
    *  apply() to keep that dispatch switch under the complexity gate. */
   private setWorkingBlockedFlag(id: string, working: boolean) {
-    if (working) this.workingBlocked = { ...this.workingBlocked, [id]: true };
+    if (working) this.workingBlocked = setKey(this.workingBlocked, id, true);
     else this.workingBlocked = dropKey(this.workingBlocked, id);
   }
 
@@ -386,7 +394,11 @@ export class HerdStore {
    *  of sessions (session:new / session:archived / setAll). */
   private patchSession(id: string, patch: Partial<Session>) {
     const s = this.byId(id);
-    if (s) Object.assign(s, patch);
+    // `Object.assign` uses [[Set]], so an own `__proto__` key in a decoded WS payload would set the
+    // target's prototype instead of landing as a property. Guarded HERE rather than in the callers
+    // because this is the single Object.assign chokepoint — every present and future caller of
+    // patchSession is covered by the one check.
+    if (s) Object.assign(s, safeMerge(patch));
   }
 
   /** Apply a session:status push. Merges the turn-end scratchpad flag (#1164) only when this
@@ -481,7 +493,7 @@ export class HerdStore {
         this.setBlock(ev.data.id, ev.data.block);
         break;
       case "session:hold":
-        if (ev.data.hold) this.holds = { ...this.holds, [ev.data.id]: ev.data.hold };
+        if (ev.data.hold) this.holds = setKey(this.holds, ev.data.id, ev.data.hold);
         else this.holds = dropKey(this.holds, ev.data.id);
         break;
       default:
@@ -584,13 +596,13 @@ export class HerdStore {
   private applySessionDataEvent(ev: WsEvent): boolean {
     switch (ev.event) {
       case "session:git":
-        this.git = { ...this.git, [ev.data.id]: ev.data.git };
+        this.git = setKey(this.git, ev.data.id, ev.data.git);
         return true;
       case "session:activity":
-        this.activity = { ...this.activity, [ev.data.id]: ev.data.activity };
+        this.activity = setKey(this.activity, ev.data.id, ev.data.activity);
         return true;
       case "session:subagents":
-        this.subagents = { ...this.subagents, [ev.data.id]: ev.data.subagents };
+        this.subagents = setKey(this.subagents, ev.data.id, ev.data.subagents);
         return true;
       case "session:claude-alive":
         // Prefer the folded 3-state; fall back to the boolean when an old server omits `liveness`.
@@ -842,13 +854,13 @@ export class HerdStore {
         this.backlog = ev.data;
         break;
       case "drain:status":
-        this.drain = { ...this.drain, [ev.data.repoPath]: ev.data };
+        this.drain = setPathKey(this.drain, ev.data.repoPath, ev.data);
         break;
       case "automerge:status":
-        this.autoMerge = { ...this.autoMerge, [ev.data.repoPath]: ev.data };
+        this.autoMerge = setPathKey(this.autoMerge, ev.data.repoPath, ev.data);
         break;
       case "queue:update":
-        this.buildQueues = { ...this.buildQueues, [ev.data.sessionId]: ev.data };
+        this.buildQueues = setKey(this.buildQueues, ev.data.sessionId, ev.data);
         buildQueuesStore.upsert(ev.data);
         break;
       case "session:epic-draft":
@@ -1039,18 +1051,16 @@ export class HerdStore {
   }
 }
 
+/** Immutably drop `rec[id]`.
+ *
+ *  DELIBERATELY UNGUARDED, unlike its {@link setKey} sibling. A `delete` can never create or
+ *  redirect a prototype under any key, so a key check would add no safety — while a REJECTED key
+ *  would silently fail to delete, pinning a session as "Reviewing…" or leaving a stale verdict on
+ *  screen. Not an oversight: guarding here can only break deletion. */
 function dropKey<T>(rec: Record<string, T>, id: string): Record<string, T> {
   const copy = { ...rec };
   delete copy[id];
   return copy;
-}
-
-/** Immutably set `rec[id] = value`. `id` is a server-provided session id (a UUID/slug), so it is
- *  validated against a strict charset before the computed write — this both rejects malformed ids
- *  and forecloses any prototype-polluting property name (`__proto__` etc. never match) (#1630). */
-function setKey<T>(rec: Record<string, T>, id: string, value: T): Record<string, T> {
-  if (!/^[0-9a-zA-Z-]+$/.test(id)) return rec;
-  return { ...rec, [id]: value };
 }
 
 export function wsUrl(path: string): string {

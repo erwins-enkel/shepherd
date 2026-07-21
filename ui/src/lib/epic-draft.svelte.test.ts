@@ -82,3 +82,15 @@ describe("EpicDraftsStore.refresh", () => {
     expect(epicDrafts.get("s1")?.status).toBe("materializing");
   });
 });
+
+describe("prototype-pollution guard", () => {
+  it("rejects a __proto__ sessionId but still upserts a real one", () => {
+    epicDrafts.upsert(draft("__proto__", "draft"));
+    expect(Object.hasOwn(epicDrafts.map, "__proto__")).toBe(false);
+    expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+
+    const d = draft("sess-1", "draft");
+    epicDrafts.upsert(d);
+    expect(epicDrafts.map["sess-1"]).toBe(d);
+  });
+});

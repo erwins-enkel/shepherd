@@ -1361,3 +1361,68 @@ test("session:block carries the authUrl through to the block map", () => {
   s.apply({ event: "session:block", data: { id: "s1", block: null } });
   expect(s.blocks.s1).toBeUndefined();
 });
+
+// ── prototype-pollution guards (CodeQL js/remote-property-injection) ────────
+
+test("session:status payload carrying __proto__ cannot set a Session's prototype", () => {
+  const s = new HerdStore();
+  s.setAll([session("s1")]);
+  // A decoded WS payload CAN carry an own `__proto__` key (JSON.parse creates one), and
+  // patchSession merges with Object.assign, which uses [[Set]] — so without the guard this
+  // reaches the prototype setter. Driven through the WS dispatch seam, not patchSession directly.
+  const evil = JSON.parse('{"id":"s1","status":"running","__proto__":{"polluted":"yes"}}');
+  s.apply({ event: "session:status", data: evil });
+
+  const target = s.sessions.find((x) => x.id === "s1")!;
+  expect(Object.getPrototypeOf(target)).toBe(Object.prototype);
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  expect(target.status).toBe("running"); // the legitimate part of the patch still applied
+});
+
+test("setClaudeAlive drops a hostile stranded id instead of touching the prototype", () => {
+  const s = new HerdStore();
+  s.setClaudeAlive({ s1: false }, ["__proto__", "constructor", "s1"]);
+  expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  expect(Object.getPrototypeOf(s.claudeAlive)).toBe(Object.prototype);
+  // `__proto__` is rejected outright (underscores fail the charset) — the case that matters,
+  // since it is the only one of the three that can reach a prototype setter.
+  expect(Object.hasOwn(s.claudeAlive, "__proto__")).toBe(false);
+  // `constructor` passes the charset (pure letters) and lands as an ordinary OWN property,
+  // shadowing the inherited one on this record. Harmless: the write is a plain assignment of a
+  // string, no setter runs, and reads of other keys are unaffected.
+  expect(Object.hasOwn(s.claudeAlive, "constructor")).toBe(true);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  // the legitimate id still upgrades to `stranded`
+  expect(s.claudeAlive["s1"]).toBe("stranded");
+});
+
+test("drain/automerge still round-trip a real repoPath through the path-shaped guard", () => {
+  // Regression: the UUID charset used for session-id maps REJECTS a filesystem path, so routing
+  // these through it would silently no-op and freeze both maps in the UI with no error.
+  const s = new HerdStore();
+  const repoPath = "/home/u/Work/my-repo.git";
+  s.apply({ event: "drain:status", data: { ...DRAIN, repoPath } });
+  s.apply({ event: "automerge:status", data: { ...AUTOMERGE_STATUS, repoPath } });
+  expect(s.drain[repoPath]?.inFlight).toBe(1);
+  expect(s.autoMerge[repoPath]).toBeDefined();
+});
+
+test("queue:update and the bootstrap setBuildQueue are both guarded", () => {
+  const s = new HerdStore();
+  s.apply({ event: "queue:update", data: { ...QUEUE, sessionId: "__proto__" } });
+  s.setBuildQueue({ ...QUEUE, sessionId: "__proto__" });
+  expect(Object.hasOwn(s.buildQueues, "__proto__")).toBe(false);
+  expect(Object.getPrototypeOf(s.buildQueues)).toBe(Object.prototype);
+  // a legitimate id still lands on both paths
+  s.setBuildQueue({ ...QUEUE, sessionId: "sess-1" });
+  expect(s.buildQueues["sess-1"]).toBeDefined();
+});
+
+test("dropKey stays unguarded so deletion never silently fails", () => {
+  // Guarding a delete could only break it: a rejected key would leave a stale entry pinned.
+  const s = new HerdStore();
+  s.apply({ event: "session:git", data: { id: "s1", git: GIT } });
+  expect(s.git["s1"]).toBeDefined();
+  s.apply({ event: "session:archived", data: { id: "s1" } });
+  expect(s.git["s1"]).toBeUndefined();
+});

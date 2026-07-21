@@ -25,6 +25,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { execFileSync } from "./instrument";
 import { resolveNodeBin } from "./node-bin";
+import { shepherdRuntimeDir } from "./runtime-dir";
 import {
   type BackendProbeDeps,
   type MembraneInputs,
@@ -616,16 +617,17 @@ export function egressMembraneOverrideFlags(
 
 /**
  * Deterministic per-session temp dir holding the generated egress config files +
- * the dns.log the drop-watcher tails. Lives under the OS temp dir; one dir per
- * session id so the startup sweep can reconcile orphans against the live set.
+ * the dns.log the drop-watcher tails. Lives under the user-private runtime dir
+ * ({@link shepherdRuntimeDir}, `0700`) as `egress/<sessionId>` — one dir per session
+ * id so the startup sweep can reconcile orphans against the live set.
  */
 export function egressTmpDir(sessionId: string): string {
-  return join(tmpdir(), "shepherd-egress", sessionId);
+  return shepherdRuntimeDir("egress", sessionId);
 }
 
 /** Root dir holding every per-session egress temp dir (for the orphan sweep). */
 function egressTmpRoot(): string {
-  return join(tmpdir(), "shepherd-egress");
+  return shepherdRuntimeDir("egress");
 }
 
 /**
@@ -669,7 +671,7 @@ export function removeEgressTmp(sessionId: string): void {
 }
 
 /**
- * Startup reconcile sweep: remove any `shepherd-egress/<id>` dir whose id is NOT in
+ * Startup reconcile sweep: remove any `egress/<id>` dir whose id is NOT in
  * `liveSessionIds` (the non-archived session set). Bounds unbounded growth from
  * sessions whose teardown removal was missed (crash, restart). Best-effort —
  * never throws; a single unremovable entry is skipped.

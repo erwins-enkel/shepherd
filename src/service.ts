@@ -4902,7 +4902,7 @@ export class SessionService {
   private pendingRunawayIds: Set<string> | null = null;
 
   /**
-   * Startup reconcile: remove any orphaned `shepherd-egress/<id>` temp dir whose id is
+   * Startup reconcile: remove any orphaned `egress/<id>` temp dir whose id is
    * not a currently live (non-archived) session — bounds unbounded growth from teardown
    * removals missed across a crash/restart. Best-effort (never throws). Call once at
    * server boot. A live session's dir (incl. its dns.log) is preserved.

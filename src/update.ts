@@ -1,10 +1,10 @@
 import { execFile, spawn, spawnSync } from "node:child_process";
 import { createHash, type Hash } from "node:crypto";
-import { readFileSync, statSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { timedAsync } from "./instrument";
+import { shepherdRuntimeDir } from "./runtime-dir";
 
 const execFileAsync = promisify(execFile);
 
@@ -232,8 +232,9 @@ export interface UpdateDeps {
   branch?: string;
   /** path to the deploy script run on apply */
   scriptPath?: string;
-  /** where the detached deploy streams its output; defaults to a tmp file shared
-   *  across restarts so a freshly booted shepherd can still read a deploy result */
+  /** where the detached deploy streams its output; defaults to a fixed file under the
+   *  user-private runtime dir ({@link shepherdRuntimeDir}, `0700`), shared across restarts
+   *  so a freshly booted shepherd can still read a deploy result */
   logPath?: string;
   /** inject point for tests; defaults to real `git -C <repoDir> …` */
   git?: GitRunner;
@@ -277,7 +278,7 @@ export class UpdateService {
     this.repoDir = deps.repoDir ?? process.cwd();
     this.branch = deps.branch ?? "main";
     this.scriptPath = deps.scriptPath ?? join(this.repoDir, "deploy", "update.sh");
-    this.logPath = deps.logPath ?? join(tmpdir(), "shepherd-update.log");
+    this.logPath = deps.logPath ?? shepherdRuntimeDir("shepherd-update.log");
     this.limit = deps.limit ?? 20;
     this.sigMaxBytes = deps.sigMaxBytes ?? 64 * 1024 * 1024;
     this.sigTimeoutMs = deps.sigTimeoutMs ?? 10_000;
@@ -353,6 +354,9 @@ export class UpdateService {
    *  be read back and shown to the operator instead of vanishing. Throws if the
    *  unit can't even be registered (e.g. systemd-run missing). */
   private defaultLaunch(discard?: DiscardLaunch): void {
+    // The runtime dir ($XDG_RUNTIME_DIR/shepherd or the ~/.shepherd/run fallback) may not
+    // exist yet — /tmp always did. Create it before the write, or the deploy never launches.
+    mkdirSync(dirname(this.logPath), { recursive: true });
     // truncate up front so the file exists immediately → readState() reports
     // "running" before the scope has had a chance to open it.
     writeFileSync(this.logPath, "");

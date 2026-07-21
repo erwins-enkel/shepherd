@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { shepherdRuntimeDir } from "../src/runtime-dir";
 import { SessionStore } from "../src/store";
 import {
   SessionService,
@@ -7383,7 +7384,7 @@ test("baseUrl: egress-confined autonomous on host-loopback slirp → hooks via 1
     expect(hooksUrlFrom(record.argv)).toBe(`http://10.0.2.2:7331/api/sessions/${s.id}/hooks`);
   } finally {
     config.hooksIngest = prev;
-    rmSync(join(tmpdir(), "shepherd-egress"), { recursive: true, force: true });
+    rmSync(shepherdRuntimeDir("egress"), { recursive: true, force: true });
   }
 });
 
@@ -7414,7 +7415,7 @@ test("baseUrl: autonomous but slirp NOT host-loopback-capable → falls back to 
     );
   } finally {
     config.hooksIngest = prev;
-    rmSync(join(tmpdir(), "shepherd-egress"), { recursive: true, force: true });
+    rmSync(shepherdRuntimeDir("egress"), { recursive: true, force: true });
   }
 });
 

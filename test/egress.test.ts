@@ -933,10 +933,21 @@ describe("egressRunnerPath", () => {
 });
 
 describe("egressTmpDir", () => {
-  test("deterministic per-session path under the OS temp dir", () => {
-    const d = egressTmpDir("sess-123");
-    expect(d).toBe(join(tmpdir(), "shepherd-egress", "sess-123"));
-    expect(egressTmpDir("sess-123")).toBe(d); // stable
+  test("deterministic per-session path under the user runtime dir, off world-writable /tmp", () => {
+    const savedXdg = process.env.XDG_RUNTIME_DIR;
+    // Pin the base independently (not via shepherdRuntimeDir — that would be tautological)
+    // so the assertion actually proves the path left /tmp.
+    process.env.XDG_RUNTIME_DIR = "/run/user/9999";
+    try {
+      const d = egressTmpDir("sess-123");
+      expect(d).toBe(join("/run/user/9999", "shepherd", "egress", "sess-123"));
+      // The old world-writable location is gone.
+      expect(d).not.toBe(join(tmpdir(), "shepherd-egress", "sess-123"));
+      expect(egressTmpDir("sess-123")).toBe(d); // stable
+    } finally {
+      if (savedXdg === undefined) delete process.env.XDG_RUNTIME_DIR;
+      else process.env.XDG_RUNTIME_DIR = savedXdg;
+    }
   });
 });
 

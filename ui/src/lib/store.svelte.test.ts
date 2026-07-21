@@ -1426,3 +1426,21 @@ test("dropKey stays unguarded so deletion never silently fails", () => {
   s.apply({ event: "session:archived", data: { id: "s1" } });
   expect(s.git["s1"]).toBeUndefined();
 });
+
+test("path-keyed writes stay spreadable/enumerable despite defineProperty", () => {
+  // setPathKey uses Object.defineProperty rather than a computed literal key; pin that the
+  // resulting entry is indistinguishable (enumerable, spreadable, JSON-serialisable), since the
+  // drain/automerge maps are read that way throughout the UI.
+  const s = new HerdStore();
+  const a = "/home/u/repo-one";
+  const b = "/home/u/repo-two.git";
+  s.apply({ event: "drain:status", data: { ...DRAIN, repoPath: a } });
+  s.apply({ event: "drain:status", data: { ...DRAIN, repoPath: b } });
+  expect(Object.keys(s.drain)).toEqual([a, b]);
+  expect({ ...s.drain }[b]?.repoPath).toBe(b);
+  expect(JSON.parse(JSON.stringify(s.drain))[a].repoPath).toBe(a);
+  // and the guard still rejects the dangerous names on this path
+  s.apply({ event: "drain:status", data: { ...DRAIN, repoPath: "__proto__" } });
+  expect(Object.hasOwn(s.drain, "__proto__")).toBe(false);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+});

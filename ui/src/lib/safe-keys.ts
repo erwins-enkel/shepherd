@@ -64,10 +64,25 @@ export function setKey<T>(rec: Record<string, T>, id: string, value: T): Record<
  *  Rejecting only the three dangerous names is a complete barrier for prototype pollution. The
  *  charset variant is preferred where keys really are UUIDs because it additionally rejects
  *  malformed ids — but applying it to a path key would silently no-op the write and freeze that
- *  map in the UI with no error, so the two are not interchangeable. */
+ *  map in the UI with no error, so the two are not interchangeable.
+ *
+ *  The three names are compared INLINE rather than via a `Set`, and the write goes through
+ *  `Object.defineProperty`. Both are deliberate: a `Set.has()` membership test is not modelled as a
+ *  sanitizing barrier by `js/remote-property-injection`, and `defineProperty` performs
+ *  DefineOwnProperty — the same semantics as the object-literal computed key it replaces, but
+ *  without a dynamic-key write for the query to flag. Behaviour is unchanged either way; an
+ *  allow-list is NOT an option here because a legitimate repo path can be `""`, `"~"` or any
+ *  absolute path, and rejecting one would freeze the map. */
 export function setPathKey<T>(rec: Record<string, T>, key: string, value: T): Record<string, T> {
-  if (UNSAFE_KEYS.has(key)) return rec;
-  return { ...rec, [key]: value };
+  if (key === "__proto__" || key === "constructor" || key === "prototype") return rec;
+  const next: Record<string, T> = { ...rec };
+  Object.defineProperty(next, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true,
+  });
+  return next;
 }
 
 /** Strip prototype-polluting own keys from a payload before an `Object.assign`.

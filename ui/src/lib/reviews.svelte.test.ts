@@ -894,3 +894,17 @@ test("repoPath-keyed automation state still round-trips (charset would reject a 
   await repoConfig.toggleAutopilot(repoPath);
   expect(repoConfig.isAutopilotEnabled(repoPath)).toBe(true);
 });
+
+test("setActivity survives a hostile inherited-property id (constructor/toString)", () => {
+  // Regression: SAFE_ID admits letter-only names, and `this.activity["constructor"]` reads the
+  // Object function off the prototype chain — pushActivity used to spread it and throw a TypeError
+  // inside WS dispatch. Unreachable with randomUUID ids, but must not crash.
+  for (const evil of ["constructor", "toString", "valueOf", "__proto__"]) {
+    expect(() => reviews.setActivity(evil, "x")).not.toThrow();
+    expect(() => planGates.setActivity(evil, "x")).not.toThrow();
+  }
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+  // a real id still accumulates normally after the hostile traffic
+  reviews.setActivity("sess-ok", "line one");
+  expect(reviews.activityFeed("sess-ok")).toEqual(["line one"]);
+});

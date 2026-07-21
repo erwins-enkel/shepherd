@@ -22,7 +22,12 @@ export const MAX_ACTIVITY_LINES = 2;
  *  re-emits the same summary every tick → no churn). Returns the SAME array reference when
  *  nothing changed so callers can skip a reactive write. */
 function pushActivity(cur: string[] | undefined, summary: string): string[] {
-  const feed = cur ?? [];
+  // `cur` comes from a bracket read of a `Record` (`this.activity[id]`), so a hostile id that names
+  // an inherited `Object.prototype` member — `constructor`, `toString`, `valueOf`, … — resolves up
+  // the chain to a non-array (a function / the prototype object) and the spread below would throw.
+  // `SAFE_ID` on the caller rejects `__proto__` but NOT those letter-only names, so treat any
+  // non-array as "no feed yet". Unreachable with real `randomUUID()` ids; defence in depth.
+  const feed = Array.isArray(cur) ? cur : [];
   if (feed[feed.length - 1] === summary) return feed; // unchanged → signal no-op to caller
   return [...feed, summary].slice(-MAX_ACTIVITY_LINES);
 }
@@ -101,8 +106,10 @@ class ReviewsStore {
    *  only renders in-flight and every run starts empty, so a straggler tick after the end can
    *  never surface (see staleness invariant). */
   setActivity(id: string, summary: string) {
-    // Gate BEFORE the read, not just the write: `this.activity["__proto__"]` resolves through the
-    // prototype chain to `Object.prototype`, which pushActivity would then try to spread.
+    // Reject a non-session-id key at the boundary so no junk entry is created for it. This is NOT
+    // what makes the subsequent read safe — a letter-only inherited name (`constructor`, `toString`)
+    // passes SAFE_ID yet reads as a non-array; pushActivity is hardened against that. Write-safety
+    // is setKey's job. Together: unreachable-hostile-id in, no crash and no pollution out.
     if (!SAFE_ID.test(id)) return;
     const next = pushActivity(this.activity[id], summary);
     if (next === this.activity[id]) return; // unchanged reference → no churn
@@ -232,8 +239,10 @@ export class PlanGateStore {
   /** Append the in-flight plan reviewer's latest tool-use summary to its bounded rolling feed
    *  (last MAX_ACTIVITY_LINES), deduping against the last line. Mirrors ReviewsStore.setActivity. */
   setActivity(id: string, summary: string) {
-    // Gate BEFORE the read, not just the write: `this.activity["__proto__"]` resolves through the
-    // prototype chain to `Object.prototype`, which pushActivity would then try to spread.
+    // Reject a non-session-id key at the boundary so no junk entry is created for it. This is NOT
+    // what makes the subsequent read safe — a letter-only inherited name (`constructor`, `toString`)
+    // passes SAFE_ID yet reads as a non-array; pushActivity is hardened against that. Write-safety
+    // is setKey's job. Together: unreachable-hostile-id in, no crash and no pollution out.
     if (!SAFE_ID.test(id)) return;
     const next = pushActivity(this.activity[id], summary);
     if (next === this.activity[id]) return; // unchanged reference → no churn

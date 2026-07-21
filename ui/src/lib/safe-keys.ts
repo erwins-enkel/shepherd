@@ -42,23 +42,26 @@
 /** Server-minted ids (`randomUUID()` — hex + hyphens) match. `__proto__` cannot: underscores are
  *  outside the class, which is what makes this a prototype-pollution barrier.
  *
- *  NOTE `constructor` and `prototype` DO match — they are pure letters. That is safe for every
- *  consumer, including the one that performs a real `[[Set]]` write:
+ *  NOTE `constructor` and `prototype` DO match — they are pure letters. This regex is a
+ *  prototype-pollution (WRITE) barrier only, and for that purpose admitting them is safe even on
+ *  the one path that does a real `[[Set]]` write:
  *  - `Object.prototype.constructor` is a writable DATA property, not an accessor, so assigning it
  *    on a plain record creates an ordinary own property on the receiver — no setter runs.
  *  - `Object.prototype.prototype` does not exist at all, so that name is a plain own-property
  *    creation too.
  *  `__proto__` is the only name on `Object.prototype` backed by an accessor, which is exactly why
- *  excluding it is sufficient here. ({@link setPathKey} and {@link safeMerge} still reject all
- *  three: their keys are arbitrary path/payload input, so shadowing a builtin is worth avoiding
- *  even when it cannot pollute.)
+ *  excluding it is sufficient to stop pollution. ({@link setPathKey} and {@link safeMerge} still
+ *  reject all three: their keys are arbitrary path/payload input, so shadowing a builtin is worth
+ *  avoiding even when it cannot pollute.)
+ *
+ *  It does NOT make a subsequent READ of `map[id]` safe: `constructor`, `toString`, … pass this
+ *  regex yet resolve up the prototype chain to a non-array. The one consumer that reads before
+ *  writing (`ReviewsStore`/`PlanGateStore.setActivity` → `pushActivity`) hardens that read itself.
  *
  *  Exported so that every session-id guard in the stores tests against THIS regex rather than
  *  re-deriving the charset — that shared identity is the anti-drift property (#1630). Consumers are
  *  deliberately not enumerated here: the list has gone stale before, and `grep SAFE_ID` is both
- *  accurate and cheaper than a comment. Some consumers call it directly rather than going through
- *  {@link setKey}, because they must reject a key BEFORE reading `map[id]` — an unguarded read of
- *  `"__proto__"` resolves up the prototype chain and hands back `Object.prototype`. */
+ *  accurate and cheaper than a comment. */
 export const SAFE_ID = /^[0-9a-zA-Z-]+$/;
 
 /** Property names that reach `Object.prototype`'s setter (or shadow a builtin) on a `[[Set]]` write. */

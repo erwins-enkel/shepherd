@@ -353,6 +353,17 @@ export class RecapService {
   /** Guards against double-spawn when regenerate races a mid-flight sweep. */
   private inFlight = new Set<string>();
 
+  /** Spawn terminalId per generating RUN, keyed by the run's mkdtemp-unique tmpdir cwd
+   *  (#1852). The persisted `Recap` row carries only `cwd`, and `resolveTerminal(cwd)`
+   *  returns "" once the agent exited — which made the finalize `stop("")` a silent
+   *  no-op and leaked the tab. Keyed by cwd, NOT sessionId: a finalizer holds this key
+   *  across awaits, and a sessionId key is re-bound by a forced regenerate — a stale
+   *  finalizer would then stop and unmap the REPLACEMENT run's terminal. A tmpdir is
+   *  never reused, so a stale teardown can only ever resolve its own run. In-memory by
+   *  design: a restart-adopted row falls back to the cwd lookup, and its residue is the
+   *  orphan sweep's job. */
+  private generatingTerminals = new Map<string, string>();
+
   constructor(private deps: RecapServiceDeps) {
     this.now = optional(deps.now, Date.now);
     this.timeoutMs = optional(deps.timeoutMs, DEFAULT_TIMEOUT_MS);
@@ -560,15 +571,25 @@ export class RecapService {
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
 
+  /** Stop a generating run's pane — spawn-recorded terminalId first (#1852; the cwd
+   *  lookup is only for rows adopted across a restart and yields "" once the agent
+   *  exited, a safe stop() no-op) — then drop the in-memory handle. Keyed strictly by
+   *  the run's own cwd so a teardown racing a forced regenerate can never touch the
+   *  replacement run (see `generatingTerminals`). Never throws. */
+  private async reapPane(cwd: string): Promise<void> {
+    try {
+      await this.deps.herdr.stop(this.generatingTerminals.get(cwd) ?? this.resolveTerminal(cwd));
+    } catch {
+      /* best-effort */
+    }
+    this.generatingTerminals.delete(cwd);
+  }
+
   /** Reap any existing generating row for this session (stop pane + cleanup dir + drop row). */
   private reapGenerating(sessionId: string): void {
     const existing = this.deps.store.getRecap(sessionId);
     if (!existing || existing.state !== "generating") return;
-    try {
-      void this.deps.herdr.stop(this.resolveTerminal(existing.cwd)).catch(() => {});
-    } catch {
-      /* best-effort */
-    }
+    void this.reapPane(existing.cwd);
     this._cleanup(existing.cwd);
     this.deps.store.dropRecap(sessionId);
   }
@@ -784,15 +805,17 @@ export class RecapService {
         env.effort,
       );
 
-      // Spawn.
+      // Spawn. Keep the returned handle: the terminalId is the finalizer's teardown key
+      // (#1852) — resolving by cwd later yields "" once the agent exited.
       const cwd = this._makeTmpDir();
       try {
-        await this.deps.herdr.start(
+        const started = await this.deps.herdr.start(
           `recap ${session.desig}`,
           cwd,
           argv,
           apiKeyPassthroughEnv(false),
         );
+        this.generatingTerminals.set(cwd, started.terminalId);
       } catch (err) {
         this._cleanup(cwd);
         this.putFailureRecap(session, "launch-failed", err, head, base);
@@ -1039,12 +1062,8 @@ export class RecapService {
         console.warn(`[recap] usage capture failed for ${r.sessionId}:`, err);
       }
     } finally {
-      // Always reap pane + tmpdir.
-      try {
-        await this.deps.herdr.stop(this.resolveTerminal(r.cwd));
-      } catch {
-        /* best-effort */
-      }
+      // Always reap pane + tmpdir (spawn-recorded terminal first — see reapPane, #1852).
+      await this.reapPane(r.cwd);
       this._cleanup(r.cwd);
     }
   }

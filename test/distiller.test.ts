@@ -1315,3 +1315,62 @@ test("reapOrphans is a no-op when herdr is unavailable", async () => {
   expect(() => svc.reapOrphans()).not.toThrow();
   expect(closes).toBe(0);
 });
+
+// ── Deterministic tab-baseline (#1852) ────────────────────────────────────────
+//
+// Repeated full lifecycles against a fake herdr that models the #1852 driver contract
+// (stop() closes the tab recorded at start(), whether or not the helper still appears
+// in any live list). Every finalization path must return the open-tab set to baseline —
+// a path that skips teardown, or passes a dead handle, leaves a tab behind and fails.
+
+test("tab baseline: repeated distill runs (success + timeout) leave zero open tabs (#1852)", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  let t = 1_000;
+  let n = 0;
+  const openTabs = new Set<string>();
+  const byTerminal = new Map<string, string>();
+  let proposals: unknown = null;
+  const deps = {
+    store,
+    herdr: {
+      start: async () => {
+        const terminalId = `d${++n}`;
+        byTerminal.set(terminalId, `tab-${n}`);
+        openTabs.add(`tab-${n}`);
+        return { terminalId };
+      },
+      stop: async (terminalId: string) => {
+        const tab = byTerminal.get(terminalId);
+        if (tab) openTabs.delete(tab);
+      },
+    } as any,
+    scratch: { create: () => ({ dir: `/scratch/${n}` }), remove: () => {} },
+    onChange: () => {},
+    now: () => t,
+    timeoutMs: 5_000,
+    minSignals: 3,
+    writeSignals: () => {},
+    readProposals: () => proposals,
+  };
+  const d = new DistillerService(deps as any);
+
+  for (let run = 1; run <= 3; run++) {
+    // Success lifecycle: spawn → proposals ready → finalize.
+    proposals = { rules: [{ rule: `r${run}`, rationale: "x", evidence: ["e"] }] };
+    await d.distillNow("/r");
+    expect(openTabs.size).toBe(1);
+    await d.tick();
+    await Bun.sleep(0); // finalize's stop is fire-and-forget — let it settle
+    expect(openTabs.size).toBe(0);
+
+    // Timeout lifecycle: spawn → proposals never written → timeout finalize.
+    proposals = null;
+    await d.distillNow("/r");
+    t += 6_000;
+    await d.tick();
+    await Bun.sleep(0);
+    expect(openTabs.size).toBe(0);
+  }
+  expect(n).toBe(6); // six real spawns happened; all six tabs were closed
+});

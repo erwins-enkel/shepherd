@@ -377,6 +377,31 @@ test("tick: generating row, no verdict, past timeout → 'failed' (not ready, no
   expect(cleaned).toContain("/tmp/rundown-timeout");
 });
 
+// #1852: a rundown helper that exits cleanly before finalize has vanished from `agent list`,
+// so the old cwd re-lookup returned "" and stop("") silently no-oped, leaking the tab. The
+// finalizer must stop the terminalId recorded at spawn (mirrors the recap regression).
+test("tick finalize after the agent exited: stops the spawn-recorded terminal, not the cwd re-lookup (#1852)", async () => {
+  const store = makeStore([makeSession()]);
+  const herdr = makeHerdr();
+  const cleaned: string[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    verdict: VALID_VERDICT_JSON,
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  expect(await svc.generate()).toBe("started"); // records tid-1 as the run's teardown handle
+  herdr.livePanes.length = 0; // the helper exits: gone from agent list, husk tab remains
+
+  await svc.tick(); // verdict present → finalize
+
+  expect(store.getHerdDigest(dayKeyFor(DAY1))?.state).toBe("ready");
+  expect(herdr.stopped).toEqual(["tid-1"]); // the spawn handle — never "" (the silent no-op)
+  expect(cleaned.length).toBe(1);
+});
+
 test("tick: generating row, unparseable verdict → 'failed'", async () => {
   const dayKey = dayKeyFor(DAY1);
   const row: HerdDigest = {
@@ -1195,4 +1220,39 @@ test("generate: null pausedReason (ready) → epicsToLand has no pausedReason fi
   expect(await svc.generate()).toBe("started");
   const row = store.getHerdDigest(dayKeyFor(DAY1));
   expect(row?.epicsToLand.at(0)?.pausedReason).toBeUndefined();
+});
+
+// #1852 critic follow-up: mirrors the recap race regression — the spawn-handle map is
+// keyed by the RUN's mkdtemp-unique cwd, not the dayKey, so an old finalizer parked on
+// an await can never stop + unmap a forced replacement's live terminal.
+test("an old finalizer racing a forced regenerate never stops the replacement run (#1852)", async () => {
+  const store = makeStore([makeSession()]);
+  const herdr = makeHerdr();
+  let raced = false;
+  let svcRef: HerdDigestService | null = null;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    verdict: VALID_VERDICT_JSON,
+    readUsage: async () => {
+      if (!raced && svcRef) {
+        raced = true;
+        await svcRef.regenerate();
+      }
+      return null;
+    },
+  });
+  svcRef = svc;
+
+  expect(await svc.generate()).toBe("started"); // run A (tid-1)
+
+  await svc.tick(); // finalize A; mid-finalize the hook force-regenerates → run B (tid-2)
+
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toEqual(["tid-1"]); // A's own terminal — NEVER the replacement's
+
+  await svc.tick(); // the replacement finalizes normally off its own retained handle
+  expect(herdr.stopped).toEqual(["tid-1", "tid-2"]);
+  expect(store.getHerdDigest(dayKeyFor(DAY1))?.state).toBe("ready");
 });

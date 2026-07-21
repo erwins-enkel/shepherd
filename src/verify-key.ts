@@ -1,7 +1,12 @@
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
-import { tmpdir } from "node:os";
+import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import type { HerdrDriver } from "./herdr";
+import {
+  cleanupHelperDir,
+  makeHelperTmpDir,
+  reapHelperRun,
+  realSleep,
+} from "./transient-helper-lifecycle";
 import { isApiKeyMode, isApiKeyConfigured, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 
@@ -77,11 +82,7 @@ function verifyPrompt(): string {
   ].join(" ");
 }
 
-const realSleep = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-
-function defaultMakeTmpDir(): string {
-  return mkdtempSync(join(tmpdir(), "shepherd-verify-"));
-}
+const defaultMakeTmpDir = (): string => makeHelperTmpDir("shepherd-verify-");
 function defaultReadSentinel(cwd: string): string | null {
   const p = join(cwd, VERIFY_FILE);
   if (!existsSync(p)) return null;
@@ -89,13 +90,6 @@ function defaultReadSentinel(cwd: string): string | null {
     return readFileSync(p, "utf8");
   } catch {
     return null; // partial write; try again next poll
-  }
-}
-function defaultCleanup(cwd: string): void {
-  try {
-    rmSync(cwd, { recursive: true, force: true });
-  } catch {
-    /* best-effort */
   }
 }
 
@@ -137,7 +131,7 @@ export async function verifyApiKey(deps: VerifyKeyDeps): Promise<VerifyKeyResult
   const {
     makeTmpDir = defaultMakeTmpDir,
     readSentinel = defaultReadSentinel,
-    cleanup = defaultCleanup,
+    cleanup = cleanupHelperDir,
     now = Date.now,
     sleep = realSleep,
     timeoutMs = 60_000, // cold `claude` startup + a haiku turn needs headroom
@@ -179,13 +173,6 @@ export async function verifyApiKey(deps: VerifyKeyDeps): Promise<VerifyKeyResult
     }
     return { ok: false, reason: "timeout" };
   } finally {
-    if (terminalId) {
-      try {
-        await deps.herdr.stop(terminalId);
-      } catch {
-        /* best-effort */
-      }
-    }
-    if (cwd) cleanup(cwd);
+    await reapHelperRun(deps.herdr, terminalId, cwd, cleanup);
   }
 }

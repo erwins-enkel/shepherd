@@ -612,6 +612,61 @@ test("tick timeout: generating row, no verdict, past timeout → state 'failed',
   expect(cleaned).toContain("/tmp/recap-timeout");
 });
 
+// #1852 (pane 158): a short-lived recap helper exits cleanly BEFORE finalize runs, so it has
+// vanished from `agent list` while its tab persists as a husk. The old teardown resolved the
+// terminal by cwd at finalize time — "" once the agent exited — and stop("") silently no-oped,
+// leaking the tab (97 recap husks at the incident). The finalizer must stop the terminalId
+// recorded at spawn.
+test("tick finalize after the agent exited: stops the spawn-recorded terminal, not the cwd re-lookup (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  const cleaned: string[] = [];
+  let t = 100_000;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => t,
+    idleThresholdMs: 120_000,
+    verdictJson: VALID_VERDICT_JSON,
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn — the service records tid-1 as the run's teardown handle
+  expect(herdr.started.length).toBe(1);
+
+  herdr.livePanes.length = 0; // the helper exits: gone from agent list, husk tab remains
+
+  await svc.tick(); // verdict present → finalize
+
+  expect(store.getRecap("s1")?.state).toBe("ready");
+  expect(herdr.stopped).toEqual(["tid-1"]); // the spawn handle — never "" (the silent no-op)
+  expect(cleaned.length).toBe(1);
+});
+
+test("regenerate while generating: reapGenerating stops the spawn-recorded terminal after the agent exited (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let t = 100_000;
+  const svc = buildSvc({ store, herdr, nowFn: () => t, idleThresholdMs: 120_000 });
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn tid-1
+  expect(herdr.started.length).toBe(1);
+
+  herdr.livePanes.length = 0; // old helper exited — cwd re-lookup would yield ""
+
+  const result = await svc.regenerate(s); // reaps the stale generating run, spawns fresh
+
+  expect(result).toBe("started");
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toContain("tid-1"); // the stale run's spawn handle, not ""
+});
+
 test("tick no verdict logs Codex recap spawn context without prompt text", async () => {
   const rec = makeRecap({
     state: "generating",
@@ -2241,4 +2296,118 @@ test("considerForArchive: same head, base change only via transient fallback →
   expect(result).toBe("skip"); // resolved:false must NOT flip the dedup key
   expect(herdr.started.length).toBe(0);
   expect(store.getRecap("s1")?.base).toBe("main"); // untouched
+});
+
+// ── Deterministic tab-baseline (#1852) ────────────────────────────────────────
+//
+// Repeated full recap lifecycles against a fake herdr whose stop() closes the tab
+// recorded at start() (the #1852 driver contract), with the helper EXITED before every
+// teardown — the exact condition under which the old cwd re-lookup leaked. Every path
+// must return the open-tab set to baseline.
+
+test("tab baseline: repeated recap runs (success + timeout + regenerate-reap) leave zero open tabs (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  const openTabs = new Set<string>();
+  const byTerminal = new Map<string, string>();
+  const origStart = herdr.start;
+  herdr.start = async (label, cwd, argv, env) => {
+    const r = await origStart(label, cwd, argv, env);
+    byTerminal.set(r.terminalId, `tab-${r.terminalId}`);
+    openTabs.add(`tab-${r.terminalId}`);
+    return r;
+  };
+  herdr.stop = async (id) => {
+    const tab = byTerminal.get(id);
+    if (tab) openTabs.delete(tab);
+  };
+
+  let t = 100_000;
+  let read: VerdictRead<unknown> = { status: "absent" };
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => t,
+    idleThresholdMs: 120_000,
+    timeoutMs: 300_000,
+    readVerdictFn: () => read,
+  });
+
+  // Run 1 — sweep-spawned success, helper exits before finalize.
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn tid-1
+  expect(openTabs.size).toBe(1);
+  herdr.livePanes.length = 0; // gone from agent list — the old silent-no-op condition
+  read = { status: "parsed", value: VALID_VERDICT_JSON, repaired: false };
+  await svc.tick();
+  expect(openTabs.size).toBe(0);
+
+  // Run 2 — regenerate over the ready row, then time out with the helper gone.
+  read = { status: "absent" };
+  expect(await svc.regenerate(s)).toBe("started"); // spawn tid-2
+  expect(openTabs.size).toBe(1);
+  herdr.livePanes.length = 0;
+  t += 400_000; // past timeoutMs
+  await svc.tick();
+  expect(openTabs.size).toBe(0);
+
+  // Runs 3+4 — regenerate mid-generating: reapGenerating stops the stale run, the
+  // replacement finalizes normally.
+  expect(await svc.regenerate(s)).toBe("started"); // spawn tid-3
+  herdr.livePanes.length = 0;
+  expect(await svc.regenerate(s)).toBe("started"); // reaps tid-3, spawns tid-4
+  await Bun.sleep(0); // reapGenerating's stop is fire-and-forget — let it settle
+  expect(openTabs.size).toBe(1); // only the replacement's tab remains
+  read = { status: "parsed", value: VALID_VERDICT_JSON, repaired: false };
+  herdr.livePanes.length = 0;
+  await svc.tick();
+  expect(openTabs.size).toBe(0);
+
+  expect(herdr.started.length).toBe(4); // four real spawns; all four tabs were closed
+});
+
+// #1852 critic follow-up: the in-memory spawn-handle map must be keyed by the RUN (its
+// mkdtemp-unique cwd), not the session. A finalizer holds its key across awaits; keyed by
+// sessionId, a forced regenerate landing inside one of those awaits re-binds the key, and
+// the stale finalizer then stops + unmaps the REPLACEMENT run's live terminal.
+test("an old finalizer racing a forced regenerate never stops the replacement run (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let t = 100_000;
+  let raced = false;
+  let svcRef: RecapService | null = null;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => t,
+    idleThresholdMs: 120_000,
+    verdictJson: VALID_VERDICT_JSON,
+    // finalize awaits usage capture right before its teardown `finally` — the perfect
+    // window: a forced regenerate lands while the old finalizer is parked here.
+    readUsage: async () => {
+      if (!raced && svcRef) {
+        raced = true;
+        await svcRef.regenerate(s);
+      }
+      return null;
+    },
+  });
+  svcRef = svc;
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn run A (tid-1)
+  expect(herdr.started.length).toBe(1);
+
+  await svc.tick(); // finalize A; mid-finalize the hook regenerates → spawn B (tid-2)
+
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toEqual(["tid-1"]); // A's own terminal — NEVER the replacement's
+
+  await svc.tick(); // the replacement finalizes normally off its own retained handle
+  expect(herdr.stopped).toEqual(["tid-1", "tid-2"]);
+  expect(store.getRecap("s1")?.state).toBe("ready");
 });

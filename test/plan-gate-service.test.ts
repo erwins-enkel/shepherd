@@ -2024,3 +2024,59 @@ test("operator-language: reviewer prompt reads operatorLanguage per spawn, not c
   expect(calls).toBe(2);
   expect(h.started[1].argv.at(-1)).toContain("German");
 });
+
+// ── Deterministic tab-baseline (#1852) ────────────────────────────────────────
+//
+// Repeated full reviewer lifecycles against a fake herdr that models the #1852 driver
+// contract (stop() closes the tab recorded at start(), whether or not the reviewer still
+// appears in any live list). Every finalization path must return the open-tab set to
+// baseline — a path that skips teardown, or passes a dead handle, leaves a tab behind.
+
+test("tab baseline: repeated plan reviews (approve + timeout + cancel) leave zero open tabs (#1852)", async () => {
+  let t = 1_000;
+  let n = 0;
+  const openTabs = new Set<string>();
+  const byTerminal = new Map<string, string>();
+  let verdict: any = null;
+  const h = harness({
+    herdr: {
+      start: async () => {
+        const terminalId = `t${++n}`;
+        byTerminal.set(terminalId, `tab-${n}`);
+        openTabs.add(`tab-${n}`);
+        return { terminalId };
+      },
+      stop: async (terminalId: string) => {
+        const tab = byTerminal.get(terminalId);
+        if (tab) openTabs.delete(tab);
+      },
+      list: () => [],
+    },
+    readVerdict: () => verdict,
+    now: () => t,
+    timeoutMs: 5_000,
+  });
+
+  for (let run = 1; run <= 2; run++) {
+    // Approve lifecycle.
+    verdict = { decision: "approve", summary: "ok", body: "B", findings: [] };
+    await h.svc.consider(planningSession() as any);
+    expect(openTabs.size).toBe(1);
+    await h.svc.tick();
+    expect(openTabs.size).toBe(0);
+
+    // Timeout lifecycle: verdict never written, clock passes timeoutMs.
+    verdict = null;
+    await h.svc.consider(planningSession() as any);
+    t += 6_000;
+    await h.svc.tick();
+    expect(openTabs.size).toBe(0);
+
+    // Cancellation lifecycle: session archived mid-review.
+    await h.svc.consider(planningSession() as any);
+    h.svc.forget("s1");
+    await Bun.sleep(0); // reapReviewer's stop is fire-and-forget — let it settle
+    expect(openTabs.size).toBe(0);
+  }
+  expect(n).toBe(6); // six real spawns; all six tabs were closed
+});

@@ -3050,3 +3050,49 @@ test("#1757 a non-epic steer is unchanged (no base note)", async () => {
   expect(steers[0]!.text).not.toContain("rebased onto");
   expect(steers[0]!.text).not.toContain("FETCH_HEAD");
 });
+
+// ── Deterministic tab-baseline (#1852) ────────────────────────────────────────
+//
+// Repeated full critic lifecycles against a fake herdr that models the #1852 driver
+// contract (stop() closes the tab recorded at start(), whether or not the critic still
+// appears in any live list). Every finalization path must return the open-tab set to
+// baseline — a path that skips teardown, or passes a dead handle, leaves a tab behind.
+
+test("tab baseline: repeated critic runs (finalize + forget) leave zero open tabs (#1852)", async () => {
+  let n = 0;
+  const openTabs = new Set<string>();
+  const byTerminal = new Map<string, string>();
+  const { deps: d } = makeDeps({
+    herdr: {
+      start: async () => {
+        const terminalId = `rt${++n}`;
+        byTerminal.set(terminalId, `tab-${n}`);
+        openTabs.add(`tab-${n}`);
+        return { terminalId };
+      },
+      stop: async (terminalId: string) => {
+        const tab = byTerminal.get(terminalId);
+        if (tab) openTabs.delete(tab);
+      },
+      list: () => [{ cwd: "/review-wt", terminalId: `rt${n}`, paneId: "p1", agentStatus: "idle" }],
+      paneForegroundProcs: async () => ["zsh"],
+      closeTab: async () => {},
+    },
+  });
+  const svc = new ReviewService(d as any);
+
+  for (let run = 1; run <= 3; run++) {
+    await svc.forceReview(session(), OPEN_GREEN); // explicit re-trigger, bypasses patch-id gating
+    expect(openTabs.size).toBe(1);
+    await svc.tick(); // request-changes verdict → finalize → reapRun
+    expect(openTabs.size).toBe(0);
+  }
+
+  // Cancellation lifecycle: session archived mid-review.
+  await svc.forceReview(session(), OPEN_GREEN);
+  expect(openTabs.size).toBe(1);
+  svc.forget("s1");
+  await Bun.sleep(0); // forget's stop is fire-and-forget — let it settle
+  expect(openTabs.size).toBe(0);
+  expect(n).toBe(4); // four real spawns; all four tabs were closed
+});

@@ -1,6 +1,7 @@
 import { HerdrSocketClient } from "./herdr-socket-client";
 import {
   HerdrDriver,
+  TabLedger,
   buildWrappedArgv,
   createSerializer,
   isHeadlessCodexExec,
@@ -9,7 +10,10 @@ import {
   parseAgents,
   parseProcs,
   parseReadText,
+  parseTabs,
+  stopViaRecordedTab,
   type HerdrAgent,
+  type HerdrTab,
   type IHerdrDriver,
 } from "./herdr";
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
@@ -29,6 +33,11 @@ export class SocketHerdrDriver implements IHerdrDriver {
   /** Serializes `start` so concurrent spawns can't race the workspace/tab orchestration
    *  across the socket round-trips' async yield points (issue #1553). */
   private serializeStart = createSerializer();
+
+  /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). Owned
+   *  here, not shared with the wrapped CLI driver — all starts/stops route through
+   *  this driver when the socket transport is active. */
+  private ledger = new TabLedger();
 
   constructor(
     private client: HerdrSocketClient,
@@ -59,6 +68,11 @@ export class SocketHerdrDriver implements IHerdrDriver {
    */
   async paneForegroundProcs(paneId: string): Promise<string[]> {
     return parseProcs(await this.client.request("pane.process_info", { pane_id: paneId }));
+  }
+
+  /** Socket-backed async tab list — feeds the recorded-tab verification in `stop()` (#1852). */
+  async tabsAsync(): Promise<HerdrTab[]> {
+    return parseTabs(await this.client.request("tab.list", {}));
   }
 
   // ── Delegated to the CLI driver (unchanged) ──────────────────────────────
@@ -130,6 +144,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
         cwd,
         buildWrappedArgv(argv, env),
       );
+      const started = parseAgentInfo(agent);
+      // Retain the authoritative spawn handle (#1852) — see the CLI driver's startImpl.
+      this.ledger.record(started.terminalId, tabId, name);
       if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {
           await this.client.request("pane.close", { pane_id: rootPaneId });
@@ -137,7 +154,7 @@ export class SocketHerdrDriver implements IHerdrDriver {
           /* best-effort: agent still runs if the shell pane lingers, just at split width */
         }
       }
-      return parseAgentInfo(agent);
+      return started;
     } catch (err) {
       await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;
@@ -190,12 +207,11 @@ export class SocketHerdrDriver implements IHerdrDriver {
     throw new Error(`herdr: agent.start exhausted retries for ${name}`);
   }
 
-  /** Best-effort teardown of the agent backing a terminal id: resolve its current tab FRESH
-   *  from the live list, then close that tab. No-op if the pane is gone. Mirrors the CLI. */
+  /** Best-effort teardown of the agent backing a terminal id. Recorded-handle-first,
+   *  agent-list fallback, observable full miss — mirrors the CLI driver; the shared
+   *  body is {@link stopViaRecordedTab} (#1852). */
   async stop(terminalId: string): Promise<void> {
-    const agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
-    if (!agent?.tabId) return;
-    await this.closeTab(agent.tabId);
+    await stopViaRecordedTab(this, this.ledger, terminalId);
   }
 
   /** Rename a live agent and its dedicated tab. Resolves FRESH from the live list;
@@ -216,6 +232,8 @@ export class SocketHerdrDriver implements IHerdrDriver {
     if (agent.tabId) {
       try {
         await this.client.request("tab.rename", { tab_id: agent.tabId, label: newName });
+        // Mirror the successful TAB rename into the ledger — see the CLI driver (#1852).
+        this.ledger.relabel(terminalId, newName);
       } catch {
         /* best-effort */
       }

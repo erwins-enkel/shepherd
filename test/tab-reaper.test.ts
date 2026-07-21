@@ -1,8 +1,10 @@
 import { test, expect, describe } from "bun:test";
 import {
+  createOrphanTabSweeper,
   reapOrphanTabs,
   isShepherdHelperLabel,
   reapStaleReviewWorktrees,
+  type ReapResult,
   type ReapableHerdr,
   type ReapWorktreesDeps,
 } from "../src/tab-reaper";
@@ -171,7 +173,7 @@ test("distiller unique label: tab __distill__<8hex> with live agent is spared (l
   expect(r2.sparedLive).toBe(1);
 });
 
-test("panes() throwing fails closed — reaps nothing, preserves debounce state", async () => {
+test("panes() throwing fails closed — reaps nothing, preserves debounce state, flags panesFailed", async () => {
   const { h, closed } = procFake([], {}, { panesThrows: true });
   const r = await reapOrphanTabs(h, new Set(["w1:t1"]));
   expect(r.closed).toEqual([]);
@@ -179,6 +181,302 @@ test("panes() throwing fails closed — reaps nothing, preserves debounce state"
   expect(r.sparedLive).toBe(0);
   expect(r.sparedError).toBe(0);
   expect(r.shellOnly).toEqual(new Set(["w1:t1"])); // debounce state preserved
+  // The zero-work sweep is FLAGGED — indistinguishable-from-"no husks" was the #1852
+  // operationally-silent failure mode.
+  expect(r.panesFailed).toBe(true);
+});
+
+test("a normal sweep reports panesFailed=false", async () => {
+  const f = procFake([pane("w1:p1", "w1:t1", PROBE_NAME)], { "w1:p1": ["zsh"] });
+  const r = await reapOrphanTabs(f.h);
+  expect(r.panesFailed).toBe(false);
+});
+
+// ── Per-tab liveness classification (#1852) ───────────────────────────────────
+//
+// Reaping closes whole TABS, but classification used to be per PANE. A helper tab can
+// hold more than one pane — a headless codex-exec role deliberately retains its root
+// shell pane, and a failed best-effort root-pane close leaves a shell pane beside the
+// agent pane. The sibling shell pane then marked the tab reap-eligible while the live
+// pane merely counted as spared: two sweeps later the tab was closed WITH the live
+// helper inside. These tests pin the per-tab contract: any live/undeterminable pane
+// spares AND de-primes the whole tab.
+
+const MIXED_LABEL = "plan-review TASK-07";
+
+test("mixed shell+live tab: repeated sweeps never close it and never prime the debounce", async () => {
+  const panes = [
+    pane("w1:p1", "w1:t1", MIXED_LABEL), // retained root shell pane
+    pane("w1:p2", "w1:t1", MIXED_LABEL), // live agent pane
+  ];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"], "w1:p2": ["claude"] };
+  const f = procFake(panes, procMap);
+
+  let prev = new Set<string>();
+  for (let sweep = 1; sweep <= 3; sweep++) {
+    const r = await reapOrphanTabs(f.h, prev);
+    expect(r.closed).toEqual([]);
+    expect(f.closed).toEqual([]);
+    expect(r.sparedLive).toBe(1); // one TAB spared, not one pane
+    expect(r.shellOnly.has("w1:t1")).toBe(false); // never primed while a pane is live
+    prev = r.shellOnly;
+  }
+});
+
+test("mixed shell+error and shell+empty tabs are spared fail-closed as whole tabs", async () => {
+  const panes = [
+    pane("w1:p1", "w1:t1", MIXED_LABEL), // shell
+    pane("w1:p2", "w1:t1", MIXED_LABEL), // process-info throws
+    pane("w2:p1", "w2:t2", "recap TASK-08"), // shell
+    pane("w2:p2", "w2:t2", "recap TASK-08"), // empty procs (undeterminable)
+  ];
+  const procMap: Record<string, string[] | Error> = {
+    "w1:p1": ["zsh"],
+    "w1:p2": new Error("transient process-info read failure"),
+    "w2:p1": ["zsh"],
+    "w2:p2": [],
+  };
+  const f = procFake(panes, procMap);
+
+  let prev = new Set<string>();
+  for (let sweep = 1; sweep <= 2; sweep++) {
+    const r = await reapOrphanTabs(f.h, prev);
+    expect(r.closed).toEqual([]);
+    expect(f.closed).toEqual([]);
+    expect(r.sparedError).toBe(2); // two TABS, fail-closed
+    expect(r.shellOnly.size).toBe(0);
+    prev = r.shellOnly;
+  }
+});
+
+test("live pane DE-PRIMES a prior first-sighting; the shell sibling can never confirm a live tab", async () => {
+  // Sweep 1: both panes read shell-only (the agent's pre-`exec` window) → first sighting.
+  const panes = [pane("w1:p1", "w1:t1", MIXED_LABEL), pane("w1:p2", "w1:t1", MIXED_LABEL)];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"], "w1:p2": ["zsh"] };
+  const f = procFake(panes, procMap);
+
+  const r1 = await reapOrphanTabs(f.h);
+  expect(r1.shellOnly).toEqual(new Set(["w1:t1"])); // primed
+
+  // Sweep 2: the agent exec'd — p2 is now live. The OLD per-pane code closed the tab
+  // here (p1 shell-only + primed); the per-tab gate must spare AND clear the priming.
+  procMap["w1:p2"] = ["claude"];
+  const r2 = await reapOrphanTabs(f.h, r1.shellOnly);
+  expect(r2.closed).toEqual([]);
+  expect(f.closed).toEqual([]);
+  expect(r2.sparedLive).toBe(1);
+  expect(r2.shellOnly.has("w1:t1")).toBe(false); // de-primed
+
+  // Sweep 3: the role finished; its pane idles as a shell again. This must be a FRESH
+  // first sighting (not a stale confirm off sweep 1) …
+  procMap["w1:p2"] = ["zsh"];
+  const r3 = await reapOrphanTabs(f.h, r2.shellOnly);
+  expect(r3.closed).toEqual([]);
+  expect(r3.shellOnly).toEqual(new Set(["w1:t1"]));
+
+  // … and sweep 4 confirms → reaped. The spare clears, it doesn't poison convergence.
+  const r4 = await reapOrphanTabs(f.h, r3.shellOnly);
+  expect(r4.closed).toEqual(["w1:t1"]);
+  expect(f.closed).toEqual(["w1:t1"]);
+});
+
+// ── createOrphanTabSweeper (#1852) ────────────────────────────────────────────
+
+function rr(over: Partial<ReapResult> = {}): ReapResult {
+  return {
+    closed: [],
+    sparedLive: 0,
+    sparedError: 0,
+    shellOnly: new Set(),
+    panesFailed: false,
+    ...over,
+  };
+}
+
+function mkSweeper(opts: {
+  reapImpl: (prev: Set<string>) => ReapResult | Promise<ReapResult>;
+  maintenance?: () => boolean;
+}) {
+  const scheduled: { fn: () => void; ms: number }[] = [];
+  const results: ReapResult[] = [];
+  const sweeper = createOrphanTabSweeper({
+    reap: async (prev) => opts.reapImpl(prev),
+    schedule: (fn, ms) => void scheduled.push({ fn, ms }),
+    maintenanceActive: opts.maintenance ?? (() => false),
+    onResult: (r) => void results.push(r),
+    confirmDelayMs: 30_000,
+  });
+  return { sweeper, scheduled, results };
+}
+
+test("sweeper: overlapping triggers serialize — one pass in flight, extra triggers coalesce into ONE queued pass", async () => {
+  let calls = 0;
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const gates: Array<() => void> = [];
+  const { sweeper } = mkSweeper({
+    reapImpl: (prev) => {
+      calls++;
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      return new Promise<ReapResult>((res) => {
+        gates.push(() => {
+          inFlight--;
+          res(rr({ shellOnly: prev }));
+        });
+      });
+    },
+  });
+
+  sweeper.trigger(); // starts pass 1 (e.g. the 5s boot pass, still crawling a big inventory)
+  sweeper.trigger(); // e.g. the 45s pass — must QUEUE, not overlap
+  sweeper.trigger(); // a third trigger coalesces into the same queued pass
+  expect(calls).toBe(1);
+
+  gates[0]!(); // pass 1 completes
+  await Bun.sleep(0);
+  expect(calls).toBe(2); // exactly one queued confirming pass started
+  gates[1]!();
+  await Bun.sleep(0);
+  expect(calls).toBe(2);
+  expect(maxInFlight).toBe(1); // never concurrent
+});
+
+test("sweeper: a queued pass receives its predecessor's sightings — it is a REAL confirming pass", async () => {
+  const prevs: Set<string>[] = [];
+  const gates: Array<() => void> = [];
+  const { sweeper } = mkSweeper({
+    reapImpl: (prev) => {
+      prevs.push(prev);
+      return new Promise<ReapResult>((res) =>
+        gates.push(() => res(rr({ shellOnly: new Set(["husk"]) }))),
+      );
+    },
+  });
+
+  sweeper.trigger();
+  sweeper.trigger(); // queued while pass 1 runs
+  gates[0]!();
+  await Bun.sleep(0);
+  gates[1]!();
+  await Bun.sleep(0);
+
+  expect(prevs.length).toBe(2);
+  expect(prevs[0]).toEqual(new Set());
+  expect(prevs[1]).toEqual(new Set(["husk"])); // NOT a same-set replay — the old race
+});
+
+test("sweeper: a NEW first-sighting self-schedules one confirming pass, which closes and goes quiet", async () => {
+  const seq: ReapResult[] = [
+    rr({ shellOnly: new Set(["t1"]) }), // sighting pass
+    rr({ closed: ["t1"], shellOnly: new Set(["t1"]) }), // confirm pass: closes
+  ];
+  let i = 0;
+  const prevs: Set<string>[] = [];
+  const { sweeper, scheduled } = mkSweeper({
+    reapImpl: (prev) => {
+      prevs.push(prev);
+      return seq[i++]!;
+    },
+  });
+
+  sweeper.trigger();
+  await Bun.sleep(0);
+  expect(scheduled.length).toBe(1); // exactly one confirm scheduled
+  expect(scheduled[0]!.ms).toBe(30_000);
+
+  scheduled[0]!.fn(); // fire the confirming pass
+  await Bun.sleep(0);
+  expect(prevs[1]).toEqual(new Set(["t1"])); // confirms off the sighting set
+  expect(scheduled.length).toBe(1); // repeat sightings schedule nothing further (no tight loop)
+  expect(i).toBe(2);
+});
+
+test("sweeper: restart mid-debounce — a fresh instance converges from ONE trigger via its self-confirm", async () => {
+  // Instance 1 sights the husk; the process restarts before its confirm fires (the old
+  // in-memory debounce reset). The husk persists in herdr.
+  const first = mkSweeper({ reapImpl: () => rr({ shellOnly: new Set(["husk"]) }) });
+  first.sweeper.trigger();
+  await Bun.sleep(0);
+  expect(first.scheduled.length).toBe(1); // the confirm the restart will drop
+
+  // Instance 2: fresh empty debounce, same herdr state. A SINGLE boot trigger re-sights
+  // and its self-scheduled confirm closes — no dependence on a second external trigger.
+  let pass = 0;
+  const closedOnPass: number[] = [];
+  const second = mkSweeper({
+    reapImpl: (prev) => {
+      pass++;
+      if (prev.has("husk")) {
+        closedOnPass.push(pass);
+        return rr({ closed: ["husk"], shellOnly: new Set(["husk"]) });
+      }
+      return rr({ shellOnly: new Set(["husk"]) });
+    },
+  });
+  second.sweeper.trigger();
+  await Bun.sleep(0);
+  expect(second.scheduled.length).toBe(1);
+  second.scheduled[0]!.fn();
+  await Bun.sleep(0);
+  expect(closedOnPass).toEqual([2]);
+});
+
+test("sweeper: boot triggers skipped under maintenance — the first later trigger converges by itself", async () => {
+  let maint = true;
+  let pass = 0;
+  const closed: string[] = [];
+  const { sweeper, scheduled } = mkSweeper({
+    maintenance: () => maint,
+    reapImpl: (prev) => {
+      pass++;
+      if (prev.has("h")) {
+        closed.push("h");
+        return rr({ closed: ["h"], shellOnly: new Set(["h"]) });
+      }
+      return rr({ shellOnly: new Set(["h"]) });
+    },
+  });
+
+  sweeper.trigger(); // 5s boot trigger — maintenance window
+  sweeper.trigger(); // 45s boot trigger — still in maintenance
+  await Bun.sleep(0);
+  expect(pass).toBe(0); // both skipped
+
+  maint = false;
+  sweeper.trigger(); // first hourly trigger
+  await Bun.sleep(0);
+  expect(scheduled.length).toBe(1);
+  scheduled[0]!.fn(); // its self-confirm — nothing waits another hour
+  await Bun.sleep(0);
+  expect(closed).toEqual(["h"]);
+});
+
+test("sweeper: a panesFailed pass surfaces via onResult and the preserved debounce still confirms later", async () => {
+  const seq: ReapResult[] = [
+    rr({ shellOnly: new Set(["t9"]) }), // sighting
+    rr({ shellOnly: new Set(["t9"]), panesFailed: true }), // confirm hits a panes() failure — zero work
+    rr({ closed: ["t9"], shellOnly: new Set(["t9"]) }), // next trigger confirms off the preserved set
+  ];
+  let i = 0;
+  const prevs: Set<string>[] = [];
+  const { sweeper, scheduled, results } = mkSweeper({
+    reapImpl: (prev) => {
+      prevs.push(prev);
+      return seq[i++]!;
+    },
+  });
+
+  sweeper.trigger();
+  await Bun.sleep(0);
+  scheduled[0]!.fn();
+  await Bun.sleep(0);
+  expect(results[1]!.panesFailed).toBe(true); // observable, not a silent zero
+
+  sweeper.trigger(); // e.g. the hourly pass
+  await Bun.sleep(0);
+  expect(prevs[2]).toEqual(new Set(["t9"])); // debounce survived the failed pass
+  expect(results[2]!.closed).toEqual(["t9"]);
 });
 
 describe("isShepherdHelperLabel", () => {
@@ -198,6 +496,8 @@ describe("isShepherdHelperLabel", () => {
     ["rundown", "herd-digest rundown (exact, liveness-gated)"],
     ["autopilot 643cfec7-1234-5678-abcd-ef0123456789", "autopilot LLM"],
     ["verify api key", "API-key verifier (multi-word exact)"],
+    // #1852: prompt recommender — previously uncovered, leaked forever across restarts
+    ["recommend TASK-09", "prompt recommender"],
   ];
 
   for (const [label, desc] of trueLabels) {
@@ -217,6 +517,7 @@ describe("isShepherdHelperLabel", () => {
     ["reviewing-pr", "starts with 'review' but no trailing space"],
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],
     ["name-my-thing", "hyphen instead of space — not a namer helper"],
+    ["recommend-tweaks", "hyphen instead of space — not a recommender helper"],
   ];
 
   for (const [label, desc] of falseLabels) {

@@ -1,11 +1,12 @@
 import { join } from "node:path";
-import type { HerdrDriver } from "./herdr";
+import type { HerdrDriver, HerdrPane } from "./herdr";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
 import { MERGE_LABEL } from "./merge-suggest";
 import { AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
+import { RECOMMEND_LABEL } from "./prompt-recommend";
 import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 
@@ -53,6 +54,7 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  - `plan-review <desig>` — plan-gate reviewer (plan-gate.ts)
  *  - `pr-critic <repo>#<n>` — standalone PR critic (standalone-critic.ts)
  *  - `recap <desig>`     — recap generator (recap.ts)
+ *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
  *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated */
 export function isShepherdHelperLabel(label: string): boolean {
   return (
@@ -67,6 +69,7 @@ export function isShepherdHelperLabel(label: string): boolean {
     label.startsWith("plan-review ") ||
     label.startsWith("pr-critic ") ||
     label.startsWith("recap ") ||
+    label.startsWith(RECOMMEND_LABEL) ||
     label.startsWith(AUTOPILOT_LABEL)
   );
 }
@@ -77,12 +80,17 @@ export function isShepherdHelperLabel(label: string): boolean {
 export interface ReapResult {
   /** Tab ids actually closed this sweep. */
   closed: string[];
-  /** Helper panes spared because their foreground held a non-shell proc (claude/node/etc.). */
+  /** Helper TABS spared because a pane's foreground held a non-shell proc (claude/node/etc.). */
   sparedLive: number;
-  /** Helper panes spared because process-info threw OR was empty/undeterminable (fail-closed). */
+  /** Helper TABS spared because a pane's process-info threw OR was empty/undeterminable
+   *  (fail-closed) — counted only when no pane was outright live. */
   sparedError: number;
-  /** Tab ids that were shell-only THIS sweep — feed back as `prevShellOnly` next sweep to debounce. */
+  /** Tab ids whose EVERY pane was shell-only THIS sweep — feed back as `prevShellOnly`
+   *  next sweep to debounce. */
   shellOnly: Set<string>;
+  /** True when `panes()` itself threw: the sweep did ZERO work (fail-closed) — the caller
+   *  must surface this instead of reading it as "nothing to do" (#1852). */
+  panesFailed: boolean;
 }
 
 /**
@@ -92,18 +100,29 @@ export interface ReapResult {
  * net for husks they can't reach — agents that crashed, or anything orphaned across a
  * shepherd restart (which clears in-memory review tracking). Returns a {@link ReapResult}.
  *
- * **Husk signal = per-pane process liveness (ground truth), not list-absence.** Under
+ * **Husk signal = process liveness (ground truth), not list-absence.** Under
  * herdr 0.7 an exited helper agent leaves its pane alive as an idle `zsh`, and that pane
  * STILL appears in `agent list` (#721) — so the old "absent from `agent list` ⇒ orphan"
- * signal never fires. Instead we ask herdr for each helper pane's foreground processes:
+ * signal never fires. Instead we ask herdr for each helper pane's foreground processes.
  *
- * - **non-shell proc present** (`claude` / `node` / `node-MainThread` / …) → live → spare
- *   (`sparedLive`).
- * - **process-info throws** (transient read failure / quirk) → spare (`sparedError`).
- * - **empty proc list** (undeterminable) → spare fail-closed (`sparedError`); we never
- *   reap on no evidence.
- * - **shell-only** (`procs.length > 0 && procs.every(SHELLS.has)`) → husk CANDIDATE this
- *   sweep.
+ * **Classification is per TAB, not per pane (#1852).** Reaping closes whole tabs, and a
+ * helper tab can hold MORE than one pane: a headless codex-exec role deliberately retains
+ * its root shell pane (`isHeadlessCodexExec`), and a failed best-effort root-pane close
+ * leaves a shell pane beside the agent pane. Judging panes independently let a sibling
+ * shell pane mark such a tab reap-eligible while its live pane merely counted as spared —
+ * two sweeps later the tab was closed WITH the live helper inside. So helper panes are
+ * grouped by tabId and the TAB is classified with fail-safe precedence:
+ *
+ * - **any pane live** (a non-shell proc: `claude` / `node` / …) → spare the whole tab
+ *   (`sparedLive`); remaining panes aren't inspected.
+ * - else **any pane errored/undeterminable** (process-info threw, or empty proc list) →
+ *   spare the whole tab fail-closed (`sparedError`); we never reap on partial evidence.
+ * - else — **every pane positively shell-only** (`procs.length > 0 && all in SHELLS`) →
+ *   husk CANDIDATE this sweep.
+ *
+ * A spared tab is NOT added to the returned `shellOnly` set, so a liveness/error spare
+ * also CLEARS any prior first-sighting — a tab hosting a live pane can never sit primed
+ * in the debounce waiting for its shell pane to be seen once more.
  *
  * **Two-sweep debounce.** herdr's own PTY is a `zsh` that runs the agent command, so a
  * just-spawned agent is briefly shell-only during its pre-`exec` window. To avoid reaping
@@ -111,10 +130,12 @@ export interface ReapResult {
  * (its tabId was in `prevShellOnly`). A first-time shell-only sighting is recorded in the
  * returned `shellOnly` set (caller threads it back in) but not closed.
  *
- * **`panes()` throw is fail-closed.** If `herdr.panes()` itself throws it's a transient
- * herdr read failure on a supported herdr — we reap nothing this sweep and preserve the
- * debounce set (return `prevShellOnly` unchanged) so a candidate isn't lost mid-debounce.
- * (A per-pane `paneForegroundProcs` throw is `sparedError`, see above.)
+ * **`panes()` throw is fail-closed AND flagged.** If `herdr.panes()` itself throws it's a
+ * transient herdr read failure on a supported herdr — we reap nothing this sweep and
+ * preserve the debounce set (return `prevShellOnly` unchanged) so a candidate isn't lost
+ * mid-debounce, and set `panesFailed` so the caller can log the zero-work sweep instead of
+ * mistaking it for "no husks" (#1852). (A per-pane `paneForegroundProcs` throw spares its
+ * tab as `sparedError`, see above.)
  *
  * Closed tabs are closed in arbitrary order — herdr 0.7 stable ids (#569, e.g. `w1:t1`)
  * don't retarget on close, so close order is irrelevant.
@@ -128,40 +149,162 @@ export async function reapOrphanTabs(
     panes = herdr.panes();
   } catch {
     // Transient herdr read failure on a supported herdr — fail closed: reap nothing this
-    // sweep, preserve the debounce set.
-    return { closed: [], sparedLive: 0, sparedError: 0, shellOnly: prevShellOnly };
+    // sweep, preserve the debounce set, and flag the zero-work sweep for the caller.
+    return {
+      closed: [],
+      sparedLive: 0,
+      sparedError: 0,
+      shellOnly: prevShellOnly,
+      panesFailed: true,
+    };
   }
 
   let sparedLive = 0;
   let sparedError = 0;
   const shellOnly = new Set<string>();
-  const toReap = new Set<string>(); // tabIds, deduped (helper tab is single-pane, but be defensive)
+  const toReap: string[] = [];
 
+  for (const [tabId, group] of groupHelperPanesByTab(panes)) {
+    const cls = await classifyHelperTab(herdr, group);
+    if (cls === "live") {
+      sparedLive++;
+      continue; // spared AND de-primed: not added to shellOnly
+    }
+    if (cls === "undetermined") {
+      sparedError++;
+      continue; // fail-closed spare, likewise de-primed
+    }
+    // Every pane of the tab positively shell-only: husk candidate this sweep.
+    shellOnly.add(tabId);
+    if (prevShellOnly.has(tabId)) toReap.push(tabId); // debounce: shell-only twice running
+  }
+
+  for (const tabId of toReap) await herdr.closeTab(tabId);
+  return { closed: toReap, sparedLive, sparedError, shellOnly, panesFailed: false };
+}
+
+/** Group helper-labeled panes by their owning tab — the reap unit is the TAB (#1852). */
+function groupHelperPanesByTab(panes: HerdrPane[]): Map<string, HerdrPane[]> {
+  const byTab = new Map<string, HerdrPane[]>();
   for (const p of panes) {
     if (!isShepherdHelperLabel(p.label)) continue;
+    const group = byTab.get(p.tabId);
+    if (group) group.push(p);
+    else byTab.set(p.tabId, [p]);
+  }
+  return byTab;
+}
+
+/** Classify one helper TAB from its panes' foreground processes, with the fail-safe
+ *  precedence documented on {@link reapOrphanTabs}: any live pane wins (short-circuit),
+ *  else any errored/empty pane makes the tab undetermined, else it is positively
+ *  shell-only. */
+async function classifyHelperTab(
+  herdr: ReapableHerdr,
+  group: HerdrPane[],
+): Promise<"live" | "undetermined" | "shell-only"> {
+  let undetermined = false;
+  for (const p of group) {
     let procs: string[];
     try {
       procs = await herdr.paneForegroundProcs(p.paneId);
     } catch {
-      sparedError++; // transient process-info failure — spare, do not fall back
+      undetermined = true; // transient process-info failure — no evidence for this pane
       continue;
     }
     if (procs.length === 0) {
-      sparedError++; // undeterminable — fail closed, never reap on no evidence
+      undetermined = true; // undeterminable — never reap on no evidence
       continue;
     }
     if (!procs.every((n) => SHELLS.has(n))) {
-      sparedLive++; // a non-shell proc is running — live agent
-      continue;
+      return "live"; // a non-shell proc runs here — remaining panes can't change this
     }
-    // shell-only: husk candidate this sweep
-    shellOnly.add(p.tabId);
-    if (prevShellOnly.has(p.tabId)) toReap.add(p.tabId); // debounce: shell-only twice running
   }
+  return undetermined ? "undetermined" : "shell-only";
+}
 
-  const closed = [...toReap];
-  for (const tabId of closed) await herdr.closeTab(tabId);
-  return { closed, sparedLive, sparedError, shellOnly };
+// ── Orphan-tab sweep orchestration (#1852) ───────────────────────────────────
+
+export interface OrphanTabSweeperDeps {
+  /** One reconciliation pass — the caller binds `reapOrphanTabs(herdr, prev)`. */
+  reap: (prevShellOnly: Set<string>) => Promise<ReapResult>;
+  /** Timer seam (production: `setTimeout`); injectable so tests drive time by hand. */
+  schedule: (fn: () => void, ms: number) => void;
+  /** Skip triggers while a herdr update is in flight (production: `maintenance.active`). */
+  maintenanceActive: () => boolean;
+  /** Observability tap — every completed pass, including `panesFailed` zero-work ones. */
+  onResult?: (r: ReapResult) => void;
+  onError?: (err: unknown) => void;
+  /** Delay before a self-scheduled confirming pass. Must comfortably exceed the pre-`exec`
+   *  shell-only window the two-sweep debounce guards (production: 30s). */
+  confirmDelayMs: number;
+}
+
+/**
+ * Serialized, self-confirming orchestrator around {@link reapOrphanTabs} (#1852). The old
+ * wiring fired boot sweeps at 5s/45s as independent `void` calls: on a large inventory the
+ * 5s pass (which awaits per-pane process-info sequentially) could still be running at 45s,
+ * both passes then started from the SAME debounce set, and neither was guaranteed to be
+ * the confirming pass — while the in-memory debounce also reset on every restart.
+ *
+ * Contract:
+ * - **Serialized + coalesced:** at most one pass in flight and at most one queued. A
+ *   trigger during a running pass queues exactly one follow-up, which starts only after
+ *   the current pass completes — and receives its predecessor's `shellOnly` set, so a
+ *   queued pass is always a REAL confirming pass, never a same-set replay.
+ * - **Self-confirming:** whenever a pass records NEW first-sightings (tabs shell-only now
+ *   but not in the previous set), one confirming pass is scheduled `confirmDelayMs` later.
+ *   Convergence therefore does not depend on WHICH external trigger sighted a husk (boot,
+ *   hourly, or queued): any husk is closed ~confirmDelayMs after its first sighting, any
+ *   single stable window after any restart converges, and a skipped boot sweep merely
+ *   defers to the next trigger instead of losing an hour. Steady state schedules nothing:
+ *   a pass whose sightings are all repeats (or that reaps them) sights nothing new.
+ * - `maintenanceActive` skips triggers outright (matching the old wiring) and drains a
+ *   queued follow-up without running it — the next scheduled trigger re-enters.
+ */
+export function createOrphanTabSweeper(deps: OrphanTabSweeperDeps): { trigger: () => void } {
+  let running = false;
+  let queued = false;
+  let prev = new Set<string>();
+
+  const run = async (): Promise<void> => {
+    running = true;
+    try {
+      do {
+        queued = false;
+        if (deps.maintenanceActive()) break;
+        const before = prev;
+        let r: ReapResult;
+        try {
+          r = await deps.reap(before);
+        } catch (err) {
+          deps.onError?.(err);
+          break;
+        }
+        prev = r.shellOnly;
+        deps.onResult?.(r);
+        for (const tabId of r.shellOnly) {
+          if (!before.has(tabId)) {
+            deps.schedule(trigger, deps.confirmDelayMs);
+            break; // one confirming pass per sighting pass
+          }
+        }
+      } while (queued);
+    } finally {
+      running = false;
+    }
+  };
+
+  const trigger = (): void => {
+    if (deps.maintenanceActive()) return;
+    if (running) {
+      queued = true;
+      return;
+    }
+    void run();
+  };
+
+  return { trigger };
 }
 
 // ── Stranded review-worktree disk sweep (#721) ───────────────────────────────

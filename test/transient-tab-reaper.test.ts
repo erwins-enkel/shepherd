@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { reapTransientByLabel } from "../src/transient-tab-reaper";
 import { AUTOPILOT_LABEL } from "../src/autopilot";
 import { NAMER_LABEL } from "../src/namer";
+import { RECOMMEND_LABEL } from "../src/prompt-recommend";
 import { VERIFY_KEY_LABEL } from "../src/verify-key";
 
 interface FakeAgent {
@@ -93,6 +94,9 @@ const SYNC_HELPERS = [
   { label: NAMER_LABEL, ident: "NAMER_LABEL" },
   { label: AUTOPILOT_LABEL, ident: "AUTOPILOT_LABEL" },
   { label: VERIFY_KEY_LABEL, ident: "VERIFY_KEY_LABEL" },
+  // #1852: prompt-recommend previously had NO reconcile coverage at all — not in this
+  // boot reap, not in isShepherdHelperLabel — so a restart mid-run leaked its tab forever.
+  { label: RECOMMEND_LABEL, ident: "RECOMMEND_LABEL" },
 ] as const;
 
 // One behavioral case per label, deliberately NOT a restatement of `closes ALL unowned prefix

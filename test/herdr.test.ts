@@ -387,6 +387,152 @@ test("relabel: no-op (no throw) when the agent is gone", async () => {
   await expect(h.relabel("term_gone", "fresh-name")).resolves.toBeUndefined();
 });
 
+// ── Spawn-handle ledger: recorded-tab-first stop() (#1852) ────────────────────────────
+//
+// A transient helper that exits (or dies milliseconds after `agent.start`) vanishes from
+// `agent list` while its tab persists as a husk. The old stop() resolved the tab through
+// `agent list` and silently no-oped in that case — 316 leaked helper tabs exhausted
+// herdr's FD limit. These tests pin the new contract: for a spawn this driver started,
+// stop() closes the tab recorded at start() via a tab-list label verify, with ZERO
+// `agent list` calls on that normal path.
+
+/** Runs a full start() (recording term_started → t_new / "flatten" in the ledger), then
+ *  routes every subsequent herdr call through `afterStart`. Returns the shared call log
+ *  and the index where post-start calls begin. */
+async function mkStartedDriver(
+  afterStart: (args: string[]) => string,
+): Promise<{ d: HerdrDriver; calls: string[][]; startEnd: number }> {
+  const calls: string[][] = [];
+  let started = false;
+  const runner = (args: string[]): string => {
+    calls.push(args);
+    if (!started) return reply(args, WORKSPACE_LIST);
+    return afterStart(args);
+  };
+  const d = mkDriver(runner);
+  await d.start("flatten", "/wt/a", ["claude", "go"]);
+  started = true;
+  return { d, calls, startEnd: calls.length };
+}
+
+test("stop: closes the spawn-recorded tab when the agent never appears in agent list (fast exit)", async () => {
+  const { d, calls, startEnd } = await mkStartedDriver((args) => {
+    if (args[0] === "tab" && args[1] === "list") return TAB_LIST_WITH_NEW;
+    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST;
+    return "{}";
+  });
+  await d.stop("term_started");
+  const stopCalls = calls.slice(startEnd);
+  expect(stopCalls).toContainEqual(["tab", "close", "t_new"]);
+  // The normal teardown path never touches `agent list` — that dependency was the leak.
+  expect(stopCalls.some((c) => c[0] === "agent" && c[1] === "list")).toBe(false);
+});
+
+test("stop: a second stop after the recorded-tab close is a plain fallback no-op (entry taken)", async () => {
+  const { d, calls, startEnd } = await mkStartedDriver((args) => {
+    if (args[0] === "tab" && args[1] === "list") return TAB_LIST_WITH_NEW;
+    if (args[0] === "agent" && args[1] === "list") return EMPTY_LIST;
+    return "{}";
+  });
+  await d.stop("term_started");
+  await d.stop("term_started");
+  const closes = calls.slice(startEnd).filter((c) => c[0] === "tab" && c[1] === "close");
+  expect(closes).toEqual([["tab", "close", "t_new"]]); // exactly one close, no double-fire
+});
+
+test("stop: never closes the recorded tab on a label mismatch — falls back to agent-list truth", async () => {
+  // A herdr daemon restart can re-mint a stable tab id for someone else's tab; closing
+  // the recorded id blind would kill live work. The mismatch must fall back to the
+  // current agent list instead.
+  const { d, calls, startEnd } = await mkStartedDriver((args) => {
+    if (args[0] === "tab" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "tab_list",
+          tabs: [{ tab_id: "t_new", label: "someone-elses-session", workspace_id: "w1" }],
+        },
+      });
+    }
+    if (args[0] === "agent" && args[1] === "list") {
+      return JSON.stringify({
+        result: { agents: [{ terminal_id: "term_started", tab_id: "t_current" }] },
+      });
+    }
+    return "{}";
+  });
+  await d.stop("term_started");
+  const stopCalls = calls.slice(startEnd);
+  expect(stopCalls).not.toContainEqual(["tab", "close", "t_new"]);
+  expect(stopCalls).toContainEqual(["tab", "close", "t_current"]);
+});
+
+test("stop: recorded tab already gone from the tab list → nothing to close, no agent-list call", async () => {
+  const { d, calls, startEnd } = await mkStartedDriver((args) => {
+    if (args[0] === "tab" && args[1] === "list") return EMPTY_TABS;
+    return "{}";
+  });
+  await d.stop("term_started");
+  const stopCalls = calls.slice(startEnd);
+  expect(stopCalls.some((c) => c[0] === "tab" && c[1] === "close")).toBe(false);
+  expect(stopCalls.some((c) => c[0] === "agent" && c[1] === "list")).toBe(false);
+});
+
+test("stop: tab-list failure falls back to the agent-list path (never weaker than before)", async () => {
+  const { d, calls, startEnd } = await mkStartedDriver((args) => {
+    if (args[0] === "tab" && args[1] === "list") throw new Error("herdr hiccup");
+    if (args[0] === "agent" && args[1] === "list") {
+      return JSON.stringify({
+        result: { agents: [{ terminal_id: "term_started", tab_id: "t_live" }] },
+      });
+    }
+    return "{}";
+  });
+  await d.stop("term_started");
+  expect(calls.slice(startEnd)).toContainEqual(["tab", "close", "t_live"]);
+});
+
+test("stop after relabel: the ledger label follows the tab rename, recorded path still closes", async () => {
+  const { d, calls } = await mkStartedDriver((args) => {
+    if (args[0] === "agent" && args[1] === "list") {
+      return JSON.stringify({
+        result: { agents: [{ terminal_id: "term_started", tab_id: "t_new", name: "flatten" }] },
+      });
+    }
+    if (args[0] === "tab" && args[1] === "list") {
+      return JSON.stringify({
+        result: {
+          type: "tab_list",
+          tabs: [{ tab_id: "t_new", label: "renamed", workspace_id: "w1" }],
+        },
+      });
+    }
+    return "{}";
+  });
+  await d.relabel("term_started", "renamed");
+  const relabelEnd = calls.length;
+  await d.stop("term_started");
+  const stopCalls = calls.slice(relabelEnd);
+  expect(stopCalls).toContainEqual(["tab", "close", "t_new"]);
+  expect(stopCalls.some((c) => c[0] === "agent" && c[1] === "list")).toBe(false);
+});
+
+test('stop(""): silent no-op with zero herdr calls (cwd-reconcile callers pass "" deliberately)', async () => {
+  const calls: string[][] = [];
+  const d = mkDriver((args) => {
+    calls.push(args);
+    return FIXTURE;
+  });
+  await d.stop("");
+  expect(calls).toEqual([]);
+});
+
+test("tabsAsync mirrors tabs(): parses the tab list off the async runner", async () => {
+  const d = mkDriver((args) => (args[0] === "tab" && args[1] === "list" ? TAB_LIST : FIXTURE));
+  const t = await d.tabsAsync();
+  expect(t.length).toBe(3);
+  expect(t[1]).toMatchObject({ tabId: "w:2", label: "review TASK-09", agentStatus: "unknown" });
+});
+
 test("mapState maps herdr states to shepherd status", async () => {
   expect(mapState("working")).toBe("running");
   expect(mapState("blocked")).toBe("blocked");

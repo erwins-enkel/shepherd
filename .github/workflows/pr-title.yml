@@ -1,12 +1,18 @@
 name: PR title
 
-# Squash-merge makes the PR *title* the commit subject on main, and release-please
+# Squash-merge can make the PR *title* the commit subject on main, and release-please
 # builds the changelog by parsing that subject. A non-conventional title lands a
 # non-conventional subject even when the branch's own commits are conventional, so
 # release-please silently drops the change from the release notes (that's how #1278
 # vanished from the 1.39.0 notes). commitlint's commit-msg hook gates commit
 # *messages*, not the PR title — so gate the title here with the very same
 # commitlint config (commitlint.config.js) for zero rule drift.
+#
+# Precisely which string lands depends on this repo's `squash_merge_commit_title`
+# setting, which is COMMIT_OR_PR_TITLE: a MULTI-commit PR squashes under the PR
+# title (this gate covers it), a SINGLE-commit PR squashes under that commit's own
+# subject (the commit-msg hook covers it). Both paths are gated, by different
+# mechanisms — verified against merged history (#1866 vs #1604).
 on:
   pull_request:
     # `edited` so re-titling a PR re-runs the check (default types omit it).
@@ -19,11 +25,26 @@ permissions:
 jobs:
   pr-title:
     name: pr title
-    # release-please's generated title ("chore(main): release X.Y.Z") is already
-    # conventional and its branch is bot-maintained — skip to match ci.yml /
-    # pr-hygiene.yml, which guard off the same head_ref prefix AND the release-bot
-    # identity (branch-name-only was a fork-spoofable required-check skip).
-    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) }}
+    # Skipped for two bot authors whose titles this gate cannot usefully police.
+    # Both guards pair the head_ref prefix WITH the bot identity — branch-name-only
+    # was a fork-spoofable required-check skip; the author login cannot be spoofed.
+    #
+    #  • release-please: its title ("chore(main): release X.Y.Z") is already
+    #    conventional and its branch is bot-maintained — matches ci.yml / pr-hygiene.yml.
+    #
+    #  • dependabot: its title format is not ours to fix. When a group carries exactly
+    #    one update it emits e.g. "...bump typedoc from 0.28.19 to 0.28.20 in /docs-site
+    #    in the development-dependencies group across 1 directory" — 124 chars, over
+    #    commitlint's header-max-length — and `@dependabot recreate` regenerates the
+    #    same string, so the PR wedges until a human retitles it (#1866). The title's
+    #    *type* is safe regardless: dependabot.yml pins commit-message.prefix to
+    #    chore(deps)/chore(deps-dev)/chore(ci), so it is always conventional and only
+    #    ever over-LONG. Length is the sole exposure, and it is bounded — dependabot
+    #    PRs are usually single-commit (so the short commit subject lands, not the
+    #    title), and every dependabot subject is a `chore`, which release-please-
+    #    config.json marks "hidden": true. A long subject can therefore reach `git log`
+    #    on main, but never a changelog section.
+    if: ${{ !(startsWith(github.head_ref, 'release-please--') && (github.event.pull_request.user.login == 'shepherd-release-please[bot]' || github.event.pull_request.user.login == 'github-actions[bot]')) && !(startsWith(github.head_ref, 'dependabot/') && github.event.pull_request.user.login == 'dependabot[bot]') }}
     # Pinned to GitHub-hosted — public repo, no CI_RUNNER toggle (see ci.yml).
     runs-on: ubuntu-latest
     steps:

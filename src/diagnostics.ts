@@ -1300,7 +1300,7 @@ export class DiagnosticsService {
     return this.check(now);
   }
 
-  /** Run the fix for `checkId`, then force a fresh probe and return the new snapshot. Three dispatch
+  /** Run the fix for `checkId`, then force a fresh probe and return the new snapshot. Four dispatch
    *  paths, all fail-closed (a rejection propagates so the caller maps it to an explicit failure,
    *  never a false pass):
    *   - **claude_trust code fix** (dispatched by hintKey): seeds `config.repoRoot`'s folder-trust flag
@@ -1309,6 +1309,9 @@ export class DiagnosticsService {
    *     /usage probe seed.
    *   - **host_capacity code fix** (dispatched by `fixActionKey`): `set-property` the carried
    *     `MemoryHigh`/`CPUQuota` on the carried unbounded units (#1839).
+   *   - **tmp_inodes code fix** (dispatched by `fixActionKey`): a forced tmp sweep that bypasses its
+   *     own inode gate (#1862). Unlike the others this one commonly leaves the check NON-ok — it
+   *     reclaims only what Shepherd owns — which is why it carries its own unresolved-toast copy.
    *   - **shell remediation**: the verbatim command for the hintKey.
    *  Throws if the check is unknown or has no code fix and no auto-fix command. */
   async fix(checkId: string, now: number): Promise<DiagnosticsSnapshot> {

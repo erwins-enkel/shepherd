@@ -105,7 +105,7 @@ This matters because inode exhaustion is easy to misdiagnose — writes start fa
 "no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
 the real cause.
 
-Its **How to fix** runs the sweep immediately, ignoring the usage threshold. It reclaims
+Its **Fix** button runs the sweep immediately, ignoring the usage threshold. It reclaims
 what Shepherd owns — the compile cache and stale tool caches — so the row can legitimately
 stay non-OK afterwards: a package-manager store or a leftover git worktree that an agent
 put in the temp filesystem is **not** reclaimed yet. Those are the two largest consumers

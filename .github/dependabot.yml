@@ -1,6 +1,6 @@
 version: 2
 updates:
-  # Bun version updates across all three packages. Bun *security* updates are
+  # Bun version updates across all five packages. Bun *security* updates are
   # unsupported by Dependabot and are disabled at the repo level; daily scheduling
   # keeps the version-update (= effective security-fix) channel fresh.
   #
@@ -16,6 +16,8 @@ updates:
       - "/"
       - "/ui"
       - "/extension"
+      - "/site"
+      - "/docs-site"
     schedule:
       interval: "daily"
     cooldown:

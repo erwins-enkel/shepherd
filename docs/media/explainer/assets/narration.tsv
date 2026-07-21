@@ -1,0 +1,12 @@
+# Kokoro TTS source (id <tab> text). Acronyms may be spelled phonetically so the
+# letters are voiced — e.g. "C.I." → "see eye", not the word "sci"; the on-screen
+# caption and .srt keep the plain "CI". Lines starting with # are skipped by regen.sh.
+n1	It starts as an issue.
+n2	Its own worktree. Its own real terminal.
+n3	A dozen of these at once.
+n4	It writes a plan — and stops. A second agent tries to refute it.
+n5	Then it works.
+n6	C.I. Hygiene. Then a third agent reads the diff.
+n7	Only what survives lands.
+n8	And when it can't, it stops and tells you why.
+n9	Shepherd runs many agents at once — and it is built to stop.

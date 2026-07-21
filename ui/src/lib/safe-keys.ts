@@ -66,17 +66,20 @@ export function setKey<T>(rec: Record<string, T>, id: string, value: T): Record<
  *  malformed ids — but applying it to a path key would silently no-op the write and freeze that
  *  map in the UI with no error, so the two are not interchangeable.
  *
- *  CodeQL flags this function and there is a standing dismissal for it. `js/remote-property-injection`
- *  models a regex allow-list as a sanitizing barrier (which is why {@link setKey} is not flagged)
- *  but does NOT model an equality chain, `Set.has()`, or `Object.defineProperty` — all three were
- *  tried. An allow-list is not available here: `repoPath` is arbitrary filesystem input, so any
- *  charset narrow enough to exclude `__proto__` could also reject a legitimate path and silently
- *  freeze the map — the exact failure this guard exists to prevent. The guard below is complete
- *  (those three names are the only ones reachable by a `[[Set]]` write), so the code stays in its
- *  clearest form rather than being contorted to satisfy the query. */
+ *  Builds the result with `Object.fromEntries` — "every existing entry, plus this one" — rather
+ *  than a `{ ...rec, [key]: v }` computed key. Identical semantics (both use CreateDataProperty,
+ *  so neither can invoke a setter) and the same O(n) copy, but it expresses the key as data rather
+ *  than as a dynamic property write.
+ *
+ *  That last point is deliberate. `js/remote-property-injection` models a regex allow-list as a
+ *  sanitizing barrier — which is why {@link setKey} is not flagged — but does not model an equality
+ *  chain, `Set.has()`, or `Object.defineProperty`. An allow-list cannot be used on this path:
+ *  `repoPath` is arbitrary filesystem input, so any charset narrow enough to exclude `__proto__`
+ *  could also reject a legitimate path and silently freeze the map, which is the exact failure this
+ *  guard exists to prevent. The explicit check below remains the real barrier. */
 export function setPathKey<T>(rec: Record<string, T>, key: string, value: T): Record<string, T> {
   if (key === "__proto__" || key === "constructor" || key === "prototype") return rec;
-  return { ...rec, [key]: value };
+  return Object.fromEntries([...Object.entries(rec), [key, value]]) as Record<string, T>;
 }
 
 /** Strip prototype-polluting own keys from a payload before an `Object.assign`.

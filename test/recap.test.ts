@@ -612,6 +612,61 @@ test("tick timeout: generating row, no verdict, past timeout → state 'failed',
   expect(cleaned).toContain("/tmp/recap-timeout");
 });
 
+// #1852 (pane 158): a short-lived recap helper exits cleanly BEFORE finalize runs, so it has
+// vanished from `agent list` while its tab persists as a husk. The old teardown resolved the
+// terminal by cwd at finalize time — "" once the agent exited — and stop("") silently no-oped,
+// leaking the tab (97 recap husks at the incident). The finalizer must stop the terminalId
+// recorded at spawn.
+test("tick finalize after the agent exited: stops the spawn-recorded terminal, not the cwd re-lookup (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  const cleaned: string[] = [];
+  let t = 100_000;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => t,
+    idleThresholdMs: 120_000,
+    verdictJson: VALID_VERDICT_JSON,
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn — the service records tid-1 as the run's teardown handle
+  expect(herdr.started.length).toBe(1);
+
+  herdr.livePanes.length = 0; // the helper exits: gone from agent list, husk tab remains
+
+  await svc.tick(); // verdict present → finalize
+
+  expect(store.getRecap("s1")?.state).toBe("ready");
+  expect(herdr.stopped).toEqual(["tid-1"]); // the spawn handle — never "" (the silent no-op)
+  expect(cleaned.length).toBe(1);
+});
+
+test("regenerate while generating: reapGenerating stops the spawn-recorded terminal after the agent exited (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let t = 100_000;
+  const svc = buildSvc({ store, herdr, nowFn: () => t, idleThresholdMs: 120_000 });
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn tid-1
+  expect(herdr.started.length).toBe(1);
+
+  herdr.livePanes.length = 0; // old helper exited — cwd re-lookup would yield ""
+
+  const result = await svc.regenerate(s); // reaps the stale generating run, spawns fresh
+
+  expect(result).toBe("started");
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toContain("tid-1"); // the stale run's spawn handle, not ""
+});
+
 test("tick no verdict logs Codex recap spawn context without prompt text", async () => {
   const rec = makeRecap({
     state: "generating",

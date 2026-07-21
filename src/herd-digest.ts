@@ -188,6 +188,11 @@ export class HerdDigestService {
   private inFlight = new Set<string>();
   /** Guards a digest being finalized twice across overlapping ticks. */
   private finalizing = new Set<string>();
+  /** Spawn terminalId per generating dayKey (#1852). The persisted row carries only
+   *  `cwd`, and `resolveTerminal(cwd)` returns "" once the agent exited — which made the
+   *  finalize `stop("")` a silent no-op and leaked the tab. In-memory by design: a
+   *  restart-adopted row falls back to the cwd lookup (orphan sweep covers residue). */
+  private generatingTerminals = new Map<string, string>();
 
   constructor(private deps: HerdDigestServiceDeps) {
     this.now = deps.now ?? Date.now;
@@ -223,10 +228,14 @@ export class HerdDigestService {
     const existing = this.deps.store.getHerdDigest(dayKey);
     if (!existing || existing.state !== "generating") return;
     try {
-      void this.deps.herdr.stop(this.resolveTerminal(existing.cwd)).catch(() => {});
+      // Spawn-recorded terminalId first (#1852) — see the finalize `finally`.
+      void this.deps.herdr
+        .stop(this.generatingTerminals.get(dayKey) ?? this.resolveTerminal(existing.cwd))
+        .catch(() => {});
     } catch {
       /* best-effort */
     }
+    this.generatingTerminals.delete(dayKey);
     this._cleanup(existing.cwd);
   }
 
@@ -364,9 +373,17 @@ export class HerdDigestService {
       const prompt = buildRundownPrompt(assembled, this.operatorLanguage());
       const { argv, sessionId: spawnSessionId } = rundownArgv(environment, prompt);
 
+      // Keep the returned handle: the terminalId is the finalizer's teardown key (#1852) —
+      // resolving by cwd later yields "" once the agent exited.
       const cwd = this._makeTmpDir();
       try {
-        await this.deps.herdr.start("rundown", cwd, argv, rundownSpawnEnv(environment));
+        const started = await this.deps.herdr.start(
+          "rundown",
+          cwd,
+          argv,
+          rundownSpawnEnv(environment),
+        );
+        this.generatingTerminals.set(dayKey, started.terminalId);
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so a later sweep can retry
@@ -527,12 +544,17 @@ export class HerdDigestService {
         console.warn(`[rundown] usage capture failed for ${d.dayKey}:`, err);
       }
     } finally {
-      // Always reap pane + tmpdir.
+      // Always reap pane + tmpdir. Prefer the spawn-recorded terminalId (#1852) — the
+      // cwd lookup is only for rows adopted across a restart, and returns "" once the
+      // agent exited (herdr.stop("") is a no-op; the orphan sweep covers that residue).
       try {
-        await this.deps.herdr.stop(this.resolveTerminal(d.cwd));
+        await this.deps.herdr.stop(
+          this.generatingTerminals.get(d.dayKey) ?? this.resolveTerminal(d.cwd),
+        );
       } catch {
         /* best-effort */
       }
+      this.generatingTerminals.delete(d.dayKey);
       this._cleanup(d.cwd);
     }
   }

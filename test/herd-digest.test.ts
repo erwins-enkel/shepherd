@@ -377,6 +377,31 @@ test("tick: generating row, no verdict, past timeout → 'failed' (not ready, no
   expect(cleaned).toContain("/tmp/rundown-timeout");
 });
 
+// #1852: a rundown helper that exits cleanly before finalize has vanished from `agent list`,
+// so the old cwd re-lookup returned "" and stop("") silently no-oped, leaking the tab. The
+// finalizer must stop the terminalId recorded at spawn (mirrors the recap regression).
+test("tick finalize after the agent exited: stops the spawn-recorded terminal, not the cwd re-lookup (#1852)", async () => {
+  const store = makeStore([makeSession()]);
+  const herdr = makeHerdr();
+  const cleaned: string[] = [];
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    verdict: VALID_VERDICT_JSON,
+    cleanup: (d) => cleaned.push(d),
+  });
+
+  expect(await svc.generate()).toBe("started"); // records tid-1 as the run's teardown handle
+  herdr.livePanes.length = 0; // the helper exits: gone from agent list, husk tab remains
+
+  await svc.tick(); // verdict present → finalize
+
+  expect(store.getHerdDigest(dayKeyFor(DAY1))?.state).toBe("ready");
+  expect(herdr.stopped).toEqual(["tid-1"]); // the spawn handle — never "" (the silent no-op)
+  expect(cleaned.length).toBe(1);
+});
+
 test("tick: generating row, unparseable verdict → 'failed'", async () => {
   const dayKey = dayKeyFor(DAY1);
   const row: HerdDigest = {

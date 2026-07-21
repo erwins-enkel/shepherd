@@ -440,9 +440,22 @@ The in-app guard bounds Shepherd's _own_ churn; as a host-level belt, raise `/tm
 `/etc/fstab` on long-uptime hosts (e.g. `tmpfs /tmp tmpfs nr_inodes=4194304 0 0`) so a higher inode
 ceiling protects against any tmpfs consumer.
 
+Settings → Diagnose carries a **Temp filesystem inodes** row so this is visible before it bites:
+inode exhaustion otherwise reads as "disk full" while `df -h` shows plenty free (`df -i` is what
+shows it). The row warns at `SHEPHERD_TMP_INODE_PCT` — the same threshold that gates the sweep, so
+raising the knob moves both — and errors at 95%. The row's bands are kept ordered and in range: a
+knob above 95 raises the error band with it (so the row never alarms below the line you set), and a
+value outside `(0, 100]` — including the legitimate `0` "always sweep" gate setting, which as a
+display band would mean "always warn" — falls back to 80 for the row only; the sweep itself still
+honours it. Its one-click fix runs the sweep immediately,
+ignoring the threshold; it reclaims the caches Shepherd owns, so the row can legitimately stay
+non-OK afterwards when the pressure is a package-manager store or a leftover worktree an agent left
+in the temp filesystem (not reclaimed yet).
+
 Override env vars: `SHEPHERD_NODE_COMPILE_CACHE` (compile-cache dir), `SHEPHERD_TMP_INODE_PCT`
-(sweep threshold %, default `80`), `SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default
-`24`), `SHEPHERD_TMP_SWEEP_DIR` (override the swept tmp root).
+(sweep threshold % **and** the Diagnose row's warning band, default `80`),
+`SHEPHERD_TMP_STALE_HOURS` (scratch staleness cutoff, default `24`), `SHEPHERD_TMP_SWEEP_DIR`
+(override the swept tmp root).
 
 ### Live preview
 

@@ -74,6 +74,10 @@
       title: m.diagnostics_fix_confirm_title_host_capacity,
       run: m.diagnostics_fix_confirm_run_host_capacity,
     },
+    diagnostics_fix_action_tmp_inodes: {
+      title: m.diagnostics_fix_confirm_title_tmp_inodes,
+      run: m.diagnostics_fix_confirm_run_tmp_inodes,
+    },
   };
   function codeFixTitle(check: DiagnosticCheck): string {
     return (

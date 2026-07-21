@@ -130,6 +130,16 @@ const glossary: readonly GlossaryTerm[] = [
     termKey: "gloss_herdr_hygiene_term",
     bodyKey: "gloss_herdr_hygiene_def",
   },
+  {
+    id: "inode",
+    kind: "external",
+    termKey: "gloss_inode_term",
+    bodyKey: "gloss_inode_def",
+    wikipedia: {
+      en: "Inode",
+      de: "Inode",
+    },
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

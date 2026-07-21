@@ -3340,5 +3340,16 @@
   "gearmenu_plugins_manage": "manage",
   "gearmenu_support_label": "Support",
   "feat_gear_menu_redesign_title": "The gear menu is now a telemetry panel",
-  "feat_gear_menu_redesign_body": "The gear now always opens a redesigned menu: a live token-usage gauge (tap “all” for the per-window breakdown), a Halt-herd action with a live working count, grouped workspace, plugin and support rows, and the app version + connection state up top. On desktop, Cmd/Ctrl+, opens Settings from anywhere."
+  "feat_gear_menu_redesign_body": "The gear now always opens a redesigned menu: a live token-usage gauge (tap “all” for the per-window breakdown), a Halt-herd action with a live working count, grouped workspace, plugin and support rows, and the app version + connection state up top. On desktop, Cmd/Ctrl+, opens Settings from anywhere.",
+  "diagnostics_label_tmp_inodes": "Temp filesystem inodes",
+  "diagnostics_hint_tmp_inodes_ok": "The temporary filesystem has plenty of [[inode|inodes]] free.",
+  "diagnostics_hint_tmp_inodes_high": "The temporary filesystem is running low on [[inode|inodes]] — it can run out while still showing free space, and agent sessions then fail with confusing \"no space\" errors. Fix sweeps the caches Shepherd can reclaim.",
+  "diagnostics_hint_tmp_inodes_critical": "The temporary filesystem is nearly out of [[inode|inodes]]. New agent sessions will start failing with \"no space\" errors even though disk space looks free. Fix sweeps the caches Shepherd can reclaim.",
+  "diagnostics_hint_tmp_inodes_uninspectable": "Shepherd can't read [[inode|inode]] usage for the temporary filesystem on this deployment.",
+  "diagnostics_fix_action_tmp_inodes": "Sweep Shepherd's reclaimable caches from the temporary filesystem now, ignoring the usual usage threshold. This drops the compile cache and stale tool caches. Package-manager stores and leftover worktrees left behind by agents are not reclaimed yet, so usage may stay high.",
+  "diagnostics_fix_confirm_title_tmp_inodes": "Sweep temporary files now?",
+  "diagnostics_fix_confirm_run_tmp_inodes": "Sweep now",
+  "diagnostics_fix_unresolved_tmp_inodes": "Shepherd swept the caches it can reclaim, but usage is still high — the rest is most likely a package-manager store or a leftover worktree an agent left in the temporary filesystem, which Shepherd doesn't reclaim yet.",
+  "gloss_inode_term": "inode",
+  "gloss_inode_def": "A filesystem's record for one file or directory. A filesystem has a limited number of them, set when it is created — so it can run out of inodes while still having free space, and every new file then fails as though the disk were full."
 }

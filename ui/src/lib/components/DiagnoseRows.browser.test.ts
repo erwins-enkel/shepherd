@@ -271,6 +271,45 @@ describe("DiagnoseRows code-fix (fixActionKey) branch", () => {
     expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_title_code());
     expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_run_code());
   });
+
+  // tmp_inodes (#1862): a new code fix must register in `codeFixChrome`, and the row must have a
+  // label. Unregistered, BOTH fail silently in CI — `check:i18n` enforces key parity, not key
+  // existence — and the operator sees a row called `tmp_inodes` whose fix offers to trust a folder.
+  it("tmp_inodes code fix: row renders its label and the modal shows tmp_inodes chrome", async () => {
+    render(DiagnoseRows, {
+      props: {
+        onfix: vi.fn(),
+        checks: [
+          check({
+            id: "tmp_inodes",
+            state: "error",
+            hintKey: "diagnostics_hint_tmp_inodes_critical",
+            fixActionKey: "diagnostics_fix_action_tmp_inodes",
+          }),
+        ],
+      },
+    });
+
+    // Registered label, not the raw check id.
+    await expect
+      .element(page.getByText(m.diagnostics_label_tmp_inodes(), { exact: true }))
+      .toBeVisible();
+    expect(document.body.textContent).not.toContain("tmp_inodes");
+
+    await page.getByRole("button", { name: m.diagnostics_fix() }).click();
+
+    const dlg = document.querySelector('[role="dialog"][aria-modal="true"]');
+    expect(dlg).not.toBeNull();
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_action_tmp_inodes());
+    // code-fix chrome — prose, not a shell command block
+    expect(dlg?.querySelector("code.cmd")).toBeNull();
+    // tmp_inodes chrome — explicitly NOT the folder-trust fallback the generic *_code keys carry.
+    expect(dlg?.getAttribute("aria-label")).toBe(m.diagnostics_fix_confirm_title_tmp_inodes());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_title_tmp_inodes());
+    expect(dlg?.textContent).toContain(m.diagnostics_fix_confirm_run_tmp_inodes());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_title_code());
+    expect(dlg?.textContent).not.toContain(m.diagnostics_fix_confirm_run_code());
+  });
 });
 
 describe("DiagnoseRows host_capacity guidance", () => {

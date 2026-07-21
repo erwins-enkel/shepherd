@@ -261,3 +261,55 @@ test("both plan-gate directives tell the planner to reference code by path + sym
     expect(d).not.toContain("line numbers are stripped");
   }
 });
+
+// tmpfs inode safety (#1862) — like the stash notice, a host-filesystem invariant that must ride
+// EVERY spawn on EVERY provider. Provider divergence here is wording only, never suppression: an
+// exhausted inode table bricks the session regardless of which agent caused it.
+test("tmpfs-worktree-notice rides every spawn variant, on both providers", () => {
+  const variants = [
+    composeSystemPrompt(null, false), // plain code spawn
+    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false), // house rules
+    composeSystemPrompt(null, true), // autopilot
+    composeSystemPrompt(null, false, { research: true }), // research
+    composeSystemPrompt(null, true, { planGate: "interactive" }), // plan gate
+    composeSystemPrompt(null, false, { agentProvider: "codex" }), // codex
+    composeSystemPrompt(null, true, { agentProvider: "codex" }), // codex + autopilot
+  ];
+  for (const p of variants) {
+    expect(p).toContain("<tmpfs-worktree-notice>");
+    // Both prohibitions ride every variant — the provider split is framing only.
+    expect(p).toContain("git worktree add");
+    expect(p).toContain("pnpm install");
+  }
+});
+
+test("tmpfs-worktree-notice narrows the scratchpad instruction for claude, stands alone for codex", () => {
+  const claude = composeSystemPrompt(null, false);
+  // Claude receives the harness "Scratchpad Directory" block, so the notice must NARROW it rather
+  // than contradict it — an agent handed two conflicting absolutes picks one arbitrarily.
+  expect(claude).toContain("Scratchpad Directory instruction stands for ordinary temporary files");
+
+  // Codex never receives that block, so referencing it would name something the agent never saw.
+  const codex = composeSystemPrompt(null, false, { agentProvider: "codex" });
+  expect(codex).not.toContain("Scratchpad Directory");
+  expect(codex).toContain("hard inode cap");
+});
+
+test("tmpfs-worktree-notice tells claude to carry the constraint into sub-agent prompts", () => {
+  // Load-bearing: a dispatched sub-agent receives Claude Code's scratchpad block but NONE of this
+  // composed prompt, so without this clause the notice misses the likeliest actor entirely.
+  const claude = composeSystemPrompt(null, false);
+  expect(claude).toContain("Sub-agents do NOT inherit this instruction");
+  expect(claude).toContain("restate this constraint in that sub-agent's prompt");
+
+  // Codex spawns don't dispatch sub-agents, so the clause would be noise there.
+  const codex = composeSystemPrompt(null, false, { agentProvider: "codex" });
+  expect(codex).not.toContain("Sub-agents do NOT inherit");
+});
+
+test("tmpfs-worktree-notice explains the inode failure mode, not just the prohibition", () => {
+  // The whole reason this is hard to diagnose: bytes look fine, inodes are gone.
+  const p = composeSystemPrompt(null, false);
+  expect(p).toContain("ENOSPC");
+  expect(p).toContain("df -i");
+});

@@ -6,6 +6,17 @@
   import PwaInstallRow from "$lib/components/PwaInstallRow.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
+  import { unresolvedFixKey, type UnresolvedFixKey } from "$lib/diagnostics-copy";
+
+  // Exhaustive key→message map. Typing it as a Record over the closed `UnresolvedFixKey` union is
+  // what keeps `unresolvedFixKey` honest: adding a branch there without a message here fails the
+  // build, which a dynamic `m[key]()` lookup would only have failed at runtime.
+  const UNRESOLVED_FIX_MSG: Record<UnresolvedFixKey, () => string> = {
+    diagnostics_fix_unresolved: m.diagnostics_fix_unresolved,
+    diagnostics_fix_unresolved_code: m.diagnostics_fix_unresolved_code,
+    diagnostics_fix_unresolved_host_capacity: m.diagnostics_fix_unresolved_host_capacity,
+    diagnostics_fix_unresolved_tmp_inodes: m.diagnostics_fix_unresolved_tmp_inodes,
+  };
 
   let {
     initialDiagnostics = null,
@@ -50,13 +61,9 @@
       } else {
         // A code fix (fixActionKey, no shell command) that didn't clear needs code-appropriate
         // wording — "the command ran" is wrong for a config seed / a set-property. Each code fix
-        // carries its own unresolved copy (folder-trust restart vs host-capacity take-effect hint).
-        let unresolved = m.diagnostics_fix_unresolved();
-        if (target?.fixActionKey === "diagnostics_fix_action_host_capacity") {
-          unresolved = m.diagnostics_fix_unresolved_host_capacity();
-        } else if (target?.fixActionKey) {
-          unresolved = m.diagnostics_fix_unresolved_code();
-        }
+        // carries its own unresolved copy; the selection lives in `unresolvedFixKey` so it is
+        // testable without rendering this panel (#1862).
+        const unresolved = UNRESOLVED_FIX_MSG[unresolvedFixKey(target)]();
         toasts.info(unresolved, {
           alert: true,
           key: `diagnose-fix:${checkId}`,

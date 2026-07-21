@@ -107,19 +107,28 @@ export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
  *  immediately before the ref, so `10:30` and `--flag=3:4` are left alone. The extension must
  *  START WITH A LETTER, which is what keeps decimals safe — without it `16.9:1` and `1.5:30` read
  *  as "file `16.9`, line 1" and get rewritten, defeating the ratio/timestamp guarantee one line
- *  up. Every real code extension qualifies (`.ts`, `.rs`, `.svelte`, `.mjs`, `.h`). The leading lookbehind
- *  forces the match to begin at a real token boundary, which is what keeps a URL authority safe:
- *  in `https://example.com:443/x`, `example.com` is preceded by `/` and the `//` is preceded by
- *  `:`, so neither can start a match and the port is not mistaken for a line number. (`.com` is
- *  otherwise a perfectly good "extension", and `/` is a legal token char, so BOTH exclusions are
- *  needed — this was a live false positive, caught twice by the guard test.)
+ *  up. Every real code extension qualifies (`.ts`, `.rs`, `.svelte`, `.mjs`, `.h`).
  *
- *  Known survivals (bare `:1090` continuations, `foo.ts (line 411)`, extension-less paths like
- *  `Makefile:88`) are accepted — widening this would trade a rare false negative for a common
- *  false positive on timestamps, ports and ratios. Those are covered by the prompt rule instead. */
+ *  Trailing `(?::\d+)*` swallows grep/compiler `file:line:col` forms WHOLE. Matching only the
+ *  `:line` part would rewrite `foo.ts:12:5` to `foo.ts:5` — a surviving, plausible-looking
+ *  reference to the WRONG line, which is worse than not matching at all.
+ *
+ *  Two guards keep host:port out. The leading lookbehind forces the match to start at a token
+ *  boundary, so in `https://example.com:443/x` neither `example.com` (preceded by `/`) nor `//`
+ *  (preceded by `:`) can start one. That argument only holds when a `//` scheme prefix is present,
+ *  so the trailing `(?!/)` covers the rest: a port is followed by a path, a line number never is —
+ *  it rescues bare `ghcr.io:443/x`. (`.com`/`.io` are perfectly good "extensions" and `/` is a
+ *  legal token char, so both guards are load-bearing.)
+ *
+ *  Known survivals, all accepted: bare `:1090` continuations, `foo.ts (line 411)`, extension-less
+ *  paths like `Makefile:88`. Known FALSE POSITIVE, also accepted: a bare `host:port` with no path
+ *  (`ghcr.io:443` → `ghcr.io`). Distinguishing it would need a TLD blocklist, and TLDs collide
+ *  head-on with real code extensions — `.rs`, `.sh`, `.pl` and `.ml` are all both — so the cure is
+ *  worse than the disease. It is cosmetic besides: the reviewer's copy of the plan loses a port,
+ *  which costs nothing, whereas the whole point is to deny it a line number to argue about. */
 export function stripPlanLineRefs(text: string): string {
   return text.replace(
-    /(?<![A-Za-z0-9_.:\-/\\])([A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-/\\]\.[A-Za-z][A-Za-z0-9]{0,7})(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)\b/g,
+    /(?<![A-Za-z0-9_.:\-/\\])([A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-/\\]\.[A-Za-z][A-Za-z0-9]{0,7})(?::\d+(?:-\d+)?(?::\d+)*|#L\d+(?:-L?\d+)?)\b(?!\/)/g,
     "$1",
   );
 }

@@ -102,6 +102,32 @@ test("stripPlanLineRefs removes extension-bearing path:line and #Lline refs", ()
   );
 });
 
+test("stripPlanLineRefs consumes grep/compiler file:line:col refs WHOLE", () => {
+  // Matching only the `:line` half would leave `foo.ts:5` — a surviving, plausible-looking
+  // reference to the WRONG line. That is strictly worse than not matching at all, since it
+  // re-arms the exact argument the strip exists to prevent, now pointing somewhere bogus.
+  expect(stripPlanLineRefs("foo.ts:12:5")).toBe("foo.ts");
+  expect(stripPlanLineRefs("src/a.rs:10:3: error")).toBe("src/a.rs: error");
+  expect(stripPlanLineRefs("src/a.ts:1:2:3")).toBe("src/a.ts");
+});
+
+test("stripPlanLineRefs leaves host:port/path alone even without a scheme prefix", () => {
+  // The token-boundary lookbehind only defuses a URL when `//` is present; a bare registry ref
+  // has no scheme, so the trailing (?!/) does the work — a port is followed by a path, a line
+  // number never is.
+  for (const s of ["ghcr.io:443/x", "registry.io:5000/img:tag", "docker.io:5000/a/b"]) {
+    expect(stripPlanLineRefs(s)).toBe(s);
+  }
+});
+
+test("stripPlanLineRefs: bare host:port is a KNOWN, accepted false positive", () => {
+  // With no path there is nothing left to distinguish `ghcr.io:443` from `foo.ts:443`, and a TLD
+  // blocklist is not an option: `.rs`, `.sh`, `.pl` and `.ml` are all simultaneously real code
+  // extensions and real TLDs. Accepted because it is cosmetic — the reviewer's copy of the plan
+  // loses a port number, which costs nothing. Asserted so the behaviour is pinned, not forgotten.
+  expect(stripPlanLineRefs("ghcr.io:443")).toBe("ghcr.io");
+});
+
 test("stripPlanLineRefs leaves non-path colon forms alone (false-positive guard)", () => {
   for (const s of [
     "10:30",

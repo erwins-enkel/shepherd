@@ -88,6 +88,12 @@ export interface TransientAgentArgvOptions {
    *  (nor, for the checkout-running kinds, a fixed `-o` target a committed symlink could redirect).
    *  Claude spawns ignore it (Claude has no `-o`). Default false. */
   captureLastMessage?: boolean;
+  /** Pre-minted session id to pin, instead of the fresh `randomUUID()` this builder would generate.
+   *  For a caller that needs the id BEFORE it can build the prompt — the plan gate keys its
+   *  reviewer worktree path on this id, but its prompt depends on facts that only exist once that
+   *  worktree has been created (the post-fetch anchor staleness), so it mints the id, creates the
+   *  worktree, then builds prompt + argv. Omitted everywhere else: the default is unchanged. */
+  sessionId?: string;
 }
 
 /** Read-only git grounding — diff/log/show/status only. NO add/commit/push. Shared by reviewer+doc. */
@@ -161,7 +167,7 @@ export function buildTransientAgentArgv(
   opts: TransientAgentArgvOptions,
 ): { argv: string[]; sessionId: string } {
   const preset = PRESETS[kind];
-  const sessionId = randomUUID();
+  const sessionId = opts.sessionId ?? randomUUID();
 
   // Codex CLI path: a headless, workspace-write-sandboxed `codex exec` runs the same prompt (which
   // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,

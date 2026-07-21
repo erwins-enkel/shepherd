@@ -5,7 +5,7 @@ import {
   codexLastMessageFile,
 } from "./codex-last-message";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
@@ -83,15 +83,86 @@ const PLAN_BLOCKS_FILE = ".shepherd-plan-blocks.json";
 /** The file the adversarial plan reviewer writes its verdict JSON to, in its detached worktree. */
 export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
 
+/** Rewrite `path.ext:120` / `path.ext:120-140` / `path.ext#L120-L140` to the bare `path.ext`.
+ *
+ *  Applied ONLY to the plan text embedded in {@link planReviewPrompt} — the plan file on disk, the
+ *  UI's copy and the planning agent's own view are untouched, and so are `task` / `issueBody` /
+ *  prior findings (see below). It exists because the planner and the reviewer historically read
+ *  DIFFERENT trees, so a line number correct on one side was wrong on the other and the round was
+ *  spent arguing about it. `planAnchorSha` now co-locates the two trees, which fixes the common
+ *  case; this strip is the deterministic backstop for the case the anchor cannot reach — a plan
+ *  reference into code the planner has itself committed this session, which the merge-base anchor
+ *  deliberately excludes. The prompt FORBIDS line-number findings; this makes them unraisable.
+ *
+ *  Deliberately NOT applied to:
+ *  - `task` / `issueBody` — human-authored ground truth the reviewer judges the plan against,
+ *    fixed across rounds. Stripping them cost the reviewer the ability to check the plan targets
+ *    the location the operator actually named, and bought nothing: no round-over-round churn
+ *    originates there.
+ *  - prior findings — `planReviewPrompt` orders them re-raised VERBATIM. Mutating one turns
+ *    "the ref `x.ts:12` points at the wrong function" into an un-addressable "the ref `x.ts`
+ *    points at the wrong function" that the next round recycles, LENGTHENING the loop.
+ *
+ *  The pattern is narrow ON PURPOSE: it requires a path-ish token bearing a file EXTENSION
+ *  immediately before the ref, so `10:30` and `--flag=3:4` are left alone. The leading lookbehind
+ *  forces the match to begin at a real token boundary, which is what keeps a URL authority safe:
+ *  in `https://example.com:443/x`, `example.com` is preceded by `/` and the `//` is preceded by
+ *  `:`, so neither can start a match and the port is not mistaken for a line number. (`.com` is
+ *  otherwise a perfectly good "extension", and `/` is a legal token char, so BOTH exclusions are
+ *  needed — this was a live false positive, caught twice by the guard test.)
+ *
+ *  Known survivals (bare `:1090` continuations, `foo.ts (line 411)`, extension-less paths like
+ *  `Makefile:88`) are accepted — widening this would trade a rare false negative for a common
+ *  false positive on timestamps, ports and ratios. Those are covered by the prompt rule instead. */
+export function stripPlanLineRefs(text: string): string {
+  return text.replace(
+    /(?<![A-Za-z0-9_.:\-/\\])([A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-/\\]\.[A-Za-z0-9]{1,8})(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)\b/g,
+    "$1",
+  );
+}
+
+/** What the reviewer's detached worktree is checked out at, when `planAnchorSha` resolved the
+ *  merge-base (`anchored`). `sha` is that commit; `ahead` is how many commits the planning agent
+ *  has made past it in its own worktree — the count that decides whether an unresolvable symbol
+ *  reference is a defect or merely invisible from here. */
+export interface PlanAnchor {
+  sha: string;
+  ahead: number;
+}
+
+/** How far the anchor sits behind the (freshly fetched) base branch, and which paths moved.
+ *  Computed AFTER `createDetached`'s fetch — see {@link defaultAnchorStaleness}. */
+export interface AnchorStaleness {
+  behind: number;
+  changedSince: string[];
+  /** Paths elided by the cap, so the prompt can say "and N more" instead of implying the list is
+   *  exhaustive. */
+  more?: number;
+}
+
 /** Self-contained instructions for the adversarial plan reviewer. NOT UI chrome — never i18n'd.
  *  The plan text is UNTRUSTED agent output embedded as data; the read-only dontAsk sandbox
- *  (mirrors the PR critic) contains any injection. */
+ *  (mirrors the PR critic) contains any injection.
+ *
+ *  `anchor` / `staleness` are optional and TRAILING on purpose: both existing callers pass
+ *  `operatorLanguage` positionally, so a parameter inserted before it would silently mis-bind.
+ *
+ *  Three tiers, keyed on what this reviewer can actually SEE (see the LOCATION REFERENCES block):
+ *  - `anchor` set, `ahead === 0` — the strong tier. Its tree IS the planner's tree for every
+ *    pre-existing file, so an unresolvable reference to existing code is a real defect.
+ *  - `anchor` set, `ahead > 0` — the planner has committed since the branch point and the anchor
+ *    (a merge-base) excludes exactly those commits, so a reference may name code the planner has
+ *    ALREADY written this session. Ambiguous ⇒ `body`, never `findings`.
+ *  - `anchor` absent — the anchor could not be resolved, so the tree may have drifted. Same
+ *    ambiguity, same routing. Mirrors critic-core's degraded epic block. */
 export function planReviewPrompt(
   task: string,
   plan: string,
   priorFindings: string[] = [],
   issueBody?: string | null,
   operatorLanguage: OperatorLanguage = "en",
+  anchor?: PlanAnchor | null,
+  staleness?: AnchorStaleness | null,
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
@@ -118,7 +189,9 @@ export function planReviewPrompt(
       "",
     );
   }
-  lines.push("PLAN (.shepherd-plan.md):", plan, "");
+  // Line refs are stripped from the PLAN only — never from `task`/`issueBody` above (human-authored
+  // ground truth) nor from the prior findings below (re-raised verbatim). See stripPlanLineRefs.
+  lines.push("PLAN (.shepherd-plan.md):", stripPlanLineRefs(plan), "");
   if (priorFindings.length) {
     lines.push(
       "This is a RE-REVIEW. For EACH prior point, confirm the revised plan addresses it; if it does not, re-raise it verbatim:",
@@ -126,6 +199,7 @@ export function planReviewPrompt(
       "",
     );
   }
+  lines.push(...locationReferenceBlock(anchor, staleness), "");
   lines.push(
     `Write your verdict as JSON to \`${PLAN_VERDICT_FILE}\` in the current directory, with EXACTLY this shape:`,
     '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": ["<discrete actionable revision>", ...]}',
@@ -143,6 +217,59 @@ export function planReviewPrompt(
   return lines.join("\n");
 }
 
+/** The LOCATION REFERENCES block: how the reviewer must treat WHERE the plan says code lives.
+ *
+ *  Two tiers of tree-claims (conditional) wrapped around one set of referencing rules
+ *  (unconditional, byte-identical in every tier — they never depend on which commit is checked
+ *  out, only the claims ABOUT the tree do).
+ *
+ *  The rules exist to kill three distinct manufactured-finding classes, each observed or
+ *  predicted: (1) arguing about a line number that is stale only because the two sides read
+ *  different trees; (2) flagging a symbol the plan PROPOSES TO CREATE as "unresolvable" — every
+ *  plan describes code that does not exist yet; (3) flagging a symbol the planner has ALREADY
+ *  COMMITTED this session, which the merge-base anchor excludes by construction and which bites
+ *  hardest on exactly the long multi-round sessions this whole change targets. */
+function locationReferenceBlock(
+  anchor?: PlanAnchor | null,
+  staleness?: AnchorStaleness | null,
+): string[] {
+  const lines = ["LOCATION REFERENCES — how to treat WHERE the plan says code lives:"];
+  if (anchor) {
+    lines.push(
+      `- Your worktree is checked out at \`${anchor.sha}\`, the merge-base the planning agent's own worktree derives from — you both share that commit exactly. Divergence from newer commits on the base branch is NOT a finding.`,
+    );
+    if (anchor.ahead > 0) {
+      // NOTE the claim withheld here: with commits past the anchor, a pre-existing file the agent
+      // has since edited does NOT read the same on both sides, so "reads IDENTICALLY" would be a
+      // lie in this tier — and a lie that licenses exactly the false findings this block prevents.
+      lines.push(
+        `- The planning agent has made ${anchor.ahead} commit(s) SINCE that merge-base, and this checkout deliberately excludes them. So a file or symbol that does not resolve here — or that reads differently than the plan describes — may be code the agent has ALREADY WRITTEN this session, not a mistake. Such a reference is AMBIGUOUS: report it in "body" as a stated limitation, NEVER in "findings".`,
+      );
+    } else {
+      lines.push(
+        "- The planning agent has committed nothing since, so every file reads IDENTICALLY for both of you. A reference to code that ALREADY EXISTS naming a file or symbol you cannot resolve IS therefore a finding — a wrong reference, not an imprecise one.",
+      );
+    }
+  } else {
+    lines.push(
+      '- The commit your worktree sits at could NOT be tied to the planning agent\'s tree, so the two may have drifted apart. A file or symbol that does not resolve here is therefore AMBIGUOUS — it may be a genuine mistake, or it may have moved or been renamed since this session started. Do NOT raise it as a finding; report it in "body" as a stated limitation.',
+    );
+  }
+  if (staleness && staleness.behind > 0 && staleness.changedSince.length) {
+    const more = staleness.more ? `, and ${staleness.more} more` : "";
+    lines.push(
+      `- Your anchor is ${staleness.behind} commit(s) behind the base branch. These paths have changed on the base branch since (some may not exist in your checkout at all): ${staleness.changedSince.join(", ")}${more}. If the plan targets any of them, you MAY note it — but ONLY in "body", in a single section headed exactly \`Anchor staleness (informational, non-blocking):\`. It is NEVER a finding and NEVER makes the decision "request-changes".`,
+    );
+  }
+  lines.push(
+    "- Files, symbols, tests and message keys the plan proposes to ADD, RENAME or MOVE are NEVER findings on resolution grounds. A plan describes code that does not exist yet.",
+    "- Identify code by FILE PATH + SYMBOL (function / type / const / message key). A line number, a line range, or the precision of a location reference is NEVER a finding — line numbers have been removed from the plan you were shown and are not part of the contract.",
+    '- When you AUTHOR A NEW finding, cite path + symbol, not line numbers, in "findings" and "body".',
+    "- EXEMPTION: re-raising a prior finding verbatim is REQUIRED by the re-review instruction above and OVERRIDES the previous rule. Reproduce its text unchanged, line numbers included; a re-raised prior finding is not itself a location complaint, and must not be dropped, reworded or reclassified on those grounds.",
+  );
+  return lines;
+}
+
 /** The read-only plan reviewer's argv — the PR critic's exact hardening, shared via one builder
  *  (the plan text is UNTRUSTED, so it gets the same injection-contained sandbox). Also returns
  *  the reviewer's pinned `--session-id` so begin() can locate its transcript for token totals. */
@@ -151,6 +278,7 @@ export function reviewerArgv(
   model: string | null,
   prompt: string,
   effort: string | null = null,
+  sessionId?: string,
 ): { argv: string[]; sessionId: string } {
   // The plan reviewer participates in the session's resolved reasoning effort (no longer force-
   // unbudgeted): it inherits `session.effort` — the tier this session runs at, itself the session
@@ -162,6 +290,7 @@ export function reviewerArgv(
     prompt,
     effort,
     captureLastMessage: true,
+    sessionId,
   });
 }
 
@@ -270,8 +399,12 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   worktreeExists?: (worktreePath: string) => boolean;
   /** default: read PLAN_VERDICT_FILE from the reviewer's disposable worktree. */
   readVerdict?: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
-  /** default: `git rev-parse origin/<base>` (fallback `<base>`) in the repo. */
-  baseSha?: (repoPath: string, base: string) => string;
+  /** default: {@link defaultPlanAnchorSha} — the merge-base of the session worktree's HEAD and
+   *  `origin/<base>`, falling back to `origin/<base>` → `<base>` → the bare ref name. */
+  baseSha?: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
+  /** default: {@link defaultAnchorStaleness}. MUST be called AFTER the reviewer worktree is
+   *  created — `createDetached` fetches `origin/<base>` and this measures against it. */
+  anchorStaleness?: (repoPath: string, sha: string, base: string) => AnchorStaleness;
   /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
    *  transcript via readActivitySignal). null = no parseable activity yet. */
   readActivity?: (worktreePath: string, reviewerSessionId: string) => string | null;
@@ -331,7 +464,8 @@ export class PlanGateService {
   private readPlanBlocks: (worktreePath: string) => VisualBlock[];
   private readVerdict: (worktreePath: string, spawnSessionId?: string) => RawPlanVerdict | null;
   private worktreeExists: (worktreePath: string) => boolean;
-  private baseSha: (repoPath: string, base: string) => string;
+  private baseSha: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
+  private anchorStaleness: (repoPath: string, sha: string, base: string) => AnchorStaleness;
   private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
   private readUsage: (
     worktreePath: string,
@@ -348,7 +482,8 @@ export class PlanGateService {
     this.readPlanBlocks = deps.readPlanBlocks ?? defaultReadPlanBlocks;
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
-    this.baseSha = deps.baseSha ?? defaultBaseSha;
+    this.baseSha = deps.baseSha ?? defaultPlanAnchorSha;
+    this.anchorStaleness = deps.anchorStaleness ?? defaultAnchorStaleness;
     this.readActivity = deps.readActivity ?? defaultReadActivity;
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
@@ -398,6 +533,37 @@ export class PlanGateService {
     }
   }
 
+  /** Assemble the reviewer prompt, resolving the two facts that decide how it talks about
+   *  locations: which tier applies (from the anchor), and whether the anchor has fallen materially
+   *  behind the base branch.
+   *
+   *  CALL ORDER MATTERS: this must run AFTER the reviewer worktree is created, because
+   *  `createDetached` fetches `origin/<base>` and the staleness numbers are measured against it.
+   *  Called before, they compare against a stale local ref and systematically understate — usually
+   *  all the way to `behind: 0`, which silently suppresses the note in exactly the fast-merging
+   *  repos it exists for. */
+  private composeReviewerPrompt(
+    session: Session,
+    plan: string,
+    prior: PlanGate | null,
+    issueBody: string | null | undefined,
+    anchor: PlanAnchorResolution,
+  ): string {
+    // Drift from an anchor that isn't the planner's tree is meaningless, so don't even measure it.
+    const staleness = anchor.anchored
+      ? this.anchorStaleness(session.repoPath, anchor.sha, session.baseBranch)
+      : null;
+    return planReviewPrompt(
+      session.prompt,
+      plan,
+      prior?.findings ?? [],
+      issueBody,
+      this.deps.operatorLanguage?.() ?? "en",
+      anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
+      staleness && staleness.behind > 0 ? staleness : undefined,
+    );
+  }
+
   private async begin(
     session: Session,
     plan: string,
@@ -405,38 +571,34 @@ export class PlanGateService {
     prior: PlanGate | null,
     forced: boolean,
   ): Promise<PlanReviewTrigger> {
-    // Resolve the base SHA so the reviewer inspects a CLEAN copy of the codebase at the base
-    // branch — never the live worktree (the planning agent is still editing it). baseSha's
-    // default catches internally and falls back to the base ref / name, so this won't throw.
-    const sha = this.baseSha(session.repoPath, session.baseBranch);
+    // Resolve the anchor so the reviewer inspects a CLEAN copy of the codebase — never the live
+    // worktree (the planning agent is still editing it). Prefers the merge-base the planning
+    // agent's own tree derives from, so both sides read identical bytes for pre-existing files;
+    // `anchored: false` means the fallback chain ran and the trees may have drifted. Catches
+    // internally and falls back to the base ref / name, so this won't throw.
+    const { sha, anchored, ahead } = this.baseSha(
+      session.repoPath,
+      session.baseBranch,
+      session.worktreePath,
+    );
 
     // Pre-inject the originating issue's body as UNTRUSTED reviewer context (the agent has no
     // gh/network — the sandbox stays airtight). Best-effort: a missing issue / forge / getIssue
     // must never block or throw the review, so any failure degrades to no issue context.
     const issueBody = await this.fetchIssueBody(session);
-    const prompt = planReviewPrompt(
-      session.prompt,
-      plan,
-      prior?.findings ?? [],
-      issueBody,
-      this.deps.operatorLanguage?.() ?? "en",
-    );
-    // Mint the reviewer argv (and its pinned per-spawn --session-id) BEFORE createDetached so the
-    // reviewer session id can key the worktree path. It's a fresh randomUUID() per run.
     const reviewerEnv = this.deps.env?.() ?? {
       provider: "claude" as const,
       model: null,
       effort: null,
     };
     const reviewerEffort = reviewerEnv.effort ?? session.effort ?? null;
-    const { argv, sessionId: reviewerSessionId } = reviewerArgv(
-      reviewerEnv.provider,
-      reviewerEnv.model,
-      prompt,
-      reviewerEffort,
-    );
+    // Mint the per-spawn reviewer session id BEFORE createDetached — it keys the worktree path —
+    // but build the PROMPT after, because the prompt's staleness block depends on the fetch that
+    // createDetached performs. reviewerArgv takes the pre-minted id and pins the same
+    // `--session-id`, so the path/transcript/verdict wiring is unchanged.
+    const reviewerSessionId = randomUUID();
 
-    // Disposable detached worktree at the base: read-only codebase inspection that can't race
+    // Disposable detached worktree at the anchor: read-only codebase inspection that can't race
     // the live planning agent. The plan TEXT travels inline in the prompt, not via this tree.
     // Key the path on the per-RUN reviewer session id (a fresh randomUUID per spawn): every
     // session detaches at the SAME base sha, so even two reviews of the SAME session at that sha
@@ -455,6 +617,20 @@ export class PlanGateService {
       console.warn(`[plan-gate] worktree failed for ${session.id}:`, err);
       return "error-worktree";
     }
+
+    // MUST be after createDetached — see composeReviewerPrompt.
+    const prompt = this.composeReviewerPrompt(session, plan, prior, issueBody, {
+      sha,
+      anchored,
+      ahead,
+    });
+    const { argv } = reviewerArgv(
+      reviewerEnv.provider,
+      reviewerEnv.model,
+      prompt,
+      reviewerEffort,
+      reviewerSessionId,
+    );
 
     // forget() (session archived) may have fired during either await above (getIssue OR the slow
     // createDetached: git fetch + worktree add); it clears our `starting` claim as a tombstone.
@@ -1291,23 +1467,111 @@ function defaultReadVerdict(worktreePath: string, spawnSessionId?: string): RawP
   }
 }
 
-/** Resolve the base branch's SHA for the disposable worktree. Prefer the freshest `origin/<base>`,
- *  fall back to the local `<base>` ref, and finally to the branch name itself (createDetached can
- *  still resolve it). `--end-of-options` guards a hostile branch name from flag-smuggling (the
- *  rev-parse-correct terminator — `--` makes rev-parse read the operand as a pathspec). Any git
- *  failure degrades to the next fallback — never throws. */
-function defaultBaseSha(repoPath: string, base: string): string {
-  const revParse = (ref: string): string | null => {
+/** What {@link defaultPlanAnchorSha} resolved: the commit to check the reviewer out at, whether
+ *  that commit is the planner's own merge-base (`anchored`), and how far the planner has moved
+ *  past it. `anchored: false` means the fallback chain ran and the tree may have DRIFTED from what
+ *  the planning agent reads — the prompt must not then claim the two are co-located. */
+export interface PlanAnchorResolution {
+  sha: string;
+  anchored: boolean;
+  ahead: number;
+}
+
+/** Resolve the commit the plan reviewer's disposable worktree is checked out at.
+ *
+ *  Prefer the MERGE-BASE of the session worktree's HEAD and `origin/<base>` — the commit the
+ *  planning agent's own tree derives from — so both sides read identical bytes for every
+ *  pre-existing file and a location reference correct for one is correct for the other.
+ *
+ *  Merge-base, NOT the session worktree's raw HEAD, for two reasons:
+ *  - `ShepherdService.advanceToExecutionOnPr` exists precisely because agents write code and open
+ *    PRs while `planPhase` is still `"planning"`, so HEAD often carries the planner's own commits.
+ *  - More importantly, HEAD is UNTRUSTED. A worktree at the session branch contains whatever the
+ *    planning agent has committed — including `CLAUDE.md`, `.claude/settings.json`, hooks and
+ *    skills — and the reviewer is launched in that directory, so the agent under review would be
+ *    supplying the reviewing agent's own instructions. A merge-base is a commit on the base
+ *    branch's history, which is what `begin()` means by detaching at the TRUSTED base. (The
+ *    pre-seeded-verdict hole is separately closed by `scrubStaleVerdictArtifacts`; scrubbing one
+ *    known filename does nothing about repo-level agent configuration.)
+ *
+ *  Falls back to the previous behaviour on any failure — `origin/<base>` → `<base>` → the bare ref
+ *  name — flagged `anchored: false` so the prompt degrades honestly. The last rung is effectively
+ *  an error path: `createDetached` validates `/^[0-9a-f]{7,40}$/` and throws on a branch name, and
+ *  `begin()` turns that into `error-worktree`. It is kept as-is rather than removed.
+ *
+ *  Resolved BEFORE `createDetached`'s fetch, which is sound: a merge-base does not move when
+ *  `origin/<base>` merely fast-forwards. Only the staleness DISTANCE needs the fresh ref — see
+ *  {@link defaultAnchorStaleness}.
+ *
+ *  `--end-of-options` guards a hostile branch name from flag-smuggling (the rev-parse-correct
+ *  terminator — `--` makes rev-parse read the operand as a pathspec). Never throws. */
+export function defaultPlanAnchorSha(
+  repoPath: string,
+  base: string,
+  worktreePath: string,
+): PlanAnchorResolution {
+  const git = (cwd: string, args: string[]): string | null => {
     try {
-      return execFileSync("git", ["rev-parse", "--verify", "--end-of-options", ref], {
-        cwd: repoPath,
-        stdio: ["ignore", "pipe", "ignore"],
-      })
+      return execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "ignore"] })
         .toString()
         .trim();
     } catch {
       return null;
     }
   };
-  return revParse(`origin/${base}`) ?? revParse(base) ?? base;
+  const revParse = (ref: string): string | null =>
+    git(repoPath, ["rev-parse", "--verify", "--end-of-options", ref]);
+
+  const mergeBase = git(worktreePath, ["merge-base", "--end-of-options", "HEAD", `origin/${base}`]);
+  if (mergeBase) {
+    // How far the planner has moved past the anchor. Drives the prompt's "ahead" tier: those
+    // commits are excluded from the reviewer's tree by construction, so a symbol that fails to
+    // resolve there may be code the planner has already written rather than a mistake.
+    const ahead = Number(
+      git(worktreePath, ["rev-list", "--count", "--end-of-options", `${mergeBase}..HEAD`]) ?? "0",
+    );
+    return { sha: mergeBase, anchored: true, ahead: Number.isFinite(ahead) ? ahead : 0 };
+  }
+  return { sha: revParse(`origin/${base}`) ?? revParse(base) ?? base, anchored: false, ahead: 0 };
+}
+
+/** Cap on the changed-path list handed to the reviewer — enough to spot an overlap with the plan,
+ *  bounded so a long-lived session can't blow up the prompt. */
+const CHANGED_SINCE_CAP = 50;
+
+/** How far the anchor sits behind the base branch, and which paths moved, for the prompt's
+ *  informational staleness note.
+ *
+ *  MUST run AFTER the reviewer's worktree is created: `createDetached` performs a
+ *  `git fetch origin -- <branch>` first, and measuring before it would compare against a possibly
+ *  stale local `origin/<base>` — systematically understating, including reporting `behind: 0` and
+ *  suppressing the note entirely for a materially stale session, in exactly the fast-merging repo
+ *  this targets. If that fetch failed (offline), the numbers fall back to the last successful
+ *  fetch: a LOWER BOUND, never an overstatement, and the note is informational either way.
+ *
+ *  Zeroed on any git failure — never throws, never blocks a review. */
+export function defaultAnchorStaleness(
+  repoPath: string,
+  sha: string,
+  base: string,
+): AnchorStaleness {
+  const git = (args: string[]): string | null => {
+    try {
+      return execFileSync("git", args, { cwd: repoPath, stdio: ["ignore", "pipe", "ignore"] })
+        .toString()
+        .trim();
+    } catch {
+      return null;
+    }
+  };
+  const range = `${sha}..origin/${base}`;
+  const behind = Number(git(["rev-list", "--count", "--end-of-options", range]) ?? "0");
+  if (!Number.isFinite(behind) || behind <= 0) return { behind: 0, changedSince: [] };
+  const raw = git(["diff", "--name-only", "--end-of-options", range]);
+  const all = raw ? raw.split("\n").filter(Boolean) : [];
+  return {
+    behind,
+    changedSince: all.slice(0, CHANGED_SINCE_CAP),
+    more: all.length > CHANGED_SINCE_CAP ? all.length - CHANGED_SINCE_CAP : undefined,
+  };
 }

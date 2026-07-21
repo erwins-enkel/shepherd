@@ -82,7 +82,8 @@ function harness(over: any = {}) {
     now: () => 1000,
     readPlan: () => "PLAN TEXT",
     readVerdict: () => null,
-    baseSha: () => "abc",
+    baseSha: () => ({ sha: "abc", anchored: true, ahead: 0 }),
+    anchorStaleness: () => ({ behind: 0, changedSince: [] }),
     // `store` is already merged above (base + over.store); exclude it here so the
     // deps-level spread doesn't re-overwrite it with the un-merged per-test partial.
     ...overWithoutStore,
@@ -2079,4 +2080,154 @@ test("tab baseline: repeated plan reviews (approve + timeout + cancel) leave zer
     expect(openTabs.size).toBe(0);
   }
   expect(n).toBe(6); // six real spawns; all six tabs were closed
+});
+
+// ─── anchor resolution + staleness ordering ──────────────────────────────────────────────────
+
+test("begin passes the session worktreePath to the anchor resolver", async () => {
+  const seen: any[] = [];
+  const h = harness({
+    baseSha: (repoPath: string, base: string, worktreePath: string) => {
+      seen.push([repoPath, base, worktreePath]);
+      return { sha: "abc", anchored: true, ahead: 0 };
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  // The third argument is the whole point: without the planner's own worktree there is no
+  // merge-base to anchor to, and the reviewer falls back to the drifted freshest origin/<base>.
+  expect(seen).toEqual([["/r", "main", "/wt"]]);
+});
+
+test("anchorStaleness runs AFTER createDetached (its fetch is what makes the numbers real)", async () => {
+  const order: string[] = [];
+  const h = harness({
+    worktree: {
+      createDetached: async () => {
+        order.push("createDetached");
+        return { worktreePath: "/wt-detached", branch: "main" };
+      },
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+    anchorStaleness: () => {
+      order.push("anchorStaleness");
+      return { behind: 0, changedSince: [] };
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  // Ordering is invisible in the returned numbers — only this assertion catches a regression that
+  // measures against a pre-fetch origin/<base> and silently understates (often to zero).
+  expect(order).toEqual(["createDetached", "anchorStaleness"]);
+});
+
+test("anchored=false suppresses the anchor claim AND skips staleness entirely", async () => {
+  let stalenessCalls = 0;
+  const h = harness({
+    baseSha: () => ({ sha: "deadbeef", anchored: false, ahead: 0 }),
+    anchorStaleness: () => {
+      stalenessCalls++;
+      return { behind: 9, changedSince: ["src/a.ts"] };
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  const prompt = h.started[0].argv.at(-1) as string;
+  expect(prompt).toContain("could NOT be tied");
+  expect(prompt).not.toContain("reads IDENTICALLY");
+  // Measuring drift from an anchor that isn't the planner's tree would be meaningless.
+  expect(stalenessCalls).toBe(0);
+});
+
+test("ahead>0 routes unresolvable refs to body; the staleness block reaches the prompt", async () => {
+  const h = harness({
+    baseSha: () => ({ sha: "abc1234", anchored: true, ahead: 2 }),
+    anchorStaleness: () => ({ behind: 7, changedSince: ["src/a.ts"], more: 3 }),
+  });
+  await h.svc.consider(planningSession() as any);
+  const prompt = h.started[0].argv.at(-1) as string;
+  expect(prompt).toContain("2 commit(s) SINCE that merge-base");
+  expect(prompt).not.toContain("IS therefore a finding");
+  expect(prompt).toContain("7 commit(s) behind");
+  expect(prompt).toContain("Anchor staleness (informational, non-blocking):");
+});
+
+test("the reviewer argv pins the same session id that keys the worktree path", async () => {
+  const slugs: string[] = [];
+  const h = harness({
+    worktree: {
+      createDetached: async (_r: string, _b: string, _s: string, slug: string) => {
+        slugs.push(slug);
+        return { worktreePath: "/wt-detached", branch: "main" };
+      },
+      remove: () => {},
+      gitCommonDir: () => "/fake-git-common",
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  // The prompt is now built after createDetached, so the id is minted up front and threaded into
+  // reviewerArgv. If those ever diverge, the transcript/verdict lookups silently miss.
+  const argv = h.started[0].argv as string[];
+  const idIdx = argv.indexOf("--session-id");
+  expect(idIdx).toBeGreaterThan(-1);
+  expect(argv[idIdx + 1]).toBe(slugs[0]);
+  expect(h.recordedSpawns[0].reviewerSessionId).toBe(slugs[0]);
+});
+
+// ─── findings are never mutated (both resolveFindings branches) ──────────────────────────────
+// The strip is INBOUND-only. Findings travel to the planner verbatim — via steerFindings, via
+// resume()'s re-steer, and via the next round's "re-raise it verbatim" instruction — so rewriting
+// them would turn "the ref x.ts:12 points at the wrong function" into an un-addressable
+// "the ref x.ts points at the wrong function" that the next round recycles, LENGTHENING the loop.
+
+test("findings reach the gate byte-identical (parsed-array branch)", async () => {
+  const h = harness({
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "s",
+      body: "the body cites src/b.ts:77",
+      findings: ["src/a.ts:412 clamps the wrong value", "second point"],
+    }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.findings).toEqual(["src/a.ts:412 clamps the wrong value", "second point"]);
+  expect(h.store.gate.body).toBe("the body cites src/b.ts:77");
+});
+
+test("findings reach the gate byte-identical (empty-findings rawSummary fallback branch)", async () => {
+  // resolveFindings falls back to the UN-clamped raw summary when findings[] is empty. That value
+  // is assembled separately from normalizeFindings, so a strip placed there would have missed it —
+  // this branch is what invalidated an earlier design.
+  const h = harness({
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "the plan's ref src/ui/mod.rs:1385-1388 is wrong",
+      body: "B",
+      findings: [],
+    }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.store.gate.findings).toEqual(["the plan's ref src/ui/mod.rs:1385-1388 is wrong"]);
+  expect(h.store.gate.summary).toBe("the plan's ref src/ui/mod.rs:1385-1388 is wrong");
+});
+
+test("prior findings are re-raised into the next prompt verbatim, line numbers intact", async () => {
+  const h = harness({
+    store: {
+      getPlanGate: () => ({
+        sessionId: "s1",
+        planHash: "OLD",
+        decision: "changes_requested",
+        approved: false,
+        round: 1,
+        findings: ["the ref src/old.ts:99 points at the wrong function"],
+      }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  const prompt = lastPrompt(h);
+  expect(prompt).toContain("the ref src/old.ts:99 points at the wrong function");
+  // ...and the prompt must tell the reviewer that reproducing it is REQUIRED, so the new
+  // "cite path + symbol, not line numbers" rule cannot be read as an order to rewrite it.
+  expect(prompt).toContain("EXEMPTION: re-raising a prior finding verbatim is REQUIRED");
 });

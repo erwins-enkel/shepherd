@@ -246,3 +246,14 @@ test("worktree-stash-notice recommends read-only + create/apply, never store or 
   // Bare stash/pop explicitly prohibited.
   expect(p).toContain("never bare `git stash`");
 });
+
+test("both plan-gate directives tell the planner to reference code by path + symbol", () => {
+  // The reviewer never sees line numbers (they are stripped from the plan it is shown) and is
+  // forbidden from raising location findings — so a planner still emitting them produces noise
+  // that cannot be acted on. Both directives must carry the rule, byte-identically.
+  for (const d of [PLAN_GATE_DIRECTIVE_INTERACTIVE, PLAN_GATE_DIRECTIVE_AUTO]) {
+    expect(d).toContain("FILE PATH + SYMBOL");
+    expect(d).toContain("never by line number");
+    expect(d).toContain("line numbers are stripped from the plan the reviewer is shown");
+  }
+});

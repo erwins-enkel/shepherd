@@ -1041,14 +1041,32 @@ export function planBlockInstructions(opts: {
   return lines.join("\n");
 }
 
+/** How a plan must point at code. Shared verbatim by both plan-gate directives (interactive +
+ *  auto) so the two stay a pure provider delta.
+ *
+ *  Line numbers were the single biggest source of wasted rework rounds: the planner and the
+ *  adversarial reviewer historically read different trees, so a line number correct on one side
+ *  was wrong on the other, and rounds were spent re-numbering rather than improving the plan. The
+ *  reviewer now reads the planner's own merge-base AND has line refs stripped from the plan it is
+ *  shown, so a line citation is invisible to it — stating that here is what stops the planner
+ *  producing them in the first place. */
+const PLAN_REFERENCE_STYLE =
+  "Reference code by FILE PATH + SYMBOL (e.g. `src/foo.ts` → `handleX()`), never by line number: " +
+  "line numbers are stripped from the plan the reviewer is shown, so a line citation is noise, not " +
+  "evidence.\n";
+
 /**
  * The interactive plan-gate directive, provider-adjusted. Two Codex-specific divergences:
  *  - Codex has no AskUserQuestion tool, so step 2 tells it to ask in the conversation instead.
  *  - Codex's default disposition is eager (it caused TASK-413 by implementing instead of researching),
  *    so a hardened stop clause leads the directive: code stays untouched, the plan file is the only
  *    deliverable this turn, then STOP. Claude keeps the original phrasing verbatim.
- * `planGateDirectiveInteractive("claude")` is byte-identical to the prior
- * `PLAN_GATE_DIRECTIVE_INTERACTIVE` constant — keep it that way (Claude regression).
+ * `PLAN_GATE_DIRECTIVE_INTERACTIVE` is this builder called with "claude", so there is no separate
+ * constant left to drift from. What the old "byte-identical" note was really protecting still
+ * holds and is the rule to keep: the Claude output is the BASELINE, and provider-specific wording
+ * lives ONLY in the two clauses above. Any shared edit (e.g. the path+symbol line below) goes in
+ * the common body so both providers receive it verbatim — never duplicated per branch, where it
+ * could silently diverge (Claude regression).
  */
 function planGateDirectiveInteractive(
   agentProvider: AgentProvider,
@@ -1077,6 +1095,7 @@ function planGateDirectiveInteractive(
     "ready for review. The plan must contain NO open / " +
     "unresolved / TBD questions — resolve every question by asking first; it may still record stated " +
     "assumptions and resolved decisions.\n" +
+    PLAN_REFERENCE_STYLE +
     "An adversarial reviewer will critique the plan; address its findings by revising `.shepherd-plan.md`. " +
     "Begin implementing ONLY after the plan is approved and you are told to execute.\n\n" +
     planBlockInstructions({ allowQuestionForm: false, agentProvider, operatorLanguage })
@@ -1087,8 +1106,10 @@ const PLAN_GATE_DIRECTIVE_INTERACTIVE = planGateDirectiveInteractive("claude");
  * The unattended (drain) plan-gate directive, provider-adjusted. The auto path has NO human to catch
  * an eager Codex that starts implementing — so it needs the hardened stop clause even MORE than the
  * interactive path. Codex gets the same lead-in stop clause; Claude keeps the original phrasing.
- * `planGateDirectiveAuto("claude")` is byte-identical to the prior `PLAN_GATE_DIRECTIVE_AUTO`
- * constant — keep it that way (Claude regression).
+ * `PLAN_GATE_DIRECTIVE_AUTO` is this builder called with "claude". Same baseline rule as
+ * {@link planGateDirectiveInteractive}: Claude output is the reference shape, provider-specific
+ * wording stays in the stop clause above, and shared edits (e.g. the path+symbol referencing line)
+ * go in the common body so both providers receive them verbatim (Claude regression).
  */
 function planGateDirectiveAuto(
   agentProvider: AgentProvider,
@@ -1104,7 +1125,9 @@ function planGateDirectiveAuto(
     "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
     "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
     "at the repo root (goal, approach, out of scope, files, testing seams + decisions, steps, risks, " +
-    "success criteria). An adversarial reviewer " +
+    "success criteria).\n" +
+    PLAN_REFERENCE_STYLE +
+    "An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
     "are told the plan is approved.\n\n" +
     planBlockInstructions({ allowQuestionForm: true, agentProvider, operatorLanguage })

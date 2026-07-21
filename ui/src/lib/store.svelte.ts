@@ -197,8 +197,13 @@ export class HerdStore {
     // Guarded computed ASSIGNMENT (not the literal-spread form used elsewhere): `folded[id] = …`
     // goes through [[Set]], so an `__proto__` id would hit the prototype setter. Inert only while
     // `LivenessState` is a string union — the setter ignores non-object values — so guard the key
-    // rather than rely on that. A rejected id is dropped: it keeps `husk` instead of upgrading to
-    // `stranded` (losing the revive banner), which no real `randomUUID()` id can trigger.
+    // rather than rely on that.
+    //
+    // A rejected id simply gets no upgrade, which lands one of two ways: if the boolean snapshot
+    // carried it, it keeps whatever that said (`alive` or `husk`); if it did NOT, the entry is
+    // absent entirely, where the pre-guard code would have created it. Absent is not the same as
+    // `husk` — it reads as "not swept yet" (see the `claudeAlive` field doc). Either way the revive
+    // banner is lost, and no real `randomUUID()` id can trigger it.
     for (const id of strandedIds) if (SAFE_ID.test(id)) folded[id] = "stranded";
     this.claudeAlive = folded;
   }

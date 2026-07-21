@@ -25,7 +25,8 @@
  *  - `dropKey` and the inline `delete copy[id]` forms. A delete cannot create or redirect a
  *    prototype, so a guard adds nothing — but a REJECTED key would silently fail to delete,
  *    pinning a session as "Reviewing…" or leaving a stale verdict. Guarding there is a net loss.
- *  - `RepoConfigStore`'s 93 `repoPath` writes (`reviews.svelte.ts`, exported as `repoConfig`) and
+ *  - Every `repoPath` write in `RepoConfigStore` (`reviews.svelte.ts`, exported as `repoConfig`) —
+ *    deliberately uncounted here, since the figure drifts as config flags are added — and
  *    `HerdStore`'s `epics` composite key
  *    (`${repoPath}#${issue}`). Out of the remediated set; note they would need `setPathKey`, since
  *    {@link SAFE_ID} rejects both shapes.

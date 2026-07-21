@@ -275,7 +275,7 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
     expect(startCall.focus).toBe(false);
     // byte-identical wrapped argv (env shim + classic-renderer pin) ends with the raw argv
     expect(startCall.argv[0]).toBe("env");
-    expect(startCall.argv[1]).toContain("NODE_COMPILE_CACHE=");
+    expect(startCall.argv.some((t: string) => t.startsWith("NODE_COMPILE_CACHE="))).toBe(true);
     expect(startCall.argv.slice(-2)).toEqual(["claude", "go"]);
   });
 

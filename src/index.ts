@@ -117,6 +117,8 @@ import {
   reapAbandonedWorktrees,
   reclaimForkedPnpmStore,
   scratchpadHasFiles,
+  agentTmpDir,
+  agentClaudeTmpRoot,
 } from "./tmp-sweep";
 import { runSessionUsageBackfill } from "./usage-backfill";
 import { PreviewService } from "./preview";
@@ -784,6 +786,24 @@ try {
   mkdirSync(compileCacheDir(), { recursive: true });
 } catch (err) {
   console.warn("[tmp-sweep] could not create compile-cache dir:", err);
+}
+
+// Point spawned (trusted) agents at a disk-backed TMPDIR (#1875), and mirror it into the server's
+// OWN env so claudeTmpRoot() — and thus every scratch/sweep consumer — follows the agents to disk.
+// We set CLAUDE_CODE_TMPDIR (NOT TMPDIR) so os.tmpdir() is untouched and readTmpInodeUsePct() keeps
+// monitoring the real tmpfs. The value carries the claude-$uid suffix (claudeTmpRoot() treats
+// CLAUDE_CODE_TMPDIR as the FINAL root); the spawn shim strips it from agents (env -u) so they
+// re-derive the SAME root from TMPDIR without double-suffixing. Runs before any spawn or scratchpad
+// read. Null = disabled (SHEPHERD_AGENT_TMPDIR="") → tmpfs rollback, leave the env untouched.
+const agentTmp = agentTmpDir();
+const agentClaudeRoot = agentClaudeTmpRoot();
+if (agentTmp && agentClaudeRoot) {
+  try {
+    mkdirSync(agentTmp, { recursive: true });
+  } catch (err) {
+    console.warn("[tmp-sweep] could not create agent tmp dir:", err);
+  }
+  process.env.CLAUDE_CODE_TMPDIR = agentClaudeRoot;
 }
 
 // Inode-guard sweep: drops the compile cache + stale scratch once /tmp inode pressure

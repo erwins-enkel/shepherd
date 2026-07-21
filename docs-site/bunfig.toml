@@ -1,0 +1,8 @@
+# Supply-chain cooldown: refuse to resolve npm versions published < 3 days ago.
+# Compromised releases are typically yanked within hours, so this filters most
+# such incidents at the resolution layer. Note: only enforced when resolving new
+# versions (`bun add`/`bun update`); versions already pinned in bun.lock are
+# reinstalled without the check, and Dependabot doesn't read this — its own
+# `cooldown` in .github/dependabot.yml guards that vector. 259200s = 3 days.
+[install]
+minimumReleaseAge = 259200

@@ -188,10 +188,14 @@ export class HerdDigestService {
   private inFlight = new Set<string>();
   /** Guards a digest being finalized twice across overlapping ticks. */
   private finalizing = new Set<string>();
-  /** Spawn terminalId per generating dayKey (#1852). The persisted row carries only
-   *  `cwd`, and `resolveTerminal(cwd)` returns "" once the agent exited — which made the
-   *  finalize `stop("")` a silent no-op and leaked the tab. In-memory by design: a
-   *  restart-adopted row falls back to the cwd lookup (orphan sweep covers residue). */
+  /** Spawn terminalId per generating RUN, keyed by the run's mkdtemp-unique tmpdir cwd
+   *  (#1852). The persisted row carries only `cwd`, and `resolveTerminal(cwd)` returns
+   *  "" once the agent exited — which made the finalize `stop("")` a silent no-op and
+   *  leaked the tab. Keyed by cwd, NOT dayKey: a finalizer holds this key across awaits,
+   *  and a dayKey key is re-bound by a forced regenerate — a stale finalizer would then
+   *  stop and unmap the REPLACEMENT run's terminal. A tmpdir is never reused, so a stale
+   *  teardown can only ever resolve its own run. In-memory by design: a restart-adopted
+   *  row falls back to the cwd lookup (orphan sweep covers residue). */
   private generatingTerminals = new Map<string, string>();
 
   constructor(private deps: HerdDigestServiceDeps) {
@@ -214,6 +218,20 @@ export class HerdDigestService {
     return this.deps.herdr.list().find((a) => a.cwd === cwd)?.terminalId ?? "";
   }
 
+  /** Stop a generating run's pane — spawn-recorded terminalId first (#1852; the cwd
+   *  lookup is only for rows adopted across a restart and yields "" once the agent
+   *  exited, a safe stop() no-op) — then drop the in-memory handle. Keyed strictly by
+   *  the run's own cwd so a teardown racing a forced regenerate can never touch the
+   *  replacement run (see `generatingTerminals`). Never throws. */
+  private async reapPane(cwd: string): Promise<void> {
+    try {
+      await this.deps.herdr.stop(this.generatingTerminals.get(cwd) ?? this.resolveTerminal(cwd));
+    } catch {
+      /* best-effort */
+    }
+    this.generatingTerminals.delete(cwd);
+  }
+
   // ── reapGenerating ───────────────────────────────────────────────────────────
 
   /**
@@ -227,15 +245,7 @@ export class HerdDigestService {
   private reapGenerating(dayKey: string): void {
     const existing = this.deps.store.getHerdDigest(dayKey);
     if (!existing || existing.state !== "generating") return;
-    try {
-      // Spawn-recorded terminalId first (#1852) — see the finalize `finally`.
-      void this.deps.herdr
-        .stop(this.generatingTerminals.get(dayKey) ?? this.resolveTerminal(existing.cwd))
-        .catch(() => {});
-    } catch {
-      /* best-effort */
-    }
-    this.generatingTerminals.delete(dayKey);
+    void this.reapPane(existing.cwd);
     this._cleanup(existing.cwd);
   }
 
@@ -383,7 +393,7 @@ export class HerdDigestService {
           argv,
           rundownSpawnEnv(environment),
         );
-        this.generatingTerminals.set(dayKey, started.terminalId);
+        this.generatingTerminals.set(cwd, started.terminalId);
       } catch {
         this._cleanup(cwd);
         return "error"; // spawn failed; no row left so a later sweep can retry
@@ -544,17 +554,8 @@ export class HerdDigestService {
         console.warn(`[rundown] usage capture failed for ${d.dayKey}:`, err);
       }
     } finally {
-      // Always reap pane + tmpdir. Prefer the spawn-recorded terminalId (#1852) — the
-      // cwd lookup is only for rows adopted across a restart, and returns "" once the
-      // agent exited (herdr.stop("") is a no-op; the orphan sweep covers that residue).
-      try {
-        await this.deps.herdr.stop(
-          this.generatingTerminals.get(d.dayKey) ?? this.resolveTerminal(d.cwd),
-        );
-      } catch {
-        /* best-effort */
-      }
-      this.generatingTerminals.delete(d.dayKey);
+      // Always reap pane + tmpdir (spawn-recorded terminal first — see reapPane, #1852).
+      await this.reapPane(d.cwd);
       this._cleanup(d.cwd);
     }
   }

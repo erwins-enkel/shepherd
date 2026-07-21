@@ -1221,3 +1221,38 @@ test("generate: null pausedReason (ready) → epicsToLand has no pausedReason fi
   const row = store.getHerdDigest(dayKeyFor(DAY1));
   expect(row?.epicsToLand.at(0)?.pausedReason).toBeUndefined();
 });
+
+// #1852 critic follow-up: mirrors the recap race regression — the spawn-handle map is
+// keyed by the RUN's mkdtemp-unique cwd, not the dayKey, so an old finalizer parked on
+// an await can never stop + unmap a forced replacement's live terminal.
+test("an old finalizer racing a forced regenerate never stops the replacement run (#1852)", async () => {
+  const store = makeStore([makeSession()]);
+  const herdr = makeHerdr();
+  let raced = false;
+  let svcRef: HerdDigestService | null = null;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => DAY1,
+    verdict: VALID_VERDICT_JSON,
+    readUsage: async () => {
+      if (!raced && svcRef) {
+        raced = true;
+        await svcRef.regenerate();
+      }
+      return null;
+    },
+  });
+  svcRef = svc;
+
+  expect(await svc.generate()).toBe("started"); // run A (tid-1)
+
+  await svc.tick(); // finalize A; mid-finalize the hook force-regenerates → run B (tid-2)
+
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toEqual(["tid-1"]); // A's own terminal — NEVER the replacement's
+
+  await svc.tick(); // the replacement finalizes normally off its own retained handle
+  expect(herdr.stopped).toEqual(["tid-1", "tid-2"]);
+  expect(store.getHerdDigest(dayKeyFor(DAY1))?.state).toBe("ready");
+});

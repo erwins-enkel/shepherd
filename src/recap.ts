@@ -353,11 +353,15 @@ export class RecapService {
   /** Guards against double-spawn when regenerate races a mid-flight sweep. */
   private inFlight = new Set<string>();
 
-  /** Spawn terminalId per generating session (#1852). The persisted `Recap` row carries
-   *  only `cwd`, and `resolveTerminal(cwd)` returns "" once the agent exited — which made
-   *  the finalize `stop("")` a silent no-op and leaked the tab. In-memory by design: a
-   *  restart-adopted row falls back to the cwd lookup, and its residue is the orphan
-   *  sweep's job. */
+  /** Spawn terminalId per generating RUN, keyed by the run's mkdtemp-unique tmpdir cwd
+   *  (#1852). The persisted `Recap` row carries only `cwd`, and `resolveTerminal(cwd)`
+   *  returns "" once the agent exited — which made the finalize `stop("")` a silent
+   *  no-op and leaked the tab. Keyed by cwd, NOT sessionId: a finalizer holds this key
+   *  across awaits, and a sessionId key is re-bound by a forced regenerate — a stale
+   *  finalizer would then stop and unmap the REPLACEMENT run's terminal. A tmpdir is
+   *  never reused, so a stale teardown can only ever resolve its own run. In-memory by
+   *  design: a restart-adopted row falls back to the cwd lookup, and its residue is the
+   *  orphan sweep's job. */
   private generatingTerminals = new Map<string, string>();
 
   constructor(private deps: RecapServiceDeps) {
@@ -569,23 +573,23 @@ export class RecapService {
 
   /** Stop a generating run's pane — spawn-recorded terminalId first (#1852; the cwd
    *  lookup is only for rows adopted across a restart and yields "" once the agent
-   *  exited, a safe stop() no-op) — then drop the in-memory handle. Never throws. */
-  private async reapPane(sessionId: string, cwd: string): Promise<void> {
+   *  exited, a safe stop() no-op) — then drop the in-memory handle. Keyed strictly by
+   *  the run's own cwd so a teardown racing a forced regenerate can never touch the
+   *  replacement run (see `generatingTerminals`). Never throws. */
+  private async reapPane(cwd: string): Promise<void> {
     try {
-      await this.deps.herdr.stop(
-        this.generatingTerminals.get(sessionId) ?? this.resolveTerminal(cwd),
-      );
+      await this.deps.herdr.stop(this.generatingTerminals.get(cwd) ?? this.resolveTerminal(cwd));
     } catch {
       /* best-effort */
     }
-    this.generatingTerminals.delete(sessionId);
+    this.generatingTerminals.delete(cwd);
   }
 
   /** Reap any existing generating row for this session (stop pane + cleanup dir + drop row). */
   private reapGenerating(sessionId: string): void {
     const existing = this.deps.store.getRecap(sessionId);
     if (!existing || existing.state !== "generating") return;
-    void this.reapPane(sessionId, existing.cwd);
+    void this.reapPane(existing.cwd);
     this._cleanup(existing.cwd);
     this.deps.store.dropRecap(sessionId);
   }
@@ -811,7 +815,7 @@ export class RecapService {
           argv,
           apiKeyPassthroughEnv(false),
         );
-        this.generatingTerminals.set(id, started.terminalId);
+        this.generatingTerminals.set(cwd, started.terminalId);
       } catch (err) {
         this._cleanup(cwd);
         this.putFailureRecap(session, "launch-failed", err, head, base);
@@ -1059,7 +1063,7 @@ export class RecapService {
       }
     } finally {
       // Always reap pane + tmpdir (spawn-recorded terminal first — see reapPane, #1852).
-      await this.reapPane(r.sessionId, r.cwd);
+      await this.reapPane(r.cwd);
       this._cleanup(r.cwd);
     }
   }

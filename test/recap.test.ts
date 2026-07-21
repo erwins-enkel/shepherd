@@ -2367,3 +2367,47 @@ test("tab baseline: repeated recap runs (success + timeout + regenerate-reap) le
 
   expect(herdr.started.length).toBe(4); // four real spawns; all four tabs were closed
 });
+
+// #1852 critic follow-up: the in-memory spawn-handle map must be keyed by the RUN (its
+// mkdtemp-unique cwd), not the session. A finalizer holds its key across awaits; keyed by
+// sessionId, a forced regenerate landing inside one of those awaits re-binds the key, and
+// the stale finalizer then stops + unmaps the REPLACEMENT run's live terminal.
+test("an old finalizer racing a forced regenerate never stops the replacement run (#1852)", async () => {
+  const s = makeSession({ status: "idle", auto: false });
+  const store = makeStore([s]);
+  const herdr = makeHerdr();
+  let t = 100_000;
+  let raced = false;
+  let svcRef: RecapService | null = null;
+  const svc = buildSvc({
+    store,
+    herdr,
+    nowFn: () => t,
+    idleThresholdMs: 120_000,
+    verdictJson: VALID_VERDICT_JSON,
+    // finalize awaits usage capture right before its teardown `finally` — the perfect
+    // window: a forced regenerate lands while the old finalizer is parked here.
+    readUsage: async () => {
+      if (!raced && svcRef) {
+        raced = true;
+        await svcRef.regenerate(s);
+      }
+      return null;
+    },
+  });
+  svcRef = svc;
+
+  await svc.sweep(); // stamp
+  t = 230_000;
+  await svc.sweep(); // spawn run A (tid-1)
+  expect(herdr.started.length).toBe(1);
+
+  await svc.tick(); // finalize A; mid-finalize the hook regenerates → spawn B (tid-2)
+
+  expect(herdr.started.length).toBe(2);
+  expect(herdr.stopped).toEqual(["tid-1"]); // A's own terminal — NEVER the replacement's
+
+  await svc.tick(); // the replacement finalizes normally off its own retained handle
+  expect(herdr.stopped).toEqual(["tid-1", "tid-2"]);
+  expect(store.getRecap("s1")?.state).toBe("ready");
+});

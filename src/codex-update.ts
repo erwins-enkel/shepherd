@@ -384,16 +384,7 @@ export class CodexUpdateService {
     this.historyLoadTimeoutMs = deps.historyLoadTimeoutMs ?? HISTORY_LOAD_TIMEOUT_MS;
     this.fetchLatest =
       deps.fetchLatest ??
-      (async () => {
-        const controller = new AbortController();
-        const { value } = await this.boundedJson(
-          LATEST_URL,
-          NPM_RESPONSE_LIMIT,
-          { bytes: 0 },
-          controller.signal,
-        );
-        return value as { version: string };
-      });
+      (() => fetch(LATEST_URL).then((response) => response.json() as Promise<{ version: string }>));
     this.runUpdate =
       deps.runUpdate ??
       ((onLine, signal, preferred) => this.defaultRunUpdate(onLine, signal, preferred));

@@ -324,6 +324,40 @@ test("current == latest → updateAvailable false", async () => {
   expect(s.updateAvailable).toBe(false);
 });
 
+test("check keeps its default latest fetch independent from the release-history transport", async () => {
+  const originalFetch = globalThis.fetch;
+  let latestCalls = 0;
+  let historyCalls = 0;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      latestCalls++;
+      expect(String(input)).toBe("https://registry.npmjs.org/@openai/codex/latest");
+      return jsonResponse({ version: "0.145.0" });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const svc = new CodexUpdateService({
+      versionRunner: () => "@openai/codex 0.144.0",
+      fetchHistory: async () => {
+        historyCalls++;
+        throw new Error("release history must stay on demand");
+      },
+    });
+
+    expect(await svc.check(3_000)).toMatchObject({
+      current: "0.144.0",
+      latest: "0.145.0",
+      updateAvailable: true,
+      notes: null,
+    });
+    expect(latestCalls).toBe(1);
+    expect(historyCalls).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("versionRunner throws → fail-safe, no badge, error set", async () => {
   const svc = new CodexUpdateService({
     versionRunner: () => {

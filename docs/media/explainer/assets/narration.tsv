@@ -6,4 +6,4 @@ n5	Then it works.
 n6	CI. Hygiene. Then a third agent reads the diff.
 n7	Only what survives lands.
 n8	And when it can't, it stops and tells you why.
-n9	Shepherd runs many agents at once, and it is built to stop.
+n9	Shepherd runs many agents at once — and it is built to stop.

@@ -1,35 +1,35 @@
 1
-00:00:00,400 --> 00:00:02,000
+00:00:00,100 --> 00:00:01,680
 It starts as an issue.
 
 2
-00:00:04,580 --> 00:00:07,700
+00:00:02,030 --> 00:00:05,120
 Its own worktree. Its own real terminal.
 
 3
-00:00:08,380 --> 00:00:10,050
+00:00:05,470 --> 00:00:07,130
 A dozen of these at once.
 
 4
-00:00:11,420 --> 00:00:15,720
+00:00:07,490 --> 00:00:11,780
 It writes a plan — and stops. A second agent tries to refute it.
 
 5
-00:00:18,640 --> 00:00:19,780
+00:00:12,120 --> 00:00:13,250
 Then it works.
 
 6
-00:00:21,680 --> 00:00:25,460
+00:00:13,600 --> 00:00:17,380
 CI. Hygiene. Then a third agent reads the diff.
 
 7
-00:00:27,380 --> 00:00:29,220
+00:00:17,730 --> 00:00:19,560
 Only what survives lands.
 
 8
-00:00:31,560 --> 00:00:34,360
+00:00:19,920 --> 00:00:22,710
 And when it can't, it stops and tells you why.
 
 9
-00:00:38,500 --> 00:00:42,320
+00:00:23,510 --> 00:00:27,330
 Shepherd runs many agents at once — and it is built to stop.

@@ -40,7 +40,7 @@ done < "$HERE/assets/narration.tsv"
 ( cd "$PROJ" && $HF render --docker --resolution 1080p --crf 32 -o "$OUT/shepherd-explainer.mp4" )
 
 # 3. Poster (thesis end-state).
-ffmpeg -y -ss 42 -i "$OUT/shepherd-explainer.mp4" -frames:v 1 -vf scale=1280:720 \
+ffmpeg -y -ss 26 -i "$OUT/shepherd-explainer.mp4" -frames:v 1 -vf scale=1280:720 \
   "$OUT/shepherd-explainer-poster.png"
 
 echo "Done → $OUT (re-check the .en.srt offsets if narration timings changed)"

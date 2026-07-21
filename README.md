@@ -37,7 +37,7 @@ and nothing merges while behind its base — a stale PR is sent back to its agen
     >
   </a>
   <br>
-  <em>▶ 45-second explainer — how a task moves from issue to merge, and why it stops
+  <em>▶ 30-second explainer — how a task moves from issue to merge, and why it stops
   (<a href="docs/media/shepherd-explainer.mp4">MP4</a> ·
   <a href="docs/media/shepherd-explainer.en.srt">captions</a> ·
   <a href="docs/media/explainer/">source</a>).</em>

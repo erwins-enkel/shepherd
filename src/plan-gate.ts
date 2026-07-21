@@ -211,7 +211,9 @@ export function planReviewPrompt(
       "",
     );
   }
-  lines.push(...locationReferenceBlock(anchor, staleness), "");
+  // The re-raise exemption is gated on the SAME condition as the re-review block above — it cites
+  // that instruction, so emitting it on a first round would point at text the prompt doesn't have.
+  lines.push(...locationReferenceBlock(anchor, staleness, priorFindings.length > 0), "");
   lines.push(
     `Write your verdict as JSON to \`${PLAN_VERDICT_FILE}\` in the current directory, with EXACTLY this shape:`,
     '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": ["<discrete actionable revision>", ...]}',
@@ -244,6 +246,7 @@ export function planReviewPrompt(
 function locationReferenceBlock(
   anchor?: PlanAnchor | null,
   staleness?: AnchorStaleness | null,
+  isReReview = false,
 ): string[] {
   const lines = ["LOCATION REFERENCES — how to treat WHERE the plan says code lives:"];
   if (anchor) {
@@ -290,8 +293,17 @@ function locationReferenceBlock(
     // is that line numbers are not part of the contract — true whatever survived.
     "- Identify code by FILE PATH + SYMBOL (function / type / const / message key). A line number, a line range, or the precision of a location reference is NEVER a finding — line numbers are not part of the contract, and any you do see in the plan carry no authority.",
     '- When you AUTHOR A NEW finding, cite path + symbol, not line numbers, in "findings" and "body".',
-    "- EXEMPTION: re-raising a prior finding verbatim is REQUIRED by the re-review instruction above and OVERRIDES the previous rule. Reproduce its text unchanged, line numbers included; a re-raised prior finding is not itself a location complaint, and must not be dropped, reworded or reclassified on those grounds.",
   );
+  // Only on a RE-REVIEW: this bullet resolves a genuine conflict between the rule above and the
+  // "re-raise it verbatim" instruction, which is itself emitted only when there are prior
+  // findings. On a first round that instruction is absent, so an unconditional exemption would
+  // cite text the reviewer was never given — noise at best, and an invitation to invent a
+  // re-raise at worst.
+  if (isReReview) {
+    lines.push(
+      "- EXEMPTION: re-raising a prior finding verbatim is REQUIRED by the re-review instruction above and OVERRIDES the previous rule. Reproduce its text unchanged, line numbers included; a re-raised prior finding is not itself a location complaint, and must not be dropped, reworded or reclassified on those grounds.",
+    );
+  }
   return lines;
 }
 

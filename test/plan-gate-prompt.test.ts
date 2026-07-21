@@ -221,7 +221,7 @@ test("degraded tier (no anchor): no anchor claim, unresolvable refs go to body",
   expect(p).not.toContain("IS therefore a finding");
 });
 
-test("every tier carries the same carve-out, line-number ban, output rule and re-raise exemption", () => {
+test("every tier carries the same carve-out, line-number ban and output rule", () => {
   for (const p of [
     planReviewPrompt("t", "plan", [], null, "en", STRONG),
     planReviewPrompt("t", "plan", [], null, "en", AHEAD),
@@ -235,7 +235,24 @@ test("every tier carries the same carve-out, line-number ban, output rule and re
     expect(p).toContain("line numbers are not part of the contract");
     expect(p).not.toContain("have been removed from the plan you were shown");
     expect(p).toContain("When you AUTHOR A NEW finding");
-    expect(p).toContain("EXEMPTION: re-raising a prior finding verbatim is REQUIRED");
+  }
+});
+
+test("the re-raise exemption tracks the re-review block it cites, in every tier", () => {
+  const EXEMPTION = "EXEMPTION: re-raising a prior finding verbatim is REQUIRED";
+  const anchors = [STRONG, AHEAD, undefined];
+  for (const a of anchors) {
+    // First round: no prior findings ⇒ no "re-raise it verbatim" instruction ⇒ the exemption
+    // would cite text the reviewer was never given.
+    const first = planReviewPrompt("t", "plan", [], null, "en", a);
+    expect(first).not.toContain("RE-REVIEW");
+    expect(first).not.toContain(EXEMPTION);
+
+    // Re-review: both appear, and the exemption's "above" now resolves.
+    const re = planReviewPrompt("t", "plan", ["prior: src/a.ts:9 wrong"], null, "en", a);
+    expect(re).toContain("re-raise it verbatim");
+    expect(re).toContain(EXEMPTION);
+    expect(re.indexOf("re-raise it verbatim")).toBeLessThan(re.indexOf(EXEMPTION));
   }
 });
 

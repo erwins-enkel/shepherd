@@ -454,11 +454,67 @@ const WORKTREE_STASH_NOTICE =
   "single stack shared across every worktree of the repo, so concurrent sessions collide (a pop " +
   "or drop can grab or discard another session's entry). To inspect or diff base state, use " +
   "read-only commands that don't touch the working tree: `git show <ref>:<path>`, `git diff " +
-  "<ref>`, or a throwaway `git worktree add`. If you must shelve local changes, use `git stash " +
+  "<ref>`, or a throwaway `git worktree add` placed on the same filesystem as the repo (never " +
+  "under /tmp — see the tmpfs-worktree notice). If you must shelve local changes, use `git stash " +
   "create` (it prints a commit SHA without writing the shared `refs/stash` stack, and captures " +
   "tracked changes only — untracked files are not saved), record that SHA yourself, and later " +
   "restore with `git stash apply <sha>` — never `git stash store` (it writes the shared stack " +
   "and reproduces the collision) and never bare `git stash` / `git stash pop`.";
+
+/**
+ * Appended to every spawned session's system prompt (issue #1862). `/tmp` is typically a tmpfs
+ * with a HARD INODE CAP independent of its byte size, and two agent habits drain it: placing a
+ * git worktree there, and running a dependency install there. pnpm in particular forks a SECOND
+ * content-addressable store next to the install target (it must be same-filesystem to hardlink),
+ * which is hundreds of thousands of tiny files — the tmpfs runs out of *inodes* while `df -h`
+ * still shows the volume mostly empty, so the failure surfaces as a misleading ENOSPC.
+ *
+ * Deliberately worded as a CARVE-OUT from Claude Code's own harness "Scratchpad Directory" block
+ * (which instructs the agent to use the scratchpad "for ALL temporary file needs"), not as a rival
+ * absolute: an agent resolving two conflicting absolutes picks one arbitrarily, so this names that
+ * instruction and narrows it to two exceptions instead of contradicting it.
+ *
+ * The sub-agent clause is load-bearing and empirically motivated: a dispatched sub-agent receives
+ * Claude Code's scratchpad block but NONE of Shepherd's composed system prompt, so a notice that
+ * only rides the top-level prompt misses the actor most likely to create the condition. It is a
+ * mitigation, not a guarantee — it depends on the top-level agent restating the constraint.
+ *
+ * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
+ * BRANCH_RENAME_NOTICE.
+ */
+function tmpfsWorktreeNotice(agentProvider: AgentProvider): string {
+  // The carve-out opening references a block only Claude Code injects. For any other provider it
+  // would name something the agent never received, so the rule is stated standalone instead. The
+  // two prohibitions themselves are identical — this is a wording variant, NOT a suppression: a
+  // host-filesystem safety rule must ride every spawn on every provider.
+  const opening =
+    agentProvider === "codex"
+      ? "Your scratch/temp directory is typically on a small tmpfs with a hard inode cap, so it " +
+        "is the wrong home for exactly two things:"
+      : "Your Scratchpad Directory instruction stands for ordinary temporary files. That " +
+        "directory is on a small tmpfs with a HARD INODE CAP (independent of its byte size), so " +
+        "it is the wrong home for exactly two things:";
+  const body =
+    "\n- **git worktrees** — never `git worktree add` under the scratchpad, `$TMPDIR`, or /tmp. " +
+    "Put a throwaway worktree on the same filesystem as the repo instead.\n" +
+    "- **dependency installs** — never run `bun install` / `npm install` / `pnpm install` / " +
+    "`yarn install` under the scratchpad, `$TMPDIR`, or /tmp.\n\n" +
+    "Why it matters (the failure is easy to misdiagnose): pnpm must keep its content-addressable " +
+    "store on the SAME filesystem as the install target so it can hardlink, so an install under " +
+    "/tmp makes it fork a second store there. That store is hundreds of thousands of tiny files " +
+    "and exhausts the tmpfs INODE table — every subsequent write fails with ENOSPC while " +
+    '`df -h` still shows plenty of free space. Reading it as "disk full" sends you the wrong way; ' +
+    "`df -i` is what shows the real cause.";
+  // Sub-agents inherit the harness scratchpad instruction but not this prompt, so the constraint
+  // has to be carried across that boundary by hand. Only Claude spawns dispatch sub-agents.
+  const subAgents =
+    agentProvider === "codex"
+      ? ""
+      : "\n\nSub-agents do NOT inherit this instruction, but they DO receive the same Scratchpad " +
+        "Directory block. So when you dispatch a sub-agent whose task might create a git worktree " +
+        "or run a dependency install, restate this constraint in that sub-agent's prompt.";
+  return opening + body + subAgents;
+}
 
 /**
  * Injected only into trimmed auto (drain) spawns — sessions launched with
@@ -1365,6 +1421,13 @@ export function composeSystemPrompt(
   // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
   // house-rules block.
   blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
+  // tmpfs inode safety (issue #1862): like the stash notice, a host-filesystem invariant rather
+  // than per-repo learned guidance, so it rides EVERY spawn unconditionally — including research
+  // and non-isolated sessions. Provider-varied wording only (see tmpfsWorktreeNotice); never
+  // suppressed, because an exhausted inode table bricks the session on any provider.
+  blocks.push(
+    `<tmpfs-worktree-notice>\n${tmpfsWorktreeNotice(agentProvider)}\n</tmpfs-worktree-notice>`,
+  );
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
   // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
   // deliverable is the EPIC, no PR at all), and a landing-repair session (its deliverable is a push

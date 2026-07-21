@@ -3340,5 +3340,16 @@
   "gearmenu_plugins_manage": "verwalten",
   "gearmenu_support_label": "Support",
   "feat_gear_menu_redesign_title": "Das Zahnrad-Menü ist jetzt ein Telemetrie-Panel",
-  "feat_gear_menu_redesign_body": "Das Zahnrad öffnet jetzt immer ein neu gestaltetes Menü: eine Live-Anzeige des Token-Verbrauchs („alle“ zeigt die Aufschlüsselung pro Zeitfenster), die Herde-anhalten-Aktion mit Live-Zähler, gruppierte Workspace-, Plugin- und Support-Zeilen sowie Version und Verbindungsstatus im Kopf. Auf dem Desktop öffnet Cmd/Strg+, die Einstellungen von überall."
+  "feat_gear_menu_redesign_body": "Das Zahnrad öffnet jetzt immer ein neu gestaltetes Menü: eine Live-Anzeige des Token-Verbrauchs („alle“ zeigt die Aufschlüsselung pro Zeitfenster), die Herde-anhalten-Aktion mit Live-Zähler, gruppierte Workspace-, Plugin- und Support-Zeilen sowie Version und Verbindungsstatus im Kopf. Auf dem Desktop öffnet Cmd/Strg+, die Einstellungen von überall.",
+  "diagnostics_label_tmp_inodes": "Inodes im temporären Dateisystem",
+  "diagnostics_hint_tmp_inodes_ok": "Das temporäre Dateisystem hat reichlich freie [[inode|Inodes]].",
+  "diagnostics_hint_tmp_inodes_high": "Im temporären Dateisystem werden die [[inode|Inodes]] knapp — es kann volllaufen, obwohl noch Speicherplatz frei ist, und Agent-Sessions scheitern dann mit irreführenden „kein Speicherplatz“-Fehlern. „So behebst du das“ räumt die Caches auf, die Shepherd freigeben kann.",
+  "diagnostics_hint_tmp_inodes_critical": "Im temporären Dateisystem sind die [[inode|Inodes]] fast aufgebraucht. Neue Agent-Sessions werden mit „kein Speicherplatz“-Fehlern scheitern, obwohl Speicherplatz frei aussieht. „So behebst du das“ räumt die Caches auf, die Shepherd freigeben kann.",
+  "diagnostics_hint_tmp_inodes_uninspectable": "Shepherd kann die [[inode|Inode]]-Auslastung des temporären Dateisystems auf diesem System nicht auslesen.",
+  "diagnostics_fix_action_tmp_inodes": "Shepherds freigebbare Caches jetzt aus dem temporären Dateisystem räumen, unabhängig vom üblichen Schwellenwert. Das entfernt den Compile-Cache und veraltete Tool-Caches. Paketmanager-Stores und von Agents zurückgelassene Worktrees werden noch nicht freigegeben, die Auslastung kann also hoch bleiben.",
+  "diagnostics_fix_confirm_title_tmp_inodes": "Temporäre Dateien jetzt aufräumen?",
+  "diagnostics_fix_confirm_run_tmp_inodes": "Jetzt aufräumen",
+  "diagnostics_fix_unresolved_tmp_inodes": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt.",
+  "gloss_inode_term": "Inode",
+  "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll."
 }

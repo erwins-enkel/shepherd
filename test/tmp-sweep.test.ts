@@ -9,6 +9,7 @@ import {
   removeWorktreeScratch,
   reapFallowCaches,
   pruneRepoWorktrees,
+  readTmpInodeUsePct,
   FALLOW_CACHE_PREFIX,
 } from "../src/tmp-sweep";
 
@@ -309,6 +310,136 @@ describe("sweepClaudeTmp", () => {
       reason: "statfs-unavailable",
       removed: 0,
     });
+  });
+
+  // Forced sweep (#1862). The Doctor row's one-click fix passes `thresholdPct: 0` to mean "sweep
+  // unconditionally". Both `inodeUsePct` failure reasons return BEFORE the threshold is compared,
+  // so without the bypass the fix would silently do nothing on exactly the hosts that hit them —
+  // a btrfs tmp (reports files: 0) or a host whose claude root doesn't exist yet.
+  describe("thresholdPct <= 0 forces a sweep past the gate", () => {
+    async function forcedSweepWith(statfs: unknown) {
+      const root = mkTmp();
+      const ncc = join(root, "node-compile-cache");
+      mkdirSync(ncc);
+      writeFileSync(join(ncc, "blob.bin"), "x");
+
+      const fsp = await import("node:fs/promises");
+      const res = await sweepClaudeTmp({
+        root,
+        thresholdPct: 0,
+        fsOps: {
+          statfs,
+          readdir: fsp.readdir,
+          stat: fsp.stat,
+          rm: fsp.rm,
+        } as never,
+        log: () => {},
+      });
+      return { res, ncc };
+    }
+
+    test("statfs unavailable (would be statfs-unavailable) still sweeps", async () => {
+      const { res, ncc } = await forcedSweepWith(undefined);
+      expect(res.swept).toBe(true);
+      expect(res.reason).toBe("swept forced (gate bypassed)");
+      expect(res.removed).toBe(1);
+      expect(existsSync(ncc)).toBe(false);
+    });
+
+    test("btrfs-style files: 0 (would be statfs-unavailable) still sweeps", async () => {
+      const { res, ncc } = await forcedSweepWith(async () => ({ files: 0, ffree: 0 }) as never);
+      expect(res.swept).toBe(true);
+      expect(res.reason).toBe("swept forced (gate bypassed)");
+      expect(existsSync(ncc)).toBe(false);
+    });
+
+    test("statfs throwing (would be root-missing) still sweeps", async () => {
+      const { res, ncc } = await forcedSweepWith(async () => {
+        throw new Error("ENOENT");
+      });
+      expect(res.swept).toBe(true);
+      expect(res.reason).toBe("swept forced (gate bypassed)");
+      expect(existsSync(ncc)).toBe(false);
+    });
+
+    test("forced path never calls statfs at all — no use% exists to report", async () => {
+      let calls = 0;
+      await forcedSweepWith(async () => {
+        calls += 1;
+        return { files: 1000, ffree: 100 } as never;
+      });
+      expect(calls).toBe(0);
+    });
+  });
+
+  // The bypass must be scoped to the explicit force. A normal threshold keeps today's fail-open
+  // behavior byte-for-byte, including the reason string that quotes the measured use%.
+  test("regression: a normal threshold still fails open and still reports the measured use%", async () => {
+    const root = mkTmp();
+    const ncc = join(root, "node-compile-cache");
+    mkdirSync(ncc);
+
+    const bailed = await sweepClaudeTmp({
+      root,
+      thresholdPct: 80,
+      fsOps: {
+        statfs: undefined,
+        readdir: (() => {}) as never,
+        stat: (() => {}) as never,
+        rm: (() => {}) as never,
+      } as never,
+      log: () => {},
+    });
+    expect(bailed).toEqual({ swept: false, reason: "statfs-unavailable", removed: 0 });
+    expect(existsSync(ncc)).toBe(true); // fail-open: nothing touched
+
+    const fsp = await import("node:fs/promises");
+    const swept = await sweepClaudeTmp({
+      root,
+      thresholdPct: 80,
+      fsOps: {
+        statfs: fakeStatfs(1000, 100), // 90% used
+        readdir: fsp.readdir,
+        stat: fsp.stat,
+        rm: fsp.rm,
+      } as never,
+      log: () => {},
+    });
+    expect(swept.swept).toBe(true);
+    expect(swept.reason).toBe("swept 90.0% inode use");
+  });
+});
+
+// readTmpInodeUsePct (#1862) — the value behind the tmp_inodes Diagnose row.
+describe("readTmpInodeUsePct", () => {
+  test("statfs's tmpdir(), NOT claudeTmpRoot()", async () => {
+    // claudeTmpRoot() is <tmpdir>/claude-$uid, which does not exist on a freshly booted host — the
+    // root-missing branch would then report "uninspectable" on exactly the hosts with headroom
+    // left to protect. tmpdir() is the filesystem actually at risk and is always present.
+    const seen: string[] = [];
+    await readTmpInodeUsePct((async (p: string) => {
+      seen.push(p);
+      return { files: 1000, ffree: 100 };
+    }) as never);
+    expect(seen).toEqual([tmpdir()]);
+  });
+
+  test("reports the use percentage", async () => {
+    const pct = await readTmpInodeUsePct((async () => ({ files: 1000, ffree: 100 })) as never);
+    expect(pct).toBeCloseTo(90);
+  });
+
+  test("btrfs-style files: 0 → null, never a bogus percentage", async () => {
+    // btrfs allocates inodes dynamically and reports zero total, so a percentage is meaningless.
+    expect(await readTmpInodeUsePct((async () => ({ files: 0, ffree: 0 })) as never)).toBeNull();
+  });
+
+  test("an unreadable filesystem → null", async () => {
+    expect(
+      await readTmpInodeUsePct((async () => {
+        throw new Error("ENOENT");
+      }) as never),
+    ).toBeNull();
   });
 });
 

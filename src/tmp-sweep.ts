@@ -170,6 +170,43 @@ async function inodeUsePct(
 }
 
 /**
+ * Inode-use% band above which the `tmp_inodes` diagnostics row reports `error` rather than
+ * `warning`. Lives here, beside the `SHEPHERD_TMP_INODE_PCT` read that drives both the sweep gate
+ * and that row's WARNING band, so one module owns both thresholds (#1862).
+ */
+export const TMP_INODE_ERROR_PCT = 95;
+
+/**
+ * The sweep threshold, resolved the same way `sweepClaudeTmp` resolves it. Exported so the
+ * `tmp_inodes` diagnostics row warns at exactly the point the sweeper starts acting: hardcoding 80
+ * there would warn about a state an operator who raised `SHEPHERD_TMP_INODE_PCT` deliberately told
+ * the sweeper to ignore, and would contradict the documented meaning of the knob.
+ */
+export function tmpInodeWarnPct(): number {
+  return envNum(process.env.SHEPHERD_TMP_INODE_PCT, 80);
+}
+
+/**
+ * Inode use% of the temp filesystem, or `null` when it cannot be determined.
+ *
+ * Deliberately statfs's `tmpdir()` rather than `claudeTmpRoot()`: the latter is
+ * `<tmpdir>/claude-$uid`, which does not exist on a freshly booted host, and `inodeUsePct`'s
+ * `root-missing` branch would then report "uninspectable" on exactly the hosts that still have
+ * headroom worth protecting. `tmpdir()` is the filesystem actually at risk and is always present.
+ *
+ * NOTE this is not necessarily `/tmp` — `os.tmpdir()` honours the SERVER process's own `TMPDIR`.
+ * User-facing copy driven by this value must therefore say "the temporary filesystem", never a
+ * hardcoded path. `null` covers both `inodeUsePct` skip-reasons, notably a btrfs tmp reporting
+ * `files: 0` (it allocates inodes dynamically, so a percentage is meaningless there).
+ */
+export async function readTmpInodeUsePct(
+  statfs: FsOps["statfs"] = fsp.statfs,
+): Promise<number | null> {
+  const pct = await inodeUsePct(tmpdir(), statfs, () => {});
+  return typeof pct === "number" ? pct : null;
+}
+
+/**
  * Entry names this sweep is willing to age-gate-remove: regenerable tool caches that hold NO
  * live session working state (Bun's bunx cache, fallow's audit base cache, agent-browser's
  * Chrome profiles). Per-session scratch — the dashified `-home-…` worktree dirs and their
@@ -264,7 +301,11 @@ async function sweepDir(dir: string, ctx: SweepCtx): Promise<number> {
  * unexpected error resolves to `{ swept:false, reason:"error", removed:0 }` after logging,
  * so a caller can fire-and-forget it on a timer without a guard.
  *
- * Only sweeps once inode use ≥ `thresholdPct`; below that it removes NOTHING. When it does
+ * `thresholdPct <= 0` FORCES a sweep: the gate is skipped entirely (no `statfs` call), so neither
+ * `inodeUsePct` failure reason can silently suppress an explicitly-requested sweep. That path
+ * reports `reason: "swept forced (gate bypassed)"` — there is no measured use% to quote.
+ *
+ * Otherwise only sweeps once inode use ≥ `thresholdPct`; below that it removes NOTHING. When it does
  * sweep, it walks `root` and the nested `root/claude-$uid`, removing `node-compile-cache`
  * wholesale (pure cache) and age-gating known regenerable tool caches (see `REGENERABLE_CACHE`),
  * while LEAVING per-session/unknown scratch in place, the nested scratch dir itself (its
@@ -287,17 +328,30 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
       rm: fsp.rm,
     };
 
-    const usePct = await inodeUsePct(root, ops.statfs, log);
-    if (typeof usePct === "string") {
-      return { swept: false, reason: usePct, removed: 0 };
-    }
+    // FORCED sweep (#1862): `thresholdPct <= 0` means "sweep unconditionally" — the operator's
+    // one-click Doctor fix passes 0 for exactly that. Without this branch the gate below still
+    // bails on BOTH `inodeUsePct` failure reasons ("statfs-unavailable" — including a btrfs tmp
+    // reporting `files: 0` — and "root-missing" on a host whose claude root doesn't exist yet),
+    // because those return before the threshold is ever compared. The fix would silently do
+    // nothing on precisely those hosts. A 0% threshold has no other coherent meaning, so this
+    // makes the existing contract explicit; every threshold >= 1 keeps today's fail-open path
+    // byte-for-byte. `statfs` is not called at all here, so no use% exists to report — the reason
+    // string says so rather than formatting a figure that was never measured.
+    let gateReason = "swept forced (gate bypassed)";
+    if (thresholdPct > 0) {
+      const usePct = await inodeUsePct(root, ops.statfs, log);
+      if (typeof usePct === "string") {
+        return { swept: false, reason: usePct, removed: 0 };
+      }
 
-    if (usePct < thresholdPct) {
-      return {
-        swept: false,
-        reason: `below-threshold ${usePct.toFixed(1)}%`,
-        removed: 0,
-      };
+      if (usePct < thresholdPct) {
+        return {
+          swept: false,
+          reason: `below-threshold ${usePct.toFixed(1)}%`,
+          removed: 0,
+        };
+      }
+      gateReason = `swept ${usePct.toFixed(1)}% inode use`;
     }
 
     const nestedName = `claude-${uid()}`;
@@ -309,7 +363,7 @@ export async function sweepClaudeTmp(opts?: SweepOpts): Promise<SweepResult> {
 
     return {
       swept: true,
-      reason: `swept ${usePct.toFixed(1)}% inode use`,
+      reason: gateReason,
       removed,
     };
   } catch (err) {

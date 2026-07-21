@@ -33,6 +33,12 @@ import {
 } from "./default-model";
 import { matchAgents, type IHerdrDriver } from "./herdr";
 import { isShepherdHelperLabel } from "./tab-reaper";
+import {
+  TMP_INODE_ERROR_PCT,
+  readTmpInodeUsePct,
+  sweepClaudeTmp,
+  tmpInodeWarnPct,
+} from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
 import type { SessionStore } from "./store";
 import type { DiagnosticCheck, DiagnosticsSnapshot, DiagnosticState } from "./types";
@@ -152,6 +158,15 @@ export interface DiagnosticsDeps {
    *  is a fail-safe reject so an unwired service resolves to `optional`/uninspectable rather than a
    *  false `ok`. Wired in `index.ts` via `defaultReadHerdrFleet`; injected in tests. */
   readHerdrFleet?: () => Promise<HerdrFleetFacts>;
+  /** Read temp-filesystem inode facts for the `tmp_inodes` check (#1862). Default statfs's
+   *  `tmpdir()` and pairs the result with the live bands; injected in tests so band boundaries are
+   *  asserted without touching a real filesystem. Reject ⇒ the probe falls back to
+   *  `optional`/uninspectable (its `onTimeout`). */
+  readTmpInodes?: () => Promise<TmpInodeFacts>;
+  /** Run the `tmp_inodes` one-click forced sweep (#1862). Default is functional
+   *  (`sweepClaudeTmp({ thresholdPct: 0 })`), so no `index.ts` wiring is needed; injected in tests
+   *  to spy the fix without sweeping. */
+  runTmpSweep?: () => Promise<void>;
   /** Apply the `host_capacity` one-click fix (#1839): `systemctl --user set-property <unit>
    *  MemoryHigh=… CPUQuota=…` on each unbounded unit (live + persistent, no restart). Default runs
    *  the real command; injected in tests to spy the fix without touching a real unit. */
@@ -179,8 +194,15 @@ function worstOf(checks: DiagnosticCheck[]): DiagnosticState {
  *  background re-check. `host_capacity` pressure can persist for hours; fast-polling the full
  *  probe fan-out (`diagnosticsTick` → `check()`) every `recheckMs` would pile ~10 fork/execs a
  *  minute onto a host already under memory/IO pressure — the manual Diagnose "Re-run" is the
- *  on-demand live path instead. */
-const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>(["host_capacity"]);
+ *  on-demand live path instead.
+ *
+ *  `tmp_inodes` (#1862) qualifies twice over. Its error is PERMANENT, not transient: the one-click
+ *  fix sweeps only the caches this release knows how to drop, and the two largest consumers (a
+ *  forked pnpm store, an abandoned tmp worktree) are not reclaimed yet — so the row commonly stays
+ *  in error and would fast-poll forever. Worse, the amplification is self-inflicted: process
+ *  spawning is exactly what starts failing once a tmpfs inode table is exhausted, so answering that
+ *  condition with ~10 extra fork/execs a minute attacks the very resource the row is reporting. */
+const STEADY_STATE_ERROR_CHECK_IDS = new Set<string>(["host_capacity", "tmp_inodes"]);
 
 /**
  * Adaptive delay until the next background diagnostics re-check, chosen from the checks just
@@ -667,6 +689,87 @@ export function classifyHerdrFleet(f: HerdrFleetFacts): DiagnosticCheck {
     : { id, state: "ok", hintKey: "diagnostics_hint_herdr_health_ok" };
 }
 
+// ── tmp_inodes check (#1862) ─────────────────────────────────────────────────
+// A tmpfs caps INODES independently of bytes, so an agent that puts a worktree + dependency
+// install on it can exhaust the table while `df -h` still shows the volume mostly empty. Every
+// write then fails ENOSPC and the session is effectively bricked — a failure that reads as "disk
+// full" and sends operators the wrong way. This row names the real cause.
+
+/** `fixActionKey` for the tmp_inodes one-click forced sweep. Dispatched in `fix()`, and registered
+ *  in the UI's `codeFixChrome` map — an unregistered key falls back to the generic `*_code`
+ *  strings, which are folder-trust copy. */
+const TMP_INODES_FIX_ACTION = "diagnostics_fix_action_tmp_inodes";
+
+/** Non-secret inode facts for the `tmp_inodes` check: use% of the temp filesystem, or `null` when
+ *  it cannot be determined (no `statfs`; or a btrfs tmp reporting `files: 0`, since it allocates
+ *  inodes dynamically and a percentage is meaningless there). Bands are passed in rather than read
+ *  from env here so the classifier stays pure and testable. */
+export interface TmpInodeFacts {
+  usePct: number | null;
+  /** Warning band — `SHEPHERD_TMP_INODE_PCT`, the SAME knob that gates the sweep. */
+  warnPct: number;
+  /** Error band — `TMP_INODE_ERROR_PCT`. */
+  errorPct: number;
+}
+
+/** Map inode facts → check. `null` use% is `optional`/uninspectable (never degrades the health
+ *  pip) — matching the `host_capacity` precedent for a host we cannot assess. The row warns at
+ *  exactly the point the sweeper starts acting, so an operator who raised `SHEPHERD_TMP_INODE_PCT`
+ *  is not warned about a state they deliberately told the sweeper to ignore. */
+export function classifyTmpInodes(f: TmpInodeFacts): DiagnosticCheck {
+  const id = "tmp_inodes";
+  if (f.usePct === null) {
+    return { id, state: "optional", hintKey: "diagnostics_hint_tmp_inodes_uninspectable" };
+  }
+  if (f.usePct >= f.errorPct) {
+    return {
+      id,
+      state: "error",
+      hintKey: "diagnostics_hint_tmp_inodes_critical",
+      fixActionKey: TMP_INODES_FIX_ACTION,
+    };
+  }
+  if (f.usePct >= f.warnPct) {
+    return {
+      id,
+      state: "warning",
+      hintKey: "diagnostics_hint_tmp_inodes_high",
+      fixActionKey: TMP_INODES_FIX_ACTION,
+    };
+  }
+  return { id, state: "ok", hintKey: "diagnostics_hint_tmp_inodes_ok" };
+}
+
+/** Default `readTmpInodes`: statfs the temp filesystem and pair it with the live bands. */
+async function defaultReadTmpInodes(): Promise<TmpInodeFacts> {
+  return {
+    usePct: await readTmpInodeUsePct(),
+    warnPct: tmpInodeWarnPct(),
+    errorPct: TMP_INODE_ERROR_PCT,
+  };
+}
+
+/** Default `runTmpSweep`: the operator's forced sweep. `thresholdPct: 0` bypasses the inode gate
+ *  entirely, so an unreadable/btrfs temp filesystem cannot silently suppress an explicit request.
+ *  A FUNCTIONAL default deliberately — it needs nothing the service does not already have, so
+ *  `index.ts` requires no wiring and there is no untestable call site. */
+async function defaultRunTmpSweep(): Promise<void> {
+  await sweepClaudeTmp({ thresholdPct: 0 });
+}
+
+/** Resolve both tmp_inodes deps in one place, mirroring `resolveClaudeTrustDeps`. Grouping them
+ *  keeps the already-long `DiagnosticsService` constructor from growing another two branches — the
+ *  complexity gate is measured on that constructor, and a per-dep `??` there is what pushes it. */
+function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
+  readTmpInodes: () => Promise<TmpInodeFacts>;
+  runTmpSweep: () => Promise<void>;
+} {
+  return {
+    readTmpInodes: deps.readTmpInodes ?? defaultReadTmpInodes,
+    runTmpSweep: deps.runTmpSweep ?? defaultRunTmpSweep,
+  };
+}
+
 /** Default `readHerdrFleet`: reconcile active sessions against the herdr fleet and count unclaimed,
  *  non-helper panes by foreground-process liveness. `listAsync` rejects when herdr is unreachable →
  *  the probe's `onTimeout` uninspectable fallback. A pane adopted by a live session (`matchAgents`)
@@ -734,6 +837,8 @@ export class DiagnosticsService {
   private isApiKeyAuth: () => boolean;
   private readHostResources: () => Promise<HostCapacityFacts>;
   private readHerdrFleet: () => Promise<HerdrFleetFacts>;
+  private readTmpInodes: () => Promise<TmpInodeFacts>;
+  private runTmpSweep: () => Promise<void>;
   private applyHostLimits: (
     units: string[],
     limits: { memoryHigh: string; cpuQuota: string },
@@ -795,6 +900,9 @@ export class DiagnosticsService {
     this.readHerdrFleet =
       deps.readHerdrFleet ?? (() => Promise.reject(new Error("readHerdrFleet unwired")));
     this.applyHostLimits = deps.applyHostLimits ?? defaultApplyHostLimits;
+    const tmpSweep = resolveTmpSweepDeps(deps);
+    this.readTmpInodes = tmpSweep.readTmpInodes;
+    this.runTmpSweep = tmpSweep.runTmpSweep;
   }
 
   /**
@@ -1061,6 +1169,11 @@ export class DiagnosticsService {
   private hostCapacityProbe = async (): Promise<DiagnosticCheck> =>
     classifyHostCapacity(await this.readHostResources());
 
+  /** tmp_inodes (#1862): classify temp-filesystem inode facts. Any read failure resolves to the
+   *  probe's `onTimeout` (optional/uninspectable) via the `check()` wrapper. */
+  private tmpInodesProbe = async (): Promise<DiagnosticCheck> =>
+    classifyTmpInodes(await this.readTmpInodes());
+
   /** herdr_health (#1835): classify the reconciled herdr-fleet facts. Any read failure (herdr
    *  unreachable, or the fail-safe reject when unwired) resolves to the probe's `onTimeout`
    *  (optional/uninspectable) via the `check()` wrapper. */
@@ -1125,6 +1238,16 @@ export class DiagnosticsService {
           id: "herdr_health",
           state: "optional",
           hintKey: "diagnostics_hint_herdr_health_uninspectable",
+        },
+      },
+      {
+        run: this.tmpInodesProbe,
+        // A failed/timed-out statfs = can't read inode pressure ⇒ optional (no pip degrade),
+        // matching the classifier's own null/uninspectable branch.
+        onTimeout: {
+          id: "tmp_inodes",
+          state: "optional",
+          hintKey: "diagnostics_hint_tmp_inodes_uninspectable",
         },
       },
     ];
@@ -1210,6 +1333,14 @@ export class DiagnosticsService {
         await this.applyHostLimits(units.split(" ").filter(Boolean), { memoryHigh, cpuQuota });
         return this.check(now); // forced re-probe reflects the fix
       }
+    }
+    // tmp_inodes forced sweep (#1862): dispatch on the fixActionKey (two states carry it). The
+    // sweep bypasses its own inode gate, so it acts even when the temp filesystem is unreadable —
+    // but it only drops what this release knows how to reclaim, so the row commonly stays non-ok
+    // (the unresolved-toast copy says so rather than blaming a stale check).
+    if (check.fixActionKey === TMP_INODES_FIX_ACTION) {
+      await this.runTmpSweep();
+      return this.check(now); // forced re-probe reflects the fix
     }
     const cmd = autoFixCommandFor(check.hintKey);
     if (!cmd) throw new Error(`no remediation for ${checkId}`);

@@ -99,6 +99,18 @@ The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
 `SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
 listed in [Configuration](/reference/configuration/).
 
+The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns
+at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95%.
+This matters because inode exhaustion is easy to misdiagnose — writes start failing with
+"no space" errors while `df -h` still shows the volume mostly empty. `df -i` is what shows
+the real cause.
+
+Its **How to fix** runs the sweep immediately, ignoring the usage threshold. It reclaims
+what Shepherd owns — the compile cache and stale tool caches — so the row can legitimately
+stay non-OK afterwards: a package-manager store or a leftover git worktree that an agent
+put in the temp filesystem is **not** reclaimed yet. Those are the two largest consumers
+when an agent has run a dependency install there, and removing them is tracked separately.
+
 ## Host tuning — resource guardrails
 
 **Settings → DIAGNOSE** includes a **Host capacity** check. On a systemd-managed

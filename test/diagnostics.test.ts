@@ -3,6 +3,7 @@ import {
   DiagnosticsService,
   classifyHerdrFleet,
   classifyHostCapacity,
+  classifyTmpInodes,
   defaultReadHerdrFleet,
   defaultRunRemediation,
   hasMeaningfulLimit,
@@ -101,6 +102,10 @@ function healthyDeps(): DiagnosticsDeps {
     // the probe's fail-safe reject would report herdr_health as optional/uninspectable and break
     // the all-ok assertions. Override per case to model leftover / husk / uninspectable.
     readHerdrFleet: async () => ({ orphanLive: 0, orphanHusk: 0 }),
+    // tmp_inodes (#1862): a roomy temp filesystem → ok. Injected because the default statfs's the
+    // REAL tmpdir(), whose inode use varies by host — without pinning it, every all-ok/overall
+    // assertion here would flip on a machine whose /tmp happens to be under pressure.
+    readTmpInodes: async () => ({ usePct: 12, warnPct: 80, errorPct: 95 }),
   };
 }
 
@@ -149,7 +154,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(11);
+    expect(snap.checks).toHaveLength(12);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -162,6 +167,7 @@ describe("DiagnosticsService probes", () => {
       "host_capacity",
       "node",
       "tailscale",
+      "tmp_inodes",
     ]);
     for (const c of snap.checks) {
       assertPure(c);
@@ -732,7 +738,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(12);
+    expect(snap.checks).toHaveLength(13);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -746,6 +752,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "host_capacity",
       "node",
       "tailscale",
+      "tmp_inodes",
     ]);
   });
 });
@@ -1217,6 +1224,20 @@ describe("nextDiagnosticsDelay", () => {
 
   it("host_capacity error alongside a transient error still accelerates", () => {
     expect(delay([chk("host_capacity", "error"), chk("herdr", "error")])).toBe(
+      DIAGNOSTICS_RECHECK_INTERVAL_MS,
+    );
+  });
+
+  // tmp_inodes (#1862) is steady-state for two reasons: the forced sweep commonly cannot clear it
+  // (the largest consumers aren't reclaimed yet), and accelerating the full probe fan-out means
+  // ~10 extra fork/execs a minute on a host whose inode table — the very resource process spawning
+  // needs — is already exhausted.
+  it("a tmp_inodes-only error does NOT accelerate (steady-state exempt)", () => {
+    expect(delay([chk("tmp_inodes", "error"), chk("bun", "ok")])).toBe(DIAGNOSTICS_INTERVAL_MS);
+  });
+
+  it("tmp_inodes error alongside a transient error still accelerates (exemption is scoped)", () => {
+    expect(delay([chk("tmp_inodes", "error"), chk("herdr", "error")])).toBe(
       DIAGNOSTICS_RECHECK_INTERVAL_MS,
     );
   });
@@ -1831,5 +1852,97 @@ describe("codex_model_auth advisory", () => {
     });
     const checks = (await svc.check(0)).checks;
     expect(checks.find((c) => c.id === "codex_model_auth")).toBeUndefined();
+  });
+});
+
+// ── tmp_inodes check (#1862) ────────────────────────────────────────────────────
+describe("classifyTmpInodes", () => {
+  // Bands are PASSED, never read from env here — that is the whole point of the parameterisation:
+  // the row must warn at exactly the point `SHEPHERD_TMP_INODE_PCT` makes the sweeper act.
+  const facts = (usePct: number | null, warnPct = 80, errorPct = 95) => ({
+    usePct,
+    warnPct,
+    errorPct,
+  });
+
+  it("below the warning band → ok", () => {
+    const c = classifyTmpInodes(facts(46));
+    expect(c).toEqual({ id: "tmp_inodes", state: "ok", hintKey: "diagnostics_hint_tmp_inodes_ok" });
+  });
+
+  it("at/over the warning band → warning, with the forced-sweep fix offered", () => {
+    for (const pct of [80, 94.9]) {
+      const c = classifyTmpInodes(facts(pct));
+      expect(c.state).toBe("warning");
+      expect(c.fixActionKey).toBe("diagnostics_fix_action_tmp_inodes");
+    }
+  });
+
+  it("at/over the error band → error, still offering the fix", () => {
+    for (const pct of [95, 100]) {
+      const c = classifyTmpInodes(facts(pct));
+      expect(c.state).toBe("error");
+      expect(c.fixActionKey).toBe("diagnostics_fix_action_tmp_inodes");
+    }
+  });
+
+  it("a raised SHEPHERD_TMP_INODE_PCT moves the warning boundary", () => {
+    // 85% is a warning at the default band but deliberately ignored by an operator who raised the
+    // sweep threshold to 90 — the row must not warn about a state the sweeper won't act on.
+    expect(classifyTmpInodes(facts(85, 80)).state).toBe("warning");
+    expect(classifyTmpInodes(facts(85, 90)).state).toBe("ok");
+    expect(classifyTmpInodes(facts(92, 90)).state).toBe("warning");
+  });
+
+  it("null use% → optional/uninspectable, never a pip degrade and never a fix", () => {
+    // Covers BOTH read failures: statfs absent (non-Linux), and a btrfs tmp reporting files: 0
+    // (it allocates inodes dynamically, so a percentage would be meaningless).
+    const c = classifyTmpInodes(facts(null));
+    expect(c).toEqual({
+      id: "tmp_inodes",
+      state: "optional",
+      hintKey: "diagnostics_hint_tmp_inodes_uninspectable",
+    });
+    expect(c.fixActionKey).toBeUndefined();
+  });
+});
+
+describe("tmp_inodes probe + fix dispatch", () => {
+  it("surfaces the row from injected facts", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readTmpInodes: async () => ({ usePct: 99, warnPct: 80, errorPct: 95 }),
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "tmp_inodes")?.state).toBe("error");
+  });
+
+  it("an unreadable temp filesystem resolves to optional, never a false ok", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readTmpInodes: async () => {
+        throw new Error("statfs blew up");
+      },
+    });
+    const checks = (await svc.check(0)).checks;
+    expect(checks.find((c) => c.id === "tmp_inodes")).toEqual({
+      id: "tmp_inodes",
+      state: "optional",
+      hintKey: "diagnostics_hint_tmp_inodes_uninspectable",
+    });
+  });
+
+  it("fix() dispatches the forced sweep", async () => {
+    let swept = 0;
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      readTmpInodes: async () => ({ usePct: 99, warnPct: 80, errorPct: 95 }),
+      runTmpSweep: async () => {
+        swept += 1;
+      },
+    });
+    await svc.check(0);
+    await svc.fix("tmp_inodes", 1);
+    expect(swept).toBe(1);
   });
 });

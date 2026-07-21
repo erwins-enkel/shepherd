@@ -313,10 +313,14 @@ export function parseAgents(result: unknown): HerdrAgent[] {
   }));
 }
 
-/** Maps a `tab list` reply to `HerdrTab[]`. Internal — not exported (fallow flags an
- *  unused export; the parsers used cross-module are exported). */
-function parseTabs(parsed: unknown): HerdrTab[] {
-  const tabs = (parsed as { result?: { tabs?: Record<string, string>[] } })?.result?.tabs ?? [];
+/**
+ * Maps a herdr `tab.list` reply's `result` object to `HerdrTab[]`. Takes the `result`
+ * (not the whole parsed reply) so BOTH transports share it — the CLI driver passes
+ * `JSON.parse(out)?.result`, the socket driver passes the request's resolved result
+ * directly (same convention as `parseAgents`).
+ */
+export function parseTabs(result: unknown): HerdrTab[] {
+  const tabs = (result as { tabs?: Record<string, string>[] } | null)?.tabs ?? [];
   return tabs.map((t) => ({
     tabId: t.tab_id ?? "",
     label: t.label ?? "",
@@ -437,6 +441,109 @@ export function parseProcs(result: unknown): string[] {
 }
 
 /**
+ * Spawn-handle registry (issue #1852): remembers each `start()`'s authoritative
+ * `tabId` + tab label, keyed by the started agent's terminalId, so `stop()` can close
+ * the recorded tab WITHOUT rediscovering it through `agent list`. That rediscovery was
+ * the leak: a helper that exited (or died milliseconds after `agent.start`) vanishes
+ * from `agent list` while its tab persists as a husk — `stop()` then silently no-oped
+ * and the tab accumulated until herdr exhausted its FD limit (334 tabs / 1,010 FDs).
+ *
+ * In-memory by design: entries live exactly as long as the in-process teardown paths
+ * that need them; anything orphaned across a Shepherd restart is the orphan-tab
+ * sweep's job. Entries are dropped on `stop()` so steady-state size tracks the live
+ * agent count.
+ */
+export class TabLedger {
+  private entries = new Map<string, { tabId: string; label: string }>();
+
+  record(terminalId: string, tabId: string, label: string): void {
+    if (terminalId && tabId) this.entries.set(terminalId, { tabId, label });
+  }
+
+  get(terminalId: string): { tabId: string; label: string } | null {
+    return this.entries.get(terminalId) ?? null;
+  }
+
+  delete(terminalId: string): void {
+    this.entries.delete(terminalId);
+  }
+
+  /** Mirror a TAB rename (the label check in `stopViaRecordedTab` compares tab labels). */
+  relabel(terminalId: string, label: string): void {
+    const e = this.entries.get(terminalId);
+    if (e) e.label = label;
+  }
+}
+
+/**
+ * Shared `stop()` body for both drivers (issue #1852): the spawn-recorded tab is the
+ * NORMAL teardown path; the fresh `agent list` lookup is only the fallback for handles
+ * the ledger doesn't know (re-adopted after a Shepherd restart, legacy callers).
+ *
+ * - `terminalId === ""` → no-op: cwd-reconcile callers pass `""` deliberately when the
+ *   pane is already gone from the live list.
+ * - Ledger hit → verify against the live TAB list (which, unlike `agent list`, still
+ *   contains an exited helper's husk): recorded tab present with the recorded label →
+ *   close it, done — zero `agent list` calls. Tab absent → it died with the daemon or
+ *   was already closed; nothing to close. Label mismatch → the id was re-minted by a
+ *   restarted daemon (or a rename the ledger missed) — never close on a mismatch; warn
+ *   and fall through to the agent-list resolution, which reflects current truth.
+ * - A `tabsAsync()` throw (herdr hiccup) also falls through to the agent-list path, so
+ *   this is never weaker than the pre-ledger behavior.
+ * - Nothing found anywhere → warn: an observable no-op, never a silent one (#1852).
+ */
+export async function stopViaRecordedTab(
+  driver: Pick<IHerdrDriver, "listAsync" | "tabsAsync" | "closeTab">,
+  ledger: TabLedger,
+  terminalId: string,
+): Promise<void> {
+  if (!terminalId) return;
+
+  const known = ledger.get(terminalId);
+  if (known) {
+    let tabs: HerdrTab[] | null = null;
+    try {
+      tabs = await driver.tabsAsync();
+    } catch {
+      /* transient tab-list failure — fall back to the agent-list path below */
+    }
+    if (tabs) {
+      const tab = tabs.find((t) => t.tabId === known.tabId);
+      if (!tab) {
+        // Recorded tab no longer exists (daemon restart without restore, or already
+        // closed) — nothing to close, nothing leaked.
+        ledger.delete(terminalId);
+        return;
+      }
+      if (tab.label === known.label) {
+        ledger.delete(terminalId);
+        await driver.closeTab(known.tabId);
+        return;
+      }
+      // Label mismatch: recorded id now denotes some other tab — closing it could kill
+      // live work. Drop the unusable entry and resolve from the live agent list instead.
+      console.warn(
+        `[herdr] stop: recorded tab ${known.tabId} for terminal ${terminalId} is now ` +
+          `labeled ${JSON.stringify(tab.label)} (recorded ${JSON.stringify(known.label)}) — ` +
+          `not closing it; falling back to agent list`,
+      );
+      ledger.delete(terminalId);
+    }
+  }
+
+  const agent = (await driver.listAsync()).find((a) => a.terminalId === terminalId);
+  if (agent?.tabId) {
+    ledger.delete(terminalId);
+    await driver.closeTab(agent.tabId);
+    return;
+  }
+  console.warn(
+    `[herdr] stop: no live agent and no usable recorded tab for terminal ${terminalId} — ` +
+      `teardown is a no-op (orphan sweep will cover any residue)`,
+  );
+}
+
+/**
  * Public method surface of `HerdrDriver`, extracted so the socket-backed
  * driver (`SocketHerdrDriver`, issue #1529) implements the same contract behind the existing seam —
  * callers keep using `Pick<HerdrDriver, …>` today; nothing about them changes.
@@ -446,6 +553,9 @@ export interface IHerdrDriver {
   /** Non-blocking sibling of `list()` — see `HerdrDriver.listAsync`. */
   listAsync(): Promise<HerdrAgent[]>;
   tabs(): HerdrTab[];
+  /** Non-blocking sibling of `tabs()` — the recorded-tab verification in `stop()` runs
+   *  on the async surface (#1852). */
+  tabsAsync(): Promise<HerdrTab[]>;
   panes(): HerdrPane[];
   paneForegroundProcs(paneId: string): Promise<string[]>;
   /** Spawn an agent (issue #1553: async — socket-backed when `SHEPHERD_HERDR_SOCKET=1`,
@@ -472,6 +582,9 @@ export class HerdrDriver implements IHerdrDriver {
    *  now that the writes are async (issue #1553); see `createSerializer`. */
   private serializeStart = createSerializer();
 
+  /** Spawn-handle registry: authoritative tabId per started terminalId (#1852). */
+  private ledger = new TabLedger();
+
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
@@ -492,7 +605,13 @@ export class HerdrDriver implements IHerdrDriver {
 
   /** Every tab in the workspace — including husks with no live agent (`tab list`). */
   tabs(): HerdrTab[] {
-    return parseTabs(JSON.parse(this.runner(["tab", "list"])));
+    return parseTabs(JSON.parse(this.runner(["tab", "list"]))?.result);
+  }
+
+  /** Async sibling of `tabs()` — spawns via `asyncRunner` so the recorded-tab
+   *  verification in `stop()` never blocks Bun's single loop. */
+  async tabsAsync(): Promise<HerdrTab[]> {
+    return parseTabs(JSON.parse(await this.asyncRunner(["tab", "list"]))?.result);
   }
 
   /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
@@ -648,6 +767,9 @@ export class HerdrDriver implements IHerdrDriver {
       // Capture the authoritative handle before root-pane cleanup: a fast role can already be
       // absent from agent.list, and closing the remaining shell pane can remove the whole tab.
       const agent = await this.startAgentWithCollisionRetry(name, tabId, cwd, wrapped);
+      // Retain the authoritative spawn handle (#1852): the tab exists and is ours even
+      // if the process inside dies before it ever appears in `agent list`.
+      this.ledger.record(agent.terminalId, tabId, name);
 
       if (rootPaneId && !isHeadlessCodexExec(argv)) {
         try {
@@ -717,17 +839,15 @@ export class HerdrDriver implements IHerdrDriver {
   /**
    * Best-effort teardown of the agent backing a terminal id. Closes the agent's whole
    * TAB, not just its pane: every agent gets its own dedicated tab, so closing only the
-   * pane left an empty husk tab behind. Resolves `terminalId → current tabId` FRESH from
-   * the live list — the live list is the source of truth; the agent may have ended or been
-   * relabeled, so a cached tabId may be stale. Under herdr 0.7 an exited agent persists as
-   * a husk that retains its terminalId, so stop() still finds and closes its tab. The no-op
-   * path fires only when the pane is truly gone from the list; the orphan sweep handles any
-   * residue in that case.
+   * pane left an empty husk tab behind. For a spawn this driver started, the tab recorded
+   * at `start()` is the NORMAL path — verified against the live tab list and closed
+   * directly, with no dependency on the agent still being present in `agent list` (an
+   * exited helper vanishes from that list while its husk tab persists — the #1852 leak).
+   * Unknown handles fall back to the fresh agent-list resolution; a full miss warns
+   * instead of silently no-oping. See {@link stopViaRecordedTab}.
    */
   async stop(terminalId: string): Promise<void> {
-    const agent = (await this.listAsync()).find((a) => a.terminalId === terminalId);
-    if (!agent?.tabId) return;
-    await this.closeTab(agent.tabId);
+    await stopViaRecordedTab(this, this.ledger, terminalId);
   }
 
   /**
@@ -753,6 +873,9 @@ export class HerdrDriver implements IHerdrDriver {
     if (agent.tabId) {
       try {
         await this.asyncRunner(["tab", "rename", agent.tabId, newName]);
+        // Mirror the successful TAB rename so the ledger label keeps matching the live
+        // tab (the stop() fallback refuses to close on a label mismatch, #1852).
+        this.ledger.relabel(terminalId, newName);
       } catch {
         /* best-effort */
       }

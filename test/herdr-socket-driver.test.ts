@@ -376,6 +376,79 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
   });
 });
 
+describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
+  // Transport parity for the recorded-tab-first stop(); the full behavior matrix lives in
+  // test/herdr.test.ts — these pin that the socket driver records at start and closes via
+  // tab.list verification, agent-list-free on the normal path.
+
+  /** Client whose tab.list / agent.list replies are supplied per test; start() replies
+   *  are wired so the ledger records t1 → tab_new under the label "TASK-01". */
+  function ledgerClient(tabs: () => unknown[], agents: () => unknown[]) {
+    const rec: { method: string; params: unknown }[] = [];
+    const impl = (method: string, params: unknown): unknown => {
+      rec.push({ method, params });
+      switch (method) {
+        case "workspace.list":
+          return { type: "workspace_list", workspaces: [{ workspace_id: "w1" }] };
+        case "tab.create":
+          return { type: "tab_created", tab: { tab_id: "tab_new" }, root_pane: { pane_id: "p" } };
+        case "agent.start":
+          return { type: "agent_started", agent: { ...agentBody.agents[0], tab_id: "tab_new" } };
+        case "tab.list":
+          return { type: "tab_list", tabs: tabs() };
+        case "agent.list":
+          return { agents: agents() };
+        default:
+          return { type: "ok" };
+      }
+    };
+    return { rec, client: { request: mock(impl) } as unknown as HerdrSocketClient };
+  }
+
+  it("tabsAsync() requests tab.list and returns the parsed tabs", async () => {
+    const client = fakeClient(() => ({
+      tabs: [{ tab_id: "w:1", label: "recap TASK-2", agent_status: "unknown", workspace_id: "w" }],
+    }));
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+
+    expect(await driver.tabsAsync()).toEqual([
+      { tabId: "w:1", label: "recap TASK-2", agentStatus: "unknown", workspaceId: "w" },
+    ]);
+    expect(client.request).toHaveBeenCalledWith("tab.list", {});
+  });
+
+  it("stop() closes the spawn-recorded tab with zero agent.list calls when the agent is gone", async () => {
+    const { rec, client } = ledgerClient(
+      () => [{ tab_id: "tab_new", label: "TASK-01" }],
+      () => [], // helper exited — absent from agent.list; only its husk tab remains
+    );
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+    await driver.start("TASK-01", "/repo/worktree", ["claude", "go"]);
+    const startEnd = rec.length;
+
+    await driver.stop("t1");
+
+    expect(rec.slice(startEnd).map((r) => r.method)).toEqual(["tab.list", "tab.close"]);
+    expect(rec.at(-1)!.params).toEqual({ tab_id: "tab_new" });
+  });
+
+  it("stop() spares a label-mismatched recorded tab and falls back to agent.list truth", async () => {
+    const { rec, client } = ledgerClient(
+      () => [{ tab_id: "tab_new", label: "someone-elses-session" }],
+      () => [{ terminal_id: "t1", tab_id: "tab_current" }],
+    );
+    const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
+    await driver.start("TASK-01", "/repo/worktree", ["claude", "go"]);
+    const startEnd = rec.length;
+
+    await driver.stop("t1");
+
+    const stopCalls = rec.slice(startEnd);
+    expect(stopCalls.map((r) => r.method)).toEqual(["tab.list", "agent.list", "tab.close"]);
+    expect(stopCalls.at(-1)!.params).toEqual({ tab_id: "tab_current" });
+  });
+});
+
 /** Fake socket client exposing controllable `ping`/`close` spies for `selectHerdrDriver`. */
 function fakePingClient(impl: () => Promise<{ protocol: number }>) {
   return {

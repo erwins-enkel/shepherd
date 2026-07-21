@@ -109,6 +109,13 @@ test("stripPlanLineRefs leaves non-path colon forms alone (false-positive guard)
     "--flag=3:4",
     "ratio 16:9",
     "https://example.com:443/x",
+    // DECIMAL-bearing forms: `16.9` would read as "file 16.9" and `:1` as its line number unless
+    // the extension is required to start with a letter. Aspect ratios, versions and clock times
+    // with a fractional part all land in this class.
+    "16.9:1",
+    "1.5:30",
+    "v2.0:5",
+    "cpu 0.75:1",
   ]) {
     expect(stripPlanLineRefs(s)).toBe(s);
   }
@@ -152,6 +159,18 @@ test("strong tier (anchored, ahead=0): names the anchor and makes an unresolvabl
   expect(p).toContain("IS therefore a finding");
   expect(p).not.toContain("commit(s) SINCE that merge-base");
   expect(p).not.toContain("could NOT be tied");
+});
+
+test("strong tier scopes its claim to COMMITTED code and carves out the planner's dirty tree", () => {
+  // `ahead` counts commits, so uncommitted working-tree edits are invisible even at ahead=0 —
+  // and there is always at least one (the plan file). An unqualified "every file reads
+  // identically" would be the premise of this block's ONLY blocking rule, so the overclaim would
+  // license false findings against symbols that exist solely in the planner's dirty tree.
+  const p = planReviewPrompt("t", "plan", [], null, "en", STRONG);
+  expect(p).toContain("every file COMMITTED at that point reads IDENTICALLY");
+  expect(p).toContain("such already-committed code");
+  expect(p).toContain("UNCOMMITTED working-tree edits are still invisible");
+  expect(p).toContain('report it in "body", NOT in "findings"');
 });
 
 test("ahead tier (anchored, ahead>0): unresolvable refs route to body, never findings", () => {

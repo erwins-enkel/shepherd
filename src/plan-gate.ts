@@ -104,7 +104,10 @@ export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
  *    points at the wrong function" that the next round recycles, LENGTHENING the loop.
  *
  *  The pattern is narrow ON PURPOSE: it requires a path-ish token bearing a file EXTENSION
- *  immediately before the ref, so `10:30` and `--flag=3:4` are left alone. The leading lookbehind
+ *  immediately before the ref, so `10:30` and `--flag=3:4` are left alone. The extension must
+ *  START WITH A LETTER, which is what keeps decimals safe — without it `16.9:1` and `1.5:30` read
+ *  as "file `16.9`, line 1" and get rewritten, defeating the ratio/timestamp guarantee one line
+ *  up. Every real code extension qualifies (`.ts`, `.rs`, `.svelte`, `.mjs`, `.h`). The leading lookbehind
  *  forces the match to begin at a real token boundary, which is what keeps a URL authority safe:
  *  in `https://example.com:443/x`, `example.com` is preceded by `/` and the `//` is preceded by
  *  `:`, so neither can start a match and the port is not mistaken for a line number. (`.com` is
@@ -116,7 +119,7 @@ export const PLAN_VERDICT_FILE = ".shepherd-plan-review.json";
  *  false positive on timestamps, ports and ratios. Those are covered by the prompt rule instead. */
 export function stripPlanLineRefs(text: string): string {
   return text.replace(
-    /(?<![A-Za-z0-9_.:\-/\\])([A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-/\\]\.[A-Za-z0-9]{1,8})(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)\b/g,
+    /(?<![A-Za-z0-9_.:\-/\\])([A-Za-z0-9_.\-/\\]*[A-Za-z0-9_\-/\\]\.[A-Za-z][A-Za-z0-9]{0,7})(?::\d+(?:-\d+)?|#L\d+(?:-L?\d+)?)\b/g,
     "$1",
   );
 }
@@ -246,8 +249,16 @@ function locationReferenceBlock(
         `- The planning agent has made ${anchor.ahead} commit(s) SINCE that merge-base, and this checkout deliberately excludes them. So a file or symbol that does not resolve here — or that reads differently than the plan describes — may be code the agent has ALREADY WRITTEN this session, not a mistake. Such a reference is AMBIGUOUS: report it in "body" as a stated limitation, NEVER in "findings".`,
       );
     } else {
+      // Same discipline as the ahead>0 branch above, for the other way the trees can differ:
+      // `ahead` counts COMMITS, so the planner's uncommitted working-tree edits are invisible to
+      // this reviewer even at ahead=0 — and there is always at least one (the plan file), often
+      // product code (see advanceToExecutionOnPr in defaultPlanAnchorSha's doc). An unqualified
+      // "every file reads identically" would be false, and it is the premise the ONLY blocking
+      // rule in this block rests on, so the overclaim would license false findings against
+      // symbols that exist solely in the planner's dirty tree.
       lines.push(
-        "- The planning agent has committed nothing since, so every file reads IDENTICALLY for both of you. A reference to code that ALREADY EXISTS naming a file or symbol you cannot resolve IS therefore a finding — a wrong reference, not an imprecise one.",
+        "- The planning agent has committed nothing since, so every file COMMITTED at that point reads IDENTICALLY for both of you. A reference to such already-committed code naming a file or symbol you cannot resolve IS therefore a finding — a wrong reference, not an imprecise one.",
+        '- Its UNCOMMITTED working-tree edits are still invisible here, though. If an unresolvable reference plausibly names this session\'s own in-progress work rather than pre-existing code, it is AMBIGUOUS: report it in "body", NOT in "findings".',
       );
     }
   } else {

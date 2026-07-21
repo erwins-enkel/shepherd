@@ -620,7 +620,7 @@ export async function defaultComputePatchId(
     // Resolve the base to a concrete immutable SHA NOW: FETCH_HEAD is transient (a later
     // in-worktree fetch moves it; undefined on a failed fetch), so capturing the rev-parsed
     // SHA gives the prompt + backstop a base that provably equals the one we fingerprint.
-    // `--end-of-options` guards a hostile ref (mirrors defaultBaseSha in plan-gate.ts). Null
+    // `--end-of-options` guards a hostile ref (mirrors defaultPlanAnchorSha in plan-gate.ts). Null
     // on failure → caller diffs the `ref` string best-effort and skips the backstop.
     let baseSha: string | null = null;
     try {

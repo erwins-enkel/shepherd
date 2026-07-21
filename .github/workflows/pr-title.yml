@@ -15,6 +15,13 @@ on:
 
 permissions:
   contents: read
+  # Needed only by the Dependabot auto-shorten step below (`gh pr edit --title`).
+  # Safe on a `pull_request` trigger: GitHub forces the token read-only for fork
+  # PRs regardless of this key, so the write scope only ever materialises for
+  # same-repo branches — which is exactly what Dependabot's branches are. This is
+  # deliberately NOT `pull_request_target`, which would hand a write token to a
+  # workflow evaluating an untrusted head ref.
+  pull-requests: write
 
 jobs:
   pr-title:
@@ -35,9 +42,44 @@ jobs:
           bun-version: latest
       - name: Install (root)
         uses: ./.github/actions/bun-install-retry
+      # Dependabot's own title format can breach commitlint's 100-char header limit
+      # and it regenerates the same title on `@dependabot recreate`, so the PR is
+      # wedged until a human retitles it by hand (that's what happened to #1866, at
+      # 124 chars). When a group carries exactly one update, Dependabot appends a
+      # redundant " in the <group> group across 1 directory" to a subject that
+      # already names the package and directory — dropping it is lossless.
+      #
+      # This runs in the SAME step as the lint, not a separate workflow: an edit
+      # made with GITHUB_TOKEN does not trigger a new workflow run, so a retitle
+      # from elsewhere would leave this very check stuck on the stale red result.
       - name: Lint PR title with commitlint (same rules as commit messages)
         env:
           # Pass the title via env, never interpolated into the shell, so a title
           # containing shell metacharacters can't inject into the run step.
           PR_TITLE: ${{ github.event.pull_request.title }}
-        run: printf '%s\n' "$PR_TITLE" | bunx commitlint
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          TITLE="$PR_TITLE"
+
+          # Only ever rewrite Dependabot's own titles, and only when over the limit
+          # — a human's too-long title stays a hard failure they resolve themselves.
+          if [ "$PR_AUTHOR" = "dependabot[bot]" ] && [ "${#TITLE}" -gt 100 ]; then
+            SHORT=$(printf '%s' "$TITLE" \
+              | sed -E 's/ in the [^ ]+ group across [0-9]+ director(y|ies)$//')
+            if [ "$SHORT" != "$TITLE" ] && [ "${#SHORT}" -le 100 ]; then
+              echo "Shortening Dependabot title (${#TITLE} -> ${#SHORT} chars):"
+              echo "  $SHORT"
+              gh pr edit "$PR_NUMBER" --title "$SHORT"
+              TITLE="$SHORT"
+            else
+              # Unrecognised long form — fall through and let commitlint fail with
+              # its own message rather than silently mangling the subject.
+              echo "::warning::Dependabot title is ${#TITLE} chars and does not match" \
+                   "the known suffix pattern; leaving it for a human to retitle."
+            fi
+          fi
+
+          printf '%s\n' "$TITLE" | bunx commitlint

@@ -255,6 +255,17 @@ describe("DiagnosticsService probes", () => {
       expect(c.hintKey).toBe("diagnostics_hint_herdr_ok");
     });
 
+    it("error/unsupported on herdr 0.7.5+ (spawning broken, #1889) — outranks liveness", async () => {
+      const svc = new DiagnosticsService({
+        ...healthyDeps(),
+        runVersion: versionRunner({ ...HEALTHY_VERSIONS, herdr: "herdr 0.7.5" }),
+        runHerdrLiveness: async () => {}, // even a healthy daemon can't rescue an unsupported version
+      });
+      const c = byId((await svc.check(0)).checks, "herdr");
+      expect(c.state).toBe("error");
+      expect(c.hintKey).toBe("diagnostics_hint_herdr_unsupported");
+    });
+
     it("offline outranks an outdated-version warning", async () => {
       const svc = new DiagnosticsService({
         ...healthyDeps(),
@@ -928,9 +939,10 @@ describe("DiagnosticsService.fix", () => {
     let updated = false;
     const svc = new DiagnosticsService({
       ...healthyDeps(),
-      // Old until the remediation "updates" it, then above the floor.
+      // Old until the remediation "updates" it, then above the floor (and still supported —
+      // 0.7.5+ is unsupported and would re-probe as an error, not ok; see #1889).
       runVersion: async (bin, args) => {
-        if (bin === "herdr") return updated ? "herdr 0.7.5" : "herdr 0.5.0";
+        if (bin === "herdr") return updated ? "herdr 0.7.4" : "herdr 0.5.0";
         return versionRunner({ ...HEALTHY_VERSIONS })!(bin, args);
       },
       runRemediation: async () => {

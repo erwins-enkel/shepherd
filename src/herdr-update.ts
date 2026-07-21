@@ -1,22 +1,16 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
+import { isHerdrVersionSupported, setDetectedHerdrVersion } from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
+import { compareSemver } from "./semver";
 import type { HerdrUpdateStatus } from "./types";
 
 export type { HerdrUpdateStatus };
-
-/** Numeric major.minor.patch comparison. Returns >0 if a>b, <0 if a<b, 0 if equal.
- *  Missing/garbage segments coerce to 0, so "0.6" compares as "0.6.0". */
-export function compareSemver(a: string, b: string): number {
-  const pa = a.split(".").map((n) => Number(n) || 0);
-  const pb = b.split(".").map((n) => Number(n) || 0);
-  for (let i = 0; i < 3; i++) {
-    const d = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (d !== 0) return d > 0 ? 1 : -1;
-  }
-  return 0;
-}
+// Re-exported so existing importers (diagnostics, plugin-update, codex-update) keep their
+// `from "./herdr-update"` path; the implementation now lives in the leaf semver.ts (so
+// herdr-capabilities.ts can share it without an import cycle).
+export { compareSemver };
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 const LATEST_URL = "https://herdr.dev/latest.json";
@@ -275,6 +269,16 @@ export class HerdrUpdateService {
    *  outcome via onDone. Guards against a double-launch while one is in flight. */
   apply(): { started: boolean } {
     if (this.applying) return { started: false };
+    // Never upgrade INTO an unsupported herdr from inside Shepherd: 0.7.5+ broke agent spawning
+    // (#1889), so applying it would leave the operator unable to spawn. The modal also warns +
+    // hides the run button; this is the server-side backstop against a direct POST.
+    if (this.last?.latestUnsupported) {
+      console.warn(
+        `[herdr-update] refusing in-app upgrade to unsupported herdr ${this.last?.latest ?? "?"} ` +
+          `— pin to 0.7.4 (see #1889)`,
+      );
+      return { started: false };
+    }
     this.applying = true;
     console.warn(
       `[herdr-update] applying ${this.last?.current ?? "?"} -> ${this.last?.latest ?? "?"}; ` +
@@ -305,6 +309,9 @@ export class HerdrUpdateService {
       // every failure branch reports as "what we're actually on" (never the
       // target, which we know we did not reach).
       const after = this.actualVersion(from);
+      // `herdr update` swaps the running binary, so refresh the detected version the driver's
+      // spawn guard reads (keeps the ceiling accurate without a Shepherd restart).
+      setDetectedHerdrVersion(after);
       if (ctrl.signal.aborted) {
         result = { ok: false, from, to: after, error: "herdr update timed out" };
       } else {
@@ -313,6 +320,7 @@ export class HerdrUpdateService {
           current: after,
           latest: to,
           updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
+          latestUnsupported: !isHerdrVersionSupported(to),
           notes: null,
           checkedAt: Date.now(),
           error: ok ? undefined : "herdr was not updated",
@@ -345,17 +353,24 @@ export class HerdrUpdateService {
     try {
       const currentMatch = SEMVER_RE.exec(this.versionRunner());
       const current = currentMatch ? currentMatch[1]! : null;
+      // Keep the driver's spawn guard in sync with what's actually installed (catches an
+      // out-of-band `herdr update` between boot and this periodic check).
+      setDetectedHerdrVersion(current);
 
       const latestRaw = await this.fetchLatest();
       const latestMatch = latestRaw?.version ? SEMVER_RE.exec(latestRaw.version) : null;
       const latest = latestMatch ? latestMatch[1]! : null;
 
       const updateAvailable = !!current && !!latest && compareSemver(latest, current) > 0;
+      // A newer-but-unsupported latest (0.7.5+) still shows the badge/modal, but the modal warns
+      // and the updater refuses it — see apply() + HerdrUpdateModal. #1889.
+      const latestUnsupported = updateAvailable && !isHerdrVersionSupported(latest);
 
       this.last = {
         current,
         latest,
         updateAvailable,
+        latestUnsupported,
         notes: updateAvailable ? (latestRaw.notes ?? null) : null,
         checkedAt: now,
       };

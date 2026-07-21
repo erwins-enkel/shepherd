@@ -54,4 +54,24 @@ describe("HerdrUpdateModal", () => {
       "dialog should not need its own vertical scrollbar",
     ).toBeLessThanOrEqual(card!.clientHeight + 1);
   });
+
+  it("blocks the upgrade + warns when the latest herdr is unsupported (0.7.5+, #1889)", async () => {
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.4",
+          latest: "0.7.5",
+          updateAvailable: true,
+          latestUnsupported: true,
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // The blocked warning is shown…
+    expect(document.querySelector(".blocked")).not.toBeNull();
+    // …and the run/upgrade button is gone (can't upgrade into an unsupported herdr).
+    expect(document.querySelector(".run")).toBeNull();
+  });
 });

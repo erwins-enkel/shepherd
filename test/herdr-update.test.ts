@@ -128,6 +128,41 @@ test("current == latest → updateAvailable false", async () => {
   expect(s.updateAvailable).toBe(false);
 });
 
+// ── check()/apply(): unsupported latest (herdr 0.7.5+, #1889) is flagged + blocked ──────────────
+test("check(): a newer-but-unsupported latest (0.7.5) sets latestUnsupported", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.4",
+    fetchLatest: async () => ({ version: "0.7.5", notes: "### Breaking" }),
+  });
+  const s = await svc.check(1000);
+  expect(s.updateAvailable).toBe(true); // a newer version does exist
+  expect(s.latestUnsupported).toBe(true); // …but Shepherd can't run it
+});
+
+test("check(): a supported latest (0.7.4) is NOT flagged unsupported", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.3",
+    fetchLatest: async () => ({ version: "0.7.4" }),
+  });
+  const s = await svc.check(1000);
+  expect(s.updateAvailable).toBe(true);
+  expect(s.latestUnsupported).toBe(false);
+});
+
+test("apply(): refuses to upgrade into an unsupported latest (never started)", async () => {
+  let ran = false;
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.4",
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    runUpdate: async () => {
+      ran = true;
+    },
+  });
+  await svc.check(1000); // populates latestUnsupported=true
+  expect(svc.apply()).toEqual({ started: false });
+  expect(ran).toBe(false); // the update child was never spawned
+});
+
 test("versionRunner throws → fail-safe, no badge, error set", async () => {
   const svc = new HerdrUpdateService({
     versionRunner: () => {

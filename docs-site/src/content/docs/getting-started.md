@@ -108,7 +108,10 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — [Can Celik](https://github.com/ogulcancelik)'s agent
   multiplexer ([herdr.dev](https://herdr.dev)); manages the interactive `claude`
-  panes (owns the PTYs)
+  panes (owns the PTYs). **Pin to herdr 0.7.4 — do not upgrade to 0.7.5+ yet.**
+  herdr 0.7.5 reshaped `agent start`, and Shepherd cannot spawn agents on it
+  (spawning fails); Shepherd warns at startup and blocks the in-app updater until
+  [issue #1889](https://github.com/erwins-enkel/shepherd/issues/1889) ships a fix.
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

@@ -36,15 +36,18 @@ export function preflightHerdr(deps: {
   runVersion: () => string;
   log: (msg: string) => void;
   exit: (code: number) => never;
-}): void {
+}): string | null {
   const { runVersion, log, exit } = deps;
   try {
-    runVersion();
+    // Returned so the caller can detect an unsupported herdr (see herdr-capabilities.ts) from the
+    // same `herdr --version` read that gates presence — no second spawn.
+    return runVersion();
   } catch (err) {
     if (isBinaryMissingError(err)) {
       log(BANNER);
       exit(HERDR_MISSING_EXIT_CODE);
     }
     // Present but broken (e.g. permission error) — not our call to make; fail open.
+    return null;
   }
 }

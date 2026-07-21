@@ -1427,10 +1427,10 @@ test("dropKey stays unguarded so deletion never silently fails", () => {
   expect(s.git["s1"]).toBeUndefined();
 });
 
-test("path-keyed writes stay spreadable/enumerable despite defineProperty", () => {
-  // setPathKey uses Object.defineProperty rather than a computed literal key; pin that the
-  // resulting entry is indistinguishable (enumerable, spreadable, JSON-serialisable), since the
-  // drain/automerge maps are read that way throughout the UI.
+test("path-keyed writes stay enumerable, spreadable and serialisable", () => {
+  // The drain/automerge maps are read by key, by spread and via JSON throughout the UI, and their
+  // keys go through a different guard than the session-id maps. Pin all three access shapes so a
+  // future change to setPathKey's write form can't quietly break one of them.
   const s = new HerdStore();
   const a = "/home/u/repo-one";
   const b = "/home/u/repo-two.git";

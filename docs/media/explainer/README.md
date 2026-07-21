@@ -53,7 +53,7 @@ Prereqs: Docker running, `espeak-ng` installed system-wide, a Python venv with
 `kokoro-onnx soundfile` pointed at by `HYPERFRAMES_PYTHON`. Then:
 
 ```sh
-./regen.sh /path/to/out   # writes shepherd-explainer.{mp4,en.srt} + poster
+./regen.sh /path/to/out   # writes shepherd-explainer.mp4 + poster (.en.srt is hand-authored)
 ```
 
 The `.en.srt` is hand-authored from the exact narration offsets in `index.html`

@@ -97,7 +97,7 @@ import { DraftReconcileService } from "./draft-reconcile";
 import { isFullAuto } from "./full-auto";
 import { classifyStop } from "./autopilot-llm";
 import { tailLines } from "./blocked";
-import { recommendPrompt } from "./prompt-recommend";
+import { recommendPrompt, RECOMMEND_LABEL } from "./prompt-recommend";
 import { CountsService } from "./backlog";
 import { OpenPrSnapshotService } from "./open-pr-snapshot";
 import { BacklogPoller } from "./backlog-poller";
@@ -2277,6 +2277,7 @@ deferredStarts.push(() => {
   void reapTransientByLabel(herdr, NAMER_LABEL, new Set(), "[namer]");
   void reapTransientByLabel(herdr, AUTOPILOT_LABEL, new Set(), "[autopilot]");
   void reapTransientByLabel(herdr, VERIFY_KEY_LABEL, new Set(), "[verify-key]");
+  void reapTransientByLabel(herdr, RECOMMEND_LABEL, new Set(), "[recommend]");
 });
 const gitignoreAdopter = new GitignoreAdopter({ worktree, resolveForge });
 // Daily: prune archived sessions, prune old signals, then consider a distill per repo
@@ -2851,7 +2852,7 @@ const appDeps: AppDeps = {
         taskPrompt: s.prompt,
         provider,
         model,
-        label: `recommend ${s.desig}`,
+        label: `${RECOMMEND_LABEL}${s.desig}`,
         // Live per-call read at the composition root (#1586).
         operatorLanguage: config.operatorLanguage,
       },

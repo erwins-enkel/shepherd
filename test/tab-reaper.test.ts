@@ -198,6 +198,8 @@ describe("isShepherdHelperLabel", () => {
     ["rundown", "herd-digest rundown (exact, liveness-gated)"],
     ["autopilot 643cfec7-1234-5678-abcd-ef0123456789", "autopilot LLM"],
     ["verify api key", "API-key verifier (multi-word exact)"],
+    // #1852: prompt recommender — previously uncovered, leaked forever across restarts
+    ["recommend TASK-09", "prompt recommender"],
   ];
 
   for (const [label, desc] of trueLabels) {
@@ -217,6 +219,7 @@ describe("isShepherdHelperLabel", () => {
     ["reviewing-pr", "starts with 'review' but no trailing space"],
     ["autopilot-mode", "hyphen instead of space — not an autopilot helper"],
     ["name-my-thing", "hyphen instead of space — not a namer helper"],
+    ["recommend-tweaks", "hyphen instead of space — not a recommender helper"],
   ];
 
   for (const [label, desc] of falseLabels) {

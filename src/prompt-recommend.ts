@@ -16,6 +16,12 @@ import type { OperatorLanguage } from "./operator-language";
 /** The file the recommender agent writes its suggestion JSON to, in its temp cwd. */
 export const RECOMMEND_FILE = ".shepherd-recommend.json";
 
+/** Label prefix for recommender spawns (`recommend <desig>`, built at the index.ts call
+ *  site). Space-prefixed so a prompt-derived `[a-z0-9-]` session slug can never collide.
+ *  Shared with the tab reaper + boot reap (#1852) — this helper previously had NO
+ *  reconcile coverage, so a Shepherd restart mid-run leaked its tab forever. */
+export const RECOMMEND_LABEL = "recommend ";
+
 /** Outcome of a recommendation run: the suggested next prompt, or a stable error reason
  *  the UI maps to a localized message. Never throws — failures collapse to `{ error }`. */
 export type RecommendResult = { prompt: string } | { error: RecommendError };

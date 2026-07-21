@@ -293,6 +293,10 @@
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
   let promptInput = $state<HTMLTextAreaElement>();
+  // The modal backdrop. On mobile we mirror the visualViewport onto it so the card and
+  // the fixed bottom sheets sit above the software keyboard (iOS Safari overlays the
+  // keyboard WITHOUT shrinking the layout viewport — see the viewport effect below).
+  let overlayEl = $state<HTMLElement | null>(null);
   let repoSelect: RepoSelect | undefined = $state();
   let mic: MicButton | undefined = $state();
   let isMac = $state(false);
@@ -400,6 +404,40 @@
     // Paste anywhere in the modal (the textarea need not be focused first).
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
+  });
+
+  // ── keyboard-aware viewport (mobile only) ─────────────────────────────────
+  // iOS Safari overlays the soft keyboard WITHOUT shrinking the layout viewport
+  // (dvh/vh don't react; interactive-widget isn't in WebKit). visualViewport reports
+  // the region above the keyboard; mirror its height + offsetTop onto the overlay so
+  // the card fills it and the fixed bottom sheet (contained by the overlay via its
+  // backdrop-filter) re-anchors above the keyboard. Same pattern as ComposeBar.
+  function syncViewport() {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv || !overlayEl) return;
+    overlayEl.style.height = `${vv.height}px`;
+    overlayEl.style.transform = `translateY(${vv.offsetTop}px)`;
+  }
+  function resetViewport() {
+    if (!overlayEl) return;
+    overlayEl.style.height = "";
+    overlayEl.style.transform = "";
+  }
+  // Gated to the mobile layout: on desktop the overlay is never touched, so desktop
+  // pinch-zoom can't move it. The effect re-runs when the breakpoint flips; its teardown
+  // both detaches the listeners and clears the inline geometry left from the mobile
+  // state (reset-on-breakpoint), so a stale height/transform never survives onto desktop.
+  $effect(() => {
+    if (!overlayEl || !mobile.current) return;
+    syncViewport();
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", syncViewport);
+    vv?.addEventListener("scroll", syncViewport);
+    return () => {
+      vv?.removeEventListener("resize", syncViewport);
+      vv?.removeEventListener("scroll", syncViewport);
+      resetViewport();
+    };
   });
 
   // load branches for the selected repo; reset base to the repo's current branch
@@ -1144,6 +1182,7 @@
 
 <div
   class="overlay"
+  bind:this={overlayEl}
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget) {
@@ -2281,7 +2320,10 @@
     .card {
       width: 100%;
       max-width: none;
-      max-height: none;
+      /* Fill the overlay, which the viewport effect shrinks to the region above the
+         keyboard — so the footer/CTA stay visible instead of hiding behind it. The
+         100dvh is the no-keyboard fallback (overlay ≈ full viewport then). */
+      max-height: 100%;
       height: 100dvh;
       margin: 0;
       border: 0;
@@ -2455,6 +2497,24 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+    /* Repo dropdown inside the context sheet: make it an in-flow, single-scroll
+       section with a sticky filter. The default RepoSelect panel is an absolute
+       dropdown that opens DOWN from the trigger — in this short, bottom-anchored
+       sheet that lands in the keyboard. In-flow, it instead grows the sheet-body
+       (bounded to the keyboard-visible area), which is the sole scroller; the filter
+       stays pinned so it — and what you type — never scrolls out of view. */
+    .ctx-sheet :global(.rs-panel) {
+      position: static;
+      box-shadow: none;
+    }
+    .ctx-sheet :global(.rs-list) {
+      max-height: none;
+    }
+    .ctx-sheet :global(.rs-filter) {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     .ctx-sheet .ctx-branch-select {
       background: var(--color-inset);

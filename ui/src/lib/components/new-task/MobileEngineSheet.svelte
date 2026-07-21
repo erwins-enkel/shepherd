@@ -50,7 +50,10 @@
     right: 0;
     bottom: 0;
     box-sizing: border-box;
-    max-height: 85dvh;
+    /* Percentage of the containing block (NewTask's overlay), which the viewport
+       effect shrinks to the region above the keyboard — so the sheet stays fully
+       above it. Equivalent to 85dvh when standalone (containing block = viewport). */
+    max-height: 85%;
     display: flex;
     flex-direction: column;
     background: var(--color-panel);

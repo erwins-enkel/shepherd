@@ -7,10 +7,17 @@
  *  ── Why these exist ──────────────────────────────────────────────────────────────────────────
  *  A computed key in an object literal (`{ ...rec, [id]: v }`) is defined via
  *  CreateDataPropertyOrThrow, so it can NOT pollute a prototype: `__proto__` lands as an ordinary
- *  own property. These helpers are defence in depth, and they stop a `__proto__` own key entering
- *  the maps at all — which matters because a later `[[Set]]`-based copy of such a map (e.g.
- *  `Object.assign(target, map)`) WOULD reach the setter. `safeMerge` covers the one place that
- *  already does an `Object.assign` of remote data.
+ *  own property. These helpers are defence in depth: they keep a `__proto__` own key out of the
+ *  maps *on the guarded write paths* — which matters because a later `[[Set]]`-based copy of such a
+ *  map (e.g. `Object.assign(target, map)`) WOULD reach the setter. `safeMerge` covers the one place
+ *  that already does an `Object.assign` of remote data.
+ *
+ *  This is NOT a whole-map invariant, and must not be relied on as one. The bulk seeds listed below
+ *  assign or rebuild a decoded response wholesale (`ReviewsStore.load`'s `this.map = await
+ *  getReviews()`, `HerdStore.setClaudeAlive`'s `Object.fromEntries(Object.entries(map))`), so an own
+ *  `__proto__` from the server can still land in the very same maps by that route. Harmless today —
+ *  it is an ordinary own property and no `[[Set]]` copy of these maps exists — but the guarantee
+ *  here is per-write, not per-map.
  *
  *  Pick a helper by KEY SHAPE, never by convenience — see {@link setPathKey}.
  *
@@ -33,11 +40,16 @@
 /** Server-minted ids (`randomUUID()` — hex + hyphens) match. `__proto__` cannot: underscores are
  *  outside the class, which is what makes this a prototype-pollution barrier.
  *
- *  NOTE `constructor` and `prototype` DO match — they are pure letters. That is safe here and only
- *  here: these helpers write via object-literal computed keys (CreateDataProperty), so such a key
- *  becomes an ordinary own property that shadows the inherited one on that record and never invokes
- *  a setter. Where a `[[Set]]` write is involved, {@link setPathKey} and {@link safeMerge} reject
- *  all three names instead.
+ *  NOTE `constructor` and `prototype` DO match — they are pure letters. Safe for BOTH consumers,
+ *  including the `[[Set]]` one:
+ *  - `Object.prototype.constructor` is a writable DATA property, not an accessor, so assigning it
+ *    on a plain record creates an ordinary own property on the receiver — no setter runs.
+ *  - `Object.prototype.prototype` does not exist at all, so that name is a plain own-property
+ *    creation too.
+ *  `__proto__` is the only name on `Object.prototype` backed by an accessor, which is exactly why
+ *  excluding it is sufficient here. ({@link setPathKey} and {@link safeMerge} still reject all
+ *  three: their keys are arbitrary path/payload input, so shadowing a builtin is worth avoiding
+ *  even when it cannot pollute.)
  *
  *  Shared by {@link setKey} and `HerdStore.setClaudeAlive`'s stranded-id loop so the two
  *  validations cannot drift (#1630). */

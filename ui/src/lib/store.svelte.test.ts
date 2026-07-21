@@ -1444,3 +1444,23 @@ test("path-keyed writes stay enumerable, spreadable and serialisable", () => {
   expect(Object.hasOwn(s.drain, "__proto__")).toBe(false);
   expect(Object.getPrototypeOf({})).toBe(Object.prototype);
 });
+
+test("SAFE_ID's allowance of constructor/prototype rests on real descriptor facts", () => {
+  // safe-keys.ts documents WHY letting `constructor`/`prototype` through the charset is safe even
+  // for the one [[Set]] consumer (setClaudeAlive's `folded[id] = …`). Pin those facts rather than
+  // the prose: __proto__ is the only Object.prototype name backed by an accessor.
+  const ctor = Object.getOwnPropertyDescriptor(Object.prototype, "constructor")!;
+  expect(ctor.get).toBeUndefined();
+  expect(ctor.writable).toBe(true);
+  expect(Object.getOwnPropertyDescriptor(Object.prototype, "prototype")).toBeUndefined();
+  expect(Object.getOwnPropertyDescriptor(Object.prototype, "__proto__")?.set).toBeTypeOf(
+    "function",
+  );
+
+  // and end-to-end: a stranded id of `constructor` lands as an own prop, pollutes nothing
+  const s = new HerdStore();
+  s.setClaudeAlive({ s1: false }, ["constructor"]);
+  expect(Object.hasOwn(s.claudeAlive, "constructor")).toBe(true);
+  expect(Object.getPrototypeOf(s.claudeAlive)).toBe(Object.prototype);
+  expect(Object.getPrototypeOf({})).toBe(Object.prototype);
+});

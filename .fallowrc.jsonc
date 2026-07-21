@@ -182,19 +182,7 @@
       // ignoring the file is equivalent to ignoring just that block. Do NOT
       // extract a shared stylesheet — that's the same out-of-scope 15+-file
       // change called out above.
-      "**/ui/src/lib/components/viewport/ClipboardPill.svelte",
-      // TopBarMobileSheet.svelte's only clone-flagged content is the quick
-      // theme/contrast controls recipe (theme-seg markup + contrast-toggle CSS),
-      // which ActionBar and SettingsDevicePanel also carry verbatim — the same
-      // per-component copy convention as the `.gbtn` recipes above. The copies
-      // PRE-DATE the gear-menu redesign (the old sheet carried the identical
-      // block); they surfaced only because the redesign rewrote the file. All
-      // genuinely-new sheet↔popover structure was extracted into the shared
-      // Gear* subcomponents instead — this ignore covers ONLY the theme recipe.
-      // Extracting a shared ThemeQuickControls would be a 3-surface change
-      // (ActionBar + SettingsDevicePanel + sheet, each at a different scale),
-      // out of scope for the gear-menu work.
-      "**/ui/src/lib/components/top-bar/TopBarMobileSheet.svelte"
+      "**/ui/src/lib/components/viewport/ClipboardPill.svelte"
     ]
   },
 
@@ -424,5 +412,21 @@
       "**/*.spec.ts",
       "**/*.svelte.test.ts"
     ]
+  },
+
+  // Duplication baseline (fallow dupes --save-baseline): grandfathers the clone
+  // groups that exist at the time of capture WITHOUT exempting whole files from
+  // future detection — the precise alternative to a duplicates.ignore entry when
+  // a file rewrite surfaces pre-existing recipe copies as "introduced". Current
+  // capture covers (among the repo-wide inherited set) the quick theme/contrast
+  // controls recipe the mobile gear sheet shares verbatim with ActionBar and
+  // SettingsDevicePanel: three deliberate per-surface variants (different theme
+  // sets, pref- vs resolved-keying, different adornments/scales), so a shared
+  // component would be a config-heavy forced abstraction — same parallel-impl
+  // class as the forge adapters above. New clone groups anywhere (including in
+  // the sheet) still gate. Regenerate after intentional dedup work:
+  //   bunx fallow@2.100.0 dupes --save-baseline .fallow-dupes-baseline.json
+  "audit": {
+    "dupesBaseline": ".fallow-dupes-baseline.json"
   }
 }

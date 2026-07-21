@@ -27,6 +27,7 @@
     menuEl = $bindable(null),
     clickGear,
     clickHalt,
+    closeMenu,
     chooseSettings,
     chooseUsage,
     learningsPresent,
@@ -61,6 +62,8 @@
     menuEl: HTMLElement | null;
     clickGear: () => void;
     clickHalt: () => void;
+    /** Closes the menu AND disarms any armed e-stop — every close path must use this. */
+    closeMenu: () => void;
     chooseSettings: () => void;
     chooseUsage: () => void;
     learningsPresent: boolean;
@@ -98,7 +101,7 @@
       const anchor = gearWrap;
       if (!anchor) return;
       const below = window.innerHeight - anchor.getBoundingClientRect().bottom - 6 - EDGE_GAP;
-      el.style.maxHeight = `${Math.max(120, below)}px`;
+      el.style.maxHeight = `${Math.max(0, below)}px`;
     };
     clamp();
     window.addEventListener("resize", clamp);
@@ -175,12 +178,7 @@
           metaFaint
           onclick={chooseSettings}
         />
-        <GearRow
-          glyph="↗"
-          label={m.topbar_docs()}
-          href={DOCS_URL}
-          onclick={() => (menuOpen = false)}
-        />
+        <GearRow glyph="↗" label={m.topbar_docs()} href={DOCS_URL} onclick={closeMenu} />
       </div>
 
       <!-- Plugins group: dynamic — one row per installed plugin with a gear item. -->

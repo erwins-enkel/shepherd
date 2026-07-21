@@ -2710,3 +2710,37 @@ describe("TopBar — mobile sheet swipe-down", () => {
     capture.mockRestore();
   });
 });
+
+describe("TopBar — every menu close path disarms the e-stop", () => {
+  it("desktop: closing via the Documentation link disarms; a later single click cannot halt", async () => {
+    await page.viewport(1280, 900);
+    document.body.style.width = "1280px";
+    const onhalt = vi.fn();
+    render(TopBar, {
+      nowMs: 1_700_000_000_000,
+      connected: true,
+      ...FLAGS.desktop,
+      sessions: sessions(2),
+      onhalt,
+    });
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    // First activation ARMS the red confirm state.
+    await page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.halt_arm_aria({ count: 2 }) }))
+      .toBeInTheDocument();
+    // Close the menu via the Documentation link (navigation itself suppressed).
+    const docs = page.getByRole("link", { name: m.topbar_docs() });
+    (docs.element() as HTMLAnchorElement).addEventListener("click", (e) => e.preventDefault());
+    await docs.click();
+    expect(document.querySelector(".gear-menu")).toBeNull();
+    // Reopen: the hero must be back in the UNARMED state — a single click arms
+    // again instead of committing the halt.
+    await page.getByRole("button", { name: m.topbar_menu_aria() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }))
+      .toBeInTheDocument();
+    await page.getByRole("button", { name: m.halt_all_aria({ count: 2 }) }).click();
+    expect(onhalt).not.toHaveBeenCalled();
+  });
+});

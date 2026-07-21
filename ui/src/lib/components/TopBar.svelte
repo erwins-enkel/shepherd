@@ -832,6 +832,7 @@
       bind:menuEl
       {clickGear}
       {clickHalt}
+      closeMenu={() => closeMenu()}
       {chooseSettings}
       {chooseUsage}
       {learningsPresent}

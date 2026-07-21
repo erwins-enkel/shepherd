@@ -6,7 +6,6 @@
   import {
     codexGaugeList,
     codexTokenUsage,
-    gaugeColor,
     gaugeList,
     hottestCapacityWindow,
     modelWeekList,
@@ -66,7 +65,6 @@
   const windowCode = $derived(
     hottest ? `${hottest.provider === "codex" ? "CX" : "CC"}·${hottest.window.key}` : "",
   );
-  const fillColor = $derived(hottest ? gaugeColor(hottest.window.usedPct) : "");
 
   const breakdownId = $derived(mobile ? "gear-usage-breakdown-mobile" : "gear-usage-breakdown");
 </script>
@@ -88,8 +86,7 @@
       <span class="gm-line">
         <span class="gm-code">{windowCode}</span>
         <span class="gm-bar" aria-hidden="true">
-          <span class="gm-fill" style="width:{hottest.window.remainingPct}%;background:{fillColor}"
-          ></span>
+          <span class="gm-fill" style="width:{hottest.window.remainingPct}%"></span>
         </span>
         <span class="gm-free">{m.gearmenu_pct_free({ pct: hottest.window.remainingPct })}</span>
       </span>
@@ -214,9 +211,13 @@
     background: var(--color-inset);
     border: 1px solid var(--color-line-bright);
   }
+  /* Handoff-required healthy-headroom fill: green at % free (the reference's
+     --green "healthy/live" role), not the utilization severity ladder — the
+     severity colors live on the used-capacity gauges in the expansion below. */
   .gm-fill {
     display: block;
     height: 100%;
+    background: var(--color-green);
   }
   .gm-all {
     position: absolute;

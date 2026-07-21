@@ -14,10 +14,49 @@ Vercel project.
 ```bash
 cd site
 bun install
-bun run dev      # local dev server
-bun run build    # static output to dist/
-bun run preview  # serve the built dist/
+bun run dev             # local dev server
+bun run build           # static output to dist/
+bun run preview         # serve the built dist/
+bun run check:artifacts # assert on what the build emitted (run after build)
 ```
+
+## CI
+
+The `site` job in `.github/workflows/ci.yml` runs `bun run check`, `bun run build`
+and `bun run check:artifacts` on every PR.
+
+That last step exists because **a green `astro build` does not prove the site is
+correct**. The Fonts API fails *silently*: point a family's provider at a package it
+cannot resolve and the build still exits 0 with only a `[WARN]`, emitting a `dist/`
+where that family has degraded to system fonts. Measured against a real degraded
+build, every aggregate signal survives — `@font-face` blocks are still present, the
+`--font-*` variables are still declared, woff2 files and preload links are still
+emitted. The one check that discriminates is per-family: does the family each
+`--font-*` variable names actually have a `url()`-backed `@font-face`?
+
+`scripts/check-build-artifacts.mjs` asserts that, plus route coverage and font-file
+size floors. The expected font families are read from `astro.config.mjs`, so adding
+one brings it under the gate automatically — and every configured family is required
+on **every** route. That holds because `src/layouts/Base.astro` renders one `<Font>`
+tag per family and all pages use that layout. A family scoped to a single page or
+layout would therefore fail the gate; supporting one means teaching the check which
+routes a family applies to, rather than assuming all of them.
+
+Routes are derived from `src/pages/**`, so a new **static `.astro`** page — nested
+included — is covered with no change to the script. Anything the directory-format
+mapping cannot resolve to a single output path **fails the gate by design**, rather
+than being silently skipped:
+
+- a Markdown/MDX page (`about.md`) — the mapping only understands `.astro`
+- a dynamic or spread route (`[slug].astro`) — its outputs come from
+  `getStaticPaths` at build time, so they cannot be derived from the filename
+
+If you add either, extend `routeForPage()` to cover it; the red is telling you the
+gate would otherwise stop covering a route. Underscore- and dot-prefixed entries
+(`_components/`, `.DS_Store`) are not routes and are skipped.
+
+Its logic is unit-tested from the monorepo root in `test/check-build-artifacts.test.ts`,
+alongside the repo's other gate-script tests.
 
 ## Routing (`vercel.json`)
 

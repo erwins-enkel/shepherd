@@ -1,0 +1,964 @@
+---
+// The "how it works" pipeline animation — a ~14s, silent, autoplay, looping
+// story authored as inline SVG + CSS, styled as a live instrument readout
+// (mission telemetry, not decoration). A single task token glides a gated
+// pipeline left → right, pausing only where it matters (the plan gate); the
+// rails carry a continuous flowing signal so the board always reads as live.
+// Colour is semantic, from global.css tokens: --blue = the task in motion,
+// --green = passed / landed, --amber = paused / needs-you, --ink-dim = inert
+// structure. Phosphor glow is restrained and only marks live-signal elements.
+//
+// Thesis: Shepherd runs many agents at once (the parallel lanes flow the whole
+// time) and is built to stop (near the end one lane bounces off a gate, turns
+// amber, asks for you, while the others keep flowing).
+//
+// One shared ~14s master timeline: every beat-driven element uses the same
+// duration + infinite iteration, so all keyframe clocks stay in lockstep and
+// the loop restarts as one. Ambient motion (rail flow, cursor, live pip) runs
+// on its own short clock. The beat → % map below is the single source of
+// truth.
+//
+//   Beat                          window (% of ~14s loop)
+//   1 issue                         0 – 12
+//   2 worktree + terminal          12 – 22
+//   3 many at once (lanes brighten)22 – 31
+//   4 plan, then stop (review)     31 – 46
+//   5 work / diff                  46 – 54
+//   6 CI · hygiene · review        54 – 67
+//   7 land                         67 – 79
+//   8 payload (bounce / needs you) 79 – 100
+//
+// Accessibility: the animated figure is role="img" with a full aria-label, so
+// AT reads the summary and ignores the decorative internals. A separate static
+// diagram (all eight beat labels + both end-states) replaces it under
+// prefers-reduced-motion. A minimal IntersectionObserver pauses the loop when
+// off-screen; with JS disabled the animation simply plays without pausing.
+// Tokens only — no raw hex / rgba / ad-hoc px font sizes.
+
+const beats: string[] = [
+  "It starts as an issue.",
+  "Its own worktree. Its own real terminal.",
+  "A dozen of these at once.",
+  "It writes a plan — and stops. A second agent tries to refute it.",
+  "Then it works.",
+  "CI. Hygiene. Then a third agent reads the diff.",
+  "Only what survives lands.",
+  "And when it can't, it stops and tells you why.",
+];
+
+const ariaSummary =
+  "A task starts as an issue and gets its own worktree and real terminal. " +
+  "Many run in parallel. Each one writes a plan and stops while a second agent " +
+  "reviews it in a separate clean copy of the repo; only then does it work. " +
+  "Its diff passes CI, hygiene checks and a third agent's review before it " +
+  "lands. And when a task can't pass, it stops and asks for you — while the " +
+  "other tasks keep running.";
+---
+
+<figure class="pipe">
+  <!-- Animated figure (hidden under prefers-reduced-motion) -->
+  <div class="pipe-anim" role="img" aria-label={ariaSummary}>
+    <div class="chrome" aria-hidden="true">
+      <span class="live"><i class="pip"></i>task pipeline</span>
+      <span class="meta">live</span>
+    </div>
+
+    <svg
+      class="stage"
+      viewBox="0 0 760 224"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true">
+      <!-- ---------- parallel lanes: the "many at once", always flowing ----------
+           Flowing signal traces, not lonely dots — the board reads as busy. -->
+      <g class="lanes">
+        {
+          [18, 44, 70, 96].map((y, i) => (
+            <line
+              class="flow"
+              x1="118"
+              y1={y}
+              x2="620"
+              y2={y}
+              style={`--fd:${[-0.4, -0.95, -0.65, -0.2][i]}s`}
+            />
+          ))
+        }
+      </g>
+
+      <!-- ---------- hero lane ---------- -->
+      <line class="rail" x1="102" y1="130" x2="628" y2="130" />
+      <line class="rail-flow" x1="102" y1="130" x2="628" y2="130" />
+
+      <!-- beat 1: issue card -->
+      <g class="station">
+        <rect class="card" x="14" y="105" width="92" height="48" rx="6" />
+        <rect class="chip" x="22" y="111" width="76" height="14" rx="3" />
+        <text class="chip-t" x="60" y="121" textLength="66" lengthAdjust="spacingAndGlyphs">shepherd:auto</text>
+        <text class="lbl" x="60" y="170">issue</text>
+      </g>
+
+      <!-- beat 2: worktree + terminal -->
+      <g class="station">
+        <rect class="box" x="126" y="100" width="116" height="60" rx="7" />
+        <rect class="term" x="136" y="113" width="96" height="38" rx="3" />
+        <line class="code code1" x1="144" y1="123" x2="196" y2="123" />
+        <line class="code code2" x1="144" y1="131" x2="216" y2="131" />
+        <rect class="cursor" x="144" y="137" width="8" height="9" />
+        <text class="lbl" x="184" y="94">worktree</text>
+      </g>
+
+      <!-- beat 4: plan gate + separate clean-copy reviewer -->
+      <g class="gate gate-a">
+        <line class="gate-bar" x1="286" y1="104" x2="286" y2="156" />
+        <text class="lbl" x="286" y="168">plan</text>
+      </g>
+      <g class="review">
+        <rect class="copy" x="244" y="14" width="96" height="44" rx="6" />
+        <text class="lbl-sm" x="292" y="10">clean copy</text>
+        <circle class="tok tok-review" cx="260" cy="36" r="4.5" />
+        <path class="verdict" d="M308 33 l6 7 l12 -15" />
+      </g>
+
+      <!-- beat 5: work / diff -->
+      <g class="diffs">
+        <line class="diff diff1" x1="314" y1="118" x2="404" y2="118" />
+        <line class="diff diff2" x1="314" y1="126" x2="386" y2="126" />
+        <line class="diff diff3" x1="314" y1="134" x2="398" y2="134" />
+        <line class="diff diff4" x1="314" y1="142" x2="372" y2="142" />
+      </g>
+
+      <!-- beat 6: CI · hygiene, then review -->
+      <g class="gate gate-b">
+        <line class="gate-bar" x1="452" y1="106" x2="452" y2="154" />
+        <circle class="pass pass-b" cx="452" cy="130" r="8" />
+        <text class="lbl" x="452" y="168">checks</text>
+      </g>
+      <g class="gate gate-c">
+        <line class="gate-bar" x1="524" y1="106" x2="524" y2="154" />
+        <circle class="pass pass-c" cx="524" cy="130" r="8" />
+        <text class="lbl" x="524" y="168">review</text>
+      </g>
+
+      <!-- beat 7: merge trunk -->
+      <g class="trunk">
+        <line class="trunk-line" x1="628" y1="58" x2="628" y2="198" />
+        <circle class="trunk-node" cx="628" cy="130" r="7" />
+        <circle class="trunk-pulse" cx="628" cy="130" r="7" />
+        <text class="lbl" x="628" y="52">merge</text>
+      </g>
+
+      <!-- hero token: travels the whole pipeline -->
+      <circle class="tok tok-hero" cx="60" cy="130" r="8" />
+
+      <!-- beat 8: a blocked lane bounces, turns amber, asks for you.
+           The chip lives outside .block so it does not translate. -->
+      <line class="rail rail-dim" x1="118" y1="190" x2="470" y2="190" />
+      <line class="gate-bar gate-block" x1="286" y1="178" x2="286" y2="202" />
+      <g class="block">
+        <circle class="tok tok-block" cx="120" cy="190" r="6" />
+      </g>
+      <g class="needs">
+        <rect class="needs-chip" x="300" y="180" width="84" height="20" rx="10" />
+        <text class="needs-t" x="342" y="194">needs you</text>
+      </g>
+    </svg>
+
+    <p class="caption" aria-hidden="true">
+      {beats.map((b, i) => <span class={`beat beat-${i + 1}`}>{b}</span>)}
+    </p>
+  </div>
+
+  <!-- Static fallback: shown only under prefers-reduced-motion -->
+  <div class="pipe-static" role="img" aria-label={ariaSummary}>
+    <svg
+      class="stage"
+      viewBox="0 0 760 200"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true">
+      <line class="rail" x1="72" y1="96" x2="688" y2="96" />
+      <circle class="s-node" cx="72" cy="96" r="7"></circle>
+      <text class="s-lbl" x="72" y="122">issue</text>
+      <circle class="s-node" cx="226" cy="96" r="7"></circle>
+      <text class="s-lbl" x="226" y="122">worktree · terminal</text>
+      <line class="s-gate" x1="350" y1="72" x2="350" y2="120"></line>
+      <text class="s-lbl" x="350" y="134">plan</text>
+      <circle class="s-node" cx="454" cy="96" r="7"></circle>
+      <text class="s-lbl" x="454" y="122">work</text>
+      <line class="s-gate" x1="552" y1="72" x2="552" y2="120"></line>
+      <text class="s-lbl" x="552" y="134">CI · hygiene · review</text>
+      <circle class="s-node s-done" cx="688" cy="96" r="8"></circle>
+      <text class="s-lbl" x="688" y="122">merge</text>
+      <line class="rail rail-dim" x1="350" y1="168" x2="552" y2="168"></line>
+      <circle class="s-node s-block" cx="454" cy="168" r="6"></circle>
+      <text class="s-lbl s-block-lbl" x="494" y="172">needs you</text>
+    </svg>
+    <ol class="beat-list">
+      {beats.map((b) => <li>{b}</li>)}
+    </ol>
+  </div>
+</figure>
+
+<style>
+  .pipe {
+    margin: 0;
+    width: 100%;
+    --e-quint: cubic-bezier(0.22, 1, 0.36, 1);
+    --e-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  }
+
+  .pipe-anim,
+  .pipe-static {
+    width: 100%;
+    background:
+      radial-gradient(
+        120% 140% at 50% 0%,
+        color-mix(in srgb, var(--green) 5%, var(--panel)) 0%,
+        var(--panel) 55%
+      );
+    border: 1px solid var(--panel-2);
+    border-radius: 0.9rem;
+    padding: clamp(0.9rem, 2.6vw, 1.4rem);
+  }
+
+  /* instrument chrome strip */
+  .chrome {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 0.4rem;
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.06em;
+    color: var(--ink-dim);
+  }
+  .live {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5ch;
+  }
+  .pip {
+    width: 0.5rem;
+    height: 0.5rem;
+    border-radius: 50%;
+    background: var(--green);
+    box-shadow: 0 0 6px color-mix(in srgb, var(--green) 70%, transparent);
+    animation: pip 1.8s ease-in-out infinite;
+  }
+  .meta {
+    text-transform: uppercase;
+    color: var(--green);
+  }
+  @keyframes pip {
+    0%,
+    100% {
+      opacity: 0.4;
+    }
+    50% {
+      opacity: 1;
+    }
+  }
+
+  .stage {
+    width: 100%;
+    height: auto;
+    overflow: visible;
+  }
+
+  /* ---------- shape language (tokens only) ---------- */
+  .rail {
+    stroke: color-mix(in srgb, var(--ink-dim) 55%, transparent);
+    stroke-width: 1.5;
+  }
+  .rail-dim {
+    stroke: color-mix(in srgb, var(--ink-dim) 40%, transparent);
+    stroke-width: 1.5;
+  }
+  /* flowing signal along the rails */
+  .rail-flow,
+  .flow {
+    fill: none;
+    stroke-linecap: round;
+  }
+  .rail-flow {
+    stroke: color-mix(in srgb, var(--blue) 75%, transparent);
+    stroke-width: 2;
+    stroke-dasharray: 2 13;
+  }
+  .flow {
+    stroke: color-mix(in srgb, var(--green) 45%, transparent);
+    stroke-width: 2;
+    stroke-dasharray: 2 15;
+  }
+  .card,
+  .box,
+  .term,
+  .copy {
+    fill: color-mix(in srgb, var(--ink-dim) 8%, var(--bg));
+    stroke: color-mix(in srgb, var(--ink-dim) 70%, transparent);
+    stroke-width: 1.25;
+  }
+  .term {
+    fill: var(--panel);
+  }
+  .code {
+    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
+    stroke-width: 2;
+    stroke-linecap: round;
+  }
+  .chip {
+    fill: color-mix(in srgb, var(--amber) 18%, var(--panel));
+    stroke: color-mix(in srgb, var(--amber) 50%, transparent);
+    stroke-width: 1;
+  }
+  .lbl,
+  .lbl-sm,
+  .chip-t {
+    font-family: var(--font-mono);
+    text-anchor: middle;
+  }
+  .chip-t {
+    fill: var(--amber);
+    font-size: 9px;
+  }
+  .lbl {
+    fill: var(--ink-muted);
+    font-size: 13px;
+  }
+  .lbl-sm {
+    fill: var(--ink-dim);
+    font-size: 11px;
+  }
+  .gate-bar {
+    stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+  .diff {
+    stroke: var(--green);
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-dasharray: 100;
+    stroke-dashoffset: 100;
+    filter: drop-shadow(0 0 3px color-mix(in srgb, var(--green) 45%, transparent));
+  }
+  .pass {
+    fill: none;
+  }
+  .trunk-line {
+    stroke: color-mix(in srgb, var(--ink-dim) 60%, transparent);
+    stroke-width: 3;
+  }
+  .trunk-node {
+    fill: var(--bg);
+    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
+    stroke-width: 2;
+  }
+  .trunk-pulse {
+    fill: none;
+    stroke: var(--green);
+    stroke-width: 2.5;
+    opacity: 0;
+    filter: drop-shadow(0 0 6px color-mix(in srgb, var(--green) 70%, transparent));
+  }
+  .cursor {
+    fill: var(--green);
+  }
+  .verdict {
+    fill: none;
+    stroke: var(--green);
+    stroke-width: 3;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+    filter: drop-shadow(0 0 4px color-mix(in srgb, var(--green) 60%, transparent));
+  }
+  .tok {
+    fill: var(--blue);
+  }
+  .tok-hero {
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--blue) 75%, transparent));
+  }
+  .tok-review {
+    fill: var(--green);
+  }
+  .needs-chip {
+    fill: color-mix(in srgb, var(--amber) 16%, var(--panel));
+    stroke: var(--amber);
+    stroke-width: 1.25;
+    filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 45%, transparent));
+  }
+  .needs-t {
+    fill: var(--amber);
+    font-family: var(--font-mono);
+    font-size: 11px;
+    text-anchor: middle;
+  }
+
+  /* transform-box so translate units track the viewBox */
+  .tok,
+  .cursor,
+  .verdict,
+  .pass,
+  .lanes,
+  .review,
+  .block,
+  .needs,
+  .trunk-pulse,
+  .gate-a .gate-bar {
+    transform-box: view-box;
+  }
+
+  /* ---------- ambient motion (own short clocks) ---------- */
+  .rail-flow,
+  .flow {
+    animation: flow 1.05s linear infinite;
+  }
+  .flow {
+    animation-delay: var(--fd, 0s);
+  }
+  @keyframes flow {
+    to {
+      stroke-dashoffset: -15;
+    }
+  }
+  .cursor {
+    animation: blink 1s steps(1) infinite;
+  }
+  @keyframes blink {
+    0%,
+    50% {
+      opacity: 1;
+    }
+    50.01%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* ============================================================
+     Master timeline — beat-driven elements share ~14s / infinite.
+     ============================================================ */
+  .pipe-anim :where(.tok-hero, .lanes, .gate-a .gate-bar, .review, .verdict,
+      .diff, .pass-b, .pass-c, .trunk-pulse, .block, .tok-block, .needs,
+      .beat) {
+    animation-duration: 14s;
+    animation-iteration-count: infinite;
+    animation-timing-function: var(--e-quint);
+    animation-fill-mode: backwards;
+  }
+
+  /* hero token journey — continuous glide, one real pause (plan gate) */
+  .tok-hero {
+    animation-name: heroMove;
+  }
+  @keyframes heroMove {
+    0% {
+      transform: translateX(0);
+      opacity: 0;
+    }
+    2% {
+      opacity: 1;
+    }
+    8% {
+      transform: translateX(0);
+    }
+    18% {
+      transform: translateX(124px);
+    }
+    26% {
+      transform: translateX(124px);
+    }
+    34% {
+      transform: translateX(226px);
+    }
+    44% {
+      transform: translateX(226px);
+    }
+    52% {
+      transform: translateX(300px);
+    }
+    62% {
+      transform: translateX(392px);
+    }
+    70% {
+      transform: translateX(464px);
+    }
+    79% {
+      transform: translateX(568px);
+      opacity: 1;
+    }
+    83% {
+      transform: translateX(568px);
+      opacity: 0;
+    }
+    100% {
+      transform: translateX(568px);
+      opacity: 0;
+    }
+  }
+
+  /* parallel lanes always flow; they brighten briefly at beat 3 */
+  .lanes {
+    animation-name: lanesPulse;
+    animation-timing-function: var(--e-expo);
+  }
+  @keyframes lanesPulse {
+    0%,
+    20% {
+      opacity: 0.5;
+    }
+    27% {
+      opacity: 0.9;
+    }
+    33%,
+    100% {
+      opacity: 0.5;
+    }
+  }
+
+  /* plan gate: holds (amber) during review, then opens green (beat 4) */
+  .gate-a .gate-bar {
+    animation-name: gateOpen;
+    transform-origin: 286px 130px;
+  }
+  @keyframes gateOpen {
+    0%,
+    32% {
+      transform: scaleY(1);
+      stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+    }
+    36%,
+    42% {
+      transform: scaleY(1);
+      stroke: var(--amber);
+    }
+    46%,
+    80% {
+      transform: scaleY(0.06);
+      stroke: color-mix(in srgb, var(--green) 80%, transparent);
+    }
+    86%,
+    100% {
+      transform: scaleY(1);
+      stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+    }
+  }
+  .review {
+    animation-name: reviewIn;
+  }
+  @keyframes reviewIn {
+    0%,
+    31% {
+      opacity: 0;
+    }
+    36%,
+    44% {
+      opacity: 1;
+    }
+    48%,
+    100% {
+      opacity: 0;
+    }
+  }
+  .verdict {
+    animation-name: stamp;
+    transform-origin: 314px 33px;
+  }
+  @keyframes stamp {
+    0%,
+    39% {
+      opacity: 0;
+      transform: scale(0.4);
+    }
+    43%,
+    45% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    49%,
+    100% {
+      opacity: 0;
+      transform: scale(1);
+    }
+  }
+
+  /* diff lines draw in (beat 5) */
+  .diff {
+    animation-name: diffIn;
+    animation-timing-function: var(--e-expo);
+  }
+  .diff2 {
+    animation-delay: 0.25s;
+  }
+  .diff3 {
+    animation-delay: 0.5s;
+  }
+  .diff4 {
+    animation-delay: 0.75s;
+  }
+  @keyframes diffIn {
+    0%,
+    46% {
+      stroke-dashoffset: 100;
+      opacity: 0;
+    }
+    48% {
+      opacity: 1;
+    }
+    54% {
+      stroke-dashoffset: 0;
+      opacity: 1;
+    }
+    80% {
+      stroke-dashoffset: 0;
+      opacity: 1;
+    }
+    84%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* gate checks flare green as the token passes (beat 6) */
+  .pass-b,
+  .pass-c {
+    animation-name: passFlash;
+  }
+  .pass-c {
+    animation-delay: 0.7s;
+  }
+  @keyframes passFlash {
+    0%,
+    60% {
+      stroke: var(--green);
+      stroke-width: 0;
+      opacity: 0;
+    }
+    64% {
+      stroke: var(--green);
+      stroke-width: 3;
+      opacity: 1;
+      filter: drop-shadow(0 0 5px color-mix(in srgb, var(--green) 60%, transparent));
+    }
+    78% {
+      opacity: 1;
+    }
+    82%,
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* trunk lands with a green pulse (beat 7) */
+  .trunk-pulse {
+    animation-name: landPulse;
+    transform-origin: 628px 130px;
+  }
+  @keyframes landPulse {
+    0%,
+    76% {
+      opacity: 0;
+      transform: scale(0.6);
+    }
+    80% {
+      opacity: 1;
+      transform: scale(1);
+    }
+    94% {
+      opacity: 0.6;
+      transform: scale(2.4);
+    }
+    100% {
+      opacity: 0;
+      transform: scale(2.4);
+    }
+  }
+
+  /* payload (beat 8): the block lane bounces off a gate and turns amber */
+  .block {
+    animation-name: blockMove;
+  }
+  @keyframes blockMove {
+    0%,
+    20% {
+      opacity: 0;
+    }
+    28% {
+      opacity: 1;
+      transform: translateX(30px);
+    }
+    62% {
+      opacity: 1;
+      transform: translateX(150px);
+    }
+    76% {
+      opacity: 1;
+      transform: translateX(172px);
+    }
+    82% {
+      opacity: 1;
+      transform: translateX(140px);
+    }
+    96% {
+      opacity: 1;
+      transform: translateX(140px);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(140px);
+    }
+  }
+  .tok-block {
+    animation-name: blockAmber;
+  }
+  @keyframes blockAmber {
+    0%,
+    77% {
+      fill: var(--blue);
+    }
+    81%,
+    100% {
+      fill: var(--amber);
+      filter: drop-shadow(0 0 5px color-mix(in srgb, var(--amber) 60%, transparent));
+    }
+  }
+  .needs {
+    animation-name: needsIn;
+    animation-timing-function: var(--e-expo);
+  }
+  @keyframes needsIn {
+    0%,
+    79% {
+      opacity: 0;
+      transform: translateX(-6px);
+    }
+    84%,
+    96% {
+      opacity: 1;
+      transform: translateX(0);
+    }
+    100% {
+      opacity: 0;
+      transform: translateX(0);
+    }
+  }
+
+  /* ---------- captions, synced to the beats ---------- */
+  .caption {
+    position: relative;
+    margin-top: clamp(0.7rem, 2vw, 1.1rem);
+    min-height: 4.4em;
+    text-align: center;
+  }
+  .beat {
+    position: absolute;
+    inset: 0 0 auto;
+    margin: 0 auto;
+    max-width: 44rem;
+    opacity: 0;
+    color: var(--ink);
+    font-size: clamp(1.05rem, 2.6vw, 1.25rem);
+    line-height: 1.4;
+  }
+  .beat-1 {
+    animation-name: cap1;
+  }
+  .beat-2 {
+    animation-name: cap2;
+  }
+  .beat-3 {
+    animation-name: cap3;
+  }
+  .beat-4 {
+    animation-name: cap4;
+  }
+  .beat-5 {
+    animation-name: cap5;
+  }
+  .beat-6 {
+    animation-name: cap6;
+  }
+  .beat-7 {
+    animation-name: cap7;
+  }
+  .beat-8 {
+    animation-name: cap8;
+  }
+  @keyframes cap1 {
+    0%,
+    10% {
+      opacity: 1;
+    }
+    12%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap2 {
+    0%,
+    12% {
+      opacity: 0;
+    }
+    14%,
+    20% {
+      opacity: 1;
+    }
+    22%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap3 {
+    0%,
+    22% {
+      opacity: 0;
+    }
+    24%,
+    29% {
+      opacity: 1;
+    }
+    31%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap4 {
+    0%,
+    31% {
+      opacity: 0;
+    }
+    34%,
+    44% {
+      opacity: 1;
+    }
+    46%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap5 {
+    0%,
+    46% {
+      opacity: 0;
+    }
+    48%,
+    52% {
+      opacity: 1;
+    }
+    54%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap6 {
+    0%,
+    54% {
+      opacity: 0;
+    }
+    56%,
+    65% {
+      opacity: 1;
+    }
+    67%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap7 {
+    0%,
+    67% {
+      opacity: 0;
+    }
+    69%,
+    77% {
+      opacity: 1;
+    }
+    79%,
+    100% {
+      opacity: 0;
+    }
+  }
+  @keyframes cap8 {
+    0%,
+    79% {
+      opacity: 0;
+    }
+    82%,
+    98% {
+      opacity: 1;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  /* pause the loop when scrolled off-screen (progressive enhancement) */
+  .pipe-anim.is-paused * {
+    animation-play-state: paused !important;
+  }
+
+  /* ---------- reduced-motion static fallback ---------- */
+  .pipe-static {
+    display: none;
+  }
+  .pipe-static .s-node {
+    fill: var(--bg);
+    stroke: color-mix(in srgb, var(--ink-dim) 90%, transparent);
+    stroke-width: 2;
+  }
+  .pipe-static .s-done {
+    fill: var(--green);
+    stroke: var(--green);
+  }
+  .pipe-static .s-block {
+    fill: var(--amber);
+    stroke: var(--amber);
+  }
+  .pipe-static .s-gate {
+    stroke: color-mix(in srgb, var(--ink-dim) 85%, transparent);
+    stroke-width: 3;
+    stroke-linecap: round;
+  }
+  .pipe-static .s-lbl {
+    fill: var(--ink-muted);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    text-anchor: middle;
+  }
+  .pipe-static .s-block-lbl {
+    fill: var(--amber);
+    text-anchor: start;
+  }
+  .beat-list {
+    margin: clamp(1rem, 3vw, 1.5rem) 0 0;
+    padding-left: 1.4rem;
+    display: grid;
+    gap: 0.5rem;
+    color: var(--ink-muted);
+    font-size: 1rem;
+    line-height: 1.4;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .pipe-anim {
+      display: none;
+    }
+    .pipe-static {
+      display: block;
+    }
+  }
+</style>
+
+<script>
+  // Pause the looping animation while it is off-screen. Pure enhancement:
+  // with JS disabled the CSS animation just plays without pausing.
+  const fig = document.querySelector<HTMLElement>(".pipe-anim");
+  if (fig && "IntersectionObserver" in window) {
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) fig.classList.toggle("is-paused", !e.isIntersecting);
+      },
+      { threshold: 0 },
+    );
+    io.observe(fig);
+  }
+</script>

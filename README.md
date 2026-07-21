@@ -26,7 +26,7 @@ git worktrees (via [`herdr`](https://herdr.dev), the interactive-pane manager), 
 the browser, and lets one operator run many agents in parallel — observing their status and steering
 them by typing, exactly like a human at a terminal. Around those sessions it adds the engineering
 discipline that parallel agent work otherwise erodes: every plan and PR faces adversarial review,
-and nothing merges while behind its base — a stale PR is rebased and re-verified first.
+and nothing merges while behind its base — a stale PR is sent back to its agent to rebase, and CI and the critic re-run first.
 
 ## Opinionated by design
 
@@ -35,7 +35,7 @@ Shepherd institutionalizes the practices a careful team would otherwise have to 
 as per-repo automation:
 
 - **Readiness** — Shepherd scores a JS/TS repo's guardrails (typecheck, lint, tests, CI, house
-  rules) before you point agents at it, and turns the gaps into an install task.
+  rules) before you point agents at it, and prescribes the gaps as setup tasks you seed with a click.
 - **Plan gate** — before an autonomous run, the agent writes a plan and a separate read-only
   reviewer grills it adversarially; only a plan that survives review is released to implement.
 - **Critic** — the moment a PR's CI goes green, an isolated read-only agent reviews the full diff
@@ -45,7 +45,8 @@ as per-repo automation:
   ones you approve are injected into every new agent in the repo, so lessons compound instead of
   repeating.
 - **Merge train** — a finished PR lands only when it is open, CI-green, conflict-free, and up to
-  date with the base branch; one that has fallen behind is rebased and fully re-verified first.
+  date with the base branch; one that has fallen behind is sent back to its agent to rebase, and
+  CI and the critic re-run before it can land.
 - **Hygiene gates** — CI and the pre-push hook enforce linear branches, locale-catalog parity,
   feature-catalog completeness, and a dead-code/complexity audit
   (see [CONTRIBUTING.md](./CONTRIBUTING.md)).

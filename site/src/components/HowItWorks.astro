@@ -1,52 +1,31 @@
 ---
-// Three-step "how it works". Copy faithful to README Install + intro.
-interface Step {
-  n: string;
-  title: string;
-  body: string;
-}
-
-const steps: Step[] = [
-  {
-    n: "01",
-    title: "Install on your server",
-    body: "One curl … | bash. Linux gets full support; macOS runs core-only.",
-  },
-  {
-    n: "02",
-    title: "Point it at a repo",
-    body: "GitHub-backed or local-only — Shepherd readiness-scores the repo's guardrails and turns the gaps into setup tasks.",
-  },
-  {
-    n: "03",
-    title: "Spawn the herd",
-    body: "Watch and steer agents from your browser or phone. Every plan clears the plan gate first; GitHub-backed repos then merge only what survives the critic and the merge train, while local-only repos squash-merge locally.",
-  },
-];
+// "How it works" — the pipeline a task travels, shown rather than named. The
+// step list this replaced fired five undefined proper nouns at a first-time
+// reader; the animation shows the machinery working, and the Guardrails section
+// below names each gate afterward. No proper noun appears in this section's
+// copy before the picture has shown what it does.
+import PipelineAnimation from "./PipelineAnimation.astro";
 ---
 
 <section class="how" aria-labelledby="how-h">
   <div class="inner">
     <header class="sec-head">
       <p class="eyebrow">How it works</p>
-      <h2 id="how-h">From bare server to a reviewed merge</h2>
+      <h2 id="how-h">From an issue to a reviewed merge</h2>
+      <p class="lead">
+        Point Shepherd at a repo and hand it a task. Here is the path every task
+        travels — many at once, and every one built to stop before it does
+        something you would want to see first.
+      </p>
     </header>
 
-    <ol class="steps">
-      {
-        steps.map((s) => (
-          <li class="step">
-            <span class="num" aria-hidden="true">
-              {s.n}
-            </span>
-            <div class="text">
-              <h3>{s.title}</h3>
-              <p>{s.body}</p>
-            </div>
-          </li>
-        ))
-      }
-    </ol>
+    <PipelineAnimation />
+
+    <p class="more">
+      There is more once you are in — epics for work too big for one task, a
+      short code when a task pauses and needs you, and repos wired to GitHub or
+      kept entirely local. None of it is needed to start.
+    </p>
   </div>
 </section>
 
@@ -63,7 +42,7 @@ const steps: Step[] = [
 
   .sec-head {
     max-width: 42rem;
-    margin-bottom: clamp(2rem, 5vw, 3rem);
+    margin-bottom: clamp(1.6rem, 4vw, 2.4rem);
   }
 
   .eyebrow {
@@ -82,56 +61,16 @@ const steps: Step[] = [
     letter-spacing: -0.02em;
   }
 
-  .steps {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 1rem;
-  }
-
-  .step {
-    display: flex;
-    gap: 1.1rem;
-    align-items: flex-start;
-    background: var(--panel);
-    border: 1px solid var(--panel-2);
-    border-radius: 0.9rem;
-    padding: 1.4rem;
-  }
-
-  .num {
-    font-family: var(--font-mono);
-    font-size: 1.5rem;
-    font-weight: 500;
-    line-height: 1;
-    background: var(--gradient-amber-green);
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
-    flex: 0 0 auto;
-  }
-
-  .text h3 {
-    font-family: var(--font-display);
-    font-weight: 600;
-    font-size: 1.15rem;
-    margin-bottom: 0.4rem;
-  }
-
-  .text p {
+  .lead {
+    margin-top: 1rem;
     color: var(--ink-muted);
-    font-size: 0.98rem;
+    font-size: 1.1rem;
   }
 
-  @media (min-width: 860px) {
-    .steps {
-      grid-template-columns: repeat(3, 1fr);
-    }
-    .step {
-      flex-direction: column;
-      gap: 0.9rem;
-    }
+  .more {
+    max-width: 42rem;
+    margin-top: clamp(1.6rem, 4vw, 2.4rem);
+    color: var(--ink-dim);
+    font-size: 0.95rem;
   }
 </style>

@@ -148,6 +148,17 @@
       </div>
     {/if}
 
+    {#if update.latestUnsupported}
+      <!-- herdr 0.7.5+ broke agent spawning (#1889); Shepherd blocks the in-app upgrade and warns
+           instead of offering it. The run button below is hidden while this is set. -->
+      <div class="blocked" role="alert">
+        <span class="blocked-title">{m.herdrupdate_unsupported_title()}</span>
+        <span class="blocked-body"
+          >{m.herdrupdate_unsupported_body({ latest: update.latest ?? "" })}</span
+        >
+      </div>
+    {/if}
+
     {#if update.notes}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
       {#if renderedNotes}
@@ -218,7 +229,7 @@
           >{m.herdrupdate_later()}</button
         >
       {/if}
-      {#if !done}
+      {#if !done && !update.latestUnsupported}
         <button type="button" class="run" onclick={confirm} disabled={busy}>
           {count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain()}
         </button>
@@ -408,6 +419,26 @@
     padding: 10px 12px;
     font-size: var(--fs-base);
     line-height: 1.5;
+    color: var(--color-ink-bright);
+  }
+  /* unsupported-version block: the in-app update is disabled (herdr 0.7.5+, #1889) */
+  .blocked {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--color-red);
+    background: color-mix(in srgb, var(--color-red) 12%, transparent);
+    padding: 10px 12px;
+    line-height: 1.5;
+    color: var(--color-red);
+  }
+  .blocked-title {
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+  .blocked-body {
+    font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }
   /* destructive-action warning: louder than the neutral instructions block */

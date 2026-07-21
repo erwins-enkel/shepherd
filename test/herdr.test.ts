@@ -1,12 +1,14 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
   HerdrDriver,
+  HerdrSpawnUnsupportedError,
   isHeadlessCodexExec,
   mapState,
   matchAgent,
   matchAgents,
   type HerdrAgent,
 } from "../src/herdr";
+import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 
 // Pin compileCacheDir() to a deterministic sentinel so the `env NODE_COMPILE_CACHE=…`
 // shim that start() prepends to every agent argv is assertable. Also disable the disk-TMPDIR
@@ -117,6 +119,35 @@ function reply(args: string[], workspaceList: string): string {
   if (args[0] === "agent" && args[1] === "start") return AGENT_STARTED;
   return FIXTURE;
 }
+
+test("start REFUSES on an unsupported herdr (0.7.5+) with a clear error, spawning nothing", async () => {
+  setDetectedHerdrVersion("0.7.5");
+  try {
+    const calls: string[][] = [];
+    const d = mkDriver((args) => {
+      calls.push(args);
+      return reply(args, WORKSPACE_LIST);
+    });
+    await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow(
+      HerdrSpawnUnsupportedError,
+    );
+    // Guard fires BEFORE any herdr call — no tab created, nothing to roll back.
+    expect(calls).toEqual([]);
+  } finally {
+    setDetectedHerdrVersion(null);
+  }
+});
+
+test("start proceeds normally on a supported herdr (0.7.4)", async () => {
+  setDetectedHerdrVersion("0.7.4");
+  try {
+    const d = mkDriver((args) => reply(args, WORKSPACE_LIST));
+    const agent = await d.start("flatten", "/wt/a", ["claude", "go"]);
+    expect(agent.terminalId).toBe("term_started");
+  } finally {
+    setDetectedHerdrVersion(null);
+  }
+});
 
 test("start gives each agent its own full-width tab, not a shared split pane", async () => {
   const calls: string[][] = [];

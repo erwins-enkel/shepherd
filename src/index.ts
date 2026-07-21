@@ -144,6 +144,12 @@ import { promisify } from "node:util";
 import { startLoopLagSampler, logRemainingOnLoopBlockers, execFileSync } from "./instrument";
 import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
+import {
+  HERDR_LAST_SUPPORTED_VERSION,
+  isHerdrVersionSupported,
+  parseHerdrVersion,
+  setDetectedHerdrVersion,
+} from "./herdr-capabilities";
 import { resolveNodeHost, TailscaleServeService } from "./tailscale";
 import {
   drainSpawnModel,
@@ -207,12 +213,26 @@ logRemainingOnLoopBlockers(); // one-time operator map of intentionally-sync cal
 // Fail fast with one actionable banner (and exit 78) when the `herdr` binary is not
 // resolvable — nothing in Shepherd works without it. Runs BEFORE the store/auth and any
 // herdr call. Present-but-broken fails open (see preflight.ts). Injected deps keep it testable.
-preflightHerdr({
+const herdrVersionRaw = preflightHerdr({
   runVersion: () =>
     execFileSync(config.herdrBin, ["--version"], { encoding: "utf8", timeout: 10_000 }),
   log: (m) => console.error(m),
   exit: process.exit,
 });
+// Record the installed herdr version and warn LOUDLY (but keep running) when it is newer than
+// Shepherd supports. herdr 0.7.5+ broke `agent start` so agent spawning fails on it (see #1889);
+// the driver refuses spawns with a clear error and the in-app herdr-update is blocked. Operators
+// must pin herdr to <=0.7.4 until #1889 lands.
+const herdrVersion = parseHerdrVersion(herdrVersionRaw ?? "");
+setDetectedHerdrVersion(herdrVersion);
+if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
+  console.error(
+    `\n⚠  UNSUPPORTED herdr version ${herdrVersion} detected.\n` +
+      `   Shepherd supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}. herdr 0.7.5+ reshaped ` +
+      `\`agent start\` so Shepherd cannot spawn agents on it — spawning WILL fail.\n` +
+      `   Pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} (https://herdr.dev). Tracking: issue #1889.\n`,
+  );
+}
 
 mkdirSync(dirname(config.dbPath), { recursive: true });
 

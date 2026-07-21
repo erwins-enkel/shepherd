@@ -1,6 +1,7 @@
 import { HerdrSocketClient } from "./herdr-socket-client";
 import {
   HerdrDriver,
+  HerdrSpawnUnsupportedError,
   TabLedger,
   buildWrappedArgv,
   createSerializer,
@@ -17,6 +18,7 @@ import {
   type IHerdrDriver,
 } from "./herdr";
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
+import { detectedHerdrVersion, herdrSpawnSupported } from "./herdr-capabilities";
 
 /**
  * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
@@ -120,6 +122,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
     argv: string[],
     env?: Record<string, string>,
   ): Promise<HerdrAgent> {
+    // Same unsupported-herdr guard as the CLI driver (defensive: the socket only activates on a
+    // supported protocol today, but the version ceiling is the source of truth). See #1889.
+    if (!herdrSpawnSupported()) throw new HerdrSpawnUnsupportedError(detectedHerdrVersion());
     return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
   }
 

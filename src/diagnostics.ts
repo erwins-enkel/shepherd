@@ -21,6 +21,7 @@ import {
 } from "./config";
 import { parseGitVersion, gitVersionAtLeast, MIN_GIT_MAJOR, MIN_GIT_MINOR } from "./forge/local";
 import { compareSemver } from "./herdr-update";
+import { HERDR_LAST_SUPPORTED_VERSION, setDetectedHerdrVersion } from "./herdr-capabilities";
 import { autoFixCommandFor } from "./remediations";
 import { resolveNodeHost } from "./tailscale";
 import { readCodexAuthMode } from "./codex-auth";
@@ -968,12 +969,19 @@ export class DiagnosticsService {
     id: string,
     bin: string,
     floor: string,
-    keys: { ok: string; outdated: string; missing: string; offline?: string },
+    keys: { ok: string; outdated: string; missing: string; offline?: string; unsupported?: string },
     liveness?: () => Promise<void>,
+    opts?: { ceiling?: string; onVersion?: (version: string) => void },
   ): Promise<DiagnosticCheck> {
     const out = await this.runVersion(bin, ["--version"]);
     const version = this.parseVersion(out);
     if (!version) return { id, state: "error", hintKey: keys.missing };
+    opts?.onVersion?.(version);
+    // A version ABOVE the ceiling is unsupported (herdr 0.7.5+ broke agent spawning, #1889) — an
+    // error, and it outranks liveness/outdated: a reachable-but-unsupported herdr still can't spawn.
+    if (opts?.ceiling && keys.unsupported && compareSemver(version, opts.ceiling) > 0) {
+      return { id, state: "error", hintKey: keys.unsupported };
+    }
     if (liveness && keys.offline) {
       try {
         await liveness();
@@ -997,8 +1005,14 @@ export class DiagnosticsService {
         outdated: "diagnostics_hint_herdr_outdated",
         missing: "diagnostics_hint_herdr_missing",
         offline: "diagnostics_hint_herdr_offline",
+        unsupported: "diagnostics_hint_herdr_unsupported",
       },
       this.runHerdrLiveness,
+      {
+        ceiling: HERDR_LAST_SUPPORTED_VERSION,
+        // Keep the driver's spawn guard synced with what's installed on every periodic probe.
+        onVersion: (v) => setDetectedHerdrVersion(v),
+      },
     );
 
   private bunProbe = (): Promise<DiagnosticCheck> =>

@@ -13,7 +13,7 @@
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/space-grotesk": "^5.2.10",
     "@vercel/analytics": "^2.0.1",
-    "astro": "^6.4.7"
+    "astro": "^7.1.1"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.9",

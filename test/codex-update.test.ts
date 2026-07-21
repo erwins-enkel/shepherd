@@ -437,11 +437,11 @@ test("releaseNotes resumes a finite npm target set with at most two serial GitHu
     ],
     complete: false,
   });
-  expect(calls.filter((url) => url.includes("api.github.com"))).toHaveLength(2);
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(2);
 
   now = 30_000;
   expect(await svc.releaseNotes()).toEqual(first);
-  expect(calls.filter((url) => url.includes("api.github.com"))).toHaveLength(2);
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(2);
 
   now = 61_001;
   const complete = await svc.releaseNotes();
@@ -457,7 +457,7 @@ test("releaseNotes resumes a finite npm target set with at most two serial GitHu
     ],
     complete: true,
   });
-  expect(calls.filter((url) => url.includes("api.github.com"))).toHaveLength(4);
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(4);
   expect(calls).toContain("https://api.github.com/repos/openai/codex/releases?per_page=30&page=2");
   expect(calls).toContain("https://api.github.com/repos/openai/codex/releases/tags/rust-v0.143.0");
 });
@@ -471,7 +471,9 @@ test("releaseNotes remains total when catalog evidence is incomplete and stops r
     fetchHistory: async (input) => {
       const url = String(input);
       calls.push(url);
-      if (url.includes("registry.npmjs.org")) return jsonResponse({ versions: { "0.144.0": {} } });
+      if (new URL(url).hostname === "registry.npmjs.org") {
+        return jsonResponse({ versions: { "0.144.0": {} } });
+      }
       if (url.includes("releases?")) {
         return jsonResponse([], {
           "x-ratelimit-remaining": "50",
@@ -512,7 +514,9 @@ test("releaseNotes honors a GitHub rate gate across range keys", async () => {
     fetchLatest: async () => ({ version: latest }),
     fetchHistory: async (input) => {
       const url = String(input);
-      if (url.includes("registry.npmjs.org")) return jsonResponse({ versions: { [latest]: {} } });
+      if (new URL(url).hostname === "registry.npmjs.org") {
+        return jsonResponse({ versions: { [latest]: {} } });
+      }
       githubCalls.push(url);
       return new Response("limited", {
         status: 429,
@@ -550,7 +554,7 @@ test("releaseNotes bounds malformed, timed-out, oversized, and over-limit upstre
       fetchHistory: async (input, init) => {
         calls++;
         const url = String(input);
-        if (url.includes("registry.npmjs.org")) {
+        if (new URL(url).hostname === "registry.npmjs.org") {
           if (catalogFailure === "malformed") return new Response("{");
           if (catalogFailure === "oversized") {
             return new Response("{}", {
@@ -592,7 +596,7 @@ test("releaseNotes bounds malformed, timed-out, oversized, and over-limit upstre
       fetchHistory: async (input) => {
         calls++;
         const url = String(input);
-        if (url.includes("registry.npmjs.org")) {
+        if (new URL(url).hostname === "registry.npmjs.org") {
           return jsonResponse({ versions: { "0.145.0": {} } });
         }
         if (url.includes("releases?")) return new Response("{");
@@ -629,7 +633,7 @@ test("releaseNotes deduplicates in-flight work and late range A cannot overwrite
     fetchHistory: async (input) => {
       const url = String(input);
       calls.push(url);
-      if (url.includes("registry.npmjs.org")) {
+      if (new URL(url).hostname === "registry.npmjs.org") {
         catalogCalls++;
         if (catalogCalls === 1) return catalogA;
         return jsonResponse({ versions: { "0.142.0": {} } });

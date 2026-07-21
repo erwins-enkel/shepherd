@@ -1,4 +1,5 @@
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { isAbsolute, join } from "node:path";
 
 /**
  * User-private base directory for Shepherd's ephemeral runtime files (the deploy
@@ -14,9 +15,15 @@ import { join } from "node:path";
  *
  * Read at call time (no module-load snapshot) so tests can flip the env vars. Callers
  * must `mkdirSync(..., { recursive: true })` before writing — the dir may not exist yet.
+ *
+ * The fallback base uses `$HOME` when it is an absolute path, else `os.homedir()` (the
+ * OS passwd entry) — so it is always absolute, never a cwd-relative `.shepherd/run`.
  */
 export function shepherdRuntimeDir(...sub: string[]): string {
   const xdg = process.env.XDG_RUNTIME_DIR?.trim();
-  const base = xdg ? join(xdg, "shepherd") : join(process.env.HOME ?? "", ".shepherd", "run");
+  const home = process.env.HOME;
+  const base = xdg
+    ? join(xdg, "shepherd")
+    : join(home && isAbsolute(home) ? home : homedir(), ".shepherd", "run");
   return join(base, ...sub);
 }

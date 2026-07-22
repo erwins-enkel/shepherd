@@ -5,6 +5,7 @@ import "../../app.css";
 import type { Issue, EpicSummary, Epic, Steer } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getEpics, getEpic } from "$lib/api";
+import { expectMinPx } from "$lib/test-support/geometry";
 import { steers } from "$lib/steers.svelte";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 import { backlogRefresh } from "$lib/backlog-refresh.svelte";
@@ -221,8 +222,8 @@ describe("IssuesPanel compact issue rows", () => {
       );
       for (const selector of [".issue-num", ".issue-title"]) {
         const rect = document.querySelector<HTMLElement>(selector)!.getBoundingClientRect();
-        expect(rect.height).toBeGreaterThanOrEqual(hitSize);
-        expect(rect.width).toBeGreaterThanOrEqual(hitSize);
+        expectMinPx(rect.height, hitSize, `${selector} hit-target height`);
+        expectMinPx(rect.width, hitSize, `${selector} hit-target width`);
       }
     } finally {
       steers.list = previousSteers;

@@ -20,9 +20,12 @@
 
   let {
     initialDiagnostics = null,
+    onherdrdowngrade,
   }: {
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
     initialDiagnostics?: DiagnosticCheck[] | null;
+    /** Open the herdr-update modal (one-click downgrade for a stranded herdr, #1898). */
+    onherdrdowngrade?: () => void;
   } = $props();
 
   // Diagnose tab — local checks + re-run state.
@@ -95,7 +98,7 @@
   <span class="micro">{m.diagnostics_title()}</span>
   <p class="hint">{m.diagnostics_subtitle()}</p>
 </div>
-<DiagnoseRows checks={diagChecks} onfix={fixCheck} />
+<DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrdowngrade} />
 <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this
      row renders independently of the server snapshot's load/fail/empty state. -->
 <PwaInstallRow />

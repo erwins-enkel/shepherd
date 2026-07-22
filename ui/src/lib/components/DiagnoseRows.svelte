@@ -11,12 +11,16 @@
     failed = false,
     onretry,
     onfix,
+    onherdrdowngrade,
   }: {
     checks: DiagnosticCheck[] | null;
     failed?: boolean;
     onretry?: () => void;
     /** Parent-owned: run the check's remediation, update state, surface failure toast. */
     onfix?: (checkId: string) => Promise<void>;
+    /** Parent-owned: open the herdr-update modal, which offers the one-click
+     *  downgrade for an install stranded on an unsupported herdr (#1898). */
+    onherdrdowngrade?: () => void;
   } = $props();
 
   // The check whose Fix button was clicked → renders the confirm modal. null = closed.
@@ -131,7 +135,15 @@
         {#if check.state !== "ok"}
           <p class="hint"><GlossaryText text={hint(check.hintKey)} /></p>
         {/if}
-        {#if onfix && fixable(check)}
+        {#if check.hintKey === "diagnostics_hint_herdr_unsupported" && onherdrdowngrade}
+          <!-- Stranded herdr (#1898): the fix is the in-app downgrade, owned by the
+               herdr-update modal — this button just routes there. -->
+          <div class="fix-wrap">
+            <button type="button" class="fix micro" onclick={() => onherdrdowngrade?.()}>
+              {m.diagnostics_herdr_downgrade()}
+            </button>
+          </div>
+        {:else if onfix && fixable(check)}
           <div class="fix-wrap">
             <button
               type="button"

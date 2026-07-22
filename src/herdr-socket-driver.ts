@@ -53,6 +53,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
   constructor(
     private client: HerdrSocketClient,
     private cli: HerdrDriver,
+    /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
+    private sleep: (ms: number) => Promise<void> = (ms) =>
+      new Promise((r) => setTimeout(r, ms).unref?.()),
   ) {}
 
   // ── Socket-backed async reads ────────────────────────────────────────────
@@ -201,15 +204,14 @@ export class SocketHerdrDriver implements IHerdrDriver {
     try {
       if (!rootPaneId) throw new Error(`herdr: tab.create returned no root pane for ${name}`);
       await this.runInReadyPane(rootPaneId, buildWrappedArgv(argv, env));
-      await this.registerAgentWithCollisionRetry(rootPaneId, sanitizeHerdrAgentName(name));
-      // No `agent_started` reply on 0.7.5 — resolve the freshly-registered agent from the live
-      // list, joining on the pane_id we ran in. Its terminal_id is the id Shepherd keys on.
-      const agent = (await this.listAsync()).find((a) => a.paneId === rootPaneId);
-      if (!agent || !agent.terminalId) {
-        throw new Error(
-          `herdr: agent list has no registered agent for pane ${rootPaneId} (${name})`,
-        );
-      }
+      // Sandboxed spawns (bwrap in argv) hide `claude` from herdr's detection → must be externally
+      // registered + Shepherd-owned. Trusted spawns are auto-detected by herdr → register nothing and
+      // let herdr own the status (≤0.7.4 parity); a register/pin would freeze it. Mirrors
+      // `HerdrDriver.startImpl075`.
+      const sandboxed = argv.includes("bwrap");
+      const agent = sandboxed
+        ? await this.resolveByRegistration(rootPaneId, sanitizeHerdrAgentName(name))
+        : await this.resolveByAutoDetect(rootPaneId, name);
       // Retain the authoritative spawn handle (#1852) — the tab is ours even if the process inside
       // dies before it next appears in `agent.list`.
       this.ledger.record(agent.terminalId, tabId, name);
@@ -218,6 +220,32 @@ export class SocketHerdrDriver implements IHerdrDriver {
       await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;
     }
+  }
+
+  /** Sandboxed resolve: externally register (surfaces the bwrap'd agent + establishes Shepherd's
+   *  lifecycle authority) then resolve from the live list. Socket sibling of the CLI driver's. */
+  private async resolveByRegistration(paneId: string, agentName: string): Promise<HerdrAgent> {
+    await this.registerAgentWithCollisionRetry(paneId, agentName);
+    const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
+    if (!agent || !agent.terminalId) {
+      throw new Error(
+        `herdr: agent list has no registered agent for pane ${paneId} (${agentName})`,
+      );
+    }
+    return agent;
+  }
+
+  /** Trusted resolve: register nothing; wait (bounded) for herdr's own detection to surface the
+   *  agent, handing it full status ownership (≤0.7.4 parity). Socket sibling of the CLI driver's. */
+  private async resolveByAutoDetect(paneId: string, name: string): Promise<HerdrAgent> {
+    const DEADLINE_MS = 30_000;
+    const POLL_MS = 500;
+    for (let waited = 0; waited <= DEADLINE_MS; waited += POLL_MS) {
+      const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
+      if (agent?.terminalId) return agent;
+      await this.sleep(POLL_MS);
+    }
+    throw new Error(`herdr: agent for pane ${paneId} (${name}) not auto-detected within 30s`);
   }
 
   /**
@@ -422,10 +450,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
   }
 
   /**
-   * Interface completeness (issue #1891): the lifecycle-state push targets externally-registered
-   * sandboxed 0.7.5 agents, which the socket driver never hosts (it refuses the 0.7.5
-   * external-registration spawn branch in `start`). Implemented as a real `pane.report_agent`
-   * request nonetheless so the socket driver is a faithful `IHerdrDriver`.
+   * Lifecycle-state push (issue #1891) for externally-registered SANDBOXED 0.7.5 agents — the socket
+   * driver DOES host the 0.7.5 external-registration spawn (`startImpl075`), so the poller pushes
+   * here when this driver is active. A `pane.report_agent` request mirroring the CLI driver.
    */
   async reportAgentState(
     paneId: string,

@@ -3,7 +3,12 @@ import { spawn } from "node-pty";
 import { createDemux } from "./pty-demux.mjs";
 
 const [terminalId, colsArg, rowsArg] = process.argv.slice(2);
-if (!/^[A-Za-z0-9_-]{1,64}$/.test(terminalId ?? "") || (terminalId ?? "").startsWith("-")) {
+// Accept a herdr terminal_id (≤0.7.4) or a pane_id `workspaceId:paneId` (the 0.7.5 attach
+// target — #1890); mirrors isValidTerminalId in validate.ts.
+if (
+  !/^[A-Za-z0-9_-]{1,64}(:[A-Za-z0-9_-]{1,64})?$/.test(terminalId ?? "") ||
+  (terminalId ?? "").startsWith("-")
+) {
   process.exit(2);
 }
 const herdrBin = process.env.HERDR_BIN || "herdr";

@@ -33,6 +33,9 @@ function harness(opts?: {
   sandboxApplied?: SandboxProfile | null;
   sandboxDegraded?: boolean;
   visible?: () => string;
+  /** herdr's list `name` field for the agent. Real herdr leaves this EMPTY for externally-registered
+   *  agents (it stores the label in `agent`), so default to "" to mirror production. */
+  herdrListName?: string;
 }) {
   const store = new SessionStore(":memory:");
   const s = store.create({
@@ -52,7 +55,7 @@ function harness(opts?: {
         cwd: "/wt",
         paneId: "p",
         tabId: "t",
-        name: "task-01",
+        name: opts?.herdrListName ?? "",
         terminalId: "term_a",
         workspaceId: "w",
       } as HerdrAgent,
@@ -91,6 +94,18 @@ function harness(opts?: {
 
 afterEach(() => {
   setDetectedHerdrVersion(null);
+});
+
+test("label: pushes under the session-derived name even when herdr's list `name` is empty (#1891 bug)", async () => {
+  // Real herdr leaves the list `name` EMPTY for externally-registered agents (the label lives in the
+  // `agent` field). The push must use the session name, sanitized to the registered label — NOT the
+  // empty `agent.name` (which made every `report-agent --agent ` fail, so #1891 never advanced state).
+  setDetectedHerdrVersion("0.7.5");
+  const h = harness({ herdrListName: "" });
+  await h.poller.tick();
+  await flush();
+  expect(h.pushes.at(0)?.agentName).toBe("task-01"); // sanitizeHerdrAgentName(session.name)
+  expect(h.pushes.every((p) => p.agentName.length > 0)).toBe(true); // never an empty --agent
 });
 
 test("pushes working (baseline) then idle when the turn goes quiet — herdr status stays working", async () => {

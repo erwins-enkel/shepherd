@@ -728,6 +728,9 @@ export class HerdrDriver implements IHerdrDriver {
   constructor(
     private runner: Runner = defaultRunner,
     private asyncRunner: AsyncRunner = defaultAsyncRunner,
+    /** Injectable delay for the trusted-spawn auto-detect poll; overridden in tests to run instantly. */
+    private sleep: (ms: number) => Promise<void> = (ms) =>
+      new Promise((r) => setTimeout(r, ms).unref?.()),
   ) {}
 
   list(): HerdrAgent[] {
@@ -959,14 +962,17 @@ export class HerdrDriver implements IHerdrDriver {
       if (!paneId) throw new Error(`herdr: tab create returned no root pane for ${name}`);
       const wrapped = buildWrappedArgv(argv, env);
       await this.runInReadyPane(paneId, wrapped);
-      const agentName = sanitizeHerdrAgentName(name);
-      await this.registerAgentWithCollisionRetry(paneId, agentName);
-      // There is no `agent_started` reply on 0.7.5 — resolve the freshly-registered agent from the
-      // live list, joining on the pane_id we ran in. Its terminal_id is the id Shepherd keys on.
-      const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
-      if (!agent || !agent.terminalId) {
-        throw new Error(`herdr: agent list has no registered agent for pane ${paneId} (${name})`);
-      }
+      // A sandboxed spawn wraps the agent in `bwrap`, whose pane foreground hides `claude` from
+      // herdr's detection — herdr can NEVER auto-detect it, so we must externally register it (and
+      // Shepherd owns its lifecycle state via #1891). A TRUSTED spawn's foreground IS the agent
+      // binary, which herdr auto-detects on its own: registering + pinning `--state` there would
+      // SUPPRESS herdr's detection and freeze the status at `working` (herdr won't accept a client
+      // de-escalation back to idle). So for trusted we register NOTHING and let herdr own the status
+      // exactly as it did on ≤0.7.4 — resolving the spawn by waiting for auto-detection instead.
+      const sandboxed = argv.includes("bwrap");
+      const agent = sandboxed
+        ? await this.resolveByRegistration(paneId, sanitizeHerdrAgentName(name))
+        : await this.resolveByAutoDetect(paneId, name);
       // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
       // dies before it next appears in `agent list`.
       this.ledger.record(agent.terminalId, tabId, name);
@@ -975,6 +981,41 @@ export class HerdrDriver implements IHerdrDriver {
       await this.closeTab(tabId); // roll back the orphan tab before propagating
       throw err;
     }
+  }
+
+  /**
+   * Sandboxed 0.7.5 resolve: externally register the agent (`report-agent-session` + `report-agent
+   * --state working`), which both surfaces it in `agent list` immediately AND establishes Shepherd's
+   * lifecycle authority (herdr can't detect the bwrap'd agent, so Shepherd owns its state — #1891).
+   * Resolve from the live list, joining on the pane_id we ran in; its terminal_id is Shepherd's key.
+   */
+  private async resolveByRegistration(paneId: string, agentName: string): Promise<HerdrAgent> {
+    await this.registerAgentWithCollisionRetry(paneId, agentName);
+    const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
+    if (!agent || !agent.terminalId) {
+      throw new Error(
+        `herdr: agent list has no registered agent for pane ${paneId} (${agentName})`,
+      );
+    }
+    return agent;
+  }
+
+  /**
+   * Trusted 0.7.5 resolve: register NOTHING and wait for herdr's own output-based detection to
+   * surface the agent (it reads the claude TUI, which renders a few seconds after `pane run`). This
+   * hands full status ownership to herdr — identical to the ≤0.7.4 model — so working/idle/blocked
+   * track natively with no client push. Bounded poll (herdr's own `agent start --kind` uses a 30s
+   * readiness budget, mirrored here); each `listAsync` is a real round-trip, paced by `sleep`.
+   */
+  private async resolveByAutoDetect(paneId: string, name: string): Promise<HerdrAgent> {
+    const DEADLINE_MS = 30_000;
+    const POLL_MS = 500;
+    for (let waited = 0; waited <= DEADLINE_MS; waited += POLL_MS) {
+      const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
+      if (agent?.terminalId) return agent;
+      await this.sleep(POLL_MS);
+    }
+    throw new Error(`herdr: agent for pane ${paneId} (${name}) not auto-detected within 30s`);
   }
 
   /**
@@ -987,11 +1028,17 @@ export class HerdrDriver implements IHerdrDriver {
    * precedes any flags — here it precedes the command argv.
    */
   private async runInReadyPane(paneId: string, wrapped: string[]): Promise<void> {
+    // herdr's `pane run` TYPES the command into the pane's interactive shell (it does not execvp the
+    // argv), so a raw multi-arg spread (`...wrapped`) is space-joined UNQUOTED — any argv element
+    // with whitespace or a newline (e.g. claude's multi-line `--append-system-prompt`) shatters into
+    // bogus shell commands. Pass the whole argv as ONE POSIX-quoted command line instead (mirrors the
+    // socket driver's `posixShellJoin` typing path), so the shell reconstructs the exact argv.
+    const cmdline = posixShellJoin(wrapped);
     const MAX_ATTEMPTS = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {
-        await this.asyncRunner(["pane", "run", paneId, ...wrapped]);
+        await this.asyncRunner(["pane", "run", paneId, cmdline]);
         return;
       } catch (err) {
         lastErr = err;

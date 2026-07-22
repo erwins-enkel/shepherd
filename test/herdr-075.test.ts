@@ -51,7 +51,15 @@ function mkDriver(fake: (args: string[]) => string): { d: HerdrDriver; calls: st
     calls.push(args);
     return fake(args);
   };
-  return { d: new HerdrDriver(runner, async (args) => runner(args)), calls };
+  // no-op sleep so the trusted auto-detect poll never actually waits in tests
+  return {
+    d: new HerdrDriver(
+      runner,
+      async (args) => runner(args),
+      async () => {},
+    ),
+    calls,
+  };
 }
 
 // Pin the compile-cache dir + disable the disk-TMPDIR redirect so buildWrappedArgv's output is
@@ -123,26 +131,38 @@ test("classifyPaneWrite: CR/LF → Enter key, everything else → literal text",
 
 // ── start() via external registration ────────────────────────────────────────
 
-test("start (0.7.5): tab create → pane run wrapped argv → register → resolve from agent list", async () => {
+test("start (0.7.5, TRUSTED): tab create → pane run joined argv → NO registration → resolve by auto-detect", async () => {
   const { d, calls } = mkDriver(route);
   const agent = await d.start("review TASK-09", "/wt/a", ["claude", "go"]);
 
-  // Resolved from the live list, joined on the pane we ran in.
+  // Resolved from the live list (herdr auto-detected it), joined on the pane we ran in.
   expect(agent).toMatchObject({ terminalId: "term_075", paneId: "p_075", tabId: "t_075" });
 
   // No legacy `agent start`, and the root pane is reused (never closed).
   expect(calls.some((c) => c[0] === "agent" && c[1] === "start")).toBe(false);
   expect(calls.some((c) => c[0] === "pane" && c[1] === "close")).toBe(false);
 
-  // The wrapped argv flows into `pane run` verbatim, pane_id positional first.
-  const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
-  expect(paneRun.slice(0, 4)).toEqual(["pane", "run", "p_075", "env"]);
-  expect(paneRun.slice(-2)).toEqual(["claude", "go"]);
+  // TRUSTED spawns register NOTHING — herdr owns the status (≤0.7.4 parity). A push would claim
+  // authority and freeze herdr's own detection, so the driver must not report-agent(-session).
+  expect(calls.some((c) => c[1] === "report-agent-session")).toBe(false);
+  expect(calls.some((c) => c[1] === "report-agent")).toBe(false);
 
-  // Registration uses the SANITIZED --agent label, pane_id positional before the flags.
+  // The wrapped argv is typed into the pane's shell as ONE POSIX-quoted command line (herdr's
+  // `pane run` types-into-shell, it doesn't execvp — a raw spread would shatter multi-word args).
+  const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
+  expect(paneRun.slice(0, 3)).toEqual(["pane", "run", "p_075"]);
+  expect(paneRun.length).toBe(4); // pane, run, paneId, single joined command line
+  expect(paneRun[3]).toContain("'claude' 'go'");
+});
+
+test("start (0.7.5, SANDBOXED): pane run → register (report-agent-session + --state working) → resolve", async () => {
+  const { d, calls } = mkDriver(route);
+  // A sandboxed spawn's argv carries the bwrap wrap — herdr can't observe it, so it MUST register.
+  const agent = await d.start("review TASK-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
+  expect(agent).toMatchObject({ terminalId: "term_075", paneId: "p_075" });
+
   const session = calls.find((c) => c[1] === "report-agent-session")!;
   expect(session[2]).toBe("p_075");
-  expect(session).toContain("--source");
   expect(session[session.indexOf("--agent") + 1]).toBe("review-task-09");
   const report = calls.find((c) => c[1] === "report-agent")!;
   expect(report[2]).toBe("p_075");
@@ -150,12 +170,37 @@ test("start (0.7.5): tab create → pane run wrapped argv → register → resol
   expect(report[report.indexOf("--state") + 1]).toBe("working");
 });
 
-test("start (0.7.5): rolls the tab back if registration keeps failing", async () => {
+test("start (0.7.5): pane run preserves a multi-word/newline argv element as ONE shell token", async () => {
+  const { d, calls } = mkDriver(route);
+  // The --append-system-prompt value is a single argv element containing spaces AND a newline;
+  // it must survive as one POSIX-quoted token, not shatter into bogus shell words.
+  await d.start("x", "/wt/a", ["claude", "--append-system-prompt", "line one\nline two"]);
+  const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
+  expect(paneRun.length).toBe(4); // still a single joined command line
+  expect(paneRun[3]).toContain("'--append-system-prompt' 'line one\nline two'");
+});
+
+test("start (0.7.5, TRUSTED): auto-detect polls the agent list until the agent appears", async () => {
+  let listCalls = 0;
+  const { d } = mkDriver((args) => {
+    if (args[0] === "agent" && args[1] === "list") {
+      listCalls++;
+      // herdr hasn't detected the freshly pane-run claude yet on the first two polls.
+      if (listCalls < 3) return JSON.stringify({ result: { type: "agent_list", agents: [] } });
+    }
+    return route(args);
+  });
+  const agent = await d.start("x", "/wt/a", ["claude", "go"]);
+  expect(agent.terminalId).toBe("term_075");
+  expect(listCalls).toBeGreaterThanOrEqual(3);
+});
+
+test("start (0.7.5, SANDBOXED): rolls the tab back if registration keeps failing", async () => {
   const { d, calls } = mkDriver((args) => {
     if (args[1] === "report-agent-session") throw new Error("boom");
     return route(args);
   });
-  await expect(d.start("flatten", "/wt/a", ["claude", "go"])).rejects.toThrow();
+  await expect(d.start("flatten", "/wt/a", ["bwrap", "--", "claude", "go"])).rejects.toThrow();
   // The orphan tab is closed on failure.
   expect(calls.some((c) => c[0] === "tab" && c[1] === "close" && c[2] === "t_075")).toBe(true);
 });

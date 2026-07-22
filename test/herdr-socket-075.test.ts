@@ -86,11 +86,12 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
   });
 
-  it("start() runs the wrapped argv in the root pane, registers, resolves by pane_id (no pane.close)", async () => {
+  it("start() SANDBOXED: runs the wrapped argv in the root pane, registers, resolves by pane_id (no pane.close)", async () => {
     const { rec, client } = mkClient();
-    const driver = new SocketHerdrDriver(client, noCli);
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
 
-    const agent = await driver.start("review-task-09", "/wt/a", ["claude", "go"]);
+    // bwrap in argv → sandboxed → herdr can't observe it → must register.
+    const agent = await driver.start("review-task-09", "/wt/a", ["bwrap", "--", "claude", "go"]);
 
     // resolved from agent.list by the pane we ran in — its terminal_id is the id Shepherd keys on
     expect(agent.terminalId).toBe("term_075");
@@ -113,7 +114,7 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
       text: string;
     };
     expect(sendText.pane_id).toBe("p_075");
-    expect(sendText.text).toBe(posixShellJoin(buildWrappedArgv(["claude", "go"])));
+    expect(sendText.text).toBe(posixShellJoin(buildWrappedArgv(["bwrap", "--", "claude", "go"])));
     expect(rec.find((r) => r.method === "pane.send_keys")!.params).toEqual({
       pane_id: "p_075",
       keys: ["Enter"],
@@ -134,15 +135,29 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     });
   });
 
-  it("start() rolls back the freshly created tab when registration fails", async () => {
+  it("start() TRUSTED: registers NOTHING and resolves by herdr auto-detection", async () => {
+    const { rec, client } = mkClient();
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    // no bwrap → trusted → herdr auto-detects it → register nothing (a push would freeze it).
+    const agent = await driver.start("review-task-09", "/wt/a", ["claude", "go"]);
+    expect(agent.terminalId).toBe("term_075");
+    expect(rec.some((r) => r.method === "pane.report_agent_session")).toBe(false);
+    expect(rec.some((r) => r.method === "pane.report_agent")).toBe(false);
+    // still typed the argv + resolved via agent.list
+    expect(rec.some((r) => r.method === "pane.send_text")).toBe(true);
+    expect(rec.some((r) => r.method === "agent.list")).toBe(true);
+  });
+
+  it("start() SANDBOXED: rolls back the freshly created tab when registration fails", async () => {
     const { rec, client } = mkClient({
       onReport: () => {
         throw new HerdrSocketError("report_failed", "boom");
       },
     });
-    const driver = new SocketHerdrDriver(client, noCli);
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
 
-    await expect(driver.start("t", "/wt/a", ["claude"])).rejects.toThrow();
+    await expect(driver.start("t", "/wt/a", ["bwrap", "--", "claude"])).rejects.toThrow();
     expect(rec).toContainEqual({ method: "tab.close", params: { tab_id: "t_075" } });
   });
 

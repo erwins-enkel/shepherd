@@ -7,12 +7,13 @@ import {
   mapState,
   matchAgents,
   needsAccountRedrive,
+  sanitizeHerdrAgentName,
   type HerdrDriver,
   type HerdrAgent,
   type PushableAgentState,
 } from "./herdr";
-import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
 import type { SandboxProfile } from "./sandbox";
+import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
 import {
   classifyBlocked,
   hasActiveSpinner,
@@ -104,9 +105,22 @@ export interface LivenessWiring {
   onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
 }
 
-/** #1891: a genuinely sandboxed session — a non-`trusted` profile was actually applied AND did not
- *  degrade to unconfined. Only these run behind the membrane (`bwrap`), so only these are the
- *  externally-registered agents herdr cannot observe and whose state Shepherd must push. */
+/** The push-hook signal pipeline (activity / notification / session-start) must be active whenever
+ *  herdr can't advance `agent_status` for us. On the 0.7.5 external-registration path it never does
+ *  (sandboxed agents it can't observe; trusted agents defer to the client-pinned state), AND claude's
+ *  real session id is unknown there (#1889) so the transcript-based activity probe can't run either.
+ *  The hooks are then the ONLY source of working/idle/blocked edges Shepherd pushes back. ≤0.7.4
+ *  keeps herdr's own detection + the transcript probe, so this stays behind the opt-in `hooksSignals`
+ *  flag there (no behaviour change). */
+function hookSignalsActive(): boolean {
+  return config.hooksSignals || herdrUsesExternalRegistrationSpawn();
+}
+
+/** A genuinely sandboxed session — a non-`trusted` profile actually applied AND not degraded to
+ *  unconfined. Only these run behind the `bwrap` membrane, so only these are externally REGISTERED
+ *  on 0.7.5 (herdr can't observe them) and have their state owned+pushed by Shepherd (#1891). A
+ *  trusted 0.7.5 spawn is NOT registered — herdr auto-detects it and owns its status — so Shepherd
+ *  must never push for it (a push would claim authority and freeze herdr's own detection). */
 function isSandboxedSession(s: {
   sandboxApplied: SandboxProfile | null;
   sandboxDegraded: boolean;
@@ -880,7 +894,7 @@ export class StatusPoller {
    * classify (e.g. a working spinner suppressed it) returns false → normal routing runs.
    */
   private tryHookAwaitingBlock(s: Session): boolean {
-    if (!config.hooksSignals || !this.hookAwaitingInput.has(s.id)) return false;
+    if (!hookSignalsActive() || !this.hookAwaitingInput.has(s.id)) return false;
     // Consume the marker only when the classify actually ran (throttle didn't skip);
     // a throttled tick keeps the marker so the next tick retries the surface.
     if (this.maybeClassify(s, s.herdrAgentId)) this.hookAwaitingInput.delete(s.id);
@@ -987,7 +1001,7 @@ export class StatusPoller {
     id: string,
     ev: { toolName?: string; status?: "ok" | "error"; ts?: number },
   ): void {
-    if (!config.hooksSignals) return;
+    if (!hookSignalsActive()) return;
     const t = ev.ts ?? this.now();
     // heat-strip: append this tick, window to STRIP_WINDOW_MS (mirrors SessionLiveness's interim heat-strip).
     // Skip a duplicate same-ms tick so two events stamped identically dedupe through
@@ -1027,7 +1041,7 @@ export class StatusPoller {
    * No-op when `config.hooksSignals` is off.
    */
   ingestNotification(id: string, type: string): void {
-    if (!config.hooksSignals) return;
+    if (!hookSignalsActive()) return;
     if (BLOCK_NOTIFICATION_TYPES.has(type)) this.hookAwaitingInput.add(id);
     else if (type === "idle_prompt") this.hookAwaitingInput.delete(id);
     // else: unknown/other type → no-op (dormant; fallback detection unchanged).
@@ -1043,7 +1057,7 @@ export class StatusPoller {
    * (Stop/SessionEnd consumption is deferred to #713 — observe-only this phase.)
    */
   ingestSessionStart(id: string): void {
-    if (!config.hooksSignals) return;
+    if (!hookSignalsActive()) return;
     // A live SessionStart hook fired from inside the process → it's alive (liveness is always "alive"
     // when the /proc bit is true). Keep both maps in sync and emit the additive 3-arg signal.
     if (this.lastLiveness.get(id) !== "alive") {
@@ -1260,22 +1274,27 @@ export class StatusPoller {
 
   /**
    * Push Shepherd's own derived lifecycle state to herdr for an externally-registered SANDBOXED 0.7.5
-   * session whose `agent_status` herdr freezes at registration (issue #1891 — its pane/PID view is
-   * `bwrap`, so it never advances the state on its own). Idempotent + push-on-change: recomputes the
-   * derived state from the block + active-turn signals and reports it only when it differs from the
-   * last pushed value. Best-effort + fire-and-forget — a report failure must never throw in the 1s
-   * tick. The pane target comes from THIS tick's match (`lastMatched`).
+   * session (issue #1891). herdr can't observe a `bwrap`'d agent, so it freezes `agent_status` at the
+   * value the spawn pinned; Shepherd owns the lifecycle and reports it here. Idempotent + push-on-
+   * change from the block + active-turn signals; best-effort + fire-and-forget (a report failure must
+   * never throw in the 1s tick). The pane target comes from THIS tick's match.
    *
-   * Gated to genuinely-sandboxed spawns (a non-`trusted` profile actually applied, not degraded to
-   * unconfined): those are the externally-registered agents herdr can't observe. A `trusted`/degraded
-   * 0.7.5 spawn keeps the foreground agent binary herdr sees directly, so pushing there could race
-   * herdr's own advance — left unchanged, matching the issue's scope.
+   * Gated to sandboxed only. A TRUSTED 0.7.5 agent is NOT registered — herdr auto-detects and owns
+   * its status (≤0.7.4 parity), so a push here would claim authority and freeze herdr's detection.
+   *
+   * KNOWN LIMITATION (herdr 0.7.5): herdr accepts a working/blocked report but REFUSES to let a
+   * client de-escalate an authority-held agent back to `idle` (verified: correct label + matching
+   * agent-session-id + max seq all fail to move it). So a sandboxed agent's `idle` is not reportable —
+   * it reads `working` until it blocks or exits. Closing this needs an herdr-side change (accept a
+   * client de-escalation, or let a client hand a wrapped pane to herdr's own detection).
    */
   private maybePushAgentState(id: string): void {
     if (!herdrUsesExternalRegistrationSpawn()) return;
     const agent = this.lastMatched.get(id);
     if (!agent || !agent.paneId) return;
     const s = this.store.get(id);
+    // Only sandboxed sessions are Shepherd-owned. Trusted 0.7.5 agents are unregistered and
+    // herdr-detected — pushing would claim authority and freeze them (see isSandboxedSession).
     if (!s || !isSandboxedSession(s)) return;
     const state = deriveHerdrState({
       blocked: this.lastBlockReason.has(id),
@@ -1285,7 +1304,11 @@ export class StatusPoller {
     if (this.pushInFlight.has(id)) return; // a push is serializing; its resolution re-evaluates
     this.pushInFlight.add(id);
     this.lastPushedState.set(id, state);
-    void this.herdr.reportAgentState(agent.paneId, agent.name, state).then(
+    // herdr stores the registered label in its `agent` field; the list's `name` is null for
+    // externally-registered agents, so `agent.name` was empty — every push failed on `--agent `
+    // (issue #1891 was inert against real herdr). Report under the SAME label spawn registered
+    // (`sanitizeHerdrAgentName(session.name)`), which `report-agent` matches to update the state.
+    void this.herdr.reportAgentState(agent.paneId, sanitizeHerdrAgentName(s.name), state).then(
       () => {
         this.pushInFlight.delete(id);
         // Re-evaluate: the derived state may have changed while this push was in flight (pushes are

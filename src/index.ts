@@ -146,6 +146,7 @@ import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
 import {
   HERDR_LAST_SUPPORTED_VERSION,
+  herdrUsesExternalRegistrationSpawn,
   isHerdrVersionSupported,
   parseHerdrVersion,
   setDetectedHerdrVersion,
@@ -1101,12 +1102,18 @@ poller.captureCodexSessionId = (s) => service.captureCodexSessionId(s);
 // `config.hooksSignals` is on AND ingest is too — with ingest off no events ever
 // arrive, so signals-without-ingest is meaningless (warn once, behave as off). When
 // off, the sink stays unset → pure observe-only (Phase-0 behaviour), poller untouched.
-if (config.hooksSignals && !config.hooksIngest) {
+// Wire the push-hook sink when the operator opted in OR the 0.7.5 external-registration path needs
+// it: there herdr never latches `blocked`, so the `Notification(permission_prompt)` hook is the only
+// awaiting-input signal (issue #1891). Evaluated at boot from the detected version; a mid-session
+// herdr up/downgrade doesn't re-wire (the per-call guards still gate correctly).
+const hookSignalsWanted = config.hooksSignals || herdrUsesExternalRegistrationSpawn();
+if (hookSignalsWanted && !config.hooksIngest) {
   console.warn(
-    "[hooks] SHEPHERD_HOOKS_SIGNALS is set but SHEPHERD_HOOKS_INGEST is off — no events " +
-      "will arrive to feed the poller; treating signals as off. Enable ingest first.",
+    "[hooks] hook signals are needed (opt-in or herdr 0.7.5 external-registration) but " +
+      "SHEPHERD_HOOKS_INGEST is off — no events will arrive to feed the poller; treating as off. " +
+      "Enable ingest first.",
   );
-} else if (config.hooksSignals) {
+} else if (hookSignalsWanted) {
   hookIngest.setSink((id, ev) => {
     if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });

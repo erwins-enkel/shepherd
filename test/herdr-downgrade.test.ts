@@ -45,6 +45,15 @@ test("buildDowngradeScript: download → verify → swap → server stop, in tha
   expect(swap).toBeLessThan(stop); // the live server is only touched AFTER a verified swap
 });
 
+test("buildDowngradeScript: verify step is an exact semver match, not a substring", () => {
+  // a `grep -qF "0.7.4"` substring check would also pass "10.7.4" or "0.7.40" —
+  // the downloaded binary's version must equal the target exactly
+  const s = buildDowngradeScript(LOG, "0.7.5", "0.7.4", URL074);
+  expect(s).toContain('grep -oE "[0-9]+\\.[0-9]+\\.[0-9]+"');
+  expect(s).toContain('if [ "$V" != "0.7.4" ]; then');
+  expect(s).not.toContain("grep -qF");
+});
+
 test("buildDowngradeScript: verify-fail and download-fail abort BEFORE the swap", () => {
   const s = buildDowngradeScript(LOG, "0.7.5", "0.7.4", URL074);
   // both failure branches clean the temp file and exit without ever reaching mv

@@ -193,7 +193,12 @@ export function buildDowngradeScript(
     "  fi",
     '  chmod +x "$TMP"',
     `  echo '${UPDATE_LOG_PREFIX} verifying downloaded binary reports ${t}'`,
-    `  if ! "$TMP" --version 2>/dev/null | grep -qF "${t}"; then`,
+    // Exact match, not substring: a `grep -qF` here would let "10.7.4" or "0.7.40"
+    // pass verification against a "0.7.4" target. Extract the first semver token
+    // (mirrors the server-side SEMVER_RE parse of `herdr --version`) and compare
+    // it for equality.
+    `  V="$("$TMP" --version 2>/dev/null | grep -oE "[0-9]+\\.[0-9]+\\.[0-9]+" | head -n 1)"`,
+    `  if [ "$V" != "${t}" ]; then`,
     `    echo '${UPDATE_LOG_PREFIX} downloaded binary does not report ${t} — aborting, herdr binary untouched'`,
     '    rm -f "$TMP"',
     "    exit 1",

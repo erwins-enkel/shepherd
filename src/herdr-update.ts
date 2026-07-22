@@ -128,6 +128,104 @@ export function buildUpdateScript(
   ].join("\n");
 }
 
+/** Map this host onto latest.json's asset key (`linux-x86_64`, `macos-aarch64`, …);
+ *  null when herdr publishes no binary for the platform. */
+export function herdrAssetKey(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string | null {
+  const os = platform === "linux" ? "linux" : platform === "darwin" ? "macos" : null;
+  const cpu = arch === "x64" ? "x86_64" : arch === "arm64" ? "aarch64" : null;
+  return os && cpu ? `${os}-${cpu}` : null;
+}
+
+/** The version-addressable release-asset URL, built from a HARDCODED template (the
+ *  same GitHub slug the modal's release-notes link uses). The downgrade flow (#1898)
+ *  cross-checks this against latest.json's `releases` map before running — the
+ *  template guarantees shape (no injection), the manifest guarantees currency. */
+export function herdrReleaseUrl(version: string, assetKey: string): string {
+  return `https://github.com/ogulcancelik/herdr/releases/download/v${sanitizeVersion(version)}/herdr-${assetKey}`;
+}
+
+/**
+ * The shell program for the in-app DOWNGRADE to a supported herdr (#1898). Same
+ * logging contract as buildUpdateScript (one delimited `tee -a` block, every step
+ * announced with UPDATE_LOG_PREFIX, explicit exit codes).
+ *
+ * Safety-critical ordering: download → verify → atomic swap → THEN restart. Every
+ * failure before the swap aborts with the old binary untouched and the old server
+ * still running — a failed rescue leaves the install exactly as broken as it was,
+ * never more broken. No `--handoff`: on a stranded install the #1887 guard refused
+ * every spawn, so there are no live agent panes to preserve.
+ */
+export function buildDowngradeScript(
+  logPath: string,
+  from: string | null | undefined,
+  to: string | null | undefined,
+  url: string,
+  herdrBin: string = config.herdrBin,
+): string {
+  const f = sanitizeVersion(from);
+  const t = sanitizeVersion(to);
+  const shq = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
+  const q = shq(logPath);
+  const h = shq(herdrBin);
+  const u = shq(url);
+  return [
+    `LOG=${q}`,
+    'mkdir -p "$(dirname "$LOG")"',
+    "{",
+    `  echo "=== herdr-downgrade $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
+    // Resolve the real path first: config.herdrBin may be a bare "herdr" found via
+    // PATH, and the atomic swap below must target the actual file, not ./herdr.
+    `  BIN="$(command -v ${h} || true)"`,
+    '  if [ -z "$BIN" ]; then',
+    `    echo '${UPDATE_LOG_PREFIX} cannot locate the herdr binary — aborting'`,
+    "    exit 1",
+    "  fi",
+    // Temp file NEXT TO the binary (same filesystem) so the swap is an atomic rename.
+    '  TMP="$BIN.downgrade.$$"',
+    `  echo '${UPDATE_LOG_PREFIX} downloading herdr ${t}'`,
+    `  if ! curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 -o "$TMP" ${u}; then`,
+    `    echo '${UPDATE_LOG_PREFIX} download failed — herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    '  chmod +x "$TMP"',
+    `  echo '${UPDATE_LOG_PREFIX} verifying downloaded binary reports ${t}'`,
+    `  if ! "$TMP" --version 2>/dev/null | grep -qF "${t}"; then`,
+    `    echo '${UPDATE_LOG_PREFIX} downloaded binary does not report ${t} — aborting, herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    `  echo '${UPDATE_LOG_PREFIX} swapping the verified binary into place'`,
+    '  if ! mv -f "$TMP" "$BIN"; then',
+    `    echo '${UPDATE_LOG_PREFIX} swap failed — herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    // Only AFTER the verified swap is the running server touched. `server stop`
+    // suffices on provisioned hosts (deploy/herdr.service has Restart=always); the
+    // grace+retry loop lets systemd win before the last-resort detached relaunch —
+    // the same recovery pattern as buildUpdateScript.
+    `  echo '${UPDATE_LOG_PREFIX} stopping the herdr server so it relaunches on the downgraded binary'`,
+    '  "$BIN" server stop; rc=$?',
+    `  echo "${UPDATE_LOG_PREFIX} herdr server stop exited rc=$rc"`,
+    "  ok=0",
+    "  for attempt in 1 2 3; do",
+    '    if timeout 10 "$BIN" agent list >/dev/null 2>&1; then ok=1; break; fi',
+    "    sleep 2",
+    "  done",
+    '  if [ "$ok" -eq 1 ]; then',
+    `    echo '${UPDATE_LOG_PREFIX} herdr server reachable after downgrade'`,
+    "  else",
+    `    echo '${UPDATE_LOG_PREFIX} herdr server unreachable after retries — relaunching a detached server'`,
+    '    setsid "$BIN" server </dev/null >/dev/null 2>&1 &',
+    "  fi",
+    '} 2>&1 | tee -a "$LOG"',
+  ].join("\n");
+}
+
 /** Status fields derived from the INSTALLED version's support policy (#1898). A
  *  stranded install (unsupported current, e.g. 0.7.5+) advertises the version the
  *  in-app downgrade would install, so the UI never hardcodes a version. */

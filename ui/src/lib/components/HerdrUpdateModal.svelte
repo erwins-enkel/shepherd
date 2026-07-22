@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
-  import { applyHerdrUpdate } from "$lib/api";
+  import { applyHerdrUpdate, applyHerdrDowngrade } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
@@ -99,6 +99,26 @@
     }
   }
 
+  // Stranded install (#1898): the INSTALLED herdr is unsupported — the modal's job
+  // flips from "offer the upgrade" to "offer the rescue downgrade".
+  const stranded = $derived(!!update.currentUnsupported);
+  // Which flavor ran, so the ✓ message reads "Downgraded…" instead of "Updated…".
+  let downgrading = $state(false);
+
+  async function confirmDowngrade() {
+    submitting = true;
+    downgrading = true;
+    error = null;
+    try {
+      await applyHerdrDowngrade();
+      onconfirm?.();
+    } catch (e) {
+      error = e instanceof Error ? e.message : "downgrade failed";
+      submitting = false;
+      downgrading = false;
+    }
+  }
+
   // Auto-scroll the log pane to bottom whenever new lines arrive.
   $effect(() => {
     // read log.length to subscribe to changes
@@ -121,11 +141,12 @@
     class="card bracket"
     role="dialog"
     aria-modal="true"
-    aria-label={m.herdrupdate_title()}
+    aria-label={stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title()}
     use:dialog={{ onclose: () => !busy && onclose?.() }}
   >
     <div class="chead">
-      <span class="micro">{m.herdrupdate_title()}</span>
+      <span class="micro">{stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title()}</span
+      >
       <!-- The ✕ is ALWAYS available as a deliberate escape hatch: the update runs
            server-side in a managed child independent of this modal, so dismissing
            never cancels it. Without this, a missed `done` event (e.g. the WS drops
@@ -137,7 +158,16 @@
       >
     </div>
 
-    {#if update.current && update.latest}
+    {#if stranded && update.current && update.downgradeTarget}
+      <div class="summary">
+        <span class="versions"
+          >{m.herdrupdate_versions({
+            current: update.current,
+            latest: update.downgradeTarget,
+          })}</span
+        >
+      </div>
+    {:else if update.current && update.latest}
       <div class="summary">
         <span class="versions"
           >{m.herdrupdate_versions({
@@ -148,7 +178,19 @@
       </div>
     {/if}
 
-    {#if update.latestUnsupported}
+    {#if stranded}
+      <!-- The INSTALLED herdr broke agent spawning (#1898); this modal now offers the
+           one-click rescue downgrade instead of a dead end. -->
+      <div class="blocked" role="alert">
+        <span class="blocked-title">{m.herdrupdate_stranded_title()}</span>
+        <span class="blocked-body"
+          >{m.herdrupdate_stranded_body({
+            current: update.current ?? "?",
+            target: update.downgradeTarget ?? "",
+          })}</span
+        >
+      </div>
+    {:else if update.latestUnsupported}
       <!-- herdr 0.7.5+ broke agent spawning (#1889); Shepherd blocks the in-app upgrade and warns
            instead of offering it. The run button below is hidden while this is set. -->
       <div class="blocked" role="alert">
@@ -159,7 +201,7 @@
       </div>
     {/if}
 
-    {#if update.notes}
+    {#if update.notes && !stranded}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
       {#if renderedNotes}
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
@@ -175,7 +217,9 @@
       >{m.herdrupdate_all_notes_link()} ↗</a
     >
 
-    <div class="instructions">{m.herdrupdate_instructions()}</div>
+    <div class="instructions">
+      {stranded ? m.herdrupdate_downgrade_instructions() : m.herdrupdate_instructions()}
+    </div>
 
     {#if count > 0}
       <div class="warning">{m.herdrupdate_warning({ count })}</div>
@@ -206,7 +250,9 @@
       {#if done}
         <div class="status" class:ok={done.ok} class:fail={!done.ok} aria-live="polite">
           {#if done.ok}
-            {m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })}
+            {downgrading
+              ? m.herdrupdate_downgrade_done_ok({ target: done.to ?? "" })
+              : m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })}
           {:else}
             {m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" })}
           {/if}
@@ -229,7 +275,11 @@
           >{m.herdrupdate_later()}</button
         >
       {/if}
-      {#if !done && !update.latestUnsupported}
+      {#if !done && stranded}
+        <button type="button" class="run downgrade" onclick={confirmDowngrade} disabled={busy}>
+          {m.herdrupdate_downgrade_confirm({ target: update.downgradeTarget ?? "" })}
+        </button>
+      {:else if !done && !update.latestUnsupported}
         <button type="button" class="run" onclick={confirm} disabled={busy}>
           {count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain()}
         </button>

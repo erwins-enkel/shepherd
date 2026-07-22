@@ -7,6 +7,7 @@ import type { HerdrUpdateStatus } from "$lib/types";
 vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
   applyHerdrUpdate: vi.fn(() => new Promise(() => {})),
+  applyHerdrDowngrade: vi.fn(() => new Promise(() => {})),
 }));
 
 import HerdrUpdateModal from "./HerdrUpdateModal.svelte";
@@ -73,5 +74,41 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector(".blocked")).not.toBeNull();
     // …and the run/upgrade button is gone (can't upgrade into an unsupported herdr).
     expect(document.querySelector(".run")).toBeNull();
+  });
+
+  it("offers the one-click downgrade when the INSTALLED herdr is unsupported (#1898)", async () => {
+    const { applyHerdrDowngrade } = await import("$lib/api");
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.5",
+          latest: "0.7.5",
+          updateAvailable: false,
+          currentUnsupported: true,
+          downgradeTarget: "0.7.4",
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // The stranded explanation is shown…
+    expect(document.querySelector(".blocked")).not.toBeNull();
+    // …the downgrade action names the target version…
+    const btn = document.querySelector<HTMLButtonElement>(".run.downgrade");
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toContain("0.7.4");
+    // …and there is NO plain upgrade button (nothing to upgrade to).
+    expect(document.querySelector(".run:not(.downgrade)")).toBeNull();
+
+    // Clicking it fires the downgrade endpoint.
+    btn!.click();
+    await vi.waitFor(() => expect(vi.mocked(applyHerdrDowngrade)).toHaveBeenCalledOnce());
+  });
+
+  it("keeps the plain upgrade flow free of the downgrade action", () => {
+    render(HerdrUpdateModal, { props: { update } }); // the ordinary 0.6.9→0.6.10 fixture
+    expect(document.querySelector(".run.downgrade")).toBeNull();
+    expect(document.querySelector(".run")).not.toBeNull();
   });
 });

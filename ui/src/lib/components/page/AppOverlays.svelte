@@ -456,7 +456,7 @@
   />
 {/if}
 
-{#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || herdrUpdating)}
+{#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || store.herdrUpdate.currentUnsupported || herdrUpdating)}
   <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
        working-while-blocked agent is genuinely mid-turn, so it counts as working -->
   <HerdrUpdateModal

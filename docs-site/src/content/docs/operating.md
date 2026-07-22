@@ -95,7 +95,10 @@ live session's scratch). As a host-level belt on long-uptime hosts, raise `/tmp`
 tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 ```
 
-The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
+Shepherd also points spawned (trusted) agents' `TMPDIR` at a disk-backed dir
+(`~/.cache/shepherd/tmp` by default) so their temp I/O — scratch trees, git
+worktrees, and dependency installs — stays off the tmpfs entirely. The relevant
+override env vars (`SHEPHERD_NODE_COMPILE_CACHE`, `SHEPHERD_AGENT_TMPDIR`,
 `SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
 listed in [Configuration](/reference/configuration/).
 

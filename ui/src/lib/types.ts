@@ -1454,6 +1454,14 @@ export interface HerdrUpdateStatus {
   /** true when `latest` is a herdr version Shepherd does not support (0.7.5+ broke agent
    *  spawning — see #1889); the modal warns and the updater refuses it instead of offering it. */
   latestUnsupported?: boolean;
+  /** true when the INSTALLED herdr is one Shepherd cannot drive (stranded on 0.7.5+,
+   *  #1898). The modal offers the in-app downgrade and the diagnostics hint becomes
+   *  actionable. */
+  currentUnsupported?: boolean;
+  /** The version the in-app downgrade installs (the supported ceiling) when
+   *  `currentUnsupported`; null otherwise. Derived server-side from
+   *  HERDR_LAST_SUPPORTED_VERSION so the UI never hardcodes a version. */
+  downgradeTarget?: string | null;
   notes: string | null;
   checkedAt: number;
   error?: string;

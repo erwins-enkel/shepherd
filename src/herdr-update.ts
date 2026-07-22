@@ -1,7 +1,11 @@
 import { spawn } from "node:child_process";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
-import { isHerdrVersionSupported, setDetectedHerdrVersion } from "./herdr-capabilities";
+import {
+  HERDR_LAST_SUPPORTED_VERSION,
+  isHerdrVersionSupported,
+  setDetectedHerdrVersion,
+} from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import { compareSemver } from "./semver";
 import type { HerdrUpdateStatus } from "./types";
@@ -122,6 +126,19 @@ export function buildUpdateScript(
     "  fi",
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
+}
+
+/** Status fields derived from the INSTALLED version's support policy (#1898). A
+ *  stranded install (unsupported current, e.g. 0.7.5+) advertises the version the
+ *  in-app downgrade would install, so the UI never hardcodes a version. */
+function supportFlags(
+  current: string | null,
+): Pick<HerdrUpdateStatus, "currentUnsupported" | "downgradeTarget"> {
+  const unsupported = !isHerdrVersionSupported(current);
+  return {
+    currentUnsupported: unsupported,
+    downgradeTarget: unsupported ? HERDR_LAST_SUPPORTED_VERSION : null,
+  };
 }
 
 /** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
@@ -321,6 +338,7 @@ export class HerdrUpdateService {
           latest: to,
           updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
           latestUnsupported: !isHerdrVersionSupported(to),
+          ...supportFlags(after),
           notes: null,
           checkedAt: Date.now(),
           error: ok ? undefined : "herdr was not updated",
@@ -371,6 +389,7 @@ export class HerdrUpdateService {
         latest,
         updateAvailable,
         latestUnsupported,
+        ...supportFlags(current),
         notes: updateAvailable ? (latestRaw.notes ?? null) : null,
         checkedAt: now,
       };
@@ -379,6 +398,7 @@ export class HerdrUpdateService {
         current: this.last?.current ?? null,
         latest: null,
         updateAvailable: false,
+        ...supportFlags(this.last?.current ?? null),
         notes: null,
         checkedAt: now,
         error: e instanceof Error ? e.message : "herdr update check failed",

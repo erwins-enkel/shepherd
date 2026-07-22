@@ -57,12 +57,39 @@ export class HerdrSocketClient {
     params: HerdrParams[M],
     opts?: { timeoutMs?: number },
   ): Promise<HerdrResult<M>> {
+    return this.roundTrip<HerdrResult<M>>(method, params, opts);
+  }
+
+  /**
+   * Untyped escape hatch for the ≤0.7.4 (protocol ≤16) driver arm to call methods that the
+   * VENDORED (protocol 17) schema no longer describes: `agent.send` was removed in p17 (replaced
+   * by `agent.send_keys`) and `agent.start` was reshaped incompatibly (`{ kind, pane_id, … }`).
+   * Both are still valid on a live ≤0.7.4 server, so the socket driver keeps speaking them on the
+   * legacy branch — but they are no longer `HerdrMethod`s, so `request()` can't type them. This
+   * keeps that concession in ONE place (the transport, which is protocol-agnostic by design)
+   * instead of scattering casts through the driver, and everything on the 0.7.5 path plus every
+   * unchanged shared method stays fully typed via `request()`.
+   */
+  requestLegacy<T>(
+    method: string,
+    params: Record<string, unknown>,
+    opts?: { timeoutMs?: number },
+  ): Promise<T> {
+    return this.roundTrip<T>(method, params, opts);
+  }
+
+  /** Shared NDJSON round-trip core for {@link request} / {@link requestLegacy}. */
+  private async roundTrip<T>(
+    method: string,
+    params: unknown,
+    opts?: { timeoutMs?: number },
+  ): Promise<T> {
     if (maintenance.active) throw new HerdrUnavailableError();
 
     const id = String(this.nextId++);
     const timeoutMs = opts?.timeoutMs ?? SOCKET_REQUEST_TIMEOUT_MS;
 
-    return new Promise<HerdrResult<M>>((resolve, reject) => {
+    return new Promise<T>((resolve, reject) => {
       let settled = false;
       let buffer = "";
       const socket = net.createConnection(this.socketPath);
@@ -117,7 +144,7 @@ export class HerdrSocketClient {
             const message = typeof res.error.message === "string" ? res.error.message : "";
             reject(new HerdrSocketError(code, message));
           } else {
-            resolve(res.result as HerdrResult<M>);
+            resolve(res.result as T);
           }
         });
       });

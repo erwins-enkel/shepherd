@@ -294,7 +294,7 @@ export interface AppDeps {
   updates?: Pick<UpdateService, "current" | "apply"> &
     Partial<Pick<UpdateService, "applyState" | "dirtyStatus">>;
   /** herdr-version tracker + applier; absent in environments where it isn't wired. */
-  herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply">;
+  herdrUpdates?: Pick<HerdrUpdateService, "current" | "apply" | "downgrade">;
   /** codex-version tracker + applier; absent in environments where it isn't wired. */
   codexUpdates?: Pick<CodexUpdateService, "current" | "apply">;
   /** installed-plugin update tracker: `current()` for the badge/status, `check()` for
@@ -4197,9 +4197,23 @@ const HERDR_UPDATE_IDLE = {
   checkedAt: 0,
 } as const;
 
-// ── herdr update: status + (destructive) apply ─────────────────────────
+// ── herdr update: status + (destructive) apply + stranded-install downgrade ────
 function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
-  if (!(parts[0] === "api" && parts[1] === "herdr-update" && !parts[2])) return null;
+  if (!(parts[0] === "api" && parts[1] === "herdr-update")) return null;
+  // POST /api/herdr-update/downgrade — rescue an install stranded on an unsupported
+  // herdr (0.7.5+, #1898) by installing the highest supported version. The service
+  // re-guards; this is the HTTP backstop against a direct POST (mirrors apply()'s
+  // latestUnsupported refusal).
+  if (parts[2] === "downgrade" && !parts[3]) {
+    if (req.method !== "POST") return null;
+    if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
+    if (!deps.herdrUpdates.current()?.currentUnsupported) {
+      return json({ error: "installed herdr is already supported" }, 409);
+    }
+    const r = deps.herdrUpdates.downgrade();
+    return json({ ok: r.started }, r.started ? 202 : 409);
+  }
+  if (parts[2]) return null;
   if (req.method === "GET") {
     return json(deps.herdrUpdates?.current() ?? { ...HERDR_UPDATE_IDLE, checkedAt: Date.now() });
   }

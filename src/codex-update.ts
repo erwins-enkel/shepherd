@@ -1,9 +1,10 @@
-import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { delimiter, join } from "node:path";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import { compareSemver } from "./herdr-update";
+import { runScriptChild } from "./script-child";
+import { readInstalledVersion, readActualVersion } from "./version-probe";
 import type { CodexUpdateStatus } from "./types";
 
 export type { CodexUpdateStatus };
@@ -329,48 +330,19 @@ export class CodexUpdateService {
     signal: AbortSignal,
     preferred: CodexUpdateChannel | null,
   ): Promise<void> {
-    return new Promise((resolve) => {
-      const script = buildUpdateScript(
-        config.codexUpdateLogPath,
-        this.last?.current,
-        this.last?.latest,
-        config.codexBin,
-        preferred,
-      );
-      const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
-      const kill = () => child.kill("SIGKILL");
-      if (signal.aborted) kill();
-      else signal.addEventListener("abort", kill, { once: true });
-
-      let buf = "";
-      const handleChunk = (chunk: Buffer | string) => {
-        buf += chunk.toString();
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trimEnd();
-          if (trimmed) onLine(trimmed);
-        }
-      };
-      child.stdout?.on("data", handleChunk);
-      child.stderr?.on("data", handleChunk);
-      const finish = () => {
-        signal.removeEventListener("abort", kill);
-        if (buf.trim()) onLine(buf.trim());
-        resolve();
-      };
-      child.on("exit", finish);
-      child.on("error", (err) => {
-        onLine(`codex update spawn failed: ${err.message}`);
-        finish();
-      });
-    });
+    const script = buildUpdateScript(
+      config.codexUpdateLogPath,
+      this.last?.current,
+      this.last?.latest,
+      config.codexBin,
+      preferred,
+    );
+    return runScriptChild(script, onLine, signal, "codex update");
   }
 
   /** Parse the installed version from `codex --version`; null if unreadable. */
   private installedVersion(): string | null {
-    const m = SEMVER_RE.exec(this.versionRunner());
-    return m ? m[1]! : null;
+    return readInstalledVersion(this.versionRunner, SEMVER_RE);
   }
 
   /** Best-effort installed version for the "what are we ACTUALLY on?" report.
@@ -378,11 +350,7 @@ export class CodexUpdateService {
    *  the last-known-good). Used by every failure branch so we never tell the
    *  operator they're on the target version we know they did NOT reach. */
   private actualVersion(fallback: string | null): string | null {
-    try {
-      return this.installedVersion() ?? fallback;
-    } catch {
-      return fallback;
-    }
+    return readActualVersion(this.versionRunner, SEMVER_RE, fallback);
   }
 
   /** Last computed status, or null before the first check. */

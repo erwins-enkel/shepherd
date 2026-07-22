@@ -456,6 +456,18 @@ export function classifyPaneWrite(text: string): PaneWrite {
 }
 
 /**
+ * Join argv into a single POSIX-shell command line, single-quoting every token so paths with
+ * spaces or shell metacharacters survive intact (empty-string token → `''`). Used ONLY by the
+ * socket driver's 0.7.5 spawn path: herdr's protocol-17 socket API exposes no direct pane-run RPC
+ * (unlike the CLI `pane run`, #1892), so the wrapped argv is typed into the pane's ready shell as a
+ * command line. Single-quoting is complete for POSIX shells: nothing inside `'…'` is special, and
+ * an embedded `'` is emitted as the standard `'\''` break-out sequence.
+ */
+export function posixShellJoin(argv: string[]): string {
+  return argv.map((tok) => `'${tok.replaceAll("'", `'\\''`)}'`).join(" ");
+}
+
+/**
  * Builds the wrapped spawn argv shared by BOTH drivers (issue #1553), so a socket-backed
  * `start` spawns a byte-identical process to the CLI path. Wraps argv (always
  * `["claude", …]`) in a coreutils `env` shim that pins the V8 compile cache to a disk-backed

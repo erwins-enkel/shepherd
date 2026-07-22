@@ -3,10 +3,11 @@ import { SocketHerdrDriver, selectHerdrDriver } from "../src/herdr-socket-driver
 import type { HerdrDriver, HerdrAgent, HerdrTab, HerdrPane } from "../src/herdr";
 import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-client";
 
-/** Fake client exposing a controllable `request` spy. Cast through `unknown` (no
- *  explicit `any`) since the driver only ever calls `.request(...)` on it. */
+/** Fake client exposing controllable `request` / `requestLegacy` spies routed through the same
+ *  `impl`. Cast through `unknown` (no explicit `any`). `requestLegacy` carries the ≤0.7.4
+ *  `agent.send` / `agent.start` calls whose shapes the vendored protocol-17 types no longer describe. */
 function fakeClient(impl: (method: string, params: unknown) => unknown): HerdrSocketClient {
-  return { request: mock(impl) } as unknown as HerdrSocketClient;
+  return { request: mock(impl), requestLegacy: mock(impl) } as unknown as HerdrSocketClient;
 }
 
 /** Fake CLI driver where every `IHerdrDriver` method is a spy. Cast through `unknown`
@@ -183,7 +184,7 @@ function writeClient(
         return { type: "ok" };
     }
   };
-  return { request: mock(impl) } as unknown as HerdrSocketClient;
+  return { request: mock(impl), requestLegacy: mock(impl) } as unknown as HerdrSocketClient;
 }
 
 describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () => {
@@ -363,7 +364,10 @@ describe("SocketHerdrDriver — socket-backed async writes (#1553, #1567)", () =
       if (method === "agent.start") return { type: "agent_started", agent: agentBody.agents[0] };
       return { type: "ok" };
     };
-    const client = { request: mock(impl) } as unknown as HerdrSocketClient;
+    const client = {
+      request: mock(impl),
+      requestLegacy: mock(impl),
+    } as unknown as HerdrSocketClient;
     const driver = new SocketHerdrDriver(client, fakeCli() as unknown as HerdrDriver);
 
     await Promise.all([
@@ -402,7 +406,10 @@ describe("SocketHerdrDriver — spawn-handle ledger (#1852)", () => {
           return { type: "ok" };
       }
     };
-    return { rec, client: { request: mock(impl) } as unknown as HerdrSocketClient };
+    return {
+      rec,
+      client: { request: mock(impl), requestLegacy: mock(impl) } as unknown as HerdrSocketClient,
+    };
   }
 
   it("tabsAsync() requests tab.list and returns the parsed tabs", async () => {

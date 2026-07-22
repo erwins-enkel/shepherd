@@ -142,9 +142,12 @@ function primedDowngrade(
     releases["0.7.4"] = { assets: { [KEY]: opts.manifestUrl ?? TARGET_URL } };
   }
   const svc = new HerdrUpdateService({
+    // Call 1 = check(); call 2 = downgrade()'s gate re-read (both happen BEFORE
+    // the script runs, so both report the still-installed `current`); call 3+ =
+    // the post-script re-read, which reports what the (mocked) script produced.
     versionRunner: () => {
       versionCalls++;
-      return `herdr ${versionCalls === 1 ? current : (opts.installedAfter ?? "0.7.4")}`;
+      return `herdr ${versionCalls <= 2 ? current : (opts.installedAfter ?? "0.7.4")}`;
     },
     fetchLatest: opts.fetchLatest ?? (async () => ({ version: current, releases })),
     runDowngrade:
@@ -183,6 +186,30 @@ test("downgrade(): refuses when the installed herdr is already supported", async
   await svc.check(1);
   expect(svc.downgrade()).toEqual({ started: false });
   expect(scripts).toHaveLength(0);
+});
+
+test("downgrade(): re-reads the installed version at gate time — a stale cached status does not skip a live re-check", async () => {
+  // check() sees 0.7.5 (stranded) and caches it; before downgrade() is called, the
+  // operator manually pins herdr back to 0.7.4 out-of-band (e.g. a shell `herdr
+  // update` or a hand rollback). The gate must catch that on its OWN re-read rather
+  // than trusting the up-to-6h-stale `this.last.current` — otherwise it would still
+  // restart the herdr server for a downgrade that's already redundant.
+  let versionCalls = 0;
+  const scripts: string[] = [];
+  const svc = new HerdrUpdateService({
+    versionRunner: () => {
+      versionCalls++;
+      // call 1 = check() (stale 0.7.5); call 2 = downgrade()'s gate re-read (live 0.7.4)
+      return `herdr ${versionCalls === 1 ? "0.7.5" : "0.7.4"}`;
+    },
+    fetchLatest: async () => ({ version: "0.7.5", releases: {} }),
+    runDowngrade: async (script) => {
+      scripts.push(script);
+    },
+  });
+  await svc.check(1); // seeds last.current = "0.7.5" — now stale
+  expect(svc.downgrade()).toEqual({ started: false });
+  expect(scripts).toHaveLength(0); // never reached the script — no needless restart
 });
 
 test("downgrade(): double-launch guarded while one is in flight", async () => {

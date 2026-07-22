@@ -527,7 +527,12 @@ export class HerdrUpdateService {
    *  already supported (nothing to rescue) or while a run is in flight. */
   downgrade(): { started: boolean } {
     if (this.applying) return { started: false };
-    const current = this.last?.current ?? null;
+    // Re-read the ACTUAL installed version rather than trusting `this.last.current`
+    // (the periodic check(), up to 6h stale): if the operator manually pinned 0.7.4
+    // out-of-band since the last check, gating on the stale cache would still pass
+    // and restart the herdr server for nothing. actualVersion() is best-effort and
+    // never throws.
+    const current = this.actualVersion(this.last?.current ?? null);
     if (isHerdrVersionSupported(current)) {
       console.warn(
         `[herdr-update] refusing downgrade: installed herdr ${current ?? "?"} is already supported`,

@@ -2,13 +2,17 @@ import type { SessionStore } from "./store";
 import type { LivenessState, Session } from "./types";
 import {
   classifyLiveness,
+  deriveHerdrState,
   isAutoRevivable,
   mapState,
   matchAgents,
   needsAccountRedrive,
   type HerdrDriver,
   type HerdrAgent,
+  type PushableAgentState,
 } from "./herdr";
+import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
+import type { SandboxProfile } from "./sandbox";
 import {
   classifyBlocked,
   hasActiveSpinner,
@@ -100,6 +104,16 @@ export interface LivenessWiring {
   onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
 }
 
+/** #1891: a genuinely sandboxed session — a non-`trusted` profile was actually applied AND did not
+ *  degrade to unconfined. Only these run behind the membrane (`bwrap`), so only these are the
+ *  externally-registered agents herdr cannot observe and whose state Shepherd must push. */
+function isSandboxedSession(s: {
+  sandboxApplied: SandboxProfile | null;
+  sandboxDegraded: boolean;
+}): boolean {
+  return s.sandboxApplied != null && s.sandboxApplied !== "trusted" && !s.sandboxDegraded;
+}
+
 /** Bounded tail read + auth-URL detection for a session's transcript; the default
  *  `detectAuth` wiring. Missing/unreadable transcript (or no claude session yet) ⇒ null. */
 function readAuthUrl(s: Session): string | null {
@@ -183,6 +197,15 @@ export class StatusPoller {
    *  bootstrap via `blockSnapshot()`. Maintained by `emitBlock`; blocks are otherwise
    *  edge-emitted and would be absent on a fresh page load / push-then-open. */
   private lastBlockReason = new Map<string, BlockReason>();
+  /** #1891: last lifecycle state pushed to herdr per session, for push-on-change dedup. */
+  private lastPushedState = new Map<string, PushableAgentState>();
+  /** #1891: ms of the last detected active turn (an `emitActivity` this probe) — the terminal-scrape
+   *  half of the working↔idle signal, so the boundary works on the frozen-`working` route where
+   *  `maybeClassify` never runs and hooks may be off. */
+  private lastActiveTurnAt = new Map<string, number>();
+  /** #1891: sessions with an in-flight `reportAgentState` push — serialize per session so two pushes
+   *  can't reorder on herdr; the push's `finally` re-evaluates to catch a state change mid-flight. */
+  private pushInFlight = new Set<string>();
   /** Transcript mtime at the last resting-auth probe per session — gates `maybeAuthAtRest`'s
    *  bounded read to ticks where the transcript actually changed (see AUTH_SIG). */
   private lastAuthMtime = new Map<string, number | null>();
@@ -322,7 +345,7 @@ export class StatusPoller {
 
   constructor(
     private store: SessionStore,
-    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync">,
+    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState">,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
     private intervalMs = 1000,
@@ -750,6 +773,11 @@ export class StatusPoller {
     if (status === "blocked") this.maybeClassify(s, s.herdrAgentId);
     else if (status === "running") this.maybeProbe(s);
     else this.maybeQuota(s, status);
+    // #1891: catch the working→idle timeout (a pure absence of activity — no emission sink fires for
+    // it) and seed the state after a fresh match. Block/working EDGES already pushed via
+    // emitBlock/emitActivity. Skipped on the tryHookAwaitingBlock early-return above — that path is a
+    // blocked edge emitBlock already handled.
+    this.maybePushAgentState(s.id);
   }
 
   /**
@@ -875,6 +903,9 @@ export class StatusPoller {
       ...this.codexCaptureBackoff.keys(),
       ...this.lastActivitySig.keys(),
       ...this.lastActivity.keys(),
+      ...this.lastPushedState.keys(),
+      ...this.lastActiveTurnAt.keys(),
+      ...this.pushInFlight,
       ...this.liveness.keys(),
       ...this.previewStopState.keys(),
       ...this.workingWhileBlocked,
@@ -905,6 +936,10 @@ export class StatusPoller {
         this.codexCaptureBackoff.delete(id);
         this.lastActivitySig.delete(id);
         this.lastActivity.delete(id);
+        // #1891: lifecycle-state push tracking
+        this.lastPushedState.delete(id);
+        this.lastActiveTurnAt.delete(id);
+        this.pushInFlight.delete(id);
         this.liveness.delete(id);
         this.previewStopState.delete(id);
         // archived/removed → no client cares anymore; drop without an emit
@@ -1184,6 +1219,10 @@ export class StatusPoller {
     if (block) this.lastBlockReason.set(id, block);
     else this.lastBlockReason.delete(id);
     this.onBlock(id, block);
+    // #1891: mirror the block/unblock EDGE to herdr on the same tick. Driven from this sink (not a
+    // post-routing call in reconcileAgent) so a hook-driven awaiting-input block that early-returns at
+    // `tryHookAwaitingBlock` still pushes `blocked` immediately, not a tick late.
+    this.maybePushAgentState(id);
   }
 
   /** Last-emitted block reason per session, for client bootstrap. */
@@ -1193,11 +1232,75 @@ export class StatusPoller {
 
   /** Emit an activity signal, deduped by content so clients see only real changes. */
   private emitActivity(id: string, activity: SessionActivity): void {
+    // #1891: any activity detected this probe refreshes the working-signal stamp — even a
+    // content-deduped repeat, since the turn is still live (the client emit is deduped, the stamp
+    // is not).
+    this.lastActiveTurnAt.set(id, this.now());
     const sig = JSON.stringify(activity);
-    if (sig === this.lastActivitySig.get(id)) return;
-    this.lastActivitySig.set(id, sig);
-    this.lastActivity.set(id, activity);
-    this.onActivity(id, activity);
+    if (sig !== this.lastActivitySig.get(id)) {
+      this.lastActivitySig.set(id, sig);
+      this.lastActivity.set(id, activity);
+      this.onActivity(id, activity);
+    }
+    this.maybePushAgentState(id);
+  }
+
+  /** True when the session shows a FRESH active turn — a hook activity OR a probe/transcript activity
+   *  emit within the last two probe cadences. The `lastActiveTurnAt` half is set in `emitActivity`,
+   *  which runs on the `maybeProbe` path that drives the frozen-`working` route, so this does not
+   *  depend on hooks being on. A session we have NEVER observed a turn for reads working (not idle):
+   *  it was just registered `working`, and a spawning agent works before it rests — so this avoids a
+   *  spurious `working→idle→working` flap at startup, before the first probe/activity lands. */
+  private isActiveTurnFresh(id: string, now: number): boolean {
+    if (this.hookActivityFresh(id, now)) return true;
+    const at = this.lastActiveTurnAt.get(id);
+    if (at === undefined) return true;
+    return now - at < 2 * this.probeCheckMs;
+  }
+
+  /**
+   * Push Shepherd's own derived lifecycle state to herdr for an externally-registered SANDBOXED 0.7.5
+   * session whose `agent_status` herdr freezes at registration (issue #1891 — its pane/PID view is
+   * `bwrap`, so it never advances the state on its own). Idempotent + push-on-change: recomputes the
+   * derived state from the block + active-turn signals and reports it only when it differs from the
+   * last pushed value. Best-effort + fire-and-forget — a report failure must never throw in the 1s
+   * tick. The pane target comes from THIS tick's match (`lastMatched`).
+   *
+   * Gated to genuinely-sandboxed spawns (a non-`trusted` profile actually applied, not degraded to
+   * unconfined): those are the externally-registered agents herdr can't observe. A `trusted`/degraded
+   * 0.7.5 spawn keeps the foreground agent binary herdr sees directly, so pushing there could race
+   * herdr's own advance — left unchanged, matching the issue's scope.
+   */
+  private maybePushAgentState(id: string): void {
+    if (!herdrUsesExternalRegistrationSpawn()) return;
+    const agent = this.lastMatched.get(id);
+    if (!agent || !agent.paneId) return;
+    const s = this.store.get(id);
+    if (!s || !isSandboxedSession(s)) return;
+    const state = deriveHerdrState({
+      blocked: this.lastBlockReason.has(id),
+      working: this.isActiveTurnFresh(id, this.now()),
+    });
+    if (this.lastPushedState.get(id) === state) return;
+    if (this.pushInFlight.has(id)) return; // a push is serializing; its resolution re-evaluates
+    this.pushInFlight.add(id);
+    this.lastPushedState.set(id, state);
+    void this.herdr.reportAgentState(agent.paneId, agent.name, state).then(
+      () => {
+        this.pushInFlight.delete(id);
+        // Re-evaluate: the derived state may have changed while this push was in flight (pushes are
+        // serialized so they can't reorder on herdr). Converges — a no-op once the state is stable.
+        this.maybePushAgentState(id);
+      },
+      (err) => {
+        // Roll back so a LATER tick retries rather than sticking on a value herdr never received. Do
+        // NOT re-invoke here — a persistently failing report would otherwise spin as fast as each
+        // call settles; the next 1s tick paces the retry.
+        this.lastPushedState.delete(id);
+        this.pushInFlight.delete(id);
+        console.warn(`[poller] report-agent state push failed for ${id}:`, err);
+      },
+    );
   }
 
   /** Clear a live stall flag (no-op if none); leaves the terminal baseline intact. */

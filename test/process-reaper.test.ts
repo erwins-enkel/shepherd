@@ -379,6 +379,35 @@ test("claude-alive: every supplied worktree appears as a key; empty input is fin
   expect(out.get("/wt/a")).toBe(false);
 });
 
+// #1891 Phase-0 regression: a SANDBOXED agent runs as `bwrap [membrane] -- env … claude …`. Empirical
+// capture (bwrap 0.11.1, faithful membrane flags) showed the inner `claude` IS host-visible with
+// `comm=claude` and `/proc/<pid>/cwd` resolving under the worktree — `--unshare-pid` does not hide a
+// descendant from the host, and the worktree is bind-mounted at the same path. So the host-wide scan
+// already marks a live sandboxed agent alive; there is no husk false-positive to fix. These lock that.
+test("claude-alive: a live sandboxed agent (claude under bwrap, worktree cwd) is alive", () => {
+  const out = scanClaudeAliveByWorktree(
+    ["/wt/repo-x"],
+    makeProbes({
+      scanProcs: () => [
+        { pid: 100, cwd: "/wt/repo-x", comm: "bwrap" }, // outer monitor (ignored — not an agent comm)
+        { pid: 101, cwd: "/wt/repo-x", comm: "bwrap" }, // sandbox init (ignored)
+        { pid: 102, cwd: "/wt/repo-x", comm: "claude" }, // inner agent — host-visible, worktree cwd
+      ],
+    }),
+  );
+  expect(out.get("/wt/repo-x")).toBe(true);
+});
+
+test("claude-alive: a dead sandboxed agent leaves no worktree-cwd claude → husk", () => {
+  // Phase-0 Step B: killing the inner `claude` makes the `bwrap` monitors reap it and exit, so no
+  // worktree-cwd process survives. The scan reads false → the husk is still caught.
+  const out = scanClaudeAliveByWorktree(
+    ["/wt/repo-x"],
+    makeProbes({ scanProcs: () => [{ pid: 200, cwd: "/wt/repo-x", comm: "zsh" }] }),
+  );
+  expect(out.get("/wt/repo-x")).toBe(false);
+});
+
 // ── #1133: orphan reaping (PPID-1 busy-loops the port-based detector misses) ──
 
 const WT = "/home/u/Work/.shepherd-worktrees/repo-x"; // a real worktree path (has the marker)

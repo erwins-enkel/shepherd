@@ -4,7 +4,7 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
 import type { HerdStore } from "$lib/store.svelte";
-import type { AgentProvider, DiagnosticsSnapshot } from "$lib/types";
+import type { AgentProvider, DiagnosticsSnapshot, HerdrUpdateStatus } from "$lib/types";
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
@@ -272,5 +272,55 @@ describe("AppOverlays — command bar wiring", () => {
     props.decomLeftovers = [];
     render(AppOverlays, props);
     expect(page.getByText("vite").elements()).toHaveLength(0);
+  });
+});
+
+// e22ca449 widened the herdr-update render gate to
+// `updateAvailable || currentUnsupported || herdrUpdating` — currentUnsupported is what makes
+// the #1898 downgrade rescue reachable at all: on a stranded install current === latest, so
+// updateAvailable is false and the OR's first arm never fires. Lock the gate so a future
+// refactor can't quietly drop that clause and strand the modal unreachable again.
+describe("AppOverlays — herdr-update modal gate (#1898 stranded downgrade)", () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function herdrStore(status: Partial<HerdrUpdateStatus>): HerdStore {
+    return {
+      sessions: [],
+      workingBlocked: {},
+      herdrUpdate: {
+        current: "0.7.5",
+        latest: "0.7.5",
+        updateAvailable: false,
+        currentUnsupported: false,
+        downgradeTarget: null,
+        notes: null,
+        checkedAt: 0,
+        ...status,
+      },
+    } as unknown as HerdStore;
+  }
+
+  it("renders the downgrade modal when the installed herdr is unsupported (currentUnsupported)", async () => {
+    const props = baseProps();
+    props.showHerdrUpdate = true;
+    props.store = herdrStore({ currentUnsupported: true, downgradeTarget: "0.7.4" });
+
+    render(AppOverlays, props);
+
+    await expect.element(page.getByRole("dialog")).toBeVisible();
+    expect(document.querySelector(".run.downgrade")).not.toBeNull();
+  });
+
+  it("renders nothing when the install is neither behind nor stranded", () => {
+    const props = baseProps();
+    props.showHerdrUpdate = true;
+    // updateAvailable: false, currentUnsupported: false (via herdrStore defaults),
+    // and herdrUpdating stays false from baseProps() — none of the OR's three arms fire.
+    props.store = herdrStore({});
+
+    render(AppOverlays, props);
+
+    expect(document.querySelector(".run.downgrade")).toBeNull();
+    expect(page.getByRole("dialog").elements()).toHaveLength(0);
   });
 });

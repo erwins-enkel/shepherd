@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
 import {
   HerdrUpdateService,
   buildUpdateScript,
@@ -6,6 +6,13 @@ import {
   UPDATE_LOG_PREFIX,
   type HerdrUpdateResult,
 } from "../src/herdr-update";
+import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
+
+// check() refreshes the PROCESS-WIDE spawn-guard version (#1887) as a side effect; the
+// stranded-install tests (#1898) leave it at an unsupported 0.7.5, which would break any
+// later test file that spawns via the drivers (order-dependent HerdrSpawnUnsupportedError).
+// Reset to the un-probed default after every test.
+afterEach(() => setDetectedHerdrVersion(null));
 
 const LOG = "/home/op/.shepherd/herdr-update.log";
 

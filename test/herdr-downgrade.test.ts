@@ -1,4 +1,4 @@
-import { test, expect } from "bun:test";
+import { test, expect, afterEach } from "bun:test";
 import {
   buildDowngradeScript,
   herdrAssetKey,
@@ -7,7 +7,14 @@ import {
   HerdrUpdateService,
   type HerdrUpdateResult,
 } from "../src/herdr-update";
-import { detectedHerdrVersion } from "../src/herdr-capabilities";
+import { detectedHerdrVersion, setDetectedHerdrVersion } from "../src/herdr-capabilities";
+
+// The service under test refreshes the PROCESS-WIDE spawn-guard version (#1887) as a side
+// effect of check()/downgrade(). bun runs every test file in one process, so a leftover
+// unsupported version (0.7.5) from a failure-path test here would make any later file that
+// spawns via the drivers throw HerdrSpawnUnsupportedError (seen as an order-dependent CI
+// break in herdr-socket-driver.test.ts). Reset to the un-probed default after every test.
+afterEach(() => setDetectedHerdrVersion(null));
 
 const LOG = "/home/op/.shepherd/herdr-update.log";
 const URL074 = "https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64";

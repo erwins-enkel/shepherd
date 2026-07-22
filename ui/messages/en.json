@@ -3361,5 +3361,7 @@
   "diagnostics_fix_confirm_run_tmp_inodes": "Sweep now",
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd swept the caches it can reclaim, but usage is still high — the rest is most likely a package-manager store or a leftover worktree an agent left in the temporary filesystem, which Shepherd doesn't reclaim yet.",
   "gloss_inode_term": "inode",
-  "gloss_inode_def": "A filesystem's record for one file or directory. A filesystem has a limited number of them, set when it is created — so it can run out of inodes while still having free space, and every new file then fails as though the disk were full."
+  "gloss_inode_def": "A filesystem's record for one file or directory. A filesystem has a limited number of them, set when it is created — so it can run out of inodes while still having free space, and every new file then fails as though the disk were full.",
+  "feat_herdr_downgrade_title": "Stranded on a broken herdr? One-click downgrade",
+  "feat_herdr_downgrade_body": "If herdr auto-updated into a version Shepherd cannot drive (0.7.5+ broke agent spawning), Shepherd now heals itself: the herdr-update dialog and the Diagnose tab offer a one-click downgrade to the highest supported version — downloaded, verified, swapped and restarted entirely in-app, with a step-by-step audit log."
 }

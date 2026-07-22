@@ -3361,5 +3361,7 @@
   "diagnostics_fix_confirm_run_tmp_inodes": "Jetzt aufräumen",
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt.",
   "gloss_inode_term": "Inode",
-  "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll."
+  "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll.",
+  "feat_herdr_downgrade_title": "Auf kaputtem herdr gestrandet? Downgrade mit einem Klick",
+  "feat_herdr_downgrade_body": "Wenn herdr sich per Auto-Update auf eine Version aktualisiert hat, die Shepherd nicht ansteuern kann (0.7.5+ hat das Starten von Agenten kaputt gemacht), heilt sich Shepherd jetzt selbst: Update-Dialog und Diagnose-Tab bieten ein Ein-Klick-Downgrade auf die höchste unterstützte Version — heruntergeladen, verifiziert, getauscht und neu gestartet komplett in der App, mit Schritt-für-Schritt-Audit-Log."
 }

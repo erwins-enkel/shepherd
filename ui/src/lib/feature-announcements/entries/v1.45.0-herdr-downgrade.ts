@@ -1,0 +1,10 @@
+import type { FeatureAnnouncement } from "../../feature-announcements";
+
+const entry = {
+  id: "herdr-downgrade",
+  sinceVersion: "1.45.0",
+  titleKey: "feat_herdr_downgrade_title",
+  bodyKey: "feat_herdr_downgrade_body",
+} satisfies FeatureAnnouncement;
+
+export default entry;

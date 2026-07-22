@@ -33,13 +33,6 @@ export interface SettingsSectionNav {
   alertCount: number;
 }
 
-/** Case-insensitive substring test over a row's texts (title + description). */
-export function rowMatches(query: string, ...texts: (string | undefined)[]): boolean {
-  const q = query.trim().toLowerCase();
-  if (!q) return false;
-  return texts.some((t) => t !== undefined && t.toLowerCase().includes(q));
-}
-
 /** How many rows match the query — a row is one `[title, description?]` entry. */
 export function matchCount(rows: string[][], query: string): number {
   const q = query.trim().toLowerCase();
@@ -142,7 +135,7 @@ export function codingCliRows(provider: "claude" | "codex"): {
 
 /** The Session section's rows (titles + static hints; parameterized hints
  *  contribute their title only so the index never renders dummy params). */
-export function sessionRows(): string[][] {
+function sessionRows(): string[][] {
   return [
     [m.settings_remote_control_title(), m.settings_remote_control_hint()],
     [m.settings_housekeeping_title()],

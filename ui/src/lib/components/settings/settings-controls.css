@@ -1,0 +1,109 @@
+/* Shared control chrome for the redesigned Settings panels (handoff 5a/5b):
+   the select recipe (.set-select + .set-chev), the ghost button (.set-gbtn,
+   the .gbtn recipe under a settings-scoped name), and the number input
+   (.set-num). Hoisted so SettingsCodingCliPanel and SettingsSessionPanel
+   don't each carry a verbatim copy in their scoped <style> blocks.
+
+   These rules are global (a plain CSS import is unscoped), so the class names
+   are namespaced with `set-` to avoid colliding with other components' scoped
+   recipes — many components define their own `.gbtn`, and several define a
+   `.num` (same caution as automation-fields.css's `.afield-num`). */
+.set-select {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  width: 100%;
+}
+.set-select select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  box-sizing: border-box;
+  background: var(--color-inset);
+  border: 1px solid var(--color-line-bright);
+  border-radius: 2px;
+  color: var(--color-ink);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 6px 26px 6px 10px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.set-select select:hover:not(:disabled) {
+  background: var(--color-hover);
+}
+.set-select select:focus {
+  outline: none;
+  border-color: var(--color-amber);
+}
+.set-select select:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.set-chev {
+  position: absolute;
+  right: 10px;
+  color: var(--color-faint);
+  font-size: var(--fs-micro);
+  pointer-events: none;
+}
+.set-gbtn {
+  background: transparent;
+  border: 1px solid var(--color-line);
+  border-radius: 2px;
+  color: var(--color-muted);
+  font-family: var(--font-mono);
+  font-size: var(--fs-meta);
+  letter-spacing: 0.08em;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+.set-gbtn:hover:not(:disabled) {
+  border-color: var(--color-amber);
+  color: var(--color-amber);
+}
+.set-gbtn:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--color-amber);
+}
+.set-gbtn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.set-num {
+  width: 5.5em;
+  border: 1px solid var(--color-line-bright);
+  background: var(--color-inset);
+  color: var(--color-ink-bright);
+  font-family: var(--font-mono);
+  font-size: var(--fs-base);
+  padding: 6px 8px;
+  border-radius: 2px;
+  min-height: 36px;
+  box-sizing: border-box;
+}
+.set-num:focus {
+  outline: none;
+  border-color: var(--color-amber);
+}
+.set-num:disabled {
+  opacity: 0.5;
+}
+
+@media (max-width: 768px) {
+  .set-select select {
+    min-height: 44px;
+    font-size: var(--fs-lg);
+    padding: 12px 30px 12px 12px;
+  }
+  .set-num {
+    min-height: 44px;
+    font-size: var(--fs-lg);
+  }
+  .set-gbtn {
+    min-height: 44px;
+    padding: 8px 14px;
+  }
+}

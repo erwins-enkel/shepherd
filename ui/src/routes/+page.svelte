@@ -252,7 +252,10 @@
   // Whether the pending Settings open is a deep link (diagnostics dot, plugin
   // focus, steer edit, workspace picker). On mobile a deep link drills straight
   // into the section detail; a plain gear open shows the section list.
+  // Resolved to the view name here (not inline in the template) so the branch
+  // stays out of the template's complexity budget.
   let settingsDeepLink = $state(false);
+  const settingsMobileView = $derived(settingsDeepLink ? "detail" : "list");
   let focusPluginId = $state<string | null>(null);
   // Steer id to expand + focus in the steers editor when Settings opens (set from the
   // steer chip's right-click → "Edit" action; null when the editor is opened plainly).
@@ -3149,7 +3152,7 @@
   }}
   {showSettings}
   {settingsTab}
-  settingsMobileView={settingsDeepLink ? "detail" : "list"}
+  {settingsMobileView}
   {focusPluginId}
   {focusSteerId}
   onsettingsclose={() => {

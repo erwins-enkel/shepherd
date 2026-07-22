@@ -43,6 +43,7 @@
   import SettingToggle from "./SettingToggle.svelte";
   import SettingsGroup from "./SettingsGroup.svelte";
   import HighlightText from "./HighlightText.svelte";
+  import "./settings-controls.css";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -522,7 +523,7 @@
   {query}
 >
   {#snippet control()}
-    <span class="field-select">
+    <span class="set-select">
       <select
         bind:value={defaultAgentProvider}
         disabled={defaultAgentProviderBusy}
@@ -535,14 +536,14 @@
           </option>
         {/each}
       </select>
-      <span class="chev" aria-hidden="true">▾</span>
+      <span class="set-chev" aria-hidden="true">▾</span>
     </span>
   {/snippet}
 </SettingRow>
 
 <SettingRow title={modelRowTitle} description={modelRowDesc} {query}>
   {#snippet control()}
-    <span class="field-select">
+    <span class="set-select">
       {#if defaultAgentProvider === "claude"}
         <select
           data-testid="default-environment-model"
@@ -571,7 +572,7 @@
           {/each}
         </select>
       {/if}
-      <span class="chev" aria-hidden="true">▾</span>
+      <span class="set-chev" aria-hidden="true">▾</span>
     </span>
   {/snippet}
   {#snippet below()}
@@ -625,7 +626,7 @@
     {query}
   >
     {#snippet control()}
-      <span class="field-select">
+      <span class="set-select">
         <select
           bind:value={defaultEffort}
           disabled={defaultEffortBusy}
@@ -637,7 +638,7 @@
             <option value={tier}>{effortLabel(tier)}</option>
           {/each}
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     {/snippet}
   </SettingRow>
@@ -647,7 +648,7 @@
     {query}
   >
     {#snippet control()}
-      <span class="field-select">
+      <span class="set-select">
         <select
           bind:value={operatorLanguage}
           disabled={operatorLanguageBusy}
@@ -657,7 +658,7 @@
           <option value="en">{m.lang_english()}</option>
           <option value="de">{m.lang_german()}</option>
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     {/snippet}
   </SettingRow>
@@ -667,7 +668,7 @@
     {query}
   >
     {#snippet control()}
-      <span class="field-select">
+      <span class="set-select">
         <select
           bind:value={authMode}
           disabled={authBusy}
@@ -677,7 +678,7 @@
           <option value="subscription">{m.settings_auth_mode_subscription()}</option>
           <option value="api-key">{m.settings_auth_mode_apikey()}</option>
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     {/snippet}
     {#snippet below()}
@@ -686,12 +687,12 @@
           {#if hasApiKey}
             <p class="key-status">{m.settings_auth_key_saved()}</p>
             <div class="key-actions">
-              <button type="button" class="gbtn" disabled={authBusy} onclick={clearApiKey}>
+              <button type="button" class="set-gbtn" disabled={authBusy} onclick={clearApiKey}>
                 {m.settings_auth_key_clear()}
               </button>
               <button
                 type="button"
-                class="gbtn"
+                class="set-gbtn"
                 disabled={authBusy || verifyState === "verifying"}
                 onclick={verifyKey}
               >
@@ -721,7 +722,7 @@
             />
             <button
               type="button"
-              class="gbtn"
+              class="set-gbtn"
               disabled={authBusy || apiKeyInput.trim() === ""}
               onclick={saveApiKey}
             >
@@ -749,11 +750,11 @@
     {query}
   >
     {#snippet control()}
-      <span class="field-select">
+      <span class="set-select">
         <select value="local" disabled aria-label={m.settings_cli_codex_auth_title()}>
           <option value="local">{m.settings_cli_codex_auth_local()}</option>
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     {/snippet}
   </SettingRow>
@@ -764,7 +765,7 @@
     <span class="rtitle"><HighlightText text={roleTitle(role)} query={q} /></span>
     <p class="rhint"><HighlightText text={roleHint(role)} query={q} /></p>
     <div class="cli-row">
-      <span class="field-select">
+      <span class="set-select">
         <select
           bind:value={roleCli[role]}
           disabled={roleBusy[role]}
@@ -776,10 +777,10 @@
             <option value={p}>{providerLabel(p)}</option>
           {/each}
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
       {#if roleCli[role] !== "inherit"}
-        <span class="field-select">
+        <span class="set-select">
           <select
             bind:value={roleModelV[role]}
             disabled={roleBusy[role]}
@@ -791,10 +792,10 @@
               <option value={mdl}>{modelOptionLabel(roleGuidanceProvider(role), mdl)}</option>
             {/each}
           </select>
-          <span class="chev" aria-hidden="true">▾</span>
+          <span class="set-chev" aria-hidden="true">▾</span>
         </span>
       {/if}
-      <span class="field-select">
+      <span class="set-select">
         <select
           bind:value={roleEffortV[role]}
           disabled={roleBusy[role]}
@@ -806,7 +807,7 @@
             <option value={tier}>{effortLabel(tier)}</option>
           {/each}
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        <span class="set-chev" aria-hidden="true">▾</span>
       </span>
     </div>
     {#if role === "critic" && effortBelowHigh(roleEffortV[role])}
@@ -824,7 +825,7 @@
       <label class="cycles">
         <span class="cycles-label">{m.settings_distiller_interval_label()}</span>
         <input
-          class="num"
+          class="set-num"
           type="number"
           min={distillerIntervalDaysMin}
           max={distillerIntervalDaysMax}
@@ -882,47 +883,6 @@
     flex-direction: column;
     gap: 6px;
     padding-top: 2px;
-  }
-  .field-select {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    width: 100%;
-  }
-  .field-select select {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 100%;
-    box-sizing: border-box;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-base);
-    padding: 6px 26px 6px 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-  }
-  .field-select select:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
-  .field-select select:focus {
-    outline: none;
-    border-color: var(--color-amber);
-  }
-  .field-select select:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .chev {
-    position: absolute;
-    right: 10px;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    pointer-events: none;
   }
   .premium-warn {
     color: var(--color-amber);
@@ -982,29 +942,6 @@
   .verify-failed {
     color: var(--color-red);
   }
-  .gbtn {
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .gbtn:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
-  .gbtn:disabled {
-    opacity: 0.4;
-    cursor: not-allowed;
-  }
   .rrow {
     display: flex;
     flex-direction: column;
@@ -1037,7 +974,7 @@
     flex-wrap: wrap;
     gap: 8px;
   }
-  .cli-row .field-select {
+  .cli-row :global(.set-select) {
     flex: 1 1 9rem;
     min-width: 9rem;
     width: auto;
@@ -1072,35 +1009,14 @@
     text-transform: uppercase;
     color: var(--color-ink-bright);
   }
-  .cycles .num {
+  .cycles :global(.set-num) {
     width: 4.5em;
-    border: 1px solid var(--color-line-bright);
-    background: var(--color-inset);
-    color: var(--color-ink-bright);
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    padding: 6px 8px;
-    border-radius: 2px;
-    min-height: 36px;
-    box-sizing: border-box;
-  }
-  .cycles .num:focus {
-    outline: none;
-    border-color: var(--color-amber);
-  }
-  .cycles .num:disabled {
-    opacity: 0.5;
   }
 
   @media (max-width: 768px) {
     .glabel {
       font-size: var(--fs-meta);
       padding: 14px 0 6px;
-    }
-    .field-select select {
-      min-height: 44px;
-      font-size: var(--fs-lg);
-      padding: 12px 30px 12px 12px;
     }
     .key-input {
       min-height: 44px;

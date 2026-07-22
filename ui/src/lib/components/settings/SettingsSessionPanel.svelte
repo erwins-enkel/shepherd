@@ -24,6 +24,7 @@
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
+  import "./settings-controls.css";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
 
@@ -468,7 +469,7 @@
 >
   {#snippet control()}
     <input
-      class="num"
+      class="set-num"
       type="number"
       min={prReviewCyclesMin}
       max={prReviewCyclesMax}
@@ -491,7 +492,7 @@
 >
   {#snippet control()}
     <input
-      class="num"
+      class="set-num"
       type="number"
       min={planReviewCyclesMin}
       max={planReviewCyclesMax}
@@ -506,7 +507,7 @@
 
 <SettingRow title={m.restart_title()} description={m.restart_settings_hint()} {query}>
   {#snippet control()}
-    <button type="button" class="gbtn" onclick={() => (restartOpen = true)}>
+    <button type="button" class="set-gbtn" onclick={() => (restartOpen = true)}>
       {m.restart_button()}
     </button>
   {/snippet}
@@ -514,7 +515,7 @@
 
 <SettingRow title={m.settings_logout_title()} description={m.settings_logout_hint()} {query}>
   {#snippet control()}
-    <button type="button" class="gbtn" onclick={() => logout()}>
+    <button type="button" class="set-gbtn" onclick={() => logout()}>
       {m.settings_logout_button()}
     </button>
   {/snippet}
@@ -527,7 +528,7 @@
 >
   {#snippet control()}
     <input
-      class="num"
+      class="set-num"
       type="number"
       min="0"
       step="1"
@@ -563,7 +564,7 @@
 >
   {#snippet control()}
     <input
-      class="num"
+      class="set-num"
       type="number"
       min="0"
       max="100"
@@ -600,7 +601,7 @@
 >
   {#snippet control()}
     <input
-      class="num"
+      class="set-num"
       type="number"
       min="0"
       max="100"
@@ -619,7 +620,7 @@
   {query}
 >
   {#snippet control()}
-    <span class="field-select">
+    <span class="set-select">
       <select
         bind:value={usageDowngradeModel}
         disabled={usageDowngradeModelBusy || !usageDowngradeEnabled}
@@ -632,7 +633,7 @@
           <option value={mdl}>{modelOptionLabel("claude", mdl)}</option>
         {/each}
       </select>
-      <span class="chev" aria-hidden="true">▾</span>
+      <span class="set-chev" aria-hidden="true">▾</span>
     </span>
   {/snippet}
   {#snippet below()}
@@ -707,104 +708,9 @@
     color: var(--color-faint);
     font-size: var(--fs-meta);
   }
-  .num {
-    width: 5.5em;
-    border: 1px solid var(--color-line-bright);
-    background: var(--color-inset);
-    color: var(--color-ink-bright);
-    font-family: var(--font-mono);
-    font-size: var(--fs-base);
-    padding: 6px 8px;
-    border-radius: 2px;
-    min-height: 36px;
-    box-sizing: border-box;
-  }
-  .num:focus {
-    outline: none;
-    border-color: var(--color-amber);
-  }
-  .num:disabled {
-    opacity: 0.5;
-  }
-  .field-select {
-    position: relative;
-    display: inline-flex;
-    align-items: center;
-    width: 100%;
-  }
-  .field-select select {
-    appearance: none;
-    -webkit-appearance: none;
-    width: 100%;
-    box-sizing: border-box;
-    background: var(--color-inset);
-    border: 1px solid var(--color-line-bright);
-    border-radius: 2px;
-    color: var(--color-ink);
-    font: inherit;
-    font-size: var(--fs-base);
-    padding: 6px 26px 6px 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    cursor: pointer;
-  }
-  .field-select select:hover:not(:disabled) {
-    background: var(--color-hover);
-  }
-  .field-select select:focus {
-    outline: none;
-    border-color: var(--color-amber);
-  }
-  .field-select select:disabled {
-    opacity: 0.5;
-    cursor: default;
-  }
-  .chev {
-    position: absolute;
-    right: 10px;
-    color: var(--color-faint);
-    font-size: var(--fs-micro);
-    pointer-events: none;
-  }
-  .gbtn {
-    background: transparent;
-    border: 1px solid var(--color-line);
-    border-radius: 2px;
-    color: var(--color-muted);
-    font-family: var(--font-mono);
-    font-size: var(--fs-meta);
-    letter-spacing: 0.08em;
-    padding: 2px 8px;
-    cursor: pointer;
-  }
-  .gbtn:hover:not(:disabled) {
-    border-color: var(--color-amber);
-    color: var(--color-amber);
-  }
-  .gbtn:focus-visible {
-    outline: none;
-    box-shadow: inset 0 0 0 1px var(--color-amber);
-  }
   .steers {
     margin-top: 12px;
     border-top: 1px solid var(--color-line);
     padding-top: 4px;
-  }
-
-  @media (max-width: 768px) {
-    .field-select select {
-      min-height: 44px;
-      font-size: var(--fs-lg);
-      padding: 12px 30px 12px 12px;
-    }
-    .num {
-      min-height: 44px;
-      font-size: var(--fs-lg);
-    }
-    .gbtn {
-      min-height: 44px;
-      padding: 8px 14px;
-    }
   }
 </style>

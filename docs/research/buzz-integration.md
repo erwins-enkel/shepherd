@@ -30,7 +30,7 @@ So the question was never "should Shepherd become multi-party". It already is, t
 
 **The shape:** each operator runs their own Shepherd, on their own machine, on their own subscription, draining a shared forge. ToS-clean, and already half-built per §1. A real direction — with **no fixed timeline**.
 
-**The pain, in the code's own words** (`src/drain-core.ts:16`):
+**The pain, in the code's own words** (`src/drain-core.ts:21-23`):
 
 > The window is narrowed, not eliminated — two instances listing within the claim's set-up latency can still race; local dedup then prevents a single instance double-spawning.
 
@@ -88,7 +88,7 @@ This one is architectural, so nothing above — including the sunk-cost correcti
 
 - **Spawn ownership inverts.** buzz spawns the agent (`relay ──WS──→ buzz-acp ──stdio──→ agent`); Shepherd owns the herdr pane. Two orchestrators cannot both own the process.
 - **Headless JSON-RPC, no PTY.** ACP is `initialize` / `session/new` / `session/prompt` over stdio. `src/blocked.ts` and the xterm.js viewport (`WS /pty/:id`) have nothing to attach to.
-- **Metered-API auth.** The Claude path is `claude-agent-acp` + `ANTHROPIC_API_KEY` — the billing model the design stance exists to avoid.
+- **Metered-API auth only.** The Claude path is `claude-agent-acp` + `ANTHROPIC_API_KEY`. Shepherd is not opposed to that per se — `PRODUCT.md:17` explicitly offers metered API-key auth as an opt-in for operators who prefer a clearly-compliant path. The problem is narrower: buzz-acp makes it the _only_ option, foreclosing the subscription-on-a-real-terminal path that is Shepherd's default. This bullet is a cost, not a disqualifier; the two above already carry the conclusion.
 
 **`buzz-acp` is an adjacent competitor to Shepherd's core, not a complement.** Adopting it wouldn't integrate Shepherd with buzz; it would replace Shepherd with buzz.
 
@@ -104,10 +104,11 @@ This one is architectural, so nothing above — including the sunk-cost correcti
 | **Relay WS/HTTP** | NIP-01 wire format; NIPs 1,2,10,11,16,17,23,25,29,33,38,42,50,56. Custom kind registry (9 chat, 40008 diff, NIP-34 git, 46000+ workflows, 48001 audit).                          | NIP-42 (WS), NIP-98 (HTTP), Blossom BUD-01 (media)                 |
 | **Workflows**     | YAML → kind 30620. Triggers `message_posted`/`reaction_added`/`diff_posted`/`schedule`/`webhook`; actions incl. `call_webhook {url, method?, headers?, body?}`.                  | `POST /hooks/{workflow_uuid}` → 202, per-workflow UUID secret      |
 
-**If a Shepherd→buzz bridge is ever built, it is an out-of-repo plugin** (`docs/plugins.md`), needing zero core changes: `ctx.events.subscribe` (`src/plugins/types.ts:117`) → shell out to `buzz-cli`. Two things that will bite:
+**If a Shepherd→buzz bridge is ever built, it is an out-of-repo plugin** (`docs/plugins.md`), needing zero core changes: `ctx.events.subscribe` (`src/plugins/types.ts:118`) → shell out to `buzz-cli`. Three things that will bite:
 
-- **Dedup is the plugin's job.** `EventHub` (`src/events.ts`) is 13 lines, synchronous, untyped, no replay; `session:git` re-fires every poll. Copy the `lastState` + `emitted` + cold-start pattern from `src/pr-opened-telemetry.ts:38-52` and persist cursors in `ctx.state`.
-- **Inbound control needs a public HTTPS host.** buzz's `call_webhook` accepts custom `headers` (so `Authorization: Bearer $SHEPHERD_TOKEN` reaches the existing `POST /api/sessions/:id/reply`), but it requires public HTTPS and SSRF-blocks private ranges (`ARCHITECTURE.md`) — Tailscale Funnel is the natural fit given `src/tailscale.ts`, **unverified whether `*.ts.net` passes the filter**. Note the trust asymmetry: that path lets anyone who can post in a channel type into a live agent's terminal. Gate on author pubkey in the workflow `filter`, not a `!steer` prefix.
+- **Dedup is the plugin's job.** `EventHub` (`src/events.ts`) is 12 lines, synchronous, untyped, with no replay. The poller does gate emission on real change (`gitStateChanged`, `src/pr-poller.ts:97-110`), but that predicate covers ~15 fields — checks, reviewer states, `headSha`, handoff — so `session:git` fires repeatedly for a PR whose `state` never leaves `open`. A plugin that wants "PR opened" must therefore track the **transition** itself, and guard the cold start (a restart re-observes every existing PR). Copy the `lastState` + `emitted` + `prev !== undefined` pattern from `src/pr-opened-telemetry.ts:26-49` and persist cursors in `ctx.state`.
+- **Inbound control has no channel→session mapping.** `POST /api/sessions/:id/reply` takes a **Shepherd session id** (`src/server.ts:2471`, passed to `operatorReply` at `:2482`). A buzz workflow trigger supplies `channel_id` / `message_id` / `author` — none of which is one. So an inbound steer path needs the plugin to own that mapping (e.g. persist `channel_id → sessionId` in `ctx.state` when it announces a session, then expose a `ctx.route` the workflow calls instead of hitting `/api/sessions/:id/reply` directly). **This is unbuilt and non-trivial; treat it as a design task, not a config step.**
+- **…and it needs a public HTTPS host.** buzz's `call_webhook` accepts custom `headers` (so `Authorization: Bearer $SHEPHERD_TOKEN` can authenticate), but it requires public HTTPS and SSRF-blocks private ranges (`ARCHITECTURE.md`) — Tailscale Funnel is the natural fit given `src/tailscale.ts`, **unverified whether `*.ts.net` passes the filter**. Note the trust asymmetry: that path lets anyone who can post in a channel type into a live agent's terminal. Gate on author pubkey in the workflow `filter`, not a `!steer` prefix.
 
 ## Recommendation
 
@@ -123,4 +124,4 @@ This one is architectural, so nothing above — including the sunk-cost correcti
 - `crates/buzz-cli/README.md` (incl. the `mem` group and `--base-hash`), `crates/buzz-acp/README.md`, `crates/buzz-core/src/kind.rs`, `crates/buzz-auth/src/scope.rs`, `crates/buzz-relay/src/{router.rs,nip11.rs,api/bridge.rs}`, `crates/buzz-workflow/src/schema.rs`
 - `deploy/compose/README.md`, `deploy/charts/buzz`
 - [Agent Client Protocol](https://agentclientprotocol.com)
-- Shepherd: `PRD.md`, `PRODUCT.md`, `docs/plugins.md`, `src/{drain-core,repo-roles,events,push,blocked,plugins/types,pr-opened-telemetry,tailscale}.ts`
+- Shepherd: `PRD.md`, `PRODUCT.md`, `docs/plugins.md`, `src/{drain-core,repo-roles,events,push,blocked,plugins/types,pr-poller,pr-opened-telemetry,server,tailscale}.ts`

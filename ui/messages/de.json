@@ -9,6 +9,7 @@
   "topbar_update_badge": "Update",
   "topbar_herdr_update_badge": "herdr",
   "topbar_herdr_update_title": "herdr {latest} verfügbar (installiert: {current})",
+  "topbar_herdr_advisory_title": "herdr {current}: Sandboxed-Sitzungen haben eine Status-Einschränkung — für Details klicken",
   "herdrupdate_title": "herdr-Update verfügbar",
   "herdrupdate_versions": "{current} → {latest}",
   "herdrupdate_notes_label": "Versionshinweise",
@@ -25,6 +26,9 @@
   "herdrupdate_log_label": "Update-Protokoll",
   "herdrupdate_all_notes_link": "Alle Release-Notes ansehen",
   "herdrupdate_downgrade_confirm": "Auf {target} downgraden",
+  "herdrupdate_sandbox_advisory_title": "Sandboxed-Sitzungen wirken im Ruhezustand beschäftigt",
+  "herdrupdate_sandbox_advisory_body": "Du nutzt herdr {current}, das Shepherd vollständig unterstützt. Eine Einschränkung: In dieser Version kann ein sandboxed Agent nicht melden, wenn er in den Ruhezustand wechselt — eine ruhende sandboxed Sitzung erscheint daher als „arbeitet\", bis sie eine Frage stellt oder fertig ist (herdr-Issue #1716). Trusted-Sitzungen sind nicht betroffen. Wenn du auf sandboxed Sitzungen angewiesen bist und einen korrekten Ruhestatus bevorzugst, kannst du auf herdr {target} downgraden.",
+  "herdrupdate_sandbox_downgrade_confirm": "Auf {target} downgraden (korrekter Sandbox-Status)",
   "herdrupdate_downgrade_done_ok": "Auf {target} downgegradet. Agenten lassen sich wieder starten — kein Shepherd-Neustart nötig.",
   "herdrupdate_downgrade_instructions": "Das Downgrade lädt das höchste unterstützte herdr-Release herunter, verifiziert es, tauscht das Binary und startet den herdr-Server neu. Shepherd läuft weiter, kein Neuladen der Seite.",
   "herdrupdate_downgrade_title": "herdr-Downgrade erforderlich",
@@ -3362,6 +3366,8 @@
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt.",
   "gloss_inode_term": "Inode",
   "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll.",
+  "feat_herdr_sandbox_advisory_title": "Sandboxed-Sitzungen unter herdr 0.7.5: eine Status-Einschränkung",
+  "feat_herdr_sandbox_advisory_body": "Unter herdr 0.7.5 erscheint ein ruhender sandboxed Agent als „arbeitet\", bis er eine Frage stellt oder fertig ist — herdr kann seinen Ruhezustand nicht melden (Issue #1716). Trusted-Sitzungen sind nicht betroffen. Wenn du auf sandboxed Sitzungen angewiesen bist und einen korrekten Ruhestatus möchtest, bietet der herdr-Update-Dialog jetzt ein Downgrade mit einem Klick auf eine Version ohne diese Einschränkung.",
   "feat_herdr_downgrade_title": "Auf kaputtem herdr gestrandet? Downgrade mit einem Klick",
   "feat_herdr_downgrade_body": "Wenn herdr sich per Auto-Update auf eine Version aktualisiert hat, die Shepherd nicht ansteuern kann (0.7.5+ hat das Starten von Agenten kaputt gemacht), heilt sich Shepherd jetzt selbst: Update-Dialog und Diagnose-Tab bieten ein Ein-Klick-Downgrade auf die höchste unterstützte Version — heruntergeladen, verifiziert, getauscht und neu gestartet komplett in der App, mit Schritt-für-Schritt-Audit-Log."
 }

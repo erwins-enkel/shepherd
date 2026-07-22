@@ -1,7 +1,9 @@
 import { execFileSync } from "./instrument";
 import { config } from "./config";
 import {
+  HERDR_LAST_FULL_SANDBOX_STATUS_VERSION,
   HERDR_LAST_SUPPORTED_VERSION,
+  herdrUsesExternalRegistrationSpawn,
   isHerdrVersionSupported,
   setDetectedHerdrVersion,
 } from "./herdr-capabilities";
@@ -245,6 +247,21 @@ function supportFlags(
   };
 }
 
+/** Status fields for the sandboxed-idle advisory (herdr #1716, two-path). Set only when the
+ *  installed herdr uses the external-registration spawn path (0.7.5+, where a sandboxed agent's
+ *  idle can't be reported) AND this operator runs sandboxed sessions. Reads the process-wide
+ *  detected version via {@link herdrUsesExternalRegistrationSpawn} — check() calls
+ *  setDetectedHerdrVersion first, so it reflects what's installed. */
+function sandboxFlags(
+  sandboxedInUse: boolean,
+): Pick<HerdrUpdateStatus, "sandboxIdleRegressed" | "sandboxDowngradeTarget"> {
+  const regressed = herdrUsesExternalRegistrationSpawn() && sandboxedInUse;
+  return {
+    sandboxIdleRegressed: regressed,
+    sandboxDowngradeTarget: regressed ? HERDR_LAST_FULL_SANDBOX_STATUS_VERSION : null,
+  };
+}
+
 /** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
  *  ✓/✗ state. Success is decided by a re-read `herdr --version`, NOT the child's
  *  exit code (`herdr update` exits 0 even when it prints "Herdr was not updated"). */
@@ -294,6 +311,10 @@ export interface HerdrUpdateDeps {
   maintenance?: { begin(): void; end(): void };
   /** watchdog ceiling before a hung `herdr update` is force-killed (default 5min) */
   watchdogMs?: number;
+  /** Whether this operator runs sandboxed sessions — gates the sandboxed-idle advisory (#1716) so
+   *  it never shows to a trusted-only operator (who has no regression). Default: `() => false`
+   *  (conservative: no advisory unless wired). */
+  sandboxedInUse?: () => boolean;
 }
 
 /**
@@ -326,6 +347,7 @@ export class HerdrUpdateService {
   private onDone: (result: HerdrUpdateResult) => void;
   private maintenance: { begin(): void; end(): void };
   private watchdogMs: number;
+  private sandboxedInUse: () => boolean;
   private last: HerdrUpdateStatus | null = null;
   private applying = false;
 
@@ -343,6 +365,7 @@ export class HerdrUpdateService {
     this.onDone = deps.onDone ?? (() => {});
     this.maintenance = deps.maintenance ?? sharedMaintenance;
     this.watchdogMs = deps.watchdogMs ?? 5 * 60 * 1000;
+    this.sandboxedInUse = deps.sandboxedInUse ?? (() => false);
   }
 
   /** Spawn `bash -lc <script>` in shepherd's own process tree (NOT detached —
@@ -500,26 +523,30 @@ export class HerdrUpdateService {
    *  (#1898). Mirrors apply(): returns immediately for a 202, streams progress via
    *  onLog, terminal outcome via onDone. Refuses when the installed version is
    *  already supported (nothing to rescue) or while a run is in flight. */
-  downgrade(): { started: boolean } {
+  downgrade(target: string = HERDR_LAST_SUPPORTED_VERSION): { started: boolean } {
     if (this.applying) return { started: false };
     // Re-read the ACTUAL installed version rather than trusting `this.last.current`
-    // (the periodic check(), up to 6h stale): if the operator manually pinned 0.7.4
+    // (the periodic check(), up to 6h stale): if the operator manually pinned lower
     // out-of-band since the last check, gating on the stale cache would still pass
     // and restart the herdr server for nothing. actualVersion() is best-effort and
     // never throws.
     const current = this.actualVersion(this.last?.current ?? null);
-    if (isHerdrVersionSupported(current)) {
+    // Refuse when there's nothing to move: the installed version is already at or below the target.
+    // For the stranded rescue (target = supported ceiling) this is exactly "already supported"; for
+    // the two-path sandbox escape (target = last full-sandbox-status version) it allows the step
+    // down from a supported-but-regressed 0.7.5+. A null/unreadable version refuses (can't verify).
+    if (!current || compareSemver(current, target) <= 0) {
       console.warn(
-        `[herdr-update] refusing downgrade: installed herdr ${current ?? "?"} is already supported`,
+        `[herdr-update] refusing downgrade: installed herdr ${current ?? "?"} is already <= ${target}`,
       );
       return { started: false };
     }
     this.applying = true;
     console.warn(
-      `[herdr-update] downgrading ${current} -> ${HERDR_LAST_SUPPORTED_VERSION}; ` +
+      `[herdr-update] downgrading ${current} -> ${target}; ` +
         `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
     );
-    void this.runDowngradeOnce(current);
+    void this.runDowngradeOnce(current, target);
     return { started: true };
   }
 
@@ -527,8 +554,7 @@ export class HerdrUpdateService {
    *  script under the watchdog, decide success from a re-read version, refresh the
    *  spawn guard, and ALWAYS clear maintenance + the applying guard (same contract
    *  as runOnce — begin() inside the try, matching end() in finally). */
-  private async runDowngradeOnce(from: string | null): Promise<void> {
-    const to = HERDR_LAST_SUPPORTED_VERSION;
+  private async runDowngradeOnce(from: string | null, to: string): Promise<void> {
     let watchdog: ReturnType<typeof setTimeout> | undefined;
     let result: HerdrUpdateResult;
     try {
@@ -610,6 +636,7 @@ export class HerdrUpdateService {
         updateAvailable,
         latestUnsupported,
         ...supportFlags(current),
+        ...sandboxFlags(this.sandboxedInUse()),
         notes: updateAvailable ? (latestRaw.notes ?? null) : null,
         checkedAt: now,
       };
@@ -619,6 +646,7 @@ export class HerdrUpdateService {
         latest: null,
         updateAvailable: false,
         ...supportFlags(this.last?.current ?? null),
+        ...sandboxFlags(this.sandboxedInUse()),
         notes: null,
         checkedAt: now,
         error: e instanceof Error ? e.message : "herdr update check failed",

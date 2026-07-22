@@ -28,6 +28,15 @@ export const HERDR_LAST_SPAWNABLE_VERSION = "0.7.5";
  *  {@link herdrUsesExternalRegistrationSpawn}. */
 const HERDR_EXTERNAL_REGISTRATION_VERSION = "0.7.5";
 
+/** The highest herdr version on which a SANDBOXED agent's status tracks with full fidelity. Up to
+ *  here herdr launched the wrapped agent via `agent start --kind` and detected its state (idle/
+ *  working/blocked) itself; from {@link HERDR_EXTERNAL_REGISTRATION_VERSION} on, sandboxed agents
+ *  are externally registered and herdr won't accept the client's idle down-edge (herdr issue #1716),
+ *  so a resting sandboxed agent reads `working`. This is the target the two-path advisory downgrades
+ *  to so operators who rely on sandboxed sessions can opt out of that regression. Trusted agents are
+ *  unaffected on any version. */
+export const HERDR_LAST_FULL_SANDBOX_STATUS_VERSION = "0.7.4";
+
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 
 /** Extract a bare `x.y.z` from a raw `herdr --version` line; null when unparseable. */

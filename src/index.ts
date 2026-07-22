@@ -2621,6 +2621,17 @@ const herdrUpdates = new HerdrUpdateService({
   // terminal ✓/✗ result the modal renders instead of waiting for a page reload.
   onStatus: (status) => events.emit("herdr-update:status", status),
   onDone: (result) => events.emit("herdr-update:done", result),
+  // Gate the sandboxed-idle advisory (#1716) on whether this operator actually runs sandboxed
+  // sessions: the default profile is non-trusted, OR a live session is genuinely sandboxed. (A
+  // repo configured sandboxed but with no live session isn't caught here — an accepted gap; the
+  // advisory re-appears as soon as such a session runs.)
+  sandboxedInUse: () =>
+    config.sandboxDefaultProfile !== "trusted" ||
+    store
+      .list({ activeOnly: true })
+      .some(
+        (s) => s.sandboxApplied != null && s.sandboxApplied !== "trusted" && !s.sandboxDegraded,
+      ),
 });
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));

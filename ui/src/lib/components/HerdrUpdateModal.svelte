@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
-  import { applyHerdrUpdate, applyHerdrDowngrade } from "$lib/api";
+  import { applyHerdrUpdate, applyHerdrDowngrade, applyHerdrSandboxDowngrade } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
@@ -150,6 +150,15 @@
   const confirm = () => submit(applyHerdrUpdate, false, "update failed");
   const confirmDowngrade = () => submit(applyHerdrDowngrade, true, "downgrade failed");
 
+  // Two-path advisory (#1716): on a SUPPORTED-but-regressed herdr (0.7.5+), an operator who runs
+  // sandboxed sessions can optionally step down to a version with full sandboxed status fidelity.
+  // NON-blocking — unlike `blocked`, it doesn't hide the normal upgrade button; it adds an extra
+  // downgrade action + an info note. Suppressed while a blocking state is showing (that flow already
+  // offers its own downgrade).
+  const sandboxAdvisory = $derived(!!update.sandboxIdleRegressed && !blocked);
+  const confirmSandboxDowngrade = () =>
+    submit(applyHerdrSandboxDowngrade, true, "downgrade failed");
+
   // Done-state text, hoisted out of the template for the same reason as above.
   const doneMessage = $derived(
     !done
@@ -215,6 +224,20 @@
       <div class="blocked" role="alert">
         <span class="blocked-title">{blocked.title}</span>
         <span class="blocked-body">{blocked.body}</span>
+      </div>
+    {/if}
+
+    {#if sandboxAdvisory && !submitting}
+      <!-- Two-path advisory (#1716): supported herdr, but sandboxed agents can't report idle here.
+           Informational (not an alert); the normal upgrade action stays available below. -->
+      <div class="advisory">
+        <span class="advisory-title">{m.herdrupdate_sandbox_advisory_title()}</span>
+        <span class="advisory-body"
+          >{m.herdrupdate_sandbox_advisory_body({
+            current: update.current ?? "?",
+            target: update.sandboxDowngradeTarget ?? "",
+          })}</span
+        >
       </div>
     {/if}
 
@@ -296,6 +319,17 @@
       {:else if !done && !update.latestUnsupported}
         <button type="button" class="run" onclick={confirm} disabled={busy}>
           {confirmLabel}
+        </button>
+      {/if}
+      {#if !done && sandboxAdvisory}
+        <!-- Non-blocking opt-out, shown ALONGSIDE the upgrade button above (two paths). -->
+        <button
+          type="button"
+          class="run downgrade sandbox-downgrade"
+          onclick={confirmSandboxDowngrade}
+          disabled={busy}
+        >
+          {m.herdrupdate_sandbox_downgrade_confirm({ target: update.sandboxDowngradeTarget ?? "" })}
         </button>
       {/if}
     </div>
@@ -502,6 +536,27 @@
     font-weight: 600;
   }
   .blocked-body {
+    font-size: var(--fs-base);
+    color: var(--color-ink-bright);
+  }
+  /* informational two-path advisory (#1716) — blue (informational), NOT a red alert: the herdr is
+     supported, this is an optional opt-out from the sandboxed idle-status regression. */
+  .advisory {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border-radius: 8px;
+    border: 1px solid var(--color-blue);
+    background: color-mix(in srgb, var(--color-blue) 12%, transparent);
+    padding: 10px 12px;
+    line-height: 1.5;
+    color: var(--color-blue);
+  }
+  .advisory-title {
+    font-size: var(--fs-base);
+    font-weight: 600;
+  }
+  .advisory-body {
     font-size: var(--fs-base);
     color: var(--color-ink-bright);
   }

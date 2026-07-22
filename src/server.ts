@@ -4214,22 +4214,28 @@ function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
 }
 
 // ── herdr downgrade: rescue an install stranded on an unsupported herdr ────
-// POST /api/herdr-update/downgrade — rescue an install stranded on an unsupported
-// herdr (0.7.5+, #1898) by installing the highest supported version. The service
-// re-guards; this is the HTTP backstop against a direct POST (mirrors apply()'s
-// latestUnsupported refusal).
+// POST /api/herdr-update/downgrade — rescue an install stranded on an unsupported herdr (0.7.5+,
+//   #1898) by installing the highest supported version.
+// POST /api/herdr-update/downgrade/sandbox — two-path opt-out (#1716): step BELOW the supported
+//   ceiling to the last version with full sandboxed-agent status fidelity, for operators who run
+//   sandboxed sessions and prefer no idle-status regression. The server picks the target from the
+//   current status (never trusts a client version string). The service re-guards; this is the HTTP
+//   backstop against a direct POST.
 function handleHerdrDowngrade({ req, parts, deps }: Ctx): Response | null {
-  if (!(
-    parts[0] === "api" &&
-    parts[1] === "herdr-update" &&
-    parts[2] === "downgrade" &&
-    !parts[3]
-  )) {
-    return null;
-  }
+  const sandbox = parts[3] === "sandbox";
+  if (!(parts[0] === "api" && parts[1] === "herdr-update" && parts[2] === "downgrade")) return null;
+  if (parts[3] !== undefined && !sandbox) return null;
   if (req.method !== "POST") return null;
   if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
-  if (!deps.herdrUpdates.current()?.currentUnsupported) {
+  const status = deps.herdrUpdates.current();
+  if (sandbox) {
+    if (!status?.sandboxIdleRegressed || !status.sandboxDowngradeTarget) {
+      return json({ error: "no sandboxed-idle regression to downgrade for" }, 409);
+    }
+    const r = deps.herdrUpdates.downgrade(status.sandboxDowngradeTarget);
+    return json({ ok: r.started }, r.started ? 202 : 409);
+  }
+  if (!status?.currentUnsupported) {
     return json({ error: "installed herdr is already supported" }, 409);
   }
   const r = deps.herdrUpdates.downgrade();

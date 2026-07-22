@@ -1463,6 +1463,13 @@ export interface HerdrUpdateStatus {
    *  `currentUnsupported`; null otherwise. Derived server-side from
    *  HERDR_LAST_SUPPORTED_VERSION so the UI never hardcodes a version. */
   downgradeTarget?: string | null;
+  /** true when the installed herdr has the sandboxed-agent idle-status regression (external-
+   *  registration spawn, 0.7.5+) AND this operator runs sandboxed sessions. NON-blocking advisory;
+   *  the modal offers an optional downgrade to a regression-free version. (herdr issue #1716) */
+  sandboxIdleRegressed?: boolean;
+  /** The version the two-path advisory downgrades to (below the supported ceiling, to escape the
+   *  regression) when `sandboxIdleRegressed`; null otherwise. */
+  sandboxDowngradeTarget?: string | null;
   notes: string | null;
   checkedAt: number;
   error?: string;

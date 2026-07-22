@@ -8,6 +8,7 @@ vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
   applyHerdrUpdate: vi.fn(() => new Promise(() => {})),
   applyHerdrDowngrade: vi.fn(() => new Promise(() => {})),
+  applyHerdrSandboxDowngrade: vi.fn(() => new Promise(() => {})),
 }));
 
 import HerdrUpdateModal from "./HerdrUpdateModal.svelte";
@@ -110,6 +111,41 @@ describe("HerdrUpdateModal", () => {
     render(HerdrUpdateModal, { props: { update } }); // the ordinary 0.6.9→0.6.10 fixture
     expect(document.querySelector(".run.downgrade")).toBeNull();
     expect(document.querySelector(".run")).not.toBeNull();
+  });
+
+  it("shows the non-blocking two-path advisory + sandbox downgrade on a supported-but-regressed herdr (#1716)", async () => {
+    const { applyHerdrSandboxDowngrade } = await import("$lib/api");
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.5",
+          latest: "0.7.5",
+          updateAvailable: false,
+          currentUnsupported: false, // SUPPORTED — non-blocking advisory, not the stranded alert
+          sandboxIdleRegressed: true,
+          sandboxDowngradeTarget: "0.7.4",
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // Advisory is informational, NOT the red blocking alert.
+    expect(document.querySelector(".advisory")).not.toBeNull();
+    expect(document.querySelector(".blocked")).toBeNull();
+    // The sandbox downgrade action names the target…
+    const btn = document.querySelector<HTMLButtonElement>(".run.sandbox-downgrade");
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toContain("0.7.4");
+    // …and clicking it fires the sandbox downgrade endpoint.
+    btn!.click();
+    await vi.waitFor(() => expect(vi.mocked(applyHerdrSandboxDowngrade)).toHaveBeenCalledOnce());
+  });
+
+  it("shows no advisory when herdr is supported and unregressed", () => {
+    render(HerdrUpdateModal, { props: { update } }); // ordinary fixture, no sandboxIdleRegressed
+    expect(document.querySelector(".advisory")).toBeNull();
+    expect(document.querySelector(".run.sandbox-downgrade")).toBeNull();
   });
 
   it("surfaces the server-authored refusal reason on a failed downgrade (#1898)", async () => {

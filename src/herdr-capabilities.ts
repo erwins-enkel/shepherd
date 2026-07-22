@@ -10,8 +10,23 @@
 // diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update to 0.7.5+.
 import { compareSemver } from "./semver";
 
-/** The newest herdr version Shepherd can drive. 0.7.5+ broke agent spawning — see #1889. */
+/** The newest herdr version Shepherd's general ceiling admits. Feeds the preflight banner, the
+ *  in-app updater block, and the diagnostics ceiling display — retiring THOSE is a separate child of
+ *  #1889, so this stays `0.7.4` here even though the CLI driver can now spawn on 0.7.5 (see
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION}). */
 export const HERDR_LAST_SUPPORTED_VERSION = "0.7.4";
+
+/** The newest herdr version the CLI driver can SPAWN on. 0.7.5 (protocol 17) is spawnable via the
+ *  external-registration path (`tab create` → `pane run` → `report-agent`, #1890); this is
+ *  decoupled from {@link HERDR_LAST_SUPPORTED_VERSION} so lifting the CLI spawn refusal for 0.7.5
+ *  does not also un-gate the updater/preflight ceiling. */
+export const HERDR_LAST_SPAWNABLE_VERSION = "0.7.5";
+
+/** First herdr version that requires the external-registration spawn path instead of `agent start`
+ *  (protocol 17 reshaped `agent start` so the wrapped `env …`/`bwrap …` argv can no longer be
+ *  launched through it — #1890). Module-private: consumed only by
+ *  {@link herdrUsesExternalRegistrationSpawn}. */
+const HERDR_EXTERNAL_REGISTRATION_VERSION = "0.7.5";
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 
@@ -41,8 +56,20 @@ export function detectedHerdrVersion(): string | null {
   return detected;
 }
 
-/** Whether the installed herdr is one Shepherd can spawn agents on. Defaults to true before
- *  detection so an un-probed process behaves as the shipping build did. */
+/** Whether the installed herdr is one Shepherd can spawn agents on. Decoupled from
+ *  {@link isHerdrVersionSupported} (the general 0.7.4 ceiling): the CLI driver can now spawn up to
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} (0.7.5) via the external-registration path (#1890).
+ *  null/unparseable → true (never false-alarm on an unreadable version). */
 export function herdrSpawnSupported(): boolean {
-  return isHerdrVersionSupported(detected);
+  if (!detected) return true;
+  return compareSemver(detected, HERDR_LAST_SPAWNABLE_VERSION) <= 0;
+}
+
+/** Whether the detected herdr requires the 0.7.5+ external-registration spawn path (CLI driver) —
+ *  `tab create` → `pane run` → `report-agent` — instead of the legacy `agent start`. null/
+ *  unparseable → false, so an un-probed process takes the legacy path (the shipping build's
+ *  behavior). */
+export function herdrUsesExternalRegistrationSpawn(): boolean {
+  if (!detected) return false;
+  return compareSemver(detected, HERDR_EXTERNAL_REGISTRATION_VERSION) >= 0;
 }

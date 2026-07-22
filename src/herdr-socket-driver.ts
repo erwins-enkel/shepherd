@@ -18,7 +18,11 @@ import {
   type IHerdrDriver,
 } from "./herdr";
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
-import { detectedHerdrVersion, herdrSpawnSupported } from "./herdr-capabilities";
+import {
+  detectedHerdrVersion,
+  herdrSpawnSupported,
+  herdrUsesExternalRegistrationSpawn,
+} from "./herdr-capabilities";
 
 /**
  * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
@@ -125,6 +129,12 @@ export class SocketHerdrDriver implements IHerdrDriver {
     // Same unsupported-herdr guard as the CLI driver (defensive: the socket only activates on a
     // supported protocol today, but the version ceiling is the source of truth). See #1889.
     if (!herdrSpawnSupported()) throw new HerdrSpawnUnsupportedError(detectedHerdrVersion());
+    // The 0.7.5 external-registration spawn path is CLI-only (#1890); this socket driver does not
+    // implement it. It is never *selected* on protocol 17 (17 ∉ HERDR_SOCKET_SUPPORTED_PROTOCOLS),
+    // so this is belt-and-suspenders — refuse rather than attempt the broken socket `agent.start`.
+    if (herdrUsesExternalRegistrationSpawn()) {
+      throw new HerdrSpawnUnsupportedError(detectedHerdrVersion());
+    }
     return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
   }
 

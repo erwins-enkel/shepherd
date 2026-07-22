@@ -1,0 +1,8 @@
+{
+  "result": {
+    "type": "tab_list",
+    "tabs": [
+      { "tab_id": "t_075", "label": "flatten", "agent_status": "working", "workspace_id": "w1" }
+    ]
+  }
+}

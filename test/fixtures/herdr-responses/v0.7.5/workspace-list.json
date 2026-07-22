@@ -1,0 +1,6 @@
+{
+  "result": {
+    "type": "workspace_list",
+    "workspaces": [{ "workspace_id": "w1", "label": "shepherd" }]
+  }
+}

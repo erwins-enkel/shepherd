@@ -4,7 +4,10 @@ import {
   herdrAssetKey,
   herdrReleaseUrl,
   UPDATE_LOG_PREFIX,
+  HerdrUpdateService,
+  type HerdrUpdateResult,
 } from "../src/herdr-update";
+import { detectedHerdrVersion } from "../src/herdr-capabilities";
 
 const LOG = "/home/op/.shepherd/herdr-update.log";
 const URL074 = "https://github.com/ogulcancelik/herdr/releases/download/v0.7.4/herdr-linux-x86_64";
@@ -106,4 +109,166 @@ test("buildDowngradeScript: sanitizes versions and shell-quotes the URL and bina
 test("buildDowngradeScript: missing versions degrade to 'unknown'", () => {
   const s = buildDowngradeScript(LOG, null, undefined, URL074);
   expect(s).toContain("unknown -> unknown ===");
+});
+
+// ── HerdrUpdateService.downgrade() ────────────────────────────────────────────
+
+const KEY = herdrAssetKey()!; // the test host is always a supported platform
+const TARGET_URL = herdrReleaseUrl("0.7.4", KEY);
+
+/** Service primed for a stranded install (current 0.7.5), with every seam injected
+ *  so no real process spawns and no network is touched. */
+function primedDowngrade(
+  opts: {
+    current?: string; // installed BEFORE the downgrade; default 0.7.5 (stranded)
+    installedAfter?: string; // what --version reports AFTER; default 0.7.4 (success)
+    manifestUrl?: string | null; // releases["0.7.4"].assets[KEY]; null = entry missing
+    fetchLatest?: () => Promise<never>; // override to make the manifest fetch throw
+    runDowngrade?: (
+      script: string,
+      onLine: (l: string) => void,
+      signal: AbortSignal,
+    ) => Promise<void>;
+    watchdogMs?: number;
+  } = {},
+) {
+  const scripts: string[] = [];
+  const dones: HerdrUpdateResult[] = [];
+  const begun: boolean[] = [];
+  const current = opts.current ?? "0.7.5";
+  let versionCalls = 0;
+  const releases: Record<string, { assets?: Record<string, string> }> = {};
+  if (opts.manifestUrl !== null) {
+    releases["0.7.4"] = { assets: { [KEY]: opts.manifestUrl ?? TARGET_URL } };
+  }
+  const svc = new HerdrUpdateService({
+    versionRunner: () => {
+      versionCalls++;
+      return `herdr ${versionCalls === 1 ? current : (opts.installedAfter ?? "0.7.4")}`;
+    },
+    fetchLatest: opts.fetchLatest ?? (async () => ({ version: current, releases })),
+    runDowngrade:
+      opts.runDowngrade ??
+      (async (script) => {
+        scripts.push(script);
+      }),
+    onDone: (r) => dones.push(r),
+    maintenance: { begin: () => begun.push(true), end: () => begun.push(false) },
+    watchdogMs: opts.watchdogMs ?? 300_000,
+  });
+  return { svc, scripts, dones, begun };
+}
+
+const settle = () => new Promise((r) => setTimeout(r, 10));
+
+test("downgrade(): happy path — runs the script, reports ok, refreshes the spawn guard", async () => {
+  const { svc, scripts, dones, begun } = primedDowngrade();
+  await svc.check(1); // seeds current=0.7.5 → currentUnsupported
+  expect(svc.downgrade()).toEqual({ started: true });
+  await settle();
+  expect(scripts).toHaveLength(1);
+  expect(scripts[0]).toContain(TARGET_URL); // the cross-checked template URL drives the script
+  expect(dones[0]).toMatchObject({ ok: true, from: "0.7.5", to: "0.7.4" });
+  expect(begun).toEqual([true, false]); // maintenance begin/end
+  expect(detectedHerdrVersion()).toBe("0.7.4"); // spawn-guard ceiling refreshed, no restart
+  expect(svc.current()).toMatchObject({
+    current: "0.7.4",
+    currentUnsupported: false,
+    downgradeTarget: null,
+  });
+});
+
+test("downgrade(): refuses when the installed herdr is already supported", async () => {
+  const { svc, scripts } = primedDowngrade({ current: "0.7.4" });
+  await svc.check(1);
+  expect(svc.downgrade()).toEqual({ started: false });
+  expect(scripts).toHaveLength(0);
+});
+
+test("downgrade(): double-launch guarded while one is in flight", async () => {
+  let runs = 0;
+  const { svc } = primedDowngrade({
+    runDowngrade: async () => {
+      runs++;
+      await new Promise((r) => setTimeout(r, 30));
+    },
+  });
+  await svc.check(1);
+  expect(svc.downgrade()).toEqual({ started: true });
+  expect(svc.downgrade()).toEqual({ started: false });
+  await new Promise((r) => setTimeout(r, 60));
+  expect(runs).toBe(1);
+});
+
+test("downgrade(): missing manifest entry → fails BEFORE running anything", async () => {
+  const { svc, scripts, dones, begun } = primedDowngrade({
+    manifestUrl: null,
+    installedAfter: "0.7.5", // binary untouched
+  });
+  await svc.check(1);
+  svc.downgrade();
+  await settle();
+  expect(scripts).toHaveLength(0); // never reached the script
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.7.5" });
+  expect(dones[0]!.error).toContain("no 0.7.4 asset");
+  expect(begun).toEqual([true, false]); // maintenance still cleared
+});
+
+test("downgrade(): manifest URL divergence from the template → refuses", async () => {
+  const { svc, scripts, dones } = primedDowngrade({
+    manifestUrl: "https://evil.example.com/herdr",
+    installedAfter: "0.7.5",
+  });
+  await svc.check(1);
+  svc.downgrade();
+  await settle();
+  expect(scripts).toHaveLength(0);
+  expect(dones[0]!.ok).toBe(false);
+  expect(dones[0]!.error).toContain("does not match");
+});
+
+test("downgrade(): manifest fetch throws → fails cleanly, binary untouched", async () => {
+  let checked = false;
+  const { svc, dones, begun } = primedDowngrade({
+    installedAfter: "0.7.5",
+    fetchLatest: async () => {
+      if (!checked) {
+        checked = true;
+        // first call (check) succeeds so the service knows it is stranded
+        return { version: "0.7.5", releases: {} } as never;
+      }
+      throw new Error("herdr.dev unreachable");
+    },
+  });
+  await svc.check(1);
+  svc.downgrade();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.7.5" });
+  expect(dones[0]!.error).toContain("unreachable");
+  expect(begun).toEqual([true, false]);
+});
+
+test("downgrade(): version unchanged after the script → reports failure, not the target", async () => {
+  const { svc, dones } = primedDowngrade({ installedAfter: "0.7.5" });
+  await svc.check(1);
+  svc.downgrade();
+  await settle();
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.7.5" });
+  expect(dones[0]!.error).toContain("not downgraded");
+});
+
+test("downgrade(): watchdog timeout kills a hung script and reports the actual version", async () => {
+  const { svc, dones } = primedDowngrade({
+    installedAfter: "0.7.5",
+    watchdogMs: 20,
+    runDowngrade: (_script, _onLine, signal) =>
+      new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      }),
+  });
+  await svc.check(1);
+  svc.downgrade();
+  await new Promise((r) => setTimeout(r, 60));
+  expect(dones[0]).toMatchObject({ ok: false, to: "0.7.5" });
+  expect(dones[0]!.error).toContain("timed out");
 });

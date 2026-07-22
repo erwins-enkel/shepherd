@@ -7,6 +7,7 @@ import {
   mapState,
   matchAgent,
   matchAgents,
+  posixShellJoin,
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
@@ -63,6 +64,17 @@ const FIXTURE = JSON.stringify({
       },
     ],
   },
+});
+
+test("posixShellJoin single-quotes every token so spaces/metacharacters/quotes survive", () => {
+  // Plain tokens are still quoted (harmless, keeps the rule uniform).
+  expect(posixShellJoin(["env", "claude", "go"])).toBe("'env' 'claude' 'go'");
+  // Spaces (e.g. a worktree path) and shell metacharacters stay literal inside the quotes.
+  expect(posixShellJoin(["a b", "/wt/my repo", "x&y|z"])).toBe("'a b' '/wt/my repo' 'x&y|z'");
+  // An embedded single quote uses the standard '\'' break-out sequence.
+  expect(posixShellJoin(["it's"])).toBe("'it'\\''s'");
+  // Empty token → '' (never an empty gap that the shell would drop).
+  expect(posixShellJoin(["", ""])).toBe("'' ''");
 });
 
 test("list parses herdr json into typed agents", async () => {

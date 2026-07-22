@@ -257,6 +257,13 @@
             {m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" })}
           {/if}
         </div>
+        <!-- A pre-flight refusal (bad manifest, URL divergence, unsupported platform) never
+             runs the script, so it leaves no audit-log block and no log line — done.error is
+             the ONLY place the reason exists. Server-authored, shown verbatim like a log line;
+             reuses the existing `.err` styling used for client-side POST errors below. -->
+        {#if !done.ok && done.error}
+          <div class="err">{done.error}</div>
+        {/if}
       {:else}
         <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
       {/if}

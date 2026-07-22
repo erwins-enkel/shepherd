@@ -141,6 +141,7 @@ function primedDowngrade(
   if (opts.manifestUrl !== null) {
     releases["0.7.4"] = { assets: { [KEY]: opts.manifestUrl ?? TARGET_URL } };
   }
+  const logs: string[] = [];
   const svc = new HerdrUpdateService({
     // Call 1 = check(); call 2 = downgrade()'s gate re-read (both happen BEFORE
     // the script runs, so both report the still-installed `current`); call 3+ =
@@ -155,11 +156,12 @@ function primedDowngrade(
       (async (script) => {
         scripts.push(script);
       }),
+    onLog: (line) => logs.push(line),
     onDone: (r) => dones.push(r),
     maintenance: { begin: () => begun.push(true), end: () => begun.push(false) },
     watchdogMs: opts.watchdogMs ?? 300_000,
   });
-  return { svc, scripts, dones, begun };
+  return { svc, scripts, dones, begun, logs };
 }
 
 const settle = () => new Promise((r) => setTimeout(r, 10));
@@ -228,7 +230,7 @@ test("downgrade(): double-launch guarded while one is in flight", async () => {
 });
 
 test("downgrade(): missing manifest entry → fails BEFORE running anything", async () => {
-  const { svc, scripts, dones, begun } = primedDowngrade({
+  const { svc, scripts, dones, begun, logs } = primedDowngrade({
     manifestUrl: null,
     installedAfter: "0.7.5", // binary untouched
   });
@@ -239,6 +241,9 @@ test("downgrade(): missing manifest entry → fails BEFORE running anything", as
   expect(dones[0]).toMatchObject({ ok: false, to: "0.7.5" });
   expect(dones[0]!.error).toContain("no 0.7.4 asset");
   expect(begun).toEqual([true, false]); // maintenance still cleared
+  // A pre-flight refusal never runs the script, so it leaves no audit-log trace —
+  // onLog is the only surface that streams the reason to the operator live (#1898).
+  expect(logs.some((l) => l.includes("no 0.7.4 asset"))).toBe(true);
 });
 
 test("downgrade(): manifest URL divergence from the template → refuses", async () => {

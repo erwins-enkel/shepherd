@@ -111,4 +111,39 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector(".run.downgrade")).toBeNull();
     expect(document.querySelector(".run")).not.toBeNull();
   });
+
+  it("surfaces the server-authored refusal reason on a failed downgrade (#1898)", async () => {
+    const props = {
+      update: {
+        current: "0.7.5",
+        latest: "0.7.5",
+        updateAvailable: false,
+        currentUnsupported: true,
+        downgradeTarget: "0.7.4",
+        notes: null,
+        checkedAt: 0,
+      },
+    };
+    const { rerender } = await render(HerdrUpdateModal, { props });
+
+    // Click Run so the modal enters its submitting state (applyHerdrDowngrade is
+    // mocked to a Promise that never resolves), then deliver a fail `done` — a
+    // pre-flight refusal (e.g. the manifest is missing the target asset) — as the
+    // server's onDone would stream it in.
+    document.querySelector<HTMLButtonElement>(".run.downgrade")?.click();
+    await rerender({
+      ...props,
+      done: {
+        ok: false,
+        from: "0.7.5",
+        to: "0.7.5",
+        error: "herdr.dev manifest has no 0.7.4 asset for linux-x86_64",
+      },
+    });
+
+    await vi.waitFor(() => expect(document.querySelector(".status.fail")).not.toBeNull());
+    const errEl = document.querySelector(".status.fail + .err");
+    expect(errEl).not.toBeNull();
+    expect(errEl!.textContent).toContain("herdr.dev manifest has no 0.7.4 asset for linux-x86_64");
+  });
 });

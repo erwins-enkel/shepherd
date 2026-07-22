@@ -589,12 +589,19 @@ export class HerdrUpdateService {
       }
     } catch (err) {
       // URL resolution / cross-check / spawn failed — the binary was never touched;
-      // report what we're actually on (never the target).
+      // report what we're actually on (never the target). A pre-flight refusal (bad
+      // manifest, URL divergence, unsupported platform) never reaches buildDowngradeScript,
+      // so it otherwise leaves NO trace anywhere: no audit-log block (script never ran),
+      // no onLog line, no console output — only `done.error`, which the modal's fail
+      // branch used to drop silently. Surface it on both live surfaces before it ships.
+      const message = err instanceof Error ? err.message : "herdr downgrade failed";
+      console.warn(`[herdr-update] downgrade failed before touching the binary: ${message}`);
+      this.onLog(`herdr downgrade failed: ${message}`);
       result = {
         ok: false,
         from,
         to: this.actualVersion(from),
-        error: err instanceof Error ? err.message : "herdr downgrade failed",
+        error: message,
       };
     } finally {
       clearTimeout(watchdog);

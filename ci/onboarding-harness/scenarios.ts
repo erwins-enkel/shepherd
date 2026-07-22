@@ -97,9 +97,9 @@ export const SCENARIOS: Scenario[] = [
   {
     // A live-but-OUTDATED herdr: `herdr --version` reports below HERDR_MIN_VERSION → `warning`,
     // while the daemon still answers `agent list` (liveness ok) so it reads outdated, NOT
-    // offline. The baseline stub reports 99.99.99 (ok); this seed overwrites it to report an
-    // old version. Present-but-old passes the boot preflight (it fail-fasts only on a MISSING
-    // binary, src/preflight.ts), so the instance boots and self-diagnoses.
+    // offline. The baseline stub reports HERDR_LAST_SUPPORTED_VERSION (ok); this seed overwrites
+    // it to report an old version. Present-but-old passes the boot preflight (it fail-fasts only
+    // on a MISSING binary, src/preflight.ts), so the instance boots and self-diagnoses.
     //
     // DETECTION-ONLY: applies no remediation, so it exercises NONE of the #1578
     // `herdr update --handoff` remediation and largely duplicates the outdated→warning unit

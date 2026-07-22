@@ -1,3 +1,4 @@
+import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -152,7 +153,9 @@ describe("herdr offline remediation (#1574)", () => {
 
   it("herdr_missing installs AND starts, so the single-apply preflight scenario reaches green", () => {
     const cmd = REMEDIATIONS.diagnostics_hint_herdr_missing!;
-    expect(cmd).toContain("herdr.dev/install.sh");
+    // PINNED install (#1896), never the latest-only upstream installer.
+    expect(cmd).toContain(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`);
+    expect(cmd).not.toContain("herdr.dev/install.sh");
     expect(cmd).toContain('"$H" server');
   });
 
@@ -192,6 +195,22 @@ describe("herdr_missing composition is behaviorally gated, not just shaped right
     writeStub(`#!/bin/sh\necho "$@" >> "${logPath}"\nexit 0\n`);
     try {
       const result = runInSandbox(composed("false"), dir);
+      expect(result.status).not.toBe(0);
+      expect(existsSync(logPath)).toBe(false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("gates on a MULTI-STATEMENT failing install too — the shape HERDR_INSTALL now has (#1896)", () => {
+    // The `false` case above cannot catch the real regression risk any more: HERDR_INSTALL is now
+    // a multi-statement program, so if it ever lost its own subshell wrapper, `&&` would bind to
+    // only its LAST statement and the install's failure would stop gating. Substituting a
+    // multi-statement clause reproduces exactly that shape and proves the composition still gates.
+    const { dir, logPath, writeStub } = makeSandbox();
+    writeStub(`#!/bin/sh\necho "$@" >> "${logPath}"\nexit 0\n`);
+    try {
+      const result = runInSandbox(composed("( echo installing >/dev/null; false )"), dir);
       expect(result.status).not.toBe(0);
       expect(existsSync(logPath)).toBe(false);
     } finally {

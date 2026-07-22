@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { IncusDriver } from "../../ci/onboarding-harness/incus";
 import { seedInstance } from "../../ci/onboarding-harness/seed";
 import { runScenario } from "../../ci/onboarding-harness/run";
@@ -33,6 +34,11 @@ function recorder(snapshot: DiagnosticsSnapshot) {
   const run = async (args: string[]): Promise<IncusExec> => {
     calls.push(args);
     const joined = args.join(" ");
+    if (joined.includes("--version")) {
+      // The installed-version assertion (#1896): the harness demands the PINNED herdr, not merely
+      // a working one, so the fake must answer as a correctly-pinned host would.
+      return { stdout: `herdr ${HERDR_LAST_SUPPORTED_VERSION}\n`, stderr: "", code: 0 };
+    }
     if (joined.includes("/api/diagnostics?refresh=1")) {
       return { stdout: JSON.stringify(snapshot), stderr: "", code: 0 };
     }

@@ -1,4 +1,6 @@
 import { config } from "./config";
+import { HERDR_LAST_SUPPORTED_VERSION } from "./herdr-capabilities";
+import { herdrPinnedInstallCommand } from "./herdr-install";
 import { buildUpdateScript } from "./herdr-update";
 import type { DiagnosticsSnapshot } from "./types";
 
@@ -20,7 +22,18 @@ const NODE_INSTALL =
   'mkdir -p "$HOME/.local/bin" && ' +
   'ln -sf "$("$FNM" exec --using=lts-latest node -e \'console.log(process.execPath)\')" ' +
   '"$HOME/.local/bin/node"';
-export const HERDR_INSTALL = "curl -fsSL https://herdr.dev/install.sh | bash";
+// PINNED to HERDR_LAST_SUPPORTED_VERSION (#1896), not `curl -fsSL https://herdr.dev/install.sh |
+// bash`. The upstream installer is latest-only, and Shepherd's driver refuses to spawn on a herdr
+// above the ceiling — so installing "latest" strands every fresh host the day herdr ships past it.
+// One constant drives every install path: raise the ceiling and this follows.
+//
+// The IN-APP budget is the default because this constant's primary consumer is the diagnostics Fix
+// endpoint, whose child is SIGKILLed at REMEDIATION_TIMEOUT_MS. deploy/provision.ts passes the
+// upstream-comparable budget instead — it has no deadline, and it is the path where a failed
+// install actually strands someone.
+export const HERDR_INSTALL = herdrPinnedInstallCommand(HERDR_LAST_SUPPORTED_VERSION, {
+  downloadBudget: "in-app",
+});
 
 /** Bring the herdr daemon up and PROVE it answers. herdr 0.7.3 does NOT auto-spawn its
  *  server on a CLI call (verified in a clean instance, #1574) — a host that never ran

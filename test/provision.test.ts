@@ -2,6 +2,7 @@ import { describe, expect, it, spyOn, beforeEach, afterEach } from "bun:test";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { readFileSync } from "node:fs";
+import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import {
   PREREQS,
   provision,
@@ -69,7 +70,8 @@ describe("selectPrereqCommand", () => {
   it("selects an install for a below-floor herdr", () => {
     const herdr = PREREQS.find((p) => p.bin === "herdr")!;
     const cmd = selectPrereqCommand(herdr, { version: "0.1.0" });
-    expect(cmd).toContain("herdr.dev/install.sh");
+    expect(cmd).toContain(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`);
+    expect(cmd).not.toContain("herdr.dev/install.sh");
   });
 
   it("never selects tailscale (guidance-only) — it is not a prereq", () => {
@@ -196,7 +198,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
     });
     const flat = calls.map((c) => c.join(" "));
     expect(flat.some((c) => c.includes("bun.sh/install"))).toBe(false);
-    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(false);
+    expect(flat.some((c) => c.includes("/releases/download/v"))).toBe(false);
     expect(flat.some((c) => c.includes("tailscale.com/install"))).toBe(false);
   });
 
@@ -206,7 +208,7 @@ describe("provision orchestration (injected runner, no real installs)", () => {
     const probe = (bin: string) => (bin === "herdr" ? "0.1.0" : "999.0.0");
     provision({ run, probe, platform: "linux", env: { SHEPHERD_NO_SERVICE: "1" }, repo: "/repo" });
     const flat = calls.map((c) => c.join(" "));
-    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(true);
+    expect(flat.some((c) => c.includes("/releases/download/v"))).toBe(true);
   });
 
   it("always lays the node-gyp safety net", () => {
@@ -333,7 +335,7 @@ describe("extracted helpers (direct)", () => {
     const probe = (bin: string) => (bin === "herdr" ? "0.1.0" : "999.0.0");
     installPrereqs(probe, run, { FOO: "bar" });
     const flat = calls.map((c) => c.join(" "));
-    expect(flat.some((c) => c.includes("herdr.dev/install"))).toBe(true);
+    expect(flat.some((c) => c.includes("/releases/download/v"))).toBe(true);
     expect(flat.some((c) => c.includes("bun.sh/install"))).toBe(false);
   });
 
@@ -505,7 +507,8 @@ describe("extracted helpers (direct)", () => {
     // orphan kept serving (check reads `ok`, breakage invisible). The UNIT must own the daemon.
     const herdr = PREREQS.find((p) => p.bin === "herdr")!;
     const cmd = selectPrereqCommand(herdr, { version: null })!;
-    expect(cmd).toContain("herdr.dev/install.sh");
+    expect(cmd).toContain(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`);
+    expect(cmd).not.toContain("herdr.dev/install.sh");
     expect(cmd).not.toContain("server");
     expect(cmd).not.toContain("agent list");
   });

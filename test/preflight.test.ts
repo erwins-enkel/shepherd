@@ -1,9 +1,11 @@
+import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { test, expect } from "bun:test";
 import {
   HERDR_MISSING_EXIT_CODE,
   HERDR_MISSING_MARKER,
   isBinaryMissingError,
   preflightHerdr,
+  herdrMissingBanner,
 } from "../src/preflight";
 
 // ── isBinaryMissingError ─────────────────────────────────────────────────────
@@ -70,7 +72,27 @@ test("preflightHerdr: missing binary → logs one banner and exits 78", () => {
   expect(calls).toEqual([HERDR_MISSING_EXIT_CODE]);
   expect(logs).toHaveLength(1);
   expect(logs[0]).toContain("herdr not found on PATH");
-  expect(logs[0]).toContain("https://herdr.dev/install.sh");
+  // PINNED, not the latest-only upstream installer (#1896): an operator following the banner must
+  // land on a herdr Shepherd can actually drive.
+  expect(logs[0]).toContain(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`);
+  expect(logs[0]).not.toContain("herdr.dev/install.sh");
+  expect(logs[0]).toContain(`supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}`);
+});
+
+test("banner falls back to the release-tag page when herdr publishes no binary for the platform", () => {
+  // assetKey null (Windows, or an unsupported arch) must never render `undefined` into a URL.
+  const banner = herdrMissingBanner(null);
+  expect(banner).toContain(`/releases/tag/v${HERDR_LAST_SUPPORTED_VERSION}`);
+  expect(banner).not.toContain("undefined");
+  expect(banner).not.toContain("/releases/download/");
+});
+
+test("banner renders a pinned, copy-pasteable install line for a mapped platform", () => {
+  const banner = herdrMissingBanner("linux-x86_64");
+  expect(banner).toContain(
+    `curl -fsSL -o ~/.local/bin/herdr https://github.com/ogulcancelik/herdr/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-linux-x86_64`,
+  );
+  expect(banner).not.toContain("undefined");
 });
 
 test("emitted banner contains the exported HERDR_MISSING_MARKER (no drift for out-of-tree matchers)", () => {

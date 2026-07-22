@@ -18,6 +18,7 @@ import { assertDetection } from "./assert";
 import { buildGapReport, gateGapScenarios, statusDescription } from "./report";
 import { reportToGitHub, publishStatus } from "./issue";
 import { remediationsFor } from "../../src/remediations";
+import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { HERDR_MISSING_EXIT_CODE, HERDR_MISSING_MARKER } from "../../src/preflight";
 import type { DetectionResult, Scenario, ScenarioResult } from "./types";
 import type { DiagnosticsSnapshot } from "../../src/types";
@@ -40,6 +41,36 @@ type ScenarioBase = {
   gateEligible: boolean;
 };
 
+/** Assert the herdr the install path actually landed is the PINNED one (#1896).
+ *
+ *  `herdr: ok` is NOT enough: today HERDR_LAST_SUPPORTED_VERSION happens to equal herdr's latest
+ *  release, so an UNPINNED install (the very regression this guards) would satisfy the check and
+ *  the scenario would pass green. Reading the installed version is the only end-to-end evidence
+ *  that the pin is doing anything — and it becomes genuinely discriminating the day herdr ships
+ *  past the ceiling, which is exactly when a silent regression would otherwise reach users.
+ *
+ *  PATH is prepended because herdr installs to ~/.local/bin, which an `incus exec` non-login shell
+ *  does not have. Throws fail-closed: runScenario classifies it as a gating failure.
+ *
+ *  CALL IT ONLY WHEN THE herdr CHECK IS ALREADY `ok`. On a host where the install genuinely
+ *  failed, herdr is missing for an ordinary reason, and this would replace that scenario's own
+ *  diagnosis (`herdr want=ok got=error`, plus the install output) with a less useful message about
+ *  the pin. The pin is a question you can only ask once something IS installed. */
+async function assertPinnedHerdrInstalled(driver: IncusDriver, name: string): Promise<void> {
+  const r = await driver.exec(name, [
+    "sh",
+    "-c",
+    'export PATH="$HOME/.local/bin:$PATH"; "${HERDR_BIN:-herdr}" --version',
+  ]);
+  const version = /(\d+\.\d+\.\d+)/.exec(`${r.stdout}${r.stderr}`)?.[1];
+  if (version !== HERDR_LAST_SUPPORTED_VERSION) {
+    throw new Error(
+      `${name}: installed herdr is ${version ?? "unreadable"}, expected the pinned ` +
+        `${HERDR_LAST_SUPPORTED_VERSION} — the install path is not honouring the pin`,
+    );
+  }
+}
+
 /** Shared tail of BOTH install-e2e runners: probe the freshly-installed host, assert the
  *  target-ok set, and shape the result. `expect` is the target state (not a seeded defect),
  *  so `reachedGreen` is just whether detection saw every check reach `ok`. */
@@ -50,6 +81,9 @@ async function finishInstallE2E(
 ): Promise<ScenarioResult> {
   const after = await probeDiagnostics(driver, scenario.id);
   const detection = assertDetection(after, scenario.id, scenario.expect);
+  // Only once the target set (herdr included) is green: an install that failed outright keeps its
+  // own INSTALL GAP diagnosis rather than being re-labelled a pin failure.
+  if (detection.detected) await assertPinnedHerdrInstalled(driver, scenario.id);
   return {
     ...base,
     detection,
@@ -223,14 +257,17 @@ async function runHerdrPreflightE2E(
     throw new Error(`${scenario.id}: verbatim herdr remediation failed`);
   }
 
-  // Re-boot normally (herdr now present) and confirm the check recovered to ok.
+  // Re-boot normally (herdr now present) and confirm the check recovered to ok — AND, once it has,
+  // that the remediation installed the PINNED version rather than merely some herdr.
   await bootShepherd(driver, scenario.id);
   const after = await probeDiagnostics(driver, scenario.id);
+  const herdrOk = after.checks.find((c) => c.id === "herdr")?.state === "ok";
+  if (herdrOk) await assertPinnedHerdrInstalled(driver, scenario.id);
   return {
     ...base,
     detection: { scenarioId: scenario.id, detected: true, misses: [] },
     appliedVia: "verbatim",
-    reachedGreen: after.checks.find((c) => c.id === "herdr")?.state === "ok",
+    reachedGreen: herdrOk,
   };
 }
 

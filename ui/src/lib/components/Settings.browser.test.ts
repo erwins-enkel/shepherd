@@ -639,6 +639,31 @@ describe("Settings search", () => {
     await expect.poll(() => document.querySelectorAll("mark").length).toBeGreaterThan(0);
   });
 
+  it("kept panels highlight their indexed labels too (badge ⇄ highlight parity)", async () => {
+    await page.viewport(1280, 900);
+    await mountCodingAgents();
+
+    // A Device-only term: matches its indexed rows, so the Device rail badge
+    // must light AND drilling in must show in-pane highlights — the four kept
+    // panels receive the query even though their internals weren't rebuilt.
+    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const query = "contrast";
+    const expected = matchCount(sectionSearchRows({ provider: "claude" }).device, query);
+    expect(expected).toBeGreaterThan(0);
+
+    await searchInput().fill(query);
+
+    const deviceTab = page
+      .getByRole("tab", { name: m.settings_tab_device(), exact: false })
+      .element() as HTMLElement;
+    await expect.poll(() => deviceTab.textContent).toContain(String(expected));
+
+    await page.getByRole("tab", { name: m.settings_tab_device(), exact: false }).click();
+    const devicePanel = document.querySelector<HTMLElement>("#settings-panel-device");
+    expect(devicePanel).not.toBeNull();
+    await expect.poll(() => devicePanel!.querySelectorAll("mark").length).toBeGreaterThan(0);
+  });
+
   it("`/` focuses the search field; Esc clears the query, second Esc closes", async () => {
     await page.viewport(1280, 900);
     const onclose = vi.fn();

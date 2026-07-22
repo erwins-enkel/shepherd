@@ -417,7 +417,14 @@
         aria-label={m.settings_tab_workspace()}
         hidden={active !== "workspace"}
       >
-        <SettingsWorkspacePanel {repoRoot} {repoRootDisplay} {settingsLoaded} {onsaved} {onclose} />
+        <SettingsWorkspacePanel
+          {repoRoot}
+          {repoRootDisplay}
+          {settingsLoaded}
+          {onsaved}
+          {onclose}
+          {query}
+        />
       </div>
 
       <div
@@ -456,6 +463,7 @@
           focusId={focusPluginId}
           updates={pluginUpdates}
           {onpluginapplied}
+          {query}
         />
       </div>
 
@@ -487,6 +495,7 @@
           {onwhatsnew}
           {reducedPushMode}
           {reducedPushBusy}
+          {query}
           onToggleReducedPush={toggleReducedPush}
           onfeedback={(kind: FeedbackKind) => {
             onclose?.();
@@ -502,7 +511,11 @@
         aria-label={m.settings_tab_diagnose()}
         hidden={active !== "diagnose"}
       >
-        <SettingsDiagnosePanel {initialDiagnostics} onherdrdowngrade={() => onherdrupdate?.()} />
+        <SettingsDiagnosePanel
+          {initialDiagnostics}
+          {query}
+          onherdrdowngrade={() => onherdrupdate?.()}
+        />
       </div>
     </SettingsShell>
   </div>

@@ -6,6 +6,7 @@ import type { Session, UsageLimits, UpdateStatus, HerdrUpdateStatus, HeldTask } 
 import { m } from "$lib/paraglide/messages";
 import { REPO_URL, DOCS_URL, version } from "$lib/build-info";
 import { formatTokenLabel } from "$lib/format";
+import { expectMinPx } from "$lib/test-support/geometry";
 
 // Mock api so the manual /usage refresh path never fires a real network call —
 // individual tests stub refreshUsage's resolution/rejection per case.
@@ -933,15 +934,15 @@ describe("TopBarHeldBadge — mobile held-task dialog", () => {
 
     const close = page.getByRole("button", { name: m.common_close() });
     const closeBox = (close.element() as HTMLElement).getBoundingClientRect();
-    expect(closeBox?.width).toBeGreaterThanOrEqual(44);
-    expect(closeBox?.height).toBeGreaterThanOrEqual(44);
+    expectMinPx(closeBox?.width, 44, "close tap-target width");
+    expectMinPx(closeBox?.height, 44, "close tap-target height");
 
     const spawn = page.getByRole("button", { name: m.topbar_held_spawn_now() });
     const discard = page.getByRole("button", { name: m.topbar_held_discard() });
     const spawnBox = (spawn.element() as HTMLElement).getBoundingClientRect();
     const discardBox = (discard.element() as HTMLElement).getBoundingClientRect();
-    expect(spawnBox?.height).toBeGreaterThanOrEqual(44);
-    expect(discardBox?.height).toBeGreaterThanOrEqual(44);
+    expectMinPx(spawnBox?.height, 44, "spawn tap-target height");
+    expectMinPx(discardBox?.height, 44, "discard tap-target height");
     expect(spawnBox?.width).toBeGreaterThan(150);
     expect(discardBox?.width).toBeGreaterThan(150);
 
@@ -2424,13 +2425,13 @@ describe("TopBar — telemetry menu visual/geometry path", () => {
     expect(Math.abs(r.width - window.innerWidth)).toBeLessThanOrEqual(1);
     // Touch tiers: Halt 52 / workspace+plugin 48 / support 44.
     const hero = page.getByRole("button", { name: m.halt_all_aria({ count: 1 }) }).element();
-    expect(hero.getBoundingClientRect().height).toBeGreaterThanOrEqual(52);
+    expectMinPx(hero.getBoundingClientRect().height, 52, "halt hero tier");
     const settingsRow = page.getByRole("button", { name: m.settings_title() }).element();
-    expect(settingsRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
+    expectMinPx(settingsRow.getBoundingClientRect().height, 48, "settings row tier");
     const pluginRow = page.getByRole("button", { name: "Plugin One" }).element();
-    expect(pluginRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(48);
+    expectMinPx(pluginRow.getBoundingClientRect().height, 48, "plugin row tier");
     const supportRow = page.getByRole("button", { name: m.feedback_dialog_title_bug() }).element();
-    expect(supportRow.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expectMinPx(supportRow.getBoundingClientRect().height, 44, "support row tier");
   });
 });
 

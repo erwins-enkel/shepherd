@@ -11,6 +11,7 @@ import type {
 } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { upNext } from "$lib/up-next.svelte";
+import { expectMinPx } from "$lib/test-support/geometry";
 import { getUpNext, startUpNext } from "$lib/api";
 
 // Mock the API so mounting (which kicks upNext.load()) makes no real network call.
@@ -272,9 +273,11 @@ describe("UpNextPanel compact issue rows", () => {
 
     // Checkbox + link remain the 44px touch targets…
     for (const selector of [".un-check", ".un-link"]) {
-      expect(
+      expectMinPx(
         row.querySelector<HTMLElement>(selector)!.getBoundingClientRect().height,
-      ).toBeGreaterThanOrEqual(hitSize);
+        hitSize,
+        `${selector} tap-target`,
+      );
     }
     // …but the per-row Start is hidden entirely (out of the layout + a11y tree).
     // Starting one issue goes through the checkbox → sticky batch bar instead.

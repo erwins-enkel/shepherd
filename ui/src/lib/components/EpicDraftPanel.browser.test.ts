@@ -3,6 +3,7 @@ import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import type { EpicDraft } from "$lib/types";
 import { epicDrafts } from "$lib/epic-draft.svelte";
+import { expectMinPx } from "$lib/test-support/geometry";
 import EpicDraftPanel from "./EpicDraftPanel.svelte";
 
 function longDraft(sessionId: string): EpicDraft {
@@ -125,7 +126,7 @@ describe("EpicDraftPanel bar — behavior", () => {
     const cta = container.querySelector<HTMLButtonElement>(".edp-cta");
     expect(cta, "awaiting draft should offer a review CTA").not.toBeNull();
     // a11y sizing floor — this is the only way into the review surface.
-    expect(cta!.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expectMinPx(cta!.getBoundingClientRect().height, 44, "review CTA tap-target");
 
     cta!.click();
     expect(onreview).toHaveBeenCalledTimes(1);

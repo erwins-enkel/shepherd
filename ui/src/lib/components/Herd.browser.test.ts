@@ -8,6 +8,7 @@ import { GROUP_KEY_BY_STAGE } from "./herd-partition";
 import { isReworkRunning } from "./rework-running";
 import { reviews, planGates } from "$lib/reviews.svelte";
 import { postMergeSteps } from "$lib/post-merge-steps.svelte";
+import { expectMinPx } from "$lib/test-support/geometry";
 import type { Session, GitState, Epic, EpicChild, PostMergeSteps, ReviewVerdict } from "$lib/types";
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -221,7 +222,7 @@ describe("Herd mobile lifecycle accordion", () => {
     await expect.element(page.getByText("review session")).not.toBeInTheDocument();
 
     const reviewToggleHeight = (reviewing.element() as HTMLElement).getBoundingClientRect().height;
-    expect(reviewToggleHeight).toBeGreaterThanOrEqual(44);
+    expectMinPx(reviewToggleHeight, 44, "review toggle tap-target");
   });
 
   it("opens only the tapped group and lets a second tap close it", async () => {
@@ -406,8 +407,10 @@ describe("Herd desktop lifecycle group collapse", () => {
     for (const name of [/Ready to merge \(1\)/i, "Merge train", "Decommission all"] as const) {
       const el = page.getByRole("button", { name });
       await expect.element(el).toBeInTheDocument();
-      expect((el.element() as HTMLElement).getBoundingClientRect().height).toBeGreaterThanOrEqual(
+      expectMinPx(
+        (el.element() as HTMLElement).getBoundingClientRect().height,
         44,
+        `${name} tap-target`,
       );
     }
   });

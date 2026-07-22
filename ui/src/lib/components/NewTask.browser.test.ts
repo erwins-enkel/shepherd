@@ -7,6 +7,7 @@ import type { Issue, RepoConfig, RepoEntry, SlashCommand, Steer } from "$lib/typ
 import { m } from "$lib/paraglide/messages";
 import { steers } from "$lib/steers.svelte";
 import { viewerCache } from "$lib/viewer-cache.svelte";
+import { expectMinPx } from "$lib/test-support/geometry";
 import {
   listIssues,
   getEpics,
@@ -2623,9 +2624,11 @@ describe("NewTask geometry (measurable handoff criteria)", () => {
       Math.round(document.querySelector<HTMLElement>(".rail")!.getBoundingClientRect().width),
     ).toBe(300);
     // Prompt hero ≥132px; toolbar buttons 28×28.
-    expect(
+    expectMinPx(
       document.querySelector<HTMLElement>("#nt-prompt")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(132);
+      132,
+      "prompt hero min-height",
+    );
     const tool = document.querySelector<HTMLElement>(".tool-btn")!.getBoundingClientRect();
     expect(Math.round(tool.width)).toBe(28);
     expect(Math.round(tool.height)).toBe(28);
@@ -2697,18 +2700,26 @@ describe("NewTask geometry (measurable handoff criteria)", () => {
     });
     expect(sheet).toBe(true);
     // 44px targets: toolbar buttons, close ✕, mode segments, CTA; 16px prompt.
-    expect(
+    expectMinPx(
       document.querySelector<HTMLElement>(".tool-btn")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(44);
-    expect(
+      44,
+      "toolbar button tap-target",
+    );
+    expectMinPx(
       document.querySelector<HTMLElement>(".x")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(44);
-    expect(
+      44,
+      "close ✕ tap-target",
+    );
+    expectMinPx(
       document.querySelector<HTMLElement>(".seg-btn")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(44);
-    expect(
+      44,
+      "mode segment tap-target",
+    );
+    expectMinPx(
       document.querySelector<HTMLElement>("button.run")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(44);
+      44,
+      "CTA tap-target",
+    );
     expect(getComputedStyle(document.querySelector("#nt-prompt")!).fontSize).toBe("16px");
     expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390);
   });

@@ -5,6 +5,7 @@ import "../../app.css";
 import type { Issue, SlashCommand } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
 import { listIssues, getCommands } from "$lib/api";
+import { expectMinPx } from "$lib/test-support/geometry";
 import { issuesFilter } from "$lib/issues-filter.svelte";
 
 // Mock the API so no network fires; each test seeds the data it needs.
@@ -384,9 +385,11 @@ describe("PromptSources label chips (responsive 1↔2 cap)", () => {
     const hitSize = parseFloat(
       getComputedStyle(document.documentElement).getPropertyValue("--mobile-actionbar-hit"),
     );
-    expect(
+    expectMinPx(
       document.querySelector<HTMLElement>(".issue-source-row")!.getBoundingClientRect().height,
-    ).toBeGreaterThanOrEqual(hitSize);
+      hitSize,
+      "issue source row hit-target",
+    );
   });
 });
 

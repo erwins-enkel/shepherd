@@ -5,6 +5,7 @@ import { userEvent } from "vitest/browser";
 import "../../app.css";
 import type { EpicDraft } from "$lib/types";
 import { epicDrafts } from "$lib/epic-draft.svelte";
+import { expectMinPx } from "$lib/test-support/geometry";
 import EpicDraftModal from "./EpicDraftModal.svelte";
 
 function longDraft(sessionId: string): EpicDraft {
@@ -76,8 +77,8 @@ describe.each([
     expect(getComputedStyle(list).overflowY).not.toBe("auto");
 
     // a11y sizing floor on the actions that commit or discard a whole epic.
-    expect(approve.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
-    expect(abort.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expectMinPx(approve.getBoundingClientRect().height, 44, "approve tap-target");
+    expectMinPx(abort.getBoundingClientRect().height, 44, "abort tap-target");
 
     // Pinned means pinned: reachable at the top of the draft AND at the very bottom of it.
     expect(hitTestable(approve), "approve clickable at scroll-top").toBe(true);
@@ -125,11 +126,11 @@ describe.each([
     }
 
     expect(parseFloat(getComputedStyle(input).fontSize)).toBeGreaterThanOrEqual(bodyFontSize);
-    expect(input.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+    expectMinPx(input.getBoundingClientRect().height, 44, "input tap-target");
     expect(buttons.length).toBeGreaterThan(0);
     for (const button of buttons) {
       expect(parseFloat(getComputedStyle(button).fontSize)).toBe(bodyFontSize);
-      expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44);
+      expectMinPx(button.getBoundingClientRect().height, 44, "button tap-target");
     }
 
     unmount();

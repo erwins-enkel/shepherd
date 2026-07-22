@@ -355,7 +355,19 @@
   const diagCount = $derived(
     (initialDiagnostics ?? []).filter((c) => c.state === "error" || c.state === "warning").length,
   );
-  const searchRows = $derived(sectionSearchRows({ provider: defaultAgentProvider }));
+  const searchRows = $derived(
+    sectionSearchRows({
+      provider: defaultAgentProvider,
+      session: {
+        retentionDays: payload?.sessionRetentionDays,
+        retentionKeep: payload?.sessionRetentionKeep,
+        prReviewCyclesMin: payload?.prReviewCyclesMin,
+        prReviewCyclesMax: payload?.prReviewCyclesMax,
+        planReviewCyclesMin: payload?.planReviewCyclesMin,
+        planReviewCyclesMax: payload?.planReviewCyclesMax,
+      },
+    }),
+  );
   const sections = $derived<SettingsSectionNav[]>(
     SETTINGS_SECTION_IDS.map((id) => ({
       id,

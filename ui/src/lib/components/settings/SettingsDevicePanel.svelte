@@ -558,6 +558,10 @@
       display: inline-flex;
       align-items: center;
     }
+    /* feedback trio + the What's-New opener share the .clone-trigger recipe */
+    .clone-trigger {
+      min-height: 44px;
+    }
   }
 
   @media (max-width: 768px) {

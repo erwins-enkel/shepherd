@@ -793,4 +793,14 @@
     color: var(--color-muted);
     margin: 6px 0 0;
   }
+
+  /* ≥44px tap targets for the plugin action controls (install/activate/check/
+     uninstall buttons + the install-URL field) on touch, without inflating the
+     desktop rows. */
+  @media (pointer: coarse) {
+    .gbtn,
+    .install input {
+      min-height: 44px;
+    }
+  }
 </style>

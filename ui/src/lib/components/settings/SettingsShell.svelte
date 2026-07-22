@@ -2,6 +2,7 @@
   import { MediaQuery } from "svelte/reactivity";
   import type { Snippet } from "svelte";
   import type { SettingsSectionId, SettingsSectionNav } from "$lib/settings-search";
+  import HighlightText from "./HighlightText.svelte";
   import { m } from "$lib/paraglide/messages";
 
   // Layout + navigation chrome for the redesigned Settings dialog (handoff
@@ -108,7 +109,7 @@
       onclick={() => (mobileList = true)}
       aria-label={m.settings_back_aria()}>‹</button
     >
-    <span class="htitle">{activeMeta.label}</span>
+    <span class="htitle"><HighlightText text={activeMeta.label} query={q} /></span>
   {:else}
     <span class="htitle">{m.settings_title()}</span>
   {/if}
@@ -159,7 +160,7 @@
           <span class="glyph" class:red={s.id === "diagnose" && s.alertCount > 0} aria-hidden="true"
             >{s.glyph}</span
           >
-          <span class="ilabel">{s.label}</span>
+          <span class="ilabel"><HighlightText text={s.label} query={q} /></span>
           {#if q && s.matchCount > 0}
             <span class="mcount">{s.matchCount}</span>
           {:else if s.alertCount > 0}
@@ -192,7 +193,7 @@
 
   <div class="pane" hidden={showList}>
     <div class="phead">
-      <span class="ptitle">{activeMeta.label}</span>
+      <span class="ptitle"><HighlightText text={activeMeta.label} query={q} /></span>
       {#if q}
         <span class="pmatches">
           {activeMeta.matchCount === 1

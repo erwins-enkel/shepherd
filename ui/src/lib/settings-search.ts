@@ -133,16 +133,46 @@ export function codingCliRows(provider: "claude" | "codex"): {
   };
 }
 
-/** The Session section's rows (titles + static hints; parameterized hints
- *  contribute their title only so the index never renders dummy params). */
-function sessionRows(): string[][] {
+/** Live values for the Session section's parameterized descriptions, so the
+ *  index matches the exact text the pane renders. The defaults mirror the
+ *  server seeds and only apply before the settings payload lands. */
+export interface SessionRowsCtx {
+  retentionDays?: number;
+  retentionKeep?: number;
+  prReviewCyclesMin?: number;
+  prReviewCyclesMax?: number;
+  planReviewCyclesMin?: number;
+  planReviewCyclesMax?: number;
+}
+
+/** The Session section's rows — titles + descriptions, with parameterized
+ *  hints rendered from the live values the pane itself shows. */
+function sessionRows(ctx: SessionRowsCtx): string[][] {
   return [
     [m.settings_remote_control_title(), m.settings_remote_control_hint()],
-    [m.settings_housekeeping_title()],
+    [
+      m.settings_housekeeping_title(),
+      m.settings_housekeeping_hint({
+        days: ctx.retentionDays ?? 30,
+        count: ctx.retentionKeep ?? 250,
+      }),
+    ],
     [m.settings_auto_revive_title(), m.settings_auto_revive_hint()],
     [m.settings_telemetry_title(), m.settings_telemetry_hint()],
-    [m.settings_pr_review_cycles_title()],
-    [m.settings_plan_review_cycles_title()],
+    [
+      m.settings_pr_review_cycles_title(),
+      m.settings_pr_review_cycles_hint({
+        min: ctx.prReviewCyclesMin ?? 1,
+        max: ctx.prReviewCyclesMax ?? 8,
+      }),
+    ],
+    [
+      m.settings_plan_review_cycles_title(),
+      m.settings_plan_review_cycles_hint({
+        min: ctx.planReviewCyclesMin ?? 1,
+        max: ctx.planReviewCyclesMax ?? 12,
+      }),
+    ],
     [m.restart_title(), m.restart_settings_hint()],
     [m.settings_logout_title(), m.settings_logout_hint()],
     [m.settings_extra_credits_ceiling_title(), m.settings_extra_credits_ceiling_hint()],
@@ -163,6 +193,7 @@ function sessionRows(): string[][] {
  *  documented boundary of the label-level search there. */
 export function sectionSearchRows(ctx: {
   provider: "claude" | "codex";
+  session?: SessionRowsCtx;
 }): Record<SettingsSectionId, string[][]> {
   const cli = codingCliRows(ctx.provider);
   return {
@@ -179,7 +210,7 @@ export function sectionSearchRows(ctx: {
       ...cli.roles,
     ],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
-    session: [[m.settings_tab_session()], ...sessionRows()],
+    session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
     device: [
       [m.settings_tab_device()],
       [m.actionbar_theme_group_aria()],

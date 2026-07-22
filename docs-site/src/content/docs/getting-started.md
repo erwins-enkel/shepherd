@@ -108,14 +108,12 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — [Can Celik](https://github.com/ogulcancelik)'s agent
   multiplexer ([herdr.dev](https://herdr.dev)); manages the interactive `claude`
-  panes (owns the PTYs). **Pin to herdr 0.7.4 or 0.7.5 — do not upgrade past
-  0.7.5 yet.** herdr 0.7.5 (protocol 17) reshaped `agent start`, so Shepherd now
-  spawns on it through a CLI external-registration path (`tab create` →
-  `pane run` → `report-agent`) rather than the legacy `agent start`. 0.7.4 still
-  remains the last *supported* version, though: on 0.7.5 Shepherd continues to
-  warn at startup and blocks the in-app updater, and it refuses to spawn on
-  0.7.6+ entirely, until [issue #1889](https://github.com/erwins-enkel/shepherd/issues/1889)
-  ships a broader fix.
+  panes (owns the PTYs). **herdr 0.7.5 is the last supported version — do not
+  upgrade past 0.7.5 yet.** herdr 0.7.5 (protocol 17) reshaped `agent start`, so
+  Shepherd spawns on it through a CLI external-registration path (`tab create` →
+  `pane run` → `report-agent`) rather than the legacy `agent start`. Any newer,
+  untested version is refused: Shepherd warns at startup, blocks the in-app
+  updater, and refuses to spawn on it.
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

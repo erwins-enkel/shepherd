@@ -55,12 +55,12 @@ describe("HerdrUpdateModal", () => {
     ).toBeLessThanOrEqual(card!.clientHeight + 1);
   });
 
-  it("blocks the upgrade + warns when the latest herdr is unsupported (0.7.5+, #1889)", async () => {
+  it("blocks the upgrade + warns when the latest herdr is newer than supported", async () => {
     render(HerdrUpdateModal, {
       props: {
         update: {
-          current: "0.7.4",
-          latest: "0.7.5",
+          current: "0.7.5",
+          latest: "0.8.0",
           updateAvailable: true,
           latestUnsupported: true,
           notes: null,
@@ -73,5 +73,25 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector(".blocked")).not.toBeNull();
     // …and the run/upgrade button is gone (can't upgrade into an unsupported herdr).
     expect(document.querySelector(".run")).toBeNull();
+  });
+
+  it("offers the upgrade (run button, no warning) for a supported latest (0.7.4 → 0.7.5)", async () => {
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.4",
+          latest: "0.7.5",
+          updateAvailable: true,
+          latestUnsupported: false,
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // No blocked warning…
+    expect(document.querySelector(".blocked")).toBeNull();
+    // …and the run/upgrade button is offered.
+    expect(document.querySelector(".run")).not.toBeNull();
   });
 });

@@ -977,7 +977,7 @@ export class DiagnosticsService {
     const version = this.parseVersion(out);
     if (!version) return { id, state: "error", hintKey: keys.missing };
     opts?.onVersion?.(version);
-    // A version ABOVE the ceiling is unsupported (herdr 0.7.5+ broke agent spawning, #1889) — an
+    // A version ABOVE the ceiling is unsupported (a herdr newer than Shepherd can drive) — an
     // error, and it outranks liveness/outdated: a reachable-but-unsupported herdr still can't spawn.
     if (opts?.ceiling && keys.unsupported && compareSemver(version, opts.ceiling) > 0) {
       return { id, state: "error", hintKey: keys.unsupported };

@@ -149,8 +149,9 @@
     {/if}
 
     {#if update.latestUnsupported}
-      <!-- herdr 0.7.5+ broke agent spawning (#1889); Shepherd blocks the in-app upgrade and warns
-           instead of offering it. The run button below is hidden while this is set. -->
+      <!-- The latest herdr is newer than Shepherd supports (agent spawning would fail); Shepherd
+           blocks the in-app upgrade and warns instead of offering it. The run button below is
+           hidden while this is set. -->
       <div class="blocked" role="alert">
         <span class="blocked-title">{m.herdrupdate_unsupported_title()}</span>
         <span class="blocked-body"
@@ -421,7 +422,7 @@
     line-height: 1.5;
     color: var(--color-ink-bright);
   }
-  /* unsupported-version block: the in-app update is disabled (herdr 0.7.5+, #1889) */
+  /* unsupported-version block: the in-app update is disabled (latest herdr newer than supported) */
   .blocked {
     display: flex;
     flex-direction: column;

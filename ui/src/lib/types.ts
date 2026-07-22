@@ -1451,8 +1451,9 @@ export interface HerdrUpdateStatus {
   current: string | null;
   latest: string | null;
   updateAvailable: boolean;
-  /** true when `latest` is a herdr version Shepherd does not support (0.7.5+ broke agent
-   *  spawning — see #1889); the modal warns and the updater refuses it instead of offering it. */
+  /** true when `latest` is a herdr version Shepherd does not support (newer than the supported
+   *  ceiling, so agent spawning would fail); the modal warns and the updater refuses it instead of
+   *  offering it. */
   latestUnsupported?: boolean;
   notes: string | null;
   checkedAt: number;

@@ -4,7 +4,7 @@ import { execFileSync } from "./instrument";
 import { config } from "./config";
 import {
   detectedHerdrVersion,
-  HERDR_LAST_SUPPORTED_VERSION,
+  HERDR_LAST_SPAWNABLE_VERSION,
   herdrSpawnSupported,
   herdrUsesExternalRegistrationSpawn,
 } from "./herdr-capabilities";
@@ -57,16 +57,16 @@ export class HerdrUnavailableError extends Error {
   }
 }
 
-/** Thrown by `start()` when the installed herdr is newer than Shepherd supports. herdr 0.7.5
- *  (protocol 17) reshaped `agent start` so Shepherd's sandboxed/env-wrapped spawn command can no
- *  longer be launched — every agent spawn breaks. Steering/reading is unaffected; only spawning is
- *  gated. Pin herdr to {@link HERDR_LAST_SUPPORTED_VERSION}. Tracked by issue #1889. */
+/** Thrown by `start()` when the installed herdr is newer than the driver can spawn on — its
+ *  protocol is untested and Shepherd's spawn path is not known to work against it. Steering/reading
+ *  existing agents is unaffected; only spawning is gated. Pin herdr to
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} or earlier. */
 export class HerdrSpawnUnsupportedError extends Error {
   constructor(version: string | null) {
     super(
       `herdr ${version ?? "?"} is not supported for spawning agents — Shepherd requires herdr ` +
-        `<= ${HERDR_LAST_SUPPORTED_VERSION}. herdr 0.7.5+ broke \`agent start\` (see issue #1889); ` +
-        `pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} to run Shepherd.`,
+        `<= ${HERDR_LAST_SPAWNABLE_VERSION}; this version is newer than the driver can spawn on. ` +
+        `Pin herdr to ${HERDR_LAST_SPAWNABLE_VERSION} or earlier to run Shepherd.`,
     );
     this.name = "HerdrSpawnUnsupportedError";
   }

@@ -220,17 +220,17 @@ const herdrVersionRaw = preflightHerdr({
   exit: process.exit,
 });
 // Record the installed herdr version and warn LOUDLY (but keep running) when it is newer than
-// Shepherd supports. herdr 0.7.5+ broke `agent start` so agent spawning fails on it (see #1889);
-// the driver refuses spawns with a clear error and the in-app herdr-update is blocked. Operators
-// must pin herdr to <=0.7.4 until #1889 lands.
+// Shepherd supports. A herdr past the supported ceiling has an untested protocol Shepherd cannot
+// drive; the driver refuses spawns with a clear error and the in-app herdr-update is blocked.
+// Operators should pin herdr to a supported release.
 const herdrVersion = parseHerdrVersion(herdrVersionRaw ?? "");
 setDetectedHerdrVersion(herdrVersion);
 if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
   console.error(
     `\n⚠  UNSUPPORTED herdr version ${herdrVersion} detected.\n` +
-      `   Shepherd supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}. herdr 0.7.5+ reshaped ` +
-      `\`agent start\` so Shepherd cannot spawn agents on it — spawning WILL fail.\n` +
-      `   Pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} (https://herdr.dev). Tracking: issue #1889.\n`,
+      `   Shepherd supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}; this version is newer than ` +
+      `Shepherd can drive, so agent spawning WILL fail.\n` +
+      `   Pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} or earlier (https://herdr.dev).\n`,
   );
 }
 

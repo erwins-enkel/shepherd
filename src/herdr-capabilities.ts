@@ -2,24 +2,24 @@
 //
 // herdr 0.7.5 (socket protocol 17) reshaped `agent start`: it now launches a canonical agent
 // executable (`--kind claude`) with native args in an existing pane, and can no longer run
-// Shepherd's spawn command — an `env …` shim (always) wrapped, when a bwrap backend is present,
-// in `bwrap … -- env … claude …`. Verified against a live 0.7.5 server: EVERY spawn breaks (the
-// shim tokens become positional args; the env pinning is lost), so Shepherd cannot launch a single
-// agent on 0.7.5. Until issue #1889 lands a compatible spawn path, Shepherd supports herdr <= 0.7.4
-// only. This module is the single source of truth for that ceiling; callers warn (preflight/
-// diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update to 0.7.5+.
+// Shepherd's legacy spawn command — an `env …` shim (always) wrapped, when a bwrap backend is
+// present, in `bwrap … -- env … claude …`. Shepherd now spawns on 0.7.5 through the CLI
+// external-registration path (`tab create` → `pane run` → `report-agent`, #1890), so 0.7.5 is fully
+// supported. This module is the single source of truth for the version ceilings; callers warn
+// (preflight/diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update for a
+// herdr newer than Shepherd can drive.
 import { compareSemver } from "./semver";
 
 /** The newest herdr version Shepherd's general ceiling admits. Feeds the preflight banner, the
- *  in-app updater block, and the diagnostics ceiling display — retiring THOSE is a separate child of
- *  #1889, so this stays `0.7.4` here even though the CLI driver can now spawn on 0.7.5 (see
- *  {@link HERDR_LAST_SPAWNABLE_VERSION}). */
-export const HERDR_LAST_SUPPORTED_VERSION = "0.7.4";
+ *  in-app updater block, and the diagnostics ceiling display. Re-converged with
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} now that Shepherd drives 0.7.5 (#1893) — both are `0.7.5`;
+ *  a herdr newer than this is warned/blocked/refused across the capability layer AND the driver. */
+export const HERDR_LAST_SUPPORTED_VERSION = "0.7.5";
 
 /** The newest herdr version the CLI driver can SPAWN on. 0.7.5 (protocol 17) is spawnable via the
- *  external-registration path (`tab create` → `pane run` → `report-agent`, #1890); this is
- *  decoupled from {@link HERDR_LAST_SUPPORTED_VERSION} so lifting the CLI spawn refusal for 0.7.5
- *  does not also un-gate the updater/preflight ceiling. */
+ *  external-registration path (`tab create` → `pane run` → `report-agent`, #1890). Now equal to
+ *  {@link HERDR_LAST_SUPPORTED_VERSION} — the two were briefly decoupled while the CLI driver could
+ *  spawn on 0.7.5 but the capability layer still gated at 0.7.4; #1893 re-converged them. */
 export const HERDR_LAST_SPAWNABLE_VERSION = "0.7.5";
 
 /** First herdr version that requires the external-registration spawn path instead of `agent start`
@@ -37,7 +37,8 @@ export function parseHerdrVersion(raw: string): string | null {
 }
 
 /** True when Shepherd can drive `version`. null/unparseable → true (never false-alarm on an
- *  unreadable version); `> HERDR_LAST_SUPPORTED_VERSION` → false (spawning is broken, #1889). */
+ *  unreadable version); `> HERDR_LAST_SUPPORTED_VERSION` → false (a herdr newer than Shepherd
+ *  supports). */
 export function isHerdrVersionSupported(version: string | null): boolean {
   if (!version) return true;
   return compareSemver(version, HERDR_LAST_SUPPORTED_VERSION) <= 0;
@@ -56,9 +57,9 @@ export function detectedHerdrVersion(): string | null {
   return detected;
 }
 
-/** Whether the installed herdr is one Shepherd can spawn agents on. Decoupled from
- *  {@link isHerdrVersionSupported} (the general 0.7.4 ceiling): the CLI driver can now spawn up to
- *  {@link HERDR_LAST_SPAWNABLE_VERSION} (0.7.5) via the external-registration path (#1890).
+/** Whether the installed herdr is one Shepherd can spawn agents on: the CLI driver spawns up to
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} (0.7.5) via the external-registration path (#1890). Now
+ *  equal to the general support ceiling {@link isHerdrVersionSupported} (#1893).
  *  null/unparseable → true (never false-alarm on an unreadable version). */
 export function herdrSpawnSupported(): boolean {
   if (!detected) return true;

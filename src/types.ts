@@ -403,9 +403,9 @@ export interface HerdrUpdateStatus {
   latest: string | null;
   /** true when latest > current; never true on error */
   updateAvailable: boolean;
-  /** true when `latest` is a herdr version Shepherd does NOT support (0.7.5+, which broke agent
-   *  spawning — see #1889). The in-app updater refuses to install it and the modal warns instead of
-   *  offering the upgrade; operators must stay on <=0.7.4. */
+  /** true when `latest` is a herdr version Shepherd does NOT support (newer than the supported
+   *  ceiling, so agent spawning would fail). The in-app updater refuses to install it and the modal
+   *  warns instead of offering the upgrade; operators must stay on a supported release. */
   latestUnsupported?: boolean;
   /** true when the INSTALLED herdr is one Shepherd cannot drive (stranded on 0.7.5+,
    *  #1898). The modal offers the in-app downgrade and the diagnostics hint becomes

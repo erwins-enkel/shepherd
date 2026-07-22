@@ -396,13 +396,13 @@ export class HerdrUpdateService {
    *  outcome via onDone. Guards against a double-launch while one is in flight. */
   apply(): { started: boolean } {
     if (this.applying) return { started: false };
-    // Never upgrade INTO an unsupported herdr from inside Shepherd: 0.7.5+ broke agent spawning
-    // (#1889), so applying it would leave the operator unable to spawn. The modal also warns +
-    // hides the run button; this is the server-side backstop against a direct POST.
+    // Never upgrade INTO an unsupported herdr from inside Shepherd: a herdr newer than Shepherd
+    // supports can't spawn agents, so applying it would leave the operator unable to spawn. The
+    // modal also warns + hides the run button; this is the server-side backstop against a direct POST.
     if (this.last?.latestUnsupported) {
       console.warn(
         `[herdr-update] refusing in-app upgrade to unsupported herdr ${this.last?.latest ?? "?"} ` +
-          `— pin to 0.7.4 (see #1889)`,
+          `— newer than Shepherd supports`,
       );
       return { started: false };
     }
@@ -600,8 +600,8 @@ export class HerdrUpdateService {
       const latest = latestMatch ? latestMatch[1]! : null;
 
       const updateAvailable = !!current && !!latest && compareSemver(latest, current) > 0;
-      // A newer-but-unsupported latest (0.7.5+) still shows the badge/modal, but the modal warns
-      // and the updater refuses it — see apply() + HerdrUpdateModal. #1889.
+      // A newer-but-unsupported latest (past the supported ceiling) still shows the badge/modal, but
+      // the modal warns and the updater refuses it — see apply() + HerdrUpdateModal.
       const latestUnsupported = updateAvailable && !isHerdrVersionSupported(latest);
 
       this.last = {

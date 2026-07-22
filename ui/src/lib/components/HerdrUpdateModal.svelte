@@ -209,9 +209,9 @@
 
     {#if blocked}
       <!-- Stranded (#1898): the INSTALLED herdr broke agent spawning; this modal offers the
-           one-click rescue downgrade instead of a dead end. Latest-unsupported (#1889): herdr
-           0.7.5+ broke agent spawning; Shepherd blocks the in-app upgrade and warns instead of
-           offering it (the run button below is hidden while this is set). -->
+           one-click rescue downgrade instead of a dead end. Latest-unsupported: the latest herdr is
+           newer than Shepherd supports (agent spawning would fail); Shepherd blocks the in-app
+           upgrade and warns instead of offering it (the run button below is hidden while set). -->
       <div class="blocked" role="alert">
         <span class="blocked-title">{blocked.title}</span>
         <span class="blocked-body">{blocked.body}</span>
@@ -485,7 +485,7 @@
     line-height: 1.5;
     color: var(--color-ink-bright);
   }
-  /* unsupported-version block: the in-app update is disabled (herdr 0.7.5+, #1889) */
+  /* unsupported-version block: the in-app update is disabled (latest herdr newer than supported) */
   .blocked {
     display: flex;
     flex-direction: column;

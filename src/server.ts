@@ -7577,6 +7577,14 @@ export function livePtyAttach(
   }
 }
 
+/** The id a `node-pty` `herdr agent attach` must target. On herdr 0.7.5 that's the pane_id — a
+ *  terminal_id is rejected as agent_not_found (#1890), same as read/send/relabel; ≤0.7.4 keeps the
+ *  terminal_id (byte-identical). paneTarget is absent only on a herdr hiccup, where we fall back to
+ *  the terminal_id for an optimistic attach. */
+function nodePtyAttachTarget(attach: LivePtyAttach, terminalId: string): string {
+  return herdrUsesExternalRegistrationSpawn() && attach.paneTarget ? attach.paneTarget : terminalId;
+}
+
 const SOCKET_TERMINAL_FAILURE_TTL_MS = 30_000;
 
 /** True when `id` had a socket-terminal failure recorded within the last `ttl` ms. */
@@ -7751,15 +7759,11 @@ export function serve(deps: AppDeps, port: number) {
           // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
           // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
           const data = ws.data as Extract<WsData, { kind: "pty" }>;
-          // herdr 0.7.5 addresses `agent attach` by pane_id — a terminal_id is rejected as
-          // agent_not_found (#1890), same as read/send/relabel. The socket bridge already targets
-          // paneTarget; the node-pty CLI attach (and its socket→node-pty fallback) must too. ≤0.7.4
-          // keeps the terminal_id target (byte-identical). paneTarget is absent only on a herdr
-          // hiccup, where we fall back to tid for an optimistic attach.
-          const nodePtyAttachTarget =
-            herdrUsesExternalRegistrationSpawn() && attach.paneTarget ? attach.paneTarget : tid;
+          // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
+          // socket bridge already targets paneTarget. See nodePtyAttachTarget.
+          const ptyTarget = nodePtyAttachTarget(attach, tid);
           if (kind === "node-pty") {
-            const b = new PtyBridge(nodePtyAttachTarget, sock);
+            const b = new PtyBridge(ptyTarget, sock);
             data.bridge = b;
             b.open(data.cols, data.rows);
           } else {
@@ -7780,7 +7784,7 @@ export function serve(deps: AppDeps, port: number) {
                 recordFallback();
                 console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
                 socketTerminalFailures.set(tid, Date.now());
-                const nb = new PtyBridge(nodePtyAttachTarget, sock);
+                const nb = new PtyBridge(ptyTarget, sock);
                 data.bridge = nb;
                 data.awaitingFirstFrame = false;
                 nb.open(data.cols, data.rows);

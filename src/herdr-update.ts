@@ -1,9 +1,14 @@
-import { spawn } from "node:child_process";
 import { execFileSync } from "./instrument";
 import { config } from "./config";
-import { isHerdrVersionSupported, setDetectedHerdrVersion } from "./herdr-capabilities";
+import {
+  HERDR_LAST_SUPPORTED_VERSION,
+  isHerdrVersionSupported,
+  setDetectedHerdrVersion,
+} from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import { compareSemver } from "./semver";
+import { runScriptChild } from "./script-child";
+import { readInstalledVersion, readActualVersion } from "./version-probe";
 import type { HerdrUpdateStatus } from "./types";
 
 export type { HerdrUpdateStatus };
@@ -28,6 +33,10 @@ function sanitizeVersion(v: string | null | undefined): string {
   const clean = (v ?? "").replace(/[^0-9.]/g, "");
   return clean || "unknown";
 }
+
+// single-quote for the shell; a literal `'` inside (vanishingly unlikely in a
+// home path or binary path) is escaped via the classic '\'' close-reopen trick.
+const shq = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
 
 /**
  * The shell program shepherd spawns as a managed child. Extracted + exported
@@ -55,9 +64,6 @@ export function buildUpdateScript(
 ): string {
   const f = sanitizeVersion(from);
   const t = sanitizeVersion(to);
-  // single-quote for the shell; a literal `'` inside (vanishingly unlikely in a
-  // home path or binary path) is escaped via the classic '\'' close-reopen trick.
-  const shq = (s: string): string => `'${s.replace(/'/g, "'\\''")}'`;
   const q = shq(logPath);
   // The configured herdr binary (HERDR_BIN / config.herdrBin), shell-quoted so a
   // custom install path can't break the script. Every herdr invocation below uses
@@ -124,6 +130,121 @@ export function buildUpdateScript(
   ].join("\n");
 }
 
+/** Map this host onto latest.json's asset key (`linux-x86_64`, `macos-aarch64`, …);
+ *  null when herdr publishes no binary for the platform. */
+export function herdrAssetKey(
+  platform: NodeJS.Platform = process.platform,
+  arch: string = process.arch,
+): string | null {
+  const os = platform === "linux" ? "linux" : platform === "darwin" ? "macos" : null;
+  const cpu = arch === "x64" ? "x86_64" : arch === "arm64" ? "aarch64" : null;
+  return os && cpu ? `${os}-${cpu}` : null;
+}
+
+/** The version-addressable release-asset URL, built from a HARDCODED template (the
+ *  same GitHub slug the modal's release-notes link uses). The downgrade flow (#1898)
+ *  cross-checks this against latest.json's `releases` map before running — the
+ *  template guarantees shape (no injection), the manifest guarantees currency. */
+export function herdrReleaseUrl(version: string, assetKey: string): string {
+  return `https://github.com/ogulcancelik/herdr/releases/download/v${sanitizeVersion(version)}/herdr-${assetKey}`;
+}
+
+/**
+ * The shell program for the in-app DOWNGRADE to a supported herdr (#1898). Same
+ * logging contract as buildUpdateScript (one delimited `tee -a` block, every step
+ * announced with UPDATE_LOG_PREFIX, explicit exit codes).
+ *
+ * Safety-critical ordering: download → verify → atomic swap → THEN restart. Every
+ * failure before the swap aborts with the old binary untouched and the old server
+ * still running — a failed rescue leaves the install exactly as broken as it was,
+ * never more broken. No `--handoff`: on a stranded install the #1887 guard refused
+ * every spawn, so there are no live agent panes to preserve.
+ */
+export function buildDowngradeScript(
+  logPath: string,
+  from: string | null | undefined,
+  to: string | null | undefined,
+  url: string,
+  herdrBin: string = config.herdrBin,
+): string {
+  const f = sanitizeVersion(from);
+  const t = sanitizeVersion(to);
+  const q = shq(logPath);
+  const h = shq(herdrBin);
+  const u = shq(url);
+  return [
+    `LOG=${q}`,
+    'mkdir -p "$(dirname "$LOG")"',
+    "{",
+    `  echo "=== herdr-downgrade $(date -u +%Y-%m-%dT%H:%M:%SZ) ${f} -> ${t} ==="`,
+    // Resolve the real path first: config.herdrBin may be a bare "herdr" found via
+    // PATH, and the atomic swap below must target the actual file, not ./herdr.
+    `  BIN="$(command -v ${h} || true)"`,
+    '  if [ -z "$BIN" ]; then',
+    `    echo '${UPDATE_LOG_PREFIX} cannot locate the herdr binary — aborting'`,
+    "    exit 1",
+    "  fi",
+    // Temp file NEXT TO the binary (same filesystem) so the swap is an atomic rename.
+    '  TMP="$BIN.downgrade.$$"',
+    `  echo '${UPDATE_LOG_PREFIX} downloading herdr ${t}'`,
+    `  if ! curl -fsSL --retry 3 --connect-timeout 10 --max-time 120 -o "$TMP" ${u}; then`,
+    `    echo '${UPDATE_LOG_PREFIX} download failed — herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    '  chmod +x "$TMP"',
+    `  echo '${UPDATE_LOG_PREFIX} verifying downloaded binary reports ${t}'`,
+    // Exact match, not substring: a `grep -qF` here would let "10.7.4" or "0.7.40"
+    // pass verification against a "0.7.4" target. Extract the first semver token
+    // (mirrors the server-side SEMVER_RE parse of `herdr --version`) and compare
+    // it for equality.
+    `  V="$("$TMP" --version 2>/dev/null | grep -oE "[0-9]+\\.[0-9]+\\.[0-9]+" | head -n 1)"`,
+    `  if [ "$V" != "${t}" ]; then`,
+    `    echo '${UPDATE_LOG_PREFIX} downloaded binary does not report ${t} — aborting, herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    `  echo '${UPDATE_LOG_PREFIX} swapping the verified binary into place'`,
+    '  if ! mv -f "$TMP" "$BIN"; then',
+    `    echo '${UPDATE_LOG_PREFIX} swap failed — herdr binary untouched'`,
+    '    rm -f "$TMP"',
+    "    exit 1",
+    "  fi",
+    // Only AFTER the verified swap is the running server touched. `server stop`
+    // suffices on provisioned hosts (deploy/herdr.service has Restart=always); the
+    // grace+retry loop lets systemd win before the last-resort detached relaunch —
+    // the same recovery pattern as buildUpdateScript.
+    `  echo '${UPDATE_LOG_PREFIX} stopping the herdr server so it relaunches on the downgraded binary'`,
+    '  "$BIN" server stop; rc=$?',
+    `  echo "${UPDATE_LOG_PREFIX} herdr server stop exited rc=$rc"`,
+    "  ok=0",
+    "  for attempt in 1 2 3; do",
+    '    if timeout 10 "$BIN" agent list >/dev/null 2>&1; then ok=1; break; fi',
+    "    sleep 2",
+    "  done",
+    '  if [ "$ok" -eq 1 ]; then',
+    `    echo '${UPDATE_LOG_PREFIX} herdr server reachable after downgrade'`,
+    "  else",
+    `    echo '${UPDATE_LOG_PREFIX} herdr server unreachable after retries — relaunching a detached server'`,
+    '    setsid "$BIN" server </dev/null >/dev/null 2>&1 &',
+    "  fi",
+    '} 2>&1 | tee -a "$LOG"',
+  ].join("\n");
+}
+
+/** Status fields derived from the INSTALLED version's support policy (#1898). A
+ *  stranded install (unsupported current, e.g. 0.7.5+) advertises the version the
+ *  in-app downgrade would install, so the UI never hardcodes a version. */
+function supportFlags(
+  current: string | null,
+): Pick<HerdrUpdateStatus, "currentUnsupported" | "downgradeTarget"> {
+  const unsupported = !isHerdrVersionSupported(current);
+  return {
+    currentUnsupported: unsupported,
+    downgradeTarget: unsupported ? HERDR_LAST_SUPPORTED_VERSION : null,
+  };
+}
+
 /** Terminal outcome of an apply(), emitted once via onDone. Drives the modal's
  *  ✓/✗ state. Success is decided by a re-read `herdr --version`, NOT the child's
  *  exit code (`herdr update` exits 0 even when it prints "Herdr was not updated"). */
@@ -134,17 +255,35 @@ export interface HerdrUpdateResult {
   error?: string;
 }
 
+/** Subset of herdr.dev/latest.json Shepherd reads: the latest release (version/notes)
+ *  plus the per-version `releases` map used to resolve versioned artifacts (#1898). */
+export interface HerdrManifest {
+  version: string;
+  notes?: string;
+  releases?: Record<string, { assets?: Record<string, string> }>;
+}
+
 export interface HerdrUpdateDeps {
   /** inject point for tests; defaults to running the herdr binary's --version */
   versionRunner?: () => string;
   /** inject point for tests; defaults to fetching herdr.dev/latest.json */
-  fetchLatest?: () => Promise<{ version: string; notes?: string }>;
+  fetchLatest?: () => Promise<HerdrManifest>;
   /**
    * Run the update child, streaming each output line to onLine, resolving when
    * it exits. The AbortSignal fires on watchdog timeout — the default kills the
    * child. Default: spawn `bash -lc <buildUpdateScript>`.
    */
   runUpdate?: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  /**
+   * Run the downgrade child for the given script, streaming output to onLine,
+   * resolving on exit (#1898). Same watchdog semantics as runUpdate. Default:
+   * spawn `bash -lc <script>`.
+   */
+  runDowngrade?: (
+    script: string,
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+  ) => Promise<void>;
   /** each log line streamed from the running update; default: no-op */
   onLog?: (line: string) => void;
   /** the recomputed status after the update settles; default: no-op */
@@ -175,8 +314,13 @@ export interface HerdrUpdateDeps {
  */
 export class HerdrUpdateService {
   private versionRunner: () => string;
-  private fetchLatest: () => Promise<{ version: string; notes?: string }>;
+  private fetchLatest: () => Promise<HerdrManifest>;
   private runUpdate: (onLine: (line: string) => void, signal: AbortSignal) => Promise<void>;
+  private runDowngrade: (
+    script: string,
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+  ) => Promise<void>;
   private onLog: (line: string) => void;
   private onStatus: (status: HerdrUpdateStatus) => void;
   private onDone: (result: HerdrUpdateResult) => void;
@@ -190,10 +334,10 @@ export class HerdrUpdateService {
       deps.versionRunner ??
       (() => execFileSync(config.herdrBin, ["--version"], { encoding: "utf8" }));
     this.fetchLatest =
-      deps.fetchLatest ??
-      (() =>
-        fetch(LATEST_URL).then((r) => r.json() as Promise<{ version: string; notes?: string }>));
+      deps.fetchLatest ?? (() => fetch(LATEST_URL).then((r) => r.json() as Promise<HerdrManifest>));
     this.runUpdate = deps.runUpdate ?? ((onLine, signal) => this.defaultRunUpdate(onLine, signal));
+    this.runDowngrade =
+      deps.runDowngrade ?? ((script, onLine, signal) => this.spawnScript(script, onLine, signal));
     this.onLog = deps.onLog ?? (() => {});
     this.onStatus = deps.onStatus ?? (() => {});
     this.onDone = deps.onDone ?? (() => {});
@@ -205,46 +349,25 @@ export class HerdrUpdateService {
    *  there is no longer a shepherd restart to outlive), stream stdout+stderr to
    *  onLine, resolve on exit. The signal (watchdog) force-kills a hung child. */
   private defaultRunUpdate(onLine: (line: string) => void, signal: AbortSignal): Promise<void> {
-    return new Promise((resolve) => {
-      const script = buildUpdateScript(
-        config.herdrUpdateLogPath,
-        this.last?.current,
-        this.last?.latest,
-      );
-      const child = spawn("bash", ["-lc", script], { stdio: ["ignore", "pipe", "pipe"] });
-      const kill = () => child.kill("SIGKILL");
-      if (signal.aborted) kill();
-      else signal.addEventListener("abort", kill, { once: true });
+    const script = buildUpdateScript(
+      config.herdrUpdateLogPath,
+      this.last?.current,
+      this.last?.latest,
+    );
+    return this.spawnScript(script, onLine, signal);
+  }
 
-      let buf = "";
-      const handleChunk = (chunk: Buffer | string) => {
-        buf += chunk.toString();
-        const lines = buf.split("\n");
-        buf = lines.pop() ?? "";
-        for (const line of lines) {
-          const trimmed = line.trimEnd();
-          if (trimmed) onLine(trimmed);
-        }
-      };
-      child.stdout?.on("data", handleChunk);
-      child.stderr?.on("data", handleChunk);
-      const finish = () => {
-        signal.removeEventListener("abort", kill);
-        if (buf.trim()) onLine(buf.trim());
-        resolve();
-      };
-      child.on("exit", finish);
-      child.on("error", (err) => {
-        onLine(`herdr update spawn failed: ${err.message}`);
-        finish();
-      });
-    });
+  private spawnScript(
+    script: string,
+    onLine: (line: string) => void,
+    signal: AbortSignal,
+  ): Promise<void> {
+    return runScriptChild(script, onLine, signal, "herdr update");
   }
 
   /** Parse the installed version from `herdr --version`; null if unreadable. */
   private installedVersion(): string | null {
-    const m = SEMVER_RE.exec(this.versionRunner());
-    return m ? m[1]! : null;
+    return readInstalledVersion(this.versionRunner, SEMVER_RE);
   }
 
   /** Best-effort installed version for the "what are we ACTUALLY on?" report.
@@ -252,16 +375,20 @@ export class HerdrUpdateService {
    *  the last-known-good). Used by every failure branch so we never tell the
    *  operator they're on the target version we know they did NOT reach. */
   private actualVersion(fallback: string | null): string | null {
-    try {
-      return this.installedVersion() ?? fallback;
-    } catch {
-      return fallback;
-    }
+    return readActualVersion(this.versionRunner, SEMVER_RE, fallback);
   }
 
   /** Last computed status, or null before the first check. */
   current(): HerdrUpdateStatus | null {
     return this.last;
+  }
+
+  /** Re-read the installed version after the child ran (it decides success and is what
+   *  every failure branch reports) and refresh the spawn guard's ceiling. */
+  private settleAfterScript(from: string | null): string | null {
+    const after = this.actualVersion(from);
+    setDetectedHerdrVersion(after);
+    return after;
   }
 
   /** Kick off the update in the background. Returns immediately so the HTTP
@@ -307,11 +434,10 @@ export class HerdrUpdateService {
       await this.runUpdate((line) => this.onLog(line), ctrl.signal);
       // Re-read the installed version once: it decides success AND is the version
       // every failure branch reports as "what we're actually on" (never the
-      // target, which we know we did not reach).
-      const after = this.actualVersion(from);
-      // `herdr update` swaps the running binary, so refresh the detected version the driver's
-      // spawn guard reads (keeps the ceiling accurate without a Shepherd restart).
-      setDetectedHerdrVersion(after);
+      // target, which we know we did not reach). `herdr update` swaps the running
+      // binary, so this also refreshes the detected version the driver's spawn
+      // guard reads (keeps the ceiling accurate without a Shepherd restart).
+      const after = this.settleAfterScript(from);
       if (ctrl.signal.aborted) {
         result = { ok: false, from, to: after, error: "herdr update timed out" };
       } else {
@@ -321,6 +447,7 @@ export class HerdrUpdateService {
           latest: to,
           updateAvailable: !!after && !!to && compareSemver(to, after) > 0,
           latestUnsupported: !isHerdrVersionSupported(to),
+          ...supportFlags(after),
           notes: null,
           checkedAt: Date.now(),
           error: ok ? undefined : "herdr was not updated",
@@ -338,6 +465,117 @@ export class HerdrUpdateService {
         from,
         to: this.actualVersion(from),
         error: err instanceof Error ? err.message : "herdr update failed",
+      };
+    } finally {
+      clearTimeout(watchdog);
+      this.maintenance.end();
+      this.applying = false;
+    }
+    this.onDone(result);
+  }
+
+  /** Resolve the versioned artifact URL for `target`: the hardcoded template AND the
+   *  manifest's releases entry must agree (user-chosen trust model, #1898). Throws a
+   *  human-readable error on any mismatch — surfaced via onDone into the modal. */
+  private async resolveDowngradeUrl(target: string): Promise<string> {
+    const assetKey = herdrAssetKey();
+    if (!assetKey) {
+      throw new Error(`no herdr binary published for ${process.platform}/${process.arch}`);
+    }
+    const templateUrl = herdrReleaseUrl(target, assetKey);
+    const manifest = await this.fetchLatest();
+    const manifestUrl = manifest?.releases?.[target]?.assets?.[assetKey];
+    if (!manifestUrl) {
+      throw new Error(`herdr.dev manifest has no ${target} asset for ${assetKey}`);
+    }
+    if (manifestUrl !== templateUrl) {
+      throw new Error(
+        `refusing downgrade: manifest URL ${manifestUrl} does not match the expected ${templateUrl}`,
+      );
+    }
+    return templateUrl;
+  }
+
+  /** Kick off the in-app downgrade to HERDR_LAST_SUPPORTED_VERSION in the background
+   *  (#1898). Mirrors apply(): returns immediately for a 202, streams progress via
+   *  onLog, terminal outcome via onDone. Refuses when the installed version is
+   *  already supported (nothing to rescue) or while a run is in flight. */
+  downgrade(): { started: boolean } {
+    if (this.applying) return { started: false };
+    // Re-read the ACTUAL installed version rather than trusting `this.last.current`
+    // (the periodic check(), up to 6h stale): if the operator manually pinned 0.7.4
+    // out-of-band since the last check, gating on the stale cache would still pass
+    // and restart the herdr server for nothing. actualVersion() is best-effort and
+    // never throws.
+    const current = this.actualVersion(this.last?.current ?? null);
+    if (isHerdrVersionSupported(current)) {
+      console.warn(
+        `[herdr-update] refusing downgrade: installed herdr ${current ?? "?"} is already supported`,
+      );
+      return { started: false };
+    }
+    this.applying = true;
+    console.warn(
+      `[herdr-update] downgrading ${current} -> ${HERDR_LAST_SUPPORTED_VERSION}; ` +
+        `Shepherd stays up (audit log: ${config.herdrUpdateLogPath})`,
+    );
+    void this.runDowngradeOnce(current);
+    return { started: true };
+  }
+
+  /** Background body of downgrade(): resolve+cross-check the artifact URL, run the
+   *  script under the watchdog, decide success from a re-read version, refresh the
+   *  spawn guard, and ALWAYS clear maintenance + the applying guard (same contract
+   *  as runOnce — begin() inside the try, matching end() in finally). */
+  private async runDowngradeOnce(from: string | null): Promise<void> {
+    const to = HERDR_LAST_SUPPORTED_VERSION;
+    let watchdog: ReturnType<typeof setTimeout> | undefined;
+    let result: HerdrUpdateResult;
+    try {
+      this.maintenance.begin();
+      const url = await this.resolveDowngradeUrl(to);
+      const script = buildDowngradeScript(config.herdrUpdateLogPath, from, to, url);
+      const ctrl = new AbortController();
+      watchdog = setTimeout(() => ctrl.abort(), this.watchdogMs);
+      await this.runDowngrade(script, (line) => this.onLog(line), ctrl.signal);
+      // the script swapped the binary — refresh the ceiling the spawn guard reads
+      const installed = this.settleAfterScript(from);
+      if (ctrl.signal.aborted) {
+        result = { ok: false, from, to: installed, error: "herdr downgrade timed out" };
+      } else {
+        const ok = !!installed && installed === to;
+        const latest = this.last?.latest ?? null;
+        const updateAvailable = !!installed && !!latest && compareSemver(latest, installed) > 0;
+        this.last = {
+          current: installed,
+          latest,
+          updateAvailable,
+          latestUnsupported: updateAvailable && !isHerdrVersionSupported(latest),
+          ...supportFlags(installed),
+          notes: this.last?.notes ?? null,
+          checkedAt: Date.now(),
+          error: ok ? undefined : "herdr was not downgraded",
+        };
+        this.onStatus(this.last);
+        result = ok
+          ? { ok: true, from, to }
+          : { ok: false, from, to: installed, error: "herdr was not downgraded" };
+      }
+    } catch (err) {
+      // URL resolution / cross-check / spawn failed — the binary was never touched;
+      // report what we're actually on (never the target). A pre-flight refusal (bad
+      // manifest, URL divergence, unsupported platform) never reaches buildDowngradeScript,
+      // so it otherwise leaves NO trace anywhere: no audit-log block (script never ran),
+      // no onLog line, no console output — only `done.error`, which the modal's fail
+      // branch used to drop silently. Surface it on both live surfaces before it ships.
+      const message = err instanceof Error ? err.message : "herdr downgrade failed";
+      console.warn(`[herdr-update] downgrade failed before touching the binary: ${message}`);
+      this.onLog(`herdr downgrade failed: ${message}`);
+      result = {
+        ok: false,
+        from,
+        to: this.actualVersion(from),
+        error: message,
       };
     } finally {
       clearTimeout(watchdog);
@@ -371,6 +609,7 @@ export class HerdrUpdateService {
         latest,
         updateAvailable,
         latestUnsupported,
+        ...supportFlags(current),
         notes: updateAvailable ? (latestRaw.notes ?? null) : null,
         checkedAt: now,
       };
@@ -379,6 +618,7 @@ export class HerdrUpdateService {
         current: this.last?.current ?? null,
         latest: null,
         updateAvailable: false,
+        ...supportFlags(this.last?.current ?? null),
         notes: null,
         checkedAt: now,
         error: e instanceof Error ? e.message : "herdr update check failed",

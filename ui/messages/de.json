@@ -24,6 +24,12 @@
   "herdrupdate_later": "Später",
   "herdrupdate_log_label": "Update-Protokoll",
   "herdrupdate_all_notes_link": "Alle Release-Notes ansehen",
+  "herdrupdate_downgrade_confirm": "Auf {target} downgraden",
+  "herdrupdate_downgrade_done_ok": "Auf {target} downgegradet. Agenten lassen sich wieder starten — kein Shepherd-Neustart nötig.",
+  "herdrupdate_downgrade_instructions": "Das Downgrade lädt das höchste unterstützte herdr-Release herunter, verifiziert es, tauscht das Binary und startet den herdr-Server neu. Shepherd läuft weiter, kein Neuladen der Seite.",
+  "herdrupdate_downgrade_title": "herdr-Downgrade erforderlich",
+  "herdrupdate_stranded_body": "Shepherd kann auf herdr {current} keine Agenten starten (`agent start` wurde umgebaut; siehe Issue #1889). Ein Downgrade auf {target} stellt das Starten sofort wieder her — kein Shepherd-Neustart.",
+  "herdrupdate_stranded_title": "Dieses herdr kann keine Agenten starten — Downgrade zur Wiederherstellung",
   "common_needs_you": "BRAUCHT DICH · {count}",
   "common_issues_load_failed": "Issues konnten nicht geladen werden – evtl. GitHub-Rate-Limit. Gleich nochmal versuchen.",
   "common_no_open_issues": "keine offenen Issues",
@@ -1338,7 +1344,7 @@
   "diagnostics_hint_herdr_outdated": "Deine herdr-Version liegt unter dem unterstützten Minimum — aktualisiere herdr.",
   "diagnostics_hint_herdr_missing": "herdr-Binary nicht im PATH gefunden — installiere es, um Agent-Sessions zu starten.",
   "diagnostics_hint_herdr_offline": "herdr ist installiert, aber sein Server ist offline — Agent-Sessions können nicht laufen. Starte ihn mit `herdr server` und führe die Diagnose erneut aus.",
-  "diagnostics_hint_herdr_unsupported": "Diese herdr-Version wird nicht unterstützt — Shepherd kann auf herdr 0.7.5+ keine Agenten starten (`agent start` wurde umgebaut; siehe Issue #1889). Fixiere herdr auf 0.7.4 (https://herdr.dev) und führe die Diagnose erneut aus.",
+  "diagnostics_hint_herdr_unsupported": "Diese herdr-Version wird nicht unterstützt — Shepherd kann auf herdr 0.7.5+ keine Agenten starten (`agent start` wurde umgebaut; siehe Issue #1889). Nutze „herdr downgraden“, um mit einem Klick zur höchsten unterstützten Version zurückzukehren, oder fixiere herdr manuell (https://herdr.dev) und führe die Diagnose erneut aus.",
   "diagnostics_hint_tailscale_ok": "Tailscale ist verbunden.",
   "diagnostics_hint_tailscale_not_serving": "Tailscale läuft, stellt Shepherd aber nicht bereit — richte tailscale serve oder einen Tailscale-Service für den Remote-Zugriff ein.",
   "diagnostics_hint_tailscale_missing": "Tailscale nicht installiert oder nicht angemeldet — installiere es und führe tailscale up aus.",
@@ -1598,6 +1604,7 @@
   "feat_newtask_infotips_title": "Aufgeräumtere Erklärungen der Aufgaben-Optionen",
   "feat_newtask_infotips_body": "Plan-Gate, Autopilot bis zum PR und Recherche-Aufgabe haben jetzt je ein kleines „i“ — mit Maus drüberfahren (oder am Handy antippen), um zu lesen, was es tut, statt eines Absatzes, der den Dialog vollstopft. Bei Autopilot steht direkt daneben der Repo-Standard, damit klar ist, wie das Repo es normalerweise handhabt, bevor du es für eine einzelne Aufgabe änderst.",
   "diagnostics_fix": "Beheben",
+  "diagnostics_herdr_downgrade": "herdr downgraden…",
   "diagnostics_doc_link": "So behebst du das",
   "diagnostics_learn_more": "Mehr erfahren",
   "diagnostics_fix_confirm_title": "Diesen Befehl ausführen?",
@@ -3354,5 +3361,7 @@
   "diagnostics_fix_confirm_run_tmp_inodes": "Jetzt aufräumen",
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt.",
   "gloss_inode_term": "Inode",
-  "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll."
+  "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll.",
+  "feat_herdr_downgrade_title": "Auf kaputtem herdr gestrandet? Downgrade mit einem Klick",
+  "feat_herdr_downgrade_body": "Wenn herdr sich per Auto-Update auf eine Version aktualisiert hat, die Shepherd nicht ansteuern kann (0.7.5+ hat das Starten von Agenten kaputt gemacht), heilt sich Shepherd jetzt selbst: Update-Dialog und Diagnose-Tab bieten ein Ein-Klick-Downgrade auf die höchste unterstützte Version — heruntergeladen, verifiziert, getauscht und neu gestartet komplett in der App, mit Schritt-für-Schritt-Audit-Log."
 }

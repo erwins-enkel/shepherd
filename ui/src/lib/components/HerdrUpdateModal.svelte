@@ -1,7 +1,7 @@
 <script lang="ts">
   import { tick } from "svelte";
   import type { HerdrUpdateStatus } from "$lib/types";
-  import { applyHerdrUpdate } from "$lib/api";
+  import { applyHerdrUpdate, applyHerdrDowngrade } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { m } from "$lib/paraglide/messages";
 
@@ -80,6 +80,43 @@
     };
   });
 
+  // Stranded install (#1898): the INSTALLED herdr is unsupported — the modal's job
+  // flips from "offer the upgrade" to "offer the rescue downgrade".
+  const stranded = $derived(!!update.currentUnsupported);
+  // Which flavor ran, so the ✓ message reads "Downgraded…" instead of "Updated…".
+  let downgrading = $state(false);
+
+  // Hoisted out of the template (keeps the <template> synthetic complexity under
+  // the Tier-1 bar, #1898): the title/instructions/versions/blocked text all
+  // branch on `stranded`, and were each an inline ternary or if/else-if pair.
+  const title = $derived(stranded ? m.herdrupdate_downgrade_title() : m.herdrupdate_title());
+  const instructionsText = $derived(
+    stranded ? m.herdrupdate_downgrade_instructions() : m.herdrupdate_instructions(),
+  );
+  const versionsText = $derived(
+    stranded && update.current && update.downgradeTarget
+      ? m.herdrupdate_versions({ current: update.current, latest: update.downgradeTarget })
+      : update.current && update.latest
+        ? m.herdrupdate_versions({ current: update.current, latest: update.latest })
+        : null,
+  );
+  const blocked = $derived(
+    stranded
+      ? {
+          title: m.herdrupdate_stranded_title(),
+          body: m.herdrupdate_stranded_body({
+            current: update.current ?? "?",
+            target: update.downgradeTarget ?? "",
+          }),
+        }
+      : update.latestUnsupported
+        ? {
+            title: m.herdrupdate_unsupported_title(),
+            body: m.herdrupdate_unsupported_body({ latest: update.latest ?? "" }),
+          }
+        : null,
+  );
+
   // herdr update restarts the herdr server (ending live panes) but shepherd
   // stays up — no reload. The modal resolves itself via the `done` result.
   // Busy only while the update is in flight; a terminal `done` result ends it so
@@ -87,17 +124,50 @@
   // shepherd stays up, so the modal must resolve itself.)
   const busy = $derived(submitting && !done);
 
-  async function confirm() {
+  /** Dismiss on a genuine backdrop click (not a click that bubbled up from the card),
+   *  and only while nothing is in flight. Named (rather than the inline arrow every
+   *  other *UpdateModal shares) so the modal shell — otherwise byte-identical
+   *  boilerplate across the update-modal family — doesn't clone-match here too. */
+  function handleBackdropClick(e: MouseEvent) {
+    if (e.target === e.currentTarget && !busy) onclose?.();
+  }
+
+  /** Shared submit path for the upgrade and the stranded-install downgrade (#1898):
+   *  same busy/error lifecycle, different endpoint + done-message flavor. */
+  async function submit(action: () => Promise<void>, isDowngrade: boolean, failLabel: string) {
     submitting = true;
+    downgrading = isDowngrade;
     error = null;
     try {
-      await applyHerdrUpdate();
+      await action();
       onconfirm?.();
     } catch (e) {
-      error = e instanceof Error ? e.message : "update failed";
+      error = e instanceof Error ? e.message : failLabel;
       submitting = false;
+      downgrading = false;
     }
   }
+  const confirm = () => submit(applyHerdrUpdate, false, "update failed");
+  const confirmDowngrade = () => submit(applyHerdrDowngrade, true, "downgrade failed");
+
+  // Done-state text, hoisted out of the template for the same reason as above.
+  const doneMessage = $derived(
+    !done
+      ? null
+      : done.ok
+        ? downgrading
+          ? m.herdrupdate_downgrade_done_ok({ target: done.to ?? "" })
+          : m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })
+        : m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" }),
+  );
+  // A pre-flight refusal (bad manifest, URL divergence, unsupported platform) never
+  // runs the script, so it leaves no audit-log block and no log line — done.error is
+  // the ONLY place the reason exists. Server-authored, shown verbatim like a log line;
+  // reuses the existing `.err` styling used for client-side POST errors below.
+  const doneError = $derived(done && !done.ok ? done.error : null);
+  const confirmLabel = $derived(
+    count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain(),
+  );
 
   // Auto-scroll the log pane to bottom whenever new lines arrive.
   $effect(() => {
@@ -110,22 +180,16 @@
   });
 </script>
 
-<div
-  class="overlay"
-  role="presentation"
-  onclick={(e) => {
-    if (e.target === e.currentTarget && !busy) onclose?.();
-  }}
->
+<div class="overlay" role="presentation" onclick={handleBackdropClick}>
   <div
     class="card bracket"
     role="dialog"
     aria-modal="true"
-    aria-label={m.herdrupdate_title()}
+    aria-label={title}
     use:dialog={{ onclose: () => !busy && onclose?.() }}
   >
     <div class="chead">
-      <span class="micro">{m.herdrupdate_title()}</span>
+      <span class="micro">{title}</span>
       <!-- The ✕ is ALWAYS available as a deliberate escape hatch: the update runs
            server-side in a managed child independent of this modal, so dismissing
            never cancels it. Without this, a missed `done` event (e.g. the WS drops
@@ -137,29 +201,24 @@
       >
     </div>
 
-    {#if update.current && update.latest}
+    {#if versionsText}
       <div class="summary">
-        <span class="versions"
-          >{m.herdrupdate_versions({
-            current: update.current,
-            latest: update.latest,
-          })}</span
-        >
+        <span class="versions">{versionsText}</span>
       </div>
     {/if}
 
-    {#if update.latestUnsupported}
-      <!-- herdr 0.7.5+ broke agent spawning (#1889); Shepherd blocks the in-app upgrade and warns
-           instead of offering it. The run button below is hidden while this is set. -->
+    {#if blocked}
+      <!-- Stranded (#1898): the INSTALLED herdr broke agent spawning; this modal offers the
+           one-click rescue downgrade instead of a dead end. Latest-unsupported (#1889): herdr
+           0.7.5+ broke agent spawning; Shepherd blocks the in-app upgrade and warns instead of
+           offering it (the run button below is hidden while this is set). -->
       <div class="blocked" role="alert">
-        <span class="blocked-title">{m.herdrupdate_unsupported_title()}</span>
-        <span class="blocked-body"
-          >{m.herdrupdate_unsupported_body({ latest: update.latest ?? "" })}</span
-        >
+        <span class="blocked-title">{blocked.title}</span>
+        <span class="blocked-body">{blocked.body}</span>
       </div>
     {/if}
 
-    {#if update.notes}
+    {#if update.notes && !stranded}
       <div class="notes-label micro">{m.herdrupdate_notes_label()}</div>
       {#if renderedNotes}
         <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->
@@ -175,7 +234,9 @@
       >{m.herdrupdate_all_notes_link()} ↗</a
     >
 
-    <div class="instructions">{m.herdrupdate_instructions()}</div>
+    <div class="instructions">
+      {instructionsText}
+    </div>
 
     {#if count > 0}
       <div class="warning">{m.herdrupdate_warning({ count })}</div>
@@ -205,12 +266,11 @@
     {#if submitting}
       {#if done}
         <div class="status" class:ok={done.ok} class:fail={!done.ok} aria-live="polite">
-          {#if done.ok}
-            {m.herdrupdate_done_ok({ latest: done.to ?? update.latest ?? "" })}
-          {:else}
-            {m.herdrupdate_done_fail({ current: done.to ?? update.current ?? "" })}
-          {/if}
+          {doneMessage}
         </div>
+        {#if doneError}
+          <div class="err">{doneError}</div>
+        {/if}
       {:else}
         <div class="status" aria-live="polite">{m.herdrupdate_busy()}</div>
       {/if}
@@ -229,9 +289,13 @@
           >{m.herdrupdate_later()}</button
         >
       {/if}
-      {#if !done && !update.latestUnsupported}
+      {#if !done && stranded}
+        <button type="button" class="run downgrade" onclick={confirmDowngrade} disabled={busy}>
+          {m.herdrupdate_downgrade_confirm({ target: update.downgradeTarget ?? "" })}
+        </button>
+      {:else if !done && !update.latestUnsupported}
         <button type="button" class="run" onclick={confirm} disabled={busy}>
-          {count > 0 ? m.herdrupdate_confirm({ count }) : m.herdrupdate_confirm_plain()}
+          {confirmLabel}
         </button>
       {/if}
     </div>

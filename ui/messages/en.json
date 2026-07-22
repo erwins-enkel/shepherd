@@ -24,6 +24,12 @@
   "herdrupdate_later": "Later",
   "herdrupdate_log_label": "Update log",
   "herdrupdate_all_notes_link": "View all release notes",
+  "herdrupdate_downgrade_confirm": "Downgrade to {target}",
+  "herdrupdate_downgrade_done_ok": "Downgraded to {target}. Agent spawning works again — no Shepherd restart needed.",
+  "herdrupdate_downgrade_instructions": "Downgrading downloads the highest supported herdr release, verifies it, swaps the binary, and restarts the herdr server. Shepherd keeps running, no page reload.",
+  "herdrupdate_downgrade_title": "herdr downgrade required",
+  "herdrupdate_stranded_body": "Shepherd cannot spawn agents on herdr {current} (its `agent start` was reshaped; see issue #1889). Downgrading to {target} restores spawning immediately — no Shepherd restart.",
+  "herdrupdate_stranded_title": "This herdr cannot spawn agents — downgrade to recover",
   "common_needs_you": "NEEDS YOU · {count}",
   "common_issues_load_failed": "Couldn't load issues — GitHub may be rate-limited. Try again shortly.",
   "common_no_open_issues": "no open issues",
@@ -1338,7 +1344,7 @@
   "diagnostics_hint_herdr_outdated": "Your herdr version is below the supported floor — update herdr.",
   "diagnostics_hint_herdr_missing": "herdr binary not found in PATH — install it to run agent sessions.",
   "diagnostics_hint_herdr_offline": "herdr is installed but its server is offline — agent sessions can't run. Start it by running `herdr server`, then re-run Diagnose.",
-  "diagnostics_hint_herdr_unsupported": "This herdr version is not supported — Shepherd cannot spawn agents on herdr 0.7.5+ (its `agent start` was reshaped; see issue #1889). Pin herdr to 0.7.4 (https://herdr.dev), then re-run Diagnose.",
+  "diagnostics_hint_herdr_unsupported": "This herdr version is not supported — Shepherd cannot spawn agents on herdr 0.7.5+ (its `agent start` was reshaped; see issue #1889). Use Downgrade herdr to return to the highest supported version in one click, or pin herdr manually (https://herdr.dev), then re-run Diagnose.",
   "diagnostics_hint_tailscale_ok": "Tailscale is connected.",
   "diagnostics_hint_tailscale_not_serving": "Tailscale is running but isn't fronting Shepherd — set up tailscale serve or a Tailscale Service for remote access.",
   "diagnostics_hint_tailscale_missing": "Tailscale not installed or not logged in — install it and run tailscale up.",
@@ -1598,6 +1604,7 @@
   "feat_newtask_infotips_title": "Tidier task-option explanations",
   "feat_newtask_infotips_body": "Plan gate, Autopilot to PR, and Research task each got a small \"i\" — hover (or tap on mobile) to read what it does, instead of a paragraph crowding the dialog. Autopilot also shows the repo's standing default right beside it, so it's clear how the repo normally handles it before you change it for one task.",
   "diagnostics_fix": "Fix",
+  "diagnostics_herdr_downgrade": "Downgrade herdr…",
   "diagnostics_doc_link": "How to fix",
   "diagnostics_learn_more": "Learn more",
   "diagnostics_fix_confirm_title": "Run this command?",
@@ -3354,5 +3361,7 @@
   "diagnostics_fix_confirm_run_tmp_inodes": "Sweep now",
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd swept the caches it can reclaim, but usage is still high — the rest is most likely a package-manager store or a leftover worktree an agent left in the temporary filesystem, which Shepherd doesn't reclaim yet.",
   "gloss_inode_term": "inode",
-  "gloss_inode_def": "A filesystem's record for one file or directory. A filesystem has a limited number of them, set when it is created — so it can run out of inodes while still having free space, and every new file then fails as though the disk were full."
+  "gloss_inode_def": "A filesystem's record for one file or directory. A filesystem has a limited number of them, set when it is created — so it can run out of inodes while still having free space, and every new file then fails as though the disk were full.",
+  "feat_herdr_downgrade_title": "Stranded on a broken herdr? One-click downgrade",
+  "feat_herdr_downgrade_body": "If herdr auto-updated into a version Shepherd cannot drive (0.7.5+ broke agent spawning), Shepherd now heals itself: the herdr-update dialog and the Diagnose tab offer a one-click downgrade to the highest supported version — downloaded, verified, swapped and restarted entirely in-app, with a step-by-step audit log."
 }

@@ -360,3 +360,42 @@ describe("DiagnoseRows host_capacity guidance", () => {
     expect(document.querySelector("button.fix")).toBeNull();
   });
 });
+
+describe("herdr downgrade button (#1898)", () => {
+  it("offers the downgrade on the stranded-herdr row and fires the callback", async () => {
+    const onherdrdowngrade = vi.fn();
+    render(DiagnoseRows, {
+      props: {
+        onherdrdowngrade,
+        checks: [
+          check({ id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_unsupported" }),
+        ],
+      },
+    });
+    const btn = document.querySelector<HTMLButtonElement>("button.fix");
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent?.trim()).toBe(m.diagnostics_herdr_downgrade());
+    btn!.click();
+    expect(onherdrdowngrade).toHaveBeenCalledOnce();
+  });
+
+  it("renders NO downgrade button without the callback, and none on other herdr states", () => {
+    render(DiagnoseRows, {
+      props: {
+        checks: [
+          check({ id: "herdr", state: "error", hintKey: "diagnostics_hint_herdr_unsupported" }),
+        ],
+      },
+    });
+    expect(document.querySelector("button.fix")).toBeNull();
+
+    document.body.innerHTML = "";
+    render(DiagnoseRows, {
+      props: {
+        onherdrdowngrade: vi.fn(),
+        checks: [check({ id: "herdr", state: "ok", hintKey: "diagnostics_hint_herdr_ok" })],
+      },
+    });
+    expect(document.querySelector("button.fix")).toBeNull();
+  });
+});

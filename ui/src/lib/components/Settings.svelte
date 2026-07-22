@@ -1864,7 +1864,7 @@
       aria-label={m.settings_tab_diagnose()}
       hidden={tab !== "diagnose"}
     >
-      <SettingsDiagnosePanel {initialDiagnostics} />
+      <SettingsDiagnosePanel {initialDiagnostics} onherdrdowngrade={() => onherdrupdate?.()} />
     </div>
 
     <div

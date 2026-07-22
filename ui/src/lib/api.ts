@@ -1586,6 +1586,17 @@ export async function applyHerdrUpdate(): Promise<void> {
   }
 }
 
+/** Trigger the in-app herdr downgrade to the highest supported version — the rescue
+ *  for installs stranded on an unsupported herdr (0.7.5+, #1898). Restarts the herdr
+ *  server; Shepherd stays up. */
+export async function applyHerdrDowngrade(): Promise<void> {
+  const r = await fetch("/api/herdr-update/downgrade", { method: "POST", headers: JSON_HEADERS });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+}
+
 /** Trigger `codex update` (non-destructive: running panes keep their loaded
  *  build; only new codex sessions pick up the new version). */
 export async function applyCodexUpdate(): Promise<void> {

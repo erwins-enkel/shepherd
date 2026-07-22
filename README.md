@@ -133,10 +133,14 @@ enables the systemd user service. Idempotent — safe to re-run: it never clobbe
 
 This is third-party `curl|bash`: the script runs unconfined as your user _before_ any sandbox
 exists. It also invokes upstream installers it does not control — specifically: [bun.sh](https://bun.sh/install),
-[fnm.vercel.app](https://fnm.vercel.app) (Node via fnm), [herdr.dev](https://herdr.dev) (herdr), and
-[claude.ai](https://claude.ai/install.sh) (the `claude` CLI), plus your distro's package manager
-(`apt` / `apk` / `dnf` / `pacman`) for `git`, `unzip`, and the C/C++ build toolchain + `python3`
-(needed for the node-pty native build).
+[fnm.vercel.app](https://fnm.vercel.app) (Node via fnm) and [claude.ai](https://claude.ai/install.sh)
+(the `claude` CLI), plus your distro's package manager (`apt` / `apk` / `dnf` / `pacman`) for `git`,
+`unzip`, and the C/C++ build toolchain + `python3` (needed for the node-pty native build). herdr is
+**not** installed through `herdr.dev/install.sh` (which is latest-only): Shepherd downloads a
+**version-pinned** binary from
+[github.com/ogulcancelik/herdr/releases](https://github.com/ogulcancelik/herdr/releases) — the
+highest release Shepherd supports — verifies it reports that version, and installs it to
+`~/.local/bin`. That release binary is still third-party code fetched and executed on your machine.
 
 > **Shepherd supports herdr up to 0.7.5.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
 > Shepherd drives it through a CLI external-registration path. Don't upgrade past 0.7.5 yet —
@@ -236,7 +240,8 @@ For the from-clone / development path, see [Quick start](#quick-start) below.
 
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — manages the interactive `claude` panes (owns the PTYs)
-  - On macOS, `herdr.dev/install.sh` installs to `~/.local/bin` by default — add it to your shell
+  - Shepherd installs a **version-pinned** herdr (the highest release it supports) into
+    `~/.local/bin`. On macOS that directory is not on `PATH` by default — add it to your shell
     profile before `bun run start`: `export PATH="$HOME/.local/bin:$PATH"`
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess

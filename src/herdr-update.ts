@@ -9,6 +9,7 @@ import {
 } from "./herdr-capabilities";
 import { maintenance as sharedMaintenance } from "./maintenance";
 import { compareSemver } from "./semver";
+import { herdrAssetKey, herdrReleaseUrl, sanitizeVersion } from "./herdr-install";
 import { runScriptChild } from "./script-child";
 import { readInstalledVersion, readActualVersion } from "./version-probe";
 import type { HerdrUpdateStatus } from "./types";
@@ -18,6 +19,10 @@ export type { HerdrUpdateStatus };
 // `from "./herdr-update"` path; the implementation now lives in the leaf semver.ts (so
 // herdr-capabilities.ts can share it without an import cycle).
 export { compareSemver };
+// Same pattern for the release-artifact helpers: they moved to the leaf herdr-install.ts (so
+// preflight.ts can build a pinned install line without pulling config.ts into the boot path),
+// and are re-exported here for existing importers + test/herdr-downgrade.test.ts.
+export { herdrAssetKey, herdrReleaseUrl };
 
 const SEMVER_RE = /(\d+\.\d+\.\d+)/;
 const LATEST_URL = "https://herdr.dev/latest.json";
@@ -26,15 +31,6 @@ const LATEST_URL = "https://herdr.dev/latest.json";
  *  operator can `cat ~/.shepherd/herdr-update.log | grep '>>> herdr-update'` and
  *  read the exact sequence (and exit code) even after shepherd has restarted. */
 export const UPDATE_LOG_PREFIX = ">>> herdr-update:";
-
-/** Versions are regex-captured (digits + dots) before they reach here, but they
- *  ultimately originate from herdr.dev/latest.json — an external source. Strip
- *  anything that isn't a version char before embedding in the shell program so a
- *  poisoned payload can never inject commands. Empty → "unknown". */
-function sanitizeVersion(v: string | null | undefined): string {
-  const clean = (v ?? "").replace(/[^0-9.]/g, "");
-  return clean || "unknown";
-}
 
 // single-quote for the shell; a literal `'` inside (vanishingly unlikely in a
 // home path or binary path) is escaped via the classic '\'' close-reopen trick.
@@ -130,25 +126,6 @@ export function buildUpdateScript(
     "  fi",
     '} 2>&1 | tee -a "$LOG"',
   ].join("\n");
-}
-
-/** Map this host onto latest.json's asset key (`linux-x86_64`, `macos-aarch64`, …);
- *  null when herdr publishes no binary for the platform. */
-export function herdrAssetKey(
-  platform: NodeJS.Platform = process.platform,
-  arch: string = process.arch,
-): string | null {
-  const os = platform === "linux" ? "linux" : platform === "darwin" ? "macos" : null;
-  const cpu = arch === "x64" ? "x86_64" : arch === "arm64" ? "aarch64" : null;
-  return os && cpu ? `${os}-${cpu}` : null;
-}
-
-/** The version-addressable release-asset URL, built from a HARDCODED template (the
- *  same GitHub slug the modal's release-notes link uses). The downgrade flow (#1898)
- *  cross-checks this against latest.json's `releases` map before running — the
- *  template guarantees shape (no injection), the manifest guarantees currency. */
-export function herdrReleaseUrl(version: string, assetKey: string): string {
-  return `https://github.com/ogulcancelik/herdr/releases/download/v${sanitizeVersion(version)}/herdr-${assetKey}`;
 }
 
 /**

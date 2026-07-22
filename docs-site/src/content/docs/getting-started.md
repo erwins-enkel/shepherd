@@ -26,10 +26,14 @@ state dir and never force-resets a dirty checkout.
 
 This is third-party `curl|bash`: the script runs unconfined as your user _before_
 any sandbox exists, and it invokes upstream installers it does not control —
-[bun.sh](https://bun.sh/install), [fnm](https://fnm.vercel.app) (Node),
-[herdr.dev](https://herdr.dev), and the [`claude` CLI](https://claude.ai/install.sh) —
-plus your distro's package manager for `git`, `unzip`, and the C/C++ build
-toolchain + `python3` (needed for the node-pty native build). In keeping with
+[bun.sh](https://bun.sh/install), [fnm](https://fnm.vercel.app) (Node), and the
+[`claude` CLI](https://claude.ai/install.sh) — plus your distro's package manager
+for `git`, `unzip`, and the C/C++ build toolchain + `python3` (needed for the
+node-pty native build). herdr is **not** installed via `herdr.dev/install.sh`
+(latest-only); Shepherd downloads a **version-pinned** release binary from
+[GitHub](https://github.com/ogulcancelik/herdr/releases), verifies the version it
+reports, and installs it to `~/.local/bin` — still third-party code fetched and
+executed on your machine. In keeping with
 Shepherd's radical-transparency posture the script echoes each third-party command
 before running it. Read it first:
 [deploy/install.sh](https://github.com/erwins-enkel/shepherd/blob/main/deploy/install.sh).

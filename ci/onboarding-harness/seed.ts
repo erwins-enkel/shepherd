@@ -1,3 +1,4 @@
+import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import type { IncusDriver } from "./incus";
 import type { Scenario } from "./types";
 
@@ -132,12 +133,19 @@ function ensureToolchain(): string {
  *  missing herdr fail-fasts (exit 78) BEFORE the HTTP server binds, so the 6
  *  non-herdr scenarios — which don't test herdr — just need preflight satisfied.
  *
+ *  The stub reports HERDR_LAST_SUPPORTED_VERSION, derived — never hardcoded. It used to
+ *  report `99.99.99`, which was fine until #1887 added the support CEILING: from then on the
+ *  baseline stub represented a herdr Shepherd REFUSES to drive, so every non-herdr scenario
+ *  booted with an `unsupported` herdr check and an UNSUPPORTED preflight banner. Harmless
+ *  (none of them expect `herdr: ok`) but a lie in the fixture, and it would confuse the next
+ *  scenario that does. Deriving it means a ceiling bump can never re-introduce the drift.
+ *
  *  The stub emits a single VALID JSON line for EVERY invocation. This is
  *  load-bearing, not decorative:
  *   - diagnostics' `herdrProbe` extracts a semver via `SEMVER_RE` from the output,
- *     so the JSON's `99.99.99` (≥ HERDR_MIN_VERSION) reads `ok`;
+ *     so the JSON's version (≥ HERDR_MIN_VERSION, ≤ the ceiling) reads `ok`;
  *   - on-loop `HerdrDriver.list()/tabs()/panes()` do an UNGUARDED `JSON.parse` then
- *     `parsed?.result?.… ?? []`. A plain-text `herdr 99.99.99` would throw a
+ *     `parsed?.result?.… ?? []`. A plain-text `herdr <version>` would throw a
  *     SyntaxError every tick (a different throw than the pre-#1313 ENOENT), so valid
  *     JSON is required — it parses cleanly to `[]` and never throws.
  *  A final `test -x` makes it a CHECKED step (fail-closes the baseline). */
@@ -146,7 +154,7 @@ function herdrStub(): string {
     'mkdir -p "$HOME/.local/bin"\n' +
     "cat > \"$HOME/.local/bin/herdr\" <<'HERDR_STUB'\n" +
     "#!/bin/sh\n" +
-    'echo \'{"version":"99.99.99"}\'\n' +
+    `echo '{"version":"${HERDR_LAST_SUPPORTED_VERSION}"}'\n` +
     "HERDR_STUB\n" +
     'chmod +x "$HOME/.local/bin/herdr"\n' +
     'test -x "$HOME/.local/bin/herdr"'

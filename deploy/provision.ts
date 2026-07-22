@@ -20,7 +20,9 @@ import { homedir, totalmem } from "node:os";
 import { join } from "node:path";
 import { BUN_MIN_VERSION, NODE_MIN_VERSION, HERDR_MIN_VERSION } from "../src/config";
 import { compareSemver } from "../src/herdr-update";
-import { autoFixCommandFor, HERDR_INSTALL, HERDR_SERVE } from "../src/remediations";
+import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
+import { herdrPinnedInstallCommand } from "../src/herdr-install";
+import { autoFixCommandFor, HERDR_SERVE } from "../src/remediations";
 import { resolveBackupDir, backupConfiguredMarker } from "../src/backup-paths";
 
 // ── pure types + data ─────────────────────────────────────────────────────────
@@ -55,7 +57,15 @@ export const PREREQS: readonly Prereq[] = [
     // thrashes the unit while the orphan keeps serving. The check still reads `ok` (the orphan
     // answers), so the breakage would be invisible. On the service path the UNIT owns the
     // daemon; `buildOnly` (no systemd) starts it explicitly instead. #1574
-    installCommand: HERDR_INSTALL,
+    //
+    // It is also built with the UPSTREAM-COMPARABLE download budget rather than reusing
+    // `HERDR_INSTALL` verbatim (#1896): that constant is sized for the in-app Fix, whose child is
+    // SIGKILLed at REMEDIATION_TIMEOUT_MS, while nothing kills provision. This is the path where a
+    // failed herdr install genuinely strands an operator (`install.sh` aborts and the host is left
+    // with no herdr), so it gets the same bandwidth tolerance upstream's own installer allows.
+    installCommand: herdrPinnedInstallCommand(HERDR_LAST_SUPPORTED_VERSION, {
+      downloadBudget: "upstream",
+    }),
   },
   // claude is presence-only (no version floor), like diagnostics.
   { bin: "claude", hintKey: "diagnostics_hint_claude_missing" },

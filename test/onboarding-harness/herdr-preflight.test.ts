@@ -2,6 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { IncusDriver } from "../../ci/onboarding-harness/incus";
 import { runScenario } from "../../ci/onboarding-harness/run";
 import { SCENARIOS } from "../../ci/onboarding-harness/scenarios";
+import { HERDR_LAST_SUPPORTED_VERSION } from "../../src/herdr-capabilities";
 import { HERDR_MISSING_EXIT_CODE, HERDR_MISSING_MARKER } from "../../src/preflight";
 import type { IncusExec } from "../../ci/onboarding-harness/types";
 import type { DiagnosticsSnapshot } from "../../src/types";
@@ -29,11 +30,21 @@ const isFailFastBoot = (joined: string): boolean =>
 
 /** Recorder: fail-fast boot returns the given exit code + banner output; the
  *  diagnostics probe returns `snapshot`; everything else succeeds (code 0). */
-function recorder(failFastCode: number, snapshot: DiagnosticsSnapshot) {
+function recorder(
+  failFastCode: number,
+  snapshot: DiagnosticsSnapshot,
+  installedHerdr: string = HERDR_LAST_SUPPORTED_VERSION,
+) {
   const calls: string[][] = [];
   const run = async (args: string[]): Promise<IncusExec> => {
     calls.push(args);
     const joined = args.join(" ");
+    if (joined.includes("--version")) {
+      // The installed-version assertion (#1896): the harness demands the PINNED herdr, not merely
+      // a working one, so the fake answers as a correctly-pinned host would — unless a test
+      // overrides it to prove the assertion actually bites.
+      return { stdout: `herdr ${installedHerdr}\n`, stderr: "", code: 0 };
+    }
     if (isFailFastBoot(joined)) {
       const output = failFastCode === HERDR_MISSING_EXIT_CODE ? `⚠  ${HERDR_MISSING_MARKER}\n` : "";
       return { stdout: output, stderr: "", code: failFastCode };
@@ -65,7 +76,9 @@ describe("herdr-missing runScenario (fail-fast preflight path)", () => {
     // Foreground fail-fast boot happened (timeout guard, no setsid/token).
     expect(flat.some((c) => isFailFastBoot(c))).toBe(true);
     // The REAL verbatim remediation ran (production REMEDIATIONS → herdr.dev install).
-    expect(flat.some((c) => c.includes("herdr.dev/install.sh"))).toBe(true);
+    expect(
+      flat.some((c) => c.includes(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`)),
+    ).toBe(true);
     // Re-boot used the normal detached launch (setsid) + probed diagnostics.
     expect(flat.some((c) => c.includes("src/index.ts") && c.includes("setsid"))).toBe(true);
     expect(flat.some((c) => c.includes("/api/diagnostics?refresh=1"))).toBe(true);
@@ -76,6 +89,20 @@ describe("herdr-missing runScenario (fail-fast preflight path)", () => {
     expect(result.gateEligible).toBe(true);
     // Teardown ran (finally → delete).
     expect(calls.some((c) => c[0] === "delete")).toBe(true);
+  });
+
+  it("fail-closes when the install lands an UNPINNED herdr, even though the check reads ok", async () => {
+    // The teeth behind the pin (#1896). `herdr: ok` alone cannot catch an unpinned install while
+    // HERDR_LAST_SUPPORTED_VERSION happens to equal herdr's latest release — so the scenario reads
+    // the installed version and refuses anything but the pin. Without this, the day herdr ships
+    // past the ceiling a silently-unpinned install would sail through green.
+    const { run } = recorder(HERDR_MISSING_EXIT_CODE, greenAfterFix(), "9.9.9");
+    const d = new IncusDriver(run, "shep-onb-");
+    const result = await runScenario(d, herdrMissing, "/tmp/shepherd.tar");
+
+    expect(result.reachedGreen).toBe(false);
+    expect(result.error).toContain("9.9.9");
+    expect(result.error).toContain(HERDR_LAST_SUPPORTED_VERSION);
   });
 
   it("fail-closes (gating BOOT CRASH) when boot does NOT fail-fast — a timeout kill (124) is never a pass", async () => {
@@ -91,9 +118,11 @@ describe("herdr-missing runScenario (fail-fast preflight path)", () => {
     expect(result.installE2E).toBeUndefined();
     expect(result.error).toContain("expected herdr fail-fast");
     // Never proceeded to the remediation after a non-78 boot.
-    expect(calls.map((c) => c.join(" ")).some((c) => c.includes("herdr.dev/install.sh"))).toBe(
-      false,
-    );
+    expect(
+      calls
+        .map((c) => c.join(" "))
+        .some((c) => c.includes(`/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-`)),
+    ).toBe(false);
     // Still torn down.
     expect(calls.some((c) => c[0] === "delete")).toBe(true);
   });

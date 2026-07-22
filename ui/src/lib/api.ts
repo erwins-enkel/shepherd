@@ -1597,6 +1597,20 @@ export async function applyHerdrDowngrade(): Promise<void> {
   }
 }
 
+/** Two-path opt-out (#1716): downgrade BELOW the supported ceiling to the last herdr version with
+ *  full sandboxed-agent status fidelity, for operators who'd rather avoid the sandboxed idle-status
+ *  regression. The server picks the target from status; the client never sends a version. */
+export async function applyHerdrSandboxDowngrade(): Promise<void> {
+  const r = await fetch("/api/herdr-update/downgrade/sandbox", {
+    method: "POST",
+    headers: JSON_HEADERS,
+  });
+  if (!r.ok) {
+    const msg = await r.json().catch(() => ({ error: `${r.status}` }));
+    throw apiError(r.status, msg as { error?: string }, `error ${r.status}`);
+  }
+}
+
 /** Trigger `codex update` (non-destructive: running panes keep their loaded
  *  build; only new codex sessions pick up the new version). */
 export async function applyCodexUpdate(): Promise<void> {

@@ -131,6 +131,7 @@ import type {
 } from "./types";
 import type { HerdrDriver } from "./herdr";
 import { matchAgent } from "./herdr";
+import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
 import {
   terminalTransportMetrics,
   recordSocketAttach,
@@ -4213,22 +4214,28 @@ function handleHerdrUpdate({ req, parts, deps }: Ctx): Response | null {
 }
 
 // ── herdr downgrade: rescue an install stranded on an unsupported herdr ────
-// POST /api/herdr-update/downgrade — rescue an install stranded on an unsupported
-// herdr (0.7.5+, #1898) by installing the highest supported version. The service
-// re-guards; this is the HTTP backstop against a direct POST (mirrors apply()'s
-// latestUnsupported refusal).
+// POST /api/herdr-update/downgrade — rescue an install stranded on an unsupported herdr (0.7.5+,
+//   #1898) by installing the highest supported version.
+// POST /api/herdr-update/downgrade/sandbox — two-path opt-out (#1716): step BELOW the supported
+//   ceiling to the last version with full sandboxed-agent status fidelity, for operators who run
+//   sandboxed sessions and prefer no idle-status regression. The server picks the target from the
+//   current status (never trusts a client version string). The service re-guards; this is the HTTP
+//   backstop against a direct POST.
 function handleHerdrDowngrade({ req, parts, deps }: Ctx): Response | null {
-  if (!(
-    parts[0] === "api" &&
-    parts[1] === "herdr-update" &&
-    parts[2] === "downgrade" &&
-    !parts[3]
-  )) {
-    return null;
-  }
+  const sandbox = parts[3] === "sandbox";
+  if (!(parts[0] === "api" && parts[1] === "herdr-update" && parts[2] === "downgrade")) return null;
+  if (parts[3] !== undefined && !sandbox) return null;
   if (req.method !== "POST") return null;
   if (!deps.herdrUpdates) return json({ error: "herdr updates not available" }, 503);
-  if (!deps.herdrUpdates.current()?.currentUnsupported) {
+  const status = deps.herdrUpdates.current();
+  if (sandbox) {
+    if (!status?.sandboxIdleRegressed || !status.sandboxDowngradeTarget) {
+      return json({ error: "no sandboxed-idle regression to downgrade for" }, 409);
+    }
+    const r = deps.herdrUpdates.downgrade(status.sandboxDowngradeTarget);
+    return json({ ok: r.started }, r.started ? 202 : 409);
+  }
+  if (!status?.currentUnsupported) {
     return json({ error: "installed herdr is already supported" }, 409);
   }
   const r = deps.herdrUpdates.downgrade();
@@ -7570,6 +7577,14 @@ export function livePtyAttach(
   }
 }
 
+/** The id a `node-pty` `herdr agent attach` must target. On herdr 0.7.5 that's the pane_id — a
+ *  terminal_id is rejected as agent_not_found (#1890), same as read/send/relabel; ≤0.7.4 keeps the
+ *  terminal_id (byte-identical). paneTarget is absent only on a herdr hiccup, where we fall back to
+ *  the terminal_id for an optimistic attach. */
+function nodePtyAttachTarget(attach: LivePtyAttach, terminalId: string): string {
+  return herdrUsesExternalRegistrationSpawn() && attach.paneTarget ? attach.paneTarget : terminalId;
+}
+
 const SOCKET_TERMINAL_FAILURE_TTL_MS = 30_000;
 
 /** True when `id` had a socket-terminal failure recorded within the last `ttl` ms. */
@@ -7744,8 +7759,11 @@ export function serve(deps: AppDeps, port: number) {
           // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
           // flow narrowing doesn't survive a closure boundary) — `data` keeps them type-checked.
           const data = ws.data as Extract<WsData, { kind: "pty" }>;
+          // node-pty attach (and its socket→node-pty fallback) target the pane_id on 0.7.5; the
+          // socket bridge already targets paneTarget. See nodePtyAttachTarget.
+          const ptyTarget = nodePtyAttachTarget(attach, tid);
           if (kind === "node-pty") {
-            const b = new PtyBridge(tid, sock);
+            const b = new PtyBridge(ptyTarget, sock);
             data.bridge = b;
             b.open(data.cols, data.rows);
           } else {
@@ -7766,7 +7784,7 @@ export function serve(deps: AppDeps, port: number) {
                 recordFallback();
                 console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
                 socketTerminalFailures.set(tid, Date.now());
-                const nb = new PtyBridge(tid, sock);
+                const nb = new PtyBridge(ptyTarget, sock);
                 data.bridge = nb;
                 data.awaitingFirstFrame = false;
                 nb.open(data.cols, data.rows);

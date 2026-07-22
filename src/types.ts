@@ -403,9 +403,9 @@ export interface HerdrUpdateStatus {
   latest: string | null;
   /** true when latest > current; never true on error */
   updateAvailable: boolean;
-  /** true when `latest` is a herdr version Shepherd does NOT support (0.7.5+, which broke agent
-   *  spawning — see #1889). The in-app updater refuses to install it and the modal warns instead of
-   *  offering the upgrade; operators must stay on <=0.7.4. */
+  /** true when `latest` is a herdr version Shepherd does NOT support (newer than the supported
+   *  ceiling, so agent spawning would fail). The in-app updater refuses to install it and the modal
+   *  warns instead of offering the upgrade; operators must stay on a supported release. */
   latestUnsupported?: boolean;
   /** true when the INSTALLED herdr is one Shepherd cannot drive (stranded on 0.7.5+,
    *  #1898). The modal offers the in-app downgrade and the diagnostics hint becomes
@@ -415,6 +415,17 @@ export interface HerdrUpdateStatus {
    *  `currentUnsupported`; null otherwise. Derived server-side from
    *  HERDR_LAST_SUPPORTED_VERSION so the UI never hardcodes a version. */
   downgradeTarget?: string | null;
+  /** true when the INSTALLED herdr has the sandboxed-agent idle-status regression (it uses the
+   *  external-registration spawn path, 0.7.5+) AND this operator runs sandboxed sessions — so a
+   *  resting sandboxed agent reads `working` (herdr issue #1716). NON-blocking: the modal shows an
+   *  advisory + an optional downgrade to a regression-free version. Trusted sessions are unaffected,
+   *  so it never sets for a trusted-only operator. */
+  sandboxIdleRegressed?: boolean;
+  /** The version the two-path advisory downgrades to (the last version with full sandboxed status
+   *  fidelity, HERDR_LAST_FULL_SANDBOX_STATUS_VERSION) when `sandboxIdleRegressed`; null otherwise.
+   *  Distinct from `downgradeTarget` (the supported ceiling) — this one steps BELOW it to escape the
+   *  regression. */
+  sandboxDowngradeTarget?: string | null;
   /** release notes (markdown-ish) for the latest version; null on error/none */
   notes: string | null;
   checkedAt: number;

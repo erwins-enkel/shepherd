@@ -135,32 +135,32 @@ test("current == latest → updateAvailable false", async () => {
   expect(s.updateAvailable).toBe(false);
 });
 
-// ── check()/apply(): unsupported latest (herdr 0.7.5+, #1889) is flagged + blocked ──────────────
-test("check(): a newer-but-unsupported latest (0.7.5) sets latestUnsupported", async () => {
+// ── check()/apply(): a latest newer than the supported ceiling is flagged + blocked ─────────────
+test("check(): a newer-but-unsupported latest (past the ceiling) sets latestUnsupported", async () => {
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.4",
-    fetchLatest: async () => ({ version: "0.7.5", notes: "### Breaking" }),
+    versionRunner: () => "herdr 0.7.5",
+    fetchLatest: async () => ({ version: "0.8.0", notes: "### Breaking" }),
   });
   const s = await svc.check(1000);
   expect(s.updateAvailable).toBe(true); // a newer version does exist
   expect(s.latestUnsupported).toBe(true); // …but Shepherd can't run it
 });
 
-test("check(): a supported latest (0.7.4) is NOT flagged unsupported", async () => {
+test("check(): a supported latest (0.7.4 → 0.7.5) is NOT flagged unsupported", async () => {
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.3",
-    fetchLatest: async () => ({ version: "0.7.4" }),
+    versionRunner: () => "herdr 0.7.4",
+    fetchLatest: async () => ({ version: "0.7.5" }),
   });
   const s = await svc.check(1000);
   expect(s.updateAvailable).toBe(true);
-  expect(s.latestUnsupported).toBe(false);
+  expect(s.latestUnsupported).toBe(false); // 0.7.5 is now supported — the updater offers it
 });
 
 test("apply(): refuses to upgrade into an unsupported latest (never started)", async () => {
   let ran = false;
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.4",
-    fetchLatest: async () => ({ version: "0.7.5" }),
+    versionRunner: () => "herdr 0.7.5",
+    fetchLatest: async () => ({ version: "0.8.0" }),
     runUpdate: async () => {
       ran = true;
     },
@@ -315,14 +315,15 @@ test("apply(): streams runUpdate lines to onLog", async () => {
 });
 
 // ── check(): stranded install (unsupported INSTALLED herdr, #1898) ───────────
-test("check(): an unsupported INSTALLED herdr (0.7.5) sets currentUnsupported + downgradeTarget", async () => {
+test("check(): an unsupported INSTALLED herdr (0.7.6) sets currentUnsupported + downgradeTarget", async () => {
+  // 0.7.5 is now the supported ceiling (epic #1889), so the stranded case is 0.7.6+.
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.5",
-    fetchLatest: async () => ({ version: "0.7.5" }),
+    versionRunner: () => "herdr 0.7.6",
+    fetchLatest: async () => ({ version: "0.7.6" }),
   });
   const s = await svc.check(1000);
   expect(s.currentUnsupported).toBe(true);
-  expect(s.downgradeTarget).toBe("0.7.4"); // = HERDR_LAST_SUPPORTED_VERSION today
+  expect(s.downgradeTarget).toBe("0.7.5"); // = HERDR_LAST_SUPPORTED_VERSION today
   expect(s.updateAvailable).toBe(false); // current === latest: nothing to upgrade to
 });
 
@@ -339,16 +340,76 @@ test("check(): a supported installed herdr (0.7.4) is not stranded; no downgrade
 test("check(): a failed fetch carries the prior current into the stranded flags", async () => {
   let calls = 0;
   const svc = new HerdrUpdateService({
-    versionRunner: () => "herdr 0.7.5",
+    versionRunner: () => "herdr 0.7.6", // 0.7.6 is unsupported (ceiling is now 0.7.5, epic #1889)
     fetchLatest: async () => {
       calls++;
       if (calls > 1) throw new Error("herdr.dev down");
-      return { version: "0.7.5" };
+      return { version: "0.7.6" };
     },
   });
-  await svc.check(1000); // seeds current=0.7.5
+  await svc.check(1000); // seeds current=0.7.6
   const s = await svc.check(2000); // fetch fails; current carried from last
   expect(s.error).toContain("down");
   expect(s.currentUnsupported).toBe(true);
-  expect(s.downgradeTarget).toBe("0.7.4");
+  expect(s.downgradeTarget).toBe("0.7.5");
+});
+
+// ── check(): two-path sandboxed-idle advisory (#1716) ────────────────────────
+test("check(): sandboxIdleRegressed on a supported-but-regressed 0.7.5 WHEN sandboxed sessions are in use", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.5", // supported ceiling, but external-registration → regressed
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    sandboxedInUse: () => true,
+  });
+  const s = await svc.check(1000);
+  expect(s.currentUnsupported).toBe(false); // supported — NON-blocking advisory, not stranded
+  expect(s.sandboxIdleRegressed).toBe(true);
+  expect(s.sandboxDowngradeTarget).toBe("0.7.4"); // = HERDR_LAST_FULL_SANDBOX_STATUS_VERSION
+});
+
+test("check(): NO advisory on 0.7.5 when the operator runs no sandboxed sessions", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.5",
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    sandboxedInUse: () => false,
+  });
+  const s = await svc.check(1000);
+  expect(s.sandboxIdleRegressed).toBe(false);
+  expect(s.sandboxDowngradeTarget).toBeNull();
+});
+
+test("check(): NO advisory on 0.7.4 (pre-external-registration) even with sandboxed sessions", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.4", // herdr launches+detects the sandboxed agent itself here
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    sandboxedInUse: () => true,
+  });
+  const s = await svc.check(1000);
+  expect(s.sandboxIdleRegressed).toBe(false);
+  expect(s.sandboxDowngradeTarget).toBeNull();
+});
+
+// ── downgrade() gate: the two-path escape vs the stranded rescue ─────────────
+test("downgrade(target): the sandbox escape starts from a SUPPORTED-but-regressed 0.7.5 → 0.7.4", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.5",
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    sandboxedInUse: () => true,
+    runDowngrade: async () => {}, // no real spawn; we only assert the gate decision
+  });
+  await svc.check(1000);
+  // The stranded rescue (default target = supported ceiling 0.7.5) refuses — 0.7.5 IS supported.
+  expect(svc.downgrade().started).toBe(false);
+  // The two-path escape to 0.7.4 is allowed — it steps BELOW the ceiling.
+  expect(svc.downgrade("0.7.4").started).toBe(true);
+});
+
+test("downgrade(target): refuses when the installed version is already at/below the target", async () => {
+  const svc = new HerdrUpdateService({
+    versionRunner: () => "herdr 0.7.4",
+    fetchLatest: async () => ({ version: "0.7.5" }),
+    runDowngrade: async () => {},
+  });
+  await svc.check(1000);
+  expect(svc.downgrade("0.7.4").started).toBe(false); // already at 0.7.4 — nothing to move
 });

@@ -657,6 +657,22 @@ test("isValidTerminalId: rejects id with semicolon", () => {
   expect(isValidTerminalId("a;b")).toBe(false);
 });
 
+// 0.7.5 attach targets a pane_id of the form `workspaceId:paneId` (#1890) — the grammar must accept
+// the single colon so the PTY-attach helper can attach by pane_id, not the rejected terminal_id.
+test("isValidTerminalId: accepts a 0.7.5 pane_id (workspaceId:paneId)", () => {
+  expect(isValidTerminalId("w1:p4")).toBe(true);
+  expect(isValidTerminalId("w6526465cd86e32:pVQP")).toBe(true);
+});
+
+test("isValidTerminalId: rejects more than one colon segment", () => {
+  expect(isValidTerminalId("w1:p4:x")).toBe(false);
+});
+
+test("isValidTerminalId: rejects an empty colon segment", () => {
+  expect(isValidTerminalId("w1:")).toBe(false);
+  expect(isValidTerminalId(":p4")).toBe(false);
+});
+
 test("validateCreate accepts attachments inside the staging dir", () => {
   const staging = stagingDir(root);
   mkdirSync(staging, { recursive: true });

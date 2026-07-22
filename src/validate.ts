@@ -870,9 +870,15 @@ function clampDim(v: unknown, fallback: number): number {
   return Math.min(n, 1000);
 }
 
-/** Returns true when the terminalId is safe to pass to spawn args. */
+/** Returns true when the attach target is safe to pass to spawn args. Accepts both a herdr
+ *  `terminal_id` (≤0.7.4 attach target) and a `pane_id` of the form `workspaceId:paneId`
+ *  (the 0.7.5 attach target — #1890), each segment `[A-Za-z0-9_-]{1,64}`. */
 export function isValidTerminalId(id: string): boolean {
-  return typeof id === "string" && /^[A-Za-z0-9_-]{1,64}$/.test(id) && !id.startsWith("-");
+  return (
+    typeof id === "string" &&
+    /^[A-Za-z0-9_-]{1,64}(:[A-Za-z0-9_-]{1,64})?$/.test(id) &&
+    !id.startsWith("-")
+  );
 }
 
 /** Resolve a repo path, confined to repoRoot and required to be an existing directory. null if invalid. */

@@ -76,10 +76,12 @@
     class="update-badge herdr"
     onclick={() => onherdrupdate?.()}
     aria-label={m.topbar_herdr_update_badge()}
-    title={m.topbar_herdr_update_title({
-      current: herdrUpdate!.current ?? "?",
-      latest: herdrUpdate!.latest ?? "?",
-    })}
+    title={herdrUpdate!.updateAvailable
+      ? m.topbar_herdr_update_title({
+          current: herdrUpdate!.current ?? "?",
+          latest: herdrUpdate!.latest ?? "?",
+        })
+      : m.topbar_herdr_advisory_title({ current: herdrUpdate!.current ?? "?" })}
   >
     <svg
       class="up-glyph"

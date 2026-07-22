@@ -2,10 +2,12 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
+  deriveHerdrState,
   isHeadlessCodexExec,
   mapState,
   matchAgent,
   matchAgents,
+  posixShellJoin,
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
@@ -64,6 +66,17 @@ const FIXTURE = JSON.stringify({
   },
 });
 
+test("posixShellJoin single-quotes every token so spaces/metacharacters/quotes survive", () => {
+  // Plain tokens are still quoted (harmless, keeps the rule uniform).
+  expect(posixShellJoin(["env", "claude", "go"])).toBe("'env' 'claude' 'go'");
+  // Spaces (e.g. a worktree path) and shell metacharacters stay literal inside the quotes.
+  expect(posixShellJoin(["a b", "/wt/my repo", "x&y|z"])).toBe("'a b' '/wt/my repo' 'x&y|z'");
+  // An embedded single quote uses the standard '\'' break-out sequence.
+  expect(posixShellJoin(["it's"])).toBe("'it'\\''s'");
+  // Empty token → '' (never an empty gap that the shell would drop).
+  expect(posixShellJoin(["", ""])).toBe("'' ''");
+});
+
 test("list parses herdr json into typed agents", async () => {
   const d = mkDriver(() => FIXTURE);
   const a = d.list();
@@ -120,8 +133,8 @@ function reply(args: string[], workspaceList: string): string {
   return FIXTURE;
 }
 
-test("start REFUSES on an unsupported herdr (0.7.5+) with a clear error, spawning nothing", async () => {
-  setDetectedHerdrVersion("0.7.5");
+test("start REFUSES on a herdr above the spawnable ceiling (>0.7.5), spawning nothing", async () => {
+  setDetectedHerdrVersion("0.7.6");
   try {
     const calls: string[][] = [];
     const d = mkDriver((args) => {
@@ -579,6 +592,16 @@ test("mapState maps herdr states to shepherd status", async () => {
   expect(mapState("unknown")).toBe("idle");
 });
 
+test("deriveHerdrState maps the classifier view to a pushable report-agent state (#1891)", () => {
+  // blocked wins regardless of turn activity — a surfaced block is the actionable state.
+  expect(deriveHerdrState({ blocked: true, working: true })).toBe("blocked");
+  expect(deriveHerdrState({ blocked: true, working: false })).toBe("blocked");
+  // no block: a fresh active turn is working; otherwise idle.
+  expect(deriveHerdrState({ blocked: false, working: true })).toBe("working");
+  expect(deriveHerdrState({ blocked: false, working: false })).toBe("idle");
+  // never emits `done` — not a valid RequestPaneAgentState (excluded by the return type).
+});
+
 const mkAgent = (over: Partial<HerdrAgent>) =>
   ({
     agent: "claude",
@@ -972,6 +995,54 @@ test("paneForegroundProcs() returns multi-name list for a live pane", async () =
   );
   const procs = await d.paneForegroundProcs("w65:p4");
   expect(procs).toEqual(["claude", "npm", "node-MainThread"]);
+});
+
+// #1891 Phase-0: a live SANDBOXED pane's foreground process is the `bwrap` monitor, not the agent
+// binary. `paneForegroundProcs` reports it verbatim; its consumers treat any non-shell foreground as
+// alive (see isSpawnAlive / classifyHelperTab), so a live sandboxed agent reads alive by this signal.
+const SANDBOXED_PROC_REPLY = JSON.stringify({
+  result: {
+    process_info: {
+      foreground_process_group_id: 6001000,
+      foreground_processes: [{ name: "bwrap", pid: 6001000 }],
+      pane_id: "w65:p6",
+      shell_pid: 6000900,
+    },
+    type: "pane_process_info",
+  },
+});
+
+test("paneForegroundProcs() reports ['bwrap'] for a live sandboxed pane (#1891)", async () => {
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async () => SANDBOXED_PROC_REPLY,
+  );
+  expect(await d.paneForegroundProcs("w65:p6")).toEqual(["bwrap"]);
+});
+
+test("reportAgentState() issues pane report-agent with the state (#1891)", async () => {
+  const calls: string[][] = [];
+  const d = new HerdrDriver(
+    () => FIXTURE,
+    async (args) => {
+      calls.push(args);
+      return "{}";
+    },
+  );
+  await d.reportAgentState("w65:p6", "task-01", "idle");
+  expect(calls).toEqual([
+    [
+      "pane",
+      "report-agent",
+      "w65:p6",
+      "--source",
+      "shepherd",
+      "--agent",
+      "task-01",
+      "--state",
+      "idle",
+    ],
+  ]);
 });
 
 test("paneForegroundProcs() returns [] on unparseable reply (JSON parse failure)", async () => {

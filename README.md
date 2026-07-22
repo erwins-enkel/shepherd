@@ -138,10 +138,9 @@ exists. It also invokes upstream installers it does not control — specifically
 (`apt` / `apk` / `dnf` / `pacman`) for `git`, `unzip`, and the C/C++ build toolchain + `python3`
 (needed for the node-pty native build).
 
-> **Pin herdr to 0.7.4 — do not upgrade to 0.7.5+ yet.** herdr 0.7.5 reshaped `agent start` and
-> Shepherd can no longer spawn agents on it (every spawn fails). Shepherd warns loudly at startup
-> and blocks its in-app herdr updater on 0.7.5+ until [issue #1889](https://github.com/erwins-enkel/shepherd/issues/1889)
-> ships a compatible spawn path.
+> **Shepherd supports herdr up to 0.7.5.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
+> Shepherd drives it through a CLI external-registration path. Don't upgrade past 0.7.5 yet —
+> Shepherd warns at startup and blocks its in-app herdr updater on any newer, untested version.
 
 In keeping with Shepherd's radical-transparency posture the script echoes each third-party command
 before running it. Read the script first:

@@ -11,7 +11,7 @@ function fakeStore(): SessionStore {
   return { list: mock(() => []) } as unknown as SessionStore;
 }
 
-type FakeHerdr = Pick<HerdrDriver, "listAsync" | "read" | "readAsync">;
+type FakeHerdr = Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState">;
 
 function newPoller(herdr: FakeHerdr): StatusPoller {
   return new StatusPoller(

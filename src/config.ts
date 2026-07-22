@@ -76,7 +76,9 @@ export const HERDR_MIN_VERSION = "0.7.0";
 // herdr's native Unix-socket JSON-RPC protocol is versioned and still preview-unstable
 // (issue #1529) — admit only protocol numbers we've actually validated against a live
 // herdr, never an open `>=` floor. Extend this set explicitly as new protocols are verified.
-export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16]);
+// 17 = herdr 0.7.5: the socket driver branches its spawn/drive surface to the 0.7.5
+// external-registration path (#1892), mirroring the CLI driver.
+export const HERDR_SOCKET_SUPPORTED_PROTOCOLS = new Set([16, 17]);
 // TTL backing DiagnosticsService.current() — a request without ?refresh=1 reads
 // this cache. Matches the existing CountsService/backlog 60s TTL.
 export const DIAGNOSTICS_TTL_MS = 60_000;

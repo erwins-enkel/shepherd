@@ -3,19 +3,112 @@
 // Regenerate: bun run gen:herdr-types
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentStatus".
+ */
+export type RequestAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestReadSource".
  */
 export type RequestReadSource = "visible" | "recent" | "recent_unwrapped" | "detection";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestSplitDirection".
+ * via the `definition` "RequestAgentViewBuiltinField".
  */
-export type RequestSplitDirection = "right" | "down";
+export type RequestAgentViewBuiltinField =
+  "status" | "workspace_id" | "tab_id" | "pane_id" | "agent" | "seen" | "state_change_seq";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestAgentStatus".
+ * via the `definition` "RequestAgentViewBuiltinSortField".
  */
-export type RequestAgentStatus = "idle" | "working" | "blocked" | "done" | "unknown";
+export type RequestAgentViewBuiltinSortField =
+  | "workspace_order"
+  | "tab_order"
+  | "pane_order"
+  | "attention"
+  | "status"
+  | "agent"
+  | "seen"
+  | "state_change_seq";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewContext".
+ */
+export type RequestAgentViewContext = "current_workspace_id" | "current_tab_id";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewField".
+ */
+export type RequestAgentViewField =
+  | RequestAgentViewBuiltinField
+  | {
+      token: string;
+      [k: string]: unknown;
+    };
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewFilter".
+ */
+export type RequestAgentViewFilter =
+  | {
+      filters: RequestAgentViewFilter[];
+      op: "all";
+      [k: string]: unknown;
+    }
+  | {
+      filters: RequestAgentViewFilter[];
+      op: "any";
+      [k: string]: unknown;
+    }
+  | {
+      filter: RequestAgentViewFilter;
+      op: "not";
+      [k: string]: unknown;
+    }
+  | {
+      field: RequestAgentViewField;
+      op: "eq";
+      value: RequestAgentViewValue;
+      [k: string]: unknown;
+    }
+  | {
+      field: RequestAgentViewField;
+      op: "in";
+      values: RequestAgentViewValue[];
+      [k: string]: unknown;
+    }
+  | {
+      field: RequestAgentViewField;
+      op: "exists";
+      [k: string]: unknown;
+    };
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewValue".
+ */
+export type RequestAgentViewValue =
+  | string
+  | boolean
+  | number
+  | {
+      context: RequestAgentViewContext;
+      [k: string]: unknown;
+    };
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewSortField".
+ */
+export type RequestAgentViewSortField =
+  | RequestAgentViewBuiltinSortField
+  | {
+      token: string;
+      [k: string]: unknown;
+    };
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewSortOrder".
+ */
+export type RequestAgentViewSortOrder = "asc" | "desc";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestEventMatch".
@@ -137,6 +230,10 @@ export type RequestSubscription =
       [k: string]: unknown;
     }
   | {
+      type: "workspace.metadata_updated";
+      [k: string]: unknown;
+    }
+  | {
       type: "workspace.renamed";
       [k: string]: unknown;
     }
@@ -190,6 +287,10 @@ export type RequestSubscription =
     }
   | {
       type: "pane.closed";
+      [k: string]: unknown;
+    }
+  | {
+      type: "pane.updated";
       [k: string]: unknown;
     }
   | {
@@ -292,6 +393,11 @@ export type RequestLayoutNode =
     };
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestSplitDirection".
+ */
+export type RequestSplitDirection = "right" | "down";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestToastHerdrPosition".
  */
 export type RequestToastHerdrPosition = "top-left" | "top-right" | "bottom-left" | "bottom-right";
@@ -310,6 +416,11 @@ export type RequestPaneAgentState = "idle" | "working" | "blocked" | "unknown";
  * via the `definition` "RequestPaneDirection".
  */
 export type RequestPaneDirection = "left" | "right" | "up" | "down";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneGraphicsFormat".
+ */
+export type RequestPaneGraphicsFormat = "png" | "rgb" | "rgba";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneMoveDestination".
@@ -342,9 +453,14 @@ export type RequestPaneMoveDestination =
 export type RequestPaneZoomMode = "toggle" | "on" | "off";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPopupSize".
+ */
+export type RequestPopupSize = number | string;
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPluginPanePlacement".
  */
-export type RequestPluginPanePlacement = "overlay" | "split" | "tab" | "zoomed";
+export type RequestPluginPanePlacement = "overlay" | "popup" | "split" | "tab" | "zoomed";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPluginSourceKind".
@@ -387,6 +503,11 @@ export type SuccessResponseEventData =
     }
   | {
       type: "workspace_updated";
+      workspace: SuccessResponseWorkspaceInfo;
+      [k: string]: unknown;
+    }
+  | {
+      type: "workspace_metadata_updated";
       workspace: SuccessResponseWorkspaceInfo;
       [k: string]: unknown;
     }
@@ -479,6 +600,11 @@ export type SuccessResponseEventData =
       [k: string]: unknown;
     }
   | {
+      pane: SuccessResponsePaneInfo;
+      type: "pane_updated";
+      [k: string]: unknown;
+    }
+  | {
       pane_id: string;
       type: "pane_focused";
       workspace_id: string;
@@ -511,7 +637,9 @@ export type SuccessResponseEventData =
     }
   | {
       agent?: string | null;
+      final_status?: SuccessResponseAgentStatus | null;
       pane_id: string;
+      released?: boolean;
       type: "pane_agent_detected";
       workspace_id: string;
       [k: string]: unknown;
@@ -519,7 +647,6 @@ export type SuccessResponseEventData =
   | {
       agent?: string | null;
       agent_status: SuccessResponseAgentStatus;
-      custom_status?: string | null;
       display_agent?: string | null;
       pane_id: string;
       state_labels?: {
@@ -547,6 +674,7 @@ export type SuccessResponseSplitDirection = "right" | "down";
 export type SuccessResponseEventKind =
   | "workspace_created"
   | "workspace_updated"
+  | "workspace_metadata_updated"
   | "workspace_closed"
   | "workspace_renamed"
   | "workspace_moved"
@@ -561,6 +689,7 @@ export type SuccessResponseEventKind =
   | "tab_focused"
   | "pane_created"
   | "pane_closed"
+  | "pane_updated"
   | "pane_focused"
   | "pane_moved"
   | "pane_output_changed"
@@ -579,6 +708,11 @@ export type SuccessResponsePluginActionContext =
  * via the `definition` "SuccessResponsePluginPlatform".
  */
 export type SuccessResponsePluginPlatform = "linux" | "macos" | "windows";
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponsePopupSize".
+ */
+export type SuccessResponsePopupSize = number | string;
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponseIntegrationTarget".
@@ -677,7 +811,7 @@ export type SuccessResponsePluginCommandStatus = "running" | "succeeded" | "fail
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponsePluginPanePlacement".
  */
-export type SuccessResponsePluginPanePlacement = "overlay" | "split" | "tab" | "zoomed";
+export type SuccessResponsePluginPanePlacement = "overlay" | "popup" | "split" | "tab" | "zoomed";
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "SuccessResponsePluginSourceKind".
@@ -775,8 +909,20 @@ export type SuccessResponseResponseResult =
       [k: string]: unknown;
     }
   | {
+      agent: SuccessResponseAgentInfo;
+      type: "agent_prompted";
+      [k: string]: unknown;
+    }
+  | {
       agents: SuccessResponseAgentInfo[];
       type: "agent_list";
+      [k: string]: unknown;
+    }
+  | {
+      active: boolean;
+      label?: string | null;
+      source?: string | null;
+      type: "agent_view";
       [k: string]: unknown;
     }
   | {
@@ -857,6 +1003,12 @@ export type SuccessResponseResponseResult =
   | {
       read: SuccessResponsePaneReadResult;
       type: "pane_read";
+      [k: string]: unknown;
+    }
+  | {
+      cell_height_px: number;
+      cell_width_px: number;
+      type: "pane_graphics_info";
       [k: string]: unknown;
     }
   | {
@@ -1011,6 +1163,11 @@ export type EventEventData =
       [k: string]: unknown;
     }
   | {
+      type: "workspace_metadata_updated";
+      workspace: EventWorkspaceInfo;
+      [k: string]: unknown;
+    }
+  | {
       type: "workspace_closed";
       workspace?: EventWorkspaceInfo | null;
       workspace_id: string;
@@ -1099,6 +1256,11 @@ export type EventEventData =
       [k: string]: unknown;
     }
   | {
+      pane: EventPaneInfo;
+      type: "pane_updated";
+      [k: string]: unknown;
+    }
+  | {
       pane_id: string;
       type: "pane_focused";
       workspace_id: string;
@@ -1131,7 +1293,9 @@ export type EventEventData =
     }
   | {
       agent?: string | null;
+      final_status?: EventAgentStatus | null;
       pane_id: string;
+      released?: boolean;
       type: "pane_agent_detected";
       workspace_id: string;
       [k: string]: unknown;
@@ -1139,7 +1303,6 @@ export type EventEventData =
   | {
       agent?: string | null;
       agent_status: EventAgentStatus;
-      custom_status?: string | null;
       display_agent?: string | null;
       pane_id: string;
       state_labels?: {
@@ -1167,6 +1330,7 @@ export type EventSplitDirection = "right" | "down";
 export type EventEventKind =
   | "workspace_created"
   | "workspace_updated"
+  | "workspace_metadata_updated"
   | "workspace_closed"
   | "workspace_renamed"
   | "workspace_moved"
@@ -1181,6 +1345,7 @@ export type EventEventKind =
   | "tab_focused"
   | "pane_created"
   | "pane_closed"
+  | "pane_updated"
   | "pane_focused"
   | "pane_moved"
   | "pane_output_changed"
@@ -1223,6 +1388,23 @@ export interface HerdrProtocol {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentPromptParams".
+ */
+export interface RequestAgentPromptParams {
+  target: string;
+  text: string;
+  wait?: RequestAgentPromptWaitOptions | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentPromptWaitOptions".
+ */
+export interface RequestAgentPromptWaitOptions {
+  timeout_ms?: number | null;
+  until?: RequestAgentStatus[];
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestAgentReadParams".
  */
 export interface RequestAgentReadParams {
@@ -1242,27 +1424,25 @@ export interface RequestAgentRenameParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
- * via the `definition` "RequestAgentSendParams".
+ * via the `definition` "RequestAgentSendKeysParams".
  */
-export interface RequestAgentSendParams {
+export interface RequestAgentSendKeysParams {
+  keys: string[];
   target: string;
-  text: string;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestAgentStartParams".
  */
 export interface RequestAgentStartParams {
-  argv: string[];
-  cwd?: string | null;
-  env?: {
-    [k: string]: string;
-  };
-  focus?: boolean;
+  args?: string[];
+  kind: string;
   name: string;
-  split?: RequestSplitDirection | null;
-  tab_id?: string | null;
-  workspace_id?: string | null;
+  pane_id: string;
+  /**
+   * Startup timeout in milliseconds. Values must be greater than 3000 and at most 300000.
+   */
+  timeout_ms?: number | null;
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -1270,6 +1450,40 @@ export interface RequestAgentStartParams {
  */
 export interface RequestAgentTarget {
   target: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewClearParams".
+ */
+export interface RequestAgentViewClearParams {
+  source?: string | null;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewSetParams".
+ */
+export interface RequestAgentViewSetParams {
+  filter?: RequestAgentViewFilter | null;
+  label?: string | null;
+  sort?: RequestAgentViewSort[];
+  source: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentViewSort".
+ */
+export interface RequestAgentViewSort {
+  field: RequestAgentViewSortField;
+  order?: "asc" | "desc";
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestAgentWaitParams".
+ */
+export interface RequestAgentWaitParams {
+  target: string;
+  timeout_ms?: number | null;
+  until?: RequestAgentStatus[];
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
@@ -1384,6 +1598,41 @@ export interface RequestPaneFocusDirectionParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneGraphicsClearParams".
+ */
+export interface RequestPaneGraphicsClearParams {
+  pane_id: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneGraphicsPlacementParams".
+ */
+export interface RequestPaneGraphicsPlacementParams {
+  grid_cols?: number;
+  grid_rows?: number;
+  viewport_col?: number;
+  viewport_row?: number;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestPaneGraphicsSetParams".
+ */
+export interface RequestPaneGraphicsSetParams {
+  data_base64?: string;
+  format: RequestPaneGraphicsFormat;
+  image_height: number;
+  image_width: number;
+  pane_id: string;
+  placement?: RequestPaneGraphicsPlacementParams1;
+}
+export interface RequestPaneGraphicsPlacementParams1 {
+  grid_cols?: number;
+  grid_rows?: number;
+  viewport_col?: number;
+  viewport_row?: number;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestPaneLayoutParams".
  */
 export interface RequestPaneLayoutParams {
@@ -1457,7 +1706,6 @@ export interface RequestPaneReportAgentParams {
   agent: string;
   agent_session_id?: string | null;
   agent_session_path?: string | null;
-  custom_status?: string | null;
   message?: string | null;
   pane_id: string;
   seq?: number | null;
@@ -1484,11 +1732,9 @@ export interface RequestPaneReportAgentSessionParams {
 export interface RequestPaneReportMetadataParams {
   agent?: string | null;
   applies_to_source?: string | null;
-  clear_custom_status?: boolean;
   clear_display_agent?: boolean;
   clear_state_labels?: boolean;
   clear_title?: boolean;
-  custom_status?: string | null;
   display_agent?: string | null;
   pane_id: string;
   seq?: number | null;
@@ -1497,6 +1743,9 @@ export interface RequestPaneReportMetadataParams {
     [k: string]: string;
   };
   title?: string | null;
+  tokens?: {
+    [k: string]: string | null;
+  };
   ttl_ms?: number | null;
 }
 /**
@@ -1702,9 +1951,11 @@ export interface RequestPluginPaneOpenParams {
     [k: string]: string;
   };
   focus?: boolean;
+  height?: RequestPopupSize | null;
   placement?: RequestPluginPanePlacement | null;
   plugin_id: string;
   target_pane_id?: string | null;
+  width?: RequestPopupSize | null;
   workspace_id?: string | null;
 }
 /**
@@ -1803,6 +2054,19 @@ export interface RequestWorkspaceRenameParams {
 }
 /**
  * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "RequestWorkspaceReportMetadataParams".
+ */
+export interface RequestWorkspaceReportMetadataParams {
+  seq?: number | null;
+  source: string;
+  tokens: {
+    [k: string]: string | null;
+  };
+  ttl_ms?: number | null;
+  workspace_id: string;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
  * via the `definition` "RequestWorkspaceTarget".
  */
 export interface RequestWorkspaceTarget {
@@ -1857,21 +2121,28 @@ export interface SuccessResponseAgentInfo {
   agent?: string | null;
   agent_session?: SuccessResponseAgentSessionInfo | null;
   agent_status: SuccessResponseAgentStatus;
-  custom_status?: string | null;
   cwd?: string | null;
   display_agent?: string | null;
   focused: boolean;
   foreground_cwd?: string | null;
+  interactive_ready?: boolean;
+  launch_pending?: boolean;
   name?: string | null;
   pane_id: string;
   revision: number;
   screen_detection_skipped?: boolean;
+  state_change_seq?: number;
   state_labels?: {
     [k: string]: string;
   };
   tab_id: string;
   terminal_id: string;
+  terminal_title?: string | null;
+  terminal_title_stripped?: string | null;
   title?: string | null;
+  tokens?: {
+    [k: string]: string;
+  };
   workspace_id: string;
   [k: string]: unknown;
 }
@@ -1915,6 +2186,9 @@ export interface SuccessResponseWorkspaceInfo {
   number: number;
   pane_count: number;
   tab_count: number;
+  tokens?: {
+    [k: string]: string;
+  };
   workspace_id: string;
   worktree?: SuccessResponseWorkspaceWorktreeInfo | null;
   [k: string]: unknown;
@@ -1968,7 +2242,6 @@ export interface SuccessResponsePaneInfo {
   agent?: string | null;
   agent_session?: SuccessResponseAgentSessionInfo | null;
   agent_status: SuccessResponseAgentStatus;
-  custom_status?: string | null;
   cwd?: string | null;
   display_agent?: string | null;
   focused: boolean;
@@ -1982,7 +2255,12 @@ export interface SuccessResponsePaneInfo {
   };
   tab_id: string;
   terminal_id: string;
+  terminal_title?: string | null;
+  terminal_title_stripped?: string | null;
   title?: string | null;
+  tokens?: {
+    [k: string]: string;
+  };
   workspace_id: string;
   [k: string]: unknown;
 }
@@ -2070,6 +2348,7 @@ export interface SuccessResponseInstalledPluginInfo {
   plugin_id: string;
   plugin_root: string;
   source?: SuccessResponsePluginSourceInfo;
+  startup?: SuccessResponsePluginManifestStartup[];
   version: string;
   /**
    * Warnings collected at link time or on registry load (e.g. unknown event names,
@@ -2129,10 +2408,12 @@ export interface SuccessResponsePluginManifestLinkHandler {
 export interface SuccessResponsePluginManifestPane {
   command: string[];
   description?: string | null;
+  height?: SuccessResponsePopupSize | null;
   id: string;
-  placement?: "overlay" | "split" | "tab" | "zoomed";
+  placement?: "overlay" | "popup" | "split" | "tab" | "zoomed";
   platforms?: SuccessResponsePluginPlatform[] | null;
   title: string;
+  width?: SuccessResponsePopupSize | null;
   [k: string]: unknown;
 }
 export interface SuccessResponsePluginSourceInfo {
@@ -2144,6 +2425,15 @@ export interface SuccessResponsePluginSourceInfo {
   requested_ref?: string | null;
   resolved_commit?: string | null;
   subdir?: string | null;
+  [k: string]: unknown;
+}
+/**
+ * This interface was referenced by `HerdrProtocol`'s JSON-Schema
+ * via the `definition` "SuccessResponsePluginManifestStartup".
+ */
+export interface SuccessResponsePluginManifestStartup {
+  command: string[];
+  platforms?: SuccessResponsePluginPlatform[] | null;
   [k: string]: unknown;
 }
 /**
@@ -2451,6 +2741,9 @@ export interface EventWorkspaceInfo {
   number: number;
   pane_count: number;
   tab_count: number;
+  tokens?: {
+    [k: string]: string;
+  };
   workspace_id: string;
   worktree?: EventWorkspaceWorktreeInfo | null;
   [k: string]: unknown;
@@ -2504,7 +2797,6 @@ export interface EventPaneInfo {
   agent?: string | null;
   agent_session?: EventAgentSessionInfo | null;
   agent_status: EventAgentStatus;
-  custom_status?: string | null;
   cwd?: string | null;
   display_agent?: string | null;
   focused: boolean;
@@ -2518,7 +2810,12 @@ export interface EventPaneInfo {
   };
   tab_id: string;
   terminal_id: string;
+  terminal_title?: string | null;
+  terminal_title_stripped?: string | null;
   title?: string | null;
+  tokens?: {
+    [k: string]: string;
+  };
   workspace_id: string;
   [k: string]: unknown;
 }
@@ -2585,7 +2882,6 @@ export interface EventPaneLayoutSplit {
 export interface SubscriptionEventPaneAgentStatusChangedEvent {
   agent?: string | null;
   agent_status: SubscriptionEventAgentStatus;
-  custom_status?: string | null;
   display_agent?: string | null;
   pane_id: string;
   state_labels?: {
@@ -2650,7 +2946,7 @@ export interface ErrorResponseErrorBody {
   [k: string]: unknown;
 }
 
-export const HERDR_PROTOCOL = 16 as const;
+export const HERDR_PROTOCOL = 17 as const;
 
 export interface HerdrParams {
   ping: RequestPingParams;
@@ -2669,6 +2965,7 @@ export interface HerdrParams {
   "workspace.focus": RequestWorkspaceTarget;
   "workspace.rename": RequestWorkspaceRenameParams;
   "workspace.move": RequestWorkspaceMoveParams;
+  "workspace.report_metadata": RequestWorkspaceReportMetadataParams;
   "workspace.close": RequestWorkspaceTarget;
   "worktree.list": RequestWorktreeListParams;
   "worktree.create": RequestWorktreeCreateParams;
@@ -2685,10 +2982,14 @@ export interface HerdrParams {
   "agent.get": RequestAgentTarget;
   "agent.read": RequestAgentReadParams;
   "agent.explain": RequestAgentTarget;
-  "agent.send": RequestAgentSendParams;
+  "agent.send_keys": RequestAgentSendKeysParams;
   "agent.rename": RequestAgentRenameParams;
+  "agent.view.set": RequestAgentViewSetParams;
+  "agent.view.clear": RequestAgentViewClearParams;
   "agent.focus": RequestAgentTarget;
   "agent.start": RequestAgentStartParams;
+  "agent.prompt": RequestAgentPromptParams;
+  "agent.wait": RequestAgentWaitParams;
   "pane.split": RequestPaneSplitParams;
   "pane.swap": RequestPaneSwapParams;
   "pane.move": RequestPaneMoveParams;
@@ -2711,12 +3012,16 @@ export interface HerdrParams {
   "pane.send_keys": RequestPaneSendKeysParams;
   "pane.send_input": RequestPaneSendInputParams;
   "pane.read": RequestPaneReadParams;
+  "pane.graphics.set": RequestPaneGraphicsSetParams;
+  "pane.graphics.clear": RequestPaneGraphicsClearParams;
+  "pane.graphics.info": RequestPaneTarget;
   "pane.report_agent": RequestPaneReportAgentParams;
   "pane.report_agent_session": RequestPaneReportAgentSessionParams;
   "pane.report_metadata": RequestPaneReportMetadataParams;
   "pane.clear_agent_authority": RequestPaneClearAgentAuthorityParams;
   "pane.release_agent": RequestPaneReleaseAgentParams;
   "pane.close": RequestPaneTarget;
+  "popup.close": RequestEmptyParams;
   "events.subscribe": RequestEventsSubscribeParams;
   "events.wait": RequestEventsWaitParams;
   "pane.wait_for_output": RequestPaneWaitForOutputParams;

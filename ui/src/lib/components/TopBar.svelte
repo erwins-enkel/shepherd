@@ -129,7 +129,12 @@
   const clickStatus = (s: TallyStatus) => onstatusfilter?.(statusFilter === s ? null : s);
 
   const updateAvailable = $derived(!!update && update.behind > 0);
-  const herdrUpdateAvailable = $derived(!!herdrUpdate && herdrUpdate.updateAvailable);
+  // The herdr badge opens the update modal. Show it for a real upgrade OR the two-path sandboxed-
+  // idle advisory (#1716) — that's the surface the operator reaches the opt-out downgrade through,
+  // even on a supported herdr with no upgrade pending.
+  const herdrUpdateAvailable = $derived(
+    !!herdrUpdate && (herdrUpdate.updateAvailable || !!herdrUpdate.sandboxIdleRegressed),
+  );
   const codexUpdateAvailable = $derived(!!codexUpdate && codexUpdate.updateAvailable);
   // Tallies are DISPLAY: a working-while-blocked session counts as working, not
   // blocked (displayStatus upgrades it). The halt e-stop instead reads the RAW

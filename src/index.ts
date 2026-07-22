@@ -146,6 +146,7 @@ import { firstRun } from "./first-run";
 import { preflightHerdr } from "./preflight";
 import {
   HERDR_LAST_SUPPORTED_VERSION,
+  herdrUsesExternalRegistrationSpawn,
   isHerdrVersionSupported,
   parseHerdrVersion,
   setDetectedHerdrVersion,
@@ -220,17 +221,17 @@ const herdrVersionRaw = preflightHerdr({
   exit: process.exit,
 });
 // Record the installed herdr version and warn LOUDLY (but keep running) when it is newer than
-// Shepherd supports. herdr 0.7.5+ broke `agent start` so agent spawning fails on it (see #1889);
-// the driver refuses spawns with a clear error and the in-app herdr-update is blocked. Operators
-// must pin herdr to <=0.7.4 until #1889 lands.
+// Shepherd supports. A herdr past the supported ceiling has an untested protocol Shepherd cannot
+// drive; the driver refuses spawns with a clear error and the in-app herdr-update is blocked.
+// Operators should pin herdr to a supported release.
 const herdrVersion = parseHerdrVersion(herdrVersionRaw ?? "");
 setDetectedHerdrVersion(herdrVersion);
 if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
   console.error(
     `\n⚠  UNSUPPORTED herdr version ${herdrVersion} detected.\n` +
-      `   Shepherd supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}. herdr 0.7.5+ reshaped ` +
-      `\`agent start\` so Shepherd cannot spawn agents on it — spawning WILL fail.\n` +
-      `   Pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} (https://herdr.dev). Tracking: issue #1889.\n`,
+      `   Shepherd supports herdr <= ${HERDR_LAST_SUPPORTED_VERSION}; this version is newer than ` +
+      `Shepherd can drive, so agent spawning WILL fail.\n` +
+      `   Pin herdr to ${HERDR_LAST_SUPPORTED_VERSION} or earlier (https://herdr.dev).\n`,
   );
 }
 
@@ -1101,12 +1102,18 @@ poller.captureCodexSessionId = (s) => service.captureCodexSessionId(s);
 // `config.hooksSignals` is on AND ingest is too — with ingest off no events ever
 // arrive, so signals-without-ingest is meaningless (warn once, behave as off). When
 // off, the sink stays unset → pure observe-only (Phase-0 behaviour), poller untouched.
-if (config.hooksSignals && !config.hooksIngest) {
+// Wire the push-hook sink when the operator opted in OR the 0.7.5 external-registration path needs
+// it: there herdr never latches `blocked`, so the `Notification(permission_prompt)` hook is the only
+// awaiting-input signal (issue #1891). Evaluated at boot from the detected version; a mid-session
+// herdr up/downgrade doesn't re-wire (the per-call guards still gate correctly).
+const hookSignalsWanted = config.hooksSignals || herdrUsesExternalRegistrationSpawn();
+if (hookSignalsWanted && !config.hooksIngest) {
   console.warn(
-    "[hooks] SHEPHERD_HOOKS_SIGNALS is set but SHEPHERD_HOOKS_INGEST is off — no events " +
-      "will arrive to feed the poller; treating signals as off. Enable ingest first.",
+    "[hooks] hook signals are needed (opt-in or herdr 0.7.5 external-registration) but " +
+      "SHEPHERD_HOOKS_INGEST is off — no events will arrive to feed the poller; treating as off. " +
+      "Enable ingest first.",
   );
-} else if (config.hooksSignals) {
+} else if (hookSignalsWanted) {
   hookIngest.setSink((id, ev) => {
     if (ev.event === "PostToolUse" || ev.event === "PostToolUseFailure") {
       poller.ingestActivity(id, { toolName: ev.toolName, status: ev.status, ts: ev.receivedAt });
@@ -2614,6 +2621,17 @@ const herdrUpdates = new HerdrUpdateService({
   // terminal ✓/✗ result the modal renders instead of waiting for a page reload.
   onStatus: (status) => events.emit("herdr-update:status", status),
   onDone: (result) => events.emit("herdr-update:done", result),
+  // Gate the sandboxed-idle advisory (#1716) on whether this operator actually runs sandboxed
+  // sessions: the default profile is non-trusted, OR a live session is genuinely sandboxed. (A
+  // repo configured sandboxed but with no live session isn't caught here — an accepted gap; the
+  // advisory re-appears as soon as such a session runs.)
+  sandboxedInUse: () =>
+    config.sandboxDefaultProfile !== "trusted" ||
+    store
+      .list({ activeOnly: true })
+      .some(
+        (s) => s.sandboxApplied != null && s.sandboxApplied !== "trusted" && !s.sandboxDegraded,
+      ),
 });
 const checkHerdrUpdate = async () =>
   events.emit("herdr-update:status", await herdrUpdates.check(Date.now()));

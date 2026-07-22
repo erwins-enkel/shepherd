@@ -1,0 +1,17 @@
+{
+  "result": {
+    "type": "agent_list",
+    "agents": [
+      {
+        "agent": "claude",
+        "agent_status": "working",
+        "cwd": "/wt/a",
+        "name": "review-task-09",
+        "pane_id": "p_075",
+        "tab_id": "t_075",
+        "terminal_id": "term_075",
+        "workspace_id": "w1"
+      }
+    ]
+  }
+}

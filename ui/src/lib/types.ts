@@ -1451,8 +1451,9 @@ export interface HerdrUpdateStatus {
   current: string | null;
   latest: string | null;
   updateAvailable: boolean;
-  /** true when `latest` is a herdr version Shepherd does not support (0.7.5+ broke agent
-   *  spawning — see #1889); the modal warns and the updater refuses it instead of offering it. */
+  /** true when `latest` is a herdr version Shepherd does not support (newer than the supported
+   *  ceiling, so agent spawning would fail); the modal warns and the updater refuses it instead of
+   *  offering it. */
   latestUnsupported?: boolean;
   /** true when the INSTALLED herdr is one Shepherd cannot drive (stranded on 0.7.5+,
    *  #1898). The modal offers the in-app downgrade and the diagnostics hint becomes
@@ -1462,6 +1463,13 @@ export interface HerdrUpdateStatus {
    *  `currentUnsupported`; null otherwise. Derived server-side from
    *  HERDR_LAST_SUPPORTED_VERSION so the UI never hardcodes a version. */
   downgradeTarget?: string | null;
+  /** true when the installed herdr has the sandboxed-agent idle-status regression (external-
+   *  registration spawn, 0.7.5+) AND this operator runs sandboxed sessions. NON-blocking advisory;
+   *  the modal offers an optional downgrade to a regression-free version. (herdr issue #1716) */
+  sandboxIdleRegressed?: boolean;
+  /** The version the two-path advisory downgrades to (below the supported ceiling, to escape the
+   *  regression) when `sandboxIdleRegressed`; null otherwise. */
+  sandboxDowngradeTarget?: string | null;
   notes: string | null;
   checkedAt: number;
   error?: string;

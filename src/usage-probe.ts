@@ -1,4 +1,5 @@
-import type { HerdrDriver } from "./herdr";
+import { type HerdrDriver, resolvePaneId } from "./herdr";
+import { herdrUsesExternalRegistrationSpawn } from "./herdr-capabilities";
 import { parseUsageFrame, type UsageProbe } from "./usage-limits";
 import { config } from "./config";
 import { compileCacheDir } from "./tmp-sweep";
@@ -140,7 +141,12 @@ export class HerdrUsageProbe implements UsageProbe {
       return null;
     }
 
-    const proc = Bun.spawn(["node", this.helperPath, terminalId, "120", "40"], {
+    // herdr 0.7.5 attaches by pane_id; terminal_id is rejected as agent_not_found (#1890). ≤0.7.4
+    // keeps the terminal_id target. On a resolution miss, fall back to terminalId (best-effort).
+    const attachTarget = herdrUsesExternalRegistrationSpawn()
+      ? (resolvePaneId(this.herdr.list(), terminalId) ?? terminalId)
+      : terminalId;
+    const proc = Bun.spawn(["node", this.helperPath, attachTarget, "120", "40"], {
       stdin: "pipe",
       stdout: "pipe",
       stderr: "pipe", // must be piped + drained; "ignore" can stall the helper's stdout under Bun

@@ -8,6 +8,7 @@ vi.mock("$lib/api", async (orig) => ({
   ...((await orig()) as object),
   applyHerdrUpdate: vi.fn(() => new Promise(() => {})),
   applyHerdrDowngrade: vi.fn(() => new Promise(() => {})),
+  applyHerdrSandboxDowngrade: vi.fn(() => new Promise(() => {})),
 }));
 
 import HerdrUpdateModal from "./HerdrUpdateModal.svelte";
@@ -56,12 +57,12 @@ describe("HerdrUpdateModal", () => {
     ).toBeLessThanOrEqual(card!.clientHeight + 1);
   });
 
-  it("blocks the upgrade + warns when the latest herdr is unsupported (0.7.5+, #1889)", async () => {
+  it("blocks the upgrade + warns when the latest herdr is newer than supported", async () => {
     render(HerdrUpdateModal, {
       props: {
         update: {
-          current: "0.7.4",
-          latest: "0.7.5",
+          current: "0.7.5",
+          latest: "0.8.0",
           updateAvailable: true,
           latestUnsupported: true,
           notes: null,
@@ -112,6 +113,41 @@ describe("HerdrUpdateModal", () => {
     expect(document.querySelector(".run")).not.toBeNull();
   });
 
+  it("shows the non-blocking two-path advisory + sandbox downgrade on a supported-but-regressed herdr (#1716)", async () => {
+    const { applyHerdrSandboxDowngrade } = await import("$lib/api");
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.5",
+          latest: "0.7.5",
+          updateAvailable: false,
+          currentUnsupported: false, // SUPPORTED — non-blocking advisory, not the stranded alert
+          sandboxIdleRegressed: true,
+          sandboxDowngradeTarget: "0.7.4",
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // Advisory is informational, NOT the red blocking alert.
+    expect(document.querySelector(".advisory")).not.toBeNull();
+    expect(document.querySelector(".blocked")).toBeNull();
+    // The sandbox downgrade action names the target…
+    const btn = document.querySelector<HTMLButtonElement>(".run.sandbox-downgrade");
+    expect(btn).not.toBeNull();
+    expect(btn!.textContent).toContain("0.7.4");
+    // …and clicking it fires the sandbox downgrade endpoint.
+    btn!.click();
+    await vi.waitFor(() => expect(vi.mocked(applyHerdrSandboxDowngrade)).toHaveBeenCalledOnce());
+  });
+
+  it("shows no advisory when herdr is supported and unregressed", () => {
+    render(HerdrUpdateModal, { props: { update } }); // ordinary fixture, no sandboxIdleRegressed
+    expect(document.querySelector(".advisory")).toBeNull();
+    expect(document.querySelector(".run.sandbox-downgrade")).toBeNull();
+  });
+
   it("surfaces the server-authored refusal reason on a failed downgrade (#1898)", async () => {
     const props = {
       update: {
@@ -145,5 +181,25 @@ describe("HerdrUpdateModal", () => {
     const errEl = document.querySelector(".status.fail + .err");
     expect(errEl).not.toBeNull();
     expect(errEl!.textContent).toContain("herdr.dev manifest has no 0.7.4 asset for linux-x86_64");
+  });
+
+  it("offers the upgrade (run button, no warning) for a supported latest (0.7.4 → 0.7.5)", async () => {
+    render(HerdrUpdateModal, {
+      props: {
+        update: {
+          current: "0.7.4",
+          latest: "0.7.5",
+          updateAvailable: true,
+          latestUnsupported: false,
+          notes: null,
+          checkedAt: 0,
+        },
+      },
+    });
+
+    // No blocked warning…
+    expect(document.querySelector(".blocked")).toBeNull();
+    // …and the run/upgrade button is offered.
+    expect(document.querySelector(".run")).not.toBeNull();
   });
 });

@@ -369,6 +369,13 @@
       newTaskHeldProviders,
     ),
   );
+
+  // Gate for the herdr-update modal: reachable for an available upgrade, a stranded
+  // unsupported install (#1898), or while a run is in flight.
+  const herdrUpdateOpen = $derived(
+    !!store.herdrUpdate &&
+      (store.herdrUpdate.updateAvailable || store.herdrUpdate.currentUnsupported || herdrUpdating),
+  );
 </script>
 
 {#if showLearnings}
@@ -456,7 +463,7 @@
   />
 {/if}
 
-{#if showHerdrUpdate && store.herdrUpdate && (store.herdrUpdate.updateAvailable || store.herdrUpdate.currentUnsupported || herdrUpdating)}
+{#if showHerdrUpdate && store.herdrUpdate && herdrUpdateOpen}
   <!-- displayStatus: the warning counts agents the herdr restart interrupts — a
        working-while-blocked agent is genuinely mid-turn, so it counts as working -->
   <HerdrUpdateModal

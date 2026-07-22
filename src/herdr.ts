@@ -11,6 +11,7 @@ import {
 import { maintenance } from "./maintenance";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
+import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 
 const execFileAsync = promisify(execFile);
 
@@ -118,6 +119,31 @@ export function mapState(s: HerdrState): SessionStatus {
     default:
       return "idle";
   }
+}
+
+/** The reachable subset of {@link RequestPaneAgentState} Shepherd derives for a LIVE session — never
+ *  `done` (not a valid report-agent state) nor `unknown` (a live session always resolves to one of
+ *  these three). */
+export type PushableAgentState = "idle" | "working" | "blocked";
+
+/**
+ * Map Shepherd's own per-tick classifier view to the state to push to herdr via `pane report-agent`
+ * (issue #1891). herdr freezes `agent_status` for externally-registered, sandboxed 0.7.5 agents (its
+ * pane/PID view is `bwrap`, not the agent binary), so Shepherd must report the state IT derives from
+ * the terminal + hook signals. Pure so the classifier→push seam is unit-testable in isolation.
+ *
+ *  - `blocked` — a block reason is currently surfaced for the session (menu/y-n/awaiting-input/stall/
+ *    quota); takes precedence, since a block is the actionable state regardless of turn activity.
+ *  - `working` — no block AND a fresh active-turn signal (a live turn's spinner/transcript still
+ *    advancing, or a fresh hook activity).
+ *  - `idle` — no block AND no fresh activity (the agent finished its turn / is resting).
+ */
+export function deriveHerdrState(input: {
+  blocked: boolean;
+  working: boolean;
+}): PushableAgentState {
+  if (input.blocked) return "blocked";
+  return input.working ? "working" : "idle";
 }
 
 /**
@@ -656,6 +682,10 @@ export interface IHerdrDriver {
   tabsAsync(): Promise<HerdrTab[]>;
   panes(): HerdrPane[];
   paneForegroundProcs(paneId: string): Promise<string[]>;
+  /** Push a Shepherd-derived lifecycle state to a pane's registered agent (`pane report-agent
+   *  --state`, issue #1891). Used for externally-registered sandboxed 0.7.5 agents whose
+   *  `agent_status` herdr cannot advance on its own. */
+  reportAgentState(paneId: string, agentName: string, state: RequestPaneAgentState): Promise<void>;
   /** Spawn an agent (issue #1553: async — socket-backed when `SHEPHERD_HERDR_SOCKET=1`,
    *  else non-blocking CLI). Returns the started `HerdrAgent`. */
   start(
@@ -742,6 +772,31 @@ export class HerdrDriver implements IHerdrDriver {
     } catch {
       return [];
     }
+  }
+
+  /**
+   * Push a Shepherd-derived lifecycle state onto a pane's registered agent (issue #1891). Mirrors the
+   * arg shape of the register pair (`pane report-agent <paneId> --source shepherd --agent <name>
+   * --state <state>`; the paneId is a leading positional before the flags — CLI quirk). Used only for
+   * externally-registered sandboxed 0.7.5 agents, whose `agent_status` herdr freezes at registration
+   * (its pane/PID view is `bwrap`), so `agent list` reflects reality only if Shepherd reports it.
+   */
+  async reportAgentState(
+    paneId: string,
+    agentName: string,
+    state: RequestPaneAgentState,
+  ): Promise<void> {
+    await this.asyncRunner([
+      "pane",
+      "report-agent",
+      paneId,
+      "--source",
+      "shepherd",
+      "--agent",
+      agentName,
+      "--state",
+      state,
+    ]);
   }
 
   /**

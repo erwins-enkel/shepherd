@@ -83,6 +83,18 @@ test("live spare: a helper pane running claude is never closed, counts as spared
   expect(r2.sparedLive).toBe(1);
 });
 
+test("live spare: a sandboxed helper pane (foreground 'bwrap') is spared as live (#1891)", async () => {
+  // A sandboxed helper's foreground is the membrane monitor, not `claude`; the non-shell rule spares
+  // it as live (a dead sandbox drops to a bare shell and is reaped by the shell-only path above).
+  const panes = [pane("w1:p1", "w1:t1", "review TASK-09")];
+  const procMap: Record<string, string[]> = { "w1:p1": ["bwrap"] };
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.closed).toEqual([]);
+  expect(r1.sparedLive).toBe(1);
+  expect(r1.shellOnly.has("w1:t1")).toBe(false);
+});
+
 test("process-info error spare: paneForegroundProcs throwing spares the pane (sparedError)", async () => {
   const panes = [pane("w1:p1", "w1:t1", PROBE_NAME)];
   const procMap: Record<string, Error> = {

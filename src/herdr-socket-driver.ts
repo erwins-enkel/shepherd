@@ -17,6 +17,7 @@ import {
   type HerdrTab,
   type IHerdrDriver,
 } from "./herdr";
+import type { RequestPaneAgentState } from "./generated/herdr-protocol";
 import { config, HERDR_SOCKET_SUPPORTED_PROTOCOLS } from "./config";
 import {
   detectedHerdrVersion,
@@ -262,6 +263,25 @@ export class SocketHerdrDriver implements IHerdrDriver {
     } catch {
       /* best-effort; tab may already be gone */
     }
+  }
+
+  /**
+   * Interface completeness (issue #1891): the lifecycle-state push targets externally-registered
+   * sandboxed 0.7.5 agents, which the socket driver never hosts (it refuses the 0.7.5
+   * external-registration spawn branch in `start`). Implemented as a real `pane.report_agent`
+   * request nonetheless so the socket driver is a faithful `IHerdrDriver`.
+   */
+  async reportAgentState(
+    paneId: string,
+    agentName: string,
+    state: RequestPaneAgentState,
+  ): Promise<void> {
+    await this.client.request("pane.report_agent", {
+      pane_id: paneId,
+      source: "shepherd",
+      agent: agentName,
+      state,
+    });
   }
 }
 

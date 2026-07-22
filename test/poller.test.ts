@@ -37,8 +37,14 @@ const flush = () => new Promise((r) => setTimeout(r, 0));
  */
 function withListAsync<T extends { list: () => HerdrAgent[] }>(
   herdr: T,
-): T & { listAsync: () => Promise<HerdrAgent[]> } {
-  return { ...herdr, listAsync: () => Promise.resolve(herdr.list()) };
+): T & { listAsync: () => Promise<HerdrAgent[]>; reportAgentState: () => Promise<void> } {
+  // Default `reportAgentState` (#1891) so poller fakes don't each need it; a caller-provided one wins
+  // (spread after the default). The push is version-gated off here anyway (no 0.7.5 detected).
+  return {
+    reportAgentState: () => Promise.resolve(),
+    ...herdr,
+    listAsync: () => Promise.resolve(herdr.list()),
+  };
 }
 
 test("tick maps herdr state to status and emits only on change", async () => {

@@ -177,6 +177,13 @@ describe("isSpawnAlive", () => {
     expect(await isSpawnAlive(herdr, CWD)).toBe(false);
   });
 
+  test("idle + sandboxed foreground ['bwrap'] (live membrane pane) → alive (#1891)", async () => {
+    // A sandboxed agent's pane foreground is the `bwrap` monitor, not `claude`. The non-shell rule
+    // correctly reads it alive; a dead sandbox falls back to a bare shell ('zsh' above) → dead.
+    const herdr = makeHerdrStub({ agents: [agent("idle")], procs: ["bwrap"] });
+    expect(await isSpawnAlive(herdr, CWD)).toBe(true);
+  });
+
   test("idle + empty procs [] (undeterminable) → alive (fail-closed)", async () => {
     const herdr = makeHerdrStub({ agents: [agent("idle")], procs: [] });
     expect(await isSpawnAlive(herdr, CWD)).toBe(true);

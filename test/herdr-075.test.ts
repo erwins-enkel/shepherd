@@ -4,6 +4,8 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
   classifyPaneWrite,
   HerdrDriver,
+  matchAgent,
+  matchAgents,
   resolvePaneId,
   sanitizeHerdrAgentName,
   type HerdrAgent,
@@ -210,6 +212,49 @@ test("relabel (0.7.5): agent rename targets pane_id with a sanitized label; tab 
   expect(rename).toEqual(["agent", "rename", "p_075", "review-task-42"]);
   const tabRename = calls.find((c) => c[0] === "tab" && c[1] === "rename")!;
   expect(tabRename).toEqual(["tab", "rename", "t_075", "review TASK-42"]);
+});
+
+// ── cwd-collision name disambiguation tolerates 0.7.5 sanitization ────────────
+
+/** Two 0.7.5 agents sharing a cwd, each with a SANITIZED herdr name, plus stale terminalIds (as
+ *  after a daemon restart). The sessions still hold their RAW names. */
+const SANITIZED_AGENTS: HerdrAgent[] = [
+  {
+    agent: "claude",
+    agentStatus: "working",
+    cwd: "/wt/shared",
+    name: "review-task-09", // sanitized from "review TASK-09"
+    paneId: "pA",
+    tabId: "tA",
+    terminalId: "term_A",
+    workspaceId: "w1",
+  },
+  {
+    agent: "claude",
+    agentStatus: "working",
+    cwd: "/wt/shared",
+    name: "review-task-10", // sanitized from "review TASK-10"
+    paneId: "pB",
+    tabId: "tB",
+    terminalId: "term_B",
+    workspaceId: "w1",
+  },
+];
+
+test("matchAgent (0.7.5): same-cwd sessions re-pair by SANITIZED name after stale terminalId", () => {
+  // terminalId is stale (daemon restart) → cwd fallback; cwd is contended → name disambiguation.
+  const s = { herdrAgentId: "stale", worktreePath: "/wt/shared", name: "review TASK-10" };
+  expect(matchAgent(s, SANITIZED_AGENTS)?.terminalId).toBe("term_B");
+});
+
+test("matchAgents (0.7.5): both same-cwd sessions resolve via sanitized-name arbitration", () => {
+  const sessions = [
+    { id: "s1", herdrAgentId: "stale1", worktreePath: "/wt/shared", name: "review TASK-09" },
+    { id: "s2", herdrAgentId: "stale2", worktreePath: "/wt/shared", name: "review TASK-10" },
+  ];
+  const out = matchAgents(sessions, SANITIZED_AGENTS);
+  expect(out.get("s1")?.terminalId).toBe("term_A");
+  expect(out.get("s2")?.terminalId).toBe("term_B");
 });
 
 test("stop (0.7.5): closes the recorded tab of a started agent", async () => {

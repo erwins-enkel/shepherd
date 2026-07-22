@@ -121,6 +121,20 @@ export function mapState(s: HerdrState): SessionStatus {
 }
 
 /**
+ * Compare a herdr agent's name to a session's name for the cwd-collision disambiguator. On the
+ * 0.7.5 external-registration path the agent's `--agent` label was coerced through
+ * {@link sanitizeHerdrAgentName} (e.g. `review TASK-09` → `review-task-09`), so it will NOT equal
+ * the raw `session.name` — compare in sanitized space there. ≤0.7.4 keeps a strict raw comparison,
+ * so its matching is byte-identical. Without this, 2+ same-cwd 0.7.5 sessions could never re-pair by
+ * name after a herdr daemon restart (stale terminalIds), misclassifying a live session as stranded.
+ */
+function agentNameMatchesSession(agentName: string, sessionName: string): boolean {
+  return herdrUsesExternalRegistrationSpawn()
+    ? agentName === sanitizeHerdrAgentName(sessionName)
+    : agentName === sessionName;
+}
+
+/**
  * Resolve a session to its live herdr agent by a STABLE key. terminalId is the fast
  * path but is volatile across a herdr daemon restart, so on a miss we fall back to the
  * immutable worktree cwd. A cwd shared by 2+ agents (non-isolated same-repo sessions)
@@ -135,7 +149,7 @@ export function matchAgent(
   const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
   if (byCwd.length === 1) return byCwd[0]!;
   if (byCwd.length > 1) {
-    const byName = byCwd.filter((a) => a.name === s.name);
+    const byName = byCwd.filter((a) => agentNameMatchesSession(a.name, s.name));
     if (byName.length === 1) return byName[0]!;
   }
   return null;
@@ -237,7 +251,9 @@ function pickByCwd(
   contended: boolean,
 ): HerdrAgent | null {
   if (!contended) return matchAgent(s, candidates);
-  const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+  const byName = candidates.filter(
+    (c) => c.cwd === s.worktreePath && agentNameMatchesSession(c.name, s.name),
+  );
   return byName.length === 1 ? byName[0]! : null;
 }
 

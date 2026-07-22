@@ -6,6 +6,7 @@ import {
   detectedHerdrVersion,
   HERDR_LAST_SUPPORTED_VERSION,
   herdrSpawnSupported,
+  herdrUsesExternalRegistrationSpawn,
 } from "./herdr-capabilities";
 import { maintenance } from "./maintenance";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
@@ -120,6 +121,20 @@ export function mapState(s: HerdrState): SessionStatus {
 }
 
 /**
+ * Compare a herdr agent's name to a session's name for the cwd-collision disambiguator. On the
+ * 0.7.5 external-registration path the agent's `--agent` label was coerced through
+ * {@link sanitizeHerdrAgentName} (e.g. `review TASK-09` → `review-task-09`), so it will NOT equal
+ * the raw `session.name` — compare in sanitized space there. ≤0.7.4 keeps a strict raw comparison,
+ * so its matching is byte-identical. Without this, 2+ same-cwd 0.7.5 sessions could never re-pair by
+ * name after a herdr daemon restart (stale terminalIds), misclassifying a live session as stranded.
+ */
+function agentNameMatchesSession(agentName: string, sessionName: string): boolean {
+  return herdrUsesExternalRegistrationSpawn()
+    ? agentName === sanitizeHerdrAgentName(sessionName)
+    : agentName === sessionName;
+}
+
+/**
  * Resolve a session to its live herdr agent by a STABLE key. terminalId is the fast
  * path but is volatile across a herdr daemon restart, so on a miss we fall back to the
  * immutable worktree cwd. A cwd shared by 2+ agents (non-isolated same-repo sessions)
@@ -134,7 +149,7 @@ export function matchAgent(
   const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
   if (byCwd.length === 1) return byCwd[0]!;
   if (byCwd.length > 1) {
-    const byName = byCwd.filter((a) => a.name === s.name);
+    const byName = byCwd.filter((a) => agentNameMatchesSession(a.name, s.name));
     if (byName.length === 1) return byName[0]!;
   }
   return null;
@@ -236,7 +251,9 @@ function pickByCwd(
   contended: boolean,
 ): HerdrAgent | null {
   if (!contended) return matchAgent(s, candidates);
-  const byName = candidates.filter((c) => c.cwd === s.worktreePath && c.name === s.name);
+  const byName = candidates.filter(
+    (c) => c.cwd === s.worktreePath && agentNameMatchesSession(c.name, s.name),
+  );
   return byName.length === 1 ? byName[0]! : null;
 }
 
@@ -364,6 +381,52 @@ export function parseTabs(result: unknown): HerdrTab[] {
  */
 export function parseAgentInfo(agent: unknown): HerdrAgent {
   return mapAgentRecord((agent ?? {}) as Record<string, string>);
+}
+
+/**
+ * Coerce an arbitrary Shepherd label into herdr's agent-name grammar `^[a-z][a-z0-9_-]{0,31}$`
+ * (spike-confirmed on 0.7.5: `TASK-01`, `plan-review TASK-707` are rejected as
+ * `invalid_agent_name`). Deterministic + stable: lowercase → replace every run of chars outside
+ * `[a-z0-9_-]` with a single `-` → strip leading chars that are not `[a-z]` (the first char must be
+ * a letter) → fall back to `agent` when nothing survives → truncate to 32. Applied on the 0.7.5
+ * path to the `pane report-agent`/`report-agent-session` `--agent` label and to `agent rename`.
+ * ≤0.7.4 never calls it (that path passes the raw name to `agent start`), so its behavior is
+ * unchanged.
+ */
+export function sanitizeHerdrAgentName(raw: string): string {
+  const lowered = raw.toLowerCase().replace(/[^a-z0-9_-]+/g, "-");
+  const trimmed = lowered.replace(/^[^a-z]+/, "");
+  return (trimmed.length > 0 ? trimmed : "agent").slice(0, 32);
+}
+
+/**
+ * Resolve a herdr `terminal_id` to its `pane_id` from an `agent list` snapshot. On herdr 0.7.5 the
+ * driver's read/send/relabel must target `pane_id` — `terminal_id` and label are rejected as
+ * `agent_not_found` — but Shepherd keys sessions on `terminal_id`, so this lookup is load-bearing.
+ * Returns null when no agent carries that `terminal_id` (gone/exited) or the matched record has no
+ * `pane_id` (unusable as a target).
+ */
+export function resolvePaneId(agents: HerdrAgent[], terminalId: string): string | null {
+  return agents.find((a) => a.terminalId === terminalId)?.paneId || null;
+}
+
+/** A single 0.7.5 pane write: either literal PTY text (`pane send-text`) or named keys
+ *  (`pane send-keys`). */
+export type PaneWrite = { kind: "text"; text: string } | { kind: "keys"; keys: string[] };
+
+/**
+ * Classify a driver `send(text)` payload for the 0.7.5 write path (spike-confirmed writes go through
+ * `pane send-text` + `pane send-keys Enter`, NOT `agent send`/`agent send-keys` — those return
+ * `agent_not_ready` on a registered-but-undetected sandboxed agent). A lone CR/LF becomes the
+ * `Enter` key; everything else (including a lone ESC byte and the bracketed-paste-wrapped steer
+ * blob) is delivered as literal PTY text. Only the `Enter` key name is spike-confirmed, so ESC and
+ * the paste markers ride `pane send-text` as literal bytes rather than depending on an unverified
+ * key name. This keeps `SessionService.sendSteerTo`'s two-call paste-then-CR sequence correct with
+ * no caller change: the CR maps to `Enter`, the paste blob to `send-text` (markers preserved).
+ */
+export function classifyPaneWrite(text: string): PaneWrite {
+  if (text === "\r" || text === "\n" || text === "\r\n") return { kind: "keys", keys: ["Enter"] };
+  return { kind: "text", text };
 }
 
 /**
@@ -762,10 +825,164 @@ export class HerdrDriver implements IHerdrDriver {
     argv: string[],
     env?: Record<string, string>,
   ): Promise<HerdrAgent> {
-    // Refuse loudly on an unsupported herdr (0.7.5+) rather than spawning a broken agent — see
-    // HerdrSpawnUnsupportedError / #1889. Steering/reading existing agents still works.
+    // Refuse loudly on a herdr too new to spawn on at all (see HerdrSpawnUnsupportedError / #1889).
+    // Steering/reading existing agents still works.
     if (!herdrSpawnSupported()) throw new HerdrSpawnUnsupportedError(detectedHerdrVersion());
-    return this.serializeStart(() => this.startImpl(name, cwd, argv, env));
+    return this.serializeStart(() =>
+      // 0.7.5 (protocol 17) can't launch the wrapped argv through `agent start`; use the
+      // external-registration path instead (#1890). ≤0.7.4 keeps the byte-identical legacy path.
+      herdrUsesExternalRegistrationSpawn()
+        ? this.startImpl075(name, cwd, argv, env)
+        : this.startImpl(name, cwd, argv, env),
+    );
+  }
+
+  /**
+   * Create a dedicated full-width tab for one agent and return its id + root pane id. Shared by both
+   * spawn paths (the ≤0.7.4 `agent start` split and the 0.7.5 `pane run`). Each agent gets its OWN
+   * tab so its pane spans the full herdr window width: a `--tab`-less `agent start` splits the active
+   * tab, so agents pile up as side-by-side panes each ~window/N wide — and that split-fixed width
+   * (not the browser's attach size) is what the PTY renders at, so the HUD terminal comes out
+   * tall-and-narrow and resizing the browser can't widen it. Throws if herdr returns no `tab_id`
+   * (nothing created yet, so nothing to roll back).
+   */
+  private async createDedicatedTab(
+    name: string,
+    cwd: string,
+  ): Promise<{ tabId: string; rootPaneId: string | undefined }> {
+    const created = JSON.parse(
+      await this.asyncRunner(["tab", "create", "--cwd", cwd, "--label", name, "--no-focus"]),
+    );
+    const tabId: string | undefined = created?.result?.tab?.tab_id;
+    if (!tabId) throw new Error(`herdr: tab create returned no tab_id for ${name}`);
+    const rootPaneId: string | undefined = created?.result?.root_pane?.pane_id;
+    return { tabId, rootPaneId };
+  }
+
+  /**
+   * herdr 0.7.5 (protocol 17) spawn via EXTERNAL REGISTRATION (#1890). `agent start --kind` can't
+   * express Shepherd's `env`-shim + `bwrap` argv wrap, so instead: `tab create` → run the wrapped
+   * argv in the tab's root pane once its shell is ready → register the agent
+   * (`report-agent-session` + `report-agent`) so `agent list` surfaces it (the membrane's
+   * `--unshare-pid` hides `claude` from herdr's passive detection) → resolve the started `HerdrAgent`
+   * from the live list by `pane_id`. Preserves the dedicated-tab + `TabLedger` teardown semantics of
+   * the ≤0.7.4 path; the wrapped argv (`buildWrappedArgv`) flows into `pane run` byte-identically.
+   * Unlike the ≤0.7.4 path there is NO leftover shell pane to close — `pane run` reuses the tab's
+   * root pane as the agent pane.
+   */
+  private async startImpl075(
+    name: string,
+    cwd: string,
+    argv: string[],
+    env?: Record<string, string>,
+  ): Promise<HerdrAgent> {
+    await this.ensureWorkspace(cwd);
+    // Dedicated full-width tab per agent (same rationale as the ≤0.7.4 path). No --env: the wrapped
+    // argv carries every env var itself (the `env …` shim, or bwrap `--setenv`), so the shell pane's
+    // own environment is irrelevant to the launched process.
+    const { tabId, rootPaneId } = await this.createDedicatedTab(name, cwd);
+
+    // The tab already exists, so on ANY post-create failure we must close it — otherwise it lingers
+    // forever as an empty husk. (Mirrors the ≤0.7.4 rollback.) A missing root pane is such a failure,
+    // so it is checked INSIDE the try to get the same rollback.
+    try {
+      // On 0.7.5 the tab's root pane IS the agent pane (`pane run` reuses it) — not a leftover to
+      // close, so a missing one is fatal.
+      const paneId = rootPaneId;
+      if (!paneId) throw new Error(`herdr: tab create returned no root pane for ${name}`);
+      const wrapped = buildWrappedArgv(argv, env);
+      await this.runInReadyPane(paneId, wrapped);
+      const agentName = sanitizeHerdrAgentName(name);
+      await this.registerAgentWithCollisionRetry(paneId, agentName);
+      // There is no `agent_started` reply on 0.7.5 — resolve the freshly-registered agent from the
+      // live list, joining on the pane_id we ran in. Its terminal_id is the id Shepherd keys on.
+      const agent = (await this.listAsync()).find((a) => a.paneId === paneId);
+      if (!agent || !agent.terminalId) {
+        throw new Error(`herdr: agent list has no registered agent for pane ${paneId} (${name})`);
+      }
+      // Retain the authoritative spawn handle (#1852): the tab is ours even if the process inside
+      // dies before it next appears in `agent list`.
+      this.ledger.record(agent.terminalId, tabId, name);
+      return agent;
+    } catch (err) {
+      await this.closeTab(tabId); // roll back the orphan tab before propagating
+      throw err;
+    }
+  }
+
+  /**
+   * Run `wrapped` in `paneId` once its shell is ready. Readiness is guaranteed by a bounded retry of
+   * `pane run` itself, retrying on ANY failure — deliberately name-independent so it does not hinge
+   * on herdr's exact busy-error code or prompt string (both unverified). No sleep between attempts:
+   * each failed `pane run` is a real herdr round-trip, which provides the spacing (same rationale as
+   * the ≤0.7.4 collision retry). A `pane run` that reaches the shell either launches the command or
+   * rejects before executing, so a retry never double-launches. CLI quirk: the `pane_id` positional
+   * precedes any flags — here it precedes the command argv.
+   */
+  private async runInReadyPane(paneId: string, wrapped: string[]): Promise<void> {
+    const MAX_ATTEMPTS = 3;
+    let lastErr: unknown;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.asyncRunner(["pane", "run", paneId, ...wrapped]);
+        return;
+      } catch (err) {
+        lastErr = err;
+      }
+    }
+    throw lastErr ?? new Error(`herdr: pane run failed for pane ${paneId}`);
+  }
+
+  /**
+   * Register an externally-launched agent so `agent list` surfaces it: `pane report-agent-session`
+   * (establishes the agent session) then `pane report-agent --state working` (sets its live state).
+   * Both take the `pane_id` positional BEFORE the flags (CLI quirk). Bounded retry mirrors the
+   * ≤0.7.4 name-collision breaker but at the REGISTER step — on 0.7.5 the `--agent` name is bound
+   * here, not at spawn, and our tab/pane/`claude` are already live — so a collision re-runs ONLY the
+   * register pair (never tab-create/pane-run) after evicting same-named squatters. Whether
+   * `report-agent(-session)` even emits `agent_name_taken` is unverified; because `agentName` is
+   * sanitized AND de-duped upstream (`uniqueName`) and each spawn registers a freshly-created pane, a
+   * real collision is expected to be rare/absent, and the retry collapses to a single pass otherwise.
+   */
+  private async registerAgentWithCollisionRetry(paneId: string, agentName: string): Promise<void> {
+    // Opaque per-pane associator: claude's own session id is unknown at spawn, and herdr only echoes
+    // this back on the agent record — keeping agent_status fresh via a real session id is a separate
+    // child (#1889). Stable + unique per spawn (one pane per spawn).
+    const agentSessionId = `shepherd-${paneId}`;
+    const MAX_ATTEMPTS = 3;
+    for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+      try {
+        await this.asyncRunner([
+          "pane",
+          "report-agent-session",
+          paneId,
+          "--source",
+          "shepherd",
+          "--agent",
+          agentName,
+          "--agent-session-id",
+          agentSessionId,
+        ]);
+        await this.asyncRunner([
+          "pane",
+          "report-agent",
+          paneId,
+          "--source",
+          "shepherd",
+          "--agent",
+          agentName,
+          "--state",
+          "working",
+        ]);
+        return;
+      } catch (err) {
+        if (!isNameTakenError(err) || attempt === MAX_ATTEMPTS - 1) throw err;
+        // Evict squatter(s) by name — never by regex-parsing the error string — then re-run the
+        // register pair against our existing pane.
+        const squatters = (await this.listAsync()).filter((a) => a.name === agentName);
+        for (const sq of squatters) await this.closeTab(sq.tabId);
+      }
+    }
   }
 
   private async startImpl(
@@ -776,20 +993,9 @@ export class HerdrDriver implements IHerdrDriver {
   ): Promise<HerdrAgent> {
     // herdr needs an active workspace before any tab can be created — guarantee one.
     await this.ensureWorkspace(cwd);
-    // Give each agent its OWN tab so its pane spans the full herdr window width.
-    // `agent start` with no --tab splits the active tab, so agents pile up as
-    // side-by-side panes each ~window/N wide — and that split-fixed width (not the
-    // browser's attach size) is what the PTY renders at, so the HUD terminal comes
-    // out tall-and-narrow and resizing the browser can't widen it. A dedicated tab
-    // keeps every agent full-width regardless of how many are running.
-    const created = JSON.parse(
-      await this.asyncRunner(["tab", "create", "--cwd", cwd, "--label", name, "--no-focus"]),
-    );
-    const tabId: string | undefined = created?.result?.tab?.tab_id;
     // a fresh tab opens with an empty shell pane; `agent start --tab` splits it, so
     // we close that leftover pane afterward to leave the agent as the sole pane
-    const rootPaneId: string | undefined = created?.result?.root_pane?.pane_id;
-    if (!tabId) throw new Error(`herdr: tab create returned no tab_id for ${name}`);
+    const { tabId, rootPaneId } = await this.createDedicatedTab(name, cwd);
 
     // `agent start` can fail (e.g. name-taken exhaustion). The tab already exists, so on
     // failure we must close it — otherwise it lingers forever as an empty husk with no
@@ -824,10 +1030,43 @@ export class HerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Write literal text to an agent's PTY (no implicit Enter). Async since #1567 — spawns via
-   *  `asyncRunner` so a steer never blocks Bun's loop, matching the other async writes. */
+  /**
+   * Map a session `terminal_id` to the target the current herdr wants for read/send/relabel. ≤0.7.4:
+   * identity (`terminal_id` is the target). 0.7.5: the `pane_id` — `terminal_id`/label are rejected
+   * as `agent_not_found` (#1890) — resolved from a fresh `agent list`. Returns null on 0.7.5 when the
+   * agent is gone (no live pane), so callers can no-op/throw rather than issue a doomed CLI call.
+   */
+  private async resolveTargetAsync(terminalId: string): Promise<string | null> {
+    if (!herdrUsesExternalRegistrationSpawn()) return terminalId;
+    return resolvePaneId(await this.listAsync(), terminalId);
+  }
+
+  /** Sync sibling of {@link resolveTargetAsync} for the sync `read` (uses the sync `list()`). */
+  private resolveTargetSync(terminalId: string): string | null {
+    if (!herdrUsesExternalRegistrationSpawn()) return terminalId;
+    return resolvePaneId(this.list(), terminalId);
+  }
+
+  /**
+   * Write literal text to an agent's PTY (no implicit Enter). Async since #1567 — spawns via
+   * `asyncRunner` so a steer never blocks Bun's loop, matching the other async writes. On 0.7.5 the
+   * write goes through `pane send-text` / `pane send-keys` against the resolved `pane_id`
+   * (`agent send` returns `agent_not_ready` on a registered-but-undetected sandboxed agent — #1890);
+   * `send` is never best-effort, so a gone pane throws rather than silently dropping the steer.
+   */
   async send(target: string, text: string): Promise<void> {
-    await this.asyncRunner(["agent", "send", target, text]);
+    if (!herdrUsesExternalRegistrationSpawn()) {
+      await this.asyncRunner(["agent", "send", target, text]);
+      return;
+    }
+    const paneId = resolvePaneId(await this.listAsync(), target);
+    if (!paneId) throw new Error(`herdr: no live pane for terminal ${target} (send)`);
+    const write = classifyPaneWrite(text);
+    await this.asyncRunner(
+      write.kind === "keys"
+        ? ["pane", "send-keys", paneId, ...write.keys]
+        : ["pane", "send-text", paneId, write.text],
+    );
   }
 
   /** The `agent read` argv shared by the sync and async readers. */
@@ -854,9 +1093,12 @@ export class HerdrDriver implements IHerdrDriver {
     }
   }
 
-  /** Read an agent's terminal buffer as plain text (default: the visible viewport). */
+  /** Read an agent's terminal buffer as plain text (default: the visible viewport). On 0.7.5 the
+   *  same `agent read` command targets the resolved `pane_id` (#1890); a gone pane reads as `""`. */
   read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
-    return this.parseRead(this.runner(this.readArgs(target, source, lines)));
+    const resolved = this.resolveTargetSync(target);
+    if (resolved === null) return "";
+    return this.parseRead(this.runner(this.readArgs(resolved, source, lines)));
   }
 
   /**
@@ -871,7 +1113,9 @@ export class HerdrDriver implements IHerdrDriver {
     source: "visible" | "recent" = "visible",
     lines = 200,
   ): Promise<string> {
-    return this.parseRead(await this.asyncRunner(this.readArgs(target, source, lines)));
+    const resolved = await this.resolveTargetAsync(target);
+    if (resolved === null) return "";
+    return this.parseRead(await this.asyncRunner(this.readArgs(resolved, source, lines)));
   }
 
   /**
@@ -903,10 +1147,18 @@ export class HerdrDriver implements IHerdrDriver {
       return;
     }
     if (!agent) return;
-    try {
-      await this.asyncRunner(["agent", "rename", terminalId, newName]);
-    } catch {
-      /* best-effort */
+    // 0.7.5: `agent rename` must target the pane_id and the agent label must satisfy herdr's name
+    // grammar (#1890). ≤0.7.4: byte-identical — target the terminal_id with the raw name. The TAB
+    // rename below always uses the raw, human-facing label (tab labels are unconstrained).
+    const external = herdrUsesExternalRegistrationSpawn();
+    const renameTarget = external ? agent.paneId : terminalId;
+    const agentLabel = external ? sanitizeHerdrAgentName(newName) : newName;
+    if (renameTarget) {
+      try {
+        await this.asyncRunner(["agent", "rename", renameTarget, agentLabel]);
+      } catch {
+        /* best-effort */
+      }
     }
     if (agent.tabId) {
       try {

@@ -1,0 +1,7 @@
+{
+  "result": {
+    "type": "tab_created",
+    "tab": { "tab_id": "t_075", "workspace_id": "w1" },
+    "root_pane": { "pane_id": "p_075", "tab_id": "t_075", "terminal_id": "term_075" }
+  }
+}

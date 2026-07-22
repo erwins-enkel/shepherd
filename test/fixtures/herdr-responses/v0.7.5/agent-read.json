@@ -1,0 +1,6 @@
+{
+  "result": {
+    "type": "agent_read",
+    "read": { "text": "● Ready.\n> " }
+  }
+}

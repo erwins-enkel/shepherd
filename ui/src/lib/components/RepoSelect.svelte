@@ -651,7 +651,9 @@
     margin-top: 4px;
   }
 
-  @media (max-width: 768px) {
+  /* Short-and-touch OR'd in so phone landscape keeps 44px touch targets too — mirrors
+     NewTask's `mobile` gate (the context sheet renders this in that layout). */
+  @media (max-width: 768px), (max-height: 480px) and (pointer: coarse) {
     .rs-trigger {
       min-height: 44px;
     }

@@ -2927,3 +2927,154 @@ describe("NewTask mobile sheets + shortcuts", () => {
     expect(isOn(planGateSwitch())).toBe(true);
   });
 });
+
+// iOS Safari overlays the soft keyboard WITHOUT shrinking the layout viewport, so a
+// bottom-anchored sheet (and the footer) hide behind it. NewTask mirrors visualViewport
+// onto the overlay to keep content above the keyboard. The harness can't raise a real
+// keyboard, so we substitute a mutable fake visualViewport and drive its events; the
+// real iOS geometry is validated manually on-device.
+describe("NewTask keyboard-aware viewport (mobile)", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop: number;
+    constructor(height: number, offsetTop = 0) {
+      super();
+      this.height = height;
+      this.offsetTop = offsetTop;
+    }
+  }
+
+  function installFakeViewport(height: number, offsetTop = 0) {
+    const fake = new FakeVisualViewport(height, offsetTop);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    const restore = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    return { fake, restore };
+  }
+
+  function makeRepos(n: number): RepoEntry[] {
+    return Array.from({ length: n }, (_, i) => {
+      const id = String(i).padStart(2, "0");
+      return {
+        name: `repo-${id}`,
+        path: `/repo/kbd-${id}`,
+        display: `repo-${id}`,
+        realPath: `/repo/kbd-${id}`,
+      };
+    });
+  }
+
+  const overlay = () => document.querySelector<HTMLElement>(".overlay")!;
+
+  it("mirrors visualViewport height/offsetTop onto the overlay and resets on breakpoint change", async () => {
+    const { fake, restore } = installFakeViewport(380, 0);
+    try {
+      await page.viewport(390, 844);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+
+      // Mobile: the overlay is sized to the visible region above the keyboard.
+      await expect.poll(() => overlay()?.style.height).toBe("380px");
+
+      // Keyboard grows + iOS scrolls the layout viewport → both are mirrored.
+      fake.height = 300;
+      fake.offsetTop = 12;
+      fake.dispatchEvent(new Event("resize"));
+      await expect.poll(() => overlay().style.height).toBe("300px");
+      expect(overlay().style.transform).toBe("translateY(12px)");
+
+      // Reset-on-breakpoint: crossing to desktop detaches the listener AND clears the
+      // inline geometry, so no stale height/transform survives onto the desktop layout.
+      await page.viewport(1280, 900);
+      await expect.poll(() => overlay().style.height).toBe("");
+      expect(overlay().style.transform).toBe("");
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the repo filter and the results reachable above the keyboard in the context sheet", async () => {
+    const KB_TOP = 380; // simulated top edge of the keyboard (visible viewport height)
+    const { restore } = installFakeViewport(KB_TOP, 0);
+    try {
+      // Smallest supported portrait: a long repo list forces the panel to overflow.
+      await page.viewport(375, 667);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(20), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+      await expect.poll(() => overlay()?.style.height).toBe("380px");
+
+      // Open the context sheet, then the repo dropdown + its filter.
+      document.querySelector<HTMLButtonElement>(".ctx-chip")!.click();
+      await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
+      document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
+      await expect.poll(() => document.querySelector(".ctx-sheet .rs-filter")).toBeTruthy();
+
+      const filter = document.querySelector<HTMLInputElement>(".ctx-sheet .rs-filter")!;
+      const sheetBody = document.querySelector<HTMLElement>(".sheet-body")!;
+
+      // The filter sits fully above the simulated keyboard line.
+      const fr0 = filter.getBoundingClientRect();
+      expect(fr0.top).toBeGreaterThanOrEqual(0);
+      expect(fr0.bottom).toBeLessThanOrEqual(KB_TOP + 1);
+
+      // The sheet-body is the single scroller and the long list overflows it.
+      expect(sheetBody.scrollHeight).toBeGreaterThan(sheetBody.clientHeight);
+      sheetBody.scrollTop = sheetBody.scrollHeight;
+
+      // After scrolling to the bottom, the deepest result is reachable above the
+      // keyboard (not stuck behind it)…
+      const opts = document.querySelectorAll<HTMLElement>('.ctx-sheet [role="option"]');
+      const last = opts[opts.length - 1]!;
+      await expect.poll(() => last.getBoundingClientRect().bottom).toBeLessThanOrEqual(KB_TOP + 1);
+
+      // …and the sticky filter is still pinned in view (it never scrolls behind the keyboard).
+      const fr1 = filter.getBoundingClientRect();
+      expect(fr1.top).toBeGreaterThanOrEqual(0);
+      expect(fr1.bottom).toBeLessThanOrEqual(KB_TOP + 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("runs the mobile layout + keyboard handling in wide-but-short TOUCH landscape", async () => {
+    // Keyboard already open on a landscape phone (coarse pointer): width > 768 (would be
+    // the desktop rail under a width-only gate) but short-and-touch must still get the
+    // mobile layout AND the overlay mirror, else content hides behind the keyboard.
+    const { restore } = installFakeViewport(200, 0);
+    try {
+      mockPointer(true); // coarse pointer = phone/tablet with a soft keyboard
+      await page.viewport(852, 393);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      // The combined repo·branch chip only renders in the mobile layout.
+      await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+      expect(document.querySelector(".rail")).toBeNull();
+      // The overlay is mirrored to the visible region above the keyboard.
+      await expect.poll(() => overlay()?.style.height).toBe("200px");
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves a short DESKTOP window (fine pointer) on the desktop layout, overlay untouched", async () => {
+    // Same short-and-wide viewport, but a fine pointer = hardware keyboard: it must stay
+    // on the desktop rail with the overlay never mutated — the no-desktop-change boundary
+    // (the height gate is touch-only, so a resized desktop window doesn't flip to mobile).
+    const { restore } = installFakeViewport(200, 0);
+    try {
+      mockPointer(false);
+      await page.viewport(852, 393);
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+      expect(document.querySelector(".ctx-chip")).toBeNull();
+      expect(overlay().style.height).toBe("");
+    } finally {
+      restore();
+    }
+  });
+});

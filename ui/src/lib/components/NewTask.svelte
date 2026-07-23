@@ -293,20 +293,33 @@
   let uploading = $state(false);
   let fileInput = $state<HTMLInputElement>();
   let promptInput = $state<HTMLTextAreaElement>();
+  // The modal backdrop. On mobile we mirror the visualViewport onto it so the card and
+  // the fixed bottom sheets sit above the software keyboard (iOS Safari overlays the
+  // keyboard WITHOUT shrinking the layout viewport — see the viewport effect below).
+  let overlayEl = $state<HTMLElement | null>(null);
   let repoSelect: RepoSelect | undefined = $state();
   let mic: MicButton | undefined = $state();
   let isMac = $state(false);
   // Coarse pointer = touch-primary device: hide keyboard-combo hints it can't fulfil.
   const coarse = new MediaQuery("(pointer: coarse)");
-  // Layout breakpoint — drives the SINGLE mounted instance of RunSettingsGroups
-  // (desktop rail vs. mobile engine sheet) and the mobile-only chrome.
-  const mobile = new MediaQuery("(max-width: 768px)");
+  // Small-screen layout gate — drives the SINGLE mounted instance of RunSettingsGroups
+  // (desktop rail vs. mobile engine sheet), the mobile-only chrome, and the
+  // keyboard-aware viewport effect below. True when NARROW (portrait phones / narrow
+  // windows) OR SHORT-AND-TOUCH (phone/tablet LANDSCAPE, e.g. 852×393, where the
+  // keyboard eats the height). Gating the short branch on a coarse pointer keeps
+  // ordinary short DESKTOP windows on the desktop layout — they have a hardware
+  // keyboard, so the visualViewport mirror must never touch them. Keyed on the layout
+  // viewport, which iOS keeps stable when the keyboard opens (no thrash). The matching
+  // CSS media queries (NewTask/RepoSelect/RunSettingsGroups) mirror this exact logic.
+  const narrowViewport = new MediaQuery("(max-width: 768px)");
+  const shortViewport = new MediaQuery("(max-height: 480px)");
+  const mobile = $derived(narrowViewport.current || (shortViewport.current && coarse.current));
   // Single active-sheet invariant: at most one mobile sheet is open, by construction.
   let activeSheet = $state<"engine" | "context" | null>(null);
   let contextSheetEl = $state<HTMLElement | null>(null);
   // Leaving mobile while a sheet is open: the rail takes over; close the sheet.
   $effect(() => {
-    if (!mobile.current && activeSheet !== null) activeSheet = null;
+    if (!mobile && activeSheet !== null) activeSheet = null;
   });
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
@@ -400,6 +413,40 @@
     // Paste anywhere in the modal (the textarea need not be focused first).
     window.addEventListener("paste", onPaste);
     return () => window.removeEventListener("paste", onPaste);
+  });
+
+  // ── keyboard-aware viewport (mobile only) ─────────────────────────────────
+  // iOS Safari overlays the soft keyboard WITHOUT shrinking the layout viewport
+  // (dvh/vh don't react; interactive-widget isn't in WebKit). visualViewport reports
+  // the region above the keyboard; mirror its height + offsetTop onto the overlay so
+  // the card fills it and the fixed bottom sheet (contained by the overlay via its
+  // backdrop-filter) re-anchors above the keyboard. Same pattern as ComposeBar.
+  function syncViewport() {
+    const vv = typeof window !== "undefined" ? window.visualViewport : null;
+    if (!vv || !overlayEl) return;
+    overlayEl.style.height = `${vv.height}px`;
+    overlayEl.style.transform = `translateY(${vv.offsetTop}px)`;
+  }
+  function resetViewport() {
+    if (!overlayEl) return;
+    overlayEl.style.height = "";
+    overlayEl.style.transform = "";
+  }
+  // Gated to the mobile layout: on desktop the overlay is never touched, so desktop
+  // pinch-zoom can't move it. The effect re-runs when the breakpoint flips; its teardown
+  // both detaches the listeners and clears the inline geometry left from the mobile
+  // state (reset-on-breakpoint), so a stale height/transform never survives onto desktop.
+  $effect(() => {
+    if (!overlayEl || !mobile) return;
+    syncViewport();
+    const vv = window.visualViewport;
+    vv?.addEventListener("resize", syncViewport);
+    vv?.addEventListener("scroll", syncViewport);
+    return () => {
+      vv?.removeEventListener("resize", syncViewport);
+      vv?.removeEventListener("scroll", syncViewport);
+      resetViewport();
+    };
   });
 
   // load branches for the selected repo; reset base to the repo's current branch
@@ -921,7 +968,7 @@
    *  inside the context sheet, so the shortcut opens the sheet (closing the engine
    *  sheet per the single-sheet invariant) and then the panel once mounted. */
   async function openRepoPicker() {
-    if (mobile.current) {
+    if (mobile) {
       activeSheet = "context";
       await tick();
     }
@@ -1144,6 +1191,7 @@
 
 <div
   class="overlay"
+  bind:this={overlayEl}
   role="presentation"
   onclick={(e) => {
     if (e.target === e.currentTarget) {
@@ -1180,7 +1228,7 @@
   >
     <div class="chead">
       <span class="chead-title">{heading}</span>
-      {#if mobile.current}
+      {#if mobile}
         <!-- Combined repo·branch chip: one control naming both payload-critical values;
              opens the context sheet where each is independently editable. -->
         <button
@@ -1225,7 +1273,7 @@
     <div class="composer" class:hidden={confirmStep}>
       <div class="cbody">
         <div class="left">
-          {#if !mobile.current}
+          {#if !mobile}
             <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
             <div class="ctx-row" use:coachTarget={"nt-repo"}>
               <div class="repo-chip">
@@ -1300,7 +1348,7 @@
 
           <!-- Prompt hero: the single visual hero — the only field with a bright border. -->
           <div class="prompt-block">
-            {#if !mobile.current}
+            {#if !mobile}
               <div class="prompt-label-row">
                 <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
                 <span class="syntax-hint">
@@ -1372,7 +1420,7 @@
                   />
                 {/each}
                 <span class="char-count">
-                  {#if mobile.current}
+                  {#if mobile}
                     {m.newtask_syntax_hint_touch()}
                   {:else}
                     {m.newtask_char_count({ count: prompt.length })}
@@ -1422,7 +1470,7 @@
             {/if}
           {/if}
 
-          {#if mobile.current}
+          {#if mobile}
             <!-- Mobile: Mode segments + the engine summary row (opens the sheet). -->
             {@render modeSeg()}
             <button
@@ -1444,7 +1492,7 @@
             </button>
           {/if}
 
-          {#if repoPath && !mobile.current}
+          {#if repoPath && !mobile}
             <PromptSources
               {repoPath}
               {issueData}
@@ -1479,7 +1527,7 @@
           {/if}
         </div>
 
-        {#if !mobile.current}
+        {#if !mobile}
           <div class="rail">
             <span class="group-label">{m.newtask_group_mode()}</span>
             {@render modeSeg()}
@@ -1498,7 +1546,7 @@
           {:else}
             <span class="r-ok" aria-hidden="true">✓</span>
             {m.newtask_readiness_ready()} ·
-            {#if mobile.current && footerCapacity}
+            {#if mobile && footerCapacity}
               <span class="r-cap"
                 >{footerCapacity.code}
                 {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
@@ -1541,7 +1589,7 @@
                   : m.newtask_edit_held_submit()
                 : submitting
                   ? m.newtask_spawning()
-                  : selectedRepoName && !mobile.current
+                  : selectedRepoName && !mobile
                     ? m.newtask_submit_in_repo({ repo: selectedRepoName })
                     : m.newtask_submit()}</span
             >
@@ -1553,7 +1601,7 @@
       </div>
     </div>
 
-    {#if mobile.current && activeSheet === "engine"}
+    {#if mobile && activeSheet === "engine"}
       <MobileEngineSheet
         label={m.newtask_engine_sheet_title()}
         title={m.newtask_engine_sheet_title()}
@@ -1562,7 +1610,7 @@
         {@render modeLockedNote()}
         {@render settingsGroups()}
       </MobileEngineSheet>
-    {:else if mobile.current && activeSheet === "context"}
+    {:else if mobile && activeSheet === "context"}
       <MobileEngineSheet
         label={m.newtask_context_sheet_title()}
         title={m.newtask_context_sheet_title()}
@@ -2271,8 +2319,10 @@
     border: 0;
   }
 
-  /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ── */
-  @media (max-width: 768px) {
+  /* ── mobile: full-height sheet, fixed header/footer, single middle scroller ──
+     Short-and-touch is OR'd in so phone LANDSCAPE gets this layout too, while a short
+     DESKTOP window (fine pointer) stays on the rail — mirrors the `mobile` gate. */
+  @media (max-width: 768px), (max-height: 480px) and (pointer: coarse) {
     .overlay {
       align-items: stretch;
       justify-content: stretch;
@@ -2281,7 +2331,10 @@
     .card {
       width: 100%;
       max-width: none;
-      max-height: none;
+      /* Fill the overlay, which the viewport effect shrinks to the region above the
+         keyboard — so the footer/CTA stay visible instead of hiding behind it. The
+         100dvh is the no-keyboard fallback (overlay ≈ full viewport then). */
+      max-height: 100%;
       height: 100dvh;
       margin: 0;
       border: 0;
@@ -2455,6 +2508,24 @@
       display: flex;
       flex-direction: column;
       gap: 8px;
+    }
+    /* Repo dropdown inside the context sheet: make it an in-flow, single-scroll
+       section with a sticky filter. The default RepoSelect panel is an absolute
+       dropdown that opens DOWN from the trigger — in this short, bottom-anchored
+       sheet that lands in the keyboard. In-flow, it instead grows the sheet-body
+       (bounded to the keyboard-visible area), which is the sole scroller; the filter
+       stays pinned so it — and what you type — never scrolls out of view. */
+    .ctx-sheet :global(.rs-panel) {
+      position: static;
+      box-shadow: none;
+    }
+    .ctx-sheet :global(.rs-list) {
+      max-height: none;
+    }
+    .ctx-sheet :global(.rs-filter) {
+      position: sticky;
+      top: 0;
+      z-index: 1;
     }
     .ctx-sheet .ctx-branch-select {
       background: var(--color-inset);

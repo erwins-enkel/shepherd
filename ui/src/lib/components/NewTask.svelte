@@ -315,11 +315,25 @@
   const shortViewport = new MediaQuery("(max-height: 480px)");
   const mobile = $derived(narrowViewport.current || (shortViewport.current && coarse.current));
   // Single active-sheet invariant: at most one mobile sheet is open, by construction.
-  let activeSheet = $state<"engine" | "context" | null>(null);
+  let activeSheet = $state<"engine" | "context" | "sources" | null>(null);
   let contextSheetEl = $state<HTMLElement | null>(null);
   // Leaving mobile while a sheet is open: the rail takes over; close the sheet.
   $effect(() => {
     if (!mobile && activeSheet !== null) activeSheet = null;
+  });
+
+  // The prompt textarea has a SINGLE mount point (it lives in `.left` on both layouts),
+  // so it is not remounted when the breakpoint flips — which means an inline height that
+  // `autogrow()` wrote on desktop would survive onto mobile and beat the mobile
+  // `height: 100%`, recreating the unbounded field. So: clear the stale inline height
+  // when entering mobile, and re-grow the persisting element when landing on desktop
+  // (onMount's initial autogrow does not re-fire for an element that never remounted).
+  $effect(() => {
+    if (mobile) {
+      if (promptInput) promptInput.style.height = "";
+    } else {
+      tick().then(autogrow);
+    }
   });
 
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
@@ -763,9 +777,30 @@
     });
   }
 
+  // Mobile sources sheet (issues + commands). Closing the sheet and moving focus race:
+  // `MobileEngineSheet`'s use:dialog restores focus to the opener on destroy, so a pick
+  // that seeds the prompt must close the sheet FIRST, await the destroy, THEN focus the
+  // prompt — otherwise the restore wins and the Android keyboard stays down mid-compose.
+  async function closeSheetFocusPrompt() {
+    activeSheet = null;
+    await tick();
+    autogrow();
+    promptInput?.focus();
+    promptInput?.setSelectionRange(prompt.length, prompt.length);
+  }
+  // An issue pick (pickIssue) deliberately does NOT steal focus — same as the desktop
+  // rail — so just close the sheet and let use:dialog restore focus to the trigger
+  // button, leaving the keyboard down.
+  function closeSheetKeepFocus() {
+    activeSheet = null;
+  }
+
   // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
+  // Inert on mobile: there the field is a flex-filled, full-height box (CSS
+  // `height: 100%`) that scrolls internally, so writing an inline height would only
+  // push the pinned toolbar/controls off-screen — the exact regression this fixes.
   function autogrow() {
-    if (!promptInput) return;
+    if (!promptInput || mobile) return;
     promptInput.style.height = "auto";
     promptInput.style.height = `${promptInput.scrollHeight}px`;
   }
@@ -1321,30 +1356,39 @@
             </div>
           {/if}
 
-          {#if upstreamLoading}
-            <span class="nt-upstream">{m.newtask_upstream_checking()}</span>
-          {:else if upstream?.diverged}
-            <span class="nt-upstream nt-upstream-warn">
-              {m.newtask_upstream_diverged({
-                behind: upstream.behind,
-                ahead: upstream.ahead,
-                base: baseBranch,
-              })}
-            </span>
-          {:else if upstream && upstream.behind > 0}
-            <span class="nt-upstream">{m.newtask_upstream_behind({ count: upstream.behind })}</span>
-          {:else if baseMissing}
-            <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
-          {/if}
+          <!-- Notices column: the ONLY scrollable region on mobile (see the mobile
+               media query). `.left` itself stops scrolling there so the prompt block,
+               mode/engine controls and error stay pinned; only these informational
+               notices scroll. On desktop `.nt-notices` is `display: contents`, so the
+               notices participate in `.left`'s flow exactly as before. -->
+          <div class="nt-notices">
+            {#if upstreamLoading}
+              <span class="nt-upstream">{m.newtask_upstream_checking()}</span>
+            {:else if upstream?.diverged}
+              <span class="nt-upstream nt-upstream-warn">
+                {m.newtask_upstream_diverged({
+                  behind: upstream.behind,
+                  ahead: upstream.ahead,
+                  base: baseBranch,
+                })}
+              </span>
+            {:else if upstream && upstream.behind > 0}
+              <span class="nt-upstream"
+                >{m.newtask_upstream_behind({ count: upstream.behind })}</span
+              >
+            {:else if baseMissing}
+              <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
+            {/if}
 
-          {#if relaunch}
-            <div class="relaunch-note">
-              <span>{m.newtask_relaunch_note()}</span>
-              {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
-                <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
-              {/if}
-            </div>
-          {/if}
+            {#if relaunch}
+              <div class="relaunch-note">
+                <span>{m.newtask_relaunch_note()}</span>
+                {#if relaunchIssueNumber != null && repoPath !== initialRepoPath}
+                  <span>{m.newtask_relaunch_issue_drop_note({ number: relaunchIssueNumber })}</span>
+                {/if}
+              </div>
+            {/if}
+          </div>
 
           <!-- Prompt hero: the single visual hero — the only field with a bright border. -->
           <div class="prompt-block">
@@ -1421,7 +1465,25 @@
                 {/each}
                 <span class="char-count">
                   {#if mobile}
-                    {m.newtask_syntax_hint_touch()}
+                    {#if repoPath}
+                      <!-- The hint becomes the sources-sheet trigger: browse/filter
+                           issues + commands, the picker #1854 dropped on mobile. Icon-only
+                           (`#`) so it never wraps the flex-wrap toolbar when attachment
+                           chips are present; the accessible name carries the full label.
+                           Inert text when no repo is selected (nothing to load). -->
+                      <button
+                        type="button"
+                        class="sources-btn"
+                        aria-haspopup="dialog"
+                        aria-expanded={activeSheet === "sources"}
+                        aria-label={m.newtask_sources_open()}
+                        onclick={() => (activeSheet = "sources")}
+                      >
+                        <span aria-hidden="true">#</span>
+                      </button>
+                    {:else}
+                      {m.newtask_syntax_hint_touch()}
+                    {/if}
                   {:else}
                     {m.newtask_char_count({ count: prompt.length })}
                   {/if}
@@ -1655,6 +1717,40 @@
             />
           {/if}
         </div>
+      </MobileEngineSheet>
+    {:else if mobile && activeSheet === "sources"}
+      <!-- Restores the issue/command picker #1854 dropped on mobile. Same PromptSources
+           as the desktop rail; picks close the sheet under the focus contract above. -->
+      <MobileEngineSheet
+        label={m.newtask_sources_sheet_title()}
+        title={m.newtask_sources_sheet_title()}
+        onclose={() => (activeSheet = null)}
+      >
+        <PromptSources
+          {repoPath}
+          {issueData}
+          {epicParents}
+          {nativeSubIssues}
+          {epicsLoaded}
+          {agentProvider}
+          allowIssues={!relaunch}
+          onpick={(p) => {
+            prompt = p;
+            closeSheetFocusPrompt();
+          }}
+          onpickcommand={(c) => {
+            pickCommandFromSource(c);
+            closeSheetFocusPrompt();
+          }}
+          onpickissue={(i) => {
+            pickIssue(i);
+            closeSheetKeepFocus();
+          }}
+          onpicksteer={(i, s) => {
+            injectSteer(i, s);
+            closeSheetFocusPrompt();
+          }}
+        />
       </MobileEngineSheet>
     {/if}
   </form>
@@ -1946,6 +2042,11 @@
     text-overflow: ellipsis;
   }
 
+  /* Desktop: the notices wrapper is transparent to layout — its children flow in
+     `.left` exactly as before. It becomes a real flex scroller only on mobile. */
+  .nt-notices {
+    display: contents;
+  }
   .nt-upstream {
     font-size: var(--fs-micro);
     color: var(--color-muted);
@@ -2338,6 +2439,12 @@
       height: 100dvh;
       margin: 0;
       border: 0;
+      /* Degenerate backstop: at a region so short that the pinned header/footer +
+         controls exceed it, `.left`'s overflow:visible content contributes to the
+         card's scroll height and the whole card scrolls, keeping the CTA reachable.
+         The fixed sheets are unaffected — their containing block is `.overlay`, an
+         ancestor of `.card`. */
+      overflow-y: auto;
     }
     .bracket::before,
     .bracket::after {
@@ -2390,34 +2497,62 @@
     .cbody {
       display: flex;
       min-height: 0;
-      flex: 1;
+      /* Grow into free space but NEVER shrink below content: when the region is too
+         short for the pinned header/footer + controls, `.card` scrolls instead of the
+         field being squeezed into overlap. */
+      flex: 1 0 auto;
     }
     .left {
       flex: 1;
+      min-height: 0;
       border-right: 0;
       padding: 12px 16px;
+      /* The column itself no longer scrolls — that is what let the controls scroll
+         away. Only `.nt-notices` scrolls (below); the prompt block, mode/engine and
+         error are pinned by the base `.left > * { flex-shrink: 0 }` rule. Overflow
+         is visible so the degenerate case feeds `.card`'s scroll (see `.card`). */
+      overflow: visible;
+    }
+    /* Notices are the ONLY scrollable region on mobile. Empty → 0 height, so no
+       notice costs no space (no conditional wrapper needed). */
+    .nt-notices {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      flex: 0 1 auto;
+      min-height: 0;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
     }
-    /* Hero fills the remaining height; 16px text prevents iOS zoom. */
+    /* The prompt hero is the flexible box: it grows into free space and, when the
+       region is short, shrinks toward its content floor so the pinned controls below
+       stay in view. That floor is the `flex-shrink: 0` toolbar plus the prompt-wrap's
+       explicit min-height (~one line) — and it is TEXT-INDEPENDENT because the textarea
+       is taken out of flow below, so a long prompt cannot re-inflate the block. Its
+       own `overflow-y: auto` scrolls the text inside the field instead. */
     .prompt-block {
-      flex: 1;
+      flex: 1 1 0;
       display: flex;
-      min-height: 0;
+      min-height: auto;
     }
     .hero {
       flex: 1;
-      min-height: 180px;
+      min-height: auto;
     }
     .prompt-wrap {
       flex: 1;
-      min-height: 0;
+      /* One-line floor for the field; the toolbar (flex-shrink:0) adds the rest. */
+      min-height: 3rem;
     }
     textarea {
-      /* Full-height hero: the wrap flexes, the textarea fills it. 16px comes from
-         the global iOS no-zoom guard in app.css; restated for the geometry tests. */
-      height: 100%;
-      min-height: 120px;
+      /* Absolutely positioned so the textarea contributes NOTHING to intrinsic sizing
+         — that is what keeps a long prompt from inflating the block's min-content back
+         to the unbounded height. It fills `.prompt-wrap` and scrolls its own content.
+         16px font comes from the global iOS no-zoom guard in app.css. */
+      position: absolute;
+      inset: 0;
+      height: auto;
+      min-height: 0;
       max-height: none;
       font-size: var(--fs-lg);
       line-height: 1.45;
@@ -2440,6 +2575,25 @@
     }
     .char-count {
       font-size: var(--fs-meta);
+    }
+    /* Sources-sheet trigger: icon-only `#` at a 44×44 tap target (a11y floor), sized to
+       never wrap the toolbar even beside attachment chips. */
+    .sources-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      background: transparent;
+      border: 0;
+      font: inherit;
+      font-size: var(--fs-lg);
+      color: var(--color-muted);
+      cursor: pointer;
+    }
+    .sources-btn:hover {
+      color: var(--color-ink);
     }
     .seg-btn {
       min-height: 44px;
@@ -2538,6 +2692,50 @@
       min-height: 44px;
       width: 100%;
       box-sizing: border-box;
+    }
+
+    /* Sources sheet: restore PromptSources' own flex scroll chain so `.ps-body` is the
+       sole scroller — NOT `.sheet-body`. Otherwise `.ps-body`'s inner scroll never moves
+       and `.ps-filter-bar` (sticky top:0) sticks to a box that never scrolls, so the
+       Commands-tab search scrolls away with the sheet. Scoped by `:has(.ps-wrap)` so the
+       engine and context sheets keep their own `.sheet-body` scroller untouched. */
+    :global(.sheet:has(.ps-wrap) .sheet-body) {
+      overflow: hidden;
+      display: flex;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-wrap) {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-head) {
+      flex-shrink: 0;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-body) {
+      flex: 1;
+      min-height: 0;
+      max-height: none;
+    }
+    /* Meet the 44px tap-target floor for the sheet's primary controls in a touch sheet. */
+    :global(.sheet:has(.ps-wrap) .tab),
+    :global(.sheet:has(.ps-wrap) .issue-list-row),
+    :global(.sheet:has(.ps-wrap) .filter-chip) {
+      min-height: 44px;
+    }
+  }
+
+  /* Landscape phone / short-and-touch (e.g. 852×393): height is the scarce axis but
+     width is plentiful, so lay the dual CTA out in a row — two stacked 44px buttons
+     would cost ~52px of height exactly where the region is tightest. Scoped to the
+     short-and-touch branch only; narrow portrait keeps the stacked column above. */
+  @media (max-height: 480px) and (pointer: coarse) {
+    .run-dual {
+      flex-direction: row;
+    }
+    .run-dual .run {
+      flex: 1;
+      width: auto;
     }
   }
 </style>

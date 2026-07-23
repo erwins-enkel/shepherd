@@ -3182,3 +3182,490 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
     }
   });
 });
+
+// The #1854 redesign let the prompt field grow without bound on mobile (autogrow writes an
+// inline height that beats the mobile `height:100%`, and mobile drops the 40vh cap), so the
+// Mode/Engine controls and the in-field toolbar scrolled out of reach while typing. The fix
+// pins them by stopping `.left` scrolling as a whole (only `.nt-notices` scrolls) and making
+// the hero the flexible box with the textarea taken out of flow (so a long prompt can't
+// re-inflate it). These fixtures reuse the fake visualViewport to simulate the keyboard-shrunk
+// region; the real Android keyboard is validated on-device.
+describe("NewTask mobile controls stay reachable while typing", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop: number;
+    constructor(height: number, offsetTop = 0) {
+      super();
+      this.height = height;
+      this.offsetTop = offsetTop;
+    }
+  }
+  function installFakeViewport(height: number, offsetTop = 0) {
+    const fake = new FakeVisualViewport(height, offsetTop);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    const restore = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    return { fake, restore };
+  }
+
+  const LONG_PROMPT = Array.from({ length: 60 }, (_, i) => `line ${i} of a very long prompt`).join(
+    "\n",
+  );
+  const textarea = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+
+  // `elementFromPoint` at an element's centre resolves to itself or a descendant — proving it
+  // is actually on-screen and not occluded, clipped, or crushed to 0 (a bare rect check can't:
+  // a crushed-to-0 or ancestor-clipped element still returns a rect).
+  function hitTestsToSelf(el: HTMLElement): boolean {
+    const r = el.getBoundingClientRect();
+    const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);
+    return !!hit && (hit === el || el.contains(hit));
+  }
+
+  it("keeps autogrow inert on mobile so the field never grows unbounded", async () => {
+    await page.viewport(390, 844);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo", initialPrompt: "x" } });
+    await expect.poll(() => textarea()).toBeTruthy();
+
+    // Type a long prompt: on today's code autogrow would write an inline height here.
+    const ta = textarea();
+    ta.value = LONG_PROMPT;
+    ta.dispatchEvent(new Event("input", { bubbles: true }));
+
+    // Inert on mobile → no inline height; the CSS governs and the textarea scrolls its own
+    // content instead of growing the block.
+    await expect.poll(() => ta.style.height).toBe("");
+    expect(ta.scrollHeight).toBeGreaterThan(ta.clientHeight);
+  });
+
+  it("clears a stale inline height inherited from desktop across the breakpoint (both ways)", async () => {
+    // Desktop first: the seeded long prompt autogrows → an inline height is written.
+    await page.viewport(1280, 900);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, {
+      props: { onsubmit: vi.fn(), initialRepoPath: "/repo", initialPrompt: LONG_PROMPT },
+    });
+    await expect.poll(() => textarea()).toBeTruthy();
+    await expect.poll(() => textarea().style.height).not.toBe("");
+    expect(parseFloat(textarea().style.height)).toBeGreaterThan(132); // grown past the base
+
+    // Cross to mobile: the same element persists (single mount point), so the stale inline
+    // height must be cleared or it would beat `height:100%` and recreate the unbounded field.
+    await page.viewport(390, 844);
+    await expect.poll(() => textarea().style.height).toBe("");
+
+    // Cross back to desktop: the persisting element is re-autogrown (onMount's call won't
+    // re-fire), so it does not sit scrolled at its 132px base.
+    await page.viewport(1280, 900);
+    await expect.poll(() => textarea().style.height).not.toBe("");
+    expect(parseFloat(textarea().style.height)).toBeGreaterThan(132);
+  });
+
+  // A realistic keyboard-up portrait region (~half of an 844-tall phone) shows every control
+  // AT REST at default text size. --ui-scale 1.5 (iOS Dynamic Type) inflates the chrome enough
+  // that the same region needs a few px of card scroll — the ladder's documented behavior — so
+  // there we assert REACHABLE (scroll-to-reveal). Split per scale so per-test cleanup runs
+  // between them (two stacked NewTask instances would break elementFromPoint).
+  it.each([
+    { scale: "1", atRest: true },
+    { scale: "1.5", atRest: false },
+  ])(
+    "keeps Mode, Engine, the toolbar and the CTA reachable with a long prompt (--ui-scale $scale)",
+    async ({ scale, atRest }) => {
+      const { restore } = installFakeViewport(440, 0);
+      try {
+        document.documentElement.style.setProperty("--ui-scale", scale);
+        await page.viewport(390, 844);
+        mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+        render(NewTask, {
+          props: { onsubmit: vi.fn(), initialRepoPath: "/repo", initialPrompt: LONG_PROMPT },
+        });
+        await expect.poll(() => document.querySelector(".seg-row")).toBeTruthy();
+
+        const left = document.querySelector<HTMLElement>(".left")!;
+        // `.left` is not itself a scroll container on mobile — that is what let the
+        // controls scroll away. The notices wrapper is the only scroller.
+        expect(getComputedStyle(left).overflow).toBe("visible");
+        expect(
+          getComputedStyle(document.querySelector<HTMLElement>(".nt-notices")!).overflowY,
+        ).toBe("auto");
+        // `.toolbar` is structurally outside the (only) scroller.
+        expect(
+          document.querySelector(".nt-notices")?.contains(document.querySelector(".toolbar")),
+        ).toBe(false);
+
+        for (const sel of [".seg-row", ".engine-summary", ".toolbar", "button.run"]) {
+          const el = document.querySelector<HTMLElement>(sel)!;
+          // Scroll-allowed (1.5) case: re-reveal on every poll tick so revealing a later
+          // control can't leave this one scrolled off.
+          await expect
+            .poll(
+              () => {
+                if (!atRest) el.scrollIntoView({ block: "nearest" });
+                return hitTestsToSelf(el);
+              },
+              { timeout: 2000 },
+            )
+            .toBe(true);
+        }
+      } finally {
+        document.documentElement.style.removeProperty("--ui-scale");
+        restore();
+      }
+    },
+  );
+
+  it("keeps the prompt controls reachable regardless of a tall notices column", async () => {
+    const { restore } = installFakeViewport(360, 0);
+    try {
+      await page.viewport(375, 667);
+      // Diverged upstream renders a notice into the (scrollable) notices column.
+      mockBranchStatus.mockResolvedValue({
+        behind: 9,
+        ahead: 4,
+        diverged: true,
+        hasUpstream: true,
+        localExists: true,
+      });
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, {
+        props: { onsubmit: vi.fn(), initialRepoPath: "/repo", initialPrompt: LONG_PROMPT },
+      });
+      await expect.poll(() => document.querySelector(".nt-upstream")).toBeTruthy();
+
+      // The notice lives in the notices scroller, not among the pinned controls.
+      const notices = document.querySelector<HTMLElement>(".nt-notices")!;
+      expect(notices.contains(document.querySelector(".nt-upstream"))).toBe(true);
+      expect(notices.contains(document.querySelector(".seg-row"))).toBe(false);
+      // Controls remain reachable regardless of the notices.
+      document.querySelector<HTMLElement>(".seg-row")!.scrollIntoView({ block: "nearest" });
+      await expect
+        .poll(() => hitTestsToSelf(document.querySelector<HTMLElement>(".seg-row")!))
+        .toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the field bounded and never overlapping the toolbar with a long prompt", async () => {
+    const { restore } = installFakeViewport(300, 0);
+    try {
+      await page.viewport(390, 844);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, {
+        props: { onsubmit: vi.fn(), initialPrompt: LONG_PROMPT, initialRepoPath: "/repo" },
+      });
+      await expect.poll(() => document.querySelector(".prompt-block")).toBeTruthy();
+
+      const block = document.querySelector<HTMLElement>(".prompt-block")!;
+      const ta = textarea();
+      const toolbar = document.querySelector<HTMLElement>(".toolbar")!;
+      // The block is not clipped — the menus that render inside it must not be cut off.
+      expect(getComputedStyle(block).overflow).toBe("visible");
+      // The textarea scrolls its own content (bounded), rather than growing the block.
+      expect(ta.scrollHeight).toBeGreaterThan(ta.clientHeight);
+      // The textarea never overlaps the pinned toolbar below it.
+      expect(ta.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        toolbar.getBoundingClientRect().top + 1,
+      );
+    } finally {
+      restore();
+    }
+  });
+
+  it("never clips the CTA away at the worst geometry", async () => {
+    const { restore } = installFakeViewport(200, 0);
+    try {
+      mockPointer(true);
+      document.documentElement.style.setProperty("--ui-scale", "1.5");
+      await page.viewport(852, 393);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, {
+        props: {
+          onsubmit: vi.fn(),
+          initialRepoPath: "/repo",
+          initialPrompt: LONG_PROMPT,
+          holdLikely: true,
+        },
+      });
+      await expect.poll(() => document.querySelector(".run-dual")).toBeTruthy();
+
+      // Dual CTA lays out in a ROW in the short-and-touch branch (buys back vertical space).
+      const hold = document.querySelector<HTMLElement>("button.run-hold")!;
+      const anyway = document.querySelector<HTMLElement>("button.run-anyway")!;
+      expect(
+        Math.abs(hold.getBoundingClientRect().top - anyway.getBoundingClientRect().top),
+      ).toBeLessThan(2);
+
+      // At a 200px region the pinned set can exceed it — the card scrolls so the CTA stays
+      // REACHABLE (not clipped away). Reveal it, then hit-test.
+      anyway.scrollIntoView({ block: "nearest" });
+      await expect.poll(() => hitTestsToSelf(anyway)).toBe(true);
+    } finally {
+      document.documentElement.style.removeProperty("--ui-scale");
+      restore();
+    }
+  });
+
+  it("keeps the notices column at zero height when no notice fires (keyboard down)", async () => {
+    await page.viewport(390, 844);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".nt-notices")).toBeTruthy();
+
+    const notices = document.querySelector<HTMLElement>(".nt-notices")!;
+    const block = document.querySelector<HTMLElement>(".prompt-block")!;
+    // Empty notices cost no height (poll: the upstream check briefly shows a "checking"
+    // line before it settles to no notice); the hero takes the card's free space.
+    await expect.poll(() => notices.getBoundingClientRect().height).toBeLessThan(1);
+    expect(block.getBoundingClientRect().height).toBeGreaterThan(300);
+  });
+
+  it("leaves the desktop layout scrolling as a whole column", async () => {
+    await page.viewport(1280, 900);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+    // Desktop keeps the rail, the notices wrapper is transparent (display:contents), and
+    // `.left` remains the scroller.
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".nt-notices")!).display).toBe(
+      "contents",
+    );
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".left")!).overflowY).toBe("auto");
+  });
+});
+
+// #1854 dropped the issue/command picker (PromptSources) on mobile — the only path left was
+// typing `#`. These fixtures cover the restored mobile sources sheet: the toolbar trigger, the
+// sheet's scroll chain, the focus contract, and a11y floors.
+describe("NewTask mobile sources sheet", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop: number;
+    constructor(height: number, offsetTop = 0) {
+      super();
+      this.height = height;
+      this.offsetTop = offsetTop;
+    }
+  }
+  function installFakeViewport(height: number, offsetTop = 0) {
+    const fake = new FakeVisualViewport(height, offsetTop);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    const restore = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    return { fake, restore };
+  }
+  const srcBtn = () => document.querySelector<HTMLButtonElement>(".sources-btn");
+  const psWrap = () => document.querySelector<HTMLElement>(".ps-wrap");
+
+  it("opens the sheet from the toolbar trigger and lists issues", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1, "alpha"), mkIssue(2, "bravo")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+
+    srcBtn()!.click();
+    await expect.poll(() => psWrap()).toBeTruthy();
+    await expect.poll(() => document.querySelector(".sheet")?.textContent).toContain("alpha");
+  });
+
+  it("attaches an issue on pick and closes the sheet (issue-ref visible)", async () => {
+    const { restore } = installFakeViewport(440, 0);
+    try {
+      await page.viewport(390, 844);
+      seedIssues([mkIssue(7, "charlie")]);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect.poll(() => document.querySelector(".sheet .issue-list-row")).toBeTruthy();
+
+      document.querySelector<HTMLElement>(".sheet .issue-list-row")!.click();
+      // Sheet closes and the issue attaches.
+      await expect.poll(() => document.querySelector(".ps-wrap")).toBeNull();
+      const ref = document.querySelector<HTMLElement>(".issue-ref");
+      expect(ref?.textContent).toContain("charlie");
+      // The attached-issue row is visible in the keyboard-shrunk region (rect-based).
+      const r = ref!.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(0);
+      expect(r.bottom).toBeLessThanOrEqual(440 + 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("honors the single-active-sheet invariant", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1)]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".engine-summary")).toBeTruthy();
+
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet")).toBeTruthy();
+    // Opening the sources sheet replaces the engine sheet — never two at once.
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".ps-wrap")).toBeTruthy();
+    expect(document.querySelectorAll(".sheet").length).toBe(1);
+  });
+
+  it("follows the focus contract: prompt-writing pick focuses the prompt, issue pick does not", async () => {
+    await page.viewport(390, 844);
+    mockGetCommands.mockResolvedValue({
+      commands: [{ name: "plan", description: "make a plan", scope: "project" }],
+    });
+    seedIssues([mkIssue(3, "delta")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+
+    // Issue pick: focus is NOT stolen — use:dialog restores it to the trigger button.
+    // Focus the trigger first (a real tap focuses it; a synthetic click does not).
+    srcBtn()!.focus();
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".sheet .issue-list-row")).toBeTruthy();
+    document.querySelector<HTMLElement>(".sheet .issue-list-row")!.click();
+    await expect.poll(() => document.activeElement?.classList.contains("sources-btn")).toBe(true);
+
+    // Command pick: seeds the prompt and focuses the textarea with the caret at the end.
+    srcBtn()!.focus();
+    srcBtn()!.click();
+    await expect
+      .poll(() => document.querySelectorAll(".sheet .tab").length)
+      .toBeGreaterThanOrEqual(2);
+    // Switch to the Commands tab, then pick the command row.
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".sheet .tab");
+    tabs[tabs.length - 1].click();
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".sheet .ps-body .row"))
+      .toBeTruthy();
+    document.querySelector<HTMLElement>(".sheet .ps-body .row")!.click();
+    await expect.poll(() => document.activeElement?.id).toBe("nt-prompt");
+    const ta = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    expect(ta.selectionStart).toBe(ta.value.length);
+  });
+
+  it("makes .ps-body the sole scroller with a sticky head", async () => {
+    // Short region so the issue list overflows `.ps-body` regardless of how many rows the
+    // persisted "mine & unassigned" filter leaves.
+    const { restore } = installFakeViewport(240, 0);
+    try {
+      await page.viewport(375, 667);
+      seedIssues(Array.from({ length: 12 }, (_, i) => mkIssue(i + 1, `issue-${i}`)));
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect
+        .poll(() => document.querySelectorAll(".sheet .issue-list-row").length)
+        .toBeGreaterThan(2);
+
+      const sheetBody = document.querySelector<HTMLElement>(".sheet-body")!;
+      const psBody = document.querySelector<HTMLElement>(".ps-body")!;
+      const psHead = document.querySelector<HTMLElement>(".ps-head")!;
+      // Structural: `.ps-body` is the scroller; `.sheet-body` is not (the override
+      // reversed the default so `.ps-filter-bar`'s sticky sticks to a moving box).
+      expect(getComputedStyle(psBody).overflowY).toBe("auto");
+      expect(getComputedStyle(sheetBody).overflow).toBe("hidden");
+      // Functional: the list overflows `.ps-body`, not `.sheet-body`.
+      await expect.poll(() => psBody.scrollHeight > psBody.clientHeight).toBe(true);
+      expect(sheetBody.scrollHeight).toBeLessThanOrEqual(sheetBody.clientHeight + 1);
+
+      // The head (tabs + filter) stays put when the rows scroll.
+      const headTop = psHead.getBoundingClientRect().top;
+      psBody.scrollTop = psBody.scrollHeight;
+      await expect.poll(() => psBody.scrollTop).toBeGreaterThan(0);
+      expect(Math.abs(psHead.getBoundingClientRect().top - headTop)).toBeLessThan(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the engine sheet's own .sheet-body scroller (the :has scope did not leak)", async () => {
+    await page.viewport(390, 640);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".engine-summary")).toBeTruthy();
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet-body")).toBeTruthy();
+    // No .ps-wrap here, so the override must not apply — the sheet-body stays the scroller.
+    expect(document.querySelector(".ps-wrap")).toBeNull();
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".sheet-body")!).overflowY).toBe(
+      "auto",
+    );
+  });
+
+  it("meets the 44px tap-target floor for the sheet's primary controls", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1, "echo")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    // The trigger button itself.
+    expectMinPx(srcBtn()!.getBoundingClientRect().height, 44, "sources-btn");
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".sheet .tab")).toBeTruthy();
+    for (const sel of [".tab", ".issue-list-row", ".filter-chip"]) {
+      const el = document.querySelector<HTMLElement>(`.sheet ${sel}`)!;
+      expectMinPx(el.getBoundingClientRect().height, 44, sel);
+    }
+  });
+
+  it("does not wrap the toolbar with the trigger + an attachment chip at 375px", async () => {
+    await page.viewport(375, 667);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, {
+      props: {
+        onsubmit: vi.fn(),
+        initialRepoPath: "/repo",
+        initialImages: [{ path: "/staged/a.png", name: "a.png" }],
+      },
+    });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    // Single row: the trigger sits on the same line as the attach button (no wrap).
+    const attach = document.querySelector<HTMLElement>(".tool-btn")!;
+    expect(
+      Math.abs(srcBtn()!.getBoundingClientRect().top - attach.getBoundingClientRect().top),
+    ).toBeLessThan(8);
+  });
+
+  it("shows plain hint text (not a button) when no repo is selected", async () => {
+    await page.viewport(390, 844);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn() } });
+    await expect.poll(() => document.querySelector(".char-count")).toBeTruthy();
+    expect(document.querySelector(".sources-btn")).toBeNull();
+  });
+
+  it("positions the filter popover inside the keyboard-visible region", async () => {
+    const REGION = 420;
+    const { restore } = installFakeViewport(REGION, 0);
+    try {
+      await page.viewport(375, 667);
+      seedIssues([mkIssue(1, "foxtrot"), mkIssue(2, "golf")]);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+      document.querySelector<HTMLButtonElement>(".filter-chip")!.click();
+      await expect.poll(() => document.querySelector(".filter-popover")).toBeTruthy();
+
+      const panel = document.querySelector<HTMLElement>(".filter-popover")!;
+      await expect.poll(() => panel.getBoundingClientRect().height).toBeGreaterThan(0);
+      const r = panel.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(0);
+      expect(r.bottom).toBeLessThanOrEqual(REGION + 1);
+    } finally {
+      restore();
+    }
+  });
+});

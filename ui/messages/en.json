@@ -3319,6 +3319,8 @@
   "newtask_context_chip_aria": "Repository {repo}, from branch {branch}",
   "newtask_engine_sheet_title": "Engine & Guards",
   "newtask_context_sheet_title": "Repo & Branch",
+  "newtask_sources_open": "Browse issues & commands",
+  "newtask_sources_sheet_title": "Issues & Commands",
   "newtask_gate_on": "gate on",
   "newtask_gate_off": "gate off",
   "newtask_toggle_on": "ON",

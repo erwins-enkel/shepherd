@@ -123,12 +123,13 @@
         </div>
         <p>
           {m.newtask_provider_constraint_note({
-            command: providerConstraint.label,
+            token: providerConstraint.token,
             provider: providerLabel(providerConstraint.providers[0]),
           })}
         </p>
         <p>
           {m.newtask_provider_constraint_body({
+            token: providerConstraint.token,
             provider: providerLabel(providerConstraint.providers[0]),
           })}
         </p>

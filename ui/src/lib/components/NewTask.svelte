@@ -1081,7 +1081,7 @@
     if (incompatible) {
       submitting = false;
       error = m.newtask_provider_constraint_error({
-        command: incompatible.label,
+        token: incompatible.token,
         provider:
           incompatible.providers[0] === "codex"
             ? m.agent_provider_codex()

@@ -213,8 +213,15 @@ test("slowRequestTimeoutSec budgets the known-slow routes and leaves others on t
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve")).toBe(255); // Bun's ceiling
   expect(sec("POST", "/api/usage/refresh")).toBe(60); // pre-existing budget, unchanged
 
+  // Screen-recording-sized uploads from phones can stall past 10s (network switch,
+  // backgrounded app) — both upload routes get the 120s idle budget.
+  expect(sec("POST", "/api/uploads")).toBe(120);
+  expect(sec("POST", "/api/sessions/abc-123/scratchpad/upload")).toBe(120);
+
   // Everything else keeps the 10s default — including the draft's other verbs and near-miss paths.
   expect(sec("GET", "/api/sessions/abc-123/epic-draft/approve")).toBeNull();
+  expect(sec("GET", "/api/uploads")).toBeNull();
+  expect(sec("POST", "/api/sessions/abc-123/scratchpad/upload/extra")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft")).toBeNull();
   expect(sec("POST", "/api/sessions/abc-123/epic-draft/approve/extra")).toBeNull();
   expect(sec("POST", "/api/sessions")).toBeNull();

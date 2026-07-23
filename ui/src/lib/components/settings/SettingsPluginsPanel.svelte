@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import { m } from "$lib/paraglide/messages";
+  import HighlightText from "./HighlightText.svelte";
   import {
     getInstalledPlugins,
     installPlugin,
@@ -25,6 +26,7 @@
     focusId = null,
     updates = null,
     onpluginapplied,
+    query = "",
   }: {
     plugins?: PluginInfo[];
     /** Called after an in-process activation so the parent can re-seed `store.plugins`
@@ -39,6 +41,8 @@
     /** After an inline apply: push the recomputed snapshot up (same contract as the
      *  updates modal's `onapplied`) so the badge/CTA + loaded-plugin list refresh. */
     onpluginapplied?: (status: PluginUpdatesStatus) => void;
+    /** Active settings-search query — highlights the panel's indexed labels. */
+    query?: string;
   } = $props();
 
   // On-disk plugin folders (install manager). Self-fetched — the live `plugins` prop only
@@ -423,7 +427,10 @@
       <span class="err micro" role="alert">{m.plugins_update_check_failed()}</span>
     {/if}
     <button type="button" class="gbtn check" disabled={checking} onclick={runCheck}>
-      {checking ? m.plugins_checking_updates() : m.plugins_check_updates()}
+      {#if checking}{m.plugins_checking_updates()}{:else}<HighlightText
+          text={m.plugins_check_updates()}
+          {query}
+        />{/if}
     </button>
   </div>
 
@@ -785,5 +792,15 @@
   .empty {
     color: var(--color-muted);
     margin: 6px 0 0;
+  }
+
+  /* ≥44px tap targets for the plugin action controls (install/activate/check/
+     uninstall buttons + the install-URL field) on touch, without inflating the
+     desktop rows. */
+  @media (pointer: coarse) {
+    .gbtn,
+    .install input {
+      min-height: 44px;
+    }
   }
 </style>

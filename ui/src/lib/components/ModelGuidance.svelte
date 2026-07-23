@@ -7,15 +7,22 @@
     model,
     context = "task",
     compact = false,
+    metaChips = false,
   }: {
     provider: AgentProvider;
     model: string;
     context?: ModelGuidanceContext;
     compact?: boolean;
+    /** Settings-redesign meta-line styling: 6px chip radius, wider tracking
+     *  (the handoff's status/meta chip recipe). Opt-in so the NewTask and
+     *  role-row call sites keep their compact 2px chips. */
+    metaChips?: boolean;
   } = $props();
 
   const guidance = $derived(modelGuidance(provider, model, context));
-  const className = $derived(`model-guidance${compact ? " compact" : ""}`);
+  const className = $derived(
+    `model-guidance${compact ? " compact" : ""}${metaChips ? " meta-chips" : ""}`,
+  );
 </script>
 
 <div class={className} role="note">
@@ -67,5 +74,27 @@
   .compact .mg-detail,
   .compact .mg-note {
     flex-basis: 100%;
+  }
+  .meta-chips .mg-cost,
+  .meta-chips .mg-tag {
+    border-radius: 6px;
+    padding: 2px 8px;
+    letter-spacing: 0.1em;
+    font-size: var(--fs-micro);
+  }
+  .meta-chips .mg-cost {
+    color: var(--color-muted);
+    border-color: var(--color-line-bright);
+  }
+  .meta-chips .mg-tag {
+    color: var(--color-amber);
+    border-color: color-mix(in srgb, var(--color-amber) 62%, var(--color-line));
+  }
+  @media (max-width: 768px) {
+    .meta-chips .mg-cost,
+    .meta-chips .mg-tag {
+      font-size: var(--fs-meta);
+      padding: 3px 9px;
+    }
   }
 </style>

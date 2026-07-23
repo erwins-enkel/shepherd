@@ -3,6 +3,7 @@
   import DirPicker from "$lib/components/DirPicker.svelte";
   import { type DirListing } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import HighlightText from "./HighlightText.svelte";
 
   let {
     repoRoot,
@@ -10,6 +11,7 @@
     settingsLoaded,
     onsaved,
     onclose,
+    query = "",
   }: {
     // resolved by the parent's single getSettings() call (no second fetch here):
     // repoRoot drives the initial browse, repoRootDisplay is the current-root label.
@@ -19,6 +21,8 @@
     settingsLoaded: boolean;
     onsaved?: (root: string) => void;
     onclose?: () => void;
+    /** Active settings-search query — highlights the panel's indexed labels. */
+    query?: string;
   } = $props();
 
   // the persisted root (display form), authoritative from the parent
@@ -50,7 +54,7 @@
 </script>
 
 <div class="cur">
-  <span class="micro">{m.settings_current_root_label()}</span>
+  <span class="micro"><HighlightText text={m.settings_current_root_label()} {query} /></span>
   <code>{currentRoot || "—"}</code>
 </div>
 
@@ -69,7 +73,7 @@
   {:else if isCurrent}
     {m.settings_already_current()}
   {:else}
-    {m.settings_use_folder()}
+    <HighlightText text={m.settings_use_folder()} {query} />
   {/if}
 </button>
 

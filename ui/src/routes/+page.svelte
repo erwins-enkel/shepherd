@@ -6,6 +6,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
+  import type { SettingsSectionId } from "$lib/settings-search";
   import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
   import {
@@ -247,9 +248,14 @@
   let showNew = $state(false);
   let showSettings = $state(false);
   let showUsage = $state(false);
-  let settingsTab = $state<"workspace" | "session" | "device" | "diagnose" | "plugins">(
-    "workspace",
-  );
+  let settingsTab = $state<SettingsSectionId>("workspace");
+  // Whether the pending Settings open is a deep link (diagnostics dot, plugin
+  // focus, steer edit, workspace picker). On mobile a deep link drills straight
+  // into the section detail; a plain gear open shows the section list.
+  // Resolved to the view name here (not inline in the template) so the branch
+  // stays out of the template's complexity budget.
+  let settingsDeepLink = $state(false);
+  const settingsMobileView = $derived(settingsDeepLink ? "detail" : "list");
   let focusPluginId = $state<string | null>(null);
   // Steer id to expand + focus in the steers editor when Settings opens (set from the
   // steer chip's right-click → "Edit" action; null when the editor is opened plainly).
@@ -774,6 +780,7 @@
   function openSteersEditor(id?: string) {
     settingsTab = "session";
     focusSteerId = id ?? null;
+    settingsDeepLink = true;
     showSettings = true;
   }
 
@@ -1854,7 +1861,10 @@
     buildCommands({
       onNewTask: () => (showNew = true),
       onBroadcast: () => (showBroadcast = true),
-      onSettings: () => (showSettings = true),
+      onSettings: () => {
+        settingsDeepLink = false;
+        showSettings = true;
+      },
       onUsage: () => (showUsage = true),
       onRetry: () => (showRetry = true),
       onNextNeedsYou: () => selectNextNeedsYou(),
@@ -2359,6 +2369,7 @@
     } else if (a.kind === "panel") {
       focusPluginId = id;
       settingsTab = "plugins";
+      settingsDeepLink = true;
       showSettings = true;
     } else {
       // route
@@ -2632,6 +2643,7 @@
         limits={store.usageLimits}
         onsettings={() => {
           settingsTab = "workspace";
+          settingsDeepLink = false;
           showSettings = true;
         }}
         onusage={() => (showUsage = true)}
@@ -2653,6 +2665,7 @@
         diagnosticsOverall={store.diagnosticsOverall}
         ondiagnose={() => {
           settingsTab = "diagnose";
+          settingsDeepLink = true;
           showSettings = true;
         }}
         heldCount={store.heldCount}
@@ -2662,6 +2675,7 @@
         oncommandbar={() => (showCommandBar = true)}
         onmanageplugins={() => {
           settingsTab = "plugins";
+          settingsDeepLink = true;
           showSettings = true;
         }}
         settingsChordAllowed={() => !anyOverlayOpen()}
@@ -2734,6 +2748,7 @@
             {issueActionsUnset}
             onsettings={() => {
               settingsTab = "workspace";
+              settingsDeepLink = true;
               showSettings = true;
             }}
             flow={true}
@@ -2895,6 +2910,7 @@
               {issueActionsUnset}
               onsettings={() => {
                 settingsTab = "workspace";
+                settingsDeepLink = true;
                 showSettings = true;
               }}
               bind:filter={herdFilter}
@@ -3136,6 +3152,7 @@
   }}
   {showSettings}
   {settingsTab}
+  {settingsMobileView}
   {focusPluginId}
   {focusSteerId}
   onsettingsclose={() => {

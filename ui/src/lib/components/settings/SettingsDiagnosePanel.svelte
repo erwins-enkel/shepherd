@@ -6,6 +6,7 @@
   import PwaInstallRow from "$lib/components/PwaInstallRow.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { m } from "$lib/paraglide/messages";
+  import HighlightText from "./HighlightText.svelte";
   import { unresolvedFixKey, type UnresolvedFixKey } from "$lib/diagnostics-copy";
 
   // Exhaustive key→message map. Typing it as a Record over the closed `UnresolvedFixKey` union is
@@ -20,10 +21,13 @@
 
   let {
     initialDiagnostics = null,
+    query = "",
     onherdrdowngrade,
   }: {
     /** Pre-seeded diagnostics checks from the store; loaded fresh on tab open if absent. */
     initialDiagnostics?: DiagnosticCheck[] | null;
+    /** Active settings-search query — highlights the panel\'s indexed labels. */
+    query?: string;
     /** Open the herdr-update modal (one-click downgrade for a stranded herdr, #1898). */
     onherdrdowngrade?: () => void;
   } = $props();
@@ -95,8 +99,8 @@
 </script>
 
 <div class="rc">
-  <span class="micro">{m.diagnostics_title()}</span>
-  <p class="hint">{m.diagnostics_subtitle()}</p>
+  <span class="micro"><HighlightText text={m.diagnostics_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.diagnostics_subtitle()} {query} /></p>
 </div>
 <DiagnoseRows checks={diagChecks} onfix={fixCheck} {onherdrdowngrade} />
 <!-- Client-only: install/standalone state can't come from /api/diagnostics, so this

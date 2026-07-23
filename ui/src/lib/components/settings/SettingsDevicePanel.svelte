@@ -14,6 +14,7 @@
   import { infoTips } from "$lib/info-tips.svelte";
   import { REPO, REPO_URL, sha, version, commitUrl, CAPTURE_EXTENSION_URL } from "$lib/build-info";
   import ThemeIcon from "$lib/components/ThemeIcon.svelte";
+  import HighlightText from "./HighlightText.svelte";
   import { m } from "$lib/paraglide/messages";
   import type { FeedbackKind } from "$lib/feedback-link";
 
@@ -23,12 +24,17 @@
     reducedPushBusy = false,
     onToggleReducedPush,
     onfeedback,
+    query = "",
   }: {
     onwhatsnew?: () => void;
     reducedPushMode?: boolean;
     reducedPushBusy?: boolean;
     onToggleReducedPush?: () => void;
     onfeedback?: (kind: FeedbackKind) => void;
+    /** Active settings-search query — highlights this panel's indexed labels
+     *  (the texts sectionSearchRows lists for "device") so the rail badge and
+     *  the in-pane highlights can't disagree. */
+    query?: string;
   } = $props();
 
   // Theme picker — mobile only: the desktop switcher lives in the ActionBar,
@@ -81,7 +87,7 @@
 </script>
 
 <div class="theme-row">
-  <span class="micro">{m.actionbar_theme_group_aria()}</span>
+  <span class="micro"><HighlightText text={m.actionbar_theme_group_aria()} {query} /></span>
   <div class="theme-seg" role="group" aria-label={m.actionbar_theme_group_aria()}>
     {#each THEMES as t (t.pref)}
       <button
@@ -96,8 +102,8 @@
   </div>
 </div>
 <div class="contrast-row">
-  <span class="micro">{m.settings_contrast_title()}</span>
-  <p class="hint">{m.settings_contrast_hint()}</p>
+  <span class="micro"><HighlightText text={m.settings_contrast_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_contrast_hint()} {query} /></p>
   <button
     type="button"
     class="toggle"
@@ -112,8 +118,8 @@
   </button>
 </div>
 <div class="rc">
-  <span class="micro">{m.settings_colorblind_title()}</span>
-  <p class="hint">{m.settings_colorblind_hint()}</p>
+  <span class="micro"><HighlightText text={m.settings_colorblind_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_colorblind_hint()} {query} /></p>
   <button
     type="button"
     class="toggle"
@@ -128,8 +134,8 @@
   </button>
 </div>
 <div class="rc">
-  <span class="micro">{m.settings_tab_ticker_title()}</span>
-  <p class="hint">{m.settings_tab_ticker_hint()}</p>
+  <span class="micro"><HighlightText text={m.settings_tab_ticker_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_tab_ticker_hint()} {query} /></p>
   <button
     type="button"
     class="toggle"
@@ -144,8 +150,8 @@
   </button>
 </div>
 <div class="rc">
-  <span class="micro">{m.settings_hide_info_tips_title()}</span>
-  <p class="hint">{m.settings_hide_info_tips_hint()}</p>
+  <span class="micro"><HighlightText text={m.settings_hide_info_tips_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_hide_info_tips_hint()} {query} /></p>
   <button
     type="button"
     class="toggle"
@@ -160,10 +166,10 @@
   </button>
 </div>
 <div class="push">
-  <span class="micro">{m.settings_push_title()}</span>
+  <span class="micro"><HighlightText text={m.settings_push_title()} {query} /></span>
   <div class="reduced-row">
-    <span class="micro sub">{m.settings_reduced_push_title()}</span>
-    <p class="hint">{m.settings_reduced_push_hint()}</p>
+    <span class="micro sub"><HighlightText text={m.settings_reduced_push_title()} {query} /></span>
+    <p class="hint"><HighlightText text={m.settings_reduced_push_hint()} {query} /></p>
     <button
       type="button"
       class="toggle"
@@ -209,8 +215,8 @@
   {/if}
 </div>
 <div class="feedback">
-  <span class="micro">{m.settings_feedback_title()}</span>
-  <p class="hint">{m.settings_feedback_blurb()}</p>
+  <span class="micro"><HighlightText text={m.settings_feedback_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_feedback_blurb()} {query} /></p>
   <div class="feedback-btns">
     <button type="button" class="clone-trigger" onclick={() => onfeedback?.("bug")}
       >{m.feedback_dialog_title_bug()}</button
@@ -224,8 +230,8 @@
   </div>
 </div>
 <div class="extension">
-  <span class="micro">{m.settings_extension_title()}</span>
-  <p class="hint">{m.settings_extension_blurb()}</p>
+  <span class="micro"><HighlightText text={m.settings_extension_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_extension_blurb()} {query} /></p>
   <a
     class="ext-link"
     href={CAPTURE_EXTENSION_URL}
@@ -235,8 +241,8 @@
   >
 </div>
 <div class="about">
-  <span class="micro">{m.settings_about_title()}</span>
-  <p class="hint">{m.settings_about_blurb()}</p>
+  <span class="micro"><HighlightText text={m.settings_about_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.settings_about_blurb()} {query} /></p>
   <dl class="about-grid">
     <dt>{m.settings_about_version()}</dt>
     <dd>
@@ -551,6 +557,10 @@
       min-height: 44px;
       display: inline-flex;
       align-items: center;
+    }
+    /* feedback trio + the What's-New opener share the .clone-trigger recipe */
+    .clone-trigger {
+      min-height: 44px;
     }
   }
 

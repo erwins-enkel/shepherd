@@ -24,6 +24,7 @@
     getPlugins,
   } from "$lib/api";
   import type { HerdStore } from "$lib/store.svelte";
+  import type { SettingsSectionId } from "$lib/settings-search";
   import type {
     AgentProvider,
     BacklogPayload,
@@ -141,6 +142,7 @@
     onnewnewproject,
     showSettings,
     settingsTab,
+    settingsMobileView = "list",
     focusPluginId = null,
     focusSteerId = null,
     onsettingsclose,
@@ -269,7 +271,10 @@
     onnewfork: () => void;
     onnewnewproject: () => void;
     showSettings: boolean;
-    settingsTab: "workspace" | "session" | "device" | "diagnose" | "plugins";
+    settingsTab: SettingsSectionId;
+    /** Mobile entry route: deep links drill straight into settingsTab's detail
+     *  page; a plain gear open shows the section list. */
+    settingsMobileView?: "list" | "detail";
     focusPluginId?: string | null;
     focusSteerId?: string | null;
     onsettingsclose: () => void;
@@ -557,6 +562,8 @@
 {#if showSettings}
   <Settings
     initialTab={settingsTab}
+    initialMobileView={settingsMobileView}
+    connected={store.connected}
     initialDiagnostics={store.diagnostics?.checks ?? null}
     plugins={store.plugins}
     onpluginschanged={async () => store.setPlugins(await getPlugins())}

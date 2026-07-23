@@ -168,7 +168,11 @@ const verifyBtn = () => page.getByRole("button", { name: m.settings_auth_key_ver
 const saveBtn = () => page.getByRole("button", { name: m.settings_auth_key_save(), exact: true });
 const keyInput = () => page.getByRole("textbox", { name: m.settings_auth_key_label() });
 
-function mountCodingAgents() {
+async function mountCodingAgents() {
+  // The default vitest-browser viewport is narrow → the mobile section LIST
+  // would show and the pane (with every panel) would be hidden. These suites
+  // exercise the desktop pane, so pin a desktop viewport first.
+  await page.viewport(1280, 900);
   return render(Settings, { initialTab: "codingAgents", onclose: noop, onsaved: noop });
 }
 
@@ -180,8 +184,10 @@ async function mountClaudeApiKeySettings() {
   }
 }
 
-const codingSectionNames = () => [
-  m.settings_cli_defaults_title(),
+// The redesigned Coding CLI section (handoff 5a): GLOBAL DEFAULTS is a static,
+// always-visible group; the per-CLI groups (Claude Code, Codex, Agent
+// environments) are collapsed rows that expand in place.
+const codingGroupNames = () => [
   m.settings_cli_claude_title(),
   m.settings_cli_codex_title(),
   m.settings_role_models_title(),
@@ -194,7 +200,7 @@ function codingSectionButton(name: string) {
 function requiredCodingSectionButton(name: string) {
   const disclosure = codingSectionButton(name);
   const button = disclosure.query() as HTMLButtonElement | null;
-  expect(button, `missing Coding CLI disclosure button named "${name}"`).not.toBeNull();
+  expect(button, `missing Coding CLI group button named "${name}"`).not.toBeNull();
   return { disclosure, button: button! };
 }
 
@@ -207,40 +213,42 @@ function controlledSection(button: HTMLElement): HTMLElement {
 }
 
 function expectInitialCodingSectionState() {
-  const names = codingSectionNames();
-  for (const [index, name] of names.entries()) {
+  for (const name of codingGroupNames()) {
     const { button } = requiredCodingSectionButton(name);
-    const expanded = index === 0;
-    expect(button.getAttribute("aria-expanded")).toBe(String(expanded));
-    expect(controlledSection(button).hidden).toBe(!expanded);
+    expect(button.getAttribute("aria-expanded")).toBe("false");
+    expect(controlledSection(button).hidden).toBe(true);
   }
 }
 
 describe("Settings Coding CLI sections", () => {
-  it("renders the four named disclosures in order with only Global defaults open", async () => {
+  it("renders GLOBAL DEFAULTS open with the three collapsed groups in order", async () => {
     await mountCodingAgents();
 
-    const names = codingSectionNames();
+    // The GLOBAL DEFAULTS rows are always visible — no disclosure gate.
+    await expect
+      .element(page.getByRole("combobox", { name: m.settings_default_agent_provider_title() }))
+      .toBeVisible();
+    await expect
+      .element(page.getByRole("switch", { name: m.settings_upnext_skip_cli_picker_label() }))
+      .toBeVisible();
+
     const buttons: HTMLElement[] = [];
-    for (const name of names) {
+    for (const name of codingGroupNames()) {
       buttons.push(requiredCodingSectionButton(name).button);
     }
-
     for (let index = 0; index < buttons.length - 1; index += 1) {
       expect(
         buttons[index].compareDocumentPosition(buttons[index + 1]) &
           Node.DOCUMENT_POSITION_FOLLOWING,
       ).toBeTruthy();
     }
-
-    for (const [index, button] of buttons.entries()) {
-      const expanded = index === 0;
-      expect(button.getAttribute("aria-expanded")).toBe(String(expanded));
-      expect(controlledSection(button).hidden).toBe(!expanded);
+    for (const button of buttons) {
+      expect(button.getAttribute("aria-expanded")).toBe("false");
+      expect(controlledSection(button).hidden).toBe(true);
     }
   });
 
-  it("click toggles a collapsed section without replacing its controlled content", async () => {
+  it("click toggles a collapsed group without replacing its controlled content", async () => {
     await mountCodingAgents();
     const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_claude_title());
     const content = controlledSection(button);
@@ -250,10 +258,6 @@ describe("Settings Coding CLI sections", () => {
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
     expect(document.getElementById(content.id)).toBe(content);
     expect(content.hidden).toBe(false);
-
-    const { button: defaultsButton } = requiredCodingSectionButton(m.settings_cli_defaults_title());
-    expect(defaultsButton.getAttribute("aria-expanded")).toBe("true");
-    expect(controlledSection(defaultsButton).hidden).toBe(false);
 
     const defaultEffortSelect = page
       .getByRole("combobox", { name: m.settings_default_effort_title() })
@@ -288,7 +292,7 @@ describe("Settings Coding CLI sections", () => {
     await expect.poll(() => button.getAttribute("aria-expanded")).toBe("false");
   });
 
-  it("preserves an expanded section while switching Settings tabs", async () => {
+  it("preserves an expanded group while switching Settings sections", async () => {
     await page.viewport(1280, 900);
     await mountCodingAgents();
     const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
@@ -302,7 +306,7 @@ describe("Settings Coding CLI sections", () => {
     expect(controlledSection(button).hidden).toBe(false);
   });
 
-  it("resets to only Global defaults open after Settings is remounted", async () => {
+  it("resets to all groups collapsed after Settings is remounted", async () => {
     const first = await mountCodingAgents();
     const { disclosure, button } = requiredCodingSectionButton(m.settings_cli_codex_title());
     await disclosure.click();
@@ -338,7 +342,7 @@ describe("Settings default coding environment", () => {
     mockGetSettings.mockResolvedValue(
       settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
     );
-    mountCodingAgents();
+    await mountCodingAgents();
 
     const model = page.getByTestId("default-environment-model");
     await expect.element(model).toHaveValue("gpt-5.4");
@@ -352,7 +356,7 @@ describe("Settings default coding environment", () => {
         defaultCodexModel: "gpt-5.4",
       }),
     );
-    mountCodingAgents();
+    await mountCodingAgents();
 
     const provider = page.getByRole("combobox", {
       name: m.settings_default_agent_provider_title(),
@@ -369,7 +373,7 @@ describe("Settings default coding environment", () => {
     mockGetSettings.mockResolvedValue(
       settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
     );
-    mountCodingAgents();
+    await mountCodingAgents();
 
     const model = page.getByTestId("default-environment-model");
     await model.selectOptions("gpt-5.6-luna");
@@ -383,7 +387,7 @@ describe("Settings default coding environment", () => {
       settings({ defaultAgentProvider: "codex", defaultCodexModel: "gpt-5.4" }),
     );
     mockPutCodexModel.mockRejectedValue(new Error("save failed"));
-    mountCodingAgents();
+    await mountCodingAgents();
 
     const model = page.getByTestId("default-environment-model");
     await model.selectOptions("gpt-5.6-luna");
@@ -461,11 +465,11 @@ describe("Settings api-key verify", () => {
   });
 });
 
-// Regression: on a narrow viewport the tab strip can't fit one row in the card and,
-// when full-screen, the overflow is clipped — the Plugins tab (last in the visible
-// set when present) used to land off-screen. It now collapses into a dropdown so
-// every tab stays reachable. On desktop the strip wraps and keeps tab semantics.
-describe("Settings responsive tab navigation", () => {
+// The 5b mobile layout: the tab strip / dropdown is gone. A plain open lands on
+// a full-screen section LIST; tapping a row drills into that section's detail
+// page (a labelled region — no tablist exists on mobile); ‹ goes back. Desktop
+// keeps the tab pattern on the nav rail.
+describe("Settings responsive navigation", () => {
   const onePlugin = [
     {
       id: "p1",
@@ -483,30 +487,53 @@ describe("Settings responsive tab navigation", () => {
     await page.viewport(1280, 900); // restore a sane width for other suites
   });
 
-  it("narrow viewport → tabs collapse into a dropdown that lists the Plugins tab", async () => {
-    await page.viewport(360, 900); // ≤768px → mobile dropdown
+  it("narrow viewport → section list, drill-in detail, and back", async () => {
+    await page.viewport(360, 900); // ≤768px → mobile sheet
     render(Settings, { plugins: onePlugin, onclose: noop, onsaved: noop });
 
-    // The strip is replaced by a single labelled combobox…
-    await expect
-      .element(page.getByRole("combobox", { name: m.settings_tabs_aria() }))
-      .toBeInTheDocument();
-    // …and Plugins is reachable as an option (it was clipped off-screen before).
-    await expect
-      .element(page.getByRole("option", { name: m.settings_tab_plugins() }))
-      .toBeInTheDocument();
-    // No tablist tab in this mode.
+    // List mode: section rows render as buttons (no tab roles, no panel region).
+    const pluginsRow = page.getByRole("button", { name: m.settings_tab_plugins(), exact: false });
+    await expect.element(pluginsRow).toBeVisible();
     await expect
       .element(page.getByRole("tab", { name: m.settings_tab_plugins() }))
       .not.toBeInTheDocument();
-    // The active panel is a plain labelled region here (no tablist to own a tabpanel).
     await expect
       .element(page.getByRole("region", { name: m.settings_tab_workspace() }))
+      .not.toBeInTheDocument();
+
+    // Drill in: the Plugins detail page is a labelled region; the list is gone.
+    await pluginsRow.click();
+    await expect
+      .element(page.getByRole("region", { name: m.settings_tab_plugins() }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.settings_tab_device(), exact: false }))
+      .not.toBeInTheDocument();
+
+    // Back returns to the list.
+    await page.getByRole("button", { name: m.settings_back_aria() }).click();
+    await expect
+      .element(page.getByRole("button", { name: m.settings_tab_device(), exact: false }))
+      .toBeVisible();
+  });
+
+  it("narrow viewport → a deep link drills straight into the section detail", async () => {
+    await page.viewport(360, 900);
+    render(Settings, {
+      initialTab: "plugins",
+      initialMobileView: "detail",
+      plugins: onePlugin,
+      onclose: noop,
+      onsaved: noop,
+    });
+
+    await expect
+      .element(page.getByRole("region", { name: m.settings_tab_plugins() }))
       .toBeInTheDocument();
   });
 
-  it("desktop viewport → Plugins renders as a tab and the panel is a tabpanel", async () => {
-    await page.viewport(1280, 900); // >768px → tablist strip
+  it("desktop viewport → Plugins renders as a rail tab and the panel is a tabpanel", async () => {
+    await page.viewport(1280, 900); // >768px → nav rail with tab semantics
     render(Settings, { plugins: onePlugin, onclose: noop, onsaved: noop });
 
     await expect
@@ -535,7 +562,7 @@ describe("Settings dialog layout stability", () => {
     };
   }
 
-  it("desktop tab switches keep the modal shell stable", async () => {
+  it("desktop section switches keep the modal shell stable", async () => {
     await page.viewport(1280, 900);
     render(Settings, { onclose: noop, onsaved: noop });
 
@@ -549,9 +576,10 @@ describe("Settings dialog layout stability", () => {
       .element(page.getByRole("tabpanel", { name: m.settings_tab_session() }))
       .toBeInTheDocument();
 
-    const sessionPanel = document.querySelector<HTMLElement>("#settings-panel-session");
-    expect(sessionPanel).not.toBeNull();
-    expect(getComputedStyle(sessionPanel!).overflowY).toBe("auto");
+    // One scroller for every section: the shell's pane body.
+    const paneBody = document.querySelector<HTMLElement>(".pbody");
+    expect(paneBody).not.toBeNull();
+    expect(getComputedStyle(paneBody!).overflowY).toBe("auto");
 
     const after = cardMetrics();
     expect(after.computedHeight).toBe(before.computedHeight);
@@ -560,6 +588,141 @@ describe("Settings dialog layout stability", () => {
       expect(after.height).toBeCloseTo(before.height, 0);
       expect(after.top).toBeCloseTo(before.top, 0);
     }
+  });
+});
+
+// The redesign's search: filters the rail with amber match-count badges, shows
+// "N matches" in the pane header, highlights matched substrings, auto-expands
+// matching collapsed groups; `/` focuses, Esc clears before it closes.
+describe("Settings search", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  const searchInput = () => page.getByRole("textbox", { name: m.settings_search_aria() });
+
+  it("typing filters: badge on the rail, header count, highlights, group auto-expand", async () => {
+    await page.viewport(1280, 900);
+    await mountCodingAgents();
+
+    // "mode" hits the Authentication mode row inside the collapsed Claude Code
+    // group (title) — and nothing outside groups — so both the badge and the
+    // auto-expand behavior are exercised. Expected counts come from the same
+    // index the app derives them from, so copy edits can't desync this test.
+    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const query = "mode";
+    const expected = matchCount(sectionSearchRows({ provider: "claude" }).codingAgents, query);
+    expect(expected).toBeGreaterThan(0);
+
+    await searchInput().fill(query);
+
+    // Rail badge on the Coding CLI tab shows the section's match count.
+    const cliTab = page
+      .getByRole("tab", { name: m.settings_tab_coding_agents(), exact: false })
+      .element() as HTMLElement;
+    await expect.poll(() => cliTab.textContent).toContain(String(expected));
+
+    // Pane header shows the count for the active section.
+    await expect
+      .element(
+        page.getByText(
+          expected === 1
+            ? m.settings_search_match_one({ query })
+            : m.settings_search_matches({ count: expected, query }),
+        ),
+      )
+      .toBeVisible();
+
+    // The matching collapsed group auto-expanded and the substring is marked.
+    const { button } = requiredCodingSectionButton(m.settings_cli_claude_title());
+    await expect.poll(() => button.getAttribute("aria-expanded")).toBe("true");
+    await expect.poll(() => document.querySelectorAll("mark").length).toBeGreaterThan(0);
+  });
+
+  it("kept panels highlight their indexed labels too (badge ⇄ highlight parity)", async () => {
+    await page.viewport(1280, 900);
+    await mountCodingAgents();
+
+    // A Device-only term: matches its indexed rows, so the Device rail badge
+    // must light AND drilling in must show in-pane highlights — the four kept
+    // panels receive the query even though their internals weren't rebuilt.
+    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const query = "contrast";
+    const expected = matchCount(sectionSearchRows({ provider: "claude" }).device, query);
+    expect(expected).toBeGreaterThan(0);
+
+    await searchInput().fill(query);
+
+    const deviceTab = page
+      .getByRole("tab", { name: m.settings_tab_device(), exact: false })
+      .element() as HTMLElement;
+    await expect.poll(() => deviceTab.textContent).toContain(String(expected));
+
+    await page.getByRole("tab", { name: m.settings_tab_device(), exact: false }).click();
+    const devicePanel = document.querySelector<HTMLElement>("#settings-panel-device");
+    expect(devicePanel).not.toBeNull();
+    await expect.poll(() => devicePanel!.querySelectorAll("mark").length).toBeGreaterThan(0);
+  });
+
+  it("`/` focuses the search field; Esc clears the query, second Esc closes", async () => {
+    await page.viewport(1280, 900);
+    const onclose = vi.fn();
+    render(Settings, { initialTab: "codingAgents", onclose, onsaved: noop });
+
+    await userEvent.keyboard("/");
+    const input = searchInput().element() as HTMLInputElement;
+    await expect.poll(() => document.activeElement).toBe(input);
+
+    await userEvent.keyboard("model");
+    await expect.poll(() => input.value).toBe("model");
+
+    // First Esc clears the query and must NOT close the dialog…
+    await userEvent.keyboard("{Escape}");
+    await expect.poll(() => input.value).toBe("");
+    expect(onclose).not.toHaveBeenCalled();
+
+    // …the second (empty field) falls through to the dialog's close.
+    await userEvent.keyboard("{Escape}");
+    await vi.waitFor(() => expect(onclose).toHaveBeenCalled());
+  });
+});
+
+// The 5b mobile section list surfaces live current-value summaries and the
+// diagnostics ISSUE chip (red, only while issues are active).
+describe("Settings mobile section list", () => {
+  afterEach(async () => {
+    await page.viewport(1280, 900);
+  });
+
+  it("shows the diagnostics issue chip when a check is broken", async () => {
+    await page.viewport(360, 900);
+    render(Settings, {
+      initialDiagnostics: [
+        {
+          id: "bun",
+          state: "error" as const,
+          hintKey: "diagnostics_hint_bun_missing",
+        },
+      ],
+      onclose: noop,
+      onsaved: noop,
+    });
+
+    await expect.element(page.getByText(m.settings_diag_issue_one())).toBeVisible();
+  });
+
+  it("shows no issue chip when diagnostics are clean", async () => {
+    await page.viewport(360, 900);
+    render(Settings, {
+      initialDiagnostics: [{ id: "bun", state: "ok" as const, hintKey: "diagnostics_hint_bun_ok" }],
+      onclose: noop,
+      onsaved: noop,
+    });
+
+    await expect
+      .element(page.getByRole("button", { name: m.settings_tab_diagnose(), exact: false }))
+      .toBeVisible();
+    await expect.element(page.getByText(m.settings_diag_issue_one())).not.toBeInTheDocument();
   });
 });
 

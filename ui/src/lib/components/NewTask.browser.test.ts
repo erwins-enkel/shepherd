@@ -41,6 +41,18 @@ vi.mock("$lib/api", async (importOriginal) => {
   };
 });
 
+// Wrap normalizeRunConfig so the submit-time constraint guard — a safety net the
+// validity-correction effect normally makes unreachable — can be exercised by
+// disarming the correction in targeted tests.
+vi.mock("./new-task/run-config", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./new-task/run-config")>();
+  return { ...actual, normalizeRunConfig: vi.fn(actual.normalizeRunConfig) };
+});
+const runConfigActual =
+  await vi.importActual<typeof import("./new-task/run-config")>("./new-task/run-config");
+const { normalizeRunConfig } = await import("./new-task/run-config");
+const mockNormalizeRunConfig = vi.mocked(normalizeRunConfig);
+
 const { default: NewTask } = await import("./NewTask.svelte");
 const { default: FirstTaskAutomationConfirm } = await import("./FirstTaskAutomationConfirm.svelte");
 
@@ -110,6 +122,7 @@ beforeEach(async () => {
   mockInitEmptyCommit.mockReset();
   mockGetCommands.mockReset();
   mockUploadFile.mockReset();
+  mockNormalizeRunConfig.mockImplementation(runConfigActual.normalizeRunConfig);
   // Safe defaults so any test that mounts the picker (PromptSources) gets resolved
   // promises, never `undefined`; individual tests override as needed.
   mockGetTodo.mockResolvedValue({ exists: false, content: "" });
@@ -267,11 +280,11 @@ describe("NewTask provider-aware command picker", () => {
     await expect.poll(() => promptField.value).toBe("$codex-skill ");
     expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
     await expect.element(page.getByText(m.newtask_provider_constraint_title())).toBeVisible();
-    await expect.element(page.getByText("codex-skill is only available in Codex.")).toBeVisible();
+    await expect.element(page.getByText("$codex-skill is only available in Codex.")).toBeVisible();
     await expect
       .element(
         page.getByText(
-          "Shepherd selected Codex and disabled incompatible CLIs while this token is in the prompt.",
+          "Shepherd switched to Codex and disabled incompatible engines while $codex-skill is in the prompt.",
         ),
       )
       .toBeVisible();
@@ -296,11 +309,102 @@ describe("NewTask provider-aware command picker", () => {
     await expect.poll(() => promptField.value).toBe("$shared-skill ");
     expect(document.querySelector<HTMLSelectElement>("#nt-agent-provider")!.value).toBe("codex");
     expect(page.getByText(m.newtask_provider_constraint_title()).query()).toBeNull();
-    expect(page.getByText("shared-skill is only available in Codex.").query()).toBeNull();
+    expect(page.getByText("$shared-skill is only available in Codex.").query()).toBeNull();
     const options = Array.from(
       document.querySelectorAll<HTMLOptionElement>("#nt-agent-provider option"),
     );
     expect(options.every((option) => !option.disabled)).toBe(true);
+  });
+
+  it("submitting with a constraint-incompatible engine shows the error and blocks the spawn", async () => {
+    // Disarm the validity-correction effect: it flips an excluded provider back on the
+    // next flush, so the submit-time guard is only reachable with it out of the way.
+    mockNormalizeRunConfig.mockImplementation((i) => ({
+      provider: i.provider,
+      model: i.model,
+      effort: i.effort,
+    }));
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("codex-skill", ["codex"])],
+    });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/codex-skill" }) });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "$cod";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$codex-skill")).toBeVisible();
+    await page.getByText("$codex-skill").click();
+    await expect.poll(() => promptField.value).toBe("$codex-skill ");
+
+    // The claude option is disabled for users; set it programmatically to hit the guard.
+    const select = document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    select.value = "claude";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+
+    await expect
+      .element(
+        page.getByText(
+          m.newtask_provider_constraint_error({
+            token: "$codex-skill",
+            provider: m.agent_provider_codex(),
+          }),
+        ),
+      )
+      .toBeVisible();
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
+  it("renders the German callout and submit-error copy verbatim", async () => {
+    overwriteGetLocale(() => "de");
+    mockNormalizeRunConfig.mockImplementation((i) => ({
+      provider: i.provider,
+      model: i.model,
+      effort: i.effort,
+    }));
+    mockGetCommands.mockResolvedValue({
+      commands: [slashCommand("codex-skill", ["codex"])],
+    });
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/codex-skill" }) });
+
+    const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    promptField.value = "$cod";
+    promptField.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.element(page.getByText("$codex-skill")).toBeVisible();
+    await page.getByText("$codex-skill").click();
+    await expect.poll(() => promptField.value).toBe("$codex-skill ");
+
+    // Pin the actual German prose so a catalog regression surfaces here.
+    await expect.element(page.getByText("Engine-Verfügbarkeit")).toBeVisible();
+    await expect.element(page.getByText("$codex-skill ist nur in Codex verfügbar.")).toBeVisible();
+    await expect
+      .element(
+        page.getByText(
+          "Shepherd hat auf Codex umgestellt und inkompatible Engines deaktiviert, solange $codex-skill im Prompt steht.",
+        ),
+      )
+      .toBeVisible();
+
+    const select = document.querySelector<HTMLSelectElement>("#nt-agent-provider")!;
+    select.value = "claude";
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+
+    await expect
+      .element(
+        page.getByText(
+          "$codex-skill erfordert Codex. Entferne es aus dem Prompt oder wechsle die Engine.",
+        ),
+      )
+      .toBeVisible();
+    expect(onsubmit).not.toHaveBeenCalled();
   });
 });
 

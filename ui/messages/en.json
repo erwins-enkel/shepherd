@@ -3400,5 +3400,9 @@
   "feat_video_attachments_title": "Attach screen recordings",
   "feat_video_attachments_body": "The upload limit is now 250 MB, so a narrated screen recording from your phone fits comfortably. Attach videos in New Task or drop them into a running session's terminal — the agent gets a hint on how to extract frames and audio to actually watch them.",
   "feat_steers_settings_section_title": "Steers get their own settings section",
-  "feat_steers_settings_section_body": "Saved Steers now live under Settings → Steers. Session controls stay focused, while the pencil and steer context menu still open the same editor and preserve the selected steer."
+  "feat_steers_settings_section_body": "Saved Steers now live under Settings → Steers. Session controls stay focused, while the pencil and steer context menu still open the same editor and preserve the selected steer.",
+  "newtask_compose_next": "Next →",
+  "newtask_compose_hide_keyboard_aria": "Hide keyboard",
+  "feat_keyboard_compose_title": "Keyboard-aware compose on mobile",
+  "feat_keyboard_compose_body": "While the keyboard is up, the New Task modal now collapses to the prompt: settings fold away and a pinned row above the keys offers attach, hide keyboard, and Next — which never submits, it just brings the full form back."
 }

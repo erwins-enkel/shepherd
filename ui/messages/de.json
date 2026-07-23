@@ -3400,5 +3400,9 @@
   "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
   "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten.",
   "feat_steers_settings_section_title": "Steers bekommen einen eigenen Einstellungsbereich",
-  "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten."
+  "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten.",
+  "newtask_compose_next": "Weiter →",
+  "newtask_compose_hide_keyboard_aria": "Tastatur ausblenden",
+  "feat_keyboard_compose_title": "Tastatur-bewusstes Verfassen auf Mobilgeräten",
+  "feat_keyboard_compose_body": "Bei offener Tastatur kollabiert das Neue-Aufgabe-Modal jetzt auf den Prompt: Einstellungen klappen weg, und eine angepinnte Leiste über den Tasten bietet Anhängen, Tastatur ausblenden und Weiter — das nie abschickt, sondern nur das volle Formular zurückholt."
 }

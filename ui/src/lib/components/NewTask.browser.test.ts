@@ -3041,6 +3041,7 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
   class FakeVisualViewport extends EventTarget {
     height: number;
     offsetTop: number;
+    scale = 1; // real VisualViewport always reports scale; the 7A occlusion gate reads it
     constructor(height: number, offsetTop = 0) {
       super();
       this.height = height;
@@ -3154,6 +3155,10 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       await page.viewport(852, 393);
       mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
       render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+      // Coarse + occluded + autofocused prompt is the 7A compose state (which swaps the
+      // chip for the read-only context line); this test targets the plain mobile layout.
+      await expect.poll(() => document.querySelector("#nt-prompt")).toBeTruthy();
+      document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.blur();
       // The combined repo·branch chip only renders in the mobile layout.
       await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
       expect(document.querySelector(".rail")).toBeNull();
@@ -3194,6 +3199,7 @@ describe("NewTask mobile controls stay reachable while typing", () => {
   class FakeVisualViewport extends EventTarget {
     height: number;
     offsetTop: number;
+    scale = 1; // real VisualViewport always reports scale; the 7A occlusion gate reads it
     constructor(height: number, offsetTop = 0) {
       super();
       this.height = height;
@@ -3393,6 +3399,11 @@ describe("NewTask mobile controls stay reachable while typing", () => {
         },
       });
       await expect.poll(() => document.querySelector(".run-dual")).toBeTruthy();
+      // Coarse pointer + occluded viewport + focused prompt is the 7A COMPOSE state,
+      // which intentionally folds the CTA behind Next →. This test asserts the
+      // scroll-backstop of the NON-compose pinned layout, so drop prompt focus.
+      document.querySelector<HTMLTextAreaElement>("#nt-prompt")!.blur();
+      await expect.poll(() => document.querySelector(".card.composing")).toBeNull();
 
       // Dual CTA lays out in a ROW in the short-and-touch branch (buys back vertical space).
       const hold = document.querySelector<HTMLElement>("button.run-hold")!;
@@ -3446,6 +3457,7 @@ describe("NewTask mobile sources sheet", () => {
   class FakeVisualViewport extends EventTarget {
     height: number;
     offsetTop: number;
+    scale = 1; // real VisualViewport always reports scale; the 7A occlusion gate reads it
     constructor(height: number, offsetTop = 0) {
       super();
       this.height = height;
@@ -3664,6 +3676,372 @@ describe("NewTask mobile sources sheet", () => {
       const r = panel.getBoundingClientRect();
       expect(r.top).toBeGreaterThanOrEqual(0);
       expect(r.bottom).toBeLessThanOrEqual(REGION + 1);
+    } finally {
+      restore();
+    }
+  });
+});
+
+// ── 7A keyboard-compose state ────────────────────────────────────────────────
+// While the keyboard is REALLY up (visualViewport occlusion > 100 CSS px at
+// scale-corrected geometry) on a coarse-pointer mobile layout with the prompt
+// focused, the modal collapses to the compose state: confirmed controls fold
+// away and a pinned action row (attach · hide keyboard · Next →) appears. The
+// harness can't raise a real keyboard, so a mutable fake visualViewport (with
+// scale, for the pinch-zoom exclusion) drives the gate.
+describe("NewTask 7A keyboard-compose state", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop: number;
+    scale: number;
+    constructor(height: number, offsetTop = 0, scale = 1) {
+      super();
+      this.height = height;
+      this.offsetTop = offsetTop;
+      this.scale = scale;
+    }
+  }
+
+  function installFakeViewport(height: number) {
+    const fake = new FakeVisualViewport(height);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    const restore = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    return { fake, restore };
+  }
+
+  const composingCard = () => document.querySelector(".card.composing");
+  const promptField = () => document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+  const hideKbButton = () =>
+    document.querySelector<HTMLButtonElement>(
+      `.compose-actions [aria-label="${m.newtask_compose_hide_keyboard_aria()}"]`,
+    )!;
+  const nextButton = () => document.querySelector<HTMLButtonElement>(".ca-next")!;
+  /** Computed display of the first match — compose folds content via CSS, not unmounts. */
+  const displayOf = (sel: string) => {
+    const el = document.querySelector<HTMLElement>(sel);
+    return el ? getComputedStyle(el).display : "(absent)";
+  };
+  const pointerdown = (el: HTMLElement) =>
+    el.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, cancelable: true }));
+  /** Two animation frames — lets a state flip that ISN'T supposed to happen surface. */
+  const settle = () =>
+    new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
+
+  async function mountMobile(extra: Record<string, unknown> = {}, coarse = true) {
+    mockPointer(coarse);
+    await page.viewport(390, 844);
+    const { fake, restore } = installFakeViewport(window.innerHeight);
+    mockListRepos.mockResolvedValue({
+      repos: [
+        {
+          name: "compose-repo",
+          path: "/repo/compose",
+          display: "compose-repo",
+          realPath: "/repo/compose",
+        },
+      ],
+      recentWindowDays: 30,
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/compose", ...extra }) });
+    await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+    return { fake, restore };
+  }
+
+  function setOcclusion(fake: FakeVisualViewport, occlusion: number, scale = 1) {
+    // occlusion is the CSS-px height hidden by the keyboard at scale 1; for the
+    // pinch-zoom case pass the visual height directly via scale ≠ 1 semantics.
+    fake.height = (window.innerHeight - occlusion) / scale;
+    fake.scale = scale;
+    fake.dispatchEvent(new Event("resize"));
+  }
+
+  async function enterCompose(fake: FakeVisualViewport) {
+    promptField().focus();
+    setOcclusion(fake, 300);
+    await expect.poll(() => composingCard()).toBeTruthy();
+  }
+
+  it("collapses to compose only when focused AND the keyboard is open, folding confirmed controls", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      // Focus alone (the modal autofocuses on open) must not fold anything.
+      promptField().focus();
+      await settle();
+      expect(composingCard()).toBeNull();
+      expect(displayOf(".cfoot")).not.toBe("none");
+
+      setOcclusion(fake, 300);
+      await expect.poll(() => composingCard()).toBeTruthy();
+      // Confirmed controls fold away…
+      expect(displayOf(".seg-row")).toBe("none");
+      expect(displayOf(".engine-summary")).toBe("none");
+      expect(displayOf(".cfoot")).toBe("none");
+      expect(displayOf(".toolbar")).toBe("none");
+      // …the pinned action row and the in-field meta line appear…
+      expect(document.querySelectorAll(".compose-actions button").length).toBe(3);
+      expect(displayOf(".compose-meta")).not.toBe("none");
+      // …and the header compresses to the read-only context line.
+      expect(document.querySelector(".ctx-line")).toBeTruthy();
+      expect(document.querySelector(".ctx-chip")).toBeNull();
+      expect(document.querySelector(".ctx-line")?.textContent).toContain("compose-repo");
+      expect(document.querySelector(".ctx-line")?.textContent).toContain(m.newtask_gate_off());
+    } finally {
+      restore();
+    }
+  });
+
+  it("Next → blurs the prompt back to the full modal without submitting", async () => {
+    const onsubmit = vi.fn();
+    const { fake, restore } = await mountMobile({ onsubmit });
+    try {
+      await enterCompose(fake);
+      pointerdown(nextButton());
+      await expect.poll(() => composingCard()).toBeNull();
+      expect(document.activeElement).not.toBe(promptField());
+      // iOS drops the keys on blur; once the viewport restores, everything is back.
+      setOcclusion(fake, 0);
+      await expect.poll(() => displayOf(".cfoot")).not.toBe("none");
+      expect(displayOf(".seg-row")).not.toBe("none");
+      expect(displayOf(".engine-summary")).not.toBe("none");
+      expect(document.querySelector(".ctx-chip")).toBeTruthy();
+      expect(onsubmit).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it("exits compose when the keyboard closes even while the prompt stays focused", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      setOcclusion(fake, 0);
+      await expect.poll(() => composingCard()).toBeNull();
+      expect(document.activeElement).toBe(promptField());
+    } finally {
+      restore();
+    }
+  });
+
+  it("never composes on a fine-pointer device, even at mobile width with a shrunken viewport", async () => {
+    const { fake, restore } = await mountMobile({}, false);
+    try {
+      promptField().focus();
+      setOcclusion(fake, 300);
+      // The overlay mirror still runs (mobile width) — proves the resize was seen…
+      await expect
+        .poll(() => document.querySelector<HTMLElement>(".overlay")!.style.height)
+        .toBe(`${window.innerHeight - 300}px`);
+      await settle();
+      // …but compose never activates without a coarse pointer.
+      expect(composingCard()).toBeNull();
+      expect(displayOf(".cfoot")).not.toBe("none");
+    } finally {
+      restore();
+    }
+  });
+
+  it("treats pinch zoom and sub-threshold shrink as keyboard-closed; the 100px bound is strict", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      promptField().focus();
+
+      // Pure pinch zoom: vv.height halves but scale doubles → occlusion ≈ 0.
+      setOcclusion(fake, 0, 2);
+      await settle();
+      expect(composingCard()).toBeNull();
+
+      // Browser-chrome-equivalent shrink (80 px) stays below the threshold.
+      setOcclusion(fake, 80);
+      await settle();
+      expect(composingCard()).toBeNull();
+
+      // Exactly 100 px is still closed (strictly-greater contract) …
+      setOcclusion(fake, 100);
+      await settle();
+      expect(composingCard()).toBeNull();
+
+      // … 101 px is open.
+      setOcclusion(fake, 101);
+      await expect.poll(() => composingCard()).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("resets the keyboard state on breakpoint change and re-enters mobile non-composing", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+
+      // Crossing to desktop tears the viewport effect down: compose and the stale
+      // keyboard-open flag must both clear.
+      await page.viewport(1280, 900);
+      await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+      expect(composingCard()).toBeNull();
+
+      // Back to mobile with an UNshrunken viewport: focus alone stays non-compose.
+      fake.height = 844;
+      fake.scale = 1;
+      await page.viewport(390, 844);
+      await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+      promptField().focus();
+      await settle();
+      expect(composingCard()).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("attach in the action row keeps the prompt focused and opens the file picker", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const clickSpy = vi.spyOn(fileInput, "click").mockImplementation(() => {});
+      const attach = document.querySelector<HTMLButtonElement>(".compose-actions .ca-btn")!;
+      await page.elementLocator(attach).click();
+      await expect.poll(() => clickSpy.mock.calls.length).toBe(1);
+      // The trusted pointerdown was prevented: focus never left the textarea.
+      expect(document.activeElement).toBe(promptField());
+      expect(composingCard()).toBeTruthy();
+    } finally {
+      restore();
+    }
+  });
+
+  it("live char count in the compose meta line", async () => {
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      expect(document.querySelector(".cm-count")?.textContent).toBe(
+        m.newtask_char_count({ count: 0 }),
+      );
+      promptField().value = "hello";
+      promptField().dispatchEvent(new Event("input", { bubbles: true }));
+      await expect
+        .poll(() => document.querySelector(".cm-count")?.textContent)
+        .toBe(m.newtask_char_count({ count: 5 }));
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps an upload error visible inside the compose layout", async () => {
+    mockUploadFile.mockRejectedValue(new Error("boom"));
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      const fileInput = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+      const file = new File(["x"], "broken.txt", { type: "text/plain" });
+      Object.defineProperty(fileInput, "files", { value: [file], configurable: true });
+      fileInput.dispatchEvent(new Event("change", { bubbles: true }));
+
+      await expect.poll(() => document.querySelector(".err")).toBeTruthy();
+      // Retained by design: attach is usable during compose, so its failure must show.
+      expect(composingCard()).toBeTruthy();
+      expect(displayOf(".err")).not.toBe("none");
+      const err = document.querySelector<HTMLElement>(".err")!.getBoundingClientRect();
+      const hero = document.querySelector<HTMLElement>(".hero")!.getBoundingClientRect();
+      const actions = document
+        .querySelector<HTMLElement>(".compose-actions")!
+        .getBoundingClientRect();
+      expect(err.top).toBeGreaterThanOrEqual(hero.top);
+      expect(err.bottom).toBeLessThanOrEqual(actions.bottom);
+    } finally {
+      restore();
+    }
+  });
+
+  it("folds the relaunch notes during compose and restores them on exit", async () => {
+    const { fake, restore } = await mountMobile({ relaunch: true, initialPrompt: "retry this" });
+    try {
+      await expect.poll(() => document.querySelector(".relaunch-note")).toBeTruthy();
+      await enterCompose(fake);
+      expect(displayOf(".relaunch-note")).toBe("none");
+      expect(displayOf(".field-note")).toBe("none");
+      setOcclusion(fake, 0);
+      await expect.poll(() => displayOf(".relaunch-note")).not.toBe("none");
+      expect(displayOf(".field-note")).not.toBe("none");
+    } finally {
+      restore();
+    }
+  });
+
+  it("slash-command pick keeps focus and compose active", async () => {
+    mockGetCommands.mockResolvedValue({ commands: [slashCommand("review", ["claude"])] });
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      promptField().value = "/rev";
+      promptField().dispatchEvent(new Event("input", { bubbles: true }));
+      await expect.element(page.getByText("/review")).toBeVisible();
+      await page.getByText("/review").click(); // mousedown-pick, preventDefault keeps focus
+      await expect.poll(() => promptField().value).toBe("/review ");
+      expect(document.activeElement).toBe(promptField());
+      expect(composingCard()).toBeTruthy();
+      expect(document.querySelector(".sc-panel")).toBeNull();
+    } finally {
+      restore();
+    }
+  });
+
+  it("issue pick keeps compose active and defers the ref row until Next →", async () => {
+    mockListIssues.mockResolvedValue({
+      slug: "owner/repo",
+      webUrl: null,
+      issues: [
+        {
+          number: 42,
+          title: "Fix crash",
+          body: "",
+          url: "https://example.com/i/42",
+          labels: [],
+          createdAt: 0,
+          assignees: [],
+        },
+      ],
+      viewer: null,
+    });
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      promptField().value = "#4";
+      promptField().dispatchEvent(new Event("input", { bubbles: true }));
+      await expect.element(page.getByText("Fix crash")).toBeVisible();
+      await page.getByText("Fix crash").click(); // mousedown-pick
+      // The ref is attached but its confirmation row stays folded while composing.
+      await expect.poll(() => document.querySelector(".issue-ref")).toBeTruthy();
+      expect(displayOf(".issue-ref")).toBe("none");
+      expect(document.activeElement).toBe(promptField());
+      expect(composingCard()).toBeTruthy();
+
+      pointerdown(nextButton());
+      await expect.poll(() => composingCard()).toBeNull();
+      setOcclusion(fake, 0);
+      await expect.poll(() => displayOf(".issue-ref")).not.toBe("none");
+      expect(document.querySelector(".issue-ref")?.textContent).toContain("#42");
+    } finally {
+      restore();
+    }
+  });
+
+  it("a real blur with a menu open dismisses menu and compose together, without a pick", async () => {
+    mockGetCommands.mockResolvedValue({ commands: [slashCommand("review", ["claude"])] });
+    const { fake, restore } = await mountMobile();
+    try {
+      await enterCompose(fake);
+      promptField().value = "/rev";
+      promptField().dispatchEvent(new Event("input", { bubbles: true }));
+      await expect.element(page.getByText("/review")).toBeVisible();
+
+      pointerdown(hideKbButton());
+      await expect.poll(() => composingCard()).toBeNull();
+      expect(document.querySelector(".sc-panel")).toBeNull();
+      expect(promptField().value).toBe("/rev"); // no pick was applied
     } finally {
       restore();
     }

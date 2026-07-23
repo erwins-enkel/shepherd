@@ -3470,5 +3470,9 @@
   "diagnostics_hint_preview_probes_uninspectable": "Shepherd konnte nicht überprüfen, ob die Prozesserkennung auf diesem Host funktioniert.",
   "feat_macos_preview_detection_title": "Live-Previews unter macOS",
   "feat_macos_preview_detection_body": "Shepherd erkennt jetzt auch unter macOS die von deinen Agenten gestarteten Dev-Server, daher funktionieren dort Live-Loopback-Previews – bisher erschienen sie stillschweigend nie. Falls die Erkennung auf deinem Host nicht läuft, sagt dir das die neue Zeile „Preview-Erkennung“ unter Diagnose, statt dich rätseln zu lassen.",
-  "diagnostics_hint_preview_probes_idle": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet."
+  "diagnostics_hint_preview_probes_idle": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet.",
+  "newtask_compose_next": "Weiter →",
+  "newtask_compose_hide_keyboard_aria": "Tastatur ausblenden",
+  "feat_keyboard_compose_title": "Tastatur-bewusstes Verfassen auf Mobilgeräten",
+  "feat_keyboard_compose_body": "Bei offener Tastatur kollabiert das Neue-Aufgabe-Modal jetzt auf den Prompt: Einstellungen klappen weg, und eine angepinnte Leiste über den Tasten bietet Anhängen, Tastatur ausblenden und Weiter — das nie abschickt, sondern nur das volle Formular zurückholt."
 }

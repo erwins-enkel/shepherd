@@ -18,6 +18,19 @@ const FORK = "kai-osthoff/may";
 const FORK_OWNER = "kai-osthoff";
 const BRANCH = "shepherd/fix-thing";
 
+// ── originSlug: preserve the clone's origin identity in fork mode ──────────────
+
+test("fork mode originSlug is the fork while slug remains upstream", () => {
+  const forge = new GithubForge(UPSTREAM, {}, async () => "", FORK);
+  expect(forge.slug).toBe(UPSTREAM);
+  expect(forge.originSlug).toBe(FORK);
+});
+
+test("non-fork originSlug is the repository slug", () => {
+  const forge = new GithubForge("o/r", {}, async () => "");
+  expect(forge.originSlug).toBe("o/r");
+});
+
 /** Build a single gh `pr list` JSON entry (shape captured from a real cross-repo PR). */
 function prEntry(owner: string, extra: Record<string, unknown> = {}) {
   return {

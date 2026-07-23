@@ -3374,5 +3374,7 @@
   "codexupdate_notes_loading": "Loading release notes…",
   "codexupdate_notes_incomplete": "The full release history is not available here yet. You can still update now or view the source on GitHub.",
   "feat_codex_release_notes_title": "Read Codex changes before updating",
-  "feat_codex_release_notes_body": "The Codex update dialog now shows the original GitHub release notes for every npm-published stable version in your update range, newest first."
+  "feat_codex_release_notes_body": "The Codex update dialog now shows the original GitHub release notes for every npm-published stable version in your update range, newest first.",
+  "feat_repo_owner_picker_title": "Pick the right repository",
+  "feat_repo_owner_picker_body": "The repository picker now shows each owner and repository, and lets you search by owner. Repositories with the same name in different accounts are easy to tell apart."
 }

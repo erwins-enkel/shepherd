@@ -64,6 +64,8 @@ export interface EpicDraft {
 
 export interface RepoEntry {
   name: string;
+  /** Owner-qualified remote repository identity, when its forge remote is known. */
+  remoteSlug?: string;
   path: string;
   display: string;
   /** Most-recent session createdAt for this repo; undefined if never used. */

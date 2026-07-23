@@ -359,6 +359,9 @@ export interface OpenPrSnapshot {
 export interface GitForge {
   readonly kind: ForgeKind;
   readonly slug: string | null;
+  /** Repository identity from the clone's `origin` remote. In fork mode, `slug`
+   *  remains the upstream repository while this identifies the fork. */
+  readonly originSlug?: string | null;
   /** Default merge method for this host (from config; "squash" if unset). */
   readonly mergeMethod: MergeMethod;
   /** Configured deploy workflow filename, or null if redeploy is unavailable. */

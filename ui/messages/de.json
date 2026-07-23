@@ -3374,5 +3374,7 @@
   "codexupdate_notes_loading": "Release-Notes werden geladen…",
   "codexupdate_notes_incomplete": "Der vollständige Release-Verlauf ist hier noch nicht verfügbar. Du kannst trotzdem jetzt aktualisieren oder die Quelle auf GitHub ansehen.",
   "feat_codex_release_notes_title": "Codex-Änderungen vor dem Update lesen",
-  "feat_codex_release_notes_body": "Das Codex-Update-Fenster zeigt jetzt die originalen GitHub-Release-Notes für jede auf npm veröffentlichte stabile Version in deinem Update-Bereich – neueste zuerst."
+  "feat_codex_release_notes_body": "Das Codex-Update-Fenster zeigt jetzt die originalen GitHub-Release-Notes für jede auf npm veröffentlichte stabile Version in deinem Update-Bereich – neueste zuerst.",
+  "feat_repo_owner_picker_title": "Das richtige Repository wählen",
+  "feat_repo_owner_picker_body": "Der Repository-Auswähler zeigt jetzt Owner und Repository und lässt nach Ownern suchen. Gleichnamige Repositories in verschiedenen Accounts lassen sich so leicht unterscheiden."
 }

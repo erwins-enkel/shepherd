@@ -3334,3 +3334,234 @@ describe("NewTask mobile controls stay reachable while typing", () => {
     expect(getComputedStyle(document.querySelector<HTMLElement>(".left")!).overflowY).toBe("auto");
   });
 });
+
+// #1854 dropped the issue/command picker (PromptSources) on mobile — the only path left was
+// typing `#`. These fixtures cover the restored mobile sources sheet: the toolbar trigger, the
+// sheet's scroll chain, the focus contract, and a11y floors.
+describe("NewTask mobile sources sheet", () => {
+  class FakeVisualViewport extends EventTarget {
+    height: number;
+    offsetTop: number;
+    constructor(height: number, offsetTop = 0) {
+      super();
+      this.height = height;
+      this.offsetTop = offsetTop;
+    }
+  }
+  function installFakeViewport(height: number, offsetTop = 0) {
+    const fake = new FakeVisualViewport(height, offsetTop);
+    const prev = Object.getOwnPropertyDescriptor(window, "visualViewport");
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: fake });
+    const restore = () => {
+      if (prev) Object.defineProperty(window, "visualViewport", prev);
+      else delete (window as unknown as { visualViewport?: unknown }).visualViewport;
+    };
+    return { fake, restore };
+  }
+  const srcBtn = () => document.querySelector<HTMLButtonElement>(".sources-btn");
+  const psWrap = () => document.querySelector<HTMLElement>(".ps-wrap");
+
+  it("opens the sheet from the toolbar trigger and lists issues", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1, "alpha"), mkIssue(2, "bravo")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+
+    srcBtn()!.click();
+    await expect.poll(() => psWrap()).toBeTruthy();
+    await expect.poll(() => document.querySelector(".sheet")?.textContent).toContain("alpha");
+  });
+
+  it("attaches an issue on pick and closes the sheet (issue-ref visible)", async () => {
+    const { restore } = installFakeViewport(440, 0);
+    try {
+      await page.viewport(390, 844);
+      seedIssues([mkIssue(7, "charlie")]);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect.poll(() => document.querySelector(".sheet .issue-list-row")).toBeTruthy();
+
+      document.querySelector<HTMLElement>(".sheet .issue-list-row")!.click();
+      // Sheet closes and the issue attaches.
+      await expect.poll(() => document.querySelector(".ps-wrap")).toBeNull();
+      const ref = document.querySelector<HTMLElement>(".issue-ref");
+      expect(ref?.textContent).toContain("charlie");
+      // The attached-issue row is visible in the keyboard-shrunk region (rect-based).
+      const r = ref!.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(0);
+      expect(r.bottom).toBeLessThanOrEqual(440 + 1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("honors the single-active-sheet invariant", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1)]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".engine-summary")).toBeTruthy();
+
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet")).toBeTruthy();
+    // Opening the sources sheet replaces the engine sheet — never two at once.
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".ps-wrap")).toBeTruthy();
+    expect(document.querySelectorAll(".sheet").length).toBe(1);
+  });
+
+  it("follows the focus contract: prompt-writing pick focuses the prompt, issue pick does not", async () => {
+    await page.viewport(390, 844);
+    mockGetCommands.mockResolvedValue({
+      commands: [{ name: "plan", description: "make a plan", scope: "project" }],
+    });
+    seedIssues([mkIssue(3, "delta")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+
+    // Issue pick: focus is NOT stolen — use:dialog restores it to the trigger button.
+    // Focus the trigger first (a real tap focuses it; a synthetic click does not).
+    srcBtn()!.focus();
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".sheet .issue-list-row")).toBeTruthy();
+    document.querySelector<HTMLElement>(".sheet .issue-list-row")!.click();
+    await expect.poll(() => document.activeElement?.classList.contains("sources-btn")).toBe(true);
+
+    // Command pick: seeds the prompt and focuses the textarea with the caret at the end.
+    srcBtn()!.focus();
+    srcBtn()!.click();
+    await expect
+      .poll(() => document.querySelectorAll(".sheet .tab").length)
+      .toBeGreaterThanOrEqual(2);
+    // Switch to the Commands tab, then pick the command row.
+    const tabs = document.querySelectorAll<HTMLButtonElement>(".sheet .tab");
+    tabs[tabs.length - 1].click();
+    await expect
+      .poll(() => document.querySelector<HTMLElement>(".sheet .ps-body .row"))
+      .toBeTruthy();
+    document.querySelector<HTMLElement>(".sheet .ps-body .row")!.click();
+    await expect.poll(() => document.activeElement?.id).toBe("nt-prompt");
+    const ta = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    expect(ta.selectionStart).toBe(ta.value.length);
+  });
+
+  it("makes .ps-body the sole scroller with a sticky head", async () => {
+    // Short region so the issue list overflows `.ps-body` regardless of how many rows the
+    // persisted "mine & unassigned" filter leaves.
+    const { restore } = installFakeViewport(240, 0);
+    try {
+      await page.viewport(375, 667);
+      seedIssues(Array.from({ length: 12 }, (_, i) => mkIssue(i + 1, `issue-${i}`)));
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect
+        .poll(() => document.querySelectorAll(".sheet .issue-list-row").length)
+        .toBeGreaterThan(2);
+
+      const sheetBody = document.querySelector<HTMLElement>(".sheet-body")!;
+      const psBody = document.querySelector<HTMLElement>(".ps-body")!;
+      const psHead = document.querySelector<HTMLElement>(".ps-head")!;
+      // Structural: `.ps-body` is the scroller; `.sheet-body` is not (the override
+      // reversed the default so `.ps-filter-bar`'s sticky sticks to a moving box).
+      expect(getComputedStyle(psBody).overflowY).toBe("auto");
+      expect(getComputedStyle(sheetBody).overflow).toBe("hidden");
+      // Functional: the list overflows `.ps-body`, not `.sheet-body`.
+      await expect.poll(() => psBody.scrollHeight > psBody.clientHeight).toBe(true);
+      expect(sheetBody.scrollHeight).toBeLessThanOrEqual(sheetBody.clientHeight + 1);
+
+      // The head (tabs + filter) stays put when the rows scroll.
+      const headTop = psHead.getBoundingClientRect().top;
+      psBody.scrollTop = psBody.scrollHeight;
+      await expect.poll(() => psBody.scrollTop).toBeGreaterThan(0);
+      expect(Math.abs(psHead.getBoundingClientRect().top - headTop)).toBeLessThan(1);
+    } finally {
+      restore();
+    }
+  });
+
+  it("keeps the engine sheet's own .sheet-body scroller (the :has scope did not leak)", async () => {
+    await page.viewport(390, 640);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => document.querySelector(".engine-summary")).toBeTruthy();
+    document.querySelector<HTMLButtonElement>(".engine-summary")!.click();
+    await expect.poll(() => document.querySelector(".sheet-body")).toBeTruthy();
+    // No .ps-wrap here, so the override must not apply — the sheet-body stays the scroller.
+    expect(document.querySelector(".ps-wrap")).toBeNull();
+    expect(getComputedStyle(document.querySelector<HTMLElement>(".sheet-body")!).overflowY).toBe(
+      "auto",
+    );
+  });
+
+  it("meets the 44px tap-target floor for the sheet's primary controls", async () => {
+    await page.viewport(390, 844);
+    seedIssues([mkIssue(1, "echo")]);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    // The trigger button itself.
+    expectMinPx(srcBtn()!.getBoundingClientRect().height, 44, "sources-btn");
+    srcBtn()!.click();
+    await expect.poll(() => document.querySelector(".sheet .tab")).toBeTruthy();
+    for (const sel of [".tab", ".issue-list-row", ".filter-chip"]) {
+      const el = document.querySelector<HTMLElement>(`.sheet ${sel}`)!;
+      expectMinPx(el.getBoundingClientRect().height, 44, sel);
+    }
+  });
+
+  it("does not wrap the toolbar with the trigger + an attachment chip at 375px", async () => {
+    await page.viewport(375, 667);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, {
+      props: {
+        onsubmit: vi.fn(),
+        initialRepoPath: "/repo",
+        initialImages: [{ path: "/staged/a.png", name: "a.png" }],
+      },
+    });
+    await expect.poll(() => srcBtn()).toBeTruthy();
+    // Single row: the trigger sits on the same line as the attach button (no wrap).
+    const attach = document.querySelector<HTMLElement>(".tool-btn")!;
+    expect(
+      Math.abs(srcBtn()!.getBoundingClientRect().top - attach.getBoundingClientRect().top),
+    ).toBeLessThan(8);
+  });
+
+  it("shows plain hint text (not a button) when no repo is selected", async () => {
+    await page.viewport(390, 844);
+    mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn() } });
+    await expect.poll(() => document.querySelector(".char-count")).toBeTruthy();
+    expect(document.querySelector(".sources-btn")).toBeNull();
+  });
+
+  it("positions the filter popover inside the keyboard-visible region", async () => {
+    const REGION = 420;
+    const { restore } = installFakeViewport(REGION, 0);
+    try {
+      await page.viewport(375, 667);
+      seedIssues([mkIssue(1, "foxtrot"), mkIssue(2, "golf")]);
+      mockListRepos.mockResolvedValue({ repos: [], recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo" } });
+      await expect.poll(() => srcBtn()).toBeTruthy();
+      srcBtn()!.click();
+      await expect.poll(() => document.querySelector(".filter-chip")).toBeTruthy();
+      document.querySelector<HTMLButtonElement>(".filter-chip")!.click();
+      await expect.poll(() => document.querySelector(".filter-popover")).toBeTruthy();
+
+      const panel = document.querySelector<HTMLElement>(".filter-popover")!;
+      await expect.poll(() => panel.getBoundingClientRect().height).toBeGreaterThan(0);
+      const r = panel.getBoundingClientRect();
+      expect(r.top).toBeGreaterThanOrEqual(0);
+      expect(r.bottom).toBeLessThanOrEqual(REGION + 1);
+    } finally {
+      restore();
+    }
+  });
+});

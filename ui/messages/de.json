@@ -3319,6 +3319,8 @@
   "newtask_context_chip_aria": "Repository {repo}, von Branch {branch}",
   "newtask_engine_sheet_title": "Engine & Leitplanken",
   "newtask_context_sheet_title": "Repo & Branch",
+  "newtask_sources_open": "Issues & Befehle durchsuchen",
+  "newtask_sources_sheet_title": "Issues & Befehle",
   "newtask_gate_on": "Gate an",
   "newtask_gate_off": "Gate aus",
   "newtask_toggle_on": "AN",

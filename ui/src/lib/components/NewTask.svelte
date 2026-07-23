@@ -315,7 +315,7 @@
   const shortViewport = new MediaQuery("(max-height: 480px)");
   const mobile = $derived(narrowViewport.current || (shortViewport.current && coarse.current));
   // Single active-sheet invariant: at most one mobile sheet is open, by construction.
-  let activeSheet = $state<"engine" | "context" | null>(null);
+  let activeSheet = $state<"engine" | "context" | "sources" | null>(null);
   let contextSheetEl = $state<HTMLElement | null>(null);
   // Leaving mobile while a sheet is open: the rail takes over; close the sheet.
   $effect(() => {
@@ -775,6 +775,24 @@
       promptInput?.focus();
       promptInput?.setSelectionRange(prompt.length, prompt.length);
     });
+  }
+
+  // Mobile sources sheet (issues + commands). Closing the sheet and moving focus race:
+  // `MobileEngineSheet`'s use:dialog restores focus to the opener on destroy, so a pick
+  // that seeds the prompt must close the sheet FIRST, await the destroy, THEN focus the
+  // prompt — otherwise the restore wins and the Android keyboard stays down mid-compose.
+  async function closeSheetFocusPrompt() {
+    activeSheet = null;
+    await tick();
+    autogrow();
+    promptInput?.focus();
+    promptInput?.setSelectionRange(prompt.length, prompt.length);
+  }
+  // An issue pick (pickIssue) deliberately does NOT steal focus — same as the desktop
+  // rail — so just close the sheet and let use:dialog restore focus to the trigger
+  // button, leaving the keyboard down.
+  function closeSheetKeepFocus() {
+    activeSheet = null;
   }
 
   // Grow the prompt with its content (capped by CSS max-height, then it scrolls).
@@ -1447,7 +1465,25 @@
                 {/each}
                 <span class="char-count">
                   {#if mobile}
-                    {m.newtask_syntax_hint_touch()}
+                    {#if repoPath}
+                      <!-- The hint becomes the sources-sheet trigger: browse/filter
+                           issues + commands, the picker #1854 dropped on mobile. Icon-only
+                           (`#`) so it never wraps the flex-wrap toolbar when attachment
+                           chips are present; the accessible name carries the full label.
+                           Inert text when no repo is selected (nothing to load). -->
+                      <button
+                        type="button"
+                        class="sources-btn"
+                        aria-haspopup="dialog"
+                        aria-expanded={activeSheet === "sources"}
+                        aria-label={m.newtask_sources_open()}
+                        onclick={() => (activeSheet = "sources")}
+                      >
+                        <span aria-hidden="true">#</span>
+                      </button>
+                    {:else}
+                      {m.newtask_syntax_hint_touch()}
+                    {/if}
                   {:else}
                     {m.newtask_char_count({ count: prompt.length })}
                   {/if}
@@ -1681,6 +1717,40 @@
             />
           {/if}
         </div>
+      </MobileEngineSheet>
+    {:else if mobile && activeSheet === "sources"}
+      <!-- Restores the issue/command picker #1854 dropped on mobile. Same PromptSources
+           as the desktop rail; picks close the sheet under the focus contract above. -->
+      <MobileEngineSheet
+        label={m.newtask_sources_sheet_title()}
+        title={m.newtask_sources_sheet_title()}
+        onclose={() => (activeSheet = null)}
+      >
+        <PromptSources
+          {repoPath}
+          {issueData}
+          {epicParents}
+          {nativeSubIssues}
+          {epicsLoaded}
+          {agentProvider}
+          allowIssues={!relaunch}
+          onpick={(p) => {
+            prompt = p;
+            closeSheetFocusPrompt();
+          }}
+          onpickcommand={(c) => {
+            pickCommandFromSource(c);
+            closeSheetFocusPrompt();
+          }}
+          onpickissue={(i) => {
+            pickIssue(i);
+            closeSheetKeepFocus();
+          }}
+          onpicksteer={(i, s) => {
+            injectSteer(i, s);
+            closeSheetFocusPrompt();
+          }}
+        />
       </MobileEngineSheet>
     {/if}
   </form>
@@ -2506,6 +2576,25 @@
     .char-count {
       font-size: var(--fs-meta);
     }
+    /* Sources-sheet trigger: icon-only `#` at a 44×44 tap target (a11y floor), sized to
+       never wrap the toolbar even beside attachment chips. */
+    .sources-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      width: 44px;
+      height: 44px;
+      background: transparent;
+      border: 0;
+      font: inherit;
+      font-size: var(--fs-lg);
+      color: var(--color-muted);
+      cursor: pointer;
+    }
+    .sources-btn:hover {
+      color: var(--color-ink);
+    }
     .seg-btn {
       min-height: 44px;
       font-size: var(--fs-meta);
@@ -2603,6 +2692,36 @@
       min-height: 44px;
       width: 100%;
       box-sizing: border-box;
+    }
+
+    /* Sources sheet: restore PromptSources' own flex scroll chain so `.ps-body` is the
+       sole scroller — NOT `.sheet-body`. Otherwise `.ps-body`'s inner scroll never moves
+       and `.ps-filter-bar` (sticky top:0) sticks to a box that never scrolls, so the
+       Commands-tab search scrolls away with the sheet. Scoped by `:has(.ps-wrap)` so the
+       engine and context sheets keep their own `.sheet-body` scroller untouched. */
+    :global(.sheet:has(.ps-wrap) .sheet-body) {
+      overflow: hidden;
+      display: flex;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-wrap) {
+      flex: 1;
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-head) {
+      flex-shrink: 0;
+    }
+    :global(.sheet:has(.ps-wrap) .ps-body) {
+      flex: 1;
+      min-height: 0;
+      max-height: none;
+    }
+    /* Meet the 44px tap-target floor for the sheet's primary controls in a touch sheet. */
+    :global(.sheet:has(.ps-wrap) .tab),
+    :global(.sheet:has(.ps-wrap) .issue-list-row),
+    :global(.sheet:has(.ps-wrap) .filter-chip) {
+      min-height: 44px;
     }
   }
 

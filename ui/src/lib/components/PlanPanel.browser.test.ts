@@ -506,6 +506,7 @@ describe("PlanPanel release state", () => {
     });
 
     await expect.element(page.getByText(m.planpanel_plan_unavailable())).toBeVisible();
+    expect(document.body.textContent).toContain("may still be waiting for your answer");
   });
 
   it("shows persistent plan-unavailable feedback after review trigger returns that status", async () => {
@@ -518,6 +519,7 @@ describe("PlanPanel release state", () => {
 
     await page.getByRole("button", { name: m.planpanel_review_now() }).click();
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();
+    expect(document.body.textContent).toContain("Return to the task");
 
     await new Promise((resolve) => setTimeout(resolve, 6500));
     await expect.element(page.getByText(m.planpanel_review_plan_unavailable())).toBeVisible();

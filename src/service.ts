@@ -59,6 +59,8 @@ import type { TelemetryService } from "./telemetry";
 import { extractTargetPaths, planHouseRulesInjection, renderHouseRulesBlock } from "./house-rules";
 import { isGoodOutcome } from "./learnings-lifecycle";
 import { effectiveAutopilot } from "./effective-autopilot";
+import { SHELLS } from "./json-tolerant";
+import { resumeThenSteer } from "./resume-then-steer";
 import { MAX_IMAGES, type HandoffMode } from "./validate";
 import {
   resolveProfile,
@@ -164,7 +166,7 @@ export interface ServiceDeps {
     | "gitCommonDir"
     | "restoreExisting"
   >;
-  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel">;
+  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel" | "paneForegroundProcs">;
   namer: (prompt: string) => string | Promise<string>;
   /** Background namer: comprehends the prompt into a slug (null = keep heuristic). Absent → no refine. */
   refineName?: (args: { taskText: string; label: string }) => Promise<string | null>;
@@ -1119,15 +1121,17 @@ const PLAN_REFERENCE_STYLE =
   "raising location findings either way, so a line citation is noise, not evidence.\n";
 
 /**
- * The interactive plan-gate directive, provider-adjusted. Two Codex-specific divergences:
+ * The interactive plan-gate directive, provider-adjusted. Three Codex-specific divergences:
  *  - Codex has no AskUserQuestion tool, so step 2 tells it to ask in the conversation instead.
  *  - Codex's default disposition is eager (it caused TASK-413 by implementing instead of researching),
  *    so a hardened stop clause leads the directive: code stays untouched, the plan file is the only
  *    deliverable this turn, then STOP. Claude keeps the original phrasing verbatim.
+ *  - Once concrete questions are answered, Codex writes the plan in that turn instead of asking for
+ *    a redundant generic confirmation. Genuine unresolved questions remain governed by step 2.
  * `PLAN_GATE_DIRECTIVE_INTERACTIVE` is this builder called with "claude", so there is no separate
  * constant left to drift from. What the old "byte-identical" note was really protecting still
  * holds and is the rule to keep: the Claude output is the BASELINE, and provider-specific wording
- * lives ONLY in the two clauses above. Any shared edit (e.g. the path+symbol line below) goes in
+ * lives ONLY in the three clauses above. Any shared edit (e.g. the path+symbol line below) goes in
  * the common body so both providers receive it verbatim — never duplicated per branch, where it
  * could silently diverge (Claude regression).
  */
@@ -1146,13 +1150,20 @@ function planGateDirectiveInteractive(
         "clarifying questions directly in the conversation. Keep "
       : "2. Ask the user actively — do NOT hide questions in the plan or a spec file. Use the AskUserQuestion " +
         "tool for choice-style clarifications, and ask open-ended questions directly in the conversation. Keep ";
+  const answeredQuestionsStep =
+    agentProvider === "codex"
+      ? " Once all concrete questions are answered, do not ask for a generic final confirmation; " +
+        "write `.shepherd-plan.md` in the same turn."
+      : "";
   return (
     stopClause +
     "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
     "1. Research the codebase enough to plan confidently.\n" +
     askStep +
     "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
-    "success criteria. Misalignment now is the costliest failure.\n" +
+    "success criteria. Misalignment now is the costliest failure." +
+    answeredQuestionsStep +
+    "\n" +
     "3. When aligned, write the plan to `.shepherd-plan.md` at the repo root (goal, approach, out of " +
     "scope, files, testing seams + decisions, steps, risks, success criteria) and tell the user it's " +
     "ready for review. The plan must contain NO open / " +
@@ -4183,6 +4194,31 @@ export class SessionService {
     return this.replyToLive(id, text, this.liveTerminalIds());
   }
 
+  private async operatorReplyTarget(
+    id: string,
+    resumableCodex: boolean,
+  ): Promise<{ agent: HerdrAgent | null; forceResume: boolean } | null> {
+    let agents: HerdrAgent[];
+    try {
+      agents = this.deps.herdr.list();
+    } catch {
+      return null;
+    }
+    const agent = matchAgents(this.deps.store.list({ activeOnly: true }), agents).get(id) ?? null;
+    if (!agent) return { agent, forceResume: false };
+    if (agent.agentStatus === "working") return { agent, forceResume: false };
+
+    let procs: string[];
+    try {
+      procs = await this.deps.herdr.paneForegroundProcs(agent.paneId);
+    } catch {
+      return null;
+    }
+    if (procs.length === 0) return null;
+    if (!procs.every((proc) => SHELLS.has(proc))) return { agent, forceResume: false };
+    return resumableCodex ? { agent, forceResume: true } : null;
+  }
+
   /**
    * The operator's free-text mid-session reply boundary (`POST /api/sessions/:id/reply`), as opposed
    * to the internal steers (autopilot, plan-gate, critic, preview, retry-halted, approve) that call
@@ -4197,15 +4233,38 @@ export class SessionService {
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
    * so the learnings distiller never mines Shepherd's own notice. The session is marked only on
-   * SUCCESSFUL delivery, so a reply to a dead pane doesn't burn the one-shot. The injection itself
-   * lives in steerWithEpicNotice, shared with broadcast() so both operator free-text channels behave
-   * identically.
+   * SUCCESSFUL delivery, so a failed reply doesn't burn the one-shot. A dead isolated Codex pane is
+   * resumed before delivery because Codex exits after each turn; this includes a shell-only pane that
+   * herdr still lists, which must be force-resumed instead of receiving the answer as shell input.
+   * An uninspectable listed pane is rejected rather than risking shell input. Dead Claude and
+   * non-isolated Codex panes remain rejected. The injection itself lives in steerWithEpicNotice,
+   * shared with broadcast() so both operator free-text channels behave identically.
    */
   async operatorReply(id: string, text: string): Promise<boolean> {
     const s = this.deps.store.get(id);
-    if (!s || !this.liveTerminalIds().has(s.herdrAgentId)) return false; // unknown or dead pane
-    await this.steerWithEpicNotice(s, text);
-    return true;
+    if (!s) return false;
+    const resumableCodex = (s.agentProvider ?? "claude") === "codex" && s.isolated;
+    const target = await this.operatorReplyTarget(id, resumableCodex);
+    if (!target) return false;
+    const paneAlive = !!target.agent && !target.forceResume;
+    const current = this.deps.store.get(id);
+    if (!current || current.herdrAgentId !== s.herdrAgentId) return false;
+    if (paneAlive && target.agent && target.agent.terminalId !== s.herdrAgentId) {
+      if (!this.adoptLiveResumeAgent(s, target.agent)) return false;
+    }
+    return await resumeThenSteer(id, text, {
+      paneAlive: () => paneAlive,
+      resume: async () => {
+        if (!resumableCodex) return null;
+        return await this.resume(id, { force: target.forceResume });
+      },
+      steer: async () => {
+        const current = this.deps.store.get(id);
+        if (!current) return false;
+        await this.steerWithEpicNotice(current, text);
+        return true;
+      },
+    });
   }
 
   /**

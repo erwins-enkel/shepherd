@@ -2479,10 +2479,11 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   if (!body || typeof (body as { text?: unknown }).text !== "string") {
     return json({ error: "body must be {text: string}" }, 400);
   }
-  // operatorReply() is the human free-text boundary: same false semantics as reply() (unknown id,
-  // dead pane, or transient herdr-unreachable → 404 here), but it also injects the epic-authoring
-  // notice once per session when the message signals epic intent (#1405). Internal steers keep
-  // calling service.reply() directly, so they never trip that path.
+  // operatorReply() is the human free-text boundary: unknown ids, unreachable herdr, dead Claude,
+  // and dead non-isolated Codex panes return false (→ 404 here). A dead isolated Codex pane resumes
+  // first because Codex exits after each turn. The boundary also injects the epic-authoring notice
+  // once per session when the message signals epic intent (#1405). Internal steers keep calling
+  // service.reply() directly, so they never trip that path.
   const ok = await deps.service.operatorReply(parts[2], (body as { text: string }).text);
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }

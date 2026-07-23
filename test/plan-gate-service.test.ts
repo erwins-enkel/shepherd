@@ -1,7 +1,12 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
-import { PlanGateService } from "../src/plan-gate";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { PlanGateService, shouldConsiderOnSettle } from "../src/plan-gate";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+import { SessionService } from "../src/service";
+import { SessionRouter } from "../src/session-router";
+import { SessionStore } from "../src/store";
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -116,6 +121,151 @@ test("consider spawns reviewer when a plan exists and is unreviewed", async () =
   expect(h.started.length).toBe(1);
   expect(h.started[0].argv[h.started[0].argv.length - 1]).toContain("PLAN TEXT");
   expect(h.svc.reviewingIds()).toEqual(["s1"]);
+});
+
+test("answered Codex planning question resumes through a readable plan into automatic review", async () => {
+  const worktreePath = mkdtempSync(join(process.cwd(), ".plan-lifecycle-"));
+  const reviewerPath = join(worktreePath, "reviewer");
+  mkdirSync(reviewerPath);
+  const store = new SessionStore(":memory:");
+  const events: string[] = [];
+  const reviewerStarts: Array<{ argv: string[] }> = [];
+  const plan = "# Plan\n\nImplement the approved lifecycle fix.";
+  const operatorAnswer = "yes, use the isolated resume path";
+  const expectedPaste = `\x1b[200~${operatorAnswer}\x1b[201~`;
+  const sent: Array<{ terminalId: string; text: string }> = [];
+  let resumed = false;
+  let answerDelivered = false;
+
+  const herdr = {
+    start: async (_label: string, _cwd: string, argv: string[]) => {
+      if (argv[0] === "codex" && argv[1] === "resume") {
+        events.push("resume");
+        resumed = true;
+        return { terminalId: "term-resumed", agentStatus: "working" } as any;
+      }
+      events.push("review");
+      reviewerStarts.push({ argv });
+      return { terminalId: "term-review", agentStatus: "working" } as any;
+    },
+    list: () => [
+      resumed
+        ? {
+            agent: "codex",
+            terminalId: "term-resumed",
+            paneId: "pane-resumed",
+            tabId: "tab-resumed",
+            workspaceId: "workspace",
+            name: "planning",
+            cwd: worktreePath,
+            agentStatus: "idle" as const,
+          }
+        : {
+            agent: "codex",
+            terminalId: "term-exited",
+            paneId: "pane-exited",
+            tabId: "tab-exited",
+            workspaceId: "workspace",
+            name: "planning",
+            cwd: worktreePath,
+            agentStatus: "idle" as const,
+          },
+    ],
+    paneForegroundProcs: async (paneId: string) => (paneId === "pane-exited" ? ["zsh"] : ["codex"]),
+    stop: async (terminalId: string) => {
+      events.push(`stop:${terminalId}`);
+    },
+    send: async (terminalId: string, text: string) => {
+      events.push(`send:${terminalId}`);
+      sent.push({ terminalId, text });
+      if (terminalId === "term-resumed" && text === expectedPaste) answerDelivered = true;
+      if (terminalId === "term-resumed" && text === "\r" && answerDelivered) {
+        writeFileSync(join(worktreePath, ".shepherd-plan.md"), plan);
+      }
+    },
+  };
+
+  try {
+    const service = new SessionService({
+      store,
+      namer: async () => "planning",
+      worktree: {
+        create: () => ({}) as any,
+        ensureBaseRef: async () => {},
+        remove: () => {},
+        branchExists: () => false,
+      } as any,
+      herdr,
+      detectBackend: () => null,
+      detectEgressBackend: () => null,
+    } as any);
+    const session = store.create({
+      name: "planning",
+      prompt: "plan the lifecycle fix",
+      repoPath: process.cwd(),
+      baseBranch: "main",
+      branch: "shepherd/plan-lifecycle",
+      worktreePath,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: "term-exited",
+      agentProvider: "codex",
+      planGateEnabled: true,
+      planPhase: "planning",
+    });
+    const planGate = new PlanGateService({
+      store,
+      herdr,
+      worktree: {
+        createDetached: async () => ({
+          worktreePath: reviewerPath,
+          branch: "main",
+          isolated: true,
+        }),
+        remove: () => {},
+        gitCommonDir: () => "/fake-git-common",
+      },
+      detectBackend: () => null,
+      reply: async () => true,
+      paneAlive: () => true,
+      resume: async () => ({}),
+      async release() {},
+      onChange() {},
+      baseSha: () => ({ sha: "abc", anchored: true, ahead: 0 }),
+      anchorStaleness: () => ({ behind: 0, changedSince: [] }),
+    });
+    let reviewPromise: ReturnType<PlanGateService["consider"]> | null = null;
+    const router = new SessionRouter({ getSession: (id) => store.get(id) }, [], {
+      onStatusIndependent: (change) => {
+        const current = change.snapshot.session;
+        const priorDecision = store.getPlanGate(current.id)?.decision;
+        if (shouldConsiderOnSettle(change.status, current.planPhase, priorDecision)) {
+          reviewPromise = planGate.consider(current);
+        }
+      },
+    });
+
+    expect(await service.operatorReply(session.id, operatorAnswer)).toBe(true);
+    expect(events.slice(0, 4)).toEqual([
+      "stop:term-exited",
+      "resume",
+      "send:term-resumed",
+      "send:term-resumed",
+    ]);
+    expect(sent).toEqual([
+      { terminalId: "term-resumed", text: expectedPaste },
+      { terminalId: "term-resumed", text: "\r" },
+    ]);
+    expect(readFileSync(join(worktreePath, ".shepherd-plan.md"), "utf8")).toBe(plan);
+
+    await router.onStatus(session.id, "done");
+    expect(reviewPromise).not.toBeNull();
+    expect(await reviewPromise!).toBe("started");
+    expect(reviewerStarts).toHaveLength(1);
+    expect(reviewerStarts[0]!.argv.at(-1)).toContain(plan);
+  } finally {
+    rmSync(worktreePath, { recursive: true, force: true });
+  }
 });
 test("begin carries the reviewer env on the reviewing:true signal + reviewingInflight()", async () => {
   const reviewingEvents: any[] = [];

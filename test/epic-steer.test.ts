@@ -29,23 +29,58 @@ describe("composeEpicSteer", () => {
 
 /** Service harness modeled on test/signal-capture.test.ts, with a mutable live-terminal set and a
  *  capture of everything pasted into the pane. */
-function makeSvc(live: string[] = ["t1"]) {
+function makeSvc(
+  live: string[] = ["t1"],
+  session: {
+    agentProvider?: "claude" | "codex";
+    isolated?: boolean;
+    foregroundProcs?: string[] | Error | (() => Promise<string[]>);
+    herdrAgentId?: string;
+  } = {},
+) {
   const sent: string[] = [];
+  const sentTo: string[] = [];
+  const started: Array<{ cwd: string; argv: string[] }> = [];
   const liveIds = { current: live };
   /** Flip to make every `herdr.send` REJECT — a pane that dies after the liveness check (#1567). */
   const sendFails = { current: false };
   const store = new SessionStore(":memory:");
   const svc = new SessionService({
     store,
-    worktree: {},
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    },
     herdr: {
-      send: async (_id: string, text: string) => {
+      start: async (_label: string, cwd: string, argv: string[]) => {
+        started.push({ cwd, argv });
+        liveIds.current = ["t2"];
+        return { terminalId: "t2", agentStatus: "working" } as any;
+      },
+      stop: async () => {},
+      send: async (id: string, text: string) => {
         if (sendFails.current) throw new Error("herdr: no such agent");
+        sentTo.push(id);
         sent.push(text);
       },
-      list: () => liveIds.current.map((terminalId) => ({ terminalId, agentStatus: "idle" })),
+      list: () =>
+        liveIds.current.map((terminalId) => ({
+          terminalId,
+          paneId: `pane-${terminalId}`,
+          cwd: "/wt",
+          agentStatus: "idle",
+        })),
+      paneForegroundProcs: async () => {
+        if (session.foregroundProcs instanceof Error) throw session.foregroundProcs;
+        if (typeof session.foregroundProcs === "function") return await session.foregroundProcs();
+        return session.foregroundProcs ?? ["codex"];
+      },
     },
     namer: (p: string) => p,
+    detectBackend: () => null,
+    detectEgressBackend: () => null,
   } as any);
   const s = store.create({
     name: "n",
@@ -54,12 +89,13 @@ function makeSvc(live: string[] = ["t1"]) {
     baseBranch: "main",
     branch: "b",
     worktreePath: "/wt",
-    isolated: true,
+    isolated: session.isolated ?? true,
     herdrSession: "default",
-    herdrAgentId: "t1",
+    herdrAgentId: session.herdrAgentId ?? "t1",
+    agentProvider: session.agentProvider,
   });
   const pasted = () => sent.join("");
-  return { svc, store, sent, pasted, liveIds, sendFails, id: s.id };
+  return { svc, store, sent, sentTo, started, pasted, liveIds, sendFails, id: s.id };
 }
 
 /** How many times the epic-authoring notice was injected across everything pasted so far. */
@@ -100,6 +136,131 @@ describe("operatorReply", () => {
     liveIds.current = ["t1"]; // pane comes back
     expect(await svc.operatorReply(id, EPIC_MSG)).toBe(true);
     expect(pasted()).toContain(NOTICE_MARK); // the notice still rides on the retry
+  });
+
+  test("resumes a dead isolated Codex pane before delivering the operator reply", async () => {
+    const { svc, store, started, sentTo, pasted, id } = makeSvc([], {
+      agentProvider: "codex",
+      isolated: true,
+    });
+
+    expect(await svc.operatorReply(id, EPIC_MSG)).toBe(true);
+    expect(started).toHaveLength(1);
+    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "--last"]);
+    expect(store.get(id)?.herdrAgentId).toBe("t2");
+    expect(sentTo).toEqual(["t2", "t2"]);
+    expect(pasted()).toContain(EPIC_MSG);
+    expect(pasted()).toContain(NOTICE_MARK);
+    expect(store.listSignals("/r")[0]?.payload).toBe(EPIC_MSG);
+  });
+
+  test("force-resumes a listed shell husk before delivering an isolated Codex reply", async () => {
+    const { svc, store, started, sentTo, id } = makeSvc(["t1"], {
+      agentProvider: "codex",
+      isolated: true,
+      foregroundProcs: ["zsh"],
+    });
+
+    expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(true);
+    expect(started).toHaveLength(1);
+    expect(started[0]!.argv.slice(0, 3)).toEqual(["codex", "resume", "--last"]);
+    expect(store.get(id)?.herdrAgentId).toBe("t2");
+    expect(sentTo).toEqual(["t2", "t2"]);
+  });
+
+  test("force-resumes a cwd-matched shell husk when the stored terminal id is stale", async () => {
+    const { svc, store, started, sentTo, id } = makeSvc(["t-stale"], {
+      agentProvider: "codex",
+      isolated: true,
+      foregroundProcs: ["zsh"],
+      herdrAgentId: "t-old",
+    });
+
+    expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(true);
+    expect(started).toHaveLength(1);
+    expect(store.get(id)?.herdrAgentId).toBe("t2");
+    expect(sentTo).toEqual(["t2", "t2"]);
+  });
+
+  test("adopts a cwd-matched live pane before delivering when the stored terminal id is stale", async () => {
+    const { svc, store, started, sentTo, id } = makeSvc(["t-live"], {
+      agentProvider: "codex",
+      isolated: true,
+      foregroundProcs: ["codex"],
+      herdrAgentId: "t-old",
+    });
+
+    expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(true);
+    expect(started).toEqual([]);
+    expect(store.get(id)?.herdrAgentId).toBe("t-live");
+    expect(sentTo).toEqual(["t-live", "t-live"]);
+  });
+
+  test("does not overwrite a concurrently resumed pane with a stale adoption", async () => {
+    let releaseProbe!: () => void;
+    let probeStarted!: () => void;
+    const startedProbe = new Promise<void>((resolve) => (probeStarted = resolve));
+    const heldProbe = new Promise<void>((resolve) => (releaseProbe = resolve));
+    const { svc, store, sent, id } = makeSvc(["t-live"], {
+      agentProvider: "codex",
+      isolated: true,
+      herdrAgentId: "t-old",
+      foregroundProcs: async () => {
+        probeStarted();
+        await heldProbe;
+        return ["codex"];
+      },
+    });
+
+    const reply = svc.operatorReply(id, PLAIN_MSG);
+    await startedProbe;
+    expect(await svc.resume(id, { force: true })).not.toBeNull();
+    releaseProbe();
+
+    expect(await reply).toBe(false);
+    expect(store.get(id)?.herdrAgentId).toBe("t2");
+    expect(sent).toEqual([]);
+  });
+
+  test("does not send an isolated Codex reply when listed-pane liveness is unknown", async () => {
+    for (const foregroundProcs of [[], new Error("process probe unavailable")]) {
+      const { svc, started, sent, id } = makeSvc(["t1"], {
+        agentProvider: "codex",
+        isolated: true,
+        foregroundProcs,
+      });
+
+      expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(false);
+      expect(started).toEqual([]);
+      expect(sent).toEqual([]);
+    }
+  });
+
+  test("does not resume a dead non-isolated Codex pane", async () => {
+    const { svc, started, sent, id } = makeSvc([], {
+      agentProvider: "codex",
+      isolated: false,
+    });
+
+    expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(false);
+    expect(started).toEqual([]);
+    expect(sent).toEqual([]);
+  });
+
+  test("does not send replies into listed shell husks that cannot be safely resumed", async () => {
+    for (const session of [
+      { agentProvider: "claude" as const, isolated: true },
+      { agentProvider: "codex" as const, isolated: false },
+    ]) {
+      const { svc, started, sent, id } = makeSvc(["t1"], {
+        ...session,
+        foregroundProcs: ["zsh"],
+      });
+
+      expect(await svc.operatorReply(id, PLAIN_MSG)).toBe(false);
+      expect(started).toEqual([]);
+      expect(sent).toEqual([]);
+    }
   });
 
   // The two invariants the async send (#1567) put at risk: the one-shot is now claimed BEFORE the

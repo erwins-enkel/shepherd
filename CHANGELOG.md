@@ -1,5 +1,67 @@
 # Changelog
 
+## [1.45.0](https://github.com/erwins-enkel/shepherd/compare/v1.44.0...v1.45.0) (2026-07-23)
+
+
+### Features
+
+* **diagnostics:** add host_capacity resource-guardrail check ([#1832](https://github.com/erwins-enkel/shepherd/issues/1832)) ([6cb77de](https://github.com/erwins-enkel/shepherd/commit/6cb77de5bd77c1934297b05d055d0cda7e5288fd))
+* **diagnostics:** herdr runtime-hygiene / Soll-Ist probe ([#1835](https://github.com/erwins-enkel/shepherd/issues/1835)) ([#1844](https://github.com/erwins-enkel/shepherd/issues/1844)) ([78dc7ec](https://github.com/erwins-enkel/shepherd/commit/78dc7ec0368be252024ab306f741fcfa6c5c8efc))
+* **diagnostics:** one-click Fix for the host_capacity warning ([#1839](https://github.com/erwins-enkel/shepherd/issues/1839)) ([#1845](https://github.com/erwins-enkel/shepherd/issues/1845)) ([e1f90fd](https://github.com/erwins-enkel/shepherd/commit/e1f90fd7b10f69b2cb97cd5cc1434dc870ea2996))
+* **files:** show New Task attachments in the session Scratchpad ([#1717](https://github.com/erwins-enkel/shepherd/issues/1717)) ([#1836](https://github.com/erwins-enkel/shepherd/issues/1836)) ([b2a2a8e](https://github.com/erwins-enkel/shepherd/commit/b2a2a8efa6dd2d2b978e23eec838490bf1aab36e))
+* **herd:** make lifecycle groups collapsible on the desktop rail ([#1808](https://github.com/erwins-enkel/shepherd/issues/1808)) ([4bdf8dd](https://github.com/erwins-enkel/shepherd/commit/4bdf8dd123853b9ddecae382ffdf6ee4a0f4c828))
+* **herdr:** one-click in-app downgrade to the highest supported version ([#1902](https://github.com/erwins-enkel/shepherd/issues/1902)) ([f16d114](https://github.com/erwins-enkel/shepherd/commit/f16d11492bb8bf8c778aef270b4f34520cbff6a4))
+* **herdr:** support herdr 0.7.5 (protocol 17) agent spawning (epic [#1889](https://github.com/erwins-enkel/shepherd/issues/1889)) ([#1901](https://github.com/erwins-enkel/shepherd/issues/1901)) ([633dea4](https://github.com/erwins-enkel/shepherd/commit/633dea48477e6d6b07a03dcd1a7684b7929af1c6))
+* **learnings:** permanently prune proposed learnings older than 3 days ([#1830](https://github.com/erwins-enkel/shepherd/issues/1830)) ([6c38fc5](https://github.com/erwins-enkel/shepherd/commit/6c38fc5d539086ac5ba3f1dfbd0841d632cc85d6))
+* **review:** add opt-in Fowler code-smell lens to the session critic ([#1824](https://github.com/erwins-enkel/shepherd/issues/1824)) ([#1828](https://github.com/erwins-enkel/shepherd/issues/1828)) ([4d7420d](https://github.com/erwins-enkel/shepherd/commit/4d7420daf688ac25ddf92b4303b164bb3ad4c6de))
+* **review:** feed approved plan + scope-creep lens to the critic ([#1812](https://github.com/erwins-enkel/shepherd/issues/1812)) ([#1826](https://github.com/erwins-enkel/shepherd/issues/1826)) ([c74e925](https://github.com/erwins-enkel/shepherd/commit/c74e9256e8bc51c0b5e66dbbaf0a28531cc3cfb4))
+* **site:** replace HowItWorks step list with a pipeline animation ([#1878](https://github.com/erwins-enkel/shepherd/issues/1878)) ([51af6ea](https://github.com/erwins-enkel/shepherd/commit/51af6ea5ff8653c3319cef6989db262e0c81a18d))
+* **tmp:** partial pnpm store reclaim (free unlinked content, not all-or-nothing) ([#1886](https://github.com/erwins-enkel/shepherd/issues/1886)) ([6f7b065](https://github.com/erwins-enkel/shepherd/commit/6f7b0653b787b0d0082f96a466efba218188fb14))
+* **ui:** redesign settings as sidebar cockpit + mobile drill-in (5a/5b) ([#1903](https://github.com/erwins-enkel/shepherd/issues/1903)) ([e58f05b](https://github.com/erwins-enkel/shepherd/commit/e58f05ba1eb4016d9f64051edc79bd787e5989f1))
+* **ui:** redesign the gear menu as a telemetry popover + rising sheet ([#1856](https://github.com/erwins-enkel/shepherd/issues/1856)) ([ffdd11f](https://github.com/erwins-enkel/shepherd/commit/ffdd11fc9ef2ba48c1de5fe83048e48a8c6b0df0))
+* **ui:** redesign the new task modal into a single-view "calm form" layout ([#1854](https://github.com/erwins-enkel/shepherd/issues/1854)) ([91c43ce](https://github.com/erwins-enkel/shepherd/commit/91c43ce5d6e4335889d3dfc088132738a08ed722))
+* **ui:** resizable Repos modal + repository sidebar with local persistence ([#1831](https://github.com/erwins-enkel/shepherd/issues/1831)) ([84f7924](https://github.com/erwins-enkel/shepherd/commit/84f7924a286db1d21ed3d9fc609f3f9f5ee6b507))
+* **ui:** show Codex release notes in the update dialog ([#1865](https://github.com/erwins-enkel/shepherd/issues/1865)) ([e819b2d](https://github.com/erwins-enkel/shepherd/commit/e819b2d14075da2fdb2cff75982f6385a3701869))
+* **ui:** show repository owners in picker ([#1913](https://github.com/erwins-enkel/shepherd/issues/1913)) ([322f31a](https://github.com/erwins-enkel/shepherd/commit/322f31aaee0a3fd71f62fe7db8231dc0bf92d602))
+* **ui:** surface assigned-to-others plain issues ([#1694](https://github.com/erwins-enkel/shepherd/issues/1694)) ([#1837](https://github.com/erwins-enkel/shepherd/issues/1837)) ([9b12215](https://github.com/erwins-enkel/shepherd/commit/9b12215d6352544c818f5ef7406f3588799b5cb4))
+* **ui:** unified session status bar across all session views ([#1822](https://github.com/erwins-enkel/shepherd/issues/1822)) ([7e386b8](https://github.com/erwins-enkel/shepherd/commit/7e386b8f0351742fbb3e67d30b852bf7c5b8333c))
+* **uploads:** accept 250 MB screen-recording video attachments ([#1915](https://github.com/erwins-enkel/shepherd/issues/1915)) ([40119cd](https://github.com/erwins-enkel/shepherd/commit/40119cd737f04dba304903eb21fae66ed7a5aff0))
+
+
+### Bug Fixes
+
+* **automerge:** break the conflicting-PR rebase deadlock in autopilot ([#1847](https://github.com/erwins-enkel/shepherd/issues/1847)) ([f6e8868](https://github.com/erwins-enkel/shepherd/commit/f6e886848081bb85a0c09e611b09c52846cbb9b8))
+* **critic:** make the epic landing-PR critic epic-aware ([#1761](https://github.com/erwins-enkel/shepherd/issues/1761)) ([#1843](https://github.com/erwins-enkel/shepherd/issues/1843)) ([dd52dbe](https://github.com/erwins-enkel/shepherd/commit/dd52dbe93552ff9562689ccfd0f3281b6792195e))
+* **deps:** upgrade site + docs-site to Astro 7 ([#1861](https://github.com/erwins-enkel/shepherd/issues/1861)) ([4dc4180](https://github.com/erwins-enkel/shepherd/commit/4dc418080cc105a17ba2e4d82162b9c467f0ef8f))
+* **diagnostics:** explain the host_capacity warning & link an actionable fix ([#1840](https://github.com/erwins-enkel/shepherd/issues/1840)) ([5157a44](https://github.com/erwins-enkel/shepherd/commit/5157a44526d205c25f05b1c60ea60f7cb114fccc))
+* **epic:** dedupe epic-dag members so multi-line blockers don't break the panel ([#1833](https://github.com/erwins-enkel/shepherd/issues/1833)) ([90720f0](https://github.com/erwins-enkel/shepherd/commit/90720f0689244031290c1f3474cba1f5f69c9dcd))
+* **epic:** rebase epic landing PR at open time + notify on genuine conflict ([#1842](https://github.com/erwins-enkel/shepherd/issues/1842)) ([c4dc2e5](https://github.com/erwins-enkel/shepherd/commit/c4dc2e5b550965a4e3e96de77152f7f828f6b23e))
+* **herdr:** guard against unsupported herdr 0.7.5+ (agent spawning broken) ([#1887](https://github.com/erwins-enkel/shepherd/issues/1887)) ([39a6631](https://github.com/erwins-enkel/shepherd/commit/39a6631f9a0a48aea477fa861562ff71e761035c))
+* **herdr:** pin the fresh-install path to the supported ceiling ([#1896](https://github.com/erwins-enkel/shepherd/issues/1896)) ([#1906](https://github.com/erwins-enkel/shepherd/issues/1906)) ([411c054](https://github.com/erwins-enkel/shepherd/commit/411c0540e4482241a812a9a96f4b35b85c23a11e))
+* **plan-gate:** anchor the plan reviewer to the planner's tree ([#1863](https://github.com/erwins-enkel/shepherd/issues/1863)) ([868a196](https://github.com/erwins-enkel/shepherd/commit/868a19632d5eff33286eb278b0335faf1150b342))
+* **recap:** recover Codex verdicts delivered as chat instead of a file ([#1827](https://github.com/erwins-enkel/shepherd/issues/1827)) ([b37ac90](https://github.com/erwins-enkel/shepherd/commit/b37ac90853096b8b1a77ada9092dcc0b8906bd08))
+* **security:** move production /tmp paths off world-writable locations ([#1879](https://github.com/erwins-enkel/shepherd/issues/1879)) ([9a4d407](https://github.com/erwins-enkel/shepherd/commit/9a4d40787f51ff700dff1e13feb027c9dadc2152))
+* **tabs:** transient helper tabs leak as Herdr shell husks until FD exhaustion ([#1858](https://github.com/erwins-enkel/shepherd/issues/1858)) ([341b430](https://github.com/erwins-enkel/shepherd/commit/341b43078ab496dabd662bc96df430b7a63f429f))
+* **tmp:** point trusted agents at a disk-backed TMPDIR ([#1875](https://github.com/erwins-enkel/shepherd/issues/1875)) ([#1882](https://github.com/erwins-enkel/shepherd/issues/1882)) ([4588a73](https://github.com/erwins-enkel/shepherd/commit/4588a739fe7718a9cb48a66dddf36087f1944aed))
+* **tmp:** reclaim forked pnpm stores + abandoned agent worktrees ([#1881](https://github.com/erwins-enkel/shepherd/issues/1881)) ([cfa87fa](https://github.com/erwins-enkel/shepherd/commit/cfa87fa89659899760db6d16a4946732c6ec2bcc)), closes [#1874](https://github.com/erwins-enkel/shepherd/issues/1874)
+* **tmp:** warn on tmpfs inode pressure, steer agents off /tmp ([#1876](https://github.com/erwins-enkel/shepherd/issues/1876)) ([2f864a2](https://github.com/erwins-enkel/shepherd/commit/2f864a2eaa72bbb9ee239873ab75174a5e514abd))
+* **ui:** bind an open epic's head and children into one group ([#1814](https://github.com/erwins-enkel/shepherd/issues/1814)) ([308d00f](https://github.com/erwins-enkel/shepherd/commit/308d00f88c8c2c615088f5c23264c77a3171053c))
+* **ui:** keep new-task modal content above the iOS keyboard ([#1855](https://github.com/erwins-enkel/shepherd/issues/1855)) ([7287bd8](https://github.com/erwins-enkel/shepherd/commit/7287bd8243cdb8f3761434705c5a8ad9efe7be5e))
+* **ui:** make GitRail's marked/dompurify imports dynamic ([#1846](https://github.com/erwins-enkel/shepherd/issues/1846)) ([d1b1f54](https://github.com/erwins-enkel/shepherd/commit/d1b1f540db754ea7acc93eb5ea416d2a097b95f4))
+* **ui:** make the new-task modal usable on mobile (controls + issue picker) ([#1916](https://github.com/erwins-enkel/shepherd/issues/1916)) ([ccc2131](https://github.com/erwins-enkel/shepherd/commit/ccc21310d8f83a848d26bd9f335411ad50d04576))
+* **ui:** make the pending-login auth banner visually unmissable ([#1851](https://github.com/erwins-enkel/shepherd/issues/1851)) ([7089980](https://github.com/erwins-enkel/shepherd/commit/70899801bde5f15bc4af8ce64088dbbb9a524a27))
+* **ui:** reword provider-constraint callout to token/engine wording ([#1914](https://github.com/erwins-enkel/shepherd/issues/1914)) ([b6b16c7](https://github.com/erwins-enkel/shepherd/commit/b6b16c703a1904dc8608ec9153a703e98745c9d3))
+
+
+### Documentation
+
+* **media:** narrated explainer video (issue → merge, and why it stops) ([#1883](https://github.com/erwins-enkel/shepherd/issues/1883)) ([eb6d502](https://github.com/erwins-enkel/shepherd/commit/eb6d5028ea30af6e4bdd070f508e2676f70b39af))
+* **readme:** embed the explainer as an inline player ([#1884](https://github.com/erwins-enkel/shepherd/issues/1884)) ([a914b9c](https://github.com/erwins-enkel/shepherd/commit/a914b9ccd0f4ef6a493057ce46a1b7156b8cf464))
+* **research:** should Shepherd integrate with buzz? (not yet) ([#1904](https://github.com/erwins-enkel/shepherd/issues/1904)) ([24f6071](https://github.com/erwins-enkel/shepherd/commit/24f60719d2b03747b62c4d4b1cd3a92ebfd187f2))
+* **research:** storyboard + tooling decision for a Shepherd explainer ([#1871](https://github.com/erwins-enkel/shepherd/issues/1871)) ([33995c4](https://github.com/erwins-enkel/shepherd/commit/33995c4890b2540f9fd183ac2a2de39de84948b8))
+* **research:** take-aways from mattpocock/skills for reviewer briefings ([#1812](https://github.com/erwins-enkel/shepherd/issues/1812)) ([2f4f2c9](https://github.com/erwins-enkel/shepherd/commit/2f4f2c912659b617d44491b8961d9d1d744de9b0))
+* sync docs to recent source changes ([#1811](https://github.com/erwins-enkel/shepherd/issues/1811)) ([c99d092](https://github.com/erwins-enkel/shepherd/commit/c99d09248d4e317aa76a3e3cf6d8cb10c626329d))
+
 ## [1.44.0](https://github.com/erwins-enkel/shepherd/compare/v1.43.0...v1.44.0) (2026-07-16)
 
 

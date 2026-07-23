@@ -110,7 +110,7 @@ import {
 } from "./preview-launch";
 import { sessionActivity } from "./activity";
 import { firstRun } from "./first-run";
-import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES } from "./uploads";
+import { handleUpload, parseUploadFile, MAX_UPLOAD_BYTES, MAX_REQUEST_BODY_BYTES } from "./uploads";
 import type { UsageLimits, UsageLimitsService } from "./usage-limits";
 import type { UpdateService } from "./update";
 import type { HerdrUpdateService } from "./herdr-update";
@@ -259,6 +259,9 @@ export interface AppDeps {
   store: SessionStore;
   service: SessionService;
   events: EventHub;
+  /** Test seam: overrides MAX_UPLOAD_BYTES for the scratchpad upload route so the 413
+   *  path is testable without allocating limit-sized fixtures. Production never sets it. */
+  maxUploadBytes?: number;
   /** Live Codex auth mode; optional for tests and read on demand in production. */
   readCodexAuthMode?: () => CodexAuthMode;
   /** Anonymous product telemetry (Aptabase). `event()` itself no-ops unless consent is
@@ -2396,7 +2399,8 @@ async function handleSessionScratchpadUpload({
   const file = await parseUploadFile(req);
   if (file instanceof Response) return file;
 
-  if (file.size > MAX_UPLOAD_BYTES) return json({ error: "file too large" }, 413);
+  if (file.size > (deps.maxUploadBytes ?? MAX_UPLOAD_BYTES))
+    return json({ error: "file too large" }, 413);
 
   const rel = url.searchParams.get("path") ?? "";
   const dir = await resolveScratchpadUploadDir(s.worktreePath, s.claudeSessionId, rel);
@@ -4484,7 +4488,11 @@ async function runStarPromptAction(
 function handleUploads({ req, parts, deps }: Ctx): Promise<Response> | null {
   if (parts[0] === "api" && parts[1] === "uploads" && !parts[2]) {
     if (req.method === "POST") {
-      return handleUpload(req, { store: deps.store, repoRoot: config.repoRoot });
+      return handleUpload(req, {
+        store: deps.store,
+        repoRoot: config.repoRoot,
+        maxUploadBytes: deps.maxUploadBytes,
+      });
     }
   }
   return null;
@@ -7665,11 +7673,16 @@ export function pickTerminalBridgeKind(opts: {
  *    one native sub-issue link each + buildEpic — ~25 sequential round-trips for a 12-child epic,
  *    which blows past 10s. Bun then severs the socket while the handler keeps running to completion,
  *    so the operator saw a bogus failure for an approve that had actually succeeded. 255 is Bun's
- *    ceiling for both `idleTimeout` and `server.timeout`. */
+ *    ceiling for both `idleTimeout` and `server.timeout`.
+ *  - the upload routes carry attachments up to MAX_UPLOAD_BYTES (screen recordings) from phones
+ *    over Tailscale/LTE; a network switch or backgrounded app can stall the stream past 10s and
+ *    kill an otherwise-healthy upload, so they get a 120s idle budget. */
 export const slowRequestTimeoutSec = (req: Request, url: URL): number | null => {
   if (req.method !== "POST") return null;
   if (url.pathname === "/api/usage/refresh") return 60;
   if (/^\/api\/sessions\/[^/]+\/epic-draft\/approve$/.test(url.pathname)) return 255;
+  if (url.pathname === "/api/uploads") return 120;
+  if (/^\/api\/sessions\/[^/]+\/scratchpad\/upload$/.test(url.pathname)) return 120;
   return null;
 };
 
@@ -7687,6 +7700,9 @@ export function serve(deps: AppDeps, port: number) {
   return Bun.serve<WsData>({
     port,
     hostname: config.host,
+    // Bun's 128 MiB default would reject screen-recording uploads at the transport
+    // layer, before the app-level MAX_UPLOAD_BYTES check ever runs.
+    maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
     fetch(req, server) {
       const authErr = checkAuth(req);
       if (authErr) return authErr;

@@ -13,7 +13,9 @@ import { join } from "node:path";
 import {
   extForMime,
   imageExtForMime,
+  sessionAttachExtForMime,
   MAX_UPLOAD_BYTES,
+  MAX_REQUEST_BODY_BYTES,
   stagingDir,
   worktreeUploadsDir,
   copyStagedIntoWorktree,
@@ -33,6 +35,10 @@ test("extForMime maps supported staged upload types", () => {
   expect(extForMime("application/pdf")).toBe("pdf");
   expect(extForMime("text/markdown")).toBe("md");
   expect(extForMime("text/plain")).toBe("txt");
+  expect(extForMime("video/mp4")).toBe("mp4");
+  expect(extForMime("video/quicktime")).toBe("mov");
+  expect(extForMime("video/webm")).toBe("webm");
+  expect(extForMime("video/x-m4v")).toBe("m4v");
   expect(extForMime("")).toBeNull();
 });
 
@@ -41,10 +47,23 @@ test("imageExtForMime remains image-only for live terminal uploads", () => {
   expect(imageExtForMime("image/jpeg")).toBe("jpg");
   expect(imageExtForMime("application/pdf")).toBeNull();
   expect(imageExtForMime("text/plain")).toBeNull();
+  expect(imageExtForMime("video/mp4")).toBeNull();
 });
 
-test("MAX_UPLOAD_BYTES is 10 MB", () => {
-  expect(MAX_UPLOAD_BYTES).toBe(10 * 1024 * 1024);
+test("sessionAttachExtForMime accepts images and videos, nothing else", () => {
+  expect(sessionAttachExtForMime("image/png")).toBe("png");
+  expect(sessionAttachExtForMime("video/mp4")).toBe("mp4");
+  expect(sessionAttachExtForMime("video/quicktime")).toBe("mov");
+  expect(sessionAttachExtForMime("application/pdf")).toBeNull();
+  expect(sessionAttachExtForMime("text/plain")).toBeNull();
+});
+
+test("MAX_UPLOAD_BYTES is 250 MB", () => {
+  expect(MAX_UPLOAD_BYTES).toBe(250 * 1024 * 1024);
+});
+
+test("transport cap stays above the app limit so the app-level 413 is reachable", () => {
+  expect(MAX_REQUEST_BODY_BYTES).toBeGreaterThan(MAX_UPLOAD_BYTES);
 });
 
 test("stagingDir / worktreeUploadsDir build the expected paths", () => {
@@ -124,6 +143,10 @@ test("sweepStaging is a no-op when staging dir is absent", () => {
 
 test("uploadExtension derives bounded safe extensions for staged attachments", () => {
   expect(uploadExtension(new File(["x"], "report.pdf", { type: "application/pdf" }))).toBe("pdf");
+  // MIME fallback for a nameless video — unit-level only: Bun's multipart round-trip
+  // re-infers the part type from the filename extension, so this can't be exercised
+  // through handleUpload with an extension-less name.
+  expect(uploadExtension(new File(["x"], "clip", { type: "video/mp4" }))).toBe("mp4");
   expect(uploadExtension(new File(["x"], "notes.md", { type: "" }))).toBe("md");
   expect(uploadExtension(new File(["x"], "todo", { type: "text/plain" }))).toBe("txt");
   expect(uploadExtension(new File(["x"], "noext", { type: "" }))).toBe("bin");
@@ -180,8 +203,9 @@ test("handleUpload saves staged non-image attachments when no session given", as
     new File([new Uint8Array([3])], "readme.txt", { type: "text/plain" }),
     new File([new Uint8Array([4])], "noext", { type: "" }),
     new File([new Uint8Array([5])], "unsafe." + "x".repeat(40), { type: "" }),
+    new File([new Uint8Array([6])], "ScreenRecording.mov", { type: "video/quicktime" }),
   ];
-  const endings = [".pdf", ".md", ".txt", ".bin", ".bin"];
+  const endings = [".pdf", ".md", ".txt", ".bin", ".bin", ".mov"];
   for (let i = 0; i < cases.length; i++) {
     const res = await handleUpload(uploadReq(cases[i]!), { store, repoRoot: root });
     expect(res.status).toBe(200);
@@ -217,7 +241,39 @@ test("handleUpload saves into the session worktree when ?session= is valid", asy
   expect(existsSync(body.path)).toBe(true);
 });
 
-test("handleUpload keeps ?session= uploads image-only", async () => {
+test("handleUpload accepts video uploads on the ?session= path", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-sess");
+  mkdirSync(wt);
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const cases: Array<[string, string, string]> = [
+    ["rec.mp4", "video/mp4", ".mp4"],
+    ["rec.mov", "video/quicktime", ".mov"],
+  ];
+  for (const [name, type, ending] of cases) {
+    const file = new File([new Uint8Array([9])], name, { type });
+    const res = await handleUpload(uploadReq(file, `?session=${s.id}`), { store, repoRoot: root });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.path.startsWith(worktreeUploadsDir(wt) + "/")).toBe(true);
+    expect(body.path.endsWith(ending)).toBe(true);
+    expect(existsSync(body.path)).toBe(true);
+  }
+});
+
+test("handleUpload keeps ?session= uploads image/video-only", async () => {
   const store = new SessionStore(":memory:");
   const wt = join(root, "wt-sess");
   mkdirSync(wt);
@@ -267,10 +323,49 @@ test("handleUpload accepts an empty MIME file and falls back for extensionless n
   expect(existsSync(body.path)).toBe(true);
 });
 
-test("handleUpload 413s a file over the size cap", async () => {
+// The 413 boundary runs against an injected tiny limit (maxUploadBytes seam) so no test
+// allocates limit-sized fixtures; the real-server transport test in server.test.ts is the
+// single deliberately-large upload in the suite. Fixture contents are ASCII: Bun's
+// multipart round-trip corrupts parts whose bytes are all NUL (name lost, size 0).
+test("handleUpload 413s a file over the size cap, accepts one exactly at it", async () => {
   const store = new SessionStore(":memory:");
-  const big = new File([new Uint8Array(MAX_UPLOAD_BYTES + 1)], "x.png", { type: "image/png" });
-  const res = await handleUpload(uploadReq(big), { store, repoRoot: root });
+  const atLimit = new File(["A".repeat(8)], "ok.png", { type: "image/png" });
+  const okRes = await handleUpload(uploadReq(atLimit), {
+    store,
+    repoRoot: root,
+    maxUploadBytes: 8,
+  });
+  expect(okRes.status).toBe(200);
+
+  const over = new File(["A".repeat(9)], "big.png", { type: "image/png" });
+  const res = await handleUpload(uploadReq(over), { store, repoRoot: root, maxUploadBytes: 8 });
+  expect(res.status).toBe(413);
+  expect((await res.json()).error).toBe("file too large");
+});
+
+test("handleUpload 413s an over-limit upload on the ?session= path too", async () => {
+  const store = new SessionStore(":memory:");
+  const wt = join(root, "wt-sess");
+  mkdirSync(wt);
+  const s = store.create({
+    name: "n",
+    prompt: "p",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/n",
+    worktreePath: wt,
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+    claudeSessionId: "00000000-0000-0000-0000-000000000000",
+    model: null,
+  });
+  const over = new File(["A".repeat(9)], "rec.mp4", { type: "video/mp4" });
+  const res = await handleUpload(uploadReq(over, `?session=${s.id}`), {
+    store,
+    repoRoot: root,
+    maxUploadBytes: 8,
+  });
   expect(res.status).toBe(413);
 });
 

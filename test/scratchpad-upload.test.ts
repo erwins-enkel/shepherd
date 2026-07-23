@@ -6,7 +6,6 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import { sessionScratchpadDir } from "../src/tmp-sweep";
-import { MAX_UPLOAD_BYTES } from "../src/uploads";
 
 let tmpRoot: string;
 let repoDir: string;
@@ -29,7 +28,7 @@ afterEach(() => {
   else process.env.SHEPHERD_TMP_SWEEP_DIR = prevEnv;
 });
 
-function harness() {
+function harness(maxUploadBytes?: number) {
   const store = new SessionStore(":memory:");
   const hub = new EventHub();
   const deps: AppDeps = {
@@ -37,6 +36,7 @@ function harness() {
     service: {} as any,
     events: hub,
     usageLimits: { limits: () => ({}) } as any,
+    maxUploadBytes,
   };
   return { app: makeApp(deps), store };
 }
@@ -159,15 +159,20 @@ test("POST upload: ?path pointing at existing file → 404", async () => {
 
 // ── Oversize → 413 ──────────────────────────────────────────────────────────
 
-test("POST upload: oversize file → 413", async () => {
-  const { app, store } = harness();
+// Runs against an injected tiny limit (maxUploadBytes seam) instead of allocating a
+// MAX_UPLOAD_BYTES-sized fixture (250 MiB); a boundary-sized file also proves the check
+// is strictly-greater-than.
+test("POST upload: oversize file → 413, at-limit file accepted", async () => {
+  const { app, store } = harness(8);
   const s = makeSession(store);
   const root = sessionScratchpadDir(repoDir, SID);
   mkdirSync(root, { recursive: true });
 
-  const bigData = new Uint8Array(MAX_UPLOAD_BYTES + 1);
-  const file = new File([bigData], "big.bin", { type: "application/octet-stream" });
-  const res = await app.fetch(makeUploadRequest(s.id, file));
+  const atLimit = new File(["A".repeat(8)], "ok.bin", { type: "application/octet-stream" });
+  expect((await app.fetch(makeUploadRequest(s.id, atLimit))).status).toBe(200);
+
+  const over = new File(["A".repeat(9)], "big.bin", { type: "application/octet-stream" });
+  const res = await app.fetch(makeUploadRequest(s.id, over));
   expect(res.status).toBe(413);
 });
 

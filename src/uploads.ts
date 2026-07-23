@@ -3,10 +3,23 @@ import { mkdirSync, copyFileSync, rmSync, readdirSync, statSync, existsSync } fr
 import { join, basename } from "node:path";
 import type { SessionStore } from "./store";
 
-export const MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+/** Sized for smartphone screen recordings (~0.63 MB/s HEVC → ≈6–7 min), uniform across
+ *  all upload endpoints (New Task staging, in-session attach, scratchpad). */
+export const MAX_UPLOAD_BYTES = 250 * 1024 * 1024;
+
+/** Transport cap for the main Bun.serve — MUST stay above MAX_UPLOAD_BYTES (headroom for
+ *  multipart framing), else Bun rejects bodies before the app-level 413 can fire. */
+export const MAX_REQUEST_BODY_BYTES = MAX_UPLOAD_BYTES + 1024 * 1024;
 
 /** Age after which an abandoned staged upload (New Task or relaunch carry) is reclaimed. */
 export const STAGING_TTL_MS = 24 * 60 * 60 * 1000;
+
+const VIDEO_MIME_EXT: Record<string, string> = {
+  "video/mp4": "mp4",
+  "video/quicktime": "mov",
+  "video/webm": "webm",
+  "video/x-m4v": "m4v",
+};
 
 const MIME_EXT: Record<string, string> = {
   "image/png": "png",
@@ -16,6 +29,7 @@ const MIME_EXT: Record<string, string> = {
   "application/pdf": "pdf",
   "text/markdown": "md",
   "text/plain": "txt",
+  ...VIDEO_MIME_EXT,
 };
 
 const IMAGE_MIME_EXT: Record<string, string> = {
@@ -23,6 +37,12 @@ const IMAGE_MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
   "image/gif": "gif",
   "image/webp": "webp",
+};
+
+/** In-session attach accepts images and videos (screen recordings), nothing else. */
+const SESSION_ATTACH_MIME_EXT: Record<string, string> = {
+  ...IMAGE_MIME_EXT,
+  ...VIDEO_MIME_EXT,
 };
 
 const SAFE_EXT_RE = /^[a-z0-9]{1,16}$/;
@@ -35,6 +55,11 @@ export function extForMime(mime: string): string | null {
 /** Extension for a supported live terminal image MIME, or null if unsupported. */
 export function imageExtForMime(mime: string): string | null {
   return IMAGE_MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
+}
+
+/** Extension for a supported in-session attachment MIME (image or video), or null. */
+export function sessionAttachExtForMime(mime: string): string | null {
+  return SESSION_ATTACH_MIME_EXT[mime.toLowerCase().split(";", 1)[0] ?? ""] ?? null;
 }
 
 function safeExt(ext: string | null | undefined): string | null {
@@ -130,6 +155,9 @@ const j = (body: unknown, status = 200): Response =>
 export interface UploadDeps {
   store: Pick<SessionStore, "get">;
   repoRoot: string;
+  /** Test seam: overrides MAX_UPLOAD_BYTES so the 413 path is testable without
+   *  allocating limit-sized fixtures. Production never sets this. */
+  maxUploadBytes?: number;
 }
 
 /**
@@ -149,7 +177,8 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   const file = await parseUploadFile(req);
   if (file instanceof Response) return file;
 
-  if (file.size > MAX_UPLOAD_BYTES) return j({ error: "file too large" }, 413);
+  if (file.size > (deps.maxUploadBytes ?? MAX_UPLOAD_BYTES))
+    return j({ error: "file too large" }, 413);
 
   const sessionId = new URL(req.url).searchParams.get("session");
   let ext: string;
@@ -157,9 +186,9 @@ export async function handleUpload(req: Request, deps: UploadDeps): Promise<Resp
   if (sessionId) {
     const s = deps.store.get(sessionId);
     if (!s) return j({ error: "unknown session" }, 404);
-    const imageExt = imageExtForMime(file.type);
-    if (!imageExt) return j({ error: "unsupported image type" }, 415);
-    ext = imageExt;
+    const attachExt = sessionAttachExtForMime(file.type);
+    if (!attachExt) return j({ error: "unsupported attachment type" }, 415);
+    ext = attachExt;
     destDir = worktreeUploadsDir(s.worktreePath);
   } else {
     ext = uploadExtension(file);

@@ -1200,6 +1200,36 @@ test("POST /api/uploads saves a staged attachment and returns its path", async (
   rmSync(body.path, { force: true });
 });
 
+// The single deliberately-large upload in the suite (~130 MiB buffer + Bun's server-side
+// buffering, ~300 MB transient): a 200 through the REAL serve() is only possible if
+// maxRequestBodySize is actually wired into Bun.serve — under Bun's 128 MiB default the
+// transport rejects this body before the handler runs. Direct handleUpload() tests bypass
+// transport entirely, so don't shrink this below 128 MiB or it proves nothing.
+test("serve() accepts a >128 MiB screen-recording upload end-to-end", async () => {
+  const server = serve(makeDeps(), 0);
+  let stagedPath: string | null = null;
+  try {
+    const fd = new FormData();
+    const bytes = 130 * 1024 * 1024;
+    fd.append("file", new File([new Uint8Array(bytes).fill(65)], "rec.mp4", { type: "video/mp4" }));
+    const res = await fetch(`http://localhost:${server.port}/api/uploads`, {
+      method: "POST",
+      body: fd,
+    });
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    stagedPath = body.path;
+    // Staging lives under config.repoRoot — OUTSIDE this suite's tmpRoot teardown — so the
+    // prefix assertion proves the finally-cleanup below targets the staged fixture.
+    expect(body.path.startsWith(stagingDir(config.repoRoot) + "/")).toBe(true);
+    expect(body.path.endsWith(".mp4")).toBe(true);
+    expect(Bun.file(body.path).size).toBe(bytes);
+  } finally {
+    if (stagedPath) rmSync(stagedPath, { force: true });
+    server.stop();
+  }
+});
+
 test("POST /api/uploads?session rejects a non-image for the live terminal image workflow", async () => {
   const app = makeApp(makeDeps(["term_x"]));
   const created = await (

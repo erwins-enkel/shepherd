@@ -3397,5 +3397,9 @@
   "feat_settings_redesign_title": "Einstellungen, neu gestaltet",
   "feat_settings_redesign_body": "Die Einstellungen öffnen sich jetzt als Cockpit: Sektionsleiste links (am Telefon eine Vollbild-Liste mit Detailseiten), ausgerichtete Einstellungszeilen und ein Suchfeld — mit / erreichbar —, das Sektionen filtert und Treffer hervorhebt. Änderungen gelten weiterhin sofort.",
   "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
-  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten."
+  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten.",
+  "newtask_compose_next": "Weiter →",
+  "newtask_compose_hide_keyboard_aria": "Tastatur ausblenden",
+  "feat_keyboard_compose_title": "Tastatur-bewusstes Verfassen auf Mobilgeräten",
+  "feat_keyboard_compose_body": "Bei offener Tastatur kollabiert das Neue-Aufgabe-Modal jetzt auf den Prompt: Einstellungen klappen weg, und eine angepinnte Leiste über den Tasten bietet Anhängen, Tastatur ausblenden und Weiter — das nie abschickt, sondern nur das volle Formular zurückholt."
 }

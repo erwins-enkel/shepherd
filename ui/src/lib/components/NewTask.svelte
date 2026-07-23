@@ -336,6 +336,18 @@
     }
   });
 
+  // ── 7A keyboard-compose state (touch only) ────────────────────────────────
+  // While the soft keyboard is up, the modal collapses to the visible viewport:
+  // everything already confirmed (mode, engine, footer CTA) folds away and a
+  // pinned action row (attach · hide keyboard · Next →) rides above the keys.
+  // Gated on the keyboard being REALLY open (visualViewport occlusion, computed
+  // in syncViewport) — focus alone must not fold controls: the programmatic
+  // focus() on open raises no keyboard on iOS, and hardware-keyboard tablets
+  // never occlude the viewport.
+  let promptFocused = $state(false);
+  let keyboardOpen = $state(false);
+  const composing = $derived(mobile && coarse.current && promptFocused && keyboardOpen);
+
   // ── inline slash-command autocomplete (reuses the /api/commands index) ──
   let allCommands = $state<SlashCommand[]>([]);
   let slashOpen = $state(false);
@@ -435,13 +447,21 @@
   // the region above the keyboard; mirror its height + offsetTop onto the overlay so
   // the card fills it and the fixed bottom sheet (contained by the overlay via its
   // backdrop-filter) re-anchors above the keyboard. Same pattern as ComposeBar.
+  // Soft-keyboard occlusion in CSS px: innerHeight − vv.height×scale is ≈ 0 under
+  // pure pinch zoom (vv.height shrinks by exactly 1/scale) and ≈ keyboard height
+  // when the keyboard is up, zoomed or not. The threshold sits between transient
+  // browser-chrome/vv jitter (≤ ~100 px, and innerHeight moves with it) and the
+  // smallest real keyboards (iPhone landscape ≥ ~160 px).
+  const KEYBOARD_MIN_OCCLUSION = 100;
   function syncViewport() {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
     if (!vv || !overlayEl) return;
     overlayEl.style.height = `${vv.height}px`;
     overlayEl.style.transform = `translateY(${vv.offsetTop}px)`;
+    keyboardOpen = Math.round(window.innerHeight - vv.height * vv.scale) > KEYBOARD_MIN_OCCLUSION;
   }
   function resetViewport() {
+    keyboardOpen = false;
     if (!overlayEl) return;
     overlayEl.style.height = "";
     overlayEl.style.transform = "";
@@ -1241,6 +1261,7 @@
   <form
     class="card bracket"
     class:dragging
+    class:composing
     role="dialog"
     aria-modal="true"
     aria-label={heading}
@@ -1263,7 +1284,23 @@
   >
     <div class="chead">
       <span class="chead-title">{heading}</span>
-      {#if mobile}
+      {#if mobile && composing}
+        <!-- Compose state: the chip compresses to one read-only context line —
+             repo · branch · engine · gate. Everything here is confirmed already;
+             editing any of it means leaving compose (Next →) first. -->
+        <span class="ctx-line">
+          <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
+          <b>{selectedRepoName || m.reposelect_placeholder()}</b>
+          <span class="ctx-dim">
+            · {baseBranch} · {agentProvider === "codex"
+              ? m.agent_provider_codex()
+              : m.agent_provider_claude()} ·
+          </span>
+          <span class="es-gate" class:on={planGate}
+            >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+          >
+        </span>
+      {:else if mobile}
         <!-- Combined repo·branch chip: one control naming both payload-critical values;
              opens the context sheet where each is independently editable. -->
         <button
@@ -1412,7 +1449,9 @@
                   placeholder={m.newtask_prompt_placeholder()}
                   oninput={onPromptInput}
                   onkeydown={onPromptKeydown}
+                  onfocus={() => (promptFocused = true)}
                   onblur={() => {
+                    promptFocused = false;
                     slashOpen = false;
                     issueSearchOpen = false;
                   }}></textarea>
@@ -1489,6 +1528,14 @@
                   {/if}
                 </span>
               </div>
+              {#if composing}
+                <!-- Compose: the button toolbar is folded (attach moves to the pinned
+                     action row); this slim meta line replaces it inside the field. -->
+                <div class="compose-meta">
+                  <span class="cm-count">{m.newtask_char_count({ count: prompt.length })}</span>
+                  <span class="cm-hint">{m.newtask_syntax_hint_touch()}</span>
+                </div>
+              {/if}
             </div>
             {#if relaunch}
               <span class="field-note">{m.newtask_relaunch_image_note()}</span>
@@ -1598,6 +1645,64 @@
           </div>
         {/if}
       </div>
+
+      {#if composing}
+        <!-- 7A pinned action row: rides above the keys (the overlay is vv-synced).
+             Actions run on pointerdown with preventDefault so the textarea never
+             loses focus BEFORE the action lands — a blur would exit compose and
+             unmount this row mid-tap. onclick duplicates the action for activation
+             paths that send no pointerdown (VoiceOver, Enter). -->
+        <div class="compose-actions">
+          <button
+            type="button"
+            class="ca-btn"
+            aria-label={m.newtask_attach_aria()}
+            title={m.newtask_drop_hint()}
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={() => fileInput?.click()}
+            disabled={uploading}
+          >
+            {#if uploading}…{:else}↥{/if}
+          </button>
+          <button
+            type="button"
+            class="ca-btn"
+            aria-label={m.newtask_compose_hide_keyboard_aria()}
+            onpointerdown={(e) => {
+              e.preventDefault();
+              promptInput?.blur();
+            }}
+            onclick={() => promptInput?.blur()}
+          >
+            <svg
+              width="26"
+              height="26"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="1.5"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <rect x="3" y="3.5" width="18" height="11" rx="1"></rect>
+              <path d="M6.5 7h.01M10 7h.01M13.5 7h.01M17 7h.01M6.5 10h.01M17 10h.01M9 11h6"></path>
+              <path d="M8.5 17.5 12 21l3.5-3.5"></path>
+            </svg>
+          </button>
+          <button
+            type="button"
+            class="ca-next"
+            onpointerdown={(e) => {
+              e.preventDefault();
+              promptInput?.blur();
+            }}
+            onclick={() => promptInput?.blur()}
+          >
+            {m.newtask_compose_next()}
+          </button>
+        </div>
+      {/if}
 
       <!-- Footer: readiness line + always-visible CTA. -->
       <div class="cfoot">
@@ -2637,6 +2742,112 @@
     }
     .engine-summary .chev {
       margin-left: auto;
+    }
+    /* ── 7A compose state: keyboard up on a touch device ──────────────────────
+       Everything already confirmed folds away; the prompt owns the visible
+       viewport. `.err` is intentionally KEPT — attach is usable during compose,
+       so failure feedback must stay visible. */
+    .card.composing .nt-upstream,
+    .card.composing :global(.nt-base-repair),
+    .card.composing .relaunch-note,
+    .card.composing .field-note,
+    .card.composing .issue-ref,
+    .card.composing .issue-assigned-notice,
+    .card.composing .seg-row,
+    .card.composing .engine-summary,
+    .card.composing .toolbar,
+    .card.composing .cfoot {
+      display: none;
+    }
+    .card.composing .hero,
+    .card.composing .hero:focus-within {
+      border-color: var(--color-amber);
+    }
+    /* Read-only header context line (repo · branch · engine · gate). */
+    .ctx-line {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+      font-size: var(--fs-meta);
+      color: var(--color-ink);
+    }
+    .ctx-line b {
+      font-weight: 600;
+      color: var(--color-ink-bright);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ctx-line .ctx-dim {
+      min-width: 0;
+      color: var(--color-faint);
+      font-size: var(--fs-micro);
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .ctx-line .es-gate {
+      flex-shrink: 0;
+      font-size: var(--fs-micro);
+    }
+    /* Slim in-field meta line replacing the folded toolbar. */
+    .compose-meta {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 8px;
+      font-size: var(--fs-micro);
+      color: var(--color-faint);
+    }
+    .compose-meta .cm-count {
+      font-variant-numeric: tabular-nums;
+    }
+    .compose-meta .cm-hint {
+      margin-left: auto;
+    }
+    /* Pinned action row: attach · hide keyboard · Next →. */
+    .compose-actions {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+    }
+    .ca-btn {
+      flex-shrink: 0;
+      width: 48px;
+      height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: transparent;
+      border: 1px solid var(--color-line);
+      border-radius: 2px;
+      color: var(--color-ink);
+      font: inherit;
+      font-size: var(--fs-lg);
+      cursor: pointer;
+    }
+    .ca-btn:disabled {
+      opacity: 0.6;
+    }
+    .ca-next {
+      margin-left: auto;
+      min-height: 44px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid var(--color-amber);
+      color: var(--color-amber);
+      background: transparent;
+      padding: 0 18px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font: inherit;
+      font-size: var(--fs-meta);
+      cursor: pointer;
+      box-shadow: inset 0 0 18px -10px var(--color-amber);
     }
     .cfoot {
       flex-direction: column;

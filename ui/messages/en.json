@@ -3397,5 +3397,9 @@
   "feat_settings_redesign_title": "Settings, redesigned",
   "feat_settings_redesign_body": "Settings now opens as a cockpit: a section rail on the left (a full-screen list with drill-in pages on phones), aligned setting rows, and a search field — press / to jump to it — that filters sections and highlights matches. Changes still apply immediately.",
   "feat_video_attachments_title": "Attach screen recordings",
-  "feat_video_attachments_body": "The upload limit is now 250 MB, so a narrated screen recording from your phone fits comfortably. Attach videos in New Task or drop them into a running session's terminal — the agent gets a hint on how to extract frames and audio to actually watch them."
+  "feat_video_attachments_body": "The upload limit is now 250 MB, so a narrated screen recording from your phone fits comfortably. Attach videos in New Task or drop them into a running session's terminal — the agent gets a hint on how to extract frames and audio to actually watch them.",
+  "newtask_compose_next": "Next →",
+  "newtask_compose_hide_keyboard_aria": "Hide keyboard",
+  "feat_keyboard_compose_title": "Keyboard-aware compose on mobile",
+  "feat_keyboard_compose_body": "While the keyboard is up, the New Task modal now collapses to the prompt: settings fold away and a pinned row above the keys offers attach, hide keyboard, and Next — which never submits, it just brings the full form back."
 }

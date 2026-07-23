@@ -157,7 +157,7 @@
   <input
     bind:this={fileInput}
     type="file"
-    accept="image/*"
+    accept="image/*,video/*"
     multiple
     hidden
     onchange={(e) => {

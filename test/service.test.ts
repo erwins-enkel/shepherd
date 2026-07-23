@@ -1461,12 +1461,65 @@ test("createSession: copies attachments into worktree and appends paths to the p
     images: ["/stage/a.png", "/stage/notes.md"],
   });
 
-  // prompt argv (last element) carries the user text + the copied attachment paths
+  // prompt argv (last element) carries the user text + the copied attachment paths;
+  // exact match doubles as the image-only case for the video note (none appended)
   expect(calls.argv[calls.argv.length - 1]).toBe(
     "look at this\n\nAttached files:\n/wt/repo-x/.shepherd-uploads/a.png\n/wt/repo-x/.shepherd-uploads/notes.md",
   );
   // stored prompt stays the clean user text
   expect(store.get(s.id)?.prompt).toBe("look at this");
+});
+
+test("createSession: a video attachment appends the ffmpeg consumption note", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const service = new SessionService({
+    store,
+    namer: async () => "repo-x",
+    worktree: {
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      create: () => ({ worktreePath: "/wt/repo-x", branch: "shepherd/repo-x", isolated: true }),
+      remove: () => {},
+    } as any,
+    herdr: {
+      start: async (name: string, cwd: string, argv: string[]) => {
+        calls.argv = argv;
+        return {
+          terminalId: "term_y",
+          cwd,
+          agent: "claude",
+          agentStatus: "working",
+          paneId: "p",
+          tabId: "t",
+          workspaceId: "w",
+        };
+      },
+      list: () => [],
+    } as any,
+    copyUploads: (uploads: string[], worktreePath: string) =>
+      uploads.map((i) => ({
+        src: i,
+        copiedPath: `${worktreePath}/.shepherd-uploads/${i.split("/").pop()}`,
+      })),
+  });
+
+  await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "watch this",
+    model: null,
+    images: ["/stage/rec.mp4", "/stage/shot.png"],
+  });
+
+  const prompt = calls.argv[calls.argv.length - 1] as string;
+  expect(prompt).toContain(
+    "Attached files:\n/wt/repo-x/.shepherd-uploads/rec.mp4\n/wt/repo-x/.shepherd-uploads/shot.png",
+  );
+  // the note names only the video, not the image, and points at ffmpeg extraction
+  expect(prompt).toContain("[Note: video attachment(s) (screen recording): rec.mp4.");
+  expect(prompt).toContain("extract keyframes");
+  expect(prompt).not.toContain("shot.png.");
 });
 
 test("createSession: a dropped (swept) attachment still spawns, notes the loss, emits a toast event", async () => {

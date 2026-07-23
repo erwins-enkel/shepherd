@@ -699,7 +699,7 @@
   "clearmerged_leftovers": "{count} Hintergrundprozesse dieser Sessions werden ebenfalls beendet.",
   "clearmerged_confirm": "{count} stilllegen",
   "viewport_upload_failed": "Upload fehlgeschlagen. Zum Wiederholen tippen",
-  "viewport_attach_image": "Bild anhängen",
+  "viewport_attach_image": "Bild/Video anhängen",
   "viewport_notes_aria": "Notiz hinzufügen: {key} drücken",
   "viewport_type_steer_hint": "⌁ tippen zum Steuern",
   "viewport_detach_hint": "⇥ trennen",
@@ -2542,7 +2542,7 @@
   "files_upload_drop_hint": "Dateien zum Hochladen hierher ziehen",
   "files_uploading": "{name} wird hochgeladen…",
   "files_upload_done": "{name} hochgeladen",
-  "files_upload_too_large": "{name} ist zu groß (max. 10 MB)",
+  "files_upload_too_large": "{name} ist zu groß (max. 250 MB)",
   "files_upload_failed": "{name} konnte nicht hochgeladen werden",
   "feat_scratchpad_upload_title": "Dateien ins Scratchpad hochladen",
   "feat_scratchpad_upload_body": "Du kannst jetzt direkt aus dem Dateien-Tab Dateien in das Scratchpad einer Session laden - per Klick auf Hochladen oder per Drag-and-drop. Der Agent kann alles lesen, was du dort ablegst.",
@@ -3393,5 +3393,7 @@
   "settings_diag_issues": "{count} Probleme",
   "settings_plugins_installed_summary": "{count} installiert",
   "feat_settings_redesign_title": "Einstellungen, neu gestaltet",
-  "feat_settings_redesign_body": "Die Einstellungen öffnen sich jetzt als Cockpit: Sektionsleiste links (am Telefon eine Vollbild-Liste mit Detailseiten), ausgerichtete Einstellungszeilen und ein Suchfeld — mit / erreichbar —, das Sektionen filtert und Treffer hervorhebt. Änderungen gelten weiterhin sofort."
+  "feat_settings_redesign_body": "Die Einstellungen öffnen sich jetzt als Cockpit: Sektionsleiste links (am Telefon eine Vollbild-Liste mit Detailseiten), ausgerichtete Einstellungszeilen und ein Suchfeld — mit / erreichbar —, das Sektionen filtert und Treffer hervorhebt. Änderungen gelten weiterhin sofort.",
+  "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
+  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten."
 }

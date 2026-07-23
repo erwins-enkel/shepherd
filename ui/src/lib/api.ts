@@ -725,7 +725,7 @@ export function worktreeDownloadUrl(id: string, path: string): string {
 }
 
 /** Upload one arbitrary file into a session's scratchpad dir (#1258). Returns the root-relative path.
- *  Throws an ApiError so callers can branch on status (e.g. 413 = too large, max 10 MB). */
+ *  Throws an ApiError so callers can branch on status (e.g. 413 = too large, max 250 MB). */
 export async function uploadScratchpadFile(
   id: string,
   file: File,

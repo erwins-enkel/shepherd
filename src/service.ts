@@ -147,6 +147,9 @@ export const MERGE_STALE_MS = 30 * 60_000;
  *  reclaim a genuinely dead train, never one still landing PRs. */
 export const TRAIN_TRACKER_MAX_MS = 24 * 60 * 60_000;
 
+/** Attachment extensions that get the video-consumption note in the launch prompt. */
+const VIDEO_EXT_RE = /\.(mp4|mov|m4v|webm|mkv)$/i;
+
 export interface ServiceDeps {
   store: SessionStore;
   worktree: Pick<
@@ -1891,14 +1894,26 @@ export class SessionService {
     const dropped = input.images.length - copiedPaths.length;
     const attachedBlock =
       copiedPaths.length > 0 ? `Attached files:\n${copiedPaths.join("\n")}` : "";
-    if (dropped === 0) return { promptBlock: attachedBlock, dropped, attachments };
+    // Agents can't watch a video; without this nudge a screen recording just sits in the
+    // worktree unused. Phrasing kept aligned with ui/src/lib/attachment-paste.ts.
+    const videoNames = copiedPaths.filter((p) => VIDEO_EXT_RE.test(p)).map((p) => basename(p));
+    const videoNote =
+      videoNames.length > 0
+        ? `[Note: video attachment(s) (screen recording): ${videoNames.join(", ")}. You cannot view a video directly — if ffmpeg is available, extract keyframes (e.g. 1 fps stills) and the audio track, read the stills with the Read tool, and transcribe the audio if a transcription tool is available.]`
+        : "";
+    if (dropped === 0)
+      return {
+        promptBlock: [attachedBlock, videoNote].filter(Boolean).join("\n\n"),
+        dropped,
+        attachments,
+      };
 
     console.warn(
       `[uploads] ${dropped}/${input.images.length} staged file(s) missing at spawn; proceeding without them`,
     );
     const droppedNote = `[Note: ${dropped} attached file(s) could not be restored — the upload expired and is unavailable for this session.]`;
     return {
-      promptBlock: [attachedBlock, droppedNote].filter(Boolean).join("\n\n"),
+      promptBlock: [attachedBlock, videoNote, droppedNote].filter(Boolean).join("\n\n"),
       dropped,
       attachments,
     };

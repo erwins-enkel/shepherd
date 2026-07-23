@@ -1486,6 +1486,18 @@ export interface CodexUpdateStatus {
   error?: string;
 }
 
+export interface CodexReleaseNote {
+  version: string;
+  body: string;
+}
+
+export interface CodexReleaseNotesResult {
+  current: string | null;
+  latest: string | null;
+  notes: CodexReleaseNote[];
+  complete: boolean;
+}
+
 /** Terminal outcome of a codex update apply() — the UI mirror of the server's
  *  CodexUpdateResult (src/codex-update.ts). Shared by the `codex-update:done`
  *  event, the store's `codexUpdateDone` signal, and the modal's `done` prop. */

@@ -22,6 +22,22 @@ import {
 const LOG = "/home/op/.shepherd/codex-update.log";
 const CB = "codex";
 
+function jsonResponse(value: unknown, headers: Record<string, string> = {}): Response {
+  return new Response(JSON.stringify(value), {
+    status: 200,
+    headers: { "content-type": "application/json", ...headers },
+  });
+}
+
+function release(version: string, body: string | null) {
+  return {
+    tag_name: `rust-v${version}`,
+    draft: false,
+    prerelease: false,
+    body,
+  };
+}
+
 // ── buildUpdateScript: two channels, tried in the memo's order ─────────────────
 test("buildUpdateScript: can run either channel", () => {
   const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
@@ -308,6 +324,40 @@ test("current == latest → updateAvailable false", async () => {
   expect(s.updateAvailable).toBe(false);
 });
 
+test("check keeps its default latest fetch independent from the release-history transport", async () => {
+  const originalFetch = globalThis.fetch;
+  let latestCalls = 0;
+  let historyCalls = 0;
+  globalThis.fetch = Object.assign(
+    async (input: RequestInfo | URL) => {
+      latestCalls++;
+      expect(String(input)).toBe("https://registry.npmjs.org/@openai/codex/latest");
+      return jsonResponse({ version: "0.145.0" });
+    },
+    { preconnect: originalFetch.preconnect },
+  );
+  try {
+    const svc = new CodexUpdateService({
+      versionRunner: () => "@openai/codex 0.144.0",
+      fetchHistory: async () => {
+        historyCalls++;
+        throw new Error("release history must stay on demand");
+      },
+    });
+
+    expect(await svc.check(3_000)).toMatchObject({
+      current: "0.144.0",
+      latest: "0.145.0",
+      updateAvailable: true,
+      notes: null,
+    });
+    expect(latestCalls).toBe(1);
+    expect(historyCalls).toBe(0);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
 test("versionRunner throws → fail-safe, no badge, error set", async () => {
   const svc = new CodexUpdateService({
     versionRunner: () => {
@@ -318,6 +368,343 @@ test("versionRunner throws → fail-safe, no badge, error set", async () => {
   const s = await svc.check(4000);
   expect(s.updateAvailable).toBe(false);
   expect(s.error).toContain("command not found");
+});
+
+test("check isolates status from history and validates npm latest as an anchored stable version", async () => {
+  for (const latest of ["0.145.0-alpha.1", "v0.145.0", "00.145.0", "0.145", "0.145.0 extra"]) {
+    let historyCalls = 0;
+    const svc = new CodexUpdateService({
+      versionRunner: () => "codex-cli 0.144.0 (build metadata is tolerated)",
+      fetchLatest: async () => ({ version: latest }),
+      fetchHistory: async () => {
+        historyCalls++;
+        return jsonResponse({});
+      },
+    });
+
+    const status = await svc.check(5);
+    expect(status).toMatchObject({ latest: null, updateAvailable: false, notes: null });
+    expect(await svc.releaseNotes()).toEqual({
+      current: "0.144.0",
+      latest: null,
+      notes: [],
+      complete: true,
+    });
+    expect(historyCalls).toBe(0);
+  }
+});
+
+test("check compares arbitrarily large stable components without Number coercion", async () => {
+  const svc = new CodexUpdateService({
+    versionRunner: () => "codex-cli 90071992547409931234567890.2.3",
+    fetchLatest: async () => ({ version: "90071992547409931234567891.0.0" }),
+  });
+
+  expect(await svc.check(6)).toMatchObject({
+    current: "90071992547409931234567890.2.3",
+    latest: "90071992547409931234567891.0.0",
+    updateAvailable: true,
+    notes: null,
+  });
+});
+
+test("releaseNotes resumes a finite npm target set with at most two serial GitHub requests per call", async () => {
+  let now = 1_000;
+  const calls: string[] = [];
+  const fetchHistory = async (input: RequestInfo | URL): Promise<Response> => {
+    const url = String(input);
+    calls.push(url);
+    if (url === "https://registry.npmjs.org/@openai%2Fcodex") {
+      return jsonResponse({
+        versions: {
+          "0.145.0": {},
+          "0.141.0": {},
+          "0.144.0": {},
+          "0.142.0": {},
+          "0.143.0": {},
+        },
+      });
+    }
+    if (url.endsWith("releases?per_page=30&page=1")) {
+      return jsonResponse([release("0.140.0", "current"), release("0.144.0", "notes 144")], {
+        link: '<https://api.github.com/repos/openai/codex/releases?per_page=30&page=2>; rel="next"',
+        "x-ratelimit-remaining": "50",
+        "x-ratelimit-reset": "9999999999",
+      });
+    }
+    if (url.endsWith("releases/tags/rust-v0.145.0")) {
+      return jsonResponse(release("0.145.0", "notes 145"), {
+        "x-ratelimit-remaining": "49",
+        "x-ratelimit-reset": "9999999999",
+      });
+    }
+    if (url.endsWith("releases?per_page=30&page=2")) {
+      return jsonResponse([release("0.142.0", "notes 142"), release("0.141.0", "notes 141")], {
+        "x-ratelimit-remaining": "48",
+        "x-ratelimit-reset": "9999999999",
+      });
+    }
+    if (url.endsWith("releases/tags/rust-v0.143.0")) {
+      return jsonResponse(release("0.143.0", "notes 143"), {
+        "x-ratelimit-remaining": "47",
+        "x-ratelimit-reset": "9999999999",
+      });
+    }
+    throw new Error(`unexpected history URL: ${url}`);
+  };
+  const svc = new CodexUpdateService({
+    versionRunner: () => "codex-cli 0.140.0",
+    fetchLatest: async () => ({ version: "0.145.0" }),
+    fetchHistory,
+    historyNow: () => now,
+    historyProgressIntervalMs: 60_000,
+  });
+  await svc.check(7);
+
+  const first = await svc.releaseNotes();
+  expect(first).toEqual({
+    current: "0.140.0",
+    latest: "0.145.0",
+    notes: [
+      { version: "0.145.0", body: "notes 145" },
+      { version: "0.144.0", body: "notes 144" },
+    ],
+    complete: false,
+  });
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(2);
+
+  now = 30_000;
+  expect(await svc.releaseNotes()).toEqual(first);
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(2);
+
+  now = 61_001;
+  const complete = await svc.releaseNotes();
+  expect(complete).toEqual({
+    current: "0.140.0",
+    latest: "0.145.0",
+    notes: [
+      { version: "0.145.0", body: "notes 145" },
+      { version: "0.144.0", body: "notes 144" },
+      { version: "0.143.0", body: "notes 143" },
+      { version: "0.142.0", body: "notes 142" },
+      { version: "0.141.0", body: "notes 141" },
+    ],
+    complete: true,
+  });
+  expect(calls.filter((url) => new URL(url).hostname === "api.github.com")).toHaveLength(4);
+  expect(calls).toContain("https://api.github.com/repos/openai/codex/releases?per_page=30&page=2");
+  expect(calls).toContain("https://api.github.com/repos/openai/codex/releases/tags/rust-v0.143.0");
+});
+
+test("releaseNotes remains total when catalog evidence is incomplete and stops retrying a terminal exact tag", async () => {
+  let now = 1_000;
+  const calls: string[] = [];
+  const svc = new CodexUpdateService({
+    versionRunner: () => "codex-cli 0.144.0",
+    fetchLatest: async () => ({ version: "0.145.0" }),
+    fetchHistory: async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (new URL(url).hostname === "registry.npmjs.org") {
+        return jsonResponse({ versions: { "0.144.0": {} } });
+      }
+      if (url.includes("releases?")) {
+        return jsonResponse([], {
+          "x-ratelimit-remaining": "50",
+          "x-ratelimit-reset": "9999999999",
+        });
+      }
+      return new Response("missing", {
+        status: 404,
+        headers: {
+          "x-ratelimit-remaining": "49",
+          "x-ratelimit-reset": "9999999999",
+        },
+      });
+    },
+    historyNow: () => now,
+  });
+  await svc.check(8);
+
+  expect(await svc.releaseNotes()).toEqual({
+    current: "0.144.0",
+    latest: "0.145.0",
+    notes: [],
+    complete: false,
+  });
+  const callsAfterTerminalMiss = calls.length;
+  now += 61_000;
+  expect(await svc.releaseNotes()).toMatchObject({ complete: false, notes: [] });
+  expect(calls).toHaveLength(callsAfterTerminalMiss);
+});
+
+test("releaseNotes honors a GitHub rate gate across range keys", async () => {
+  let now = 1_000;
+  let current = "0.140.0";
+  let latest = "0.141.0";
+  const githubCalls: string[] = [];
+  const svc = new CodexUpdateService({
+    versionRunner: () => `codex-cli ${current}`,
+    fetchLatest: async () => ({ version: latest }),
+    fetchHistory: async (input) => {
+      const url = String(input);
+      if (new URL(url).hostname === "registry.npmjs.org") {
+        return jsonResponse({ versions: { [latest]: {} } });
+      }
+      githubCalls.push(url);
+      return new Response("limited", {
+        status: 429,
+        headers: { "retry-after": "60", "x-ratelimit-reset": "61" },
+      });
+    },
+    historyNow: () => now,
+  });
+  await svc.check(11);
+  expect(await svc.releaseNotes()).toMatchObject({ complete: false });
+  expect(githubCalls).toHaveLength(1);
+
+  current = "0.141.0";
+  latest = "0.142.0";
+  await svc.check(12);
+  expect(await svc.releaseNotes()).toEqual({
+    current: "0.141.0",
+    latest: "0.142.0",
+    notes: [],
+    complete: false,
+  });
+  expect(githubCalls).toHaveLength(1);
+
+  now = 61_001;
+  await svc.releaseNotes();
+  expect(githubCalls).toHaveLength(2);
+});
+
+test("releaseNotes bounds malformed, timed-out, oversized, and over-limit upstream payloads", async () => {
+  for (const catalogFailure of ["malformed", "timeout", "oversized"] as const) {
+    let calls = 0;
+    const svc = new CodexUpdateService({
+      versionRunner: () => "codex-cli 0.144.0",
+      fetchLatest: async () => ({ version: "0.145.0" }),
+      fetchHistory: async (input, init) => {
+        calls++;
+        const url = String(input);
+        if (new URL(url).hostname === "registry.npmjs.org") {
+          if (catalogFailure === "malformed") return new Response("{");
+          if (catalogFailure === "oversized") {
+            return new Response("{}", {
+              headers: { "content-length": String(8 * 1024 * 1024 + 1) },
+            });
+          }
+          return new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("aborted", "AbortError")),
+              { once: true },
+            );
+          });
+        }
+        return jsonResponse(release("0.145.0", "latest survives catalog failure"), {
+          "x-ratelimit-remaining": "50",
+          "x-ratelimit-reset": "9999999999",
+        });
+      },
+      historyRequestTimeoutMs: 2,
+      historyLoadTimeoutMs: 50,
+    });
+    await svc.check(13);
+
+    expect(await svc.releaseNotes()).toEqual({
+      current: "0.144.0",
+      latest: "0.145.0",
+      notes: [{ version: "0.145.0", body: "latest survives catalog failure" }],
+      complete: false,
+    });
+    expect(calls).toBe(2);
+  }
+
+  for (const exactFailure of ["oversized-response", "oversized-body"] as const) {
+    let calls = 0;
+    const svc = new CodexUpdateService({
+      versionRunner: () => "codex-cli 0.144.0",
+      fetchLatest: async () => ({ version: "0.145.0" }),
+      fetchHistory: async (input) => {
+        calls++;
+        const url = String(input);
+        if (new URL(url).hostname === "registry.npmjs.org") {
+          return jsonResponse({ versions: { "0.145.0": {} } });
+        }
+        if (url.includes("releases?")) return new Response("{");
+        if (exactFailure === "oversized-response") {
+          return new Response("{}", {
+            headers: { "content-length": String(12 * 1024 * 1024 + 1) },
+          });
+        }
+        return jsonResponse(release("0.145.0", "x".repeat(256 * 1024 + 1)), {
+          "x-ratelimit-remaining": "50",
+          "x-ratelimit-reset": "9999999999",
+        });
+      },
+    });
+    await svc.check(14);
+
+    expect(await svc.releaseNotes()).toMatchObject({ notes: [], complete: false });
+    expect(calls).toBe(3);
+  }
+});
+
+test("releaseNotes deduplicates in-flight work and late range A cannot overwrite cached range B", async () => {
+  let current = "0.140.0";
+  let latest = "0.141.0";
+  let resolveCatalogA!: (response: Response) => void;
+  const catalogA = new Promise<Response>((resolve) => {
+    resolveCatalogA = resolve;
+  });
+  const calls: string[] = [];
+  let catalogCalls = 0;
+  const svc = new CodexUpdateService({
+    versionRunner: () => `codex-cli ${current}`,
+    fetchLatest: async () => ({ version: latest }),
+    fetchHistory: async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (new URL(url).hostname === "registry.npmjs.org") {
+        catalogCalls++;
+        if (catalogCalls === 1) return catalogA;
+        return jsonResponse({ versions: { "0.142.0": {} } });
+      }
+      if (url.includes("releases?")) {
+        const version = latest;
+        return jsonResponse([release(version, `notes ${version}`)], {
+          "x-ratelimit-remaining": "50",
+          "x-ratelimit-reset": "9999999999",
+        });
+      }
+      throw new Error(`unexpected URL: ${url}`);
+    },
+  });
+  await svc.check(9);
+
+  const rangeA = svc.releaseNotes();
+  expect(svc.releaseNotes()).toBe(rangeA);
+
+  current = "0.141.0";
+  latest = "0.142.0";
+  await svc.check(10);
+  const rangeB = await svc.releaseNotes();
+  expect(rangeB).toEqual({
+    current: "0.141.0",
+    latest: "0.142.0",
+    notes: [{ version: "0.142.0", body: "notes 0.142.0" }],
+    complete: true,
+  });
+  const callsAfterB = calls.length;
+
+  resolveCatalogA(jsonResponse({ versions: { "0.141.0": {} } }));
+  expect(await rangeA).toMatchObject({ current: "0.140.0", latest: "0.141.0" });
+  const callsAfterA = calls.length;
+  expect(await svc.releaseNotes()).toEqual(rangeB);
+  expect(callsAfterA).toBeGreaterThan(callsAfterB);
+  expect(calls).toHaveLength(callsAfterA);
 });
 
 // ── apply(): success/failure detection from a re-read version ──────────────────

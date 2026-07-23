@@ -3369,5 +3369,10 @@
   "feat_herdr_sandbox_advisory_title": "Sandboxed sessions on herdr 0.7.5: a status caveat",
   "feat_herdr_sandbox_advisory_body": "On herdr 0.7.5, a resting sandboxed agent shows as \"working\" until it asks a question or finishes — herdr can't report its idle state (issue #1716). Trusted sessions are unaffected. If you rely on sandboxed sessions and want accurate idle status, the herdr update dialog now offers a one-click downgrade to a version without the regression.",
   "feat_herdr_downgrade_title": "Stranded on a broken herdr? One-click downgrade",
-  "feat_herdr_downgrade_body": "If herdr auto-updated into a version Shepherd cannot drive (0.7.5+ broke agent spawning), Shepherd now heals itself: the herdr-update dialog and the Diagnose tab offer a one-click downgrade to the highest supported version — downloaded, verified, swapped and restarted entirely in-app, with a step-by-step audit log."
+  "feat_herdr_downgrade_body": "If herdr auto-updated into a version Shepherd cannot drive (0.7.5+ broke agent spawning), Shepherd now heals itself: the herdr-update dialog and the Diagnose tab offer a one-click downgrade to the highest supported version — downloaded, verified, swapped and restarted entirely in-app, with a step-by-step audit log.",
+  "codexupdate_notes_heading": "Release notes",
+  "codexupdate_notes_loading": "Loading release notes…",
+  "codexupdate_notes_incomplete": "The full release history is not available here yet. You can still update now or view the source on GitHub.",
+  "feat_codex_release_notes_title": "Read Codex changes before updating",
+  "feat_codex_release_notes_body": "The Codex update dialog now shows the original GitHub release notes for every npm-published stable version in your update range, newest first."
 }

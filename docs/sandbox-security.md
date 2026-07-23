@@ -30,6 +30,15 @@ The membrane keeps two token surfaces readable to any in-membrane tool call:
 …), re-setting only HOME/PATH/TERM + non-secret locale vars — so these two
 **bound files** are the only token surfaces left inside the membrane.
 
+In **api-key** auth mode the first surface changes shape rather than
+disappearing (`maskCredentials`): `~/.claude` is bound per-child with
+`.credentials.json` **omitted**, so the OAuth token is genuinely absent inside
+the membrane (`maskedClaudeDirBinds`, `src/sandbox.ts:397-405`) — but the
+`apiKeyHelper` script is bound **RO** at its own path so the `--settings` entry
+resolves (`src/sandbox.ts:541-547`), and that script emits the API key on
+demand. The count of readable token surfaces is therefore the same in either
+mode; only which Anthropic credential it is changes.
+
 **Why accepted.** A single-uid `bwrap` membrane has no privilege boundary
 between `claude` and its own tool calls: any file `claude` reads to authenticate,
 an injected tool call can also read. So the tokens the session legitimately needs
@@ -51,7 +60,7 @@ secrets out of the membrane entirely.
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
 is watching (`willEgressConfine`, `src/sandbox.ts:693-698`; applied at
-`src/service.ts:1879`): the wrap applies iff the autonomous profile resolves
+`src/service.ts:2161`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -108,7 +117,7 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L2708, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L2804, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. The same downgrade applies to an
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
@@ -117,14 +126,14 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   route materializes the draft. It is operator-_created_ (cannot be
   auto-drained — `standard` refuses auto-spawn) but **autopilot-steerable, so it
   runs unattended in practice** (`RESEARCH_PROCEED_STEER`,
-  `src/autopilot.ts:42-47`, dispatched at L335). It ingests **untrusted web**
+  `src/autopilot.ts:44-49`, dispatched at L356). It ingests **untrusted web**
   content on `trusted`/`standard` with the **network open**, and can
   `gh pr create` / open issues via the bound gh token — so a hijacked research
   agent has **both** readable tokens **and** open egress.
 
   **Compensating factors:** the downgrade is explicit and warns once; research
   delivers a **report PR or GitHub issue only, never a code PR**
-  (`src/autopilot.ts:40-45`). The residual is **accepted**.
+  (`src/autopilot.ts:42-43`). The residual is **accepted**.
 
 ## See also
 

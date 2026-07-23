@@ -85,7 +85,11 @@ details are in the
 
 ## Host tuning — tmpfs inodes
 
-Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs
+Shepherd points spawned **trusted** agents at a disk-backed `TMPDIR`
+(`~/.cache/shepherd/tmp`) and keeps their Node compile cache **off** the `/tmp`
+tmpfs, so an agent's scratch tree, git worktrees, dependency installs, and tool
+caches no longer eat tmpfs inodes. Sandboxed agents are unaffected — the membrane
+gives them their own ephemeral `/tmp`. It also runs
 an inode-guard sweep on **startup + daily** that, once `/tmp` inode use crosses a
 threshold, drops the compile cache and stale regenerable tool caches (but never a
 live session's scratch). As a host-level belt on long-uptime hosts, raise `/tmp`'s
@@ -95,8 +99,9 @@ live session's scratch). As a host-level belt on long-uptime hosts, raise `/tmp`
 tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 ```
 
-The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
-`SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
+The relevant override env vars (`SHEPHERD_AGENT_TMPDIR`,
+`SHEPHERD_NODE_COMPILE_CACHE`, `SHEPHERD_TMP_INODE_PCT`,
+`SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
 listed in [Configuration](/reference/configuration/).
 
 The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns

@@ -52,6 +52,7 @@ lines), read by the systemd unit if present.
 
 | Variable | Default | Purpose |
 | --- | --- | --- |
+| `SHEPHERD_AGENT_TMPDIR` | `~/.cache/shepherd/tmp` | Disk-backed `TMPDIR` handed to spawned **trusted** agents, so their scratch tree, git worktrees, dependency installs, and bare-`$TMPDIR` tool caches land on a real filesystem instead of exhausting the `/tmp` tmpfs inode table. Sandboxed spawns are unaffected — the membrane's `--clearenv` wipes the shim and its own `--tmpfs /tmp` is ephemeral. Set it to the **empty string** to disable the redirect and inherit the tmpfs again ([#1875](https://github.com/erwins-enkel/shepherd/issues/1875)) |
 | `SHEPHERD_NODE_COMPILE_CACHE` | _(disk dir)_ | Node compile-cache dir (kept off the `/tmp` tmpfs) |
 | `SHEPHERD_TMP_INODE_PCT` | `80` | Inode-sweep threshold (% of `/tmp` inodes) — also the warning band of the **Temp filesystem inodes** Diagnose row (row bands stay ordered: >95 raises the error band too; outside `(0, 100]` the row falls back to 80, the sweep still honours it) |
 | `SHEPHERD_TMP_STALE_HOURS` | `24` | Scratch staleness cutoff |

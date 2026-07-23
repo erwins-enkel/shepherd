@@ -117,7 +117,13 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
   Shepherd spawns on it through a CLI external-registration path (`tab create` →
   `pane run` → `report-agent`) rather than the legacy `agent start`. Any newer,
   untested version is refused: Shepherd warns at startup, blocks the in-app
-  updater, and refuses to spawn on it.
+  updater, and refuses to spawn on it. One known limitation on 0.7.5: a
+  **sandboxed** session is registered externally (herdr can't see through the
+  bwrap membrane) and herdr won't accept Shepherd's idle down-edge, so a resting
+  sandboxed agent reads *working* until it blocks or exits. Trusted sessions are
+  unaffected. If you depend on sandboxed sessions, the in-app herdr-update modal
+  raises a non-blocking advisory offering a one-click **downgrade to 0.7.4** —
+  the last version with full sandboxed-status fidelity.
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

@@ -4577,16 +4577,21 @@ async function handleRepos({ req, parts, deps }: Ctx): Promise<Response | null> 
       // backlog payload) so a persisted hide matches its repo even under a symlinked root.
       // The picker (NewTask) hides these by default but reveals them on name search.
       const hiddenSet = reconcileRealPathsToRaw(deps.store.hiddenRepoPaths(), baseRepos);
-      const repos = baseRepos.map((r) => ({
-        ...r,
-        lastUsedAt: lastUsed[r.path],
-        recentAgentCount: recentCounts[r.path],
-        // Fork mode is derived from the (memoized) forge resolution, so the picker
-        // can offer "Sync fork" only on fork repos. resolveForge is cached per dir
-        // and shared with the backlog poller — no extra git shell on a warm cache.
-        isFork: deps.resolveForge?.(r.path)?.isFork ?? false,
-        hidden: hiddenSet.has(r.path),
-      }));
+      const repos = baseRepos.map((r) => {
+        // Fork mode and remote identity are derived from one (memoized) forge resolution,
+        // so the picker can offer "Sync fork" only on fork repos without repeating lookup.
+        const forge = deps.resolveForge?.(r.path) ?? null;
+        return {
+          ...r,
+          lastUsedAt: lastUsed[r.path],
+          recentAgentCount: recentCounts[r.path],
+          isFork: forge?.isFork ?? false,
+          // A fork's `slug` is its upstream; use the clone origin so callers identify
+          // the account that owns the fork. Undefined fields are omitted from JSON.
+          remoteSlug: forge?.originSlug ?? forge?.slug ?? undefined,
+          hidden: hiddenSet.has(r.path),
+        };
+      });
       // Return the window alongside the repos so the picker labels the count with
       // the exact day count it was computed over — single source of truth.
       return json({ repos, recentWindowDays: RECENT_WINDOW_DAYS });

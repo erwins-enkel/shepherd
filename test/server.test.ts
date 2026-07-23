@@ -1059,6 +1059,50 @@ test("GET /api/repos → 200 + { repos, recentWindowDays }", async () => {
   expect(typeof body.recentWindowDays).toBe("number");
 });
 
+test("GET /api/repos prefers originSlug, falls back to slug, and omits remoteSlug without a forge", async () => {
+  const noRemoteRoot = mkdtempSync(join(config.repoRoot, "shepherd-srv-no-remote-"));
+  const slugOnlyRoot = mkdtempSync(join(config.repoRoot, "shepherd-srv-slug-only-"));
+  const deps = makeDeps();
+  const calls = new Map<string, number>();
+  deps.resolveForge = (repoPath) => {
+    calls.set(repoPath, (calls.get(repoPath) ?? 0) + 1);
+    if (repoPath === tmpRoot) {
+      return {
+        slug: "upstream/project",
+        originSlug: "fork-account/project",
+        isFork: true,
+      } as GitForge;
+    }
+    if (repoPath === slugOnlyRoot) return { slug: "account/ordinary-project" } as GitForge;
+    return null;
+  };
+
+  try {
+    const res = await makeApp(deps).fetch(new Request("http://x/api/repos"));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    const forkRepo = body.repos.find((repo: { path: string }) => repo.path === tmpRoot);
+    const noRemoteRepo = body.repos.find((repo: { path: string }) => repo.path === noRemoteRoot);
+    const slugOnlyRepo = body.repos.find((repo: { path: string }) => repo.path === slugOnlyRoot);
+
+    expect(forkRepo).toMatchObject({
+      path: tmpRoot,
+      isFork: true,
+      remoteSlug: "fork-account/project",
+    });
+    expect(slugOnlyRepo).toMatchObject({
+      path: slugOnlyRoot,
+      remoteSlug: "account/ordinary-project",
+    });
+    expect(noRemoteRepo).toBeDefined();
+    expect(noRemoteRepo).not.toHaveProperty("remoteSlug");
+    expect([...calls.values()].every((count) => count === 1)).toBe(true);
+  } finally {
+    rmSync(noRemoteRoot, { recursive: true, force: true });
+    rmSync(slugOnlyRoot, { recursive: true, force: true });
+  }
+});
+
 test("GET /api/branches?repo=<validRepo> → 200 with branches + current", async () => {
   const app = harness();
   const res = await app.fetch(

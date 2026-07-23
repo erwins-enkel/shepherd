@@ -175,3 +175,83 @@ describe("RepoSelect — hideHidden", () => {
     await expect.element(page.getByRole("option", { name: /secret/ }).first()).toBeVisible();
   });
 });
+
+describe("RepoSelect — remote identity", () => {
+  const ownerRepos: RepoEntry[] = [
+    {
+      name: "api",
+      remoteSlug: "acme/api",
+      path: "/repos/acme-api",
+      display: "~/repos/acme-api",
+      realPath: "/repos/acme-api",
+    },
+    {
+      name: "api",
+      remoteSlug: "sibling/api",
+      path: "/repos/sibling-api",
+      display: "~/repos/sibling-api",
+      realPath: "/repos/sibling-api",
+    },
+  ];
+
+  it("shows owner-qualified slugs for duplicate local repo names", async () => {
+    render(RepoSelect, {
+      repos: ownerRepos,
+      value: "/repos/acme-api",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    await page.getByRole("button", { name: /acme\/api/ }).click();
+
+    await expect.element(page.getByRole("option", { name: /acme\/api/ })).toBeVisible();
+    await expect.element(page.getByRole("option", { name: /sibling\/api/ })).toBeVisible();
+  });
+
+  it("matches repositories by remote owner", async () => {
+    render(RepoSelect, {
+      repos: ownerRepos,
+      value: "/repos/acme-api",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    await page.getByRole("button", { name: /acme\/api/ }).click();
+    await page.getByPlaceholder(m.reposelect_filter_placeholder()).fill("sibling");
+
+    await expect.element(page.getByRole("option", { name: /sibling\/api/ })).toBeVisible();
+    expect(page.getByRole("option", { name: /acme\/api/ }).elements()).toHaveLength(0);
+  });
+
+  it("keeps the selected owner's identity in the closed trigger", async () => {
+    render(RepoSelect, {
+      repos: ownerRepos,
+      value: "/repos/sibling-api",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    await expect.element(page.getByRole("button", { name: /sibling\/api/ })).toBeVisible();
+  });
+
+  it("falls back to the local name when a remote slug is unavailable", async () => {
+    render(RepoSelect, {
+      repos: [
+        {
+          name: "local-api",
+          path: "/repos/local-api",
+          display: "~/repos/local-api",
+          realPath: "/repos/local-api",
+        },
+      ],
+      value: "/repos/local-api",
+      onchange: noop,
+      windowDays: 7,
+    });
+
+    const trigger = page.getByRole("button", { name: /local-api/ });
+    await expect.element(trigger).toBeVisible();
+    await trigger.click();
+    await expect.element(page.getByRole("option", { name: /local-api/ })).toBeVisible();
+  });
+});

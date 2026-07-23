@@ -92,7 +92,11 @@
       // Hide flagged repos only while not searching; typing a name reveals them so a
       // hidden repo can still be picked to start a task.
       .filter((r) => !hideHidden || searching || !r.hidden)
-      .filter((r) => (r.name + " " + r.display).toLowerCase().includes(filter.toLowerCase())),
+      .filter((r) =>
+        ((r.remoteSlug ?? "") + " " + r.name + " " + r.display)
+          .toLowerCase()
+          .includes(filter.toLowerCase()),
+      ),
   );
 
   // The top few repos we've run the most agents on lately (desc by count, then by
@@ -220,7 +224,7 @@
   >
     {#if selected}
       <span class="rs-emoji" aria-hidden="true">{projectIcons.iconFor(selected.path) ?? "▣"}</span>
-      <b>{selected.name}</b>
+      <b>{selected.remoteSlug ?? selected.name}</b>
       <span class="dim">{selected.display}</span>
     {:else}
       <span class="placeholder">{m.reposelect_placeholder()}</span>
@@ -282,7 +286,7 @@
             >
               {projectIcons.iconFor(r.path) ?? "▣"}
             </button>
-            <b>{r.name}</b>
+            <b>{r.remoteSlug ?? r.name}</b>
             <span class="dim">{r.display}</span>
             {#if row.pinned}
               {@const label = recentAgentsLabel(r.recentAgentCount ?? 0)}

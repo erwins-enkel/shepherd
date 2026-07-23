@@ -446,6 +446,11 @@ export class GithubForge implements GitForge {
     return `https://github.com/${this.slug}`;
   }
 
+  /** The clone's `origin`: the fork in fork mode, otherwise this repository. */
+  get originSlug(): string {
+    return this.forkSlug ?? this.slug;
+  }
+
   /** Fork mode = a fork slug was supplied (`slug` is the upstream it forked from). */
   get isFork(): boolean {
     return !!this.forkSlug;

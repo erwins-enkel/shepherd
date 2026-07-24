@@ -1,12 +1,12 @@
 import { test, expect } from "bun:test";
 import { makeApp, type AppDeps } from "../src/server";
-import type { SessionStore } from "../src/store";
+import { SessionStore } from "../src/store";
 import type { SessionService } from "../src/service";
 import type { EventHub } from "../src/events";
 import type { Session } from "../src/types";
 import type { GitForge, GitState, MergeMethod, PrStatus } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { PrCache } from "../src/pr-poller";
+import { PrPoller, type PrCache } from "../src/pr-poller";
 
 const ORIGIN = "http://localhost";
 
@@ -506,6 +506,46 @@ test("GET /api/git returns the prCache snapshot", async () => {
   const res = await app.fetch(new Request("http://localhost/api/git"));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual({});
+});
+
+test("GET /api/git returns the startup-hydrated persisted snapshot without forge calls", async () => {
+  const store = new SessionStore(":memory:");
+  const session = store.create({
+    name: "cached",
+    prompt: "cached git state",
+    repoPath: "/repo",
+    baseBranch: "main",
+    branch: "shepherd/cached",
+    worktreePath: "/wt/cached",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "cached-agent",
+  });
+  const cached: GitState = {
+    kind: "github",
+    state: "open",
+    number: 7,
+    checks: "pending",
+    deployConfigured: false,
+  };
+  store.putSessionGitCache(session.id, cached);
+  let forgeCalls = 0;
+  const poller = new PrPoller(
+    store,
+    () => {
+      forgeCalls++;
+      return fakeForge();
+    },
+    () => {},
+  );
+  const deps = Object.assign(makeDeps(fakeForge()), { store, prCache: poller });
+  const app = makeApp(deps);
+
+  const res = await app.fetch(new Request("http://localhost/api/git"));
+
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ [session.id]: cached });
+  expect(forgeCalls).toBe(0);
 });
 
 test("GET git trusts a merged PR when cache already showed it open (signal b)", async () => {

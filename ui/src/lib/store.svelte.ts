@@ -276,7 +276,7 @@ export class HerdStore {
     this.buildQueues = setKey(this.buildQueues, q.sessionId, q);
     buildQueuesStore.upsert(q);
   }
-  /** Bulk-replace the build queue map — called after a resync GET /api/queues. */
+  /** Bulk-replace the build queue map — called after a bootstrap GET /api/queues. */
   setBuildQueues(map: Record<string, BuildQueue>) {
     this.buildQueues = map;
     buildQueuesStore.seed(map);

@@ -170,8 +170,46 @@ test("snapshot/set/drop manage the cache", async () => {
 
   poller.set(s.id, { ...NONE, kind: "github" });
   expect(poller.snapshot()[s.id]?.state).toBe("none");
+  expect(store.listSessionGitCache()[s.id]?.state).toBe("none");
   poller.drop(s.id);
   expect(poller.snapshot()[s.id]).toBeUndefined();
+  expect(store.listSessionGitCache()[s.id]).toBeUndefined();
+});
+
+test("restart hydrates prior PR identity and accepts its unreachable terminal transition", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSession);
+  let cur: PrStatus = OPEN;
+  const beforeRestart = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    () => {},
+  );
+  await beforeRestart.tick();
+  expect(store.listSessionGitCache()[s.id]?.state).toBe("open");
+
+  cur = {
+    state: "merged",
+    number: 7,
+    checks: "success",
+    headSha: "remote-final-head",
+    deployConfigured: false,
+  };
+  const afterRestart = new PrPoller(
+    store,
+    () => forgeReturning(() => cur),
+    () => {},
+    120_000,
+    1000,
+    () => null,
+    15_000,
+    () => false,
+  );
+
+  expect(afterRestart.snapshot()[s.id]?.state).toBe("open");
+  await afterRestart.tick();
+  expect(afterRestart.snapshot()[s.id]).toMatchObject({ state: "merged", number: 7 });
+  expect(store.listSessionGitCache()[s.id]).toMatchObject({ state: "merged", number: 7 });
 });
 
 test("re-emits when checks or head SHA change on the same PR", async () => {

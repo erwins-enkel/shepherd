@@ -61,6 +61,7 @@ import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
+import type { GitState } from "./forge/types";
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
@@ -76,6 +77,40 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
 function safeJsonArray(raw: string | null | undefined): string[] {
   const v = safeJsonParse<unknown>(raw, []);
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+}
+
+function parsePersistedGitState(raw: string): GitState | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const state = value as Record<string, unknown>;
+  if (state.kind !== "github" && state.kind !== "gitea" && state.kind !== "local") return null;
+  if (
+    state.state !== "none" &&
+    state.state !== "open" &&
+    state.state !== "merged" &&
+    state.state !== "closed"
+  )
+    return null;
+  if (
+    state.checks !== "none" &&
+    state.checks !== "pending" &&
+    state.checks !== "success" &&
+    state.checks !== "failure"
+  )
+    return null;
+  if (typeof state.deployConfigured !== "boolean") return null;
+  if (state.state === "none") {
+    if (state.number !== undefined) return null;
+  } else if (!Number.isInteger(state.number) || (state.number as number) <= 0) {
+    return null;
+  }
+  if (state.headSha !== undefined && typeof state.headSha !== "string") return null;
+  return state as unknown as GitState;
 }
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -903,6 +938,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     this.migrateSessionColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_git_cache (
+      sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+      gitJson TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS task_seq (
       id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL)`);
     // Seed once from the high-water mark of existing desigs (TASK-NN) + 1, or 1 on a fresh DB.
@@ -2336,10 +2375,48 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   archive(id: string, reason: SessionArchiveReason = "operator") {
     const now = Date.now();
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
+        [now, reason, now, id],
+      );
+      this.deleteSessionGitCache(id);
+    })();
+  }
+
+  putSessionGitCache(sessionId: string, state: GitState): void {
     this.db.run(
-      `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
-      [now, reason, now, id],
+      `INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)
+       ON CONFLICT(sessionId) DO UPDATE SET gitJson=excluded.gitJson, updatedAt=excluded.updatedAt`,
+      [sessionId, JSON.stringify(state), Date.now()],
     );
+  }
+
+  listSessionGitCache(): Record<string, GitState> {
+    const rows = this.db
+      .query(
+        `SELECT c.sessionId, c.gitJson, s.status
+         FROM session_git_cache c JOIN sessions s ON s.id = c.sessionId`,
+      )
+      .all() as { sessionId: string; gitJson: string; status: string }[];
+    const result: Record<string, GitState> = {};
+    const invalid: string[] = [];
+    for (const row of rows) {
+      const state = parsePersistedGitState(row.gitJson);
+      if (row.status === "archived" || !state) invalid.push(row.sessionId);
+      else result[row.sessionId] = state;
+    }
+    if (invalid.length > 0) {
+      const remove = this.db.query(`DELETE FROM session_git_cache WHERE sessionId = ?`);
+      this.db.transaction(() => {
+        for (const sessionId of invalid) remove.run(sessionId);
+      })();
+    }
+    return result;
+  }
+
+  deleteSessionGitCache(sessionId: string): void {
+    this.db.run(`DELETE FROM session_git_cache WHERE sessionId = ?`, [sessionId]);
   }
 
   unarchive(id: string) {

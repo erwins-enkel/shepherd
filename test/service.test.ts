@@ -10,6 +10,7 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { Database } from "bun:sqlite";
 import { shepherdRuntimeDir } from "../src/runtime-dir";
 import { SessionStore } from "../src/store";
 import {
@@ -6030,8 +6031,9 @@ function relaunchHarness(
     failStart = true;
   };
   // Make the post-create override step throw (called only after seeding the original).
-  const breakOverride = () => {
-    store.setAutopilotState = () => {
+  const breakOverride = (beforeThrow?: (sessionId: string) => void) => {
+    store.setAutopilotState = (sessionId: string) => {
+      beforeThrow?.(sessionId);
       throw new Error("override write failed");
     };
   };
@@ -6639,21 +6641,45 @@ test("replaceAgent re-attaches existing uploads without copying them back into t
 });
 
 test("relaunch tears down the just-created session if a post-create step throws (no orphan)", async () => {
-  const store = new SessionStore(":memory:");
-  const { service, calls, breakOverride } = relaunchHarness(store);
-  const orig = originalSession(store);
-  const before = store.list().length;
-  breakOverride();
+  const dir = mkdtempSync(join(tmpdir(), "relaunch-cleanup-"));
+  const path = join(dir, "state.db");
+  try {
+    const store = new SessionStore(path);
+    const { service, calls, breakOverride } = relaunchHarness(store);
+    const orig = originalSession(store);
+    const before = store.list().length;
+    let replacementId = "";
+    breakOverride((sessionId) => {
+      replacementId = sessionId;
+      store.putSessionGitCache(sessionId, {
+        kind: "github",
+        state: "open",
+        number: 7,
+        checks: "pending",
+        deployConfigured: false,
+      });
+    });
 
-  await expect(service.relaunch(orig.id)).rejects.toThrow("override write failed");
+    await expect(service.relaunch(orig.id)).rejects.toThrow("override write failed");
 
-  // no orphaned new session left active in the store (only the original remains)
-  const active = store.list().filter((s) => s.status !== "archived");
-  expect(active.map((s) => s.id)).toEqual([orig.id]);
-  expect(store.list().length).toBe(before + 1); // the new row exists but is archived
-  // the new agent was stopped during teardown
-  expect(calls.stopped).toHaveLength(1);
-  expect(calls.stopped[0]).not.toBe("term_orig");
+    // no orphaned new session left active in the store (only the original remains)
+    const active = store.list().filter((s) => s.status !== "archived");
+    expect(active.map((s) => s.id)).toEqual([orig.id]);
+    expect(store.list().length).toBe(before + 1); // the new row exists but is archived
+    expect(store.get(replacementId)?.status).toBe("archived");
+    const db = new Database(path);
+    expect(
+      db.query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`).get(
+        replacementId,
+      ),
+    ).toEqual({ count: 0 });
+    db.close();
+    // the new agent was stopped during teardown
+    expect(calls.stopped).toHaveLength(1);
+    expect(calls.stopped[0]).not.toBe("term_orig");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("relaunch overrides apply repo/baseBranch/prompt/model/plan-gate/Autopilot over the original", async () => {

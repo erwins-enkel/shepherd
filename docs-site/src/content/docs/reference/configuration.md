@@ -40,13 +40,23 @@ lines), read by the systemd unit if present.
 
 ## Live preview
 
+Detecting the dev servers agents start is platform-specific
+([#1912](https://github.com/erwins-enkel/shepherd/issues/1912)). On **Linux**
+Shepherd reads `/proc` live. On **macOS** it runs one `lsof` call per refresh and
+serves every probe from that short-lived snapshot; previews there stay
+**loopback-only** and stopping one from the UI is unavailable (see the platform
+table in [Getting started](/getting-started/)). On any other platform there is no
+detection backend, so previews never bind. The **Preview detection** row in
+Settings → Diagnose reports which case a host is in — see
+[Operating Shepherd](/operating/).
+
 | Variable | Default | Purpose |
 | --- | --- | --- |
 | `SHEPHERD_PREVIEW_PORT_BASE` | `8001` | First port in the live-preview range (one port per agent preview) |
 | `SHEPHERD_PREVIEW_PORT_COUNT` | `16` | Size of the preview range and max concurrent previews |
-| `SHEPHERD_PREVIEW_SWEEP_MS` | `4000` | Cadence (ms) of the dev-port detection sweep across active sessions |
+| `SHEPHERD_PREVIEW_SWEEP_MS` | `4000` | Cadence (ms) of the dev-port detection sweep across active sessions. On macOS it also paces the `lsof` snapshot refresh (coalescing window: half the cadence) and sets how old that snapshot may get before it stops being allowed to prove a port is *gone* — `2 × cadence + 4 s`; past that, sweeps skip rather than tear a bound preview down |
 | `SHEPHERD_PREVIEW_AUTO_SERVE` | `true` | Dynamically register/unregister `tailscale serve` mappings as previews bind/tear down; set `0` to map the range manually |
-| `SHEPHERD_PREVIEW_IDLE_STOP_MS` | `0` (disabled) | When > 0, an idle previewed dev server with no proxy traffic for this many ms is stopped to reclaim RAM (no auto-wake; suggested `1800000` = 30 min) |
+| `SHEPHERD_PREVIEW_IDLE_STOP_MS` | `0` (disabled) | When > 0, an idle previewed dev server with no proxy traffic for this many ms is stopped to reclaim RAM (no auto-wake; suggested `1800000` = 30 min). Effective on Linux only: the macOS backend may not authorize signals (a snapshot can't rule out a recycled pid), so nothing is signalled — the escalation ladder stays put and logs once per session instead of burning SIGTERM → SIGKILL |
 
 ## Host tuning (tmpfs inodes)
 

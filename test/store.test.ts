@@ -1380,6 +1380,28 @@ test("completeReviewerSpawn fills token totals + completedAt", () => {
   expect(row.model).toBe("opus");
 });
 
+test("completeReviewerSpawn with null usage → NULL token columns (unknown), not 0, but completedAt set", () => {
+  // A Codex reviewer whose rollout hasn't resolved has UNKNOWN totals, not proven-zero. The row
+  // must complete (completedAt set, never stranded) with NULL token columns so a later backfill
+  // can fill the real values; SUM() in cost reports skips NULL, so aggregates aren't inflated by 0s.
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-null",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    model: "gpt-5.6-sol",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-null", null, 2000);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.completedAt).toBe(2000);
+  expect(row.totalTokens).toBeNull();
+  expect(row.inputTokens).toBeNull();
+  expect(row.cacheReadTokens).toBeNull();
+  expect(row.model).toBe("gpt-5.6-sol"); // COALESCE keeps the recorded model
+});
+
 test("completeReviewerSpawn backfills the true model from the transcript when spawn-time was auto (null)", () => {
   const s = mk();
   s.recordReviewerSpawn({

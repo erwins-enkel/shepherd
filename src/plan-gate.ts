@@ -26,6 +26,7 @@ import { readActivitySignal } from "./activity-signal";
 import {
   createCodexRolloutResolver,
   readCodexTranscriptSignals,
+  parseCodexUsage,
   type CodexRolloutResolver,
 } from "./codex-activity";
 import { effectiveAutopilot } from "./effective-autopilot";
@@ -458,9 +459,15 @@ export interface PlanGateServiceDeps extends MembraneSeams {
   /** Injectable per-service Codex rollout resolver (backoff + positive cache, keyed by reviewer
    *  session id). Default: a fresh {@link createCodexRolloutResolver}. */
   codexResolver?: CodexRolloutResolver;
-  /** Injectable reader of a finished reviewer's token totals from its transcript
-   *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
-  readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable reader of a finished reviewer's token totals from its transcript (default:
+   *  readSessionUsage for claude, or parse the resolved Codex rollout for codex). null = transcript
+   *  unresolved/unreadable → the row's token totals stay NULL (unknown), NOT zero. */
+  readUsage?: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
+  ) => Promise<SessionUsage | null>;
 }
 
 interface PlanInFlight {
@@ -525,6 +532,8 @@ export class PlanGateService {
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
   ) => Promise<SessionUsage | null>;
 
   constructor(private deps: PlanGateServiceDeps) {
@@ -543,7 +552,9 @@ export class PlanGateService {
     this.readActivity =
       deps.readActivity ??
       ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.readUsage =
+      deps.readUsage ??
+      ((wt, id, provider, model) => defaultReadUsage(wt, id, provider, model, this.codexResolver));
   }
 
   /** sha256 of the plan text — dedups re-reviews of an unchanged plan on the auto-path. The manual
@@ -898,18 +909,21 @@ export class PlanGateService {
   private async reapOrphanSpawn(sp: {
     worktreePath: string;
     reviewerSessionId: string;
+    reviewerProvider: AgentProvider | null;
+    model: string | null;
   }): Promise<void> {
     const terminalId = this.resolveTerminal(sp.worktreePath);
     void this.deps.herdr.stop(terminalId).catch(() => {});
     try {
-      const usage = await this.readUsage(sp.worktreePath, sp.reviewerSessionId);
-      // Always complete the row (zeros when no transcript, e.g. a Codex exec) so it isn't
-      // re-listed as an orphan every boot and its completion is recorded.
-      this.deps.store.completeReviewerSpawn(
+      const usage = await this.readUsage(
+        sp.worktreePath,
         sp.reviewerSessionId,
-        usage ?? ZEROED_USAGE,
-        this.now(),
+        sp.reviewerProvider,
+        sp.model,
       );
+      // Always complete the row so it isn't re-listed as an orphan every boot. null (unresolved
+      // Codex rollout) books NULL token columns (unknown), not 0 — a later run can backfill.
+      this.deps.store.completeReviewerSpawn(sp.reviewerSessionId, usage, this.now());
     } catch (err) {
       console.warn(`[plan-gate] orphan usage capture failed for ${sp.reviewerSessionId}:`, err);
     }
@@ -1003,14 +1017,16 @@ export class PlanGateService {
       // read before the `finally`'s worktree removal: the transcript
       // lives under ~/.claude/projects (keyed by worktree path), not inside the worktree itself.
       try {
-        const usage = await this.readUsage(f.worktreePath, f.reviewerSessionId);
-        // Complete the row even when usage is null (Codex exec writes no transcript) so
-        // `completedAt` reflects that the review finished — not a silent 0/N gap.
-        this.deps.store.completeReviewerSpawn(
+        const usage = await this.readUsage(
+          f.worktreePath,
           f.reviewerSessionId,
-          usage ?? ZEROED_USAGE,
-          this.now(),
+          f.reviewerProvider,
+          f.reviewerModel,
         );
+        // Complete the row even when usage is null (an unresolved Codex rollout) so `completedAt`
+        // reflects that the review finished — not a silent gap. null books NULL token columns
+        // (unknown, backfillable), NOT 0; a resolved-but-empty transcript books proven 0.
+        this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
       } catch (err) {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }
@@ -1517,6 +1533,31 @@ function defaultReadActivity(
     return hit ? (readCodexTranscriptSignals(hit.path).activity?.summary ?? null) : null;
   }
   return readActivitySignal(jsonlPathFor(worktreePath, reviewerSessionId))?.summary ?? null;
+}
+
+/** Provider-aware token-total reader, called only at finalize (a one-shot, so the Codex path always
+ *  bypasses the resolver backoff — its last chance before the in-flight record disappears). Returns
+ *  null when the transcript is unresolved/unreadable so the row books NULL (unknown), not 0. */
+async function defaultReadUsage(
+  worktreePath: string,
+  reviewerSessionId: string,
+  provider: AgentProvider | null,
+  model: string | null,
+  codexResolver: CodexRolloutResolver,
+): Promise<SessionUsage | null> {
+  if (provider === "codex") {
+    const hit = codexResolver.resolve(
+      { trackingId: reviewerSessionId, worktreePath, source: "exec" },
+      { bypassBackoff: true },
+    );
+    if (!hit) return null;
+    try {
+      return parseCodexUsage(readFileSync(hit.path, "utf8"), model);
+    } catch {
+      return null;
+    }
+  }
+  return readSessionUsage(worktreePath, reviewerSessionId);
 }
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a

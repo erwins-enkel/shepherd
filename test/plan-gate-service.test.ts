@@ -775,10 +775,11 @@ test("completes the reviewer spawn's token total on finalize", async () => {
   expect(h.completedSpawns[0].u.total).toBe(10);
   expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
 });
-test("completes the reviewer spawn even with no usage (Codex exec has no transcript) → zeroed totals", async () => {
-  // A Codex `exec` reviewer writes no Claude JSONL, so readUsage yields null. The row must still
-  // be completed with zeroed totals so `completedAt` reflects the finished review rather than
-  // leaving a silent 0/N gap in reviewer_spawns.
+test("completes the reviewer spawn even with no usage (unresolved Codex rollout) → NULL totals, not 0", async () => {
+  // A Codex reviewer whose rollout hasn't resolved yields null from readUsage. The row must still
+  // be completed (completedAt set) so it isn't a silent gap — but with NULL token columns
+  // (unknown, backfillable), NOT 0, which is reserved for a resolved-but-empty transcript. The row
+  // completing with a null usage arg is exactly that contract (issue #1816).
   const h = harness({
     readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
     readUsage: async () => null,
@@ -786,8 +787,28 @@ test("completes the reviewer spawn even with no usage (Codex exec has no transcr
   await h.svc.consider(planningSession() as any);
   await h.svc.tick();
   expect(h.completedSpawns.length).toBe(1);
-  expect(h.completedSpawns[0].u.total).toBe(0);
+  expect(h.completedSpawns[0].u).toBeNull(); // NULL totals (unknown), not a zeroed SessionUsage
   expect(h.completedSpawns[0].id).toBe(h.recordedSpawns[0].reviewerSessionId);
+});
+test("codex reviewer with a resolved rollout books real token totals (not 0/NULL)", async () => {
+  // The default readUsage resolves the Codex rollout (by launch-unique cwd = the reviewer worktree)
+  // and parses its token_count — the totals that are booked as 0 today. Real resolver over the
+  // fixture rollout (total_tokens = 52976).
+  const codexResolver = new CodexRolloutResolver({
+    listMetas: () => [
+      { path: CODEX_FIXTURE, cwd: "/wt-detached", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+    ],
+    now: () => 0,
+  });
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    codexResolver,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(h.completedSpawns).toHaveLength(1);
+  expect(h.completedSpawns[0].u?.total).toBe(52976);
 });
 test("timeout with no verdict → error gate, reaped, not released", async () => {
   let t = 1000;

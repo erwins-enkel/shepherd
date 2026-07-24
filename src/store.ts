@@ -3165,7 +3165,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
    *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
-  completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
+  completeReviewerSpawn(
+    reviewerSessionId: string,
+    u: SessionUsage | null,
+    completedAt: number,
+  ): void {
     // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
     // configured override, which is null when auto-resolved — but the transcript names the model
     // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. It returns
@@ -3173,18 +3177,23 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // sentinel), and COALESCE then keeps the recorded value — the sentinel never overwrites it.
     // This lets usage-report weight a GC'd-transcript spawn's cost by its real tier, not a
     // task-model proxy. `u.messageCount` is intentionally dropped — not a cost fact.
+    //
+    // `u === null` means the token total is UNKNOWN (a Codex rollout that hasn't resolved yet), NOT
+    // proven-zero: write NULL token columns so a later backfill can fill the real values, while
+    // still setting `completedAt` (the review DID finish — never strand the row). `0` stays
+    // reserved for a resolved transcript that genuinely reports no tokens. (issue #1816)
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
          cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)
          WHERE reviewerSessionId = ?`,
       [
-        u.input,
-        u.output,
-        u.cacheRead,
-        u.cacheWrite,
-        u.total,
+        u?.input ?? null,
+        u?.output ?? null,
+        u?.cacheRead ?? null,
+        u?.cacheWrite ?? null,
+        u?.total ?? null,
         completedAt,
-        dominantModel(u),
+        u ? dominantModel(u) : null,
         reviewerSessionId,
       ],
     );

@@ -16,6 +16,7 @@
     "onboarding:test": "bun run ci/onboarding-harness/run.ts",
     "check:glossary": "node scripts/check-glossary.mjs",
     "check:announcement-versions": "node scripts/check-announcement-versions.mjs",
+    "check:model-mirror": "node scripts/check-model-mirror.mjs",
     "next-version": "node scripts/next-version.mjs",
     "gen:herdr-schema": "bun run scripts/gen-herdr-schema.ts",
     "gen:herdr-types": "bun run scripts/gen-herdr-types.ts",

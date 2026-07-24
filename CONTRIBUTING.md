@@ -76,7 +76,7 @@ and failed pushes. Independent work runs in parallel (bounded by your core count
 lane teeing to its own `.test-logs/` file, with a per-lane wall-clock **timeout backstop**
 so a hung child can never wedge the push. The checks (per lane) are:
 
-- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · herdr-types
+- **gates:** branch-hygiene · feature-catalog · generated-docs · glossary · announcement-versions · model-mirror · herdr-types
 - **prettier:** `prettier --check` over the push **delta** (see note)
 - **eslint:** root + extension eslint over the push **delta** (see note)
 - **tsc:** `bun run typecheck` (root `tsc --noEmit`)
@@ -139,6 +139,7 @@ bun run lint                 # eslint (root, covers ui/src too)
 bun run typecheck            # root tsc --noEmit (src + test)
 bun run format               # prettier --write across the repo
 bun test ./test              # core test suite
+bun run check:model-mirror   # model/effort lists identical in src/types.ts ↔ ui/src/lib/types.ts
 cd ui && bun run check       # svelte-check (ui types)
 cd ui && bun run check:i18n  # locale-catalog parity (en ↔ de)
 cd ui && bun run test        # ui test suite (vitest)

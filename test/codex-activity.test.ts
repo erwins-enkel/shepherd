@@ -82,6 +82,27 @@ describe("parseCodexActivity", () => {
     expect(parseCodexActivity("not json\n{broken", -1)).toEqual([]);
   });
 
+  // Real reviewer rollouts wrap apply_patch in an `exec` call whose input builds a
+  // `*** Begin Patch` string (no `cmd:`); surfacing the touched file beats "exec".
+  test("exec wrapping apply_patch → 'patch <file>' summary", () => {
+    const input =
+      'const patch = "*** Begin Patch\\n*** Update File: src/withdrawal.ts\\n+foo";\n' +
+      "await tools.apply_patch({input: patch});\n";
+    const rec = JSON.stringify({
+      timestamp: "2026-07-17T05:45:40.000Z",
+      type: "response_item",
+      payload: {
+        type: "custom_tool_call",
+        status: "completed",
+        call_id: "c1",
+        name: "exec",
+        input,
+      },
+    });
+    const entries = parseCodexActivity(rec + "\n", -1);
+    expect(entries[0]!.summary).toBe("patch withdrawal.ts");
+  });
+
   test("limit returns the most-recent N (oldest→newest)", () => {
     const all = parseCodexActivity(FIXTURE, -1);
     const last2 = parseCodexActivity(FIXTURE, 2);

@@ -20,7 +20,7 @@ import { normalize } from "node:path";
 
 import { codexHome, listRolloutFiles } from "./codex-usage";
 
-interface SessionMetaHeader {
+export interface SessionMetaHeader {
   id: string | null;
   cwd: string;
   source: string | null;
@@ -49,8 +49,9 @@ export function findCodexSessionId(
 }
 
 /** Parse line 1 of a rollout jsonl (the `session_meta` record). Tolerant: null on any read/parse
- *  failure or a non-`session_meta` / malformed header (legacy or partially-written file). */
-function readSessionMeta(path: string): SessionMetaHeader | null {
+ *  failure or a non-`session_meta` / malformed header (legacy or partially-written file). Shared
+ *  with the exec-source rollout scan in `codex-activity.ts` (issue #1816). */
+export function readSessionMeta(path: string): SessionMetaHeader | null {
   const line = readFirstLine(path);
   if (!line) return null;
   let obj: unknown;

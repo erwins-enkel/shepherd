@@ -3,6 +3,8 @@ import { eachJsonlObject } from "./jsonl";
 import { readTranscriptTail, type ActivityEntry } from "./activity";
 import { signalFrom, type SessionActivity } from "./activity-signal";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
+import { codexHome, listRolloutFiles } from "./codex-usage";
+import { readSessionMeta } from "./codex-session-id";
 import type { SessionUsage } from "./usage";
 
 const CMD_MAX = 60;
@@ -48,12 +50,31 @@ function execCommand(input: unknown): string | null {
   }
 }
 
+function basename(p: string): string {
+  const parts = p.split("/");
+  return parts[parts.length - 1] || p;
+}
+
+/** Extract the first file path from an apply_patch envelope
+ *  (`*** Add|Update|Delete File: <path>`), which a real reviewer's `exec` call
+ *  builds as a JS string instead of an `exec_command`. null on any other shape. */
+function patchFile(input: unknown): string | null {
+  if (typeof input !== "string" || !input.includes("*** Begin Patch")) return null;
+  // Stop at whitespace OR backslash: the path is followed by an escaped newline
+  // (`\n`, two literal chars) in the un-unescaped JS-string envelope.
+  const m = /\*\*\* (?:Add|Update|Delete) File:\s*([^\s\\]+)/.exec(input);
+  return m && m[1] !== undefined ? m[1] : null;
+}
+
 /** Render a Codex tool call into a compact summary line, mirroring `activity.ts`'s
- *  Bash renderer (`$ <cmd>`). Unknown shapes fall back to the tool name. */
+ *  Bash renderer (`$ <cmd>`). All shell + patch work arrives as an `exec` call; a
+ *  shape we don't recognize falls back to the tool name (never throws, never empty). */
 function summarizeCodex(name: string, input: unknown): string {
   if (name === "exec") {
     const cmd = execCommand(input);
     if (cmd !== null) return `$ ${truncate(cmd, CMD_MAX)}`;
+    const file = patchFile(input);
+    if (file !== null) return `patch ${basename(file)}`;
   }
   return name.toLowerCase();
 }
@@ -345,4 +366,30 @@ export class CodexRolloutResolver {
     this.cache.delete(trackingId);
     this.backoff.delete(trackingId);
   }
+}
+
+/**
+ * Production rollout lister: every rollout under `$CODEX_HOME/sessions` with a
+ * parseable `session_meta` header carrying an id, as `RolloutMeta[]`. This is the
+ * tree walk (currently ~1600 files); the `CodexRolloutResolver` bounds how often it
+ * runs (once per reviewer miss, then cache + backoff). Reuses `listRolloutFiles`
+ * (stat-only, newest-first) and the shared `readSessionMeta` header parser.
+ */
+export function listRolloutMetas(home = codexHome()): RolloutMeta[] {
+  const out: RolloutMeta[] = [];
+  for (const { path, mtimeMs } of listRolloutFiles(home)) {
+    const meta = readSessionMeta(path);
+    if (!meta || !meta.id || !meta.source) continue;
+    out.push({ path, cwd: meta.cwd, rolloutId: meta.id, source: meta.source, mtimeMs });
+  }
+  return out;
+}
+
+/** Build a resolver wired to the real filesystem + a warning logger. One per service. */
+export function createCodexRolloutResolver(home = codexHome()): CodexRolloutResolver {
+  return new CodexRolloutResolver({
+    listMetas: () => listRolloutMetas(home),
+    now: () => Date.now(),
+    warn: (m) => console.warn(`[codex-activity] ${m}`),
+  });
 }

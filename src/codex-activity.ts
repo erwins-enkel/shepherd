@@ -1,3 +1,4 @@
+import { normalize } from "node:path";
 import { eachJsonlObject } from "./jsonl";
 import { readTranscriptTail, type ActivityEntry } from "./activity";
 import { signalFrom, type SessionActivity } from "./activity-signal";
@@ -219,4 +220,129 @@ export function parseCodexUsage(text: string, modelHint?: string | null): Sessio
     fullRecaches: 0,
     sidechainCount: 0,
   };
+}
+
+// ── Rollout resolution ──────────────────────────────────────────────────────
+//
+// Correlating a reviewer spawn to its Codex rollout rests on ONE invariant (A0,
+// issue #1816): the reviewer's disposable-worktree cwd is unique per spawn,
+// because the spawn passes its trackingId as the createDetached slug (exactly as
+// plan-gate already does). So the rollout whose session_meta.cwd equals the
+// worktree path is THE one — decided at launch, not guessed from timestamps.
+//
+// This deliberately does NOT use a time window, "lowest ts wins", or a counting
+// heuristic: rollout WRITE order is not launch order (a slow Codex start can write
+// its session_meta after a sibling's launch), so any select-from-candidates rule
+// over cwd+time can grab a sibling's rollout — and the mistake is permanent once
+// persisted. A wrong resolution is worse than none, so the rule is fail-safe: a
+// unique cwd match, else null.
+
+/** One rollout's identity, as read from its `session_meta` header. `rolloutId` is
+ *  the Codex-native session id; metas whose header lacks an id are dropped upstream. */
+export interface RolloutMeta {
+  path: string;
+  cwd: string;
+  rolloutId: string;
+  source: string;
+  mtimeMs: number;
+}
+
+export interface SelectRolloutOpts {
+  worktreePath: string;
+  source: "exec" | "cli";
+  /** When known, resolves exactly by native id — immune to any cwd ambiguity. */
+  providerSessionId?: string | null;
+}
+
+/** The candidates for a spawn: an exact id match when `providerSessionId` is
+ *  known, else every rollout of the right `source` whose cwd equals the worktree. */
+function candidatesFor(metas: RolloutMeta[], opts: SelectRolloutOpts): RolloutMeta[] {
+  if (opts.providerSessionId) {
+    return metas.filter((m) => m.rolloutId === opts.providerSessionId);
+  }
+  const target = normalize(opts.worktreePath);
+  return metas.filter((m) => m.source === opts.source && normalize(m.cwd) === target);
+}
+
+/** Pure ownership selection. Resolves ONLY on a unique candidate; 0 or ≥2 → null
+ *  (≥2 is an A0-invariant violation, possible only for pre-A0 SHA-named cwds). */
+export function selectCodexRollout(
+  metas: RolloutMeta[],
+  opts: SelectRolloutOpts,
+): { path: string; rolloutId: string } | null {
+  const c = candidatesFor(metas, opts);
+  return c.length === 1 ? { path: c[0]!.path, rolloutId: c[0]!.rolloutId } : null;
+}
+
+const BACKOFF_BASE_MS = 2_000;
+const BACKOFF_CAP_MS = 60_000;
+
+export interface ResolverDeps {
+  /** Lists rollout metas (the tree walk over `$CODEX_HOME/sessions`). Injected. */
+  listMetas: () => RolloutMeta[];
+  now: () => number;
+  warn?: (msg: string) => void;
+}
+
+export interface ResolveArgs {
+  trackingId: string;
+  worktreePath: string;
+  source: "exec" | "cli";
+  providerSessionId?: string | null;
+}
+
+/**
+ * Per-service resolver that wraps `selectCodexRollout` with a positive cache and a
+ * miss backoff, both keyed by `trackingId`. NOT reusable from the poller's private
+ * `codexCaptureBackoff` (that is task-session-keyed, reset on seed/prune). One
+ * instance per service; pure process state — the persisted `reviewer_spawns`
+ * column is the restart-durable truth.
+ */
+export class CodexRolloutResolver {
+  private cache = new Map<string, { path: string; rolloutId: string }>();
+  private backoff = new Map<string, { nextAt: number; misses: number }>();
+
+  constructor(private deps: ResolverDeps) {}
+
+  /**
+   * Resolve a spawn's rollout. Returns a proven hit (cached thereafter), or null
+   * on a miss (a widening backoff bounds the tree walk). Never caches a null.
+   * `bypassBackoff` forces one walk regardless of the backoff clock — for finalize's
+   * last-chance attempt before the in-flight record disappears.
+   */
+  resolve(
+    args: ResolveArgs,
+    opts?: { bypassBackoff?: boolean },
+  ): { path: string; rolloutId: string } | null {
+    const cached = this.cache.get(args.trackingId);
+    if (cached) return cached;
+
+    const bo = this.backoff.get(args.trackingId);
+    if (!opts?.bypassBackoff && bo && this.deps.now() < bo.nextAt) return null;
+
+    const metas = this.deps.listMetas();
+    const candidates = candidatesFor(metas, args);
+    if (candidates.length === 1) {
+      const hit = { path: candidates[0]!.path, rolloutId: candidates[0]!.rolloutId };
+      this.cache.set(args.trackingId, hit);
+      this.backoff.delete(args.trackingId);
+      return hit;
+    }
+    if (candidates.length >= 2) {
+      this.deps.warn?.(
+        `codex rollout ambiguity for ${args.trackingId}: ${candidates.length} exec rollouts share cwd ${args.worktreePath} (pre-A0 SHA-named worktree?) — leaving unresolved`,
+      );
+    }
+    const misses = (bo?.misses ?? 0) + 1;
+    const delay = Math.min(BACKOFF_BASE_MS * 2 ** (misses - 1), BACKOFF_CAP_MS);
+    this.backoff.set(args.trackingId, { nextAt: this.deps.now() + delay, misses });
+    return null;
+  }
+
+  /** Drop a spawn's cache + backoff (on proven resolution's downstream persist, and
+   *  on finalize/completedAt so the maps can't grow unbounded). */
+  reset(trackingId: string): void {
+    this.cache.delete(trackingId);
+    this.backoff.delete(trackingId);
+  }
 }

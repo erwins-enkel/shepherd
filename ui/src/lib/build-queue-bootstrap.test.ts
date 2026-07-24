@@ -23,11 +23,41 @@ it("hydrates the HerdStore and badge singleton from the cold queue snapshot", as
 
   await bootstrapBuildQueues({
     getBuildQueues,
-    setBuildQueues: (queues) => store.setBuildQueues(queues),
+    getBuildQueueRevision: () => store.getBuildQueueRevision(),
+    setBuildQueues: (queues, revision) => store.setBuildQueues(queues, revision),
   });
 
   expect(getBuildQueues).toHaveBeenCalledOnce();
-  expect(setBuildQueues).toHaveBeenCalledWith(snapshot);
+  expect(setBuildQueues).toHaveBeenCalledWith(snapshot, 0);
   expect(store.buildQueues).toEqual(snapshot);
   expect(buildQueues.map).toEqual(snapshot);
+});
+
+it("preserves a live queue update received while the snapshot is in flight", async () => {
+  const store = new HerdStore();
+  const staleQueue = { ...queue, approved: false };
+  const liveQueue = {
+    ...queue,
+    steps: [{ ...queue.steps[0]!, title: "Live", status: "active" as const }],
+  };
+  const otherQueue = { ...queue, sessionId: "s2" };
+  let resolveSnapshot!: (snapshot: Record<string, BuildQueue>) => void;
+  const getBuildQueues = vi.fn(
+    () =>
+      new Promise<Record<string, BuildQueue>>((resolve) => {
+        resolveSnapshot = resolve;
+      }),
+  );
+
+  const hydration = bootstrapBuildQueues({
+    getBuildQueues,
+    getBuildQueueRevision: () => store.getBuildQueueRevision(),
+    setBuildQueues: (snapshot, revision) => store.setBuildQueues(snapshot, revision),
+  });
+  store.setBuildQueue(liveQueue);
+  resolveSnapshot({ s1: staleQueue, s2: otherQueue });
+  await hydration;
+
+  expect(store.buildQueues).toEqual({ s1: liveQueue, s2: otherQueue });
+  expect(buildQueues.map).toEqual({ s1: liveQueue, s2: otherQueue });
 });

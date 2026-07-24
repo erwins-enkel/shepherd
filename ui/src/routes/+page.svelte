@@ -848,7 +848,8 @@
   function refreshBuildQueues() {
     bootstrapBuildQueues({
       getBuildQueues,
-      setBuildQueues: (queues) => store.setBuildQueues(queues),
+      getBuildQueueRevision: () => store.getBuildQueueRevision(),
+      setBuildQueues: (queues, revision) => store.setBuildQueues(queues, revision),
     }).catch(() => {});
   }
 

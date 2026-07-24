@@ -423,8 +423,7 @@ export class PrPoller implements PrCache {
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     const git = annotateHandoff(raw, s.repoPath, me, prev);
     this.trackTransient(s.id, git);
-    if (gitStateChanged(prev, git)) {
-      this.set(s.id, git);
+    if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);
     }
   }
@@ -567,9 +566,14 @@ export class PrPoller implements PrCache {
   get(id: string): GitState | undefined {
     return this.cache.get(id);
   }
-  set(id: string, git: GitState): void {
-    this.store.putSessionGitCache(id, git);
+  set(id: string, git: GitState): boolean {
+    if (!this.store.putSessionGitCache(id, git)) {
+      this.cache.delete(id);
+      this.transientSince.delete(id);
+      return false;
+    }
     this.cache.set(id, git);
+    return true;
   }
   drop(id: string): void {
     this.store.deleteSessionGitCache(id);

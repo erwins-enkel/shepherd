@@ -153,6 +153,8 @@ export class HerdStore {
   /** Live build queue keyed by sessionId; bootstrapped via GET /api/sessions/:id/queue,
    *  updated in real-time by the `queue:update` WS event. */
   buildQueues = $state<Record<string, BuildQueue>>({});
+  private buildQueueRevision = 0;
+  private buildQueueRevisions = new SvelteMap<string, number>();
   /** Live epic state keyed by `${repoPath}#${parentIssueNumber}`;
    *  updated in real-time by the `epic:update` WS event. */
   epics = $state<Record<string, Epic>>({});
@@ -271,15 +273,30 @@ export class HerdStore {
   }
   /** Seed (or replace) the build queue for a session — called after a bootstrap GET. */
   setBuildQueue(q: BuildQueue) {
-    // Guarded even though CodeQL flags only the `queue:update` twin below: same map, same key
-    // shape, same form — leaving this open would be a bypass sitting beside the guard.
+    if (!SAFE_ID.test(q.sessionId)) return;
+    this.buildQueueRevision++;
+    this.buildQueueRevisions.set(q.sessionId, this.buildQueueRevision);
     this.buildQueues = setKey(this.buildQueues, q.sessionId, q);
     buildQueuesStore.upsert(q);
   }
-  /** Bulk-replace the build queue map — called after a bootstrap GET /api/queues. */
-  setBuildQueues(map: Record<string, BuildQueue>) {
-    this.buildQueues = map;
-    buildQueuesStore.seed(map);
+  getBuildQueueRevision(): number {
+    return this.buildQueueRevision;
+  }
+  /** Replace the queue snapshot while retaining per-session updates newer than the request. */
+  setBuildQueues(map: Record<string, BuildQueue>, preserveAfterRevision = this.buildQueueRevision) {
+    let next = map;
+    for (const [sessionId, revision] of this.buildQueueRevisions) {
+      const current = this.buildQueues[sessionId];
+      if (revision > preserveAfterRevision && current) next = setKey(next, sessionId, current);
+    }
+    this.buildQueues = next;
+    this.buildQueueRevisions = new SvelteMap(
+      Object.keys(next).map((sessionId) => [
+        sessionId,
+        Math.max(preserveAfterRevision, this.buildQueueRevisions.get(sessionId) ?? 0),
+      ]),
+    );
+    buildQueuesStore.seed(next);
   }
   /** Upsert an epic — called after GET/PUT /api/epic or on `epic:update` WS push.
    *  FINISHED epics (idle + every child merged — the drain's own auto-complete
@@ -865,8 +882,7 @@ export class HerdStore {
         this.autoMerge = setPathKey(this.autoMerge, ev.data.repoPath, ev.data);
         break;
       case "queue:update":
-        this.buildQueues = setKey(this.buildQueues, ev.data.sessionId, ev.data);
-        buildQueuesStore.upsert(ev.data);
+        this.setBuildQueue(ev.data);
         break;
       case "session:epic-draft":
         epicDraftsStore.upsert(ev.data);

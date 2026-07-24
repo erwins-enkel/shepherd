@@ -2376,11 +2376,16 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     })();
   }
 
-  putSessionGitCache(sessionId: string, state: GitState): void {
-    this.db.run(
-      `INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)
+  putSessionGitCache(sessionId: string, state: GitState): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO session_git_cache (sessionId, gitJson, updatedAt)
+       SELECT ?, ?, ? WHERE EXISTS (
+         SELECT 1 FROM sessions WHERE id = ? AND status != 'archived'
+       )
        ON CONFLICT(sessionId) DO UPDATE SET gitJson=excluded.gitJson, updatedAt=excluded.updatedAt`,
-      [sessionId, JSON.stringify(state), Date.now()],
+        [sessionId, JSON.stringify(state), Date.now(), sessionId],
+      ).changes > 0
     );
   }
 

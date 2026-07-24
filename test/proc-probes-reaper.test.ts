@@ -77,6 +77,49 @@ test("scanSystemSideEffects: no listeningPorts probe ⇒ offers zero class-3 lef
   expect(leftovers).toEqual([]);
 });
 
+// ── class-2: fail closed too, so `reap()` can't report phantom kills ─────────
+
+test("scanWorktreeProcs: no signal authority ⇒ offers zero class-2 leftovers", () => {
+  // A worktree process that WOULD be a class-2 leftover on Linux: right cwd, real
+  // listening port, non-agent comm.
+  const killed: number[] = [];
+  const probes = darwinFake({
+    scanProcs: () => [{ pid: 4242, cwd: "/wt/x", comm: "vite" }],
+    portsForPid: () => [5173],
+    killPid: (pid) => killed.push(pid),
+  });
+  const reaper = new ProcessReaper(probes);
+  const leftovers = reaper.detect({
+    worktreePath: "/wt/x",
+    claudeSessionId: "sess-1",
+    isolated: true,
+  });
+  // Offering it would put it in the "Terminate & close" list, kill nothing (killPid
+  // is inert without signal authority), and still count as reaped — strictly worse
+  // than pre-#1912, where an empty scan meant nothing was ever offered.
+  expect(leftovers).toEqual([]);
+  // And the belt-and-braces: even if a stale key were replayed, nothing is signalled.
+  reaper.reap([{ kind: "process", name: "vite", port: 5173, pid: 4242, key: "process:4242" }]);
+  expect(killed).toEqual([]);
+});
+
+test("scanWorktreeProcs: WITH signal authority the same process is still offered", () => {
+  // Guards the fix from over-reaching: the suppression must key on signal
+  // authority, not on the presence of a snapshot backend.
+  const probes = darwinFake({
+    canAuthorizeSignal: true,
+    scanProcs: () => [{ pid: 4242, cwd: "/wt/x", comm: "vite" }],
+    portsForPid: () => [5173],
+  });
+  const leftovers = new ProcessReaper(probes).detect({
+    worktreePath: "/wt/x",
+    claudeSessionId: "sess-1",
+    isolated: true,
+  });
+  expect(leftovers).toHaveLength(1);
+  expect(leftovers[0]).toMatchObject({ kind: "process", pid: 4242, port: 5173 });
+});
+
 // ── the | null scan helpers ──────────────────────────────────────────────────
 
 test("scan helpers return null on a stale/none cell, not an all-false / empty map", () => {

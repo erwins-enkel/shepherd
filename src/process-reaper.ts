@@ -561,6 +561,15 @@ export class ProcessReaper {
 
   /** Class 2 — processes living in the worktree that listen on a port. */
   private scanWorktreeProcs(worktreePath: string): Leftover[] {
+    // A backend that cannot authorize a signal (darwin) also cannot HONOUR one:
+    // `reap()` calls `probes.killPid`, which is a no-op there. Offering class-2
+    // leftovers anyway would list them under "Terminate & close", kill nothing, and
+    // still report `reaped = hit.length` (SessionService.archive) as if it had —
+    // strictly worse than the pre-#1912 behaviour, where an empty `scanProcs` meant
+    // nothing was ever offered. So fail closed, exactly as class-3 does when
+    // `listeningPorts` is absent. Re-enabling this is part of arming the kill path
+    // (#1922), which needs a recycle fingerprint before it can signal safely.
+    if (this.probes.canAuthorizeSignal === false) return [];
     const root = normRoot(worktreePath, this.probes);
     const out: Leftover[] = [];
     for (const p of this.probes.scanProcs()) {
@@ -702,12 +711,24 @@ export class ProcessReaper {
     return count;
   }
 
-  /** Best-effort terminate each leftover (kill pid / run counter-command). */
+  /**
+   * Best-effort terminate each leftover (kill pid / run counter-command).
+   *
+   * The pid branch is gated on signal authority independently of `detect`. Today
+   * `scanWorktreeProcs` already returns [] on a no-authority backend, so a caller
+   * that derives leftovers from `detect` (SessionService.archive) can't reach it —
+   * but this method is what actually signals, and its keys round-trip through the
+   * client, so it refuses on its own rather than trusting an upstream filter. The
+   * counter-command branch is NOT gated: it runs `tailscale serve … off`, which
+   * targets a port mapping rather than a pid and so has no recycle hazard.
+   */
   reap(leftovers: Leftover[]): void {
+    const canSignal = this.probes.canAuthorizeSignal !== false;
     for (const l of leftovers) {
       try {
-        if (l.kind === "process" && l.pid != null) this.probes.killPid(l.pid);
-        else if (l.command) this.probes.run(l.command.bin, l.command.args);
+        if (l.kind === "process" && l.pid != null) {
+          if (canSignal) this.probes.killPid(l.pid);
+        } else if (l.command) this.probes.run(l.command.bin, l.command.args);
       } catch {
         /* best-effort: a process may have already exited */
       }

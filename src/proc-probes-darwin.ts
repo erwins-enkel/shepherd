@@ -286,7 +286,14 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
       return;
     }
     const procs = new Map<number, LsofProc>();
-    for (const p of parseLsofFields(stdout)) procs.set(p.pid, p);
+    for (const p of parseLsofFields(stdout)) {
+      // Normalise the command to a BASENAME here, at the single point the cell is
+      // built, so every probe that surfaces it (`scanProcs`, `commForPid`) matches
+      // the Linux `/proc/<pid>/comm` semantics production compares against —
+      // `AGENT_COMMS.has(comm)` and `isGitComm(comm)`. `parseLsofFields` stays a
+      // faithful raw parser; normalising there would hide what lsof actually said.
+      procs.set(p.pid, { ...p, comm: commBasename(p.comm) });
+    }
     cell.procs = procs;
     cell.successAt = startedAt; // START stamp — see Cell.successAt
     rootCache.clear();
@@ -358,8 +365,14 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
       return "";
     },
     killPid() {
-      // Never reached: `canAuthorizeSignal` is false, so `stopListenersOnPort`
-      // refuses before signalling and the orphan reaps are no-ops (no `ppidForPid`).
+      // Intentionally inert: `canAuthorizeSignal: false` means this backend's
+      // snapshot data may not authorize a signal (macOS exposes no cheap
+      // pid-recycle fingerprint). Every caller is gated so this is not reached —
+      // `stopListenersOnPort` refuses up front, the orphan reaps need the omitted
+      // `ppidForPid`, and `reap()` gets nothing to act on because
+      // `scanWorktreeProcs`/`scanSystemSideEffects` both fail closed here. This
+      // stays a no-op rather than a throw so a future caller degrades to
+      // "nothing happened" instead of breaking teardown.
     },
     run() {
       // Counter-commands are class-3 only; unreachable on darwin (see readTranscript).

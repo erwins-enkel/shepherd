@@ -3,7 +3,7 @@
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { recommendPrompt, replySession } from "$lib/api";
-  import { modelLabel } from "$lib/model-label";
+  import { configuredModelLabel } from "$lib/model-label";
   import type { AgentProvider } from "$lib/types";
 
   // Modal that runs a next-prompt recommendation for one session and surfaces the
@@ -97,7 +97,7 @@
     use:dialog={{ onclose }}
   >
     <div class="chead">
-      <span class="micro">{m.recommend_title()} · {modelLabel(model)}</span>
+      <span class="micro">{m.recommend_title()} · {configuredModelLabel(model)}</span>
       <button type="button" class="x" onclick={onclose} aria-label={m.common_close()}>✕</button>
     </div>
 

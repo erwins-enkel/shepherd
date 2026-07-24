@@ -3,6 +3,7 @@ import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ReviewService, reviewPrompt, scopeFindings } from "../src/review";
+import { CodexRolloutResolver } from "../src/codex-activity";
 import { PluginSpawnAborted } from "../src/plugins/types";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { RawVerdict } from "../src/critic-core";
@@ -507,6 +508,50 @@ test("onActivity surfaces the running critic's latest tool-use while no verdict 
   await svc.consider(session(), OPEN_GREEN);
   await svc.tick();
   expect(acts).toEqual([{ id: "s1", summary: "$ git diff main...HEAD" }]);
+});
+
+const CODEX_FIXTURE = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
+
+// Point a REAL resolver at the fixture rollout, keyed on the critic worktree (/review-wt).
+function codexResolverForFixture() {
+  return new CodexRolloutResolver({
+    listMetas: () => [
+      { path: CODEX_FIXTURE, cwd: "/review-wt", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+    ],
+    now: () => 0,
+  });
+}
+
+test("codex critic: onActivity surfaces the rollout's summary via the resolver", async () => {
+  // The critic runs on codex, which writes no ~/.claude/projects JSONL. The default readActivity
+  // must resolve its rollout (by launch-unique cwd = the critic worktree, A0) and read the same
+  // activity signal from there — else the banner shows "Starting review…" forever.
+  const acts: { id: string; summary: string }[] = [];
+  const { deps: d } = makeDeps({
+    env: () => ({ provider: "codex" as const, model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => null, // still running — no verdict file yet
+    codexResolver: codexResolverForFixture(),
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(acts).toEqual([{ id: "s1", summary: "apply_patch" }]);
+});
+
+test("codex critic with a resolved rollout books real token totals (not 0/NULL)", async () => {
+  // The default readUsage resolves the Codex rollout and parses its token_count — the totals booked
+  // as 0 today. Real resolver over the fixture (total_tokens = 52976).
+  const { deps: d, completedSpawns } = makeDeps({
+    env: () => ({ provider: "codex" as const, model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    codexResolver: codexResolverForFixture(),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(completedSpawns).toHaveLength(1);
+  expect(completedSpawns[0]!.u?.total).toBe(52976);
 });
 
 test("onActivity stays silent when the critic has no parseable activity yet", async () => {
@@ -2620,7 +2665,7 @@ test("reapOrphans: true orphan (worktree present), error verdict — reaps, drop
   expect(result).toContain("s1");
 });
 
-test("reapOrphans: readUsage returns null → zeroed usage used, full reap for error-verdict orphan", async () => {
+test("reapOrphans: readUsage returns null → NULL usage booked (unknown, not 0), full reap for error-verdict orphan", async () => {
   const row = {
     reviewerSessionId: "rev-null",
     taskSessionId: "s1",
@@ -2641,16 +2686,8 @@ test("reapOrphans: readUsage returns null → zeroed usage used, full reap for e
   const result = await svc.reapOrphans();
 
   expect(completedSpawns).toHaveLength(1);
-  const u = completedSpawns[0]!.u;
-  // all numeric fields zeroed
-  expect(u.input).toBe(0);
-  expect(u.output).toBe(0);
-  expect(u.cacheRead).toBe(0);
-  expect(u.cacheWrite).toBe(0);
-  expect(u.total).toBe(0);
-  expect(u.messageCount).toBe(0);
-  expect(u.fullRecaches).toBe(0);
-  expect(u.sidechainCount).toBe(0);
+  // null usage → NULL token columns (unknown, backfillable), NOT a zeroed SessionUsage (#1816)
+  expect(completedSpawns[0]!.u).toBeNull();
   // worktree-present error orphan: dropReview called and taskSessionId in re-kick set
   expect(droppedReviews).toContain("s1");
   expect(result).toContain("s1");
@@ -2712,9 +2749,9 @@ test("reapOrphans: worktree absent (cleanly finalized, transcript miss) — comp
   const svc = new ReviewService(deps as any);
   const result = await svc.reapOrphans();
 
-  // row completed (zeroed usage)
+  // row completed with NULL usage (transcript miss → unknown, not 0; #1816)
   expect(completedSpawns).toHaveLength(1);
-  expect(completedSpawns[0]!.u.total).toBe(0);
+  expect(completedSpawns[0]!.u).toBeNull();
   // no reap, no drop, no re-kick
   expect(closedTabs).toEqual([]);
   expect(removedWorktrees).toEqual([]);

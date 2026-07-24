@@ -823,6 +823,9 @@ export interface ReviewerSpawnRow {
   cacheReadTokens: number | null;
   cacheWriteTokens: number | null;
   totalTokens: number | null;
+  /** Codex-native rollout id, backfilled once the spawn's rollout resolves; NULL until then and for
+   *  every claude spawn (issue #1816). Enables exact, restart-durable rollout resolution. */
+  providerSessionId: string | null;
 }
 
 // ── autopilot mode ──────────────────────────────────────────────────────────

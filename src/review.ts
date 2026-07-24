@@ -1,16 +1,22 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import type { SessionStore } from "./store";
 import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
-import type { ReviewVerdict, ReviewerEnv, Session, ReviewerSpawnRow } from "./types";
+import type { ReviewVerdict, ReviewerEnv, Session, ReviewerSpawnRow, AgentProvider } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
-import { readActivitySignal } from "./activity-signal";
+import { type SessionUsage } from "./usage";
+import {
+  createCodexRolloutResolver,
+  reviewerActivitySummary,
+  reviewerUsage,
+  type CodexRolloutResolver,
+} from "./codex-activity";
 import { checksCleared } from "./checks-gate";
 import { isSpawnAlive, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
 import type { VerdictAction, VerdictRead } from "./json-tolerant";
@@ -143,6 +149,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "addSignal"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
     | "get"
   >;
@@ -199,12 +206,26 @@ export interface ReviewServiceDeps extends MembraneSeams {
    *  read-only git). Called ONLY for an epic child with a resolved baseSha; null on any git
    *  failure → the epic block degrades to telling the critic to run the commands itself. */
   collectBaseDelta?: (worktreePath: string, baseSha: string) => Promise<EpicBaseDelta | null>;
-  /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL
-   *  transcript via readActivitySignal). null = no parseable activity yet. */
-  readActivity?: (worktreePath: string, criticSessionId: string) => string | null;
-  /** Injectable reader of a finished reviewer's token totals from its transcript
-   *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
-  readUsage?: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>;
+  /** Injectable reader for the critic's latest tool-use summary (default: parse its JSONL transcript
+   *  via readActivitySignal for claude, or resolve its Codex rollout for codex). null = no parseable
+   *  activity yet. */
+  readActivity?: (
+    worktreePath: string,
+    criticSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  /** Injectable per-service Codex rollout resolver (backoff + positive cache, keyed by critic
+   *  session id). Default: a fresh {@link createCodexRolloutResolver}. */
+  codexResolver?: CodexRolloutResolver;
+  /** Injectable reader of a finished reviewer's token totals from its transcript (default:
+   *  readSessionUsage for claude, or parse the resolved Codex rollout for codex). null = transcript
+   *  unresolved/unreadable → the row's token totals stay NULL (unknown), NOT zero. */
+  readUsage?: (
+    worktreePath: string,
+    criticSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
+  ) => Promise<SessionUsage | null>;
   /** Injectable reader for the session's approved `.shepherd-plan.md` (#1812 finding A; default
    *  reads it from the LIVE session worktree). null when no plan was written. Fed to the critic as
    *  UNTRUSTED intent-context. MUST read from `session.worktreePath`, NOT the critic's detached
@@ -236,10 +257,17 @@ export class ReviewService {
     worktreePath: string,
     baseSha: string,
   ) => Promise<EpicBaseDelta | null>;
-  private readActivity: (worktreePath: string, criticSessionId: string) => string | null;
+  private readActivity: (
+    worktreePath: string,
+    criticSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  private codexResolver: CodexRolloutResolver;
   private readUsage: (
     worktreePath: string,
     criticSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
   ) => Promise<SessionUsage | null>;
   private readPlan: (worktreePath: string) => string | null;
   private worktreeExists: (p: string) => boolean;
@@ -253,8 +281,17 @@ export class ReviewService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
-    this.readActivity = deps.readActivity ?? defaultReadActivity;
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.codexResolver =
+      deps.codexResolver ??
+      createCodexRolloutResolver((id, rid) =>
+        deps.store.setReviewerSpawnProviderSessionId(id, rid),
+      );
+    this.readActivity =
+      deps.readActivity ??
+      ((wt, id, provider) => reviewerActivitySummary(wt, id, provider, this.codexResolver));
+    this.readUsage =
+      deps.readUsage ??
+      ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
@@ -332,12 +369,25 @@ export class ReviewService {
     // to verify they were addressed, and its addressRound bounds the auto-address loop.
     const prior = this.deps.store.getReview(session.id);
 
+    // Mint the per-spawn critic session id BEFORE createDetached so it can key the worktree path
+    // (A0, issue #1816): passing it as the `slug` makes the critic's cwd unique per spawn, which is
+    // the invariant the Codex rollout resolver relies on (`session_meta.cwd` → exactly one rollout).
+    // Without it, two reviews at the same head SHA would share `…-review-<sha>` and the resolver
+    // couldn't tell their rollouts apart. criticArgv takes the pre-minted id and pins the same
+    // `--session-id`, so the path/transcript wiring is unchanged.
+    const criticSessionId = randomUUID();
+
     // Allocate the disposable worktree at the PR head first: it's the cheap, reliable way
     // to resolve both head + base locally (a force-pushed SHA may not be in the repo until
     // it's checked out), and it's exactly the tree the critic would review.
     let wt;
     try {
-      wt = await this.deps.worktree.createDetached(session.repoPath, session.branch!, git.headSha!);
+      wt = await this.deps.worktree.createDetached(
+        session.repoPath,
+        session.branch!,
+        git.headSha!,
+        criticSessionId,
+      );
     } catch (err) {
       console.warn(`[review] worktree failed for ${session.id}:`, err);
       return;
@@ -417,7 +467,7 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
-    const { argv, sessionId: criticSessionId } = this.criticArgv(
+    const { argv } = this.criticArgv(
       session,
       diffBase,
       prior?.findings ?? [],
@@ -427,6 +477,7 @@ export class ReviewService {
       epic,
       plan,
       smellLens,
+      criticSessionId,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -664,6 +715,7 @@ export class ReviewService {
     epic: EpicContext | null,
     plan: string | null,
     smellLens: boolean,
+    sessionId: string,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -687,6 +739,8 @@ export class ReviewService {
       }),
       // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
       captureLastMessage: true,
+      // Pre-minted in begin() so it also keys the disposable worktree path (A0, #1816).
+      sessionId,
     });
   }
 
@@ -800,7 +854,7 @@ export class ReviewService {
         // still running (or gated, awaiting completion) — surface what the critic is doing right
         // now. Emit every tick (not only on change) so a reloaded client repopulates within one
         // tick; the client dedups identical summaries to stay quiet.
-        const summary = this.readActivity(f.worktreePath, f.criticSessionId);
+        const summary = this.readActivity(f.worktreePath, f.criticSessionId, f.reviewerProvider);
         if (summary) this.deps.onActivity?.(f.sessionId, summary);
         continue;
       }
@@ -870,7 +924,7 @@ export class ReviewService {
       // worktree path) and survives the worktree removal in the `finally`, so reading it here
       // is safe. Individually guarded — a transcript-read failure must never strand finalize.
       await captureUsage(
-        this.readUsage,
+        (wt, id) => this.readUsage(wt, id, f.reviewerProvider, f.reviewerModel),
         this.deps.store.completeReviewerSpawn.bind(this.deps.store),
         f.worktreePath,
         f.criticSessionId,
@@ -1214,23 +1268,18 @@ export class ReviewService {
   private async reapOneOrphanRow(
     row: ReviewerSpawnRow,
   ): Promise<{ kind: "dangling" } | { kind: "orphan"; reKickId: string | null }> {
-    // a. Always close the dangling row first — read real usage when available, else
-    //    zero (so the row is never re-listed every boot). This is ONE unconditional
-    //    completion, avoiding captureUsage's `if (usage)` double-complete trap.
-    const usage = await this.readUsage(row.worktreePath, row.reviewerSessionId).catch(() => null);
-    const zeroedUsage: SessionUsage = {
-      input: 0,
-      output: 0,
-      cacheRead: 0,
-      cacheWrite: 0,
-      total: 0,
-      messageCount: 0,
-      lastActivity: null,
-      byModel: {},
-      fullRecaches: 0,
-      sidechainCount: 0,
-    };
-    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, usage ?? zeroedUsage, this.now());
+    // a. Always close the dangling row first — read real usage when available, else NULL (so the
+    //    row is never re-listed every boot). This is ONE unconditional completion, avoiding
+    //    captureUsage's `if (usage)` double-complete trap. null (an unresolved Codex rollout) books
+    //    NULL token columns (unknown, backfillable), NOT 0 — 0 is reserved for a resolved-but-empty
+    //    transcript (issue #1816).
+    const usage = await this.readUsage(
+      row.worktreePath,
+      row.reviewerSessionId,
+      row.reviewerProvider,
+      row.model,
+    ).catch(() => null);
+    this.deps.store.completeReviewerSpawn(row.reviewerSessionId, usage, this.now());
 
     // b. Worktree gone → finalize already ran; just a dangling completion row.
     //    Do NOT reap/drop/re-kick — preserves genuine-timeout error verdict accounting.
@@ -1306,9 +1355,6 @@ export class ReviewService {
 /** Latest meaningful tool-use summary from the critic's JSONL transcript (its claude
  *  session id forces a predictable path under the disposable worktree). null when the
  *  transcript is missing or has no parseable activity yet. */
-function defaultReadActivity(worktreePath: string, criticSessionId: string): string | null {
-  return readActivitySignal(jsonlPathFor(worktreePath, criticSessionId))?.summary ?? null;
-}
 
 /** #1812 finding A: read the session's approved `.shepherd-plan.md` from the LIVE session worktree.
  *  null when absent/unreadable. Mirrors plan-gate.ts's reader — the plan file is git-excluded, so

@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { SessionStore } from "../src/store";
+import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
 import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -1337,7 +1337,81 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     cacheReadTokens: null,
     cacheWriteTokens: null,
     totalTokens: null,
+    providerSessionId: null,
   });
+});
+
+test("reviewer_spawns FRESH schema (DDL alone, no migration) already has providerSessionId", () => {
+  // The constructor runs CREATE TABLE + migrateReviewerSpawnColumns() in sequence, so a forgotten
+  // inline column would be silently repaired by the migration and an end-state test would stay
+  // green. Run the fresh DDL ALONE against a bare DB to catch that (issue #1816).
+  const raw = new Database(":memory:");
+  raw.run(REVIEWER_SPAWNS_DDL);
+  const cols = (raw.query(`PRAGMA table_info(reviewer_spawns)`).all() as { name: string }[]).map(
+    (c) => c.name,
+  );
+  raw.close();
+  expect(cols).toContain("providerSessionId");
+});
+
+test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-rev-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create the table as it was BEFORE the providerSessionId column.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE reviewer_spawns (
+      reviewerSessionId TEXT PRIMARY KEY, taskSessionId TEXT NOT NULL, kind TEXT NOT NULL,
+      worktreePath TEXT NOT NULL, reviewerProvider TEXT, model TEXT, reviewerEffort TEXT,
+      spawnedAt INTEGER NOT NULL, completedAt INTEGER, inputTokens INTEGER, outputTokens INTEGER,
+      cacheReadTokens INTEGER, cacheWriteTokens INTEGER, totalTokens INTEGER)`);
+    raw.run(
+      `INSERT INTO reviewer_spawns (reviewerSessionId, taskSessionId, kind, worktreePath, spawnedAt)
+       VALUES ('rev-old', 'task-1', 'review', '/wt', 1000)`,
+    );
+    raw.close();
+    // opening through the store runs migrateReviewerSpawnColumns, adding providerSessionId
+    const store = new SessionStore(dbPath);
+    const row = store.listReviewerSpawns().find((r) => r.reviewerSessionId === "rev-old");
+    expect(row).toBeDefined();
+    expect(row!.providerSessionId).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setReviewerSpawnProviderSessionId: idempotent + ownership-guarded (UNIQUE)", () => {
+  const s = mk();
+  const rec = (id: string) =>
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "task-1",
+      kind: "review",
+      worktreePath: `/wt-${id}`,
+      model: null,
+      spawnedAt: 1000,
+    });
+  rec("rev-a");
+  rec("rev-b");
+
+  s.setReviewerSpawnProviderSessionId("rev-a", "rollout-1");
+  const byId = () =>
+    Object.fromEntries(
+      s.listReviewerSpawns().map((r) => [r.reviewerSessionId, r.providerSessionId]),
+    );
+  expect(byId()["rev-a"]).toBe("rollout-1");
+
+  // idempotent: a second bind on the same row does not overwrite
+  s.setReviewerSpawnProviderSessionId("rev-a", "rollout-DIFFERENT");
+  expect(byId()["rev-a"]).toBe("rollout-1");
+
+  // ownership-guarded: binding rev-a's rollout to rev-b is refused (no throw, no write)
+  s.setReviewerSpawnProviderSessionId("rev-b", "rollout-1");
+  expect(byId()["rev-b"]).toBeNull();
+
+  // a fresh rollout binds fine
+  s.setReviewerSpawnProviderSessionId("rev-b", "rollout-2");
+  expect(byId()["rev-b"]).toBe("rollout-2");
 });
 
 test("recordReviewerSpawn persists reviewer provider and effort", () => {
@@ -1378,6 +1452,28 @@ test("completeReviewerSpawn fills token totals + completedAt", () => {
   expect(row.cacheWriteTokens).toBe(40);
   expect(row.totalTokens).toBe(100);
   expect(row.model).toBe("opus");
+});
+
+test("completeReviewerSpawn with null usage → NULL token columns (unknown), not 0, but completedAt set", () => {
+  // A Codex reviewer whose rollout hasn't resolved has UNKNOWN totals, not proven-zero. The row
+  // must complete (completedAt set, never stranded) with NULL token columns so a later backfill
+  // can fill the real values; SUM() in cost reports skips NULL, so aggregates aren't inflated by 0s.
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-null",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    model: "gpt-5.6-sol",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-null", null, 2000);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.completedAt).toBe(2000);
+  expect(row.totalTokens).toBeNull();
+  expect(row.inputTokens).toBeNull();
+  expect(row.cacheReadTokens).toBeNull();
+  expect(row.model).toBe("gpt-5.6-sol"); // COALESCE keeps the recorded model
 });
 
 test("completeReviewerSpawn backfills the true model from the transcript when spawn-time was auto (null)", () => {

@@ -1,7 +1,11 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
+import { join } from "node:path";
 import { PlanGateService } from "../src/plan-gate";
+import { CodexRolloutResolver } from "../src/codex-activity";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
+
+const CODEX_FIXTURE = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
 
 beforeEach(() => {
   __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
@@ -1493,6 +1497,30 @@ test("onActivity surfaces the running plan reviewer's latest tool-use while no v
   await h.svc.consider(planningSession() as any);
   await h.svc.tick();
   expect(acts).toEqual([{ id: "s1", summary: "read .shepherd-plan.md" }]);
+});
+
+test("codex reviewer: onActivity surfaces the rollout's summary via the resolver", async () => {
+  // The reviewer runs on codex, which writes no ~/.claude/projects JSONL. The default
+  // readActivity must resolve its rollout (by launch-unique cwd = the reviewer worktree)
+  // and read the same activity signal from there — else the banner shows "Starting review…"
+  // forever. Uses the REAL resolver over a fake listMetas pointing at the fixture rollout.
+  const acts: { id: string; summary: string }[] = [];
+  const codexResolver = new CodexRolloutResolver({
+    listMetas: () => [
+      { path: CODEX_FIXTURE, cwd: "/wt-detached", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+    ],
+    now: () => 0,
+  });
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => null, // still running — no verdict file yet
+    codexResolver,
+    onActivity: (id: string, summary: string) => acts.push({ id, summary }),
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  // the fixture's newest tool-use is an apply_patch call → its summary, not "exec"
+  expect(acts).toEqual([{ id: "s1", summary: "apply_patch" }]);
 });
 
 test("onActivity stays silent when the plan reviewer has no parseable activity yet", async () => {

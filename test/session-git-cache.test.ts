@@ -67,20 +67,17 @@ test("session git cache rejects and deletes structurally invalid JSON objects", 
   withFileStore((store, path) => {
     const session = store.create(base);
     const db = new Database(path);
-    db.run(
-      `INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)`,
-      [
-        session.id,
-        JSON.stringify({ kind: "github", number: 7, checks: "success", deployConfigured: false }),
-        Date.now(),
-      ],
-    );
+    db.run(`INSERT INTO session_git_cache (sessionId, gitJson, updatedAt) VALUES (?, ?, ?)`, [
+      session.id,
+      JSON.stringify({ kind: "github", number: 7, checks: "success", deployConfigured: false }),
+      Date.now(),
+    ]);
 
     expect(store.listSessionGitCache()).toEqual({});
     expect(
-      db.query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`).get(
-        session.id,
-      ),
+      db
+        .query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`)
+        .get(session.id),
     ).toEqual({ count: 0 });
     db.close();
   });
@@ -104,9 +101,9 @@ test("archive atomically removes the session git cache row", () => {
     expect(store.get(session.id)).toBeNull();
     const db = new Database(path);
     expect(
-      db.query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`).get(
-        session.id,
-      ),
+      db
+        .query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`)
+        .get(session.id),
     ).toEqual({ count: 0 });
     db.close();
   });

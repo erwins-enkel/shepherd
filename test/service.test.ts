@@ -6669,9 +6669,9 @@ test("relaunch tears down the just-created session if a post-create step throws 
     expect(store.get(replacementId)?.status).toBe("archived");
     const db = new Database(path);
     expect(
-      db.query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`).get(
-        replacementId,
-      ),
+      db
+        .query(`SELECT COUNT(*) AS count FROM session_git_cache WHERE sessionId = ?`)
+        .get(replacementId),
     ).toEqual({ count: 0 });
     db.close();
     // the new agent was stopped during teardown

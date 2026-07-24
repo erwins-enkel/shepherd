@@ -190,8 +190,8 @@ describe("Settings deep links", () => {
       .not.toBeInTheDocument();
 
     const row = document.querySelector<HTMLElement>('.srow[data-steer-id="b"]');
-    expect(row?.classList.contains("editing")).toBe(true);
-    expect(document.activeElement).toBe(row?.querySelector("textarea.text"));
+    expect(row?.classList.contains("open")).toBe(true);
+    expect(document.activeElement).toBe(row?.querySelector("textarea.ptext"));
   });
 });
 

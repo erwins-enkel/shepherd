@@ -2720,9 +2720,9 @@ describe("NewTask geometry (measurable handoff criteria)", () => {
     mockListRepos.mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
     render(NewTask, { props: base({ initialRepoPath: repo.path }) });
 
-    await expect.poll(() => document.querySelector(".repo-chip .rs-owner")?.textContent).toBe(
-      "Erwins-Enkel",
-    );
+    await expect
+      .poll(() => document.querySelector(".repo-chip .rs-owner")?.textContent)
+      .toBe("Erwins-Enkel");
     const card = document.querySelector<HTMLElement>("form.card")!;
     const trigger = document.querySelector<HTMLElement>(".repo-chip .rs-trigger")!;
     expectReadableRepoIdentity(trigger);

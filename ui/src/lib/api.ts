@@ -2312,6 +2312,10 @@ export async function startPreview(
       command: string;
       mode?: "local" | "agent_setup" | "agent";
       alreadyRunning?: boolean;
+      /** Process detection is dead/stale on this host (#1912): the start proceeds
+       *  but the preview will never bind, so the caller should skip the pending
+       *  guard and alert instead of showing a silently-expiring "started" toast. */
+      probesUnavailable?: boolean;
     }
 > {
   const r = await fetch(`/api/sessions/${id}/preview/start`, {
@@ -2326,6 +2330,7 @@ export async function startPreview(
     error?: string;
     mode?: "local" | "agent_setup" | "agent";
     alreadyRunning?: boolean;
+    probesUnavailable?: boolean;
   };
   if (r.ok) {
     const result: {
@@ -2333,12 +2338,14 @@ export async function startPreview(
       command: string;
       mode?: "local" | "agent_setup" | "agent";
       alreadyRunning?: boolean;
+      probesUnavailable?: boolean;
     } = {
       ok: true,
       command: body.command ?? "",
     };
     if (body.mode !== undefined) result.mode = body.mode;
     if (body.alreadyRunning === true) result.alreadyRunning = true;
+    if (body.probesUnavailable === true) result.probesUnavailable = true;
     return result;
   }
   if (r.status === 409 && body.error === "command_unknown") return { needCommand: true };

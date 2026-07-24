@@ -727,6 +727,17 @@ describe("macosDegradedBanner", () => {
     expect(banner).toContain("DEGRADED");
     expect(banner).toContain('cd "/home/op/.shepherd/app" && bun run start');
   });
+
+  // #1912: this banner is the authoritative degraded-capability list install.sh
+  // defers to, so it must state what is now unavailable (preview STOP + tailnet
+  // exposure) rather than the stale "tailscale-serve previews" (previews are now
+  // detected on macOS). Pin the wording so it can't silently drift from the docs.
+  it("lists the unavailable preview capabilities, not the stale 'previews' bullet", () => {
+    const banner = macosDegradedBanner("/home/op/.shepherd/app").join("\n");
+    expect(banner).toContain("stopping a preview from the UI");
+    expect(banner).toContain("exposing previews over the tailnet");
+    expect(banner).not.toContain("tailscale-serve previews");
+  });
 });
 
 describe("noServiceStartHint", () => {

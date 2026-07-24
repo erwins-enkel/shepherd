@@ -19,6 +19,7 @@ import {
   config,
   findServedPort,
 } from "./config";
+import { LSOF_ARGV, parseLsofFields } from "./proc-probes-darwin";
 import { parseGitVersion, gitVersionAtLeast, MIN_GIT_MAJOR, MIN_GIT_MINOR } from "./forge/local";
 import { compareSemver } from "./herdr-update";
 import { HERDR_LAST_SUPPORTED_VERSION, setDetectedHerdrVersion } from "./herdr-capabilities";
@@ -170,6 +171,18 @@ export interface DiagnosticsDeps {
     units: string[],
     limits: { memoryHigh: string; cpuQuota: string },
   ) => Promise<void>;
+  /** Standalone health probe for the process-detection backend (#1912): re-runs the
+   *  backend's own argv through its own parser (linux: `/proc` + `/proc/net/tcp`
+   *  readable; darwin: `lsof` spawns and parses ≥1 process; else unsupported). Async
+   *  so a hung binary can't block the loop. Default reads live; injected in tests.
+   *  Reject ⇒ the probe falls back to `optional`/uninspectable (its `onTimeout`). */
+  runPreviewProbe?: () => Promise<"ok" | "unavailable" | "unsupported">;
+  /** LIVE freshness of the reaper's snapshot cell — a pure read, never a spawn.
+   *  `DIAGNOSTICS_PROBE_TIMEOUT_MS` (5s) exceeds the refresh bound (3s), so the
+   *  standalone probe alone would report `ok` on a host whose cell is frozen by
+   *  refresh timeouts; this second input catches that. Default `() => "fresh"`
+   *  (linux/unwired); wired in `index.ts` to the shared `reaper.health().state`. */
+  probeHealth?: () => "none" | "stale" | "fresh";
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -473,6 +486,33 @@ function isDangerousPressure(f: HostCapacityFacts): boolean {
  *  guardrail verdict. Uninspectable (non-systemd / non-Linux / limits unreadable) is `optional`
  *  — a deliberate divergence from the issue's `warning` so local `bun run` boxes don't pin a
  *  permanent yellow health pip; genuine pressure still errors on those hosts. */
+/**
+ * Classify the `preview_probes` check (#1912) from BOTH the standalone backend
+ * probe AND the live snapshot-cell health. A `warning` is never `error` — previews
+ * are a nicety, matching `tailscale not-serving`.
+ *
+ * `probe === "unavailable"` takes precedence over a stale cell: it is the more
+ * specific cause (the binary itself is broken). A cell that is `"none"`/`"stale"`
+ * while the probe is `ok` is the frozen-refresh case the standalone probe (with its
+ * larger 5s budget) cannot see.
+ */
+export function classifyPreviewProbes(
+  probe: "ok" | "unavailable" | "unsupported",
+  cell: "none" | "stale" | "fresh",
+): DiagnosticCheck {
+  const id = "preview_probes";
+  if (probe === "unsupported") {
+    return { id, state: "warning", hintKey: "diagnostics_hint_preview_probes_unsupported" };
+  }
+  if (probe === "unavailable") {
+    return { id, state: "warning", hintKey: "diagnostics_hint_preview_probes_unavailable" };
+  }
+  if (cell !== "fresh") {
+    return { id, state: "warning", hintKey: "diagnostics_hint_preview_probes_stale" };
+  }
+  return { id, state: "ok", hintKey: "diagnostics_hint_preview_probes_ok" };
+}
+
 export function classifyHostCapacity(f: HostCapacityFacts): DiagnosticCheck {
   const id = "host_capacity";
   if (isDangerousPressure(f)) {
@@ -517,6 +557,41 @@ export function classifyHostCapacity(f: HostCapacityFacts): DiagnosticCheck {
 /** Default slices that carry no intentional guardrail — a `Slice=` among these is not worth a
  *  second `systemctl show`. A custom slice (e.g. the recommended `shepherd.slice`) is. */
 const DEFAULT_SLICES = new Set(["-.slice", "user.slice", "app.slice", "system.slice"]);
+
+/** Default `runPreviewProbe` (#1912): does the process-detection backend work on
+ *  this host? Linux checks `/proc/net/tcp` is readable (the listener source);
+ *  darwin spawns `lsof` and parses ≥1 process; any other platform is unsupported.
+ *  Async so a hung `lsof` cannot block the loop; never reads the reaper's cell (that
+ *  is the separate `probeHealth` input), so it reports on the binary's health. */
+async function defaultRunPreviewProbe(
+  platform: NodeJS.Platform = process.platform,
+): Promise<"ok" | "unavailable" | "unsupported"> {
+  if (platform === "linux") {
+    try {
+      await readFile("/proc/net/tcp", "utf8");
+      return "ok";
+    } catch {
+      return "unavailable";
+    }
+  }
+  if (platform === "darwin") {
+    try {
+      const { stdout } = await execFileAsync("lsof", [...LSOF_ARGV], {
+        encoding: "utf8",
+        timeout: DIAGNOSTICS_PROBE_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+      });
+      return parseLsofFields(stdout.toString()).length > 0 ? "ok" : "unavailable";
+    } catch (err) {
+      // lsof exits non-zero when a search term matches nothing but still prints
+      // valid output; treat parseable stdout as ok, a true spawn failure as broken.
+      const stdout = (err as { stdout?: string })?.stdout;
+      if (typeof stdout === "string" && parseLsofFields(stdout).length > 0) return "ok";
+      return "unavailable";
+    }
+  }
+  return "unsupported";
+}
 
 /** Default `readHostResources`: read the cgroup unit + its (and a custom slice's) systemd limits,
  *  swap totals, and memory/io PSI. Every read is independently guarded so a partial failure still
@@ -756,6 +831,20 @@ async function defaultRunTmpSweep(): Promise<void> {
 /** Resolve both tmp_inodes deps in one place, mirroring `resolveClaudeTrustDeps`. Grouping them
  *  keeps the already-long `DiagnosticsService` constructor from growing another two branches — the
  *  complexity gate is measured on that constructor, and a per-dep `??` there is what pushes it. */
+/** Resolve the two `preview_probes` inputs (#1912) with their defaults, keeping the
+ *  constructor flat — same idiom as `resolveTmpSweepDeps` / `resolveClaudeTrustDeps`.
+ *  `probeHealth` defaults to `"fresh"`, correct for linux (live `/proc`) and for an
+ *  unwired reaper; the real live-cell read is wired in `index.ts`. */
+function resolvePreviewProbeDeps(deps: DiagnosticsDeps): {
+  runPreviewProbe: () => Promise<"ok" | "unavailable" | "unsupported">;
+  probeHealth: () => "none" | "stale" | "fresh";
+} {
+  return {
+    runPreviewProbe: deps.runPreviewProbe ?? (() => defaultRunPreviewProbe()),
+    probeHealth: deps.probeHealth ?? (() => "fresh"),
+  };
+}
+
 function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
   readTmpInodes: () => Promise<TmpInodeFacts>;
   runTmpSweep: () => Promise<void>;
@@ -839,6 +928,8 @@ export class DiagnosticsService {
     units: string[],
     limits: { memoryHigh: string; cpuQuota: string },
   ) => Promise<void>;
+  private runPreviewProbe: () => Promise<"ok" | "unavailable" | "unsupported">;
+  private probeHealth: () => "none" | "stale" | "fresh";
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -899,6 +990,9 @@ export class DiagnosticsService {
     const tmpSweep = resolveTmpSweepDeps(deps);
     this.readTmpInodes = tmpSweep.readTmpInodes;
     this.runTmpSweep = tmpSweep.runTmpSweep;
+    const previewProbes = resolvePreviewProbeDeps(deps);
+    this.runPreviewProbe = previewProbes.runPreviewProbe;
+    this.probeHealth = previewProbes.probeHealth;
   }
 
   /**
@@ -1183,6 +1277,13 @@ export class DiagnosticsService {
   private tmpInodesProbe = async (): Promise<DiagnosticCheck> =>
     classifyTmpInodes(await this.readTmpInodes());
 
+  /** preview_probes (#1912): does process/port detection work on this host?
+   *  Classifies from BOTH the standalone backend probe AND the live snapshot-cell
+   *  health (`probeHealth` is a pure read, so this adds no sync spawn). A probe
+   *  reject resolves to the probe's `onTimeout` (optional/uninspectable). */
+  private previewProbesProbe = async (): Promise<DiagnosticCheck> =>
+    classifyPreviewProbes(await this.runPreviewProbe(), this.probeHealth());
+
   /** herdr_health (#1835): classify the reconciled herdr-fleet facts. Any read failure (herdr
    *  unreachable, or the fail-safe reject when unwired) resolves to the probe's `onTimeout`
    *  (optional/uninspectable) via the `check()` wrapper. */
@@ -1257,6 +1358,16 @@ export class DiagnosticsService {
           id: "tmp_inodes",
           state: "optional",
           hintKey: "diagnostics_hint_tmp_inodes_uninspectable",
+        },
+      },
+      {
+        run: this.previewProbesProbe,
+        // A failed/timed-out backend probe = can't verify detection ⇒ optional
+        // (no pip degrade), matching the other host-fact probes.
+        onTimeout: {
+          id: "preview_probes",
+          state: "optional",
+          hintKey: "diagnostics_hint_preview_probes_uninspectable",
         },
       },
     ];

@@ -173,7 +173,11 @@ export interface ServiceDeps {
   /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
   copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
-  reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
+  // `refresh`/`health` are Partial so existing non-`as any` reaper fakes (which
+  // supply only detect/reap/stopListenersOnPort) still satisfy the type; call sites
+  // use `?.`. Widening the Pick would make them required and break those fakes.
+  reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort"> &
+    Partial<Pick<ProcessReaper, "refresh" | "health">>;
   /**
    * Reap runaway orphans the agent left behind, for the sessions just archived (issue #1144).
    * Called at the END of teardown, after `store.archive`, so the reaper's terminality gate sees
@@ -4240,13 +4244,34 @@ export class SessionService {
   stopPreview(
     id: string,
     signal: NodeJS.Signals = "SIGTERM",
-  ): { result: "stopped" | "not_bound" | "not_found"; killed: number } {
+  ): { result: "stopped" | "not_bound" | "not_found" | "unsupported"; killed: number } {
     const s = this.deps.store.get(id);
     if (!s || !this.deps.reaper || !this.deps.preview) return { result: "not_found", killed: 0 };
     const devPort = this.deps.preview.devPortFor(id);
     if (devPort == null) return { result: "not_bound", killed: 0 };
-    const killed = this.deps.reaper.stopListenersOnPort(s.worktreePath, devPort, signal);
-    return { result: "stopped", killed };
+    const { signalled, unsupported } = this.deps.reaper.stopListenersOnPort(
+      s.worktreePath,
+      devPort,
+      signal,
+    );
+    // `unsupported` (darwin: no signal authority) is distinct from a genuine
+    // zero-kill "stopped": the idle-stop escalation ladder must NOT advance on it.
+    if (unsupported) return { result: "unsupported", killed: 0 };
+    return { result: "stopped", killed: signalled };
+  }
+
+  /** Rebuild the probe snapshot cell (darwin; no-op otherwise), so server handlers
+   *  reach the refresh through the already-injected `deps.service`. No-op when the
+   *  reaper is unwired (a deployment without preview/leftovers functionality). */
+  async refreshProbes(opts?: { force?: boolean }): Promise<void> {
+    await this.deps.reaper?.refresh?.(opts);
+  }
+
+  /** Health of the probe snapshot cell, for the Diagnose row and the preview-start
+   *  affordance. Neutral (`"fresh"`) when the reaper is unwired — such a deployment
+   *  has no preview functionality, so a "probes unavailable" caution would be noise. */
+  probeHealth(): { state: "none" | "stale" | "fresh" } {
+    return this.deps.reaper?.health?.() ?? { state: "fresh" };
   }
 
   /**
@@ -4868,6 +4893,14 @@ export class SessionService {
     if (!s) return 0;
     let reaped = 0;
     if (reapKeys?.length && this.deps.reaper) {
+      // Refresh the probe snapshot so `detect` reflects request-time state (darwin;
+      // no-op otherwise). Conditional on freshness: when called from `archiveMany`,
+      // which just force-refreshed microseconds ago, the cell is fresh and this
+      // issues no second spawn; a standalone `archive` (or one a timer interleaved
+      // into archiveMany's awaits) refreshes.
+      if (this.deps.reaper.health?.().state !== "fresh") {
+        await this.deps.reaper.refresh?.({ force: true });
+      }
       const want = new Set(reapKeys);
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
       this.deps.reaper.reap(hit);
@@ -4956,6 +4989,12 @@ export class SessionService {
       for (const id of ids) {
         const s = this.deps.store.get(id);
         if (!s) continue;
+        // Per-`detect` refresh, not once per batch: this loop awaits herdr.stop, a
+        // 15s beforeArchive race, and worktree.remove per id, so a batch-top
+        // snapshot would be well past its negative-verdict bound before the last
+        // session — a late id would get an empty class-2 set. See `archive`, which
+        // skips its own refresh when this one just ran (health() is "fresh").
+        await this.deps.reaper?.refresh?.({ force: true });
         const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
         try {
           leftovers += await this.archive(id, keys, reason); // count what was reaped, not what was detected

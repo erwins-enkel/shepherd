@@ -351,9 +351,9 @@ test("scanListeningPortsByWorktree: builds the inode→port map EXACTLY ONCE for
   // Map built exactly once
   expect(mapBuildCount).toBe(1);
   // alpha gets pid 101 (port 5173) + pid 103 (no ports)
-  expect(result.get("/wt/alpha")).toEqual([5173]);
+  expect(result!.get("/wt/alpha")).toEqual([5173]);
   // beta gets pid 102 (port 3000)
-  expect(result.get("/wt/beta")).toEqual([3000]);
+  expect(result!.get("/wt/beta")).toEqual([3000]);
 });
 
 test("scanListeningPortsByWorktree: ports are sorted and deduplicated per worktree", () => {
@@ -372,7 +372,7 @@ test("scanListeningPortsByWorktree: ports are sorted and deduplicated per worktr
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
   // sorted, deduped: [3000, 5173]
-  expect(result.get("/wt/app")).toEqual([3000, 5173]);
+  expect(result!.get("/wt/app")).toEqual([3000, 5173]);
 });
 
 test("scanListeningPortsByWorktree: excludes the agent comm (claude)", () => {
@@ -383,7 +383,7 @@ test("scanListeningPortsByWorktree: excludes the agent comm (claude)", () => {
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result.get("/wt/app")).toEqual([]);
+  expect(result!.get("/wt/app")).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: excludes own process.pid", () => {
@@ -394,7 +394,7 @@ test("scanListeningPortsByWorktree: excludes own process.pid", () => {
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result.get("/wt/app")).toEqual([]);
+  expect(result!.get("/wt/app")).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: processes outside all worktrees are ignored", () => {
@@ -405,7 +405,7 @@ test("scanListeningPortsByWorktree: processes outside all worktrees are ignored"
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result.get("/wt/app")).toEqual([]);
+  expect(result!.get("/wt/app")).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: returns empty arrays for worktrees with no matching procs", () => {
@@ -415,8 +415,8 @@ test("scanListeningPortsByWorktree: returns empty arrays for worktrees with no m
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/alpha", "/wt/beta"], probes);
-  expect(result.get("/wt/alpha")).toEqual([]);
-  expect(result.get("/wt/beta")).toEqual([]);
+  expect(result!.get("/wt/alpha")).toEqual([]);
+  expect(result!.get("/wt/beta")).toEqual([]);
 });
 
 test("scanListeningPortsByWorktree: empty worktreePaths → empty map", () => {
@@ -426,7 +426,7 @@ test("scanListeningPortsByWorktree: empty worktreePaths → empty map", () => {
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree([], probes);
-  expect(result.size).toBe(0);
+  expect(result!.size).toBe(0);
 });
 
 test("scanListeningPortsByWorktree: a PID under a nested subdir is attributed to its worktree", () => {
@@ -437,7 +437,7 @@ test("scanListeningPortsByWorktree: a PID under a nested subdir is attributed to
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/myapp"], probes);
-  expect(result.get("/wt/myapp")).toEqual([3000]);
+  expect(result!.get("/wt/myapp")).toEqual([3000]);
 });
 
 test("scanListeningPortsByWorktree: multiple worktrees get independent port sets", () => {
@@ -454,8 +454,8 @@ test("scanListeningPortsByWorktree: multiple worktrees get independent port sets
     socketInodesForPid: (pid) => (pid === 10 ? [1] : [2]),
   });
   const result = scanListeningPortsByWorktree(["/wt/alpha", "/wt/beta"], probes);
-  expect(result.get("/wt/alpha")).toEqual([5173]);
-  expect(result.get("/wt/beta")).toEqual([4321]);
+  expect(result!.get("/wt/alpha")).toEqual([5173]);
+  expect(result!.get("/wt/beta")).toEqual([4321]);
 });
 
 test("scanListeningPortsByWorktree: mismatched probe config (socketInodesForPid only) falls back to portsForPid", () => {
@@ -473,7 +473,7 @@ test("scanListeningPortsByWorktree: mismatched probe config (socketInodesForPid 
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
   expect(portsForPidCalled).toBe(true);
-  expect(result.get("/wt/app")).toEqual([5173]);
+  expect(result!.get("/wt/app")).toEqual([5173]);
 });
 
 test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /wt/app", () => {
@@ -485,7 +485,7 @@ test("scanListeningPortsByWorktree: proc under /wt/appold is NOT attributed to /
     socketInodesForPid: () => [1],
   });
   const result = scanListeningPortsByWorktree(["/wt/app"], probes);
-  expect(result.get("/wt/app")).toEqual([]);
+  expect(result!.get("/wt/app")).toEqual([]);
 });
 
 // ── PreviewService: reverse-proxy listeners + slot allocation ──────────────────

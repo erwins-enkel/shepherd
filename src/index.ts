@@ -238,6 +238,12 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
+// Single shared ProcessReaper: its probe backend holds the per-instance snapshot
+// cell, so the service (detect/reap/stop), the poller refresh, the tmp-sweep
+// refresh, and the Diagnose `preview_probes` health read must all go through the
+// SAME instance — a second `new ProcessReaper()` would carry an independent,
+// always-cold cell.
+const reaper = new ProcessReaper();
 // a repo root chosen in the UI (persisted) overrides the env var / default — but
 // only if it still sits within the immutable ceiling; a stale/escaping value is
 // ignored so the active root can never climb above the ceiling across restarts.
@@ -740,7 +746,7 @@ const service = new SessionService({
       }
     : undefined,
   events,
-  reaper: new ProcessReaper(),
+  reaper,
   // #1144: reap what the agent left burning, for the ids just archived. Defined below.
   reapRunaway: (ids) => sweepRunawayOrphans(ids),
   preview: previewService,
@@ -874,18 +880,30 @@ const fireTmpSweep = (phase: "boot" | "daily") => {
   // out of the all-async tmp-sweep module.
   void Promise.resolve()
     .then(async () => {
-      const liveWorktreePaths = store
-        .list({ activeOnly: true })
-        .map((s) => s.worktreePath)
-        .filter(Boolean);
-      const reap = await reapAbandonedWorktrees({
-        repoPaths: listRepos(config.repoRoot).map((r) => r.path),
-        liveWorktreePaths,
-        liveCwds: liveProcCwds(),
-      });
+      // Refresh the probe snapshot so liveProcCwds() reflects request-time state
+      // (darwin; no-op otherwise) before its FAIL-OPEN consumer reads it.
+      await reaper.refresh({ force: true });
+      const cwds = liveProcCwds();
+      // `null` = live cwds unknown (darwin, stale/none cell). reapAbandonedWorktrees'
+      // live-cwd guard is FAIL-OPEN — an empty array refuses nothing — so on unknown
+      // data we SKIP the worktree reap entirely and only run the store reclaim
+      // (which does not depend on cwds).
+      let reapLine = "worktree reap skipped (live cwds unknown)";
+      if (cwds !== null) {
+        const liveWorktreePaths = store
+          .list({ activeOnly: true })
+          .map((s) => s.worktreePath)
+          .filter(Boolean);
+        const reap = await reapAbandonedWorktrees({
+          repoPaths: listRepos(config.repoRoot).map((r) => r.path),
+          liveWorktreePaths,
+          liveCwds: cwds,
+        });
+        reapLine = `worktree reap removed ${reap.reaped} (retained ${reap.retained})`;
+      }
       const storeResult = await reclaimForkedPnpmStore({});
       console.warn(
-        `[tmp-sweep] ${phase}: worktree reap removed ${reap.reaped} (retained ${reap.retained}), ` +
+        `[tmp-sweep] ${phase}: ${reapLine}, ` +
           `pnpm store freed ${storeResult.freedFiles} file(s)/${storeResult.freedDirs} dir(s) ` +
           `(${storeResult.reason})`,
       );
@@ -1047,8 +1065,12 @@ const poller = new StatusPoller(
   {
     service: previewService,
     sweepMs: config.previewSweepMs,
+    // Drives the probe-snapshot refresh for BOTH sweeps through the shared reaper.
+    refresh: (opts) => reaper.refresh(opts),
     idleStop: {
       idleMs: config.previewIdleStopMs,
+      // Returns the stop outcome so the escalation ladder can refuse to advance on
+      // `"unsupported"` (darwin: no signal was sent).
       stop: (id, signal) => service.stopPreview(id, signal),
     },
   }, // preview sweep wiring
@@ -1504,9 +1526,15 @@ const REVIEW_WORKTREE_GRACE_MS = 15 * 60 * 1000;
 // path a reviewer service currently holds (protectedPaths, the #631 guard — load-bearing that
 // adoptOrphans has repopulated `inflight` before the boot call), any live session path, any
 // recent uncompleted spawn, and any worktree hosting a live `claude`.
-const sweepStaleReviewWorktrees = () => {
+const sweepStaleReviewWorktrees = async () => {
   if (maintenance.active) return; // a sync /proc+git sweep must not run mid-update
   try {
+    // Refresh the probe snapshot (darwin; no-op otherwise) so `scanAlive` reflects
+    // request-time state before its FAIL-OPEN consumer reads it.
+    await reaper.refresh({ force: true });
+    // Re-check AFTER the awaited refresh: an update may have begun during it, and a
+    // /proc+git sweep must not run mid-update.
+    if (maintenance.active) return;
     const protectedPaths = new Set([
       ...planGate.inflightWorktrees(),
       ...reviewService.inflightWorktrees(),
@@ -1594,7 +1622,16 @@ deferredStarts.push(() => {
     })
     .then(() => sweepStaleReviewWorktrees())
     .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
-  setInterval(() => sweepStaleReviewWorktrees(), 60 * 60 * 1000);
+  setInterval(
+    () => {
+      // Floating promise: the sweep is async now (it awaits a probe-snapshot refresh),
+      // so `void`+`catch` keeps a rejection from escaping the bare interval callback.
+      void sweepStaleReviewWorktrees().catch((err) =>
+        console.warn("[worktrees] hourly sweep failed:", err),
+      );
+    },
+    60 * 60 * 1000,
+  );
 });
 
 attachReviewPush(events, store, push);
@@ -2678,6 +2715,10 @@ setInterval(timerTask("plugin-update", checkPluginUpdates), 30 * 60 * 1000);
 // delayed boot kick + a 6h background re-check keep the UI's health pip live with
 // no client polling — the request path otherwise reads the TTL snapshot.
 const diagnostics = new DiagnosticsService({
+  // Live snapshot-cell health for `preview_probes` — the SHARED reaper, so the
+  // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
+  // would carry an always-cold cell). Pure read, no spawn.
+  probeHealth: () => reaper.health().state,
   anyForgeRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>

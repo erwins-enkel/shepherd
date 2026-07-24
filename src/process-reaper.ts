@@ -2,6 +2,7 @@ import { readdirSync, readlinkSync, readFileSync } from "node:fs";
 import { execFileSync } from "./instrument";
 import { jsonlPathFor } from "./usage";
 import { eachJsonlObject } from "./jsonl";
+import { makeDarwinProbes } from "./proc-probes-darwin";
 
 // ── leftover detection ──────────────────────────────────────────────────────
 // When a session is decommissioned we stop the Claude agent + remove its worktree,
@@ -39,8 +40,14 @@ export interface ReaperProbes {
   scanProcs(): { pid: number; cwd: string; comm: string }[];
   /** Listening TCP ports owned by a single pid (reads its fd table). */
   portsForPid(pid: number): number[];
-  /** All locally-listening TCP ports (for the class-3 counter-check). */
-  listeningPorts(): Set<number>;
+  /**
+   * All locally-listening TCP ports (for the class-3 counter-check). OPTIONAL:
+   * the Linux backend reads the world-readable /proc/net/tcp (uid-agnostic, so it
+   * sees a root-owned `tailscaled` listener); the darwin backend omits it because
+   * a non-root `lsof` cannot. When absent, `scanSystemSideEffects` skips the
+   * port-verification filter and offers NO class-3 leftovers (fail closed).
+   */
+  listeningPorts?(): Set<number>;
   /** Transcript text for a path; "" when missing/unreadable. */
   readTranscript(path: string): string;
   /** Terminate a pid (defaults to SIGTERM). */
@@ -91,6 +98,34 @@ export interface ReaperProbes {
   uptimeSeconds?(): number | null;
   /** A process's cwd, for the log line only — never a gate. Null when unreadable. */
   cwdForPid?(pid: number): string | null;
+  // ── snapshot-cell backends (darwin) ────────────────────────────────────────
+  /**
+   * Rebuild the backing snapshot. No-op for the Linux backend and test fakes
+   * (they read live /proc, so there is nothing to refresh). `force` bypasses the
+   * coalescing window and chains behind any in-flight refresh, capped so it never
+   * blocks a caller unboundedly. Absent ⇒ treated as an immediate no-op.
+   */
+  refresh?(opts?: { force?: boolean }): Promise<void>;
+  /**
+   * Freshness of the backing snapshot: `"none"` (never successfully refreshed),
+   * `"stale"` (older than the negative-verdict bound), `"fresh"`. Absent ⇒
+   * `"fresh"` (Linux/fakes read live /proc, so their data is never stale).
+   */
+  snapshotState?(): "none" | "stale" | "fresh";
+  /**
+   * Normalise a stored worktree root before comparing it against probe-reported
+   * cwds. Absent ⇒ identity (Linux `/proc/<pid>/cwd` is already canonical). The
+   * darwin backend realpaths, because lsof's `fcwd` is the kernel-resolved path
+   * (`/tmp`→`/private/tmp`, `/var`→`/private/var`) while stored roots are not.
+   */
+  normalizeRoot?(path: string): string;
+  /**
+   * May this backend's data authorize a SIGTERM/SIGKILL? Absent ⇒ true (Linux
+   * verifies pid→cwd→port at the instant of the signal via live /proc reads). The
+   * darwin backend sets this false: its data is a snapshot, and macOS exposes no
+   * cheap pid-recycle fingerprint, so `stopListenersOnPort` refuses instead.
+   */
+  canAuthorizeSignal?: boolean;
 }
 
 /** Raw CPU accounting for one process, in USER_HZ ticks (see {@link USER_HZ}). */
@@ -126,7 +161,9 @@ export const USER_HZ = 100;
 export const SESSION_MARKER_ENV = "SHEPHERD_SESSION_ID";
 
 // The agent itself runs `claude` with cwd == worktree; never offer to kill it.
-const AGENT_COMMS = new Set(["claude", "codex"]);
+// Exported so the darwin-only CI test can assert lsof's `c` field for a real
+// `claude`-named process resolves into this set (the equivalence a fixture can't prove).
+export const AGENT_COMMS = new Set(["claude", "codex"]);
 
 /**
  * git spares. An agent's `git fetch` triggers a detached `git gc --auto` (gc.autoDetach defaults on)
@@ -166,6 +203,14 @@ export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">)
  *  guard would treat `/a/bc` as under `/a/b`). */
 export function isUnder(path: string, root: string): boolean {
   return path === root || path.startsWith(root + "/");
+}
+
+/** Canonical worktree root for comparison against probe-reported cwds: trailing
+ *  slashes stripped, then `probes.normalizeRoot` applied (identity on Linux;
+ *  realpath on darwin, where lsof reports the kernel-resolved cwd). */
+function normRoot(worktreePath: string, probes: ReaperProbes): string {
+  const stripped = worktreePath.replace(/\/+$/, "");
+  return probes.normalizeRoot ? probes.normalizeRoot(stripped) : stripped;
 }
 
 // ── class-3 transcript heuristic ────────────────────────────────────────────
@@ -344,7 +389,7 @@ function readSocketInodes(pid: number): number[] {
   return inodes;
 }
 
-const defaultProbes: ReaperProbes = {
+const linuxProbes: ReaperProbes = {
   scanProcs() {
     let entries: string[];
     try {
@@ -433,6 +478,45 @@ const defaultProbes: ReaperProbes = {
 };
 
 /**
+ * Probes for an unsupported platform (Windows, etc.): every read is empty AND
+ * `snapshotState()` reports `"none"`, so the `| null`-returning scan helpers return
+ * `null` ("unknown") rather than an all-`false` map. Without the `snapshotState`
+ * declaration the "absent ⇒ fresh" default would apply, and the fail-open sweeps
+ * (`reapStaleReviewWorktrees`, `reapAbandonedWorktrees`) would treat empty data as
+ * "nothing alive" and delete worktrees / disable their live-cwd guard. `false`
+ * `canAuthorizeSignal` keeps `stopListenersOnPort` a no-op there too.
+ */
+const nullProbes: ReaperProbes = {
+  scanProcs: () => [],
+  portsForPid: () => [],
+  readTranscript: () => "",
+  killPid: () => {},
+  run: () => {},
+  listPids: () => [],
+  commForPid: () => "",
+  cwdForPid: () => null,
+  snapshotState: () => "none",
+  canAuthorizeSignal: false,
+  refresh: () => Promise.resolve(),
+};
+
+/**
+ * Select the probe backend for a platform. Exported as a PURE selector so the
+ * darwin/linux/win32 branches are assertable without touching the module-level
+ * default (which is built once at import time, so `process.platform` can never be
+ * re-read in a test). `linuxProbes` reads /proc live; `makeDarwinProbes()` runs an
+ * `lsof`-backed snapshot cell; anything else gets `nullProbes`.
+ */
+export function makeDefaultProbes(platform: NodeJS.Platform = process.platform): ReaperProbes {
+  if (platform === "linux") return linuxProbes;
+  if (platform === "darwin") return makeDarwinProbes();
+  return nullProbes;
+}
+
+/** The module default: dispatched once for this host. */
+const defaultProbes: ReaperProbes = makeDefaultProbes();
+
+/**
  * A snapshot of every same-uid process's current working directory (raw
  * `/proc/<pid>/cwd` readlink targets), reusing the existing synchronous
  * `scanProcs` /proc scan. `readlink` on another user's process yields `EACCES`
@@ -444,8 +528,16 @@ const defaultProbes: ReaperProbes = {
  * `/proc` walk out of the async module. A deleted cwd carries a `" (deleted)"`
  * suffix; that never resolves to an on-disk worktree, so it is harmless noise the
  * reaper's realpath step drops.
+ *
+ * Returns `null` when the snapshot backend cannot support a negative verdict
+ * (`snapshotState()` is `"none"`/`"stale"`, i.e. darwin with no successful recent
+ * `lsof`). The tmp-sweep live-cwd guard is FAIL-OPEN — an empty array refuses
+ * nothing — so the caller MUST treat `null` as "unknown, skip the reap" rather
+ * than defaulting to `[]`, or it would silently delete worktrees whose live cwd
+ * it cannot see.
  */
-export function liveProcCwds(probes: ReaperProbes = defaultProbes): string[] {
+export function liveProcCwds(probes: ReaperProbes = defaultProbes): string[] | null {
+  if (probes.snapshotState && probes.snapshotState() !== "fresh") return null;
   return probes.scanProcs().map((p) => p.cwd);
 }
 
@@ -469,7 +561,7 @@ export class ProcessReaper {
 
   /** Class 2 — processes living in the worktree that listen on a port. */
   private scanWorktreeProcs(worktreePath: string): Leftover[] {
-    const root = worktreePath.replace(/\/+$/, "");
+    const root = normRoot(worktreePath, this.probes);
     const out: Leftover[] = [];
     for (const p of this.probes.scanProcs()) {
       // Never offer to reap ourselves: the shepherd server runs in the worktree's
@@ -500,6 +592,11 @@ export class ProcessReaper {
       jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir),
     );
     if (!text) return [];
+    // No `listeningPorts` probe (darwin) ⇒ class-3 detection is not implemented on
+    // this backend. Fail closed: offer NO leftovers rather than surface a
+    // `tailscale serve … off` counter-command for a mapping we cannot verify is
+    // still live. Matches today's macOS behaviour (empty /proc → empty filter).
+    if (!this.probes.listeningPorts) return [];
     const listening = this.probes.listeningPorts();
     // drop any whose port no longer listens — already stopped by hand
     return scanTranscript(text).filter((hit) => hit.port == null || listening.has(hit.port));
@@ -521,13 +618,23 @@ export class ProcessReaper {
    * walk the process tree: the wrapper is often the agent's own backgrounded job,
    * and killing up the tree risks disrupting the agent's pane/job control — the
    * exact harm the opt-in, agent-idle-gated design avoids.
+   *
+   * Returns `{ signalled, unsupported }`. `unsupported` is true when the backend
+   * cannot authorize a signal (`canAuthorizeSignal === false`, i.e. darwin): its
+   * data is a snapshot and macOS has no cheap pid-recycle fingerprint, so a
+   * SIGKILL could hit a recycled pid. In that case NOTHING is signalled and the
+   * caller (idle-stop escalation) must not advance its ladder — see
+   * `StatusPoller.escalateIdleStop`. The Linux backend never sets `unsupported`.
    */
   stopListenersOnPort(
     worktreePath: string,
     port: number,
     signal: NodeJS.Signals = "SIGTERM",
-  ): number {
-    const root = worktreePath.replace(/\/+$/, "");
+  ): { signalled: number; unsupported: boolean } {
+    if (this.probes.canAuthorizeSignal === false) {
+      return { signalled: 0, unsupported: true };
+    }
+    const root = normRoot(worktreePath, this.probes);
     let count = 0;
     for (const proc of this.probes.scanProcs()) {
       if (proc.pid === process.pid) continue;
@@ -541,7 +648,23 @@ export class ProcessReaper {
         /* best-effort: process may have already exited */
       }
     }
-    return count;
+    return { signalled: count, unsupported: false };
+  }
+
+  /**
+   * Rebuild the backing probe snapshot (darwin only; no-op otherwise). Exposed as
+   * a method so it rides the already-injected `deps.reaper` seam — the poller,
+   * server handlers and `SessionService` refresh through this rather than importing
+   * a module-level default.
+   */
+  async refresh(opts?: { force?: boolean }): Promise<void> {
+    await this.probes.refresh?.(opts);
+  }
+
+  /** Health of the backing snapshot, for the Diagnose `preview_probes` row and the
+   *  preview-start affordance. A pure cell read — never spawns. */
+  health(): { state: "none" | "stale" | "fresh" } {
+    return { state: this.probes.snapshotState?.() ?? "fresh" };
   }
 
   /**
@@ -562,7 +685,7 @@ export class ProcessReaper {
    * Returns the count of processes signalled (signals SENT, not deaths confirmed).
    */
   reapOrphansUnder(worktreePath: string): number {
-    const root = worktreePath.replace(/\/+$/, "");
+    const root = normRoot(worktreePath, this.probes);
     if (!(root + "/").includes(WORKTREE_MARKER)) return 0;
     let count = 0;
     for (const p of this.probes.scanProcs()) {
@@ -904,15 +1027,20 @@ function portsForProcBatched(
  * Sessions sharing a cwd (non-isolated, same repo) share one verdict — any
  * claude in the dir counts for all of them.
  *
- * Returns a Map with every supplied worktreePath as a key (false when no claude).
+ * Returns a Map with every supplied worktreePath as a key (false when no claude),
+ * or `null` when the snapshot backend cannot support a negative verdict
+ * (`snapshotState()` is `"none"`/`"stale"` — darwin with no recent `lsof`). A false
+ * here DRIVES husk/stranded classification and auto-revive, so the caller MUST NOT
+ * coerce `null` to an all-false map: it means "unknown", not "everything is dead".
  */
 export function scanClaudeAliveByWorktree(
   worktreePaths: string[],
   probes: ReaperProbes = defaultProbes,
-): Map<string, boolean> {
+): Map<string, boolean> | null {
+  if (probes.snapshotState && probes.snapshotState() !== "fresh") return null;
   const result = new Map<string, boolean>(worktreePaths.map((p) => [p, false]));
   if (worktreePaths.length === 0) return result;
-  const roots = worktreePaths.map((p) => p.replace(/\/+$/, ""));
+  const roots = worktreePaths.map((p) => normRoot(p, probes));
   for (const proc of probes.scanProcs()) {
     if (!AGENT_COMMS.has(proc.comm)) continue;
     const matchedPath = matchWorktreePath(proc.cwd, roots, worktreePaths);
@@ -928,17 +1056,22 @@ export function scanClaudeAliveByWorktree(
  * candidate PID's socket inodes against it — never rebuilds per-PID.
  * Excludes `claude` agent processes and the current process (process.pid).
  *
- * Returns a Map from worktreePath → sorted unique listening port numbers.
- * Every supplied worktreePath appears as a key (empty array when no ports found).
+ * Returns a Map from worktreePath → sorted unique listening port numbers (every
+ * supplied worktreePath appears as a key, empty array when no ports found), or
+ * `null` when the snapshot backend cannot support a negative verdict
+ * (`snapshotState()` is `"none"`/`"stale"`). An empty map here would drive
+ * `converge` to tear down every bound preview, so `null` must be treated as
+ * "unknown, leave listeners bound", not as "no ports".
  */
 export function scanListeningPortsByWorktree(
   worktreePaths: string[],
   probes: ReaperProbes = defaultProbes,
-): Map<string, number[]> {
+): Map<string, number[]> | null {
+  if (probes.snapshotState && probes.snapshotState() !== "fresh") return null;
   const result = new Map<string, number[]>(worktreePaths.map((p) => [p, []]));
   if (worktreePaths.length === 0) return result;
 
-  const roots = worktreePaths.map((p) => p.replace(/\/+$/, ""));
+  const roots = worktreePaths.map((p) => normRoot(p, probes));
 
   // Build the inode→port map exactly once for all PIDs.
   // Both inodeToPortMap + socketInodesForPid must be supplied together;

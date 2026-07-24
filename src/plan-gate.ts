@@ -31,6 +31,11 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
+import {
+  createCodexRolloutResolver,
+  readCodexTranscriptSignals,
+  type CodexRolloutResolver,
+} from "./codex-activity";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { spawnBudget } from "./spawn-budget";
@@ -546,8 +551,16 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  created — `createDetached` fetches `origin/<base>` and this measures against it. */
   anchorStaleness?: (repoPath: string, sha: string, base: string) => AnchorStaleness;
   /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
-   *  transcript via readActivitySignal). null = no parseable activity yet. */
-  readActivity?: (worktreePath: string, reviewerSessionId: string) => string | null;
+   *  transcript via readActivitySignal for claude, or resolve its Codex rollout for codex). null =
+   *  no parseable activity yet. */
+  readActivity?: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  /** Injectable per-service Codex rollout resolver (backoff + positive cache, keyed by reviewer
+   *  session id). Default: a fresh {@link createCodexRolloutResolver}. */
+  codexResolver?: CodexRolloutResolver;
   /** Injectable reader of a finished reviewer's token totals from its transcript
    *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
   readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
@@ -606,7 +619,12 @@ export class PlanGateService {
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
   private anchorStaleness: (repoPath: string, sha: string, base: string) => AnchorStaleness;
-  private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
+  private readActivity: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  private codexResolver: CodexRolloutResolver;
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
@@ -624,7 +642,10 @@ export class PlanGateService {
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultPlanAnchorSha;
     this.anchorStaleness = deps.anchorStaleness ?? defaultAnchorStaleness;
-    this.readActivity = deps.readActivity ?? defaultReadActivity;
+    this.codexResolver = deps.codexResolver ?? createCodexRolloutResolver();
+    this.readActivity =
+      deps.readActivity ??
+      ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));
     this.readUsage = deps.readUsage ?? readSessionUsage;
   }
 
@@ -1236,7 +1257,7 @@ export class PlanGateService {
         // still running — surface what the reviewer is doing right now. Emit every tick (not
         // only on change) so a reloaded client repopulates within one tick; the client dedups
         // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
-        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId);
+        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId, f.reviewerProvider);
         if (summary) this.deps.onActivity?.(f.sessionId, summary);
         continue;
       }
@@ -1805,7 +1826,22 @@ function defaultReadPlan(worktreePath: string): string | null {
 /** Latest meaningful tool-use summary from the plan reviewer's JSONL transcript (its claude
  *  session id forces a predictable path under the disposable worktree). null when the transcript
  *  is missing or has no parseable activity yet. Mirrors review.ts's defaultReadActivity. */
-function defaultReadActivity(worktreePath: string, reviewerSessionId: string): string | null {
+function defaultReadActivity(
+  worktreePath: string,
+  reviewerSessionId: string,
+  provider: AgentProvider | null,
+  codexResolver: CodexRolloutResolver,
+): string | null {
+  if (provider === "codex") {
+    // Codex writes no ~/.claude/projects JSONL; resolve its rollout (by launch-unique cwd) and read
+    // the same activity signal from there. Unresolved → null (backoff retries next tick).
+    const hit = codexResolver.resolve({
+      trackingId: reviewerSessionId,
+      worktreePath,
+      source: "exec",
+    });
+    return hit ? (readCodexTranscriptSignals(hit.path).activity?.summary ?? null) : null;
+  }
   return readActivitySignal(jsonlPathFor(worktreePath, reviewerSessionId))?.summary ?? null;
 }
 

@@ -2027,7 +2027,7 @@ export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
 /** The premium-priced tiers among MODELS. Selecting one as the default makes every
  *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.
  *  Kept next to MODELS so adding a new premium model classifies it in one place.
- *  Both 1M variants are premium: the >200K long-context regime is the unattended-default
+ *  Every 1M variant is premium: the >200K long-context regime is the unattended-default
  *  cost case the warning exists for, so sonnet[1m] is premium even though plain sonnet is not. */
 export const PREMIUM_MODELS: readonly string[] = [
   "fable",

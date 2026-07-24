@@ -4260,13 +4260,6 @@ export class SessionService {
     return { result: "stopped", killed: signalled };
   }
 
-  /** Rebuild the probe snapshot cell (darwin; no-op otherwise), so server handlers
-   *  reach the refresh through the already-injected `deps.service`. No-op when the
-   *  reaper is unwired (a deployment without preview/leftovers functionality). */
-  async refreshProbes(opts?: { force?: boolean }): Promise<void> {
-    await this.deps.reaper?.refresh?.(opts);
-  }
-
   /** Health of the probe snapshot cell, for the Diagnose row and the preview-start
    *  affordance. Neutral (`"fresh"`) when the reaper is unwired — such a deployment
    *  has no preview functionality, so a "probes unavailable" caution would be noise. */

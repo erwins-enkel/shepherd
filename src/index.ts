@@ -238,11 +238,16 @@ if (herdrVersion && !isHerdrVersionSupported(herdrVersion)) {
 mkdirSync(dirname(config.dbPath), { recursive: true });
 
 const store = new SessionStore(config.dbPath);
-// Single shared ProcessReaper: its probe backend holds the per-instance snapshot
-// cell, so the service (detect/reap/stop), the poller refresh, the tmp-sweep
-// refresh, and the Diagnose `preview_probes` health read must all go through the
-// SAME instance — a second `new ProcessReaper()` would carry an independent,
-// always-cold cell.
+// One ProcessReaper for the service (detect/reap/stop), the poller refresh, the
+// tmp-sweep refresh, and the Diagnose `preview_probes` health read.
+//
+// What actually shares the snapshot cell is the PROBES object, not this instance:
+// a reaper constructed WITHOUT explicit probes falls back to the module-private
+// `defaultProbes` singleton, so every such reaper reads and writes the same cell.
+// `src/preview-launch.ts` relies on exactly that — its own probe-less reaper
+// refreshes the cell these consumers then read. A single instance here is for
+// clarity, not correctness; what WOULD carry an independent, always-cold cell is a
+// reaper constructed with its own `makeDarwinProbes()` (as the tests do).
 const reaper = new ProcessReaper();
 // a repo root chosen in the UI (persisted) overrides the env var / default — but
 // only if it still sits within the immutable ceiling; a stale/escaping value is

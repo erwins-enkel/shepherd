@@ -1,9 +1,14 @@
 import { test, expect } from "bun:test";
-import { spawn, spawnSync, type ChildProcess } from "node:child_process";
+import { execFileSync, spawn, spawnSync, type ChildProcess } from "node:child_process";
 import { copyFileSync, mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { makeDarwinProbes, commBasename } from "../src/proc-probes-darwin";
+import {
+  makeDarwinProbes,
+  commBasename,
+  parseLsofFields,
+  LSOF_ARGV,
+} from "../src/proc-probes-darwin";
 import { AGENT_COMMS, scanListeningPortsByWorktree } from "../src/process-reaper";
 
 // Assertions that are UNFALSIFIABLE on Linux and can only run on real macOS: they
@@ -59,12 +64,24 @@ onDarwin(
       await probes.refresh();
       const found = probes.scanProcs().find((p) => p.pid === child.pid);
       expect(found).toBeDefined();
-      const comm = commBasename(found!.comm);
-      expect(comm).toBe("claude");
-      // The load-bearing equivalence: the reaper's AGENT_COMMS gate would spare it.
-      expect(AGENT_COMMS.has(comm)).toBe(true);
+      // Assert EXACTLY what production compares. `scanProcs` is what the reaper
+      // reads, and it gates on `AGENT_COMMS.has(proc.comm)` with no normalisation
+      // of its own — so basenaming here before asserting would let a path-form `c`
+      // field pass CI while silently breaking agent detection in production.
+      expect(found!.comm).toBe("claude");
+      expect(AGENT_COMMS.has(found!.comm)).toBe(true);
       // Sanity: the port is still joined (this is a real listening claude-named proc).
       expect(probes.portsForPid(child.pid!)).toContain(port);
+      // Record what RAW Apple lsof reports for the `c` field, so the log says
+      // whether the basename normalisation is load-bearing here or merely
+      // defensive — the assertion above passes either way, and we want to know.
+      const raw = parseLsofFields(
+        execFileSync("lsof", [...LSOF_ARGV], { encoding: "utf8", maxBuffer: 16 * 1024 * 1024 }),
+      ).find((p) => p.pid === child.pid);
+      console.log(
+        `[macos] raw lsof c field for the claude-named pid: ${JSON.stringify(raw?.comm)}`,
+      );
+      expect(commBasename(raw?.comm ?? "")).toBe("claude");
     } finally {
       child.kill("SIGKILL");
       rmSync(dir, { recursive: true, force: true });

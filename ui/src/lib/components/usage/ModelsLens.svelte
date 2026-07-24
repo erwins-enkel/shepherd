@@ -35,6 +35,7 @@
 
   const ROLE_ORDER: UsageRole[] = [
     "coding",
+    "classifier",
     "review",
     "plan_gate",
     "recap",
@@ -46,6 +47,8 @@
     switch (role) {
       case "coding":
         return m.usage_models_role_coding();
+      case "classifier":
+        return m.usage_kind_classifier();
       case "review":
         return m.usage_kind_review();
       case "plan_gate":

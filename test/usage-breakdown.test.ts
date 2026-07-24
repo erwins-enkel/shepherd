@@ -7,10 +7,11 @@ import { config } from "../src/config";
 import { buildUsageBreakdown } from "../src/usage-breakdown";
 import { jsonlPathFor, SessionUsageRollup } from "../src/usage";
 import { weightedUnits } from "../src/pricing";
-import type { SessionUsageBucket } from "../src/types";
+import type { SessionUsageBucket, UsageRole } from "../src/types";
 
 const NOW = 1_750_000_000_000; // fixed epoch ms for tests
 const H24 = 86_400_000;
+const CLASSIFIER_ROLE = "classifier" satisfies UsageRole;
 
 // Build a minimal assistant JSONL line matching the shape parseLine expects.
 function asst(opts: {
@@ -115,7 +116,7 @@ function seedRoleSpawn(
   store: SessionStore,
   r: {
     id: string;
-    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent" | "classifier";
     provider: "claude" | "codex" | null;
     model: string | null;
     spawnedAt?: number;
@@ -211,16 +212,23 @@ test("Claude model breakdown preserves role × model identity and exact token to
     model: "haiku",
     cacheRead: 10,
   });
+  seedRoleSpawn(store, {
+    id: "classifier",
+    kind: CLASSIFIER_ROLE,
+    provider: "claude",
+    model: "haiku",
+    input: 60,
+  });
 
   const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
 
   expect(bd.models.claude).toEqual({
-    totalTokens: 500,
+    totalTokens: 560,
     byModel: {
       "claude-opus-4-8": 215,
       "claude-sonnet-4-8": 250,
       fable: 25,
-      haiku: 10,
+      haiku: 70,
     },
     byRole: {
       coding: { "claude-opus-4-8": 100, "claude-sonnet-4-8": 200 },
@@ -229,6 +237,7 @@ test("Claude model breakdown preserves role × model identity and exact token to
       recap: { fable: 25 },
       rundown: { "claude-opus-4-8": 15 },
       doc_agent: { haiku: 10 },
+      classifier: { haiku: 60 },
     },
   });
   expect(bd.models.codex.byRole).toEqual({});

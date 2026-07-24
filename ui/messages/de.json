@@ -2012,7 +2012,7 @@
   "feat_usage_satellite_by_type_title": "Satelliten-Ausgaben nach Typ",
   "feat_usage_satellite_by_type_body": "Die Ansicht Nutzung → Overhead schlüsselt Satelliten-Durchläufe jetzt nach Typ auf — Review, Plan-Gate, Zusammenfassung, Rundown und Doc-Agent — jeweils mit Anzahl der Durchläufe und gewichtetem Einheiten-Anteil.",
   "gloss_satellite_pass_term": "Satelliten-Durchlauf",
-  "gloss_satellite_pass_def": "Ein automatisierter LLM-Durchlauf, den Shepherd parallel zum Hauptaufgaben-Agenten startet — Critic / PR-Review, Plan-Gate, Recap oder Doc-Agent. Sein Token-Verbrauch ist echter Overhead, der der Aufgabe zusätzlich zu den eigenen Authoring-Tokens angerechnet wird.",
+  "gloss_satellite_pass_def": "Ein automatisierter LLM-Durchlauf, den Shepherd parallel zum Hauptaufgaben-Agenten startet — Klassifizierer, Critic / PR-Review, Plan-Gate, Recap oder Doc-Agent. Sein Token-Verbrauch ist echter Overhead, der der Aufgabe zusätzlich zu den eigenen Authoring-Tokens angerechnet wird.",
   "usage_limits_window_5h": "5-Stunden-Fenster",
   "usage_limits_window_week": "Wöchentliches Fenster",
   "usage_limits_window_week_model": "Wöchentliches Fenster ({model})",
@@ -3878,5 +3878,8 @@
   "usage_models_role_coding": "Coding",
   "usage_models_codex_roles_unavailable": "Pro Rolle nicht aufgeschlüsselt",
   "feat_usage_role_model_breakdown_title": "Claude-Verbrauch nach Rolle und Modell erkennen",
-  "feat_usage_role_model_breakdown_body": "Klappe Coding, Review, Plan Gate und weitere Claude-Rollen unter Nutzung → Modelle auf, um das verwendete Modell, seine Tokens und den jeweiligen Anteil zu sehen."
+  "feat_usage_role_model_breakdown_body": "Klappe Coding, Review, Plan Gate und weitere Claude-Rollen unter Nutzung → Modelle auf, um das verwendete Modell, seine Tokens und den jeweiligen Anteil zu sehen.",
+  "usage_kind_classifier": "Klassifizierer",
+  "feat_classifier_usage_title": "Klassifizierer-Nutzung nach Modell",
+  "feat_classifier_usage_body": "Nutzung → Modelle zeigt die Tokens des Autopilot-Klassifizierers jetzt als eigene Rolle — einschließlich des verwendeten Claude-Modells."
 }

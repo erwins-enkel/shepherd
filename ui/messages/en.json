@@ -2012,7 +2012,7 @@
   "feat_usage_satellite_by_type_title": "Satellite spend by type",
   "feat_usage_satellite_by_type_body": "The Usage → Overhead lens now breaks satellite passes down by type — review, plan gate, recap, rundown, and doc agent — with a pass count and weighted-unit share for each.",
   "gloss_satellite_pass_term": "satellite pass",
-  "gloss_satellite_pass_def": "An automated LLM pass Shepherd spawns alongside the main task agent — critic / PR-review, plan-gate, recap, or doc-agent. Its token spend is real overhead attributed back to the task, on top of the agent's own authoring.",
+  "gloss_satellite_pass_def": "An automated LLM pass Shepherd spawns alongside the main task agent — classifier, critic / PR-review, plan-gate, recap, or doc-agent. Its token spend is real overhead attributed back to the task, on top of the agent's own authoring.",
   "usage_limits_window_5h": "5-hour window",
   "usage_limits_window_week": "Weekly window",
   "usage_limits_window_week_model": "Weekly window ({model})",
@@ -3878,5 +3878,8 @@
   "usage_models_role_coding": "Coding",
   "usage_models_codex_roles_unavailable": "Not broken down by role",
   "feat_usage_role_model_breakdown_title": "See Claude usage by role and model",
-  "feat_usage_role_model_breakdown_body": "Expand Coding, Review, Plan gate, and other Claude roles in Usage → Models to see which model consumed their tokens and what share it represents."
+  "feat_usage_role_model_breakdown_body": "Expand Coding, Review, Plan gate, and other Claude roles in Usage → Models to see which model consumed their tokens and what share it represents.",
+  "usage_kind_classifier": "Classifier",
+  "feat_classifier_usage_title": "Classifier usage by model",
+  "feat_classifier_usage_body": "Usage → Models now shows Autopilot classifier tokens as a separate role, including the Claude model that produced them."
 }

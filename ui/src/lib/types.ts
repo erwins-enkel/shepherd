@@ -1385,12 +1385,13 @@ export interface UsageRepoBreakdown {
 
 /** One satellite-pass kind's global, spawn-timestamp-filtered tally (Overhead lens). */
 export interface UsageKindUnits {
-  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" (+ historical "rundown") — data, not translated
+  kind: string; // "review" | "plan_gate" | "recap" | "doc_agent" | "maintain" | "classifier" (+ historical "rundown") — data, not translated
   units: number; // weighted units for that kind, in range
   count: number; // number of completed passes of that kind, in range
 }
 
-export type UsageRole = "coding" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+export type UsageRole =
+  "coding" | "classifier" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
 export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
 
 export interface UsageModelBreakdown {

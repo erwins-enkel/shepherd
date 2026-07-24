@@ -21,12 +21,11 @@ import {
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
-import { readActivitySignal } from "./activity-signal";
+import { type SessionUsage } from "./usage";
 import {
   createCodexRolloutResolver,
-  readCodexTranscriptSignals,
-  parseCodexUsage,
+  reviewerActivitySummary,
+  reviewerUsage,
   type CodexRolloutResolver,
 } from "./codex-activity";
 import { effectiveAutopilot } from "./effective-autopilot";
@@ -556,10 +555,10 @@ export class PlanGateService {
       );
     this.readActivity =
       deps.readActivity ??
-      ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));
+      ((wt, id, provider) => reviewerActivitySummary(wt, id, provider, this.codexResolver));
     this.readUsage =
       deps.readUsage ??
-      ((wt, id, provider, model) => defaultReadUsage(wt, id, provider, model, this.codexResolver));
+      ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
   }
 
   /** sha256 of the plan text — dedups re-reviews of an unchanged plan on the auto-path. The manual
@@ -1521,49 +1520,6 @@ function defaultReadPlan(worktreePath: string): string | null {
 /** Latest meaningful tool-use summary from the plan reviewer's JSONL transcript (its claude
  *  session id forces a predictable path under the disposable worktree). null when the transcript
  *  is missing or has no parseable activity yet. Mirrors review.ts's defaultReadActivity. */
-function defaultReadActivity(
-  worktreePath: string,
-  reviewerSessionId: string,
-  provider: AgentProvider | null,
-  codexResolver: CodexRolloutResolver,
-): string | null {
-  if (provider === "codex") {
-    // Codex writes no ~/.claude/projects JSONL; resolve its rollout (by launch-unique cwd) and read
-    // the same activity signal from there. Unresolved → null (backoff retries next tick).
-    const hit = codexResolver.resolve({
-      trackingId: reviewerSessionId,
-      worktreePath,
-      source: "exec",
-    });
-    return hit ? (readCodexTranscriptSignals(hit.path).activity?.summary ?? null) : null;
-  }
-  return readActivitySignal(jsonlPathFor(worktreePath, reviewerSessionId))?.summary ?? null;
-}
-
-/** Provider-aware token-total reader, called only at finalize (a one-shot, so the Codex path always
- *  bypasses the resolver backoff — its last chance before the in-flight record disappears). Returns
- *  null when the transcript is unresolved/unreadable so the row books NULL (unknown), not 0. */
-async function defaultReadUsage(
-  worktreePath: string,
-  reviewerSessionId: string,
-  provider: AgentProvider | null,
-  model: string | null,
-  codexResolver: CodexRolloutResolver,
-): Promise<SessionUsage | null> {
-  if (provider === "codex") {
-    const hit = codexResolver.resolve(
-      { trackingId: reviewerSessionId, worktreePath, source: "exec" },
-      { bypassBackoff: true },
-    );
-    if (!hit) return null;
-    try {
-      return parseCodexUsage(readFileSync(hit.path, "utf8"), model);
-    } catch {
-      return null;
-    }
-  }
-  return readSessionUsage(worktreePath, reviewerSessionId);
-}
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */

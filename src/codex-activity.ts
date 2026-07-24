@@ -1,11 +1,13 @@
+import { readFileSync } from "node:fs";
 import { normalize } from "node:path";
 import { eachJsonlObject } from "./jsonl";
 import { readTranscriptTail, type ActivityEntry } from "./activity";
-import { signalFrom, type SessionActivity } from "./activity-signal";
+import { readActivitySignal, signalFrom, type SessionActivity } from "./activity-signal";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
 import { codexHome, listRolloutFiles } from "./codex-usage";
 import { readSessionMeta } from "./codex-session-id";
-import type { SessionUsage } from "./usage";
+import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
+import type { AgentProvider } from "./types";
 
 const CMD_MAX = 60;
 const DEFAULT_LIMIT = 30;
@@ -83,45 +85,70 @@ interface OutputInfo {
   error: boolean;
 }
 
-/**
- * Parse a Codex rollout JSONL into chronological `ActivityEntry[]` (the same shape
- * `src/activity.ts` produces for Claude), pairing each `custom_tool_call` with its
- * `custom_tool_call_output` via `call_id` for status:
- *   - no matching output      → "pending"  (this is what stall detection reads)
- *   - output with nonzero exit → "error"
- *   - otherwise               → "ok"
- * Returns the most-recent `limit` entries (oldest→newest); `-1` = all. Malformed
- * lines are skipped; never throws.
- */
-export function parseCodexActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
-  const outputs = new Map<string, OutputInfo>();
-  const calls: Array<{ ts: number; name: string; input: unknown; callId: string }> = [];
+interface ParsedCall {
+  ts: number;
+  name: string;
+  input: unknown;
+  callId: string;
+}
 
-  for (const o of eachJsonlObject(text)) {
-    const rec = o as { type?: unknown; timestamp?: unknown; payload?: unknown };
-    if (rec.type !== "response_item") continue;
-    const p = rec.payload as
-      | { type?: unknown; call_id?: unknown; name?: unknown; input?: unknown; output?: unknown }
-      | undefined;
-    if (!p) continue;
-    if (p.type === "custom_tool_call" && typeof p.name === "string") {
-      const ts = Date.parse((rec.timestamp as string) ?? "") || 0;
-      calls.push({
-        ts,
+/** Classify one rollout record as a tool call, its output, or neither. Keeps the branchy shape
+ *  checks out of the parse loop (which stays flat + low-complexity). */
+function classifyRecord(
+  o: unknown,
+): { call: ParsedCall } | { output: { callId: string; error: boolean } } | null {
+  const rec = o as { type?: unknown; timestamp?: unknown; payload?: unknown };
+  if (rec.type !== "response_item") return null;
+  const p = rec.payload as
+    | { type?: unknown; call_id?: unknown; name?: unknown; input?: unknown; output?: unknown }
+    | undefined;
+  if (!p) return null;
+  if (p.type === "custom_tool_call" && typeof p.name === "string") {
+    return {
+      call: {
+        ts: Date.parse((rec.timestamp as string) ?? "") || 0,
         name: p.name,
         input: p.input,
         callId: typeof p.call_id === "string" ? p.call_id : "",
-      });
-    } else if (p.type === "custom_tool_call_output" && typeof p.call_id === "string") {
-      outputs.set(p.call_id, { error: outputIsError(p.output) });
-    }
+      },
+    };
+  }
+  if (p.type === "custom_tool_call_output" && typeof p.call_id === "string") {
+    return { output: { callId: p.call_id, error: outputIsError(p.output) } };
+  }
+  return null;
+}
+
+/** A tool call's status from its paired output: no output → "pending" (what stall detection reads),
+ *  else error/ok. */
+function statusFor(out: OutputInfo | undefined): ActivityEntry["status"] {
+  if (!out) return "pending";
+  return out.error ? "error" : "ok";
+}
+
+/**
+ * Parse a Codex rollout JSONL into chronological `ActivityEntry[]` (the same shape
+ * `src/activity.ts` produces for Claude), pairing each `custom_tool_call` with its
+ * `custom_tool_call_output` via `call_id` for status. Returns the most-recent `limit`
+ * entries (oldest→newest); `-1` = all. Malformed lines are skipped; never throws.
+ */
+export function parseCodexActivity(text: string, limit = DEFAULT_LIMIT): ActivityEntry[] {
+  const outputs = new Map<string, OutputInfo>();
+  const calls: ParsedCall[] = [];
+
+  for (const o of eachJsonlObject(text)) {
+    const r = classifyRecord(o);
+    if (!r) continue;
+    if ("call" in r) calls.push(r.call);
+    else outputs.set(r.output.callId, { error: r.output.error });
   }
 
-  const entries: ActivityEntry[] = calls.map((c) => {
-    const out = c.callId ? outputs.get(c.callId) : undefined;
-    const status: ActivityEntry["status"] = !out ? "pending" : out.error ? "error" : "ok";
-    return { ts: c.ts, tool: c.name, summary: summarizeCodex(c.name, c.input), status };
-  });
+  const entries: ActivityEntry[] = calls.map((c) => ({
+    ts: c.ts,
+    tool: c.name,
+    summary: summarizeCodex(c.name, c.input),
+    status: statusFor(c.callId ? outputs.get(c.callId) : undefined),
+  }));
 
   return limit >= 0 ? entries.slice(-limit) : entries;
 }
@@ -131,7 +158,7 @@ export function parseCodexActivity(text: string, limit = DEFAULT_LIMIT): Activit
  * rollout record (session_meta, response_item, event_msg) carries a top-level
  * `timestamp`. Peer of `latestRecordTs` in `src/activity.ts`. 0 when none parse.
  */
-export function latestCodexRecordTs(text: string): number {
+function latestCodexRecordTs(text: string): number {
   let max = 0;
   for (const o of eachJsonlObject(text)) {
     const ts = Date.parse((o as { timestamp?: unknown }).timestamp as string) || 0;
@@ -141,7 +168,7 @@ export function latestCodexRecordTs(text: string): number {
 }
 
 /** Pure: derive both signals from already-read rollout text (one parse). */
-export function codexSignalsFromText(text: string): {
+function codexSignalsFromText(text: string): {
   snapshot: ActivitySnapshot | null;
   activity: SessionActivity | null;
 } {
@@ -379,7 +406,7 @@ export class CodexRolloutResolver {
  * runs (once per reviewer miss, then cache + backoff). Reuses `listRolloutFiles`
  * (stat-only, newest-first) and the shared `readSessionMeta` header parser.
  */
-export function listRolloutMetas(home = codexHome()): RolloutMeta[] {
+function listRolloutMetas(home = codexHome()): RolloutMeta[] {
   const out: RolloutMeta[] = [];
   for (const { path, mtimeMs } of listRolloutFiles(home)) {
     const meta = readSessionMeta(path);
@@ -401,4 +428,51 @@ export function createCodexRolloutResolver(
     warn: (m) => console.warn(`[codex-activity] ${m}`),
     onResolved,
   });
+}
+
+// ── Provider-aware reviewer readers ─────────────────────────────────────────
+//
+// Shared by the plan-gate + critic services so the claude-vs-codex dispatch lives
+// in ONE place (each service used to carry an identical copy). A reviewer's
+// `trackingId` is its pinned session id, which also keys its worktree cwd (A0).
+
+/** The reviewer's latest tool-use summary. Claude → its ~/.claude/projects JSONL; Codex → resolve
+ *  its rollout (by launch-unique cwd) and read the same activity signal. null = nothing parseable
+ *  yet (a codex rollout not yet resolved retries on the next tick via the resolver's backoff). */
+export function reviewerActivitySummary(
+  worktreePath: string,
+  trackingId: string,
+  provider: AgentProvider | null,
+  resolver: CodexRolloutResolver,
+): string | null {
+  if (provider === "codex") {
+    const hit = resolver.resolve({ trackingId, worktreePath, source: "exec" });
+    return hit ? (readCodexTranscriptSignals(hit.path).activity?.summary ?? null) : null;
+  }
+  return readActivitySignal(jsonlPathFor(worktreePath, trackingId))?.summary ?? null;
+}
+
+/** The reviewer's token totals, read at finalize (a one-shot, so the Codex path bypasses the
+ *  resolver backoff — its last chance). null = transcript unresolved/unreadable → the row books
+ *  NULL (unknown), not 0. `model` is the byModel hint (the codex token_count carries no model). */
+export async function reviewerUsage(
+  worktreePath: string,
+  trackingId: string,
+  provider: AgentProvider | null,
+  model: string | null,
+  resolver: CodexRolloutResolver,
+): Promise<SessionUsage | null> {
+  if (provider === "codex") {
+    const hit = resolver.resolve(
+      { trackingId, worktreePath, source: "exec" },
+      { bypassBackoff: true },
+    );
+    if (!hit) return null;
+    try {
+      return parseCodexUsage(readFileSync(hit.path, "utf8"), model);
+    } catch {
+      return null;
+    }
+  }
+  return readSessionUsage(worktreePath, trackingId);
 }

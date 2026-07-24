@@ -10,12 +10,11 @@ import type { ReviewVerdict, ReviewerEnv, Session, ReviewerSpawnRow, AgentProvid
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
-import { readActivitySignal } from "./activity-signal";
+import { type SessionUsage } from "./usage";
 import {
   createCodexRolloutResolver,
-  readCodexTranscriptSignals,
-  parseCodexUsage,
+  reviewerActivitySummary,
+  reviewerUsage,
   type CodexRolloutResolver,
 } from "./codex-activity";
 import { checksCleared } from "./checks-gate";
@@ -289,10 +288,10 @@ export class ReviewService {
       );
     this.readActivity =
       deps.readActivity ??
-      ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));
+      ((wt, id, provider) => reviewerActivitySummary(wt, id, provider, this.codexResolver));
     this.readUsage =
       deps.readUsage ??
-      ((wt, id, provider, model) => defaultReadUsage(wt, id, provider, model, this.codexResolver));
+      ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
     this.readPlan = deps.readPlan ?? defaultReadPlan;
     this.worktreeExists = deps.worktreeExists ?? existsSync;
   }
@@ -1356,49 +1355,6 @@ export class ReviewService {
 /** Latest meaningful tool-use summary from the critic's JSONL transcript (its claude
  *  session id forces a predictable path under the disposable worktree). null when the
  *  transcript is missing or has no parseable activity yet. */
-function defaultReadActivity(
-  worktreePath: string,
-  criticSessionId: string,
-  provider: AgentProvider | null,
-  codexResolver: CodexRolloutResolver,
-): string | null {
-  if (provider === "codex") {
-    // Codex writes no ~/.claude/projects JSONL; resolve its rollout (by launch-unique cwd, A0) and
-    // read the same activity signal from there. Unresolved → null (backoff retries next tick).
-    const hit = codexResolver.resolve({
-      trackingId: criticSessionId,
-      worktreePath,
-      source: "exec",
-    });
-    return hit ? (readCodexTranscriptSignals(hit.path).activity?.summary ?? null) : null;
-  }
-  return readActivitySignal(jsonlPathFor(worktreePath, criticSessionId))?.summary ?? null;
-}
-
-/** Provider-aware token-total reader, called only at finalize (a one-shot, so the Codex path always
- *  bypasses the resolver backoff — its last chance). Returns null when the transcript is
- *  unresolved/unreadable so the row books NULL (unknown), not 0. */
-async function defaultReadUsage(
-  worktreePath: string,
-  criticSessionId: string,
-  provider: AgentProvider | null,
-  model: string | null,
-  codexResolver: CodexRolloutResolver,
-): Promise<SessionUsage | null> {
-  if (provider === "codex") {
-    const hit = codexResolver.resolve(
-      { trackingId: criticSessionId, worktreePath, source: "exec" },
-      { bypassBackoff: true },
-    );
-    if (!hit) return null;
-    try {
-      return parseCodexUsage(readFileSync(hit.path, "utf8"), model);
-    } catch {
-      return null;
-    }
-  }
-  return readSessionUsage(worktreePath, criticSessionId);
-}
 
 /** #1812 finding A: read the session's approved `.shepherd-plan.md` from the LIVE session worktree.
  *  null when absent/unreadable. Mirrors plan-gate.ts's reader — the plan file is git-excluded, so

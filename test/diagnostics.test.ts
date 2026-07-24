@@ -3,6 +3,7 @@ import {
   DiagnosticsService,
   classifyHerdrFleet,
   classifyHostCapacity,
+  classifyPreviewProbes,
   classifyTmpInodes,
   defaultReadHerdrFleet,
   defaultRunRemediation,
@@ -106,6 +107,10 @@ function healthyDeps(): DiagnosticsDeps {
     // REAL tmpdir(), whose inode use varies by host — without pinning it, every all-ok/overall
     // assertion here would flip on a machine whose /tmp happens to be under pressure.
     readTmpInodes: async () => ({ usePct: 12, warnPct: 80, errorPct: 95 }),
+    // preview_probes (#1912): backend healthy + cell fresh → ok. Pinned so the row is
+    // deterministic regardless of the test host's real /proc/lsof state.
+    runPreviewProbe: async () => "ok",
+    probeHealth: () => "fresh",
   };
 }
 
@@ -154,7 +159,7 @@ describe("DiagnosticsService probes", () => {
     const snap = await svc.check(1000);
     expect(snap.overall).toBe("ok");
     expect(snap.generatedAt).toBe(1000);
-    expect(snap.checks).toHaveLength(12);
+    expect(snap.checks).toHaveLength(13);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -166,6 +171,7 @@ describe("DiagnosticsService probes", () => {
       "herdr_health",
       "host_capacity",
       "node",
+      "preview_probes",
       "tailscale",
       "tmp_inodes",
     ]);
@@ -760,7 +766,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       anyLightweightRepo: () => true,
     });
     const snap = await svc.check(0);
-    expect(snap.checks).toHaveLength(13);
+    expect(snap.checks).toHaveLength(14);
     expect(snap.checks.map((c) => c.id).sort()).toEqual([
       "bun",
       "claude",
@@ -773,6 +779,7 @@ describe("DiagnosticsService git_mergetree capability check", () => {
       "herdr_health",
       "host_capacity",
       "node",
+      "preview_probes",
       "tailscale",
       "tmp_inodes",
     ]);
@@ -1967,5 +1974,54 @@ describe("tmp_inodes probe + fix dispatch", () => {
     await svc.check(0);
     await svc.fix("tmp_inodes", 1);
     expect(swept).toBe(1);
+  });
+});
+
+describe("classifyPreviewProbes (#1912)", () => {
+  it("ok only when the probe is ok AND the live cell is fresh", () => {
+    expect(classifyPreviewProbes("ok", "fresh")).toEqual({
+      id: "preview_probes",
+      state: "ok",
+      hintKey: "diagnostics_hint_preview_probes_ok",
+    });
+  });
+
+  it("probe failure warns (unavailable) and takes precedence over a stale cell", () => {
+    expect(classifyPreviewProbes("unavailable", "stale")).toEqual({
+      id: "preview_probes",
+      state: "warning",
+      hintKey: "diagnostics_hint_preview_probes_unavailable",
+    });
+  });
+
+  it("probe ok but a frozen cell (none/stale) warns stale — the 5s-vs-3s gap case", () => {
+    for (const cell of ["none", "stale"] as const) {
+      expect(classifyPreviewProbes("ok", cell)).toEqual({
+        id: "preview_probes",
+        state: "warning",
+        hintKey: "diagnostics_hint_preview_probes_stale",
+      });
+    }
+  });
+
+  it("an unsupported platform warns unsupported", () => {
+    expect(classifyPreviewProbes("unsupported", "none")).toEqual({
+      id: "preview_probes",
+      state: "warning",
+      hintKey: "diagnostics_hint_preview_probes_unsupported",
+    });
+  });
+
+  it("the probe reads the LIVE cell health, not a fresh backend (frozen-cell detection)", async () => {
+    // Probe reports ok (its own spawn succeeds within the 5s budget), but the live
+    // cell is frozen by 3s refresh timeouts → the check must still warn.
+    const svc = new DiagnosticsService({
+      runPreviewProbe: async () => "ok",
+      probeHealth: () => "stale",
+    });
+    const snap = await svc.check(0);
+    const row = snap.checks.find((c) => c.id === "preview_probes");
+    expect(row?.state).toBe("warning");
+    expect(row?.hintKey).toBe("diagnostics_hint_preview_probes_stale");
   });
 });

@@ -632,7 +632,10 @@ test("DELETE /api/sessions/:id archives", async () => {
 function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort?: any }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
-  const fullReaper = { stopListenersOnPort: () => 0, ...reaper };
+  const fullReaper = {
+    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    ...reaper,
+  };
   const service = new SessionService({
     store,
     namer: async () => "x",
@@ -1950,7 +1953,7 @@ function clearMergedHarness() {
     reaper: {
       detect,
       reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
-      stopListenersOnPort: () => 0,
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
     },
     events,
   });
@@ -2545,7 +2548,11 @@ function harnessWithPreviewStop({
   stopListenersOnPort,
 }: {
   devPortFor: (id: string) => number | null;
-  stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => number;
+  stopListenersOnPort: (
+    worktreePath: string,
+    port: number,
+    signal: NodeJS.Signals,
+  ) => { signalled: number; unsupported: boolean };
 }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
@@ -2599,7 +2606,7 @@ const previewStop = (app: ReturnType<typeof makeApp>, id: string) =>
 test("POST /api/sessions/:id/preview/stop → 404 for unknown session id", async () => {
   const { app } = harnessWithPreviewStop({
     devPortFor: () => null,
-    stopListenersOnPort: () => 0,
+    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
   });
   const res = await previewStop(app, "does-not-exist");
   expect(res.status).toBe(404);
@@ -2609,7 +2616,7 @@ test("POST /api/sessions/:id/preview/stop → 404 for unknown session id", async
 test("POST /api/sessions/:id/preview/stop → 409 when no live preview bound", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => null, // no preview bound
-    stopListenersOnPort: () => 0,
+    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
   });
   const s = store.create({
     name: "x",
@@ -2633,7 +2640,7 @@ test("POST /api/sessions/:id/preview/stop → 200 with killed count (happy path)
     devPortFor: () => 5173,
     stopListenersOnPort: (worktreePath, port, signal) => {
       signalCalls.push({ worktreePath, port, signal });
-      return 2;
+      return { signalled: 2, unsupported: false };
     },
   });
   const s = store.create({
@@ -2656,7 +2663,7 @@ test("POST /api/sessions/:id/preview/stop → 200 with killed count (happy path)
 test("POST /api/sessions/:id/preview/stop → 200 {killed:0} is not an error", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => 5173,
-    stopListenersOnPort: () => 0,
+    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
   });
   const s = store.create({
     name: "x",
@@ -2677,7 +2684,7 @@ test("POST /api/sessions/:id/preview/stop → 200 {killed:0} is not an error", a
 test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router (non-200)", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => 5173,
-    stopListenersOnPort: () => 0,
+    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
   });
   const s = store.create({
     name: "x",

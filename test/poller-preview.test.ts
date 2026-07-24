@@ -651,6 +651,8 @@ function makeIdleStopPoller(opts: {
   stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }>;
   /** Override pick to be dynamic — takes precedence over pickResult. */
   pickFn?: () => Promise<number | null>;
+  /** When true, `idleStop.stop` reports `unsupported` (darwin, no signal authority). */
+  unsupportedStop?: boolean;
 }) {
   const { store, agents, clock, idleSinceMs, pickResult, idleMs, stopCalls, pickFn } = opts;
 
@@ -693,7 +695,12 @@ function makeIdleStopPoller(opts: {
         pick: pickFn ?? (async () => pickResult),
         idleStop: {
           idleMs,
-          stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+          stop: (sessionId, signal) => {
+            stopCalls.push({ sessionId, signal });
+            return opts.unsupportedStop
+              ? { result: "unsupported" as const, killed: 0 }
+              : { result: "stopped" as const, killed: 1 };
+          },
         },
       },
     ),
@@ -857,7 +864,9 @@ test("idle-stop: stale-status guard — s.status is idle (stale snapshot) but st
       pick: async () => 5173,
       idleStop: {
         idleMs: 30_000,
-        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+        stop: (sessionId, signal) => {
+          stopCalls.push({ sessionId, signal });
+        },
       },
     },
   );
@@ -1050,7 +1059,9 @@ test("idle-stop: reset on recovery — after SIGTERM, next sweep with low idleSi
       pick: async () => 5173,
       idleStop: {
         idleMs: 30_000,
-        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+        stop: (sessionId, signal) => {
+          stopCalls.push({ sessionId, signal });
+        },
       },
     },
   );
@@ -1116,7 +1127,9 @@ test("idle-stop: reset on port death — after SIGTERM, port disappears then rea
       pick: async () => currentPick,
       idleStop: {
         idleMs: 30_000,
-        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+        stop: (sessionId, signal) => {
+          stopCalls.push({ sessionId, signal });
+        },
       },
     },
   );
@@ -1182,7 +1195,9 @@ test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not 
       pick: async () => currentDevPort,
       idleStop: {
         idleMs: 30_000,
-        stop: (sessionId, signal) => stopCalls.push({ sessionId, signal }),
+        stop: (sessionId, signal) => {
+          stopCalls.push({ sessionId, signal });
+        },
       },
     },
   );
@@ -1201,4 +1216,77 @@ test("idle-stop: devPort change mid-escalation → resets to fresh SIGTERM (not 
   expect(stopCalls.length).toBe(2);
   expect(stopCalls[1]!.sessionId).toBe(s.id);
   expect(stopCalls[1]!.signal).toBe("SIGTERM"); // fresh episode, NOT SIGKILL
+});
+
+// ── #1912: unsupported stop (darwin) must not burn the escalation ladder ──────
+
+test("idle-stop (unsupported): repeated sweeps never advance the ladder or give up", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const { poller } = makeIdleStopPoller({
+    store,
+    agents: [baseHerdrAgent],
+    clock,
+    idleSinceMs: 60_000,
+    pickResult: 5173,
+    idleMs: 30_000,
+    stopCalls,
+    unsupportedStop: true, // darwin: no signal authority
+  });
+
+  // Three sweeps that would, on a Linux host, burn SIGTERM → SIGKILL → gaveUp.
+  for (let i = 0; i < 3; i++) await runSweep(clock, poller);
+
+  // Every attempt reports the SAME first rung (SIGTERM): the ladder never advanced,
+  // so no SIGKILL was ever "escalated" to and no "could not reclaim" state was set.
+  expect(stopCalls.length).toBe(3);
+  expect(stopCalls.every((c) => c.signal === "SIGTERM")).toBe(true);
+});
+
+// ── #1912: a null preview scan leaves bound listeners alone (no converge teardown) ──
+
+test("preview sweep (null scan): does not converge, so bound listeners are not torn down", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+
+  const convergeArgs: Array<Array<{ sessionId: string; devPort: number }>> = [];
+  const clock = { v: 100_000 };
+  const poller = new StatusPoller(
+    store,
+    withListAsync({ list: () => [baseHerdrAgent], read: () => "" } as any),
+    () => {},
+    () => {},
+    1000,
+    3000,
+    undefined,
+    () => clock.v,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    undefined,
+    {
+      service: {
+        ensure: () => null,
+        release: () => {},
+        converge: (active: Array<{ sessionId: string; devPort: number }>) =>
+          convergeArgs.push([...active]),
+        snapshot: () => ({}),
+      },
+      sweepMs: 4000,
+      scan: () => null, // unknown (darwin, stale/none cell)
+      pick: async () => 5173,
+    },
+  );
+
+  clock.v += 5000;
+  await poller.tick();
+  await new Promise((r) => setTimeout(r, 10));
+  // converge was NEVER called: an empty/partial map would have released listeners.
+  expect(convergeArgs).toEqual([]);
+  void s;
 });

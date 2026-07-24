@@ -3,7 +3,7 @@ import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { spawn } from "node:child_process";
-import { scanListeningPortsByWorktree } from "./process-reaper";
+import { ProcessReaper, scanListeningPortsByWorktree } from "./process-reaper";
 import { resolveDevPort } from "./preview";
 
 const execFileAsync = promisify(execFile);
@@ -158,7 +158,36 @@ export async function startPreviewScript(scriptPath: string, worktreePath: strin
   });
 }
 
-export async function findPreviewDevPort(worktreePath: string): Promise<number | null> {
-  const ports = scanListeningPortsByWorktree([worktreePath]).get(worktreePath) ?? [];
+/** Injectable seam for `findPreviewDevPort` — defaults spawn the real backend, tests
+ *  override to drive the forced-refresh and null-scan branches without `/proc`/`lsof`. */
+export interface FindDevPortDeps {
+  /** Force the probe snapshot to reflect a dev server started within the coalescing
+   *  window (darwin; no-op otherwise). Defaults to the module reaper's refresh. */
+  refresh: (opts?: { force?: boolean }) => Promise<void>;
+  /** Batched listening-port scan; returns `null` when the snapshot backend can't
+   *  support a negative verdict. Defaults to the real `scanListeningPortsByWorktree`. */
+  scan: (worktrees: string[]) => Map<string, number[]> | null;
+}
+
+// Constructed without explicit probes, so it shares the module-private default
+// probes instance — and therefore the SAME snapshot cell as index.ts's shared
+// reaper. Refreshing here is visible to the poller's sweeps and the Diagnose row.
+const defaultReaper = new ProcessReaper();
+const defaultFindDevPortDeps: FindDevPortDeps = {
+  refresh: (opts) => defaultReaper.refresh(opts),
+  scan: (worktrees) => scanListeningPortsByWorktree(worktrees),
+};
+
+export async function findPreviewDevPort(
+  worktreePath: string,
+  deps: FindDevPortDeps = defaultFindDevPortDeps,
+): Promise<number | null> {
+  // Force so a dev server started within the coalescing window is seen (else a
+  // start click could spawn a second server where an existing one would bind).
+  await deps.refresh({ force: true });
+  const map = deps.scan([worktreePath]);
+  // `null` = unknown (darwin, stale/none cell) — no dev port can be asserted.
+  if (map === null) return null;
+  const ports = map.get(worktreePath) ?? [];
   return resolveDevPort(ports, worktreePath);
 }

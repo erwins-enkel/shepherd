@@ -32,6 +32,7 @@
   import SettingsDevicePanel from "$lib/components/settings/SettingsDevicePanel.svelte";
   import SettingsDiagnosePanel from "$lib/components/settings/SettingsDiagnosePanel.svelte";
   import SettingsPluginsPanel from "$lib/components/settings/SettingsPluginsPanel.svelte";
+  import SteersEditor from "$lib/components/SteersEditor.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { openFeedback } from "$lib/feedback-dialog.svelte";
   import type { FeedbackKind } from "$lib/feedback-link";
@@ -314,6 +315,8 @@
         return m.settings_tab_workspace();
       case "codingAgents":
         return m.settings_tab_coding_agents();
+      case "steers":
+        return m.settings_tab_steers();
       case "plugins":
         return m.settings_tab_plugins();
       case "session":
@@ -418,7 +421,7 @@
         {/each}
       {/snippet}
 
-      <!-- All six panels stay mounted and toggle via `hidden`: every
+      <!-- All seven panels stay mounted and toggle via `hidden`: every
            settings-panel-* id resolves for the rail's aria-controls, and the
            steers editor keeps any in-progress draft across section switches
            instead of remounting and resyncing from the store. -->
@@ -437,6 +440,16 @@
           {onclose}
           {query}
         />
+      </div>
+
+      <div
+        class="panel"
+        use:panelShape={isNarrow}
+        id="settings-panel-steers"
+        aria-label={m.settings_tab_steers()}
+        hidden={active !== "steers"}
+      >
+        <SteersEditor {focusSteerId} {query} />
       </div>
 
       <div
@@ -492,7 +505,6 @@
           {fableAvailable}
           {fableAvailableBusy}
           onToggleFable={toggleFableAvailable}
-          {focusSteerId}
         />
       </div>
 

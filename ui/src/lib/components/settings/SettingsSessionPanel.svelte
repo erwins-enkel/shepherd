@@ -20,7 +20,6 @@
   import { MODELS, type Settings } from "$lib/types";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
   import ModelGuidance from "$lib/components/ModelGuidance.svelte";
-  import SteersEditor from "$lib/components/SteersEditor.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
   import SettingRow from "./SettingRow.svelte";
   import SettingToggle from "./SettingToggle.svelte";
@@ -38,14 +37,12 @@
     fableAvailable,
     fableAvailableBusy,
     onToggleFable,
-    focusSteerId = null,
   }: {
     payload: Settings | null;
     query?: string;
     fableAvailable: boolean;
     fableAvailableBusy: boolean;
     onToggleFable: () => void;
-    focusSteerId?: string | null;
   } = $props();
 
   let remoteControl = $state(false); // Claude Code Remote Control auto-start in sessions
@@ -697,8 +694,6 @@
   {/snippet}
 </SettingRow>
 
-<div class="steers"><SteersEditor {focusSteerId} /></div>
-
 {#if restartOpen}
   <RestartShepherdDialog onclose={() => (restartOpen = false)} />
 {/if}
@@ -707,10 +702,5 @@
   .unavailable {
     color: var(--color-faint);
     font-size: var(--fs-meta);
-  }
-  .steers {
-    margin-top: 12px;
-    border-top: 1px solid var(--color-line);
-    padding-top: 4px;
   }
 </style>

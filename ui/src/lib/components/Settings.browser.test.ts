@@ -22,6 +22,8 @@ vi.mock("$lib/api", async (importOriginal) => {
     ...actual,
     getSettings: vi.fn(),
     listDirs: vi.fn(async () => ({ path: "/repo", display: "/repo", parent: null, entries: [] })),
+    getSteers: vi.fn(async () => []),
+    getCommands: vi.fn(async () => ({ commands: [] })),
     getDiagnostics: vi.fn(async () => ({ checks: [] })),
     fixDiagnostic: vi.fn(),
     verifyApiKey: vi.fn(),
@@ -544,6 +546,26 @@ describe("Settings responsive navigation", () => {
       .element(page.getByRole("tabpanel", { name: m.settings_tab_workspace() }))
       .toBeInTheDocument();
   });
+
+  it("renders Steers between Coding CLI and Plugins in its own panel", async () => {
+    await page.viewport(1280, 900);
+    render(Settings, { initialTab: "steers", onclose: noop, onsaved: noop });
+
+    const tabs = [...document.querySelectorAll<HTMLElement>('[role="tab"]')];
+    const labels = tabs.map((tab) => tab.querySelector(".ilabel")?.textContent?.trim());
+    expect(labels.indexOf(m.settings_tab_steers())).toBe(
+      labels.indexOf(m.settings_tab_coding_agents()) + 1,
+    );
+    expect(labels.indexOf(m.settings_tab_plugins())).toBe(
+      labels.indexOf(m.settings_tab_steers()) + 1,
+    );
+
+    const steersPanel = document.querySelector<HTMLElement>("#settings-panel-steers");
+    const sessionPanel = document.querySelector<HTMLElement>("#settings-panel-session");
+    expect(steersPanel?.getAttribute("role")).toBe("tabpanel");
+    expect(steersPanel?.querySelector(".editor")).not.toBeNull();
+    expect(sessionPanel?.querySelector(".editor")).toBeNull();
+  });
 });
 
 describe("Settings dialog layout stability", () => {
@@ -662,6 +684,28 @@ describe("Settings search", () => {
     const devicePanel = document.querySelector<HTMLElement>("#settings-panel-device");
     expect(devicePanel).not.toBeNull();
     await expect.poll(() => devicePanel!.querySelectorAll("mark").length).toBeGreaterThan(0);
+  });
+
+  it("counts and highlights matches in the Steers section", async () => {
+    await page.viewport(1280, 900);
+    await mountCodingAgents();
+
+    const { matchCount, sectionSearchRows } = await import("$lib/settings-search");
+    const query = "saved";
+    const expected = matchCount(sectionSearchRows({ provider: "claude" }).steers, query);
+    expect(expected).toBeGreaterThan(0);
+
+    await searchInput().fill(query);
+
+    const steersTab = page
+      .getByRole("tab", { name: m.settings_tab_steers(), exact: false })
+      .element() as HTMLElement;
+    await expect.poll(() => steersTab.textContent).toContain(String(expected));
+
+    await page.getByRole("tab", { name: m.settings_tab_steers(), exact: false }).click();
+    const steersPanel = document.querySelector<HTMLElement>("#settings-panel-steers");
+    expect(steersPanel).not.toBeNull();
+    await expect.poll(() => steersPanel!.querySelectorAll("mark").length).toBeGreaterThan(0);
   });
 
   it("`/` focuses the search field; Esc clears the query, second Esc closes", async () => {

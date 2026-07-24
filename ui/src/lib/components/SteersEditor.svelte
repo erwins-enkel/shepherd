@@ -18,11 +18,15 @@
     commandProviders,
   } from "$lib/slash";
   import type { Steer, SlashCommand } from "$lib/types";
+  import HighlightText from "$lib/components/settings/HighlightText.svelte";
   import { m } from "$lib/paraglide/messages";
 
   // Steer to expand + focus on open (from a steer chip's right-click → "Edit"). The
   // editor lists every steer; this jumps straight to the one the operator picked.
-  let { focusSteerId = null }: { focusSteerId?: string | null } = $props();
+  let {
+    focusSteerId = null,
+    query = "",
+  }: { focusSteerId?: string | null; query?: string } = $props();
 
   const flipDurationMs = 150;
 
@@ -276,8 +280,8 @@
 </script>
 
 <div class="editor" bind:this={rootEl}>
-  <span class="micro">{m.steerseditor_title()}</span>
-  <p class="hint">{m.steerseditor_hint()}</p>
+  <span class="micro"><HighlightText text={m.steerseditor_title()} {query} /></span>
+  <p class="hint"><HighlightText text={m.steerseditor_hint()} {query} /></p>
   <div
     class="rows"
     class:focusing={editingId !== null}

@@ -111,6 +111,59 @@ test("preview/start: success → 200 {ok, command} when command provided in body
   expect(calls).toEqual([{ id, command: "bun run dev" }]);
 });
 
+test("preview/start: probesUnavailable=true when the backend can't detect (#1912); start still proceeds", async () => {
+  const calls: { id: string; command: string }[] = [];
+  const { app, store } = harness({
+    // Backend detection is dead/stale on this host.
+    probeHealth: () => ({ state: "none" }),
+    startPreview: async (id: string, command: string) => {
+      calls.push({ id, command });
+      return true;
+    },
+  });
+  const id = makeSession(store);
+  const res = await app.fetch(
+    postJson(`/api/sessions/${id}/preview/start`, { command: "bun run dev" }),
+  );
+  expect(res.status).toBe(200);
+  const body = (await res.json()) as { ok: boolean; probesUnavailable?: boolean };
+  expect(body.ok).toBe(true);
+  expect(body.probesUnavailable).toBe(true);
+  // The start still proceeded — a dev server has value independent of preview binding.
+  expect(calls).toEqual([{ id, command: "bun run dev" }]);
+});
+
+test("preview/start: probesUnavailable absent/false when the cell is fresh", async () => {
+  const { app, store } = harness({
+    probeHealth: () => ({ state: "fresh" }),
+    startPreview: async () => true,
+  });
+  const id = makeSession(store);
+  const res = await app.fetch(
+    postJson(`/api/sessions/${id}/preview/start`, { command: "bun run dev" }),
+  );
+  const body = (await res.json()) as { probesUnavailable?: boolean };
+  expect(body.probesUnavailable ?? false).toBe(false);
+});
+
+test("preview/start: a STALE cell does NOT alert — detection works, it's just lagging (#1912)", async () => {
+  // `findPreviewDevPort`'s forced refresh is capped at FORCE_WAIT_BUDGET_MS, so an
+  // lsof slower than that budget returns with the cell still stale even though the
+  // background refresh is about to land and the next sweep will bind the preview.
+  // Alerting here would tell the operator the preview "won't appear" moments before
+  // it does. Only a cell that NEVER went fresh means it truly won't.
+  const { app, store } = harness({
+    probeHealth: () => ({ state: "stale" }),
+    startPreview: async () => true,
+  });
+  const id = makeSession(store);
+  const res = await app.fetch(
+    postJson(`/api/sessions/${id}/preview/start`, { command: "bun run dev" }),
+  );
+  const body = (await res.json()) as { probesUnavailable?: boolean };
+  expect(body.probesUnavailable ?? false).toBe(false);
+});
+
 test("preview/start: configured local script starts without steering the agent", async () => {
   const calls: string[] = [];
   const { store } = harness(

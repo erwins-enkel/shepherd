@@ -210,7 +210,7 @@ test("stopListenersOnPort: signals matching proc and returns correct count", () 
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(2);
   expect(killed.map((k) => k.pid).sort()).toEqual([4242, 4243]);
 });
@@ -229,7 +229,7 @@ test("stopListenersOnPort: excludes current process (self-pid)", () => {
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(1);
   expect(killed).toEqual([4242]);
 });
@@ -248,7 +248,7 @@ test("stopListenersOnPort: excludes claude-comm processes", () => {
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(1);
   expect(killed).toEqual([4242]);
 });
@@ -264,7 +264,7 @@ test("stopListenersOnPort: ignores processes on a different port (returns 0)", (
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(0);
   expect(killed).toEqual([]);
 });
@@ -309,13 +309,13 @@ test("stopListenersOnPort: a throwing killPid is not counted", () => {
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(0);
 });
 
 test("stopListenersOnPort: returns 0 when no process matches", () => {
   const reaper = new ProcessReaper(makeProbes());
-  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174)).toBe(0);
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled).toBe(0);
 });
 
 test("stopListenersOnPort: ignores processes outside the worktree", () => {
@@ -329,7 +329,7 @@ test("stopListenersOnPort: ignores processes outside the worktree", () => {
       },
     }),
   );
-  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174);
+  const count = reaper.stopListenersOnPort("/wt/repo-x", 5174).signalled;
   expect(count).toBe(0);
   expect(killed).toEqual([]);
 });
@@ -353,8 +353,8 @@ test("claude-alive: a claude process rooted in the worktree marks it alive", () 
       ],
     }),
   );
-  expect(out.get("/wt/repo-x")).toBe(true);
-  expect(out.get("/wt/repo-y")).toBe(false);
+  expect(out!.get("/wt/repo-x")).toBe(true);
+  expect(out!.get("/wt/repo-y")).toBe(false);
 });
 
 test("claude-alive: a claude in an unrelated cwd counts for no worktree", () => {
@@ -362,7 +362,7 @@ test("claude-alive: a claude in an unrelated cwd counts for no worktree", () => 
     ["/wt/repo-x"],
     makeProbes({ scanProcs: () => [{ pid: 1, cwd: "/elsewhere", comm: "claude" }] }),
   );
-  expect(out.get("/wt/repo-x")).toBe(false);
+  expect(out!.get("/wt/repo-x")).toBe(false);
 });
 
 test("claude-alive: a claude in a subdir of the worktree still counts", () => {
@@ -370,13 +370,13 @@ test("claude-alive: a claude in a subdir of the worktree still counts", () => {
     ["/wt/repo-x"],
     makeProbes({ scanProcs: () => [{ pid: 1, cwd: "/wt/repo-x/sub", comm: "claude" }] }),
   );
-  expect(out.get("/wt/repo-x")).toBe(true);
+  expect(out!.get("/wt/repo-x")).toBe(true);
 });
 
 test("claude-alive: every supplied worktree appears as a key; empty input is fine", () => {
-  expect(scanClaudeAliveByWorktree([], makeProbes()).size).toBe(0);
+  expect(scanClaudeAliveByWorktree([], makeProbes())!.size).toBe(0);
   const out = scanClaudeAliveByWorktree(["/wt/a"], makeProbes());
-  expect(out.get("/wt/a")).toBe(false);
+  expect(out!.get("/wt/a")).toBe(false);
 });
 
 // #1891 Phase-0 regression: a SANDBOXED agent runs as `bwrap [membrane] -- env … claude …`. Empirical
@@ -395,7 +395,7 @@ test("claude-alive: a live sandboxed agent (claude under bwrap, worktree cwd) is
       ],
     }),
   );
-  expect(out.get("/wt/repo-x")).toBe(true);
+  expect(out!.get("/wt/repo-x")).toBe(true);
 });
 
 test("claude-alive: a dead sandboxed agent leaves no worktree-cwd claude → husk", () => {
@@ -405,7 +405,7 @@ test("claude-alive: a dead sandboxed agent leaves no worktree-cwd claude → hus
     ["/wt/repo-x"],
     makeProbes({ scanProcs: () => [{ pid: 200, cwd: "/wt/repo-x", comm: "zsh" }] }),
   );
-  expect(out.get("/wt/repo-x")).toBe(false);
+  expect(out!.get("/wt/repo-x")).toBe(false);
 });
 
 // ── #1133: orphan reaping (PPID-1 busy-loops the port-based detector misses) ──

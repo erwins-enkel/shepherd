@@ -43,7 +43,7 @@ before running it. Read it first:
 | OS | Mode | Notes |
 | --- | --- | --- |
 | **Linux** (systemd + unprivileged userns) | Full | The only fully supported target — sandbox membrane, egress allowlist, auto-drain, Tailscale-serve previews, the systemd user unit, and the hourly DB backup timer. |
-| **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. **No** sandbox, egress allowlist, auto-drain, previews, systemd unit, or automated backups — run `bun run start` manually. |
+| **macOS** | Core-only / degraded | Installs prereqs, clones, builds the UI, prints a loud degraded banner. Dev-server detection and loopback previews work; stopping a preview from the UI and exposing one over the tailnet are unavailable (the latter needs the `tailscale` CLI). **No** sandbox, egress allowlist, auto-drain, systemd unit, or automated backups — run `bun run start` manually. |
 | **Windows** | Not supported | The installer refuses and routes you to **WSL2**. |
 
 ### Installer environment knobs

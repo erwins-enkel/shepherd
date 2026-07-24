@@ -124,6 +124,17 @@
       return;
     }
 
+    // Process detection is dead/stale on this host (#1912): the start proceeded, but
+    // the preview can never bind, so the pending guard would just expire silently.
+    // Alert (pointing at Diagnose) and arm NO guard instead of a "started" toast.
+    if (result.probesUnavailable) {
+      toasts.info(m.viewport_preview_start_no_detection(), {
+        alert: true,
+        key: `preview-no-detection-${session.id}`,
+      });
+      return;
+    }
+
     if (result.mode === "agent_setup") {
       setPreviewPending(session.id);
       toasts.info(m.viewport_preview_setup_sent({ name: session.name }));

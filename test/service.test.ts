@@ -2586,7 +2586,11 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
       restoreExisting: () => "",
     },
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
-    reaper: { detect: detect as any, reap: () => {}, stopListenersOnPort: () => 0 },
+    reaper: {
+      detect: detect as any,
+      reap: () => {},
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    },
   });
   const s = store.create({
     name: "x",
@@ -2634,7 +2638,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     reaper: {
       detect: () => detected as any,
       reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
-      stopListenersOnPort: () => 0,
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
     },
   });
   const s = store.create({
@@ -2682,7 +2686,7 @@ test("archive with no reap keys never calls the reaper", async () => {
       reap: () => {
         reapCalls++;
       },
-      stopListenersOnPort: () => 0,
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
     },
   });
   const s = store.create({
@@ -4192,7 +4196,7 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
     reaper: {
       detect,
       reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)),
-      stopListenersOnPort: () => 0,
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
     },
   });
   const mk = (name: string, term: string) =>
@@ -4220,6 +4224,102 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
   expect(store.get(b.id)?.status).toBe("archived");
   expect(store.get(a.id)?.archiveReason).toBe("relaunch");
   expect(store.get(b.id)?.archiveReason).toBe("relaunch");
+});
+
+test("archiveMany forces a probe refresh per detect, not once per batch (#1912)", async () => {
+  const store = new SessionStore(":memory:");
+  const refreshCalls: Array<{ force?: boolean }> = [];
+  const detect = (sess: any): any[] => [
+    { kind: "process", key: `process:${sess.name}`, name: "vite", port: null },
+  ];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    reaper: {
+      detect,
+      reap: () => {},
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      refresh: async (opts) => {
+        refreshCalls.push(opts ?? {});
+      },
+      // "fresh" so archive() skips its own conditional refresh (archiveMany just ran one).
+      health: () => ({ state: "fresh" as const, driven: true }),
+    },
+  });
+  const mk = (name: string, term: string) =>
+    store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: term,
+    });
+  const a = mk("a", "term_a");
+  const b = mk("b", "term_b");
+
+  await svc.archiveMany([a.id, b.id]);
+
+  // One forced refresh per id (before that id's detect) — N, not 1, and all forced.
+  expect(refreshCalls.length).toBe(2);
+  expect(refreshCalls.every((c) => c.force === true)).toBe(true);
+});
+
+test("archiveMany skips the probe refresh when the backend can't produce leftovers (#1912)", async () => {
+  // On darwin both leftover classes short-circuit, so `detect` can never hit.
+  // Refreshing anyway would cost one full-host `lsof` scan PER SESSION at teardown.
+  const store = new SessionStore(":memory:");
+  const refreshCalls: Array<{ force?: boolean }> = [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    reaper: {
+      detect: () => [],
+      reap: () => {},
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: true }),
+      canDetectLeftovers: () => false,
+      refresh: async (opts) => {
+        refreshCalls.push(opts ?? {});
+      },
+      health: () => ({ state: "none" as const, driven: false }),
+    },
+  });
+  const mk = (name: string, term: string) =>
+    store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: term,
+    });
+  const a = mk("a", "term_a");
+  const b = mk("b", "term_b");
+
+  await svc.archiveMany([a.id, b.id]);
+
+  // Not one spawn — the detector structurally cannot return a hit.
+  expect(refreshCalls).toEqual([]);
 });
 
 function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated = true) {
@@ -4702,7 +4802,11 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
       },
     } as any,
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
-    reaper: { detect, reap: () => {}, stopListenersOnPort: () => 0 },
+    reaper: {
+      detect,
+      reap: () => {},
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    },
   });
   const mk = (name: string) =>
     store.create({
@@ -5639,6 +5743,7 @@ function makeStopPreviewSvc(opts: {
   hasSession?: boolean;
   devPort?: number | null;
   stopReturn?: number;
+  stopUnsupported?: boolean;
   omitReaper?: boolean;
   omitPreview?: boolean;
 }) {
@@ -5665,7 +5770,7 @@ function makeStopPreviewSvc(opts: {
         reap: () => {},
         stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => {
           stopCalls.push({ worktreePath, port, signal });
-          return opts.stopReturn ?? 1;
+          return { signalled: opts.stopReturn ?? 1, unsupported: opts.stopUnsupported ?? false };
         },
       };
   const preview = opts.omitPreview
@@ -5740,6 +5845,13 @@ test("stopPreview: stopped with explicit SIGKILL", () => {
   ]);
 });
 
+test("stopPreview: unsupported (darwin) surfaces distinctly, not as stopped/0 (#1912)", () => {
+  const { svc, s } = makeStopPreviewSvc({ devPort: 3000, stopUnsupported: true });
+  const result = svc.stopPreview(s!.id);
+  // The idle-stop ladder keys on this to refuse advancing.
+  expect(result).toEqual({ result: "unsupported", killed: 0 });
+});
+
 test("stopPreview: honest zero — stopListenersOnPort returning 0 yields stopped/0, not downgraded", () => {
   const { svc, s, stopCalls } = makeStopPreviewSvc({ devPort: 3000, stopReturn: 0 });
   const result = svc.stopPreview(s!.id);
@@ -5786,7 +5898,7 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
     reaper: {
       detect: () => [],
       reap: () => {},
-      stopListenersOnPort: () => 1,
+      stopListenersOnPort: () => ({ signalled: 1, unsupported: false }),
     } as any,
     preview,
   });

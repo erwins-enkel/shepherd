@@ -173,7 +173,11 @@ export interface ServiceDeps {
   /** Inject point for tests; defaults to the real fs copy (copyStagedIntoWorktree). */
   copyUploads?: (uploads: string[], worktreePath: string) => UploadCopyResult[];
   /** Detects/terminates leftover subprocesses at close; absent in tests that skip it. */
-  reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort">;
+  // `refresh`/`health` are Partial so existing non-`as any` reaper fakes (which
+  // supply only detect/reap/stopListenersOnPort) still satisfy the type; call sites
+  // use `?.`. Widening the Pick would make them required and break those fakes.
+  reaper?: Pick<ProcessReaper, "detect" | "reap" | "stopListenersOnPort"> &
+    Partial<Pick<ProcessReaper, "refresh" | "health" | "canDetectLeftovers">>;
   /**
    * Reap runaway orphans the agent left behind, for the sessions just archived (issue #1144).
    * Called at the END of teardown, after `store.archive`, so the reaper's terminality gate sees
@@ -4240,13 +4244,50 @@ export class SessionService {
   stopPreview(
     id: string,
     signal: NodeJS.Signals = "SIGTERM",
-  ): { result: "stopped" | "not_bound" | "not_found"; killed: number } {
+  ): { result: "stopped" | "not_bound" | "not_found" | "unsupported"; killed: number } {
     const s = this.deps.store.get(id);
     if (!s || !this.deps.reaper || !this.deps.preview) return { result: "not_found", killed: 0 };
     const devPort = this.deps.preview.devPortFor(id);
     if (devPort == null) return { result: "not_bound", killed: 0 };
-    const killed = this.deps.reaper.stopListenersOnPort(s.worktreePath, devPort, signal);
-    return { result: "stopped", killed };
+    const { signalled, unsupported } = this.deps.reaper.stopListenersOnPort(
+      s.worktreePath,
+      devPort,
+      signal,
+    );
+    // `unsupported` (darwin: no signal authority) is distinct from a genuine
+    // zero-kill "stopped": the idle-stop escalation ladder must NOT advance on it.
+    if (unsupported) return { result: "unsupported", killed: 0 };
+    return { result: "stopped", killed: signalled };
+  }
+
+  /**
+   * Refresh the probe snapshot before a `detect`, but only when that can change the
+   * answer (darwin; a no-op on Linux, which reads live `/proc`).
+   *
+   * Skipped entirely when the backend cannot produce leftovers at all — on darwin
+   * both classes short-circuit (`canAuthorizeSignal: false` suppresses class-2, an
+   * absent `listeningPorts` suppresses class-3), so refreshing would pay a
+   * full-host `lsof` scan to feed a detector that can never return a hit. The gate
+   * lives in `ProcessReaper.canDetectLeftovers`, so it re-enables itself when #1922
+   * arms the kill path rather than depending on someone restoring it here.
+   *
+   * `onlyIfStale` is for `archive`: when it is reached from `archiveMany`, which
+   * force-refreshed microseconds earlier, the cell is already fresh and this must
+   * not issue a second spawn.
+   */
+  private async refreshForDetect(onlyIfStale: boolean): Promise<void> {
+    const reaper = this.deps.reaper;
+    if (!reaper) return;
+    if ((reaper.canDetectLeftovers?.() ?? true) === false) return;
+    if (onlyIfStale && reaper.health?.().state === "fresh") return;
+    await reaper.refresh?.({ force: true });
+  }
+
+  /** Health of the probe snapshot cell, for the Diagnose row and the preview-start
+   *  affordance. Neutral (`"fresh"`) when the reaper is unwired — such a deployment
+   *  has no preview functionality, so a "probes unavailable" caution would be noise. */
+  probeHealth(): { state: "none" | "stale" | "fresh" } {
+    return this.deps.reaper?.health?.() ?? { state: "fresh" };
   }
 
   /**
@@ -4868,6 +4909,9 @@ export class SessionService {
     if (!s) return 0;
     let reaped = 0;
     if (reapKeys?.length && this.deps.reaper) {
+      // Reflect request-time state in `detect` (see refreshForDetect). Conditional
+      // on freshness so a call from `archiveMany` doesn't re-spawn.
+      await this.refreshForDetect(true);
       const want = new Set(reapKeys);
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
       this.deps.reaper.reap(hit);
@@ -4956,6 +5000,12 @@ export class SessionService {
       for (const id of ids) {
         const s = this.deps.store.get(id);
         if (!s) continue;
+        // Per-`detect`, not once per batch: this loop awaits herdr.stop, a 15s
+        // beforeArchive race, and worktree.remove per id, so a batch-top snapshot
+        // would be past its negative-verdict bound before the last session — a late
+        // id would get an empty class-2 set. `refreshForDetect` gates the cost (see
+        // there); without that gate this would be one full-host scan PER SESSION.
+        await this.refreshForDetect(false);
         const keys = this.deps.reaper?.detect(s).map((l) => l.key) ?? [];
         try {
           leftovers += await this.archive(id, keys, reason); // count what was reaped, not what was detected

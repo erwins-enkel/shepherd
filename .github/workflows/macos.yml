@@ -1,0 +1,68 @@
+name: macOS probes
+
+# The darwin probe backend (src/proc-probes-darwin.ts, #1912) cannot run on the
+# Linux `verify` lane, so this is the ONLY evidence it works on real hardware. A
+# green run here is a merge precondition for the backend — it exercises the
+# assertions that are unfalsifiable anywhere else: $TMPDIR path resolution (macOS
+# /var→/private/var symlinks), the lsof cwd↔port JOIN on real Apple lsof, and
+# AGENT_COMMS equivalence against a real `claude`-named process.
+
+on:
+  pull_request:
+    # Paths-filtered so this is NOT a new always-required check on every PR — only
+    # PRs touching the probe backend or its consumers pay the macOS-runner cost.
+    paths:
+      - "src/proc-probes-darwin.ts"
+      - "src/process-reaper.ts"
+      - "src/preview-launch.ts"
+      - "src/preview.ts"
+      - "src/diagnostics.ts"
+      - "test/proc-probes-darwin*.test.ts"
+      - "test/preview.test.ts"
+      - ".github/workflows/macos.yml"
+  # Manual full-suite baseline on a macOS runner (the operator-requested one-off).
+  workflow_dispatch:
+    inputs:
+      full_suite:
+        description: "Run the whole root `bun run test` on macOS, not just the probe tests"
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probes:
+    name: darwin probes
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: latest
+
+      - name: Install (root)
+        uses: ./.github/actions/bun-install-retry
+
+      # Targeted probe + preview tests. The `.macos.test.ts` assertions self-gate on
+      # process.platform === "darwin", so here (real macOS) they actually run; the
+      # parser/integration tests exercise the darwin backend on real Apple lsof.
+      - name: Probe + preview tests
+        if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.full_suite) }}
+        run: |
+          bun test \
+            test/proc-probes-darwin.test.ts \
+            test/proc-probes-darwin.integration.test.ts \
+            test/proc-probes-darwin.macos.test.ts \
+            test/preview.test.ts
+
+      - name: Full root suite (manual baseline)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.full_suite }}
+        run: bun run test

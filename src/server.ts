@@ -2613,6 +2613,7 @@ async function startStoredPreviewScript(
   launcher: PreviewLauncher,
   storedScript: string | null,
   command: string | null,
+  probesUnavailable: boolean,
 ): Promise<Response | null> {
   const canonicalScript = await launcher.scriptPath(s.worktreePath);
   if (storedScript === null || storedScript !== canonicalScript) return null;
@@ -2625,6 +2626,7 @@ async function startStoredPreviewScript(
       mode: "local",
       command: command ?? storedScript,
       script: storedScript,
+      probesUnavailable,
     });
   } catch {
     return null;
@@ -2638,6 +2640,7 @@ async function sendPreviewSetupSteer(
   launcher: PreviewLauncher,
   cfg: RepoConfig,
   command: string | null,
+  probesUnavailable: boolean,
 ): Promise<Response | null> {
   const canonicalScript = await launcher.scriptPath(s.worktreePath);
   const setupScriptPath =
@@ -2663,6 +2666,7 @@ async function sendPreviewSetupSteer(
         mode: "agent_setup",
         command: command ?? "setup local preview script",
         script: setupScriptPath,
+        probesUnavailable,
       })
     : json({ error: "not found" }, 404);
 }
@@ -2672,12 +2676,13 @@ async function sendLegacyPreviewStart(
   s: Session,
   deps: AppDeps,
   command: string | null,
+  probesUnavailable: boolean,
 ): Promise<Response> {
   const resolved = command ?? (await detectDevCommand(s.worktreePath));
   if (!resolved) return json({ error: "command_unknown" }, 409);
   const ok = await deps.service.startPreview(id, resolved);
   return ok
-    ? json({ ok: true, mode: "agent", command: resolved })
+    ? json({ ok: true, mode: "agent", command: resolved, probesUnavailable })
     : json({ error: "not found" }, 404);
 }
 
@@ -2711,6 +2716,23 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   const existingServer = await bindExistingPreviewServer(id, s, deps, launcher);
   if (existingServer) return existingServer;
 
+  // A successfully-bound existing server never reaches here, so a probes-unavailable
+  // read below can't fire a spurious alert. The start proceeds either way (a dev
+  // server has value on its own); this only decides whether the client shows the
+  // "preview won't appear" alert instead of arming a pending guard. Pure cell read.
+  //
+  // Keyed on `"none"` — NEVER successfully refreshed — not on "not fresh". A
+  // `"stale"` cell means detection HAS produced a snapshot on this host, so it
+  // works and is merely lagging: `findPreviewDevPort`'s forced refresh is capped at
+  // FORCE_WAIT_BUDGET_MS, so an `lsof` slower than that budget returns with the
+  // cell still stale even though the background refresh is about to land and the
+  // next poller sweep will bind the preview. Alerting there would tell the operator
+  // the preview "won't appear" moments before it does. Genuinely degraded-but-
+  // working hosts are surfaced by the `preview_probes` Diagnose row (driven +
+  // stale ⇒ warning); this alert is reserved for "will not work at all", which is
+  // also what an unsupported platform reports (`nullProbes` ⇒ `"none"`).
+  const probesUnavailable = (deps.service.probeHealth?.().state ?? "fresh") === "none";
+
   // 3. Prefer an existing local repo script. It lives under the repo's git common
   // dir and is recorded in repo_config, so it is shared by sessions for this repo
   // without entering the git-tracked working tree.
@@ -2719,18 +2741,32 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   const storedCommand = cfg.previewStartCommand ?? null;
   const detectedCommand = bodyCommand ?? storedCommand ?? (await detectDevCommand(s.worktreePath));
 
-  const localStart = await startStoredPreviewScript(s, launcher, storedScript, detectedCommand);
+  const localStart = await startStoredPreviewScript(
+    s,
+    launcher,
+    storedScript,
+    detectedCommand,
+    probesUnavailable,
+  );
   if (localStart) return localStart;
 
   // 4. No script yet: ask the session agent once to create a repo-specific local
   // script at the canonical path and remember that path in repo_config. Later
   // sessions for this repo can then start the script directly without LLM work.
-  const setupStart = await sendPreviewSetupSteer(id, s, deps, launcher, cfg, detectedCommand);
+  const setupStart = await sendPreviewSetupSteer(
+    id,
+    s,
+    deps,
+    launcher,
+    cfg,
+    detectedCommand,
+    probesUnavailable,
+  );
   if (setupStart) return setupStart;
 
   // 5. Legacy fallback: if local script setup is not possible (for example no git
   // common dir), steer the agent exactly like previous versions did.
-  return sendLegacyPreviewStart(id, s, deps, detectedCommand);
+  return sendLegacyPreviewStart(id, s, deps, detectedCommand, probesUnavailable);
 }
 
 // POST /api/sessions/:id/preview/stop — force-stop the previewed dev server.

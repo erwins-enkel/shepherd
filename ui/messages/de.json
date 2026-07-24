@@ -521,6 +521,7 @@
   "viewport_preview_start": "Devserver starten",
   "viewport_preview_start_note": "Startet das lokale Vorschau-Skript des Repos; falls es fehlt, richtet der Agent es einmalig ein",
   "viewport_preview_start_sent": "Vorschau-Start an {name} gesendet (läuft: {command})",
+  "viewport_preview_start_no_detection": "Der Dev-Server wurde gestartet, aber Shepherd kann auf diesem Host keine laufenden Prozesse erkennen, daher erscheint die Live-Vorschau nicht. Details unter Diagnose.",
   "viewport_preview_start_failed": "Vorschau konnte nicht gestartet werden; Terminal auf Details prüfen",
   "viewport_preview_start_confirm_working": "Start bestätigen (Agent aktiv)",
   "viewport_preview_already_bound": "Vorschau ist bereits aktiv",
@@ -3366,6 +3367,13 @@
   "diagnostics_fix_confirm_title_tmp_inodes": "Temporäre Dateien jetzt aufräumen?",
   "diagnostics_fix_confirm_run_tmp_inodes": "Jetzt aufräumen",
   "diagnostics_fix_unresolved_tmp_inodes": "Shepherd hat die freigebbaren Caches aufgeräumt, aber die Auslastung ist weiterhin hoch — der Rest ist höchstwahrscheinlich ein Paketmanager-Store oder ein zurückgelassener Worktree im temporären Dateisystem, den Shepherd noch nicht freigibt.",
+  "diagnostics_label_preview_probes": "Preview-Erkennung",
+  "diagnostics_hint_preview_probes_ok": "Shepherd erkennt die von deinen Agenten gestarteten Dev-Server, daher funktionieren Live-Previews.",
+  "diagnostics_hint_preview_probes_unavailable": "Shepherd kann laufende Prozesse auf diesem Host nicht inspizieren und daher die von deinen Agenten gestarteten Dev-Server nicht erkennen — Live-Previews erscheinen nicht.",
+  "diagnostics_hint_preview_probes_stale": "Shepherds Sicht auf die laufenden Prozesse ist auf diesem Host veraltet (die letzte Inspektion wurde nicht rechtzeitig abgeschlossen), daher können Live-Previews verzögert sein oder fehlen.",
+  "diagnostics_hint_preview_probes_idle": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet.",
+  "diagnostics_hint_preview_probes_unsupported": "Die Erkennung von Live-Previews wird auf diesem Betriebssystem nicht unterstützt, daher erscheinen keine Previews.",
+  "diagnostics_hint_preview_probes_uninspectable": "Shepherd konnte nicht überprüfen, ob die Prozesserkennung auf diesem Host funktioniert.",
   "gloss_inode_term": "Inode",
   "gloss_inode_def": "Der Eintrag eines Dateisystems für eine einzelne Datei oder ein Verzeichnis. Ihre Anzahl ist begrenzt und wird beim Anlegen des Dateisystems festgelegt — es kann also die Inodes aufbrauchen, obwohl noch Speicherplatz frei ist, und jede neue Datei scheitert dann, als wäre die Platte voll.",
   "feat_herdr_sandbox_advisory_title": "Sandboxed-Sitzungen unter herdr 0.7.5: eine Status-Einschränkung",
@@ -3397,5 +3405,7 @@
   "feat_settings_redesign_title": "Einstellungen, neu gestaltet",
   "feat_settings_redesign_body": "Die Einstellungen öffnen sich jetzt als Cockpit: Sektionsleiste links (am Telefon eine Vollbild-Liste mit Detailseiten), ausgerichtete Einstellungszeilen und ein Suchfeld — mit / erreichbar —, das Sektionen filtert und Treffer hervorhebt. Änderungen gelten weiterhin sofort.",
   "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
-  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten."
+  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten.",
+  "feat_macos_preview_detection_title": "Live-Previews unter macOS",
+  "feat_macos_preview_detection_body": "Shepherd erkennt jetzt auch unter macOS die von deinen Agenten gestarteten Dev-Server, daher funktionieren dort Live-Loopback-Previews – bisher erschienen sie stillschweigend nie. Falls die Erkennung auf deinem Host nicht läuft, sagt dir das die neue Zeile „Preview-Erkennung“ unter Diagnose, statt dich rätseln zu lassen."
 }

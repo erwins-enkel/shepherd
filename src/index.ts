@@ -1620,13 +1620,15 @@ function readVisibleBuffer(id: string): string | null {
 // (drive to a PR). Genuine questions pause the session loudly (distinct state + push).
 const autopilot = new AutopilotService({
   store,
-  classify: (tail, taskPrompt, label) => {
+  classify: (tail, taskPrompt, label, taskSessionId) => {
     const env = roleEnv(config.autopilotCli, config.autopilotModel, config.autopilotEffort);
     return classifyStop(
       tail,
       taskPrompt,
       {
         herdr,
+        store,
+        taskSessionId,
         provider: env.provider,
         model: env.model,
         effort: env.effort,

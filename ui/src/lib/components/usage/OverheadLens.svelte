@@ -13,6 +13,8 @@
   /** Translated label for a satellite-pass kind; falls back to the raw id for unknowns. */
   function kindLabel(kind: string): string {
     switch (kind) {
+      case "classifier":
+        return m.usage_kind_classifier();
       case "review":
         return m.usage_kind_review();
       case "plan_gate":

@@ -117,6 +117,12 @@ function harness(opts: {
   let cur = opts.session;
   const events: any[] = [];
   const setAutoMergeStateCalls: any[] = [];
+  const classified: Array<{
+    tail: string[];
+    taskPrompt: string;
+    label: string;
+    taskSessionId: string | undefined;
+  }> = [];
   let classifyCalls = 0;
   const svc = new AutopilotService({
     store: {
@@ -165,8 +171,9 @@ function harness(opts: {
         };
       },
     } as any,
-    classify: async () => {
+    classify: async (tail, taskPrompt, label, taskSessionId) => {
       classifyCalls++;
+      classified.push({ tail, taskPrompt, label, taskSessionId });
       return opts.verdict ?? { kind: "unknown", summary: "" };
     },
     steer: async (_id, text) => {
@@ -202,8 +209,21 @@ function harness(opts: {
     state: () => cur,
     mergeStateCalls: setAutoMergeStateCalls,
     classifyCount: () => classifyCalls,
+    classified,
   };
 }
+
+test("classifier receives the exact triggering task session id", async () => {
+  const h = harness({
+    session: sess({ id: "task-session-1727" }),
+    verdict: { kind: "gate", summary: "asking to start" },
+  });
+
+  await h.svc.onBlock("task-session-1727", block());
+
+  expect(h.classified).toHaveLength(1);
+  expect(h.classified[0]?.taskSessionId).toBe("task-session-1727");
+});
 
 test("gate verdict → proceed steer + step++", async () => {
   const h = harness({ session: sess(), verdict: { kind: "gate", summary: "asking to start" } });

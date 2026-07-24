@@ -125,7 +125,12 @@ export interface AutopilotDeps {
     "get" | "list" | "getRepoConfig" | "setAutopilotState" | "setAutoMergeState"
   >;
   /** Classify why an agent stopped (src/autopilot-llm.classifyStop, pre-bound to herdr+model). */
-  classify: (tail: string[], taskPrompt: string, label: string) => Promise<AutopilotVerdict>;
+  classify: (
+    tail: string[],
+    taskPrompt: string,
+    label: string,
+    taskSessionId: string,
+  ) => Promise<AutopilotVerdict>;
   /** Steer text into the session's live PTY (SessionService.reply). false = didn't land. */
   steer: (id: string, text: string) => Promise<boolean>;
   /** Resume an exited session so it can be steered (SessionService.resume, async — the
@@ -377,7 +382,7 @@ export class AutopilotService {
     this.pending.add(id);
     let v: AutopilotVerdict;
     try {
-      v = await this.deps.classify(tail, s.prompt, label);
+      v = await this.deps.classify(tail, s.prompt, label, s.id);
     } finally {
       this.pending.delete(id);
     }

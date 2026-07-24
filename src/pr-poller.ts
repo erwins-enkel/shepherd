@@ -4,6 +4,11 @@ import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { annotateHandoff } from "./repo-roles";
 import type { OpenPrSnapshotService } from "./open-pr-snapshot";
 
+type PrPollerStore = Pick<
+  SessionStore,
+  "list" | "get" | "listSessionGitCache" | "putSessionGitCache" | "deleteSessionGitCache"
+>;
+
 /** Read/write handle the HTTP layer uses to serve snapshots and apply instant
  *  updates from PR actions. `PrPoller` implements it. */
 export interface PrCache {
@@ -180,7 +185,7 @@ export class PrPoller implements PrCache {
   }
 
   constructor(
-    private store: Pick<SessionStore, "list" | "get">,
+    private store: PrPollerStore,
     private resolveForge: (repoPath: string) => GitForge | null,
     private onChange: (id: string, git: GitState) => void,
     private intervalMs = 120_000,
@@ -227,7 +232,9 @@ export class PrPoller implements PrCache {
      *  from it (`refresh`, always-fresh) so the PRs tab reuses the poller's fetch; when absent
      *  (older test wiring), the batch falls back to the forge's direct `listOpenPrStatuses`. */
     private snapshotSvc?: OpenPrSnapshotService,
-  ) {}
+  ) {
+    this.cache = new Map(Object.entries(this.store.listSessionGitCache()));
+  }
 
   /** Epoch-ms of the last full sweep that actually ran — gates the cold-path
    *  throttle in `tick`. */
@@ -258,8 +265,7 @@ export class PrPoller implements PrCache {
       }
       for (const id of [...this.cache.keys()]) {
         if (!active.has(id)) {
-          this.cache.delete(id);
-          this.transientSince.delete(id);
+          this.drop(id);
         }
       }
     } finally {
@@ -417,8 +423,7 @@ export class PrPoller implements PrCache {
     // login, so the herd can show "waiting on scoop" instead of "your turn".
     const git = annotateHandoff(raw, s.repoPath, me, prev);
     this.trackTransient(s.id, git);
-    if (gitStateChanged(prev, git)) {
-      this.cache.set(s.id, git);
+    if (gitStateChanged(prev, git) && this.set(s.id, git)) {
       this.onChange(s.id, git);
     }
   }
@@ -561,10 +566,17 @@ export class PrPoller implements PrCache {
   get(id: string): GitState | undefined {
     return this.cache.get(id);
   }
-  set(id: string, git: GitState): void {
+  set(id: string, git: GitState): boolean {
+    if (!this.store.putSessionGitCache(id, git)) {
+      this.cache.delete(id);
+      this.transientSince.delete(id);
+      return false;
+    }
     this.cache.set(id, git);
+    return true;
   }
   drop(id: string): void {
+    this.store.deleteSessionGitCache(id);
     this.cache.delete(id);
     this.transientSince.delete(id);
   }

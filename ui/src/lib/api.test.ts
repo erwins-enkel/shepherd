@@ -1,9 +1,27 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { fetchCodexReleaseNotes, getCommands } from "./api";
+import { fetchCodexReleaseNotes, getBuildQueues, getCommands } from "./api";
 
 vi.mock("$lib/auth.svelte", () => ({
   auth: { unauthenticated: false, checked: false },
 }));
+
+describe("getBuildQueues", () => {
+  const originalFetch = globalThis.fetch;
+
+  afterEach(() => {
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
+  });
+
+  it("requests the bulk queue snapshot", async () => {
+    const queues = { s1: { sessionId: "s1", approved: true, steps: [] } };
+    const fetchMock = vi.fn(async () => Response.json(queues));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await expect(getBuildQueues()).resolves.toEqual(queues);
+    expect(fetchMock).toHaveBeenCalledWith("/api/queues");
+  });
+});
 
 describe("getCommands", () => {
   const originalFetch = globalThis.fetch;

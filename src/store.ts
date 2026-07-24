@@ -61,6 +61,7 @@ import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
+import type { GitState } from "./forge/types";
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
 function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
@@ -76,6 +77,183 @@ function safeJsonParse<T>(raw: string | null | undefined, fallback: T): T {
 function safeJsonArray(raw: string | null | undefined): string[] {
   const v = safeJsonParse<unknown>(raw, []);
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
+}
+
+const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
+const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
+const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
+const PERSISTED_MERGE_STATES = new Set<unknown>([
+  "behind",
+  "blocked",
+  "clean",
+  "dirty",
+  "draft",
+  "has_hooks",
+  "unknown",
+  "unstable",
+]);
+const PERSISTED_REVIEW_STATES = new Set<unknown>(["approved", "changes_requested", "commented"]);
+
+type FlatOptionalGitField = Exclude<
+  keyof GitState,
+  | "kind"
+  | "state"
+  | "checks"
+  | "deployConfigured"
+  | "number"
+  | "latestReview"
+  | "reviewerStates"
+  | "reviewBlock"
+>;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === "number" && Number.isFinite(value);
+}
+
+function isStringArray(value: unknown): value is string[] {
+  return Array.isArray(value) && value.every((item) => typeof item === "string");
+}
+
+function isWebUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+const FLAT_OPTIONAL_GIT_FIELDS = {
+  url: isWebUrl,
+  title: (value: unknown) => typeof value === "string",
+  createdAt: isFiniteNumber,
+  mergeable: (value: unknown) => value === null || typeof value === "boolean",
+  runningChecks: isStringArray,
+  headSha: (value: unknown) => typeof value === "string",
+  requestedReviewers: isStringArray,
+  isDraft: (value: unknown) => typeof value === "boolean",
+  mergeStateStatus: (value: unknown) => PERSISTED_MERGE_STATES.has(value),
+  baseRefName: (value: unknown) => typeof value === "string",
+  noCi: (value: unknown) => typeof value === "boolean",
+  handoff: (value: unknown) => value === "reviewer" || value === "merger",
+  handoffWho: (value: unknown) => typeof value === "string",
+  handoffInferred: (value: unknown) => typeof value === "boolean",
+  issueUrl: isWebUrl,
+} satisfies Record<FlatOptionalGitField, (value: unknown) => boolean>;
+
+function parsePersistedLatestReview(value: unknown): GitState["latestReview"] | null {
+  if (
+    !isRecord(value) ||
+    !PERSISTED_REVIEW_STATES.has(value.state) ||
+    typeof value.author !== "string" ||
+    !isFiniteNumber(value.submittedAt)
+  )
+    return null;
+  return {
+    state: value.state as NonNullable<GitState["latestReview"]>["state"],
+    author: value.author,
+    submittedAt: value.submittedAt,
+  };
+}
+
+function parsePersistedReviewerStates(value: unknown): GitState["reviewerStates"] | null {
+  if (!isRecord(value)) return null;
+  const reviewers: Array<[string, NonNullable<GitState["reviewerStates"]>[string]]> = [];
+  for (const [reviewer, review] of Object.entries(value)) {
+    if (
+      !isRecord(review) ||
+      !PERSISTED_REVIEW_STATES.has(review.state) ||
+      (review.latestAt !== null && !isFiniteNumber(review.latestAt))
+    )
+      return null;
+    reviewers.push([
+      reviewer,
+      {
+        state: review.state as NonNullable<GitState["reviewerStates"]>[string]["state"],
+        latestAt: review.latestAt,
+      },
+    ]);
+  }
+  return Object.fromEntries(reviewers);
+}
+
+function parsePersistedReviewBlock(value: unknown): GitState["reviewBlock"] | null {
+  if (
+    !isRecord(value) ||
+    typeof value.reviewer !== "string" ||
+    value.state !== "changes_requested" ||
+    (value.latestAt !== null && !isFiniteNumber(value.latestAt))
+  )
+    return null;
+  return { reviewer: value.reviewer, state: "changes_requested", latestAt: value.latestAt };
+}
+
+function parsePersistedGitCore(state: Record<string, unknown>): GitState | null {
+  if (!PERSISTED_GIT_KINDS.has(state.kind)) return null;
+  if (!PERSISTED_PR_STATES.has(state.state)) return null;
+  if (!PERSISTED_CHECK_STATES.has(state.checks)) return null;
+  if (typeof state.deployConfigured !== "boolean") return null;
+  if (state.state === "none") {
+    if (state.number !== undefined) return null;
+  } else if (!Number.isInteger(state.number) || (state.number as number) <= 0) {
+    return null;
+  }
+  const result: GitState = {
+    kind: state.kind as GitState["kind"],
+    state: state.state as GitState["state"],
+    checks: state.checks as GitState["checks"],
+    deployConfigured: state.deployConfigured,
+  };
+  if (state.number !== undefined) result.number = state.number as number;
+  return result;
+}
+
+function applyPersistedFlatGitFields(state: Record<string, unknown>, result: GitState): boolean {
+  for (const field of Object.keys(FLAT_OPTIONAL_GIT_FIELDS) as FlatOptionalGitField[]) {
+    const fieldValue = state[field];
+    if (fieldValue === undefined) continue;
+    if (!FLAT_OPTIONAL_GIT_FIELDS[field](fieldValue)) return false;
+    Object.assign(result, { [field]: fieldValue });
+  }
+  return true;
+}
+
+function parsePersistedGitState(raw: string): GitState | null {
+  let value: unknown;
+  try {
+    value = JSON.parse(raw);
+  } catch {
+    return null;
+  }
+  if (!isRecord(value)) return null;
+  const state = value;
+  const result = parsePersistedGitCore(state);
+  if (!result || !applyPersistedFlatGitFields(state, result)) return null;
+
+  if (state.latestReview !== undefined) {
+    const latestReview = parsePersistedLatestReview(state.latestReview);
+    if (!latestReview) return null;
+    result.latestReview = latestReview;
+  }
+
+  if (state.reviewerStates !== undefined) {
+    const reviewerStates = parsePersistedReviewerStates(state.reviewerStates);
+    if (!reviewerStates) return null;
+    result.reviewerStates = reviewerStates;
+  }
+
+  if (state.reviewBlock !== undefined) {
+    const reviewBlock = parsePersistedReviewBlock(state.reviewBlock);
+    if (!reviewBlock) return null;
+    result.reviewBlock = reviewBlock;
+  }
+
+  return result;
 }
 
 /** Tolerantly parse the persisted findings JSON back to a string[] (never throws). */
@@ -903,6 +1081,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       auto INTEGER NOT NULL DEFAULT 0, issueNumber INTEGER,
       createdAt INTEGER NOT NULL, updatedAt INTEGER NOT NULL, archivedAt INTEGER)`);
     this.migrateSessionColumns();
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_git_cache (
+      sessionId TEXT PRIMARY KEY REFERENCES sessions(id) ON DELETE CASCADE,
+      gitJson TEXT NOT NULL,
+      updatedAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS task_seq (
       id INTEGER PRIMARY KEY CHECK (id = 1), next INTEGER NOT NULL)`);
     // Seed once from the high-water mark of existing desigs (TASK-NN) + 1, or 1 on a fresh DB.
@@ -2336,10 +2518,53 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   archive(id: string, reason: SessionArchiveReason = "operator") {
     const now = Date.now();
-    this.db.run(
-      `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
-      [now, reason, now, id],
+    this.db.transaction(() => {
+      this.db.run(
+        `UPDATE sessions SET status='archived', archivedAt=?, archiveReason=?, updatedAt=? WHERE id=? AND status!='archived'`,
+        [now, reason, now, id],
+      );
+      this.deleteSessionGitCache(id);
+    })();
+  }
+
+  putSessionGitCache(sessionId: string, state: GitState): boolean {
+    return (
+      this.db.run(
+        `INSERT INTO session_git_cache (sessionId, gitJson, updatedAt)
+       SELECT ?, ?, ? WHERE EXISTS (
+         SELECT 1 FROM sessions WHERE id = ? AND status != 'archived'
+       )
+       ON CONFLICT(sessionId) DO UPDATE SET gitJson=excluded.gitJson, updatedAt=excluded.updatedAt`,
+        [sessionId, JSON.stringify(state), Date.now(), sessionId],
+      ).changes > 0
     );
+  }
+
+  listSessionGitCache(): Record<string, GitState> {
+    const rows = this.db
+      .query(
+        `SELECT c.sessionId, c.gitJson, s.status
+         FROM session_git_cache c JOIN sessions s ON s.id = c.sessionId`,
+      )
+      .all() as { sessionId: string; gitJson: string; status: string }[];
+    const result: Record<string, GitState> = {};
+    const invalid: string[] = [];
+    for (const row of rows) {
+      const state = parsePersistedGitState(row.gitJson);
+      if (row.status === "archived" || !state) invalid.push(row.sessionId);
+      else result[row.sessionId] = state;
+    }
+    if (invalid.length > 0) {
+      const remove = this.db.query(`DELETE FROM session_git_cache WHERE sessionId = ?`);
+      this.db.transaction(() => {
+        for (const sessionId of invalid) remove.run(sessionId);
+      })();
+    }
+    return result;
+  }
+
+  deleteSessionGitCache(sessionId: string): void {
+    this.db.run(`DELETE FROM session_git_cache WHERE sessionId = ?`, [sessionId]);
   }
 
   unarchive(id: string) {

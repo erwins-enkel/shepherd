@@ -6,6 +6,7 @@
   import { onMount, tick, untrack } from "svelte";
   import { MediaQuery, SvelteSet } from "svelte/reactivity";
   import { HerdStore } from "$lib/store.svelte";
+  import { bootstrapBuildQueues } from "$lib/build-queue-bootstrap";
   import type { SettingsSectionId } from "$lib/settings-search";
   import { createTabSignal, deriveTabState } from "$lib/tab-signal.svelte";
   import { tabTicker } from "$lib/tab-ticker.svelte";
@@ -846,6 +847,14 @@
       .catch(() => {});
   }
 
+  function refreshBuildQueues() {
+    bootstrapBuildQueues({
+      getBuildQueues,
+      getBuildQueueRevision: () => store.getBuildQueueRevision(),
+      setBuildQueues: (queues, revision) => store.setBuildQueues(queues, revision),
+    }).catch(() => {});
+  }
+
   // Wake + socket-reopen typically coincide (a frozen tab kills the socket), which
   // would fire resync() twice back-to-back. The guard swallows the duplicate on the
   // visibility/pageshow path only; the socket-open caller passes force:true and must
@@ -895,9 +904,7 @@
     getBacklog()
       .then((p) => (backlog = p))
       .catch(() => {});
-    getBuildQueues()
-      .then((m) => store.setBuildQueues(m))
-      .catch(() => {});
+    refreshBuildQueues();
     // Re-seed completed epics: the epic:completed WS payload carries the bare row WITHOUT the
     // GET-only live landing-gate fields (landingReady/landingChecks/landingMergeable/landingStranded),
     // so only a fetch repopulates them — without this, the "Land epic" CTA reads disabled on wake.
@@ -1734,6 +1741,7 @@
     gitStates()
       .then((m) => store.setGit(m))
       .catch(() => {});
+    refreshBuildQueues();
     activityStates()
       .then((m) => store.setActivity(m))
       .catch(() => {});

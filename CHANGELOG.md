@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.46.0](https://github.com/erwins-enkel/shepherd/compare/v1.45.0...v1.46.0) (2026-07-24)
+
+
+### Features
+
+* **ui:** give steers their own settings section ([#1928](https://github.com/erwins-enkel/shepherd/issues/1928)) ([4755709](https://github.com/erwins-enkel/shepherd/commit/47557099970347004780b46537565e6979b86acf))
+
+
+### Bug Fixes
+
+* hydrate persisted session card state ([#1929](https://github.com/erwins-enkel/shepherd/issues/1929)) ([6113b49](https://github.com/erwins-enkel/shepherd/commit/6113b4991eb2d2bbed69728f9e0ce847cc9be575))
+
 ## [1.45.0](https://github.com/erwins-enkel/shepherd/compare/v1.44.0...v1.45.0) (2026-07-23)
 
 

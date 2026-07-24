@@ -23,10 +23,8 @@
 
   // Steer to expand + focus on open (from a steer chip's right-click → "Edit"). The
   // editor lists every steer; this jumps straight to the one the operator picked.
-  let {
-    focusSteerId = null,
-    query = "",
-  }: { focusSteerId?: string | null; query?: string } = $props();
+  let { focusSteerId = null, query = "" }: { focusSteerId?: string | null; query?: string } =
+    $props();
 
   const flipDurationMs = 150;
 

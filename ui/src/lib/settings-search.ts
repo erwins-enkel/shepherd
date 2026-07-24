@@ -211,10 +211,7 @@ export function sectionSearchRows(ctx: {
       ...cli.codex,
       ...cli.roles,
     ],
-    steers: [
-      [m.settings_tab_steers()],
-      [m.steerseditor_title(), m.steerseditor_hint()],
-    ],
+    steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
     device: [

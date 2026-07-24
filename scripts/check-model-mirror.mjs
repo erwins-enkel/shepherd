@@ -33,7 +33,7 @@
 // scripts/check-glossary.mjs. Importable (extractArrayLiteral / compareMirror /
 // MIRRORED_CONSTANTS) by test/check-model-mirror.test.ts.
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -251,13 +251,34 @@ function formatDelta(delta) {
   return lines;
 }
 
-// `fileURLToPath` rather than string-concatenating `file://` + argv[1]: import.meta.url
-// is PERCENT-ENCODED, so on any checkout path containing a space, `#`, `%` or non-ASCII
-// the concat comparison is false, the CLI block never runs, and the gate exits 0 having
-// checked nothing — the exact vacuous pass this script exists to prevent. Same idiom as
-// scripts/json-union-merge.mjs. (scripts/next-version.mjs still uses the concat form.)
-const isMain = Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === process.argv[1];
-if (isMain) {
+/**
+ * Is this module the process entry point (i.e. run as the CLI, not imported)?
+ *
+ * Both normalizations matter, and getting either wrong silently skips the CLI block —
+ * so `node scripts/check-model-mirror.mjs` exits 0 having compared NOTHING, the exact
+ * vacuous pass this gate exists to prevent. Verified empirically, both directions:
+ *   • `fileURLToPath`, not `` `file://${argv[1]}` `` — import.meta.url is PERCENT-ENCODED,
+ *     so a path holding a space / `#` / `%` / non-ASCII makes the concat compare false.
+ *   • `realpathSync(argv[1])` — Node realpath-resolves the ENTRY module behind
+ *     import.meta.url (`--preserve-symlinks-main` defaults off) but leaves argv[1] merely
+ *     `path.resolve`d, so any SYMLINKED path component makes a bare compare false. This
+ *     is not exotic: macOS `os.tmpdir()` is `/var/folders/…` → `/private/var/folders/…`.
+ * Both cases are covered by regression tests in test/check-model-mirror.test.ts.
+ * (scripts/next-version.mjs and scripts/json-union-merge.mjs still use unnormalized
+ * forms — pre-existing, and out of this change's scope.)
+ */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    // argv[1] isn't a resolvable path (eval/bundler harness) → not the CLI entry.
+    return false;
+  }
+}
+
+if (isMainModule()) {
   const serverSource = readFileSync(join(ROOT, SERVER_REL), "utf8");
   const uiSource = readFileSync(join(ROOT, UI_REL), "utf8");
   const { ok, deltas } = compareMirror(serverSource, uiSource);

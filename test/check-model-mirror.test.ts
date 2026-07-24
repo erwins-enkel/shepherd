@@ -1,6 +1,15 @@
 import { test, expect } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -173,33 +182,65 @@ test("reports every diverged constant, not just the first", () => {
 });
 
 // ── the CLI entry point ──────────────────────────────────────────────────────
+//
+// Both cases below exercise the main guard, whose two failure modes are
+// indistinguishable from success by exit code alone: if the guard is wrong the CLI
+// block never runs and the process exits 0 having compared NOTHING. So each case
+// plants DIVERGENT halves and asserts exit 1 — only a CLI that genuinely ran can
+// produce that. `realpathSync(mkdtempSync(...))` keeps the temp root free of symlink
+// components so each case isolates the one thing it names (macOS `os.tmpdir()` is
+// `/var/folders/…` → `/private/var/folders/…`, which would otherwise make the
+// spaced-path case fail for the *symlink* reason and read as the wrong bug).
 
-test("the CLI actually runs (and fails) from a checkout path containing a space", () => {
-  // REGRESSION GUARD. A `import.meta.url === `file://${process.argv[1]}`` main-guard
-  // compares a PERCENT-ENCODED url against a raw path, so on a checkout whose path
-  // holds a space (or #, %, non-ASCII) the CLI block never ran: the gate exited 0
-  // having compared nothing — the exact vacuous pass this script exists to prevent.
-  // Exit 1 here proves the block ran, since "never ran" also exits 0.
-  const dir = mkdtempSync(join(tmpdir(), "shepherd model mirror "));
+/** Build a throwaway checkout at `dir` with a copy of the gate + divergent halves. */
+function fakeCheckout(dir: string): string {
+  for (const d of ["scripts", "src", join("ui", "src", "lib")]) {
+    mkdirSync(join(dir, d), { recursive: true });
+  }
+  const script = join(dir, "scripts", "check-model-mirror.mjs");
+  copyFileSync(join(ROOT, "scripts", "check-model-mirror.mjs"), script);
+  const halves = (claude: string[]) =>
+    src("CLAUDE_MODELS", claude) + src("CODEX_MODELS", ["gpt-5"]) + src("EFFORTS", ["low"]);
+  writeFileSync(join(dir, "src", "types.ts"), halves(["opus"]));
+  writeFileSync(join(dir, "ui", "src", "lib", "types.ts"), halves(["opus", "haiku"]));
+  return script;
+}
+
+/** Run the copied gate and assert it really executed and reported the divergence. */
+function expectGateFailed(script: string) {
+  const r = spawnSync("node", [script], { encoding: "utf8" });
+  expect(r.status).toBe(1); // 0 would mean the CLI block never ran
+  expect(`${r.stdout}${r.stderr}`).toContain("haiku");
+}
+
+test("the CLI runs (and fails) from a checkout path containing a space", () => {
+  // Guards the percent-encoding trap: import.meta.url encodes the space as %20, so a
+  // `file://` + argv[1] concat comparison is false and the CLI is skipped.
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), "shepherd model mirror ")));
   expect(dir).toContain(" "); // the whole point of the case
   try {
-    for (const d of ["scripts", "src", join("ui", "src", "lib")]) {
-      mkdirSync(join(dir, d), { recursive: true });
-    }
-    const script = join(dir, "scripts", "check-model-mirror.mjs");
-    copyFileSync(join(ROOT, "scripts", "check-model-mirror.mjs"), script);
-
-    // Divergent halves, so a CLI that genuinely runs must exit 1.
-    const halves = (claude: string[]) =>
-      src("CLAUDE_MODELS", claude) + src("CODEX_MODELS", ["gpt-5"]) + src("EFFORTS", ["low"]);
-    writeFileSync(join(dir, "src", "types.ts"), halves(["opus"]));
-    writeFileSync(join(dir, "ui", "src", "lib", "types.ts"), halves(["opus", "haiku"]));
-
-    const r = spawnSync("node", [script], { encoding: "utf8" });
-    expect(r.status).toBe(1);
-    expect(`${r.stdout}${r.stderr}`).toContain("haiku");
+    expectGateFailed(fakeCheckout(dir));
   } finally {
     rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("the CLI runs (and fails) when reached through a SYMLINKED path component", () => {
+  // Guards the realpath trap: Node realpath-resolves the entry module behind
+  // import.meta.url but leaves argv[1] merely path.resolve'd, so without
+  // realpathSync(argv[1]) the comparison is false and the CLI is skipped.
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "shepherd-mm-symlink-")));
+  try {
+    const real = join(root, "real");
+    mkdirSync(real, { recursive: true });
+    const script = fakeCheckout(real);
+    const link = join(root, "link");
+    symlinkSync(real, link);
+    // Same file, reached via the symlink — argv[1] keeps "link", import.meta.url "real".
+    expect(realpathSync(join(link, "scripts", "check-model-mirror.mjs"))).toBe(script);
+    expectGateFailed(join(link, "scripts", "check-model-mirror.mjs"));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
   }
 });
 

@@ -115,4 +115,25 @@ describe("CodexRolloutResolver — backoff, cache, race", () => {
     expect(h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" })).toBeNull();
     expect(h.warnings.length).toBeGreaterThan(0);
   });
+
+  test("onResolved fires ONCE, only on a proven resolution (persist-on-proof hook)", () => {
+    let now = 0;
+    let metas: RolloutMeta[] = [];
+    const resolved: Array<[string, string]> = [];
+    const resolver = new CodexRolloutResolver({
+      listMetas: () => metas,
+      now: () => now,
+      onResolved: (id, rid) => resolved.push([id, rid]),
+    });
+    // miss → no persist
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(resolved).toEqual([]);
+    // rollout appears → proof → persist once
+    metas = [meta("/r/1.jsonl", WT1, "id-1")];
+    now = 999_999;
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    // repeat resolve served from cache → no second persist
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(resolved).toEqual([["t1", "id-1"]]);
+  });
 });

@@ -303,6 +303,9 @@ export interface ResolverDeps {
   listMetas: () => RolloutMeta[];
   now: () => number;
   warn?: (msg: string) => void;
+  /** Called ONCE per tracking id, when a resolution is first proven — the hook that persists the
+   *  rollout id to `reviewer_spawns.providerSessionId` (activating the UNIQUE safety net). */
+  onResolved?: (trackingId: string, rolloutId: string) => void;
 }
 
 export interface ResolveArgs {
@@ -347,6 +350,7 @@ export class CodexRolloutResolver {
       const hit = { path: candidates[0]!.path, rolloutId: candidates[0]!.rolloutId };
       this.cache.set(args.trackingId, hit);
       this.backoff.delete(args.trackingId);
+      this.deps.onResolved?.(args.trackingId, hit.rolloutId); // persist once (guarded downstream)
       return hit;
     }
     if (candidates.length >= 2) {
@@ -385,11 +389,16 @@ export function listRolloutMetas(home = codexHome()): RolloutMeta[] {
   return out;
 }
 
-/** Build a resolver wired to the real filesystem + a warning logger. One per service. */
-export function createCodexRolloutResolver(home = codexHome()): CodexRolloutResolver {
+/** Build a resolver wired to the real filesystem + a warning logger. One per service. `onResolved`
+ *  persists the proven rollout id (default: no-op, for callers that don't have a store). */
+export function createCodexRolloutResolver(
+  onResolved?: (trackingId: string, rolloutId: string) => void,
+  home = codexHome(),
+): CodexRolloutResolver {
   return new CodexRolloutResolver({
     listMetas: () => listRolloutMetas(home),
     now: () => Date.now(),
     warn: (m) => console.warn(`[codex-activity] ${m}`),
+    onResolved,
   });
 }

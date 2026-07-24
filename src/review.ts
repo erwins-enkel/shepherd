@@ -224,6 +224,7 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "addSignal"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
     | "putSpawnNotice"
     | "getSpawnNotice"
@@ -369,7 +370,11 @@ export class ReviewService {
     this.readVerdict = deps.readVerdict ?? defaultReadVerdict;
     this.computePatchId = deps.computePatchId ?? defaultComputePatchId;
     this.collectBaseDelta = deps.collectBaseDelta ?? defaultCollectBaseDelta;
-    this.codexResolver = deps.codexResolver ?? createCodexRolloutResolver();
+    this.codexResolver =
+      deps.codexResolver ??
+      createCodexRolloutResolver((id, rid) =>
+        deps.store.setReviewerSpawnProviderSessionId(id, rid),
+      );
     this.readActivity =
       deps.readActivity ??
       ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));

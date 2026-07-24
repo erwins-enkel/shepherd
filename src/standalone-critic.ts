@@ -405,14 +405,14 @@ export class StandalonePrCriticService {
       priorReviewedPatchIds: string[];
     },
   ): Promise<void> {
-    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
+    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    if (apiKeyFailClosed(env.provider)) {
       this.log(
         `[pr-critic] ${repoPath}#${pr.number} api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)`,
       );
       this.deps.worktree.remove(worktreePath);
       return;
     }
-    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     const { argv, sessionId: criticSessionId } = buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,
@@ -430,7 +430,7 @@ export class StandalonePrCriticService {
       descriptor: {
         sessionId: criticSessionId,
         kind: "review",
-        model: this.deps.env?.().model ?? null,
+        model: env.model,
       },
     });
     if ("aborted" in aux) {
@@ -478,7 +478,9 @@ export class StandalonePrCriticService {
       taskSessionId: `pr:${repoPath}#${pr.number}`,
       kind: "review",
       worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider: env.provider,
+      model: env.model,
+      reviewerEffort: env.effort ?? null,
       spawnedAt: this.now(),
     });
   }

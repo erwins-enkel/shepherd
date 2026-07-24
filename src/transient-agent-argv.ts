@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { apiKeySettingsFragment } from "./spawn-auth";
 import { codexRoleArgv } from "./codex-role-argv";
 import { effortForSpawn } from "./default-effort";
+import { codexReviewerCorrelationMarker } from "./codex-session-id";
 import type { AgentProvider } from "./types";
 
 /**
@@ -147,10 +148,14 @@ export function buildTransientAgentArgv(
   // Codex CLI path: a headless, workspace-write-sandboxed `codex exec` runs the same prompt (which
   // writes the kind's result/verdict file). None of the Claude-only flags (--settings, --safe-mode,
   // --allowedTools) have a Codex equivalent; the sandbox shape is enforced by
-  // `--sandbox workspace-write`. sessionId is returned for shape but unused (no Claude transcript).
+  // `--sandbox workspace-write`. The returned sessionId also correlates the rollout to its spawn.
   if (opts.provider === "codex")
     return {
-      argv: codexRoleArgv(opts.model, sanitizePromptArg(opts.prompt), opts.effort ?? null),
+      argv: codexRoleArgv(
+        opts.model,
+        `${codexReviewerCorrelationMarker(sessionId)}\n${sanitizePromptArg(opts.prompt)}`,
+        opts.effort ?? null,
+      ),
       sessionId,
     };
 

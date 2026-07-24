@@ -3123,5 +3123,7 @@
   "feat_build_queue_progress_toggle_title": "Open the build queue from progress",
   "feat_build_queue_progress_toggle_body": "Click a session's progress badge to select it and open its build queue above the terminal. Click the selected session's badge again to collapse or expand the queue.",
   "feat_usage_role_model_breakdown_title": "See Claude usage by role and model",
-  "feat_usage_role_model_breakdown_body": "Expand Coding, Review, Plan gate, and other Claude roles in Usage → Models to see which model consumed their tokens and what share it represents."
+  "feat_usage_role_model_breakdown_body": "Expand Coding, Review, Plan gate, and other Claude roles in Usage → Models to see which model consumed their tokens and what share it represents.",
+  "feat_codex_role_usage_title": "See Codex usage by role",
+  "feat_codex_role_usage_body": "Expand Coding, Review, Plan gate, and other Codex roles in Usage → Models to see where each model's tokens went."
 }

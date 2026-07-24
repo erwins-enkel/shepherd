@@ -897,7 +897,7 @@ export class RecapService {
       // Best-effort usage capture.
       try {
         const u = await this._readUsage(r.cwd, r.spawnSessionId);
-        if (u) this.deps.store.completeReviewerSpawn(r.spawnSessionId, u, t);
+        this.deps.store.completeReviewerSpawn(r.spawnSessionId, u, t);
       } catch (err) {
         console.warn(`[recap] usage capture failed for ${r.sessionId}:`, err);
       }

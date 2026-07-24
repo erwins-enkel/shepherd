@@ -34,6 +34,10 @@ function stripFenceNonce(s: string): string {
   return s.replace(/⟦(\/?)UNTRUSTED:([^:⟧]+):[^⟧]*⟧/g, "⟦$1UNTRUSTED:$2⟧");
 }
 
+function stripReviewerCorrelationMarker(s: string): string {
+  return s.replace(/^\[SHEPHERD_REVIEWER_SPAWN_ID:[^\]]+\]\n/, "");
+}
+
 function makeDeps(over: Partial<import("../src/namer-llm").LlmNamerDeps> = {}) {
   const calls: any = { started: null, stopped: false, cleaned: false };
   const base = {
@@ -110,7 +114,9 @@ test("llmName: codex provider spawns headless `codex exec` (no claude flags)", a
     readName: () => "mobile footer",
   });
   await llmName("the mobile footer needs settings", deps, "l");
-  expect(calls.started.argv.map(stripFenceNonce)).toEqual(
+  expect(
+    calls.started.argv.map((arg: string) => stripFenceNonce(stripReviewerCorrelationMarker(arg))),
+  ).toEqual(
     [
       "codex",
       "exec",

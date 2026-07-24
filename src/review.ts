@@ -340,7 +340,8 @@ export class ReviewService {
     // Fail closed: api-key mode without a configured key must NOT bill the subscription.
     // Checked AFTER the worktree allocation + the post-await re-check so the worktree cleanup
     // here has wt.worktreePath — but BEFORE membrane/backend construction so we skip that work.
-    if (apiKeyFailClosed(this.deps.env?.().provider ?? "claude")) {
+    const reviewerEnv = this.deps.env?.() ?? { provider: "claude" as const, model: null };
+    if (apiKeyFailClosed(reviewerEnv.provider)) {
       console.warn(
         "[review] api-key mode enabled but no API key configured — skipping (fail closed, not billing subscription)",
       );
@@ -353,6 +354,7 @@ export class ReviewService {
       prior?.findings ?? [],
       authorNotes,
       issueBody,
+      reviewerEnv,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -367,7 +369,7 @@ export class ReviewService {
         sessionId: criticSessionId,
         kind: "review",
         parentSessionId: session.id,
-        model: this.deps.env?.().model ?? null,
+        model: reviewerEnv.model,
       },
     });
     if ("aborted" in aux) {
@@ -418,7 +420,9 @@ export class ReviewService {
       taskSessionId: session.id,
       kind: "review",
       worktreePath: wt.worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider: reviewerEnv.provider,
+      model: reviewerEnv.model,
+      reviewerEffort: reviewerEnv.effort ?? null,
       spawnedAt: this.now(),
     });
     this.deps.onReviewing?.(session.id, true);
@@ -572,13 +576,13 @@ export class ReviewService {
     priorFindings: string[],
     authorNotes: string[],
     issueBody: string | null,
+    env: RoleEnvironment,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
     // identical fresh base the fingerprint used (no stale-local-main fold-in). `issueBody` is the
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context.
-    const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     return buildTransientAgentArgv("reviewer", {
       provider: env.provider,
       model: env.model,

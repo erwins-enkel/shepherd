@@ -416,6 +416,29 @@ test("completes the spawn's token total on finalize (issue #502)", async () => {
   expect(completedSpawns[0]!.id).toBe(recordedSpawns[0]!.reviewerSessionId);
 });
 
+test("Codex review records its resolved provider and completes without Claude usage", async () => {
+  const env = { provider: "codex" as const, model: "gpt-5.6", effort: "high" };
+  const {
+    deps: d,
+    recordedSpawns,
+    completedSpawns,
+  } = makeDeps({
+    env: () => env,
+    readUsage: async () => null,
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+
+  expect(recordedSpawns[0]).toMatchObject({
+    reviewerProvider: "codex",
+    model: "gpt-5.6",
+    reviewerEffort: "high",
+  });
+  expect(completedSpawns).toHaveLength(1);
+  expect(completedSpawns[0]!.u).toBeNull();
+});
+
 test("onReviewing fires true on spawn and false on finalize", async () => {
   const events: { id: string; reviewing: boolean }[] = [];
   const { deps: d } = makeDeps({

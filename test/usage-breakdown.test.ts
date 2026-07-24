@@ -125,6 +125,8 @@ function seedRoleSpawn(
     output?: number;
     cacheRead?: number;
     cacheWrite?: number;
+    providerThreadId?: string | null;
+    totalTokens?: number | null;
   },
 ): void {
   const input = r.input ?? 0;
@@ -136,8 +138,8 @@ function seedRoleSpawn(
     `INSERT INTO reviewer_spawns
        (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model,
         spawnedAt, completedAt, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
-        totalTokens)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        totalTokens, providerThreadId)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [
       r.id,
       "task-a",
@@ -151,7 +153,8 @@ function seedRoleSpawn(
       output,
       cacheRead,
       cacheWrite,
-      input + output + cacheRead + cacheWrite,
+      r.totalTokens === undefined ? input + output + cacheRead + cacheWrite : r.totalTokens,
+      r.providerThreadId ?? null,
     ],
   );
 }
@@ -308,6 +311,102 @@ test("legacy null-provider Claude classifier is anchored and range-filtered", as
     recap: Object.fromEntries(accepted.map((model) => [model, 1])),
   });
   expect(bd.models.claude.totalTokens).toBe(accepted.length);
+});
+
+test("Codex roles reconcile to authoritative per-model totals with legacy usage in coding", async () => {
+  const store = new SessionStore(":memory:");
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-review",
+    totalTokens: 200,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-plan",
+    totalTokens: 100,
+  });
+  seedRoleSpawn(store, {
+    id: "legacy",
+    kind: "recap",
+    provider: "codex",
+    model: "gpt-5.6",
+    totalTokens: 999,
+  });
+  seedRoleSpawn(store, {
+    id: "old",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-old",
+    completedAt: NOW - 2 * H24,
+    totalTokens: 500,
+  });
+  seedRoleSpawn(store, {
+    id: "unfinished",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-unfinished",
+    completedAt: null,
+    totalTokens: 500,
+  });
+
+  const bd = await buildUsageBreakdown({
+    store,
+    range: "24h",
+    now: NOW,
+    apiKey: false,
+    codexModelUsage: () => ({ "gpt-5.6": 1_000, unknown: 300 }),
+  });
+
+  expect(bd.models.codex).toEqual({
+    totalTokens: 1_300,
+    byModel: { "gpt-5.6": 1_000, unknown: 300 },
+    byRole: {
+      review: { "gpt-5.6": 200 },
+      plan_gate: { "gpt-5.6": 100 },
+      coding: { "gpt-5.6": 700, unknown: 300 },
+    },
+  });
+});
+
+test("Codex role attribution is capped by each authoritative model budget", async () => {
+  const store = new SessionStore(":memory:");
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-review",
+    totalTokens: 200,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "codex",
+    model: "gpt-5.6",
+    providerThreadId: "thread-plan",
+    totalTokens: 200,
+  });
+
+  const bd = await buildUsageBreakdown({
+    store,
+    range: "all",
+    now: NOW,
+    apiKey: false,
+    codexModelUsage: () => ({ "gpt-5.6": 250 }),
+  });
+
+  expect(bd.models.codex.byRole).toEqual({
+    review: { "gpt-5.6": 200 },
+    plan_gate: { "gpt-5.6": 50 },
+  });
 });
 
 test("repo→task grouping, sorting, field mapping", async () => {

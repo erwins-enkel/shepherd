@@ -85,19 +85,24 @@ details are in the
 
 ## Host tuning — tmpfs inodes
 
-Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs
-an inode-guard sweep on **startup + daily** that, once `/tmp` inode use crosses a
-threshold, drops the compile cache and stale regenerable tool caches (but never a
-live session's scratch). As a host-level belt on long-uptime hosts, raise `/tmp`'s
-`nr_inodes` in `/etc/fstab`:
+Shepherd points spawned **trusted** agents at a disk-backed `TMPDIR`
+(`~/.cache/shepherd/tmp`, override `SHEPHERD_AGENT_TMPDIR`) so their scratch tree,
+temp worktrees and dependency installs never touch the `/tmp` tmpfs in the first
+place — sandboxed spawns already get the membrane's own ephemeral `/tmp`. It keeps
+agents' Node compile cache off the tmpfs too, and runs an inode-guard sweep on
+**startup + daily** that, once `/tmp` inode use crosses a threshold, drops the
+compile cache and stale regenerable tool caches (but never a live session's
+scratch). As a host-level belt on long-uptime hosts, raise `/tmp`'s `nr_inodes` in
+`/etc/fstab`:
 
 ```text
 tmpfs /tmp tmpfs nr_inodes=4194304 0 0
 ```
 
-The relevant override env vars (`SHEPHERD_NODE_COMPILE_CACHE`,
-`SHEPHERD_TMP_INODE_PCT`, `SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are
-listed in [Configuration](/reference/configuration/).
+The relevant override env vars (`SHEPHERD_AGENT_TMPDIR`,
+`SHEPHERD_NODE_COMPILE_CACHE`, `SHEPHERD_TMP_INODE_PCT`,
+`SHEPHERD_TMP_STALE_HOURS`, `SHEPHERD_TMP_SWEEP_DIR`) are listed in
+[Configuration](/reference/configuration/).
 
 The **Temp filesystem inodes** row in Settings → Diagnose surfaces this live: it warns
 at `SHEPHERD_TMP_INODE_PCT` (the same threshold that gates the sweep) and errors at 95% by

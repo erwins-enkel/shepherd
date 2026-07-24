@@ -158,4 +158,32 @@ describe("ModelsLens", () => {
     expect(modelRow.textContent).toContain("100.0%");
     expect(modelRow.textContent).toContain(formatTokenLabel(100));
   });
+
+  it("expands Codex roles in canonical order and hides the unavailable badge", () => {
+    render(ModelsLens, {
+      models: {
+        claude: { totalTokens: 0, byModel: {}, byRole: {} },
+        codex: {
+          totalTokens: 1000,
+          byModel: { "gpt-5.6": 750, "gpt-5.5": 250 },
+          byRole: {
+            coding: { "gpt-5.6": 600 },
+            review: { "gpt-5.6": 150 },
+            plan_gate: { "gpt-5.5": 250 },
+          },
+        },
+      },
+    });
+
+    const codex = document.querySelector<HTMLElement>('[data-provider="codex"]')!;
+    expect(codex.querySelector(".role-unavailable")).toBeNull();
+    const roles = codex.querySelectorAll<HTMLDetailsElement>(".role-detail");
+    expect([...roles].map((role) => role.dataset.role)).toEqual(["coding", "review", "plan_gate"]);
+    expect(roles[0]!.querySelector("summary")?.textContent).toContain("60.0%");
+    expect(roles[1]!.querySelector("summary")?.textContent).toContain("15.0%");
+    expect(roles[2]!.querySelector("summary")?.textContent).toContain("25.0%");
+    roles[2]!.querySelector<HTMLElement>("summary")!.click();
+    expect(roles[2]!.textContent).toContain("GPT-5.5");
+    expect(roles[2]!.textContent).toContain("100.0%");
+  });
 });

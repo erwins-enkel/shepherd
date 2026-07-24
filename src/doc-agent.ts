@@ -725,7 +725,7 @@ export class DocAgentService {
       this.deps.worktree.remove(wt.worktreePath);
       return { ok: false, result: { status: "error", reason: "spawn failed" } };
     }
-    const { terminalId, spawnSessionId } = spawned;
+    const { terminalId, spawnSessionId, reviewerProvider, model, reviewerEffort } = spawned;
     const startedAt = this.now();
     this.inflight.set(repoPath, {
       repoPath,
@@ -748,7 +748,9 @@ export class DocAgentService {
       taskSessionId: repoPath,
       kind: "doc_agent",
       worktreePath: wt.worktreePath,
-      model: this.deps.env?.().model ?? null,
+      reviewerProvider,
+      model,
+      reviewerEffort,
       spawnedAt: startedAt,
     });
     return { ok: true };
@@ -822,7 +824,18 @@ export class DocAgentService {
     agentName: string,
     base: string,
     promptCtx?: RetargetPromptCtx,
-  ): Promise<{ terminalId: string; spawnSessionId: string } | null | "aborted" | "refused"> {
+  ): Promise<
+    | {
+        terminalId: string;
+        spawnSessionId: string;
+        reviewerProvider: RoleEnvironment["provider"];
+        model: string | null;
+        reviewerEffort: string | null;
+      }
+    | null
+    | "aborted"
+    | "refused"
+  > {
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
     const { argv, sessionId } = buildTransientAgentArgv("doc", {
       provider: env.provider,
@@ -842,7 +855,7 @@ export class DocAgentService {
       descriptor: {
         sessionId,
         kind: "doc",
-        model: this.deps.env?.().model ?? null,
+        model: env.model,
       },
     });
     if ("refused" in aux) {
@@ -860,7 +873,13 @@ export class DocAgentService {
       const terminalId = (
         await this.deps.herdr.start(agentName, worktreePath, aux.wrapped, aux.spawnEnv)
       ).terminalId;
-      return { terminalId, spawnSessionId: sessionId };
+      return {
+        terminalId,
+        spawnSessionId: sessionId,
+        reviewerProvider: env.provider,
+        model: env.model,
+        reviewerEffort: env.effort ?? null,
+      };
     } catch (err) {
       if (err instanceof HerdrUnavailableError) {
         console.warn(`[doc-agent] herdr unavailable for ${repoPath}:`, err);

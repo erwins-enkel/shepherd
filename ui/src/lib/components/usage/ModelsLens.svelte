@@ -140,7 +140,7 @@
           <span
             >{m.usage_models_total({ tokens: formatTokenLabel(provider.data.totalTokens) })}</span
           >
-          {#if provider.id === "codex"}
+          {#if provider.id === "codex" && roleRows.length === 0}
             <span class="role-unavailable">{m.usage_models_codex_roles_unavailable()}</span>
           {/if}
         </div>
@@ -175,7 +175,7 @@
         <p class="empty">{m.usage_models_empty()}</p>
       {/if}
 
-      {#if provider.id === "claude" && roleRows.length > 0}
+      {#if roleRows.length > 0}
         <div class="role-breakdown">
           <h3>{m.usage_models_by_role()}</h3>
           {#each roleRows as role (role.id)}

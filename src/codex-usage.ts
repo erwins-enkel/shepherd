@@ -240,6 +240,42 @@ export function readCodexModelUsage(dbPath: string | null, cutoff: number): Reco
   }
 }
 
+/** Read the authoritative token total for one provider-native Codex thread. */
+export function readCodexThreadUsage(
+  dbPath: string | null,
+  threadId: string,
+): { model: string; totalTokens: number } | null {
+  if (!dbPath || !existsSync(dbPath)) return null;
+  let db: Database | null = null;
+  try {
+    db = new Database(dbPath, { readonly: true });
+    const columns = db.query(`PRAGMA table_info(threads)`).all() as { name: string }[];
+    const hasModel = columns.some((column) => column.name === "model");
+    if (hasModel) {
+      const row = db
+        .query<{ model: string; totalTokens: number }, [string]>(
+          `SELECT COALESCE(NULLIF(model, ''), 'unknown') AS model, tokens_used AS totalTokens
+           FROM threads
+           WHERE id = ? AND model_provider = 'openai'`,
+        )
+        .get(threadId);
+      return row ? { model: row.model, totalTokens: row.totalTokens } : null;
+    }
+    const row = db
+      .query<{ totalTokens: number }, [string]>(
+        `SELECT tokens_used AS totalTokens
+         FROM threads
+         WHERE id = ? AND model_provider = 'openai'`,
+      )
+      .get(threadId);
+    return row ? { model: "unknown", totalTokens: row.totalTokens } : null;
+  } catch {
+    return null;
+  } finally {
+    db?.close();
+  }
+}
+
 /** One rollout's `rate_limits.primary`/`.secondary` shape (Codex CLI session log). */
 interface RolloutLimitWindow {
   used_percent?: number;

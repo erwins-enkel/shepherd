@@ -4250,7 +4250,7 @@ test("archiveMany forces a probe refresh per detect, not once per batch (#1912)"
         refreshCalls.push(opts ?? {});
       },
       // "fresh" so archive() skips its own conditional refresh (archiveMany just ran one).
-      health: () => ({ state: "fresh" as const }),
+      health: () => ({ state: "fresh" as const, driven: true }),
     },
   });
   const mk = (name: string, term: string) =>

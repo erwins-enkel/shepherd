@@ -182,7 +182,7 @@ export interface DiagnosticsDeps {
    *  standalone probe alone would report `ok` on a host whose cell is frozen by
    *  refresh timeouts; this second input catches that. Default `() => "fresh"`
    *  (linux/unwired); wired in `index.ts` to the shared `reaper.health().state`. */
-  probeHealth?: () => "none" | "stale" | "fresh";
+  probeHealth?: () => { state: "none" | "stale" | "fresh"; driven: boolean };
 }
 
 /** A single probe: an async fn returning ONLY `{ id, state, hintKey }`. */
@@ -499,6 +499,9 @@ function isDangerousPressure(f: HostCapacityFacts): boolean {
 export function classifyPreviewProbes(
   probe: "ok" | "unavailable" | "unsupported",
   cell: "none" | "stale" | "fresh",
+  /** False when nothing has asked the backend for a refresh recently — an idle
+   *  host, where the cell ages out by design rather than by fault. */
+  driven = true,
 ): DiagnosticCheck {
   const id = "preview_probes";
   if (probe === "unsupported") {
@@ -508,6 +511,17 @@ export function classifyPreviewProbes(
     return { id, state: "warning", hintKey: "diagnostics_hint_preview_probes_unavailable" };
   }
   if (cell !== "fresh") {
+    // The backend itself answered fine (`probe === "ok"`), so a non-fresh cell is
+    // only a fault if something was ACTUALLY driving refreshes. The poller refreshes
+    // only while some session has a worktree, so an idle host — including a healthy
+    // brand-new install — has an aged cell by design. Reporting `warning` there
+    // would pin the health pip yellow forever and claim an inspection "didn't
+    // complete in time" when none was attempted. `optional` matches the
+    // uninspectable convention `host_capacity`/`tmp_inodes` already use: surfaced,
+    // but never degrading the overall state.
+    if (!driven) {
+      return { id, state: "optional", hintKey: "diagnostics_hint_preview_probes_idle" };
+    }
     return { id, state: "warning", hintKey: "diagnostics_hint_preview_probes_stale" };
   }
   return { id, state: "ok", hintKey: "diagnostics_hint_preview_probes_ok" };
@@ -837,11 +851,11 @@ async function defaultRunTmpSweep(): Promise<void> {
  *  unwired reaper; the real live-cell read is wired in `index.ts`. */
 function resolvePreviewProbeDeps(deps: DiagnosticsDeps): {
   runPreviewProbe: () => Promise<"ok" | "unavailable" | "unsupported">;
-  probeHealth: () => "none" | "stale" | "fresh";
+  probeHealth: () => { state: "none" | "stale" | "fresh"; driven: boolean };
 } {
   return {
     runPreviewProbe: deps.runPreviewProbe ?? (() => defaultRunPreviewProbe()),
-    probeHealth: deps.probeHealth ?? (() => "fresh"),
+    probeHealth: deps.probeHealth ?? (() => ({ state: "fresh", driven: true })),
   };
 }
 
@@ -929,7 +943,7 @@ export class DiagnosticsService {
     limits: { memoryHigh: string; cpuQuota: string },
   ) => Promise<void>;
   private runPreviewProbe: () => Promise<"ok" | "unavailable" | "unsupported">;
-  private probeHealth: () => "none" | "stale" | "fresh";
+  private probeHealth: () => { state: "none" | "stale" | "fresh"; driven: boolean };
   private last: DiagnosticsSnapshot | null = null;
   private lastAt = 0;
 
@@ -1282,7 +1296,10 @@ export class DiagnosticsService {
    *  health (`probeHealth` is a pure read, so this adds no sync spawn). A probe
    *  reject resolves to the probe's `onTimeout` (optional/uninspectable). */
   private previewProbesProbe = async (): Promise<DiagnosticCheck> =>
-    classifyPreviewProbes(await this.runPreviewProbe(), this.probeHealth());
+    (async () => {
+      const [probe, health] = [await this.runPreviewProbe(), this.probeHealth()];
+      return classifyPreviewProbes(probe, health.state, health.driven);
+    })();
 
   /** herdr_health (#1835): classify the reconciled herdr-fleet facts. Any read failure (herdr
    *  unreachable, or the fail-safe reject when unwired) resolves to the probe's `onTimeout`

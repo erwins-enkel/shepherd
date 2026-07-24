@@ -2723,7 +2723,7 @@ const diagnostics = new DiagnosticsService({
   // Live snapshot-cell health for `preview_probes` — the SHARED reaper, so the
   // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
   // would carry an always-cold cell). Pure read, no spawn.
-  probeHealth: () => reaper.health().state,
+  probeHealth: () => reaper.health(),
   anyForgeRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>

@@ -169,10 +169,50 @@ function parseListenPort(name: string): number | null {
   return Number.isInteger(port) && port > 0 && port <= 65535 ? port : null;
 }
 
-/** Async runner for the `lsof` spawn. Resolves stdout even on a non-zero exit that
- *  still produced output (lsof exits 1 when a search term matches nothing); rejects
- *  only on a spawn error or the hard timeout. Injectable so tests never spawn. */
+/** Async runner for the `lsof` spawn. Resolves stdout on a clean run OR a plain
+ *  non-zero exit that still printed output (lsof exits 1 when a search term matches
+ *  nothing); rejects on a spawn error, the hard timeout, and any other run whose
+ *  output may be TRUNCATED. Injectable so tests never spawn. */
 export type LsofRunner = () => Promise<string>;
+
+/** An `execFile` callback error. `code` is deliberately `string | number`: Node sets
+ *  the numeric EXIT STATUS for a plain non-zero exit (lsof's 1 on no match) and a
+ *  string identifier for a runtime failure (`ENOENT`,
+ *  `ERR_CHILD_PROCESS_STDIO_MAXBUFFER`) — `NodeJS.ErrnoException` models only the
+ *  latter, which would mistype the very case we must let through. */
+type ExecErr = Error & { code?: string | number; killed?: boolean; signal?: string };
+
+/**
+ * Decide whether one `lsof` run's output may be trusted as COMPLETE.
+ *
+ * This is the single point that defines "success" for the snapshot cell, so it is
+ * the load-bearing guard against a partial process list being stamped authoritative.
+ * A run the kernel cut short — the 3s `timeout` (Node sets `killed`/`signal`) or a
+ * `maxBuffer` overflow — has *missing processes*, and every missing process becomes
+ * a FALSE NEGATIVE downstream: `scanClaudeAliveByWorktree` reports a live agent as
+ * `alive=false` (→ husk/stranded → auto-revive), `scanListeningPortsByWorktree`
+ * returns an empty port set (→ `converge` tears down a bound preview), and
+ * `liveProcCwds` under-reports into a FAIL-OPEN guard. Truncated output must
+ * therefore be rejected so the cell keeps its last good snapshot and ages honestly
+ * into `"stale"` — never silently narrowed.
+ *
+ * A plain non-zero exit is different: lsof reports status 1 when a search term
+ * matched nothing, having printed everything it found. That output is complete.
+ */
+export function lsofOutcome(
+  err: ExecErr | null,
+  stdout: string,
+): { ok: true; stdout: string } | { ok: false; reason: "truncated" | "failed" } {
+  if (!err) return { ok: true, stdout };
+  const cutShort =
+    err.killed === true ||
+    (typeof err.signal === "string" && err.signal.length > 0) ||
+    err.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER";
+  if (cutShort) return { ok: false, reason: "truncated" };
+  // Plain non-zero exit that still printed: complete output, normal for lsof.
+  if (stdout.length > 0) return { ok: true, stdout };
+  return { ok: false, reason: "failed" };
+}
 
 const defaultRunner: LsofRunner = () =>
   new Promise<string>((resolve, reject) => {
@@ -181,10 +221,9 @@ const defaultRunner: LsofRunner = () =>
       [...LSOF_ARGV],
       { timeout: REFRESH_TIMEOUT_MS, killSignal: "SIGKILL", maxBuffer: 16 * 1024 * 1024 },
       (err, stdout) => {
-        // A non-zero exit WITH stdout is a normal lsof outcome, not a failure.
-        if (stdout && stdout.length > 0) return resolve(stdout);
-        if (err) return reject(err);
-        resolve(stdout ?? "");
+        const outcome = lsofOutcome(err as ExecErr | null, stdout ?? "");
+        if (outcome.ok) return resolve(outcome.stdout);
+        reject(err ?? new Error(`lsof run ${outcome.reason}`));
       },
     );
   });
@@ -224,8 +263,6 @@ function refreshTtlMs(): number {
   return Math.max(250, Math.floor(config.previewSweepMs / 2));
 }
 
-let warnedClampOnce = false;
-
 /** The darwin backend always supplies the snapshot-cell members, so callers (and
  *  tests) can use them without optional-chaining, unlike the base interface where
  *  they are optional for the Linux/live-`/proc` backends. */
@@ -254,18 +291,29 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
   let forcedInFlight: Promise<void> | null = null;
   let lastFailWarnAt = -Infinity;
 
-  if (!warnedClampOnce && !(refreshTtlMs() < maxNegativeAgeMs())) {
-    warnedClampOnce = true;
-    console.warn(
-      `[proc-probes-darwin] refreshTtlMs (${refreshTtlMs()}ms) is not below ` +
-        `maxNegativeAgeMs (${maxNegativeAgeMs()}ms) — snapshots may be reused across ` +
-        `sweeps; lower SHEPHERD_PREVIEW_SWEEP_MS is set unusually high.`,
-    );
-  }
+  // (No bound-ordering warn: `refreshTtlMs` = max(250, sweepMs/2) is strictly below
+  // `maxNegativeAgeMs` = 2*sweepMs + 4000 for every non-negative sweepMs, so the
+  // check could never fire.)
 
   function snapshotState(): "none" | "stale" | "fresh" {
     if (cell.procs === null || cell.successAt === null) return "none";
     return now() - cell.successAt > maxNegativeAgeMs() ? "stale" : "fresh";
+  }
+
+  /**
+   * Is anything currently DRIVING refreshes? False when no attempt has been made
+   * within the negative-verdict bound.
+   *
+   * This distinguishes two very different reasons the cell isn't fresh. The poller
+   * only refreshes when some session has a worktree, so on an idle host (no
+   * sessions — including a brand-new install) nothing drives the cell and it ages
+   * out *by design*; that is not a fault and must not raise an alarm. A cell that
+   * is stale while attempts ARE being made is the genuine degradation. Consumed by
+   * the Diagnose row so an idle host reports `optional` rather than a permanent
+   * yellow pip claiming an inspection "didn't complete in time" when none ran.
+   */
+  function refreshAttemptedRecently(): boolean {
+    return now() - cell.attemptAt <= maxNegativeAgeMs();
   }
 
   /** Run one refresh cycle: spawn `lsof`, parse, write the cell on success. A
@@ -402,6 +450,7 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
     },
     canAuthorizeSignal: false,
     snapshotState,
+    refreshAttemptedRecently,
     refresh(o) {
       return o?.force ? forcedRefresh() : coalescedRefresh();
     },

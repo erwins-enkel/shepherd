@@ -3371,6 +3371,7 @@
   "diagnostics_hint_preview_probes_ok": "Shepherd can detect the dev servers your agents start, so live previews work.",
   "diagnostics_hint_preview_probes_unavailable": "Shepherd can't inspect running processes on this host, so it can't detect the dev servers your agents start — live previews won't appear.",
   "diagnostics_hint_preview_probes_stale": "Shepherd's view of running processes is out of date on this host (the last inspection didn't complete in time), so live previews may be delayed or missing.",
+  "diagnostics_hint_preview_probes_idle": "Preview detection works, but nothing is exercising it right now — with no active session in a worktree, Shepherd doesn't keep its view of running processes up to date. It refreshes as soon as a session starts.",
   "diagnostics_hint_preview_probes_unsupported": "Live preview detection isn't supported on this operating system, so previews won't appear.",
   "diagnostics_hint_preview_probes_uninspectable": "Shepherd couldn't verify whether process detection works on this host.",
   "gloss_inode_term": "inode",

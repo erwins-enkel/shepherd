@@ -409,6 +409,7 @@
   "settings_use_folder": "Diesen Ordner verwenden",
   "settings_tabs_aria": "Einstellungsbereiche",
   "settings_tab_workspace": "Arbeitsbereich",
+  "settings_tab_steers": "Steers",
   "settings_tab_session": "Sitzung",
   "settings_tab_device": "Gerät",
   "todopanel_title": "TO-DO · TODO.md",
@@ -3397,5 +3398,7 @@
   "feat_settings_redesign_title": "Einstellungen, neu gestaltet",
   "feat_settings_redesign_body": "Die Einstellungen öffnen sich jetzt als Cockpit: Sektionsleiste links (am Telefon eine Vollbild-Liste mit Detailseiten), ausgerichtete Einstellungszeilen und ein Suchfeld — mit / erreichbar —, das Sektionen filtert und Treffer hervorhebt. Änderungen gelten weiterhin sofort.",
   "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
-  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten."
+  "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten.",
+  "feat_steers_settings_section_title": "Steers bekommen einen eigenen Einstellungsbereich",
+  "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten."
 }

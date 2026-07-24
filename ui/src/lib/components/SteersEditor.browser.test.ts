@@ -75,3 +75,13 @@ describe("SteersEditor focusSteerId", () => {
     expect(editing.length).toBe(0);
   });
 });
+
+describe("SteersEditor settings search", () => {
+  it("highlights a matching substring in its settings chrome", async () => {
+    render(SteersEditor, { query: "saved" });
+    await tick();
+
+    const mark = document.querySelector(".editor mark");
+    expect(mark?.textContent.toLowerCase()).toBe("saved");
+  });
+});

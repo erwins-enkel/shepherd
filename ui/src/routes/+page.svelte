@@ -146,6 +146,7 @@
   // Side-effect-free (no top-level DOM/timer work) — tree-shakes out of non-demo
   // builds along with every other __DEMO__-guarded reference below.
   import { commandBarShowcase } from "$lib/demo/showcase";
+  import { steersSettingsOpen } from "./steers-settings-open";
 
   const store = new HerdStore();
 
@@ -778,10 +779,11 @@
   // right-click → "Edit") expands + focuses that row; omitted for the plain pencil.
   // Defined here, not inline, so the nullish branch stays out of the route template.
   function openSteersEditor(id?: string) {
-    settingsTab = "session";
-    focusSteerId = id ?? null;
-    settingsDeepLink = true;
-    showSettings = true;
+    const target = steersSettingsOpen(id);
+    settingsTab = target.settingsTab;
+    focusSteerId = target.focusSteerId;
+    settingsDeepLink = target.settingsMobileView === "detail";
+    showSettings = target.showSettings;
   }
 
   function loadSettings() {

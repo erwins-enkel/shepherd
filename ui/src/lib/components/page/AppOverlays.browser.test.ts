@@ -1,15 +1,24 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
 import type { HerdStore } from "$lib/store.svelte";
-import type { AgentProvider, DiagnosticsSnapshot, HerdrUpdateStatus } from "$lib/types";
+import type { AgentProvider, DiagnosticsSnapshot, HerdrUpdateStatus, Steer } from "$lib/types";
+import { steers } from "$lib/steers.svelte";
+import { repos } from "$lib/repos.svelte";
+import { steersSettingsOpen } from "../../../routes/steers-settings-open";
+import { m } from "$lib/paraglide/messages";
 
 // The redesigned NewTask is responsive (rail vs. mobile sheet); vitest-browser's
 // default viewport is mobile-width, so pin desktop for these desktop-DOM suites.
 beforeEach(async () => {
   await page.viewport(1280, 900);
+});
+afterEach(() => {
+  steers.list = [];
+  steers.loaded = false;
+  repos.loaded = false;
 });
 
 // NewTask calls listRepos() on mount; stub it so the dialog mounts without a server.
@@ -146,6 +155,45 @@ function baseProps(): Props {
     onstarresolve: vi.fn(),
   };
 }
+
+const steer = (p: Partial<Steer>): Steer => ({
+  id: "b",
+  label: "Bravo",
+  text: "do bravo",
+  inSteerBar: true,
+  onIssues: false,
+  ...p,
+});
+
+const frames = (n = 2) =>
+  new Promise<void>((resolve) => {
+    let i = 0;
+    const step = () => (++i >= n ? resolve() : requestAnimationFrame(step));
+    requestAnimationFrame(step);
+  });
+
+describe("Settings deep links", () => {
+  it("forwards the Steers request into the mobile detail and focused editor row", async () => {
+    await page.viewport(360, 900);
+    steers.list = [steer({})];
+    steers.loaded = true;
+    repos.loaded = true;
+
+    render(AppOverlays, { ...baseProps(), ...steersSettingsOpen("b") });
+    await frames();
+
+    await expect
+      .element(page.getByRole("region", { name: m.settings_tab_steers() }))
+      .toBeInTheDocument();
+    await expect
+      .element(page.getByRole("button", { name: m.settings_tab_workspace(), exact: false }))
+      .not.toBeInTheDocument();
+
+    const row = document.querySelector<HTMLElement>('.srow[data-steer-id="b"]');
+    expect(row?.classList.contains("editing")).toBe(true);
+    expect(document.activeElement).toBe(row?.querySelector("textarea.text"));
+  });
+});
 
 function diagnostics(states: Record<AgentProvider, "ok" | "optional">): DiagnosticsSnapshot {
   return {

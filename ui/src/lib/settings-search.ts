@@ -3,6 +3,7 @@ import { m } from "$lib/paraglide/messages";
 export const SETTINGS_SECTION_IDS = [
   "workspace",
   "codingAgents",
+  "steers",
   "plugins",
   "session",
   "device",
@@ -14,6 +15,7 @@ export type SettingsSectionId = (typeof SETTINGS_SECTION_IDS)[number];
 export const SECTION_GLYPHS: Record<SettingsSectionId, string> = {
   workspace: "▦",
   codingAgents: "⌁",
+  steers: "⇥",
   plugins: "✦",
   session: "⌖",
   device: "◫",
@@ -209,6 +211,7 @@ export function sectionSearchRows(ctx: {
       ...cli.codex,
       ...cli.roles,
     ],
+    steers: [[m.settings_tab_steers()], [m.steerseditor_title(), m.steerseditor_hint()]],
     plugins: [[m.settings_tab_plugins()], [m.plugins_check_updates()]],
     session: [[m.settings_tab_session()], ...sessionRows(ctx.session ?? {})],
     device: [

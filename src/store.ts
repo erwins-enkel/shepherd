@@ -79,6 +79,10 @@ function safeJsonArray(raw: string | null | undefined): string[] {
   return Array.isArray(v) ? v.filter((s): s is string => typeof s === "string") : [];
 }
 
+const PERSISTED_GIT_KINDS = new Set<unknown>(["github", "gitea", "local"]);
+const PERSISTED_PR_STATES = new Set<unknown>(["none", "open", "merged", "closed"]);
+const PERSISTED_CHECK_STATES = new Set<unknown>(["none", "pending", "success", "failure"]);
+
 function parsePersistedGitState(raw: string): GitState | null {
   let value: unknown;
   try {
@@ -88,21 +92,9 @@ function parsePersistedGitState(raw: string): GitState | null {
   }
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const state = value as Record<string, unknown>;
-  if (state.kind !== "github" && state.kind !== "gitea" && state.kind !== "local") return null;
-  if (
-    state.state !== "none" &&
-    state.state !== "open" &&
-    state.state !== "merged" &&
-    state.state !== "closed"
-  )
-    return null;
-  if (
-    state.checks !== "none" &&
-    state.checks !== "pending" &&
-    state.checks !== "success" &&
-    state.checks !== "failure"
-  )
-    return null;
+  if (!PERSISTED_GIT_KINDS.has(state.kind)) return null;
+  if (!PERSISTED_PR_STATES.has(state.state)) return null;
+  if (!PERSISTED_CHECK_STATES.has(state.checks)) return null;
   if (typeof state.deployConfigured !== "boolean") return null;
   if (state.state === "none") {
     if (state.number !== undefined) return null;

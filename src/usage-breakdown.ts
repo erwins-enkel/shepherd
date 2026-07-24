@@ -303,6 +303,51 @@ function claudeUsageByRole(
   return byRole;
 }
 
+interface CodexRoleAllocation {
+  role: ReturnType<SessionStore["listReviewerSpawns"]>[number]["kind"];
+  model: string;
+  tokens: number;
+}
+
+function codexRoleAllocation(
+  sp: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+  cutoff: number,
+  remaining: Record<string, number>,
+): CodexRoleAllocation | null {
+  if (sp.reviewerProvider !== "codex" || !sp.providerThreadId) return null;
+  if (sp.completedAt == null || sp.completedAt < cutoff) return null;
+  if (sp.totalTokens == null || sp.totalTokens <= 0) return null;
+  const model = usableModel(sp.model);
+  if (!model) return null;
+  const tokens = Math.min(sp.totalTokens, remaining[model] ?? 0);
+  return tokens > 0 ? { role: sp.kind, model, tokens } : null;
+}
+
+/** Attribute captured Codex role spawns from the authoritative per-model thread totals. */
+function codexUsageByRole(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+  byModel: Record<string, number>,
+): UsageByRole {
+  const remaining = Object.fromEntries(
+    Object.entries(byModel).map(([model, tokens]) => [model, Math.max(0, tokens)]),
+  );
+  const byRole: UsageByRole = {};
+
+  for (const sp of spawns) {
+    const allocation = codexRoleAllocation(sp, cutoff, remaining);
+    if (!allocation) continue;
+    const role = byRole[allocation.role] ?? {};
+    role[allocation.model] = (role[allocation.model] ?? 0) + allocation.tokens;
+    byRole[allocation.role] = role;
+    remaining[allocation.model] = (remaining[allocation.model] ?? 0) - allocation.tokens;
+  }
+
+  const coding = Object.fromEntries(Object.entries(remaining).filter(([, tokens]) => tokens > 0));
+  if (Object.keys(coding).length > 0) byRole.coding = coding;
+  return byRole;
+}
+
 function foldModels(byRole: UsageByRole): Record<string, number> {
   const byModel: Record<string, number> = {};
   for (const models of Object.values(byRole)) {
@@ -531,6 +576,7 @@ export async function buildUsageBreakdown(opts: {
   const claudeByRole = claudeUsageByRole(taskMap, spawns, cutoff);
   const claudeByModel = foldModels(claudeByRole);
   const codexByModel = opts.codexModelUsage?.(cutoff) ?? {};
+  const codexByRole = codexUsageByRole(spawns, cutoff, codexByModel);
   const modelBreakdown = (byModel: Record<string, number>, byRole: UsageByRole = {}) => ({
     totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
     byModel,
@@ -545,7 +591,7 @@ export async function buildUsageBreakdown(opts: {
     dollars: apiKey ? totals.totalUnits : null,
     models: {
       claude: modelBreakdown(claudeByModel, claudeByRole),
-      codex: modelBreakdown(codexByModel),
+      codex: modelBreakdown(codexByModel, codexByRole),
     },
     repos,
   };

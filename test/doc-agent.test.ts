@@ -210,6 +210,9 @@ function mkHarness(opts?: {
   runSpawnHooks?: (d: unknown) => Promise<unknown>;
   /** Per-role reasoning-effort override threaded into the spawn env (issue #1418). */
   effort?: string | null;
+  provider?: "claude" | "codex";
+  model?: string | null;
+  usageUnavailable?: boolean;
 }): Harness {
   const o = {
     forgeKind: "github" as "github" | "local" | null,
@@ -240,6 +243,8 @@ function mkHarness(opts?: {
     editPrThrows: false,
     noEditPr: false,
     effort: null as string | null,
+    provider: "claude" as "claude" | "codex",
+    model: null as string | null,
     ...opts,
   };
 
@@ -453,7 +458,7 @@ function mkHarness(opts?: {
     repos: () => o.repos,
     store: store as any,
     nightlyHour: o.nightlyHour,
-    env: () => ({ provider: "claude", model: null, effort: o.effort }),
+    env: () => ({ provider: o.provider, model: o.model, effort: o.effort }),
     act: o.act,
     onChange: (f) => finalizes.push(f),
     now: o.now,
@@ -477,18 +482,21 @@ function mkHarness(opts?: {
       markers.set(p, c);
     },
     readMarker: (p: string) => markers.get(p) ?? null,
-    readUsage: async () => ({
-      input: 5,
-      output: 7,
-      cacheRead: 0,
-      cacheWrite: 0,
-      total: 12,
-      messageCount: 1,
-      lastActivity: null,
-      byModel: {},
-      fullRecaches: 0,
-      sidechainCount: 0,
-    }),
+    readUsage: async () =>
+      o.usageUnavailable
+        ? null
+        : {
+            input: 5,
+            output: 7,
+            cacheRead: 0,
+            cacheWrite: 0,
+            total: 12,
+            messageCount: 1,
+            lastActivity: null,
+            byModel: {},
+            fullRecaches: 0,
+            sidechainCount: 0,
+          },
   });
 
   return {
@@ -1058,6 +1066,28 @@ test("row completed at finalize: act path completes the spawn row", async () => 
   await h.svc.tick();
   expect(h.completedRows).toHaveLength(1);
   expect(h.completedRows[0]!.reviewerSessionId).toBe(h.spawnRows[0]!.reviewerSessionId);
+});
+
+test("Claude doc row uses zero usage when its transcript is unavailable", async () => {
+  const h = mkHarness({ provider: "claude", usageUnavailable: true });
+  await h.svc.consider("/repo");
+  await h.svc.tick();
+
+  expect(h.completedRows).toHaveLength(1);
+  expect(h.completedRows[0]!.total).toBe(0);
+  expect(h.spawnRows[0]!.completedAt).not.toBeNull();
+});
+
+test("Codex doc agent persists the provider environment used for its spawn", async () => {
+  const h = mkHarness({ provider: "codex", model: "gpt-5.6", effort: "high" });
+  await h.svc.consider("/repo");
+  expect(h.spawnRows[0]).toMatchObject({
+    reviewerProvider: "codex",
+    model: "gpt-5.6",
+    reviewerEffort: "high",
+  });
+  await h.svc.tick();
+  expect(h.completedRows).toHaveLength(1);
 });
 
 // ── prettier pre-format (fix: doc-agent auto-PRs fail CI lint gate) ─────────────

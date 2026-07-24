@@ -1,9 +1,10 @@
 import { test, expect } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { SessionStore } from "../src/store";
+import { codexReviewerCorrelationMarker } from "../src/codex-session-id";
 import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -1282,6 +1283,7 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     reviewerProvider: null,
     model: null,
     reviewerEffort: null,
+    providerThreadId: null,
     spawnedAt: 1000,
     completedAt: null,
     inputTokens: null,
@@ -1309,6 +1311,146 @@ test("recordReviewerSpawn persists reviewer provider and effort", () => {
     model: "gpt-5.5",
     reviewerEffort: "high",
   });
+});
+
+test("legacy reviewer_spawns schema migrates providerThreadId as null", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-reviewer-migration-"));
+  const path = join(dir, "store.sqlite");
+  try {
+    const raw = new Database(path);
+    raw.exec(`CREATE TABLE reviewer_spawns (
+      reviewerSessionId TEXT PRIMARY KEY,
+      taskSessionId TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      worktreePath TEXT NOT NULL,
+      model TEXT,
+      spawnedAt INTEGER NOT NULL,
+      completedAt INTEGER,
+      inputTokens INTEGER,
+      outputTokens INTEGER,
+      cacheReadTokens INTEGER,
+      cacheWriteTokens INTEGER,
+      totalTokens INTEGER
+    )`);
+    raw
+      .query(
+        `INSERT INTO reviewer_spawns
+       (reviewerSessionId, taskSessionId, kind, worktreePath, model, spawnedAt)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run("legacy", "task", "review", "/legacy", "gpt-5.5", 1);
+    raw.close();
+
+    const store = new SessionStore(path);
+    expect(store.listReviewerSpawns()[0]?.providerThreadId).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("Codex completion persists the exact rollout and retries delayed thread usage after reopen", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-codex-reviewer-"));
+  const storePath = join(dir, "store.sqlite");
+  const codexHome = join(dir, "codex");
+  const sessions = join(codexHome, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  const previousCodexHome = process.env.CODEX_HOME;
+  process.env.CODEX_HOME = codexHome;
+
+  const writeExecRollout = (name: string, id: string, marker: string, mtimeSec: number) => {
+    const path = join(sessions, name);
+    writeFileSync(
+      path,
+      [
+        JSON.stringify({
+          type: "session_meta",
+          payload: { session_id: id, cwd: "/review-wt", source: "exec" },
+        }),
+        JSON.stringify({
+          type: "response_item",
+          payload: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text: `${marker}\nReview` }],
+          },
+        }),
+      ].join("\n") + "\n",
+    );
+    utimesSync(path, mtimeSec, mtimeSec);
+  };
+
+  try {
+    writeExecRollout(
+      "rollout-target.jsonl",
+      "thread-target",
+      codexReviewerCorrelationMarker("spawn-target"),
+      2,
+    );
+    writeExecRollout(
+      "rollout-competitor.jsonl",
+      "thread-competitor",
+      codexReviewerCorrelationMarker("spawn-competitor"),
+      3,
+    );
+
+    const first = new SessionStore(storePath);
+    first.recordReviewerSpawn({
+      reviewerSessionId: "spawn-target",
+      taskSessionId: "task",
+      kind: "review",
+      worktreePath: "/review-wt",
+      reviewerProvider: "codex",
+      model: null,
+      spawnedAt: 1_000,
+    });
+    first.completeReviewerSpawn("spawn-target", null, 4_000);
+    expect(first.listReviewerSpawns()[0]).toMatchObject({
+      completedAt: 4_000,
+      providerThreadId: "thread-target",
+      totalTokens: null,
+    });
+    (first as unknown as { db: Database }).db.close();
+
+    const statePath = join(codexHome, "state_5.sqlite");
+    const state = new Database(statePath);
+    state.exec(`CREATE TABLE threads (
+      id TEXT PRIMARY KEY,
+      model_provider TEXT NOT NULL,
+      model TEXT,
+      tokens_used INTEGER NOT NULL DEFAULT 0,
+      updated_at_ms INTEGER NOT NULL
+    )`);
+    const insert = state.query(
+      `INSERT INTO threads (id, model_provider, model, tokens_used, updated_at_ms)
+       VALUES (?, 'openai', ?, ?, ?)`,
+    );
+    insert.run("thread-target", "gpt-5.6", 4321, 5_000);
+    insert.run("thread-competitor", "gpt-5.5", 9999, 5_000);
+    state.close();
+
+    const reopened = new SessionStore(storePath);
+    reopened.recordReviewerSpawn({
+      reviewerSessionId: "legacy-no-thread-id",
+      taskSessionId: "task",
+      kind: "review",
+      worktreePath: "/review-wt",
+      reviewerProvider: "codex",
+      model: "gpt-5.5",
+      spawnedAt: 2_000,
+    });
+    expect(reopened.retryPendingCodexReviewerUsage(statePath)).toBe(1);
+    expect(reopened.listReviewerSpawns()[0]).toMatchObject({
+      providerThreadId: "thread-target",
+      model: "gpt-5.6",
+      totalTokens: 4321,
+    });
+    expect(reopened.listReviewerSpawns()[1]?.totalTokens).toBeNull();
+    expect(reopened.retryPendingCodexReviewerUsage(statePath)).toBe(0);
+  } finally {
+    if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = previousCodexHome;
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("completeReviewerSpawn fills token totals + completedAt", () => {

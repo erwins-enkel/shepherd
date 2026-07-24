@@ -280,7 +280,7 @@ for (const failingStage of ["stop", "record", "complete", "cleanup"] as const) {
         },
         completeReviewerSpawn: (_sessionId, usage) => {
           order.push("complete");
-          completedUsages.push(usage);
+          if (usage) completedUsages.push(usage);
           if (failingStage === "complete") throw new Error("complete failed");
         },
       },

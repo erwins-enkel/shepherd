@@ -142,7 +142,40 @@ test("GET /api/usage/breakdown forwards cutoff to the Codex model dependency", a
   expect(body.models.codex).toEqual({
     totalTokens: 1000,
     byModel: { "gpt-5.5": 700, unknown: 300 },
-    byRole: {},
+    byRole: { coding: { "gpt-5.5": 700, unknown: 300 } },
+  });
+});
+
+test("GET /api/usage/breakdown returns attributed Codex roles plus the exact coding remainder", async () => {
+  const { app, store } = harness({ codexModelUsage: () => ({ "gpt-5.6": 1_000 }) });
+  // @ts-expect-error accessing internal db for focused endpoint setup
+  store.db.run(
+    `INSERT INTO reviewer_spawns
+       (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model,
+        providerThreadId, spawnedAt, completedAt, totalTokens)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      "codex-review",
+      "task",
+      "review",
+      "/wt/codex-review",
+      "codex",
+      "gpt-5.6",
+      "thread-review",
+      NOW - 2_000,
+      NOW - 1_000,
+      250,
+    ],
+  );
+
+  const body = await (await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))).json();
+  expect(body.models.codex).toEqual({
+    totalTokens: 1_000,
+    byModel: { "gpt-5.6": 1_000 },
+    byRole: {
+      review: { "gpt-5.6": 250 },
+      coding: { "gpt-5.6": 750 },
+    },
   });
 });
 

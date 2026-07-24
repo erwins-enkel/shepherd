@@ -55,6 +55,8 @@ import { dominantModel, type SessionUsage } from "./usage";
 import { type SandboxProfile, isSandboxProfile } from "./sandbox";
 import { normalizeRepoDefaultModelSetting } from "./default-model";
 import { normalizeRepoDefaultEffortSetting } from "./default-effort";
+import { codexReviewerCorrelationMarker, findCodexSessionId } from "./codex-session-id";
+import { latestCodexStateDb, readCodexThreadUsage } from "./codex-usage";
 import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
@@ -1047,6 +1049,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       reviewerProvider  TEXT,
       model             TEXT,
       reviewerEffort    TEXT,
+      providerThreadId  TEXT,
       spawnedAt         INTEGER NOT NULL,
       completedAt       INTEGER,
       inputTokens       INTEGER,
@@ -3081,9 +3084,47 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
-  /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
+  /** Complete a spawn and capture provider-native token usage when available. No-op when the
    *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
-  completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
+  completeReviewerSpawn(
+    reviewerSessionId: string,
+    u: SessionUsage | null,
+    completedAt: number,
+  ): void {
+    const row = this.db
+      .query<
+        {
+          reviewerProvider: AgentProvider | null;
+          worktreePath: string;
+          spawnedAt: number;
+          providerThreadId: string | null;
+        },
+        [string]
+      >(
+        `SELECT reviewerProvider, worktreePath, spawnedAt, providerThreadId
+         FROM reviewer_spawns WHERE reviewerSessionId = ?`,
+      )
+      .get(reviewerSessionId);
+    if (!row) return;
+
+    if (row.reviewerProvider === "codex") {
+      const providerThreadId =
+        row.providerThreadId ??
+        findCodexSessionId(row.worktreePath, row.spawnedAt - 5 * 60_000, undefined, {
+          source: "exec",
+          correlationMarker: codexReviewerCorrelationMarker(reviewerSessionId),
+        });
+      this.db.run(
+        `UPDATE reviewer_spawns
+         SET completedAt = ?, providerThreadId = COALESCE(providerThreadId, ?)
+         WHERE reviewerSessionId = ?`,
+        [completedAt, providerThreadId, reviewerSessionId],
+      );
+      if (providerThreadId) this.retryPendingCodexReviewerUsage(latestCodexStateDb());
+      return;
+    }
+
+    if (!u) return;
     // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
     // configured override, which is null when auto-resolved — but the transcript names the model
     // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. It returns
@@ -3106,6 +3147,33 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         reviewerSessionId,
       ],
     );
+  }
+
+  /** Fill delayed Codex usage only for rows already bound to an exact provider thread. */
+  retryPendingCodexReviewerUsage(dbPath: string | null): number {
+    const pending = this.db
+      .query<{ reviewerSessionId: string; providerThreadId: string }, []>(
+        `SELECT reviewerSessionId, providerThreadId
+         FROM reviewer_spawns
+         WHERE reviewerProvider = 'codex'
+           AND completedAt IS NOT NULL
+           AND providerThreadId IS NOT NULL
+           AND totalTokens IS NULL
+         ORDER BY spawnedAt`,
+      )
+      .all();
+    let completed = 0;
+    for (const row of pending) {
+      const usage = readCodexThreadUsage(dbPath, row.providerThreadId);
+      if (!usage) continue;
+      this.db.run(
+        `UPDATE reviewer_spawns SET model = ?, totalTokens = ?
+         WHERE reviewerSessionId = ? AND totalTokens IS NULL`,
+        [usage.model, usage.totalTokens, row.reviewerSessionId],
+      );
+      completed++;
+    }
+    return completed;
   }
 
   /** All reviewer-spawn rows, oldest-spawned first. Column names already match the
@@ -3518,6 +3586,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
     add("reviewerProvider", `reviewerProvider TEXT`);
     add("reviewerEffort", `reviewerEffort TEXT`);
+    add("providerThreadId", `providerThreadId TEXT`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

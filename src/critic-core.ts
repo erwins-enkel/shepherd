@@ -528,7 +528,7 @@ export function shouldSkipForPatchId(
  *  Individually guarded — a transcript-read failure must never strand the caller. */
 export async function captureUsage(
   readUsage: (worktreePath: string, criticSessionId: string) => Promise<SessionUsage | null>,
-  completeReviewerSpawn: (criticSessionId: string, usage: SessionUsage, now: number) => void,
+  completeReviewerSpawn: (criticSessionId: string, usage: SessionUsage | null, now: number) => void,
   worktreePath: string,
   criticSessionId: string,
   now: number,
@@ -536,7 +536,7 @@ export async function captureUsage(
 ): Promise<void> {
   try {
     const usage = await readUsage(worktreePath, criticSessionId);
-    if (usage) completeReviewerSpawn(criticSessionId, usage, now);
+    completeReviewerSpawn(criticSessionId, usage, now);
   } catch (err) {
     console.warn(`[review] usage capture failed for ${logLabel}:`, err);
   }

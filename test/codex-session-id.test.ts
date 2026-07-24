@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { findCodexSessionId } from "../src/codex-session-id";
+import { codexReviewerCorrelationMarker, findCodexSessionId } from "../src/codex-session-id";
 
 let home: string;
 let sessionsDir: string;
@@ -34,6 +34,17 @@ function writeRollout(
 
 const CWD = "/home/u/.shepherd-worktrees/repo-feature";
 
+function userMessage(text: string): string {
+  return JSON.stringify({
+    type: "response_item",
+    payload: {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text }],
+    },
+  });
+}
+
 test("returns the session id of an interactive (source=cli) rollout matching the cwd", () => {
   writeRollout("rollout-1.jsonl", { session_id: "uuid-A", cwd: CWD, source: "cli" }, 1000);
   expect(findCodexSessionId(CWD, 0, home)).toBe("uuid-A");
@@ -55,6 +66,49 @@ test("ignores source=exec (headless role) rollouts sharing the cwd", () => {
   writeRollout("rollout-exec.jsonl", { session_id: "uuid-exec", cwd: CWD, source: "exec" }, 3000);
   writeRollout("rollout-cli.jsonl", { session_id: "uuid-cli", cwd: CWD, source: "cli" }, 2000);
   expect(findCodexSessionId(CWD, 0, home)).toBe("uuid-cli");
+});
+
+test("binds an exec rollout to its reviewer spawn even when a later exec shares the cwd", () => {
+  const targetMarker = codexReviewerCorrelationMarker("spawn-target");
+  const competitorMarker = codexReviewerCorrelationMarker("spawn-competitor");
+  writeRollout(
+    "rollout-target.jsonl",
+    { session_id: "uuid-target", cwd: CWD, source: "exec" },
+    2000,
+    [
+      userMessage("<recommended_plugins>preloaded by Codex</recommended_plugins>"),
+      userMessage(`${targetMarker}\nReview target`),
+    ],
+  );
+  writeRollout(
+    "rollout-competitor.jsonl",
+    { session_id: "uuid-competitor", cwd: CWD, source: "exec" },
+    3000,
+    [userMessage(`${competitorMarker}\nReview competitor`)],
+  );
+
+  expect(
+    findCodexSessionId(CWD, 0, home, {
+      source: "exec",
+      correlationMarker: targetMarker,
+    }),
+  ).toBe("uuid-target");
+});
+
+test("does not fall back to the newest exec rollout when no marker matches", () => {
+  writeRollout(
+    "rollout-competitor.jsonl",
+    { session_id: "uuid-competitor", cwd: CWD, source: "exec" },
+    3000,
+    [userMessage(`${codexReviewerCorrelationMarker("spawn-competitor")}\nReview competitor`)],
+  );
+
+  expect(
+    findCodexSessionId(CWD, 0, home, {
+      source: "exec",
+      correlationMarker: codexReviewerCorrelationMarker("spawn-missing"),
+    }),
+  ).toBeNull();
 });
 
 test("skips rollouts older than notBeforeMs", () => {

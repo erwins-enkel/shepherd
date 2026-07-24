@@ -2365,9 +2365,13 @@ const timerTask = (label: string, fn: () => Promise<unknown>) => () =>
 // double-spawns it (or errors with agent_name_taken). Mirrors the `calibrating` flag below.
 let releasingHeld = false;
 deferredStarts.push(() => {
+  timerTask("usage", async () => {
+    store.retryPendingCodexReviewerUsage(latestCodexStateDb());
+  })();
   setInterval(
     timerTask("usage", async () => {
       await accountIndex.refresh(Date.now());
+      store.retryPendingCodexReviewerUsage(latestCodexStateDb());
       events.emit("usage:limits", usageLimits.limits(Date.now()));
       if (releasingHeld) return; // prior release still draining — skip this tick's release
       releasingHeld = true;

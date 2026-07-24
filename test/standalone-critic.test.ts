@@ -256,6 +256,24 @@ test("reviews a fresh open green regular session-less PR", async () => {
   expect(settings.env).toBeUndefined();
 });
 
+test("Codex critic records its resolved provider and completes without Claude usage", async () => {
+  const { deps, spies } = makeDeps({
+    env: () => ({ provider: "codex", model: "gpt-5.6", effort: "high" }),
+    readUsage: async () => null,
+  });
+  const svc = new StandalonePrCriticService(deps as any);
+  await svc.sweep();
+  await svc.tick();
+
+  expect(spies.recordedSpawns[0]).toMatchObject({
+    reviewerProvider: "codex",
+    model: "gpt-5.6",
+    reviewerEffort: "high",
+  });
+  expect(spies.completedSpawns).toHaveLength(1);
+  expect(spies.completedSpawns[0]!.u).toBeNull();
+});
+
 test("reviews a REST-enumerated green PR while GraphQL backoff is active", async () => {
   graphRateLimit.noteLimitError(60);
   let metaCalls = 0;

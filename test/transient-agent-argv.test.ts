@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import { buildTransientAgentArgv, type TransientAgentKind } from "../src/transient-agent-argv";
+import { codexReviewerCorrelationMarker } from "../src/codex-session-id";
 import { config } from "../src/config";
 
 // Temporarily set config auth fields, always restoring them.
@@ -64,6 +65,27 @@ test("Codex effort routes to -c model_reasoning_effort with xhigh → high clamp
   expect(cIdx).toBeGreaterThan(-1);
   expect(argv[cIdx + 1]).toBe("model_reasoning_effort=high");
   expect(argv).not.toContain("--effort"); // Codex uses the -c surface, not --effort
+});
+
+test("Codex prompts carry the spawn's unique reviewer correlation marker", () => {
+  const first = buildTransientAgentArgv("reviewer", {
+    provider: "codex",
+    model: "gpt-5.5",
+    prompt: "Review this change",
+  });
+  const second = buildTransientAgentArgv("reviewer", {
+    provider: "codex",
+    model: "gpt-5.5",
+    prompt: "Review this change",
+  });
+
+  expect(first.argv.at(-1)).toBe(
+    `${codexReviewerCorrelationMarker(first.sessionId)}\nReview this change`,
+  );
+  expect(second.argv.at(-1)).toBe(
+    `${codexReviewerCorrelationMarker(second.sessionId)}\nReview this change`,
+  );
+  expect(first.argv.at(-1)).not.toBe(second.argv.at(-1));
 });
 
 // ── Mechanical invariant: flag order (the variadic --allowedTools trap) ─────────────────────────
@@ -137,13 +159,13 @@ test("multiple NULs are each escaped", () => {
 });
 
 test("Codex prompts escape NULs with the same argv contract as Claude", () => {
-  const { argv } = buildTransientAgentArgv("writer-only", {
+  const { argv, sessionId } = buildTransientAgentArgv("writer-only", {
     provider: "codex",
     model: "gpt-5.3-codex",
     prompt: "a\0b",
   });
   expect(argv.slice(0, 4)).toEqual(["codex", "exec", "--sandbox", "workspace-write"]);
-  expect(argv[argv.length - 1]).toBe("a\\0b");
+  expect(argv[argv.length - 1]).toBe(`${codexReviewerCorrelationMarker(sessionId)}\na\\0b`);
   for (const arg of argv) expect(arg.includes("\0")).toBe(false);
 });
 
@@ -321,11 +343,12 @@ test("writer-only + model 'haiku' reproduces verify-key's historical argv shape"
 
 test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <model>] <prompt>`", () => {
   for (const kind of ALL_KINDS) {
-    const withModel = buildTransientAgentArgv(kind, {
+    const withModelSpawn = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: "gpt-5.5",
       prompt: "DO_IT",
-    }).argv;
+    });
+    const withModel = withModelSpawn.argv;
     expect(withModel).toEqual([
       "codex",
       "exec",
@@ -333,7 +356,7 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       "workspace-write",
       "-m",
       "gpt-5.5",
-      "DO_IT",
+      `${codexReviewerCorrelationMarker(withModelSpawn.sessionId)}\nDO_IT`,
     ]);
     // No Claude flags leak in.
     for (const flag of [
@@ -345,12 +368,18 @@ test("codex provider: every kind → `codex exec --sandbox workspace-write [-m <
       expect(withModel).not.toContain(flag);
     }
     // No model → no -m flag, prompt still trailing.
-    const noModel = buildTransientAgentArgv(kind, {
+    const noModelSpawn = buildTransientAgentArgv(kind, {
       provider: "codex",
       model: null,
       prompt: "DO_IT",
-    }).argv;
-    expect(noModel).toEqual(["codex", "exec", "--sandbox", "workspace-write", "DO_IT"]);
+    });
+    expect(noModelSpawn.argv).toEqual([
+      "codex",
+      "exec",
+      "--sandbox",
+      "workspace-write",
+      `${codexReviewerCorrelationMarker(noModelSpawn.sessionId)}\nDO_IT`,
+    ]);
   }
 });
 

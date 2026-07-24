@@ -731,6 +731,7 @@ export interface ReviewerSpawnRow {
   reviewerProvider: AgentProvider | null;
   model: string | null;
   reviewerEffort: string | null;
+  providerThreadId: string | null;
   spawnedAt: number;
   completedAt: number | null;
   inputTokens: number | null;

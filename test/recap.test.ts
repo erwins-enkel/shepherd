@@ -530,6 +530,28 @@ test("tick: generating row + valid verdict → state 'ready' + usage + stop + cl
   expect(cleaned).toContain("/tmp/recap-s1");
 });
 
+test("tick completes a Codex recap even when no Claude usage transcript exists", async () => {
+  const rec = makeRecap({
+    state: "generating",
+    cwd: "/tmp/recap-codex",
+    spawnSessionId: "sp-codex",
+    spawnedAt: 100_000,
+  });
+  const store = makeStore([], [rec]);
+  const svc = buildSvc({
+    store,
+    herdr: makeHerdr([{ cwd: rec.cwd, terminalId: "t-codex" }]),
+    nowFn: () => 200_000,
+    timeoutMs: 300_000,
+    verdictJson: VALID_VERDICT_JSON,
+    readUsage: async () => null,
+  });
+
+  await svc.tick();
+
+  expect(store.completedSpawns).toEqual([{ id: "sp-codex", u: null, at: 200_000 }]);
+});
+
 // TASK-561 follow-up: the #822 failsafe still left recap generation failing on retry. A chatty
 // agent wraps the JSON in prose, jsonrepair rescues it into an ARRAY (["Here is the recap:", {…}]),
 // and the OLD finalize → parseRecapVerdict rejected arrays → `failed`. The fix unwraps the recap

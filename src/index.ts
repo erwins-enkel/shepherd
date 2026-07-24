@@ -1574,7 +1574,12 @@ const sweepStaleReviewWorktrees = async () => {
       },
       remove: (p) => worktree.remove(p),
     });
-    if (r.reaped.length)
+    if (r.skipped === "liveness-unknown") {
+      // Mirrors the tmp-sweep's "live cwds unknown" line: without it, a darwin host
+      // whose snapshot cell never goes fresh would skip this hourly sweep forever
+      // with no operator signal at all.
+      console.warn("[worktrees] review-worktree sweep skipped (claude liveness unknown)");
+    } else if (r.reaped.length)
       console.warn(
         `[worktrees] reaped ${r.reaped.length} stale review worktree(s); spared ${r.sparedOwned} owned, ${r.sparedLive} live`,
       );

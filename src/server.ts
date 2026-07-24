@@ -2717,11 +2717,21 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
   if (existingServer) return existingServer;
 
   // A successfully-bound existing server never reaches here, so a probes-unavailable
-  // read below can't fire a spurious alert. On a host where process detection is
-  // dead/stale, the start proceeds (a dev server has value on its own) but the
-  // preview will never bind — so signal the client to skip the pending guard + show
-  // an alert rather than a silently-expiring "started" toast. Pure cell read.
-  const probesUnavailable = (deps.service.probeHealth?.().state ?? "fresh") !== "fresh";
+  // read below can't fire a spurious alert. The start proceeds either way (a dev
+  // server has value on its own); this only decides whether the client shows the
+  // "preview won't appear" alert instead of arming a pending guard. Pure cell read.
+  //
+  // Keyed on `"none"` — NEVER successfully refreshed — not on "not fresh". A
+  // `"stale"` cell means detection HAS produced a snapshot on this host, so it
+  // works and is merely lagging: `findPreviewDevPort`'s forced refresh is capped at
+  // FORCE_WAIT_BUDGET_MS, so an `lsof` slower than that budget returns with the
+  // cell still stale even though the background refresh is about to land and the
+  // next poller sweep will bind the preview. Alerting there would tell the operator
+  // the preview "won't appear" moments before it does. Genuinely degraded-but-
+  // working hosts are surfaced by the `preview_probes` Diagnose row (driven +
+  // stale ⇒ warning); this alert is reserved for "will not work at all", which is
+  // also what an unsupported platform reports (`nullProbes` ⇒ `"none"`).
+  const probesUnavailable = (deps.service.probeHealth?.().state ?? "fresh") === "none";
 
   // 3. Prefer an existing local repo script. It lives under the repo's git common
   // dir and is recorded in repo_config, so it is shared by sessions for this repo

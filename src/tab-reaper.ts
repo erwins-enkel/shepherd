@@ -401,6 +401,16 @@ export interface ReapWorktreesResult {
   sparedOwned: number;
   /** Spared because a live `claude` was running in them. */
   sparedLive: number;
+  /**
+   * Set when the sweep did NOT run and nothing was classified — so the counters
+   * above are all zero rather than mis-attributing the untouched candidates to a
+   * sparing reason they don't match. `"liveness-unknown"` means `scanAlive`
+   * returned null (the snapshot backend can't support a negative verdict), which
+   * is indefinite on a host whose cell never goes fresh — so the CALLER should log
+   * it, or the hourly sweep silently does nothing forever. This function stays
+   * I/O-free (every effect is an injected dep), hence reporting rather than logging.
+   */
+  skipped?: "liveness-unknown";
 }
 
 /** Reviewer disposable-worktree tag shape: `-review-` followed by an `sha8` or a
@@ -463,7 +473,11 @@ export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktrees
   // data we must SKIP the whole sweep and spare every candidate — reaping here
   // would delete review worktrees hosting a live reviewer we simply cannot see.
   if (aliveMap === null) {
-    return { reaped: [], sparedOwned: candidates.length, sparedLive: 0 };
+    // Counters stay 0: nothing was classified, so attributing these candidates to
+    // `sparedOwned` ("owned in memory / live session / recent spawn") would be a
+    // reason that doesn't apply. `skipped` is the honest signal, and the caller
+    // logs it — this skip is indefinite on a host whose cell never goes fresh.
+    return { reaped: [], sparedOwned: 0, sparedLive: 0, skipped: "liveness-unknown" };
   }
 
   // 4. Classify each candidate.

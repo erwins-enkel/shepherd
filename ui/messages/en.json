@@ -3873,5 +3873,10 @@
   "usage_models_empty": "No model usage recorded in this range",
   "usage_models_bar_aria": "{provider} model mix, {tokens} total",
   "feat_usage_model_breakdown_title": "See model mix by provider",
-  "feat_usage_model_breakdown_body": "Usage → Models shows the raw-token share for each model across the selected range. Claude Code and Codex stay in separate 100% blocks with their own token totals."
+  "feat_usage_model_breakdown_body": "Usage → Models shows the raw-token share for each model across the selected range. Claude Code and Codex stay in separate 100% blocks with their own token totals.",
+  "usage_models_by_role": "Breakdown by role",
+  "usage_models_role_coding": "Coding",
+  "usage_models_codex_roles_unavailable": "Not broken down by role",
+  "feat_usage_role_model_breakdown_title": "See Claude usage by role and model",
+  "feat_usage_role_model_breakdown_body": "Expand Coding, Review, Plan gate, and other Claude roles in Usage → Models to see which model consumed their tokens and what share it represents."
 }

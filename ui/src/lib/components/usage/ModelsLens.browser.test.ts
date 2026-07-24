@@ -25,8 +25,20 @@ describe("ModelsLens", () => {
             gamma: 150,
             delta: 150,
           },
+          byRole: {
+            coding: {
+              "claude-opus-4-8": 1000,
+              "claude-sonnet-4-5": 800,
+              "claude-haiku-4-5": 600,
+              fable: 400,
+              alpha: 300,
+              beta: 200,
+              gamma: 150,
+              delta: 150,
+            },
+          },
         },
-        codex: { totalTokens: 1000, byModel: { "gpt-5.5": 700, unknown: 300 } },
+        codex: { totalTokens: 1000, byModel: { "gpt-5.5": 700, unknown: 300 }, byRole: {} },
       },
     });
 
@@ -37,6 +49,7 @@ describe("ModelsLens", () => {
     expect(claude.querySelectorAll(".model-list li")).toHaveLength(7);
     expect(codex.textContent).toContain("GPT-5.5");
     expect(codex.textContent).toContain(formatTokenLabel(1000));
+    expect(codex.querySelector(".role-unavailable")).not.toBeNull();
     expect(document.querySelectorAll('[role="img"]')).toHaveLength(2);
 
     for (const block of [claude, codex]) {
@@ -51,8 +64,8 @@ describe("ModelsLens", () => {
   it("shows a provider-specific zero total and no misleading bar for empty data", () => {
     render(ModelsLens, {
       models: {
-        claude: { totalTokens: 0, byModel: {} },
-        codex: { totalTokens: 0, byModel: {} },
+        claude: { totalTokens: 0, byModel: {}, byRole: {} },
+        codex: { totalTokens: 0, byModel: {}, byRole: {} },
       },
     });
 
@@ -75,13 +88,57 @@ describe("ModelsLens", () => {
             omega: 100,
             Zulu: 100,
           },
+          byRole: {
+            coding: {
+              alpha: 100,
+              beta: 100,
+              delta: 100,
+              epsilon: 100,
+              gamma: 100,
+              omega: 100,
+              Zulu: 100,
+            },
+          },
         },
-        codex: { totalTokens: 0, byModel: {} },
+        codex: { totalTokens: 0, byModel: {}, byRole: {} },
       },
     });
 
     const claude = document.querySelector<HTMLElement>('[data-provider="claude"]')!;
-    expect(claude.textContent).toContain("Zulu");
-    expect(claude.textContent).not.toContain("Omega");
+    const modelList = claude.querySelector<HTMLElement>(".model-list")!;
+    expect(modelList.textContent).toContain("Zulu");
+    expect(modelList.textContent).not.toContain("Omega");
+  });
+
+  it("expands Claude roles into models with provider and role percentages", () => {
+    render(ModelsLens, {
+      models: {
+        claude: {
+          totalTokens: 500,
+          byModel: { "claude-opus-4-8": 200, "claude-sonnet-4-5": 300 },
+          byRole: {
+            coding: { "claude-sonnet-4-5": 300 },
+            review: { "claude-opus-4-8": 100 },
+            plan_gate: { "claude-opus-4-8": 100 },
+          },
+        },
+        codex: { totalTokens: 0, byModel: {}, byRole: {} },
+      },
+    });
+
+    const claude = document.querySelector<HTMLElement>('[data-provider="claude"]')!;
+    const roles = claude.querySelectorAll<HTMLDetailsElement>(".role-detail");
+    expect(roles).toHaveLength(3);
+    expect([...roles].map((role) => role.dataset.role)).toEqual(["coding", "review", "plan_gate"]);
+
+    const planGate = claude.querySelector<HTMLDetailsElement>('[data-role="plan_gate"]')!;
+    expect(planGate.querySelector("summary")?.textContent).toContain("20.0%");
+    planGate.querySelector<HTMLElement>("summary")!.click();
+    expect(planGate.open).toBe(true);
+
+    const modelRow = planGate.querySelector<HTMLElement>(".role-model-row")!;
+    expect(modelRow.textContent).toContain("Opus 4.8");
+    expect(modelRow.textContent).toContain("100.0%");
+    expect(modelRow.textContent).toContain(formatTokenLabel(100));
   });
 });

@@ -1578,9 +1578,13 @@ export interface UsageKindUnits {
   count: number; // number of completed passes of that kind, in range
 }
 
+export type UsageRole = "coding" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
+
 export interface UsageModelBreakdown {
   totalTokens: number;
   byModel: Record<string, number>;
+  byRole: UsageByRole;
 }
 
 export interface UsageBreakdown {
@@ -1671,7 +1675,7 @@ export const USAGE_REPO_KEYS = [
 // Mirrors UsageKindUnits:
 export const USAGE_KIND_UNITS_KEYS = ["kind", "units", "count"] as const;
 // Mirrors UsageModelBreakdown:
-export const USAGE_MODEL_BREAKDOWN_KEYS = ["totalTokens", "byModel"] as const;
+export const USAGE_MODEL_BREAKDOWN_KEYS = ["totalTokens", "byModel", "byRole"] as const;
 // Mirrors UsageBreakdown:
 export const USAGE_BREAKDOWN_KEYS = [
   "range",

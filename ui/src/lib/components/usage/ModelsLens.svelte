@@ -1,5 +1,5 @@
 <script lang="ts">
-  import type { UsageBreakdown, UsageModelBreakdown } from "$lib/types";
+  import type { UsageBreakdown, UsageModelBreakdown, UsageRole } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
   import { formatTokenLabel } from "$lib/format";
   import { modelDisplayName } from "$lib/components/usage-gauges";
@@ -23,6 +23,40 @@
     exactPct: number;
     displayPct: number;
     tone: string;
+  }
+
+  interface RoleRow {
+    id: UsageRole;
+    label: string;
+    tokens: number;
+    providerPct: number;
+    models: Array<{ id: string; label: string; tokens: number; rolePct: number }>;
+  }
+
+  const ROLE_ORDER: UsageRole[] = [
+    "coding",
+    "review",
+    "plan_gate",
+    "recap",
+    "rundown",
+    "doc_agent",
+  ];
+
+  function roleLabel(role: UsageRole): string {
+    switch (role) {
+      case "coding":
+        return m.usage_models_role_coding();
+      case "review":
+        return m.usage_kind_review();
+      case "plan_gate":
+        return m.usage_kind_plan_gate();
+      case "recap":
+        return m.usage_kind_recap();
+      case "rundown":
+        return m.usage_kind_rundown();
+      case "doc_agent":
+        return m.usage_kind_doc_agent();
+    }
   }
 
   function rowsFor(data: UsageModelBreakdown): ModelRow[] {
@@ -59,6 +93,33 @@
     }));
   }
 
+  function roleRowsFor(data: UsageModelBreakdown): RoleRow[] {
+    return ROLE_ORDER.flatMap((role) => {
+      const models = Object.entries(data.byRole[role] ?? {})
+        .filter(([, tokens]) => tokens > 0)
+        .sort(
+          ([aModel, aTokens], [bModel, bTokens]) =>
+            bTokens - aTokens || (aModel < bModel ? -1 : aModel > bModel ? 1 : 0),
+        );
+      const tokens = models.reduce((sum, [, modelTokens]) => sum + modelTokens, 0);
+      if (tokens === 0) return [];
+      return [
+        {
+          id: role,
+          label: roleLabel(role),
+          tokens,
+          providerPct: data.totalTokens > 0 ? (tokens / data.totalTokens) * 100 : 0,
+          models: models.map(([id, modelTokens]) => ({
+            id,
+            label: modelDisplayName(id),
+            tokens: modelTokens,
+            rolePct: (modelTokens / tokens) * 100,
+          })),
+        },
+      ];
+    });
+  }
+
   const providers = $derived([
     { id: "claude", label: m.agent_provider_claude(), data: models.claude },
     { id: "codex", label: m.agent_provider_codex(), data: models.codex },
@@ -68,10 +129,18 @@
 <div class="models-lens">
   {#each providers as provider (provider.id)}
     {@const rows = rowsFor(provider.data)}
+    {@const roleRows = roleRowsFor(provider.data)}
     <section class="provider-block" data-provider={provider.id}>
       <header class="provider-head">
         <h2>{provider.label}</h2>
-        <span>{m.usage_models_total({ tokens: formatTokenLabel(provider.data.totalTokens) })}</span>
+        <div class="provider-meta">
+          <span
+            >{m.usage_models_total({ tokens: formatTokenLabel(provider.data.totalTokens) })}</span
+          >
+          {#if provider.id === "codex"}
+            <span class="role-unavailable">{m.usage_models_codex_roles_unavailable()}</span>
+          {/if}
+        </div>
       </header>
 
       {#if rows.length > 0}
@@ -84,10 +153,7 @@
           })}
         >
           {#each rows as row (row.id)}
-            <span
-              aria-hidden="true"
-              style:width={`${row.exactPct}%`}
-              style:background={row.tone}
+            <span aria-hidden="true" style:width={`${row.exactPct}%`} style:background={row.tone}
             ></span>
           {/each}
         </div>
@@ -104,6 +170,32 @@
         </ul>
       {:else}
         <p class="empty">{m.usage_models_empty()}</p>
+      {/if}
+
+      {#if provider.id === "claude" && roleRows.length > 0}
+        <div class="role-breakdown">
+          <h3>{m.usage_models_by_role()}</h3>
+          {#each roleRows as role (role.id)}
+            <details class="role-detail" data-role={role.id}>
+              <summary>
+                <span class="role-summary-content">
+                  <span class="role-name">{role.label}</span>
+                  <span class="role-pct">{role.providerPct.toFixed(1)}%</span>
+                  <span class="role-tokens">{formatTokenLabel(role.tokens)}</span>
+                </span>
+              </summary>
+              <ul class="role-model-list">
+                {#each role.models as model (model.id)}
+                  <li class="role-model-row">
+                    <span class="role-model-name">{model.label}</span>
+                    <span class="role-model-pct">{model.rolePct.toFixed(1)}%</span>
+                    <span class="role-model-tokens">{formatTokenLabel(model.tokens)}</span>
+                  </li>
+                {/each}
+              </ul>
+            </details>
+          {/each}
+        </div>
       {/if}
     </section>
   {/each}
@@ -140,10 +232,27 @@
     text-transform: uppercase;
   }
 
-  .provider-head span {
+  .provider-meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 4px;
+  }
+
+  .provider-meta > span:first-child {
     color: var(--color-muted);
     font-size: var(--fs-meta);
     font-variant-numeric: tabular-nums;
+  }
+
+  .role-unavailable {
+    padding: 1px 6px;
+    color: var(--color-muted);
+    font-size: var(--fs-micro);
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    border: 1px solid var(--color-line);
+    border-radius: 2px;
   }
 
   .stacked-bar {
@@ -215,9 +324,92 @@
     font-size: var(--fs-base);
   }
 
+  .role-breakdown {
+    margin-top: 18px;
+    border-top: 1px solid var(--color-line);
+  }
+
+  .role-breakdown h3 {
+    margin: 12px 0 6px;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    font-weight: 600;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+  }
+
+  .role-detail {
+    border-bottom: 1px solid var(--color-line);
+  }
+
+  .role-detail summary {
+    padding: 7px 0;
+    color: var(--color-ink);
+    font-size: var(--fs-base);
+    cursor: pointer;
+  }
+
+  .role-detail summary::marker {
+    color: var(--color-muted);
+  }
+
+  .role-summary-content,
+  .role-model-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 4.5rem 7rem;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .role-name,
+  .role-model-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .role-pct,
+  .role-tokens,
+  .role-model-pct,
+  .role-model-tokens {
+    font-variant-numeric: tabular-nums;
+    text-align: right;
+  }
+
+  .role-pct,
+  .role-model-pct {
+    color: var(--color-ink-bright);
+  }
+
+  .role-tokens,
+  .role-model-tokens,
+  .role-model-name {
+    color: var(--color-muted);
+  }
+
+  .role-model-list {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: 0 0 8px 18px;
+    margin: 0;
+    list-style: none;
+  }
+
+  .role-model-row {
+    min-height: 24px;
+    font-size: var(--fs-meta);
+  }
+
   @media (max-width: 520px) {
     .model-list li {
       grid-template-columns: 10px minmax(0, 1fr) 3.75rem 5.75rem;
+      gap: 6px;
+    }
+
+    .role-summary-content,
+    .role-model-row {
+      grid-template-columns: minmax(0, 1fr) 3.75rem 5.75rem;
       gap: 6px;
     }
   }

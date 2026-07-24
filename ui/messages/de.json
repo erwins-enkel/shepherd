@@ -3873,5 +3873,10 @@
   "usage_models_empty": "In diesem Zeitraum wurde keine Modellnutzung erfasst",
   "usage_models_bar_aria": "Modell-Mix für {provider}, {tokens} gesamt",
   "feat_usage_model_breakdown_title": "Modell-Mix nach Provider",
-  "feat_usage_model_breakdown_body": "Nutzung → Modelle zeigt den Roh-Token-Anteil jedes Modells im gewählten Zeitraum. Claude Code und Codex bleiben in getrennten 100-%-Blöcken mit eigener Token-Gesamtsumme."
+  "feat_usage_model_breakdown_body": "Nutzung → Modelle zeigt den Roh-Token-Anteil jedes Modells im gewählten Zeitraum. Claude Code und Codex bleiben in getrennten 100-%-Blöcken mit eigener Token-Gesamtsumme.",
+  "usage_models_by_role": "Aufschlüsselung nach Rolle",
+  "usage_models_role_coding": "Coding",
+  "usage_models_codex_roles_unavailable": "Pro Rolle nicht aufgeschlüsselt",
+  "feat_usage_role_model_breakdown_title": "Claude-Verbrauch nach Rolle und Modell erkennen",
+  "feat_usage_role_model_breakdown_body": "Klappe Coding, Review, Plan Gate und weitere Claude-Rollen unter Nutzung → Modelle auf, um das verwendete Modell, seine Tokens und den jeweiligen Anteil zu sehen."
 }

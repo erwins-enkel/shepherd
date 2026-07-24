@@ -84,8 +84,9 @@ test("GET /api/usage/breakdown?range=7d → 200 with correct shape", async () =>
   expect(body.models.claude).toEqual({
     totalTokens: 3600,
     byModel: { "claude-sonnet-4": 3600 },
+    byRole: { coding: { "claude-sonnet-4": 3600 } },
   });
-  expect(body.models.codex).toEqual({ totalTokens: 0, byModel: {} });
+  expect(body.models.codex).toEqual({ totalTokens: 0, byModel: {}, byRole: {} });
 
   for (const repo of body.repos) {
     exactKeys(repo, USAGE_REPO_KEYS);
@@ -134,15 +135,14 @@ test("GET /api/usage/breakdown forwards cutoff to the Codex model dependency", a
   });
 
   const before = Date.now() - 7 * 86_400_000;
-  const body = await (
-    await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))
-  ).json();
+  const body = await (await app.fetch(new Request("http://x/api/usage/breakdown?range=7d"))).json();
   const after = Date.now() - 7 * 86_400_000;
   expect(receivedCutoff).toBeGreaterThanOrEqual(before);
   expect(receivedCutoff).toBeLessThanOrEqual(after);
   expect(body.models.codex).toEqual({
     totalTokens: 1000,
     byModel: { "gpt-5.5": 700, unknown: 300 },
+    byRole: {},
   });
 });
 

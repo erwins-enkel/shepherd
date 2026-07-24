@@ -111,7 +111,195 @@ function makeSnap(over: {
   };
 }
 
+function seedRoleSpawn(
+  store: SessionStore,
+  r: {
+    id: string;
+    kind: "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+    provider: "claude" | "codex" | null;
+    model: string | null;
+    spawnedAt?: number;
+    completedAt?: number | null;
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+  },
+): void {
+  const input = r.input ?? 0;
+  const output = r.output ?? 0;
+  const cacheRead = r.cacheRead ?? 0;
+  const cacheWrite = r.cacheWrite ?? 0;
+  // @ts-expect-error accessing internal db for focused aggregate setup
+  store.db.run(
+    `INSERT INTO reviewer_spawns
+       (reviewerSessionId, taskSessionId, kind, worktreePath, reviewerProvider, model,
+        spawnedAt, completedAt, inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens,
+        totalTokens)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    [
+      r.id,
+      "task-a",
+      r.kind,
+      "/wt/" + r.id,
+      r.provider,
+      r.model,
+      r.spawnedAt ?? NOW - 2_000,
+      r.completedAt === undefined ? NOW - 1_000 : r.completedAt,
+      input,
+      output,
+      cacheRead,
+      cacheWrite,
+      input + output + cacheRead + cacheWrite,
+    ],
+  );
+}
+
 // ── actual test suite ─────────────────────────────────────────────────────────
+
+test("Claude model breakdown preserves role × model identity and exact token total", async () => {
+  const store = new SessionStore(":memory:");
+  store.upsertSessionUsage(
+    makeSnap({
+      sessionId: "task-a",
+      desig: "TASK-01",
+      repoPath: "/repos/alpha",
+      input: 100,
+      output: 200,
+      weightedUnits: 0,
+      cacheReadUnits: 0,
+      rawByModel: { "claude-opus-4-8": 100, "claude-sonnet-4-8": 200 },
+      snapshotAt: NOW,
+    }),
+  );
+
+  seedRoleSpawn(store, {
+    id: "review",
+    kind: "review",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    input: 10,
+    output: 20,
+    cacheRead: 30,
+    cacheWrite: 40,
+  });
+  seedRoleSpawn(store, {
+    id: "plan",
+    kind: "plan_gate",
+    provider: "claude",
+    model: "claude-sonnet-4-8",
+    input: 50,
+  });
+  seedRoleSpawn(store, {
+    id: "recap",
+    kind: "recap",
+    provider: null,
+    model: "fable",
+    input: 25,
+  });
+  seedRoleSpawn(store, {
+    id: "rundown",
+    kind: "rundown",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    output: 15,
+  });
+  seedRoleSpawn(store, {
+    id: "doc",
+    kind: "doc_agent",
+    provider: "claude",
+    model: "haiku",
+    cacheRead: 10,
+  });
+
+  const bd = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });
+
+  expect(bd.models.claude).toEqual({
+    totalTokens: 500,
+    byModel: {
+      "claude-opus-4-8": 215,
+      "claude-sonnet-4-8": 250,
+      fable: 25,
+      haiku: 10,
+    },
+    byRole: {
+      coding: { "claude-opus-4-8": 100, "claude-sonnet-4-8": 200 },
+      review: { "claude-opus-4-8": 100 },
+      plan_gate: { "claude-sonnet-4-8": 50 },
+      recap: { fable: 25 },
+      rundown: { "claude-opus-4-8": 15 },
+      doc_agent: { haiku: 10 },
+    },
+  });
+  expect(bd.models.codex.byRole).toEqual({});
+  const roleTotal = Object.values(bd.models.claude.byRole).reduce(
+    (total, models) => total + Object.values(models ?? {}).reduce((sum, tokens) => sum + tokens, 0),
+    0,
+  );
+  expect(roleTotal).toBe(bd.models.claude.totalTokens);
+});
+
+test("legacy null-provider Claude classifier is anchored and range-filtered", async () => {
+  const store = new SessionStore(":memory:");
+  const accepted = [
+    "fable",
+    "opus",
+    "opus[1m]",
+    "sonnet",
+    "sonnet[1m]",
+    "haiku",
+    "claude-opus-4-8",
+    "claude-sonnet-4-20250514",
+    "claude-haiku-3-5",
+  ];
+  accepted.forEach((model, index) => {
+    seedRoleSpawn(store, {
+      id: `accepted-${index}`,
+      kind: "recap",
+      provider: null,
+      model,
+      input: 1,
+    });
+  });
+  for (const [index, model] of [
+    "my-claude-opus-4-8",
+    "claude-opus-latest",
+    "gpt-5.5",
+    "<synthetic>",
+    " ",
+  ].entries()) {
+    seedRoleSpawn(store, {
+      id: `rejected-${index}`,
+      kind: "recap",
+      provider: null,
+      model,
+      input: 100,
+    });
+  }
+  seedRoleSpawn(store, {
+    id: "explicit-codex-wins",
+    kind: "review",
+    provider: "codex",
+    model: "claude-opus-4-8",
+    input: 100,
+  });
+  seedRoleSpawn(store, {
+    id: "stale",
+    kind: "review",
+    provider: "claude",
+    model: "claude-opus-4-8",
+    spawnedAt: NOW - 2 * H24,
+    completedAt: null,
+    input: 100,
+  });
+
+  const bd = await buildUsageBreakdown({ store, range: "24h", now: NOW, apiKey: false });
+
+  expect(bd.models.claude.byRole).toEqual({
+    recap: Object.fromEntries(accepted.map((model) => [model, 1])),
+  });
+  expect(bd.models.claude.totalTokens).toBe(accepted.length);
+});
 
 test("repo→task grouping, sorting, field mapping", async () => {
   const store = new SessionStore(":memory:");
@@ -842,7 +1030,11 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task24h!.tokens.input).toBe(300);
   expect(task24h!.tokens.output).toBe(100);
   expect(task24h!.authoringUnits).toBeCloseTo(recentWu, 10);
-  expect(bd24h.models.claude).toEqual({ totalTokens: 400, byModel: { [model]: 400 } });
+  expect(bd24h.models.claude).toEqual({
+    totalTokens: 400,
+    byModel: { [model]: 400 },
+    byRole: { coding: { [model]: 400 } },
+  });
 
   // 30d: both buckets (old hour is 48h ago, within 30d)
   const bd30d = await buildUsageBreakdown({ store, range: "30d", now: NOW, apiKey: false });
@@ -851,7 +1043,11 @@ test("persisted windowed sub-session: 24h returns only recent hour; 30d/all retu
   expect(task30d!.tokens.input).toBe(800);
   expect(task30d!.tokens.output).toBe(300);
   expect(task30d!.authoringUnits).toBeCloseTo(totalWu, 10);
-  expect(bd30d.models.claude).toEqual({ totalTokens: 1100, byModel: { [model]: 1100 } });
+  expect(bd30d.models.claude).toEqual({
+    totalTokens: 1100,
+    byModel: { [model]: 1100 },
+    byRole: { coding: { [model]: 1100 } },
+  });
 
   // all: uses aggregate row → same total
   const bdAll = await buildUsageBreakdown({ store, range: "all", now: NOW, apiKey: false });

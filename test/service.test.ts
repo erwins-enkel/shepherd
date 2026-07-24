@@ -4275,6 +4275,53 @@ test("archiveMany forces a probe refresh per detect, not once per batch (#1912)"
   expect(refreshCalls.every((c) => c.force === true)).toBe(true);
 });
 
+test("archiveMany skips the probe refresh when the backend can't produce leftovers (#1912)", async () => {
+  // On darwin both leftover classes short-circuit, so `detect` can never hit.
+  // Refreshing anyway would cost one full-host `lsof` scan PER SESSION at teardown.
+  const store = new SessionStore(":memory:");
+  const refreshCalls: Array<{ force?: boolean }> = [];
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      branchExists: () => false,
+      remove: () => {},
+    } as any,
+    herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
+    reaper: {
+      detect: () => [],
+      reap: () => {},
+      stopListenersOnPort: () => ({ signalled: 0, unsupported: true }),
+      canDetectLeftovers: () => false,
+      refresh: async (opts) => {
+        refreshCalls.push(opts ?? {});
+      },
+      health: () => ({ state: "none" as const, driven: false }),
+    },
+  });
+  const mk = (name: string, term: string) =>
+    store.create({
+      name,
+      prompt: "p",
+      repoPath: "/r",
+      baseBranch: "main",
+      branch: `shepherd/${name}`,
+      worktreePath: `/wt/${name}`,
+      isolated: true,
+      herdrSession: "default",
+      herdrAgentId: term,
+    });
+  const a = mk("a", "term_a");
+  const b = mk("b", "term_b");
+
+  await svc.archiveMany([a.id, b.id]);
+
+  // Not one spawn — the detector structurally cannot return a hit.
+  expect(refreshCalls).toEqual([]);
+});
+
 function injectDeps(store: SessionStore, captured: { argv?: string[] }, isolated = true) {
   return {
     store,

@@ -159,6 +159,36 @@ test("darwin probes: a truncated run leaves the cell untouched, never stamping i
   expect(probes.snapshotState()).toBe("stale");
 });
 
+test("darwin probes: a run parsing to ZERO processes is not stamped fresh", async () => {
+  // `-d cwd` selects every visible process, so an empty parse means the run wasn't
+  // usable — not "nothing is running". Stamping it would assert a negative verdict
+  // about every process on the host: all sessions dead, all port sets empty, and
+  // `liveProcCwds` returning [] into a FAIL-OPEN guard.
+  const probes = makeDarwinProbes({ run: async () => "", now: () => 1_000_000 });
+  await probes.refresh();
+  expect(probes.snapshotState()).toBe("none");
+  expect(probes.scanProcs()).toEqual([]); // empty because UNKNOWN, not because fresh-and-empty
+});
+
+test("darwin probes: an empty parse never overwrites a good snapshot", async () => {
+  let clock = 1_000_000;
+  let mode: "ok" | "empty" = "ok";
+  const probes = makeDarwinProbes({
+    run: async () => (mode === "empty" ? "" : REAL_FIXTURE),
+    now: () => clock,
+  });
+  await probes.refresh();
+  const good = probes.scanProcs().length;
+  expect(good).toBeGreaterThan(0);
+
+  mode = "empty";
+  clock += 5000;
+  await probes.refresh({ force: true });
+  expect(probes.scanProcs().length).toBe(good); // last good snapshot retained
+  clock = 1_000_000 + 12_001;
+  expect(probes.snapshotState()).toBe("stale"); // aged honestly, not re-stamped
+});
+
 // ── makeDarwinProbes: cell + snapshotState ───────────────────────────────────
 
 /** A runner returning a fixed snapshot, tracking call count. */

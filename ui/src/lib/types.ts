@@ -1275,9 +1275,13 @@ export interface UsageKindUnits {
   count: number; // number of completed passes of that kind, in range
 }
 
+export type UsageRole = "coding" | "review" | "plan_gate" | "recap" | "rundown" | "doc_agent";
+export type UsageByRole = Partial<Record<UsageRole, Record<string, number>>>;
+
 export interface UsageModelBreakdown {
   totalTokens: number;
   byModel: Record<string, number>;
+  byRole: UsageByRole;
 }
 
 /** Top-level breakdown — serves the Spend + Overhead lenses. */

@@ -1,6 +1,8 @@
 import { basename } from "node:path";
 import type { SessionStore } from "./store";
+import { MODELS } from "./types";
 import type {
+  UsageByRole,
   UsageRange,
   UsageBreakdown,
   UsageKindUnits,
@@ -12,6 +14,9 @@ import type {
 import { isOperationalArchetype } from "./usage-archetype";
 import { jsonlPathFor, sessionCost, dominantModel, SessionUsageRollup } from "./usage";
 import { weightedUnits } from "./pricing";
+
+const CLAUDE_MODEL_ALIASES = new Set<string>(MODELS);
+const CLAUDE_FULL_MODEL_ID = /^claude-(?:opus|sonnet|haiku)(?:-\d+)+$/i;
 
 /** Internal accumulator — public fields + private cacheRead accumulators. */
 interface TaskAccum {
@@ -221,6 +226,92 @@ function satelliteUnitsByKind(
   return [...byKind.entries()]
     .map(([kind, b]) => ({ kind, units: b.units, count: b.count }))
     .sort((a, b) => b.units - a.units);
+}
+
+function usableModel(model: string | null): string | null {
+  const normalized = model?.trim();
+  if (!normalized || normalized === "<synthetic>") return null;
+  return normalized;
+}
+
+function isLegacyClaudeModel(model: string): boolean {
+  return CLAUDE_MODEL_ALIASES.has(model) || CLAUDE_FULL_MODEL_ID.test(model);
+}
+
+function codingUsageByModel(taskMap: Map<string, TaskAccum>): Record<string, number> {
+  const coding: Record<string, number> = {};
+  for (const task of taskMap.values()) {
+    for (const [rawModel, tokens] of Object.entries(task.rawByModel)) {
+      const model = usableModel(rawModel);
+      if (!model || tokens <= 0) continue;
+      coding[model] = (coding[model] ?? 0) + tokens;
+    }
+  }
+  return coding;
+}
+
+function spawnRawTokens(spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number]): number {
+  return (
+    (spawn.inputTokens ?? 0) +
+    (spawn.outputTokens ?? 0) +
+    (spawn.cacheReadTokens ?? 0) +
+    (spawn.cacheWriteTokens ?? 0)
+  );
+}
+
+function claudeSpawnModel(
+  spawn: ReturnType<SessionStore["listReviewerSpawns"]>[number],
+  cutoff: number,
+): string | null {
+  if (spawn.totalTokens == null) return null;
+  if ((spawn.completedAt ?? spawn.spawnedAt) < cutoff) return null;
+  const model = usableModel(spawn.model);
+  if (!model) return null;
+  if (spawn.reviewerProvider === "claude") return model;
+  if (spawn.reviewerProvider == null && isLegacyClaudeModel(model)) return model;
+  return null;
+}
+
+function claudeSpawnUsageByRole(
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole: UsageByRole = {};
+  for (const sp of spawns) {
+    const model = claudeSpawnModel(sp, cutoff);
+    if (!model) continue;
+
+    const tokens = spawnRawTokens(sp);
+    if (tokens <= 0) continue;
+
+    const role = byRole[sp.kind] ?? {};
+    role[model] = (role[model] ?? 0) + tokens;
+    byRole[sp.kind] = role;
+  }
+
+  return byRole;
+}
+
+function claudeUsageByRole(
+  taskMap: Map<string, TaskAccum>,
+  spawns: ReturnType<SessionStore["listReviewerSpawns"]>,
+  cutoff: number,
+): UsageByRole {
+  const byRole = claudeSpawnUsageByRole(spawns, cutoff);
+  const coding = codingUsageByModel(taskMap);
+  if (Object.keys(coding).length > 0) byRole.coding = coding;
+  return byRole;
+}
+
+function foldModels(byRole: UsageByRole): Record<string, number> {
+  const byModel: Record<string, number> = {};
+  for (const models of Object.values(byRole)) {
+    if (!models) continue;
+    for (const [model, tokens] of Object.entries(models)) {
+      byModel[model] = (byModel[model] ?? 0) + tokens;
+    }
+  }
+  return byModel;
 }
 
 /** Group task accumulators by repo, sort within each repo, and produce public repo breakdowns. */
@@ -437,16 +528,13 @@ export async function buildUsageBreakdown(opts: {
   // Global per-kind satellite tally — spawn-timestamp-filtered, independent of attribution.
   const satelliteByKind = satelliteUnitsByKind(spawns, cutoff);
 
-  const claudeByModel: Record<string, number> = {};
-  for (const task of taskMap.values()) {
-    for (const [model, tokens] of Object.entries(task.rawByModel)) {
-      claudeByModel[model] = (claudeByModel[model] ?? 0) + tokens;
-    }
-  }
+  const claudeByRole = claudeUsageByRole(taskMap, spawns, cutoff);
+  const claudeByModel = foldModels(claudeByRole);
   const codexByModel = opts.codexModelUsage?.(cutoff) ?? {};
-  const modelBreakdown = (byModel: Record<string, number>) => ({
+  const modelBreakdown = (byModel: Record<string, number>, byRole: UsageByRole = {}) => ({
     totalTokens: Object.values(byModel).reduce((sum, tokens) => sum + tokens, 0),
     byModel,
+    byRole,
   });
 
   return {
@@ -456,7 +544,7 @@ export async function buildUsageBreakdown(opts: {
     satelliteByKind,
     dollars: apiKey ? totals.totalUnits : null,
     models: {
-      claude: modelBreakdown(claudeByModel),
+      claude: modelBreakdown(claudeByModel, claudeByRole),
       codex: modelBreakdown(codexByModel),
     },
     repos,

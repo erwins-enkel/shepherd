@@ -3,6 +3,7 @@ import {
   parseLsofFields,
   makeDarwinProbes,
   commBasename,
+  lsofOutcome,
   type LsofRunner,
 } from "../src/proc-probes-darwin";
 import { makeDefaultProbes } from "../src/process-reaper";
@@ -96,6 +97,66 @@ c`);
 
 test("parseLsofFields: empty input → no processes", () => {
   expect(parseLsofFields("")).toEqual([]);
+});
+
+// ── lsofOutcome: truncated output must never be treated as complete ──────────
+
+test("lsofOutcome: a clean run resolves its stdout", () => {
+  expect(lsofOutcome(null, REAL_FIXTURE)).toEqual({ ok: true, stdout: REAL_FIXTURE });
+});
+
+test("lsofOutcome: a plain non-zero exit WITH output is complete (lsof exits 1 on no match)", () => {
+  const err = Object.assign(new Error("exit 1"), { code: 1 });
+  expect(lsofOutcome(err, REAL_FIXTURE)).toEqual({ ok: true, stdout: REAL_FIXTURE });
+});
+
+test("lsofOutcome: a TIMEOUT-killed run is rejected even though it printed output", () => {
+  // The regression: Node sets killed/signal when the 3s timeout fires. Resolving
+  // this partial output would stamp the cell fresh over an INCOMPLETE process list,
+  // turning every missing process into a false negative (husk/stranded, torn-down
+  // previews, a weakened fail-open live-cwd guard).
+  const err = Object.assign(new Error("timeout"), { killed: true, signal: "SIGKILL" });
+  expect(lsofOutcome(err, REAL_FIXTURE)).toEqual({ ok: false, reason: "truncated" });
+});
+
+test("lsofOutcome: a maxBuffer overflow is rejected (output cut mid-stream)", () => {
+  const err = Object.assign(new Error("maxBuffer"), {
+    code: "ERR_CHILD_PROCESS_STDIO_MAXBUFFER",
+  });
+  expect(lsofOutcome(err, REAL_FIXTURE)).toEqual({ ok: false, reason: "truncated" });
+});
+
+test("lsofOutcome: a spawn failure with no output is rejected", () => {
+  const err = Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+  expect(lsofOutcome(err, "")).toEqual({ ok: false, reason: "failed" });
+});
+
+test("darwin probes: a truncated run leaves the cell untouched, never stamping it fresh", async () => {
+  let clock = 1_000_000;
+  let mode: "ok" | "truncate" = "ok";
+  const probes = makeDarwinProbes({
+    run: async () => {
+      if (mode === "truncate") {
+        // What the real runner now does for a killed/over-buffered run.
+        throw Object.assign(new Error("timeout"), { killed: true, signal: "SIGKILL" });
+      }
+      return REAL_FIXTURE;
+    },
+    now: () => clock,
+  });
+  await probes.refresh();
+  const good = probes.scanProcs().length;
+  expect(good).toBeGreaterThan(0);
+
+  mode = "truncate";
+  clock += 5000;
+  await probes.refresh({ force: true });
+  // The last good snapshot is retained in full — not narrowed to the partial read.
+  expect(probes.scanProcs().length).toBe(good);
+  // And the success stamp did NOT advance, so the cell ages honestly into "stale"
+  // rather than presenting a truncated list as authoritative.
+  clock = 1_000_000 + 12_001;
+  expect(probes.snapshotState()).toBe("stale");
 });
 
 // ── makeDarwinProbes: cell + snapshotState ───────────────────────────────────

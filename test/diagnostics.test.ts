@@ -110,7 +110,7 @@ function healthyDeps(): DiagnosticsDeps {
     // preview_probes (#1912): backend healthy + cell fresh → ok. Pinned so the row is
     // deterministic regardless of the test host's real /proc/lsof state.
     runPreviewProbe: async () => "ok",
-    probeHealth: () => "fresh",
+    probeHealth: () => ({ state: "fresh", driven: true }),
   };
 }
 
@@ -2004,6 +2004,35 @@ describe("classifyPreviewProbes (#1912)", () => {
     }
   });
 
+  it("an UNDRIVEN cell is optional, not warning — an idle host must not pin the pip yellow", () => {
+    // The poller only refreshes while some session has a worktree, so on an idle
+    // host (including a healthy brand-new install) the cell ages out BY DESIGN.
+    // `optional` ranks 0 in STATE_RANK, so overall stays ok.
+    for (const cell of ["none", "stale"] as const) {
+      expect(classifyPreviewProbes("ok", cell, false)).toEqual({
+        id: "preview_probes",
+        state: "optional",
+        hintKey: "diagnostics_hint_preview_probes_idle",
+      });
+    }
+  });
+
+  it("a probe failure still warns even when undriven — a broken lsof is a real fault", () => {
+    expect(classifyPreviewProbes("unavailable", "none", false).state).toBe("warning");
+  });
+
+  it("an idle host keeps the overall snapshot ok (no permanent yellow pip)", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      runPreviewProbe: async () => "ok",
+      probeHealth: () => ({ state: "stale", driven: false }),
+    });
+    const snap = await svc.check(0);
+    const row = snap.checks.find((c) => c.id === "preview_probes");
+    expect(row?.state).toBe("optional");
+    expect(snap.overall).toBe("ok");
+  });
+
   it("an unsupported platform warns unsupported", () => {
     expect(classifyPreviewProbes("unsupported", "none")).toEqual({
       id: "preview_probes",
@@ -2017,7 +2046,7 @@ describe("classifyPreviewProbes (#1912)", () => {
     // cell is frozen by 3s refresh timeouts → the check must still warn.
     const svc = new DiagnosticsService({
       runPreviewProbe: async () => "ok",
-      probeHealth: () => "stale",
+      probeHealth: () => ({ state: "stale", driven: true }),
     });
     const snap = await svc.check(0);
     const row = snap.checks.find((c) => c.id === "preview_probes");

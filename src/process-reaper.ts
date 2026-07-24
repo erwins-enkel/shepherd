@@ -113,6 +113,14 @@ export interface ReaperProbes {
    */
   snapshotState?(): "none" | "stale" | "fresh";
   /**
+   * Is anything currently driving refreshes of the backing snapshot? Absent ⇒ true
+   * (Linux/fakes read live `/proc`, so they are never "undriven"). A snapshot
+   * backend goes undriven on an idle host — the poller only refreshes when some
+   * session has a worktree — which is expected, not a fault. Lets the Diagnose row
+   * separate "nobody asked recently" from "asked, and it's lagging".
+   */
+  refreshAttemptedRecently?(): boolean;
+  /**
    * Normalise a stored worktree root before comparing it against probe-reported
    * cwds. Absent ⇒ identity (Linux `/proc/<pid>/cwd` is already canonical). The
    * darwin backend realpaths, because lsof's `fcwd` is the kernel-resolved path
@@ -671,9 +679,14 @@ export class ProcessReaper {
   }
 
   /** Health of the backing snapshot, for the Diagnose `preview_probes` row and the
-   *  preview-start affordance. A pure cell read — never spawns. */
-  health(): { state: "none" | "stale" | "fresh" } {
-    return { state: this.probes.snapshotState?.() ?? "fresh" };
+   *  preview-start affordance. A pure cell read — never spawns. `driven` is false
+   *  when nothing has asked for a refresh recently (an idle host), which the
+   *  Diagnose row treats as "not currently exercised" rather than a fault. */
+  health(): { state: "none" | "stale" | "fresh"; driven: boolean } {
+    return {
+      state: this.probes.snapshotState?.() ?? "fresh",
+      driven: this.probes.refreshAttemptedRecently?.() ?? true,
+    };
   }
 
   /**

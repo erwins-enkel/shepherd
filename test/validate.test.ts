@@ -263,11 +263,12 @@ test("unknown agentProvider rejected", () => {
   if (!r.ok) expect(r.error).toMatch(/agentProvider/);
 });
 
-test("1M-context aliases accepted and passed through verbatim", () => {
-  // Fails on pre-fix code: before opus[1m]/sonnet[1m] were added to MODELS the
-  // validator rejected them as "unknown model". The bracketed token must pass
-  // through unchanged so it reaches --model intact.
-  for (const alias of ["opus[1m]", "sonnet[1m]"]) {
+test("1M-context and pinned model aliases accepted and passed through verbatim", () => {
+  // Fails on pre-fix code: before opus[1m]/sonnet[1m] (and later the pinned
+  // claude-opus-5 names) were added to MODELS the validator rejected them as
+  // "unknown model". The token must pass through unchanged so it reaches --model
+  // intact — bracket suffix and full-model-name hyphens alike.
+  for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1m]"]) {
     const r = validateCreate(
       { repoPath: validRepo, baseBranch: "main", prompt: "go", model: alias },
       root,

@@ -300,8 +300,28 @@ export interface RelaunchOverrides {
  *  The "[1m]" suffix is a valid `--model` value that enables Claude Code's
  *  1M-context-window beta (verified: it adds the context-1m beta header,
  *  whereas the bare alias does not); it passes straight through to --model
- *  with no mapping layer. Each 1M variant sits next to its 200K base. */
-const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+ *  with no mapping layer. Each 1M variant sits next to its 200K base.
+ *
+ *  Two KINDS of entry live here, and the difference is the point:
+ *    - FLOATING aliases ("fable"/"opus"/"sonnet"/"haiku") resolve to whatever the
+ *      installed CLI calls the latest model of that tier — `--model opus` reaches
+ *      the API as `claude-opus-5` today.
+ *    - PINNED full model names ("claude-opus-5") lock the exact version, so a
+ *      future Opus release can't silently change a task's model. The short form
+ *      `opus-5` is NOT a valid CLI value (it errors) — only the full name is.
+ *  Both forms were probed against the pinned CLI: `claude-opus-5[1m]` sends wire
+ *  model `claude-opus-5` with a beta set byte-identical to `opus[1m]`'s, i.e. it
+ *  really does carry `context-1m-2025-08-07`. */
+const CLAUDE_MODELS = [
+  "fable",
+  "opus",
+  "opus[1m]",
+  "claude-opus-5",
+  "claude-opus-5[1m]",
+  "sonnet",
+  "sonnet[1m]",
+  "haiku",
+] as const;
 
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;

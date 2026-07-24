@@ -12,6 +12,7 @@ import {
   fixDiagnostic,
 } from "$lib/api";
 import { toasts } from "$lib/toasts.svelte";
+import { roleTitle } from "$lib/settings-search";
 
 // Mock the API so Settings never hits the network. The settings GET is seeded to
 // land on api-key mode WITH a key configured, so the api-key block + Verify button
@@ -399,6 +400,43 @@ describe("Settings default coding environment", () => {
       expect(
         toasts.items.some((toast) => toast.text === m.settings_default_codex_model_save_failed()),
       ).toBe(true),
+    );
+  });
+
+  // The role "Effective:" line states what the role WILL run on, so it must use the
+  // configured label ("Opus (latest)") and match the picker above it — not the record
+  // label a session card shows. Reverting resolvedRoleEnv() to modelLabel() renders a
+  // bare "opus" here and fails this.
+  //
+  // Three preconditions, each of which would otherwise make this vacuous or wrong:
+  //  - seed a CONCRETE defaultModel: the shared fixture uses "auto", which takes the
+  //    provider-default branch and never reaches the model label at all;
+  //  - compose the provider half from settings_cli_claude() — the panel's own
+  //    providerLabel() uses it, not agent_provider_claude() (identical text today, so
+  //    the wrong key would pass while pinning a key this panel never calls);
+  //  - scope to ONE role row: every inherit-CLI role renders identical text, so a bare
+  //    getByText matches several. Anchoring on the row's per-role CLI combobox pins the
+  //    assertion to a role rather than to DOM order (which an nth/first would).
+  it("shows a role's effective environment with the configured model label", async () => {
+    mockGetSettings.mockResolvedValue(
+      settings({ defaultAgentProvider: "claude", defaultModel: "opus", criticCli: "inherit" }),
+    );
+    await mountCodingAgents();
+
+    const { disclosure, button } = requiredCodingSectionButton(m.settings_role_models_title());
+    if (button.getAttribute("aria-expanded") === "false") await disclosure.click();
+
+    const cli = page.getByRole("combobox", {
+      name: m.settings_role_cli_label({ role: roleTitle("critic") }),
+    });
+    await expect.element(cli).toHaveValue("inherit");
+
+    const row = (cli.query() as HTMLElement | null)?.closest(".rrow");
+    expect(row, "critic role row").not.toBeNull();
+    expect(row!.textContent).toContain(
+      m.settings_role_model_effective({
+        model: `${m.settings_cli_claude()} · ${m.model_configured_opus_latest()}`,
+      }),
     );
   });
 });

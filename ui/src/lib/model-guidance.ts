@@ -1,4 +1,4 @@
-import { modelLabel } from "$lib/model-label";
+import { configuredModelLabel } from "$lib/model-label";
 import { m } from "$lib/paraglide/messages";
 import type { AgentProvider } from "$lib/types";
 
@@ -100,6 +100,16 @@ function claudeGuidance(model: string): {
         tag: "longContext",
         detail: m.model_guidance_claude_opus_1m(),
       };
+    // Pinned Opus 5 mirrors the tier/fit of the floating alias it pins — same model,
+    // same price; only the version-drift guarantee differs.
+    case "claude-opus-5":
+      return { costTier: "high", tag: "strong", detail: m.model_guidance_claude_opus_5() };
+    case "claude-opus-5[1m]":
+      return {
+        costTier: "premium",
+        tag: "longContext",
+        detail: m.model_guidance_claude_opus_5_1m(),
+      };
     case "sonnet":
       return { costTier: "standard", tag: "balanced", detail: m.model_guidance_claude_sonnet() };
     case "sonnet[1m]":
@@ -183,7 +193,10 @@ export function modelGuidanceAlias(model: string, fableAvailable: boolean): stri
   return model === "fable" && !fableAvailable ? "opus[1m]" : model;
 }
 
+/** Picker option row: label · fit · cost. Uses the CONFIGURED label (an option is a
+ *  choice for a run that hasn't happened), so the floating `opus` row reads "Opus
+ *  (latest)" and is distinguishable from the pinned "Opus 5" row beside it. */
 export function modelOptionLabel(provider: AgentProvider, model: string): string {
   const g = modelGuidance(provider, model);
-  return `${modelLabel(model)} · ${g.tag} · ${g.costMark}`;
+  return `${configuredModelLabel(model)} · ${g.tag} · ${g.costMark}`;
 }

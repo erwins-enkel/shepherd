@@ -21,7 +21,7 @@ import {
   resolveProviderDefaultModelSetting,
 } from "../src/default-model";
 import { readCodexAuthMode } from "../src/codex-auth";
-import { CODEX_MODELS, MODELS } from "../src/types";
+import { CODEX_MODEL_RE, CODEX_MODELS, MODELS } from "../src/types";
 
 describe("normalizeDefaultModelSetting", () => {
   test("accepts 'auto'", () => {
@@ -126,14 +126,15 @@ describe("drainSpawnModel", () => {
     expect(drainSpawnModel("haiku")).toBe("haiku");
   });
 
-  test("1M aliases round-trip unchanged into the spawn flag", () => {
+  test("1M and pinned aliases round-trip unchanged into the spawn flag", () => {
     // The drain/autopilot default-model setting space must accept and pass through
     // the bracketed 1M aliases so an operator can set 1M Opus/Sonnet as an unattended
-    // default. Fails on pre-fix code (the aliases weren't in MODELS/SETTING_VALUES).
-    expect(normalizeDefaultModelSetting("opus[1m]")).toBe("opus[1m]");
-    expect(normalizeDefaultModelSetting("sonnet[1m]")).toBe("sonnet[1m]");
-    expect(drainSpawnModel("opus[1m]")).toBe("opus[1m]");
-    expect(drainSpawnModel("sonnet[1m]")).toBe("sonnet[1m]");
+    // default, and the pinned full model names so an unattended default can be locked
+    // to an exact Opus version. Fails on pre-fix code (not in MODELS/SETTING_VALUES).
+    for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1m]"]) {
+      expect(normalizeDefaultModelSetting(alias)).toBe(alias);
+      expect(drainSpawnModel(alias)).toBe(alias);
+    }
   });
 });
 
@@ -142,6 +143,14 @@ describe("modelCompatibleWithProvider", () => {
     expect(modelCompatibleWithProvider("opus", "codex")).toBe(false);
     expect(modelCompatibleWithProvider("opus[1m]", "codex")).toBe(false);
     expect(modelForProviderOrDefault("opus", "codex")).toBeNull();
+    // The pinned full model names matter most here: unlike the bare aliases they DO
+    // satisfy CODEX_MODEL_RE, so membership in the closed Claude set is the only thing
+    // keeping them out of the Codex value space. That coupling is load-bearing — it is
+    // what lets Codex stay permissive without the two spaces overlapping.
+    expect(CODEX_MODEL_RE.test("claude-opus-5")).toBe(true);
+    expect(modelCompatibleWithProvider("claude-opus-5", "codex")).toBe(false);
+    expect(modelCompatibleWithProvider("claude-opus-5[1m]", "codex")).toBe(false);
+    expect(modelForProviderOrDefault("claude-opus-5", "codex")).toBeNull();
   });
 
   test("Codex accepts curated aliases and safe future aliases", () => {

@@ -1979,8 +1979,20 @@ export interface HeldResult {
 
 /** Selectable Claude model aliases; null = Claude's own default.
  *  The "[1m]" suffix enables Claude Code's 1M-context window and passes straight
- *  through to --model; each 1M variant sits next to its 200K base. */
-const CLAUDE_MODELS = ["fable", "opus", "opus[1m]", "sonnet", "sonnet[1m]", "haiku"] as const;
+ *  through to --model; each 1M variant sits next to its 200K base.
+ *  Floating aliases ("opus") track the latest model of their tier; pinned full
+ *  names ("claude-opus-5") lock an exact version. Mirrors src/types.ts
+ *  CLAUDE_MODELS — keep both lists identical (see the note there). */
+const CLAUDE_MODELS = [
+  "fable",
+  "opus",
+  "opus[1m]",
+  "claude-opus-5",
+  "claude-opus-5[1m]",
+  "sonnet",
+  "sonnet[1m]",
+  "haiku",
+] as const;
 
 /** Back-compat alias used throughout the existing Claude default-model settings. */
 export const MODELS = CLAUDE_MODELS;
@@ -2015,9 +2027,16 @@ export const MODELS_BY_PROVIDER: Record<AgentProvider, readonly string[]> = {
 /** The premium-priced tiers among MODELS. Selecting one as the default makes every
  *  autonomous auto-spawn run that tier, so the Settings picker surfaces a cost warning.
  *  Kept next to MODELS so adding a new premium model classifies it in one place.
- *  Both 1M variants are premium: the >200K long-context regime is the unattended-default
+ *  Every 1M variant is premium: the >200K long-context regime is the unattended-default
  *  cost case the warning exists for, so sonnet[1m] is premium even though plain sonnet is not. */
-export const PREMIUM_MODELS: readonly string[] = ["fable", "opus", "opus[1m]", "sonnet[1m]"];
+export const PREMIUM_MODELS: readonly string[] = [
+  "fable",
+  "opus",
+  "opus[1m]",
+  "claude-opus-5",
+  "claude-opus-5[1m]",
+  "sonnet[1m]",
+];
 
 export interface Steer {
   id: string;

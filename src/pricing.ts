@@ -15,9 +15,12 @@ interface ModelWeights {
 
 const TABLE: { match: RegExp; w: ModelWeights }[] = [
   {
-    // Opus 4.8 — $5/$25 per Mtok. (Was 15/75, the retired Claude 3 Opus price;
-    // that stale value made the premium Fable tier look cheaper than Opus and
-    // undercounted Opus consumption relative to Sonnet/Haiku.)
+    // Opus — $5/$25 per Mtok. Unchanged across the current Opus generation
+    // (Opus 5 lists at the same $5/$25 as 4.8), and the /opus/i match already
+    // covers both the floating alias and the pinned `claude-opus-5` model id.
+    // (Was 15/75, the retired Claude 3 Opus price; that stale value made the
+    // premium Fable tier look cheaper than Opus and undercounted Opus
+    // consumption relative to Sonnet/Haiku.)
     match: /opus/i,
     w: { input: 5, output: 25, cacheRead: 0.5, cacheWrite5m: 6.25, cacheWrite1h: 10 },
   },

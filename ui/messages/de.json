@@ -1094,6 +1094,10 @@
   "settings_default_model_premium_warning": "Diese Modellstufe ist premium. Alle autonomen Drain- und Autopilot-Starts laufen unbeaufsichtigt auf diesem Kostenniveau.",
   "settings_default_model_1m_note": "Das 1-Mio.-Kontextfenster verarbeitet pro Runde deutlich mehr Tokens und erhöht so die Kosten jedes unbeaufsichtigten Starts. Die 1-Mio.-Stufe von Sonnet wird über Nutzungsguthaben abgerechnet.",
   "model_label_opus_1m": "Opus (1 Mio. Kontext)",
+  "model_label_opus_5": "Opus 5",
+  "model_label_opus_5_1m": "Opus 5 (1 Mio. Kontext)",
+  "model_configured_opus_latest": "Opus (neuestes)",
+  "model_configured_opus_1m_latest": "Opus (neuestes, 1 Mio. Kontext)",
   "model_label_sonnet_1m": "Sonnet (1 Mio. Kontext)",
   "feat_model_1m_title": "Opus & Sonnet bieten jetzt 1 Mio. Kontext",
   "feat_model_1m_body": "Wähle „Opus (1 Mio. Kontext)“ oder „Sonnet (1 Mio. Kontext)“ in jedem Modell-Auswahlmenü — Neue Aufgabe, der globale Standard oder die Automatisierungseinstellungen eines Repos — um Sitzungen mit dem 1-Millionen-Token-Kontextfenster auszuführen. Es ist eine Premium-Stufe: Das größere Fenster bedeutet höhere Token-Kosten pro Runde, wähle es daher für wirklich kontextintensive Arbeit.",
@@ -2621,8 +2625,10 @@
   "model_guidance_downgrade_context_note": "Ein Herabstufungsmodell sollte günstiger sein als deine normale Stufe; Haiku ist die vorgesehene Sparwahl.",
   "model_guidance_unknown": "Nur relative Kostenorientierung. Die tatsächlichen Kosten hängen von Auth-Modus, Konto und Token-Volumen ab.",
   "model_guidance_claude_fable": "Für die härtesten, langlaufenden Aufgaben. Höchste Qualität, höchste unbeaufsichtigte Kosten.",
-  "model_guidance_claude_opus": "Für PR-Kritik, Planung oder riskante Refactors, die mehr Urteilsvermögen als Sonnet brauchen.",
-  "model_guidance_claude_opus_1m": "Nur wählen, wenn Transcript oder Repo-Kontext wirklich 1 Mio. Kontext brauchen.",
+  "model_guidance_claude_opus": "Immer das neueste Opus. Für PR-Kritik, Planung oder riskante Refactors, die mehr Urteilsvermögen als Sonnet brauchen.",
+  "model_guidance_claude_opus_1m": "Neuestes Opus mit 1 Mio. Kontext. Nur wählen, wenn Transcript oder Repo-Kontext das wirklich brauchen.",
+  "model_guidance_claude_opus_5": "Fixiert genau Opus 5, damit ein künftiges Opus-Release dieses Modell nicht still ändert.",
+  "model_guidance_claude_opus_5_1m": "Opus 5 fixiert, mit 1 Mio. Kontext. Für Läufe mit großem Kontext reservieren.",
   "model_guidance_claude_sonnet": "Ausgewogener Standard für alltägliches Coding, Reviews und Recaps.",
   "model_guidance_claude_sonnet_1m": "Sonnet-Verhalten mit 1 Mio. Kontext. Für große Kontextläufe reservieren.",
   "model_guidance_claude_haiku": "Günstig und schnell. Gut für Naming und Klassifizierer, schwach für primäres Coding.",
@@ -3400,5 +3406,7 @@
   "feat_video_attachments_title": "Bildschirmaufnahmen anhängen",
   "feat_video_attachments_body": "Das Upload-Limit liegt jetzt bei 250 MB – eine kommentierte Bildschirmaufnahme vom Smartphone passt damit bequem. Hänge Videos in „Neue Aufgabe“ an oder ziehe sie ins Terminal einer laufenden Session – der Agent bekommt einen Hinweis, wie er Frames und Ton extrahiert, um sie wirklich auszuwerten.",
   "feat_steers_settings_section_title": "Steers bekommen einen eigenen Einstellungsbereich",
-  "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten."
+  "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten.",
+  "feat_opus_5_pin_title": "Opus 5 exakt fixieren",
+  "feat_opus_5_pin_body": "Die Modellauswahl bietet jetzt zusätzlich Opus 5 und Opus 5 (1 Mio. Kontext). Die einfachen Opus-Einträge folgen immer dem neuesten Opus-Release; ein fixierter Eintrag legt genau diese Version fest, damit ein künftiges Release nicht still ändert, womit Task, Repo-Standard oder Rolle laufen."
 }

@@ -697,13 +697,15 @@ test("createSession: codex research spawn omits the manual-steps notice", async 
   expect(hasManualNotice(calls.start.argv)).toBe(false);
 });
 
-// Regression: the 1M-context model aliases ("opus[1m]"/"sonnet[1m]") must reach the
-// claude CLI as a single, unmodified `--model <alias>` argv pair through the REAL spawn
-// builder. The whole path is array-argv (no shell), so the brackets cannot be glob-expanded
-// or word-split — this pins that. Fails on pre-fix code, where validate rejects the alias
-// before create() is ever reached.
-for (const alias of ["opus[1m]", "sonnet[1m]"] as const) {
-  test(`createSession: 1M alias ${alias} survives the spawn argv as one --model pair`, async () => {
+// Regression: every non-trivial model value must reach the claude CLI as a single,
+// unmodified `--model <value>` argv pair through the REAL spawn builder. Two shapes are
+// covered: the bracketed 1M aliases ("opus[1m]"/"sonnet[1m]") — the whole path is
+// array-argv (no shell), so the brackets cannot be glob-expanded or word-split — and the
+// pinned full model names ("claude-opus-5"), whose hyphens must not be mistaken for flags
+// or split. Fails on pre-fix code, where validate rejects the value before create() is
+// ever reached.
+for (const alias of ["opus[1m]", "sonnet[1m]", "claude-opus-5", "claude-opus-5[1m]"] as const) {
+  test(`createSession: model alias ${alias} survives the spawn argv as one --model pair`, async () => {
     const store = new SessionStore(":memory:");
     const calls: any = {};
     const service = new SessionService({
@@ -746,8 +748,8 @@ for (const alias of ["opus[1m]", "sonnet[1m]"] as const) {
 
     expect(s.model).toBe(alias);
     const argv: string[] = calls.argv;
-    // Exactly one --model flag, and the value is the literal bracketed alias verbatim
-    // (one array element — never two, never de-bracketed, never glob-expanded).
+    // Exactly one --model flag, and the value is the literal alias verbatim (one array
+    // element — never two, never de-bracketed, never glob-expanded, never split on -).
     const flagIdxs = argv.flatMap((a, i) => (a === "--model" ? [i] : []));
     expect(flagIdxs).toHaveLength(1);
     expect(argv[flagIdxs[0]! + 1]).toBe(alias);

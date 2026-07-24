@@ -13,7 +13,7 @@
     verifyApiKey,
   } from "$lib/api";
   import { verifyFailureMessage } from "$lib/verify-key";
-  import { modelLabel } from "$lib/model-label";
+  import { configuredModelLabel } from "$lib/model-label";
   import { modelGuidanceAlias, modelOptionLabel } from "$lib/model-guidance";
   import {
     effortLabel,
@@ -260,7 +260,9 @@
       modelLbl = m.settings_role_model_effective_provider_default();
     } else {
       model = modelGuidanceAlias(token, fableAvailable);
-      modelLbl = modelLabel(model);
+      // Configured label: this line states what the role WILL use, so it must match
+      // the picker above it ("Opus (latest)"), not the record label a session card shows.
+      modelLbl = configuredModelLabel(model);
     }
     return { provider, model, label: `${providerLabel(provider)} · ${modelLbl}` };
   }

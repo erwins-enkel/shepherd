@@ -1094,6 +1094,10 @@
   "settings_default_model_premium_warning": "This model tier is premium. All autonomous drain and autopilot spawns will run at this cost unattended.",
   "settings_default_model_1m_note": "The 1M context window processes far more tokens per turn, raising the cost of every unattended spawn. Sonnet's 1M tier draws from usage credits.",
   "model_label_opus_1m": "Opus (1M context)",
+  "model_label_opus_5": "Opus 5",
+  "model_label_opus_5_1m": "Opus 5 (1M context)",
+  "model_configured_opus_latest": "Opus (latest)",
+  "model_configured_opus_1m_latest": "Opus (latest, 1M context)",
   "model_label_sonnet_1m": "Sonnet (1M context)",
   "feat_model_1m_title": "Opus & Sonnet now offer 1M context",
   "feat_model_1m_body": "Pick \"Opus (1M context)\" or \"Sonnet (1M context)\" from any model picker — New Task, the global default, or a repo's automation settings — to run sessions with the 1-million-token context window. It's a premium tier: the larger window means higher per-turn token cost, so choose it for genuinely large-context work.",
@@ -2621,8 +2625,10 @@
   "model_guidance_downgrade_context_note": "A downgrade target should be cheaper than your normal tier; Haiku is the intended cap-saving choice.",
   "model_guidance_unknown": "Relative cost guidance only. Actual spend depends on auth mode, account, and token volume.",
   "model_guidance_claude_fable": "Use for the hardest long-running work. Highest quality, highest unattended burn.",
-  "model_guidance_claude_opus": "Use for PR criticism, planning, or risky refactors that need stronger judgment than Sonnet.",
-  "model_guidance_claude_opus_1m": "Use only when the transcript or repo context truly needs 1M context.",
+  "model_guidance_claude_opus": "Always the latest Opus. Use for PR criticism, planning, or risky refactors that need stronger judgment than Sonnet.",
+  "model_guidance_claude_opus_1m": "Latest Opus with 1M context. Use only when the transcript or repo context truly needs it.",
+  "model_guidance_claude_opus_5": "Pins Opus 5 exactly, so a future Opus release can't quietly change this model.",
+  "model_guidance_claude_opus_5_1m": "Opus 5 pinned, with 1M context. Reserve it for large-context runs.",
   "model_guidance_claude_sonnet": "Balanced default for everyday coding, reviews, and recaps.",
   "model_guidance_claude_sonnet_1m": "Sonnet behavior with 1M context. Reserve it for large-context runs.",
   "model_guidance_claude_haiku": "Cheap and fast. Best for naming and classifiers, weak for primary coding.",
@@ -3400,5 +3406,7 @@
   "feat_video_attachments_title": "Attach screen recordings",
   "feat_video_attachments_body": "The upload limit is now 250 MB, so a narrated screen recording from your phone fits comfortably. Attach videos in New Task or drop them into a running session's terminal — the agent gets a hint on how to extract frames and audio to actually watch them.",
   "feat_steers_settings_section_title": "Steers get their own settings section",
-  "feat_steers_settings_section_body": "Saved Steers now live under Settings → Steers. Session controls stay focused, while the pencil and steer context menu still open the same editor and preserve the selected steer."
+  "feat_steers_settings_section_body": "Saved Steers now live under Settings → Steers. Session controls stay focused, while the pencil and steer context menu still open the same editor and preserve the selected steer.",
+  "feat_opus_5_pin_title": "Pin Opus 5 exactly",
+  "feat_opus_5_pin_body": "Model pickers now offer Opus 5 and Opus 5 (1M context) alongside the existing Opus rows. The plain Opus entries always track the newest Opus release; picking a pinned one locks that exact version, so a future release can't quietly change what a task, repo default, or role runs on."
 }

@@ -117,6 +117,93 @@ async function pollForVerdict(
   return null;
 }
 
+type ReportFailure = (message: string, err: unknown) => void;
+
+function failureReporter(warn: NonNullable<ClassifierDeps["warn"]>): ReportFailure {
+  return (message, err) => {
+    try {
+      warn(message, err);
+    } catch {
+      /* logging must not change the classifier verdict or teardown */
+    }
+  };
+}
+
+interface ClassifierTeardownState {
+  cwd: string | null;
+  terminalId: string | null;
+  sessionId: string | null;
+  spawnedAt: number | null;
+  spawnAccountDir?: string;
+}
+
+interface ClassifierTeardownDeps {
+  herdr: ClassifierDeps["herdr"];
+  store: ClassifierDeps["store"];
+  taskSessionId: string;
+  readUsage: NonNullable<ClassifierDeps["readUsage"]>;
+  cleanup: NonNullable<ClassifierDeps["cleanup"]>;
+  reportFailure: ReportFailure;
+  provider: AgentProvider;
+  model: string | null;
+  effort: string | null;
+  now: () => number;
+}
+
+async function teardownClassifier(
+  state: ClassifierTeardownState,
+  deps: ClassifierTeardownDeps,
+): Promise<void> {
+  const { cwd, terminalId, sessionId, spawnedAt, spawnAccountDir } = state;
+  try {
+    if (!terminalId) return;
+
+    try {
+      await deps.herdr.stop(terminalId);
+    } catch (err) {
+      deps.reportFailure("[autopilot] classifier stop failed:", err);
+    }
+
+    if (!cwd || !sessionId) return;
+    let usage = ZEROED_USAGE;
+    try {
+      usage = (await deps.readUsage(cwd, sessionId, spawnAccountDir)) ?? ZEROED_USAGE;
+    } catch (err) {
+      deps.reportFailure("[autopilot] classifier usage read failed:", err);
+    }
+
+    try {
+      deps.store.recordReviewerSpawn({
+        reviewerSessionId: sessionId,
+        taskSessionId: deps.taskSessionId,
+        kind: "classifier",
+        worktreePath: cwd,
+        reviewerProvider: deps.provider,
+        model: deps.model,
+        reviewerEffort: deps.effort,
+        spawnedAt: spawnedAt ?? deps.now(),
+      });
+    } catch (err) {
+      deps.reportFailure("[autopilot] classifier usage record failed:", err);
+      return;
+    }
+
+    try {
+      deps.store.completeReviewerSpawn(sessionId, usage, deps.now());
+    } catch (err) {
+      deps.reportFailure("[autopilot] classifier usage completion failed:", err);
+    }
+  } finally {
+    if (cwd) {
+      try {
+        deps.cleanup(cwd);
+      } catch (err) {
+        deps.reportFailure("[autopilot] classifier cleanup failed:", err);
+      }
+    }
+  }
+}
+
 /**
  * Classify why an agent stopped, via a transient interactive `claude` (subscription OAuth —
  * NOT `claude -p`). Spawns the classifier model in a fresh temp dir with only the Write
@@ -148,13 +235,7 @@ export async function classifyStop(
     timeoutMs = 120_000,
     pollMs = 1_000,
   } = deps;
-  const reportFailure = (message: string, err: unknown): void => {
-    try {
-      warn(message, err);
-    } catch {
-      /* logging must not change the classifier verdict or teardown */
-    }
-  };
+  const reportFailure = failureReporter(warn);
 
   // Fail closed: in Anthropic api-key mode without a configured key, a Claude spawn must NOT bill
   // the subscription — surface to the operator rather than auto-classifying on the wrong footing.
@@ -185,56 +266,20 @@ export async function classifyStop(
     const raw = await pollForVerdict(readVerdict, cwd, { now, sleep, timeoutMs, pollMs });
     return normalize(raw);
   } finally {
-    try {
-      if (terminalId) {
-        try {
-          await deps.herdr.stop(terminalId);
-        } catch (err) {
-          reportFailure("[autopilot] classifier stop failed:", err);
-        }
-
-        let usage = ZEROED_USAGE;
-        if (cwd && classifierSessionId) {
-          try {
-            usage = (await readUsage(cwd, classifierSessionId, spawnAccountDir)) ?? ZEROED_USAGE;
-          } catch (err) {
-            reportFailure("[autopilot] classifier usage read failed:", err);
-          }
-
-          let recorded = false;
-          try {
-            deps.store.recordReviewerSpawn({
-              reviewerSessionId: classifierSessionId,
-              taskSessionId: deps.taskSessionId,
-              kind: "classifier",
-              worktreePath: cwd,
-              reviewerProvider: provider,
-              model,
-              reviewerEffort: effort,
-              spawnedAt: spawnedAt ?? now(),
-            });
-            recorded = true;
-          } catch (err) {
-            reportFailure("[autopilot] classifier usage record failed:", err);
-          }
-
-          if (recorded) {
-            try {
-              deps.store.completeReviewerSpawn(classifierSessionId, usage, now());
-            } catch (err) {
-              reportFailure("[autopilot] classifier usage completion failed:", err);
-            }
-          }
-        }
-      }
-    } finally {
-      if (cwd) {
-        try {
-          cleanup(cwd);
-        } catch (err) {
-          reportFailure("[autopilot] classifier cleanup failed:", err);
-        }
-      }
-    }
+    await teardownClassifier(
+      { cwd, terminalId, sessionId: classifierSessionId, spawnedAt, spawnAccountDir },
+      {
+        herdr: deps.herdr,
+        store: deps.store,
+        taskSessionId: deps.taskSessionId,
+        readUsage,
+        cleanup,
+        reportFailure,
+        provider,
+        model,
+        effort,
+        now,
+      },
+    );
   }
 }

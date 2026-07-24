@@ -55,3 +55,5 @@ jobs:
         run: node scripts/check-glossary.mjs
       - name: Announcement versions (new entry ⇒ unreleased version)
         run: node scripts/check-announcement-versions.mjs
+      - name: Model-list mirror (src/types.ts ↔ ui/src/lib/types.ts)
+        run: node scripts/check-model-mirror.mjs

@@ -397,6 +397,12 @@ function buildLanes(
         args: ["scripts/check-announcement-versions.mjs"],
         cwd: repoRoot,
       },
+      {
+        label: "model mirror",
+        cmd: "node",
+        args: ["scripts/check-model-mirror.mjs"],
+        cwd: repoRoot,
+      },
       { label: "herdr types", cmd: "bun", args: ["run", "check:herdr-types"], cwd: repoRoot },
     ],
   });

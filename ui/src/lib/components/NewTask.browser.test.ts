@@ -2687,6 +2687,57 @@ describe("NewTask manual provider change (preserved reset semantics)", () => {
 });
 
 describe("NewTask geometry (measurable handoff criteria)", () => {
+  function expectReadableRepoIdentity(container: HTMLElement) {
+    const name = container.querySelector<HTMLElement>(".rs-name")!;
+    const path = container.querySelector<HTMLElement>(".rs-path")!;
+    const owner = container.querySelector<HTMLElement>(".rs-owner")!;
+    const nameRect = name.getBoundingClientRect();
+    const pathRect = path.getBoundingClientRect();
+    const ownerRect = owner.getBoundingClientRect();
+
+    expect(name.textContent).toBe("mein-repository");
+    expect(owner.textContent).toBe("Erwins-Enkel");
+    expect(nameRect.right).toBeLessThanOrEqual(pathRect.left);
+    expect(pathRect.right).toBeLessThanOrEqual(ownerRect.left);
+    expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth);
+    expect(owner.scrollWidth).toBeLessThanOrEqual(owner.clientWidth);
+    expectMinPx(pathRect.width, 40, "repo path visible width");
+    expect(path.scrollWidth).toBeGreaterThan(path.clientWidth);
+    expect(getComputedStyle(path).textOverflow).toBe("ellipsis");
+    expect(getComputedStyle(owner).color).toBe(getComputedStyle(path).color);
+  }
+
+  it("keeps repo name and owner visible around an ellipsized path in trigger and panel", async () => {
+    await page.viewport(1280, 800);
+    const repo: RepoEntry = {
+      name: "mein-repository-local-copy",
+      remoteSlug: "Erwins-Enkel/mein-repository",
+      path: "/repo/mein-repository-local-copy",
+      display:
+        "~/projects/client-work/active/very-long-local-checkout-name/mein-repository-local-copy",
+      realPath: "/repo/mein-repository-local-copy",
+    };
+    mockListRepos.mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
+    render(NewTask, { props: base({ initialRepoPath: repo.path }) });
+
+    await expect.poll(() => document.querySelector(".repo-chip .rs-owner")?.textContent).toBe(
+      "Erwins-Enkel",
+    );
+    const card = document.querySelector<HTMLElement>("form.card")!;
+    const trigger = document.querySelector<HTMLElement>(".repo-chip .rs-trigger")!;
+    expectReadableRepoIdentity(trigger);
+
+    trigger.click();
+    await expect.poll(() => document.querySelector(".repo-chip .rs-panel")).toBeTruthy();
+    const panel = document.querySelector<HTMLElement>(".repo-chip .rs-panel")!;
+    const row = panel.querySelector<HTMLElement>(".rs-row")!;
+    expectReadableRepoIdentity(row);
+
+    expect(Math.round(panel.getBoundingClientRect().width)).toBe(560);
+    expect(Math.round(card.getBoundingClientRect().width)).toBe(880);
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(1280);
+  });
+
   // Fixture A (desktop, Claude): autogrow-capped prompt + 8 chips + diverged notice +
   // submit error + hold-likely dual CTA — every state individually realizable together.
   it("fixture A: desktop 1280×800 — card 880, rail 300, surface + no overflow", async () => {

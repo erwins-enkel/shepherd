@@ -1964,18 +1964,18 @@
   /* Chip-style the existing RepoSelect trigger without touching its internals. */
   .repo-chip {
     position: relative;
-    flex-shrink: 0;
+    flex: 0 1 360px;
+    max-width: 360px;
     min-width: 0;
   }
   .repo-chip :global(.rs-root) {
-    width: auto;
+    width: 100%;
   }
   .repo-chip :global(.rs-trigger) {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    width: auto;
-    max-width: 34ch;
+    width: 100%;
     border: 1px solid var(--color-line);
     background: var(--color-panel-2);
     border-radius: 2px;
@@ -1986,13 +1986,13 @@
   .repo-chip :global(.rs-trigger b) {
     font-weight: 600;
     max-width: 22ch;
-    flex-shrink: 1;
+    flex-shrink: 0;
   }
-  .repo-chip :global(.rs-trigger .dim) {
-    display: none;
+  .repo-chip :global(.rs-trigger .rs-path) {
+    min-width: 40px;
   }
   .repo-chip :global(.rs-panel) {
-    min-width: 320px;
+    min-width: 560px;
   }
   .ctx-from {
     flex-shrink: 0;
@@ -2034,7 +2034,8 @@
   }
   .ctx-hint {
     margin-left: auto;
-    flex-shrink: 0;
+    flex: 1 1 0;
+    min-width: 0;
     font-size: var(--fs-micro);
     color: var(--color-faint);
     white-space: nowrap;

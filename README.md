@@ -644,10 +644,7 @@ roadmap.
 
 Sessions are spawned with `claude --session-id <uuid>`, so each TASK maps deterministically to its
 `~/.claude/projects/<cwd>/<uuid>.jsonl`; the Viewport shows live per-session token counts parsed
-from it. Codex totals come from its local state database; Shepherd correlates new role spawns with
-their provider thread IDs and reconciles per-role usage to the authoritative per-model totals, with
-historically unattributable usage reported as Coding. The TopBar's 5h/weekly gauges are calibrated
-once a day by scraping `claude /usage` (driven
+from it. The TopBar's 5h/weekly gauges are calibrated once a day by scraping `claude /usage` (driven
 through an ephemeral interactive session — ToS-pure, no `-p`) to learn the plan ceilings, then the
 `%` is recomputed live from local JSONL between calibrations. No dollar figures (you're on a
 subscription); pricing is used only internally as relative weights for the limit math. Override the

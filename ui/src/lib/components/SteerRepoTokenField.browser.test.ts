@@ -61,6 +61,16 @@ describe("SteerRepoTokenField — contract-driven filter + ranking", () => {
     // 2 selected of 5 unique candidate names (locale-agnostic assertion)
     expect(document.querySelector(".count")?.textContent?.trim()).toMatch(/2\D+5/);
   });
+
+  it("gives the combobox an accessible name from the visible field label", () => {
+    render(SteerRepoTokenField, { value: undefined, repos, onchange: vi.fn() });
+    const input = document.querySelector<HTMLInputElement>('.tinput[role="combobox"]')!;
+    const labelledby = input.getAttribute("aria-labelledby");
+    expect(labelledby, "combobox is labelledby").toBeTruthy();
+    const label = document.getElementById(labelledby!);
+    expect(label, "referenced label element exists").not.toBeNull();
+    expect(label!.textContent?.trim(), "label carries the localized field name").toBeTruthy();
+  });
 });
 
 describe("SteerRepoTokenField — scope state machine", () => {

@@ -28,6 +28,7 @@
 
   const idBase = `steer-repos-${nextId()}`;
   const listboxId = `${idBase}-listbox`;
+  const labelId = `${idBase}-label`;
 
   let rootEl = $state<HTMLDivElement | null>(null);
   let inputEl = $state<HTMLInputElement | null>(null);
@@ -168,7 +169,7 @@
 
 <div class="visible-on" bind:this={rootEl} onfocusout={onRootFocusout}>
   <div class="label-row">
-    <span class="flabel">{m.steerseditor_field_visible_on()}</span>
+    <span class="flabel" id={labelId}>{m.steerseditor_field_visible_on()}</span>
     {#if !isAll}
       <span class="count">{m.steerseditor_repo_count_of({ n: selected.length, total })}</span>
     {/if}
@@ -204,6 +205,7 @@
       bind:this={inputEl}
       class="tinput"
       role="combobox"
+      aria-labelledby={labelId}
       aria-expanded={showMenu}
       aria-controls={listboxId}
       aria-activedescendant={showMenu ? `${idBase}-opt-${activeOption}` : undefined}

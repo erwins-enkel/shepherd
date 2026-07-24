@@ -1,5 +1,7 @@
 import { test, expect } from "bun:test";
-import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MIRRORED_CONSTANTS,
@@ -168,6 +170,37 @@ test("reports every diverged constant, not just the first", () => {
   expect(deltas.map((d) => d.constant)).toEqual(["CLAUDE_MODELS", "EFFORTS"]);
   expect(deltas[0]!.onlyInUi).toEqual(["haiku"]);
   expect(deltas[1]!.orderMismatch).toBe(true);
+});
+
+// ── the CLI entry point ──────────────────────────────────────────────────────
+
+test("the CLI actually runs (and fails) from a checkout path containing a space", () => {
+  // REGRESSION GUARD. A `import.meta.url === `file://${process.argv[1]}`` main-guard
+  // compares a PERCENT-ENCODED url against a raw path, so on a checkout whose path
+  // holds a space (or #, %, non-ASCII) the CLI block never ran: the gate exited 0
+  // having compared nothing — the exact vacuous pass this script exists to prevent.
+  // Exit 1 here proves the block ran, since "never ran" also exits 0.
+  const dir = mkdtempSync(join(tmpdir(), "shepherd model mirror "));
+  expect(dir).toContain(" "); // the whole point of the case
+  try {
+    for (const d of ["scripts", "src", join("ui", "src", "lib")]) {
+      mkdirSync(join(dir, d), { recursive: true });
+    }
+    const script = join(dir, "scripts", "check-model-mirror.mjs");
+    copyFileSync(join(ROOT, "scripts", "check-model-mirror.mjs"), script);
+
+    // Divergent halves, so a CLI that genuinely runs must exit 1.
+    const halves = (claude: string[]) =>
+      src("CLAUDE_MODELS", claude) + src("CODEX_MODELS", ["gpt-5"]) + src("EFFORTS", ["low"]);
+    writeFileSync(join(dir, "src", "types.ts"), halves(["opus"]));
+    writeFileSync(join(dir, "ui", "src", "lib", "types.ts"), halves(["opus", "haiku"]));
+
+    const r = spawnSync("node", [script], { encoding: "utf8" });
+    expect(r.status).toBe(1);
+    expect(`${r.stdout}${r.stderr}`).toContain("haiku");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // ── the live tree ────────────────────────────────────────────────────────────

@@ -198,8 +198,12 @@ export function compareMirror(serverSource, uiSource, constants = MIRRORED_CONST
     const onlyInServer = server.filter((v) => !ui.includes(v));
     const onlyInUi = ui.filter((v) => !server.includes(v));
     // Only meaningful once membership matches: same elements, different sequence.
+    // The separator is written as the ESCAPE "\0", never a literal NUL byte — an
+    // embedded NUL makes this file binary to grep/ripgrep/file(1) (matching lines
+    // are suppressed) and invisible in review. NUL is the separator because it
+    // cannot occur in a model alias, so no pair of distinct lists can join equal.
     const orderMismatch =
-      onlyInServer.length === 0 && onlyInUi.length === 0 && server.join(" ") !== ui.join(" ");
+      onlyInServer.length === 0 && onlyInUi.length === 0 && server.join("\0") !== ui.join("\0");
 
     if (onlyInServer.length || onlyInUi.length || orderMismatch) {
       deltas.push({ constant, missingIn: [], onlyInServer, onlyInUi, orderMismatch });
@@ -247,7 +251,13 @@ function formatDelta(delta) {
   return lines;
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+// `fileURLToPath` rather than string-concatenating `file://` + argv[1]: import.meta.url
+// is PERCENT-ENCODED, so on any checkout path containing a space, `#`, `%` or non-ASCII
+// the concat comparison is false, the CLI block never runs, and the gate exits 0 having
+// checked nothing — the exact vacuous pass this script exists to prevent. Same idiom as
+// scripts/json-union-merge.mjs. (scripts/next-version.mjs still uses the concat form.)
+const isMain = Boolean(process.argv[1]) && fileURLToPath(import.meta.url) === process.argv[1];
+if (isMain) {
   const serverSource = readFileSync(join(ROOT, SERVER_REL), "utf8");
   const uiSource = readFileSync(join(ROOT, UI_REL), "utf8");
   const { ok, deltas } = compareMirror(serverSource, uiSource);

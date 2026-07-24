@@ -39,6 +39,8 @@ import { computeDiff } from "./diff";
 import { parseActivity, readTranscriptTail } from "./activity";
 import { jsonlPathFor } from "./usage";
 import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
+import { config } from "./config";
+import { claudeConfigPath, readRepoRootTrusted, trustRepoRoot } from "./claude-trust";
 import {
   parseRecapVerdict,
   buildTranscriptDigest,
@@ -234,6 +236,11 @@ function defaultCleanup(cwd: string): void {
   }
 }
 
+async function defaultPrepareClaudeTrust(cwd: string, claudeDir: string): Promise<void> {
+  const configPath = claudeConfigPath(process.env.HOME ?? "", claudeDir);
+  if (!(await readRepoRootTrusted(configPath, cwd))) await trustRepoRoot(configPath, cwd);
+}
+
 /** The recap spawn's argv — the shared `writer-only` transient-agent shape (model defaults to
  *  "sonnet" at the call site). The input is the session transcript (UNTRUSTED); bare `Write` is safe
  *  via the sandbox shape, not an input-trust claim. See buildTransientAgentArgv for the rationale. */
@@ -301,6 +308,7 @@ export interface RecapServiceDeps {
     headSha: string,
   ) => Promise<LandedWorkEvidence | null> | LandedWorkEvidence | null;
   makeTmpDir?: () => string;
+  prepareClaudeTrust?: (cwd: string, claudeDir: string) => Promise<void>;
   cleanup?: (cwd: string) => void;
 }
 
@@ -342,6 +350,7 @@ export class RecapService {
     headSha: string,
   ) => Promise<LandedWorkEvidence | null> | LandedWorkEvidence | null;
   private _makeTmpDir: () => string;
+  private _prepareClaudeTrust: (cwd: string, claudeDir: string) => Promise<void>;
   private _cleanup: (cwd: string) => void;
 
   /** Per-session settled-idle debounce: stamp + fired-this-episode flag. */
@@ -385,6 +394,7 @@ export class RecapService {
     this._headContainedInBase = optional(deps.headContainedInBase, defaultHeadContainedInBase);
     this._landedWorkEvidence = optional(deps.landedWorkEvidence, () => null);
     this._makeTmpDir = optional(deps.makeTmpDir, defaultMakeTmpDir);
+    this._prepareClaudeTrust = optional(deps.prepareClaudeTrust, defaultPrepareClaudeTrust);
     this._cleanup = optional(deps.cleanup, defaultCleanup);
   }
 
@@ -809,11 +819,22 @@ export class RecapService {
       // (#1852) — resolving by cwd later yields "" once the agent exited.
       const cwd = this._makeTmpDir();
       try {
+        const spawnEnv = apiKeyPassthroughEnv(false);
+        if (env.provider === "claude") {
+          try {
+            await this._prepareClaudeTrust(
+              cwd,
+              spawnEnv?.CLAUDE_CONFIG_DIR ?? config.claudeDir,
+            );
+          } catch (err) {
+            console.warn("[recap] trust pre-seed failed; continuing", err);
+          }
+        }
         const started = await this.deps.herdr.start(
           `recap ${session.desig}`,
           cwd,
           argv,
-          apiKeyPassthroughEnv(false),
+          spawnEnv,
         );
         this.generatingTerminals.set(cwd, started.terminalId);
       } catch (err) {

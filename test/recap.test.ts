@@ -1,4 +1,7 @@
 import { expect, test, beforeEach, afterEach } from "bun:test";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { RecapService, sanitizeRecapFailureDetail } from "../src/recap";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { DiffResult, Recap, Session } from "../src/types";
@@ -275,6 +278,8 @@ function buildSvc(opts: {
   timeoutMs?: number;
   cleanup?: (d: string) => void;
   makeTmpDir?: () => string;
+  prepareClaudeTrust?: (cwd: string, claudeDir: string) => Promise<void>;
+  useDefaultPrepareClaudeTrust?: boolean;
   readUsage?: () => Promise<any>;
   resolveBase?: (s: Session) => Promise<{ base: string; resolved: boolean }>;
   computeDiff?: (worktreePath: string, base: string, branch: string | null) => Promise<any>;
@@ -311,6 +316,9 @@ function buildSvc(opts: {
     headContainedInBase: opts.headContainedInBase,
     landedWorkEvidence: opts.landedWorkEvidence,
     makeTmpDir: opts.makeTmpDir ?? (() => `/tmp/recap-test-${++tmpIdx}`),
+    ...(opts.useDefaultPrepareClaudeTrust
+      ? {}
+      : { prepareClaudeTrust: opts.prepareClaudeTrust ?? (async () => {}) }),
     cleanup: opts.cleanup ?? (() => {}),
   });
 }
@@ -459,6 +467,7 @@ test("sweep: existing READY recap at headA; session re-activates then re-settles
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-headb",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 
@@ -1066,16 +1075,45 @@ test("generate: subscription mode — --settings unchanged + no env 4th arg", as
   });
 });
 
+test("generate: Claude prepares the fresh recap cwd before spawn", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  const events: string[] = [];
+  const start = herdr.start;
+  herdr.start = async (...args) => {
+    events.push("start");
+    return start(...args);
+  };
+  const seen: { cwd: string; claudeDir: string }[] = [];
+  const svc = buildSvc({
+    store: makeStore([s]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => "/tmp/r",
+    prepareClaudeTrust: async (cwd, claudeDir) => {
+      events.push("trust");
+      seen.push({ cwd, claudeDir });
+    },
+  });
+
+  await svc.regenerate(s);
+
+  expect(events).toEqual(["trust", "start"]);
+  expect(seen).toEqual([{ cwd: "/tmp/r", claudeDir: config.claudeDir }]);
+});
+
 test("generate: codex provider spawns headless `codex exec` (no claude flags)", async () => {
   const s = makeSession({ status: "idle" });
   const herdr = makeHerdr();
   const store = makeStore([s]);
+  let trustCalls = 0;
   const svc = buildSvc({
     store,
     herdr,
     nowFn: () => 1,
     makeTmpDir: () => "/tmp/r",
     env: () => ({ provider: "codex", model: "gpt-5.5", effort: "high" }),
+    prepareClaudeTrust: async () => void trustCalls++,
   });
   await svc.regenerate(s);
   const argv = herdr.started[0]!.argv;
@@ -1096,6 +1134,7 @@ test("generate: codex provider spawns headless `codex exec` (no claude flags)", 
     reviewerProvider: "codex",
     reviewerEffort: "high",
   });
+  expect(trustCalls).toBe(0);
 });
 
 test("generate: threads env.effort into the recap argv (issue #1418)", async () => {
@@ -1131,19 +1170,89 @@ test("generate: api-key mode — apiKeyHelper in --settings + CLAUDE_CONFIG_DIR 
   await withAuth("api-key", "/helper.sh", async () => {
     const s = makeSession({ status: "idle" });
     const herdr = makeHerdr();
+    let preparedConfigDir = "";
     const svc = buildSvc({
       store: makeStore([s]),
       herdr,
       nowFn: () => 1,
       makeTmpDir: () => "/tmp/r",
+      prepareClaudeTrust: async (_cwd, claudeDir) => {
+        preparedConfigDir = claudeDir;
+      },
     });
     await svc.regenerate(s);
     const argv = herdr.started[0]!.argv;
     const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]!);
     expect(settings.disableAllHooks).toBe(true);
     expect(settings.apiKeyHelper).toBe("/helper.sh");
-    expect(Object.keys(herdr.started[0]!.env!)).toEqual(["CLAUDE_CONFIG_DIR"]);
+    expect(herdr.started[0]!.env).toEqual({
+      CLAUDE_CONFIG_DIR: "/tmp/shepherd-test-apikey-config",
+    });
+    expect(preparedConfigDir).toBe(herdr.started[0]!.env!.CLAUDE_CONFIG_DIR);
   });
+});
+
+test("generate: default Claude trust preparation seeds the selected config file", async () => {
+  const root = await mkdtemp(join(tmpdir(), "recap-default-trust-"));
+  const mirror = join(root, "claude-config");
+  const cwd = join(root, "shepherd-recap-fixture");
+  const configPath = join(mirror, ".claude.json");
+
+  try {
+    await mkdir(mirror, { recursive: true });
+    await mkdir(cwd, { recursive: true });
+    await writeFile(configPath, JSON.stringify({ sentinel: "preserved", projects: {} }), "utf8");
+    __setApiKeyConfigDirProvisionForTest(() => mirror);
+    await withAuth("api-key", "/helper.sh", async () => {
+      const s = makeSession({ status: "idle" });
+      const herdr = makeHerdr();
+      const svc = buildSvc({
+        store: makeStore([s]),
+        herdr,
+        nowFn: () => 1,
+        makeTmpDir: () => cwd,
+        useDefaultPrepareClaudeTrust: true,
+      });
+
+      expect(await svc.regenerate(s)).toBe("started");
+      expect(herdr.started[0]!.env?.CLAUDE_CONFIG_DIR).toBe(mirror);
+      const saved = JSON.parse(await readFile(configPath, "utf8"));
+      expect(saved.sentinel).toBe("preserved");
+      expect(saved.projects[cwd].hasTrustDialogAccepted).toBe(true);
+    });
+  } finally {
+    __setApiKeyConfigDirProvisionForTest(() => "/tmp/shepherd-test-apikey-config");
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("generate: Claude trust preparation failure is best-effort", async () => {
+  const s = makeSession({ status: "idle" });
+  const herdr = makeHerdr();
+  let attempts = 0;
+  const warn = console.warn;
+  const warnings: unknown[][] = [];
+  console.warn = (...args) => warnings.push(args);
+  try {
+    const svc = buildSvc({
+      store: makeStore([s]),
+      herdr,
+      nowFn: () => 1,
+      makeTmpDir: () => "/tmp/r",
+      prepareClaudeTrust: async () => {
+        attempts++;
+        throw new Error("read-only config");
+      },
+    });
+
+    expect(await svc.regenerate(s)).toBe("started");
+  } finally {
+    console.warn = warn;
+  }
+  expect(attempts).toBe(1);
+  expect(herdr.started).toHaveLength(1);
+  expect(warnings).toHaveLength(1);
+  expect(warnings[0]![0]).toBe("[recap] trust pre-seed failed; continuing");
 });
 
 // ─── operator-language: per-spawn read, not frozen at construction (Task 5, issue #1586) ────
@@ -1172,6 +1281,7 @@ test("generate: reads operatorLanguage per spawn, not cached at construction", a
     readPlan: () => "",
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     makeTmpDir: () => "/tmp/r1",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 
@@ -1235,6 +1345,7 @@ test("regenerate: replaces an existing ready row", async () => {
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-regen",
+    prepareClaudeTrust: async () => {},
     cleanup: (d) => cleaned.push(d),
   });
 
@@ -1331,6 +1442,7 @@ test("in-flight guard: second generate call for same session mid-await does not 
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-inflight",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 
@@ -1772,6 +1884,7 @@ test("considerForArchive: headSha throws → 'error', no throw, no spawn", async
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-archive-err",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 
@@ -1854,6 +1967,7 @@ test("generate: computeDiff rejection → visible source failure", async () => {
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-diff-fail",
+    prepareClaudeTrust: async () => {},
     cleanup: (d) => cleaned.push(d),
   });
 
@@ -1887,6 +2001,7 @@ test("regenerate: headSha rejection → 'error', no throw", async () => {
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-head-fail",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 
@@ -1920,6 +2035,7 @@ test("considerSession: headSha failure leaves fired=false so next sweep retries"
     readVerdict: (): VerdictRead<unknown> => ({ status: "absent" }),
     readUsage: async () => null,
     makeTmpDir: () => "/tmp/recap-retry",
+    prepareClaudeTrust: async () => {},
     cleanup: () => {},
   });
 

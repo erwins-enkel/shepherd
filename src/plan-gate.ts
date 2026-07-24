@@ -381,6 +381,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "get"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
@@ -548,7 +549,11 @@ export class PlanGateService {
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultPlanAnchorSha;
     this.anchorStaleness = deps.anchorStaleness ?? defaultAnchorStaleness;
-    this.codexResolver = deps.codexResolver ?? createCodexRolloutResolver();
+    this.codexResolver =
+      deps.codexResolver ??
+      createCodexRolloutResolver((id, rid) =>
+        deps.store.setReviewerSpawnProviderSessionId(id, rid),
+      );
     this.readActivity =
       deps.readActivity ??
       ((wt, id, provider) => defaultReadActivity(wt, id, provider, this.codexResolver));

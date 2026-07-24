@@ -678,6 +678,26 @@ export class ProcessReaper {
     await this.probes.refresh?.(opts);
   }
 
+  /**
+   * Can `detect` yield anything at all on this backend? False when BOTH leftover
+   * classes are structurally short-circuited: class-2 when the backend cannot
+   * authorize a signal (offering un-killable processes would report phantom
+   * kills), class-3 when `listeningPorts` is absent (no uid-agnostic listener set
+   * to verify against). Both hold on darwin today.
+   *
+   * Callers use this to skip the refresh-before-`detect` that would otherwise pay a
+   * full-host `lsof` scan per session to feed a detector that cannot return a hit.
+   * It is a capability question, not a freshness one — keeping it here means the
+   * two short-circuit conditions stay in the one file that owns them, and the
+   * refresh re-enables itself automatically when #1922 arms the kill path rather
+   * than depending on someone remembering to restore it.
+   */
+  canDetectLeftovers(): boolean {
+    const classTwo = this.probes.canAuthorizeSignal !== false;
+    const classThree = this.probes.listeningPorts !== undefined;
+    return classTwo || classThree;
+  }
+
   /** Health of the backing snapshot, for the Diagnose `preview_probes` row and the
    *  preview-start affordance. A pure cell read — never spawns. `driven` is false
    *  when nothing has asked for a refresh recently (an idle host), which the

@@ -333,8 +333,29 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
       }
       return;
     }
+    const parsed = parseLsofFields(stdout);
+    // A run that parses to ZERO processes is NOT a valid "nothing is running"
+    // snapshot — `-d cwd` selects every process the caller can see, so on any live
+    // host the list is non-empty. An empty parse means the run produced nothing
+    // usable (output suppressed, an unexpected format, a sandbox denying process
+    // visibility). Stamping it would make `snapshotState()` report "fresh" for a
+    // list asserting nothing exists — the identical all-false negative-verdict
+    // hazard the truncation guard closes: every session reads `alive=false`
+    // (husk/stranded → auto-revive), every port set comes back empty (converge
+    // tears down bound previews), and `liveProcCwds` returns `[]` rather than
+    // `null` into the FAIL-OPEN tmp-sweep guard. So treat it as a failure: leave
+    // the cell untouched and let it age honestly into "stale". This also matches
+    // `defaultRunPreviewProbe` (src/diagnostics.ts), which already reports an
+    // empty parse as "unavailable" — the two must not disagree.
+    if (parsed.length === 0) {
+      if (startedAt - lastFailWarnAt >= FAIL_WARN_INTERVAL_MS) {
+        lastFailWarnAt = startedAt;
+        console.warn("[proc-probes-darwin] lsof returned no parseable processes; ignoring the run");
+      }
+      return;
+    }
     const procs = new Map<number, LsofProc>();
-    for (const p of parseLsofFields(stdout)) {
+    for (const p of parsed) {
       // Normalise the command to a BASENAME here, at the single point the cell is
       // built, so every probe that surfaces it (`scanProcs`, `commForPid`) matches
       // the Linux `/proc/<pid>/comm` semantics production compares against —

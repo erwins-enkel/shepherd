@@ -120,6 +120,30 @@ test("scanWorktreeProcs: WITH signal authority the same process is still offered
   expect(leftovers[0]).toMatchObject({ kind: "process", pid: 4242, port: 5173 });
 });
 
+// ── canDetectLeftovers: the gate that stops dead refresh cost ────────────────
+
+test("canDetectLeftovers: false when BOTH leftover classes short-circuit (darwin)", () => {
+  // No signal authority ⇒ class-2 suppressed; no listeningPorts ⇒ class-3 suppressed.
+  // `detect` therefore cannot return a hit, so callers must skip the refresh that
+  // would otherwise cost a full-host lsof scan per session at teardown.
+  expect(new ProcessReaper(darwinFake()).canDetectLeftovers()).toBe(false);
+});
+
+test("canDetectLeftovers: true as soon as EITHER class becomes possible", () => {
+  // class-2 re-armed (what #1922 will do)…
+  expect(new ProcessReaper(darwinFake({ canAuthorizeSignal: true })).canDetectLeftovers()).toBe(
+    true,
+  );
+  // …or a uid-agnostic listener set appears, re-enabling class-3.
+  expect(
+    new ProcessReaper(darwinFake({ listeningPorts: () => new Set([443]) })).canDetectLeftovers(),
+  ).toBe(true);
+});
+
+test("canDetectLeftovers: true for the Linux backend (live /proc, both classes live)", () => {
+  expect(new ProcessReaper(makeDefaultProbes("linux")).canDetectLeftovers()).toBe(true);
+});
+
 // ── the | null scan helpers ──────────────────────────────────────────────────
 
 test("scan helpers return null on a stale/none cell, not an all-false / empty map", () => {

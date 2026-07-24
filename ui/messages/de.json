@@ -3421,5 +3421,19 @@
   "steerseditor_remove_no_aria": "Entfernen abbrechen",
   "feat_steers_9c_redesign_title": "Neu gestalteter Steer-Editor",
   "feat_steers_9c_redesign_body": "Einstellungen → Steers ist jetzt ein Akkordeon — tippe einen Steer an, um ihn direkt zu bearbeiten. Der Repo-Geltungsbereich ist ein Token-Feld mit Tipphilfe und Ein-Klick-Vorschlägen, Platzierungen sind Checkboxen, und jede Änderung wird automatisch gespeichert, der Speichern-Button entfällt.",
-  "steerseditor_close_save_failed": "Steers nicht gespeichert: {reason}"
+  "steerseditor_close_save_failed": "Steers nicht gespeichert: {reason}",
+  "newtask_upload_progress_aria": "Fortschritt des Anhang-Uploads",
+  "newtask_upload_file_count": "Datei {current} von {total}",
+  "newtask_upload_percent": "{percent} %",
+  "newtask_upload_eta_calculating": "Restzeit wird berechnet…",
+  "newtask_upload_eta": "Noch {time}",
+  "newtask_upload_finishing": "Upload wird abgeschlossen…",
+  "newtask_upload_cta": "Lädt hoch · {percent} %",
+  "api_upload_http_error": "Upload mit Status {status} fehlgeschlagen",
+  "api_upload_network_error": "Netzwerkfehler beim Upload",
+  "api_upload_aborted": "Upload wurde abgebrochen",
+  "api_upload_timeout": "Zeitüberschreitung beim Upload",
+  "api_upload_invalid_response": "Der Upload-Server hat eine ungültige Antwort geliefert",
+  "feat_upload_progress_title": "Upload-Fortschritt für Anhänge sehen",
+  "feat_upload_progress_body": "Neue Aufgabe zeigt jetzt Fortschritt und geschätzte Restzeit für große Anhänge und hält Erstellen & Starten deaktiviert, bis jeder Upload bestätigt ist."
 }

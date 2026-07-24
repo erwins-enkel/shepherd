@@ -1,7 +1,7 @@
 import type { AgentProvider } from "$lib/types";
 
 export type ReadinessBlocker =
-  "empty_prompt" | "no_repo" | "base_missing" | "repairing" | "submitting";
+  "empty_prompt" | "no_repo" | "base_missing" | "repairing" | "uploading" | "submitting";
 
 export type ReadinessAdvisory = "checking" | "diverged" | "behind" | "hold_likely";
 
@@ -13,6 +13,7 @@ export interface ReadinessInput {
   repoResolved: boolean;
   baseMissing: boolean;
   repairing: boolean;
+  uploading: boolean;
   submitting: boolean;
   upstreamLoading: boolean;
   upstream: { diverged: boolean; behind: number } | null;
@@ -35,6 +36,7 @@ export interface Readiness {
  */
 function deriveBlocker(i: ReadinessInput): ReadinessBlocker | null {
   if (i.submitting) return "submitting";
+  if (i.uploading) return "uploading";
   if (i.repairing) return "repairing";
   if (!i.repoResolved) return "no_repo";
   if (i.baseMissing) return "base_missing";

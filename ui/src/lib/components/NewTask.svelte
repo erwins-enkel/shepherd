@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, tick } from "svelte";
+  import { flushSync, onMount, tick } from "svelte";
   import { MediaQuery } from "svelte/reactivity";
   import {
     listRepos,
@@ -999,15 +999,25 @@
     repoPath = list[(cur + dir + n) % n]!.path;
   }
 
-  /** ⌥R: on desktop the RepoSelect panel opens directly; on mobile RepoSelect lives
-   *  inside the context sheet, so the shortcut opens the sheet (closing the engine
-   *  sheet per the single-sheet invariant) and then the panel once mounted. */
-  async function openRepoPicker() {
+  /** Shared entry point for the mobile repo chip AND ⌥R. On desktop the RepoSelect
+   *  panel opens directly; on mobile RepoSelect lives inside the context sheet, so the
+   *  sheet opens first (closing the engine sheet per the single-sheet invariant) and
+   *  the panel once it's mounted.
+   *
+   *  flushSync, NOT `await tick()`: the chip is a touch gesture, and iOS Safari only
+   *  raises the software keyboard for a focus() that happens inside the gesture's own
+   *  synchronous call stack. flushSync drains the pending effects in-stack, so
+   *  RepoSelect's `open && filterInput` effect focuses the filter before this handler
+   *  returns. Never reintroduce an async hop here — it silently costs the keyboard.
+   *  (The sheet's use:dialog focus microtask runs afterwards but no-ops: its guard sees
+   *  focus already inside the sheet.) */
+  function openRepoPicker() {
     if (mobile) {
       activeSheet = "context";
-      await tick();
+      flushSync(); // mount the sheet + its RepoSelect
     }
     repoSelect?.openPanel();
+    flushSync(); // render the panel; RepoSelect's focus effect runs → filter focused
   }
 
   // Form-level keydown: ⌘/Ctrl+↵ submits from anywhere in the modal (handoff rule),
@@ -1037,7 +1047,7 @@
         break; // still swallow the chord below
       }
       case "KeyR":
-        void openRepoPicker();
+        openRepoPicker();
         break;
       default:
         return; // not ours — let it through untouched
@@ -1265,7 +1275,10 @@
       <span class="chead-title">{heading}</span>
       {#if mobile}
         <!-- Combined repo·branch chip: one control naming both payload-critical values;
-             opens the context sheet where each is independently editable. -->
+             opens the context sheet where each is independently editable. Changing the
+             repo is far more common than changing the branch, so the tap goes straight
+             through to the repo typeahead (sheet + panel + focused filter, one tap);
+             the branch control is still reachable below it in the same sheet. -->
         <button
           type="button"
           class="ctx-chip"
@@ -1275,7 +1288,7 @@
             repo: selectedRepoName || m.reposelect_placeholder(),
             branch: baseBranch,
           })}
-          onclick={() => (activeSheet = "context")}
+          onclick={openRepoPicker}
         >
           <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
           <b>{selectedRepoName || m.reposelect_placeholder()}</b>

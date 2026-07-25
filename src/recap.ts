@@ -240,6 +240,23 @@ async function defaultPrepareClaudeTrust(cwd: string, claudeDir: string): Promis
   if (!(await readRepoRootTrusted(configPath, cwd))) await trustRepoRoot(configPath, cwd);
 }
 
+const claudeTrustPreparationByConfig = new Map<string, Promise<void>>();
+
+async function serializeClaudeTrustPreparation(
+  configPath: string,
+  prepare: () => Promise<void>,
+): Promise<void> {
+  const previous = claudeTrustPreparationByConfig.get(configPath);
+  const current = (previous?.catch(() => undefined) ?? Promise.resolve()).then(prepare);
+  claudeTrustPreparationByConfig.set(configPath, current);
+  try {
+    await current;
+  } finally {
+    if (claudeTrustPreparationByConfig.get(configPath) === current)
+      claudeTrustPreparationByConfig.delete(configPath);
+  }
+}
+
 function defaultClaudeDir(): string {
   return process.env.CLAUDE_CONFIG_DIR ?? `${process.env.HOME}/.claude`;
 }
@@ -584,17 +601,18 @@ export class RecapService {
 
   // ── reapGenerating ───────────────────────────────────────────────────────────
 
-  /** Stop this recap run's pane, then always drop its cwd-keyed in-memory handle.
-   *  Prefer the terminalId captured at spawn (#1852); the cwd lookup only covers rows
-   *  adopted across a restart and safely resolves to "" after the agent has exited. */
+  /** Stop a generating run's pane — spawn-recorded terminalId first (#1852; the cwd
+   *  lookup is only for rows adopted across a restart and yields "" once the agent
+   *  exited, a safe stop() no-op) — then drop the in-memory handle. Keyed strictly by
+   *  the run's own cwd so a teardown racing a forced regenerate can never touch the
+   *  replacement run (see `generatingTerminals`). Never throws. */
   private async reapPane(cwd: string): Promise<void> {
     try {
       await this.deps.herdr.stop(this.generatingTerminals.get(cwd) ?? this.resolveTerminal(cwd));
     } catch {
       /* best-effort */
-    } finally {
-      this.generatingTerminals.delete(cwd);
     }
+    this.generatingTerminals.delete(cwd);
   }
 
   /** Reap any existing generating row for this session (stop pane + cleanup dir + drop row). */
@@ -718,7 +736,10 @@ export class RecapService {
   private async prepareClaudeTrust(cwd: string, provider: AgentProvider, claudeDir: string) {
     if (provider !== "claude") return;
     try {
-      await this._prepareClaudeTrust(cwd, claudeDir);
+      const configPath = claudeConfigPath(process.env.HOME ?? "", claudeDir);
+      await serializeClaudeTrustPreparation(configPath, () =>
+        this._prepareClaudeTrust(cwd, claudeDir),
+      );
     } catch (err) {
       console.warn("[recap] trust pre-seed failed; continuing", err);
     }

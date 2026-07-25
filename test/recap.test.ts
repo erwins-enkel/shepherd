@@ -1102,6 +1102,43 @@ test("generate: Claude prepares the fresh recap cwd before spawn", async () => {
   expect(seen).toEqual([{ cwd: "/tmp/r", claudeDir: config.claudeDir }]);
 });
 
+test("generate: serializes concurrent Claude trust preparation for one config", async () => {
+  const first = makeSession({ id: "s1", desig: "TASK-01" });
+  const second = makeSession({ id: "s2", desig: "TASK-02", claudeSessionId: "c2" });
+  const herdr = makeHerdr();
+  let tmpIndex = 0;
+  let active = 0;
+  let maxActive = 0;
+  let releaseFirst!: () => void;
+  let markFirstEntered!: () => void;
+  const firstEntered = new Promise<void>((resolve) => (markFirstEntered = resolve));
+  const firstMayFinish = new Promise<void>((resolve) => (releaseFirst = resolve));
+  const svc = buildSvc({
+    store: makeStore([first, second]),
+    herdr,
+    nowFn: () => 1,
+    makeTmpDir: () => `/tmp/r${++tmpIndex}`,
+    prepareClaudeTrust: async (cwd) => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      if (cwd === "/tmp/r1") {
+        markFirstEntered();
+        await firstMayFinish;
+      }
+      active--;
+    },
+  });
+
+  const firstRun = svc.regenerate(first);
+  await firstEntered;
+  const secondRun = svc.regenerate(second);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  releaseFirst();
+
+  expect(await Promise.all([firstRun, secondRun])).toEqual(["started", "started"]);
+  expect(maxActive).toBe(1);
+});
+
 test("generate: codex provider spawns headless `codex exec` (no claude flags)", async () => {
   const s = makeSession({ status: "idle" });
   const herdr = makeHerdr();

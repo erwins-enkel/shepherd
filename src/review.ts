@@ -30,6 +30,9 @@ import {
   type EpicContext,
 } from "./critic-core";
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
+// Generic secret-redactor for a bounded diagnostic string, despite the recap-flavoured name — the
+// critic's pane tail gets the same treatment before it reaches the log.
+import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 
@@ -146,7 +149,12 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "listReviewerSpawns"
     | "get"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab" | "paneForegroundProcs">;
+  // `readAsync` is diagnostics-only (the no-verdict pane tail) and is called defensively, so an
+  // injected fake may omit it — the read is guarded and degrades to no tail.
+  herdr: Pick<
+    HerdrDriver,
+    "start" | "stop" | "list" | "closeTab" | "paneForegroundProcs" | "readAsync"
+  >;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
@@ -806,6 +814,12 @@ export class ReviewService {
       }
       const raw: RawVerdict | null =
         action === "finalize-value" && read.status === "parsed" ? read.value : null;
+      // A null raw becomes an `error` verdict ("critic did not produce a verdict") that is
+      // otherwise INVISIBLE — before this, the only trace was the DB row, so a critic dying at the
+      // hard deadline on every retry looked like a black box. Mirrors the recap path's diagnostic
+      // (recap.ts) so the two failure modes read the same in the log. Awaited before finalize()
+      // because finalize's `finally` reaps the terminal, after which the pane tail is gone.
+      if (raw === null) await this.logNoVerdict(f, read);
       // f.finalizing stays true; always drop the entry, even if finalize throws — otherwise it
       // stays `finalizing=true` and every later tick `continue`s past it, wedging the session's
       // critic forever (and leaking its worktree/terminal).
@@ -814,6 +828,54 @@ export class ReviewService {
       } finally {
         this.inflight.delete(f.sessionId);
       }
+    }
+  }
+
+  /** Record WHY a run is about to finalize as an `error` verdict. The persisted verdict carries a
+   *  fixed summary ("critic did not produce a verdict") that cannot distinguish the two real
+   *  causes — the critic died/errored out early, or it was still working when the hard deadline
+   *  fired — and an operator re-triggering a review has no other signal. So log the environment,
+   *  the elapsed-vs-deadline that decided it, and (best-effort) the spawn's terminal tail, which is
+   *  where a CLI-level failure (expired login, weekly-limit refusal, a model the account can't use)
+   *  prints before exiting. Never throws: diagnostics must not strand a finalize. */
+  private async logNoVerdict(f: InFlight, read: VerdictRead<RawVerdict>): Promise<void> {
+    try {
+      const elapsed = Math.round((this.now() - f.startedAt) / 1000);
+      const deadline = Math.round(this.timeoutMs / 1000);
+      const cause =
+        read.status === "unparseable"
+          ? "verdict file present but unparseable even after jsonrepair"
+          : elapsed >= deadline
+            ? "hard timeout — critic still had no verdict file at the deadline"
+            : "spawn exited without writing a verdict file";
+      const tail = await this.readPaneTail(f.terminalId);
+      console.warn(
+        `[review] ${f.sessionId}: no usable verdict (${cause}). ` +
+          `spawn=${f.criticSessionId || "<none>"} pr=#${f.prNumber} cwd=${f.worktreePath} ` +
+          `provider=${f.reviewerProvider} model=${f.reviewerModel ?? "<default>"} ` +
+          `effort=${f.reviewerEffort ?? "<default>"} elapsed=${elapsed}s deadline=${deadline}s` +
+          (read.status === "unparseable" && read.raw
+            ? ` snippet: ${sanitizeRecapFailureDetail(read.raw)}`
+            : "") +
+          (tail ? ` pane-tail: ${tail}` : ""),
+      );
+    } catch (err) {
+      console.warn(`[review] no-verdict diagnostic failed for ${f.sessionId}:`, err);
+    }
+  }
+
+  /** Best-effort, bounded tail of the critic's terminal for the diagnostic above. Takes the LAST
+   *  ~300 chars, where a CLI error surfaces. "" when the pane is already gone or herdr errors —
+   *  and when the injected herdr fake has no `readAsync` at all (tests). Never throws. */
+  private async readPaneTail(terminalId: string): Promise<string> {
+    try {
+      const buf = await this.deps.herdr.readAsync(terminalId, "recent", 20);
+      const oneLine = buf.replace(/\s+/g, " ").trim();
+      return (
+        sanitizeRecapFailureDetail(oneLine.length > 300 ? `…${oneLine.slice(-300)}` : oneLine) ?? ""
+      );
+    } catch {
+      return "";
     }
   }
 

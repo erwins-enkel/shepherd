@@ -127,6 +127,13 @@ export const DISTILLER_INTERVAL_DAYS_MAX = 14;
 // module-local seed defaults, used by the config seeds + boot-override fallbacks only.
 const PR_REVIEW_CYCLES_DEFAULT = 3;
 const PLAN_REVIEW_CYCLES_DEFAULT = 5;
+// Hard deadline for a single critic run (both the session critic and the standalone PR critic):
+// how long to wait for the verdict file before giving up and finalizing an `error` verdict.
+// Bounded so a typo can't wedge a run forever (no ceiling → a leaked worktree + terminal per PR)
+// nor reap it before it can start.
+export const REVIEW_TIMEOUT_MS_MIN = 60_000;
+export const REVIEW_TIMEOUT_MS_MAX = 60 * 60_000;
+const REVIEW_TIMEOUT_MS_DEFAULT = 10 * 60_000;
 // Coerce any input (env/DB/request) to a valid integer cap, snapping out-of-range
 // values into [min,max] rather than rejecting (callers stay forgiving); a non-finite
 // input falls back to the supplied default.
@@ -796,6 +803,18 @@ export const config = {
     PR_REVIEW_CYCLES_MIN,
     PR_REVIEW_CYCLES_MAX,
     PR_REVIEW_CYCLES_DEFAULT,
+  ),
+  // Hard deadline for one critic run before it is abandoned with an `error` verdict. Default 10m
+  // (unchanged). Raise it for a repo whose PRs genuinely outgrow that: a large diff reviewed at
+  // criticEffort=high can still be mid-investigation at the deadline, and because the critic
+  // restarts from scratch every time, EVERY retry then dies at the same wall — the PR becomes
+  // permanently un-reviewable rather than slowly reviewed. Env-only (not UI-configurable): it is a
+  // machine-speed/PR-size escape hatch, not a product knob.
+  reviewTimeoutMs: clampCap(
+    Number(process.env.SHEPHERD_REVIEW_TIMEOUT_MS ?? REVIEW_TIMEOUT_MS_DEFAULT),
+    REVIEW_TIMEOUT_MS_MIN,
+    REVIEW_TIMEOUT_MS_MAX,
+    REVIEW_TIMEOUT_MS_DEFAULT,
   ),
   // Max plan-gate adversarial-review rounds before escalating to a human (drives
   // PlanGateService). UI-configurable + persisted; the env seeds the value on a fresh DB.

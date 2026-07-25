@@ -19,7 +19,8 @@ import {
   AUTHOR_RESPONSE_MARKER,
   EMPTY_BACKLOG_COUNTS,
 } from "../src/forge/types";
-import { config } from "../src/config";
+import { config, clampCap, REVIEW_TIMEOUT_MS_MIN, REVIEW_TIMEOUT_MS_MAX } from "../src/config";
+import { STARTUP_GRACE_MS } from "../src/json-tolerant";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
 
 beforeEach(() => {
@@ -172,6 +173,12 @@ function makeDeps(
      */
     criticProcs?: string[];
     /**
+     * Terminal buffer the critic pane returns from herdr.readAsync, feeding the no-verdict
+     * diagnostic's pane tail. Omitted → the fake has NO readAsync at all, which is itself the
+     * case worth covering: the guarded read must degrade to no tail rather than throw.
+     */
+    criticPaneTail?: string;
+    /**
      * Raw readVerdict function override — bypasses adaptLegacyVerdict. Use when you need
      * stateful behavior (e.g. throw on first call, succeed on second). Takes precedence over
      * both `verdictRead` and `over.readVerdict`.
@@ -243,6 +250,9 @@ function makeDeps(
       async closeTab() {
         /* forward-compat; used by other tests via the existing path */
       }
+      // Only defined when the test asks for a tail — see criticPaneTail.
+      readAsync =
+        opts.criticPaneTail === undefined ? undefined : async () => opts.criticPaneTail as string;
     })(),
     worktree: new (class {
       readonly recorded = removed; // this-dependent: unbound call loses this.recorded
@@ -706,6 +716,130 @@ test("timeout with no verdict → error verdict, still reaps", async () => {
   expect(reviews["s1"]?.decision).toBe("error");
   expect(stopped).toEqual(["rt"]);
   expect(removed).toEqual(["/review-wt"]);
+});
+
+// ── no-verdict diagnostic ────────────────────────────────────────────────────
+// An `error` verdict carries a fixed summary that can't say WHY, so before this the only trace of a
+// critic dying at the hard deadline was the DB row — a PR whose every review timed out looked like
+// a black box. Assert the log records the deciding numbers (elapsed vs deadline), the environment,
+// and the pane tail where a CLI-level failure prints.
+test("no verdict at the deadline → logs elapsed/deadline, environment and pane tail", async () => {
+  let t = 1000;
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warnings.push(a.map(String).join(" "));
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, readVerdict: () => null, timeoutMs: 5000 },
+      { criticPaneTail: "You've hit your weekly limit · resets Jul 29" },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + 6000;
+    await svc.tick();
+    expect(reviews["s1"]?.decision).toBe("error");
+    const line = warnings.find((w) => w.includes("no usable verdict"));
+    expect(line).toBeDefined();
+    expect(line).toContain("s1");
+    expect(line).toContain("hard timeout"); // the cause, distinguished from an early exit
+    expect(line).toContain("elapsed=6s");
+    expect(line).toContain("deadline=5s");
+    expect(line).toContain("pane-tail: You've hit your weekly limit");
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// The tail is diagnostics-only: a herdr without readAsync (or one that throws) must still finalize
+// normally and still log — a broken diagnostic must never strand or crash a review.
+test("no-verdict diagnostic survives a herdr with no readAsync (no tail, still logs)", async () => {
+  let t = 1000;
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warnings.push(a.map(String).join(" "));
+  try {
+    const {
+      deps: d,
+      reviews,
+      stopped,
+      removed,
+    } = makeDeps({ now: () => t, readVerdict: () => null, timeoutMs: 5000 }); // no criticPaneTail
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + 6000;
+    await svc.tick();
+    const line = warnings.find((w) => w.includes("no usable verdict"));
+    expect(line).toBeDefined();
+    expect(line).not.toContain("pane-tail:"); // degraded silently, no throw
+    expect(reviews["s1"]?.decision).toBe("error"); // finalize unaffected
+    expect(stopped).toEqual(["rt"]); // still reaped
+    expect(removed).toEqual(["/review-wt"]);
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// A secret printed into the critic's terminal must not be copied verbatim into the server log.
+test("no-verdict pane tail is redacted before it reaches the log", async () => {
+  let t = 1000;
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warnings.push(a.map(String).join(" "));
+  try {
+    const { deps: d } = makeDeps(
+      { now: () => t, readVerdict: () => null, timeoutMs: 5000 },
+      { criticPaneTail: "auth failed: ANTHROPIC_API_KEY=sk-ant-verysecretvalue" },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + 6000;
+    await svc.tick();
+    const line = warnings.find((w) => w.includes("no usable verdict"))!;
+    expect(line).toContain("<redacted>");
+    expect(line).not.toContain("sk-ant-verysecretvalue");
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// A critic that exits early (before the deadline) is a DIFFERENT failure from one that ran out of
+// time — the fix differs (a broken spawn vs. a deadline that's too short), so the log must say which.
+test("critic exits before the deadline → diagnostic says exited, not timed out", async () => {
+  let t = 1000;
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warnings.push(a.map(String).join(" "));
+  try {
+    const { deps: d } = makeDeps(
+      { now: () => t, readVerdict: () => null, timeoutMs: 300_000 },
+      { criticAgentStatus: "idle", criticPaneTail: "Login expired · Please run /login" },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000; // past the boot grace, nowhere near the deadline
+    await svc.tick();
+    const line = warnings.find((w) => w.includes("no usable verdict"))!;
+    expect(line).toContain("spawn exited without writing a verdict file");
+    expect(line).not.toContain("hard timeout");
+    expect(line).toContain("pane-tail: Login expired");
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// ── SHEPHERD_REVIEW_TIMEOUT_MS ───────────────────────────────────────────────
+// The deadline is the lever for a PR the critic can't finish in 10 minutes. Assert the clamp the
+// config seed applies (config.ts is top-level module code that reads env at import, so — following
+// the server-settings precedent — assert the equivalent expression rather than re-importing it).
+test("SHEPHERD_REVIEW_TIMEOUT_MS clamps into range and falls back on garbage", () => {
+  const seed = (v: string | undefined) =>
+    clampCap(Number(v ?? DEFAULT), REVIEW_TIMEOUT_MS_MIN, REVIEW_TIMEOUT_MS_MAX, DEFAULT);
+  const DEFAULT = 10 * 60_000;
+  expect(seed(undefined)).toBe(DEFAULT); // unset → today's behavior, unchanged
+  expect(seed("1500000")).toBe(1_500_000); // 25m — the raise this knob exists for
+  expect(seed("not-a-number")).toBe(DEFAULT); // NaN would otherwise make `elapsed > NaN` false forever
+  expect(seed("1")).toBe(REVIEW_TIMEOUT_MS_MIN); // too small → snapped, never reaps at once
+  expect(seed("999999999")).toBe(REVIEW_TIMEOUT_MS_MAX); // no unbounded hang → no leaked worktree
 });
 
 // ── #822 gate (merge-gating critic path) ─────────────────────────────────────

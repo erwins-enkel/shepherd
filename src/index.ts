@@ -1412,13 +1412,18 @@ const reviewService = new ReviewService({
   // global, UI-configurable max auto-address rounds before escalating to the human.
   // A thunk so a settings change takes effect on the next critic run, no restart.
   cap: () => config.prReviewCyclesCap,
+  // Hard per-run deadline (SHEPHERD_REVIEW_TIMEOUT_MS). A plain number, not a thunk: it is read
+  // once at construction because it is env-seeded, not a live UI setting.
+  timeoutMs: config.reviewTimeoutMs,
 });
 
 // Standalone repo-level PR critic (#596): the session-LESS twin of reviewService.
 // Where reviewService reacts to a managed session's PR, this enumerates EVERY open,
 // CI-green PR in a `criticAllPrs` repo (human PRs, other agents', forks) on a timer and
-// posts comment-only reviews. Shares reviewService's primitives + the same per-role
-// `criticModel` setting; concurrency/timeout stay at service defaults.
+// posts comment-only reviews. Shares reviewService's primitives, the same per-role
+// `criticModel` setting, and the same hard per-run deadline (one critic role, one deadline —
+// leaving this twin at the service default would half-apply an operator's raise); concurrency
+// stays at the service default.
 const standaloneCritic = new StandalonePrCriticService({
   store,
   herdr,
@@ -1428,6 +1433,7 @@ const standaloneCritic = new StandalonePrCriticService({
   runSpawnHooks: (d) => pluginRegistry.runSpawnHooks(d),
   // Same per-role critic environment as reviewService (read per spawn → live settings).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
+  timeoutMs: config.reviewTimeoutMs,
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
   // Fresh per-sweep thunk (the service calls it each sweep, never caches) — branches
   // owned by a LIVE session, so a session-critic-owned PR is skipped when criticEnabled.

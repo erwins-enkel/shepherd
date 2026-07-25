@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from "bun:test";
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { listCommands } from "./commands";
@@ -7,8 +7,9 @@ import { listCommands } from "./commands";
 const roots: string[] = [];
 
 function tmpRoot(): string {
-  const root = join(tmpdir(), `shepherd-commands-${crypto.randomUUID()}`);
-  mkdirSync(root, { recursive: true });
+  // mkdtempSync both creates the dir 0700 and picks the unpredictable suffix itself — the
+  // sanctioned primitive, and one call instead of hand-rolling a name then creating it.
+  const root = mkdtempSync(join(tmpdir(), "shepherd-commands-"));
   roots.push(root);
   return root;
 }

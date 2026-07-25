@@ -193,6 +193,17 @@ test("writeTodo: content exactly 100_000 chars → true", () => {
   expect(writeTodo(join(root, "alpha"), root, "x".repeat(100_000))).toBe(true);
 });
 
+// Shrink, not grow. The other round-trips only ever lengthen TODO.md, and `beforeEach`
+// mints a fresh root per test, so nothing else would catch a missing O_TRUNC: writing to
+// a numeric fd starts at position 0 but does NOT truncate, which would leave the tail of
+// the longer previous body behind.
+test("writeTodo: shorter content overwrites longer, leaving no remnant", () => {
+  const repoPath = join(root, "alpha");
+  expect(writeTodo(repoPath, root, "x".repeat(5_000))).toBe(true);
+  expect(writeTodo(repoPath, root, "short")).toBe(true);
+  expect(readTodo(repoPath, root)).toEqual({ ok: true, exists: true, content: "short" });
+});
+
 // ── symlink containment (security) ─────────────────────────────────────────────
 
 test("a symlink inside repoRoot pointing outside is rejected (realpath containment)", () => {
@@ -204,6 +215,56 @@ test("a symlink inside repoRoot pointing outside is rejected (realpath containme
     expect(writeTodo(join(root, "escape"), root, "pwned")).toBe(false);
   } finally {
     rmSync(outside, { recursive: true, force: true });
+  }
+});
+
+// The case above covers a symlinked DIRECTORY, which safeRepoDir rejects upstream. These
+// two cover a symlinked TODO.md itself — the final path component, which containment does
+// not see and only O_NOFOLLOW refuses. Untested before this pair existed.
+test("writeTodo: symlinked TODO.md is refused and the outside target is never created", () => {
+  const outsideRoot = mkdtempSync(join(tmpdir(), "shepherd-todo-out-"));
+  try {
+    // Dangling on purpose: if the write followed the link, O_CREAT would CREATE the
+    // target — so its continued absence is what proves the link was not followed.
+    const target = join(outsideRoot, "PWNED");
+    symlinkSync(target, join(root, "alpha", "TODO.md"));
+    expect(writeTodo(join(root, "alpha"), root, "pwned")).toBe(false);
+    expect(existsSync(target)).toBe(false);
+  } finally {
+    rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
+test("readTodo: symlinked TODO.md reads as absent, never following the link", () => {
+  const outsideRoot = mkdtempSync(join(tmpdir(), "shepherd-todo-out2-"));
+  try {
+    const secret = join(outsideRoot, "secret.txt");
+    writeFileSync(secret, "SENTINEL-must-not-leak");
+    symlinkSync(secret, join(root, "alpha", "TODO.md"));
+    const r = readTodo(join(root, "alpha"), root);
+    // `ok:true, exists:false` deliberately, NOT ok:false — the repo path is valid, and
+    // ok:false would 400 the endpoint and regress the dangling-symlink case below.
+    expect(r).toEqual({ ok: true, exists: false, content: "" });
+    expect(r.content).not.toContain("SENTINEL");
+  } finally {
+    rmSync(outsideRoot, { recursive: true, force: true });
+  }
+});
+
+// Pins today's behaviour for a DANGLING TODO.md symlink: `existsSync` followed the link,
+// found nothing, and returned exists:false. The O_NOFOLLOW rewrite must not turn that
+// into an error. Passes before and after — a guard, not a demonstration.
+test("readTodo: dangling TODO.md symlink still reads as absent (unchanged behaviour)", () => {
+  const outsideRoot = mkdtempSync(join(tmpdir(), "shepherd-todo-out3-"));
+  try {
+    symlinkSync(join(outsideRoot, "does-not-exist"), join(root, "alpha", "TODO.md"));
+    expect(readTodo(join(root, "alpha"), root)).toEqual({
+      ok: true,
+      exists: false,
+      content: "",
+    });
+  } finally {
+    rmSync(outsideRoot, { recursive: true, force: true });
   }
 });
 

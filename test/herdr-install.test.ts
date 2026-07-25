@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
@@ -187,7 +188,15 @@ function runProgram(
 }
 
 function curlCalls(shim: Shim): string {
-  return existsSync(shim.curlLog) ? execFileSync("cat", [shim.curlLog], { encoding: "utf8" }) : "";
+  // No `existsSync` guard: pairing it with the read would be the same check-then-use shape
+  // CodeQL flags elsewhere. ENOENT just means the shim was never invoked — that is "no
+  // calls", not an error. Any other errno still throws rather than reading as "no calls".
+  try {
+    return readFileSync(shim.curlLog, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") return "";
+    throw e;
+  }
 }
 
 /** Leftover temp files in the install dir — the program must clean up on every path. */

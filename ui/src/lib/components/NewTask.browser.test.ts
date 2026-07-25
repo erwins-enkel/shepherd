@@ -2890,8 +2890,8 @@ describe("NewTask mobile sheets + shortcuts", () => {
     await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
     expect(chip().getAttribute("aria-expanded")).toBe("true");
 
-    // Change only the repo: chip + payload repoPath update; base re-derives.
-    document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
+    // Change only the repo: chip + payload repoPath update; base re-derives. The chip
+    // tap already opened the repo panel — clicking the trigger here would close it.
     await expect
       .poll(() =>
         Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find((el) =>
@@ -2934,6 +2934,39 @@ describe("NewTask mobile sheets + shortcuts", () => {
     expect(onsubmit.mock.calls[0]![0]).toMatchObject({ repoPath: repoB.path, baseBranch: "main" });
   });
 
+  it("one tap on the chip opens the sheet, the repo panel and focuses the filter", async () => {
+    await renderMobile();
+    const chip = () => document.querySelector<HTMLButtonElement>(".ctx-chip")!;
+    // `renderMobile` resolves as soon as the chip exists — which is BEFORE `listRepos`
+    // populates the list. Fence on the repo name so the tap below races nothing.
+    await expect.poll(() => chip().textContent).toContain("alpha");
+
+    chip().click();
+
+    // Asserted synchronously — no await, no poll. `openRepoPicker` flushes both renders
+    // inside the click handler precisely so the focus stays in the gesture's own call
+    // stack (iOS Safari raises the software keyboard only for an in-stack focus()).
+    // If someone reintroduces an async hop there, these three fail rather than silently
+    // costing the keyboard on a device no CI lane can observe.
+    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
+    expect(document.querySelector(".ctx-sheet .rs-panel")).toBeTruthy();
+    expect(document.activeElement).toBe(document.querySelector(".ctx-sheet .rs-filter"));
+
+    // The typeahead is live: typing narrows the options…
+    const filter = document.querySelector<HTMLInputElement>(".ctx-sheet .rs-filter")!;
+    filter.value = "brav";
+    filter.dispatchEvent(new Event("input", { bubbles: true }));
+    await expect.poll(() => document.querySelectorAll('.ctx-sheet [role="option"]').length).toBe(1);
+
+    // …and picking collapses the panel while the sheet stays open, so the branch control
+    // is right back in view.
+    document.querySelector<HTMLLIElement>('.ctx-sheet [role="option"]')!.click();
+    await expect.poll(() => chip().textContent).toContain("bravo");
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeNull();
+    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
+    expect(document.querySelector(".ctx-sheet .ctx-branch-select")).toBeTruthy();
+  });
+
   it("three-press Escape: repo panel → focus in-sheet trigger; sheet → focus chip", async () => {
     await renderMobile();
     const chip = document.querySelector<HTMLButtonElement>(".ctx-chip")!;
@@ -2942,8 +2975,7 @@ describe("NewTask mobile sheets + shortcuts", () => {
     chip.click();
     await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
 
-    const trigger = () => document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!;
-    trigger().click();
+    // The chip tap opens the repo panel too, so the ladder starts one level deep already.
     await expect.poll(() => document.querySelector(".rs-panel")).toBeTruthy();
     const filter = document.querySelector<HTMLInputElement>(".rs-filter")!;
     filter.focus();
@@ -3107,14 +3139,24 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       // Smallest supported portrait: a long repo list forces the panel to overflow.
       await page.viewport(375, 667);
       mockListRepos.mockResolvedValue({ repos: makeRepos(20), recentWindowDays: 30 });
+      // ≥2 branches, overriding the suite default of `["main"]`: with a single option
+      // `.ctx-branch-select` cannot change value, so the branch assertion below would
+      // pass against a completely dead control.
+      mockListBranches.mockResolvedValue({
+        current: "main",
+        branches: ["main", "release"],
+        default: null,
+      });
       render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
-      await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
+      // Wait for the repo list to land (the chip renders before `listRepos` resolves).
+      await expect
+        .poll(() => document.querySelector(".ctx-chip")?.textContent)
+        .toContain("repo-00");
       await expect.poll(() => overlay()?.style.height).toBe("380px");
 
-      // Open the context sheet, then the repo dropdown + its filter.
+      // One tap opens the context sheet AND the repo dropdown with its filter.
       document.querySelector<HTMLButtonElement>(".ctx-chip")!.click();
       await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
-      document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
       await expect.poll(() => document.querySelector(".ctx-sheet .rs-filter")).toBeTruthy();
 
       const filter = document.querySelector<HTMLInputElement>(".ctx-sheet .rs-filter")!;
@@ -3139,6 +3181,39 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       const fr1 = filter.getBoundingClientRect();
       expect(fr1.top).toBeGreaterThanOrEqual(0);
       expect(fr1.bottom).toBeLessThanOrEqual(KB_TOP + 1);
+
+      // Branch reachability: the auto-opened list puts 20 rows between the filter and the
+      // branch control. Rewind the scroller to the top first, so the scroll below is a
+      // real one — at rest the control is genuinely past the fold, which is the whole
+      // cost this one-tap change accepts.
+      const branchCtl = document.querySelector<HTMLSelectElement>(".ctx-sheet .ctx-branch-select")!;
+      expect(branchCtl).toBeTruthy();
+      // Two real options, and we start on the first — otherwise the flip asserted below
+      // proves nothing (the suite-wide mock lists "main" alone, which cannot change).
+      expect(branchCtl.options.length).toBe(2);
+      expect(branchCtl.value).toBe("main");
+      sheetBody.scrollTop = 0;
+      await expect.poll(() => branchCtl.getBoundingClientRect().top).toBeGreaterThan(KB_TOP);
+
+      // …and scrolling to it brings it fully above the keyboard line, not stranded behind it.
+      branchCtl.scrollIntoView({ block: "nearest" });
+      await expect
+        .poll(() => branchCtl.getBoundingClientRect().bottom)
+        .toBeLessThanOrEqual(KB_TOP + 1);
+      expect(branchCtl.getBoundingClientRect().top).toBeGreaterThanOrEqual(0);
+
+      // Tapping the branch control collapses the repo list: RepoSelect's capture-phase
+      // outside-click handler fires because `.ctx-branch-select` is outside `.rs-root`.
+      // Documented, accepted behavior — the tap still lands on the branch control (hit
+      // testing precedes the reflow) and the sheet stays open, so the edit succeeds.
+      branchCtl.click();
+      branchCtl.value = "release";
+      branchCtl.dispatchEvent(new Event("change", { bubbles: true }));
+      await expect
+        .poll(() => document.querySelector(".ctx-chip")?.textContent)
+        .toContain("release");
+      await expect.poll(() => document.querySelector(".rs-panel")).toBeNull();
+      expect(document.querySelector(".ctx-sheet")).toBeTruthy();
     } finally {
       restore();
     }

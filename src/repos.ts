@@ -4,10 +4,12 @@ import {
   writeFileSync,
   existsSync,
   statSync,
-  lstatSync,
   realpathSync,
   mkdirSync,
   rmSync,
+  openSync,
+  closeSync,
+  constants,
 } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -132,6 +134,22 @@ export function reconcileRealPathsToRaw(
 
 const TODO = "TODO.md";
 
+/**
+ * `O_NOFOLLOW` makes the open itself refuse a symlinked final component, replacing a
+ * check-then-use pair (`lstat`/`existsSync` then read/write) that a swap between the two
+ * calls could defeat. Only the FINAL component is covered — safe here because
+ * {@link safeRepoDir} already `realpathSync`es the directory and enforces containment
+ * before we build the path, so `dir` cannot itself be a planted symlink.
+ *
+ * POSIX, Linux and macOS report `ELOOP`; some BSDs report `EMLINK`. Both are accepted so
+ * the refusal does not depend on a platform the tests never exercise.
+ */
+const SYMLINK_ERRNOS = new Set(["ELOOP", "EMLINK"]);
+
+function isSymlinkRefusal(e: unknown): boolean {
+  return SYMLINK_ERRNOS.has(String((e as NodeJS.ErrnoException).code));
+}
+
 export function readTodo(
   repoPathRaw: string,
   repoRoot: string,
@@ -139,8 +157,25 @@ export function readTodo(
   const dir = safeRepoDir(repoPathRaw, repoRoot);
   if (!dir) return { ok: false, exists: false, content: "" };
   const file = join(dir, TODO);
-  if (!existsSync(file)) return { ok: true, exists: false, content: "" };
-  return { ok: true, exists: true, content: readFileSync(file, "utf8") };
+  let fd: number;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+  } catch (e) {
+    // Absent is the normal empty-TODO case. A SYMLINKED TODO.md reads as absent too:
+    // `ok: false` would surface as a 400 "invalid repo path" on a perfectly valid repo,
+    // and would regress a DANGLING symlink, which returns `exists: false` today.
+    // Reporting "no TODO yet" leaks nothing and keeps the pane usable; `writeTodo` still
+    // refuses that same file, so the symlink cannot be silently written through either.
+    if ((e as NodeJS.ErrnoException).code === "ENOENT" || isSymlinkRefusal(e)) {
+      return { ok: true, exists: false, content: "" };
+    }
+    throw e;
+  }
+  try {
+    return { ok: true, exists: true, content: readFileSync(fd, "utf8") };
+  } finally {
+    closeSync(fd);
+  }
 }
 
 export function writeTodo(repoPathRaw: string, repoRoot: string, content: string): boolean {
@@ -148,13 +183,25 @@ export function writeTodo(repoPathRaw: string, repoRoot: string, content: string
   if (!dir) return false;
   if (typeof content !== "string" || content.length > 100_000) return false;
   const file = join(dir, TODO);
-  // refuse to follow a symlinked TODO.md (prevents a symlink-swap write outside the repo)
+  let fd: number;
   try {
-    if (lstatSync(file).isSymbolicLink()) return false;
-  } catch {
-    /* file doesn't exist yet — fine */
+    // O_TRUNC is what shortens an existing TODO.md: writeFileSync(fd, …) writes from the
+    // current file position and does NOT truncate, so without it a shorter body would
+    // leave the tail of the previous one behind.
+    fd = openSync(
+      file,
+      constants.O_WRONLY | constants.O_CREAT | constants.O_TRUNC | constants.O_NOFOLLOW,
+      0o666,
+    );
+  } catch (e) {
+    if (isSymlinkRefusal(e)) return false; // symlinked TODO.md — same refusal as before
+    throw e;
   }
-  writeFileSync(file, content, "utf8");
+  try {
+    writeFileSync(fd, content, "utf8");
+  } finally {
+    closeSync(fd);
+  }
   return true;
 }
 

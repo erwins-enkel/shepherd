@@ -21,6 +21,7 @@ import {
   actionsTabLabel,
   actionsTabState,
   filterProjects,
+  tabForFilters,
   partitionRecents,
   effectiveHidden,
   splitHidden,
@@ -249,6 +250,24 @@ describe("filterProjects", () => {
   it("returns an empty array when every project is excluded", () => {
     const allEmpty = [project("/repos/a", 0, 0), project("/repos/b", null, null)];
     expect(filterProjects(allEmpty, { hasIssues: true, hasPRs: true })).toEqual([]);
+  });
+});
+
+describe("tabForFilters", () => {
+  it("hasPRs alone → the PRs tab", () => {
+    expect(tabForFilters({ hasIssues: false, hasPRs: true })).toBe("prs");
+  });
+
+  it("hasIssues alone → the Issues tab", () => {
+    expect(tabForFilters({ hasIssues: true, hasPRs: false })).toBe("issues");
+  });
+
+  it("both chips on → Issues wins (both-on is not PR-hunting intent)", () => {
+    expect(tabForFilters({ hasIssues: true, hasPRs: true })).toBe("issues");
+  });
+
+  it("no chip on → null, i.e. leave the current tab alone (not 'default to issues')", () => {
+    expect(tabForFilters({ hasIssues: false, hasPRs: false })).toBeNull();
   });
 });
 

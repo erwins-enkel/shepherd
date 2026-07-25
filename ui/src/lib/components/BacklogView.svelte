@@ -18,7 +18,7 @@
   import AddRepoButton from "./AddRepoButton.svelte";
   import BacklogTabBar from "./backlog-view/BacklogTabBar.svelte";
   import BacklogTabContent from "./backlog-view/BacklogTabContent.svelte";
-  import { actionsTabState, filterProjects, splitHidden } from "./backlog-view";
+  import { actionsTabState, filterProjects, splitHidden, tabForFilters } from "./backlog-view";
   import { repoConfig } from "$lib/reviews.svelte";
   import { pullMainAndToast } from "$lib/pull-offer";
   import { backlogLayout, clampSidebarWidth } from "$lib/backlog-layout.svelte";
@@ -258,6 +258,14 @@
   // would re-select a repo absent from the list (and fight the clear effect
   // below on every poll). visibleProjects is read untracked so a filter toggle
   // alone never auto-seeds; seeding stays tied to payload/pinned changes.
+  //
+  // A re-seed honours the active filter chip too (same rule as a row click, via
+  // tabForFilters). Without this, turning "has PRs" on with a no-PR repo selected
+  // drops that selection (the on-screen effect below) and the next payload update
+  // re-seeds the pinned repo on a stale Issues tab — the exact state the chip
+  // redirect exists to prevent. The chips are read untracked so this effect's
+  // dependencies stay payload/pinned only; the selectedPath === null guard above
+  // means a poll can never re-tab a selection the user is already reading.
   $effect(() => {
     const pinned = payload?.pinnedPath;
     if (
@@ -266,6 +274,8 @@
       untrack(() => selectedPath === null && visibleProjects.some((p) => p.path === pinned))
     ) {
       selectedPath = pinned;
+      const tab = untrack(() => tabForFilters({ hasIssues, hasPRs }));
+      if (tab) activeTab = tab;
     }
   });
 
@@ -324,6 +334,20 @@
     activeTab = "issues";
   });
 
+  // Repo row click (shared by the mobile list and the desktop list, so the two
+  // can't drift). An active filter chip picks the tab: filtering by "has PRs" is
+  // an explicit statement of what the user is hunting for, so the click opens the
+  // PRs tab instead of always landing on Issues. No chip → tabForFilters returns
+  // null and the current tab is left exactly as it was.
+  //
+  // Re-applied on EVERY click while a chip is on — switching to Actions manually
+  // and then picking another repo lands on that chip's tab again.
+  function handleSelect(path: string) {
+    selectedPath = path;
+    const tab = tabForFilters({ hasIssues, hasPRs });
+    if (tab) activeTab = tab;
+  }
+
   // On mobile, a set selectedPath means the detail overlay is open.
   // Clearing it goes back to the project list.
   function dismissDetail() {
@@ -367,7 +391,7 @@
         ontoggleprs={() => (hasPRs = !hasPRs)}
         ontogglehidden={() => (showHidden = !showHidden)}
         onsearch={(q) => (query = q)}
-        onselect={(p) => (selectedPath = p)}
+        onselect={handleSelect}
         onhide={handleHide}
         {onaddclone}
         {onaddfork}
@@ -445,7 +469,7 @@
           ontoggleprs={() => (hasPRs = !hasPRs)}
           ontogglehidden={() => (showHidden = !showHidden)}
           onsearch={(q) => (query = q)}
-          onselect={(p) => (selectedPath = p)}
+          onselect={handleSelect}
           onhide={handleHide}
           {onaddclone}
           {onaddfork}

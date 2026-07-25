@@ -3408,5 +3408,7 @@
   "feat_steers_settings_section_title": "Steers get their own settings section",
   "feat_steers_settings_section_body": "Saved Steers now live under Settings → Steers. Session controls stay focused, while the pencil and steer context menu still open the same editor and preserve the selected steer.",
   "feat_opus_5_pin_title": "Pin Opus 5 exactly",
-  "feat_opus_5_pin_body": "Model pickers now offer Opus 5 and Opus 5 (1M context) alongside the existing Opus rows. The plain Opus entries always track the newest Opus release; picking a pinned one locks that exact version, so a future release can't quietly change what a task, repo default, or role runs on."
+  "feat_opus_5_pin_body": "Model pickers now offer Opus 5 and Opus 5 (1M context) alongside the existing Opus rows. The plain Opus entries always track the newest Opus release; picking a pinned one locks that exact version, so a future release can't quietly change what a task, repo default, or role runs on.",
+  "feat_pr_filter_tab_title": "Filter by PRs, land on the PRs tab",
+  "feat_pr_filter_tab_body": "In Repos, the active filter chip now picks the tab a repo opens on: with \"Has PRs\" on, clicking a repo goes straight to its PRs instead of Issues. \"Has issues\" does the same for Issues, and with no chip on your current tab is left alone."
 }

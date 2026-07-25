@@ -188,3 +188,25 @@ export function filterProjects(
       (q === "" || (projectName(p) + " " + p.display).toLowerCase().includes(q)),
   );
 }
+
+/**
+ * Which detail tab a repo selection should land on, given the active repo-list
+ * filter chips — "the active filter picks the tab". `null` means "leave the
+ * current tab alone", NOT "fall back to issues": with no chip on, selecting a
+ * repo must keep whatever tab the user is already reading.
+ *
+ * `hasIssues` wins when BOTH chips are on: `hasPRs` alone is an unambiguous
+ * PR-hunting intent, both-on is not, so both-on keeps the default Issues tab.
+ *
+ * Returns the narrow `"issues" | "prs"` union rather than BacklogView's full
+ * `Tab` type — that type is declared per-component (BacklogView.svelte,
+ * BacklogTabBar.svelte) and hoisting it is a separate concern.
+ */
+export function tabForFilters(opts: {
+  hasIssues: boolean;
+  hasPRs: boolean;
+}): "issues" | "prs" | null {
+  if (opts.hasIssues) return "issues";
+  if (opts.hasPRs) return "prs";
+  return null;
+}

@@ -4,6 +4,7 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import BacklogOverlay from "./BacklogOverlay.svelte";
+import { m } from "$lib/paraglide/messages";
 import { backlogLayout } from "$lib/backlog-layout.svelte";
 import type { BacklogPayload, BacklogProject } from "$lib/types";
 
@@ -214,5 +215,140 @@ describe("BacklogOverlay (Repos) mobile", () => {
     // No desktop resize affordances mounted.
     expect(document.querySelector(".resize-corner")).toBeNull();
     expect(document.querySelector(".repo-splitter")).toBeNull();
+  });
+});
+
+// ── active filter chip picks the opened tab ─────────────────────────────────
+// The rule itself (which chip wins) is unit-tested in backlog-view.test.ts via
+// tabForFilters. These mount the real BacklogView to prove the WIRING: that the
+// helper is applied at every place a repo gets selected — the desktop list, the
+// mobile list, and the desktop pinned-repo auto-seed.
+
+/** Tab buttons in their fixed BacklogTabBar order, scoped to one variant's bar. */
+function tabs(scope: ".tab-bar" | ".overlay-tabs") {
+  const btns = [...document.querySelectorAll<HTMLButtonElement>(`${scope} .tab-btn`)];
+  return { issues: btns[0], prs: btns[1], actions: btns[2] };
+}
+
+/** The filter chip carrying `label` (chips are label-matched, not index-matched). */
+function chip(label: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>(".filter-chip")].find((b) =>
+    b.textContent?.includes(label),
+  );
+  expect(found, `no filter chip labelled ${label}`).toBeTruthy();
+  return found!;
+}
+
+/** A repo row by its visible name (ProjectRow shows the path basename). */
+function row(name: string): HTMLElement {
+  const found = [...document.querySelectorAll<HTMLElement>(".project-row")].find(
+    (r) => r.querySelector(".row-name")?.textContent?.trim() === name,
+  );
+  expect(found, `no repo row named ${name}`).toBeTruthy();
+  return found!;
+}
+
+async function click(el: HTMLElement) {
+  el.click();
+  await tick();
+}
+
+describe("BacklogOverlay (Repos) filter chip → opened tab", () => {
+  it("desktop: has-PRs on, clicking a repo opens the PRs tab", async () => {
+    await render(BacklogOverlay, props());
+    await click(chip(m.backlog_filter_has_prs()));
+    await click(row("repo-0"));
+
+    const t = tabs(".tab-bar");
+    expect(t.prs.classList.contains("active")).toBe(true);
+    expect(t.issues.classList.contains("active")).toBe(false);
+  });
+
+  it("mobile: has-PRs on, tapping a repo opens the detail overlay on the PRs tab", async () => {
+    await render(BacklogOverlay, props({ mobile: true }));
+    await click(chip(m.backlog_filter_has_prs()));
+    await click(row("repo-0"));
+
+    // The mobile tab bar lives INSIDE the detail overlay, so its very presence
+    // means the row click reached the mobile branch's handler.
+    expect(document.querySelector(".mobile-detail-overlay")).not.toBeNull();
+    const t = tabs(".overlay-tabs");
+    expect(t.prs.classList.contains("active")).toBe(true);
+    expect(t.issues.classList.contains("active")).toBe(false);
+  });
+
+  it("has-issues on wins over has-PRs and pulls a PRs-tab reader back to Issues", async () => {
+    await render(BacklogOverlay, props());
+    await click(tabs(".tab-bar").prs);
+    await click(chip(m.backlog_filter_has_prs()));
+    await click(chip(m.backlog_filter_has_issues()));
+    await click(row("repo-0"));
+
+    const t = tabs(".tab-bar");
+    expect(t.issues.classList.contains("active")).toBe(true);
+    expect(t.prs.classList.contains("active")).toBe(false);
+  });
+
+  it("no chip active: selecting a repo leaves the current tab alone", async () => {
+    await render(BacklogOverlay, props());
+    await click(tabs(".tab-bar").prs);
+    await click(row("repo-0"));
+
+    // A `null` return must mean "leave alone", not "fall back to issues".
+    const t = tabs(".tab-bar");
+    expect(t.prs.classList.contains("active")).toBe(true);
+    expect(t.issues.classList.contains("active")).toBe(false);
+  });
+});
+
+// ── pinned-repo auto-seed honours the chip ──────────────────────────────────
+// A FRESH object every call: the seed $effect tracks the `payload` prop, so only
+// a new identity re-fires it (which is what a real poll delivers).
+function seedPayload(): BacklogPayload {
+  return {
+    pinnedPath: "/r/pinned",
+    projects: [project("/r/pinned"), { ...project("/r/nopr"), openPRs: 0 }],
+    totals: { openIssues: 0, openPRs: 0 },
+  };
+}
+
+describe("BacklogOverlay (Repos) pinned auto-seed vs filter chip", () => {
+  it("a re-seed after the filter drops the selection lands on the PRs tab", async () => {
+    const { rerender } = await render(BacklogOverlay, props({ payload: seedPayload() }));
+    // Mount seeds the pinned repo with no chip active → Issues, as today.
+    expect(tabs(".tab-bar").issues.classList.contains("active")).toBe(true);
+
+    // Move the selection to the repo without PRs, then turn has-PRs on: that repo
+    // leaves the list and the on-screen drop $effect clears the selection. The
+    // payload object is untouched, so the seed has not re-fired yet.
+    await click(row("nopr"));
+    await click(chip(m.backlog_filter_has_prs()));
+    expect(document.querySelector(".project-row.sel")).toBeNull();
+
+    // A poll delivers a new payload object → the seed re-fires.
+    await rerender(props({ payload: seedPayload() }));
+    await tick();
+
+    expect(document.querySelector(".project-row.sel")).not.toBeNull();
+    const t = tabs(".tab-bar");
+    expect(t.prs.classList.contains("active")).toBe(true);
+    expect(t.issues.classList.contains("active")).toBe(false);
+  });
+
+  it("a poll does not re-tab a still-live selection", async () => {
+    const { rerender } = await render(BacklogOverlay, props({ payload: seedPayload() }));
+    // Park on Actions with the seeded (PR-bearing) repo selected, then filter —
+    // it passes has-PRs, so the selection survives.
+    await click(tabs(".tab-bar").actions);
+    await click(chip(m.backlog_filter_has_prs()));
+    expect(document.querySelector(".project-row.sel")).not.toBeNull();
+
+    await rerender(props({ payload: seedPayload() }));
+    await tick();
+
+    // The seed's `selectedPath === null` guard held: no tab was rewritten.
+    const t = tabs(".tab-bar");
+    expect(t.actions.classList.contains("active")).toBe(true);
+    expect(t.prs.classList.contains("active")).toBe(false);
   });
 });

@@ -3408,5 +3408,7 @@
   "feat_steers_settings_section_title": "Steers bekommen einen eigenen Einstellungsbereich",
   "feat_steers_settings_section_body": "Gespeicherte Steers liegen jetzt unter Einstellungen → Steers. Die Sitzungssteuerung bleibt fokussiert, während Stift und Steer-Kontextmenü weiterhin denselben Editor öffnen und den ausgewählten Steer beibehalten.",
   "feat_opus_5_pin_title": "Opus 5 exakt fixieren",
-  "feat_opus_5_pin_body": "Die Modellauswahl bietet jetzt zusätzlich Opus 5 und Opus 5 (1 Mio. Kontext). Die einfachen Opus-Einträge folgen immer dem neuesten Opus-Release; ein fixierter Eintrag legt genau diese Version fest, damit ein künftiges Release nicht still ändert, womit Task, Repo-Standard oder Rolle laufen."
+  "feat_opus_5_pin_body": "Die Modellauswahl bietet jetzt zusätzlich Opus 5 und Opus 5 (1 Mio. Kontext). Die einfachen Opus-Einträge folgen immer dem neuesten Opus-Release; ein fixierter Eintrag legt genau diese Version fest, damit ein künftiges Release nicht still ändert, womit Task, Repo-Standard oder Rolle laufen.",
+  "feat_pr_filter_tab_title": "Nach PRs filtern, im PR-Tab landen",
+  "feat_pr_filter_tab_body": "Unter Repos bestimmt jetzt der aktive Filter-Chip, welcher Tab beim Öffnen eines Repos erscheint: Ist „Hat PRs“ aktiv, führt ein Klick direkt zu den PRs statt zu den Issues. „Hat Issues“ macht dasselbe für Issues, und ohne aktiven Chip bleibt der aktuelle Tab unverändert."
 }

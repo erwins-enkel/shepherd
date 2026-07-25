@@ -3420,5 +3420,6 @@
   "steerseditor_remove_yes_aria": "Confirm remove",
   "steerseditor_remove_no_aria": "Cancel remove",
   "feat_steers_9c_redesign_title": "Redesigned steer editor",
-  "feat_steers_9c_redesign_body": "Settings → Steers is now an accordion — tap a steer to edit it inline. Repo scope is a token field with type-ahead and one-tap suggestions, placements are checkboxes, and every change saves automatically, so the Save button is gone."
+  "feat_steers_9c_redesign_body": "Settings → Steers is now an accordion — tap a steer to edit it inline. Repo scope is a token field with type-ahead and one-tap suggestions, placements are checkboxes, and every change saves automatically, so the Save button is gone.",
+  "steerseditor_close_save_failed": "Steers not saved: {reason}"
 }

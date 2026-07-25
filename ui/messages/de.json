@@ -3420,5 +3420,6 @@
   "steerseditor_remove_yes_aria": "Entfernen bestätigen",
   "steerseditor_remove_no_aria": "Entfernen abbrechen",
   "feat_steers_9c_redesign_title": "Neu gestalteter Steer-Editor",
-  "feat_steers_9c_redesign_body": "Einstellungen → Steers ist jetzt ein Akkordeon — tippe einen Steer an, um ihn direkt zu bearbeiten. Der Repo-Geltungsbereich ist ein Token-Feld mit Tipphilfe und Ein-Klick-Vorschlägen, Platzierungen sind Checkboxen, und jede Änderung wird automatisch gespeichert, der Speichern-Button entfällt."
+  "feat_steers_9c_redesign_body": "Einstellungen → Steers ist jetzt ein Akkordeon — tippe einen Steer an, um ihn direkt zu bearbeiten. Der Repo-Geltungsbereich ist ein Token-Feld mit Tipphilfe und Ein-Klick-Vorschlägen, Platzierungen sind Checkboxen, und jede Änderung wird automatisch gespeichert, der Speichern-Button entfällt.",
+  "steerseditor_close_save_failed": "Steers nicht gespeichert: {reason}"
 }

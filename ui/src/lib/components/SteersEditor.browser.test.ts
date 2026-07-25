@@ -18,6 +18,7 @@ vi.mock("$lib/api", async (importOriginal) => {
 const { default: SteersEditor } = await import("./SteersEditor.svelte");
 const { steers } = await import("$lib/steers.svelte");
 const { repos } = await import("$lib/repos.svelte");
+const { toasts } = await import("$lib/toasts.svelte");
 const { putSteers } = await import("$lib/api");
 const putSpy = vi.mocked(putSteers);
 
@@ -37,9 +38,14 @@ beforeEach(() => {
   ];
   steers.loaded = true; // skip the network load on mount
   steers.draftBuffer = [];
+  steers.error = null;
   repos.entries = [];
   repos.loaded = true; // skip the /api/repos network load on mount
+  // close() (not items = []) so the store's timers + dedupe keys are dropped too, or a
+  // keyed toast from an earlier test would swallow a later one raised under the same key
+  for (const t of [...toasts.items]) toasts.close(t.id);
   putSpy.mockClear();
+  putSpy.mockImplementation(async (s: Steer[]) => s);
 });
 
 afterEach(() => {
@@ -174,6 +180,82 @@ describe("SteersEditor — close/navigation draft lifecycle", () => {
     const restored = document.querySelector(".srow.open input.ntext") as HTMLInputElement;
     expect(restored?.value).toBe("Wip");
     expect(steers.draftBuffer.length).toBe(0);
+  });
+
+  it("flushes on teardown whenever the draft differs from the store, with no debounce pending", async () => {
+    steers.list = [steer({ id: "a", label: "Alpha", text: "do alpha" })];
+    const { unmount } = await render(SteersEditor, { focusSteerId: "a" });
+    await tick();
+    await frames();
+
+    // Every save fails, so the edit stays unpersisted: saveNow() on blur clears the debounce,
+    // leaving NO timer behind while the draft still differs from the store.
+    putSpy.mockReset();
+    putSpy.mockRejectedValue(new Error("offline"));
+    const name = row("a")!.querySelector("input.ntext") as HTMLInputElement;
+    name.value = "Alpha2";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    name.dispatchEvent(new FocusEvent("blur"));
+    await settle();
+    // drop real focus too, so the blur flush unmount would otherwise fire is already spent
+    // and this test can attribute the next PUT to teardown alone
+    (document.activeElement as HTMLElement | null)?.blur();
+    await settle();
+    expect(putSpy, "the failing writes went out").toHaveBeenCalled();
+    expect(steers.list[0]!.label, "store never adopted a failed write").toBe("Alpha");
+    expect(document.activeElement, "nothing focused → no blur-flush left").toBe(document.body);
+
+    putSpy.mockReset();
+    putSpy.mockImplementation(async (s: Steer[]) => s); // network back
+    await unmount();
+    await settle();
+
+    // a timer-only teardown would save nothing here — the debounce was already consumed
+    expect(putSpy, "teardown persisted the still-unsaved edit").toHaveBeenCalledTimes(1);
+    expect(putSpy.mock.calls[0]![0].find((s) => s.id === "a")!.label).toBe("Alpha2");
+  });
+
+  it("does not re-PUT on a plain close with nothing changed", async () => {
+    const { unmount } = await render(SteersEditor, {});
+    await tick();
+    putSpy.mockClear();
+    await unmount();
+    await settle();
+    expect(putSpy, "an unchanged draft is not re-sent").not.toHaveBeenCalled();
+  });
+
+  it("reports a failed teardown save on the toast layer with a retry", async () => {
+    steers.list = [steer({ id: "a", label: "Alpha", text: "do alpha" })];
+    const { unmount } = await render(SteersEditor, { focusSteerId: "a" });
+    await tick();
+    await frames();
+
+    const name = row("a")!.querySelector("input.ntext") as HTMLInputElement;
+    name.value = "Alpha2";
+    name.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    // persistently offline, so the teardown save itself fails (an unmount-time blur flush
+    // fails into the dying component's banner — only the teardown save can still report)
+    putSpy.mockReset();
+    putSpy.mockRejectedValue(new Error("offline"));
+    await unmount();
+    await settle();
+
+    // the editor's own error banner is gone by now, so the failure has to surface app-level
+    const t = toasts.items.at(-1);
+    expect(t, "a failure toast was raised (rejection caught, not unhandled)").toBeDefined();
+    expect(t!.text, "carries the reason").toContain("offline");
+    expect(t!.alert, "announced assertively").toBe(true);
+    expect(t!.actionLabel, "offers a retry").toBeTruthy();
+
+    // retrying re-sends the same payload
+    putSpy.mockReset();
+    putSpy.mockImplementation(async (s: Steer[]) => s);
+    toasts.act(t!.id);
+    await settle();
+    expect(putSpy).toHaveBeenCalledTimes(1);
+    expect(putSpy.mock.calls[0]![0].find((s) => s.id === "a")!.label).toBe("Alpha2");
   });
 
   it("does not recover an entirely-empty added row", async () => {

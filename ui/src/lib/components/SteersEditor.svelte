@@ -5,6 +5,7 @@
   import type { DndEvent } from "svelte-dnd-action";
   import { steers } from "$lib/steers.svelte";
   import { repos } from "$lib/repos.svelte";
+  import { toasts } from "$lib/toasts.svelte";
   import EmojiPicker from "$lib/components/EmojiPicker.svelte";
   import SlashCommandMenu from "$lib/components/SlashCommandMenu.svelte";
   import SteerRepoTokenField from "$lib/components/SteerRepoTokenField.svelte";
@@ -88,6 +89,25 @@
     return draft.filter((s) => persistedIds.has(s.id) || rowValid(s));
   }
 
+  // Order-sensitive signature of the persisted shape, so teardown can tell "there are
+  // unsaved changes" from "nothing to do" without re-PUTting on every plain close. Tuples
+  // (not the objects) so key order can't produce a false difference; the fields mirror what
+  // the server round-trips, so a cleaned payload and the store's copy of it compare equal.
+  function sig(list: Steer[]): string {
+    return JSON.stringify(
+      list.map((s) => [
+        s.id,
+        s.label,
+        s.text,
+        s.emoji ?? "",
+        s.inSteerBar,
+        s.onIssues,
+        s.repos ?? null,
+        s.agentProviders ?? null,
+      ]),
+    );
+  }
+
   onMount(async () => {
     if (!steers.loaded) await steers.load();
     if (!repos.loaded) await repos.load();
@@ -110,17 +130,36 @@
     }
   });
 
+  // Teardown save: fire-and-forget by necessity (the component is being destroyed), so its
+  // rejection must be handled here — the inline error banner unmounts with it. Reports on
+  // the app-level toast layer, which outlives the dialog, and offers a retry that re-reports
+  // if it fails again, so a failed close-flush is recoverable rather than silently lost.
+  function saveOnClose(payload: Steer[]) {
+    steers.save(payload).catch((e) => {
+      const reason = e instanceof Error ? e.message : m.steerseditor_save_failed();
+      toasts.info(m.steerseditor_close_save_failed({ reason }), {
+        alert: true,
+        sticky: true,
+        key: "steers-close-save",
+        action: { label: m.common_retry(), run: () => saveOnClose(payload) },
+      });
+    });
+  }
+
   onDestroy(() => {
-    // (1) flush a still-pending debounced edit independently, so a valid baseline change
-    // persists on close even if an invalid new row is also present.
-    const pendingDebounce = saveTimer !== null;
     if (saveTimer) {
       clearTimeout(saveTimer);
       saveTimer = null;
     }
-    if (pendingDebounce) {
-      const payload = buildPayload();
-      if (!payload.some((s) => !rowValid(s))) void steers.save(payload.map(cleanSteer));
+    // (1) Flush the valid persisted baseline whenever it still differs from the store —
+    // decided on STATE, not on "was a debounce pending". A save that already failed, or a
+    // mutation that never scheduled one, leaves no timer behind, and this is the editor's
+    // last chance to persist: a timer-only check would drop those edits silently. Still
+    // gated on validity — an invalid persisted row would 400 the all-or-nothing PUT, so it
+    // stays unsaved (visible in the editor) rather than being force-sent here.
+    const payload = buildPayload().map(cleanSteer);
+    if (!payload.some((s) => !rowValid(s)) && sig(payload) !== sig(steers.list)) {
+      saveOnClose(payload);
     }
     // (2) recover content-bearing invalid new rows (empty ones carry nothing → dropped).
     const pids = new Set(steers.list.map((s) => s.id));

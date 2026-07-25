@@ -3183,14 +3183,19 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
       expect(fr1.bottom).toBeLessThanOrEqual(KB_TOP + 1);
 
       // Branch reachability: the auto-opened list puts 20 rows between the filter and the
-      // branch control, so prove the branch control is still reachable by scrolling —
-      // present, and fully above the keyboard line rather than stranded behind it.
+      // branch control. Rewind the scroller to the top first, so the scroll below is a
+      // real one — at rest the control is genuinely past the fold, which is the whole
+      // cost this one-tap change accepts.
       const branchCtl = document.querySelector<HTMLSelectElement>(".ctx-sheet .ctx-branch-select")!;
       expect(branchCtl).toBeTruthy();
       // Two real options, and we start on the first — otherwise the flip asserted below
       // proves nothing (the suite-wide mock lists "main" alone, which cannot change).
       expect(branchCtl.options.length).toBe(2);
       expect(branchCtl.value).toBe("main");
+      sheetBody.scrollTop = 0;
+      await expect.poll(() => branchCtl.getBoundingClientRect().top).toBeGreaterThan(KB_TOP);
+
+      // …and scrolling to it brings it fully above the keyboard line, not stranded behind it.
       branchCtl.scrollIntoView({ block: "nearest" });
       await expect
         .poll(() => branchCtl.getBoundingClientRect().bottom)

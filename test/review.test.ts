@@ -620,7 +620,11 @@ test("task prompt survives the variadic allowlist (not swallowed → no task →
   // fails, baseSha → null, diffBase falls back to session.baseBranch ("main"), and the
   // assertion is self-referential (reviewPrompt("main", …) on both sides). It would BREAK if
   // rev-parse ever resolved a SHA on that path (diffBase would become that SHA, not "main").
-  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+  // begin() now always briefs the effective round (#1948): first review, no prior, no spawn
+  // history → effectiveRound(0, 0, DEFAULT_CAP=3) === 1.
+  expect(argv.at(-1)).toBe(
+    reviewPrompt("main", "do the thing", [], [], null, null, { round: 1, cap: 3 }),
+  );
   expect(argv.at(-3)).toBe("--permission-mode");
   expect(argv.at(-2)).toBe("dontAsk");
   // nothing between the allowlist and the prompt may be a bare allowlist entry:
@@ -2462,7 +2466,11 @@ test("critic spawn is wrapped in bwrap when backend is present", async () => {
   const sep = argv.indexOf("--");
   expect(sep).toBeGreaterThan(0);
   expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows, not another bwrap
-  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+  // begin() now always briefs the effective round (#1948): first review, no prior, no spawn
+  // history → effectiveRound(0, 0, DEFAULT_CAP=3) === 1.
+  expect(argv.at(-1)).toBe(
+    reviewPrompt("main", "do the thing", [], [], null, null, { round: 1, cap: 3 }),
+  );
 });
 
 test("critic spawn degrades to unwrapped when backend is null", async () => {
@@ -3229,4 +3237,112 @@ test("tab baseline: repeated critic runs (finalize + forget) leave zero open tab
   await Bun.sleep(0); // forget's stop is fire-and-forget — let it settle
   expect(openTabs.size).toBe(0);
   expect(n).toBe(4); // four real spawns; all four tabs were closed
+});
+
+// ── #1948: the effective round briefed to the PR critic, at the service seam ───────────────────
+
+const criticPrompt = (started: any[]) => started[0]!.argv.at(-1) as string;
+
+test("#1948: a first review briefs round 1 of the cap", async () => {
+  const { deps: d, started } = makeDeps({ cap: 8 });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(criticPrompt(started)).toContain("rework round 1 of at most 8");
+});
+
+test("#1948: addressRound HELD at the cap is clamped, not incremented past it", async () => {
+  // runAutoAddress holds addressRound at the cap; the raw `+1` would emit "round 4 of at most 3".
+  const { deps: d, started } = makeDeps({ cap: 3 });
+  d.store.getReview = () => ({
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    findings: ["standing blocker"],
+    addressRound: 3,
+    summary: "",
+    body: "",
+    updatedAt: 0,
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 3 of at most 3");
+  expect(p).not.toContain("rework round 4");
+  expect(p).toContain("budget is spent");
+});
+
+test("#1948: an outstanding-findings streak floors the round even while addressRound lags", async () => {
+  // Error verdicts preserve streakReviews but leave addressRound untouched, so the streak count is
+  // the honest measure of how many times this PR has actually been through rework.
+  const { deps: d, started } = makeDeps({ cap: 8 });
+  d.store.getReview = () => ({
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    findings: ["still broken"],
+    addressRound: 2,
+    streakReviews: 6,
+    summary: "",
+    body: "",
+    updatedAt: 0,
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 6 of at most 8");
+  expect(p).toContain("past the halfway point");
+});
+
+// REGRESSION (critic finding on #1948): a critic spawn fires per CI-green head, NOT per rework
+// round, and a clean verdict resets both counters. Flooring the round on a LIFETIME spawn count
+// therefore climbed with ordinary pushes and — at the default cap of 3 — briefed the 2nd review of
+// a perfectly healthy PR as "past the halfway point" and the 3rd as "budget spent", muzzling
+// contract / locale-parity / task-satisfaction findings on a PR that was never in rework.
+test("#1948 regression: a healthy session's repeated reviews stay at round 1", async () => {
+  for (const priorClean of [
+    null,
+    // A prior CLEAN verdict: findings resolved, both counters reset — the next push must not
+    // inherit any lateness from however many reviews came before.
+    {
+      sessionId: "s1",
+      headSha: "old",
+      decision: "commented" as const,
+      findings: [] as string[],
+      addressRound: 0,
+      streakReviews: 0,
+      summary: "",
+      body: "",
+      updatedAt: 0,
+    },
+  ]) {
+    const { deps: d, started } = makeDeps({ cap: 3 });
+    if (priorClean) d.store.getReview = () => priorClean;
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    const p = criticPrompt(started);
+    expect(p).toContain("rework round 1 of at most 3");
+    expect(p).not.toContain("past the halfway point");
+    expect(p).not.toContain("budget is spent");
+  }
+});
+
+test("#1948: the auto-address steer names blockers and marks nits optional", async () => {
+  const { deps: d, steers } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "s",
+        body: "b",
+        findings: ["fix the real bug"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers.length).toBe(1);
+  expect(steers[0]!.text).toContain("BLOCKING points");
+  expect(steers[0]!.text).toContain("fix the real bug");
+  // Nits now live in the review body; without this the agent treats them as required work.
+  expect(steers[0]!.text).toContain("`Nits (non-blocking):`");
+  expect(steers[0]!.text).toContain("OPTIONAL");
+  // The disagreement channel must survive.
+  expect(steers[0]!.text).toContain("genuinely disagree");
 });

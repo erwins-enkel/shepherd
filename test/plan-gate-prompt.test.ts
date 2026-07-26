@@ -279,3 +279,126 @@ test("staleness block: emitted only with behind>0 AND changed paths, and is body
     );
   }
 });
+
+// ── #1948: convergence rules — routing, the soundness bar, and the ROUND block ─────────────────
+//
+// The plan reviewer had no non-blocking channel: its only contract was approve, or
+// "request-changes with at least one finding". A wording preference therefore had exactly one legal
+// exit — a blocking finding costing a full rework round. These assert the CONTRACT (a section
+// exists, an item class is barred) rather than exact phrasing, so wording may be retuned freely.
+
+test("#1948: the bar is soundness, not optimality", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).not.toContain("best reasonable path");
+  expect(p).not.toContain("is it the best path");
+  expect(p).toContain("SOUNDNESS, not optimality");
+  // Approval must not be blocked by non-blocking items.
+  expect(p).toContain("do NOT prevent approval");
+});
+
+test("#1948: non-blocking items route to a named body section, never to findings", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).toContain("FINDINGS ROUTING");
+  expect(p).toContain("`Suggestions (non-blocking):`");
+  expect(p).toContain('NEVER go in "findings"');
+});
+
+test("#1948: scope-demand lens bars findings that require work the task never asked for", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).toContain("SCOPE DEMANDS");
+  expect(p).toContain("additional cases");
+  expect(p).toContain("follow-up work");
+  // The converse must be adjacent, or the lens reads as licence to ignore real gaps.
+  expect(p).toContain("AS STATED is not satisfied");
+  expect(p).toContain("narrower than you would have scoped it is never a finding");
+});
+
+test("#1948: prose-demand ban targets 'argue it more' findings", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).toContain("PROSE");
+  expect(p).toContain("more argumentation");
+  expect(p).toContain("MISSING DECISION");
+});
+
+test("#1948: the 5-finding cap is advisory and can never shed a blocker", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  expect(p).toContain("At most 5 NEW findings");
+  expect(p).toContain("PRIORITISATION instruction");
+  // Overflow must emit everything — shedding a blocker would read as clean to signoff/autopilot.
+  expect(p).toContain("emit ALL of them");
+  expect(p).toContain("NEVER move a blocking problem");
+  // Re-raised priors must not consume the budget, else a regression has no room.
+  expect(p).toContain("do NOT count against those 5");
+});
+
+test("#1948: a stale prior the new bar does not admit is DROPPED, and saying so is compliance", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT", ["a wording nit from the old bar"]);
+  expect(p).toContain("EXCEPTION");
+  expect(p).toContain('do not re-raise it in "findings"');
+  expect(p).toContain("IS compliance with this instruction");
+  // …and the drop rule must NOT appear when there are no priors to drop.
+  expect(planReviewPrompt("do X", "PLAN TEXT")).not.toContain("EXCEPTION");
+});
+
+test("#1948: scope/testability is blocking only when genuinely ABSENT", () => {
+  const p = planReviewPrompt("do X", "PLAN TEXT");
+  // The old text made "too broad" a guaranteed blocking concern; it must not survive.
+  expect(p).not.toContain("as a blocking concern");
+  expect(p).toContain("genuinely ABSENT is blocking");
+});
+
+test("#1948: no ROUND block without opts — every existing caller stays byte-identical", () => {
+  const withoutOpts = planReviewPrompt("do X", "PLAN TEXT", [], null, "en");
+  const withEmptyOpts = planReviewPrompt(
+    "do X",
+    "PLAN TEXT",
+    [],
+    null,
+    "en",
+    undefined,
+    undefined,
+    {},
+  );
+  expect(withoutOpts).not.toContain("ROUND —");
+  expect(withEmptyOpts).toBe(withoutOpts);
+});
+
+test("#1948: ROUND block escalates severity routing past the halfway point", () => {
+  const early = planReviewPrompt("do X", "P", [], null, "en", undefined, undefined, {
+    round: 1,
+    cap: 12,
+  });
+  expect(early).toContain("rework round 1 of at most 12");
+  expect(early).not.toContain("past the halfway point");
+  expect(early).not.toContain("budget is spent");
+
+  const late = planReviewPrompt("do X", "P", [], null, "en", undefined, undefined, {
+    round: 7,
+    cap: 12,
+  });
+  expect(late).toContain("past the halfway point");
+  expect(late).toContain("`Suggestions (non-blocking):`");
+  expect(late).not.toContain("budget is spent");
+});
+
+test("#1948: at the cap the ROUND block HEDGES — it must not claim escalation", () => {
+  const atCap = planReviewPrompt("do X", "P", [], null, "en", undefined, undefined, {
+    round: 12,
+    cap: 12,
+  });
+  expect(atCap).toContain("budget is spent");
+  expect(atCap).toContain("may be the LAST");
+  expect(atCap).toContain("the planning agent");
+  // At priorRound === cap-1 the steer IS still delivered, so asserting escalation would suppress
+  // real findings a round early on a false premise.
+  expect(atCap).not.toContain("escalates to a human");
+});
+
+test("#1948: lateness never downgrades severity or demotes a standing blocker", () => {
+  const late = planReviewPrompt("do X", "P", [], null, "en", undefined, undefined, {
+    round: 12,
+    cap: 12,
+  });
+  expect(late).toContain("finding at ANY round");
+  expect(late).toContain("STAYS blocking");
+});

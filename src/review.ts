@@ -20,6 +20,7 @@ import {
   defaultComputePatchId,
   defaultCollectBaseDelta,
   scopeFindings,
+  effectiveRound,
   buildVerdictCore,
   shouldSkipForPatchId,
   captureUsage,
@@ -53,9 +54,14 @@ export type ReviewOutcome = "started" | "skipped" | "error";
  *  would "fix" it against a tree that lacks it). So tell it where the base is. */
 function steerText(findings: string[], prNumber: number, epicBase: string | null): string {
   const lines = [
-    "The PR critic reviewed your latest push. Address each point below in this PR:",
+    "The PR critic reviewed your latest push. These are the BLOCKING points — address each in this PR:",
     "",
     ...findings.map((f, i) => `${i + 1}. ${f}`),
+    "",
+    // #1948: the critic now routes nits to a `Nits (non-blocking):` body section instead of into
+    // findings. Say so, or an agent that reads the posted review will treat those as required work
+    // and re-push for them — reintroducing through the body the churn the routing change removed.
+    "Any `Nits (non-blocking):` section in the posted review is OPTIONAL — it is not part of this list and does not need a fix or a reply.",
     "",
   ];
   if (epicBase) {
@@ -425,6 +431,7 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
+    const round = this.briefedRound(prior);
     const { argv, sessionId: criticSessionId } = this.criticArgv(
       session,
       diffBase,
@@ -435,6 +442,7 @@ export class ReviewService {
       epic,
       plan,
       smellLens,
+      round,
     );
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
@@ -657,6 +665,30 @@ export class ReviewService {
     return { seenNoteIds: [...priorSeenNoteIds, ...fresh.ids], authorNotes: fresh.notes };
   }
 
+  /** The EFFECTIVE round this run briefs the critic with (#1948 — see {@link effectiveRound}).
+   *  `prior.addressRound` is the delivered-steer count, which runAutoAddress HOLDS at the cap, so
+   *  the raw `+1` would overshoot into "round 4 of at most 3" on a stalled PR.
+   *
+   *  The floor is `streakReviews` — findings-bearing reviews on the CURRENT outstanding-findings
+   *  streak. It must NOT be a lifetime spawn count: a critic spawn fires per CI-green head, not per
+   *  rework round, so on a healthy session that never entered a rework loop a lifetime count would
+   *  climb with ordinary pushes and (at the default cap of 3) brief the 2nd review as "past the
+   *  halfway point" and the 3rd as "budget spent" — muzzling contract, locale-parity and
+   *  task-satisfaction findings on a PR that was never in rework at all. `streakReviews` resets to 0
+   *  on every clean verdict alongside `addressRound`, so a healthy session always reads as round 1,
+   *  while a genuine rework streak still floors the round even though error verdicts leave
+   *  `addressRound` untouched (finalizeErrorVerdict preserves the streak).
+   *
+   *  `forceReview` zeroes both, so an explicit operator re-review restores full latitude. That is
+   *  deliberate and differs from the plan gate, where Resume is the ONLY escape at the cap and must
+   *  therefore NOT hand back latitude.
+   *
+   *  A method rather than an inline expression in begin(): its optional-chain + nullish branches
+   *  would otherwise count against that method's already-tight complexity budget (fallow health). */
+  private briefedRound(prior: ReviewVerdict | null): number {
+    return effectiveRound(prior?.addressRound ?? 0, prior?.streakReviews ?? 0, this.cap);
+  }
+
   /** Build the read-only critic's argv — deliberately NOT --dangerously-skip-permissions. It
    *  inspects an UNTRUSTED PR diff, so a prompt-injection hidden in that diff must not be able
    *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
@@ -672,6 +704,7 @@ export class ReviewService {
     epic: EpicContext | null,
     plan: string | null,
     smellLens: boolean,
+    round: number,
   ): { argv: string[]; sessionId: string } {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
@@ -692,6 +725,8 @@ export class ReviewService {
       prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
         plan,
         smellLens,
+        round,
+        cap: this.cap,
       }),
       // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
       captureLastMessage: true,

@@ -2231,3 +2231,102 @@ test("prior findings are re-raised into the next prompt verbatim, line numbers i
   // "cite path + symbol, not line numbers" rule cannot be read as an order to rewrite it.
   expect(prompt).toContain("EXEMPTION: re-raising a prior finding verbatim is REQUIRED");
 });
+
+// ── #1948: the EFFECTIVE round briefed to the reviewer, asserted at the service seam ───────────
+//
+// `prior.round + 1` is wrong at BOTH ends, which is the whole reason effectiveRound exists:
+//  - applyChangesRequested HOLDS gate.round at the cap while startedStatus → "started-at-cap"
+//    still starts a review, so the raw value would emit "round 4 of at most 3".
+//  - resume()/dismiss() write `round: 0`, and Resume is the ONLY operator escape offered at the
+//    cap, so a plan reviewed many times would otherwise be briefed as round 1.
+// The prompt is the last argv element (see the existing "consider spawns reviewer" test).
+
+const promptOf = (h: any) => h.started[0].argv[h.started[0].argv.length - 1];
+
+test("#1948: a first review is briefed as round 1 of the cap", async () => {
+  const h = harness({ cap: 12 });
+  await h.svc.consider(planningSession() as any);
+  expect(promptOf(h)).toContain("rework round 1 of at most 12");
+});
+
+test("#1948: a gate HELD at the cap is clamped — never 'round 4 of at most 3'", async () => {
+  const h = harness({
+    cap: 3,
+    store: {
+      getPlanGate: () => ({ planHash: "x", approved: false, round: 3, findings: ["standing"] }),
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider({ ...planningSession(), planPhase: "planning" } as any);
+  const p = promptOf(h);
+  expect(p).toContain("rework round 3 of at most 3");
+  expect(p).not.toContain("rework round 4"); // the unclamped `prior.round + 1` value
+  expect(p).toContain("budget is spent");
+});
+
+test("#1948: a gate reset to round 0 by resume() is still briefed as late-round", async () => {
+  // The exact TASK-1981/1977 shape: the round counter was zeroed, but the spawn history proves the
+  // plan has been reviewed many times over. Without the reset-proof count the late-round routing
+  // would never fire on precisely the sessions that exhausted their budget.
+  const spawns = Array.from({ length: 9 }, (_, i) => ({
+    kind: "plan_gate",
+    taskSessionId: "s1",
+    reviewerSessionId: `r${i}`,
+    worktreePath: `/wt-${i}`,
+  }));
+  const h = harness({
+    cap: 12,
+    store: {
+      getPlanGate: () => ({ planHash: "x", approved: false, round: 0, findings: [] }),
+      listReviewerSpawns: () => spawns,
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  const p = promptOf(h);
+  expect(p).toContain("rework round 9 of at most 12");
+  expect(p).toContain("past the halfway point");
+});
+
+test("#1948: the spawn count only counts THIS session's plan_gate rows", async () => {
+  const h = harness({
+    cap: 12,
+    store: {
+      getPlanGate: () => ({ planHash: "x", approved: false, round: 0, findings: [] }),
+      listReviewerSpawns: () => [
+        { kind: "plan_gate", taskSessionId: "other", worktreePath: "/a" },
+        { kind: "review", taskSessionId: "s1", worktreePath: "/b" },
+        { kind: "recap", taskSessionId: "s1", worktreePath: "/c" },
+      ],
+      get: () => ({ id: "s1", auto: false }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  // None of those rows belong to this session's plan gate → falls back to prior.round + 1.
+  expect(promptOf(h)).toContain("rework round 1 of at most 12");
+});
+
+test("#1948: the findings steer tells the agent to revise in place, not accrete", async () => {
+  const steers: string[] = [];
+  const h = harness({
+    readVerdict: () => ({
+      decision: "request-changes",
+      summary: "no",
+      body: "B",
+      findings: ["fix A"],
+    }),
+    reply: (_id: string, t: string) => {
+      steers.push(t);
+      return true;
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick();
+  expect(steers.length).toBe(1);
+  expect(steers[0]).toContain("Revise IN PLACE");
+  expect(steers[0]).toContain("Do NOT append justification");
+  expect(steers[0]).toContain("ledger");
+  // The steer carries ONLY gate.findings — the verdict body never reaches the planner's worktree,
+  // so it must not reference the reviewer's non-blocking section (critic finding on #1948).
+  expect(steers[0]).not.toContain("Suggestions (non-blocking):");
+});

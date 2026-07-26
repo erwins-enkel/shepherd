@@ -28,6 +28,9 @@ import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
+// The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
+// two review loops can never drift on them — the same reason `scopeAndOutputTail` is shared there.
+import { roundBlock, effectiveRound } from "./critic-core";
 
 /** Outcome of an on-demand `consider()`: a reviewer actually spawned (`"started"`, or
  *  `"started-at-cap"` — see below); the request was a no-op (`"skipped"` — not planning, a review
@@ -175,20 +178,33 @@ export function planReviewPrompt(
   operatorLanguage: OperatorLanguage = "en",
   anchor?: PlanAnchor | null,
   staleness?: AnchorStaleness | null,
+  /** #1948. An options BAG, deliberately not two more positional params: `operatorLanguage` above
+   *  binds positionally, so anything inserted before it silently mis-binds. `round` is the EFFECTIVE
+   *  round the caller already computed (see {@link effectiveRound}); absent ⇒ no ROUND block, so
+   *  every existing caller and test keeps a byte-identical prompt. */
+  opts: { round?: number; cap?: number } = {},
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
     "A coding agent wrote the PLAN below to accomplish a TASK, BEFORE writing any code. Your job is to",
-    "try to REFUTE the plan: is it the best path? Does it actually satisfy the task? What are the hidden",
-    "risks, missing steps, wrong assumptions, or a materially simpler approach it ignored? You MAY inspect",
-    "the codebase read-only (git log/show/diff, Read, Grep) to ground your critique.",
-    // #1812 findings B + H: the plan schema now carries an explicit "Out of Scope" boundary and a
-    // "testing seams + decisions" section, giving this reviewer a scope + testability surface to
-    // attack. A plan that leaves either implicit is refutable.
-    "Scrutinise the plan's SCOPE and TESTABILITY in particular: does it draw an explicit `Out of Scope` " +
-      "boundary (so scope creep can be caught at review), and does it name concrete testing seams — " +
-      "preferring existing seams and the fewest, highest ones — rather than a vague 'add tests'? Flag " +
-      "either being missing, too broad, or untestable as a blocking concern.",
+    "try to REFUTE the plan: does it actually satisfy the task? What are the hidden risks, missing steps,",
+    "wrong assumptions, or a materially simpler approach it ignored? You MAY inspect the codebase",
+    "read-only (git log/show/diff, Read, Grep) to ground your critique.",
+    // #1948: the bar used to be "genuinely the best reasonable path", which no plan ever wins —
+    // optimality is unfalsifiable, so the gate could be re-litigated indefinitely (observed: two
+    // sessions exhausting a 12-round budget twice). Refutation now targets DEFECTS, not optimality.
+    "The bar is SOUNDNESS, not optimality. A plan does NOT have to be exhaustive, perfectly worded, or",
+    "the approach you would have chosen. It passes when its approach will work, it satisfies the task,",
+    "and whatever remains open is something the implementing agent can reasonably settle while executing.",
+    "",
+    // #1812 findings B + H, re-scoped by #1948: the scope/testability surface is still worth
+    // attacking, but "flag either as a blocking concern" manufactured a guaranteed round-1 blocker
+    // with no ceiling on how explicit a boundary had to be. Blocking now requires genuine absence.
+    "Scrutinise the plan's SCOPE and TESTABILITY: does it draw an explicit `Out of Scope` boundary (so " +
+      "scope creep can be caught at review), and does it name concrete testing seams — preferring " +
+      "existing seams and the fewest, highest ones — rather than a vague 'add tests'? A boundary or " +
+      "seam that is genuinely ABSENT is blocking. One that exists but is imperfectly worded or narrower " +
+      "than you would have drawn it is NOT — that goes under `Suggestions (non-blocking):`.",
     "",
     "TASK:",
     task,
@@ -208,16 +224,24 @@ export function planReviewPrompt(
     lines.push(
       "This is a RE-REVIEW. For EACH prior point, confirm the revised plan addresses it; if it does not, re-raise it verbatim:",
       ...priorFindings.map((f, i) => `${i + 1}. ${f}`),
+      // #1948 severity-based drop. `PlanGate.findings` PERSIST across a deploy, so without this every
+      // point recorded under the old "best reasonable path" bar is re-raised verbatim on the first
+      // review after that bar changed — and the sessions this change exists for converge no faster.
+      'EXCEPTION: a prior point that FINDINGS ROUTING below does not admit as blocking is DROPPED — do not re-raise it in "findings". You MAY restate it once under `Suggestions (non-blocking):`. Saying in "body" that you dropped it, and why, IS compliance with this instruction, not a violation of it.',
       "",
     );
   }
   // The re-raise exemption is gated on the SAME condition as the re-review block above — it cites
   // that instruction, so emitting it on a first round would point at text the prompt doesn't have.
   lines.push(...locationReferenceBlock(anchor, staleness, priorFindings.length > 0), "");
+  lines.push(...findingsRoutingBlock());
+  lines.push(
+    ...roundBlock(opts.round, opts.cap, "Suggestions (non-blocking):", "the planning agent"),
+  );
   lines.push(
     `Write your verdict as JSON to \`${PLAN_VERDICT_FILE}\` in the current directory, with EXACTLY this shape:`,
     '{"decision": "approve" | "request-changes", "summary": "<=100 char one-liner", "body": "<full markdown>", "findings": ["<discrete actionable revision>", ...]}',
-    'Use "approve" ONLY when the plan is genuinely the best reasonable path and fully satisfies the task — no remaining blocking concerns. Otherwise "request-changes" with at least one finding in "findings". Write the file as your final action, then stop.',
+    'Use "approve" when the plan clears the SOUNDNESS bar above and nothing in "findings" remains — non-blocking items under `Suggestions (non-blocking):` do NOT prevent approval. Otherwise "request-changes" with at least one finding in "findings". Write the file as your final action, then stop.',
   );
   if (operatorLanguage === "de") {
     lines.push(
@@ -229,6 +253,44 @@ export function planReviewPrompt(
     );
   }
   return lines.join("\n");
+}
+
+/**
+ * FINDINGS ROUTING (#1948) — what may block a plan and what may not.
+ *
+ * The plan reviewer's only contract used to be "approve, or request-changes with at least one
+ * finding". With no non-blocking channel, a wording preference had exactly one legal exit: a
+ * blocking finding that costs a full rework round. The PR critic solved the same problem with named
+ * non-blocking body sections (`critic-core.ts` → the scope-creep / smells / latent lenses), each
+ * forbidden from `findings` because ANY entry there advances the streak, is steered back to the
+ * agent, and is re-raised the next round. This is the plan-side counterpart.
+ *
+ * Three rules carry most of the weight, each aimed at an observed failure:
+ *  - The enumerated blocking list replaces an open-ended "is it the best path" judgement.
+ *  - The SCOPE-DEMAND rule stops findings that require the plan to grow beyond its task — the
+ *    mechanism behind plans reaching 32 KB and 28 success criteria across a dozen rounds.
+ *  - The PROSE rule stops findings that ask for more argument about a decision already stated
+ *    (observed verbatim: "Argue the rejection of X instead of listing it").
+ *
+ * The cap is ADVISORY and worded so it can never lose information: unlike `scopeFindings` in
+ * critic-core (which enforces a decidable predicate — is this path in the diff?), "is this finding
+ * blocking?" cannot be checked server-side, so a deterministic truncation would cut blind. Overflow
+ * therefore emits every blocker rather than shedding one into the non-blocking section, which would
+ * make an over-budget verdict read as clean to `signoff.ts` / `autopilot.ts`.
+ */
+function findingsRoutingBlock(): string[] {
+  return [
+    'FINDINGS ROUTING — what belongs in "findings" and what does not:',
+    "- A finding is BLOCKING only when one of these holds: the plan will not satisfy the task; a step is wrong or will not work; a stated assumption is factually false against this codebase; a named risk would cause data loss, a security hole, or breakage and is left unmitigated; or a materially simpler approach exists that the plan does not consider at all.",
+    '- EVERYTHING ELSE is non-blocking. Report it in a SINGLE "body" section headed exactly `Suggestions (non-blocking):`, ONE LINE PER DISTINCT ITEM. Non-blocking items NEVER go in "findings" and NEVER make the decision "request-changes".',
+    // The scope-demand lens — the plan-side analogue of the PR critic's SCOPE-CREEP lens, with named
+    // item classes so it is matchable rather than a bare principle.
+    "- SCOPE DEMANDS: a finding may NOT require the plan to cover work the TASK does not ask for — additional cases, extra hardening, follow-up work, or considerations outside the task's boundary. Those are suggestions. A gap is blocking ONLY when the task AS STATED is not satisfied. A plan being narrower than you would have scoped it is never a finding on its own.",
+    "- PROSE: a finding may NOT ask for more argumentation, justification, rationale, or for a decision the plan already states to be re-argued at greater length. Ask for a MISSING DECISION, never for more prose about one already made. A plan is an instruction to an implementer, not an essay defending itself.",
+    '- At most 5 NEW findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the plan needs rewriting, not revising). NEVER move a blocking problem into `Suggestions (non-blocking):`, and never drop one, to fit the budget.',
+    "- Re-raised prior findings do NOT count against those 5.",
+    "",
+  ];
 }
 
 /** The LOCATION REFERENCES block: how the reviewer must treat WHERE the plan says code lives.
@@ -570,6 +632,22 @@ export class PlanGateService {
     }
   }
 
+  /** How many plan reviews this session has already had (#1948). Unlike `gate.round` this survives
+   *  `resume()` / `dismiss()`, which write `round: 0` — and Resume is the ONLY operator escape
+   *  offered at the cap (`blocked.ts` returns that hold with no options), so without this the
+   *  late-round rules would never fire on exactly the sessions that exhausted their budget.
+   *
+   *  Reset-proof, not immortal: `pruneReviewerSpawns` drops rows older than
+   *  REVIEWER_SPAWN_RETENTION_MS (90 days), which no plan-review streak approaches. If one ever were
+   *  pruned the count simply falls and `effectiveRound` degrades to the round-based value. Error
+   *  spawns count too — see the note on ReviewService.countReviewSpawns for why that is accepted. */
+  private countPlanGateSpawns(sessionId: string): number {
+    let n = 0;
+    for (const row of this.deps.store.listReviewerSpawns())
+      if (row.kind === "plan_gate" && row.taskSessionId === sessionId) n++;
+    return n;
+  }
+
   /** Assemble the reviewer prompt, resolving the two facts that decide how it talks about
    *  locations: which tier applies (from the anchor), and whether the anchor has fallen materially
    *  behind the base branch.
@@ -590,6 +668,12 @@ export class PlanGateService {
     const staleness = anchor.anchored
       ? this.anchorStaleness(session.repoPath, anchor.sha, session.baseBranch)
       : null;
+    // #1948: the EFFECTIVE round briefed to the reviewer. `prior.round` alone is wrong at both ends
+    // — applyChangesRequested HOLDS it at the cap (so `+1` would emit "round 13 of at most 12" and
+    // the at-cap rule would never fire on a stalled session), while resume() zeroes it (so a plan
+    // reviewed 29 times would be briefed as round 1). effectiveRound clamps it and maxes it against
+    // a reset-proof spawn count.
+    const round = effectiveRound(prior?.round ?? 0, this.countPlanGateSpawns(session.id), this.cap);
     return planReviewPrompt(
       session.prompt,
       plan,
@@ -598,6 +682,7 @@ export class PlanGateService {
       this.deps.operatorLanguage?.() ?? "en",
       anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
       staleness && staleness.behind > 0 ? staleness : undefined,
+      { round, cap: this.cap },
     );
   }
 
@@ -1307,6 +1392,15 @@ function planSteerText(findings: string[]): string {
   return (
     "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +
     findings.map((f, i) => `${i + 1}. ${f}`).join("\n") +
+    // #1948: without this the only legal move is to ADD text, so each round grows the plan, which
+    // grows the surface the next round attacks. Observed: a plan reaching 32 KB with 28 success
+    // criteria, three "why not X" essay sections and a ledger of addressed findings — written for
+    // the reviewer rather than for the implementer.
+    "\n\nRevise IN PLACE and keep the plan tight: edit the sections that are wrong and delete what no " +
+    'longer holds. Do NOT append justification or rebuttal sections, a "why not X" essay, or a ledger ' +
+    "of which finding each change answers — the plan is an instruction to the implementer, not a reply " +
+    "to the reviewer. Any `Suggestions (non-blocking):` section in the review is OPTIONAL: it is not " +
+    "part of this list and does not block approval." +
     "\n\nDon't start implementing yet — wait for the plan to be approved."
   );
 }

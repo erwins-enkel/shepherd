@@ -15,6 +15,8 @@ import {
   prReviewPrompt,
   reapRun,
   defaultCollectBaseDelta,
+  roundBlock,
+  effectiveRound,
 } from "../src/critic-core";
 import { allowedToolsFor } from "../src/transient-agent-argv";
 
@@ -917,4 +919,92 @@ test("#1757 base commits with an EMPTY net diff (revert pair) still mean the tre
   expect(p).not.toContain("is exactly the paths below");
   expect(p).not.toContain("OVERRIDES the VERIFY rule");
   expect(p).not.toContain("⟦UNTRUSTED:base delta paths:");
+});
+
+// ── #1948: nits leave `findings`, and the ROUND block stays out of the shared tail ─────────────
+//
+// The tail used to mandate the exact opposite of its own three lenses: "A non-blocking nit STILL
+// goes in findings". Because runAutoAddress fires on non-empty findings REGARDLESS of decision and
+// the re-raise rule re-raises them, a comment nit looped until the streak ceiling paused the PR.
+
+test("#1948: findings is blocking-only; nits route to a named non-blocking body section", () => {
+  const p = reviewPrompt("BASE", "do X");
+  expect(p).not.toContain('A non-blocking nit STILL goes in "findings"');
+  expect(p).toContain("FINDINGS ROUTING");
+  expect(p).toContain("`Nits (non-blocking):`");
+  expect(p).toContain('does NOT go in "findings"');
+  // Size must never excuse a real defect.
+  expect(p).toContain("REGARDLESS of how small it looks");
+});
+
+test("#1948: comment rule — rewording is a nit, a factually wrong comment is a defect", () => {
+  const p = reviewPrompt("BASE", "do X");
+  expect(p).toContain("COMMENTS specifically");
+  expect(p).toContain("reworded or expanded");
+  expect(p).toContain("factually WRONG about what the code does IS a defect");
+});
+
+test("#1948: the cap is advisory and can never shed a blocker into Nits", () => {
+  const p = reviewPrompt("BASE", "do X");
+  expect(p).toContain("At most 5 NEW findings");
+  expect(p).toContain("emit ALL of them");
+  expect(p).toContain("NEVER move a blocking problem");
+  expect(p).toContain("do NOT count against those 5");
+});
+
+test("#1948: a stale prior the routing does not admit is dropped, not re-raised", () => {
+  const p = reviewPrompt("BASE", "do X", ["nit: rename this variable"]);
+  expect(p).toContain("does not admit as blocking is likewise DROPPED");
+  expect(p).toContain("IS compliance with the re-raise instruction");
+  // Absent without priors — nothing to drop.
+  expect(reviewPrompt("BASE", "do X")).not.toContain("likewise DROPPED");
+});
+
+test("#1948: the routing block is SHARED — the standalone critic gets it too", () => {
+  const pr = prReviewPrompt("BASE", "title", "body");
+  expect(pr).toContain("FINDINGS ROUTING");
+  expect(pr).toContain("`Nits (non-blocking):`");
+});
+
+test("#1948: the ROUND block is session-critic only and never reaches the shared tail", () => {
+  const withRound = reviewPrompt("BASE", "do X", [], [], null, null, { round: 3, cap: 8 });
+  expect(withRound).toContain("rework round 3 of at most 8");
+  // prReviewPrompt has no rework loop — it must never carry a round block.
+  expect(prReviewPrompt("BASE", "t", "b")).not.toContain("ROUND —");
+  // …and omitting the opts must leave the prompt byte-identical.
+  expect(reviewPrompt("BASE", "do X", [], [], null, null, {})).toBe(reviewPrompt("BASE", "do X"));
+});
+
+test("#1948: ROUND block thresholds + the at-cap hedge (PR critic wording)", () => {
+  const early = reviewPrompt("BASE", "do X", [], [], null, null, { round: 1, cap: 8 });
+  expect(early).not.toContain("past the halfway point");
+  const late = reviewPrompt("BASE", "do X", [], [], null, null, { round: 5, cap: 8 });
+  expect(late).toContain("past the halfway point");
+  expect(late).toContain("`Nits (non-blocking):`");
+  const atCap = reviewPrompt("BASE", "do X", [], [], null, null, { round: 8, cap: 8 });
+  expect(atCap).toContain("may be the LAST");
+  expect(atCap).toContain("the author");
+  expect(atCap).not.toContain("escalates to a human");
+});
+
+test("#1948: effectiveRound clamps at the cap and is floored by the reset-proof count", () => {
+  // Normal early round: prior+1 wins.
+  expect(effectiveRound(0, 1, 12)).toBe(1);
+  expect(effectiveRound(2, 3, 12)).toBe(3);
+  // HELD at the cap (applyChangesRequested holds gate.round) — must clamp, never emit 13-of-12.
+  expect(effectiveRound(12, 13, 12)).toBe(12);
+  expect(effectiveRound(11, 12, 12)).toBe(12);
+  // RESET to 0 by resume()/dismiss() with a long spawn history — the count must restore lateness.
+  expect(effectiveRound(0, 29, 12)).toBe(12);
+  expect(effectiveRound(0, 7, 12)).toBe(7);
+  // A fresh session with no spawns yet still reports round 1, never 0.
+  expect(effectiveRound(0, 0, 12)).toBe(1);
+});
+
+test("#1948: roundBlock emits nothing for absent or nonsensical inputs", () => {
+  expect(roundBlock(undefined, 8, "X", "y")).toEqual([]);
+  expect(roundBlock(3, undefined, "X", "y")).toEqual([]);
+  expect(roundBlock(0, 8, "X", "y")).toEqual([]);
+  expect(roundBlock(3, 0, "X", "y")).toEqual([]);
+  expect(roundBlock(NaN, 8, "X", "y")).toEqual([]);
 });

@@ -184,6 +184,8 @@ function makeDeps(
      * both `verdictRead` and `over.readVerdict`.
      */
     readVerdictFn?: () => VerdictRead<RawVerdict>;
+    /** reviewer_spawns rows visible to countReviewSpawns (#1948) — the reset-proof round floor. */
+    reviewerSpawns?: any[];
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -221,6 +223,9 @@ function makeDeps(
       recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         completedSpawns.push({ id, u, at }),
+      // Declared on ReviewServiceDeps["store"] and read by countReviewSpawns (#1948) to derive the
+      // reset-proof effective round. Overridable per-test to simulate a session's spawn history.
+      listReviewerSpawns: () => opts.reviewerSpawns ?? [],
     },
     herdr: new (class {
       readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
@@ -620,7 +625,11 @@ test("task prompt survives the variadic allowlist (not swallowed → no task →
   // fails, baseSha → null, diffBase falls back to session.baseBranch ("main"), and the
   // assertion is self-referential (reviewPrompt("main", …) on both sides). It would BREAK if
   // rev-parse ever resolved a SHA on that path (diffBase would become that SHA, not "main").
-  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+  // begin() now always briefs the effective round (#1948): first review, no prior, no spawn
+  // history → effectiveRound(0, 0, DEFAULT_CAP=3) === 1.
+  expect(argv.at(-1)).toBe(
+    reviewPrompt("main", "do the thing", [], [], null, null, { round: 1, cap: 3 }),
+  );
   expect(argv.at(-3)).toBe("--permission-mode");
   expect(argv.at(-2)).toBe("dontAsk");
   // nothing between the allowlist and the prompt may be a bare allowlist entry:
@@ -2462,7 +2471,11 @@ test("critic spawn is wrapped in bwrap when backend is present", async () => {
   const sep = argv.indexOf("--");
   expect(sep).toBeGreaterThan(0);
   expect(argv[sep + 1]).not.toBe("bwrap"); // reviewer argv directly follows, not another bwrap
-  expect(argv.at(-1)).toBe(reviewPrompt("main", "do the thing"));
+  // begin() now always briefs the effective round (#1948): first review, no prior, no spawn
+  // history → effectiveRound(0, 0, DEFAULT_CAP=3) === 1.
+  expect(argv.at(-1)).toBe(
+    reviewPrompt("main", "do the thing", [], [], null, null, { round: 1, cap: 3 }),
+  );
 });
 
 test("critic spawn degrades to unwrapped when backend is null", async () => {
@@ -3229,4 +3242,87 @@ test("tab baseline: repeated critic runs (finalize + forget) leave zero open tab
   await Bun.sleep(0); // forget's stop is fire-and-forget — let it settle
   expect(openTabs.size).toBe(0);
   expect(n).toBe(4); // four real spawns; all four tabs were closed
+});
+
+// ── #1948: the effective round briefed to the PR critic, at the service seam ───────────────────
+
+const criticPrompt = (started: any[]) => started[0]!.argv.at(-1) as string;
+
+test("#1948: a first review briefs round 1 of the cap", async () => {
+  const { deps: d, started } = makeDeps({ cap: 8 });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(criticPrompt(started)).toContain("rework round 1 of at most 8");
+});
+
+test("#1948: addressRound HELD at the cap is clamped, not incremented past it", async () => {
+  // runAutoAddress holds addressRound at the cap; the raw `+1` would emit "round 4 of at most 3".
+  const { deps: d, started } = makeDeps({ cap: 3 });
+  d.store.getReview = () => ({
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    findings: ["standing blocker"],
+    addressRound: 3,
+    summary: "",
+    body: "",
+    updatedAt: 0,
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 3 of at most 3");
+  expect(p).not.toContain("rework round 4");
+  expect(p).toContain("budget is spent");
+});
+
+test("#1948: a streak reset is overridden by the reset-proof spawn count", async () => {
+  const rows = Array.from({ length: 6 }, (_, i) => ({
+    kind: "review",
+    taskSessionId: "s1",
+    worktreePath: `/wt-${i}`,
+  }));
+  const { deps: d, started } = makeDeps({ cap: 8 }, { reviewerSpawns: rows });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  const p = criticPrompt(started);
+  expect(p).toContain("rework round 6 of at most 8");
+  expect(p).toContain("past the halfway point");
+});
+
+test("#1948: the spawn count ignores other sessions and other spawn kinds", async () => {
+  const { deps: d, started } = makeDeps(
+    { cap: 8 },
+    {
+      reviewerSpawns: [
+        { kind: "review", taskSessionId: "other", worktreePath: "/a" },
+        { kind: "plan_gate", taskSessionId: "s1", worktreePath: "/b" },
+        { kind: "recap", taskSessionId: "s1", worktreePath: "/c" },
+      ],
+    },
+  );
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+  expect(criticPrompt(started)).toContain("rework round 1 of at most 8");
+});
+
+test("#1948: the auto-address steer names blockers and marks nits optional", async () => {
+  const { deps: d, steers } = makeDeps(
+    {
+      readVerdict: () => ({
+        decision: "request-changes",
+        summary: "s",
+        body: "b",
+        findings: ["fix the real bug"],
+      }),
+    },
+    { autoAddressEnabled: true },
+  );
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(steers.length).toBe(1);
+  expect(steers[0]!.text).toContain("BLOCKING points");
+  expect(steers[0]!.text).toContain("fix the real bug");
+  // Nits now live in the review body; without this the agent treats them as required work.
+  expect(steers[0]!.text).toContain("`Nits (non-blocking):`");
+  expect(steers[0]!.text).toContain("OPTIONAL");
+  // The disagreement channel must survive.
+  expect(steers[0]!.text).toContain("genuinely disagree");
 });

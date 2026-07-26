@@ -150,7 +150,15 @@ export function reviewPrompt(
   authorNotes: string[] = [],
   issueBody?: string | null,
   epic?: EpicContext | null,
-  opts: { plan?: string | null; smellLens?: boolean } = {},
+  opts: {
+    plan?: string | null;
+    smellLens?: boolean;
+    /** The EFFECTIVE rework round (already clamped + spawn-count-maxed by the caller — see
+     *  ReviewService.begin), and the live cap. Both required for the ROUND block; absent ⇒ no block,
+     *  so every other caller stays byte-identical. */
+    round?: number;
+    cap?: number;
+  } = {},
 ): string {
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
@@ -184,6 +192,11 @@ export function reviewPrompt(
     lines.push(
       `This is a RE-REVIEW. The previous revision raised the points below. For EACH, confirm the new diff actually addresses it; if it does not, re-raise it verbatim in your findings — do not let it slide — UNLESS its file is not in \`git diff ${diffBase}...HEAD\`, in which case drop it per the scope rule below (do NOT re-raise it):`,
       ...priorFindings.map((f, i) => `${i + 1}. ${f}`),
+      // Severity-based drop, alongside the out-of-diff drop above (#1948). Prior findings PERSIST in
+      // `reviews.findings` across a deploy, so without this every nit recorded under the old
+      // "a non-blocking nit STILL goes in findings" contract is re-raised verbatim on the first
+      // review after that contract changed — and nothing converges any faster.
+      'A prior point that FINDINGS ROUTING below does not admit as blocking is likewise DROPPED — do not re-raise it in "findings". You MAY restate it once under `Nits (non-blocking):`. Saying in "body" that you dropped it, and why, IS compliance with the re-raise instruction above, not a violation of it.',
       "",
     );
   }
@@ -195,6 +208,10 @@ export function reviewPrompt(
       "",
     );
   }
+  // ROUND block (#1948) — session critic ONLY, and deliberately in this preamble rather than in
+  // scopeAndOutputTail: the tail is shared verbatim with prReviewPrompt (a test asserts byte
+  // identity), and the standalone critic has no rework loop to be late in.
+  lines.push(...roundBlock(opts.round, opts.cap, "Nits (non-blocking):", "the author"));
   // The judging clause is the ONE line that differs between the session critic ("satisfies that
   // task") and the standalone PR critic ("bugs/security/quality, intent as context") — everything
   // after it (the verdict-output contract) is identical, so it's factored into the shared tail.
@@ -455,6 +472,70 @@ function landingBlock(landing: LandingContext, diffBase: string): string[] {
   ];
 }
 
+/**
+ * The ROUND block (#1948), shared by the session PR critic ({@link reviewPrompt}) and the plan
+ * reviewer (`plan-gate.ts` → `planReviewPrompt`) so the two can never drift — the same reason
+ * {@link scopeAndOutputTail} exists. Emitted only when BOTH `round` and `cap` are supplied; absent
+ * ⇒ `[]`, so every caller that passes neither keeps a byte-identical prompt.
+ *
+ * `round` is the EFFECTIVE round the caller already computed (see {@link effectiveRound}) — this
+ * builder stays pure and does no clamping of its own.
+ *
+ * Two invariants the wording must preserve, both learned the hard way:
+ *  - Severity is never downgraded by lateness. A correctness/security defect is a finding at any
+ *    round, and an item that was blocking when first raised stays blocking — otherwise an
+ *    unaddressed blocker would be simultaneously must-re-raise and must-route-to-non-blocking.
+ *  - The last-round line HEDGES ("may be the last"). It is NOT safe to assert that findings stop
+ *    reaching the recipient here: at `priorRound === cap - 1` the steer is still delivered, and
+ *    because `round` is maxed with a spawn count it can reach `cap` while the delivered-round
+ *    counter is lower still. Asserting escalation would suppress real findings on a false premise.
+ */
+export function roundBlock(
+  round: number | undefined,
+  cap: number | undefined,
+  nonBlockingSection: string,
+  recipient: string,
+): string[] {
+  if (round === undefined || cap === undefined) return [];
+  if (!Number.isFinite(round) || !Number.isFinite(cap) || round < 1 || cap < 1) return [];
+  const n = round;
+  const m = cap;
+  const lines = [
+    `ROUND — this is rework round ${n} of at most ${m}.`,
+    "- A correctness or security defect is a finding at ANY round. Nothing below downgrades one.",
+    "- A point that was blocking when you first raised it STAYS blocking. The rules below govern only what you are noticing for the FIRST time now.",
+  ];
+  // Strictly past the halfway point (2n > m), so a 1-of-2 review is not already "late".
+  if (2 * n > m)
+    lines.push(
+      `- You are past the halfway point of the rework budget. Raise a NEW finding only if it would make the change fail outright; anything else you notice now goes to \`${nonBlockingSection}\`.`,
+    );
+  if (n >= m)
+    lines.push(
+      `- The budget is spent. Findings from this round may be the LAST that reach ${recipient} before the loop pauses for a human, so reserve blocking findings for what genuinely must not proceed.`,
+    );
+  lines.push("");
+  return lines;
+}
+
+/** The EFFECTIVE rework round both review loops brief their reviewer with (#1948).
+ *
+ *  `priorRound + 1` alone is wrong at BOTH ends, which is why this exists:
+ *   - Too high: `applyChangesRequested` HOLDS the round at the cap while `startedStatus` →
+ *     "started-at-cap" still starts reviews, so the raw value emits "round 13 of at most 12" and the
+ *     at-cap rule never fires on exactly the stalled sessions it is for. Hence the clamp.
+ *   - Too low: `resume()` writes `{ ...gate, round: 0 }` and is the ONLY operator escape offered at
+ *     the cap, so a plan reviewed 29 times would be briefed as round 1. Hence the max against
+ *     `reviewCount` — a reset-proof count of this session's reviewer spawns.
+ *
+ *  Policy this encodes: an operator Resume UNBLOCKS a session; it does not restore full review
+ *  latitude. `reviewCount` is itself clamped, so it can only ever raise the round to the cap.
+ */
+export function effectiveRound(priorRound: number, reviewCount: number, cap: number): number {
+  const clamped = Math.min(priorRound + 1, cap);
+  return Math.max(clamped, Math.min(reviewCount, cap));
+}
+
 function scopeAndOutputTail(
   diffBase: string,
   judgeClause: string,
@@ -557,9 +638,27 @@ function scopeAndOutputTail(
     "- A guard/validation present on one code path but MISSING from its sibling path (e.g. one branch floors a value with Math.max(0, …) and a parallel branch computing the same kind of value does not) is a defect even when the unguarded path is currently unreachable.",
     '- A bug currently unreachable but made reachable by change THIS PR foreshadows (a param wired only in tests, a value a follow-up will populate, a path behind a not-yet-set flag) is real — "descoped", "handled in another ticket", or "never reached in production" does NOT make such an in-diff defect a non-issue.',
     '- Route by reachability TODAY. If the defect is reachable on a path that ALREADY executes, treat it as a normal bug: put it in "findings" and block it per the usual rules. If it is reachable ONLY through the foreshadowed-but-not-yet-wired future above (dormant today), it is informational: report it in a SINGLE "body" section headed exactly `Latent / future-reachable (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes". Either way it must concern a file in the diff per the SCOPE rule above.',
+    // FINDINGS ROUTING (#1948). The tail used to mandate the exact opposite — "A non-blocking nit
+    // STILL goes in findings" — which contradicted the three lenses above and their stated reason:
+    // ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed (runAutoAddress
+    // fires on non-empty findings REGARDLESS of decision), and is re-raised every round by the
+    // re-raise rule. A wording nit therefore looped until the streak ceiling paused the PR. So
+    // `findings` is now blocking-only, and nits get the same non-blocking body routing the lenses use.
+    'FINDINGS ROUTING — what belongs in "findings" and what does not:',
+    '- "findings" is for changes the author MUST make: a correctness bug, a security issue, a broken or violated contract, a missing locale/catalog counterpart, or a diff that does not do what the task/intent above requires. Any such defect is a finding REGARDLESS of how small it looks.',
+    '- A NON-BLOCKING nit — a naming or wording preference, a stylistic choice, a comment you would phrase differently, a refactor you would like but the task did not require — does NOT go in "findings". Report it in a SINGLE "body" section headed exactly `Nits (non-blocking):`, ONE LINE PER DISTINCT ITEM, and it NEVER makes the decision "request-changes". Each must concern a file in the diff per the SCOPE rule above.',
+    '- COMMENTS specifically: do NOT raise a finding asking for a comment to be reworded or expanded, or for more explanation of code that is already correct — that is a nit. A comment that is factually WRONG about what the code does IS a defect: raise it in "findings".',
+    // Advisory cap. Deliberately NOT enforced server-side: the repo's deterministic backstops
+    // (scopeFindings here, MAX_ADDS_PER_RUN in distiller.ts) each enforce a DECIDABLE predicate,
+    // whereas "is this finding blocking?" is not decidable from the verdict text. Truncating would
+    // cut blind and could discard a real blocker while keeping a nit — so the cap is worded so that
+    // it can never lose information instead.
+    '- At most 5 NEW findings per review, highest-severity first. This is a PRIORITISATION instruction, never a limit that may lose information: if more than 5 genuine blocking problems exist, emit ALL of them and say so in "summary" (the change needs reworking, not tweaking). NEVER move a blocking problem into `Nits (non-blocking):`, and never drop one, to fit the budget.',
+    "- Re-raised prior findings do NOT count against those 5.",
+    "",
     "When done, write your verdict as JSON to the file `.shepherd-review.json` in the repository root, with EXACTLY this shape:",
     '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "body": "<full markdown review>", "findings": ["<discrete actionable item>", ...]}',
-    'The "findings" array lists every discrete change the author must make — one entry per point, blocking or not. A non-blocking nit STILL goes in "findings" (under a "comment" decision). Use [] ONLY when there is genuinely nothing to address; "request-changes" requires at least one finding.',
+    'The "findings" array lists every discrete change the author must make — one entry per point, routed per FINDINGS ROUTING above. Use [] when everything you found is non-blocking (report those in the body sections named above) or there is genuinely nothing to address; "request-changes" requires at least one finding.',
     'Use "request-changes" ONLY for blocking problems (does not satisfy the task, logic bug, security hole). Otherwise use "comment". Never approve. Write the file as your final action, then stop.',
   ];
 }

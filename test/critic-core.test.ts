@@ -1008,3 +1008,28 @@ test("#1948: roundBlock emits nothing for absent or nonsensical inputs", () => {
   expect(roundBlock(3, 0, "X", "y")).toEqual([]);
   expect(roundBlock(NaN, 8, "X", "y")).toEqual([]);
 });
+
+test("#1948: the halfway rule never fires on a first-ever review, at any supported cap", () => {
+  // Both caps are UI-settable down to 1 (PR_REVIEW_CYCLES_MIN / PLAN_REVIEW_CYCLES_MIN). At cap 1
+  // the bare `2n > m` test holds for n = 1, which would muzzle the ONLY review the operator gets:
+  // every finding on a first review is new, so the blocking classes would all route to nits.
+  for (const m of [1, 2, 3, 8, 12]) {
+    const first = roundBlock(1, m, "Nits (non-blocking):", "the author").join("\n");
+    expect(first).toContain(`rework round 1 of at most ${m}`);
+    expect(first).not.toContain("past the halfway point");
+  }
+  // The at-cap hedge is still correct on a cap-1 first review — it IS the last round — and it
+  // reserves BLOCKING findings rather than suppressing them.
+  const capOne = roundBlock(1, 1, "Nits (non-blocking):", "the author").join("\n");
+  expect(capOne).toContain("budget is spent");
+});
+
+test("#1948: the halfway rule still fires from round 2 once genuinely past halfway", () => {
+  const sec = "Nits (non-blocking):";
+  // cap 2: round 2 is both past halfway and the last round.
+  expect(roundBlock(2, 2, sec, "x").join("\n")).toContain("past the halfway point");
+  // cap 3: round 2 is past halfway (4 > 3); cap 4: round 2 is not (4 > 4 is false).
+  expect(roundBlock(2, 3, sec, "x").join("\n")).toContain("past the halfway point");
+  expect(roundBlock(2, 4, sec, "x").join("\n")).not.toContain("past the halfway point");
+  expect(roundBlock(7, 12, sec, "x").join("\n")).toContain("past the halfway point");
+});

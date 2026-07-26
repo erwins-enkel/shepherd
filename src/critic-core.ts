@@ -505,8 +505,12 @@ export function roundBlock(
     "- A correctness or security defect is a finding at ANY round. Nothing below downgrades one.",
     "- A point that was blocking when you first raised it STAYS blocking. The rules below govern only what you are noticing for the FIRST time now.",
   ];
-  // Strictly past the halfway point (2n > m), so a 1-of-2 review is not already "late".
-  if (2 * n > m)
+  // Strictly past the halfway point (2n > m), so a 1-of-2 review is not already "late" — AND never
+  // on a first-ever review. `n > 1` is load-bearing, not belt-and-braces: both caps are UI-settable
+  // down to 1 (PR_REVIEW_CYCLES_MIN / PLAN_REVIEW_CYCLES_MIN), where 2n > m holds at n = 1 and would
+  // muzzle the only review the operator gets — every finding on a first review is new, so the
+  // blocking classes FINDINGS ROUTING names would all route to the non-blocking section.
+  if (n > 1 && 2 * n > m)
     lines.push(
       `- You are past the halfway point of the rework budget. Raise a NEW finding only if it would make the change fail outright; anything else you notice now goes to \`${nonBlockingSection}\`.`,
     );

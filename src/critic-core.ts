@@ -503,7 +503,15 @@ export function roundBlock(
   const lines = [
     `ROUND — this is rework round ${n} of at most ${m}.`,
     "- A correctness or security defect is a finding at ANY round. Nothing below downgrades one.",
-    "- A point that was blocking when you first raised it STAYS blocking. The rules below govern only what you are noticing for the FIRST time now.",
+    // Scoped deliberately to "under FINDINGS ROUTING" and to "the rules below". Unqualified, this
+    // sentence contradicts the stale-prior DROP rule for exactly the priors that rule targets: the
+    // plan prompt had no non-blocking channel before this change, so EVERY stored PlanGate.findings
+    // entry was raised as blocking, and a literal reading would force all of them re-raised —
+    // defeating the mechanism that unsticks a session already at its cap. The trailing clause states
+    // the precedence the approved plan specifies (the drop rule outranks budget and thresholds)
+    // WITHOUT naming the drop rule, which is emitted only on a re-review: with no priors there is
+    // nothing to preserve, so the clause is vacuous rather than a dangling reference.
+    "- A point that was blocking UNDER FINDINGS ROUTING when you first raised it STAYS blocking — the halfway and at-cap rules below never demote one. That applies to THOSE rules only: it does not preserve a prior that FINDINGS ROUTING no longer admits as blocking.",
   ];
   // Strictly past the halfway point (2n > m), so a 1-of-2 review is not already "late" — AND never
   // on a first-ever review. `n > 1` is load-bearing, not belt-and-braces: both caps are UI-settable

@@ -19,6 +19,7 @@ import {
   effectiveRound,
 } from "../src/critic-core";
 import { allowedToolsFor } from "../src/transient-agent-argv";
+import { planReviewPrompt } from "../src/plan-gate";
 
 // ── #822 regression: malformed-JSON read path with content fidelity ─────────────────────────────
 //
@@ -1032,4 +1033,31 @@ test("#1948: the halfway rule still fires from round 2 once genuinely past halfw
   expect(roundBlock(2, 3, sec, "x").join("\n")).toContain("past the halfway point");
   expect(roundBlock(2, 4, sec, "x").join("\n")).not.toContain("past the halfway point");
   expect(roundBlock(7, 12, sec, "x").join("\n")).toContain("past the halfway point");
+});
+
+test("#1948: the STAYS-blocking bullet is scoped so it cannot defeat the stale-prior drop", () => {
+  // Unqualified, "a point that was blocking STAYS blocking" contradicts the DROP rule for exactly
+  // the priors it targets: the plan prompt had no non-blocking channel before this change, so every
+  // stored finding was raised as blocking. A literal reading would force them all re-raised.
+  const b = roundBlock(4, 8, "Nits (non-blocking):", "the author").join("\n");
+  expect(b).toContain("blocking UNDER FINDINGS ROUTING");
+  expect(b).toContain("the halfway and at-cap rules below never demote one");
+  expect(b).toContain("does not preserve a prior that FINDINGS ROUTING no longer admits");
+  // It must NOT dangle on a first review, where no drop rule is emitted: the clause names no
+  // section, so it is vacuous rather than a reference to absent text.
+  const first = roundBlock(1, 8, "Nits (non-blocking):", "the author").join("\n");
+  expect(first).toContain("does not preserve a prior");
+  expect(first).not.toContain("DROP rule above");
+});
+
+test("#1948: both prompts carry the scoped bullet, and it coexists with each drop rule", () => {
+  const pr = reviewPrompt("BASE", "do X", ["an old nit"], [], null, null, { round: 4, cap: 8 });
+  expect(pr).toContain("blocking UNDER FINDINGS ROUTING");
+  expect(pr).toContain("likewise DROPPED"); // the critic-side drop rule
+  const plan = planReviewPrompt("do X", "P", ["an old nit"], null, "en", undefined, undefined, {
+    round: 4,
+    cap: 8,
+  });
+  expect(plan).toContain("blocking UNDER FINDINGS ROUTING");
+  expect(plan).toContain("EXCEPTION"); // the plan-side drop rule
 });

@@ -3514,6 +3514,51 @@ describe("NewTask keyboard-aware viewport (mobile)", () => {
     }
   });
 
+  // iOS reports the visible-viewport edge a few px above the keyboard's real top, so the
+  // strip between the (keyboard-fitted) overlay and the keyboard showed raw, unblurred app
+  // content. A full-screen backdrop sits under the overlay to cover it. The band simulated
+  // here is far wider than the real ~13px — the outcome under test is coverage + hit, not
+  // the size of the offset, which is checked on-device.
+  it("covers the strip below the keyboard-fitted overlay and closes when it is tapped", async () => {
+    const KB_TOP = 380; // simulated top edge of the keyboard (visible viewport height)
+    const { restore } = installFakeViewport(KB_TOP, 0);
+    try {
+      await page.viewport(390, 844);
+      const onclose = vi.fn();
+      mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+      render(NewTask, { props: { onsubmit: vi.fn(), onclose, initialRepoPath: "/repo/kbd-00" } });
+
+      // Precondition: the overlay — and with it the opaque card — stops at the keyboard
+      // line, leaving 380→844 as the band that used to show the herd list unobscured.
+      await expect.poll(() => overlay()?.style.height).toBe(`${KB_TOP}px`);
+
+      // The backdrop really covers that band AND receives the hit there: nothing in the
+      // stacking order (or a stray pointer-events) keeps a tap from landing on it.
+      const hit = document.elementFromPoint(195, KB_TOP + 60);
+      expect(hit).toBe(document.querySelector(".nt-backdrop"));
+
+      // …and the node that takes the tap is the node that closes — not a lookalike beside it.
+      (hit as HTMLElement).click();
+      expect(onclose).toHaveBeenCalledTimes(1);
+
+      // It stays strictly below the modal: inside the overlay the hit is still the card,
+      // so the overlay's own backdrop-click path is untouched.
+      const inside = document.elementFromPoint(195, 40);
+      expect(document.querySelector("form.card")!.contains(inside)).toBe(true);
+    } finally {
+      restore();
+    }
+  });
+
+  it("renders no extra backdrop on the desktop layout", async () => {
+    await page.viewport(1280, 900);
+    mockListRepos.mockResolvedValue({ repos: makeRepos(3), recentWindowDays: 30 });
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: "/repo/kbd-00" } });
+
+    await expect.poll(() => document.querySelector(".rail")).toBeTruthy();
+    expect(document.querySelector(".nt-backdrop")).toBeNull();
+  });
+
   it("keeps the repo filter and the results reachable above the keyboard in the context sheet", async () => {
     const KB_TOP = 380; // simulated top edge of the keyboard (visible viewport height)
     const { restore } = installFakeViewport(KB_TOP, 0);

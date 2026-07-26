@@ -1354,6 +1354,23 @@
   const footerCapacity = $derived(selectedProviderCapacity(usageLimits, agentProvider));
 </script>
 
+{#if mobile}
+  <!-- The overlay is sized to the region above the software keyboard, and iOS reports that
+       edge a few px short of the keyboard's real top — leaving a sliver of app content that
+       the overlay's scrim never reaches (undimmed AND unblurred, so the list behind reads
+       through). This full-screen backdrop paints underneath it, so the sliver recedes like
+       every other modal background; a tap on it closes, same as the overlay's own backdrop.
+       Sibling rather than a restructured overlay: the mobile sheets are `position: fixed`
+       and rely on `.overlay` being their containing block to stay above the keyboard. -->
+  <div
+    class="nt-backdrop scrim"
+    role="presentation"
+    onclick={() => {
+      confirmStep = false;
+      onclose?.();
+    }}
+  ></div>
+{/if}
 <div
   class="overlay"
   bind:this={overlayEl}
@@ -2021,6 +2038,13 @@
   }
   .composer.hidden {
     display: none;
+  }
+  /* Full-screen dim + blur (the canonical `.scrim` primitive supplies both) one layer
+     below the overlay, so the strip the overlay's keyboard-fitted box leaves uncovered
+     still reads as backdrop. Invisible everywhere else: on mobile the card fills the
+     overlay, so the two scrims never stack in view. */
+  .nt-backdrop {
+    z-index: 19;
   }
   .overlay {
     position: fixed;

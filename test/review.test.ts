@@ -184,8 +184,6 @@ function makeDeps(
      * both `verdictRead` and `over.readVerdict`.
      */
     readVerdictFn?: () => VerdictRead<RawVerdict>;
-    /** reviewer_spawns rows visible to countReviewSpawns (#1948) — the reset-proof round floor. */
-    reviewerSpawns?: any[];
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
@@ -223,9 +221,6 @@ function makeDeps(
       recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         completedSpawns.push({ id, u, at }),
-      // Declared on ReviewServiceDeps["store"] and read by countReviewSpawns (#1948) to derive the
-      // reset-proof effective round. Overridable per-test to simulate a session's spawn history.
-      listReviewerSpawns: () => opts.reviewerSpawns ?? [],
     },
     herdr: new (class {
       readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
@@ -3274,32 +3269,57 @@ test("#1948: addressRound HELD at the cap is clamped, not incremented past it", 
   expect(p).toContain("budget is spent");
 });
 
-test("#1948: a streak reset is overridden by the reset-proof spawn count", async () => {
-  const rows = Array.from({ length: 6 }, (_, i) => ({
-    kind: "review",
-    taskSessionId: "s1",
-    worktreePath: `/wt-${i}`,
-  }));
-  const { deps: d, started } = makeDeps({ cap: 8 }, { reviewerSpawns: rows });
+test("#1948: an outstanding-findings streak floors the round even while addressRound lags", async () => {
+  // Error verdicts preserve streakReviews but leave addressRound untouched, so the streak count is
+  // the honest measure of how many times this PR has actually been through rework.
+  const { deps: d, started } = makeDeps({ cap: 8 });
+  d.store.getReview = () => ({
+    sessionId: "s1",
+    headSha: "old",
+    decision: "changes_requested",
+    findings: ["still broken"],
+    addressRound: 2,
+    streakReviews: 6,
+    summary: "",
+    body: "",
+    updatedAt: 0,
+  });
   await new ReviewService(d as any).consider(session(), OPEN_GREEN);
   const p = criticPrompt(started);
   expect(p).toContain("rework round 6 of at most 8");
   expect(p).toContain("past the halfway point");
 });
 
-test("#1948: the spawn count ignores other sessions and other spawn kinds", async () => {
-  const { deps: d, started } = makeDeps(
-    { cap: 8 },
+// REGRESSION (critic finding on #1948): a critic spawn fires per CI-green head, NOT per rework
+// round, and a clean verdict resets both counters. Flooring the round on a LIFETIME spawn count
+// therefore climbed with ordinary pushes and — at the default cap of 3 — briefed the 2nd review of
+// a perfectly healthy PR as "past the halfway point" and the 3rd as "budget spent", muzzling
+// contract / locale-parity / task-satisfaction findings on a PR that was never in rework.
+test("#1948 regression: a healthy session's repeated reviews stay at round 1", async () => {
+  for (const priorClean of [
+    null,
+    // A prior CLEAN verdict: findings resolved, both counters reset — the next push must not
+    // inherit any lateness from however many reviews came before.
     {
-      reviewerSpawns: [
-        { kind: "review", taskSessionId: "other", worktreePath: "/a" },
-        { kind: "plan_gate", taskSessionId: "s1", worktreePath: "/b" },
-        { kind: "recap", taskSessionId: "s1", worktreePath: "/c" },
-      ],
+      sessionId: "s1",
+      headSha: "old",
+      decision: "commented" as const,
+      findings: [] as string[],
+      addressRound: 0,
+      streakReviews: 0,
+      summary: "",
+      body: "",
+      updatedAt: 0,
     },
-  );
-  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
-  expect(criticPrompt(started)).toContain("rework round 1 of at most 8");
+  ]) {
+    const { deps: d, started } = makeDeps({ cap: 3 });
+    if (priorClean) d.store.getReview = () => priorClean;
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+    const p = criticPrompt(started);
+    expect(p).toContain("rework round 1 of at most 3");
+    expect(p).not.toContain("past the halfway point");
+    expect(p).not.toContain("budget is spent");
+  }
 });
 
 test("#1948: the auto-address steer names blockers and marks nits optional", async () => {

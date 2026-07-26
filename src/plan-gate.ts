@@ -1396,11 +1396,14 @@ function planSteerText(findings: string[]): string {
     // grows the surface the next round attacks. Observed: a plan reaching 32 KB with 28 success
     // criteria, three "why not X" essay sections and a ledger of addressed findings — written for
     // the reviewer rather than for the implementer.
+    // NB: no reference to the reviewer's non-blocking `Suggestions` section here. Only
+    // `gate.findings` is steered (steerFindings) — the verdict body stays in the gate for the
+    // operator's UI and never reaches the planner's worktree, so naming a section the agent cannot
+    // see would just be noise. The list above IS the complete set of what it must address.
     "\n\nRevise IN PLACE and keep the plan tight: edit the sections that are wrong and delete what no " +
     'longer holds. Do NOT append justification or rebuttal sections, a "why not X" essay, or a ledger ' +
     "of which finding each change answers — the plan is an instruction to the implementer, not a reply " +
-    "to the reviewer. Any `Suggestions (non-blocking):` section in the review is OPTIONAL: it is not " +
-    "part of this list and does not block approval." +
+    "to the reviewer." +
     "\n\nDon't start implementing yet — wait for the plan to be approved."
   );
 }

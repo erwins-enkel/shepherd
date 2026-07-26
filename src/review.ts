@@ -431,7 +431,7 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
-    const round = this.briefedRound(session.id, prior);
+    const round = this.briefedRound(prior);
     const { argv, sessionId: criticSessionId } = this.criticArgv(
       session,
       diffBase,
@@ -666,32 +666,27 @@ export class ReviewService {
   }
 
   /** The EFFECTIVE round this run briefs the critic with (#1948 — see {@link effectiveRound}).
-   *  `prior.addressRound` is the delivered-steer count, which runAutoAddress HOLDS at the cap and
-   *  forceReview resets to 0, so the raw value both overshoots and under-reports.
+   *  `prior.addressRound` is the delivered-steer count, which runAutoAddress HOLDS at the cap, so
+   *  the raw `+1` would overshoot into "round 4 of at most 3" on a stalled PR.
+   *
+   *  The floor is `streakReviews` — findings-bearing reviews on the CURRENT outstanding-findings
+   *  streak. It must NOT be a lifetime spawn count: a critic spawn fires per CI-green head, not per
+   *  rework round, so on a healthy session that never entered a rework loop a lifetime count would
+   *  climb with ordinary pushes and (at the default cap of 3) brief the 2nd review as "past the
+   *  halfway point" and the 3rd as "budget spent" — muzzling contract, locale-parity and
+   *  task-satisfaction findings on a PR that was never in rework at all. `streakReviews` resets to 0
+   *  on every clean verdict alongside `addressRound`, so a healthy session always reads as round 1,
+   *  while a genuine rework streak still floors the round even though error verdicts leave
+   *  `addressRound` untouched (finalizeErrorVerdict preserves the streak).
+   *
+   *  `forceReview` zeroes both, so an explicit operator re-review restores full latitude. That is
+   *  deliberate and differs from the plan gate, where Resume is the ONLY escape at the cap and must
+   *  therefore NOT hand back latitude.
    *
    *  A method rather than an inline expression in begin(): its optional-chain + nullish branches
    *  would otherwise count against that method's already-tight complexity budget (fallow health). */
-  private briefedRound(sessionId: string, prior: ReviewVerdict | null): number {
-    return effectiveRound(prior?.addressRound ?? 0, this.countReviewSpawns(sessionId), this.cap);
-  }
-
-  /** How many critic spawns this session has already had (#1948). Unlike `addressRound` this
-   *  survives `forceReview`'s streak reset, so a PR the critic has looked at ten times is still
-   *  briefed as late-round after an operator re-engages it.
-   *
-   *  Reset-proof, not immortal: `pruneReviewerSpawns` drops rows older than
-   *  REVIEWER_SPAWN_RETENTION_MS (90 days), which no review streak approaches. If one ever were
-   *  pruned the count simply falls and `effectiveRound` degrades to the round-based value.
-   *
-   *  Counts ERROR spawns too — a row exists whether or not the critic produced a verdict. A
-   *  repeatedly-failing critic therefore reads as later than its delivered-round count. Accepted:
-   *  the row represents real tokens spent, lateness never downgrades a correctness/security finding
-   *  (see roundBlock), and consecutive errors have their own `errorRound` ceiling. */
-  private countReviewSpawns(sessionId: string): number {
-    let n = 0;
-    for (const row of this.deps.store.listReviewerSpawns())
-      if (row.kind === "review" && row.taskSessionId === sessionId) n++;
-    return n;
+  private briefedRound(prior: ReviewVerdict | null): number {
+    return effectiveRound(prior?.addressRound ?? 0, prior?.streakReviews ?? 0, this.cap);
   }
 
   /** Build the read-only critic's argv — deliberately NOT --dangerously-skip-permissions. It

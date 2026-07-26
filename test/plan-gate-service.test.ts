@@ -2326,6 +2326,7 @@ test("#1948: the findings steer tells the agent to revise in place, not accrete"
   expect(steers[0]).toContain("Revise IN PLACE");
   expect(steers[0]).toContain("Do NOT append justification");
   expect(steers[0]).toContain("ledger");
-  // Non-blocking suggestions must be named as optional, or they become de-facto required work.
-  expect(steers[0]).toContain("OPTIONAL");
+  // The steer carries ONLY gate.findings — the verdict body never reaches the planner's worktree,
+  // so it must not reference the reviewer's non-blocking section (critic finding on #1948).
+  expect(steers[0]).not.toContain("Suggestions (non-blocking):");
 });

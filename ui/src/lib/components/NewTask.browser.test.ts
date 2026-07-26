@@ -467,6 +467,11 @@ describe("NewTask task attachments", () => {
     const attach = document.querySelector<HTMLButtonElement>(".toolbar .tool-btn")!;
     expect(attach.getAttribute("aria-label")).toBe(m.newtask_attach_aria());
     expect(attach.title).toBe(m.newtask_drop_hint_keyboard({ shortcut: "Ctrl+V" }));
+    // Paperclip glyph + visible word, so "you can add something here" is readable rather
+    // than inferred from a bare arrow (the ↥ this replaced).
+    expect(attach.querySelector("svg")).toBeTruthy();
+    expect(attach.textContent).toContain(m.newtask_attach_label());
+    expect(attach.textContent).not.toContain("↥");
   });
 
   it("uses the short touch hint in coarse pointer contexts", async () => {
@@ -3109,15 +3114,17 @@ describe("NewTask geometry (measurable handoff criteria)", () => {
     expect(
       Math.round(document.querySelector<HTMLElement>(".rail")!.getBoundingClientRect().width),
     ).toBe(300);
-    // Prompt hero ≥132px; toolbar buttons 28×28.
+    // Prompt hero ≥132px; the toolbar row keeps its 28px rhythm. Width is no longer the
+    // square 28: the attach button carries a visible label beside its glyph, so it sizes
+    // to its content while staying on the same baseline as the inline mic.
     expectMinPx(
       document.querySelector<HTMLElement>("#nt-prompt")!.getBoundingClientRect().height,
       132,
       "prompt hero min-height",
     );
     const tool = document.querySelector<HTMLElement>(".tool-btn")!.getBoundingClientRect();
-    expect(Math.round(tool.width)).toBe(28);
     expect(Math.round(tool.height)).toBe(28);
+    expect(tool.width).toBeGreaterThan(28);
 
     // Dual CTA present (hold-likely, Claude) and fully inside the viewport.
     await expect.poll(() => document.querySelector("button.run-hold")).toBeTruthy();

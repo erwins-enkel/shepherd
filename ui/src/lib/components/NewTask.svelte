@@ -1596,7 +1596,24 @@
                   onclick={() => fileInput?.click()}
                   disabled={hasOutstandingUploads}
                 >
-                  {#if hasOutstandingUploads}…{:else}↥{/if}
+                  {#if hasOutstandingUploads}
+                    …
+                  {:else}
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                      />
+                    </svg>
+                  {/if}
+                  <span class="tool-label">{m.newtask_attach_label()}</span>
                 </button>
                 <MicButton
                   bind:this={mic}
@@ -2332,10 +2349,14 @@
     padding: 6px 8px;
     border-top: 1px solid var(--color-line);
   }
+  /* Attach: icon + word, so the affordance is readable rather than inferred from a lone
+     glyph. A labeled control follows the `.gbtn` recipe (see /design-system), not the
+     square icon-button one — hence auto width and the meta type scale. */
   .tool-btn {
     flex-shrink: 0;
-    width: 28px;
     height: 28px;
+    padding: 0 8px;
+    gap: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2343,8 +2364,18 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
     cursor: pointer;
+  }
+  .tool-btn svg {
+    width: var(--icon-btn-glyph);
+    height: var(--icon-btn-glyph);
+    display: block;
+  }
+  .tool-label {
+    white-space: nowrap;
   }
   .tool-btn:hover {
     background: var(--color-hover);
@@ -2799,8 +2830,8 @@
       padding: 8px;
     }
     .tool-btn {
-      width: 44px;
       height: 44px;
+      padding: 0 12px;
     }
     .toolbar :global(.micbtn.inline) {
       width: 44px;

@@ -639,8 +639,12 @@ export class PlanGateService {
    *
    *  Reset-proof, not immortal: `pruneReviewerSpawns` drops rows older than
    *  REVIEWER_SPAWN_RETENTION_MS (90 days), which no plan-review streak approaches. If one ever were
-   *  pruned the count simply falls and `effectiveRound` degrades to the round-based value. Error
-   *  spawns count too — see the note on ReviewService.countReviewSpawns for why that is accepted. */
+   *  pruned the count simply falls and `effectiveRound` degrades to the round-based value.
+   *
+   *  Error spawns count too: a row exists whether or not the reviewer produced a verdict, so a
+   *  repeatedly-failing reviewer reads as later than its delivered-round count. Accepted — the row
+   *  represents tokens genuinely spent on this plan, and per `roundBlock` lateness never downgrades
+   *  a blocking finding or demotes one already raised. */
   private countPlanGateSpawns(sessionId: string): number {
     let n = 0;
     for (const row of this.deps.store.listReviewerSpawns())

@@ -638,6 +638,7 @@ function scopeAndOutputTail(
     "- A guard/validation present on one code path but MISSING from its sibling path (e.g. one branch floors a value with Math.max(0, …) and a parallel branch computing the same kind of value does not) is a defect even when the unguarded path is currently unreachable.",
     '- A bug currently unreachable but made reachable by change THIS PR foreshadows (a param wired only in tests, a value a follow-up will populate, a path behind a not-yet-set flag) is real — "descoped", "handled in another ticket", or "never reached in production" does NOT make such an in-diff defect a non-issue.',
     '- Route by reachability TODAY. If the defect is reachable on a path that ALREADY executes, treat it as a normal bug: put it in "findings" and block it per the usual rules. If it is reachable ONLY through the foreshadowed-but-not-yet-wired future above (dormant today), it is informational: report it in a SINGLE "body" section headed exactly `Latent / future-reachable (non-blocking):`, ONE LINE PER DISTINCT ITEM, do NOT put it in "findings", and it NEVER makes the decision "request-changes". Either way it must concern a file in the diff per the SCOPE rule above.',
+    "",
     // FINDINGS ROUTING (#1948). The tail used to mandate the exact opposite — "A non-blocking nit
     // STILL goes in findings" — which contradicted the three lenses above and their stated reason:
     // ANY entry in `findings` advances the streak (buildVerdict), is auto-addressed (runAutoAddress

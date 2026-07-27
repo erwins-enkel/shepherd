@@ -444,9 +444,11 @@ describe("NewTask task attachments", () => {
   function dropFiles(files: File[]) {
     const transfer = new DataTransfer();
     for (const file of files) transfer.items.add(file);
-    document.querySelector<HTMLFormElement>("form.card")!.dispatchEvent(
-      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
-    );
+    document
+      .querySelector<HTMLFormElement>("form.card")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
   }
 
   function pasteFiles(files: File[]) {
@@ -627,7 +629,9 @@ describe("NewTask task attachments", () => {
     await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
     mockUploadFile.mock.calls[0]![2]!({ loaded: 40, total: 100, lengthComputable: true });
 
-    await expect.element(page.getByText("File 1 of 1 · 40% · Estimating time remaining…")).toBeVisible();
+    await expect
+      .element(page.getByText("File 1 of 1 · 40% · Estimating time remaining…"))
+      .toBeVisible();
     const footer = document.querySelector<HTMLElement>(".cfoot")!;
     const run = document.querySelector<HTMLButtonElement>("button.run")!;
     expect(run.disabled).toBe(true);
@@ -2176,16 +2180,16 @@ describe("NewTask first-task confirm step", () => {
     await fillPromptAndClickRun();
     await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
 
-    document
-      .querySelector<HTMLButtonElement>(".ftac button.primary")!
-      .click();
+    document.querySelector<HTMLButtonElement>(".ftac button.primary")!.click();
     await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBe(2);
 
     const transfer = new DataTransfer();
     transfer.items.add(new File(["late"], "confirm-late.mp4", { type: "video/mp4" }));
-    document.querySelector<HTMLFormElement>("form.card")!.dispatchEvent(
-      new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
-    );
+    document
+      .querySelector<HTMLFormElement>("form.card")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
     await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
 
     confirmation.resolve(confirmedRepoConfig());

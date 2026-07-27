@@ -327,9 +327,7 @@
     Math.min(uploadTotalFiles, uploadCompletedFiles + (activeUpload ? 1 : 0)),
   );
   const uploadFinishing = $derived(
-    hasOutstandingUploads &&
-      uploadTotalBytes > 0 &&
-      uploadTransferredBytes >= uploadTotalBytes,
+    hasOutstandingUploads && uploadTotalBytes > 0 && uploadTransferredBytes >= uploadTotalBytes,
   );
   const uploadEta = $derived.by(() => {
     const elapsedMs = Date.now() - uploadEpochStartedAt;
@@ -1742,15 +1740,15 @@
               <progress
                 class="upload-progress"
                 max="100"
-                aria-label={m.newtask_upload_progress_aria()}></progress
-              >
+                aria-label={m.newtask_upload_progress_aria()}
+              ></progress>
             {:else}
               <progress
                 class="upload-progress"
                 max="100"
                 value={uploadPercent}
-                aria-label={m.newtask_upload_progress_aria()}></progress
-              >
+                aria-label={m.newtask_upload_progress_aria()}
+              ></progress>
             {/if}
             <span class="upload-summary">
               {m.newtask_upload_file_count({

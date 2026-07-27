@@ -53,7 +53,13 @@ describe("deriveReadiness blockers", () => {
     ).toBe("submitting");
     expect(
       deriveReadiness(
-        input({ promptEmpty: true, repoResolved: false, baseMissing: true, repairing: true, uploading: true }),
+        input({
+          promptEmpty: true,
+          repoResolved: false,
+          baseMissing: true,
+          repairing: true,
+          uploading: true,
+        }),
       ).blocker,
     ).toBe("uploading");
     expect(

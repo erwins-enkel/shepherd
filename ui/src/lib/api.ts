@@ -327,7 +327,73 @@ export const putUpnextSkipCliPicker = (value: boolean): Promise<{ upnextSkipCliP
 
 /** Upload one file; returns its absolute server path. Pass sessionId to store it
  *  inside that session's worktree (live terminal); omit for New Task staging. */
-export async function uploadFile(file: File, sessionId?: string): Promise<string> {
+export interface UploadProgress {
+  loaded: number;
+  total: number;
+  lengthComputable: boolean;
+}
+
+function uploadFileWithProgress(
+  file: File,
+  sessionId: string | undefined,
+  onProgress: (progress: UploadProgress) => void,
+): Promise<string> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    let settled = false;
+    const finish = (fn: () => void) => {
+      if (settled) return;
+      settled = true;
+      fn();
+    };
+
+    xhr.upload.addEventListener("progress", (event) => {
+      onProgress({
+        loaded: event.loaded,
+        total: event.total,
+        lengthComputable: event.lengthComputable,
+      });
+    });
+    xhr.addEventListener("load", () => {
+      let body: { error?: string; path?: string } | null = null;
+      try {
+        body = JSON.parse(xhr.responseText) as { error?: string; path?: string };
+      } catch {
+        // Keep null: apiError() will use the same fallback as failed().
+      }
+      if (xhr.status < 200 || xhr.status >= 300) {
+        finish(() =>
+          reject(apiError(xhr.status, body, m.api_upload_http_error({ status: xhr.status }))),
+        );
+        return;
+      }
+      if (typeof body?.path !== "string") {
+        finish(() => reject(new Error(m.api_upload_invalid_response())));
+        return;
+      }
+      finish(() => resolve(body.path!));
+    });
+    xhr.addEventListener("error", () =>
+      finish(() => reject(new Error(m.api_upload_network_error()))),
+    );
+    xhr.addEventListener("abort", () => finish(() => reject(new Error(m.api_upload_aborted()))));
+    xhr.addEventListener("timeout", () => finish(() => reject(new Error(m.api_upload_timeout()))));
+    xhr.open("POST", `/api/uploads${q}`);
+    xhr.send(fd);
+  });
+}
+
+export async function uploadFile(
+  file: File,
+  sessionId?: string,
+  onProgress?: (progress: UploadProgress) => void,
+): Promise<string> {
+  if (onProgress) return uploadFileWithProgress(file, sessionId, onProgress);
+
   const fd = new FormData();
   fd.append("file", file);
   const q = sessionId ? `?session=${encodeURIComponent(sessionId)}` : "";

@@ -56,6 +56,7 @@
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { modelOptionLabel } from "$lib/model-guidance";
   import { selectedProviderCapacity } from "$lib/components/usage-gauges";
+  import { elapsed } from "$lib/format";
   import { deriveReadiness } from "./new-task/readiness";
   import {
     preselectModel,
@@ -71,6 +72,10 @@
     path: string;
     name: string;
     previewFile?: File;
+  };
+
+  type QueuedUpload = {
+    file: File;
   };
 
   let {
@@ -290,7 +295,55 @@
   // svelte-ignore state_referenced_locally
   let images = $state<TaskAttachment[]>(initialImages ? [...initialImages] : []);
   let dragging = $state(false);
-  let uploading = $state(false);
+  let uploadQueue = $state<QueuedUpload[]>([]);
+  let activeUpload = $state<QueuedUpload | null>(null);
+  let uploadWorkerRunning = $state(false);
+  let failedUploadQueue = $state<QueuedUpload[]>([]);
+  let uploadQueueRevision = $state(0);
+  let uploadTotalFiles = $state(0);
+  let uploadCompletedFiles = $state(0);
+  let uploadTotalBytes = $state(0);
+  let uploadCompletedBytes = $state(0);
+  let uploadCurrentBytes = $state(0);
+  let uploadCurrentLengthComputable = $state<boolean | null>(null);
+  let uploadEpochStartedAt = $state(0);
+  const hasOutstandingUploads = $derived(
+    uploadWorkerRunning || activeUpload !== null || uploadQueue.length > 0,
+  );
+  const uploadTransferredBytes = $derived(
+    Math.min(uploadTotalBytes, uploadCompletedBytes + uploadCurrentBytes),
+  );
+  const uploadPercent = $derived(
+    uploadTotalBytes > 0
+      ? Math.min(
+          uploadTransferredBytes < uploadTotalBytes ? 99 : 100,
+          Math.round((uploadTransferredBytes / uploadTotalBytes) * 100),
+        )
+      : uploadTotalFiles > 0
+        ? Math.round((uploadCompletedFiles / uploadTotalFiles) * 100)
+        : 0,
+  );
+  const uploadFileIndex = $derived(
+    Math.min(uploadTotalFiles, uploadCompletedFiles + (activeUpload ? 1 : 0)),
+  );
+  const uploadFinishing = $derived(
+    hasOutstandingUploads && uploadTotalBytes > 0 && uploadTransferredBytes >= uploadTotalBytes,
+  );
+  const uploadEta = $derived.by(() => {
+    const elapsedMs = Date.now() - uploadEpochStartedAt;
+    if (
+      !hasOutstandingUploads ||
+      uploadFinishing ||
+      uploadCurrentLengthComputable !== true ||
+      uploadTransferredBytes <= 0 ||
+      elapsedMs < 1_000
+    ) {
+      return null;
+    }
+    const rate = uploadTransferredBytes / elapsedMs;
+    const remainingMs = (uploadTotalBytes - uploadTransferredBytes) / rate;
+    return elapsed(0, Math.ceil(remainingMs / 1_000) * 1_000);
+  });
   let fileInput = $state<HTMLInputElement>();
   let promptInput = $state<HTMLTextAreaElement>();
   // The modal backdrop. On mobile we mirror the visualViewport onto it so the card and
@@ -687,6 +740,7 @@
       repoResolved: !!repoPath.trim(),
       baseMissing,
       repairing: repairingBase,
+      uploading: hasOutstandingUploads,
       submitting,
       upstreamLoading,
       upstream: upstream ? { diverged: upstream.diverged, behind: upstream.behind } : null,
@@ -706,36 +760,91 @@
         return m.newtask_readiness_base_missing();
       case "repairing":
         return m.newtask_readiness_repairing();
+      case "uploading":
+        return m.newtask_uploading();
       case "submitting":
         return m.newtask_spawning();
     }
   }
 
-  async function addFiles(files: FileList | File[]) {
-    const uploads = Array.from(files);
+  function uploadsSettledSince(revision: number): boolean {
+    return uploadQueueRevision === revision && !hasOutstandingUploads;
+  }
+
+  function enqueueUploads(uploads: QueuedUpload[]) {
     if (uploads.length === 0) return;
-    uploading = true;
+    if (!uploadWorkerRunning) {
+      uploadTotalFiles = uploads.length;
+      uploadCompletedFiles = 0;
+      uploadTotalBytes = uploads.reduce((sum, upload) => sum + upload.file.size, 0);
+      uploadCompletedBytes = 0;
+      uploadCurrentBytes = 0;
+      uploadCurrentLengthComputable = null;
+      uploadEpochStartedAt = Date.now();
+    } else {
+      uploadTotalFiles += uploads.length;
+      uploadTotalBytes += uploads.reduce((sum, upload) => sum + upload.file.size, 0);
+    }
+    uploadQueueRevision += 1;
+    uploadQueue.push(...uploads);
     error = null;
     retry = null;
-    try {
-      for (const f of uploads) {
-        const path = await uploadFile(f);
+    failedUploadQueue = [];
+    if (!uploadWorkerRunning) {
+      uploadWorkerRunning = true;
+      void drainUploadQueue();
+    }
+  }
+
+  async function drainUploadQueue() {
+    while (uploadQueue.length > 0) {
+      const upload = uploadQueue.shift()!;
+      activeUpload = upload;
+      uploadCurrentBytes = 0;
+      uploadCurrentLengthComputable = null;
+      try {
+        const path = await uploadFile(upload.file, undefined, (progress) => {
+          if (activeUpload !== upload) return;
+          uploadCurrentLengthComputable = progress.lengthComputable && progress.total > 0;
+          if (uploadCurrentLengthComputable !== true) return;
+          const ratio = Math.min(1, Math.max(0, progress.loaded / progress.total));
+          uploadCurrentBytes = upload.file.size * ratio;
+        });
         images.push({
           path,
-          name: f.name,
-          ...(f.type.startsWith("image/") ? { previewFile: f } : {}),
+          name: upload.file.name,
+          ...(upload.file.type.startsWith("image/") ? { previewFile: upload.file } : {}),
         });
+        uploadCompletedFiles += 1;
+        uploadCompletedBytes += upload.file.size;
+        uploadCurrentBytes = 0;
+      } catch (err) {
+        failedUploadQueue = [upload, ...uploadQueue];
+        uploadQueue = [];
+        if (isPreviewBlocked(err)) {
+          error = (err as Error).message;
+        } else {
+          error = m.newtask_upload_failed({
+            reason: reason(err, m.newtask_upload_unknown_reason()),
+          });
+          retry = retryFailedUploads;
+        }
+        break;
+      } finally {
+        activeUpload = null;
       }
-    } catch (err) {
-      if (isPreviewBlocked(err)) {
-        error = (err as Error).message;
-      } else {
-        error = m.newtask_upload_failed({ reason: reason(err, m.newtask_upload_unknown_reason()) });
-        retry = () => addFiles(uploads);
-      }
-    } finally {
-      uploading = false;
     }
+    uploadWorkerRunning = false;
+  }
+
+  function retryFailedUploads() {
+    const uploads = failedUploadQueue;
+    failedUploadQueue = [];
+    enqueueUploads(uploads);
+  }
+
+  function addFiles(files: FileList | File[]) {
+    enqueueUploads(Array.from(files, (file) => ({ file })));
   }
 
   function onDrop(e: DragEvent) {
@@ -1113,7 +1222,8 @@
     );
   }
 
-  async function doSpawn(force = false) {
+  async function doSpawn(force = false, expectedUploadRevision = uploadQueueRevision) {
+    if (!uploadsSettledSince(expectedUploadRevision)) return;
     submitting = true;
     error = null;
     retry = null;
@@ -1141,7 +1251,7 @@
         error = (err as Error).message;
       } else {
         error = spawnFailureMessage(err);
-        retry = () => doSpawn(force);
+        retry = () => doSpawn(force, uploadQueueRevision);
       }
     } finally {
       // Clear submitting on every path (matters for the error path: the dialog stays
@@ -1180,17 +1290,15 @@
 
   async function submit(e: Event, force = false) {
     e.preventDefault();
-    // Single guard: the same readiness model that drives the footer + CTA. Known
-    // pre-existing race (unchanged by this redesign): a second activation during the
-    // awaited repoConfig.ensure() below can pass this guard before doSpawn sets
-    // `submitting` — see the PR body's "Known pre-existing races" note.
     if (!readiness.canSubmit) return;
+    const expectedUploadRevision = uploadQueueRevision;
     // A mid-recording submit sends the prompt as it stands: stop the mic and discard
     // the clip so nothing is uploaded while (or after) the task spawns.
     mic?.teardown();
     const repo = repoPath.trim();
     // Settle the repo config BEFORE reading confirm/rowExists (see repoConfig.ensure).
     const configLoaded = await repoConfig.ensure(repo);
+    if (!uploadsSettledSince(expectedUploadRevision)) return;
     // Editing a held task isn't a create — skip the brand-new-repo automation-confirm
     // interstitial; just persist the edit.
     if (
@@ -1200,16 +1308,23 @@
       !repoConfig.isAutomationConfirmed(repo)
     ) {
       // Brand-new repo (no row) → seed the raised default posture (plan-gate ON).
-      if (!repoConfig.automationRowExists(repo)) await repoConfig.seedNewRepoDefaults(repo);
+      if (!repoConfig.automationRowExists(repo)) {
+        await repoConfig.seedNewRepoDefaults(repo);
+        if (!uploadsSettledSince(expectedUploadRevision)) return;
+      }
       pendingForce = force; // replay the original force intent after confirmation
       confirmStep = true;
       return;
     }
-    await doSpawn(force);
+    await doSpawn(force, expectedUploadRevision);
   }
 
   async function confirmAndSpawn() {
-    if (submitting) return;
+    if (submitting || hasOutstandingUploads) {
+      confirmStep = false;
+      return;
+    }
+    const expectedUploadRevision = uploadQueueRevision;
     submitting = true;
     error = null;
     const repo = repoPath.trim();
@@ -1220,8 +1335,13 @@
       submitting = false; // re-enable so the user can retry
       return; // stay on the step; do NOT spawn if the confirm PUT failed
     }
+    if (!uploadsSettledSince(expectedUploadRevision)) {
+      submitting = false;
+      confirmStep = false;
+      return;
+    }
     confirmStep = false;
-    await doSpawn(pendingForce); // replay the force captured when the step opened
+    await doSpawn(pendingForce, expectedUploadRevision); // replay the force captured when the step opened
   }
 
   /** Compact model display for the mobile engine summary row. */
@@ -1457,9 +1577,9 @@
                     ? m.newtask_drop_hint()
                     : m.newtask_drop_hint_keyboard({ shortcut: isMac ? "⌘V" : "Ctrl+V" })}
                   onclick={() => fileInput?.click()}
-                  disabled={uploading}
+                  disabled={hasOutstandingUploads}
                 >
-                  {#if uploading}…{:else}↥{/if}
+                  {#if hasOutstandingUploads}…{:else}↥{/if}
                 </button>
                 <MicButton
                   bind:this={mic}
@@ -1614,24 +1734,71 @@
 
       <!-- Footer: readiness line + always-visible CTA. -->
       <div class="cfoot">
-        <span class="readiness">
-          {#if readiness.blocker}
-            <span class="r-blocked" aria-hidden="true">·</span>
-            {blockerCopy(readiness.blocker)}
-          {:else}
-            <span class="r-ok" aria-hidden="true">✓</span>
-            {m.newtask_readiness_ready()} ·
-            {#if mobile && footerCapacity}
-              <span class="r-cap"
-                >{footerCapacity.code}
-                {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
-              >
+        {#if hasOutstandingUploads}
+          <div class="upload-status" aria-live="polite">
+            {#if uploadCurrentLengthComputable === false}
+              <progress
+                class="upload-progress"
+                max="100"
+                aria-label={m.newtask_upload_progress_aria()}
+              ></progress>
             {:else}
-              {m.newtask_readiness_branches({ base: baseBranch })}
+              <progress
+                class="upload-progress"
+                max="100"
+                value={uploadPercent}
+                aria-label={m.newtask_upload_progress_aria()}
+              ></progress>
             {/if}
-          {/if}
-        </span>
-        {#if showDualCta}
+            <span class="upload-summary">
+              {m.newtask_upload_file_count({
+                current: uploadFileIndex,
+                total: uploadTotalFiles,
+              })}
+              {#if uploadCurrentLengthComputable === false}
+                · {m.newtask_uploading()}
+              {:else}
+                · {m.newtask_upload_percent({ percent: uploadPercent })} ·
+                {#if uploadFinishing}
+                  {m.newtask_upload_finishing()}
+                {:else if uploadEta}
+                  {m.newtask_upload_eta({ time: uploadEta })}
+                {:else}
+                  {m.newtask_upload_eta_calculating()}
+                {/if}
+              {/if}
+            </span>
+          </div>
+        {:else}
+          <span class="readiness">
+            {#if readiness.blocker}
+              <span class="r-blocked" aria-hidden="true">·</span>
+              {blockerCopy(readiness.blocker)}
+            {:else}
+              <span class="r-ok" aria-hidden="true">✓</span>
+              {m.newtask_readiness_ready()} ·
+              {#if mobile && footerCapacity}
+                <span class="r-cap"
+                  >{footerCapacity.code}
+                  {m.newtask_provider_capacity_free({ pct: footerCapacity.freePct })}</span
+                >
+              {:else}
+                {m.newtask_readiness_branches({ base: baseBranch })}
+              {/if}
+            {/if}
+          </span>
+        {/if}
+        {#if hasOutstandingUploads}
+          <button class="run" type="button" disabled>
+            <span
+              >{uploadFinishing
+                ? m.newtask_upload_finishing()
+                : uploadCurrentLengthComputable !== false
+                  ? m.newtask_upload_cta({ percent: uploadPercent })
+                  : m.newtask_uploading()}</span
+            >
+          </button>
+        {:else if showDualCta}
           <div class="run-dual">
             <button
               class="run run-hold"
@@ -2293,6 +2460,38 @@
   .readiness .r-cap {
     font-variant-numeric: tabular-nums;
   }
+  .upload-status {
+    min-width: 0;
+    flex: 1;
+    display: grid;
+    gap: 5px;
+  }
+  .upload-progress {
+    width: 100%;
+    height: 4px;
+    appearance: none;
+    border: 0;
+    background: var(--color-inset);
+    color: var(--color-amber);
+  }
+  .upload-progress::-webkit-progress-bar {
+    background: var(--color-inset);
+  }
+  .upload-progress::-webkit-progress-value {
+    background: var(--color-amber);
+  }
+  .upload-progress::-moz-progress-bar {
+    background: var(--color-amber);
+  }
+  .upload-summary {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    font-variant-numeric: tabular-nums;
+  }
   .run {
     margin-left: auto;
     flex-shrink: 0;
@@ -2659,6 +2858,9 @@
       padding: 10px 16px calc(10px + env(safe-area-inset-bottom));
     }
     .readiness {
+      white-space: normal;
+    }
+    .upload-summary {
       white-space: normal;
     }
     .run,

@@ -8,6 +8,7 @@ function input(over: Partial<ReadinessInput> = {}): ReadinessInput {
     repoResolved: true,
     baseMissing: false,
     repairing: false,
+    uploading: false,
     submitting: false,
     upstreamLoading: false,
     upstream: null,
@@ -28,6 +29,7 @@ describe("deriveReadiness blockers", () => {
     ["no_repo", { repoResolved: false }],
     ["base_missing", { baseMissing: true }],
     ["repairing", { repairing: true }],
+    ["uploading", { uploading: true }],
     ["submitting", { submitting: true }],
   ] as const)("blocks with %s", (blocker, over) => {
     const r = deriveReadiness(input(over));
@@ -36,7 +38,7 @@ describe("deriveReadiness blockers", () => {
   });
 
   // Precedence: transient work states outrank structural ones outrank the prompt.
-  it("orders blockers submitting > repairing > no_repo > base_missing > empty_prompt", () => {
+  it("orders blockers submitting > uploading > repairing > no_repo > base_missing > empty_prompt", () => {
     expect(
       deriveReadiness(
         input({
@@ -44,10 +46,22 @@ describe("deriveReadiness blockers", () => {
           repoResolved: false,
           baseMissing: true,
           repairing: true,
+          uploading: true,
           submitting: true,
         }),
       ).blocker,
     ).toBe("submitting");
+    expect(
+      deriveReadiness(
+        input({
+          promptEmpty: true,
+          repoResolved: false,
+          baseMissing: true,
+          repairing: true,
+          uploading: true,
+        }),
+      ).blocker,
+    ).toBe("uploading");
     expect(
       deriveReadiness(
         input({ promptEmpty: true, repoResolved: false, baseMissing: true, repairing: true }),

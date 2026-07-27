@@ -3421,5 +3421,19 @@
   "steerseditor_remove_no_aria": "Cancel remove",
   "feat_steers_9c_redesign_title": "Redesigned steer editor",
   "feat_steers_9c_redesign_body": "Settings → Steers is now an accordion — tap a steer to edit it inline. Repo scope is a token field with type-ahead and one-tap suggestions, placements are checkboxes, and every change saves automatically, so the Save button is gone.",
-  "steerseditor_close_save_failed": "Steers not saved: {reason}"
+  "steerseditor_close_save_failed": "Steers not saved: {reason}",
+  "newtask_upload_progress_aria": "Attachment upload progress",
+  "newtask_upload_file_count": "File {current} of {total}",
+  "newtask_upload_percent": "{percent}%",
+  "newtask_upload_eta_calculating": "Estimating time remaining…",
+  "newtask_upload_eta": "{time} remaining",
+  "newtask_upload_finishing": "Finishing upload…",
+  "newtask_upload_cta": "Uploading · {percent}%",
+  "api_upload_http_error": "Upload failed with status {status}",
+  "api_upload_network_error": "Network error during upload",
+  "api_upload_aborted": "Upload was aborted",
+  "api_upload_timeout": "Upload timed out",
+  "api_upload_invalid_response": "The upload server returned an invalid response",
+  "feat_upload_progress_title": "See attachment upload progress",
+  "feat_upload_progress_body": "New Task now shows progress and estimated time remaining for large attachments, and keeps Create & Run disabled until every upload is confirmed."
 }

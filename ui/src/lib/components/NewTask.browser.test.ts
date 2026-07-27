@@ -68,6 +68,16 @@ const mockInitEmptyCommit = vi.mocked(initEmptyCommit);
 const mockGetCommands = vi.mocked(getCommands);
 const mockUploadFile = vi.mocked(uploadFile);
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (error: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 // A full RepoConfig with the plan gate flag overridable; the composer only reads
 // planGateEnabled but the store ingests the whole shape. automationConfirmed defaults
 // to true so existing tests (which don't test the confirm step) bypass the gate.
@@ -168,6 +178,7 @@ function mockPointer(coarse: boolean) {
 }
 
 afterEach(async () => {
+  vi.useRealTimers();
   matchMediaSpy?.mockRestore();
   matchMediaSpy = undefined;
   createObjectUrlSpy?.mockRestore();
@@ -424,6 +435,30 @@ describe("NewTask task attachments", () => {
     revokeObjectUrlSpy = vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {});
   }
 
+  function pickFiles(files: File[]) {
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", { value: files, configurable: true });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  function dropFiles(files: File[]) {
+    const transfer = new DataTransfer();
+    for (const file of files) transfer.items.add(file);
+    document
+      .querySelector<HTMLFormElement>("form.card")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+  }
+
+  function pasteFiles(files: File[]) {
+    const transfer = new DataTransfer();
+    for (const file of files) transfer.items.add(file);
+    const event = new ClipboardEvent("paste", { bubbles: true, cancelable: true });
+    Object.defineProperty(event, "clipboardData", { value: transfer });
+    window.dispatchEvent(event);
+  }
+
   it("renders the toolbar attach button with the keyboard paste-image hint as its title", async () => {
     mockPointer(false);
     render(NewTask, { props: base({ initialRepoPath: "/repo/attachments" }) });
@@ -456,6 +491,224 @@ describe("NewTask task attachments", () => {
     expect(row.scrollWidth).toBeLessThanOrEqual(row.clientWidth);
   });
 
+  it.each(["drop", "paste"] as const)(
+    "serializes a second %s batch and blocks Run until both batches finish",
+    async (source) => {
+      const pending: Array<ReturnType<typeof deferred<string>>> = [];
+      mockUploadFile.mockImplementation(() => {
+        const request = deferred<string>();
+        pending.push(request);
+        return request.promise;
+      });
+      const onsubmit = vi.fn().mockResolvedValue(undefined);
+      render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/upload-queue" }) });
+
+      const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+      prompt.value = "use both files";
+      prompt.dispatchEvent(new Event("input", { bubbles: true }));
+
+      const first = new File(["first"], "first.mp4", { type: "video/mp4" });
+      const second = new File(["second"], "second.png", { type: "image/png" });
+      pickFiles([first]);
+      await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+
+      const attach = document.querySelector<HTMLButtonElement>(".toolbar .tool-btn")!;
+      const run = () => document.querySelector<HTMLButtonElement>("button.run")!;
+      expect(attach.disabled).toBe(true);
+      expect(run().disabled).toBe(true);
+      prompt.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+      );
+      expect(onsubmit).not.toHaveBeenCalled();
+
+      if (source === "drop") dropFiles([second]);
+      else pasteFiles([second]);
+
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(mockUploadFile).toHaveBeenCalledTimes(1);
+      expect(run().disabled).toBe(true);
+
+      pending[0]!.resolve("/staged/first.mp4");
+      await expect.poll(() => mockUploadFile.mock.calls.length).toBe(2);
+      expect(mockUploadFile.mock.calls[1]![0]).toBe(second);
+      expect(run().disabled).toBe(true);
+
+      pending[1]!.resolve("/staged/second.png");
+      await expect.poll(() => run().disabled).toBe(false);
+      expect(attach.disabled).toBe(false);
+      expect(onsubmit).not.toHaveBeenCalled();
+    },
+  );
+
+  it("shows weighted batch progress, ETA, and the server-finishing state", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-07-24T12:00:00Z"));
+    const pending: Array<ReturnType<typeof deferred<string>>> = [];
+    mockUploadFile.mockImplementation(() => {
+      const request = deferred<string>();
+      pending.push(request);
+      return request.promise;
+    });
+    render(NewTask, {
+      props: base({ initialRepoPath: "/repo/upload-progress", holdLikely: true }),
+    });
+
+    pickFiles([
+      new File([new Uint8Array(100)], "small.mp4", { type: "video/mp4" }),
+      new File([new Uint8Array(300)], "large.mp4", { type: "video/mp4" }),
+    ]);
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+    const firstProgress = mockUploadFile.mock.calls[0]![2]!;
+
+    vi.setSystemTime(new Date("2026-07-24T12:00:00.500Z"));
+    firstProgress({ loaded: 50, total: 100, lengthComputable: true });
+    await expect
+      .element(page.getByText("File 1 of 2 · 13% · Estimating time remaining…"))
+      .toBeVisible();
+    const progress = document.querySelector<HTMLProgressElement>("progress.upload-progress")!;
+    expect(progress.value).toBe(13);
+    expect(progress.getAttribute("aria-label")).toBe("Attachment upload progress");
+
+    vi.setSystemTime(new Date("2026-07-24T12:00:02Z"));
+    firstProgress({ loaded: 100, total: 100, lengthComputable: true });
+    await expect.element(page.getByText("File 1 of 2 · 25% · 00:06 remaining")).toBeVisible();
+
+    pending[0]!.resolve("/staged/small.mp4");
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(2);
+    const secondProgress = mockUploadFile.mock.calls[1]![2]!;
+    vi.setSystemTime(new Date("2026-07-24T12:00:04Z"));
+    secondProgress({ loaded: 150, total: 300, lengthComputable: true });
+    await expect.element(page.getByText("File 2 of 2 · 63% · 00:03 remaining")).toBeVisible();
+
+    secondProgress({ loaded: 299, total: 300, lengthComputable: true });
+    await expect.element(page.getByText("File 2 of 2 · 99% · 00:01 remaining")).toBeVisible();
+    expect(document.querySelector<HTMLButtonElement>("button.run")!.textContent).toContain(
+      "Uploading · 99%",
+    );
+
+    secondProgress({ loaded: 300, total: 300, lengthComputable: true });
+    await expect.element(page.getByText("File 2 of 2 · 100% · Finishing upload…")).toBeVisible();
+    const uploadButtons = document.querySelectorAll<HTMLButtonElement>("button.run");
+    expect(uploadButtons).toHaveLength(1);
+    expect(uploadButtons[0]!.disabled).toBe(true);
+    expect(uploadButtons[0]!.textContent).toContain("Finishing upload…");
+
+    pending[1]!.resolve("/staged/large.mp4");
+    await expect.poll(() => document.querySelector("progress.upload-progress")).toBeNull();
+  });
+
+  it("uses an indeterminate bar without a misleading percentage when byte length is unknown", async () => {
+    const request = deferred<string>();
+    mockUploadFile.mockReturnValue(request.promise);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/indeterminate-upload" }) });
+
+    pickFiles([new File(["unknown"], "unknown.bin")]);
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+    mockUploadFile.mock.calls[0]![2]!({ loaded: 4, total: 0, lengthComputable: false });
+
+    const progress = () => document.querySelector<HTMLProgressElement>("progress.upload-progress")!;
+    await expect.poll(() => progress().hasAttribute("value")).toBe(false);
+    const summary = document.querySelector<HTMLElement>(".upload-summary")!;
+    expect(summary.textContent).toContain("File 1 of 1");
+    expect(summary.textContent).toContain(m.newtask_uploading());
+    expect(summary.textContent).not.toContain("0%");
+    expect(document.querySelector<HTMLButtonElement>("button.run")!.textContent).toContain(
+      m.newtask_uploading(),
+    );
+
+    request.resolve("/staged/unknown.bin");
+  });
+
+  it("keeps upload progress and the disabled CTA visible in the mobile footer", async () => {
+    await page.viewport(390, 800);
+    const request = deferred<string>();
+    mockUploadFile.mockReturnValue(request.promise);
+    render(NewTask, { props: base({ initialRepoPath: "/repo/mobile-progress" }) });
+
+    pickFiles([new File([new Uint8Array(100)], "mobile.mp4", { type: "video/mp4" })]);
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+    mockUploadFile.mock.calls[0]![2]!({ loaded: 40, total: 100, lengthComputable: true });
+
+    await expect
+      .element(page.getByText("File 1 of 1 · 40% · Estimating time remaining…"))
+      .toBeVisible();
+    const footer = document.querySelector<HTMLElement>(".cfoot")!;
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    expect(run.disabled).toBe(true);
+    expect(run.textContent).toContain("Uploading · 40%");
+    expect(footer.scrollWidth).toBeLessThanOrEqual(footer.clientWidth);
+
+    request.resolve("/staged/mobile.mp4");
+  });
+
+  it("retries only the failed file and the files still queued behind it", async () => {
+    let secondAttempts = 0;
+    const retrySecond = deferred<string>();
+    mockUploadFile.mockImplementation(async (file) => {
+      if (file.name === "second.mov") {
+        secondAttempts += 1;
+        if (secondAttempts === 1) throw new Error("upload interrupted");
+        if (secondAttempts === 2) return retrySecond.promise;
+      }
+      return `/staged/${file.name}`;
+    });
+    render(NewTask, { props: base({ initialRepoPath: "/repo/upload-retry" }) });
+
+    pickFiles([
+      new File(["first"], "first.mov", { type: "video/quicktime" }),
+      new File(["second"], "second.mov", { type: "video/quicktime" }),
+      new File(["third"], "third.mov", { type: "video/quicktime" }),
+    ]);
+
+    await expect.element(page.getByRole("button", { name: m.common_retry() })).toBeVisible();
+    expect(mockUploadFile.mock.calls.map(([file]) => file.name)).toEqual([
+      "first.mov",
+      "second.mov",
+    ]);
+
+    await page.getByRole("button", { name: m.common_retry() }).click();
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(3);
+    await expect
+      .element(page.getByText("File 1 of 2 · 0% · Estimating time remaining…"))
+      .toBeVisible();
+    retrySecond.resolve("/staged/second.mov");
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(4);
+    expect(mockUploadFile.mock.calls.map(([file]) => file.name)).toEqual([
+      "first.mov",
+      "second.mov",
+      "second.mov",
+      "third.mov",
+    ]);
+    expect(page.getByText("first.mov").all().length).toBe(1);
+    await expect.element(page.getByText("third.mov")).toBeInTheDocument();
+  });
+
+  it("invalidates a Run click when an upload starts while repo config is settling", async () => {
+    const config = deferred<RepoConfig>();
+    mockGetRepoConfig.mockReturnValue(config.promise);
+    mockUploadFile.mockResolvedValue("/staged/late.mp4");
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: base({ onsubmit, initialRepoPath: "/repo/upload-ensure-race" }) });
+
+    const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    prompt.value = "use the late attachment";
+    prompt.dispatchEvent(new Event("input", { bubbles: true }));
+    const run = () => document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run().disabled).toBe(false);
+    run().click();
+
+    pickFiles([new File(["late"], "late.mp4", { type: "video/mp4" })]);
+    await expect.element(page.getByText("late.mp4")).toBeInTheDocument();
+    config.resolve(confirmedRepoConfig());
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(onsubmit).not.toHaveBeenCalled();
+    await expect.poll(() => run().disabled).toBe(false);
+    run().click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({ images: ["/staged/late.mp4"] });
+  });
+
   it("uploads a non-image file, renders a chip, and submits its staged path", async () => {
     mockUploadFile.mockResolvedValue("/staged/notes.md");
     const onsubmit = vi.fn().mockResolvedValue(undefined);
@@ -469,7 +722,7 @@ describe("NewTask task attachments", () => {
     input.dispatchEvent(new Event("change", { bubbles: true }));
 
     await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
-    expect(mockUploadFile).toHaveBeenCalledWith(file);
+    expect(mockUploadFile).toHaveBeenCalledWith(file, undefined, expect.any(Function));
     await expect.element(page.getByText("notes.md")).toBeInTheDocument();
 
     const promptField = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
@@ -1814,6 +2067,40 @@ describe("NewTask first-task confirm step", () => {
     expect(seedCall).toBeTruthy();
   });
 
+  it("invalidates the first Run click when an upload starts while defaults are being seeded", async () => {
+    const repoPath = "/repo/ftac-seed-upload-race";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    const seed = deferred<
+      RepoConfig & { automationConfirmed: boolean; automationRowExists: boolean }
+    >();
+    mockPutRepoConfig.mockReturnValueOnce(seed.promise);
+    mockUploadFile.mockResolvedValue("/staged/during-seed.mp4");
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
+    await fillPromptAndClickRun();
+    await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBe(1);
+
+    const input = document.querySelector<HTMLInputElement>('input[type="file"]')!;
+    Object.defineProperty(input, "files", {
+      value: [new File(["late"], "during-seed.mp4", { type: "video/mp4" })],
+      configurable: true,
+    });
+    input.dispatchEvent(new Event("change", { bubbles: true }));
+    await expect.element(page.getByText("during-seed.mp4")).toBeInTheDocument();
+
+    seed.resolve({ ...unconfirmedExistingRepoConfig(), planGateEnabled: true });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(document.querySelector(".ftac")).toBeNull();
+    expect(onsubmit).not.toHaveBeenCalled();
+
+    document.querySelector<HTMLButtonElement>("button.run")!.click();
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+    expect(mockPutRepoConfig).toHaveBeenCalledTimes(1);
+    expect(onsubmit).not.toHaveBeenCalled();
+  });
+
   it("unconfirmed brand-new repo + Codex: skips Claude automation confirm and submits", async () => {
     const repoPath = "/repo/ftac-codex-unconfirmed";
     mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
@@ -1874,6 +2161,50 @@ describe("NewTask first-task confirm step", () => {
       (c) => c[1]?.automationConfirmed === true,
     );
     expect(confirmCall).toBeTruthy();
+  });
+
+  it("invalidates confirmation when an upload starts before confirmAutomation settles", async () => {
+    const repoPath = "/repo/ftac-upload-race";
+    mockGetRepoConfig.mockResolvedValue(unconfirmedNewRepoConfig());
+    mockPutRepoConfig.mockResolvedValueOnce(unconfirmedNewRepoConfig());
+    const confirmation = deferred<
+      RepoConfig & { automationConfirmed: boolean; automationRowExists: boolean }
+    >();
+    mockPutRepoConfig.mockReturnValueOnce(confirmation.promise);
+    const upload = deferred<string>();
+    mockUploadFile.mockReturnValue(upload.promise);
+    const onsubmit = vi.fn().mockResolvedValue(undefined);
+    render(NewTask, { props: { onsubmit, initialRepoPath: repoPath } });
+
+    await expect.poll(() => planGateSwitch()).toBeTruthy();
+    await fillPromptAndClickRun();
+    await expect.poll(() => document.querySelector(".ftac")).toBeTruthy();
+
+    document.querySelector<HTMLButtonElement>(".ftac button.primary")!.click();
+    await expect.poll(() => mockPutRepoConfig.mock.calls.length).toBe(2);
+
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(["late"], "confirm-late.mp4", { type: "video/mp4" }));
+    document
+      .querySelector<HTMLFormElement>("form.card")!
+      .dispatchEvent(
+        new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer: transfer }),
+      );
+    await expect.poll(() => mockUploadFile.mock.calls.length).toBe(1);
+
+    confirmation.resolve(confirmedRepoConfig());
+    await expect.poll(() => document.querySelector(".ftac")).toBeNull();
+    expect(onsubmit).not.toHaveBeenCalled();
+
+    upload.resolve("/staged/confirm-late.mp4");
+    await expect.element(page.getByText("confirm-late.mp4")).toBeInTheDocument();
+    const run = document.querySelector<HTMLButtonElement>("button.run")!;
+    await expect.poll(() => run.disabled).toBe(false);
+    run.click();
+    await expect.poll(() => onsubmit.mock.calls.length).toBe(1);
+    expect(onsubmit.mock.calls[0]![0]).toMatchObject({
+      images: ["/staged/confirm-late.mp4"],
+    });
   });
 
   it("Cancel: hides confirm step and does NOT call onsubmit", async () => {

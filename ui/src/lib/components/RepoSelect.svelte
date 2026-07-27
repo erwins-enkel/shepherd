@@ -78,6 +78,15 @@
       : m.reposelect_recent_agents_other({ count, days: windowDays });
   }
 
+  function repoIdentity(repo: RepoEntry): { name: string; owner: string | null } {
+    const slug = repo.remoteSlug;
+    if (!slug) return { name: repo.name, owner: null };
+    const slash = slug.lastIndexOf("/");
+    return slash > 0 && slash < slug.length - 1
+      ? { name: slug.slice(slash + 1), owner: slug.slice(0, slash) }
+      : { name: repo.name, owner: null };
+  }
+
   // Selected-row lookup stays over the FULL list so an already-selected (e.g. relaunch-
   // seeded) repo still renders in the trigger label even when hideHidden drops it from
   // the dropdown.
@@ -223,9 +232,11 @@
     aria-expanded={open}
   >
     {#if selected}
+      {@const identity = repoIdentity(selected)}
       <span class="rs-emoji" aria-hidden="true">{projectIcons.iconFor(selected.path) ?? "▣"}</span>
-      <b>{selected.remoteSlug ?? selected.name}</b>
-      <span class="dim">{selected.display}</span>
+      <b class="rs-name">{identity.name}</b>
+      <span class="rs-path dim">{selected.display}</span>
+      {#if identity.owner}<span class="rs-owner">{identity.owner}</span>{/if}
     {:else}
       <span class="placeholder">{m.reposelect_placeholder()}</span>
     {/if}
@@ -260,6 +271,7 @@
             <li class="rs-group-sep" role="presentation"></li>
           {/if}
           {@const r = row.repo}
+          {@const identity = repoIdentity(r)}
           <li
             id={`rs-opt-${i}`}
             class="rs-row"
@@ -286,8 +298,9 @@
             >
               {projectIcons.iconFor(r.path) ?? "▣"}
             </button>
-            <b>{r.remoteSlug ?? r.name}</b>
-            <span class="dim">{r.display}</span>
+            <b class="rs-name">{identity.name}</b>
+            <span class="rs-path dim">{r.display}</span>
+            {#if identity.owner}<span class="rs-owner">{identity.owner}</span>{/if}
             {#if row.pinned}
               {@const label = recentAgentsLabel(r.recentAgentCount ?? 0)}
               <span class="rs-count" title={label} aria-label={label}>
@@ -409,22 +422,33 @@
     box-shadow: inset 0 0 0 1px var(--color-amber);
   }
 
-  .rs-trigger b {
+  .rs-name {
     font-weight: 600;
     flex-shrink: 0;
-    max-width: 55%;
+    max-width: 45%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
 
-  .rs-trigger .dim {
+  .rs-path {
     color: var(--color-muted);
     font-size: var(--fs-meta);
+    flex: 1 1 auto;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    min-width: 0;
+  }
+
+  .rs-owner {
+    color: var(--color-muted);
+    font-size: var(--fs-meta);
+    flex: 0 0 auto;
+    max-width: 30%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 
   .rs-trigger .placeholder {
@@ -490,14 +514,6 @@
     overflow: hidden;
   }
 
-  .rs-row b {
-    flex-shrink: 0;
-    max-width: 55%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
   .rs-row:last-child {
     border-bottom: 0;
   }
@@ -516,15 +532,6 @@
 
   .rs-row.active {
     background: color-mix(in srgb, var(--color-amber) 8%, var(--color-panel));
-  }
-
-  .rs-row .dim {
-    color: var(--color-muted);
-    font-size: var(--fs-meta);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    min-width: 0;
   }
 
   /* "recently worked on" shortcut group — pinned rows at the top, set apart from

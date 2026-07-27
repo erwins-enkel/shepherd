@@ -179,22 +179,39 @@ describe("RepoSelect — hideHidden", () => {
 describe("RepoSelect — remote identity", () => {
   const ownerRepos: RepoEntry[] = [
     {
-      name: "api",
-      remoteSlug: "acme/api",
+      name: "local-api-copy",
+      remoteSlug: "acme/platform/api",
       path: "/repos/acme-api",
-      display: "~/repos/acme-api",
+      display: "~/repos/clients/acme/api-local-copy",
       realPath: "/repos/acme-api",
     },
     {
-      name: "api",
+      name: "sibling-api-copy",
       remoteSlug: "sibling/api",
       path: "/repos/sibling-api",
-      display: "~/repos/sibling-api",
+      display: "~/repos/clients/sibling/api-local-copy",
       realPath: "/repos/sibling-api",
     },
   ];
 
-  it("shows owner-qualified slugs for duplicate local repo names", async () => {
+  function expectIdentity(
+    container: Element,
+    expected: { name: string; path: string; owner?: string },
+  ) {
+    const name = container.querySelector<HTMLElement>(".rs-name");
+    const path = container.querySelector<HTMLElement>(".rs-path");
+    const owner = container.querySelector<HTMLElement>(".rs-owner");
+
+    expect(name?.textContent).toBe(expected.name);
+    expect(path?.textContent).toBe(expected.path);
+    expect(owner?.textContent).toBe(expected.owner);
+
+    const children = Array.from(container.children);
+    expect(children.indexOf(name!)).toBeLessThan(children.indexOf(path!));
+    if (expected.owner) expect(children.indexOf(path!)).toBeLessThan(children.indexOf(owner!));
+  }
+
+  it("shows repository name, local path, then owner in trigger and list rows", async () => {
     render(RepoSelect, {
       repos: ownerRepos,
       value: "/repos/acme-api",
@@ -202,10 +219,26 @@ describe("RepoSelect — remote identity", () => {
       windowDays: 7,
     });
 
-    await page.getByRole("button", { name: /acme\/api/ }).click();
+    const trigger = document.querySelector<HTMLElement>(".rs-trigger")!;
+    expectIdentity(trigger, {
+      name: "api",
+      path: "~/repos/clients/acme/api-local-copy",
+      owner: "acme/platform",
+    });
+    trigger.click();
 
-    await expect.element(page.getByRole("option", { name: /acme\/api/ })).toBeVisible();
-    await expect.element(page.getByRole("option", { name: /sibling\/api/ })).toBeVisible();
+    await expect.element(page.getByRole("option").first()).toBeVisible();
+    const rows = Array.from(document.querySelectorAll<HTMLElement>(".rs-row"));
+    expectIdentity(rows[0]!, {
+      name: "api",
+      path: "~/repos/clients/acme/api-local-copy",
+      owner: "acme/platform",
+    });
+    expectIdentity(rows[1]!, {
+      name: "api",
+      path: "~/repos/clients/sibling/api-local-copy",
+      owner: "sibling",
+    });
   });
 
   it("matches repositories by remote owner", async () => {
@@ -216,11 +249,11 @@ describe("RepoSelect — remote identity", () => {
       windowDays: 7,
     });
 
-    await page.getByRole("button", { name: /acme\/api/ }).click();
+    document.querySelector<HTMLButtonElement>(".rs-trigger")!.click();
     await page.getByPlaceholder(m.reposelect_filter_placeholder()).fill("sibling");
 
-    await expect.element(page.getByRole("option", { name: /sibling\/api/ })).toBeVisible();
-    expect(page.getByRole("option", { name: /acme\/api/ }).elements()).toHaveLength(0);
+    await expect.element(page.getByRole("option", { name: /api.*sibling/ })).toBeVisible();
+    expect(page.getByRole("option", { name: /api.*acme\/platform/ }).elements()).toHaveLength(0);
   });
 
   it("keeps the selected owner's identity in the closed trigger", async () => {
@@ -231,7 +264,7 @@ describe("RepoSelect — remote identity", () => {
       windowDays: 7,
     });
 
-    await expect.element(page.getByRole("button", { name: /sibling\/api/ })).toBeVisible();
+    await expect.element(page.getByRole("button", { name: /api.*sibling/ })).toBeVisible();
   });
 
   it("falls back to the local name when a remote slug is unavailable", async () => {
@@ -251,7 +284,15 @@ describe("RepoSelect — remote identity", () => {
 
     const trigger = page.getByRole("button", { name: /local-api/ });
     await expect.element(trigger).toBeVisible();
+    expectIdentity(document.querySelector(".rs-trigger")!, {
+      name: "local-api",
+      path: "~/repos/local-api",
+    });
     await trigger.click();
     await expect.element(page.getByRole("option", { name: /local-api/ })).toBeVisible();
+    expectIdentity(document.querySelector(".rs-row")!, {
+      name: "local-api",
+      path: "~/repos/local-api",
+    });
   });
 });

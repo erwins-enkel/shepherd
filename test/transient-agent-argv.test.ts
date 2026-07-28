@@ -92,6 +92,21 @@ test("every kind: never --dangerously-skip-permissions; always --disable-slash-c
   }
 });
 
+// The fullscreen-renderer upsell is a BLOCKING dialog an operator-less pane can never answer, and
+// its suppression counter only advances when it IS answered — so every transient kind must carry
+// the `tui` settings kill-switch, in BOTH auth modes (api-key mode spawns against a separate
+// CLAUDE_CONFIG_DIR whose .claude.json has no counter at all, i.e. the worst case).
+test("every kind: --settings pins tui:'default' (upsell kill-switch), in both auth modes", () => {
+  for (const mode of ["subscription", "api-key"] as const) {
+    withAuth(mode, "/helper.sh", () => {
+      for (const kind of ALL_KINDS) {
+        const { argv } = buildTransientAgentArgv(kind, { model: null, prompt: "p" });
+        expect(settingsOf(argv).tui).toBe("default");
+      }
+    });
+  }
+});
+
 test("model: omitted → no --model; provided → appended once, before --permission-mode", () => {
   for (const kind of ALL_KINDS) {
     expect(buildTransientAgentArgv(kind, { model: null, prompt: "p" }).argv).not.toContain(
@@ -266,11 +281,13 @@ test("subscription mode: --settings carries NO apiKeyHelper, byte-stable per kin
       settingsOf(buildTransientAgentArgv("writer-only", { model: null, prompt: "p" }).argv),
     ).toEqual({
       disableAllHooks: true,
+      tui: "default",
     });
     expect(
       settingsOf(buildTransientAgentArgv("reviewer", { model: null, prompt: "p" }).argv),
     ).toEqual({
       disableAllHooks: true,
+      tui: "default",
       enableAllProjectMcpServers: true,
     });
   });

@@ -2038,3 +2038,70 @@ describe("GitRail — automation panel close affordance + overflow fix", () => {
     expect(getComputedStyle(head!).display, "close-button head hidden on desktop").toBe("none");
   });
 });
+
+// A no-verdict `error` verdict carries NO prose: `summary` is "" (blanked in favour of the
+// server-authored code) and buildVerdictCore leaves `body` "" too. Both of this popover's text
+// blocks are `{#if}`-gated on those fields, so rendering the raw verdict would open a dialog with
+// nothing in it at all — strictly worse than the fixed English string it replaced.
+describe("GitRail — no-verdict error verdict explains itself in the popover", () => {
+  const errorVerdict: ReviewVerdict = {
+    sessionId: baseProps.sessionId,
+    headSha: "deadbeef",
+    decision: "error",
+    summary: "", // blanked: the reason travels as a code
+    summaryCode: "no-verdict-blocked",
+    body: "",
+    findings: [],
+    addressRound: 0,
+    addressCap: 2,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900000,
+    updatedAt: Date.now(),
+  };
+
+  afterEach(() => reviews.drop(baseProps.sessionId));
+
+  async function openErrorReview(h: HTMLElement) {
+    const chip = h.querySelector<HTMLButtonElement>("button.verdict-chip");
+    expect(chip, "verdict chip present").not.toBeNull();
+    chip!.click();
+    return await vi.waitFor(() => {
+      const d = h.querySelector<HTMLElement>(".review-pop");
+      expect(d, "review dialog opened").not.toBeNull();
+      return d!;
+    });
+  }
+
+  it("renders the localized reason, not an empty dialog", async () => {
+    reviews.apply({ id: baseProps.sessionId, review: errorVerdict });
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const dialog = await openErrorReview(h);
+    const summary = dialog.querySelector<HTMLElement>(".rv-summary");
+    expect(summary, "reason line rendered").not.toBeNull();
+    expect(summary!.textContent?.trim()).toBe(m.criticbadge_no_verdict_blocked());
+    expect(summary!.textContent, "raw sentinel never shown").not.toContain("no-verdict");
+  });
+
+  // Rows written before the sentinel existed keep their prose and must still render verbatim.
+  it("still renders a legacy row's stored prose when there is no code", async () => {
+    reviews.apply({
+      id: baseProps.sessionId,
+      review: { ...errorVerdict, summaryCode: null, summary: "critic did not produce a verdict" },
+    });
+    gitStateFn.mockResolvedValue(openPrState);
+    await page.viewport(600, 900);
+    const h = host(600);
+    const screen = await render(GitRail, { target: h, props: { ...baseProps, mobile: false } });
+    await expect.element(screen.getByTitle("PR #12345")).toBeVisible();
+
+    const dialog = await openErrorReview(h);
+    expect(dialog.querySelector(".rv-summary")?.textContent?.trim()).toBe(
+      "critic did not produce a verdict",
+    );
+  });
+});

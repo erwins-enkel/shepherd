@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { criticBadgeLabel, addressRoundInfo, criticChip } from "./critic-badge";
-import type { ReviewVerdict } from "$lib/types";
+import { criticBadgeLabel, addressRoundInfo, criticChip, criticTitle } from "./critic-badge";
+import type { ReviewVerdict, ReviewSummaryCode } from "$lib/types";
 
 const base: ReviewVerdict = {
   sessionId: "s1",
@@ -113,5 +113,46 @@ describe("criticChip", () => {
       decision: "error",
       label: criticBadgeLabel(v({ decision: "error" })),
     });
+  });
+});
+
+// A REVIEW ERR whose only trace was a fixed English string in the DB told the operator nothing.
+// The reason is now a server-authored sentinel, localized here.
+describe("criticTitle", () => {
+  const CODES: ReviewSummaryCode[] = [
+    "no-verdict-blocked",
+    "no-verdict-timeout",
+    "no-verdict-exited",
+    "no-verdict-unparseable",
+  ];
+
+  it("renders a distinct, non-empty reason for every code", () => {
+    const texts = CODES.map((c) =>
+      criticTitle(v({ decision: "error", summary: "", summaryCode: c })),
+    );
+    texts.forEach((t) => expect(t.length).toBeGreaterThan(0));
+    expect(new Set(texts).size).toBe(CODES.length); // no two causes read the same
+  });
+
+  it("never leaks the raw sentinel to the operator", () => {
+    for (const c of CODES) {
+      expect(criticTitle(v({ decision: "error", summary: "", summaryCode: c }))).not.toContain(
+        "no-verdict",
+      );
+    }
+  });
+
+  it("passes the critic's own prose through verbatim when there is no code", () => {
+    expect(criticTitle(v({ summary: "2 issues in the diff" }))).toBe("2 issues in the diff");
+  });
+
+  it("falls back to the stored summary for a code this client does not know", () => {
+    const future = v({ decision: "error", summary: "legacy prose" });
+    (future as { summaryCode?: string }).summaryCode = "no-verdict-from-the-future";
+    expect(criticTitle(future)).toBe("legacy prose");
+  });
+
+  it("falls back to the generic title when there is nothing to say", () => {
+    expect(criticTitle(v({ summary: "" })).length).toBeGreaterThan(0);
   });
 });

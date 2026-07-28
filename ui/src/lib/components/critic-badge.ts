@@ -1,6 +1,27 @@
-import type { ReviewVerdict, ReviewDecision } from "../types";
+import type { ReviewVerdict, ReviewDecision, ReviewSummaryCode } from "../types";
 import { m } from "$lib/paraglide/messages";
 import { addressStallStatus } from "../review-status";
+
+const NO_VERDICT_REASON: Record<ReviewSummaryCode, () => string> = {
+  "no-verdict-blocked": () => m.criticbadge_no_verdict_blocked(),
+  "no-verdict-timeout": () => m.criticbadge_no_verdict_timeout(),
+  "no-verdict-exited": () => m.criticbadge_no_verdict_exited(),
+  "no-verdict-unparseable": () => m.criticbadge_no_verdict_unparseable(),
+};
+
+/**
+ * Tooltip text for a verdict. An `error` verdict's reason is SERVER-authored, so it travels as a
+ * sentinel code and is localized here rather than shipping English from the DB; every other verdict
+ * carries the critic's own prose, which is data and is passed through verbatim.
+ *
+ * Falls back to `summary` for a code this client doesn't know (an older UI against a newer server)
+ * and to the generic title when there is nothing to say — so a REVIEW ERR always reads as something
+ * more useful than a bare badge.
+ */
+export function criticTitle(v: ReviewVerdict): string {
+  const reason = v.summaryCode ? NO_VERDICT_REASON[v.summaryCode] : undefined;
+  return reason?.() || v.summary || m.criticbadge_title();
+}
 
 /** Badge text for a critic verdict, or null when there is none to show. */
 export function criticBadgeLabel(v: ReviewVerdict | undefined): string | null {

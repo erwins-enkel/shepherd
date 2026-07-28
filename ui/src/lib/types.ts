@@ -751,11 +751,19 @@ export interface HerdDigest {
 }
 
 export type ReviewDecision = "changes_requested" | "commented" | "error";
+/** Sentinel for a server-authored no-verdict reason, rendered per-locale in the UI (mirrors server
+ *  `ReviewSummaryCode`). Only `error` verdicts carry one. */
+export type ReviewSummaryCode =
+  "no-verdict-blocked" | "no-verdict-timeout" | "no-verdict-exited" | "no-verdict-unparseable";
+
 export interface ReviewVerdict {
   sessionId: string;
   headSha: string;
   decision: ReviewDecision;
   summary: string;
+  /** Server-authored reason code; when set, `summary` is "" and the UI renders from the code.
+   *  Absent/null (legacy rows, real verdicts) → render `summary` verbatim. */
+  summaryCode?: ReviewSummaryCode | null;
   body: string;
   findings: string[]; // discrete actionable items; [] = nothing to address
   addressRound: number; // auto-address steers spent on the current findings streak

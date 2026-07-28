@@ -3445,5 +3445,8 @@
   "spawnnotice_retry_queued": "Eingereiht — der nächste Durchlauf versucht das Review erneut.",
   "spawnnotice_retry_failed": "Review konnte nicht erneut eingereiht werden.",
   "feat_spawn_notice_title": "Gekürzte oder abgelehnte Reviews sind jetzt sichtbar",
-  "feat_spawn_notice_body": "Wenn ein Plan das Kommandozeilen-Limit des Betriebssystems überschreitet, scheiterte der Review-Start bisher stillschweigend. Jetzt kürzt Shepherd den Plan passend und markiert das Badge — oder lehnt ab und sagt es dir, falls zu wenig vom Plan übrig bliebe, statt ein selbstbewusstes Urteil über einen Stummel zu liefern."
+  "feat_spawn_notice_body": "Wenn ein Plan das Kommandozeilen-Limit des Betriebssystems überschreitet, scheiterte der Review-Start bisher stillschweigend. Jetzt kürzt Shepherd den Plan passend und markiert das Badge — oder lehnt ab und sagt es dir, falls zu wenig vom Plan übrig bliebe, statt ein selbstbewusstes Urteil über einen Stummel zu liefern.",
+  "spawnnotice_review_failed_badge": "kein review",
+  "spawnnotice_review_failed_title": "Code-Review konnte nicht starten",
+  "spawnnotice_review_failed_action": "Der Review-Prompt überschreitet das Argumentlimit des Betriebssystems, daher lief für diesen Commit kein Critic. Am meisten Platz schafft es, `.shepherd-plan.md` zu kürzen. „Erneut versuchen“ startet einen neuen Versuch mit den aktuellen Eingaben."
 }

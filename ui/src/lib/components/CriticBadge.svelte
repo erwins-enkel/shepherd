@@ -6,6 +6,7 @@
   import { statusTip } from "$lib/actions/statusTip.svelte";
   import { firstSafeHttpUrl } from "$lib/url";
   import { anchorPopover } from "$lib/floating-anchor";
+  import CriticSpawnFailure from "./CriticSpawnFailure.svelte";
 
   // `tip` (Herd card only): swap the native title for the styled tooltip, and —
   // when a safe PR URL resolves — offer an Open-PR click-pinned dialog. `prUrl`
@@ -21,10 +22,17 @@
   const chip = $derived(criticChip(verdict, reviewing));
   const round = $derived(addressRoundInfo(verdict, clock.current));
   const activity = $derived(reviews.activityFor(sessionId));
-  // #1944: a clamped or refused critic spawn. Adorns whatever chip the verdict already resolves to
-  // rather than becoming a chip kind of its own — a truncated review is still a review, and a
-  // refused one must not masquerade as a verdict.
-  const notice = $derived(spawnNotices.for(sessionId, "review"));
+  // #1944: a CLAMPED critic spawn adorns whatever chip the verdict already resolves to — a
+  // truncated review is still a review, so "this verdict, with a caveat" is the right reading.
+  //
+  // A REFUSED one deliberately does NOT come through here: there is no verdict to adorn (and with
+  // no prior verdict at all, `view` is null and this whole template never renders), so it gets its
+  // own chip via <CriticSpawnFailure>, which also carries the Retry.
+  const clamped = $derived(
+    spawnNotices.for(sessionId, "review")?.severity === "clamped"
+      ? spawnNotices.for(sessionId, "review")
+      : null,
+  );
 
   type CriticView = { cls: string; label: string; title: string; dot: boolean };
 
@@ -74,15 +82,11 @@
   /** Fold the spawn notice into whatever view the verdict produced: a corner pip via the class and
    *  an APPENDED tooltip line. Never replaces the view — the operator still needs the verdict. */
   function withNotice(v: CriticView | null): CriticView | null {
-    if (!v || !notice) return v;
-    const line =
-      notice.severity === "failed"
-        ? m.spawnnotice_tip_failed({ detail: notice.detail })
-        : m.spawnnotice_tip_clamped({ detail: notice.detail });
+    if (!v || !clamped) return v;
     return {
       ...v,
-      cls: `${v.cls} critic-noticed-${notice.severity}`,
-      title: `${v.title}\n\n${line}`,
+      cls: `${v.cls} critic-noticed-clamped`,
+      title: `${v.title}\n\n${m.spawnnotice_tip_clamped({ detail: clamped.detail })}`,
     };
   }
 
@@ -179,6 +183,10 @@
   }
 </script>
 
+<!-- #1944: OUTSIDE the `{#if view}` gate on purpose — that gate is what made a refused first
+     review invisible. Self-guarding, so it costs this template no branch. -->
+<CriticSpawnFailure {sessionId} />
+
 {#if view}
   {#snippet content()}
     {#if view.dot}<span class="rev-dot" aria-hidden="true"></span>{/if}{view.label}
@@ -238,14 +246,12 @@
 {/if}
 
 <style>
-  /* #1944 spawn-notice adornment — mirrors PlanGateBadge. Two tones, two meanings: warn = the
-     review ran on a TRUNCATED prompt, red = it was REFUSED and there is no verdict. */
-  .critic-noticed-clamped,
-  .critic-noticed-failed {
+  /* #1944 clamp adornment: the review ran, but on a TRUNCATED prompt. A REFUSAL is not adorned
+     here — it has no verdict to attach to, so it renders as its own <CriticSpawnFailure> chip. */
+  .critic-noticed-clamped {
     position: relative;
   }
-  .critic-noticed-clamped::before,
-  .critic-noticed-failed::before {
+  .critic-noticed-clamped::before {
     content: "";
     position: absolute;
     top: -2px;
@@ -257,9 +263,6 @@
   }
   .critic-noticed-clamped::before {
     background: var(--status-warn);
-  }
-  .critic-noticed-failed::before {
-    background: var(--status-blocked);
   }
   .critic-badge {
     font-size: var(--fs-micro);

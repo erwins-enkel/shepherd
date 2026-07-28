@@ -3,15 +3,22 @@ import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import type { ReviewVerdict } from "$lib/types";
+import { m } from "$lib/paraglide/messages";
+import { retrySpawnNotice } from "$lib/api";
 
 // Mock api so the reviews store's load() never fires real network calls.
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
-  return { ...actual, getReviews: vi.fn(async () => ({})), getReviewingIds: vi.fn(async () => []) };
+  return {
+    ...actual,
+    getReviews: vi.fn(async () => ({})),
+    getReviewingIds: vi.fn(async () => []),
+    retrySpawnNotice: vi.fn(async () => ({ cleared: true })),
+  };
 });
 
 const { default: CriticBadge } = await import("./CriticBadge.svelte");
-const { reviews } = await import("$lib/reviews.svelte");
+const { reviews, spawnNotices } = await import("$lib/reviews.svelte");
 
 const NOW = 2_000_000;
 
@@ -34,6 +41,7 @@ beforeEach(() => {
   // reset store between tests
   reviews.map = {};
   reviews.reviewing = {};
+  spawnNotices.map = {};
 });
 
 afterEach(() => {
@@ -311,5 +319,86 @@ describe("CriticBadge tip mode (card) — Open PR dialog + URL safety", () => {
     btn.dispatchEvent(new MouseEvent("click", { detail: 1, bubbles: true, cancelable: true }));
     await vi.waitFor(() => expect(dialogOpen()).not.toBeNull());
     expect(dialogOpen()!.querySelector("a")!.getAttribute("href")).toBe("https://git/pr/9");
+  });
+});
+
+// ── #1944: a REFUSED critic spawn must be visible and recoverable ─────────────
+//
+// The gap this closes: with no prior verdict, `criticChip` returns {kind:"none"}, CriticBadge's
+// `view` is null, and its whole template is gated on `{#if view}` — so a pip adornment had nothing
+// to attach to and a refused FIRST review was exactly as silent as the E2BIG this PR fixes. And
+// `headAlreadySettled` then suppresses re-attempts for that head, so there was no way back either.
+
+const failedNotice = (over: Record<string, unknown> = {}) => ({
+  sessionId: "s1",
+  kind: "review" as const,
+  severity: "failed" as const,
+  reason: "over-budget" as const,
+  detail: "prompt is 410869 bytes, 279798 over the 131071-byte spawn budget",
+  steers: 0,
+  inputKey: "abc",
+  updatedAt: 1,
+  ...over,
+});
+
+describe("#1944 refused critic spawn", () => {
+  it("RENDERS WITH NO VERDICT AT ALL — the case a pip adornment could never reach", async () => {
+    spawnNotices.map = { s1: [failedNotice()] };
+    render(CriticBadge, { sessionId: "s1" });
+
+    // No verdict ⇒ criticChip is {kind:"none"} ⇒ the verdict chip is absent...
+    expect(document.querySelectorAll(".critic-badge").length).toBe(0);
+    // ...but the refusal is still on screen.
+    const btn = document.querySelector(".csf-badge");
+    expect(btn, "refused-spawn chip renders without a verdict").not.toBeNull();
+    expect(btn!.textContent).toContain(m.spawnnotice_review_failed_badge());
+  });
+
+  it("opens a popover carrying the cause and a Retry", async () => {
+    spawnNotices.map = { s1: [failedNotice()] };
+    render(CriticBadge, { sessionId: "s1" });
+
+    await page.getByRole("button", { name: m.spawnnotice_review_failed_title() }).click();
+    await expect.element(page.getByText(m.spawnnotice_review_failed_action())).toBeInTheDocument();
+    expect(document.body.textContent).toContain("279798 over");
+    await expect.element(page.getByRole("button", { name: m.spawnnotice_retry() })).toBeVisible();
+  });
+
+  it("Retry clears the notice + its suppression key, then reports back", async () => {
+    spawnNotices.map = { s1: [failedNotice()] };
+    render(CriticBadge, { sessionId: "s1" });
+
+    await page.getByRole("button", { name: m.spawnnotice_review_failed_title() }).click();
+    await page.getByRole("button", { name: m.spawnnotice_retry() }).click();
+
+    expect(vi.mocked(retrySpawnNotice)).toHaveBeenCalledWith("s1", "review");
+    await expect.element(page.getByText(m.spawnnotice_retry_queued())).toBeInTheDocument();
+  });
+
+  it("ALSO renders alongside an existing verdict, so there is always recourse", async () => {
+    // headAlreadySettled suppresses re-attempts for the head whether or not a verdict exists, so
+    // the Retry must be reachable in both shapes.
+    reviews.map = { s1: v({}) };
+    spawnNotices.map = { s1: [failedNotice()] };
+    render(CriticBadge, { sessionId: "s1" });
+
+    expect(document.querySelectorAll(".critic-badge").length).toBe(1);
+    expect(document.querySelector(".csf-badge")).not.toBeNull();
+  });
+
+  it("a CLAMPED notice adorns the verdict chip instead — the review did run", async () => {
+    reviews.map = { s1: v({}) };
+    spawnNotices.map = { s1: [failedNotice({ severity: "clamped", reason: null })] };
+    render(CriticBadge, { sessionId: "s1" });
+
+    expect(document.querySelector(".csf-badge"), "no refusal chip for a clamp").toBeNull();
+    expect(document.querySelector(".critic-noticed-clamped")).not.toBeNull();
+  });
+
+  it("no notice → neither surface", async () => {
+    reviews.map = { s1: v({}) };
+    render(CriticBadge, { sessionId: "s1" });
+    expect(document.querySelector(".csf-badge")).toBeNull();
+    expect(document.querySelector(".critic-noticed-clamped")).toBeNull();
   });
 });

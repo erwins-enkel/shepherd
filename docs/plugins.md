@@ -173,9 +173,11 @@ permission-scoped / out-of-process) without changing your call sites.
 
 ## Reading sessions (`ctx.sessions`)
 
-The event stream tells you _that_ something happened, not _what_ it happened to: a
-`session:status` payload is essentially `{ id, status }`. `ctx.sessions` turns that id into
-something you can render.
+The event stream tells you _that_ something happened, not _what_ it happened to. Treat a
+`session:status` payload as `{ id, status }` and nothing more — most emitters send exactly
+that, and while one currently sends the whole session row, a plugin that reads the extra
+fields is relying on an emitter detail, not on the contract. `ctx.sessions` is how you turn
+that id into something you can render.
 
 ```ts
 ctx.events.subscribe((event, data) => {

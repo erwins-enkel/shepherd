@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
-  import { planGates } from "$lib/reviews.svelte";
+  import { planGates, spawnNotices } from "$lib/reviews.svelte";
   import { composePlanGateTooltip, planGateChip, planGateStalledNow } from "./plan-gate-badge";
   import PlanPanel from "./PlanPanel.svelte";
   import PlanGateMenu from "./PlanGateMenu.svelte";
@@ -10,6 +10,7 @@
   import { toasts } from "$lib/toasts.svelte";
   import { clock } from "$lib/now.svelte";
   import { statusTip } from "$lib/actions/statusTip.svelte";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
 
   // allowView (default true): whether to surface the read-only "view"/PLAN chip during
   // execution. The dense session-list surface (UnitRow) passes false so this chip
@@ -38,6 +39,10 @@
   } = $props();
 
   const gate = $derived(planGates.map[session.id]);
+  // #1944: a clamped or refused reviewer spawn. NOT a verdict — it adorns whatever chip the gate
+  // already resolves to rather than becoming a chip kind of its own, so a truncated review reads as
+  // "this verdict, with a caveat" and a refused one as "no verdict happened here".
+  const notice = $derived(spawnNotices.for(session.id, "plan"));
   const reviewing = $derived(planGates.isReviewing(session.id));
   const chip = $derived(planGateChip(session, gate, reviewing, { allowView }));
   const pulseClass = $derived(pulseReady && chip.kind === "ready" ? " pg-pulse-ready" : "");
@@ -96,6 +101,15 @@
       { stalledActionsVisible },
     ),
   );
+  // Appended, never substituted: the operator still needs the gate's own tooltip.
+  const noticeTip = $derived(
+    notice?.severity === "failed"
+      ? m.spawnnotice_tip_failed({ detail: notice.detail })
+      : notice?.severity === "clamped"
+        ? m.spawnnotice_tip_clamped({ detail: notice.detail })
+        : null,
+  );
+  const fullTitle = $derived(noticeTip ? `${title}\n\n${noticeTip}` : title);
 
   function closeMenu() {
     menu = null;
@@ -190,7 +204,10 @@
     type="button"
     class="pg-badge pg-{chip.kind}{pulseClass}"
     class:pg-stalled={stalled}
-    {title}
+    class:pg-noticed-clamped={notice?.severity === "clamped"}
+    class:pg-noticed-failed={notice?.severity === "failed"}
+    title={fullTitle}
+    use:coachTarget={"spawn-notice-badge"}
     aria-haspopup={stalled ? "menu" : undefined}
     aria-expanded={stalled ? menu !== null : undefined}
     onclick={toggle}
@@ -249,6 +266,32 @@
 {/if}
 
 <style>
+  /* #1944 spawn-notice adornment: a corner pip on whatever chip the gate resolved to. TWO tones,
+     because the two states mean different things and must not read alike — warn = the review ran
+     on a TRUNCATED prompt (there is a verdict, trust it less); red = the spawn was REFUSED (there
+     is no verdict at all). Semantic hues per the design system: --status-warn for the caveat,
+     --status-blocked for the failure. Never green, never amber-as-in-flight. */
+  .pg-noticed-clamped,
+  .pg-noticed-failed {
+    position: relative;
+  }
+  .pg-noticed-clamped::before,
+  .pg-noticed-failed::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .pg-noticed-clamped::before {
+    background: var(--status-warn);
+  }
+  .pg-noticed-failed::before {
+    background: var(--status-blocked);
+  }
   .pg-badge {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;

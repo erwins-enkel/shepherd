@@ -1,4 +1,4 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
@@ -1277,4 +1277,82 @@ test("send: propagates a runner failure (a dead pane is never a silent no-op)", 
   );
 
   await expect(d.send("gone", "hi")).rejects.toThrow("herdr: no such agent");
+});
+
+// ── #1944: E2BIG → OversizedArgvError at the two runner factories ─────────────
+//
+// A bare E2BIG renders as "spawn herdr E2BIG", naming neither the cause (one argv element over
+// MAX_ARG_STRLEN) nor the cure. Mapping the kernel's OWN verdict — rather than predicting the
+// limit — means this can never over-refuse an argv a large-page kernel would have accepted.
+import { OversizedArgvError } from "../src/argv-limit";
+
+describe("#1944 runner E2BIG mapping", () => {
+  const e2big = () => Object.assign(new Error("spawn herdr E2BIG"), { code: "E2BIG" });
+
+  test("sync runner maps E2BIG to OversizedArgvError, preserving the original as cause", () => {
+    const original = e2big();
+    const runner = makeHerdrRunner(() => {
+      throw original;
+    });
+    let caught: unknown;
+    try {
+      runner(["agent", "start", "--", "claude", "-p", "x".repeat(200_000)]);
+    } catch (e) {
+      caught = e;
+    }
+    expect(caught).toBeInstanceOf(OversizedArgvError);
+    expect((caught as OversizedArgvError).cause).toBe(original);
+    expect((caught as Error).message).toContain("per-argument limit");
+  });
+
+  test("async runner maps E2BIG the same way", async () => {
+    const runner = makeHerdrAsyncRunner(async () => {
+      throw e2big();
+    });
+    await expect(runner(["pane", "run", "p1", "'claude' '-p' 'x'"])).rejects.toBeInstanceOf(
+      OversizedArgvError,
+    );
+  });
+
+  test("EVERY other error rethrows UNCHANGED, by identity", () => {
+    for (const code of ["ENOENT", "EACCES", "ETIMEDOUT"]) {
+      const original = Object.assign(new Error("nope"), { code });
+      const runner = makeHerdrRunner(() => {
+        throw original;
+      });
+      let caught: unknown;
+      try {
+        runner(["agent", "list"]);
+      } catch (e) {
+        caught = e;
+      }
+      expect(caught).toBe(original); // identity, not just shape
+      expect(caught).not.toBeInstanceOf(OversizedArgvError);
+    }
+  });
+
+  test("async: a non-E2BIG rejection rethrows by identity", async () => {
+    const original = Object.assign(new Error("nope"), { code: "ENOENT" });
+    const runner = makeHerdrAsyncRunner(async () => {
+      throw original;
+    });
+    await expect(runner(["agent", "list"])).rejects.toBe(original);
+  });
+
+  test("the maintenance guard still wins over any mapping", () => {
+    const runner = makeHerdrRunner(() => {
+      throw e2big();
+    });
+    maintenance.begin();
+    try {
+      expect(() => runner(["agent", "list"])).toThrow(HerdrUnavailableError);
+    } finally {
+      maintenance.end();
+    }
+  });
+
+  test("a successful call is untouched", async () => {
+    expect(makeHerdrRunner(() => "ok")(["agent", "list"])).toBe("ok");
+    expect(await makeHerdrAsyncRunner(async () => "ok")(["agent", "list"])).toBe("ok");
+  });
 });

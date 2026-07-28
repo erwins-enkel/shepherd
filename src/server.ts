@@ -389,6 +389,15 @@ export interface AppDeps {
     snapshot(): Record<string, import("./types").ReviewVerdict>;
     reviewing?(): Array<{ id: string } & import("./types").ReviewerEnv>;
   };
+  /** #1944: clamp/refusal notices keyed by session id, plus the Retry that clears one. A
+   *  DISPLAY sidecar — never a gating row — so it has its own route rather than riding on
+   *  /api/plan-gates or /api/reviews. Absent in tests that skip it. */
+  spawnNotices?: {
+    snapshot(): Record<string, import("./types").SpawnNotice[]>;
+    /** Clear one notice (and its suppression key), so the next consider() re-attempts.
+     *  Returns true when a row was actually removed. */
+    retry(sessionId: string, kind: import("./types").SpawnNoticeKind): boolean;
+  };
   /** Snapshot of plan-gate verdicts keyed by session id (+ in-flight reviewer ids); absent in
    *  tests that skip it. The parallel of reviewCache for the pre-execution plan gate. */
   planGateCache?: {
@@ -924,6 +933,24 @@ function handleReviews({ req, parts, deps }: Ctx): Response | null {
     if (!parts[2]) return json(deps.reviewCache?.snapshot() ?? {});
     // in-flight run ids so a client loading mid-review still shows the indicator
     if (parts[2] === "inflight") return json(deps.reviewCache?.reviewing?.() ?? []);
+  }
+  return null;
+}
+
+// GET  /api/spawn-notices                     — bootstrap snapshot, keyed by session id
+// POST /api/spawn-notices/:sessionId/:kind/retry — clear one notice + its suppression key
+//
+// #1944. Deliberately its own route: these are DISPLAY records about a spawn that was clamped or
+// refused, never verdicts, and folding them into /api/plan-gates or /api/reviews would invite
+// exactly the gating-row confusion the sidecar exists to avoid.
+function handleSpawnNotices({ req, parts, deps }: Ctx): Response | null {
+  if (parts[0] !== "api" || parts[1] !== "spawn-notices") return null;
+  if (req.method === "GET" && !parts[2]) return json(deps.spawnNotices?.snapshot() ?? {});
+  if (req.method === "POST" && parts[2] && parts[4] === "retry") {
+    const kind = parts[3];
+    if (kind !== "plan" && kind !== "review") return json({ error: "bad kind" }, 400);
+    const cleared = deps.spawnNotices?.retry(parts[2], kind) ?? false;
+    return json({ cleared });
   }
   return null;
 }
@@ -7373,6 +7400,7 @@ const ROUTE_HANDLERS = [
   handleQueuesSnapshot,
   handleReviews,
   handlePlanGates,
+  handleSpawnNotices,
   handleRecaps,
   handleHerdDigest,
   handleUpNext,

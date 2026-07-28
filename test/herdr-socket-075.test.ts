@@ -10,6 +10,7 @@ import {
 } from "../src/herdr";
 import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-client";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
+import { OversizedArgvError } from "../src/argv-limit";
 
 // ── captured 0.7.5 (protocol 17) reply fixtures (shared with test/herdr-075.test.ts) ────────────
 // The socket client returns `res.result`, so the driver receives the INNER result object — unwrap
@@ -238,6 +239,57 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
       name: sanitizeHerdrAgentName("Fresh Name!"),
     });
     expect(rec[2]!.params).toEqual({ tab_id: "t_075", label: "Fresh Name!" });
+  });
+});
+
+// ── #1944: the socket path cannot surface a kernel E2BIG ─────────────────────
+//
+// The argv crosses a socket to the daemon, which execs it out of our reach and fails opaquely —
+// so both chokepoints check the per-element limit PROACTIVELY, before their retry loops.
+describe.skipIf(process.platform !== "linux")("SocketHerdrDriver — #1944 argv ceiling", () => {
+  let prevNcc: string | undefined;
+  beforeEach(() => {
+    setDetectedHerdrVersion("0.7.5");
+    prevNcc = process.env.SHEPHERD_NODE_COMPILE_CACHE;
+    process.env.SHEPHERD_NODE_COMPILE_CACHE = "/disk/ncc";
+  });
+  afterEach(() => {
+    setDetectedHerdrVersion(null);
+    if (prevNcc === undefined) delete process.env.SHEPHERD_NODE_COMPILE_CACHE;
+    else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
+  });
+
+  const huge = () => "x".repeat(200_000);
+
+  it("0.7.5 pane.send_text path: refuses ONCE, before typing anything", async () => {
+    const { rec, client } = mkClient();
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await expect(
+      driver.start("review-task-09", "/wt/a", ["bwrap", "--", "claude", "-p", huge()]),
+    ).rejects.toBeInstanceOf(OversizedArgvError);
+
+    // Nothing was typed into the pane, and the bounded retry never spun.
+    expect(rec.filter((r) => r.method === "pane.send_text")).toHaveLength(0);
+    expect(rec.some((r) => r.method === "pane.send_keys")).toBe(false);
+  });
+
+  it("≤0.7.4 agent.start path: refuses ONCE, without burning collision retries", async () => {
+    setDetectedHerdrVersion("0.7.4");
+    const { rec, client } = mkClient();
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+
+    await expect(
+      driver.start("review-task-09", "/wt/a", ["claude", "-p", huge()]),
+    ).rejects.toBeInstanceOf(OversizedArgvError);
+
+    expect(rec.filter((r) => r.method === "agent.start")).toHaveLength(0);
+  });
+
+  it("an argv UNDER the limit is untouched on both paths", async () => {
+    const { client } = mkClient();
+    const driver = new SocketHerdrDriver(client, noCli, async () => {});
+    await expect(driver.start("t", "/wt/a", ["bwrap", "--", "claude", "go"])).resolves.toBeTruthy();
   });
 });
 

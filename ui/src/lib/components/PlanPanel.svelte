@@ -1,6 +1,6 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
-  import { planGates } from "$lib/reviews.svelte";
+  import { planGates, spawnNotices } from "$lib/reviews.svelte";
   import {
     dismissQuota,
     releasePlanGate,
@@ -16,6 +16,7 @@
     canTriggerPlanReview,
     planGateChip,
   } from "./plan-gate-badge";
+  import SpawnFailureNotice from "./SpawnFailureNotice.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { portal } from "$lib/portal";
   import { m } from "$lib/paraglide/messages";
@@ -50,6 +51,17 @@
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
+  // #1944: a REFUSED plan-gate spawn. Rendered INDEPENDENTLY of `planStalled` — deliberately.
+  // canShowPlanStallActions requires `gate?.decision === "changes_requested" && round >= cap`, and
+  // a refusal writes no gate row at all, so borrowing that predicate would leave the operator with
+  // no surface whatsoever: planGateChip yields "planning" and the Resume/Dismiss menu never opens.
+  const spawnFailure = $derived(
+    (() => {
+      const n = spawnNotices.for(session.id, "plan");
+      return n?.severity === "failed" ? n : null;
+    })(),
+  );
+
   // Whether the rework budget is spent. Mirrors the server's at-cap hold (plan-gate.ts
   // applyChangesRequested + startedStatus) — which keys on `round >= cap` ALONE, so this must too: an
   // `error` gate carries its round and stays re-reviewable, and its next `request-changes` verdict is
@@ -461,6 +473,8 @@
           {statusNote}
         </p>
       {/if}
+
+      <SpawnFailureNotice notice={spawnFailure} />
 
       {#if planStalled}
         <div class="quota-actions" aria-describedby={statusNote ? statusNoteId : undefined}>

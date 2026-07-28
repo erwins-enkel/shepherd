@@ -472,6 +472,24 @@ export interface WorkflowRun {
   jobs: WorkflowJob[];
 }
 
+// ── #1944 spawn notices (display-only clamp/refusal sidecar) ────────────────
+export type SpawnNoticeKind = "plan" | "review";
+/** `clamped` — the spawn RAN but its prompt was truncated to fit the OS argv budget, so the
+ *  verdict was formed on less than the whole input. `failed` — it was refused and never ran. */
+export type SpawnNoticeSeverity = "clamped" | "failed";
+export type SpawnNoticeReason = "over-budget" | "plan-unreviewable";
+/** Mirrors server `SpawnNotice`. NEVER a verdict — see the `spawn_notices` table in src/store.ts. */
+export interface SpawnNotice {
+  sessionId: string;
+  kind: SpawnNoticeKind;
+  severity: SpawnNoticeSeverity;
+  reason?: SpawnNoticeReason | null;
+  detail: string;
+  steers: number;
+  inputKey?: string | null;
+  updatedAt: number;
+}
+
 // ── pre-execution plan gate ─────────────────────────────────────────────────
 export type PlanDecision = "approved" | "changes_requested" | "error";
 /** Sentinel for a server-authored plan-gate summary rendered per-locale in the UI (mirrors server
@@ -1850,6 +1868,8 @@ export type WsEvent =
       data: { id: string; reviewing: boolean; env?: ReviewerEnv };
     }
   | { event: "session:plangate-activity"; data: { id: string; summary: string } }
+  // #1944: the session's FULL spawn-notice list; an empty array is a genuine all-clear.
+  | { event: "session:spawn-notices"; data: { id: string; notices: SpawnNotice[] } }
   | { event: "learnings:update"; data: { pending: number } }
   | {
       event: "plugin:status";

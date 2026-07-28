@@ -1399,6 +1399,10 @@ const reviewService = new ReviewService({
   // Per-role critic environment thunk (read per spawn so a settings change applies without restart).
   env: () => roleEnv(config.criticCli, config.criticModel, config.criticEffort),
   onChange: (id, verdict) => events.emit("session:review", { id, review: verdict }),
+  // #1944: clamp/refusal sidecar. A SEPARATE channel from `onChange` on purpose — those carry a
+  // verdict, and a clamped or refused spawn must never synthesize one.
+  onSpawnNotice: (id) =>
+    events.emit("session:spawn-notices", { id, notices: store.listSpawnNotices(id) }),
   onReviewing: (id, reviewing, env) => events.emit("session:reviewing", { id, reviewing, env }),
   onActivity: (id, summary) => events.emit("session:critic-activity", { id, summary }),
   // auto-address: steer critic findings straight into the task agent's PTY (same path
@@ -1493,6 +1497,8 @@ const planGate = new PlanGateService({
   env: () => roleEnv(config.plannerCli, config.plannerModel, config.plannerEffort),
   operatorLanguage: () => config.operatorLanguage,
   onChange: (id, gate) => events.emit("session:plangate", { id, gate }),
+  onSpawnNotice: (id) =>
+    events.emit("session:spawn-notices", { id, notices: store.listSpawnNotices(id) }),
   onReviewing: (id, reviewing, env) =>
     events.emit("session:plangate-reviewing", { id, reviewing, env }),
   onActivity: (id, summary) => events.emit("session:plangate-activity", { id, summary }),
@@ -2868,6 +2874,22 @@ const appDeps: AppDeps = {
   planGateCache: {
     snapshot: () => planGate.snapshot(),
     reviewing: () => planGate.reviewingInflight(),
+  },
+  spawnNotices: {
+    snapshot: () => store.snapshotSpawnNotices(),
+    retry: (sessionId, kind) => {
+      // Clearing the row clears its `inputKey` suppression with it, so the next consider()
+      // re-attempts. Also resets the refusal-steer counter — deliberate: an operator who has just
+      // hand-edited the plan should get the agent-facing steer again if it still doesn't fit.
+      const cleared = store.clearSpawnNotice(sessionId, kind);
+      if (cleared) {
+        events.emit("session:spawn-notices", {
+          id: sessionId,
+          notices: store.listSpawnNotices(sessionId),
+        });
+      }
+      return cleared;
+    },
   },
   planGate: {
     consider: (s, opts) => planGate.consider(s, opts),

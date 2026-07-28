@@ -1,11 +1,12 @@
 <script lang="ts">
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, spawnNotices } from "$lib/reviews.svelte";
   import { criticChip, addressRoundInfo } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
   import { statusTip } from "$lib/actions/statusTip.svelte";
   import { firstSafeHttpUrl } from "$lib/url";
   import { anchorPopover } from "$lib/floating-anchor";
+  import CriticSpawnFailure from "./CriticSpawnFailure.svelte";
 
   // `tip` (Herd card only): swap the native title for the styled tooltip, and —
   // when a safe PR URL resolves — offer an Open-PR click-pinned dialog. `prUrl`
@@ -21,6 +22,17 @@
   const chip = $derived(criticChip(verdict, reviewing));
   const round = $derived(addressRoundInfo(verdict, clock.current));
   const activity = $derived(reviews.activityFor(sessionId));
+  // #1944: a CLAMPED critic spawn adorns whatever chip the verdict already resolves to — a
+  // truncated review is still a review, so "this verdict, with a caveat" is the right reading.
+  //
+  // A REFUSED one deliberately does NOT come through here: there is no verdict to adorn (and with
+  // no prior verdict at all, `view` is null and this whole template never renders), so it gets its
+  // own chip via <CriticSpawnFailure>, which also carries the Retry.
+  const clamped = $derived(
+    spawnNotices.for(sessionId, "review")?.severity === "clamped"
+      ? spawnNotices.for(sessionId, "review")
+      : null,
+  );
 
   type CriticView = { cls: string; label: string; title: string; dot: boolean };
 
@@ -67,7 +79,20 @@
   // onChange until the new verdict lands, so during a forced re-review this cached verdict is the
   // last surface still claiming a stall the server already cleared. round/final keep their counter
   // — it is not stale mid-streak, and the number is the useful thing to show.
-  const view = $derived.by((): CriticView | null => {
+  /** Fold the spawn notice into whatever view the verdict produced: a corner pip via the class and
+   *  an APPENDED tooltip line. Never replaces the view — the operator still needs the verdict. */
+  function withNotice(v: CriticView | null): CriticView | null {
+    if (!v || !clamped) return v;
+    return {
+      ...v,
+      cls: `${v.cls} critic-noticed-clamped`,
+      title: `${v.title}\n\n${m.spawnnotice_tip_clamped({ detail: clamped.detail })}`,
+    };
+  }
+
+  const view = $derived.by((): CriticView | null => withNotice(rawView()));
+
+  function rawView(): CriticView | null {
     if (round && !(round.status === "stalled" && reviewing)) return roundView(round);
     if (chip.kind === "reviewing") return reviewingView();
     if (chip.kind === "verdict")
@@ -78,7 +103,7 @@
         dot: false,
       };
     return null;
-  });
+  }
 
   // Prefer the verdict's own PR url; fall back to git.url. Only a safe http(s) URL
   // enables the dialog — otherwise the chip is explanation-only.
@@ -158,6 +183,10 @@
   }
 </script>
 
+<!-- #1944: OUTSIDE the `{#if view}` gate on purpose — that gate is what made a refused first
+     review invisible. Self-guarding, so it costs this template no branch. -->
+<CriticSpawnFailure {sessionId} />
+
 {#if view}
   {#snippet content()}
     {#if view.dot}<span class="rev-dot" aria-hidden="true"></span>{/if}{view.label}
@@ -217,6 +246,24 @@
 {/if}
 
 <style>
+  /* #1944 clamp adornment: the review ran, but on a TRUNCATED prompt. A REFUSAL is not adorned
+     here — it has no verdict to attach to, so it renders as its own <CriticSpawnFailure> chip. */
+  .critic-noticed-clamped {
+    position: relative;
+  }
+  .critic-noticed-clamped::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .critic-noticed-clamped::before {
+    background: var(--status-warn);
+  }
   .critic-badge {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;

@@ -3435,5 +3435,18 @@
   "api_upload_timeout": "Zeitüberschreitung beim Upload",
   "api_upload_invalid_response": "Der Upload-Server hat eine ungültige Antwort geliefert",
   "feat_upload_progress_title": "Upload-Fortschritt für Anhänge sehen",
-  "feat_upload_progress_body": "Neue Aufgabe zeigt jetzt Fortschritt und geschätzte Restzeit für große Anhänge und hält Erstellen & Starten deaktiviert, bis jeder Upload bestätigt ist."
+  "feat_upload_progress_body": "Neue Aufgabe zeigt jetzt Fortschritt und geschätzte Restzeit für große Anhänge und hält Erstellen & Starten deaktiviert, bis jeder Upload bestätigt ist.",
+  "spawnnotice_tip_clamped": "Hinweis: Der Plan war zu groß, um vollständig übergeben zu werden; ein Teil aus seiner Mitte wurde entfernt, damit er unter das Argumentlimit des Betriebssystems passt. Das Review lief mit der gekürzten Fassung. {detail}",
+  "spawnnotice_tip_failed": "Kein Review gelaufen: Der Prompt überschritt das Argumentlimit des Betriebssystems, und Shepherd hat es abgelehnt, eine ausgedünnte Fassung zu schicken. {detail}",
+  "spawnnotice_plan_failed_title": "Plan-Review konnte nicht starten",
+  "spawnnotice_plan_failed_action": "Kürze `.shepherd-plan.md`, damit das Review laufen kann — Länge kürzen, nicht Substanz. „Erneut versuchen“ startet einen neuen Versuch mit dem aktuellen Stand der Datei.",
+  "spawnnotice_retry": "Review erneut versuchen",
+  "spawnnotice_retrying": "Wird erneut versucht…",
+  "spawnnotice_retry_queued": "Eingereiht — der nächste Durchlauf versucht das Review erneut.",
+  "spawnnotice_retry_failed": "Review konnte nicht erneut eingereiht werden.",
+  "feat_spawn_notice_title": "Gekürzte oder abgelehnte Reviews sind jetzt sichtbar",
+  "feat_spawn_notice_body": "Wenn ein Plan das Kommandozeilen-Limit des Betriebssystems überschreitet, scheiterte der Review-Start bisher stillschweigend. Jetzt kürzt Shepherd den Plan passend und markiert das Badge — oder lehnt ab und sagt es dir, falls zu wenig vom Plan übrig bliebe, statt ein selbstbewusstes Urteil über einen Stummel zu liefern.",
+  "spawnnotice_review_failed_badge": "kein review",
+  "spawnnotice_review_failed_title": "Code-Review konnte nicht starten",
+  "spawnnotice_review_failed_action": "Der Review-Prompt überschreitet das Argumentlimit des Betriebssystems, daher lief für diesen Commit kein Critic. Am meisten Platz schafft es, `.shepherd-plan.md` zu kürzen. „Erneut versuchen“ startet einen neuen Versuch mit den aktuellen Eingaben."
 }

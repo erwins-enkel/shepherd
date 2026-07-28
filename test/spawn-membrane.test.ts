@@ -5,6 +5,8 @@ import {
   resolveSpawnMembrane,
   foldSpawnPatch,
   resolveAuxSpawn,
+  resolveAuxPatch,
+  assembleAuxSpawn,
   type MembraneEnv,
 } from "../src/spawn-membrane";
 import { PluginSpawnAborted } from "../src/plugins/types";
@@ -435,5 +437,138 @@ describe("resolveAuxSpawn", () => {
     expect(result.aborted).toBeInstanceOf(PluginSpawnAborted);
     expect(result.aborted.reason).toBe("pool exhausted");
     expect(result.aborted.pluginId).toBe("cswap");
+  });
+});
+
+// ── #1944: the two-half seam (resolveAuxPatch + assembleAuxSpawn) ──────────────
+//
+// resolveAuxSpawn is now composed from an async patch-resolution half and a SYNC assembly half so
+// the argv-budget probe can re-assemble the same spawn around a zero-length prompt without
+// re-firing plugin hooks. These assert the split is behaviour-preserving.
+
+describe("#1944 resolveAuxPatch + assembleAuxSpawn", () => {
+  const seams = (extra?: Record<string, unknown>) => ({
+    detectBackend: () => "bwrap" as const,
+    membraneEnv: () => stubEnv,
+    pathExists: () => true,
+    ...extra,
+  });
+
+  const baseArgs = (over?: Record<string, unknown>) => ({
+    argv: ["claude", "-p", "PROMPT"],
+    worktreePath: "/wt/task",
+    repoPath: "/repo",
+    worktree: worktreeStub(),
+    seams: seams(),
+    descriptor: { sessionId: "s-1", kind: "review" as const },
+    ...over,
+  });
+
+  test("composition equals the one-shot resolveAuxSpawn, byte for byte", async () => {
+    const args = baseArgs({
+      seams: seams({
+        runSpawnHooks: async () => ({
+          env: { FOO: "bar" },
+          extraArgs: ["--extra", "x"],
+          credentialDir: "/pool/acct",
+        }),
+      }),
+    });
+
+    const oneShot = await resolveAuxSpawn(args);
+    if ("aborted" in oneShot) throw new Error("unexpected abort");
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    const twoStep = assembleAuxSpawn(patch, args);
+
+    expect(twoStep).toEqual(oneShot);
+  });
+
+  test("hooks fire EXACTLY ONCE even when the patch is assembled repeatedly", async () => {
+    let calls = 0;
+    const args = baseArgs({
+      seams: seams({
+        runSpawnHooks: async () => {
+          calls++;
+          return { env: { FOO: "bar" } };
+        },
+      }),
+    });
+
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    assembleAuxSpawn(patch, args);
+    assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
+    assembleAuxSpawn(patch, args, ["claude", "-p", "other"]);
+
+    expect(calls).toBe(1);
+  });
+
+  test("assembleAuxSpawn is SYNCHRONOUS (returns a plain object, not a thenable)", async () => {
+    const args = baseArgs();
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    const out = assembleAuxSpawn(patch, args);
+    expect(typeof (out as { then?: unknown }).then).toBe("undefined");
+    expect(Array.isArray(out.wrapped)).toBe(true);
+  });
+
+  test("an argv override still carries the patch's extraArgs", async () => {
+    const args = baseArgs({
+      seams: seams({ runSpawnHooks: async () => ({ extraArgs: ["--extra", "x"] }) }),
+    });
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+
+    const probe = assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
+    expect(probe.wrapped).toContain("--extra");
+    // ...and the overridden prompt is the one that shipped, not the original.
+    expect(probe.wrapped).not.toContain("PROMPT");
+  });
+
+  test("the ONLY difference between probe and real assembly is the prompt element", async () => {
+    // The probe's whole purpose: measure fixed overhead. If anything else varied, the measurement
+    // would be wrong in exactly the direction that reproduces the bug.
+    const args = baseArgs({
+      seams: seams({ runSpawnHooks: async () => ({ env: { FOO: "bar" }, extraArgs: ["--x"] }) }),
+    });
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+
+    const real = assembleAuxSpawn(patch, args, ["claude", "-p", "a-very-long-prompt"]);
+    const probe = assembleAuxSpawn(patch, args, ["claude", "-p", ""]);
+
+    expect(probe.wrapped.length).toBe(real.wrapped.length);
+    expect(probe.spawnEnv).toEqual(real.spawnEnv);
+    const diffs = real.wrapped.filter((t, i) => t !== probe.wrapped[i]);
+    expect(diffs).toEqual(["a-very-long-prompt"]);
+  });
+
+  test("abort propagates from the async half; nothing to assemble", async () => {
+    const patch = await resolveAuxPatch(
+      baseArgs({
+        seams: seams({
+          runSpawnHooks: async () => {
+            throw new PluginSpawnAborted("pool exhausted", "cswap");
+          },
+        }),
+      }),
+    );
+    expect("aborted" in patch).toBe(true);
+  });
+
+  test("#1213 validate-and-skip survives the split: missing credentialDir falls open", async () => {
+    const args = baseArgs({
+      seams: seams({
+        pathExists: () => false,
+        runSpawnHooks: async () => ({ credentialDir: "/pool/missing" }),
+      }),
+    });
+    const patch = await resolveAuxPatch(args);
+    if ("aborted" in patch) throw new Error("unexpected abort");
+    expect(patch.patchEnv.CLAUDE_CONFIG_DIR).toBeUndefined();
+    const oneShot = await resolveAuxSpawn(args);
+    if ("aborted" in oneShot) throw new Error("unexpected abort");
+    expect(assembleAuxSpawn(patch, args)).toEqual(oneShot);
   });
 });

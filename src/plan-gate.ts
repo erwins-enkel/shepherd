@@ -10,7 +10,15 @@ import { execFileSync } from "./instrument";
 import type { SessionStore } from "./store";
 import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
-import type { Session, PlanGate, PlanDecision, AgentProvider, ReviewerEnv } from "./types";
+import type {
+  Session,
+  PlanGate,
+  PlanDecision,
+  AgentProvider,
+  ReviewerEnv,
+  SpawnNoticeKind,
+  SpawnNoticeReason,
+} from "./types";
 import { modelCompatibleWithProvider, type RoleEnvironment } from "./default-model";
 import type { GitForge } from "./forge/types";
 import {
@@ -24,7 +32,14 @@ import { apiKeyFailClosed } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { effectiveAutopilot } from "./effective-autopilot";
-import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { spawnBudget } from "./spawn-budget";
+import {
+  fitAssembledPrompt,
+  planUsefulFloor,
+  describeClamps,
+  type ClampRecord,
+} from "./prompt-fit";
 import { fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
@@ -178,11 +193,12 @@ export function planReviewPrompt(
   operatorLanguage: OperatorLanguage = "en",
   anchor?: PlanAnchor | null,
   staleness?: AnchorStaleness | null,
-  /** #1948. An options BAG, deliberately not two more positional params: `operatorLanguage` above
+  /** #1948. An options BAG, deliberately not more positional params: `operatorLanguage` above
    *  binds positionally, so anything inserted before it silently mis-binds. `round` is the EFFECTIVE
    *  round the caller already computed (see {@link effectiveRound}); absent ⇒ no ROUND block, so
-   *  every existing caller and test keeps a byte-identical prompt. */
-  opts: { round?: number; cap?: number } = {},
+   *  every existing caller and test keeps a byte-identical prompt. `planClamped` (#1944) rides here
+   *  for the same reason. */
+  opts: { round?: number; cap?: number; planClamped?: boolean } = {},
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
@@ -205,6 +221,23 @@ export function planReviewPrompt(
       "existing seams and the fewest, highest ones — rather than a vague 'add tests'? A boundary or " +
       "seam that is genuinely ABSENT is blocking. One that exists but is imperfectly worded or narrower " +
       "than you would have drawn it is NOT — that goes under `Suggestions (non-blocking):`.",
+    // #1944: ADDITIVE, never a replacement. The clause above turns on a section being GENUINELY
+    // absent — and a mechanically-elided middle looks exactly like genuine absence, which is the
+    // one way a clamp could manufacture a blocking finding. The head+tail clamp already retains the
+    // sections it asks about, so all this has to do is say the elision is not authorial. Emitted
+    // here, OUTSIDE every fence, because that is where a reader's standing directives legitimately
+    // come from (see the UNTRUSTED_CONTENT_DIRECTIVE reasoning in prompt-fit.ts).
+    ...(opts.planClamped
+      ? [
+          "NOTE ON THE PLAN BELOW: it was too large to pass to you whole, so the harness mechanically " +
+            "removed a slice from its MIDDLE and left a `[… N bytes elided …]` marker in its place. " +
+            "That elision is mechanical, not authorial: it is NOT a genuinely absent section, so do " +
+            "not treat the removed span as an omission or a gap and do not raise its absence as a " +
+            "finding. Everything still present — including the plan's opening sections and its " +
+            "trailing `Out of scope`, testing-seams, risks and success-criteria sections, both ends " +
+            "having been preserved — remains fully in scope for the check above.",
+        ]
+      : []),
     "",
     "TASK:",
     task,
@@ -438,6 +471,10 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listReviewerSpawns"
+    | "putSpawnNotice"
+    | "getSpawnNotice"
+    | "bumpSpawnNoticeSteers"
+    | "clearSpawnNotice"
   >;
   herdr: Pick<HerdrDriver, "start" | "stop" | "list">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
@@ -462,6 +499,10 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  Async since #1567: the release steers the agent, so it resolves once that steer has landed. */
   release: (sessionId: string) => Promise<void>;
   onChange: (id: string, gate: PlanGate) => void;
+  /** #1944: broadcast a spawn-notice change. DELIBERATELY separate from `onChange`, which carries a
+   *  PlanGate — a clamp or a refusal must never synthesize a gating row (see the `spawn_notices`
+   *  table comment in src/store.ts). Optional: absent in tests that don't assert the sidecar. */
+  onSpawnNotice?: (id: string) => void;
   /** Fired when a plan review starts (true) and when it ends (false) for a session. On the
    *  start (`true`) transition it carries the reviewer's CLI + model + effort so the UI can show
    *  *which* coding CLI/model is doing the review before a verdict — and thus the gate's
@@ -626,6 +667,13 @@ export class PlanGateService {
       // same plan text instead of no-opping; a timeout/unparseable run produced no real verdict, so
       // re-running it must retry rather than no-op on the stale error. Mirrors review.ts rebaseSkip.
       if (!force && prior?.planHash === planHash && prior.decision !== "error") return "skipped";
+      // #1944: a spawn REFUSED for this exact plan text will refuse again — the composition is
+      // deterministic — so don't re-allocate a worktree and re-do the work every sweep. Read after
+      // every pre-existing skip and bypassed by `force`, exactly like the dedupe above. Only a
+      // `failed` notice carries an inputKey; a `clamped` one never suppresses anything.
+      if (!force && this.deps.store.getSpawnNotice(session.id, "plan")?.inputKey === planHash) {
+        return "skipped";
+      }
       return await this.begin(session, plan, planHash, prior, force);
     } finally {
       this.starting.delete(session.id);
@@ -663,11 +711,16 @@ export class PlanGateService {
    *  repos it exists for. */
   private composeReviewerPrompt(
     session: Session,
-    plan: string,
     prior: PlanGate | null,
     issueBody: string | null | undefined,
     anchor: PlanAnchorResolution,
-  ): string {
+  ): (plan: string, planClamped?: boolean) => string {
+    // Everything that costs a git call or reads a live setting is resolved ONCE, here, and closed
+    // over — the returned composer is pure and cheap. #1944's clamp ladder re-composes the prompt
+    // many times while it binary-searches for the largest plan that fits; if this work sat inside
+    // the composer, every probe would re-shell-out to measure staleness and re-read the operator
+    // language, and `anchorStaleness` would no longer run exactly once after createDetached.
+    //
     // Drift from an anchor that isn't the planner's tree is meaningless, so don't even measure it.
     const staleness = anchor.anchored
       ? this.anchorStaleness(session.repoPath, anchor.sha, session.baseBranch)
@@ -676,18 +729,118 @@ export class PlanGateService {
     // — applyChangesRequested HOLDS it at the cap (so `+1` would emit "round 13 of at most 12" and
     // the at-cap rule would never fire on a stalled session), while resume() zeroes it (so a plan
     // reviewed 29 times would be briefed as round 1). effectiveRound clamps it and maxes it against
-    // a reset-proof spawn count.
+    // a reset-proof spawn count. Resolved ONCE here with the rest of the per-run context (#1944):
+    // the clamp ladder re-composes the prompt many times while binary-searching, and this counts
+    // spawn rows.
     const round = effectiveRound(prior?.round ?? 0, this.countPlanGateSpawns(session.id), this.cap);
-    return planReviewPrompt(
-      session.prompt,
-      plan,
-      prior?.findings ?? [],
-      issueBody,
-      this.deps.operatorLanguage?.() ?? "en",
-      anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
-      staleness && staleness.behind > 0 ? staleness : undefined,
-      { round, cap: this.cap },
+    const language = this.deps.operatorLanguage?.() ?? "en";
+    return (plan, planClamped = false) =>
+      planReviewPrompt(
+        session.prompt,
+        plan,
+        prior?.findings ?? [],
+        issueBody,
+        language,
+        anchor.anchored ? { sha: anchor.sha, ahead: anchor.ahead } : undefined,
+        staleness && staleness.behind > 0 ? staleness : undefined,
+        { round, cap: this.cap, planClamped },
+      );
+  }
+
+  /** #1944: a clamp is never silent. A structured log line plus a `clamped` sidecar row (which the
+   *  badge renders in its own tone), so a review formed on a truncated plan is visibly different
+   *  from both a clean one and a failed one. NEVER touches `plan_gates`. */
+  private recordClamp(session: Session, kind: SpawnNoticeKind, clamps: ClampRecord[]): void {
+    const detail = describeClamps(clamps);
+    console.warn(
+      `[plan-gate] prompt clamped to fit the OS argv limit for ${session.id} (${session.desig}): ${detail}`,
     );
+    try {
+      if (
+        this.deps.store.putSpawnNotice({
+          sessionId: session.id,
+          kind,
+          severity: "clamped",
+          detail,
+          inputKey: null,
+          updatedAt: this.now(),
+        })
+      ) {
+        this.deps.onSpawnNotice?.(session.id);
+      }
+    } catch (err) {
+      console.warn(`[plan-gate] clamp notice failed for ${session.id}:`, err);
+    }
+  }
+
+  /**
+   * #1944: the prompt cannot be made to fit without gutting the plan, so refuse — and make the
+   * refusal REACHABLE, because at this site it is otherwise terminal. No `plan_gates` row is
+   * written (a synthetic `error` verdict resolves to `findings: []`, wiping what the planning agent
+   * is mid-way through applying, every round, since the failure is deterministic), so nothing
+   * escalates on its own and the persisted `planHash` suppression makes the block permanent.
+   * `force` would re-run the identical over-budget composition and refuse again; "a new head" is
+   * not a plan-gate input.
+   *
+   * So the planning agent — the only actor that can shorten a plan — is steered directly, and the
+   * loop closes by construction: it revises, `planHash` changes, the suppression key stops
+   * matching, the gate re-attempts. Deliberately NOT via `steerFindings`: that prefixes
+   * `planSteerText`'s "The plan reviewer raised these points", which would mislabel a harness
+   * failure as a review finding (the exact confusion this issue reports), and it runs its cap /
+   * planStallStatus escalation off the gate row a refusal never writes — so an agent that edits
+   * without shrinking enough would loop refusal→steer forever. Hence the own counter and bound.
+   */
+  private refuseOversizedSpawn(
+    session: Session,
+    planHash: string,
+    worktreePath: string,
+    fitted: { reason: SpawnNoticeReason; measured: number; budget: number; detail: string },
+  ): PlanReviewTrigger {
+    console.warn(
+      `[plan-gate] refusing to spawn the reviewer for ${session.id} (${session.desig}): ${fitted.detail}`,
+    );
+    let steers = Number.POSITIVE_INFINITY;
+    try {
+      if (
+        this.deps.store.putSpawnNotice({
+          sessionId: session.id,
+          kind: "plan",
+          severity: "failed",
+          reason: fitted.reason,
+          detail: fitted.detail,
+          // Suppression key: the failure is deterministic in the plan text, so re-running on an
+          // UNCHANGED plan would just burn the same work. A changed plan mints a new hash.
+          inputKey: planHash,
+          updatedAt: this.now(),
+        })
+      ) {
+        this.deps.onSpawnNotice?.(session.id);
+      }
+      steers = this.deps.store.getSpawnNotice(session.id, "plan")?.steers ?? 0;
+    } catch (err) {
+      console.warn(`[plan-gate] refusal notice failed for ${session.id}:`, err);
+    }
+
+    if (steers < MAX_REFUSAL_STEERS) {
+      try {
+        this.deps.store.bumpSpawnNoticeSteers(session.id, "plan");
+      } catch (err) {
+        console.warn(`[plan-gate] refusal steer accounting failed for ${session.id}:`, err);
+      }
+      // Fire-and-forget: the refusal's own return value must not wait on a pane round-trip, and a
+      // steer that cannot land leaves the notice + badge as the operator's cue (see §4c).
+      void resumeThenSteer(session.id, refusalSteerText(fitted), {
+        paneAlive: this.deps.paneAlive,
+        deferSteer: this.deps.deferSteer,
+        resume: this.deps.resume,
+        steer: this.deps.reply,
+      }).catch((err) => {
+        console.warn(`[plan-gate] refusal steer failed for ${session.id}:`, err);
+      });
+    }
+
+    this.deps.worktree.remove(worktreePath);
+    return "error-spawn";
   }
 
   private async begin(
@@ -745,18 +898,20 @@ export class PlanGateService {
     }
 
     // MUST be after createDetached — see composeReviewerPrompt.
-    const prompt = this.composeReviewerPrompt(session, plan, prior, issueBody, {
+    const composePrompt = this.composeReviewerPrompt(session, prior, issueBody, {
       sha,
       anchored,
       ahead,
     });
-    const { argv } = reviewerArgv(
-      reviewerEnv.provider,
-      reviewerEnv.model,
-      prompt,
-      reviewerEffort,
-      reviewerSessionId,
-    );
+    const prompt = composePrompt(plan);
+    // ONE pinned reviewer session id for every argv this spawn builds (#1944). reviewerArgv mints
+    // `opts.sessionId ?? randomUUID()`, so an argv rebuilt for the budget probe or for a clamped
+    // prompt would otherwise carry a DIFFERENT `--session-id` than the one recorded here — and the
+    // verdict would be written under an id nothing looks for.
+    const argvFor = (p: string): string[] =>
+      reviewerArgv(reviewerEnv.provider, reviewerEnv.model, p, reviewerEffort, reviewerSessionId)
+        .argv;
+    const argv = argvFor(prompt);
 
     // forget() (session archived) may have fired during either await above (getIssue OR the slow
     // createDetached: git fetch + worktree add); it clears our `starting` claim as a tombstone.
@@ -782,12 +937,15 @@ export class PlanGateService {
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. An
     // abortSpawn cleanly skips this plan review (worktree reaped); "skipped" — a deliberate
     // plugin refusal is not an error, and the next sweep re-attempts like the tombstone skip.
-    const aux = await resolveAuxSpawn({
+    const auxArgs = {
       argv,
       worktreePath: wt.worktreePath,
       repoPath: session.repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+    };
+    const patch = await resolveAuxPatch({
+      ...auxArgs,
       descriptor: {
         sessionId: reviewerSessionId,
         kind: "plan-gate",
@@ -795,11 +953,50 @@ export class PlanGateService {
         model: reviewerEnv.model,
       },
     });
-    if ("aborted" in aux) {
-      console.warn(`[plan-gate] onSpawn aborted for ${session.id}: ${aux.aborted.reason}`);
+    if ("aborted" in patch) {
+      console.warn(`[plan-gate] onSpawn aborted for ${session.id}: ${patch.aborted.reason}`);
       this.deps.worktree.remove(wt.worktreePath);
       return "skipped";
     }
+
+    // #1944: the LAST step before the spawn, and synchronous throughout — fit the prompt inside the
+    // OS argv budget or refuse. THE PLAN IS THE ONLY CLAMPABLE BLOCK here: `task` and `issueBody`
+    // are human-authored ground truth the reviewer judges the plan against (see stripPlanLineRefs,
+    // which exempts exactly those two from mutation for the same reason), and prior findings are
+    // consumed-once — the next gate row is built only from THIS round's output, so a dropped
+    // finding could never be re-raised. The plan is also the sole unbounded input and the sole
+    // cause named in the issue.
+    const fitted = fitAssembledPrompt({
+      ...spawnBudget((p) => assembleAuxSpawn(patch, auxArgs, argvFor(p))),
+      specs: [
+        {
+          id: "plan",
+          kind: "text",
+          text: plan,
+          // head+tail, never plain truncation: the plan schema puts `Out of scope`, testing seams,
+          // risks and success criteria in the BACK half, and planReviewPrompt orders the reviewer
+          // to flag those being missing as BLOCKING. Cutting the tail would make it invent findings
+          // about material it never saw, the agent would "fix" them by ADDING those sections, and
+          // the next clamp would cut deeper.
+          mode: "head-tail",
+          minUseful: planUsefulFloor(Buffer.byteLength(plan, "utf8")),
+        },
+      ],
+      // `planClamped` is derived, never passed in: it is true exactly when the composed plan text
+      // differs from what the agent wrote, so an un-clamped prompt stays byte-identical to main.
+      compose: (v) => composePrompt(v.plan as string, v.plan !== plan),
+    });
+    if (!fitted.ok) {
+      return this.refuseOversizedSpawn(session, planHash, wt.worktreePath, fitted);
+    }
+    if (fitted.clamps.length) {
+      this.recordClamp(session, "plan", fitted.clamps);
+    } else if (this.deps.store.clearSpawnNotice(session.id, "plan")) {
+      // A spawn that needed NO clamp is the all-clear: drop any stale notice (and, with it, the
+      // refusal-steer counter) so the badge stops adorning and a later failure can steer again.
+      this.deps.onSpawnNotice?.(session.id);
+    }
+    const aux = assembleAuxSpawn(patch, auxArgs, argvFor(fitted.prompt));
     const spawnedAt = this.now();
     // Persist ownership before launch so a server restart during Herdr orchestration can adopt
     // this run and preserve the worktree that receives its verdict.
@@ -1392,6 +1589,34 @@ function startedStatus(prior: PlanGate | null, cap: number): PlanReviewTrigger {
 }
 
 /** Agent-facing steer that carries the reviewer's plan findings into the planning PTY. NOT i18n'd. */
+/** How many times a refusal may steer the planning agent before it becomes operator-only (#1944).
+ *  Without a bound, an agent that edits the plan without shrinking it enough would re-trigger
+ *  refusal→steer forever: every edit mints a new `planHash`, which clears the suppression. */
+export const MAX_REFUSAL_STEERS = 2;
+
+/** The refusal steer. Deliberately NOT `planSteerText`: this is a HARNESS limit, not a reviewer
+ *  finding, and saying otherwise sends the agent hunting for a review that never ran — the exact
+ *  confusion issue #1944 reports. It names the cause, the number, and the one action that helps. */
+function refusalSteerText(fitted: {
+  reason: SpawnNoticeReason;
+  measured: number;
+  budget: number;
+}): string {
+  const over = Math.max(0, fitted.measured - fitted.budget);
+  const cause =
+    fitted.reason === "plan-unreviewable"
+      ? "trimming it enough to fit would leave too little of the plan to review"
+      : `it is ${over} bytes over the limit`;
+  return (
+    "Shepherd could not run the plan reviewer: the review prompt exceeds the operating system's " +
+    `argument-size limit — ${cause}. This is a harness limit, NOT a review finding: no reviewer ran ` +
+    "and there are no findings to address.\n\n" +
+    "Shorten `.shepherd-plan.md` so the review can run. Cut length, not substance — keep the " +
+    "`Out of scope`, testing-seams, risks and success-criteria sections, and prefer removing " +
+    "repetition, restated background, and long inline quotations. Then stop and wait for the review."
+  );
+}
+
 function planSteerText(findings: string[]): string {
   return (
     "The plan reviewer raised these points on `.shepherd-plan.md`. Revise the plan to address each, then stop so it can be re-reviewed:\n\n" +

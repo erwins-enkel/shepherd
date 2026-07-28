@@ -7,6 +7,8 @@ import type {
   ReviewVerdict,
   ReviewDecision,
   PlanGate,
+  SpawnNotice,
+  SpawnNoticeKind,
   PlanSummaryCode,
   Recap,
   RecapSkip,
@@ -1429,6 +1431,20 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       repoPath TEXT NOT NULL, parentIssueNumber INTEGER NOT NULL, childNumber INTEGER NOT NULL,
       actualBase TEXT NOT NULL, prNumber INTEGER, checkedAt INTEGER NOT NULL,
       PRIMARY KEY (repoPath, parentIssueNumber, childNumber))`);
+    // #1944: a DISPLAY-ONLY sidecar for transient-agent spawns that were clamped to fit the OS argv
+    // budget, or refused outright. Deliberately NOT `plan_gates`/`reviews`: those are GATING rows,
+    // and writing a synthetic `error` verdict there would wipe the findings the planning agent is
+    // mid-way through applying (`publishSpawnAbort` writes `findings: []`; an `error` gate resolves
+    // to `[]`) — every round, since the failure is deterministic. One row per (session, kind);
+    // `inputKey` carries the suppression key (planHash / headSha) so a deterministic failure is not
+    // retried on unchanged input, and `steers` bounds the plan gate's refusal steer.
+    this.db.run(`CREATE TABLE IF NOT EXISTS spawn_notices (
+      sessionId TEXT NOT NULL, kind TEXT NOT NULL,
+      severity TEXT NOT NULL, reason TEXT,
+      detail TEXT NOT NULL DEFAULT '',
+      steers INTEGER NOT NULL DEFAULT 0,
+      inputKey TEXT, updatedAt INTEGER NOT NULL,
+      PRIMARY KEY (sessionId, kind))`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -2887,6 +2903,100 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`DELETE FROM plan_gates WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── #1944 spawn notices (display-only sidecar; NEVER a gating row) ─────────
+
+  /** Upsert a notice. Returns true when the row actually CHANGED — callers gate their `onChange`
+   *  broadcast on that, so a deterministic failure repeating every poll does not spam the socket.
+   *  `steers` is preserved across upserts (it is bumped only by {@link bumpSpawnNoticeSteers}) so
+   *  the refusal-steer bound survives a re-reported failure. */
+  putSpawnNotice(n: Omit<SpawnNotice, "steers">): boolean {
+    const prev = this.getSpawnNotice(n.sessionId, n.kind);
+    if (
+      prev &&
+      prev.severity === n.severity &&
+      (prev.reason ?? null) === (n.reason ?? null) &&
+      prev.detail === n.detail &&
+      (prev.inputKey ?? null) === (n.inputKey ?? null)
+    ) {
+      return false;
+    }
+    this.db.run(
+      `INSERT INTO spawn_notices (sessionId, kind, severity, reason, detail, steers, inputKey, updatedAt)
+       VALUES (?,?,?,?,?,?,?,?)
+       ON CONFLICT DO UPDATE SET
+         severity = excluded.severity, reason = excluded.reason,
+         detail = excluded.detail, inputKey = excluded.inputKey,
+         updatedAt = excluded.updatedAt`,
+      [
+        n.sessionId,
+        n.kind,
+        n.severity,
+        n.reason ?? null,
+        n.detail,
+        prev?.steers ?? 0,
+        n.inputKey ?? null,
+        n.updatedAt,
+      ],
+    );
+    return true;
+  }
+
+  getSpawnNotice(sessionId: string, kind: SpawnNoticeKind): SpawnNotice | null {
+    const r = this.db
+      .query(
+        `SELECT sessionId, kind, severity, reason, detail, steers, inputKey, updatedAt
+         FROM spawn_notices WHERE sessionId = ? AND kind = ?`,
+      )
+      .get(sessionId, kind) as SpawnNotice | null;
+    return r;
+  }
+
+  /** Increment the refusal-steer counter and return the NEW total, so the caller can compare it
+   *  against the bound without a second read. */
+  bumpSpawnNoticeSteers(sessionId: string, kind: SpawnNoticeKind): number {
+    this.db.run(`UPDATE spawn_notices SET steers = steers + 1 WHERE sessionId = ? AND kind = ?`, [
+      sessionId,
+      kind,
+    ]);
+    return this.getSpawnNotice(sessionId, kind)?.steers ?? 0;
+  }
+
+  /** Clear one notice. Returns true when a row was actually removed (drives `onChange`). */
+  clearSpawnNotice(sessionId: string, kind: SpawnNoticeKind): boolean {
+    const had = this.getSpawnNotice(sessionId, kind) != null;
+    if (had) {
+      this.db.run(`DELETE FROM spawn_notices WHERE sessionId = ? AND kind = ?`, [sessionId, kind]);
+    }
+    return had;
+  }
+
+  /** Every notice for one session — the bootstrap snapshot + `onChange` payload source. */
+  listSpawnNotices(sessionId: string): SpawnNotice[] {
+    return this.db
+      .query(
+        `SELECT sessionId, kind, severity, reason, detail, steers, inputKey, updatedAt
+         FROM spawn_notices WHERE sessionId = ? ORDER BY kind`,
+      )
+      .all(sessionId) as SpawnNotice[];
+  }
+
+  /** All notices, keyed by session — mirrors snapshotPlanGates for the bootstrap payload. */
+  snapshotSpawnNotices(): Record<string, SpawnNotice[]> {
+    const rows = this.db
+      .query(
+        `SELECT sessionId, kind, severity, reason, detail, steers, inputKey, updatedAt
+         FROM spawn_notices ORDER BY sessionId, kind`,
+      )
+      .all() as SpawnNotice[];
+    const out: Record<string, SpawnNotice[]> = {};
+    for (const r of rows) (out[r.sessionId] ??= []).push(r);
+    return out;
+  }
+
+  dropSpawnNotices(sessionId: string): void {
+    this.db.run(`DELETE FROM spawn_notices WHERE sessionId = ?`, [sessionId]);
+  }
+
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
@@ -3522,6 +3632,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       );
       this.db.run(
         `DELETE FROM plan_gates WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM spawn_notices WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       this.db.run(

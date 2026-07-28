@@ -402,3 +402,63 @@ test("#1948: lateness never downgrades severity or demotes a standing blocker", 
   expect(late).toContain("finding at ANY round");
   expect(late).toContain("STAYS blocking");
 });
+
+// ── #1944: the planClamped qualifier is ADDITIVE ──────────────────────────────
+//
+// Finding 2: head+tail clamping already RETAINS the sections the SCOPE/TESTABILITY clause asks
+// about, so deleting that clause when the plan is clamped would be redundant AND would disable the
+// check for exactly the largest plans — the ones that most need it.
+
+// #1948 re-scoped this clause from "flag either as blocking" to "genuinely ABSENT is blocking".
+// That is precisely the sentence a mechanical elision could trip, so it is what the #1944 caveat
+// qualifies — and what must survive the caveat rather than be replaced by it.
+const SCOPE_CLAUSE = "A boundary or seam that is genuinely ABSENT is blocking.";
+
+/** fenceUntrusted mints a fresh nonce per call, so byte-identity is asserted modulo the nonce. */
+const stableNonce = (s: string) => s.replaceAll(/(⟦\/?UNTRUSTED:[^:]+:)[0-9a-f]+⟧/g, "$1NONCE⟧");
+
+test("#1944 planClamped=false is BYTE-IDENTICAL to the un-flagged prompt", () => {
+  expect(
+    stableNonce(
+      planReviewPrompt("do X", "P", ["nit"], "ISSUE", "en", null, null, { planClamped: false }),
+    ),
+  ).toBe(stableNonce(planReviewPrompt("do X", "P", ["nit"], "ISSUE", "en", null, null)));
+  // ...and the default is off, so no existing caller changes.
+  expect(planReviewPrompt("do X", "PLAN")).toBe(
+    planReviewPrompt("do X", "PLAN", [], undefined, "en", undefined, undefined, {
+      planClamped: false,
+    }),
+  );
+});
+
+test("#1944 planClamped KEEPS the SCOPE/TESTABILITY clause and only ADDS to it", () => {
+  const off = planReviewPrompt("do X", "PLAN", [], null, "en", null, null, { planClamped: false });
+  const on = planReviewPrompt("do X", "PLAN", [], null, "en", null, null, { planClamped: true });
+
+  expect(off).toContain(SCOPE_CLAUSE);
+  expect(on).toContain(SCOPE_CLAUSE); // NOT replaced
+  expect(on.length).toBeGreaterThan(off.length); // purely additive
+  // The clamped prompt is the un-clamped one with a contiguous note spliced in — nothing removed.
+  for (const line of off.split("\n")) expect(on).toContain(line);
+});
+
+test("#1944 the added note forbids reading an elision as an omission", () => {
+  const on = planReviewPrompt("do X", "PLAN", [], null, "en", null, null, { planClamped: true });
+  expect(on).toContain("mechanical, not authorial");
+  expect(on).toContain("do not raise its absence as a finding");
+  expect(on).toContain("bytes elided");
+});
+
+test("#1944 the note sits OUTSIDE every untrusted fence", () => {
+  // planReviewPrompt fences only issueBody; the note must never land inside it, where
+  // UNTRUSTED_CONTENT_DIRECTIVE would license the reader to ignore it.
+  const on = planReviewPrompt("do X", "PLAN", [], "ISSUE BODY", "en", null, null, {
+    planClamped: true,
+  });
+  const noteAt = on.indexOf("mechanical, not authorial");
+  const fenceOpen = on.indexOf("⟦UNTRUSTED:");
+  const fenceClose = on.lastIndexOf("⟦/UNTRUSTED:");
+  expect(noteAt).toBeGreaterThanOrEqual(0);
+  expect(fenceOpen).toBeGreaterThanOrEqual(0);
+  expect(noteAt < fenceOpen || noteAt > fenceClose).toBe(true);
+});

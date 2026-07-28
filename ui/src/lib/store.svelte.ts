@@ -31,7 +31,7 @@ import type {
 } from "./types";
 import type { BlockState } from "./triage";
 import { projectIcons } from "./projectIcons.svelte";
-import { reviews, planGates } from "./reviews.svelte";
+import { reviews, planGates, spawnNotices } from "./reviews.svelte";
 import { recaps } from "./recaps.svelte";
 import { herdDigest } from "./herd-digest.svelte";
 import { upNext } from "./up-next.svelte";
@@ -493,6 +493,7 @@ export class HerdStore {
         this.previewServe = dropKey(this.previewServe, ev.data.id);
         reviews.drop(ev.data.id);
         planGates.drop(ev.data.id);
+        spawnNotices.drop(ev.data.id);
         // Drop the recap from the live cache on archive. DELIBERATELY re-populated later:
         // the post-archive `session:recap` finalize event re-adds this id (and the Done
         // lens calls recaps.load() to repopulate archived recaps from /api/recaps). This is
@@ -683,6 +684,11 @@ export class HerdStore {
         return true;
       case "session:plangate-activity":
         planGates.setActivity(ev.data.id, ev.data.summary);
+        return true;
+      case "session:spawn-notices":
+        // #1944: the payload always carries the session's FULL notice list, so an empty array is a
+        // genuine all-clear (a spawn that needed no clamp), not a no-op.
+        spawnNotices.apply(ev.data.id, ev.data.notices ?? []);
         return true;
       default:
         return false;

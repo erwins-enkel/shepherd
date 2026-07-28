@@ -79,7 +79,7 @@
   import { steers } from "$lib/steers.svelte";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { repos } from "$lib/repos.svelte";
-  import { reviews, planGates, repoConfig } from "$lib/reviews.svelte";
+  import { reviews, planGates, spawnNotices, repoConfig } from "$lib/reviews.svelte";
   import { openPreviewInNewTab } from "$lib/previewOpen";
   import { recaps } from "$lib/recaps.svelte";
   import { herdDigest } from "$lib/herd-digest.svelte";
@@ -935,6 +935,7 @@
     // ids, so a `reviewing=false` missed across a disconnect/restart is corrected.
     reviews.load();
     planGates.load();
+    spawnNotices.load();
     recaps.load();
   }
 
@@ -1780,6 +1781,7 @@
     repos.load();
     reviews.load();
     planGates.load();
+    spawnNotices.load();
     recaps.load();
     herdDigest.load();
     // App-load paints the CACHED Up Next snapshot only (peek) — no cross-repo gh recompute for a

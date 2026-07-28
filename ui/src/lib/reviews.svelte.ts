@@ -1,4 +1,12 @@
-import type { ReviewVerdict, PlanGate, ReviewerEnv, RepoConfig, SandboxProfile } from "./types";
+import type {
+  ReviewVerdict,
+  PlanGate,
+  ReviewerEnv,
+  RepoConfig,
+  SandboxProfile,
+  SpawnNotice,
+  SpawnNoticeKind,
+} from "./types";
 import type { AutomationFlags } from "./components/git-rail-automation";
 import { handsOffPatch } from "./components/epic-handsoff";
 import type { RepoConfigResponse } from "./api";
@@ -8,6 +16,7 @@ import {
   getReviewingIds,
   getPlanGates,
   getPlanGatesInflight,
+  getSpawnNotices,
   getRepoConfig,
   putRepoConfig,
 } from "./api";
@@ -274,6 +283,52 @@ export class PlanGateStore {
   }
 }
 export const planGates = new PlanGateStore();
+
+/** #1944: client cache of spawn CLAMP/REFUSAL notices, keyed by session id then kind.
+ *
+ *  Deliberately a store of its own rather than a field on PlanGateStore/ReviewsStore: a notice is
+ *  NOT a verdict. Folding it into either would invite exactly the confusion the server-side sidecar
+ *  exists to avoid — a clamped or refused spawn must never look like a gating row. */
+class SpawnNoticeStore {
+  map = $state<Record<string, SpawnNotice[]>>({});
+
+  bootstrap(map: Record<string, SpawnNotice[]>) {
+    this.map = map;
+  }
+
+  async load() {
+    try {
+      this.bootstrap(await getSpawnNotices());
+    } catch {
+      /* best-effort; `session:spawn-notices` events still populate it */
+    }
+  }
+
+  /** Replace one session's notices wholesale — the WS event always carries the full list, so an
+   *  empty array is a genuine "all clear" and must delete the key rather than merge. */
+  apply(id: string, notices: SpawnNotice[]) {
+    if (!notices.length) {
+      if (!(id in this.map)) return;
+      const copy = { ...this.map };
+      delete copy[id];
+      this.map = copy;
+      return;
+    }
+    this.map = setKey(this.map, id, notices);
+  }
+
+  for(id: string, kind: SpawnNoticeKind): SpawnNotice | null {
+    return this.map[id]?.find((n) => n.kind === kind) ?? null;
+  }
+
+  drop(id: string) {
+    if (!(id in this.map)) return;
+    const copy = { ...this.map };
+    delete copy[id];
+    this.map = copy;
+  }
+}
+export const spawnNotices = new SpawnNoticeStore();
 
 /** Per-repo critic + auto-address + learnings + autopilot + drain + automerge + build-queue +
  *  plan-gate + draft-mode (+ sign-off authority) config, cached lazily by repoPath. */

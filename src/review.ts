@@ -5,7 +5,14 @@ import type { HerdrDriver, HerdrAgent } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
-import type { ReviewVerdict, ReviewerEnv, Session, ReviewerSpawnRow } from "./types";
+import type {
+  ReviewVerdict,
+  ReviewerEnv,
+  Session,
+  ReviewerSpawnRow,
+  SpawnNoticeReason,
+} from "./types";
+import { randomUUID } from "node:crypto";
 import type { RoleEnvironment } from "./default-model";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
@@ -35,7 +42,16 @@ import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 // critic's pane tail gets the same treatment before it reaches the log.
 import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicIntegrationBranch } from "./epic-branch";
-import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
+import { OversizedArgvError } from "./argv-limit";
+import {
+  fitAssembledPrompt,
+  planUsefulFloor,
+  describeClamps,
+  type ClampRecord,
+  type FitResult,
+} from "./prompt-fit";
 
 // Session-agnostic critic helpers now live in ./critic-core (a forthcoming standalone-PR-critic
 // service reuses them). Re-exported here so existing importers (and tests) keep their paths.
@@ -153,6 +169,9 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
     | "listReviewerSpawns"
+    | "putSpawnNotice"
+    | "getSpawnNotice"
+    | "clearSpawnNotice"
     | "get"
   >;
   // `readAsync` is diagnostics-only (the no-verdict pane tail) and is called defensively, so an
@@ -164,6 +183,9 @@ export interface ReviewServiceDeps extends MembraneSeams {
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   onChange: (id: string, verdict: ReviewVerdict) => void;
+  /** #1944: broadcast a spawn-notice change. Separate from `onChange`, which carries a verdict — a
+   *  clamp or refusal must never synthesize one (it would wipe in-flight findings). */
+  onSpawnNotice?: (id: string) => void;
   /** Fired when a critic run starts (true) and when it ends (false) for a session. The start
    *  transition carries the exact environment captured for that spawn; end omits it. */
   onReviewing?: (id: string, reviewing: boolean, env?: ReviewerEnv) => void;
@@ -297,7 +319,7 @@ export class ReviewService {
     // Head already reviewed → skip. EXCEPT a spawn-abort row: the critic never ran (e.g. the pool
     // had no usable account), so the head is NOT reviewed — re-attempt it every poll (cheap: a
     // still-cold pool aborts again pre-spawn) so the review self-heals once the pool warms.
-    if (!force && prior?.headSha === git.headSha && !prior.spawnAborted) return "skipped";
+    if (!force && this.headAlreadySettled(session.id, prior, git.headSha)) return "skipped";
     // Per-streak spawn ceiling: review token spend is unbounded otherwise (consider() would
     // spawn a critic on every new CI-green head forever). Cap *findings-bearing* reviews per
     // outstanding-findings streak at 2*cap (the live cap, derived inline — a persisted
@@ -431,28 +453,34 @@ export class ReviewService {
     // #1824 finding C: per-repo POSSIBLE-SMELLS lens flag (default OFF). Read here (not cached from
     // the criticEnabled gate above) so a toggle mid-session takes effect on the next review round.
     const smellLens = this.deps.store.getRepoConfig(session.repoPath).criticSmellLensEnabled;
+    // #1948: the rework round the critic is briefed with.
     const round = this.briefedRound(prior);
-    const { argv, sessionId: criticSessionId } = this.criticArgv(
+    // ONE pinned id for every argv this spawn builds — see criticArgvFor.
+    const criticSessionId = randomUUID();
+    const composePrompt = this.criticPromptComposer(
       session,
       diffBase,
       prior?.findings ?? [],
       authorNotes,
       issueBody,
-      reviewerEnv,
       epic,
-      plan,
       smellLens,
       round,
     );
+    const argvFor = (p: string): string[] => this.criticArgvFor(p, reviewerEnv, criticSessionId);
+    const argv = argvFor(composePrompt(plan));
     // Fire plugin onSpawn hooks for this reviewer-style spawn (issue #1205) and bind any patched
     // env THROUGH the membrane (apiKeyPassthroughEnv handled inside). A hook that calls abortSpawn
     // cleanly skips the review (worktree reaped), mirroring the spawn-failure path below.
-    const aux = await resolveAuxSpawn({
+    const auxArgs = {
       argv,
       worktreePath: wt.worktreePath,
       repoPath: session.repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+    };
+    const patch = await resolveAuxPatch({
+      ...auxArgs,
       descriptor: {
         sessionId: criticSessionId,
         kind: "review",
@@ -460,35 +488,25 @@ export class ReviewService {
         model: reviewerEnv.model,
       },
     });
-    if ("aborted" in aux) {
-      console.warn(`[review] onSpawn aborted for ${session.id}: ${aux.aborted.reason}`);
+    if ("aborted" in patch) {
+      console.warn(`[review] onSpawn aborted for ${session.id}: ${patch.aborted.reason}`);
       this.deps.worktree.remove(wt.worktreePath);
       // Surface WHY instead of failing silently: an onSpawn abort (e.g. the claude-swap pool has
       // no usable account) becomes a visible `error` verdict carrying the reason, so the badge
       // reads "REVIEW ERR: <reason>" rather than a generic failure or a misleading "critic did not
       // produce a verdict". Self-heals — the next consider() that lands a real verdict overwrites it.
-      this.publishSpawnAbort(session, git, aux.aborted.reason, prior);
+      this.publishSpawnAbort(session, git, patch.aborted.reason, prior);
       return;
     }
-    // The worktree is checked out at the UNTRUSTED PR head; a malicious PR could commit a strict-JSON
-    // verdict / `-o` fallback to short-circuit the real critic (see scrubStaleVerdictArtifacts).
-    // Scrub HERE — after rebaseSkip, which can re-materialize a committed artifact — right before spawn.
-    scrubStaleVerdictArtifacts(wt.worktreePath, VERDICT_FILE);
-    let terminalId: string;
-    try {
-      terminalId = (
-        await this.deps.herdr.start(
-          `review ${session.desig}`,
-          wt.worktreePath,
-          aux.wrapped,
-          aux.spawnEnv,
-        )
-      ).terminalId;
-    } catch (err) {
-      console.warn(`[review] spawn failed for ${session.id}:`, err);
-      this.deps.worktree.remove(wt.worktreePath);
-      return;
-    }
+
+    // #1944: fit the prompt to the argv budget, then launch. Null ⇒ the critic is NOT running and
+    // the worktree is already reaped — whether it was refused pre-emptively or the spawn failed.
+    const terminalId = await this.fitAndSpawn(session, git.headSha!, wt.worktreePath, {
+      plan,
+      composePrompt,
+      assemble: (p) => assembleAuxSpawn(patch, auxArgs, argvFor(p)),
+    });
+    if (terminalId == null) return;
     this.inflight.set(session.id, {
       sessionId: session.id,
       headSha: git.headSha!,
@@ -694,18 +712,37 @@ export class ReviewService {
    *  to run commands or escape its worktree. `dontAsk` auto-denies anything off the allowlist
    *  (an unattended PTY would otherwise hang on a permission prompt); the allowlist is
    *  read-only inspection + read-only git + writing files in its own disposable worktree. */
-  private criticArgv(
+  /** #1944: build the argv for an ALREADY-composed prompt under a PINNED session id. `criticArgv`
+   *  used to mint the id itself (`buildTransientAgentArgv` falls back to `randomUUID()`), which is
+   *  fine when the argv is built once — but the clamp ladder rebuilds it for the budget probe and
+   *  again for the clamped prompt, and three unpinned builds would mint three different ids. The
+   *  recorded `criticSessionId` keys `inflight`, `recordReviewerSpawn`, `readVerdict`, `readUsage`
+   *  and the codex last-message file, so a disagreeing `--session-id` means the verdict is written
+   *  where nothing ever looks. */
+  private criticArgvFor(prompt: string, env: RoleEnvironment, sessionId: string): string[] {
+    return buildTransientAgentArgv("reviewer", {
+      provider: env.provider,
+      model: env.model,
+      effort: env.effort,
+      prompt,
+      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+      captureLastMessage: true,
+      sessionId,
+    }).argv;
+  }
+
+  /** Resolve everything the critic prompt needs ONCE and return a pure composer over the two things
+   *  the clamp ladder varies: the plan text and whether it was clamped. */
+  private criticPromptComposer(
     session: Session,
     diffBase: string,
     priorFindings: string[],
     authorNotes: string[],
     issueBody: string | null,
-    env: RoleEnvironment,
     epic: EpicContext | null,
-    plan: string | null,
     smellLens: boolean,
     round: number,
-  ): { argv: string[]; sessionId: string } {
+  ): (plan: string | null, planClamped?: boolean) => string {
     // Shared with the plan reviewer: same read-only injection-contained sandbox (the PR diff is
     // UNTRUSTED). The prompt is the only critic-specific part. `diffBase` is the resolved base
     // commit (SHA) threaded from rebaseSkip, NOT session.baseBranch — so the review diffs the
@@ -713,24 +750,19 @@ export class ReviewService {
     // originating issue's body, fetched in begin() and injected as UNTRUSTED context. `epic` is
     // non-null only for an epic child (#1757) — it adds the EPIC CONTEXT block; a non-epic review's
     // prompt is byte-identical to before.
-    return buildTransientAgentArgv("reviewer", {
-      provider: env.provider,
-      model: env.model,
-      effort: env.effort,
-      // #1812 finding A: the approved plan rides as UNTRUSTED intent-context (augmenting the task).
-      // The SCOPE-CREEP lens (finding B) is emitted by reviewPrompt itself (the session critic always
-      // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
-      // #1824 finding C: `smellLens` (per-repo flag, default OFF) appends the POSSIBLE-SMELLS lens.
-      // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
-      prompt: reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
+    // #1812 finding A: the approved plan rides as UNTRUSTED intent-context (augmenting the task).
+    // The SCOPE-CREEP lens (finding B) is emitted by reviewPrompt itself (the session critic always
+    // has a task); prReviewPrompt omits it, so the standalone-critic prompt stays byte-identical.
+    // #1824 finding C: `smellLens` (per-repo flag, default OFF) appends the POSSIBLE-SMELLS lens.
+    // Absent plan + no epic + smellLens off ⇒ the non-epic session-critic prompt is unchanged.
+    return (plan, planClamped = false) =>
+      reviewPrompt(diffBase, session.prompt, priorFindings, authorNotes, issueBody, epic, {
         plan,
         smellLens,
         round,
         cap: this.cap,
-      }),
-      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
-      captureLastMessage: true,
-    });
+        planClamped,
+      });
   }
 
   private reviewerEnv(): RoleEnvironment {
@@ -1208,6 +1240,157 @@ export class ReviewService {
    * so an abort neither trips the spawn ceiling nor escalates the consecutive-error stall — it is a
    * pre-spawn refusal, not a finished critic run.
    */
+  /** Nothing more to do for this head — the two ways that can be true, so `consider` carries one
+   *  branch instead of five. Both are bypassed by `force`, which the caller applies.
+   *
+   *  1. Already REVIEWED it. Except a spawn-abort row: the critic never ran (e.g. the pool had no
+   *     usable account), so the head is NOT reviewed — re-attempt every poll (cheap: a still-cold
+   *     pool aborts again pre-spawn) so the review self-heals once the pool warms.
+   *  2. Already REFUSED it (#1944). The composition is deterministic, so re-attempting just
+   *     re-allocates a probe worktree to reach the same verdict. Only a `failed` notice carries an
+   *     inputKey; a `clamped` one never suppresses anything. NOTE this does not self-clear the way
+   *     (1) does: once the plan is clamped the residual overage is
+   *     priorFindings/authorNotes/task/issueBody, none of which a new head changes — so it refuses
+   *     on every push until an operator clears the notice (see refuseOversizedSpawn). */
+  private headAlreadySettled(
+    sessionId: string,
+    prior: ReviewVerdict | null,
+    headSha: string,
+  ): boolean {
+    if (prior?.headSha === headSha && !prior.spawnAborted) return true;
+    return this.deps.store.getSpawnNotice(sessionId, "review")?.inputKey === headSha;
+  }
+
+  /** Fit the critic prompt to the OS argv budget (#1944), record whatever that cost, and launch —
+   *  returning the terminal id, or null when the critic did not start. Both null paths leave the
+   *  worktree reaped, so the caller only has to stop.
+   *
+   *  Split out of `begin`, which is already a long orchestration sitting at its complexity bar; the
+   *  unit is cohesive on its own terms ("produce a running critic, or don't"). */
+  private async fitAndSpawn(
+    session: Session,
+    headSha: string,
+    worktreePath: string,
+    prompt: {
+      plan: string | null;
+      composePrompt: (plan: string | null, planClamped?: boolean) => string;
+      assemble: SpawnAssembler;
+    },
+  ): Promise<string | null> {
+    const fitted = fitCriticPrompt(prompt.plan, prompt.composePrompt, prompt.assemble);
+    if (!fitted.ok) {
+      this.refuseOversizedSpawn(session, headSha, worktreePath, fitted);
+      return null;
+    }
+    if (fitted.clamps.length) this.recordClamp(session, fitted.clamps);
+    // A spawn that needed NO clamp is the all-clear: drop any stale notice so the badge stops
+    // adorning. A clamped spawn keeps the fresh `clamped` row written just above.
+    else if (this.deps.store.clearSpawnNotice(session.id, "review")) {
+      this.deps.onSpawnNotice?.(session.id);
+    }
+
+    // The worktree is checked out at the UNTRUSTED PR head; a malicious PR could commit a
+    // strict-JSON verdict / `-o` fallback to short-circuit the real critic (see
+    // scrubStaleVerdictArtifacts). Scrub HERE — after rebaseSkip, which can re-materialize a
+    // committed artifact — right before spawn.
+    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE);
+    const aux = prompt.assemble(fitted.prompt);
+    try {
+      const started = await this.deps.herdr.start(
+        `review ${session.desig}`,
+        worktreePath,
+        aux.wrapped,
+        aux.spawnEnv,
+      );
+      return started.terminalId;
+    } catch (err) {
+      console.warn(`[review] spawn failed for ${session.id}:`, err);
+      // #1944 backstop. The ladder above should make this unreachable on Linux — it clamps against
+      // a page size pinned to the SMALLEST supported value, so it can only ever refuse early. But
+      // the per-element cap is not the only way an exec can be too big: the WHOLE-argv limits
+      // (`ARG_MAX`, macOS `kern.argmax`) are not modelled at all. If the kernel says the argv was
+      // the problem, that must reach the operator like any other refusal rather than dying in this
+      // console.warn — the whole point of the issue.
+      if (err instanceof OversizedArgvError) {
+        this.refuseOversizedSpawn(session, headSha, worktreePath, {
+          reason: "over-budget",
+          detail: err.message,
+        });
+        return null;
+      }
+      this.deps.worktree.remove(worktreePath);
+      return null;
+    }
+  }
+
+  /** #1944: a clamp is never silent — a structured log line plus a `clamped` sidecar row, which the
+   *  badge renders in its own tone so a verdict formed on a truncated plan is visibly distinct from
+   *  a clean one. NEVER writes `reviews`: a synthetic row there carries `findings: []`. */
+  private recordClamp(session: Session, clamps: ClampRecord[]): void {
+    const detail = describeClamps(clamps);
+    console.warn(
+      `[review] prompt clamped to fit the OS argv limit for ${session.id} (${session.desig}): ${detail}`,
+    );
+    try {
+      if (
+        this.deps.store.putSpawnNotice({
+          sessionId: session.id,
+          kind: "review",
+          severity: "clamped",
+          detail,
+          inputKey: null,
+          updatedAt: this.now(),
+        })
+      ) {
+        this.deps.onSpawnNotice?.(session.id);
+      }
+    } catch (err) {
+      console.warn(`[review] clamp notice failed for ${session.id}:`, err);
+    }
+  }
+
+  /**
+   * #1944: the prompt cannot be made to fit, so refuse — visibly, and WITHOUT writing a `reviews`
+   * row (`publishSpawnAbort` sets `findings: []`, which would wipe the findings the implementing
+   * agent is mid-way through addressing — every round, since the failure is deterministic).
+   *
+   * NO STEER here, unlike the plan gate. The plan gate steers because the planning agent can
+   * shorten a plan; at this site the residual overage after clamping the plan is `priorFindings` /
+   * `authorNotes` / `task` / `issueBody`, none of which the implementing agent can shrink, so a
+   * message to it would be noise. Note this means a refusal here does NOT self-clear on the next
+   * push: `headSha` changes but the composition does not, so it recurs until an operator clears the
+   * notice. That permanent-block risk is stated in the plan's Risks; the notice, the badge and the
+   * Retry affordance are the whole recourse under clamp-only scope.
+   */
+  private refuseOversizedSpawn(
+    session: Session,
+    headSha: string,
+    worktreePath: string,
+    fitted: { reason: SpawnNoticeReason; detail: string },
+  ): void {
+    console.warn(
+      `[review] refusing to spawn the critic for ${session.id} (${session.desig}): ${fitted.detail}`,
+    );
+    try {
+      if (
+        this.deps.store.putSpawnNotice({
+          sessionId: session.id,
+          kind: "review",
+          severity: "failed",
+          reason: fitted.reason,
+          detail: fitted.detail,
+          inputKey: headSha,
+          updatedAt: this.now(),
+        })
+      ) {
+        this.deps.onSpawnNotice?.(session.id);
+      }
+    } catch (err) {
+      console.warn(`[review] refusal notice failed for ${session.id}:`, err);
+    }
+    this.deps.worktree.remove(worktreePath);
+  }
+
   private publishSpawnAbort(
     session: Session,
     git: GitState,
@@ -1420,4 +1603,49 @@ function defaultReadPlan(worktreePath: string): string | null {
   } catch {
     return null;
   }
+}
+
+/** Fit the critic prompt inside the OS argv budget, or report a refusal (#1944).
+ *
+ *  THE PLAN IS THE ONLY CLAMPABLE BLOCK here. `task` and `issueBody` are human-authored ground
+ *  truth — `stripPlanLineRefs`' doc exempts exactly those two from mutation for the same reason —
+ *  and `priorFindings`/`authorNotes` are CONSUMED-ONCE: the next row is built only from this
+ *  round's output, and `seenNoteIds` is derived before assembly and already marks those notes
+ *  delivered, so a dropped one could never be re-raised or re-fed. The plan is also the only
+ *  unbounded input at this site; `diffBase` is a SHA, not the diff.
+ *
+ *  `planClamped` is DERIVED, never passed in: it is true exactly when the composed plan text
+ *  differs from what the agent wrote, so an un-clamped prompt stays byte-identical to main. */
+function fitCriticPrompt(
+  plan: string | null,
+  compose: (plan: string | null, planClamped?: boolean) => string,
+  assemble: SpawnAssembler,
+): FitResult {
+  const budget = spawnBudget(assemble);
+
+  // NO PLAN — still measured. A plan-less session (the common case) has nothing CLAMPABLE, but its
+  // prompt is not thereby bounded: `session.prompt`, `issueBody`, `priorFindings` and `authorNotes`
+  // can exceed the argv limit between them. Early-returning `{ ok: true }` here would skip the
+  // budget entirely, let the spawn die on E2BIG, and land it in begin's bare `catch` — no
+  // spawn_notices row, no badge, no suppression, i.e. exactly the silent failure #1944 is about, on
+  // the branch most sessions take. An empty `specs` list still enforces the terminal guarantee: it
+  // fits, or it refuses `over-budget` and the operator sees it. (This mirrors standalone-critic,
+  // which always runs the ladder and simply skips a spec it cannot shrink.)
+  if (!plan) {
+    return fitAssembledPrompt({ ...budget, specs: [], compose: () => compose(null) });
+  }
+
+  return fitAssembledPrompt({
+    ...budget,
+    specs: [
+      {
+        id: "plan",
+        kind: "text",
+        text: plan,
+        mode: "head-tail",
+        minUseful: planUsefulFloor(Buffer.byteLength(plan, "utf8")),
+      },
+    ],
+    compose: (v) => compose(v.plan as string, v.plan !== plan),
+  });
 }

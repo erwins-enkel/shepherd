@@ -593,6 +593,7 @@ test("critic spawns read-only: no skip-permissions, dontAsk + scoped allowlist",
   // for the #597 cross-file verification now rides on --effort, so its --settings carries NO env key.
   expect(JSON.parse(settingsRaw!)).toEqual({
     disableAllHooks: true,
+    tui: "default",
     enableAllProjectMcpServers: true,
   });
   expect(argv).toContain("--safe-mode");

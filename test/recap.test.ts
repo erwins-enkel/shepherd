@@ -1070,7 +1070,10 @@ test("generate: subscription mode — --settings unchanged + no env 4th arg", as
     });
     await svc.regenerate(s);
     const argv = herdr.started[0]!.argv;
-    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!)).toEqual({ disableAllHooks: true });
+    expect(JSON.parse(argv[argv.indexOf("--settings") + 1]!)).toEqual({
+      disableAllHooks: true,
+      tui: "default",
+    });
     expect(herdr.started[0]!.env).toBeUndefined();
   });
 });

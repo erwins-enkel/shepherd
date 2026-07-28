@@ -16,8 +16,8 @@ import type { AgentProvider } from "./types";
  *
  *   claude
  *     --session-id <uuid>          forced so the transcript lands at a predictable path
- *     --settings <json>            { disableAllHooks:true, [enableAllProjectMcpServers:true],
- *                                    ...apiKeySettingsFragment() }
+ *     --settings <json>            { disableAllHooks:true, tui:"default",
+ *                                    [enableAllProjectMcpServers:true], ...apiKeySettingsFragment() }
  *     --disable-slash-commands
  *     [--safe-mode]                emitted IFF the preset is mcpIsolated (see coupling note)
  *     --allowedTools <tools…>      VARIADIC — swallows every following token until the next --flag
@@ -39,9 +39,40 @@ import type { AgentProvider } from "./types";
  * invoke a skill" preamble that would thrash an agent whose allowlist lacks Skill);
  * --disable-slash-commands removes skills entirely.
  *
- * --settings key order is preserved (disableAllHooks first, then enableAllProjectMcpServers, then
- * the apiKeySettingsFragment() spread) so subscription mode stays BYTE-FOR-BYTE identical to the
- * historical per-site output — the consumer argv tests are the byte-identity regression gate.
+ * --settings key order is fixed (the two UNCONDITIONAL keys first — disableAllHooks, then tui —
+ * followed by the conditional enableAllProjectMcpServers and the apiKeySettingsFragment() spread
+ * last) so every spawn site emits a BYTE-FOR-BYTE identical string; the consumer argv tests are the
+ * byte-identity regression gate.
+ *
+ * ── tui:"default" — the unattended-pane kill-switch for renderer upsell dialogs ──────────────────
+ *
+ * Claude Code shows a BLOCKING TUI dialog ("Try the new fullscreen renderer? · 1. Yes, try it
+ * 2. Not now"). A transient agent has no operator, so nobody ever answers it and the pane sits at
+ * the dialog until its caller's deadline — surfacing as an unexplained `error` verdict, NOT as a
+ * spawn failure (issue: six PR reviews wedged for the full 1800s across two repos).
+ *
+ * It never self-heals, for two independent reasons:
+ *   (1) the dialog's `fullscreenUpsellSeenCount` suppression counter is written ONLY when the
+ *       dialog is ANSWERED — an unattended agent never answers, so the counter never advances and
+ *       the dialog re-fires on every single spawn, forever; and
+ *   (2) that counter lives in `.claude.json`, which is PER CONFIG DIR — so a fresh machine, an
+ *       api-key config mirror, or any per-account isolated profile starts the wedge over even
+ *       after an operator has dismissed it once in the default config.
+ *
+ * The renderer env pin (CLAUDE_CODE_DISABLE_ALTERNATE_SCREEN=1, applied to every spawn in
+ * herdr.buildWrappedArgv) does NOT help and must not be mistaken for covering this: the dialog's
+ * gate skips only when fullscreen is ALREADY ACTIVE, so pinning the classic renderer actively
+ * QUALIFIES the spawn for the upsell. Only the `tui` SETTING short-circuits it (the gate returns
+ * early on `tui !== undefined`, whatever the counter says), which is why this lives in --settings
+ * rather than alongside the env pin. It also suppresses the sibling *downsell*, which would
+ * otherwise auto-persist `tui:"fullscreen"` into user settings after N shows and silently flip a
+ * renderer Shepherd's PTY scraping assumes is classic.
+ *
+ * "default" IS the classic renderer, i.e. this ASSERTS the posture the env pin already sets rather
+ * than changing behaviour. Same class of fix as enableAllProjectMcpServers below: an interactive
+ * gate that no unit test can assert, cleared declaratively so an unattended pane never renders it.
+ * VERSION: re-verify on CLI upgrade — a new counted upsell would need its own kill-switch (the
+ * generic net is the critic's stuck-pane detector, src/critic-stuck.ts).
  *
  * ── MCP isolation: ONE coupled field, not two independent flags ─────────────────────────────────
  *
@@ -207,7 +238,10 @@ export function buildTransientAgentArgv(
     };
   }
 
-  const settings: Record<string, unknown> = { disableAllHooks: true };
+  // tui:"default" pins the classic renderer DECLARATIVELY so the fullscreen upsell dialog can never
+  // render on this unattended pane — see the kill-switch note in the header. Unconditional (every
+  // transient kind is operator-less), so it sits with disableAllHooks ahead of the conditional keys.
+  const settings: Record<string, unknown> = { disableAllHooks: true, tui: "default" };
   if (preset.mcpIsolated) settings.enableAllProjectMcpServers = true;
   // api-key mode folds in `apiKeyHelper` AFTER the existing keys (stable order; subscription spreads
   // {} → byte-identical JSON). The membrane masks the operator's OAuth credential in place.

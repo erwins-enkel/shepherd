@@ -230,7 +230,7 @@ test("spawn argv follows the safe critic contract (dontAsk after allowlist, bare
   expect(write).toBeGreaterThan(allow);
   expect(write).toBeLessThan(mode);
   // disableAllHooks settings present
-  expect(argv).toContain('{"disableAllHooks":true}');
+  expect(argv).toContain('{"disableAllHooks":true,"tui":"default"}');
   // the prompt is the trailing positional (last arg), after --permission-mode dontAsk
   expect(argv.length).toBeGreaterThan(mode + 2);
 });
@@ -272,7 +272,7 @@ test("distill spawn: subscription mode — --settings unchanged + no env 4th arg
     seedSignals(store, "/r", 3);
     const { deps, cap } = spawnCapture(store);
     new DistillerService(deps as any).distillNow("/r");
-    expect(cap.argv).toContain('{"disableAllHooks":true}');
+    expect(cap.argv).toContain('{"disableAllHooks":true,"tui":"default"}');
     expect(cap.env).toBeUndefined();
   });
 });

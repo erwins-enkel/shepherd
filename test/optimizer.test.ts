@@ -341,7 +341,7 @@ test("spawn argv follows the safe contract + unique __optimize__ name", async ()
   const write = argv.indexOf("Write");
   expect(write).toBeGreaterThan(allow);
   expect(write).toBeLessThan(mode);
-  expect(argv).toContain('{"disableAllHooks":true}');
+  expect(argv).toContain('{"disableAllHooks":true,"tui":"default"}');
   expect(argv.length).toBeGreaterThan(mode + 2); // prompt trails dontAsk
 });
 

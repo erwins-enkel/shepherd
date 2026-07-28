@@ -201,7 +201,7 @@ test("classifyStop: subscription mode — --settings unchanged + no env 4th arg"
   });
   const argv = calls.started.argv;
   const settings = JSON.parse(argv[argv.indexOf("--settings") + 1]);
-  expect(settings).toEqual({ disableAllHooks: true });
+  expect(settings).toEqual({ disableAllHooks: true, tui: "default" });
   expect(calls.started.env).toBeUndefined();
 });
 

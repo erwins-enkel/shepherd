@@ -17,7 +17,7 @@
   import { reviews, repoConfig, planGates } from "$lib/reviews.svelte";
   import { checksCleared } from "$lib/checks-cleared";
   import { isConflicting } from "$lib/pr-conflict";
-  import { criticChip, criticBadgeLabel } from "./critic-badge";
+  import { criticChip, criticBadgeLabel, criticTitle } from "./critic-badge";
   import { canTriggerPlanReview } from "./plan-gate-badge";
   import RailStatusActions from "./git-rail/RailStatusActions.svelte";
   import AutomationPanel from "./AutomationPanel.svelte";
@@ -819,8 +819,11 @@
             aria-label={m.common_close()}>✕</button
           >
         </div>
-        {#if verdict.summary}
-          <p class="rv-summary">{verdict.summary}</p>
+        <!-- A no-verdict `error` carries NO prose at all — `summary` is "" and `body` is "" too — so this
+         must render the server-authored reason code, or the popover opens completely empty. Same
+         shape as the plan gate's (PlanPanel); criticTitle resolves code → locale → summary. -->
+        {#if verdict.summaryCode || verdict.summary}
+          <p class="rv-summary">{criticTitle(verdict)}</p>
         {/if}
         {#if verdict.body}
           <!-- eslint-disable-next-line svelte/no-at-html-tags -- sanitized via DOMPurify above -->

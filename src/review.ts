@@ -44,6 +44,7 @@ import { sanitizeRecapFailureDetail } from "./recap";
 import { isEpicIntegrationBranch } from "./epic-branch";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
+import { OversizedArgvError } from "./argv-limit";
 import {
   fitAssembledPrompt,
   planUsefulFloor,
@@ -1304,6 +1305,19 @@ export class ReviewService {
       return started.terminalId;
     } catch (err) {
       console.warn(`[review] spawn failed for ${session.id}:`, err);
+      // #1944 backstop. The ladder above should make this unreachable on Linux — it clamps against
+      // a page size pinned to the SMALLEST supported value, so it can only ever refuse early. But
+      // the per-element cap is not the only way an exec can be too big: the WHOLE-argv limits
+      // (`ARG_MAX`, macOS `kern.argmax`) are not modelled at all. If the kernel says the argv was
+      // the problem, that must reach the operator like any other refusal rather than dying in this
+      // console.warn — the whole point of the issue.
+      if (err instanceof OversizedArgvError) {
+        this.refuseOversizedSpawn(session, headSha, worktreePath, {
+          reason: "over-budget",
+          detail: err.message,
+        });
+        return null;
+      }
       this.deps.worktree.remove(worktreePath);
       return null;
     }
@@ -1607,9 +1621,22 @@ function fitCriticPrompt(
   compose: (plan: string | null, planClamped?: boolean) => string,
   assemble: SpawnAssembler,
 ): FitResult {
-  if (!plan) return { ok: true, prompt: compose(plan), clamps: [] };
+  const budget = spawnBudget(assemble);
+
+  // NO PLAN — still measured. A plan-less session (the common case) has nothing CLAMPABLE, but its
+  // prompt is not thereby bounded: `session.prompt`, `issueBody`, `priorFindings` and `authorNotes`
+  // can exceed the argv limit between them. Early-returning `{ ok: true }` here would skip the
+  // budget entirely, let the spawn die on E2BIG, and land it in begin's bare `catch` — no
+  // spawn_notices row, no badge, no suppression, i.e. exactly the silent failure #1944 is about, on
+  // the branch most sessions take. An empty `specs` list still enforces the terminal guarantee: it
+  // fits, or it refuses `over-budget` and the operator sees it. (This mirrors standalone-critic,
+  // which always runs the ladder and simply skips a spec it cannot shrink.)
+  if (!plan) {
+    return fitAssembledPrompt({ ...budget, specs: [], compose: () => compose(null) });
+  }
+
   return fitAssembledPrompt({
-    ...spawnBudget(assemble),
+    ...budget,
     specs: [
       {
         id: "plan",

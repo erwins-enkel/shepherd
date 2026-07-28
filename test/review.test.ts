@@ -3493,3 +3493,89 @@ test.skipIf(!onLinux1944)(
     expect(steers).toEqual([]);
   },
 );
+
+// ── #1944 follow-up: the PLAN-LESS branch is measured too ─────────────────────
+//
+// The hole this closes: `fitCriticPrompt` used to early-return `{ ok: true }` whenever there was no
+// plan. A plan-less session has nothing CLAMPABLE, but its prompt is not thereby bounded —
+// session.prompt + issueBody + priorFindings + authorNotes can exceed the argv limit between them.
+// Skipping the budget let the spawn die on E2BIG inside begin's bare catch: no notice, no badge, no
+// suppression. That is exactly the silent failure #1944 is about, on the branch most sessions take.
+
+test.skipIf(!onLinux1944)(
+  "#1944 NO PLAN + oversized unclampables → refuses visibly, does not spawn",
+  async () => {
+    const {
+      deps: d,
+      started,
+      removed,
+      notices,
+      reviews,
+      recordedSpawns,
+    } = makeDeps({
+      readPlan: () => null, // ← the common case
+    });
+    reviews.s1 = priorReview({ findings: ["x".repeat(400_000)] });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+    expect(started, "must not reach herdr.start").toHaveLength(0);
+    expect(recordedSpawns).toHaveLength(0);
+    expect(removed).toContain("/review-wt");
+    expect(notices.get("s1:review")).toMatchObject({
+      severity: "failed",
+      reason: "over-budget",
+      inputKey: OPEN_GREEN.headSha,
+    });
+    // ...and the prior findings survive: no synthetic `reviews` row was written.
+    expect(reviews.s1!.findings).toHaveLength(1);
+  },
+);
+
+test("#1944 NO PLAN + ordinary inputs spawns exactly as before — no notice, no clamp", async () => {
+  const { deps: d, started, notices } = makeDeps({ readPlan: () => null });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+  expect(started).toHaveLength(1);
+  expect(notices.size).toBe(0);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).not.toContain("APPROVED PLAN");
+  expect(prompt).not.toContain("bytes elided");
+});
+
+test.skipIf(!onLinux1944)(
+  "#1944 the plan-less refusal suppresses the retry for that head",
+  async () => {
+    const { deps: d, started, reviews } = makeDeps({ readPlan: () => null });
+    reviews.s1 = priorReview({ findings: ["y".repeat(400_000)] });
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    await svc.consider(session(), OPEN_GREEN);
+    expect(started).toHaveLength(0);
+  },
+);
+
+test("#1944 BACKSTOP: an OversizedArgvError from herdr.start becomes a visible refusal", async () => {
+  // Unreachable on Linux via the ladder (it clamps against the smallest supported page size, so it
+  // can only refuse early) — but the WHOLE-argv limits (ARG_MAX, macOS kern.argmax) are not
+  // modelled, so a kernel E2BIG from that direction must still reach the operator.
+  const { OversizedArgvError } = await import("../src/argv-limit");
+  const { deps: d, removed, notices } = makeDeps({ readPlan: () => null });
+  d.herdr.start = async () => {
+    throw new OversizedArgvError("argv exceeds the OS per-argument limit", { bytes: 200_000 });
+  };
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+  expect(notices.get("s1:review")).toMatchObject({ severity: "failed", reason: "over-budget" });
+  expect(removed).toContain("/review-wt");
+});
+
+test("#1944 BACKSTOP: an ORDINARY spawn failure still writes no notice", async () => {
+  const { deps: d, removed, notices } = makeDeps({ readPlan: () => null });
+  d.herdr.start = async () => {
+    throw new Error("herdr is down");
+  };
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+  expect(notices.size, "only an argv failure is a spawn notice").toBe(0);
+  expect(removed).toContain("/review-wt");
+});

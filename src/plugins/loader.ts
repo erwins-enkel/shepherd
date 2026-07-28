@@ -19,6 +19,7 @@ import {
   type PluginManifest,
   type PluginRegister,
   type PluginRouteHandler,
+  type PluginSessions,
   type PluginState,
   type PluginGearItem,
   type PluginUIView,
@@ -27,7 +28,10 @@ import {
   type SpawnPatch,
 } from "./types";
 import { browserRepositoryUrl } from "./repository";
+import { toPluginSessionSnapshot } from "./session-view";
 import { validatePluginGearItem, validatePluginUIView } from "./ui-validate";
+import type { Session } from "../types";
+import type { GitState } from "../forge/types";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
 
@@ -39,6 +43,15 @@ export interface PluginStateStore {
   listPluginStateKeys(pluginId: string): string[];
 }
 
+/** Minimal store surface backing `ctx.sessions` — READ-ONLY session lookup. Separate from
+ *  {@link PluginStateStore} so the two capabilities stay independently substitutable (and so
+ *  a test fake declares exactly what it supports). The real `SessionStore` satisfies both. */
+export interface PluginSessionReadStore {
+  get(id: string): Session | null;
+  list(): Session[];
+  getSessionGitCache(sessionId: string): GitState | null;
+}
+
 /** Minimal event-bus surface: read-only `subscribe` for plugins + `emit` for status. */
 export interface PluginEventBus {
   subscribe(fn: (event: string, data: unknown) => void): () => void;
@@ -47,7 +60,7 @@ export interface PluginEventBus {
 
 export interface PluginRegistryDeps {
   pluginsDir: string;
-  store: PluginStateStore;
+  store: PluginStateStore & PluginSessionReadStore;
   events: PluginEventBus;
   /** Per-hook timeout (ms); default 5000. Tests inject a small value. */
   hookTimeoutMs?: number;
@@ -329,6 +342,19 @@ export class PluginRegistry {
       delete: (key) => this.deps.store.deletePluginState(id, key),
       keys: () => this.deps.store.listPluginStateKeys(id),
     };
+    // Resolved lazily per call: a plugin holding `ctx.sessions` from register() must keep
+    // reading live state, never a boot-time freeze.
+    const sessions: PluginSessions = {
+      get: (sessionId) => {
+        const session = this.deps.store.get(sessionId);
+        if (!session) return null;
+        return toPluginSessionSnapshot(session, this.deps.store.getSessionGitCache(sessionId));
+      },
+      list: () =>
+        this.deps.store
+          .list()
+          .map((s) => toPluginSessionSnapshot(s, this.deps.store.getSessionGitCache(s.id))),
+    };
     return {
       manifest: Object.freeze({ ...rec.manifest }),
       onSpawn: (fn) => {
@@ -381,6 +407,7 @@ export class PluginRegistry {
         this.emitGear(rec);
       },
       state,
+      sessions,
       route: (method, path, handler) => {
         rec.routes.set(routeKey(method, path), handler);
       },

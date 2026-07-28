@@ -6,14 +6,19 @@ import { mkdtemp, rm, writeFile, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { PluginRegistry } from "./loader";
-import type { PluginEventBus, PluginStateStore } from "./loader";
+import type { PluginEventBus, PluginSessionReadStore, PluginStateStore } from "./loader";
 import type { PluginGearItem } from "./types";
 
 // ── fakes ──────────────────────────────────────────────────────────────────────
 
-function makeStore(): PluginStateStore {
+function makeStore(): PluginStateStore & PluginSessionReadStore {
   const data = new Map<string, string>();
   return {
+    // These tests exercise gear/UI publishing only; ctx.sessions has its own coverage in
+    // test/plugins-sessions.test.ts, so an empty session world is all this fake owes.
+    get: () => null,
+    list: () => [],
+    getSessionGitCache: () => null,
     getPluginState: (id, k) => data.get(`${id}:${k}`) ?? null,
     setPluginState: (id, k, v) => {
       data.set(`${id}:${k}`, v);

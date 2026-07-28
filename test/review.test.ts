@@ -980,6 +980,71 @@ test("stuck detection reads the RAW visible buffer, not the collapsed recent tai
   }
 });
 
+// `wait` covers MORE than "the critic wrote nothing": a repaired-but-complete verdict is held in
+// `wait` only until the spawn finishes — and a wedged spawn never will. Forcing the wedge to a
+// no-verdict error would discard a perfectly good verdict (findings lost, errorRound bumped,
+// seenNoteIds rolled back). The wedge is re-decided as if the spawn had exited, so the value lands.
+test("wedged pane with a repaired verdict finalizes its VALUE, not a no-verdict error", async () => {
+  let t = 1000;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, timeoutMs: 1_800_000 },
+      {
+        verdictRead: {
+          status: "parsed",
+          repaired: true,
+          value: { decision: "request-changes", summary: "1 issue", body: "## findings" },
+        },
+        criticProcs: ["node"], // still "alive" — the pane is wedged, not exited
+        criticPaneTail: WEDGED_PANE,
+      },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+    await svc.tick(); // first pane read
+    await svc.tick(); // identical read → wedged → re-decide as finished
+
+    expect(reviews["s1"]?.decision).toBe("changes_requested"); // the critic's real verdict survives
+    expect(reviews["s1"]?.summary).toBe("1 issue");
+    expect(reviews["s1"]?.findings.length).toBeGreaterThan(0); // findings NOT lost
+    expect(reviews["s1"]?.summaryCode ?? null).toBeNull(); // not relabelled a no-verdict failure
+    expect(reviews["s1"]?.errorRound).toBe(0); // no spurious error escalation
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// The unparseable/absent halves of `wait` must still fail fast on a wedge — re-deciding must not
+// quietly turn the wedge back into "keep waiting".
+test("wedged pane with an unparseable verdict still finalizes as an error", async () => {
+  let t = 1000;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, timeoutMs: 1_800_000 },
+      {
+        verdictRead: { status: "unparseable", raw: "{broken" },
+        criticProcs: ["node"],
+        criticPaneTail: WEDGED_PANE,
+      },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+    await svc.tick();
+    await svc.tick();
+    expect(reviews["s1"]?.decision).toBe("error");
+    // unparseable is the more specific fact and outranks the wedge in noVerdictCause.
+    expect(reviews["s1"]?.summaryCode).toBe("no-verdict-unparseable");
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
 // A live critic that is genuinely working must never be killed: its buffer advances between reads.
 test("advancing pane is left alone even when it looks like a menu", async () => {
   let t = 1000;

@@ -118,9 +118,10 @@ const DEFAULT_FINAL_ROUND_TIMEOUT_MS = 15 * 60_000;
  * verdict as `summaryCode` and is rendered per-locale in the badge. Deriving both here is what
  * stops the log and the operator-facing reason from drifting apart.
  *
- * Order matters: a pane wedged on a prompt is checked FIRST, because it is the only cause that
- * names something the operator can act on — and it would otherwise be reported as a plain timeout
- * (it is one, but "stuck on a dialog nobody can answer" is the useful half of that sentence).
+ * Order matters: an unparseable verdict wins outright — the critic DID write something, and that is
+ * the more specific fact. Below it, a wedged pane outranks the deadline, because it is the only
+ * cause that names something the operator can act on and would otherwise be reported as a plain
+ * timeout (it is one, but "stuck on a dialog nobody can answer" is the useful half of that sentence).
  */
 export interface NoVerdictCause {
   code: ReviewSummaryCode;
@@ -222,8 +223,11 @@ export interface ReviewServiceDeps extends MembraneSeams {
     | "clearSpawnNotice"
     | "get"
   >;
-  // `readAsync` is diagnostics-only (the no-verdict pane tail) and is called defensively, so an
-  // injected fake may omit it — the read is guarded and degrades to no tail.
+  // `readAsync` now serves TWO callers: the diagnostics-only no-verdict pane tail, and detectStuck,
+  // which drives a CONTROL-FLOW decision (finalize a wedged pane early instead of waiting out the
+  // deadline). Both reads are guarded, so an injected fake may still omit it — but be aware that
+  // omitting it silently disables the stuck-pane fail-fast, which then only degrades to today's
+  // wait-for-the-deadline behavior. Tests exercising that layer MUST provide it.
   herdr: Pick<
     HerdrDriver,
     "start" | "stop" | "list" | "closeTab" | "paneForegroundProcs" | "readAsync"
@@ -895,12 +899,15 @@ export class ReviewService {
       // to finalize the same entry (double-reap / double-putReview).
       let action: VerdictAction;
       let read: VerdictRead<RawVerdict>;
+      // Hoisted (no initializer — the catch below `continue`s, so every reaching path assigns it):
+      // the wedged-pane re-decision needs it after the try.
+      let timedOut: boolean;
       try {
         // Pass the critic's per-spawn session id so the read reconstructs the unguessable `-o`
         // fallback name for THIS run — a PR can't pre-commit a matching file (see codex-last-message).
         read = this.readVerdict(f.worktreePath, f.criticSessionId);
         const elapsed = this.now() - f.startedAt;
-        const timedOut = elapsed > this.timeoutMs;
+        timedOut = elapsed > this.timeoutMs;
         // Use ground-truth process liveness (paneForegroundProcs) rather than the transient
         // agentStatus field: a live critic between API turns reads "idle"/"done" but still has
         // claude/node-MainThread in its foreground — isSpawnAlive catches that and returns true
@@ -919,8 +926,9 @@ export class ReviewService {
         continue;
       }
       // `wait` normally releases the claim and re-checks next tick — unless the pane is wedged, in
-      // which case keepWaiting() falls through to finalize now rather than burning the deadline.
-      if (action === "wait" && (await this.keepWaiting(f))) continue;
+      // which case resolveWait() re-decides and we finalize now rather than burning the deadline.
+      if (action === "wait") action = await this.resolveWait(f, read, timedOut);
+      if (action === "wait") continue;
       const raw: RawVerdict | null =
         action === "finalize-value" && read.status === "parsed" ? read.value : null;
       // Awaited before finalize() because finalize's `finally` reaps the terminal, after which the
@@ -994,21 +1002,34 @@ export class ReviewService {
   }
 
   /**
-   * Handle a `wait` decision. Returns true to keep waiting (the normal path: release the finalize
-   * claim and surface live activity), false when the pane is WEDGED on a prompt nobody can answer —
-   * which `wait` alone would hold until the hard deadline, tens of minutes later, and then report as
-   * a bare timeout. On false the claim stays held and the caller falls through to finalize with a
-   * cause that names what actually happened.
+   * Resolve a `wait` decision. Returns "wait" to keep waiting (the normal path: releases the
+   * finalize claim and surfaces live activity), or a terminal action when the pane is WEDGED on a
+   * prompt nobody can answer — which `wait` alone would hold until the hard deadline, tens of
+   * minutes later, and then report as a bare timeout. On a terminal action the claim stays held and
+   * the caller finalizes.
+   *
+   * A wedged pane is RE-DECIDED through decideVerdictAction with spawnFinished=true rather than
+   * being forced to a no-verdict error, because `wait` covers more than "nothing was written":
+   * a REPAIRED-but-complete verdict is held in `wait` only until the spawn finishes (json-tolerant),
+   * and a wedged spawn never will. Forcing an error there would discard a perfectly good verdict —
+   * losing its findings, incrementing errorRound and rolling back seenNoteIds. Re-deciding preserves
+   * it (finalize-value) while still failing fast on the unparseable/absent cases.
+   * `graceElapsed` is true by construction: detectStuck only fires past STARTUP_GRACE_MS.
    */
-  private async keepWaiting(f: InFlight): Promise<boolean> {
+  private async resolveWait(
+    f: InFlight,
+    read: VerdictRead<RawVerdict>,
+    timedOut: boolean,
+  ): Promise<VerdictAction> {
     const stuck = await this.detectStuck(f);
     if (stuck) {
       f.stuckShape = stuck;
+      const action = decideVerdictAction(read, true, timedOut, true);
       console.warn(
         `[review] ${f.sessionId}: critic pane wedged on an interactive ${stuck} prompt — ` +
-          `finalizing early instead of waiting out the deadline.`,
+          `resolving as ${action} instead of waiting out the deadline.`,
       );
-      return false;
+      return action;
     }
     f.finalizing = false; // release: not finalizing this tick
     // still running (or gated, awaiting completion) — surface what the critic is doing right now.
@@ -1016,7 +1037,7 @@ export class ReviewService {
     // client dedups identical summaries to stay quiet.
     const summary = this.readActivity(f.worktreePath, f.criticSessionId);
     if (summary) this.deps.onActivity?.(f.sessionId, summary);
-    return true;
+    return "wait";
   }
 
   /**

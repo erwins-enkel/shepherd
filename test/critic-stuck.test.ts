@@ -44,8 +44,11 @@ test("does NOT fire on a critic's numbered findings list while output advances",
 
 // …but a run that has genuinely stopped dead on that same text IS reported. Documenting the
 // residual: the guard is motion, not content, so a critic idling on its final findings render is
-// indistinguishable. Acceptable — the verdict file is already written by then, so tick() takes the
-// finalize-value path and never consults this detector.
+// indistinguishable from a wedged one. This is safe WITHOUT relying on the detector being skipped
+// — an unrepaired verdict never reaches `wait` at all, and for a repaired one ReviewService
+// re-decides the wedge through decideVerdictAction(spawnFinished=true), which finalizes the
+// verdict's VALUE rather than discarding it. A false positive here costs an early finalize, never
+// the critic's findings.
 test("an idle pane whose last paint happens to be a numbered list still reports stuck", () => {
   expect(stuckOnPrompt(FINDINGS_PANE, FINDINGS_PANE)).toBe("menu");
 });

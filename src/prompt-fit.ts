@@ -18,7 +18,7 @@ export const MIN_CLAMP_KEEP = 256;
 export const PLAN_MIN_USEFUL_BYTES = 8192;
 
 /** …and relatively, never keep less than this fraction of the plan the author actually wrote. */
-export const PLAN_MIN_USEFUL_FRACTION = 0.25;
+const PLAN_MIN_USEFUL_FRACTION = 0.25;
 
 /** The retained-bytes floor for a plan block of `originalBytes`. */
 export function planUsefulFloor(originalBytes: number): number {
@@ -42,7 +42,7 @@ export function elisionMarker(bytes: number): string {
 }
 
 /** Neutral in-fence list-truncation marker. */
-export function omissionMarker(count: number, noun = "items"): string {
+function omissionMarker(count: number, noun = "items"): string {
   return `[… ${count} further ${noun} omitted …]`;
 }
 
@@ -214,84 +214,114 @@ export function fitAssembledPrompt(args: {
   for (const spec of specs) {
     if (measured <= budget) break;
 
-    const original = values[spec.id]!;
-    const fromBytes = valueBytes(original);
+    const shrunk = shrinkSpec(spec, { budget, values, compose, measure, measured });
+    if (!shrunk) continue; // nothing to give up, or clamping it would GROW the prompt
 
-    // Largest retained size that still fits; `lo` is the floor, `hi` is unchanged.
-    const floorTermination = spec.kind === "text" ? MIN_CLAMP_KEEP : 0;
-    const floorUseful = spec.kind === "text" ? (spec.minUseful ?? 0) : 0;
-    const lo = Math.max(floorTermination, floorUseful);
-    const hi = spec.kind === "text" ? fromBytes : spec.items.length;
-    if (hi <= lo) continue; // nothing this block can give up
+    values[spec.id] = shrunk.candidate;
+    prompt = shrunk.prompt;
+    measured = shrunk.measured;
+    if (shrunk.usefulnessBound) usefulnessBound = true;
+    clamps.push(shrunk.record);
+  }
 
-    const render = (n: number): ClampValue =>
-      spec.kind === "text"
-        ? clampBlock(spec.text, n, spec.mode)
-        : clampList(spec.items, n, spec.noun);
+  if (measured > budget) return refuse(usefulnessBound, measured, budget);
+  // A block clamped BELOW its usefulness floor is unreviewable even if the total now fits — the
+  // search only ever lands there via shrinkSpec's best-effort branch, which flags it.
+  if (usefulnessBound) return refuse(true, measured, budget);
+  return { ok: true, prompt, clamps };
+}
 
-    const measureAt = (n: number): number => measure(compose({ ...values, [spec.id]: render(n) }));
+/** Fit ONE block as small as it needs to be and no smaller, or report that it cannot help.
+ *
+ *  Binary search over the retained size against the real `measure` of the real `compose`, rather
+ *  than subtracting a predicted byte count. That is what makes the arithmetic marker-net without
+ *  hand-rolling it: quoting/escaping expansion is priced in exactly, and a candidate is accepted
+ *  only when it STRICTLY reduces the measured prompt — so a block whose removable slack is smaller
+ *  than the marker it would insert is skipped rather than clamped into GROWTH. */
+function shrinkSpec(
+  spec: ClampSpec,
+  ctx: {
+    budget: number;
+    values: ClampValues;
+    compose: (values: ClampValues) => string;
+    measure: (prompt: string) => number;
+    measured: number;
+  },
+): {
+  candidate: ClampValue;
+  prompt: string;
+  measured: number;
+  usefulnessBound: boolean;
+  record: ClampRecord;
+} | null {
+  const { budget, values, compose, measure } = ctx;
+  const fromBytes = valueBytes(values[spec.id]!);
 
-    // Does even the floor fit? If not, take the floor (best effort) and move to the next block.
-    const floorFits = measureAt(lo) <= budget;
-    let best = lo;
-    if (floorFits) {
-      // Binary search for the LARGEST retained size that fits.
-      let low = lo;
-      let high = hi;
-      while (low < high) {
-        const mid = Math.ceil((low + high) / 2);
-        if (measureAt(mid) <= budget) low = mid;
-        else high = mid - 1;
-      }
-      best = low;
+  const floorTermination = spec.kind === "text" ? MIN_CLAMP_KEEP : 0;
+  const floorUseful = spec.kind === "text" ? (spec.minUseful ?? 0) : 0;
+  const lo = Math.max(floorTermination, floorUseful);
+  const hi = spec.kind === "text" ? fromBytes : spec.items.length;
+  if (hi <= lo) return null; // nothing this block can give up
+
+  const render = (n: number): ClampValue =>
+    spec.kind === "text"
+      ? clampBlock(spec.text, n, spec.mode)
+      : clampList(spec.items, n, spec.noun);
+  const measureAt = (n: number): number => measure(compose({ ...values, [spec.id]: render(n) }));
+
+  // Does even the floor fit? If not, take the floor (best effort) and let the caller move on.
+  const floorFits = measureAt(lo) <= budget;
+  let best = lo;
+  if (floorFits) {
+    let low = lo;
+    let high = hi;
+    while (low < high) {
+      const mid = Math.ceil((low + high) / 2);
+      if (measureAt(mid) <= budget) low = mid;
+      else high = mid - 1;
     }
+    best = low;
+  }
 
-    const candidate = render(best);
-    const candidatePrompt = compose({ ...values, [spec.id]: candidate });
-    const candidateMeasured = measure(candidatePrompt);
+  const candidate = render(best);
+  const prompt = compose({ ...values, [spec.id]: candidate });
+  const measured = measure(prompt);
+  if (measured >= ctx.measured) return null; // would not strictly reduce — skip, never grow
 
-    // Accept ONLY a strict reduction. A block whose slack is smaller than its own marker would
-    // otherwise be "clamped" into a LARGER prompt — the exact footgun a naive
-    // `shrink by min(overage, absorbable)` walks into.
-    if (candidateMeasured >= measured) continue;
-
-    values[spec.id] = candidate;
-    prompt = candidatePrompt;
-    measured = candidateMeasured;
+  return {
+    candidate,
+    prompt,
+    measured,
     // Flag only an ACCEPTED clamp that landed on a usefulness floor — a skipped block never made
     // the plan unreviewable, so it must not change the refusal reason.
-    if (!floorFits && floorUseful > floorTermination) usefulnessBound = true;
-    clamps.push({
+    usefulnessBound: !floorFits && floorUseful > floorTermination,
+    record: {
       id: spec.id,
       fromBytes,
       toBytes: valueBytes(candidate),
       ...(spec.kind === "list" ? { droppedItems: spec.items.length - best } : {}),
-    });
-  }
+    },
+  };
+}
 
-  if (measured > budget) {
-    return {
-      ok: false,
-      reason: usefulnessBound ? "plan-unreviewable" : "over-budget",
-      measured,
-      budget,
-      detail: usefulnessBound
-        ? `fitting the ${measured}-byte prompt into ${budget} bytes would leave too little of the plan to review`
-        : `prompt is ${measured} bytes, ${measured - budget} over the ${budget}-byte spawn budget`,
-    };
-  }
-
-  // A block clamped BELOW its usefulness floor is unreviewable even if the total now fits — the
-  // search only ever lands there via the best-effort branch above, which flags it.
+function refuse(usefulnessBound: boolean, measured: number, budget: number): FitResult {
   if (usefulnessBound) {
     return {
       ok: false,
       reason: "plan-unreviewable",
       measured,
       budget,
-      detail: `the plan had to be cut below the reviewable minimum to fit the ${budget}-byte spawn budget`,
+      detail:
+        measured > budget
+          ? `fitting the ${measured}-byte prompt into ${budget} bytes would leave too little of the plan to review`
+          : `the plan had to be cut below the reviewable minimum to fit the ${budget}-byte spawn budget`,
     };
   }
-
-  return { ok: true, prompt, clamps };
+  return {
+    ok: false,
+    reason: "over-budget",
+    measured,
+    budget,
+    detail: `prompt is ${measured} bytes, ${measured - budget} over the ${budget}-byte spawn budget`,
+  };
 }

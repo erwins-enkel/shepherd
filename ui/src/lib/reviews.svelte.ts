@@ -289,7 +289,7 @@ export const planGates = new PlanGateStore();
  *  Deliberately a store of its own rather than a field on PlanGateStore/ReviewsStore: a notice is
  *  NOT a verdict. Folding it into either would invite exactly the confusion the server-side sidecar
  *  exists to avoid — a clamped or refused spawn must never look like a gating row. */
-export class SpawnNoticeStore {
+class SpawnNoticeStore {
   map = $state<Record<string, SpawnNotice[]>>({});
 
   bootstrap(map: Record<string, SpawnNotice[]>) {

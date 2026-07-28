@@ -15,8 +15,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
-import { spawnBudget } from "./spawn-budget";
-import { fitAssembledPrompt, describeClamps } from "./prompt-fit";
+import { spawnBudget, type SpawnAssembler } from "./spawn-budget";
+
+/** Operator-facing cause on a recap that could not be spawned at all (#1944). */
+const RECAP_OVERSIZED = "recap prompt exceeds the OS argument limit";
+import { fitAssembledPrompt as fitFrom, describeClamps } from "./prompt-fit";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -839,44 +842,18 @@ export class RecapService {
       const argvFor = (p: string): string[] =>
         recapArgv(env.provider, env.model, p, env.effort, spawnSessionId).argv;
 
-      // #1944: fit the prompt inside the OS argv budget or fail visibly. Recap spawns MEMBRANE-LESS
-      // (no bwrap wrap), but `herdr.start` still applies its own `buildWrappedArgv` env shim, which
-      // spawnBudget accounts for. `taskPrompt` is never clamped — it is the human-authored ground
-      // truth the recap is written against. `changedFiles` is here because it is unbounded in
-      // COUNT (diff.ts caps total LINES, not file count), so a wide commit can blow the budget on
-      // paths alone.
-      const fitted = fitAssembledPrompt({
-        ...spawnBudget((p) => ({ wrapped: argvFor(p), spawnEnv: apiKeyPassthroughEnv(false) })),
-        specs: [
-          { id: "plan", kind: "text", text: plan, mode: "head-tail" },
-          { id: "changedFiles", kind: "list", items: changedFiles, noun: "files" },
-          { id: "context", kind: "text", text: context, mode: "head" },
-        ],
-        compose: (v) =>
-          composePrompt({
-            plan: v.plan as string,
-            // clampList emits its marker as a trailing pseudo-entry; re-attach a status so the
-            // typed changedFiles shape holds without special-casing it downstream.
-            changedFiles: (v.changedFiles as string[]).map(
-              (path) =>
-                changedFilesWithStatus.find((f) => f.path === path) ?? {
-                  path,
-                  status: "modified" as DiffFileStatus,
-                },
-            ),
-            context: v.context as string,
-          }),
-      });
-      if (!fitted.ok) {
-        this.putFailureRecap(session, "launch-failed", new Error(fitted.detail), head, base);
+      // #1944: fit the prompt inside the OS argv budget, or null when it cannot be made to fit.
+      // The helper owns the clamp log line so this already-long orchestration carries one branch.
+      const prompt = fitRecapPrompt(
+        { plan, changedFiles, changedFilesWithStatus, context },
+        composePrompt,
+        (p) => ({ wrapped: argvFor(p), spawnEnv: apiKeyPassthroughEnv(false) }),
+        `${session.id} (${session.desig})`,
+      );
+      if (prompt == null) {
+        this.putFailureRecap(session, "launch-failed", new Error(RECAP_OVERSIZED), head, base);
         return "error";
       }
-      if (fitted.clamps.length) {
-        console.warn(
-          `[recap] prompt clamped to fit the OS argv limit for ${session.id} (${session.desig}): ${describeClamps(fitted.clamps)}`,
-        );
-      }
-      const prompt = fitted.prompt;
       const argv = argvFor(prompt);
 
       // Spawn. Keep the returned handle: the terminalId is the finalizer's teardown key
@@ -1160,4 +1137,62 @@ export class RecapService {
   snapshot(): Record<string, Recap> {
     return this.deps.store.snapshotRecaps();
   }
+}
+
+/** Fit the recap prompt inside the OS argv budget (#1944).
+ *
+ *  Recap spawns MEMBRANE-LESS (no bwrap wrap), but `herdr.start` still applies its own
+ *  `buildWrappedArgv` env shim, which `spawnBudget` accounts for.
+ *
+ *  `taskPrompt` is never clamped — it is the human-authored ground truth the recap is written
+ *  against. `changedFiles` IS clampable because it is unbounded in COUNT (`diff.ts` caps total
+ *  LINES, not file count), so a wide commit can blow the budget on paths alone. */
+function fitRecapPrompt(
+  input: {
+    plan: string;
+    changedFiles: string[];
+    changedFilesWithStatus: { path: string; status: DiffFileStatus }[];
+    context: string;
+  },
+  compose: (v: {
+    plan: string;
+    changedFiles: { path: string; status: DiffFileStatus }[];
+    context: string;
+  }) => string,
+  assemble: SpawnAssembler,
+  label: string,
+): string | null {
+  const fitted = fitFrom({
+    ...spawnBudget(assemble),
+    specs: [
+      { id: "plan", kind: "text", text: input.plan, mode: "head-tail" },
+      { id: "changedFiles", kind: "list", items: input.changedFiles, noun: "files" },
+      { id: "context", kind: "text", text: input.context, mode: "head" },
+    ],
+    compose: (v) =>
+      compose({
+        plan: v.plan as string,
+        // clampList emits its marker as a trailing pseudo-entry; re-attach a status so the typed
+        // changedFiles shape holds without special-casing it downstream.
+        changedFiles: (v.changedFiles as string[]).map(
+          (path) =>
+            input.changedFilesWithStatus.find((f) => f.path === path) ?? {
+              path,
+              status: "modified" as DiffFileStatus,
+            },
+        ),
+        context: v.context as string,
+      }),
+  });
+  if (!fitted.ok) {
+    console.warn(`[recap] refusing to spawn the writer for ${label}: ${fitted.detail}`);
+    return null;
+  }
+  // A clamp is never silent.
+  if (fitted.clamps.length) {
+    console.warn(
+      `[recap] prompt clamped to fit the OS argv limit for ${label}: ${describeClamps(fitted.clamps)}`,
+    );
+  }
+  return fitted.prompt;
 }

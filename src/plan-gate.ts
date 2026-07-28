@@ -1597,7 +1597,7 @@ export const MAX_REFUSAL_STEERS = 2;
 /** The refusal steer. Deliberately NOT `planSteerText`: this is a HARNESS limit, not a reviewer
  *  finding, and saying otherwise sends the agent hunting for a review that never ran — the exact
  *  confusion issue #1944 reports. It names the cause, the number, and the one action that helps. */
-export function refusalSteerText(fitted: {
+function refusalSteerText(fitted: {
   reason: SpawnNoticeReason;
   measured: number;
   budget: number;

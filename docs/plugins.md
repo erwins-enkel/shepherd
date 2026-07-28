@@ -157,18 +157,63 @@ Neither auto-loads from the repo (the loader only ever scans `~/.shepherd/plugin
 everything goes through `ctx`, so a future Shepherd can swap the implementation (curated /
 permission-scoped / out-of-process) without changing your call sites.
 
-| Capability                         | What it does                                                                                                                                                   |
-| ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `ctx.onSpawn(fn)`                  | Mutate how an agent launches (see below). The load-bearing capability.                                                                                         |
-| `ctx.events.subscribe(fn)`         | Observe the **read-only** core event stream (`session:hold`, `session:status`, …). Returns an unsubscribe fn. Plugins cannot _emit_ core events.               |
-| `ctx.publishStatus(json)`          | Push a small free-form JSON blob to the status panel (rendered verbatim).                                                                                      |
-| `ctx.publishUI(view)`              | Push a declarative UI view to the Settings → Plugins panel (`null` clears). Additive.                                                                          |
-| `ctx.publishGearItem(item)`        | Add a single item to the top-bar gear menu (`null` clears). Additive.                                                                                          |
-| `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema. |
-| `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                            |
-| `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                        |
-| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent).                                                                                                    |
-| `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                         |
+| Capability                         | What it does                                                                                                                                                            |
+| ---------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `ctx.onSpawn(fn)`                  | Mutate how an agent launches (see below). The load-bearing capability.                                                                                                  |
+| `ctx.events.subscribe(fn)`         | Observe the **read-only** core event stream (`session:hold`, `session:status`, …). Returns an unsubscribe fn. Plugins cannot _emit_ core events.                        |
+| `ctx.publishStatus(json)`          | Push a small free-form JSON blob to the status panel (rendered verbatim).                                                                                               |
+| `ctx.publishUI(view)`              | Push a declarative UI view to the Settings → Plugins panel (`null` clears). Additive.                                                                                   |
+| `ctx.publishGearItem(item)`        | Add a single item to the top-bar gear menu (`null` clears). Additive.                                                                                                   |
+| `ctx.state`                        | Durable, **per-plugin-scoped** key/value: `get`/`set`/`delete`/`keys`. Values are JSON. Backed by a `plugin_state` table — you never touch the session schema.          |
+| `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions. |
+| `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                     |
+| `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                 |
+| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent).                                                                                                             |
+| `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                                  |
+
+## Reading sessions (`ctx.sessions`)
+
+The event stream tells you _that_ something happened, not _what_ it happened to. Treat a
+`session:status` payload as `{ id, status }` and nothing more — most emitters send exactly
+that, and while one currently sends the whole session row, a plugin that reads the extra
+fields is relying on an emitter detail, not on the contract. `ctx.sessions` is how you turn
+that id into something you can render.
+
+```ts
+ctx.events.subscribe((event, data) => {
+  if (event !== "session:status") return;
+  const { id, status } = data as { id: string; status: string };
+  if (status !== "done") return;
+  const s = ctx.sessions.get(id);
+  if (!s) return; // pruned between the event and the read
+  notifyMyChannel(
+    `${s.desig} (${basename(s.repoPath)}) is done` + (s.pr ? ` — PR #${s.pr.number}` : ""),
+  );
+});
+```
+
+- **`get(id)`** → the snapshot, or `null` when no such session exists.
+- **`list()`** → every session core holds, **archived rows included** (filter on
+  `status === "archived"` / `archivedAt` if you only want live ones).
+
+Reads are **live**, not a boot-time freeze — hold the object from `register()` and keep
+calling it. Snapshots are point-in-time **copies**; mutating one does nothing.
+
+**The snapshot is curated, not the internal row.** It carries `id`, `desig`, `name`,
+`repoPath`, `baseBranch`, `branch`, `status`, `model`, `agentProvider`, `issueNumber`,
+`haltReason`, `createdAt`, `updatedAt`, `archivedAt`, and a `pr` block
+(`state`/`number`/`url`/`title`/`checks`/`isDraft`) projected from the cached forge state.
+It deliberately **withholds** `prompt`, `worktreePath`, `spawnAccountDir` and
+`launchMetadata` — task text and account paths widen the trust surface with no read-side use
+case, and returning the row verbatim would make every future internal field an accidental
+part of this contract.
+
+`pr` is `null` when there is no cached git state at all (never polled, or archived — the
+cache holds only non-archived sessions). That is **not** the same as a polled
+`pr.state === "none"`, which means "we looked, there is no PR yet".
+
+> **Additive API.** Older cores don't expose it — guard with
+> `typeof ctx.sessions?.get === "function"` if your plugin must run on both.
 
 ## The `onSpawn` hook
 

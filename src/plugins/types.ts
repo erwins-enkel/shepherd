@@ -105,6 +105,63 @@ export interface PluginLogger {
   warn(...args: unknown[]): void;
 }
 
+/** A session's PR as a plugin sees it — the display-relevant subset of the cached forge
+ *  `GitState`, projected so a plugin never depends on the forge module. `null` on a session
+ *  with no cached git state at all (never polled, or archived — the cache refuses archived
+ *  rows), which is distinct from a live `state: "none"` meaning "polled, no PR yet". */
+export interface PluginSessionPr {
+  state: "none" | "open" | "merged" | "closed";
+  number?: number;
+  url?: string;
+  title?: string;
+  checks: "none" | "pending" | "success" | "failure";
+  isDraft?: boolean;
+}
+
+/** Read-only view of a session handed to plugins by {@link PluginSessions}.
+ *
+ *  DELIBERATELY CURATED, not the internal `Session` row. Two reasons, and both are the
+ *  reason to think twice before widening it:
+ *   1. `prompt`, `worktreePath`, `spawnAccountDir` and `launchMetadata` are withheld — they
+ *      widen the trust surface (task text, account paths) with no read-side use case.
+ *   2. Returning the row verbatim would weld this versioned contract to the internal schema,
+ *      making every future `Session` field an accidental public API.
+ *  The string unions mirror core's `SessionStatus` / `AgentProvider` inline because this file
+ *  has no imports (see the header); the mapper that fills them does import the real types, so
+ *  a new core status or provider fails to compile there rather than silently lying here. */
+export interface PluginSessionSnapshot {
+  id: string;
+  /** Stable display designation, e.g. `TASK-07`. */
+  desig: string;
+  name: string;
+  repoPath: string;
+  baseBranch: string;
+  /** Work branch; null for a non-isolated cwd-fallback session. */
+  branch: string | null;
+  status: "running" | "idle" | "blocked" | "done" | "archived";
+  /** Selected CLI model alias; null = provider default. */
+  model: string | null;
+  agentProvider: "claude" | "codex";
+  /** Backlog issue this session was spawned for; null for manual/non-issue sessions. */
+  issueNumber: number | null;
+  /** Why the session halted mid-run; null when not halted. */
+  haltReason: "usage_limit" | "completed" | "operator" | "error" | null;
+  createdAt: number;
+  updatedAt: number;
+  archivedAt: number | null;
+  pr: PluginSessionPr | null;
+}
+
+/** Read-only session lookup. Snapshots are point-in-time COPIES — mutating one does nothing.
+ *  Pair with `ctx.events.subscribe` when reacting to a `session:*` event, whose payload carries
+ *  little more than the session id. */
+export interface PluginSessions {
+  /** The snapshot for `id`, or `null` when no such session exists. */
+  get(id: string): PluginSessionSnapshot | null;
+  /** Every session core currently holds, archived rows included. */
+  list(): PluginSessionSnapshot[];
+}
+
 export type PluginRouteHandler = (req: Request) => Response | Promise<Response>;
 
 /** The SOLE seam between a plugin and core. */
@@ -126,6 +183,10 @@ export interface PluginContext {
   publishGearItem(item: PluginGearItem | null): void;
   /** Durable, scoped per-plugin key/value (backed by the `plugin_state` table). */
   state: PluginState;
+  /** Read-only session lookup — resolves the bare ids that `session:*` events carry into
+   *  a curated {@link PluginSessionSnapshot}. Additive; plugins that must run on an older
+   *  core guard with `typeof ctx.sessions?.get === "function"`. */
+  sessions: PluginSessions;
   /** Register an HTTP route under the fixed `/api/plugins/<id>/<path>` namespace. */
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */

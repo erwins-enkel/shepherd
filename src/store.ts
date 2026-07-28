@@ -2571,6 +2571,21 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** One session's cached git state, or null when absent/unparseable. Unlike
+   *  {@link listSessionGitCache} this is strictly READ-ONLY — it never prunes an invalid or
+   *  archived row, because its caller is a plugin read (`ctx.sessions`) and a read must not
+   *  mutate core state. Archived rows are excluded to match the list view's contract (the
+   *  cache is written only for non-archived sessions; a row that raced archival reads null). */
+  getSessionGitCache(sessionId: string): GitState | null {
+    const row = this.db
+      .query(
+        `SELECT c.gitJson FROM session_git_cache c JOIN sessions s ON s.id = c.sessionId
+         WHERE c.sessionId = ? AND s.status != 'archived'`,
+      )
+      .get(sessionId) as { gitJson: string } | null;
+    return row ? parsePersistedGitState(row.gitJson) : null;
+  }
+
   listSessionGitCache(): Record<string, GitState> {
     const rows = this.db
       .query(

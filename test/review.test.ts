@@ -1,8 +1,8 @@
-import { test, expect, beforeEach, afterEach } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { ReviewService, reviewPrompt, scopeFindings } from "../src/review";
+import { ReviewService, reviewPrompt, scopeFindings, noVerdictCause } from "../src/review";
 import { PluginSpawnAborted } from "../src/plugins/types";
 import type { VerdictRead } from "../src/json-tolerant";
 import type { RawVerdict } from "../src/critic-core";
@@ -187,6 +187,7 @@ function makeDeps(
   } = {},
 ) {
   const reviews: Record<string, ReviewVerdict> = {};
+  const paneReads: { source?: string; lines?: number }[] = [];
   const started: { name: string; cwd: string; argv: string[]; env?: Record<string, string> }[] = [];
   const stopped: string[] = [];
   const removed: string[] = [];
@@ -270,9 +271,16 @@ function makeDeps(
       async closeTab() {
         /* forward-compat; used by other tests via the existing path */
       }
-      // Only defined when the test asks for a tail — see criticPaneTail.
+      // Only defined when the test asks for a tail — see criticPaneTail. Records (source, lines)
+      // so the stuck-pane wiring can assert it reads the RAW "visible" buffer, not the collapsed
+      // readPaneTail shape (a wrong source silently disables the detector).
       readAsync =
-        opts.criticPaneTail === undefined ? undefined : async () => opts.criticPaneTail as string;
+        opts.criticPaneTail === undefined
+          ? undefined
+          : async (_t: string, source?: string, lines?: number) => {
+              paneReads.push({ source, lines });
+              return opts.criticPaneTail as string;
+            };
     })(),
     worktree: new (class {
       readonly recorded = removed; // this-dependent: unbound call loses this.recorded
@@ -327,6 +335,7 @@ function makeDeps(
     completedSpawns,
     notices,
     noticeEvents,
+    paneReads,
     rec,
   };
 }
@@ -850,6 +859,147 @@ test("critic exits before the deadline → diagnostic says exited, not timed out
     expect(line).toContain("spawn exited without writing a verdict file");
     expect(line).not.toContain("hard timeout");
     expect(line).toContain("pane-tail: Login expired");
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// ── no-verdict cause classification ──────────────────────────────────────────
+// One pure function feeds BOTH the server log (`detail`) and the operator-facing badge (`code`),
+// so the two can never disagree about why a review failed. The three pre-existing detail strings
+// are asserted verbatim: they are what an operator greps for in shepherd.log.
+describe("noVerdictCause", () => {
+  const absent = { status: "absent" } as const;
+  const unparseable = { status: "unparseable", raw: "{oops" } as const;
+
+  test("unparseable wins over everything, including a wedged pane", () => {
+    const c = noVerdictCause(unparseable as any, 999_999, 1000, "menu");
+    expect(c.code).toBe("no-verdict-unparseable");
+    expect(c.detail).toBe("verdict file present but unparseable even after jsonrepair");
+  });
+
+  test("a wedged pane outranks the deadline — it names something actionable", () => {
+    const c = noVerdictCause(absent as any, 999_999, 1000, "menu");
+    expect(c.code).toBe("no-verdict-blocked");
+    expect(c.detail).toContain("wedged on an interactive menu prompt");
+  });
+
+  test("at/past the deadline with no wedge → timeout", () => {
+    const c = noVerdictCause(absent as any, 5000, 5000, null);
+    expect(c.code).toBe("no-verdict-timeout");
+    expect(c.detail).toBe("hard timeout — critic still had no verdict file at the deadline");
+  });
+
+  test("before the deadline with no wedge → exited", () => {
+    const c = noVerdictCause(absent as any, 1000, 5000, null);
+    expect(c.code).toBe("no-verdict-exited");
+    expect(c.detail).toBe("spawn exited without writing a verdict file");
+  });
+});
+
+// A verdict the critic DID write, but whose `decision` field is unrecognized, resolves to `error`
+// via buildVerdictCore — while still carrying the critic's own summary. Keying the server-authored
+// reason off the resolved decision (rather than off "no verdict was produced") would blank that
+// prose and mislabel a real review as a spawn failure.
+test("an error-resolving verdict the critic DID write keeps its summary and gets no code", async () => {
+  const { deps: d, reviews } = makeDeps({
+    readVerdict: () => ({ decision: "totally-bogus", summary: "2 issues", body: "## findings" }),
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  expect(reviews["s1"]?.decision).toBe("error");
+  expect(reviews["s1"]?.summary).toBe("2 issues"); // the critic's own prose survives
+  expect(reviews["s1"]?.summaryCode ?? null).toBeNull(); // no server-authored reason to render
+});
+
+// ── stuck-pane fail-fast ─────────────────────────────────────────────────────
+// A critic wedged on a dialog nobody can answer stays "alive" forever, so without this it burns the
+// FULL deadline (30 min in production) and then reports a bare timeout. The pane below is the real
+// captured wedge that hung six PR reviews.
+const WEDGED_PANE = [
+  "Try the new fullscreen renderer?",
+  "· Flicker-free output — fixes the flashing you see during long responses",
+  "",
+  "❯ 1. Yes, try it",
+  "  2. Not now",
+].join("\n");
+
+/** Live-but-idle critic with no verdict, a wedged pane, and a deadline far away. */
+function wedgedDeps(now: () => number) {
+  return makeDeps(
+    { now, readVerdict: () => null, timeoutMs: 1_800_000 },
+    { criticProcs: ["node"], criticPaneTail: WEDGED_PANE }, // non-shell procs → isSpawnAlive true
+  );
+}
+
+test("wedged critic pane finalizes early with the blocked cause, not a timeout", async () => {
+  let t = 1000;
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warnings.push(a.map(String).join(" "));
+  try {
+    const { deps: d, reviews, stopped, removed } = wedgedDeps(() => t);
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000; // past boot grace, nowhere near the 30min deadline
+
+    await svc.tick(); // first read: nothing to compare against yet
+    expect(reviews["s1"]).toBeUndefined(); // must NOT act on a single sample
+
+    await svc.tick(); // second identical read → wedged
+    expect(reviews["s1"]?.decision).toBe("error");
+    expect(reviews["s1"]?.summaryCode).toBe("no-verdict-blocked");
+    expect(reviews["s1"]?.summary).toBe(""); // code set ⇒ summary blanked, UI localizes
+    expect(stopped).toEqual(["rt"]); // reaped like any other finalize
+    expect(removed).toEqual(["/review-wt"]);
+    const line = warnings.find((w) => w.includes("no usable verdict"))!;
+    expect(line).toContain("wedged on an interactive menu prompt");
+    expect(line).not.toContain("hard timeout"); // the deadline never fired
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// THE WIRING GUARD. critic-stuck.test.ts feeds the helper raw buffers, so it passes no matter what
+// tick() actually reads. If the detector were pointed at readPaneTail()'s collapsed one-line
+// "recent" shape it would silently never fire — caught here and nowhere else.
+test("stuck detection reads the RAW visible buffer, not the collapsed recent tail", async () => {
+  let t = 1000;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, paneReads } = wedgedDeps(() => t);
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+    await svc.tick(); // a pure wait tick: the ONLY pane read it makes is the detector's
+    expect(paneReads).toEqual([{ source: "visible", lines: undefined }]);
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+// A live critic that is genuinely working must never be killed: its buffer advances between reads.
+test("advancing pane is left alone even when it looks like a menu", async () => {
+  let t = 1000;
+  let painted = 0;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, readVerdict: () => null, timeoutMs: 1_800_000 },
+      { criticProcs: ["node"], criticPaneTail: WEDGED_PANE },
+    );
+    // Re-point readAsync at an ADVANCING buffer (same menu shape, growing output).
+    (d as any).herdr.readAsync = async () => `${WEDGED_PANE}\nline ${painted++}`;
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+    await svc.tick();
+    await svc.tick();
+    await svc.tick();
+    expect(reviews["s1"]).toBeUndefined(); // still waiting, correctly
   } finally {
     console.warn = origWarn;
   }

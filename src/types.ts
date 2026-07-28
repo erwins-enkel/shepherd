@@ -644,12 +644,27 @@ export interface PlanGate {
 // ── critic-on-PR review verdict ─────────────────────────────────────────────
 export type ReviewDecision = "changes_requested" | "commented" | "error";
 
+/** Why a critic run produced no usable verdict. A SERVER-authored reason, so it travels as a
+ *  sentinel code and is rendered per-locale in the UI (same contract as `PlanSummaryCode`) rather
+ *  than baking English into the row. Only `error` verdicts carry one.
+ *   - `blocked`      the pane was wedged on an interactive prompt it could never answer
+ *   - `timeout`      still had no verdict file when the hard deadline fired
+ *   - `exited`       the spawn ended without writing a verdict file
+ *   - `unparseable`  a verdict file was written but is not parseable even after jsonrepair */
+export type ReviewSummaryCode =
+  "no-verdict-blocked" | "no-verdict-timeout" | "no-verdict-exited" | "no-verdict-unparseable";
+
 export interface ReviewVerdict {
   sessionId: string;
   headSha: string; // PR head this verdict applies to
   patchId: string; // git patch-id of `git diff base...HEAD`; dedups re-reviews across rebases (a pure rebase keeps it stable, so the head can change without re-reviewing). '' = unknown (always reviews)
   decision: ReviewDecision;
-  summary: string; // <=100 char one-liner for the badge tooltip
+  summary: string; // <=100 char one-liner for the badge tooltip; "" when summaryCode is set
+  // Sentinel code for a server-authored summary (only `error` verdicts carry one), rendered
+  // per-locale in the UI instead of baking English into the row. When set, `summary` is "" and the
+  // UI ignores it; absent (legacy rows / real verdicts) → render `summary` verbatim. Mirrors
+  // PlanGate.summaryCode. See src/review.ts noVerdictCause().
+  summaryCode?: ReviewSummaryCode | null;
   body: string; // full markdown findings (seeds the steer-back)
   findings: string[]; // discrete actionable items; [] = nothing to address (loop terminates)
   addressRound: number; // auto-address steers spent on the current findings streak (0 = clean/reset)

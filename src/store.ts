@@ -10,6 +10,7 @@ import type {
   SpawnNotice,
   SpawnNoticeKind,
   PlanSummaryCode,
+  ReviewSummaryCode,
   Recap,
   RecapSkip,
   RecapFailure,
@@ -331,6 +332,19 @@ function coerceSummaryCode(v: string | null): PlanSummaryCode | null {
   return v === "no-verdict" ? "no-verdict" : null;
 }
 
+const REVIEW_SUMMARY_CODES: ReadonlySet<string> = new Set<ReviewSummaryCode>([
+  "no-verdict-blocked",
+  "no-verdict-timeout",
+  "no-verdict-exited",
+  "no-verdict-unparseable",
+]);
+
+/** Coerce a persisted critic summary code: only a known sentinel survives; anything else (legacy
+ *  rows, whose prose lived in `summary`) → null, so the UI falls back to rendering `summary`. */
+function coerceReviewSummaryCode(v: string | null): ReviewSummaryCode | null {
+  return v !== null && REVIEW_SUMMARY_CODES.has(v) ? (v as ReviewSummaryCode) : null;
+}
+
 /** Coerce a persisted tri-state flag: null/undefined stays null (inherit), else a real boolean. */
 function nullableBool(v: unknown): boolean | null {
   return v === null || v === undefined ? null : !!v;
@@ -604,6 +618,7 @@ type ReviewVerdictRow = {
   patchId: string | null;
   decision: string;
   summary: string;
+  summaryCode: string | null;
   body: string;
   findings: string;
   addressRound: number | null;
@@ -1161,7 +1176,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`CREATE TABLE IF NOT EXISTS reviews (
       sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, patchId TEXT NOT NULL DEFAULT '',
       decision TEXT NOT NULL,
-      summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      summary TEXT NOT NULL DEFAULT '', summaryCode TEXT, body TEXT NOT NULL DEFAULT '',
       findings TEXT NOT NULL DEFAULT '[]', addressRound INTEGER NOT NULL DEFAULT 0,
       addressCap INTEGER NOT NULL DEFAULT 3, errorRound INTEGER NOT NULL DEFAULT 0,
       streakReviews INTEGER NOT NULL DEFAULT 0, reviewedPatchIds TEXT NOT NULL DEFAULT '[]',
@@ -2697,6 +2712,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return {
       ...r,
       patchId: r.patchId ?? "",
+      // Explicit: the `...r` spread would otherwise pass the raw column through un-validated.
+      summaryCode: coerceReviewSummaryCode(r.summaryCode),
       findings: parseFindings(r.findings),
       addressRound: r.addressRound ?? 0,
       addressCap: r.addressCap ?? 3,
@@ -2717,7 +2734,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   getReview(sessionId: string): ReviewVerdict | null {
     const r = this.db
       .query(
-        `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt
               FROM reviews WHERE sessionId = ?`,
       )
@@ -2727,12 +2744,13 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   putReview(v: ReviewVerdict): void {
     this.db.run(
-      `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
+      `INSERT INTO reviews (sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
          addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(sessionId) DO UPDATE SET headSha=excluded.headSha, patchId=excluded.patchId,
          decision=excluded.decision,
-         summary=excluded.summary, body=excluded.body, findings=excluded.findings,
+         summary=excluded.summary, summaryCode=excluded.summaryCode,
+         body=excluded.body, findings=excluded.findings,
          addressRound=excluded.addressRound, addressCap=excluded.addressCap,
          streakReviews=excluded.streakReviews, reviewedPatchIds=excluded.reviewedPatchIds,
          errorRound=excluded.errorRound, finalRoundPending=excluded.finalRoundPending,
@@ -2744,6 +2762,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
         v.patchId ?? "",
         v.decision,
         v.summary,
+        v.summaryCode ?? null,
         v.body,
         JSON.stringify(v.findings ?? []),
         v.addressRound ?? 0,
@@ -2797,7 +2816,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   snapshotReviews(): Record<string, ReviewVerdict> {
     const rows = this.db
       .query(
-        `SELECT sessionId, headSha, patchId, decision, summary, body, findings, addressRound,
+        `SELECT sessionId, headSha, patchId, decision, summary, summaryCode, body, findings, addressRound,
                 addressCap, streakReviews, reviewedPatchIds, errorRound, finalRoundPending, finalRoundTimeoutMs, seenNoteIds, url, spawnAborted, dismissed, updatedAt FROM reviews`,
       )
       .all() as ReviewVerdictRow[];
@@ -3906,6 +3925,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // dismissed: operator took over this stalled critic rework; classification/attention consumers
     // skip it. Pre-existing rows backfill to 0 (not dismissed).
     add("dismissed", `dismissed INTEGER NOT NULL DEFAULT 0`);
+    // summaryCode: sentinel for a server-authored no-verdict reason, rendered per-locale in the UI.
+    // Pre-existing rows backfill to NULL (render their stored `summary` prose verbatim).
+    add("summaryCode", `summaryCode TEXT`);
+    // Migrate legacy `error` rows that baked the English summary in. They predate the four-way
+    // split and recorded no cause, so they can only map to the generic timeout sentinel — which is
+    // what the overwhelming majority of them were (the deadline is the common terminal state).
+    // Idempotent (after the flip the WHERE no longer matches) and no-clobber (only the exact prose,
+    // only `error` rows, only where no code has been recorded yet).
+    this.db.run(
+      `UPDATE reviews SET summaryCode='no-verdict-timeout', summary=''
+         WHERE decision='error' AND summaryCode IS NULL
+           AND summary='critic did not produce a verdict'`,
+    );
   }
 
   private migratePlanGateColumns(): void {

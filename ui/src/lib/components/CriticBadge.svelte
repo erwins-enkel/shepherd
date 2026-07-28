@@ -1,6 +1,6 @@
 <script lang="ts">
   import { reviews, spawnNotices } from "$lib/reviews.svelte";
-  import { criticChip, addressRoundInfo } from "./critic-badge";
+  import { criticChip, addressRoundInfo, criticTitle } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
   import { statusTip } from "$lib/actions/statusTip.svelte";
@@ -99,7 +99,7 @@
       return {
         cls: `critic-${chip.decision}`,
         label: chip.label,
-        title: verdict!.summary || m.criticbadge_title(),
+        title: criticTitle(verdict!),
         dot: false,
       };
     return null;

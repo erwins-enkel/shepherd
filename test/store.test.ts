@@ -460,6 +460,7 @@ test("reviews: upsert + read by session, snapshot all", () => {
     finalRoundTimeoutMs: 900_000,
     seenNoteIds: ["c1", "c2"],
     url: "u",
+    summaryCode: null, // no server-authored reason on a real verdict
     updatedAt: 100,
   };
   store.putReview(v);
@@ -471,6 +472,78 @@ test("reviews: upsert + read by session, snapshot all", () => {
   });
   store.dropReview("s1");
   expect(store.getReview("s1")).toBeNull();
+});
+
+test("reviews: summaryCode round-trips; unknown sentinels coerce to null", () => {
+  const store = new SessionStore(":memory:");
+  const base = {
+    sessionId: "s1",
+    headSha: "abc",
+    patchId: "",
+    decision: "error" as const,
+    summary: "",
+    body: "",
+    findings: [],
+    addressRound: 0,
+    addressCap: 3,
+    streakReviews: 0,
+    reviewedPatchIds: [],
+    errorRound: 1,
+    finalRoundPending: false,
+    finalRoundTimeoutMs: 900_000,
+    seenNoteIds: [],
+    updatedAt: 100,
+  };
+  store.putReview({ ...base, summaryCode: "no-verdict-blocked" });
+  expect(store.getReview("s1")?.summaryCode).toBe("no-verdict-blocked");
+  // Every sentinel survives the round-trip — a typo'd union member would silently degrade the badge
+  // to a blank summary, so assert the whole set rather than one representative.
+  for (const code of [
+    "no-verdict-timeout",
+    "no-verdict-exited",
+    "no-verdict-unparseable",
+  ] as const) {
+    store.putReview({ ...base, summaryCode: code });
+    expect(store.getReview("s1")?.summaryCode).toBe(code);
+  }
+  // A value the UI can't render must not reach it: coerce to null so `summary` is shown instead.
+  store.putReview({ ...base, summaryCode: "no-verdict-martian" as never });
+  expect(store.getReview("s1")?.summaryCode).toBeNull();
+});
+
+test("reviews migration: legacy baked-in English error summary becomes the timeout sentinel", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-review-code-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // A reviews table predating the summaryCode column, holding the pre-sentinel prose.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE reviews (
+      sessionId TEXT PRIMARY KEY, headSha TEXT NOT NULL, decision TEXT NOT NULL,
+      summary TEXT NOT NULL DEFAULT '', body TEXT NOT NULL DEFAULT '',
+      url TEXT, updatedAt INTEGER NOT NULL)`);
+    const row = (id: string, decision: string) =>
+      raw.run(
+        `INSERT INTO reviews (sessionId, headSha, decision, summary, updatedAt)
+         VALUES (?, 'abc', ?, 'critic did not produce a verdict', 1)`,
+        [id, decision],
+      );
+    row("s1", "error");
+    row("s2", "commented"); // same prose, but a real verdict — must not be touched
+    raw.close();
+
+    const store = new SessionStore(dbPath); // opening runs migrateReviewColumns
+    expect(store.getReview("s1")?.summaryCode).toBe("no-verdict-timeout");
+    expect(store.getReview("s1")?.summary).toBe(""); // blanked so the UI localizes it
+    expect(store.getReview("s2")?.summaryCode).toBeNull();
+    expect(store.getReview("s2")?.summary).toBe("critic did not produce a verdict");
+
+    // Idempotent: re-opening must not re-flip anything (and must not touch a row whose code was
+    // already recorded), else a later real cause could be overwritten by the generic sentinel.
+    store.putReview({ ...store.getReview("s1")!, summaryCode: "no-verdict-blocked", summary: "" });
+    expect(new SessionStore(dbPath).getReview("s1")?.summaryCode).toBe("no-verdict-blocked");
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("reviews: dismissed round-trips; legacy rows default falsy", () => {
@@ -545,6 +618,7 @@ test("bumpReviewHead: re-points head + updatedAt, leaves the verdict otherwise i
     finalRoundTimeoutMs: 900_000,
     seenNoteIds: ["c1"],
     url: "u",
+    summaryCode: null, // no server-authored reason on a real verdict
     updatedAt: 100,
   };
   store.putReview(v);

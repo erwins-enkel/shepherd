@@ -7,6 +7,7 @@ import type { GitForge, GitState, PrStatus } from "./forge/types";
 import { CRITIC_REVIEW_MARKER, AUTHOR_RESPONSE_MARKER } from "./forge/types";
 import type {
   ReviewVerdict,
+  ReviewSummaryCode,
   ReviewerEnv,
   Session,
   ReviewerSpawnRow,
@@ -19,6 +20,8 @@ import { apiKeyFailClosed } from "./spawn-auth";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
 import { readActivitySignal } from "./activity-signal";
 import { checksCleared } from "./checks-gate";
+import { stuckOnPrompt } from "./critic-stuck";
+import type { BlockShape } from "./blocked";
 import { isSpawnAlive, decideVerdictAction, STARTUP_GRACE_MS } from "./json-tolerant";
 import type { VerdictAction, VerdictRead } from "./json-tolerant";
 import {
@@ -109,6 +112,45 @@ const DEFAULT_CAP = 3;
 // the live value instead of mirroring this number.
 const DEFAULT_FINAL_ROUND_TIMEOUT_MS = 15 * 60_000;
 
+/**
+ * Classify WHY a run is finishing with no usable verdict. PURE — the single source of truth for
+ * both halves of the diagnosis: the `detail` prose goes to the server log, the `code` rides on the
+ * verdict as `summaryCode` and is rendered per-locale in the badge. Deriving both here is what
+ * stops the log and the operator-facing reason from drifting apart.
+ *
+ * Order matters: a pane wedged on a prompt is checked FIRST, because it is the only cause that
+ * names something the operator can act on — and it would otherwise be reported as a plain timeout
+ * (it is one, but "stuck on a dialog nobody can answer" is the useful half of that sentence).
+ */
+export interface NoVerdictCause {
+  code: ReviewSummaryCode;
+  detail: string;
+}
+
+export function noVerdictCause(
+  read: VerdictRead<RawVerdict>,
+  elapsedMs: number,
+  timeoutMs: number,
+  stuck: BlockShape | null,
+): NoVerdictCause {
+  if (read.status === "unparseable")
+    return {
+      code: "no-verdict-unparseable",
+      detail: "verdict file present but unparseable even after jsonrepair",
+    };
+  if (stuck)
+    return {
+      code: "no-verdict-blocked",
+      detail: `critic wedged on an interactive ${stuck} prompt it cannot answer`,
+    };
+  if (Math.round(elapsedMs / 1000) >= Math.round(timeoutMs / 1000))
+    return {
+      code: "no-verdict-timeout",
+      detail: "hard timeout — critic still had no verdict file at the deadline",
+    };
+  return { code: "no-verdict-exited", detail: "spawn exited without writing a verdict file" };
+}
+
 interface InFlight {
   sessionId: string;
   headSha: string;
@@ -132,6 +174,12 @@ interface InFlight {
   priorReviewedPatchIds: string[]; // patch-ids reviewed on this streak before this run (churn/revert dedup set)
   priorSeenNoteIds: string[]; // seen-note set carried in (before this run's fetch)
   seenNoteIds: string[]; // priorSeen + notes fed to THIS run's critic; only "consumed" on a real verdict
+  /** RAW `readAsync(terminalId, "visible")` buffer from the previous tick — NOT the collapsed
+   *  single-line `readPaneTail()` shape. Backs the unchanged-buffer half of the stuck-pane test,
+   *  so it must be the same shape the detector classifies. */
+  lastVisible?: string | null;
+  /** Set once the pane is confirmed wedged on an interactive prompt; drives the `blocked` cause. */
+  stuckShape?: BlockShape | null;
   finalizing?: boolean;
 }
 
@@ -870,51 +918,65 @@ export class ReviewService {
         console.warn(`[review] liveness/read failed for ${f.sessionId}, retrying next tick:`, err);
         continue;
       }
-      if (action === "wait") {
-        f.finalizing = false; // release: not finalizing this tick
-        // still running (or gated, awaiting completion) — surface what the critic is doing right
-        // now. Emit every tick (not only on change) so a reloaded client repopulates within one
-        // tick; the client dedups identical summaries to stay quiet.
-        const summary = this.readActivity(f.worktreePath, f.criticSessionId);
-        if (summary) this.deps.onActivity?.(f.sessionId, summary);
-        continue;
-      }
+      // `wait` normally releases the claim and re-checks next tick — unless the pane is wedged, in
+      // which case keepWaiting() falls through to finalize now rather than burning the deadline.
+      if (action === "wait" && (await this.keepWaiting(f))) continue;
       const raw: RawVerdict | null =
         action === "finalize-value" && read.status === "parsed" ? read.value : null;
-      // A null raw becomes an `error` verdict ("critic did not produce a verdict") that is
-      // otherwise INVISIBLE — before this, the only trace was the DB row, so a critic dying at the
-      // hard deadline on every retry looked like a black box. Mirrors the recap path's diagnostic
-      // (recap.ts) so the two failure modes read the same in the log. Awaited before finalize()
-      // because finalize's `finally` reaps the terminal, after which the pane tail is gone.
-      if (raw === null) await this.logNoVerdict(f, read);
+      // Awaited before finalize() because finalize's `finally` reaps the terminal, after which the
+      // pane tail the diagnostic reads is gone.
+      const cause = await this.diagnoseNoVerdict(f, read, raw);
       // f.finalizing stays true; always drop the entry, even if finalize throws — otherwise it
       // stays `finalizing=true` and every later tick `continue`s past it, wedging the session's
       // critic forever (and leaking its worktree/terminal).
       try {
-        await this.finalize(f, raw);
+        await this.finalize(f, raw, cause);
       } finally {
         this.inflight.delete(f.sessionId);
       }
     }
   }
 
-  /** Record WHY a run is about to finalize as an `error` verdict. The persisted verdict carries a
-   *  fixed summary ("critic did not produce a verdict") that cannot distinguish the two real
-   *  causes — the critic died/errored out early, or it was still working when the hard deadline
-   *  fired — and an operator re-triggering a review has no other signal. So log the environment,
-   *  the elapsed-vs-deadline that decided it, and (best-effort) the spawn's terminal tail, which is
+  /** Record WHY a run is about to finalize as an `error` verdict. Logs the environment, the
+   *  elapsed-vs-deadline that decided it, and (best-effort) the spawn's terminal tail, which is
    *  where a CLI-level failure (expired login, weekly-limit refusal, a model the account can't use)
-   *  prints before exiting. Never throws: diagnostics must not strand a finalize. */
-  private async logNoVerdict(f: InFlight, read: VerdictRead<RawVerdict>): Promise<void> {
+   *  prints before exiting. The cause itself comes from the SHARED noVerdictCause() that also sets
+   *  the verdict's `summaryCode`, so the log and the operator-facing badge can never disagree.
+   *  Never throws: diagnostics must not strand a finalize. */
+  /**
+   * Classify and log a no-verdict run, returning the cause the verdict will carry (null when the
+   * critic DID produce something). Classified ONCE here and shared by the log and the badge — two
+   * separate calls could straddle the deadline boundary and disagree.
+   *
+   * Gated on `raw === null` (nothing was produced), NOT on the resolved decision: buildVerdictCore
+   * also yields `error` for a verdict the critic DID write with an unrecognized `decision` field,
+   * and that one carries the critic's own summary, which must not be blanked and relabelled as a
+   * spawn failure.
+   */
+  private async diagnoseNoVerdict(
+    f: InFlight,
+    read: VerdictRead<RawVerdict>,
+    raw: RawVerdict | null,
+  ): Promise<NoVerdictCause | null> {
+    if (raw !== null) return null;
+    const cause = noVerdictCause(
+      read,
+      this.now() - f.startedAt,
+      this.timeoutMs,
+      f.stuckShape ?? null,
+    );
+    await this.logNoVerdict(f, read, cause.detail);
+    return cause;
+  }
+
+  private async logNoVerdict(
+    f: InFlight,
+    read: VerdictRead<RawVerdict>,
+    cause: string,
+  ): Promise<void> {
     try {
       const elapsed = Math.round((this.now() - f.startedAt) / 1000);
       const deadline = Math.round(this.timeoutMs / 1000);
-      const cause =
-        read.status === "unparseable"
-          ? "verdict file present but unparseable even after jsonrepair"
-          : elapsed >= deadline
-            ? "hard timeout — critic still had no verdict file at the deadline"
-            : "spawn exited without writing a verdict file";
       const tail = await this.readPaneTail(f.terminalId);
       console.warn(
         `[review] ${f.sessionId}: no usable verdict (${cause}). ` +
@@ -929,6 +991,55 @@ export class ReviewService {
     } catch (err) {
       console.warn(`[review] no-verdict diagnostic failed for ${f.sessionId}:`, err);
     }
+  }
+
+  /**
+   * Handle a `wait` decision. Returns true to keep waiting (the normal path: release the finalize
+   * claim and surface live activity), false when the pane is WEDGED on a prompt nobody can answer —
+   * which `wait` alone would hold until the hard deadline, tens of minutes later, and then report as
+   * a bare timeout. On false the claim stays held and the caller falls through to finalize with a
+   * cause that names what actually happened.
+   */
+  private async keepWaiting(f: InFlight): Promise<boolean> {
+    const stuck = await this.detectStuck(f);
+    if (stuck) {
+      f.stuckShape = stuck;
+      console.warn(
+        `[review] ${f.sessionId}: critic pane wedged on an interactive ${stuck} prompt — ` +
+          `finalizing early instead of waiting out the deadline.`,
+      );
+      return false;
+    }
+    f.finalizing = false; // release: not finalizing this tick
+    // still running (or gated, awaiting completion) — surface what the critic is doing right now.
+    // Emit every tick (not only on change) so a reloaded client repopulates within one tick; the
+    // client dedups identical summaries to stay quiet.
+    const summary = this.readActivity(f.worktreePath, f.criticSessionId);
+    if (summary) this.deps.onActivity?.(f.sessionId, summary);
+    return true;
+  }
+
+  /**
+   * Is this run's pane wedged on an interactive prompt? Reads the RAW visible buffer —
+   * `readAsync(terminalId, "visible")`, matching what src/poller.ts feeds classifyBlocked — and
+   * compares it against the previous tick's. NOT readPaneTail(): that collapses whitespace and
+   * truncates, which would defeat the line-anchored option regex and silently disable this.
+   *
+   * Requires two consecutive identical reads, so at the 15s tick cadence a wedge is caught in ~30s
+   * against the 30-minute deadline. Gated on STARTUP_GRACE_MS so a slow boot (empty or half-painted
+   * pane) is never mistaken for a wedge. Never throws — a failed read just defers to the next tick.
+   */
+  private async detectStuck(f: InFlight): Promise<BlockShape | null> {
+    if (this.now() - f.startedAt <= STARTUP_GRACE_MS) return null;
+    let visible: string;
+    try {
+      visible = await this.deps.herdr.readAsync(f.terminalId, "visible");
+    } catch {
+      return null;
+    }
+    const stuck = stuckOnPrompt(visible, f.lastVisible ?? null);
+    f.lastVisible = visible;
+    return stuck;
   }
 
   /** Best-effort, bounded tail of the critic's terminal for the diagnostic above. Takes the LAST
@@ -946,11 +1057,15 @@ export class ReviewService {
     }
   }
 
-  private async finalize(f: InFlight, raw: RawVerdict | null): Promise<void> {
+  private async finalize(
+    f: InFlight,
+    raw: RawVerdict | null,
+    cause?: NoVerdictCause | null,
+  ): Promise<void> {
     // Reap the critic terminal + disposable worktree no matter what happens above
     // (a forge/store/steer failure must not strand them).
     try {
-      const verdict = this.buildVerdict(f, raw);
+      const verdict = this.buildVerdict(f, raw, cause ?? null);
       // A verdict for a PR that's no longer open is moot. The real branch handles that inside
       // publishVerdict(); the error branch needs its own gate (finalizeErrorVerdict) since it
       // never reaches publishVerdict. When persist is false we skip persisting the verdict as
@@ -1200,7 +1315,13 @@ export class ReviewService {
    *  plus the session-specific streak/note fields. The core decides decision/summary/body/
    *  findings/patchId byte-identically to before; this method only stamps on the per-session
    *  bookkeeping (finalize() overwrites the streak/error/round fields for the non-clean paths). */
-  private buildVerdict(f: InFlight, raw: RawVerdict | null): ReviewVerdict {
+  /** `cause` is non-null ONLY for a genuine no-verdict run, classified once by tick(). Callers that
+   *  can't produce one pass null and the critic's own summary prose stands. */
+  private buildVerdict(
+    f: InFlight,
+    raw: RawVerdict | null,
+    cause: NoVerdictCause | null = null,
+  ): ReviewVerdict {
     const core = buildVerdictCore(raw, f.baseSha, f.files, f.patchId, f.sessionId);
     return {
       sessionId: f.sessionId,
@@ -1210,7 +1331,10 @@ export class ReviewService {
       // content-identical rebase must re-review rather than inherit the stale error.
       patchId: core.patchId,
       decision: core.decision,
-      summary: core.summary,
+      // When a code is set the summary is "" and the UI renders the code per-locale (mirrors
+      // PlanGate.summaryCode); otherwise the critic's own prose stands.
+      summary: cause ? "" : core.summary,
+      summaryCode: cause?.code ?? null,
       body: core.body,
       findings: core.findings,
       addressRound: 0, // publishVerdict() overwrites with the streak round (finalize()'s error path holds priorRound)

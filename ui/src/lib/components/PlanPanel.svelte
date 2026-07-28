@@ -1,11 +1,12 @@
 <script lang="ts">
   import type { Session } from "$lib/types";
-  import { planGates } from "$lib/reviews.svelte";
+  import { planGates, spawnNotices } from "$lib/reviews.svelte";
   import {
     dismissQuota,
     releasePlanGate,
     resumeQuota,
     reviewPlan,
+    retrySpawnNotice,
     isPlanReviewError,
     planReviewStarted,
     type PlanReviewError,
@@ -50,6 +51,32 @@
     canReviewNow ? { sessionId: session.id, locked: reviewing } : undefined,
   );
   const planStalled = $derived(canShowPlanStallActions(session, gate, reviewing));
+  // #1944: a REFUSED plan-gate spawn. Rendered INDEPENDENTLY of `planStalled` — deliberately.
+  // canShowPlanStallActions requires `gate?.decision === "changes_requested" && round >= cap`, and
+  // a refusal writes no gate row at all, so borrowing that predicate would leave the operator with
+  // no surface whatsoever: planGateChip yields "planning" and the Resume/Dismiss menu never opens.
+  const spawnFailure = $derived(
+    (() => {
+      const n = spawnNotices.for(session.id, "plan");
+      return n?.severity === "failed" ? n : null;
+    })(),
+  );
+  let retryBusy = $state(false);
+  let retryOutcome = $state<"done" | "error" | null>(null);
+
+  async function retrySpawn() {
+    if (!spawnFailure || retryBusy) return;
+    retryBusy = true;
+    retryOutcome = null;
+    try {
+      await retrySpawnNotice(session.id, "plan");
+      retryOutcome = "done";
+    } catch {
+      retryOutcome = "error";
+    } finally {
+      retryBusy = false;
+    }
+  }
   // Whether the rework budget is spent. Mirrors the server's at-cap hold (plan-gate.ts
   // applyChangesRequested + startedStatus) — which keys on `round >= cap` ALONE, so this must too: an
   // `error` gate carries its round and stays re-reviewable, and its next `request-changes` verdict is
@@ -462,6 +489,27 @@
         </p>
       {/if}
 
+      {#if spawnFailure}
+        <!-- #1944: the ONE surface a refused plan-gate spawn has. It names the required action in
+             plain words rather than implying the button below resolves it: under clamp-only scope
+             the substantive fix is shortening the plan, and Retry only re-attempts. -->
+        <div class="spawn-failure" role="alert">
+          <p class="sf-title">{m.spawnnotice_plan_failed_title()}</p>
+          <p class="sf-detail">{spawnFailure.detail}</p>
+          <p class="sf-action">{m.spawnnotice_plan_failed_action()}</p>
+          <div class="quota-actions">
+            <button type="button" class="quota-btn" onclick={retrySpawn} disabled={retryBusy}>
+              {retryBusy ? m.spawnnotice_retrying() : m.spawnnotice_retry()}
+            </button>
+          </div>
+          {#if retryOutcome === "done"}
+            <p class="note" role="status">{m.spawnnotice_retry_queued()}</p>
+          {:else if retryOutcome === "error"}
+            <p class="note err" role="alert">{m.spawnnotice_retry_failed()}</p>
+          {/if}
+        </div>
+      {/if}
+
       {#if planStalled}
         <div class="quota-actions" aria-describedby={statusNote ? statusNoteId : undefined}>
           <button
@@ -535,6 +583,34 @@
 </div>
 
 <style>
+  /* #1944: the refusal block. Reads as a genuine blocker (blocked hue + wash per the design
+     system), distinct from the amber in-flight/stall tones around it. */
+  .spawn-failure {
+    border: 1px solid color-mix(in srgb, var(--status-blocked) 45%, transparent);
+    background: var(--wash-attention);
+    border-radius: 3px;
+    padding: 8px 10px;
+    margin: 8px 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .sf-title {
+    font-size: var(--fs-base);
+    font-weight: 600;
+    color: var(--status-blocked);
+    margin: 0;
+  }
+  .sf-detail {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    margin: 0;
+  }
+  .sf-action {
+    font-size: var(--fs-base);
+    color: var(--color-ink);
+    margin: 0;
+  }
   .overlay {
     position: fixed;
     inset: 0;

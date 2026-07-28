@@ -37,6 +37,8 @@ import type {
   ProjectIcons,
   ReviewVerdict,
   PlanGate,
+  SpawnNotice,
+  SpawnNoticeKind,
   ReviewerEnv,
   RepoConfig,
   PostMergeSteps,
@@ -1823,6 +1825,23 @@ export async function getReviews(): Promise<Record<string, ReviewVerdict>> {
 /** In-flight critic reviews with the environment used by each reviewer job. */
 export async function getReviewingIds(): Promise<Array<{ id: string } & ReviewerEnv>> {
   return getJson("/api/reviews/inflight", "reviewing");
+}
+
+/** Snapshot of every session's spawn notices, keyed by session id (bootstrap). #1944. */
+export async function getSpawnNotices(): Promise<Record<string, SpawnNotice[]>> {
+  return getJson("/api/spawn-notices", "spawn-notices");
+}
+
+/** Clear one spawn notice and its suppression key, so the next sweep re-attempts the spawn. */
+export async function retrySpawnNotice(
+  sessionId: string,
+  kind: SpawnNoticeKind,
+): Promise<{ cleared: boolean }> {
+  return postJson(
+    `/api/spawn-notices/${encodeURIComponent(sessionId)}/${kind}/retry`,
+    {},
+    "spawn-notice retry",
+  );
 }
 
 /** Snapshot of every session's plan-gate verdict, keyed by session id (bootstrap). */

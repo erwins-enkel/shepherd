@@ -3435,5 +3435,15 @@
   "api_upload_timeout": "Upload timed out",
   "api_upload_invalid_response": "The upload server returned an invalid response",
   "feat_upload_progress_title": "See attachment upload progress",
-  "feat_upload_progress_body": "New Task now shows progress and estimated time remaining for large attachments, and keeps Create & Run disabled until every upload is confirmed."
+  "feat_upload_progress_body": "New Task now shows progress and estimated time remaining for large attachments, and keeps Create & Run disabled until every upload is confirmed.",
+  "spawnnotice_tip_clamped": "Heads up: the plan was too large to send whole, so a slice of its middle was removed to fit the operating system's argument limit. The review ran on the shortened copy. {detail}",
+  "spawnnotice_tip_failed": "No review ran: the prompt exceeded the operating system's argument limit and Shepherd refused to send a gutted one. {detail}",
+  "spawnnotice_plan_failed_title": "Plan review could not start",
+  "spawnnotice_plan_failed_action": "Shorten `.shepherd-plan.md` so the reviewer can run — cut length, not substance. Retry re-attempts with whatever the file says now.",
+  "spawnnotice_retry": "Retry review",
+  "spawnnotice_retrying": "Retrying…",
+  "spawnnotice_retry_queued": "Queued — the next sweep will re-attempt the review.",
+  "spawnnotice_retry_failed": "Could not re-queue the review.",
+  "feat_spawn_notice_title": "Truncated or refused reviews are now visible",
+  "feat_spawn_notice_body": "When a plan grows past the operating system's command-line limit, Shepherd used to fail the review spawn silently. Now it shortens the plan to fit and marks the badge, or — if too little of the plan would survive — refuses outright and tells you, rather than shipping a confident verdict on a stub."
 }

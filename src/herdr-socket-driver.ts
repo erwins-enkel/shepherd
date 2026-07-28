@@ -1,4 +1,5 @@
 import { HerdrSocketClient } from "./herdr-socket-client";
+import { assertArgvWithinLimit } from "./argv-limit";
 import {
   HerdrDriver,
   HerdrSpawnUnsupportedError,
@@ -260,6 +261,13 @@ export class SocketHerdrDriver implements IHerdrDriver {
    * 0.7.5 socket spawn path (default-off) reaches it.
    */
   private async runInReadyPane(paneId: string, wrapped: string[]): Promise<void> {
+    // #1944: the socket path cannot surface a kernel `E2BIG` — the argv crosses a socket to the
+    // daemon, which execs it out of our reach and fails opaquely. So the per-element limit is
+    // checked PROACTIVELY here, before the retry loop, so an argv that can never exec fails once
+    // with a named cause instead of three times with a shell-not-ready-looking error. The pane's
+    // shell reconstructs the exact argv from the quoted line, so each `wrapped` token becomes one
+    // argv element and is the right thing to measure.
+    assertArgvWithinLimit(wrapped, "herdr socket pane.send_text");
     const cmdline = posixShellJoin(wrapped);
     const MAX_ATTEMPTS = 3;
     let lastErr: unknown;
@@ -375,6 +383,9 @@ export class SocketHerdrDriver implements IHerdrDriver {
     cwd: string,
     wrapped: string[],
   ): Promise<unknown> {
+    // #1944: proactive per-element check — see runInReadyPane. Before the retry loop so an
+    // over-limit argv fails once, named, rather than burning three collision-retry attempts.
+    assertArgvWithinLimit(wrapped, "herdr socket agent.start");
     const MAX_ATTEMPTS = 3;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
       try {

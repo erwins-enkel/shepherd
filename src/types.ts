@@ -571,6 +571,37 @@ export interface ReviewerEnv {
   effort: string | null;
 }
 
+/** Which transient-agent spawn a {@link SpawnNotice} describes. */
+export type SpawnNoticeKind = "plan" | "review";
+
+/** `clamped` — the spawn RAN, but its prompt was truncated to fit the OS argv budget, so the
+ *  verdict was formed on less than the whole input. `failed` — the spawn was refused and never
+ *  ran, so there is no verdict at all. */
+export type SpawnNoticeSeverity = "clamped" | "failed";
+
+/** Why a spawn was refused. `plan-unreviewable` is the deliberate one: fitting the budget would
+ *  have left too little of the plan to review, and the issue's rule is that shipping a review
+ *  without the plan is worse than refusing. */
+export type SpawnNoticeReason = "over-budget" | "plan-unreviewable";
+
+/** #1944: display-only sidecar for a transient-agent spawn that was clamped or refused. Never a
+ *  gating row — see the `spawn_notices` table comment in src/store.ts for why a synthetic verdict
+ *  in `plan_gates`/`reviews` would destroy in-flight findings. */
+export interface SpawnNotice {
+  sessionId: string;
+  kind: SpawnNoticeKind;
+  severity: SpawnNoticeSeverity;
+  reason?: SpawnNoticeReason | null;
+  /** Operator-facing detail: which blocks were clamped and by how much, or the overage. */
+  detail: string;
+  /** How many refusal steers the plan gate has spent — bounded by MAX_REFUSAL_STEERS. */
+  steers: number;
+  /** Suppression key for a deterministic FAILURE (planHash at the gate, headSha at the review);
+   *  null for a `clamped` notice, which never suppresses anything. */
+  inputKey?: string | null;
+  updatedAt: number;
+}
+
 export interface PlanGate {
   sessionId: string;
   planHash: string; // sha256 of the reviewed plan text; dedups re-reviews of an unchanged plan on the auto-path (the manual force path bypasses that dedupe)

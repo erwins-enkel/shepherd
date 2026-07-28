@@ -131,8 +131,13 @@ export function foldSpawnPatch(
 }
 
 /** Run the plugin onSpawn hook (if wired), fold the returned patch, and validate-and-skip a
- *  routed credentialDir (#1213). Returns the folded `{ patchEnv, finalArgv }`, or `{ aborted }`
- *  when a hook calls ctx.abortSpawn. Extracted from resolveAuxSpawn to keep that tail flat. */
+ *  routed credentialDir (#1213). Returns the folded `{ patchEnv, extraArgs }`, or `{ aborted }`
+ *  when a hook calls ctx.abortSpawn. Extracted from resolveAuxSpawn to keep that tail flat.
+ *
+ *  Yields `extraArgs` rather than a finished `finalArgv` (#1944) so {@link assembleAuxSpawn} can
+ *  re-assemble the SAME spawn around a different inner argv — the argv-budget probe measures a
+ *  zero-length-prompt variant, and a patch's extraArgs must ride along or the measurement misses
+ *  them. `foldSpawnPatch` still owns the merge order for both halves. */
 async function foldAuxPatch(
   args: {
     argv: string[];
@@ -148,9 +153,9 @@ async function foldAuxPatch(
   },
   baseEnv: Record<string, string> | undefined,
 ): Promise<
-  { patchEnv: Record<string, string>; finalArgv: string[] } | { aborted: PluginSpawnAborted }
+  { patchEnv: Record<string, string>; extraArgs: string[] } | { aborted: PluginSpawnAborted }
 > {
-  if (!args.seams.runSpawnHooks) return { patchEnv: {}, finalArgv: args.argv };
+  if (!args.seams.runSpawnHooks) return { patchEnv: {}, extraArgs: [] };
 
   let patch: SpawnPatch;
   try {
@@ -170,7 +175,10 @@ async function foldAuxPatch(
     throw e;
   }
 
-  const { patchEnv, finalArgv } = foldSpawnPatch(args.argv, patch);
+  // Fold through the shared helper so the aux path and the session path can never drift on merge
+  // order; only the argv half is taken as `extraArgs` (see the doc above).
+  const { patchEnv } = foldSpawnPatch(args.argv, patch);
+  const extraArgs = [...(patch.extraArgs ?? [])];
 
   // #1213 validate-and-skip: a routed credentialDir must EXIST on host. The wrapped membrane hard
   // `--ro-bind`s it (bwrap crashes on a missing source); the unwrapped path would create an empty
@@ -185,19 +193,21 @@ async function foldAuxPatch(
     delete patchEnv.CLAUDE_CONFIG_DIR;
   }
 
-  return { patchEnv, finalArgv };
+  return { patchEnv, extraArgs };
 }
 
-/** Shared reviewer-style spawn tail (issue #937/#1205): fire plugin onSpawn hooks, fold the
- *  returned patch, and assemble the membrane — so review / plan-gate / doc-agent / standalone
- *  critic honor onSpawn exactly like a normal session spawn. The patched env is bound THROUGH
- *  the membrane: patchEnv is merged LAST into both the bwrap --setenv (via resolveSpawnMembrane's
- *  extraEnv) AND the herdr.start env, so a plugin's CLAUDE_CONFIG_DIR is not wiped by --clearenv.
- *
- *  Returns `{ aborted }` when a hook calls ctx.abortSpawn (the caller reaps the worktree + skips
- *  the spawn cleanly). The returned `spawnEnv` is `undefined` when empty (subscription + no patch)
- *  — NEVER an empty object — to preserve herdr.start's optional-env contract. */
-export async function resolveAuxSpawn(args: {
+/** Everything about an aux spawn that costs an `await` to learn: the sandbox backend probe, the
+ *  api-key base env, and the folded plugin patch. Resolved ONCE per spawn by
+ *  {@link resolveAuxPatch}, then handed to {@link assembleAuxSpawn} — possibly several times, with
+ *  different inner argvs — to produce byte-exact spawn inputs synchronously. */
+export interface AuxPatch {
+  backend: SandboxBackend;
+  baseEnv: Record<string, string> | undefined;
+  patchEnv: Record<string, string>;
+  extraArgs: string[];
+}
+
+export interface AuxSpawnArgs {
   argv: string[];
   worktreePath: string;
   repoPath: string;
@@ -210,10 +220,18 @@ export async function resolveAuxSpawn(args: {
     model?: string | null;
     agentProvider?: string;
   };
-}): Promise<
-  | { wrapped: string[]; spawnEnv: Record<string, string> | undefined }
-  | { aborted: PluginSpawnAborted }
-> {
+}
+
+/** ASYNC half of the reviewer-style spawn tail (issue #937/#1205): probe the backend and fire the
+ *  plugin onSpawn hooks, so review / plan-gate / doc-agent / standalone critic honor onSpawn
+ *  exactly like a normal session spawn. Hooks fire exactly ONCE per spawn — the sync
+ *  {@link assembleAuxSpawn} half may then run repeatedly without re-firing them.
+ *
+ *  Returns `{ aborted }` when a hook calls ctx.abortSpawn (the caller reaps the worktree + skips
+ *  the spawn cleanly). */
+export async function resolveAuxPatch(
+  args: AuxSpawnArgs,
+): Promise<AuxPatch | { aborted: PluginSpawnAborted }> {
   const backend = resolveBackend(args.seams);
   // No backend → passthrough (no membrane) → apiKeyPassthroughEnv carries the credential-less
   // mirror dir; with a backend the membrane masks creds in place and this is undefined.
@@ -221,7 +239,26 @@ export async function resolveAuxSpawn(args: {
 
   const folded = await foldAuxPatch(args, baseEnv);
   if ("aborted" in folded) return folded;
-  const { patchEnv, finalArgv } = folded;
+  return { backend, baseEnv, patchEnv: folded.patchEnv, extraArgs: folded.extraArgs };
+}
+
+/** SYNC half: assemble the membrane around `argv` and merge the spawn env. Pure with respect to
+ *  `patch`, so a caller can assemble the same spawn twice — once with a zero-length prompt to
+ *  MEASURE the fixed argv overhead (#1944), once for real — and be certain both went through the
+ *  identical code path. `argv` defaults to `args.argv`; the patch's extraArgs are appended here
+ *  (matching foldSpawnPatch's order) so an argv override never silently drops them.
+ *
+ *  The patched env is bound THROUGH the membrane: patchEnv is merged LAST into both the bwrap
+ *  --setenv (via resolveSpawnMembrane's extraEnv) AND the herdr.start env, so a plugin's
+ *  CLAUDE_CONFIG_DIR is not wiped by --clearenv. The returned `spawnEnv` is `undefined` when empty
+ *  (subscription + no patch) — NEVER an empty object — to preserve herdr.start's optional-env
+ *  contract. */
+export function assembleAuxSpawn(
+  patch: AuxPatch,
+  args: Omit<AuxSpawnArgs, "descriptor"> & { descriptor?: unknown },
+  argv: string[] = args.argv,
+): { wrapped: string[]; spawnEnv: Record<string, string> | undefined } {
+  const finalArgv = patch.extraArgs.length ? [...argv, ...patch.extraArgs] : argv;
 
   const { wrapped } = resolveSpawnMembrane({
     argv: finalArgv,
@@ -229,7 +266,7 @@ export async function resolveAuxSpawn(args: {
     repoPath: args.repoPath,
     worktree: args.worktree,
     seams: args.seams,
-    extraEnv: patchEnv,
+    extraEnv: patch.patchEnv,
   });
 
   // Merge order. Normally patchEnv LAST so a patched CLAUDE_CONFIG_DIR wins over
@@ -239,7 +276,22 @@ export async function resolveAuxSpawn(args: {
   // prompt / misbill the pool's OAuth subscription. There the mirror WINS; credential routing onto
   // a pool account requires a sandbox backend (which masks creds in place).
   const merged =
-    backend === null && baseEnv ? { ...patchEnv, ...baseEnv } : { ...(baseEnv ?? {}), ...patchEnv };
+    patch.backend === null && patch.baseEnv
+      ? { ...patch.patchEnv, ...patch.baseEnv }
+      : { ...(patch.baseEnv ?? {}), ...patch.patchEnv };
   const spawnEnv = Object.keys(merged).length ? merged : undefined;
   return { wrapped, spawnEnv };
+}
+
+/** Shared reviewer-style spawn tail: {@link resolveAuxPatch} then {@link assembleAuxSpawn}. Kept
+ *  as the one-shot entry point for callers that do not need to measure the argv first. */
+export async function resolveAuxSpawn(
+  args: AuxSpawnArgs,
+): Promise<
+  | { wrapped: string[]; spawnEnv: Record<string, string> | undefined }
+  | { aborted: PluginSpawnAborted }
+> {
+  const patch = await resolveAuxPatch(args);
+  if ("aborted" in patch) return patch;
+  return assembleAuxSpawn(patch, args);
 }

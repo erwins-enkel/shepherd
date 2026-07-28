@@ -23,6 +23,7 @@ import type { HerdrDriver } from "./herdr";
 import type { WorktreeMgr } from "./worktree";
 import type { GitForge, PrReviewMeta, PullRequest } from "./forge/types";
 import { CRITIC_REVIEW_MARKER } from "./forge/types";
+import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import type { RoleEnvironment } from "./default-model";
 import { isEpicIntegrationBranch } from "./epic-branch";
@@ -46,7 +47,9 @@ import {
 import { scrubStaleVerdictArtifacts } from "./codex-last-message";
 import type { VerdictRead } from "./json-tolerant";
 import { reapTransientByLabel } from "./transient-tab-reaper";
-import { resolveAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
+import { spawnBudget } from "./spawn-budget";
+import { fitAssembledPrompt, describeClamps } from "./prompt-fit";
 
 /** One PR critic run between its spawn (begin) and its verdict (finalize). Carries everything
  *  finalize needs without re-querying — mirrors ReviewService's InFlight, minus the streak/note
@@ -469,33 +472,67 @@ export class StandalonePrCriticService {
       return;
     }
     const env = this.deps.env?.() ?? { provider: "claude" as const, model: null };
-    const { argv, sessionId: criticSessionId } = buildTransientAgentArgv("reviewer", {
-      provider: env.provider,
-      model: env.model,
-      effort: env.effort,
-      prompt: prReviewPrompt(diffBase, pr.title, prBody, fp.epic ?? null, fp.landing ?? null),
-      // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
-      captureLastMessage: true,
-    });
+    // ONE pinned id for every argv this spawn builds (#1944): buildTransientAgentArgv falls back to
+    // `randomUUID()`, so the budget probe and the clamped rebuild would otherwise each mint their
+    // own `--session-id` and the verdict would land where readVerdict never looks.
+    const criticSessionId = randomUUID();
+    const composePrompt = (body: string): string =>
+      prReviewPrompt(diffBase, pr.title, body, fp.epic ?? null, fp.landing ?? null);
+    const argvFor = (p: string): string[] =>
+      buildTransientAgentArgv("reviewer", {
+        provider: env.provider,
+        model: env.model,
+        effort: env.effort,
+        prompt: p,
+        // The critic READS the `-o` last-message fallback (per-spawn name for its untrusted checkout).
+        captureLastMessage: true,
+        sessionId: criticSessionId,
+      }).argv;
     // Fire plugin onSpawn hooks (issue #1205) + bind patched env THROUGH the membrane. Session-less
     // PR critic → no parentSessionId. An abortSpawn cleanly skips (worktree reaped).
-    const aux = await resolveAuxSpawn({
-      argv,
+    const auxArgs = {
+      argv: argvFor(composePrompt(prBody)),
       worktreePath,
       repoPath,
       worktree: this.deps.worktree,
       seams: this.deps,
+    };
+    const patch = await resolveAuxPatch({
+      ...auxArgs,
       descriptor: {
         sessionId: criticSessionId,
         kind: "review",
         model: this.deps.env?.().model ?? null,
       },
     });
-    if ("aborted" in aux) {
-      this.log(`[pr-critic] onSpawn aborted for ${repoPath}#${pr.number}: ${aux.aborted.reason}`);
+    if ("aborted" in patch) {
+      this.log(`[pr-critic] onSpawn aborted for ${repoPath}#${pr.number}: ${patch.aborted.reason}`);
       this.deps.worktree.remove(worktreePath);
       return;
     }
+
+    // #1944: fit the prompt inside the OS argv budget or refuse. This site has no plan and no
+    // consumed-once state — the only unbounded input a third-party PR contributes is its BODY, so
+    // that is what clamps (then the title, which is bounded in practice but completes the ladder).
+    // Session-less, so there is no `spawn_notices` row and no badge to adorn: log-only (§4a).
+    const fitted = fitAssembledPrompt({
+      ...spawnBudget((p) => assembleAuxSpawn(patch, auxArgs, argvFor(p))),
+      specs: [{ id: "body", kind: "text", text: prBody, mode: "head" }],
+      compose: (v) => composePrompt(v.body as string),
+    });
+    if (!fitted.ok) {
+      this.log(
+        `[pr-critic] refusing to spawn the critic for ${repoPath}#${pr.number}: ${fitted.detail}`,
+      );
+      this.deps.worktree.remove(worktreePath);
+      return;
+    }
+    if (fitted.clamps.length) {
+      this.log(
+        `[pr-critic] prompt clamped to fit the OS argv limit for ${repoPath}#${pr.number}: ${describeClamps(fitted.clamps)}`,
+      );
+    }
+    const aux = assembleAuxSpawn(patch, auxArgs, argvFor(fitted.prompt));
 
     // The worktree is checked out at the UNTRUSTED PR head (a fork's `refs/pull/<n>/head`); a
     // malicious PR could commit a strict-JSON verdict / `-o` fallback to short-circuit the real critic

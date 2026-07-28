@@ -4,8 +4,8 @@ import { page, userEvent } from "vitest/browser";
 import "../../app.css";
 import PlanPanel from "./PlanPanel.svelte";
 import type { PlanGate, Session } from "$lib/types";
-import { planGates } from "$lib/reviews.svelte";
-import { reviewPlan } from "$lib/api";
+import { planGates, spawnNotices } from "$lib/reviews.svelte";
+import { reviewPlan, retrySpawnNotice } from "$lib/api";
 import { m } from "$lib/paraglide/messages";
 import { DOCS_URL } from "$lib/build-info";
 
@@ -17,6 +17,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     ...actual,
     releasePlanGate: vi.fn(async () => {}),
     reviewPlan: vi.fn(async () => "skipped"),
+    retrySpawnNotice: vi.fn(async () => ({ cleared: true })),
   };
 });
 
@@ -95,6 +96,7 @@ afterEach(() => {
   planGates.map = {};
   planGates.reviewing = {};
   planGates.reviewerEnv = {};
+  spawnNotices.map = {};
   vi.mocked(reviewPlan).mockReset();
   vi.mocked(reviewPlan).mockResolvedValue("skipped");
   vi.unstubAllGlobals();
@@ -836,5 +838,64 @@ describe("PlanPanel at-cap re-review", () => {
     await expect
       .element(page.getByRole("button", { name: m.planpanel_review_now() }))
       .toHaveAttribute("title", m.plangate_review_spends_round({ round: 1, cap: 3 }));
+  });
+});
+
+// ── #1944: the refusal block is the ONE surface a refused plan-gate spawn has ──
+//
+// Finding 5: the previously claimed recourse never rendered. `planStalled` derives from
+// canShowPlanStallActions, which requires `gate?.decision === "changes_requested" && round >= cap`
+// — and a refusal writes NO gate row, so borrowing that predicate leaves the operator with nothing.
+
+const failedNotice = (id: string, over: Record<string, unknown> = {}) => ({
+  sessionId: id,
+  kind: "plan" as const,
+  severity: "failed" as const,
+  reason: "over-budget" as const,
+  detail: "prompt is 404813 bytes, 273742 over the 131071-byte spawn budget",
+  steers: 1,
+  inputKey: "hash",
+  updatedAt: 1,
+  ...over,
+});
+
+describe("#1944 spawn-failure block", () => {
+  it("renders with NO plan_gates row at all — the case the stall predicate misses", () => {
+    spawnNotices.map = { s1: [failedNotice("s1")] };
+    render(PlanPanel, { props: { session: session({ id: "s1" }), onclose: vi.fn() } });
+
+    // No gate was seeded, so canShowPlanStallActions is false and Resume/Dismiss are absent...
+    expect(document.body.textContent).not.toContain(m.planpanel_quota_resume());
+    // ...yet the operator still gets the block, the cause, and the required action.
+    expect(document.body.textContent).toContain(m.spawnnotice_plan_failed_title());
+    expect(document.body.textContent).toContain("273742 over");
+    expect(document.body.textContent).toContain(m.spawnnotice_plan_failed_action());
+  });
+
+  it("names shortening the plan as the fix, rather than implying Retry resolves it", () => {
+    spawnNotices.map = { s1: [failedNotice("s1")] };
+    render(PlanPanel, { props: { session: session({ id: "s1" }), onclose: vi.fn() } });
+    expect(m.spawnnotice_plan_failed_action()).toContain(".shepherd-plan.md");
+    expect(document.body.textContent).toContain(m.spawnnotice_retry());
+  });
+
+  it("is absent when the notice is only a CLAMP (the review did run)", () => {
+    spawnNotices.map = { s1: [failedNotice("s1", { severity: "clamped", reason: null })] };
+    render(PlanPanel, { props: { session: session({ id: "s1" }), onclose: vi.fn() } });
+    expect(document.body.textContent).not.toContain(m.spawnnotice_plan_failed_title());
+  });
+
+  it("is absent when there is no notice at all", () => {
+    render(PlanPanel, { props: { session: session({ id: "s1" }), onclose: vi.fn() } });
+    expect(document.body.textContent).not.toContain(m.spawnnotice_plan_failed_title());
+  });
+
+  it("Retry posts the clear and reports back", async () => {
+    spawnNotices.map = { s1: [failedNotice("s1")] };
+    render(PlanPanel, { props: { session: session({ id: "s1" }), onclose: vi.fn() } });
+
+    await userEvent.click(page.getByRole("button", { name: m.spawnnotice_retry() }));
+    expect(vi.mocked(retrySpawnNotice)).toHaveBeenCalledWith("s1", "plan");
+    await expect.element(page.getByText(m.spawnnotice_retry_queued())).toBeInTheDocument();
   });
 });

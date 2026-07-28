@@ -13,7 +13,10 @@
 import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
+import { spawnBudget } from "./spawn-budget";
+import { fitAssembledPrompt, describeClamps } from "./prompt-fit";
 import { readRoleResultText, CODEX_LAST_MESSAGE_FILE } from "./codex-last-message";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -29,7 +32,7 @@ import type {
   RecapFailureCode,
   RecapDiffState,
 } from "./types";
-import type { DiffFile, DiffResult } from "./types";
+import type { DiffFile, DiffFileStatus, DiffResult } from "./types";
 import type { RoleEnvironment } from "./default-model";
 import type { OperatorLanguage } from "./operator-language";
 import type { ActivityEntry } from "./activity";
@@ -252,14 +255,19 @@ function recapArgv(
   model: string | null,
   prompt: string,
   effort?: string | null,
+  sessionId?: string,
 ): { argv: string[]; sessionId: string } {
   // Recap READS the `-o` last-message fallback (a Codex recap may answer in chat) → opt in.
+  // `sessionId` is pinned by the caller (#1944) so the argv can be rebuilt for the budget probe
+  // and for a clamped prompt without minting a new id each time — the recap row and the usage
+  // readback are both keyed on it.
   return buildTransientAgentArgv("writer-only", {
     provider,
     model,
     effort,
     prompt,
     captureLastMessage: true,
+    sessionId,
   });
 }
 
@@ -811,21 +819,65 @@ export class RecapService {
         );
       const context = contextParts.join("\n");
 
-      const prompt = buildRecapPrompt({
-        taskPrompt: session.prompt,
-        plan,
-        changedFiles: changedFilesWithStatus,
-        digest,
-        context,
-        operatorLanguage: this.operatorLanguage(),
-      });
+      const language = this.operatorLanguage();
+      const composePrompt = (v: {
+        plan: string;
+        changedFiles: { path: string; status: DiffFileStatus }[];
+        context: string;
+      }): string =>
+        buildRecapPrompt({
+          taskPrompt: session.prompt,
+          plan: v.plan,
+          changedFiles: v.changedFiles,
+          digest,
+          context: v.context,
+          operatorLanguage: language,
+        });
       const env = this.env();
-      const { argv, sessionId: spawnSessionId } = recapArgv(
-        env.provider,
-        env.model,
-        prompt,
-        env.effort,
-      );
+      // ONE pinned id for every argv this spawn builds — see recapArgv.
+      const spawnSessionId = randomUUID();
+      const argvFor = (p: string): string[] =>
+        recapArgv(env.provider, env.model, p, env.effort, spawnSessionId).argv;
+
+      // #1944: fit the prompt inside the OS argv budget or fail visibly. Recap spawns MEMBRANE-LESS
+      // (no bwrap wrap), but `herdr.start` still applies its own `buildWrappedArgv` env shim, which
+      // spawnBudget accounts for. `taskPrompt` is never clamped — it is the human-authored ground
+      // truth the recap is written against. `changedFiles` is here because it is unbounded in
+      // COUNT (diff.ts caps total LINES, not file count), so a wide commit can blow the budget on
+      // paths alone.
+      const fitted = fitAssembledPrompt({
+        ...spawnBudget((p) => ({ wrapped: argvFor(p), spawnEnv: apiKeyPassthroughEnv(false) })),
+        specs: [
+          { id: "plan", kind: "text", text: plan, mode: "head-tail" },
+          { id: "changedFiles", kind: "list", items: changedFiles, noun: "files" },
+          { id: "context", kind: "text", text: context, mode: "head" },
+        ],
+        compose: (v) =>
+          composePrompt({
+            plan: v.plan as string,
+            // clampList emits its marker as a trailing pseudo-entry; re-attach a status so the
+            // typed changedFiles shape holds without special-casing it downstream.
+            changedFiles: (v.changedFiles as string[]).map(
+              (path) =>
+                changedFilesWithStatus.find((f) => f.path === path) ?? {
+                  path,
+                  status: "modified" as DiffFileStatus,
+                },
+            ),
+            context: v.context as string,
+          }),
+      });
+      if (!fitted.ok) {
+        this.putFailureRecap(session, "launch-failed", new Error(fitted.detail), head, base);
+        return "error";
+      }
+      if (fitted.clamps.length) {
+        console.warn(
+          `[recap] prompt clamped to fit the OS argv limit for ${session.id} (${session.desig}): ${describeClamps(fitted.clamps)}`,
+        );
+      }
+      const prompt = fitted.prompt;
+      const argv = argvFor(prompt);
 
       // Spawn. Keep the returned handle: the terminalId is the finalizer's teardown key
       // (#1852) — resolving by cwd later yields "" once the agent exited.

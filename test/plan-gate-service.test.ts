@@ -35,7 +35,35 @@ function harness(over: any = {}) {
   const completedSpawns: any[] = [];
   const overWithoutStore = { ...over };
   delete overWithoutStore.store;
+  const notices = new Map<string, any>();
+  const noticeEvents: string[] = [];
   const store = {
+    // #1944 sidecar: a real in-memory implementation (not a no-op stub) so the wiring seams can
+    // assert dedup, the steer bound, and suppression the way production behaves.
+    putSpawnNotice(n: any) {
+      const key = `${n.sessionId}:${n.kind}`;
+      const prev = notices.get(key);
+      if (
+        prev &&
+        prev.severity === n.severity &&
+        (prev.reason ?? null) === (n.reason ?? null) &&
+        prev.detail === n.detail &&
+        (prev.inputKey ?? null) === (n.inputKey ?? null)
+      ) {
+        return false;
+      }
+      notices.set(key, { ...n, steers: prev?.steers ?? 0 });
+      return true;
+    },
+    getSpawnNotice: (sessionId: string, kind: string) =>
+      notices.get(`${sessionId}:${kind}`) ?? null,
+    bumpSpawnNoticeSteers(sessionId: string, kind: string) {
+      const row = notices.get(`${sessionId}:${kind}`);
+      if (!row) return 0;
+      row.steers += 1;
+      return row.steers;
+    },
+    clearSpawnNotice: (sessionId: string, kind: string) => notices.delete(`${sessionId}:${kind}`),
     getPlanGate: () => null,
     putPlanGate(g: any) {
       (store as any).gate = g;
@@ -77,6 +105,9 @@ function harness(over: any = {}) {
     deferSteer: () => false,
     async release() {},
     onChange() {},
+    onSpawnNotice(id: string) {
+      noticeEvents.push(id);
+    },
     onReviewing() {},
     cap: 3,
     now: () => 1000,
@@ -95,6 +126,8 @@ function harness(over: any = {}) {
     recordedSpawns,
     completedSpawns,
     store,
+    notices,
+    noticeEvents,
     svc: new PlanGateService(deps),
   };
 }
@@ -2330,3 +2363,298 @@ test("#1948: the findings steer tells the agent to revise in place, not accrete"
   // so it must not reference the reviewer's non-blocking section (critic finding on #1948).
   expect(steers[0]).not.toContain("Suggestions (non-blocking):");
 });
+
+// ── #1944: argv-budget wiring at the plan gate ────────────────────────────────
+//
+// Every assertion here is Linux-gated: argvElementLimit is Infinity elsewhere, so nothing clamps
+// and the spawn path is byte-identical to main by construction.
+
+import { spawnFootprintBytes, hostArgvBudget } from "../src/argv-limit";
+import { buildWrappedArgv } from "../src/herdr";
+import { MAX_REFUSAL_STEERS } from "../src/plan-gate";
+import { PLAN_MIN_USEFUL_BYTES } from "../src/prompt-fit";
+
+/** A plan shaped like the real schema — tail sections in the back half. */
+const bigPlan = (n: number) =>
+  "# Goal\n\nship it\n\n" +
+  "filler line for bulk\n".repeat(Math.ceil(n / 21)) +
+  "\n## Out of scope\n\n- spill\n\n## Testing seams\n\n- the seam\n\n## Success criteria\n\n1. green\n";
+
+const footprintOf = (h: any) => {
+  const s = h.started.at(-1);
+  return spawnFootprintBytes(buildWrappedArgv(s.argv, s.env));
+};
+
+const onLinux = process.platform === "linux";
+
+test.skipIf(!onLinux)(
+  "#1944 an oversized plan is CLAMPED and the spawn fits the budget",
+  async () => {
+    const plan = bigPlan(200_000);
+    const h = harness({ readPlan: () => plan });
+
+    expect(await h.svc.consider(planningSession() as any)).toBe("started");
+    expect(h.started).toHaveLength(1);
+    expect(footprintOf(h)).toBeLessThanOrEqual(hostArgvBudget());
+
+    // The prompt still carries BOTH ends of the plan — this is the whole point of head+tail.
+    const prompt = h.started[0].argv.at(-1) as string;
+    expect(prompt).toContain("# Goal");
+    expect(prompt).toContain("## Out of scope");
+    expect(prompt).toContain("## Success criteria");
+    expect(prompt).toMatch(/\[… \d+ bytes elided …\]/);
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 a clamp is NEVER silent: notice + broadcast + distinct severity",
+  async () => {
+    const h = harness({ readPlan: () => bigPlan(200_000) });
+    await h.svc.consider(planningSession() as any);
+
+    const n = h.notices.get("s1:plan");
+    expect(n).toMatchObject({ kind: "plan", severity: "clamped" });
+    expect(n.detail).toContain("plan (");
+    expect(n.inputKey ?? null).toBeNull(); // a clamp suppresses nothing
+    expect(h.noticeEvents).toEqual(["s1"]);
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 a clamped plan tells the reviewer the elision is MECHANICAL",
+  async () => {
+    const h = harness({ readPlan: () => bigPlan(200_000) });
+    await h.svc.consider(planningSession() as any);
+    const prompt = h.started[0].argv.at(-1) as string;
+
+    expect(prompt).toContain("mechanical, not authorial");
+    // ...and the SCOPE/TESTABILITY clause (#1948 wording) is still there — the qualifier is ADDITIVE.
+    expect(prompt).toContain("A boundary or seam that is genuinely ABSENT is blocking.");
+  },
+);
+
+test("#1944 an ordinary plan is untouched: no clamp, no notice, no marker", async () => {
+  const h = harness({ readPlan: () => "PLAN TEXT" });
+  await h.svc.consider(planningSession() as any);
+
+  expect(h.notices.size).toBe(0);
+  expect(h.noticeEvents).toEqual([]);
+  const prompt = h.started[0].argv.at(-1) as string;
+  expect(prompt).toContain("PLAN TEXT");
+  expect(prompt).not.toContain("bytes elided");
+  expect(prompt).not.toContain("mechanical, not authorial");
+});
+
+test.skipIf(!onLinux)(
+  "#1944 --session-id agrees with the recorded spawn (no randomUUID stub)",
+  async () => {
+    // Three argvs are built per spawn (probe, clamped rebuild, final). If any minted its own id the
+    // verdict would be written where readVerdict never looks.
+    const h = harness({ readPlan: () => bigPlan(200_000) });
+    await h.svc.consider(planningSession() as any);
+
+    const argv = h.started[0].argv as string[];
+    const idFlag = argv[argv.indexOf("--session-id") + 1];
+    expect(idFlag).toBe(h.recordedSpawns[0].reviewerSessionId);
+    // A real minted uuid, not a test stub — randomUUID is deliberately NOT mocked here, because a
+    // mock returning one constant would make the three-argv hazard invisible.
+    expect(idFlag).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(argv.filter((t) => t === "--session-id")).toHaveLength(1);
+    expect(h.started[0].cwd).toBe(h.recordedSpawns[0].worktreePath);
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 REFUSAL: unclampable overage → no spawn, worktree reaped, error-spawn",
+  async () => {
+    // A colossal prior finding is NOT clampable (consumed-once), so no plan size can rescue this.
+    const h = harness({
+      readPlan: () => bigPlan(1_000),
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: ["x".repeat(400_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+
+    expect(await h.svc.consider(planningSession() as any)).toBe("error-spawn");
+    expect(h.started).toHaveLength(0);
+    expect(h.recordedSpawns).toHaveLength(0);
+    expect(h.removed).toContain("/wt-detached");
+    expect(h.notices.get("s1:plan")).toMatchObject({ severity: "failed", kind: "plan" });
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 REFUSAL writes NO plan_gates row (findings must survive)",
+  async () => {
+    const priorFindings = ["real finding the agent is mid-way through fixing"];
+    const h = harness({
+      readPlan: () => bigPlan(1_000),
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: [...priorFindings, "y".repeat(400_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+    await h.svc.consider(planningSession() as any);
+    expect((h.store as any).gate).toBeUndefined();
+  },
+);
+
+test.skipIf(!onLinux)("#1944 REFUSAL emits ZERO signals across repeated failures", async () => {
+  const signals: any[] = [];
+  const h = harness({
+    readPlan: () => bigPlan(1_000),
+    store: {
+      addSignal: (s: any) => signals.push(s),
+      getPlanGate: () => ({
+        decision: "changes_requested",
+        findings: ["z".repeat(400_000)],
+        round: 1,
+        cap: 3,
+        planHash: "old",
+      }),
+    },
+  });
+  for (let i = 0; i < 4; i++) await h.svc.consider(planningSession() as any);
+  expect(signals).toEqual([]);
+});
+
+test.skipIf(!onLinux)(
+  "#1944 the refusal STEER is harness-labelled, never planSteerText",
+  async () => {
+    const steers: string[] = [];
+    const h = harness({
+      readPlan: () => bigPlan(1_000),
+      reply: async (_id: string, text: string) => {
+        steers.push(text);
+        return true;
+      },
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: ["q".repeat(400_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+    await h.svc.consider(planningSession() as any);
+    await Promise.resolve(); // the steer is fire-and-forget
+
+    expect(steers).toHaveLength(1);
+    // NOT the reviewer-findings prefix — that would mislabel a harness failure as a review finding.
+    expect(steers[0]).not.toContain("The plan reviewer raised these points");
+    expect(steers[0]).toContain("harness limit, NOT a review finding");
+    expect(steers[0]).toContain("Shorten `.shepherd-plan.md`");
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 the refusal steer is BOUNDED, even as planHash keeps changing",
+  async () => {
+    // Each edit mints a new planHash, clearing suppression — without the bound this loops forever.
+    const steers: string[] = [];
+    let n = 0;
+    const h = harness({
+      readPlan: () => `${bigPlan(1_000)}\nedit ${n++}`, // a different plan every round
+      reply: async (_id: string, text: string) => {
+        steers.push(text);
+        return true;
+      },
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: ["w".repeat(400_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+
+    for (let i = 0; i < 6; i++) {
+      await h.svc.consider(planningSession() as any);
+      await Promise.resolve();
+    }
+    expect(steers).toHaveLength(MAX_REFUSAL_STEERS);
+  },
+);
+
+test.skipIf(!onLinux)(
+  "#1944 SUPPRESSION: an unchanged plan is not re-attempted after a refusal",
+  async () => {
+    const h = harness({
+      readPlan: () => bigPlan(1_000),
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: ["v".repeat(400_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+    expect(await h.svc.consider(planningSession() as any)).toBe("error-spawn");
+    const reapsAfterFirst = h.removed.length;
+
+    expect(await h.svc.consider(planningSession() as any)).toBe("skipped");
+    expect(h.removed).toHaveLength(reapsAfterFirst); // no second worktree even allocated
+  },
+);
+
+test.skipIf(!onLinux)("#1944 a CHANGED plan clears suppression and re-attempts", async () => {
+  let plan = bigPlan(1_000);
+  const h = harness({
+    readPlan: () => plan,
+    store: {
+      getPlanGate: () => ({
+        decision: "changes_requested",
+        findings: ["u".repeat(400_000)],
+        round: 1,
+        cap: 3,
+        planHash: "old",
+      }),
+    },
+  });
+  await h.svc.consider(planningSession() as any);
+  plan = `${plan}\nthe agent shortened things`;
+  expect(await h.svc.consider(planningSession() as any)).toBe("error-spawn"); // attempted again
+});
+
+test.skipIf(!onLinux)(
+  "#1944 a gutted plan refuses as plan-unreviewable rather than reviewing a stub",
+  async () => {
+    // Unclampable state eats almost the whole budget; only a sub-floor plan could fit.
+    const h = harness({
+      readPlan: () => bigPlan(200_000),
+      store: {
+        getPlanGate: () => ({
+          decision: "changes_requested",
+          findings: ["p".repeat(120_000)],
+          round: 1,
+          cap: 3,
+          planHash: "old",
+        }),
+      },
+    });
+    expect(await h.svc.consider(planningSession() as any)).toBe("error-spawn");
+    expect(h.notices.get("s1:plan")).toMatchObject({
+      severity: "failed",
+      reason: "plan-unreviewable",
+    });
+    expect(h.started).toHaveLength(0);
+    expect(PLAN_MIN_USEFUL_BYTES).toBe(8192);
+  },
+);

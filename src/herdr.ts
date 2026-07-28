@@ -8,6 +8,7 @@ import {
   herdrSpawnSupported,
   herdrUsesExternalRegistrationSpawn,
 } from "./herdr-capabilities";
+import { posixShellJoin, oversizedFromArgv } from "./argv-limit";
 import { maintenance } from "./maintenance";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
@@ -79,11 +80,21 @@ export class HerdrSpawnUnsupportedError extends Error {
 const HERDR_TIMEOUT_MS = 10_000;
 
 /** Build a Runner around a raw exec fn. Refuses (throws) while maintenance is
- *  active; otherwise delegates. Exported so tests can inject a fake exec. */
+ *  active; otherwise delegates. Exported so tests can inject a fake exec.
+ *
+ *  A kernel `E2BIG` is re-thrown as {@link OversizedArgvError} (#1944): its default rendering,
+ *  `spawn herdr E2BIG`, named neither the cause (one argv element over `MAX_ARG_STRLEN`) nor the
+ *  cure, so ten such failures in one session read as an unexplained spawn flake. Mapping the
+ *  kernel's OWN verdict — rather than predicting the limit — means this can never over-refuse an
+ *  argv a large-page kernel would have accepted. Every other error rethrows untouched. */
 export function makeHerdrRunner(exec: (args: string[]) => string): Runner {
   return (args) => {
     if (maintenance.active) throw new HerdrUnavailableError();
-    return exec(args);
+    try {
+      return exec(args);
+    } catch (err) {
+      throw oversizedFromArgv(err, args) ?? err;
+    }
   };
 }
 
@@ -91,12 +102,17 @@ const defaultRunner: Runner = makeHerdrRunner((args) =>
   execFileSync(config.herdrBin, args, { encoding: "utf8", timeout: HERDR_TIMEOUT_MS }),
 );
 
-/** Async sibling of `makeHerdrRunner`: same maintenance guard, but the delegate
- *  returns a promise so the spawn never blocks Bun's single loop. */
+/** Async sibling of `makeHerdrRunner`: same maintenance guard and the same `E2BIG` →
+ *  {@link OversizedArgvError} mapping, but the delegate returns a promise so the spawn never
+ *  blocks Bun's single loop. */
 export function makeHerdrAsyncRunner(exec: (args: string[]) => Promise<string>): AsyncRunner {
   return async (args) => {
     if (maintenance.active) throw new HerdrUnavailableError();
-    return exec(args);
+    try {
+      return await exec(args);
+    } catch (err) {
+      throw oversizedFromArgv(err, args) ?? err;
+    }
   };
 }
 
@@ -462,10 +478,12 @@ export function classifyPaneWrite(text: string): PaneWrite {
  * (unlike the CLI `pane run`, #1892), so the wrapped argv is typed into the pane's ready shell as a
  * command line. Single-quoting is complete for POSIX shells: nothing inside `'…'` is special, and
  * an embedded `'` is emitted as the standard `'\''` break-out sequence.
+ *
+ * DEFINED in `argv-limit.ts` (#1944) and re-exported here for its existing importers: the argv
+ * byte-budget must measure the string this produces, and this module imports that one for
+ * `OversizedArgvError` — so the quoting primitive lives on the dependency-free side.
  */
-export function posixShellJoin(argv: string[]): string {
-  return argv.map((tok) => `'${tok.replaceAll("'", `'\\''`)}'`).join(" ");
-}
+export { posixShellJoin };
 
 /**
  * Builds the wrapped spawn argv shared by BOTH drivers (issue #1553), so a socket-backed

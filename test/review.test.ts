@@ -198,6 +198,8 @@ function makeDeps(
   const recordedSpawns: any[] = []; // recordReviewerSpawn calls
   const completedSpawns: any[] = []; // completeReviewerSpawn calls
   const rec: { event?: string; body?: string } = {};
+  const notices = new Map<string, any>();
+  const noticeEvents: string[] = [];
   const base = {
     store: {
       getRepoConfig: () => ({
@@ -221,6 +223,24 @@ function makeDeps(
       recordReviewerSpawn: (r: any) => recordedSpawns.push(r),
       completeReviewerSpawn: (id: string, u: any, at: number) =>
         completedSpawns.push({ id, u, at }),
+      // #1944 sidecar — a real in-memory implementation so the wiring seams behave like production.
+      putSpawnNotice(n: any) {
+        const key = `${n.sessionId}:${n.kind}`;
+        const prev = notices.get(key);
+        if (
+          prev &&
+          prev.severity === n.severity &&
+          (prev.reason ?? null) === (n.reason ?? null) &&
+          prev.detail === n.detail &&
+          (prev.inputKey ?? null) === (n.inputKey ?? null)
+        ) {
+          return false;
+        }
+        notices.set(key, { ...n, steers: prev?.steers ?? 0 });
+        return true;
+      },
+      getSpawnNotice: (id: string, kind: string) => notices.get(`${id}:${kind}`) ?? null,
+      clearSpawnNotice: (id: string, kind: string) => notices.delete(`${id}:${kind}`),
     },
     herdr: new (class {
       readonly recorded = stopped; // this-dependent: unbound call loses this.recorded
@@ -273,6 +293,7 @@ function makeDeps(
         opts.noCommentApi ? undefined : postedComments,
       ),
     onChange: () => {},
+    onSpawnNotice: (id: string) => noticeEvents.push(id),
     autoAddress: (id: string, text: string) => {
       steers.push({ id, text });
       return opts.autoAddressReturns ?? true;
@@ -304,6 +325,8 @@ function makeDeps(
     postedComments,
     recordedSpawns,
     completedSpawns,
+    notices,
+    noticeEvents,
     rec,
   };
 }
@@ -3346,3 +3369,127 @@ test("#1948: the auto-address steer names blockers and marks nits optional", asy
   // The disagreement channel must survive.
   expect(steers[0]!.text).toContain("genuinely disagree");
 });
+
+// ── #1944: argv-budget wiring at the session critic ───────────────────────────
+//
+// Linux-gated throughout: argvElementLimit is Infinity elsewhere, so nothing clamps and the spawn
+// path is byte-identical to main by construction.
+
+import { spawnFootprintBytes, hostArgvBudget } from "../src/argv-limit";
+import { buildWrappedArgv } from "../src/herdr";
+
+const bigPlan1944 = (n: number) =>
+  "# Goal\n\nship it\n\n" +
+  "filler line for bulk\n".repeat(Math.ceil(n / 21)) +
+  "\n## Out of scope\n\n- spill\n\n## Testing seams\n\n- the seam\n\n## Success criteria\n\n1. green\n";
+
+const onLinux1944 = process.platform === "linux";
+
+test.skipIf(!onLinux1944)(
+  "#1944 an oversized plan is clamped and the critic spawn fits",
+  async () => {
+    const plan = bigPlan1944(200_000);
+    const { deps: d, started, notices, noticeEvents } = makeDeps({ readPlan: () => plan });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+    expect(started).toHaveLength(1);
+    const s = started[0]!;
+    expect(spawnFootprintBytes(buildWrappedArgv(s.argv, s.env))).toBeLessThanOrEqual(
+      hostArgvBudget(),
+    );
+
+    const prompt = s.argv.at(-1)!;
+    expect(prompt).toContain("# Goal");
+    expect(prompt).toContain("## Success criteria"); // head+tail kept the back half
+    expect(prompt).toMatch(/\[… \d+ bytes elided …\]/);
+    expect(prompt).toContain("mechanical, not authorial");
+    // The SCOPE-CREEP lens survives intact — the caveat is additive.
+    expect(prompt).toContain("SCOPE-CREEP LENS");
+
+    expect(notices.get("s1:review")).toMatchObject({ severity: "clamped", kind: "review" });
+    expect(noticeEvents).toEqual(["s1"]);
+  },
+);
+
+test("#1944 an ordinary plan spawns unclamped, with no notice and no marker", async () => {
+  const {
+    deps: d,
+    started,
+    notices,
+    noticeEvents,
+  } = makeDeps({
+    readPlan: () => "## Goal\nship the widget",
+  });
+  await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+  expect(notices.size).toBe(0);
+  expect(noticeEvents).toEqual([]);
+  const prompt = started[0]!.argv.at(-1)!;
+  expect(prompt).toContain("ship the widget");
+  expect(prompt).not.toContain("bytes elided");
+  expect(prompt).not.toContain("mechanical, not authorial");
+});
+
+test.skipIf(!onLinux1944)(
+  "#1944 CONSUMED-ONCE state is never clamped — prior findings survive verbatim",
+  async () => {
+    // A dropped prior finding could never be re-raised: the next row is built only from THIS round's
+    // reviewer output. So they must be refused around, never truncated.
+    const priorFindings = Array.from(
+      { length: 4 },
+      (_, i) => `finding ${i}: ${"detail ".repeat(2_000)}`,
+    );
+    const { deps: d, started, reviews } = makeDeps({ readPlan: () => bigPlan1944(200_000) });
+    reviews.s1 = priorReview({ findings: priorFindings });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+    expect(started).toHaveLength(1);
+    const prompt = started[0]!.argv.at(-1)!;
+    for (const f of priorFindings) expect(prompt).toContain(f);
+  },
+);
+
+test.skipIf(!onLinux1944)(
+  "#1944 REFUSAL: no spawn, no reviews row, worktree reaped, notice written",
+  async () => {
+    const {
+      deps: d,
+      started,
+      removed,
+      reviews,
+      notices,
+      recordedSpawns,
+    } = makeDeps({
+      readPlan: () => bigPlan1944(1_000),
+    });
+    reviews.s1 = priorReview({ findings: ["x".repeat(400_000)] });
+    await new ReviewService(d as any).consider(session(), OPEN_GREEN);
+
+    expect(started).toHaveLength(0);
+    expect(recordedSpawns).toHaveLength(0);
+    expect(removed).toContain("/review-wt");
+    // The prior findings are STILL THERE — a synthetic error row would have wiped them.
+    expect(reviews.s1!.findings).toHaveLength(1);
+    expect(reviews.s1!.decision).toBe("changes_requested");
+    expect(notices.get("s1:review")).toMatchObject({
+      severity: "failed",
+      kind: "review",
+      reason: "over-budget",
+      inputKey: OPEN_GREEN.headSha, // suppression keys on the head, per §3h
+    });
+  },
+);
+
+test.skipIf(!onLinux1944)(
+  "#1944 REFUSAL emits ZERO signals and NO steer at this site",
+  async () => {
+    // Unlike the plan gate: the implementing agent can shrink neither prior findings nor author
+    // notes, so a message to it would be noise. The notice + badge are the whole recourse.
+    const { deps: d, signals, steers, reviews } = makeDeps({ readPlan: () => bigPlan1944(1_000) });
+    reviews.s1 = priorReview({ findings: ["y".repeat(400_000)] });
+    const svc = new ReviewService(d as any);
+    for (let i = 0; i < 3; i++) await svc.consider(session(), OPEN_GREEN);
+    expect(signals).toEqual([]);
+    expect(steers).toEqual([]);
+  },
+);

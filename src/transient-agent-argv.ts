@@ -152,8 +152,12 @@ export function allowedToolsFor(kind: TransientAgentKind): string[] {
 }
 
 /** child_process.spawn rejects any argv arg containing a NUL. Keep one shared prompt sanitizer so
- *  Claude and Codex transient roles have the same contract. */
-function sanitizePromptArg(prompt: string): string {
+ *  Claude and Codex transient roles have the same contract.
+ *
+ *  Exported for `joinedElementBytes` (#1944): the argv budget must be measured on the string that
+ *  ACTUALLY ships, and sanitizing grows it (`\0` → `\\0`, +1 byte each). A measurement taken before
+ *  this ran would under-count and let an over-limit argv through. */
+export function sanitizePromptArg(prompt: string): string {
   return prompt.replaceAll("\0", "\\0");
 }
 

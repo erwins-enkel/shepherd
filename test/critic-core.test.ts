@@ -1061,3 +1061,62 @@ test("#1948: both prompts carry the scoped bullet, and it coexists with each dro
   expect(plan).toContain("blocking UNDER FINDINGS ROUTING");
   expect(plan).toContain("EXCEPTION"); // the plan-side drop rule
 });
+
+// ── #1944: the planClamped qualifier is ADDITIVE, and its NOTE is out-of-fence ────────────────
+//
+// Finding 2: the SCOPE-CREEP lens is kept WHOLE — head+tail clamping preserves the `Out of Scope`
+// boundary it measures against, so dropping the lens would disable scope review for exactly the
+// largest plans. Finding 3: the note must sit OUTSIDE the fence, because
+// UNTRUSTED_CONTENT_DIRECTIVE licenses the reader to ignore anything inside it.
+
+const stableNonce_1944 = (s: string) => s.replaceAll(/(⟦\/?UNTRUSTED:[^:]+:)[0-9a-f]+⟧/g, "$1N⟧");
+const SCOPE_LENS_1944 = "SCOPE-CREEP LENS — the diff should contain ONLY what its task";
+
+test("#1944 planClamped unset is BYTE-IDENTICAL (modulo fence nonce)", () => {
+  const mk = (o: Record<string, unknown>) =>
+    stableNonce_1944(reviewPrompt("BASE", "do the thing", [], [], null, null, o));
+  expect(mk({ plan: "PLAN TEXT" })).toBe(mk({ plan: "PLAN TEXT", planClamped: false }));
+  expect(mk({ plan: "PLAN TEXT", smellLens: true })).toBe(
+    mk({ plan: "PLAN TEXT", smellLens: true, planClamped: false }),
+  );
+});
+
+test("#1944 planClamped KEEPS the whole SCOPE-CREEP lens and only adds a caveat", () => {
+  const off = reviewPrompt("BASE", "t", [], [], null, null, { plan: "PLAN" });
+  const on = reviewPrompt("BASE", "t", [], [], null, null, { plan: "PLAN", planClamped: true });
+
+  expect(off).toContain(SCOPE_LENS_1944);
+  expect(on).toContain(SCOPE_LENS_1944); // NOT dropped
+  expect(on).toContain("A change that DIRECTLY CONTRADICTS an explicit `Out of Scope` boundary");
+  expect(on).toContain("is NOT scope creep on that basis alone");
+  expect(on.length).toBeGreaterThan(off.length);
+});
+
+test("#1944 the plan-clamped NOTE sits OUTSIDE the approved-plan fence", () => {
+  const on = reviewPrompt("BASE", "t", [], [], null, null, { plan: "PLAN", planClamped: true });
+  const noteAt = on.indexOf("mechanical, not authorial");
+  const fenceOpen = on.indexOf("⟦UNTRUSTED:approved plan:");
+  expect(noteAt).toBeGreaterThanOrEqual(0);
+  expect(fenceOpen).toBeGreaterThan(noteAt); // the note PRECEDES the fence it describes
+});
+
+test("#1944 nothing instructional is emitted INSIDE any untrusted fence", () => {
+  const on = reviewPrompt("BASE", "t", [], [], "ISSUE", null, {
+    plan: `PLAN\n\n${"x".repeat(50)}\n[… 4321 bytes elided …]\nTAIL`,
+    planClamped: true,
+  });
+  // Everything between a fence open and its matching close must be free of our directives.
+  for (const m of on.matchAll(/⟦UNTRUSTED:([^:]+):([0-9a-f]+)⟧([\s\S]*?)⟦\/UNTRUSTED:\1:\2⟧/g)) {
+    const inner = m[3]!;
+    expect(inner).not.toContain("mechanical, not authorial");
+    expect(inner).not.toContain("do not treat the removed span");
+  }
+  // The in-fence marker survives — and states only a fact.
+  expect(on).toContain("[… 4321 bytes elided …]");
+});
+
+test("#1944 no plan → the clamped flag changes nothing", () => {
+  const mk = (o: Record<string, unknown>) =>
+    stableNonce_1944(reviewPrompt("BASE", "t", [], [], null, null, o));
+  expect(mk({ planClamped: true })).toBe(mk({}));
+});

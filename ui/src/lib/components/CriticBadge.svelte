@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { reviews } from "$lib/reviews.svelte";
+  import { reviews, spawnNotices } from "$lib/reviews.svelte";
   import { criticChip, addressRoundInfo } from "./critic-badge";
   import { clock } from "$lib/now.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -21,6 +21,10 @@
   const chip = $derived(criticChip(verdict, reviewing));
   const round = $derived(addressRoundInfo(verdict, clock.current));
   const activity = $derived(reviews.activityFor(sessionId));
+  // #1944: a clamped or refused critic spawn. Adorns whatever chip the verdict already resolves to
+  // rather than becoming a chip kind of its own — a truncated review is still a review, and a
+  // refused one must not masquerade as a verdict.
+  const notice = $derived(spawnNotices.for(sessionId, "review"));
 
   type CriticView = { cls: string; label: string; title: string; dot: boolean };
 
@@ -67,7 +71,24 @@
   // onChange until the new verdict lands, so during a forced re-review this cached verdict is the
   // last surface still claiming a stall the server already cleared. round/final keep their counter
   // — it is not stale mid-streak, and the number is the useful thing to show.
-  const view = $derived.by((): CriticView | null => {
+  /** Fold the spawn notice into whatever view the verdict produced: a corner pip via the class and
+   *  an APPENDED tooltip line. Never replaces the view — the operator still needs the verdict. */
+  function withNotice(v: CriticView | null): CriticView | null {
+    if (!v || !notice) return v;
+    const line =
+      notice.severity === "failed"
+        ? m.spawnnotice_tip_failed({ detail: notice.detail })
+        : m.spawnnotice_tip_clamped({ detail: notice.detail });
+    return {
+      ...v,
+      cls: `${v.cls} critic-noticed-${notice.severity}`,
+      title: `${v.title}\n\n${line}`,
+    };
+  }
+
+  const view = $derived.by((): CriticView | null => withNotice(rawView()));
+
+  function rawView(): CriticView | null {
     if (round && !(round.status === "stalled" && reviewing)) return roundView(round);
     if (chip.kind === "reviewing") return reviewingView();
     if (chip.kind === "verdict")
@@ -78,7 +99,7 @@
         dot: false,
       };
     return null;
-  });
+  }
 
   // Prefer the verdict's own PR url; fall back to git.url. Only a safe http(s) URL
   // enables the dialog — otherwise the chip is explanation-only.
@@ -217,6 +238,29 @@
 {/if}
 
 <style>
+  /* #1944 spawn-notice adornment — mirrors PlanGateBadge. Two tones, two meanings: warn = the
+     review ran on a TRUNCATED prompt, red = it was REFUSED and there is no verdict. */
+  .critic-noticed-clamped,
+  .critic-noticed-failed {
+    position: relative;
+  }
+  .critic-noticed-clamped::before,
+  .critic-noticed-failed::before {
+    content: "";
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    pointer-events: none;
+  }
+  .critic-noticed-clamped::before {
+    background: var(--status-warn);
+  }
+  .critic-noticed-failed::before {
+    background: var(--status-blocked);
+  }
   .critic-badge {
     font-size: var(--fs-micro);
     letter-spacing: 0.12em;

@@ -191,8 +191,27 @@ export interface PluginContext {
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */
   log: PluginLogger;
-  /** This plugin's own `config.json` (parsed; `{}` when absent). */
+  /** This plugin's own `config.json` (parsed; `{}` when absent). Mutated IN PLACE by
+   *  {@link PluginContext.setConfig}, so holding this object from `register()` keeps a live
+   *  view — never re-read it from a stale copy. */
   config: Record<string, unknown>;
+  /** Shallow-merge `patch` into this plugin's own `config.json` and persist it, so
+   *  `ctx.config` stays the single source of truth and no plugin needs a `ctx.state` overlay
+   *  shadowing it (issue #1961). Additive — guard with `typeof ctx.setConfig === "function"`.
+   *
+   *  The file is RE-READ before merging, so an operator's hand-edit made since boot is merged
+   *  rather than silently overwritten, and the write is atomic (temp file + rename).
+   *
+   *  REJECTS (the returned promise throws) rather than failing open — a rendering push that
+   *  drops is cosmetic, a config write that silently no-ops is data loss. Throws when `patch`
+   *  is not a plain JSON-serializable object, when the merged config exceeds the size cap, on
+   *  a write error, and — deliberately — when `config.json` EXISTS BUT IS UNPARSEABLE, so a
+   *  hand-broken file is never clobbered. A missing file is `{}` (the first write creates it).
+   *
+   *  Concurrent calls are serialized per plugin, so two patches cannot interleave their
+   *  read-modify-write. Only CONFIG becomes live this way: changing plugin CODE still needs a
+   *  restart, because the module stays cached. */
+  setConfig(patch: Record<string, unknown>): Promise<void>;
   /** Hard-block the in-flight spawn (opt out of the default fail-open). Throws. */
   abortSpawn(reason: string): never;
 }

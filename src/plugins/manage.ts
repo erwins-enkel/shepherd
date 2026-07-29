@@ -8,7 +8,10 @@
 // reachable from the UI; it adds no capability a shell couldn't already do. The UI gates
 // install behind a trust-confirm dialog. A freshly installed plugin is loaded in-process by
 // `PluginRegistry.activateOne` (no restart); an uninstalled-but-loaded one still needs a
-// restart to fully unload, as does editing/reconfiguring an already-loaded plugin.
+// restart to fully unload, as does editing an already-loaded plugin's CODE (its module stays
+// cached). CONFIG is no longer in that list: since #1961 a plugin can persist its own
+// `config.json` live through `ctx.setConfig`, which updates `ctx.config` in place. Only a
+// hand-edit of the file on disk still waits for the next boot to be read.
 
 import { readdir, readFile, lstat, stat, realpath, rm, unlink, mkdir } from "node:fs/promises";
 import { join, dirname } from "node:path";

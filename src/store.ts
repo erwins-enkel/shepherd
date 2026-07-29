@@ -3585,6 +3585,36 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     );
   }
 
+  /** Completed Codex spawn rows whose token totals are still UNKNOWN (NULL) — the rows a boot-time
+   *  backfill can still fill once their rollout shows up. Newest first, capped: a rollout that never
+   *  appears (GC'd) would otherwise be retried forever, and only recent runs still have one on disk.
+   *  Excludes claude rows (their transcript is read at finalize or never) and legacy NULL-provider
+   *  rows (no provider ⇒ nothing to dispatch on). (#1816) */
+  listBackfillableCodexSpawns(limit = 200): ReviewerSpawnRow[] {
+    return this.db
+      .query(
+        `SELECT * FROM reviewer_spawns
+           WHERE completedAt IS NOT NULL AND totalTokens IS NULL AND reviewerProvider = 'codex'
+           ORDER BY spawnedAt DESC LIMIT ?`,
+      )
+      .all(limit) as ReviewerSpawnRow[];
+  }
+
+  /** Fill a completed row's token totals after the fact. Unlike `completeReviewerSpawn` this does
+   *  NOT touch `completedAt` — the run finished when it finished; only the previously-unknown cost
+   *  is being recorded. Guarded on `totalTokens IS NULL` so it can never overwrite real totals.
+   *  Returns true when a row was actually filled. (#1816) */
+  backfillReviewerSpawnUsage(reviewerSessionId: string, u: SessionUsage): boolean {
+    this.db.run(
+      `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
+         cacheWriteTokens = ?, totalTokens = ?, model = COALESCE(?, model)
+         WHERE reviewerSessionId = ? AND totalTokens IS NULL`,
+      [u.input, u.output, u.cacheRead, u.cacheWrite, u.total, dominantModel(u), reviewerSessionId],
+    );
+    // `changes()` reports rows modified by the last INSERT/UPDATE/DELETE; a SELECT doesn't reset it.
+    return (this.db.query<{ n: number }, []>(`SELECT changes() AS n`).get()?.n ?? 0) > 0;
+  }
+
   /** Persist a spawn's resolved Codex rollout id, ONCE. Idempotent (writes only while the column is
    *  still NULL, so a re-resolution never overwrites) and ownership-guarded (a rolloutId already
    *  owned by another row is refused, not written — the partial UNIQUE index would otherwise throw

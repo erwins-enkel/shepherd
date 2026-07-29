@@ -1883,3 +1883,51 @@ test("ackManualSteps stamps manualStepsAckedAt and is idempotent (first ack wins
   s.ackManualSteps(a.id);
   expect(s.get(a.id)!.manualStepsAckedAt).toBe(first);
 });
+
+test("listBackfillableCodexSpawns finds only completed codex rows with unknown totals", () => {
+  const s = mk();
+  const rec = (id: string, provider: string | null) =>
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "t",
+      kind: "review",
+      worktreePath: `/wt-${id}`,
+      reviewerProvider: provider as never,
+      model: null,
+      spawnedAt: 1000,
+    });
+  rec("codex-open", "codex"); // completedAt NULL → not a backfill candidate (still in flight)
+  rec("codex-null", "codex");
+  s.completeReviewerSpawn("codex-null", null, 2000); // completed, totals unknown → candidate
+  rec("codex-filled", "codex");
+  s.completeReviewerSpawn("codex-filled", usage(), 2000); // real totals → not a candidate
+  rec("claude-null", "claude");
+  s.completeReviewerSpawn("claude-null", null, 2000); // claude → never a codex candidate
+  rec("legacy-null", null);
+  s.completeReviewerSpawn("legacy-null", null, 2000); // no provider → nothing to dispatch on
+
+  expect(s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId)).toEqual(["codex-null"]);
+});
+
+test("backfillReviewerSpawnUsage fills unknown totals without touching completedAt", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "t",
+    kind: "review",
+    worktreePath: "/wt",
+    reviewerProvider: "codex",
+    model: null,
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-1", null, 2000);
+
+  expect(s.backfillReviewerSpawnUsage("rev-1", usage())).toBe(true);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.totalTokens).toBe(100);
+  expect(row.completedAt).toBe(2000); // the run finished when it finished — NOT re-stamped
+
+  // guarded: a second backfill can never overwrite real totals
+  expect(s.backfillReviewerSpawnUsage("rev-1", usage({ total: 999, input: 999 }))).toBe(false);
+  expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(100);
+});

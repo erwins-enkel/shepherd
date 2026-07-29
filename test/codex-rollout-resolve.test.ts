@@ -1,5 +1,11 @@
 import { describe, test, expect } from "bun:test";
-import { selectCodexRollout, CodexRolloutResolver, type RolloutMeta } from "../src/codex-activity";
+import { join } from "node:path";
+import {
+  selectCodexRollout,
+  CodexRolloutResolver,
+  backfillCodexSpawnUsage,
+  type RolloutMeta,
+} from "../src/codex-activity";
 
 const WT1 = "/wt/review-TASK-1";
 const WT2 = "/wt/review-TASK-2";
@@ -135,5 +141,93 @@ describe("CodexRolloutResolver — backoff, cache, race", () => {
     // repeat resolve served from cache → no second persist
     resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
     expect(resolved).toEqual([["t1", "id-1"]]);
+  });
+});
+
+describe("backfillCodexSpawnUsage", () => {
+  const FIXTURE = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
+
+  function store(rows: Array<Record<string, unknown>>) {
+    const filled: Array<{ id: string; total: number }> = [];
+    return {
+      filled,
+      listBackfillableCodexSpawns: () => rows as never,
+      backfillReviewerSpawnUsage: (id: string, u: { total: number }) => {
+        filled.push({ id, total: u.total });
+        return true;
+      },
+    };
+  }
+  const row = (id: string, wt: string, providerSessionId: string | null = null) => ({
+    reviewerSessionId: id,
+    worktreePath: wt,
+    model: "gpt-5.6-sol",
+    providerSessionId,
+  });
+
+  test("fills a completed row once its rollout shows up", () => {
+    const s = store([row("rev-1", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled).toEqual([{ id: "rev-1", total: 52976 }]);
+  });
+
+  test("resolves by persisted providerSessionId even when the cwd no longer matches", () => {
+    const s = store([row("rev-1", "/moved-away", "id-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/original", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+  });
+
+  test("a GC'd rollout leaves the row unknown (NULL stays the honest answer)", () => {
+    const s = store([row("rev-1", "/wt-1")]);
+    expect(backfillCodexSpawnUsage(s, () => [])).toBe(0);
+    expect(s.filled).toEqual([]);
+  });
+
+  test("an ambiguous legacy cwd is left alone rather than guessed", () => {
+    const s = store([row("rev-1", "/shared-wt")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/shared-wt", rolloutId: "a", source: "exec", mtimeMs: 1 },
+      { path: FIXTURE, cwd: "/shared-wt", rolloutId: "b", source: "exec", mtimeMs: 2 },
+    ]);
+    expect(n).toBe(0);
+  });
+
+  test("walks the rollout tree ONCE for the whole sweep, not once per row", () => {
+    let walks = 0;
+    const s = store([row("r1", "/wt-1"), row("r2", "/wt-2"), row("r3", "/wt-3")]);
+    backfillCodexSpawnUsage(s, () => {
+      walks += 1;
+      return [
+        { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+        { path: FIXTURE, cwd: "/wt-2", rolloutId: "id-2", source: "exec", mtimeMs: 1 },
+        { path: FIXTURE, cwd: "/wt-3", rolloutId: "id-3", source: "exec", mtimeMs: 1 },
+      ];
+    });
+    expect(s.filled).toHaveLength(3);
+    expect(walks).toBe(1);
+  });
+
+  test("no candidate rows → no tree walk at all", () => {
+    let walks = 0;
+    backfillCodexSpawnUsage(store([]), () => {
+      walks += 1;
+      return [];
+    });
+    expect(walks).toBe(0);
+  });
+
+  test("one unreadable row cannot abort the sweep", () => {
+    const s = store([row("bad", "/gone"), row("good", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: "/nonexistent.jsonl", cwd: "/gone", rolloutId: "x", source: "exec", mtimeMs: 1 },
+      { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled.map((f) => f.id)).toEqual(["good"]);
   });
 });

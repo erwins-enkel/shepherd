@@ -476,3 +476,68 @@ export async function reviewerUsage(
   }
   return readSessionUsage(worktreePath, trackingId);
 }
+
+// ── Boot-time usage backfill ────────────────────────────────────────────────
+
+/** What the backfill needs from the store (kept structural so it's trivially injectable). */
+export interface CodexUsageBackfillStore {
+  listBackfillableCodexSpawns(limit?: number): Array<{
+    reviewerSessionId: string;
+    worktreePath: string;
+    model: string | null;
+    providerSessionId: string | null;
+  }>;
+  backfillReviewerSpawnUsage(reviewerSessionId: string, usage: SessionUsage): boolean;
+}
+
+/**
+ * Fill in token totals for completed Codex reviewer rows whose rollout hadn't resolved at finalize
+ * (a fast-finish that beat the rollout's first write, or an ambiguous legacy cwd). Those rows book
+ * NULL — *unknown*, not zero — and this is what makes that promise real: without it a rollout that
+ * lands after finalize would leave the row NULL forever, since every other sweep skips completed
+ * rows (issue #1816).
+ *
+ * Boot-only and bounded: ONE `listMetas` tree walk is shared across every candidate row (never one
+ * per row), and the store caps how many rows are considered. Rows whose rollout is gone stay NULL,
+ * which remains the honest answer. Never throws — a backfill failure must not block startup.
+ *
+ * Returns the number of rows filled.
+ */
+export function backfillCodexSpawnUsage(
+  store: CodexUsageBackfillStore,
+  listMetas: () => RolloutMeta[] = () => listRolloutMetas(),
+): number {
+  let rows: ReturnType<CodexUsageBackfillStore["listBackfillableCodexSpawns"]>;
+  try {
+    rows = store.listBackfillableCodexSpawns();
+  } catch {
+    return 0;
+  }
+  if (rows.length === 0) return 0;
+
+  let metas: RolloutMeta[];
+  try {
+    metas = listMetas(); // the single shared tree walk
+  } catch {
+    return 0;
+  }
+
+  let filled = 0;
+  for (const row of rows) {
+    try {
+      const hit = selectCodexRollout(metas, {
+        worktreePath: row.worktreePath,
+        source: "exec",
+        providerSessionId: row.providerSessionId,
+      });
+      if (!hit) continue; // rollout gone or still ambiguous → stays NULL (honest)
+      const usage = parseCodexUsage(readFileSync(hit.path, "utf8"), row.model);
+      if (usage.total === 0) continue; // nothing recorded → leave it unknown rather than book a 0
+      if (store.backfillReviewerSpawnUsage(row.reviewerSessionId, usage)) filled += 1;
+    } catch {
+      /* one bad row must not abort the sweep */
+    }
+  }
+  if (filled > 0) console.log(`[codex-activity] backfilled token totals for ${filled} spawn(s)`);
+  return filled;
+}

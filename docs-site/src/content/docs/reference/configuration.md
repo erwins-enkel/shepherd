@@ -38,6 +38,20 @@ lines), read by the systemd unit if present.
 | `SHEPHERD_USAGE_DOWNGRADE_PCT` | `70` | Downgrade threshold: when the higher of the 5-hour / weekly usage window reaches this percent, new spawns are downgraded. Range `0`–`100`; default `70` is deliberately **below** `SHEPHERD_USAGE_HOLD_PCT` (`80`) so usage downgrades first and only later holds |
 | `SHEPHERD_USAGE_DOWNGRADE_MODEL` | `haiku` | Model the downgrade routes spawns to while active — a default-model setting (`auto` / `default` / `<alias>`) |
 
+## Review loops (PR critic + plan gate)
+
+The two cycle caps bound how many times a rejected head is sent back for rework
+before Shepherd escalates to a human; both are UI-configurable and persisted in the
+SQLite `settings` table, so the env var only seeds a fresh DB. The timeout is
+**env-only** — a machine-speed / PR-size escape hatch rather than a product knob.
+Out-of-range values are snapped into the stated range rather than rejected.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_REVIEW_CYCLES_CAP` | `3` | Max PR-critic auto-address rounds before escalating to a human. Range `1`–`8`. Seeds a fresh DB; persisted + UI-configurable |
+| `SHEPHERD_PLAN_REVIEW_CYCLES_CAP` | `5` | Max plan-gate adversarial-review rounds before escalating to a human. Range `1`–`12`. Seeds a fresh DB; persisted + UI-configurable |
+| `SHEPHERD_REVIEW_TIMEOUT_MS` | `600000` (10 min) | Hard deadline for a single critic run — both the session critic and the standalone PR critic — before it is abandoned and finalized as an `error` verdict. Clamped to `60000` (1 min)–`3600000` (60 min). Raise it for a repo whose PRs genuinely outgrow the default: a critic restarts from scratch on every retry, so a PR that can't finish inside the deadline stays permanently un-reviewable rather than being reviewed slowly. A run that hits the wall now also logs a `[review] no-verdict` diagnostic (cause, elapsed vs deadline, provider/model/effort, redacted pane tail) instead of failing silently |
+
 ## Live preview
 
 | Variable | Default | Purpose |

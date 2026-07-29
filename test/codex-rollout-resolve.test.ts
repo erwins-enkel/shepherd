@@ -182,6 +182,20 @@ describe("backfillCodexSpawnUsage", () => {
     expect(n).toBe(1);
   });
 
+  test("a resolved rollout with no token_count books the proven zero, not NULL", () => {
+    // The contract distinguishes NULL (unknown — unresolved) from 0 (proven — resolved but the
+    // transcript records no tokens). finalize already books 0 for this case; the backfill must
+    // agree, or the row keeps matching the NULL-totals candidate query and is re-read on every
+    // boot and hourly sweep forever.
+    const empty = join(import.meta.dir, "fixtures/codex-activity/rollout-no-tokens.jsonl");
+    const s = store([row("rev-1", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: empty, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled).toEqual([{ id: "rev-1", total: 0 }]);
+  });
+
   test("a GC'd rollout leaves the row unknown (NULL stays the honest answer)", () => {
     const s = store([row("rev-1", "/wt-1")]);
     expect(backfillCodexSpawnUsage(s, () => [])).toBe(0);

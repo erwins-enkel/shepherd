@@ -1931,6 +1931,30 @@ test("listBackfillableCodexSpawns covers plan_gate rows, not just critic rows", 
   expect(ids).toContain("rev-recap");
 });
 
+test("a backfilled ZERO leaves the candidate set (no permanent re-scan)", () => {
+  // 0 is a real value, so the row must stop matching the NULL-totals candidate query — otherwise a
+  // proven-zero run would be re-read on every boot and every hourly sweep forever (#1816).
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-zero",
+    taskSessionId: "t",
+    kind: "plan_gate",
+    worktreePath: "/wt",
+    reviewerProvider: "codex" as never,
+    model: null,
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-zero", null, 2000);
+  expect(s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId)).toEqual(["rev-zero"]);
+
+  s.backfillReviewerSpawnUsage(
+    "rev-zero",
+    usage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }),
+  );
+  expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(0); // proven zero, not NULL
+  expect(s.listBackfillableCodexSpawns()).toEqual([]); // no longer a candidate
+});
+
 test("backfillReviewerSpawnUsage fills unknown totals without touching completedAt", () => {
   const s = mk();
   s.recordReviewerSpawn({

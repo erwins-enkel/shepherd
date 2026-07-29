@@ -531,8 +531,12 @@ export function backfillCodexSpawnUsage(
         providerSessionId: row.providerSessionId,
       });
       if (!hit) continue; // rollout gone or still ambiguous → stays NULL (honest)
+      // A resolved rollout is the proof, so its totals are booked as-is — including a genuine zero
+      // (a run whose rollout records no `token_count`). That is exactly what finalize does for the
+      // same case, and `0` is the contract's *proven* zero, distinct from NULL = unknown. Skipping
+      // it here would both contradict that contract and strand the row: it would keep matching the
+      // NULL-totals candidate query and be re-read on every boot and every hourly sweep, forever.
       const usage = parseCodexUsage(readFileSync(hit.path, "utf8"), row.model);
-      if (usage.total === 0) continue; // nothing recorded → leave it unknown rather than book a 0
       if (store.backfillReviewerSpawnUsage(row.reviewerSessionId, usage)) filled += 1;
     } catch {
       /* one bad row must not abort the sweep */

@@ -3455,5 +3455,15 @@
   "spawnnotice_review_failed_action": "Der Review-Prompt überschreitet das Argumentlimit des Betriebssystems, daher lief für diesen Commit kein Critic. Am meisten Platz schafft es, `.shepherd-plan.md` zu kürzen. „Erneut versuchen“ startet einen neuen Versuch mit den aktuellen Eingaben.",
   "newtask_attach_label": "Anhängen",
   "feat_plugin_ui_inputs_title": "Plugin-Einstellungen im Plugins-Panel bearbeiten",
-  "feat_plugin_ui_inputs_body": "Plugin-Panels unter Einstellungen → Plugins können jetzt bearbeitbare Felder anbieten — Text, Auswahllisten, Checkboxen und Zahlen — samt Speichern-Button, und das Plugin schreibt deine Änderungen direkt in seine eigene Konfigurationsdatei. Kein händisches Editieren der config.json mit anschließendem Neustart mehr."
+  "feat_plugin_ui_inputs_body": "Plugin-Panels unter Einstellungen → Plugins können jetzt bearbeitbare Felder anbieten — Text, Auswahllisten, Checkboxen und Zahlen — samt Speichern-Button, und das Plugin schreibt deine Änderungen direkt in seine eigene Konfigurationsdatei. Kein händisches Editieren der config.json mit anschließendem Neustart mehr.",
+  "viewport_preview_start_no_detection": "Der Dev-Server wurde gestartet, aber Shepherd kann auf diesem Host keine laufenden Prozesse erkennen, daher erscheint die Live-Vorschau nicht. Details unter Diagnose.",
+  "diagnostics_label_preview_probes": "Preview-Erkennung",
+  "diagnostics_hint_preview_probes_ok": "Shepherd erkennt die von deinen Agenten gestarteten Dev-Server, daher funktionieren Live-Previews.",
+  "diagnostics_hint_preview_probes_unavailable": "Shepherd kann laufende Prozesse auf diesem Host nicht inspizieren und daher die von deinen Agenten gestarteten Dev-Server nicht erkennen — Live-Previews erscheinen nicht.",
+  "diagnostics_hint_preview_probes_stale": "Shepherds Sicht auf die laufenden Prozesse ist auf diesem Host veraltet (die letzte Inspektion wurde nicht rechtzeitig abgeschlossen), daher können Live-Previews verzögert sein oder fehlen.",
+  "diagnostics_hint_preview_probes_unsupported": "Die Erkennung von Live-Previews wird auf diesem Betriebssystem nicht unterstützt, daher erscheinen keine Previews.",
+  "diagnostics_hint_preview_probes_uninspectable": "Shepherd konnte nicht überprüfen, ob die Prozesserkennung auf diesem Host funktioniert.",
+  "feat_macos_preview_detection_title": "Live-Previews unter macOS",
+  "feat_macos_preview_detection_body": "Shepherd erkennt jetzt auch unter macOS die von deinen Agenten gestarteten Dev-Server, daher funktionieren dort Live-Loopback-Previews – bisher erschienen sie stillschweigend nie. Falls die Erkennung auf deinem Host nicht läuft, sagt dir das die neue Zeile „Preview-Erkennung“ unter Diagnose, statt dich rätseln zu lassen.",
+  "diagnostics_hint_preview_probes_idle": "Die Preview-Erkennung funktioniert, wird derzeit aber nicht genutzt — ohne aktive Session in einem Worktree hält Shepherd seine Sicht auf die laufenden Prozesse nicht aktuell. Sie wird aufgefrischt, sobald eine Session startet."
 }

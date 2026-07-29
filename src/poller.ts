@@ -80,25 +80,48 @@ export interface PreviewWiring {
     idleSince?(sessionId: string, now: number): number | null;
   };
   sweepMs: number;
+  /** Refresh the probe snapshot cell before a sweep reads it (darwin; no-op on
+   *  Linux/fakes). Drives BOTH sweeps: called (coalesced) from `tick()` on the
+   *  union filter, so the liveness sweep — which has no wiring of its own — is
+   *  covered too. Defaults to `deps.reaper`-backed refresh in index.ts. */
+  refresh?: (opts?: { force?: boolean }) => Promise<void>;
   /** Batched /proc scan: builds the inode→port map ONCE and resolves all worktrees.
-   *  Defaults to the real `scanListeningPortsByWorktree`. */
-  scan: (worktrees: string[]) => Map<string, number[]>;
+   *  Defaults to the real `scanListeningPortsByWorktree`. Returns `null` when the
+   *  snapshot backend cannot support a negative verdict (darwin, stale/none cell) —
+   *  the sweep must then leave bound listeners untouched, not tear them down. */
+  scan: (worktrees: string[]) => Map<string, number[]> | null;
   /** Pick the primary dev port from a set of listening ports for a given worktree.
    *  Defaults to `resolveDevPort`, which honors the agent-declared `.shepherd-preview`
    *  hint (if listening + HTTP-live) and otherwise falls back to the primary-port heuristic. */
   pick: (ports: number[], worktreePath: string) => Promise<number | null>;
   /** Opt-in idle-stop. idleMs > 0 enables it; `stop` signals a session's dev-server
-   *  process (wired to SessionService.stopPreview in index.ts). Absent = disabled. */
-  idleStop?: { idleMs: number; stop: (sessionId: string, signal: NodeJS.Signals) => void };
+   *  process (wired to SessionService.stopPreview in index.ts). Returns the stop
+   *  outcome; `"unsupported"` (darwin, no signal authority) must NOT advance the
+   *  escalation ladder. Absent = disabled. */
+  idleStop?: {
+    idleMs: number;
+    stop: (sessionId: string, signal: NodeJS.Signals) => StopPreviewOutcome | void;
+  };
 }
+
+/** Outcome of a preview-stop attempt, folded from `SessionService.stopPreview`. The
+ *  poller only distinguishes `"unsupported"` (no signal authority — do not advance
+ *  the ladder) from everything else. */
+export type StopPreviewOutcome = {
+  result: "stopped" | "not_bound" | "not_found" | "unsupported";
+  killed: number;
+} | void;
 
 /**
  * Injectable claude-liveness wiring: emits when a session's worktree gains/loses
  * a live `claude` process. Defaults to the real /proc scan; tests inject fakes.
  */
 export interface LivenessWiring {
-  /** Single /proc pass answering "does a claude process live in this worktree?". */
-  scan: (worktrees: string[]) => Map<string, boolean>;
+  /** Single /proc pass answering "does a claude process live in this worktree?".
+   *  Returns `null` when the snapshot backend cannot support a negative verdict
+   *  (darwin, stale/none cell): a false here DRIVES husk/stranded + auto-revive, so
+   *  `null` means "unknown", and the sweep must skip rather than coerce to false. */
+  scan: (worktrees: string[]) => Map<string, boolean> | null;
   sweepMs: number;
   /** Emitted on a liveness change. `alive` is the raw /proc bit (retained for old clients across an
    *  update); `liveness` is the folded 3-state (alive/husk/stranded) the new UI consumes. */
@@ -262,6 +285,10 @@ export class StatusPoller {
     string,
     { devPort: number; level: "term" | "kill"; gaveUp: boolean }
   >();
+  /** Sessions for which idle-stop has already logged an "unsupported on this host"
+   *  line this episode, so the warn fires once rather than every sweep. Pruned
+   *  alongside `previewStopState`. */
+  private idleStopUnsupportedLogged = new Set<string>();
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
@@ -322,6 +349,13 @@ export class StatusPoller {
   private lastLivenessSweepAt = 0;
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
   private lastClaudeAlive = new Map<string, boolean>();
+  /** Session ids whose claude-liveness is UNKNOWN because the last sweep's scan
+   *  returned `null` (darwin snapshot stale/none). While an id is in here,
+   *  `updateLiveness` is fed `undefined` (goes silent) at both call sites — the
+   *  throttled sweep and the per-tick `reconcileAgent` re-apply — so a retained
+   *  `lastClaudeAlive` value can't manufacture a husk/stranded verdict. Cleared on
+   *  the next successful (non-null) sweep. */
+  private livenessUnknown = new Set<string>();
   /** Last-emitted folded 3-state liveness per session (alive/husk/stranded); the dedup baseline for
    *  `updateLiveness`. */
   private lastLiveness = new Map<string, LivenessState>();
@@ -457,6 +491,7 @@ export class StatusPoller {
         idleSince: () => null,
       },
       sweepMs: preview?.sweepMs ?? config.previewSweepMs,
+      refresh: preview?.refresh,
       scan: preview?.scan ?? ((worktrees) => scanListeningPortsByWorktree(worktrees)),
       pick: preview?.pick ?? ((ports, worktreePath) => resolveDevPort(ports, worktreePath)),
       idleStop: preview?.idleStop,
@@ -541,6 +576,18 @@ export class StatusPoller {
       // Observe-only Stop↔herdr-done window (issue #713): expire markers that never paired
       // within the horizon (no-stop emit / silent stale-Stop drop). Gated; no behaviour change.
       if (config.hooksSignals) this.expireStaleStopWindows();
+      // Refresh the probe snapshot cell (darwin; no-op on Linux/fakes) before the
+      // sweeps read it. Driven here — not from a sweep — because the liveness sweep
+      // has no wiring of its own and the preview sweep short-circuits when no
+      // session is isolated; the union filter (any worktreePath) covers both.
+      // Coalesced + fire-and-forget: never blocks tick, and this tick's sweeps read
+      // whatever the cell holds (a prior refresh's data), which is the same
+      // one-cadence-stale freshness the Linux inode map already gives.
+      if (sessions.some((s) => s.worktreePath)) {
+        void this.previewWiring.refresh?.().catch((err) => {
+          console.warn("[poller] probe snapshot refresh failed:", err);
+        });
+      }
       // preview sweep: throttled + re-entrancy guarded; fire-and-forget (never blocks tick)
       this.maybeRunPreviewSweep(sessions);
       // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
@@ -590,7 +637,7 @@ export class StatusPoller {
     if (t - this.lastLivenessSweepAt < this.livenessWiring.sweepMs) return;
     this.lastLivenessSweepAt = t;
     const candidates = sessions.filter((s) => s.worktreePath);
-    let byWorktree: Map<string, boolean>;
+    let byWorktree: Map<string, boolean> | null;
     try {
       byWorktree = this.livenessWiring.scan(candidates.map((s) => s.worktreePath));
     } catch (err) {
@@ -599,6 +646,20 @@ export class StatusPoller {
       console.warn("[poller] claude-liveness sweep failed:", err);
       return;
     }
+    // `null` = the snapshot backend can't support a negative verdict (darwin, no
+    // recent lsof). A `false` here would DRIVE husk/stranded + auto-revive, so we
+    // must NOT coerce to false. Mark every candidate unknown so the per-tick
+    // `reconcileAgent` re-apply (which reads `lastClaudeAlive`) also stays silent,
+    // and skip the sweep entirely. `lastClaudeAlive` is deliberately NOT cleared —
+    // `restingPtyAuth` and `claudeAliveSnapshot` read the last-known values, the
+    // former conservatively (a retained `false` suppresses a PTY read, never
+    // manufactures one), the latter with the unknown ids filtered out.
+    if (byWorktree === null) {
+      this.livenessUnknown = new Set(candidates.map((s) => s.id));
+      return;
+    }
+    this.livenessUnknown.clear();
+    const known = byWorktree;
     // Sweep-on-arm: the operator just flipped auto-revive ON → dispatch for the CURRENT stranded set
     // this sweep (operator-initiated, so it bypasses the 2-sweep debounce, matching manual Resume).
     const armed = config.autoReviveEnabled && !this.lastAutoReviveEnabled;
@@ -606,7 +667,7 @@ export class StatusPoller {
     const activeIds = new Set<string>();
     for (const s of candidates) {
       activeIds.add(s.id);
-      const alive = byWorktree.get(s.worktreePath) ?? false;
+      const alive = known.get(s.worktreePath) ?? false;
       this.lastClaudeAlive.set(s.id, alive);
       this.updateLiveness(s, alive);
       this.maybeAutoRevive(s, armed);
@@ -704,7 +765,15 @@ export class StatusPoller {
    *  (`/api/claude-alive` wire-format is unchanged); the new client seeds its liveness map from this
    *  and self-heals to the precise 3-state on the next `session:claude-alive` emit. */
   claudeAliveSnapshot(): Record<string, boolean> {
-    return Object.fromEntries(this.lastClaudeAlive);
+    // Omit ids whose liveness is currently UNKNOWN (darwin, stale/none cell). A
+    // reloading client would otherwise render every retained `false` as a husk
+    // badge — a negative verdict served as fact. Omission matches what a
+    // pre-first-sweep client already sees.
+    const out: Record<string, boolean> = {};
+    for (const [id, alive] of this.lastClaudeAlive) {
+      if (!this.livenessUnknown.has(id)) out[id] = alive;
+    }
+    return out;
   }
 
   /** Sessions currently in the working-while-blocked display state, for client bootstrap. */
@@ -752,7 +821,12 @@ export class StatusPoller {
     this.maybeReDriveRestoredAccount(s, agent);
     // Re-fold liveness against this tick's fresh match (`lastMatched`) so a herdr-restored pane's
     // strand surfaces on the match change too, not only on the next throttled /proc sweep.
-    this.updateLiveness(s, this.lastClaudeAlive.get(s.id));
+    // Feed `undefined` (silent) while liveness is unknown, so a retained
+    // `lastClaudeAlive` value can't drive a husk/stranded verdict every tick.
+    this.updateLiveness(
+      s,
+      this.livenessUnknown.has(s.id) ? undefined : this.lastClaudeAlive.get(s.id),
+    );
     const status = mapState(agent.agentStatus);
     const idChanged = agent.terminalId !== s.herdrAgentId;
     if (idChanged || status !== s.status || agent.agentStatus !== s.lastState) {
@@ -956,6 +1030,8 @@ export class StatusPoller {
         this.pushInFlight.delete(id);
         this.liveness.delete(id);
         this.previewStopState.delete(id);
+        this.idleStopUnsupportedLogged.delete(id);
+        this.livenessUnknown.delete(id);
         // archived/removed → no client cares anymore; drop without an emit
         this.workingWhileBlocked.delete(id);
         this.lastSuppressVisible.delete(id);
@@ -1683,6 +1759,12 @@ export class StatusPoller {
     // Single /proc scan for ALL sessions — never once per session.
     const portsMap = this.previewWiring.scan(worktrees);
 
+    // `null` = the snapshot backend can't support a negative verdict (darwin,
+    // stale/none cell). An empty/partial map here would drive `converge` to tear
+    // down bound previews, so return WITHOUT converging: leave every bound listener
+    // in place until the cell is fresh again.
+    if (portsMap === null) return;
+
     const active: Array<{ sessionId: string; devPort: number }> = [];
     for (const s of isolated) {
       const ports = portsMap.get(s.worktreePath) ?? [];
@@ -1690,6 +1772,7 @@ export class StatusPoller {
       if (devPort === null) {
         // Server is gone — clear any escalation state and skip (converge will release it).
         this.previewStopState.delete(s.id);
+        this.idleStopUnsupportedLogged.delete(s.id);
         continue;
       }
 
@@ -1704,6 +1787,7 @@ export class StatusPoller {
           // died and escalate; the preview clears only when the port actually disappears.
         } else {
           this.previewStopState.delete(s.id); // recovered: viewed again / resumed / not stale → reset episode
+          this.idleStopUnsupportedLogged.delete(s.id);
         }
       }
 
@@ -1731,19 +1815,37 @@ export class StatusPoller {
   private escalateIdleStop(sessionId: string, devPort: number): void {
     const idleStop = this.previewWiring.idleStop!;
     const st = this.previewStopState.get(sessionId);
-    if (st && st.devPort === devPort) {
-      if (st.level === "term") {
-        idleStop.stop(sessionId, "SIGKILL");
-        st.level = "kill";
-      } else if (st.level === "kill" && !st.gaveUp) {
+    const nextSignal: NodeJS.Signals =
+      st && st.devPort === devPort && st.level === "term" ? "SIGKILL" : "SIGTERM";
+    // The "give up" rung sends nothing; short-circuit before calling stop.
+    if (st && st.devPort === devPort && st.level === "kill") {
+      if (!st.gaveUp) {
         console.warn(
           `[preview] idle-stop could not reclaim ${sessionId} on :${devPort} after SIGKILL`,
         );
         st.gaveUp = true;
       }
-      // level "kill" && gaveUp → no further signals
+      return;
+    }
+    const outcome = idleStop.stop(sessionId, nextSignal);
+    // No signal authority on this host (darwin): NOTHING was signalled, so the
+    // ladder must NOT advance — otherwise three sweeps would burn SIGTERM→SIGKILL→
+    // gaveUp and log "could not reclaim" without ever having sent a signal. Log the
+    // reason once per episode and leave `previewStopState` untouched, so a later
+    // sweep on a host that regains authority still starts the ladder cleanly.
+    if (outcome && typeof outcome === "object" && outcome.result === "unsupported") {
+      if (!this.idleStopUnsupportedLogged.has(sessionId)) {
+        this.idleStopUnsupportedLogged.add(sessionId);
+        console.warn(
+          `[preview] idle-stop unsupported on this host — cannot reclaim ${sessionId} on :${devPort}`,
+        );
+      }
+      return;
+    }
+    this.idleStopUnsupportedLogged.delete(sessionId);
+    if (st && st.devPort === devPort && st.level === "term") {
+      st.level = "kill";
     } else {
-      idleStop.stop(sessionId, "SIGTERM");
       this.previewStopState.set(sessionId, { devPort, level: "term", gaveUp: false });
     }
   }

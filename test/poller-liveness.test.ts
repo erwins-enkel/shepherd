@@ -54,7 +54,7 @@ const baseSessionInput = {
 function makePoller(opts: {
   store: SessionStore;
   agents: HerdrAgent[];
-  scan: (worktrees: string[]) => Map<string, boolean>;
+  scan: (worktrees: string[]) => Map<string, boolean> | null;
   onChange: (id: string, alive: boolean, liveness: LivenessState) => void;
   sweepMs?: number;
   now?: () => number;
@@ -397,4 +397,60 @@ test("liveness: auto-revive stops dispatching + re-counting once the service giv
   } finally {
     config.autoReviveEnabled = prev;
   }
+});
+
+// ── #1912: null scan = liveness unknown (darwin, stale/none snapshot) ──────────
+
+test("liveness (null scan): never emits alive=false and omits the id from the snapshot", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  const changes: Array<{ id: string; alive: boolean }> = [];
+  let clock = 100_000;
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: () => null, // always unknown
+    onChange: (id, a) => changes.push({ id, alive: a }),
+    now: () => clock,
+  });
+
+  for (let i = 0; i < 3; i++) {
+    await poller.tick();
+    clock += 5000;
+  }
+  // No husk verdict manufactured from unknown data.
+  expect(changes.filter((c) => c.alive === false)).toEqual([]);
+  // A reloading client sees the id OMITTED, not reported dead.
+  expect(poller.claudeAliveSnapshot()).toEqual({});
+  void s;
+});
+
+test("liveness (succeed-then-freeze): a stale scan doesn't re-fire a false every tick", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  const changes: Array<{ id: string; alive: boolean }> = [];
+  let clock = 100_000;
+  let alive: boolean | null = true;
+  const poller = makePoller({
+    store,
+    agents: [baseHerdrAgent],
+    scan: (worktrees) => (alive === null ? null : new Map(worktrees.map((w) => [w, alive!]))),
+    onChange: (id, a) => changes.push({ id, alive: a }),
+    now: () => clock,
+  });
+
+  await poller.tick(); // succeeds: alive=true emitted
+  expect(changes).toEqual([{ id: s.id, alive: true }]);
+
+  // Cell freezes (scan now returns null). Run several ticks — reconcileAgent
+  // re-applies lastClaudeAlive every tick, so without livenessUnknown gating it
+  // would keep re-emitting. It must stay silent.
+  alive = null;
+  for (let i = 0; i < 4; i++) {
+    clock += 5000;
+    await poller.tick();
+  }
+  expect(changes).toEqual([{ id: s.id, alive: true }]); // no further emits
+  // The last-known alive=true is retained but reported as unknown (omitted).
+  expect(poller.claudeAliveSnapshot()).toEqual({});
 });

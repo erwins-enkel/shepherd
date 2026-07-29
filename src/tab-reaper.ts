@@ -316,8 +316,10 @@ export function createOrphanTabSweeper(deps: OrphanTabSweeperDeps): { trigger: (
  * repo is no longer configured — accumulate as dead dirs under `.shepherd-worktrees`.
  * This is a disk-driven sweep that reaps them; it COMPLEMENTS plan-gate's
  * {@link gcStaleReviewWorktrees} (which is store-driven and only knows plan_gate
- * spawns it still tracks) — it does not replace it. Runs SYNC (a boot + hourly
- * maintenance pass, not on the typing hot path), consistent with that sibling.
+ * spawns it still tracks) — it does not replace it. Runs off the boot + hourly
+ * maintenance pass, not on the typing hot path. `reapStaleReviewWorktrees` itself
+ * stays synchronous; its caller (`sweepStaleReviewWorktrees` in index.ts) awaits a
+ * probe-snapshot refresh first, so the caller is async even though this is not.
  *
  * **Tag-shape match, basename-agnostic (guard d).** Selection keys off the reviewer
  * TAG SHAPE — a name ending in `-review-(<8hex> | <uuid>-<8hex>)` — NOT the basename.
@@ -369,8 +371,12 @@ export interface ReapWorktreesDeps {
   protectedPaths: Set<string>;
   /** Live store session worktreePaths — spare (user-work guard e). */
   sessionWorktreePaths: Set<string>;
-  /** One-pass `/proc` liveness probe ({@link scanClaudeAliveByWorktree}). */
-  scanAlive: (paths: string[]) => Map<string, boolean>;
+  /** One-pass `/proc` liveness probe ({@link scanClaudeAliveByWorktree}). Returns
+   *  `null` when the snapshot backend can't support a negative verdict (darwin,
+   *  stale/none cell). This consumer is FAIL-OPEN — an absent map entry means
+   *  "delete" — so `null` must skip the whole sweep, never default to an empty map,
+   *  or a live-reviewer worktree would be removed on unknown data. */
+  scanAlive: (paths: string[]) => Map<string, boolean> | null;
   /** Append-only reviewer-spawn rows (subset of {@link ReviewerSpawnRow} fields). */
   listReviewerSpawns: () => Array<{
     worktreePath: string;
@@ -395,6 +401,16 @@ export interface ReapWorktreesResult {
   sparedOwned: number;
   /** Spared because a live `claude` was running in them. */
   sparedLive: number;
+  /**
+   * Set when the sweep did NOT run and nothing was classified — so the counters
+   * above are all zero rather than mis-attributing the untouched candidates to a
+   * sparing reason they don't match. `"liveness-unknown"` means `scanAlive`
+   * returned null (the snapshot backend can't support a negative verdict), which
+   * is indefinite on a host whose cell never goes fresh — so the CALLER should log
+   * it, or the hourly sweep silently does nothing forever. This function stays
+   * I/O-free (every effect is an injected dep), hence reporting rather than logging.
+   */
+  skipped?: "liveness-unknown";
 }
 
 /** Reviewer disposable-worktree tag shape: `-review-` followed by an `sha8` or a
@@ -451,6 +467,18 @@ export function reapStaleReviewWorktrees(deps: ReapWorktreesDeps): ReapWorktrees
 
   // 3. One /proc pass over the non-owned candidates only.
   const aliveMap = deps.scanAlive(candidates.filter((p) => !owned(p)));
+
+  // `null` = liveness unknown (darwin, stale/none snapshot). This classifier is
+  // FAIL-OPEN: below, a missing `aliveMap.get(path)` reaps the path. So on unknown
+  // data we must SKIP the whole sweep and spare every candidate — reaping here
+  // would delete review worktrees hosting a live reviewer we simply cannot see.
+  if (aliveMap === null) {
+    // Counters stay 0: nothing was classified, so attributing these candidates to
+    // `sparedOwned` ("owned in memory / live session / recent spawn") would be a
+    // reason that doesn't apply. `skipped` is the honest signal, and the caller
+    // logs it — this skip is indefinite on a host whose cell never goes fresh.
+    return { reaped: [], sparedOwned: 0, sparedLive: 0, skipped: "liveness-unknown" };
+  }
 
   // 4. Classify each candidate.
   const reaped: string[] = [];

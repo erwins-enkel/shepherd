@@ -3455,5 +3455,15 @@
   "spawnnotice_review_failed_action": "The review prompt exceeds the operating system's argument limit, so no critic ran on this commit. Shortening `.shepherd-plan.md` is what frees the most room. Retry re-attempts with the current inputs.",
   "newtask_attach_label": "Attach",
   "feat_plugin_ui_inputs_title": "Edit plugin settings from the Plugins panel",
-  "feat_plugin_ui_inputs_body": "Plugin panels in Settings → Plugins can now offer editable fields — text, dropdowns, checkboxes and numbers — next to a Save button, and the plugin writes your changes straight to its own config file. No more editing config.json by hand and restarting."
+  "feat_plugin_ui_inputs_body": "Plugin panels in Settings → Plugins can now offer editable fields — text, dropdowns, checkboxes and numbers — next to a Save button, and the plugin writes your changes straight to its own config file. No more editing config.json by hand and restarting.",
+  "viewport_preview_start_no_detection": "Started the dev server, but Shepherd can't detect running processes on this host, so the live preview won't appear. See Diagnose for details.",
+  "diagnostics_label_preview_probes": "Preview detection",
+  "diagnostics_hint_preview_probes_ok": "Shepherd can detect the dev servers your agents start, so live previews work.",
+  "diagnostics_hint_preview_probes_unavailable": "Shepherd can't inspect running processes on this host, so it can't detect the dev servers your agents start — live previews won't appear.",
+  "diagnostics_hint_preview_probes_stale": "Shepherd's view of running processes is out of date on this host (the last inspection didn't complete in time), so live previews may be delayed or missing.",
+  "diagnostics_hint_preview_probes_unsupported": "Live preview detection isn't supported on this operating system, so previews won't appear.",
+  "diagnostics_hint_preview_probes_uninspectable": "Shepherd couldn't verify whether process detection works on this host.",
+  "feat_macos_preview_detection_title": "Live previews on macOS",
+  "feat_macos_preview_detection_body": "Shepherd now detects the dev servers your agents start on macOS, so live loopback previews work there too — they used to silently never appear. If detection can't run on your host, the new Preview detection row in Diagnose says so instead of leaving you guessing.",
+  "diagnostics_hint_preview_probes_idle": "Preview detection works, but nothing is exercising it right now — with no active session in a worktree, Shepherd doesn't keep its view of running processes up to date. It refreshes as soon as a session starts."
 }

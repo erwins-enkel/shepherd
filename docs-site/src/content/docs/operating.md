@@ -83,6 +83,32 @@ web-push alert. macOS / core-only hosts have no backup timer and stay silent. Fu
 details are in the
 [backups runbook](https://github.com/erwins-enkel/shepherd/blob/main/docs/backups.md).
 
+## Preview detection
+
+Live previews depend on Shepherd being able to see the processes an agent starts.
+How it looks depends on the host: on Linux it reads `/proc` live; on macOS it runs
+a single `lsof` call per refresh and answers every probe from that short-lived
+snapshot. On any other OS there is no backend at all.
+
+The **Preview detection** row in Settings → Diagnose makes that visible instead of
+leaving a preview that silently never appears. It **warns** when the backend can't
+run on this host, when the OS isn't supported, and when the snapshot has gone stale
+(the last inspection didn't finish in time, so previews may be delayed or missing);
+it stays `ok` when detection works. It never escalates to an error — previews are a
+convenience, so a broken one shouldn't turn the health pip red. If the check itself
+can't complete, the row reports that it couldn't be verified rather than degrading
+the pip. Starting a dev server from the UI on a host where detection is dead or
+stale still starts it, but you get an alert pointing here instead of a "started"
+toast, because the preview can never bind.
+
+Detection also backs sweeps that are more consequential than previews. When process
+data is unknown, Shepherd **skips** rather than acting on it: session liveness stays
+unreported (no husk/stranded verdict, no auto-revive) and the boot/daily worktree
+reap is skipped — it logs `worktree reap skipped (live cwds unknown)` and still runs
+the package-manager store reclaim, which doesn't depend on process data. Idle-stop
+behaves the same way; see `SHEPHERD_PREVIEW_IDLE_STOP_MS` in
+[Configuration](/reference/configuration/).
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

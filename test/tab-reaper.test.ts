@@ -609,6 +609,37 @@ test("live-claude spare: a candidate hosting a live claude is sparedLive, not re
   expect(r.sparedOwned).toBe(0);
 });
 
+test("null scanAlive (liveness unknown) spares EVERY candidate and reaps nothing (#1912)", () => {
+  // A stale candidate that a false-returning scan WOULD reap. On unknown data
+  // (darwin, stale/none snapshot) the consumer is fail-open — an absent map entry
+  // means delete — so the whole sweep must be skipped rather than default to empty.
+  const name = `shepherd-review-${HEX8}`;
+  const { deps, removed } = mkDeps({
+    names: [name],
+    scanAlive: () => null,
+    // Old enough to be reapable if the sweep ran.
+    dirMtime: () => 0,
+  });
+  const r = reapStaleReviewWorktrees(deps);
+  expect(r.reaped).toEqual([]);
+  expect(removed).toEqual([]);
+  // `skipped` is the honest signal — and the caller logs off it, so an indefinite
+  // skip on a host whose cell never goes fresh can't go unnoticed.
+  expect(r.skipped).toBe("liveness-unknown");
+  // Counters stay 0: nothing was classified, so attributing the untouched
+  // candidates to `sparedOwned` ("owned / live session / recent spawn") would
+  // report a sparing reason that does not apply to them.
+  expect(r.sparedOwned).toBe(0);
+  expect(r.sparedLive).toBe(0);
+});
+
+test("a normal sweep leaves `skipped` unset", () => {
+  const name = `shepherd-review-${HEX8}`;
+  const path = `${PARENT}/${name}`;
+  const { deps } = mkDeps({ names: [name], scanAlive: () => new Map([[path, true]]) });
+  expect(reapStaleReviewWorktrees(deps).skipped).toBeUndefined();
+});
+
 test("protectedPaths spare regardless of age/proc (#631 orphan regression guard)", () => {
   // A re-adopted plan-gate orphan: DEAD reviewer (scanAlive→false) AND an OLD uncompleted
   // reviewer_spawns row — but the service still holds it in memory. MUST be spared.

@@ -484,10 +484,11 @@ export interface CodexReleaseNotesResult {
 }
 
 // ── plugin update check (informational only) ────────────────────────────────
-/** Per-plugin update state. `no-source` = no way to check (no declared
- *  repository and not a git checkout); `incompatible` = a newer version exists
- *  but its apiVersion would be rejected at load; `error` = the check itself
- *  failed for this plugin (bad manifest version, unreachable remote, …). */
+/** Per-plugin update state. `no-source` = nothing to compare against (not a git
+ *  checkout and no declared repository, or a declared repository that publishes no
+ *  version tags with no local checkout to fall back on); `incompatible` = a newer
+ *  version exists but its apiVersion would be rejected at load; `error` = the check
+ *  itself failed for this plugin (bad manifest version, unreachable remote, …). */
 export type PluginUpdateState =
   "up-to-date" | "update-available" | "incompatible" | "no-source" | "error";
 
@@ -504,6 +505,11 @@ export interface PluginUpdateInfo {
   state: PluginUpdateState;
   /** short human-readable reason for a no-source/incompatible/error state */
   detail?: string;
+  /** How many commits the local git checkout is behind its upstream. Set ONLY when that
+   *  drift is what makes this an update — i.e. the upstream shipped commits without
+   *  bumping `version`, so `latestVersion === currentVersion`. A version-bump update
+   *  leaves it unset, so the UI can pick the version wording over the commit wording. */
+  behindCommits?: number;
 }
 
 /** Snapshot of every installed plugin's update state (informational; no apply). */

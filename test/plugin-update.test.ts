@@ -54,13 +54,30 @@ function repoGit(tagLines: string, candidate: object): GitRunner {
   });
 }
 
-/** Git-checkout path: a work tree with an upstream whose plugin.json is `upstream`. */
-function checkoutGit(upstream: object): GitRunner {
+/** Git-checkout path: a work tree with an upstream whose plugin.json is `upstream`.
+ *  `behind` is how many commits `HEAD..@{upstream}` reports — non-zero means the upstream
+ *  shipped code the checkout doesn't have yet. */
+function checkoutGit(upstream: object, behind = 0): GitRunner {
   return fakeGit({
     "rev-parse --is-inside-work-tree": () => "true\n",
     "rev-parse --abbrev-ref @{upstream}": () => "origin/main\n",
     fetch: () => "",
     "show @{upstream}:plugin.json": () => JSON.stringify(upstream),
+    "rev-list --count HEAD..@{upstream}": () => `${behind}\n`,
+  });
+}
+
+/** A tag-less declared repository (`ls-remote` returns only non-semver refs) whose folder
+ *  IS a git checkout — the shape that made "Check for updates" find nothing at all. */
+function taglessRepoGit(upstream: object, behind: number): GitRunner {
+  return fakeGit({
+    "ls-remote": () => "aaa\trefs/tags/latest\n",
+    "rev-parse --is-inside-work-tree": () => "true\n",
+    "rev-parse --abbrev-ref @{upstream}": () => "origin/main\n",
+    fetch: () => "",
+    "show @{upstream}:plugin.json": () => JSON.stringify(upstream),
+    "rev-list --count HEAD..@{upstream}": () => `${behind}\n`,
+    merge: () => "",
   });
 }
 
@@ -147,12 +164,85 @@ test("git checkout: an upstream manifest for a DIFFERENT plugin id is an error, 
   rmSync(dir, { recursive: true, force: true });
 });
 
-test("repository: no version tags on the remote is an error, not a false badge", async () => {
+test("repository: no version tags and no checkout is no-source, not a false badge", async () => {
+  // A repo that cuts no releases is not broken — there is simply nothing to compare
+  // against once the checkout fallback also comes up empty. Reporting `error` here read
+  // as "the check failed" for a perfectly healthy plugin.
   const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
   const git = fakeGit({ "ls-remote": () => "aaa\trefs/tags/latest\nbbb\trefs/tags/nightly\n" });
   const st = await new PluginUpdateService({ pluginsDir: dir, git }).check(1);
-  expect(st.plugins[0]!.state).toBe("error");
+  expect(st.plugins[0]!.state).toBe("no-source");
+  // The reason survives, so the UI can say WHY nothing was found.
+  expect(st.plugins[0]!.detail).toMatch(/no version tags/);
   expect(st.updateAvailable).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// ── tag-less repository → checkout fallback, and commit drift ────────────────
+test("repository: no version tags falls back to the checkout and reports commit drift", async () => {
+  // The reported bug: a plugin whose repo ships from its default branch had merged work
+  // waiting, but the tag-only check called it an error and the UI rendered nothing.
+  const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: taglessRepoGit(okManifest(), 13), // same version upstream, 13 commits ahead
+  }).check(1);
+  expect(st.plugins[0]).toMatchObject({
+    state: "update-available",
+    source: "git", // resolved through the checkout, so apply must route there too
+    latestVersion: "1.2.0",
+    behindCommits: 13,
+  });
+  expect(st.updateAvailable).toBe(true);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("repository: no version tags and a level checkout is up-to-date", async () => {
+  const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: taglessRepoGit(okManifest(), 0),
+  }).check(1);
+  expect(st.plugins[0]!.state).toBe("up-to-date");
+  expect(st.plugins[0]!.behindCommits).toBeUndefined();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("commit drift whose upstream also bumped apiVersion is incompatible, not offered", async () => {
+  const dir = makePluginsDir({ p: okManifest() });
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: checkoutGit(okManifest({ apiVersion: 2 }), 4),
+  }).check(1);
+  expect(st.plugins[0]!.state).toBe("incompatible");
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("a version bump does NOT report commit drift (version wording wins in the UI)", async () => {
+  const dir = makePluginsDir({ p: okManifest() });
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: checkoutGit(okManifest({ version: "1.4.0" }), 7),
+  }).check(1);
+  expect(st.plugins[0]).toMatchObject({ state: "update-available", latestVersion: "1.4.0" });
+  expect(st.plugins[0]!.behindCommits).toBeUndefined();
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("apply: a tag-less repository plugin fast-forwards its checkout, never clones by tag", async () => {
+  // Routing on `manifest.repository` alone would clone-by-tag here and fail on the very
+  // tag the check already fell back from.
+  const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
+  const calls: string[] = [];
+  const inner = taglessRepoGit(okManifest(), 13);
+  const git: GitRunner = async (args, cwd) => {
+    calls.push(args.join(" "));
+    return inner(args, cwd);
+  };
+  const res = await new PluginUpdateService({ pluginsDir: dir, git }).apply("p", 1);
+  expect(res).toMatchObject({ ok: true, folder: "p", updatedTo: "1.2.0" });
+  expect(calls).toContain("merge --ff-only @{upstream}");
+  expect(calls.some((c) => c.startsWith("clone"))).toBe(false);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -377,6 +467,24 @@ test("apply: refuses when nothing newer is available (already_up_to_date)", asyn
   const res = await new PluginUpdateService({ pluginsDir: dir, git }).apply("p", 7);
   expect(res).toMatchObject({ ok: false, error: "already_up_to_date" });
   rmSync(dir, { recursive: true, force: true });
+});
+
+test("a symlinked install never badges on commit drift alone", async () => {
+  // That checkout is the operator's own dev source tree and `apply` refuses it outright,
+  // so a drift badge there would be permanent and un-actionable. A real version bump
+  // still surfaces (covered by the apply-refusal test below).
+  const src = mkdtempSync(join(tmpdir(), "shepherd-plugin-src-"));
+  writeFileSync(join(src, "plugin.json"), JSON.stringify(okManifest({ id: "s", name: "S" })));
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-plugins-"));
+  symlinkSync(src, join(dir, "s"), "dir");
+  const st = await new PluginUpdateService({
+    pluginsDir: dir,
+    git: checkoutGit(okManifest({ id: "s", name: "S" }), 9),
+  }).check(1);
+  expect(st.plugins[0]!.state).toBe("up-to-date");
+  expect(st.updateAvailable).toBe(false);
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(src, { recursive: true, force: true });
 });
 
 test("apply: refuses a symlinked install (source is operator-owned)", async () => {

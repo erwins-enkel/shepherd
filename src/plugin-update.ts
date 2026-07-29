@@ -17,12 +17,25 @@ const execFileAsync = promisify(execFile);
 const GIT_TIMEOUT_MS = 20_000;
 
 /** Internal result of resolving a plugin's candidate manifest before classification.
- *  `no-source` carries the reportable source (`git` checkout without upstream vs no
- *  git/repository at all); `error` carries a diagnostic detail. */
+ *  `no-source` carries the reportable source (`git` checkout without upstream, a
+ *  `repository` that publishes no tags, or no git/repository at all); `error` carries a
+ *  diagnostic detail. */
 type Candidate =
-  | { kind: "manifest"; manifest: RawManifest }
-  | { kind: "no-source"; source: "git" | "none"; detail?: string }
-  | { kind: "error"; detail: string };
+  | {
+      kind: "manifest";
+      manifest: RawManifest;
+      /** commits the local checkout is behind its upstream; only the checkout path sets it */
+      behind?: number;
+    }
+  | { kind: "no-source"; source: "repository" | "git" | "none"; detail?: string }
+  | {
+      kind: "error";
+      detail: string;
+      /** the remote carries no semver tags — a repo that ships from its default branch
+       *  rather than a failure, so {@link PluginUpdateService.checkOne} can fall back to
+       *  the local checkout instead of reporting a dead end */
+      noTags?: true;
+    };
 
 /** Result of {@link PluginUpdateService.apply} — the on-disk half of picking up an
  *  update. `folder` lets the caller re-activate the (now newer) plugin in-process;
@@ -50,6 +63,16 @@ interface RawManifest {
   /** Optional declared update source (git URL). Makes a `cp -r`-installed plugin
    *  (no local `.git`) checkable — without it such a plugin reports `no-source`. */
   repository?: string;
+}
+
+/** Is this path a symlink? False when it can't be stat'd — callers use it to WITHHOLD
+ *  behaviour (drift badges), so an unknown answer must not read as "symlinked". */
+async function isSymlink(p: string): Promise<boolean> {
+  try {
+    return (await lstat(p)).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 function isRawManifest(m: unknown): m is RawManifest {
@@ -89,17 +112,24 @@ export interface PluginUpdateDeps {
  *    conscious path — works for the primary `cp -r` install that has no `.git`):
  *    the highest semver tag is found via `git ls-remote --tags`, then that tag's
  *    `plugin.json` is read via a shallow, checkout-less fetch into a scratch dir, or
- *  - the folder being a git work tree with an upstream (the documented symlink-
- *    to-checkout dev workflow): the upstream `plugin.json` is read after a
- *    `git fetch` that only moves remote-tracking refs, never the working tree.
- * Everything else reports `no-source`. The installed manifest `version` is the
- * source of truth for "what we're on"; a newer version is decided by a real
- * semver comparison (`>`) BEFORE anything else, so an equal/older candidate is
- * always `up-to-date` — even if its apiVersion differs. Only a genuinely newer
- * candidate is then apiVersion-gated: one that bumps apiVersion beyond what this
- * Shepherd supports (and would be silently disabled at load) is `incompatible`
- * rather than `update-available`. Fail-safe throughout: any git/parse error
- * yields a per-plugin `error`/`no-source` state, never a spurious badge.
+ *  - the folder being a git work tree with an upstream (every UI install is one, plus
+ *    the documented symlink-to-checkout dev workflow): the upstream `plugin.json` is
+ *    read after a `git fetch` that only moves remote-tracking refs, never the working
+ *    tree.
+ * The two are not exclusive: a declared repository that publishes NO version tags falls
+ * back to the checkout rather than reporting a dead end — plenty of plugins ship from
+ * their default branch and never cut a release. Everything else reports `no-source`.
+ *
+ * The installed manifest `version` is the source of truth for "what we're on", and an
+ * update exists for either of two reasons: the candidate is strictly newer by a real
+ * semver comparison, or the checkout is BEHIND its upstream while the version stayed put
+ * (the upstream shipped code without a version bump). Drift is deliberately ignored for a
+ * SYMLINKED install — that source tree is the operator's to manage and {@link apply}
+ * refuses it anyway. Whichever reason applies, the candidate is then apiVersion-gated
+ * once: one that bumps apiVersion beyond what this Shepherd supports (and would be
+ * silently disabled at load) is `incompatible` rather than `update-available`. Fail-safe
+ * throughout: any git/parse error yields a per-plugin `error`/`no-source` state, never a
+ * spurious badge.
  */
 export class PluginUpdateService {
   private pluginsDir: string;
@@ -157,9 +187,11 @@ export class PluginUpdateService {
    *     `update-available` right now — never trust a stale snapshot. Any other state
    *     maps to a stable error (`already_up_to_date`/`incompatible`/`no_source`/`check_failed`)
    *     so a race (someone else updated, or the remote moved) can't force a bad swap.
-   *  4. Bring the folder to the candidate version by source: a `git` checkout with an
-   *     upstream fast-forwards in place (untracked `config.json` preserved); a declared
-   *     `repository` install clones the latest tag into a scratch dir beside it, carries
+   *  4. Bring the folder to the candidate version by the source the check RESOLVED (which
+   *     is not always the one declared — a tag-less repository resolves through its
+   *     checkout): a `git` checkout with an upstream fast-forwards in place (untracked
+   *     `config.json` preserved); a `repository` install clones the latest tag into a
+   *     scratch dir beside it, carries
    *     `config.json` over, and swaps it in behind a backup so a mid-swap failure restores
    *     the original folder rather than leaving it half-written.
    * On success the snapshot is recomputed so the badge/list reflect the new on-disk
@@ -230,9 +262,12 @@ export class PluginUpdateService {
     }
     const updatedTo = info.latestVersion ?? manifest.version;
 
-    // 4. bring the folder to the candidate version
+    // 4. bring the folder to the candidate version, routing by the source the RE-VERIFIED
+    //    check actually resolved — NOT by the mere presence of `repository`. A plugin whose
+    //    repo publishes no tags declares one but resolves through its checkout; sending it
+    //    down the repository path would fail on the very tag it already fell back from.
     try {
-      if (manifest.repository) {
+      if (info.source === "repository" && manifest.repository) {
         await this.applyFromRepository(dir, folder, manifest.repository, id, now);
       } else {
         await this.applyFromCheckout(dir);
@@ -351,14 +386,37 @@ export class PluginUpdateService {
     // A declared repository is the explicit path (covers `cp -r` installs); else a
     // git checkout with an upstream. Both resolve the CANDIDATE manifest so the
     // same classifier runs — no path claims installability without seeing apiVersion.
-    const source: "repository" | "git" = manifest.repository ? "repository" : "git";
+    let source: "repository" | "git" = manifest.repository ? "repository" : "git";
     try {
-      const candidate = manifest.repository
+      let candidate = manifest.repository
         ? await this.candidateFromRepository(manifest.repository)
         : await this.candidateFromCheckout(dir);
+      // A declared repository that publishes NO version tags is not a dead end when the
+      // folder is the git checkout our own installer cloned (`plugins/manage.ts` clones
+      // every UI install): compare against its upstream instead. Repos that ship from
+      // their default branch are common, and erroring on them reported a genuinely
+      // pending update as a failure — the whole reason this check found nothing.
+      if (candidate.kind === "error" && candidate.noTags) {
+        const fallback = await this.candidateFromCheckout(dir);
+        if (fallback.kind === "manifest") {
+          candidate = fallback;
+          source = "git";
+        } else {
+          // Nothing to fall back on. Report the repository's own verdict, but as
+          // `no-source` — "nothing to compare against" is not a failure, and it keeps
+          // the actionable reason (the repo cuts no releases) in front of the operator.
+          return {
+            ...base,
+            latestVersion: null,
+            source,
+            state: "no-source",
+            detail: candidate.detail,
+          };
+        }
+      }
       switch (candidate.kind) {
         case "manifest":
-          return this.classifyCandidate(base, source, candidate.manifest);
+          return this.classifyCandidate(base, source, candidate.manifest, candidate.behind);
         case "no-source":
           return {
             ...base,
@@ -381,14 +439,19 @@ export class PluginUpdateService {
     }
   }
 
-  /** Classify an installed plugin against a resolved candidate manifest. Version
-   *  ordering is decided FIRST: an equal/older candidate is `up-to-date` no matter
-   *  its apiVersion. Only a strictly-newer candidate is apiVersion-gated — one whose
-   *  apiVersion this Shepherd wouldn't load is `incompatible`, not `update-available`. */
+  /** Classify an installed plugin against a resolved candidate manifest. An update exists
+   *  for either of two independent reasons: the candidate is a strictly NEWER version, or
+   *  — when the upstream shipped commits without bumping `version` — the local checkout is
+   *  BEHIND its upstream (`behind` > 0; only the checkout path can report that, and never
+   *  for a symlinked install). Neither → `up-to-date`. Either one is then apiVersion-gated
+   *  ONCE: a candidate whose apiVersion this Shepherd wouldn't load is `incompatible`,
+   *  never `update-available`. `behindCommits` is set only when drift is what drove the
+   *  verdict, so a real version bump keeps the version wording in the UI. */
   private classifyCandidate(
     base: { id: string; name: string; currentVersion: string },
     source: "repository" | "git",
     candidate: RawManifest,
+    behind = 0,
   ): PluginUpdateInfo {
     // The candidate must be the SAME plugin. A `repository` pointing at (or an
     // upstream diverged into) a different plugin would otherwise surface its
@@ -423,11 +486,16 @@ export class PluginUpdateService {
         detail: "candidate plugin.json has no parseable version",
       };
     }
-    if (compareSemver(latest, current) <= 0) {
+    const newer = compareSemver(latest, current) > 0;
+    // Same version, but the checkout trails its upstream: the plugin shipped code without
+    // bumping `version`. Real, installable work — `applyFromCheckout` fast-forwards it.
+    const drifted = !newer && behind > 0;
+    if (!newer && !drifted) {
       return { ...base, latestVersion: latest, source, state: "up-to-date" };
     }
-    // Genuinely newer — now the apiVersion pre-flight applies. A bump beyond what
-    // this Shepherd supports would be SILENTLY DISABLED at load, so flag it.
+    // Something IS installable — so the apiVersion pre-flight applies, whichever reason
+    // got us here. A bump beyond what this Shepherd supports would be SILENTLY DISABLED
+    // at load, so flag it instead of offering it.
     if (candidate.apiVersion !== PLUGIN_API_VERSION) {
       return {
         ...base,
@@ -437,14 +505,26 @@ export class PluginUpdateService {
         detail: `candidate apiVersion ${candidate.apiVersion} != supported ${PLUGIN_API_VERSION}`,
       };
     }
-    return { ...base, latestVersion: latest, source, state: "update-available" };
+    return {
+      ...base,
+      latestVersion: latest,
+      source,
+      state: "update-available",
+      ...(drifted ? { behindCommits: behind } : {}),
+    };
   }
 
   /** Resolve the candidate manifest from a declared repository: the highest semver
    *  tag's `plugin.json`, read via a checkout-less shallow fetch. */
   private async candidateFromRepository(repository: string): Promise<Candidate> {
     const tag = await this.latestRemoteTag(repository);
-    if (!tag) return { kind: "error", detail: "no version tags on the declared repository" };
+    if (!tag) {
+      return {
+        kind: "error",
+        detail: "the declared repository publishes no version tags",
+        noTags: true,
+      };
+    }
     const manifest = await this.readRemoteTagManifest(repository, tag.ref);
     if (!manifest) return { kind: "error", detail: "could not read plugin.json at the latest tag" };
     return { kind: "manifest", manifest };
@@ -465,7 +545,26 @@ export class PluginUpdateService {
     await this.git(["fetch", "--quiet"], dir);
     const manifest = await this.readUpstreamManifest(dir);
     if (!manifest) return { kind: "error", detail: "could not read upstream plugin.json" };
-    return { kind: "manifest", manifest };
+    // A SYMLINKED install is the documented "run it from your own checkout" dev workflow:
+    // its git state is the operator's to manage and `apply` refuses to touch it
+    // (`symlinked_source`), so commit drift there must never raise a badge that could
+    // not be actioned. A version BUMP still badges it, exactly as before.
+    const behind = (await isSymlink(dir)) ? 0 : await this.countBehind(dir);
+    return { kind: "manifest", manifest, behind };
+  }
+
+  /** How many commits the checkout is behind its upstream, counted AFTER the fetch that
+   *  moved the remote-tracking ref. 0 when level — and 0, never a guess, when the count
+   *  cannot be established, so an unreadable range can't invent an update. Works in the
+   *  `--depth 1` clone our installer creates (git deepens the range on fetch). */
+  private async countBehind(dir: string): Promise<number> {
+    try {
+      const raw = await this.git(["rev-list", "--count", "HEAD..@{upstream}"], dir);
+      const n = Number.parseInt(raw.trim(), 10);
+      return Number.isFinite(n) && n > 0 ? n : 0;
+    } catch {
+      return 0;
+    }
   }
 
   /** Highest semver tag on a remote (ref + parsed version), without cloning

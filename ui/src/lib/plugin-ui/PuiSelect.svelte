@@ -37,7 +37,7 @@
 </script>
 
 <label class="pui-field">
-  {#if label}<span class="lbl">{label}</span>{/if}
+  {#if label}<span class="pui-label">{label}</span>{/if}
   <select
     class="pui-input"
     aria-label={label ? null : name || null}
@@ -49,31 +49,3 @@
     {/each}
   </select>
 </label>
-
-<style>
-  /* Canonical form-field recipe (see /design-system → Form fields). */
-  .pui-field {
-    display: flex;
-    flex-direction: column;
-    gap: 3px;
-    min-width: 0;
-  }
-  .lbl {
-    font-size: var(--fs-meta);
-    color: var(--color-muted);
-  }
-  .pui-input {
-    background: var(--color-inset);
-    border: 1px solid var(--color-line);
-    color: var(--color-ink-bright);
-    font: inherit;
-    font-size: var(--fs-base);
-    padding: 8px 10px;
-    border-radius: 2px;
-    min-width: 0;
-  }
-  .pui-input:focus-visible {
-    outline: none;
-    border-color: var(--color-amber);
-  }
-</style>

@@ -29,8 +29,10 @@ and documented. Specific plugin **implementations** stay private under
   from Settings → Plugins (the Activate button / `POST /api/plugins/manage/activate`) —
   `register(ctx)` wires it into the live registry with no restart, since a never-imported
   folder has no module cache. What still needs a restart (`systemctl --user restart shepherd`):
-  **editing or reconfiguring an already-loaded plugin** (no hot reload — its module is cached)
-  and **unloading** one whose folder you removed.
+  **editing an already-loaded plugin's code** (no hot reload — its module is cached),
+  **hand-editing its `config.json`** (read at load), and **unloading** one whose folder you
+  removed. A plugin changing its _own_ config through [`ctx.setConfig`](#writing-config-ctxsetconfig)
+  does not need a restart — that write updates `ctx.config` live.
 - A **missing or empty** plugins dir is a clean no-op: no hooks and `/api/plugins/<id>/*`
   returns 404 — a fresh clone behaves exactly as a stock Shepherd. The Settings → Plugins
   tab still renders (so you can install the first plugin), just with an empty list.
@@ -168,7 +170,8 @@ permission-scoped / out-of-process) without changing your call sites.
 | `ctx.sessions`                     | Read-only session lookup: `get(id)` / `list()` → a curated `PluginSessionSnapshot`. Resolves the bare ids that `session:*` events carry. Plugins cannot write sessions. |
 | `ctx.route(method, path, handler)` | Register an HTTP route under `/api/plugins/<id>/<path>`. Sits behind operator auth.                                                                                     |
 | `ctx.log`                          | Namespaced logger into `shepherd.log` (`ctx.log.log` / `ctx.log.warn`).                                                                                                 |
-| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent).                                                                                                             |
+| `ctx.config`                       | Your plugin's own `config.json` (parsed; `{}` when absent). Updated **in place** by `setConfig`, so the object you capture stays live.                                  |
+| `ctx.setConfig(patch)`             | Shallow-merge `patch` into your `config.json` and persist it (atomic; re-reads the file first). **Throws** on failure — never fails open. Additive.                     |
 | `ctx.abortSpawn(reason)`           | Hard-block the in-flight spawn from inside an `onSpawn` hook (throws).                                                                                                  |
 
 ## Reading sessions (`ctx.sessions`)
@@ -312,6 +315,122 @@ if (typeof ctx.publishUI === "function") {
 - Validation is **fail-open**: size-capped (64 KB), max depth 16, max 256 nodes, max 500
   children per node; array values in `props` are also capped at 500 entries. Invalid views
   are silently dropped; the prior view is kept.
+
+### Editable settings — input nodes + a submitting button
+
+Four input nodes let an operator **type** a setting: `text-input`, `select`, `checkbox` and
+`number`. They never POST on their own. Each one contributes a **named field to the body of an
+`action-button` that opts in with `submit: true`** — so "POST a plugin-authored body to your own
+route" stays the only network shape, and the button's namespace scoping applies unchanged.
+
+```ts
+ctx.publishUI({
+  schemaVersion: 1,
+  slot: "settings-panel",
+  title: "Bridge settings",
+  root: {
+    type: "stack",
+    children: [
+      { type: "text-input", props: { name: "relayUrl", label: "Relay URL", value: cfg.relayUrl } },
+      { type: "text-input", props: { name: "keyEnv", label: "Token env var", value: cfg.keyEnv } },
+      {
+        type: "select",
+        props: {
+          name: "verbosity",
+          label: "Verbosity",
+          value: cfg.verbosity,
+          options: [
+            { value: "quiet", label: "Quiet" },
+            { value: "loud", label: "Loud" },
+          ],
+        },
+      },
+      {
+        type: "action-button",
+        props: {
+          label: "Save settings",
+          submit: true, // ← fold the fields above into the body
+          route: { method: "POST", path: "config" },
+          body: { section: "relay" }, // optional constants
+        },
+      },
+    ],
+  },
+});
+
+// The route your own plugin already owns receives them:
+ctx.route("POST", "config", async (req) => {
+  const { section, relayUrl, keyEnv, verbosity } = await req.json();
+  // …validate, then persist — see ctx.setConfig below.
+  return new Response("Saved");
+});
+```
+
+| Node         | Props                                                      | Submits             |
+| ------------ | ---------------------------------------------------------- | ------------------- |
+| `text-input` | `name`, `label?`, `value?`, `placeholder?`, `secret?`      | a string            |
+| `select`     | `name`, `label?`, `value?`, `options: { value, label? }[]` | a string            |
+| `checkbox`   | `name`, `label?`, `value?`                                 | a boolean           |
+| `number`     | `name`, `label?`, `value?`, `placeholder?`                 | a number, or `null` |
+
+Contract details worth knowing before you build a panel:
+
+- **Scope is the whole view.** All fields in one `publishUI` call land in one bucket, and every
+  `submit: true` button in that view sends the whole bucket. A button that omits `submit` is
+  unaffected — that is how you keep an unrelated action ("Test connection") from carrying them.
+- **Fields win over `body`.** On a key collision the operator's field replaces the static
+  constant, because the field is the live value.
+- **`name`** must match `/^[A-Za-z0-9_.-]{1,64}$/` and be **unique across the view**. A
+  duplicate makes the body non-deterministic, so the whole view is rejected.
+- **`value` seeds, and re-seeds only on change.** Re-publishing your panel on a timer will not
+  clobber what the operator is typing; re-publishing with a _different_ value (e.g. right after
+  a save) does snap the field to the stored truth. So publish the freshly-saved config back and
+  the panel corrects itself.
+- **`select` always submits a valid option.** An absent or unknown `value` falls back to the
+  first entry in `options`.
+- **`number` submits `null`** when the field is empty or not a number — never `NaN`. Range is
+  yours to validate in the route handler; the host does not clamp.
+- **`secret` masks, it does not protect.** The value still travels as plaintext JSON to your
+  route (as does everything else); it only keeps a token off the screen.
+- **`label` is verbatim plugin data**, never an i18n key. Omit it and the field's `name` becomes
+  its accessible name.
+
+## Writing config (`ctx.setConfig`)
+
+`ctx.setConfig(patch)` shallow-merges `patch` into your plugin's own `config.json` and persists
+it. This is what a "Save settings" route handler should call — so `ctx.config` stays the single
+source of truth and you never need a `ctx.state` overlay shadowing it.
+
+```ts
+// Guard — additive API, absent on older cores.
+ctx.route("POST", "config", async (req) => {
+  const body = await req.json();
+  if (typeof body.relayUrl !== "string") return new Response("bad relayUrl", { status: 400 });
+  if (typeof ctx.setConfig !== "function") return new Response("core too old", { status: 501 });
+
+  try {
+    await ctx.setConfig({ relayUrl: body.relayUrl });
+  } catch (e) {
+    return new Response(`Could not save: ${(e as Error).message}`, { status: 500 });
+  }
+  ctx.config.relayUrl; // ← already the new value
+  publishPanel(); // re-publish so the fields re-seed from the persisted truth
+  return new Response("Saved");
+});
+```
+
+- **`ctx.config` updates in place.** The object you captured during `register()` stays live —
+  never cache a copy of it and read that instead.
+- **The file is re-read before merging**, so an edit an operator made by hand since boot is
+  merged, not silently overwritten. Keys you do not mention are untouched.
+- **It throws; it does not fail open.** Unlike `publishUI` (where a dropped push is cosmetic), a
+  config write that silently no-ops is data loss. Expect a rejection for a non-object or
+  non-serializable patch, an oversized result (64 KB), or a write error — and deliberately when
+  `config.json` **exists but is unparseable**, so a half-edited file is never clobbered.
+- **Writes are atomic and serialized** per plugin: temp file + rename, and concurrent calls
+  queue rather than interleaving their read-modify-write.
+- **Only config goes live this way.** Changing your plugin's _code_ still needs a restart — the
+  module stays cached.
 
 ## Gear-menu item (`publishGearItem`)
 

@@ -40,7 +40,8 @@
   // drops to `up-to-date` and would otherwise lose its "restart to finish" hint.
   let applying = $state<Record<string, boolean>>({});
   type Outcome =
-    { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
+    | { kind: "live" | "restart"; version: string; commits?: boolean }
+    | { kind: "error"; msg: string; detail?: string };
   let outcome = $state<Record<string, Outcome>>({});
   let copied = $state(false);
   let restartOpen = $state(false); // the one-click Restart-Shepherd dialog
@@ -54,7 +55,11 @@
   function stateLabel(p: PluginUpdateInfo): string {
     switch (p.state) {
       case "update-available":
-        return m.pluginupdate_state_update({ latest: p.latestVersion ?? "?" });
+        // Drift-driven update: the version didn't move, so naming it would read as a
+        // no-op ("update to v0.1.0"). Count the commits instead.
+        return p.behindCommits
+          ? m.pluginupdate_state_commits({ count: p.behindCommits })
+          : m.pluginupdate_state_update({ latest: p.latestVersion ?? "?" });
       case "incompatible":
         return m.pluginupdate_state_incompatible({ latest: p.latestVersion ?? "?" });
       case "no-source":
@@ -100,6 +105,10 @@
           [p.id]: {
             kind: res.result.restartRequired ? "restart" : "live",
             version: res.result.updatedTo,
+            // Captured at click time: the refreshed snapshot has already dropped this
+            // plugin to up-to-date, so the note can no longer tell what kind of update
+            // it was — and "updated to v0.1.0" would read as nothing having happened.
+            commits: !!p.behindCommits,
           },
         };
         onapplied?.(res.result.status);
@@ -187,12 +196,14 @@
           <li>
             <div class="row-head">
               <span class="pname">{p.name}</span>
-              {#if p.state === "update-available"}
+              {#if p.state === "update-available" && !p.behindCommits}
                 <span class="pver"
                   >v{p.currentVersion} <span class="arrow" aria-hidden="true">→</span>
                   v{p.latestVersion}</span
                 >
               {:else}
+                <!-- Drift-driven updates don't move the version — an arrow to the same
+                     number would read as a no-op, so show it plain. -->
                 <span class="pver">v{p.currentVersion}</span>
               {/if}
               <span class="badge {p.state}">{stateLabel(p)}</span>
@@ -216,10 +227,16 @@
                   <div class="pdetail">{o.detail}</div>
                 {/if}
               {:else if o.kind === "restart"}
-                <div class="outcome">{m.pluginupdate_applied_restart({ version: o.version })}</div>
+                <div class="outcome">
+                  {o.commits
+                    ? m.pluginupdate_applied_commits_restart()
+                    : m.pluginupdate_applied_restart({ version: o.version })}
+                </div>
               {:else}
                 <div class="outcome live">
-                  {m.pluginupdate_applied_live({ version: o.version })}
+                  {o.commits
+                    ? m.pluginupdate_applied_commits_live()
+                    : m.pluginupdate_applied_live({ version: o.version })}
                 </div>
               {/if}
             {:else if p.detail}

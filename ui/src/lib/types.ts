@@ -1553,6 +1553,11 @@ export interface PluginUpdateInfo {
   source: "repository" | "git" | "none";
   state: PluginUpdateState;
   detail?: string;
+  /** Commits the local checkout is behind its upstream — set ONLY when that drift is what
+   *  makes this an update (the upstream shipped code without bumping `version`, so
+   *  `latestVersion === currentVersion`). Unset for a version-bump update, so the badge
+   *  can pick the version wording over the commit wording. */
+  behindCommits?: number;
 }
 
 /** Informational installed-plugin update check (no auto-apply). Mirror of

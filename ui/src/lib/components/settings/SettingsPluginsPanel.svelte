@@ -17,6 +17,10 @@
     PluginUpdateInfo,
   } from "$lib/types";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
+  import PluginUpdateNote, {
+    type PluginApplyOutcome,
+    type PluginCheckedNote,
+  } from "./PluginUpdateNote.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
 
@@ -152,8 +156,7 @@
   // double-click; `applyOutcome` persists a live/restart/error note that survives the
   // snapshot refresh (a just-updated plugin drops to `up-to-date` and would otherwise
   // lose its "restart to finish" hint).
-  type ApplyOutcome =
-    { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
+  type ApplyOutcome = PluginApplyOutcome;
   let applyBusy = $state<Record<string, boolean>>({});
   let applyOutcome = $state<Record<string, ApplyOutcome>>({});
 
@@ -190,6 +193,10 @@
           [id]: {
             kind: res.result.restartRequired ? "restart" : "live",
             version: res.result.updatedTo,
+            // Captured before the snapshot refresh drops this plugin to up-to-date: a
+            // drift update leaves the version untouched, so naming it would read as a
+            // no-op ("updated to v0.1.0" when you were already on v0.1.0).
+            commits: !!u.behindCommits,
           },
         };
         onpluginapplied?.(res.result.status);
@@ -207,13 +214,50 @@
 
   /** Card-shaped update props: non-null when there is a badge to show OR an apply
    *  outcome to keep visible after the badge is gone. */
-  function cardUpdate(
-    id: string,
-  ): { latest: string | null; applying: boolean; outcome: ApplyOutcome | null } | null {
+  function cardUpdate(id: string): {
+    latest: string | null;
+    behindCommits?: number;
+    applying: boolean;
+    outcome: ApplyOutcome | null;
+  } | null {
     const u = availableUpdate(id);
     const outcome = applyOutcome[id] ?? null;
     if (!u && !outcome) return null;
-    return { latest: u?.latestVersion ?? null, applying: !!applyBusy[id], outcome };
+    return {
+      latest: u?.latestVersion ?? null,
+      ...(u?.behindCommits ? { behindCommits: u.behindCommits } : {}),
+      applying: !!applyBusy[id],
+      outcome,
+    };
+  }
+
+  /** Props for the row's note line, or null when there is nothing to say. Assembled here
+   *  rather than branched in the markup: the note is either an apply result or a check
+   *  verdict, and `.upd-line` forces a flex line break, so an empty one would pad every
+   *  row. */
+  function rowNote(
+    id: string,
+  ): { outcome: ApplyOutcome | null; checked: PluginCheckedNote | null } | null {
+    const outcome = applyOutcome[id] ?? null;
+    const checked = cardChecked(id);
+    return outcome || checked ? { outcome, checked } : null;
+  }
+
+  /** What the last check concluded for a plugin with NO pending update — the answer to
+   *  "I clicked Check for updates and nothing happened". Null when no check has run yet,
+   *  or when an update/outcome is already occupying the card. */
+  function cardChecked(id: string): PluginCheckedNote | null {
+    const u = updById.get(id);
+    if (!u || u.state === "update-available" || applyOutcome[id]) return null;
+    const label =
+      u.state === "no-source"
+        ? m.pluginupdate_state_nosource()
+        : u.state === "error"
+          ? m.pluginupdate_state_error()
+          : u.state === "incompatible"
+            ? m.pluginupdate_state_incompatible({ latest: u.latestVersion ?? "?" })
+            : m.pluginupdate_state_uptodate();
+    return { label, ...(u.detail ? { detail: u.detail } : {}) };
   }
 
   // A restart is owed to UNLOAD a plugin whose folder is gone (`removed`) — that can't be
@@ -462,6 +506,7 @@
         busy={busyFolder === row.folder}
         onuninstall={(folder, name) => askUninstall(folder, name, true)}
         update={cardUpdate(rowId)}
+        checked={cardChecked(rowId)}
         onupdate={() => runUpdate(rowId)}
       />
     {:else if row.kind === "removed"}
@@ -473,6 +518,7 @@
       </div>
     {:else}
       {@const upd = row.kind === "broken" ? null : cardUpdate(row.inst.id)}
+      {@const note = row.kind === "broken" ? null : rowNote(row.inst.id)}
       <div class="row minimal">
         <span class="dot muted" aria-hidden="true"></span>
         <span class="name">{row.inst.name}</span>
@@ -482,7 +528,11 @@
         <span class="state micro" class:broken={row.kind === "broken"}>{stateLabel(row.kind)}</span>
         {#if upd?.latest}
           {@const updId = row.inst.id}
-          <span class="upd-badge micro">{m.pluginupdate_state_update({ latest: upd.latest })}</span>
+          <span class="upd-badge micro">
+            {upd.behindCommits
+              ? m.pluginupdate_state_commits({ count: upd.behindCommits })
+              : m.pluginupdate_state_update({ latest: upd.latest })}
+          </span>
           <button
             type="button"
             class="gbtn upd"
@@ -521,24 +571,8 @@
         >
           {m.plugins_uninstall()}
         </button>
-        {#if upd?.outcome}
-          {@const o = upd.outcome}
-          <div class="upd-line">
-            {#if o.kind === "error"}
-              <p class="upd-outcome error micro" role="alert">{o.msg}</p>
-              {#if o.detail}
-                <p class="upd-detail micro">{o.detail}</p>
-              {/if}
-            {:else if o.kind === "restart"}
-              <p class="upd-outcome micro">
-                {m.pluginupdate_applied_restart({ version: o.version })}
-              </p>
-            {:else}
-              <p class="upd-outcome live micro">
-                {m.pluginupdate_applied_live({ version: o.version })}
-              </p>
-            {/if}
-          </div>
+        {#if note}
+          <div class="upd-line"><PluginUpdateNote {...note} /></div>
         {/if}
       </div>
     {/if}
@@ -701,25 +735,9 @@
     white-space: nowrap;
     flex: none;
   }
+  /* Wrapper only — the note itself and its styles live in PluginUpdateNote.svelte. */
   .upd-line {
     flex-basis: 100%;
-  }
-  .upd-outcome {
-    margin: 4px 0 0;
-    color: var(--color-amber);
-  }
-  .upd-outcome.live {
-    color: var(--color-green, var(--color-blue));
-  }
-  .upd-outcome.error {
-    color: var(--color-red);
-    word-break: break-word;
-  }
-  .upd-detail {
-    margin: 2px 0 0;
-    color: var(--color-muted);
-    font-family: var(--font-mono, monospace);
-    word-break: break-word;
   }
 
   /* Restart-owed banner */

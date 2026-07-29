@@ -359,13 +359,24 @@
     function onPointer(e: Event) {
       if (automationAnchor && !automationAnchor.contains(e.target as Node)) closeAutomation();
     }
+    // The panel hangs off a fixed anchor at the click point, so a scroll behind it
+    // strands it from the chip it belongs to — hence the dismissal. But the panel is
+    // itself a scroll container (.auto-pop, or .auto-pop-body on touch), and scroll
+    // events capture from window down to their target even though they don't bubble:
+    // unscoped, this closed the panel the instant a wheel or a scrollbar drag moved
+    // its content. Scope it the same way onPointer scopes itself. A document-level
+    // scroll arrives with target === document, which contains() reports as outside.
+    function onScroll(e: Event) {
+      if (automationAnchor && automationAnchor.contains(e.target as Node)) return;
+      closeAutomation();
+    }
     window.addEventListener("keydown", onKeydown);
     window.addEventListener("pointerdown", onPointer, true);
-    window.addEventListener("scroll", closeAutomation, true);
+    window.addEventListener("scroll", onScroll, true);
     return () => {
       window.removeEventListener("keydown", onKeydown);
       window.removeEventListener("pointerdown", onPointer, true);
-      window.removeEventListener("scroll", closeAutomation, true);
+      window.removeEventListener("scroll", onScroll, true);
     };
   });
 </script>

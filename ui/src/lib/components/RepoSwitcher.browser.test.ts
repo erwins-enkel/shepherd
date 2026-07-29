@@ -329,6 +329,60 @@ describe("RepoSwitcher — filter rail", () => {
     expect(document.querySelector(".rs-menu"), "menu closes before settings opens").toBeNull();
   });
 
+  // Opens the automation popover the way a user does — right-click a chip, pick the
+  // menu item — and hands back the panel element for the scroll assertions below.
+  async function openAutomationPanel(): Promise<HTMLElement> {
+    render(RepoSwitcher, {
+      chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],
+      repoFilter: new Set<string>(),
+      onrepofilter: () => {},
+    });
+    (document.querySelector(".rs-chip") as HTMLElement).dispatchEvent(
+      new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+    );
+    await tick();
+    await page.getByRole("menuitem", { name: /repo automation/i }).click();
+    await vi.waitFor(() => {
+      expect(
+        document.querySelector(".auto-pop"),
+        "automation settings panel opened",
+      ).not.toBeNull();
+    });
+    return document.querySelector(".auto-pop") as HTMLElement;
+  }
+
+  it("stays open when the automation popover itself is scrolled", async () => {
+    const panel = await openAutomationPanel();
+    // The panel's max-height is clamped to the space below its anchor, so whether it
+    // overflows depends on the headless viewport. Pin it short to guarantee the
+    // overflow this test is about.
+    panel.style.maxHeight = "80px";
+    await tick();
+    expect(panel.scrollHeight, "panel overflows, so it is a scroll container").toBeGreaterThan(
+      panel.clientHeight,
+    );
+
+    // Scroll events do not bubble, but they do capture from window down to the
+    // target — which is exactly how the dismissal listener used to see (and close on)
+    // the panel's own scrolling.
+    panel.scrollTop = 40;
+    panel.dispatchEvent(new Event("scroll"));
+    await tick();
+
+    expect(document.querySelector(".auto-pop"), "panel survives its own scrolling").not.toBeNull();
+  });
+
+  it("closes the automation popover when something outside it scrolls", async () => {
+    await openAutomationPanel();
+
+    // The panel hangs off a fixed anchor at the click point, so a scroll behind it
+    // leaves it stranded from its chip — that dismissal must stay.
+    (document.querySelector(".rs-scroller") as HTMLElement).dispatchEvent(new Event("scroll"));
+    await tick();
+
+    expect(document.querySelector(".auto-pop"), "outside scroll still dismisses").toBeNull();
+  });
+
   it("the filter menu item reads 'Remove from filter' when the repo is already filtered", async () => {
     render(RepoSwitcher, {
       chips: [chip({ repoPath: "/repo/alpha" }), chip({ repoPath: "/repo/beta" })],

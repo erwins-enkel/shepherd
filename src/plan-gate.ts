@@ -1289,7 +1289,7 @@ export class PlanGateService {
       try {
         await this.finalize(f, raw);
       } finally {
-        this.inflight.delete(f.sessionId);
+        this.dropInflight(f.sessionId, f);
       }
     }
   }
@@ -1322,10 +1322,8 @@ export class PlanGateService {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }
     } finally {
-      // This run is over: drop its resolver cache + backoff entry. Without this the maps retain
-      // every reviewer for the server's lifetime (they're keyed per spawn, never reused). In the
-      // `finally` so a store failure above can't leak the entry.
-      this.codexResolver.reset(f.reviewerSessionId);
+      // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
+      // place every in-flight drop goes through, so no completion path can leak it.
       this.deps.onReviewing?.(f.sessionId, false);
       await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
@@ -1605,9 +1603,18 @@ export class PlanGateService {
     if (f) {
       void this.deps.herdr.stop(f.terminalId).catch(() => {});
       this.deps.worktree.remove(f.worktreePath);
-      this.inflight.delete(sessionId);
+      this.dropInflight(sessionId, f);
       this.deps.onReviewing?.(sessionId, false);
     }
+  }
+
+  /** Drop an in-flight reviewer AND release its resolver entry. The two must stay coupled: the
+   *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
+   *  reset (archive/reap, finalize) is retained for the server's lifetime. Every `inflight.delete`
+   *  goes through here so a future early-abort path can't forget it. */
+  private dropInflight(sessionId: string, f: PlanInFlight): void {
+    this.inflight.delete(sessionId);
+    this.codexResolver.reset(f.reviewerSessionId);
   }
 
   forget(sessionId: string): void {

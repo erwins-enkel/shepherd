@@ -539,6 +539,60 @@ test("onReviewing fires false when an in-flight critic is forgotten", async () =
   ]);
 });
 
+// The resolver's cache + backoff are keyed per spawn and never reused, so ANY path that drops an
+// in-flight critic must release its entry — not just finalize. These cover the early-abort paths
+// (force-re-review, archive), where a Codex reviewer would otherwise be retained for the server's
+// lifetime. Counting scans proves the entry is gone: a later resolve for the same id has to walk
+// again instead of being served from the cache.
+function countingResolver() {
+  let scans = 0;
+  const resolver = new CodexRolloutResolver({
+    listMetas: () => {
+      scans += 1;
+      return [
+        { path: CODEX_FIXTURE, cwd: "/review-wt", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+      ];
+    },
+    now: () => 0,
+  });
+  return { resolver, scans: () => scans };
+}
+
+test("forceReview drops the aborted critic's resolver entry", async () => {
+  const c = countingResolver();
+  const { deps: d, recordedSpawns } = makeDeps({
+    env: () => ({ provider: "codex" as const, model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => null, // still running
+    codexResolver: c.resolver,
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick(); // populates the resolver cache for this spawn
+  const id = recordedSpawns[0]!.reviewerSessionId;
+  expect(id).toBeTruthy();
+  const before = c.scans();
+  await svc.forceReview(session(), OPEN_GREEN); // aborts the in-flight run
+  c.resolver.resolve({ trackingId: id, worktreePath: "/review-wt", source: "exec" });
+  expect(c.scans()).toBeGreaterThan(before); // cache cleared → walked again
+});
+
+test("forget drops the archived critic's resolver entry", async () => {
+  const c = countingResolver();
+  const { deps: d, recordedSpawns } = makeDeps({
+    env: () => ({ provider: "codex" as const, model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => null,
+    codexResolver: c.resolver,
+  });
+  const svc = new ReviewService(d as any);
+  await svc.consider(session(), OPEN_GREEN);
+  await svc.tick();
+  const id = recordedSpawns[0]!.reviewerSessionId;
+  const before = c.scans();
+  svc.forget("s1");
+  c.resolver.resolve({ trackingId: id, worktreePath: "/review-wt", source: "exec" });
+  expect(c.scans()).toBeGreaterThan(before);
+});
+
 test("onActivity surfaces the running critic's latest tool-use while no verdict yet", async () => {
   const acts: { id: string; summary: string }[] = [];
   const { deps: d } = makeDeps({

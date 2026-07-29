@@ -681,7 +681,7 @@ export class ReviewService {
       if (f.finalizing) return "skipped";
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
       this.deps.onReviewing?.(session.id, false);
-      this.inflight.delete(session.id);
+      this.dropInflight(session.id, f);
     }
     // 3. escalation/streak HYGIENE on the prior verdict (NOT the re-trigger lever — rebaseSkip's
     //    force bypass is): reset errorRound so finalize() doesn't immediately re-fire the
@@ -988,7 +988,7 @@ export class ReviewService {
       try {
         await this.finalize(f, raw, cause);
       } finally {
-        this.inflight.delete(f.sessionId);
+        this.dropInflight(f.sessionId, f);
       }
     }
   }
@@ -1190,9 +1190,8 @@ export class ReviewService {
         this.now(),
         f.sessionId,
       );
-      // This run is over: drop its resolver cache + backoff entry. Without this the maps retain
-      // every reviewer for the server's lifetime (they're keyed per spawn, never reused).
-      this.codexResolver.reset(f.criticSessionId);
+      // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
+      // place every in-flight drop goes through, so no completion path can leak it.
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
@@ -1768,10 +1767,19 @@ export class ReviewService {
     if (f) {
       void this.deps.herdr.stop(f.terminalId).catch(() => {});
       this.deps.worktree.remove(f.worktreePath);
-      this.inflight.delete(sessionId);
+      this.dropInflight(sessionId, f);
       this.deps.onReviewing?.(sessionId, false);
     }
     this.deps.store.dropReview(sessionId);
+  }
+
+  /** Drop an in-flight critic AND release its resolver entry. The two must stay coupled: the
+   *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
+   *  reset (force-re-review, archive, finalize) is retained for the server's lifetime. Every
+   *  `inflight.delete` goes through here so a future early-abort path can't forget it. */
+  private dropInflight(sessionId: string, f: InFlight): void {
+    this.inflight.delete(sessionId);
+    this.codexResolver.reset(f.criticSessionId);
   }
 }
 

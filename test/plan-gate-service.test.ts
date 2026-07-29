@@ -1383,6 +1383,35 @@ test("reapReviewer reaps terminal+worktree+inflight but does NOT drop the persis
   expect(dropped).toEqual(["s1"]); // gate row now dropped exactly once
 });
 
+test("reapReviewer drops the reaped reviewer's resolver entry", async () => {
+  // Same retention hazard as finalize, on the archive/reap path: the resolver's cache + backoff are
+  // keyed per spawn and never reused, so reaping without a reset retains the entry for the server's
+  // lifetime. Counting scans proves it's gone — a later resolve has to walk again.
+  let scans = 0;
+  const codexResolver = new CodexRolloutResolver({
+    listMetas: () => {
+      scans += 1;
+      return [
+        { path: CODEX_FIXTURE, cwd: "/wt-detached", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+      ];
+    },
+    now: () => 0,
+  });
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => null, // still running — stays in flight
+    codexResolver,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick(); // populates the resolver cache for this spawn
+  const id = h.recordedSpawns[0].reviewerSessionId;
+  expect(id).toBeTruthy();
+  const before = scans;
+  h.svc.reapReviewer("s1");
+  codexResolver.resolve({ trackingId: id, worktreePath: "/wt-detached", source: "exec" });
+  expect(scans).toBeGreaterThan(before); // cache cleared → walked again
+});
+
 test("gcStaleReviewWorktrees leaves an inflight plan_gate worktree alone", async () => {
   const adopted = orphanSpawn({ worktreePath: "/wt-detached" });
   const h = harness({

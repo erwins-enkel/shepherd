@@ -371,6 +371,41 @@ export class PluginUpdateService {
     return this.last;
   }
 
+  /** Resolve what a plugin should be compared against, and which source actually
+   *  answered. A declared `repository` is the explicit path (it covers the `cp -r`
+   *  install that has no `.git`); otherwise the folder's own git checkout.
+   *
+   *  The two are not exclusive. A repository publishing NO version tags is not a dead
+   *  end when the folder is the git checkout our own installer cloned
+   *  (`plugins/manage.ts` clones every UI install) — plenty of plugins ship from their
+   *  default branch and never cut a release, and erroring on them reported a genuinely
+   *  pending update as a failure. So the checkout takes over, and it OWNS the verdict
+   *  from then on: a resolved manifest AND a genuine failure to read it both become the
+   *  checkout's answer. Only when the checkout has simply nothing to offer do we fall
+   *  back to the (benign) no-tags verdict, carrying both halves of why. */
+  private async resolveCandidate(
+    dir: string,
+    manifest: RawManifest,
+  ): Promise<{ candidate: Candidate; source: "repository" | "git" }> {
+    if (!manifest.repository) {
+      return { candidate: await this.candidateFromCheckout(dir), source: "git" };
+    }
+    const candidate = await this.candidateFromRepository(manifest.repository);
+    if (candidate.kind !== "error" || !candidate.noTags) {
+      return { candidate, source: "repository" };
+    }
+    const fallback = await this.candidateFromCheckout(dir);
+    if (fallback.kind !== "no-source") return { candidate: fallback, source: "git" };
+    return {
+      candidate: {
+        kind: "no-source",
+        source: "repository",
+        detail: fallback.detail ? `${candidate.detail}; ${fallback.detail}` : candidate.detail,
+      },
+      source: "repository",
+    };
+  }
+
   /** Resolve one plugin folder's update state. Returns null when the folder is
    *  not a plugin (no valid `plugin.json`) so it drops out of the list. */
   private async checkOne(dir: string): Promise<PluginUpdateInfo | null> {
@@ -383,37 +418,11 @@ export class PluginUpdateService {
       return null; // not a plugin folder
     }
     const base = { id: manifest.id, name: manifest.name, currentVersion: manifest.version };
-    // A declared repository is the explicit path (covers `cp -r` installs); else a
-    // git checkout with an upstream. Both resolve the CANDIDATE manifest so the
-    // same classifier runs — no path claims installability without seeing apiVersion.
     let source: "repository" | "git" = manifest.repository ? "repository" : "git";
     try {
-      let candidate = manifest.repository
-        ? await this.candidateFromRepository(manifest.repository)
-        : await this.candidateFromCheckout(dir);
-      // A declared repository that publishes NO version tags is not a dead end when the
-      // folder is the git checkout our own installer cloned (`plugins/manage.ts` clones
-      // every UI install): compare against its upstream instead. Repos that ship from
-      // their default branch are common, and erroring on them reported a genuinely
-      // pending update as a failure — the whole reason this check found nothing.
-      if (candidate.kind === "error" && candidate.noTags) {
-        const fallback = await this.candidateFromCheckout(dir);
-        if (fallback.kind === "manifest") {
-          candidate = fallback;
-          source = "git";
-        } else {
-          // Nothing to fall back on. Report the repository's own verdict, but as
-          // `no-source` — "nothing to compare against" is not a failure, and it keeps
-          // the actionable reason (the repo cuts no releases) in front of the operator.
-          return {
-            ...base,
-            latestVersion: null,
-            source,
-            state: "no-source",
-            detail: candidate.detail,
-          };
-        }
-      }
+      const resolved = await this.resolveCandidate(dir, manifest);
+      const candidate = resolved.candidate;
+      source = resolved.source;
       switch (candidate.kind) {
         case "manifest":
           return this.classifyCandidate(base, source, candidate.manifest, candidate.behind);

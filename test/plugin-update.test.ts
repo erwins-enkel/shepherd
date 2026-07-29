@@ -178,6 +178,43 @@ test("repository: no version tags and no checkout is no-source, not a false badg
   rmSync(dir, { recursive: true, force: true });
 });
 
+test("repository: no version tags surfaces a FAILING checkout as an error, not no-source", async () => {
+  // Once the fallback takes over, the checkout is the source — so a genuine failure to
+  // read it must be reported as such. Filing it under "not checkable" with the benign
+  // no-tags reason would hide a real breakage behind an expected-looking state.
+  const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
+  const git = fakeGit({
+    "ls-remote": () => "aaa\trefs/tags/latest\n",
+    "rev-parse --is-inside-work-tree": () => "true\n",
+    "rev-parse --abbrev-ref @{upstream}": () => "origin/main\n",
+    fetch: () => "",
+    "show @{upstream}:plugin.json": () => {
+      throw new Error("fatal: bad object");
+    },
+  });
+  const st = await new PluginUpdateService({ pluginsDir: dir, git }).check(1);
+  expect(st.plugins[0]).toMatchObject({ state: "error", source: "git" });
+  expect(st.plugins[0]!.detail).toMatch(/upstream plugin\.json/);
+  expect(st.plugins[0]!.detail).not.toMatch(/no version tags/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test("repository: no version tags AND no upstream reports both halves of why", async () => {
+  const dir = makePluginsDir({ p: okManifest({ repository: "https://x/p.git" }) });
+  const git = fakeGit({
+    "ls-remote": () => "aaa\trefs/tags/latest\n",
+    "rev-parse --is-inside-work-tree": () => "true\n",
+    "rev-parse --abbrev-ref @{upstream}": () => {
+      throw new Error("fatal: no upstream configured");
+    },
+  });
+  const st = await new PluginUpdateService({ pluginsDir: dir, git }).check(1);
+  expect(st.plugins[0]!.state).toBe("no-source");
+  expect(st.plugins[0]!.detail).toMatch(/no version tags/);
+  expect(st.plugins[0]!.detail).toMatch(/no upstream branch/);
+  rmSync(dir, { recursive: true, force: true });
+});
+
 // ── tag-less repository → checkout fallback, and commit drift ────────────────
 test("repository: no version tags falls back to the checkout and reports commit drift", async () => {
   // The reported bug: a plugin whose repo ships from its default branch had merged work

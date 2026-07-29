@@ -2,6 +2,10 @@
   import { m } from "$lib/paraglide/messages";
   import type { PluginInfo, PluginUIView } from "$lib/types";
   import PluginUIRoot from "$lib/plugin-ui/PluginUIRoot.svelte";
+  import PluginUpdateNote, {
+    type PluginApplyOutcome,
+    type PluginCheckedNote,
+  } from "./PluginUpdateNote.svelte";
 
   let {
     plugin,
@@ -25,16 +29,13 @@
       latest: string | null;
       behindCommits?: number;
       applying: boolean;
-      outcome:
-        | { kind: "live" | "restart"; version: string; commits?: boolean }
-        | { kind: "error"; msg: string; detail?: string }
-        | null;
+      outcome: PluginApplyOutcome | null;
     } | null;
     onupdate?: () => void;
     /** Resolved update state for plugins with NO pending update, so the card can say WHY
      *  a check found nothing (up to date / not checkable / check failed) instead of
      *  leaving the user staring at a refreshed timestamp. Null before the first check. */
-    checked?: { label: string; detail?: string } | null;
+    checked?: PluginCheckedNote | null;
   } = $props();
 
   // Core-derived health → token + label. Design rule (mirrors DiagnoseRows): never
@@ -113,34 +114,7 @@
       </button>
     {/if}
   </div>
-  {#if update?.outcome}
-    {@const o = update.outcome}
-    {#if o.kind === "error"}
-      <p class="upd-outcome error micro" role="alert">{o.msg}</p>
-      {#if o.detail}
-        <!-- server-authored diagnostic (verbatim) — makes the failure debuggable -->
-        <p class="upd-detail micro">{o.detail}</p>
-      {/if}
-    {:else if o.kind === "restart"}
-      <p class="upd-outcome micro">
-        {o.commits
-          ? m.pluginupdate_applied_commits_restart()
-          : m.pluginupdate_applied_restart({ version: o.version })}
-      </p>
-    {:else}
-      <p class="upd-outcome live micro">
-        {o.commits
-          ? m.pluginupdate_applied_commits_live()
-          : m.pluginupdate_applied_live({ version: o.version })}
-      </p>
-    {/if}
-  {:else if checked}
-    <!-- No pending update: say what the check concluded, so "nothing found" is never
-         silent. `detail` is the server-authored diagnostic, rendered verbatim. -->
-    <p class="upd-checked micro">
-      {checked.label}{#if checked.detail}<span class="reason"> — {checked.detail}</span>{/if}
-    </p>
-  {/if}
+  <PluginUpdateNote outcome={update?.outcome ?? null} {checked} />
   {#if plugin.lastError}
     <p class="err micro" title={plugin.lastError}>{m.plugins_last_error()}: {plugin.lastError}</p>
   {/if}
@@ -256,33 +230,7 @@
     white-space: nowrap;
     flex: none;
   }
-  .upd-outcome {
-    margin: 6px 0 0;
-    color: var(--color-amber);
-  }
-  .upd-outcome.live {
-    color: var(--color-green, var(--color-blue));
-  }
-  .upd-outcome.error {
-    color: var(--color-red);
-    word-break: break-word;
-  }
-  .upd-detail {
-    margin: 4px 0 0;
-    color: var(--color-muted);
-    font-family: var(--font-mono, monospace);
-    word-break: break-word;
-  }
-  /* Steady-state check result — deliberately quiet: it answers "was this looked at?",
-     it is not an alert. Never amber, which is reserved for a pending update. */
-  .upd-checked {
-    margin: 6px 0 0;
-    color: var(--color-muted);
-    word-break: break-word;
-  }
-  .upd-checked .reason {
-    font-family: var(--font-mono, monospace);
-  }
+  /* The apply/check note and its styles live in PluginUpdateNote.svelte. */
   .err {
     color: var(--color-red);
     margin: 6px 0 0;

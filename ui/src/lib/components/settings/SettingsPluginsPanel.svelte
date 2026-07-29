@@ -17,6 +17,10 @@
     PluginUpdateInfo,
   } from "$lib/types";
   import PluginLoadedCard from "./PluginLoadedCard.svelte";
+  import PluginUpdateNote, {
+    type PluginApplyOutcome,
+    type PluginCheckedNote,
+  } from "./PluginUpdateNote.svelte";
   import PluginConfirmDialog from "./PluginConfirmDialog.svelte";
   import RestartShepherdDialog from "$lib/components/RestartShepherdDialog.svelte";
 
@@ -152,9 +156,7 @@
   // double-click; `applyOutcome` persists a live/restart/error note that survives the
   // snapshot refresh (a just-updated plugin drops to `up-to-date` and would otherwise
   // lose its "restart to finish" hint).
-  type ApplyOutcome =
-    | { kind: "live" | "restart"; version: string; commits?: boolean }
-    | { kind: "error"; msg: string; detail?: string };
+  type ApplyOutcome = PluginApplyOutcome;
   let applyBusy = $state<Record<string, boolean>>({});
   let applyOutcome = $state<Record<string, ApplyOutcome>>({});
 
@@ -229,10 +231,22 @@
     };
   }
 
+  /** Props for the row's note line, or null when there is nothing to say. Assembled here
+   *  rather than branched in the markup: the note is either an apply result or a check
+   *  verdict, and `.upd-line` forces a flex line break, so an empty one would pad every
+   *  row. */
+  function rowNote(
+    id: string,
+  ): { outcome: ApplyOutcome | null; checked: PluginCheckedNote | null } | null {
+    const outcome = applyOutcome[id] ?? null;
+    const checked = cardChecked(id);
+    return outcome || checked ? { outcome, checked } : null;
+  }
+
   /** What the last check concluded for a plugin with NO pending update — the answer to
    *  "I clicked Check for updates and nothing happened". Null when no check has run yet,
    *  or when an update/outcome is already occupying the card. */
-  function cardChecked(id: string): { label: string; detail?: string } | null {
+  function cardChecked(id: string): PluginCheckedNote | null {
     const u = updById.get(id);
     if (!u || u.state === "update-available" || applyOutcome[id]) return null;
     const label =
@@ -504,6 +518,7 @@
       </div>
     {:else}
       {@const upd = row.kind === "broken" ? null : cardUpdate(row.inst.id)}
+      {@const note = row.kind === "broken" ? null : rowNote(row.inst.id)}
       <div class="row minimal">
         <span class="dot muted" aria-hidden="true"></span>
         <span class="name">{row.inst.name}</span>
@@ -556,39 +571,8 @@
         >
           {m.plugins_uninstall()}
         </button>
-        {#if upd?.outcome}
-          {@const o = upd.outcome}
-          <div class="upd-line">
-            {#if o.kind === "error"}
-              <p class="upd-outcome error micro" role="alert">{o.msg}</p>
-              {#if o.detail}
-                <p class="upd-detail micro">{o.detail}</p>
-              {/if}
-            {:else if o.kind === "restart"}
-              <p class="upd-outcome micro">
-                {o.commits
-                  ? m.pluginupdate_applied_commits_restart()
-                  : m.pluginupdate_applied_restart({ version: o.version })}
-              </p>
-            {:else}
-              <p class="upd-outcome live micro">
-                {o.commits
-                  ? m.pluginupdate_applied_commits_live()
-                  : m.pluginupdate_applied_live({ version: o.version })}
-              </p>
-            {/if}
-          </div>
-        {:else if row.kind !== "broken"}
-          {@const chk = cardChecked(row.inst.id)}
-          {#if chk}
-            <!-- Same as the loaded card: never let a completed check look like nothing
-                 happened. `detail` is the server-authored diagnostic, verbatim. -->
-            <div class="upd-line">
-              <p class="upd-checked micro">
-                {chk.label}{#if chk.detail}<span class="reason"> — {chk.detail}</span>{/if}
-              </p>
-            </div>
-          {/if}
+        {#if note}
+          <div class="upd-line"><PluginUpdateNote {...note} /></div>
         {/if}
       </div>
     {/if}
@@ -751,35 +735,9 @@
     white-space: nowrap;
     flex: none;
   }
+  /* Wrapper only — the note itself and its styles live in PluginUpdateNote.svelte. */
   .upd-line {
     flex-basis: 100%;
-  }
-  .upd-outcome {
-    margin: 4px 0 0;
-    color: var(--color-amber);
-  }
-  .upd-outcome.live {
-    color: var(--color-green, var(--color-blue));
-  }
-  .upd-outcome.error {
-    color: var(--color-red);
-    word-break: break-word;
-  }
-  .upd-detail {
-    margin: 2px 0 0;
-    color: var(--color-muted);
-    font-family: var(--font-mono, monospace);
-    word-break: break-word;
-  }
-  /* Steady-state check result — quiet by design: it reports that this row WAS looked at,
-     it is not an alert. Never amber, which belongs to a pending update. */
-  .upd-checked {
-    margin: 2px 0 0;
-    color: var(--color-muted);
-    word-break: break-word;
-  }
-  .upd-checked .reason {
-    font-family: var(--font-mono, monospace);
   }
 
   /* Restart-owed banner */

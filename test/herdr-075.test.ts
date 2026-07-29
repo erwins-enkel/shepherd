@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test, expect, beforeEach, afterEach } from "bun:test";
 import {
@@ -11,6 +12,7 @@ import {
   type HerdrAgent,
 } from "../src/herdr";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
+import { readTypedScript } from "./helpers/spawn-script";
 
 // ── captured 0.7.5 (protocol 17) reply fixtures ──────────────────────────────
 const FIX = join(import.meta.dir, "fixtures/herdr-responses/v0.7.5");
@@ -62,16 +64,19 @@ function mkDriver(fake: (args: string[]) => string): { d: HerdrDriver; calls: st
   };
 }
 
-// Pin the compile-cache dir + disable the disk-TMPDIR redirect so buildWrappedArgv's output is
-// deterministic (mirrors test/herdr.test.ts), keeping the `pane run` argv assertion stable.
+// Pin the compile-cache dir so buildWrappedArgv's output is deterministic (mirrors
+// test/herdr.test.ts), and point the agent tmp dir at a scratch dir — that is where the #1967 spawn
+// scripts land, so the test owns and removes them instead of leaving them in the system tmp dir.
 let prevNcc: string | undefined;
 let prevAgentTmp: string | undefined;
+let scratch: string;
 beforeEach(() => {
   setDetectedHerdrVersion("0.7.5");
   prevNcc = process.env.SHEPHERD_NODE_COMPILE_CACHE;
   process.env.SHEPHERD_NODE_COMPILE_CACHE = "/disk/ncc";
   prevAgentTmp = process.env.SHEPHERD_AGENT_TMPDIR;
-  process.env.SHEPHERD_AGENT_TMPDIR = "";
+  scratch = mkdtempSync(join(tmpdir(), "shepherd-herdr075-"));
+  process.env.SHEPHERD_AGENT_TMPDIR = scratch;
 });
 afterEach(() => {
   setDetectedHerdrVersion(null);
@@ -79,6 +84,7 @@ afterEach(() => {
   else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
   if (prevAgentTmp === undefined) delete process.env.SHEPHERD_AGENT_TMPDIR;
   else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
+  rmSync(scratch, { recursive: true, force: true });
 });
 
 // ── pure leaves ──────────────────────────────────────────────────────────────
@@ -131,7 +137,7 @@ test("classifyPaneWrite: CR/LF → Enter key, everything else → literal text",
 
 // ── start() via external registration ────────────────────────────────────────
 
-test("start (0.7.5, TRUSTED): tab create → pane run joined argv → NO registration → resolve by auto-detect", async () => {
+test("start (0.7.5, TRUSTED): tab create → pane run spawn script → NO registration → resolve by auto-detect", async () => {
   const { d, calls } = mkDriver(route);
   const agent = await d.start("review TASK-09", "/wt/a", ["claude", "go"]);
 
@@ -147,12 +153,14 @@ test("start (0.7.5, TRUSTED): tab create → pane run joined argv → NO registr
   expect(calls.some((c) => c[1] === "report-agent-session")).toBe(false);
   expect(calls.some((c) => c[1] === "report-agent")).toBe(false);
 
-  // The wrapped argv is typed into the pane's shell as ONE POSIX-quoted command line (herdr's
-  // `pane run` types-into-shell, it doesn't execvp — a raw spread would shatter multi-word args).
+  // herdr's `pane run` TYPES into the shell, it doesn't execvp — so the wrapped argv rides a
+  // throwaway script (#1967) and only `sh '<path>'` is typed. The script execs the exact argv,
+  // POSIX-quoted (a raw spread would shatter multi-word args).
   const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
   expect(paneRun.slice(0, 3)).toEqual(["pane", "run", "p_075"]);
-  expect(paneRun.length).toBe(4); // pane, run, paneId, single joined command line
-  expect(paneRun[3]).toContain("'claude' 'go'");
+  expect(paneRun.length).toBe(4); // pane, run, paneId, single typed command line
+  expect(readTypedScript(paneRun[3])).toContain("exec 'env' ");
+  expect(readTypedScript(paneRun[3])).toContain("'claude' 'go'");
 });
 
 test("start (0.7.5, SANDBOXED): pane run → register (report-agent-session + --state working) → resolve", async () => {
@@ -176,8 +184,31 @@ test("start (0.7.5): pane run preserves a multi-word/newline argv element as ONE
   // it must survive as one POSIX-quoted token, not shatter into bogus shell words.
   await d.start("x", "/wt/a", ["claude", "--append-system-prompt", "line one\nline two"]);
   const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
-  expect(paneRun.length).toBe(4); // still a single joined command line
-  expect(paneRun[3]).toContain("'--append-system-prompt' 'line one\nline two'");
+  expect(paneRun.length).toBe(4); // still a single typed command line
+  expect(readTypedScript(paneRun[3])).toContain("'--append-system-prompt' 'line one\nline two'");
+});
+
+test("start (0.7.5): a multi-KB spawn types a line that fits Darwin's tty MAX_INPUT (#1967)", async () => {
+  const { d, calls } = mkDriver(route);
+  // The real shape: a --settings overlay plus a several-KB --append-system-prompt directive. Typed
+  // verbatim (the pre-#1967 transport) this line was ~10 KB and Darwin truncated it at ~1024 bytes,
+  // mid-JSON, leaving an unterminated quote and no `claude` — the 30s auto-detect timeout.
+  const settings = JSON.stringify({ hooks: { Notification: ["x".repeat(2000)] } });
+  const directive = "You are an autonomous agent.\n".repeat(300);
+  await d.start("x", "/wt/a", [
+    "claude",
+    "--settings",
+    settings,
+    "--append-system-prompt",
+    directive,
+  ]);
+
+  const paneRun = calls.find((c) => c[0] === "pane" && c[1] === "run")!;
+  // `readTypedScript` asserts the < MAX_INPUT bound; the script itself carries the full command.
+  const script = readTypedScript(paneRun[3]);
+  expect(script).toContain(settings);
+  expect(script).toContain(directive);
+  expect(script.length).toBeGreaterThan(10_000);
 });
 
 test("start (0.7.5, TRUSTED): auto-detect polls the agent list until the agent appears", async () => {

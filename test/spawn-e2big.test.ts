@@ -52,11 +52,14 @@ const argvFor = (prompt: string) =>
     sessionId: "11111111-2222-3333-4444-555555555555",
   }).argv;
 
-/** Both shapes herdr can spawn through, each wrapped by the env shim `herdr.start` applies. */
+/** Both shapes the budget is calibrated against, each wrapped by the env shim `herdr.start` applies. */
 const DRIVER_SHAPES = [
   {
-    name: "0.7.5 pane run (the whole command line is ONE argv element)",
-    // `HerdrDriver.runInReadyPane` passes `posixShellJoin(wrapped)` as a single execFile argument.
+    name: "the joined command line as ONE argv element (what spawnBudget prices)",
+    // No transport spends the argv this way since #1967 — the ≥0.7.5 drivers type `sh '<script>'`
+    // and the script's `exec` spreads the tokens. `spawnBudget` still measures the joined line, so
+    // this is the deliberately conservative upper bound: a prompt that clears it clears every real
+    // shape, and the ladder can never under-clamp.
     elements: (prompt: string) => [posixShellJoin(buildWrappedArgv(argvFor(prompt)))],
   },
   {
@@ -154,9 +157,9 @@ describe.skipIf(!onLinux)("#1944 real spawn against the kernel", () => {
   });
 
   test("spawnFootprintBytes predicts the kernel's verdict exactly at the boundary", () => {
-    // The 0.7.5 shape is the one where the whole joined line is a single element, so its footprint
-    // is what MAX_ARG_STRLEN is compared against. Build a prompt whose joined line lands exactly on
-    // the limit and confirm both our measurement and the kernel agree.
+    // The joined-line shape is the one the budget prices, so its footprint is what the ladder
+    // compares against MAX_ARG_STRLEN. Build a prompt whose joined line lands exactly on the limit
+    // and confirm both our measurement and the kernel agree.
     const limit = hostArgvElementLimit();
     const probe = spawnBudget((p) => ({ wrapped: argvFor(p) }));
     let prompt = "y".repeat(limit);

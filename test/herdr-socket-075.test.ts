@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, mock } from "bun:test";
 import { SocketHerdrDriver, selectHerdrDriver } from "../src/herdr-socket-driver";
@@ -11,6 +12,7 @@ import {
 import { HerdrSocketError, type HerdrSocketClient } from "../src/herdr-socket-client";
 import { setDetectedHerdrVersion } from "../src/herdr-capabilities";
 import { OversizedArgvError } from "../src/argv-limit";
+import { readTypedScript } from "./helpers/spawn-script";
 
 // ── captured 0.7.5 (protocol 17) reply fixtures (shared with test/herdr-075.test.ts) ────────────
 // The socket client returns `res.result`, so the driver receives the INNER result object — unwrap
@@ -70,14 +72,17 @@ const noCli = {} as unknown as HerdrDriver;
 describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn", () => {
   let prevNcc: string | undefined;
   let prevAgentTmp: string | undefined;
+  let scratch: string;
   beforeEach(() => {
     // Arm the external-registration branch and pin the wrapped-argv env so the `pane.send_text`
-    // command-line assertion is deterministic (mirrors test/herdr-075.test.ts).
+    // command-line assertion is deterministic (mirrors test/herdr-075.test.ts). The agent tmp dir
+    // points at a scratch dir because that is where the #1967 spawn scripts land.
     setDetectedHerdrVersion("0.7.5");
     prevNcc = process.env.SHEPHERD_NODE_COMPILE_CACHE;
     process.env.SHEPHERD_NODE_COMPILE_CACHE = "/disk/ncc";
     prevAgentTmp = process.env.SHEPHERD_AGENT_TMPDIR;
-    process.env.SHEPHERD_AGENT_TMPDIR = "";
+    scratch = mkdtempSync(join(tmpdir(), "shepherd-socket075-"));
+    process.env.SHEPHERD_AGENT_TMPDIR = scratch;
   });
   afterEach(() => {
     setDetectedHerdrVersion(null);
@@ -85,6 +90,7 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     else process.env.SHEPHERD_NODE_COMPILE_CACHE = prevNcc;
     if (prevAgentTmp === undefined) delete process.env.SHEPHERD_AGENT_TMPDIR;
     else process.env.SHEPHERD_AGENT_TMPDIR = prevAgentTmp;
+    rmSync(scratch, { recursive: true, force: true });
   });
 
   it("start() SANDBOXED: runs the wrapped argv in the root pane, registers, resolves by pane_id (no pane.close)", async () => {
@@ -109,13 +115,17 @@ describe("SocketHerdrDriver — 0.7.5 (protocol 17) external-registration spawn"
     // the run reuses the root pane — no leftover shell pane to close
     expect(rec.some((r) => r.method === "pane.close")).toBe(false);
 
-    // the wrapped argv is typed into the root pane as a POSIX-quoted command line, then submitted
+    // `sh '<script>'` is typed into the root pane, then submitted — the wrapped argv itself rides
+    // the script, so the typed line can never outgrow the tty's MAX_INPUT (#1967). The script execs
+    // the argv byte-identically to what the pre-#1967 transport typed.
     const sendText = rec.find((r) => r.method === "pane.send_text")!.params as {
       pane_id: string;
       text: string;
     };
     expect(sendText.pane_id).toBe("p_075");
-    expect(sendText.text).toBe(posixShellJoin(buildWrappedArgv(["bwrap", "--", "claude", "go"])));
+    expect(readTypedScript(sendText.text)).toContain(
+      `exec ${posixShellJoin(buildWrappedArgv(["bwrap", "--", "claude", "go"]))}`,
+    );
     expect(rec.find((r) => r.method === "pane.send_keys")!.params).toEqual({
       pane_id: "p_075",
       keys: ["Enter"],

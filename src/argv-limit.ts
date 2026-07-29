@@ -59,10 +59,12 @@ export function joinedElementBytes(s: string): number {
   return Buffer.byteLength(posixShellJoin([sanitizePromptArg(s)]), "utf8");
 }
 
-/** Bytes the WHOLE argv costs once joined into a single shell command line — the exact quantity
- *  the herdr 0.7.5 `pane run` / `pane.send_text` paths push through one argv element. On the
- *  ≤0.7.4 spread paths each token is its own element, so this over-counts; that errs toward
- *  clamping early and never toward `E2BIG`. */
+/** Bytes the WHOLE argv costs once joined into a single shell command line. A deliberately
+ *  CONSERVATIVE model of the spawn's cost: every real path spends fewer bytes per element than this.
+ *  The ≤0.7.4 paths spread the argv, so each token is its own element; and since #1967 the ≥0.7.5
+ *  paths type `sh '<script>'` and let the script's `exec` spread it too (the joined line now lives in
+ *  a file, where no `MAX_ARG_STRLEN` applies). Over-counting errs toward clamping early and never
+ *  toward `E2BIG`. */
 export function spawnFootprintBytes(argv: string[]): number {
   let total = 0;
   for (const tok of argv) total += joinedElementBytes(tok);

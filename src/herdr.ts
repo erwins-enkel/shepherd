@@ -10,6 +10,7 @@ import {
 } from "./herdr-capabilities";
 import { posixShellJoin, oversizedFromArgv } from "./argv-limit";
 import { maintenance } from "./maintenance";
+import { spawnCommandLine } from "./spawn-script";
 import { compileCacheDir, agentTmpDir } from "./tmp-sweep";
 import type { HerdrState, LivenessState, SessionStatus } from "./types";
 import type { RequestPaneAgentState } from "./generated/herdr-protocol";
@@ -1047,11 +1048,16 @@ export class HerdrDriver implements IHerdrDriver {
    */
   private async runInReadyPane(paneId: string, wrapped: string[]): Promise<void> {
     // herdr's `pane run` TYPES the command into the pane's interactive shell (it does not execvp the
-    // argv), so a raw multi-arg spread (`...wrapped`) is space-joined UNQUOTED — any argv element
-    // with whitespace or a newline (e.g. claude's multi-line `--append-system-prompt`) shatters into
-    // bogus shell commands. Pass the whole argv as ONE POSIX-quoted command line instead (mirrors the
-    // socket driver's `posixShellJoin` typing path), so the shell reconstructs the exact argv.
-    const cmdline = posixShellJoin(wrapped);
+    // argv). Two consequences, both handled by `spawnCommandLine`:
+    //  - a raw multi-arg spread (`...wrapped`) would be space-joined UNQUOTED, shattering any element
+    //    with whitespace or a newline (e.g. claude's multi-line `--append-system-prompt`);
+    //  - the typed line hits the tty's CANONICAL-mode `MAX_INPUT` (~1024 bytes on Darwin), which our
+    //    multi-KB spawn line silently overran — truncated mid-`--settings`, unterminated quote, no
+    //    `claude`, 30s auto-detect timeout (#1967).
+    // So the argv goes into a throwaway script and only `sh '<path>'` is typed. Written ONCE, before
+    // the retry loop: a rejected `pane run` never executed the script, so it is still on disk for the
+    // next attempt (and self-deletes the moment it does run).
+    const cmdline = await spawnCommandLine(wrapped);
     const MAX_ATTEMPTS = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

@@ -14,7 +14,6 @@ import {
   parseProcs,
   parseReadText,
   parseTabs,
-  posixShellJoin,
   resolvePaneId,
   sanitizeHerdrAgentName,
   stopViaRecordedTab,
@@ -29,6 +28,7 @@ import {
   herdrSpawnSupported,
   herdrUsesExternalRegistrationSpawn,
 } from "./herdr-capabilities";
+import { spawnCommandLine } from "./spawn-script";
 
 /**
  * Socket-backed `IHerdrDriver` (issues #1529, #1553, #1567): routes the async read surface —
@@ -251,24 +251,30 @@ export class SocketHerdrDriver implements IHerdrDriver {
 
   /**
    * Launch `wrapped` in `paneId`'s shell. herdr's protocol-17 socket API exposes NO direct pane-run
-   * RPC (unlike the CLI `pane run`, #1892), so the wrapped argv is TYPED into the pane's ready shell
-   * as a POSIX-quoted command line (`pane.send_text`) then submitted with Enter (`pane.send_keys`).
+   * RPC (unlike the CLI `pane run`, #1892), so the command is TYPED into the pane's ready shell
+   * (`pane.send_text`) then submitted with Enter (`pane.send_keys`). What gets typed is `sh
+   * '<script>'` — the wrapped argv itself rides a throwaway script (`spawnCommandLine`, #1967), so
+   * the line can never outgrow the tty's canonical-mode `MAX_INPUT`.
    * `send_text` is bounded-retried on ANY failure to ride out shell-not-ready without hinging on an
    * unverified busy-error code: a rejected `send_text` means herdr didn't write it, so a retry never
    * double-types (mirrors the CLI `runInReadyPane` reject-before-exec contract). The Enter is sent
    * once, OUTSIDE that loop, so a delivered command is never re-typed. NOTE: this routes through the
-   * interactive shell rather than a direct exec — the per-token quoting keeps it robust; only the
-   * 0.7.5 socket spawn path (default-off) reaches it.
+   * interactive shell rather than a direct exec — the script's per-token quoting keeps it robust;
+   * only the 0.7.5 socket spawn path (default-off) reaches it.
    */
   private async runInReadyPane(paneId: string, wrapped: string[]): Promise<void> {
     // #1944: the socket path cannot surface a kernel `E2BIG` — the argv crosses a socket to the
     // daemon, which execs it out of our reach and fails opaquely. So the per-element limit is
     // checked PROACTIVELY here, before the retry loop, so an argv that can never exec fails once
-    // with a named cause instead of three times with a shell-not-ready-looking error. The pane's
-    // shell reconstructs the exact argv from the quoted line, so each `wrapped` token becomes one
-    // argv element and is the right thing to measure.
+    // with a named cause instead of three times with a shell-not-ready-looking error. The spawn
+    // script's `exec` reconstructs the exact argv, so each `wrapped` token becomes one argv element
+    // and is the right thing to measure.
     assertArgvWithinLimit(wrapped, "herdr socket pane.send_text");
-    const cmdline = posixShellJoin(wrapped);
+    // The typed line goes through the pane's tty in CANONICAL mode, where `MAX_INPUT` (~1024 bytes
+    // on Darwin) truncates our multi-KB spawn line mid-flight — so the argv rides a throwaway script
+    // and only `sh '<path>'` is typed (#1967). Written ONCE, before the retry loop: a rejected
+    // `send_text` never delivered the line, so the script is still on disk for the next attempt.
+    const cmdline = await spawnCommandLine(wrapped);
     const MAX_ATTEMPTS = 3;
     let lastErr: unknown;
     for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {

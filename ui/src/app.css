@@ -125,6 +125,14 @@
      rung, shared by the GitRail chips and the top-bar right-cluster controls. */
   --radius-chip: 6px;
 
+  /* Fill for a hold-to-reveal keycap (New Task, see docs/design/keymap-10a).
+     MUST be opaque: a keycap sits above the reveal scrim and has to overwrite
+     it, not tint through it. Derived rather than a literal so it tracks all
+     three themes — the handoff specified a dark-only #12100b, which would land
+     as a black block on the light surface. A 10% amber wash over the panel
+     keeps the warm cast the design asks for while staying theme-correct. */
+  --cap-bg: color-mix(in srgb, var(--color-amber) 10%, var(--color-panel));
+
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is
      NOT actionable-complete, so it must not read green/"ignore me" — it reads as

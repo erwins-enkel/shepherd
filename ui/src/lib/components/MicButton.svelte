@@ -43,6 +43,19 @@
     dict.teardown();
   }
 
+  /** Start/stop dictation from outside — the keyboard path for hosts that bind a
+   *  shortcut to the mic (New Task's ⌘D). Same entry point as tapping it. */
+  export function toggle() {
+    dict.toggle();
+  }
+
+  /** Whether this browser can dictate at all. Renders nothing when false, so a
+   *  host binding a shortcut needs it to decide between a live and a muted
+   *  keycap. Reads reactive state, so callers may use it inside $derived. */
+  export function available() {
+    return dict.micVisible;
+  }
+
   onDestroy(() => dict.teardown());
 
   // pointerdown + preventDefault: fire instantly and never blur the field (which would

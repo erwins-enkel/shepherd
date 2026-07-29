@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { anchorPopover } from "$lib/floating-anchor";
   import { issuesFilter } from "$lib/issues-filter.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
@@ -23,6 +24,7 @@
     selectedLabels = [],
     onauthor = undefined,
     ontogglelabel = undefined,
+    keycap = undefined,
   }: {
     showMine: boolean;
     coachTargets?: boolean;
@@ -33,6 +35,8 @@
     selectedLabels?: string[];
     onauthor?: (author: string | null) => void;
     ontogglelabel?: (label: string) => void;
+    /** Renders in place of the mute ▾ when set. */
+    keycap?: Snippet;
   } = $props();
 
   // Show the Author section at >=2 authors OR whenever a selection is set — the OR-guard
@@ -46,6 +50,9 @@
   // SSR-stable per-instance id for aria-controls wiring.
   const popoverId = $props.id();
 
+  // Optional replacement for the mute ▾ — New Task swaps in a keycap while ⌘ is
+  // held. A snippet rather than keymap props so this shared chip stays unaware
+  // of any host's shortcut scheme (the Repos pane passes nothing).
   let open = $state(false);
   let wasOpen = false; // tracks previous open value; not reactive — managed in the focus effect
   let btnEl = $state<HTMLButtonElement | null>(null);
@@ -62,6 +69,11 @@
       (selectedAuthor != null ? 1 : 0) +
       selectedLabels.length,
   );
+
+  /** Open from outside (New Task's ⌘F). Focus lands via the effect below. */
+  export function openPanel() {
+    open = true;
+  }
 
   // Position the popover below the trigger whenever open + both elements exist.
   $effect(() => {
@@ -139,7 +151,9 @@
   {#if activeCount > 0}
     <span class="badge" aria-hidden="true">{activeCount}</span>
   {/if}
-  <span class="chevron" aria-hidden="true">▾</span>
+  {#if keycap}{@render keycap()}{:else}
+    <span class="chevron" aria-hidden="true">▾</span>
+  {/if}
 </button>
 
 <!-- popover="manual": native top-layer, escapes overflow:hidden containers.

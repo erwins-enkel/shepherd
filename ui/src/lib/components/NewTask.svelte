@@ -45,14 +45,20 @@
   import AttachmentChip from "./new-task/AttachmentChip.svelte";
   import RunSettingsGroups from "./new-task/RunSettingsGroups.svelte";
   import MobileEngineSheet from "./new-task/MobileEngineSheet.svelte";
+  import Keycap from "./new-task/Keycap.svelte";
+  import KeymapSheet from "./new-task/KeymapSheet.svelte";
   import FirstTaskAutomationConfirm from "./FirstTaskAutomationConfirm.svelte";
+  import { ariaKeyshortcuts, modLabel } from "$lib/keymap/chord";
+  import { createHoldReveal } from "$lib/keymap/hold.svelte";
+  import { scrimIn, scrimOut } from "$lib/keymap/motion";
+  import { keymapEntry, matchKeymap } from "$lib/keymap/newTask";
+  import type { NewTaskKeymapCtx } from "$lib/keymap/types";
   import { dialog } from "$lib/a11yDialog";
   import { repoConfig } from "$lib/reviews.svelte";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { m } from "$lib/paraglide/messages";
   import { viewerCache } from "$lib/viewer-cache.svelte";
   import { assignedOthers } from "./issues-panel";
-  import { recentRepos } from "$lib/recentRepos";
   import { projectIcons } from "$lib/projectIcons.svelte";
   import { modelOptionLabel } from "$lib/model-guidance";
   import { selectedProviderCapacity } from "$lib/components/usage-gauges";
@@ -1149,40 +1155,120 @@
     flushSync(); // render the panel; RepoSelect's focus effect runs → filter focused
   }
 
-  // Form-level keydown: ⌘/Ctrl+↵ submits from anywhere in the modal (handoff rule),
-  // then the Alt-tier repo switchers (keyed on physical e.code, mirrors +page.svelte).
+  // ── keymap ──────────────────────────────────────────────────────────────
+  // Every shortcut of this dialog lives in $lib/keymap/newTask.ts. This block
+  // only supplies the context (what's possible right now, and how to do it) and
+  // routes keydown into the registry. Do not add a chord branch here.
+  //
+  // NOTE: ⌥1/⌥2/⌥3 used to jump to recent repos. They now switch the MODE, per
+  // the keymap handoff's inventory; ⌥[ / ⌥] still cycle repos and ⌥R still opens
+  // the picker, so nothing about repo switching is lost but the digit tier.
+
+  let cardEl = $state<HTMLElement | null>(null);
+  let branchEl = $state<HTMLSelectElement | HTMLInputElement | null>(null);
+  let sources = $state<PromptSources | undefined>();
+  let sheetOpen = $state(false);
+
+  // blur/pointerdown live on window (they describe events OUTSIDE the dialog),
+  // so they must be removed when the card unmounts — $effect's cleanup does it.
+  $effect(() => {
+    if (!cardEl) return;
+    return hold.attach(cardEl);
+  });
+
+  const hold = createHoldReveal({
+    isMac: () => isMac,
+    // Guard: never arm outside this dialog, and never on the mobile layout,
+    // where the anchors the keycaps point at are not mounted.
+    active: () => !mobile && !sheetOpen,
+  });
+
+  /** True while the keycaps are showing — drives the scrim and every <Keycap>. */
+  const held = $derived(hold.visible);
+
+  function focusById(id: string) {
+    cardEl?.querySelector<HTMLElement>(`#${id}`)?.focus();
+  }
+
+  const keymapCtx: NewTaskKeymapCtx = $derived({
+    isMac,
+    canSubmit: readiness.canSubmit,
+    desktop: !mobile,
+    modeLocked,
+    sourcesMounted: !mobile && !relaunch,
+    issueListReady: !mobile && issueData.issues.length > 0,
+    micAvailable: mic?.available() ?? false,
+    uploading: hasOutstandingUploads,
+
+    submit: () => submit(new Event("submit")),
+    close: () => onclose?.(),
+    openSheet: () => (sheetOpen = true),
+    focusPrompt: () => promptInput?.focus(),
+    insertToken: (token) => {
+      promptInput?.focus();
+      // Route through the normal input path so the inline menu opens exactly as
+      // it does when the character is typed by hand.
+      prompt = prompt + token;
+      tick().then(() => {
+        promptInput?.setSelectionRange(prompt.length, prompt.length);
+        onPromptInput(); // same path a typed character takes — opens the menu
+      });
+    },
+    attach: () => fileInput?.click(),
+    dictate: () => mic?.toggle(),
+    openRepoPicker,
+    cycleRepo,
+    focusBranch: () => branchEl?.focus(),
+    openIssueFilter: () => sources?.openFilter(),
+    toggleSourcesTab: () => sources?.toggleTab(),
+    focusIssueList: () => sources?.focusList(),
+    setMode,
+    focusEngine: () => focusById("nt-agent-provider"),
+    focusModel: () => focusById("nt-model"),
+    togglePlanGate: () => {
+      planGate = !planGate;
+      planGateTouched = true;
+    },
+    toggleAutopilot: () => {
+      autopilot = !autopilot;
+      autopilotTouched = true;
+    },
+  });
+
+  /** `aria-keyshortcuts` for a registry row — the semantic source of truth for
+   *  assistive tech, present whether or not the keycaps are showing. */
+  function shortcutAttr(id: string): string | undefined {
+    return ariaKeyshortcuts(keymapEntry(id).chords, isMac);
+  }
+
+  // Form-level keydown: the single dispatch point for the whole dialog.
   function onFormKeydown(e: KeyboardEvent) {
-    if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-      e.preventDefault();
-      submit(e);
-      return;
-    }
+    hold.onKeydown(e);
     if (e.repeat || e.isComposing) return;
-    if (!e.altKey || e.ctrlKey || e.metaKey || e.shiftKey) return;
-    switch (e.code) {
-      case "BracketLeft":
-        cycleRepo(-1);
-        break;
-      case "BracketRight":
-        cycleRepo(1);
-        break;
-      case "Digit1":
-      case "Digit2":
-      case "Digit3": {
-        // Filter hidden BEFORE recentRepos' top-N slice so the digit index matches the
-        // picker's pinned recents group exactly.
-        const target = recentRepos(repos.filter((r) => !r.hidden))[Number(e.code.slice(5)) - 1];
-        if (target) repoPath = target.path;
-        break; // still swallow the chord below
-      }
-      case "KeyR":
-        openRepoPicker();
-        break;
-      default:
-        return; // not ours — let it through untouched
-    }
+
+    const entry = matchKeymap(e, isMac);
+    if (!entry?.run) return;
+
+    // `?` must not fight the prompt: typing it into a text field is text, not a
+    // command. It stays reachable there via ⌘-hold, which is a deliberate
+    // gesture rather than a character.
+    if (entry.id === "sheet" && isTextTarget(e.target) && !held) return;
+
+    // Swallow the chord even when the action is unavailable — letting a disabled
+    // ⌘G fall through to the browser's "find again" would be worse than nothing.
     e.preventDefault();
     e.stopPropagation();
+    if (!entry.enabled(keymapCtx)) return;
+
+    hold.trigger(entry.id);
+    entry.run(keymapCtx);
+  }
+
+  function isTextTarget(target: EventTarget | null): boolean {
+    const el = target as HTMLElement | null;
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === "TEXTAREA" || tag === "INPUT" || el.isContentEditable;
   }
 
   // Per-task automation flags at submit: send the user's manual choice, or null to
@@ -1406,6 +1492,7 @@
        on it is valid ARIA. -->
   <!-- svelte-ignore a11y_no_noninteractive_element_to_interactive_role -->
   <form
+    bind:this={cardEl}
     class="card bracket"
     class:dragging
     class:composing
@@ -1470,9 +1557,13 @@
           <span class="chev" aria-hidden="true">▾</span>
         </button>
       {/if}
+      {#if held}
+        <Keycap id="close" ctx={keymapCtx} flash={hold.flash === "close"} />
+      {/if}
       <button
         type="button"
         class="x"
+        aria-keyshortcuts={shortcutAttr("close")}
         onclick={() => {
           confirmStep = false;
           onclose?.();
@@ -1494,6 +1585,12 @@
     />
     <div class="composer" class:hidden={confirmStep}>
       <div class="cbody">
+        {#if held}
+          <!-- Dim only. No blur: this is not a blocking backdrop (pointer-events
+               are off and the dialog stays fully usable) — it just drops the
+               luminance so the amber keycaps read. -->
+          <div class="keymap-scrim" in:scrimIn out:scrimOut aria-hidden="true"></div>
+        {/if}
         <div class="left">
           {#if !mobile}
             <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
@@ -1513,12 +1610,17 @@
                   hideHidden
                 />
               </div>
+              {#if held}
+                <Keycap id="repo" ctx={keymapCtx} flash={hold.flash === "repo"} />
+              {/if}
               <span class="ctx-from">{m.newtask_chip_from()}</span>
               <span class="branch-chip">
                 {#if branches.length > 0}
                   <select
                     id="nt-base"
                     aria-label={m.newtask_branch_label()}
+                    aria-keyshortcuts={shortcutAttr("branch")}
+                    bind:this={branchEl}
                     bind:value={baseBranch}
                   >
                     {#each baseOptions as b (b)}
@@ -1529,17 +1631,18 @@
                   <input
                     id="nt-base"
                     aria-label={m.newtask_branch_label()}
+                    aria-keyshortcuts={shortcutAttr("branch")}
+                    bind:this={branchEl}
                     bind:value={baseBranch}
                     placeholder={m.newtask_branch_placeholder()}
                   />
                 {/if}
-                <span class="chev" aria-hidden="true">▾</span>
+                {#if held}
+                  <Keycap id="branch" ctx={keymapCtx} flash={hold.flash === "branch"} />
+                {:else}
+                  <span class="chev" aria-hidden="true">▾</span>
+                {/if}
               </span>
-              {#if !coarse.current}
-                <span class="ctx-hint">
-                  {m.newtask_repo_shortcuts_hint({ mod: isMac ? "⌥" : "Alt+" })}
-                </span>
-              {/if}
             </div>
           {/if}
 
@@ -1582,9 +1685,20 @@
             {#if !mobile}
               <div class="prompt-label-row">
                 <label class="prompt-label" for="nt-prompt">{m.newtask_prompt_label()}</label>
-                <span class="syntax-hint">
-                  {coarse.current ? m.newtask_syntax_hint_touch() : m.newtask_syntax_hint()}
-                </span>
+                {#if held}
+                  <Keycap id="focus-prompt" ctx={keymapCtx} flash={hold.flash === "focus-prompt"} />
+                  <span class="prompt-caps">
+                    <Keycap id="issue-token" ctx={keymapCtx} flash={hold.flash === "issue-token"} />
+                    <Keycap
+                      id="command-token"
+                      ctx={keymapCtx}
+                      flash={hold.flash === "command-token"}
+                    />
+                    <Keycap id="paste-image" ctx={keymapCtx} />
+                  </span>
+                {:else if coarse.current}
+                  <span class="syntax-hint">{m.newtask_syntax_hint_touch()}</span>
+                {/if}
               </div>
             {/if}
             <div class="hero">
@@ -1629,6 +1743,7 @@
                   type="button"
                   class="tool-btn"
                   aria-label={m.newtask_attach_aria()}
+                  aria-keyshortcuts={shortcutAttr("attach")}
                   title={coarse.current
                     ? m.newtask_drop_hint()
                     : m.newtask_drop_hint_keyboard({ shortcut: isMac ? "⌘V" : "Ctrl+V" })}
@@ -1653,14 +1768,27 @@
                     </svg>
                   {/if}
                   <span class="tool-label">{m.newtask_attach_label()}</span>
+                  {#if held}
+                    <Keycap id="attach" ctx={keymapCtx} absolute flash={hold.flash === "attach"} />
+                  {/if}
                 </button>
-                <MicButton
-                  bind:this={mic}
-                  inline
-                  getText={() => prompt}
-                  setText={(t) => (prompt = t)}
-                  onTextRendered={autogrow}
-                />
+                <span class="mic-slot">
+                  <MicButton
+                    bind:this={mic}
+                    inline
+                    getText={() => prompt}
+                    setText={(t) => (prompt = t)}
+                    onTextRendered={autogrow}
+                  />
+                  {#if held && keymapCtx.micAvailable}
+                    <Keycap
+                      id="dictate"
+                      ctx={keymapCtx}
+                      absolute
+                      flash={hold.flash === "dictate"}
+                    />
+                  {/if}
+                </span>
                 {#each images as img (img.path)}
                   <AttachmentChip
                     name={img.name}
@@ -1781,6 +1909,10 @@
 
           {#if repoPath && !mobile}
             <PromptSources
+              bind:this={sources}
+              filterKeycap={held ? filterCap : undefined}
+              tabsKeycap={held ? tabsCap : undefined}
+              rowKeycap={held ? rowCap : undefined}
               {repoPath}
               {issueData}
               {epicParents}
@@ -1902,7 +2034,11 @@
 
       <!-- Footer: readiness line + always-visible CTA. -->
       <div class="cfoot">
-        {#if hasOutstandingUploads}
+        {#if held}
+          <!-- The reveal owns the status slot while it is up; the upload line
+               and the readiness line both return the moment it is released. -->
+          <span class="keymap-held">{m.keymap_footer_held({ mod: modLabel(isMac) })}</span>
+        {:else if hasOutstandingUploads}
           <div class="upload-status" aria-live="polite">
             {#if uploadCurrentLengthComputable === false}
               <progress
@@ -1955,6 +2091,9 @@
               {/if}
             {/if}
           </span>
+          {#if !coarse.current}
+            <span class="keymap-idle">{m.keymap_footer_idle({ mod: modLabel(isMac) })}</span>
+          {/if}
         {/if}
         {#if hasOutstandingUploads}
           <button class="run" type="button" disabled>
@@ -1989,6 +2128,7 @@
           <button
             class="run"
             type="submit"
+            aria-keyshortcuts={shortcutAttr("submit")}
             disabled={!readiness.canSubmit}
             title={coarse.current ? undefined : isMac ? "⌘ + Enter" : "Ctrl + Enter"}
           >
@@ -2003,7 +2143,9 @@
                     ? m.newtask_submit_in_repo({ repo: selectedRepoName })
                     : m.newtask_submit()}</span
             >
-            {#if !submitting && !coarse.current}
+            {#if held}
+              <Keycap id="submit" ctx={keymapCtx} flash={hold.flash === "submit"} />
+            {:else if !submitting && !coarse.current}
               <kbd class="kbd">{isMac ? "⌘↵" : "Ctrl+↵"}</kbd>
             {/if}
           </button>
@@ -2102,6 +2244,12 @@
       </MobileEngineSheet>
     {/if}
   </form>
+
+  <!-- The `?` card. Outside the form so its own focus trap and scrim are not
+       nested inside the dialog's — it is a separate blocking surface. -->
+  {#if sheetOpen}
+    <KeymapSheet ctx={keymapCtx} onclose={() => (sheetOpen = false)} />
+  {/if}
 </div>
 
 {#snippet settingsGroups()}
@@ -2142,6 +2290,14 @@
       autopilot = v;
       autopilotTouched = true;
     }}
+    engineKeycap={held ? engineCap : undefined}
+    modelKeycap={held ? modelCap : undefined}
+    planGateKeycap={held ? planGateCap : undefined}
+    autopilotKeycap={held ? autopilotCap : undefined}
+    engineShortcut={shortcutAttr("engine")}
+    modelShortcut={shortcutAttr("model")}
+    planGateShortcut={shortcutAttr("plan-gate")}
+    autopilotShortcut={shortcutAttr("autopilot")}
   />
 {/snippet}
 
@@ -2152,7 +2308,14 @@
       class="seg-btn"
       class:seg-active={mode === "code"}
       aria-pressed={mode === "code"}
-      onclick={() => setMode("code")}>{m.newtask_mode_code()}</button
+      aria-keyshortcuts={shortcutAttr("mode-code")}
+      onclick={() => setMode("code")}
+      >{m.newtask_mode_code()}{#if held}<Keycap
+          id="mode-code"
+          ctx={keymapCtx}
+          tight
+          flash={hold.flash === "mode-code"}
+        />{/if}</button
     >
     <button
       type="button"
@@ -2160,7 +2323,14 @@
       class:seg-active={mode === "research"}
       aria-pressed={mode === "research"}
       title={m.newtask_research_hint()}
-      onclick={() => setMode("research")}>{m.newtask_mode_research()}</button
+      aria-keyshortcuts={shortcutAttr("mode-research")}
+      onclick={() => setMode("research")}
+      >{held ? m.keymap_mode_research_short() : m.newtask_mode_research()}{#if held}<Keycap
+          id="mode-research"
+          ctx={keymapCtx}
+          tight
+          flash={hold.flash === "mode-research"}
+        />{/if}</button
     >
     <button
       type="button"
@@ -2168,9 +2338,44 @@
       class:seg-active={mode === "epic"}
       aria-pressed={mode === "epic"}
       title={m.newtask_epic_authoring_hint()}
-      onclick={() => setMode("epic")}>{m.newtask_mode_epic()}</button
+      aria-keyshortcuts={shortcutAttr("mode-epic")}
+      onclick={() => setMode("epic")}
+      >{m.newtask_mode_epic()}{#if held}<Keycap
+          id="mode-epic"
+          ctx={keymapCtx}
+          tight
+          flash={hold.flash === "mode-epic"}
+        />{/if}</button
     >
   </div>
+{/snippet}
+
+{#snippet engineCap()}
+  <Keycap id="engine" ctx={keymapCtx} flash={hold.flash === "engine"} />
+{/snippet}
+
+{#snippet modelCap()}
+  <Keycap id="model" ctx={keymapCtx} flash={hold.flash === "model"} />
+{/snippet}
+
+{#snippet planGateCap()}
+  <Keycap id="plan-gate" ctx={keymapCtx} flash={hold.flash === "plan-gate"} />
+{/snippet}
+
+{#snippet autopilotCap()}
+  <Keycap id="autopilot" ctx={keymapCtx} flash={hold.flash === "autopilot"} />
+{/snippet}
+
+{#snippet filterCap()}
+  <Keycap id="issue-filter" ctx={keymapCtx} flash={hold.flash === "issue-filter"} />
+{/snippet}
+
+{#snippet tabsCap()}
+  <Keycap id="sources-tab" ctx={keymapCtx} flash={hold.flash === "sources-tab"} />
+{/snippet}
+
+{#snippet rowCap()}
+  <Keycap id="list-nav" ctx={keymapCtx} flash={hold.flash === "list-nav"} />
 {/snippet}
 
 {#snippet modeLockedNote()}
@@ -2270,6 +2475,10 @@
 
   /* ── body: two columns separated by a hairline; each column owns its scroll ── */
   .cbody {
+    /* Positioning context for the reveal scrim below — .cbody IS exactly the
+       region between the header and the footer, so the scrim needs no hand-
+       measured insets and stays correct at any header height. */
+    position: relative;
     display: grid;
     grid-template-columns: 1fr 300px;
     min-height: 0;
@@ -2295,6 +2504,48 @@
     background: var(--color-panel-2);
     overflow-y: auto;
   }
+  /* Dims the CONTENT only; header and footer stay lit and keep reading normally
+     (they are outside .cbody). pointer-events:none so the dialog is still fully
+     operable while the keycaps are up — this is a reading aid, not a modal. */
+  .keymap-scrim {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: var(--color-scrim);
+    pointer-events: none;
+  }
+
+  /* The one line of chrome the feature costs at rest. */
+  .keymap-idle {
+    margin-left: 14px;
+    font-size: var(--fs-micro);
+    letter-spacing: 0.06em;
+    color: var(--color-faint);
+    white-space: nowrap;
+  }
+  .keymap-held {
+    font-size: var(--fs-meta);
+    letter-spacing: 0.06em;
+    color: var(--color-amber);
+  }
+
+  /* Right-aligned cluster of prompt keycaps (# / ⌘V), mirroring where the old
+     syntax hint sat. */
+  .prompt-caps {
+    margin-left: auto;
+    display: flex;
+    gap: 6px;
+  }
+
+  /* The mic is a component, so its absolutely-positioned keycap needs a
+     relative host of its own. The left margin keeps it clear of the attach
+     button's cap — two corner caps must never touch. */
+  .mic-slot {
+    position: relative;
+    display: inline-flex;
+    margin-left: 10px;
+  }
+
   .group-label {
     font-size: var(--fs-micro);
     letter-spacing: 0.2em;
@@ -2386,16 +2637,6 @@
   .chev {
     color: var(--color-muted);
     font-size: var(--fs-micro);
-  }
-  .ctx-hint {
-    margin-left: auto;
-    flex: 1 1 0;
-    min-width: 0;
-    font-size: var(--fs-micro);
-    color: var(--color-faint);
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
   }
 
   /* Desktop: the notices wrapper is transparent to layout — its children flow in

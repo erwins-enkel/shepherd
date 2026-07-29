@@ -1,0 +1,1481 @@
+<!doctype html>
+<html lang="de" data-theme="dark">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Reference — Neue Aufgabe: Tastenkappen (10a)</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #0a0d0c;
+        --inset: #070a09;
+        --panel-2: #0c100f;
+        --head: #0a0f0d;
+        --panel: #0f1413;
+        --sel: #18211e;
+        --hover: #141a18;
+        --line: #1b2422;
+        --line-bright: #2c3835;
+        --faint: #4a5752;
+        --muted: #7c8c86;
+        --ink: #c4d0cb;
+        --ink-bright: #eef4f0;
+        --amber: #e8a13a;
+        --green: #5ad19a;
+        --red: #e5484d;
+        --slate: #566460;
+        --cap-bg: #12100b;
+        --font-mono: "Berkeley Mono", "JetBrains Mono", ui-monospace, monospace;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        font-family: var(--font-mono);
+        color: var(--ink);
+        padding: 40px;
+        display: flex;
+        flex-direction: column;
+        gap: 40px;
+        align-items: flex-start;
+      }
+      h2 {
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        color: var(--faint);
+        font-weight: 500;
+        margin: 0 0 12px;
+      }
+      p.note {
+        font-size: 11px;
+        color: var(--muted);
+        line-height: 1.55;
+        max-width: 860px;
+        margin: 10px 0 0;
+      }
+      a {
+        color: #4a90d9;
+      }
+      a:hover {
+        color: var(--ink-bright);
+      }
+    </style>
+  </head>
+  <body>
+    <div>
+      <h2>ZUSTAND 1 — RUHE (⌘ nicht gedrückt)</h2>
+      <div
+        style="
+          position: relative;
+          width: 860px;
+          border: 1px solid var(--line-bright);
+          background: var(--panel);
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px 10px;
+            border-bottom: 1px solid var(--line);
+          "
+        >
+          <span
+            style="
+              font-size: 11px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              color: var(--muted);
+            "
+            >Neue Aufgabe</span
+          >
+          <span style="margin-left: auto; color: var(--muted)">✕</span>
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 280px">
+          <div
+            style="
+              padding: 14px 16px;
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+              border-right: 1px solid var(--line);
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                  border: 1px solid var(--line);
+                  background: var(--panel-2);
+                  border-radius: 2px;
+                  padding: 4px 10px;
+                  font-size: 12px;
+                  color: var(--ink-bright);
+                "
+                ><span>🐑</span><span style="font-weight: 600">shepherd</span
+                ><span style="color: var(--muted); font-size: 9px">▾</span></span
+              >
+              <span style="font-size: 11px; color: var(--faint)">von</span>
+              <span
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                  border: 1px solid var(--line);
+                  background: var(--panel-2);
+                  border-radius: 2px;
+                  padding: 4px 10px;
+                  font-size: 12px;
+                  color: var(--ink);
+                "
+                >main<span style="color: var(--muted); font-size: 9px; margin-left: 6px"
+                  >▾</span
+                ></span
+              >
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    font-size: 11px;
+                    letter-spacing: 0.18em;
+                    text-transform: uppercase;
+                    color: var(--muted);
+                  "
+                  >Prompt</span
+                >
+              </div>
+              <div
+                style="
+                  border: 1px solid var(--line-bright);
+                  border-radius: 2px;
+                  background: var(--inset);
+                  display: flex;
+                  flex-direction: column;
+                "
+              >
+                <div
+                  style="
+                    min-height: 108px;
+                    padding: 10px;
+                    font-size: 13px;
+                    color: var(--faint);
+                    line-height: 1.5;
+                  "
+                >
+                  Beschreibe Feature, Fix oder Aufgabe…
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    border-top: 1px solid var(--line);
+                  "
+                >
+                  <span
+                    style="
+                      position: relative;
+                      width: 26px;
+                      height: 26px;
+                      border: 1px solid var(--line);
+                      border-radius: 2px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      color: var(--muted);
+                    "
+                    >↥</span
+                  >
+                  <span
+                    style="
+                      position: relative;
+                      width: 26px;
+                      height: 26px;
+                      border: 1px solid var(--line);
+                      border-radius: 2px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      color: var(--muted);
+                      margin-left: 10px;
+                    "
+                    >🎙</span
+                  >
+                  <span
+                    style="
+                      margin-left: auto;
+                      font-size: 10px;
+                      color: var(--faint);
+                      font-variant-numeric: tabular-nums;
+                    "
+                    >0 Zeichen</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div
+              style="border: 1px solid var(--line); border-radius: 2px; background: var(--inset)"
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 5px 8px 4px;
+                  border-bottom: 1px solid var(--line);
+                "
+              >
+                <span
+                  style="
+                    font-size: 10px;
+                    letter-spacing: 0.18em;
+                    text-transform: uppercase;
+                    color: var(--faint);
+                  "
+                  >Mit einem Issue starten</span
+                >
+                <span
+                  style="font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums"
+                  >55 offen</span
+                >
+                <span style="margin-left: auto; display: flex; align-items: center; gap: 8px"
+                  ><span
+                    style="
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 5px;
+                      border: 1px solid var(--line);
+                      border-radius: 6px;
+                      padding: 1px 7px;
+                      font-size: 10px;
+                      color: var(--ink);
+                    "
+                    >Filter
+                    <span style="font-variant-numeric: tabular-nums; color: var(--muted)">2</span
+                    ><span style="color: var(--muted); font-size: 9px">▾</span></span
+                  ><span style="display: flex; align-items: center; gap: 4px"
+                    ><span
+                      style="
+                        border: 1px solid var(--amber);
+                        color: var(--amber);
+                        font-size: 10px;
+                        letter-spacing: 0.1em;
+                        text-transform: uppercase;
+                        padding: 1px 7px;
+                        border-radius: 2px;
+                      "
+                      >Issues</span
+                    ><span
+                      style="
+                        color: var(--muted);
+                        font-size: 10px;
+                        letter-spacing: 0.1em;
+                        text-transform: uppercase;
+                        padding: 1px 4px;
+                      "
+                      >Befehle</span
+                    ></span
+                  ></span
+                >
+              </div>
+              <div style="padding: 2px 2px 4px">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                  "
+                >
+                  <span style="color: var(--faint); font-variant-numeric: tabular-nums">#1951</span
+                  ><span
+                    style="
+                      color: var(--ink);
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                      flex: 1;
+                    "
+                    >Adopt Cursor's agent-swarm model…</span
+                  >
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: baseline;
+                    gap: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                  "
+                >
+                  <span style="color: var(--faint); font-variant-numeric: tabular-nums">#1947</span
+                  ><span
+                    style="
+                      color: var(--ink);
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                      flex: 1;
+                    "
+                    >Add a density budget to the plan-author…</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            style="
+              padding: 14px 16px;
+              display: flex;
+              flex-direction: column;
+              background: var(--panel-2);
+            "
+          >
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 6px;
+              "
+              >Modus</span
+            >
+            <div
+              style="
+                display: flex;
+                border: 1px solid var(--line);
+                border-radius: 2px;
+                overflow: hidden;
+              "
+            >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  background: var(--sel);
+                  color: var(--amber);
+                  border-right: 1px solid var(--line);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Code</span
+              >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  color: var(--muted);
+                  border-right: 1px solid var(--line);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Recherche</span
+              >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  color: var(--muted);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Epic</span
+              >
+            </div>
+            <div style="height: 1px; background: var(--line); margin: 14px 0 12px"></div>
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 6px;
+              "
+              >Engine</span
+            >
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  background: var(--inset);
+                  border: 1px solid var(--line);
+                  color: var(--ink-bright);
+                  font-size: 13px;
+                  padding: 8px 10px;
+                  border-radius: 2px;
+                "
+              >
+                Codex<span style="margin-left: auto; color: var(--muted); font-size: 10px">▾</span>
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  background: var(--inset);
+                  border: 1px solid var(--line);
+                  color: var(--ink-bright);
+                  font-size: 13px;
+                  padding: 8px 10px;
+                  border-radius: 2px;
+                "
+              >
+                gpt-5.6-sol<span style="margin-left: auto; color: var(--muted); font-size: 10px"
+                  >▾</span
+                >
+              </div>
+            </div>
+            <div style="height: 1px; background: var(--line); margin: 14px 0 12px"></div>
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 8px;
+              "
+              >Leitplanken</span
+            >
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    width: 26px;
+                    height: 14px;
+                    border: 1px solid color-mix(in srgb, var(--amber) 62%, var(--line));
+                    border-radius: 2px;
+                    background: var(--inset);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    padding: 1px;
+                    box-sizing: border-box;
+                  "
+                  ><span
+                    style="width: 10px; height: 10px; background: var(--amber); border-radius: 1px"
+                  ></span
+                ></span>
+                <span style="font-size: 12px; color: var(--ink-bright)">Plan-Gate</span
+                ><span style="margin-left: auto; font-size: 10px; color: var(--amber)">AN</span>
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    width: 26px;
+                    height: 14px;
+                    border: 1px solid var(--line-bright);
+                    border-radius: 2px;
+                    background: var(--inset);
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 1px;
+                    box-sizing: border-box;
+                  "
+                  ><span
+                    style="width: 10px; height: 10px; background: #566460; border-radius: 1px"
+                  ></span
+                ></span>
+                <span style="font-size: 12px; color: var(--ink-bright)">Autopilot bis zum PR</span
+                ><span style="margin-left: auto; font-size: 10px; color: var(--faint)">AUS</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          style="
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--line);
+            background: var(--head);
+          "
+        >
+          <span style="font-size: 11px; color: var(--muted)"
+            ><span style="color: var(--green)">✓</span> bereit · Branch
+            <span style="color: var(--ink)">shepherd/task-…</span> von main</span
+          ><span
+            style="font-size: 10px; color: var(--faint); letter-spacing: 0.06em; margin-left: 14px"
+            >⌘ HALTEN = TASTEN</span
+          >
+          <div
+            style="
+              margin-left: auto;
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              border: 1px solid var(--amber);
+              color: var(--amber);
+              padding: 9px 18px;
+              letter-spacing: 0.12em;
+              text-transform: uppercase;
+              font-size: 11px;
+              box-shadow: inset 0 0 18px -10px var(--amber);
+            "
+          >
+            Erstellen &amp; starten
+            <span
+              style="
+                font-size: 10px;
+                border: 1px solid var(--line-bright);
+                border-radius: 2px;
+                padding: 1px 5px;
+                text-transform: none;
+                opacity: 0.75;
+              "
+              >⌘↵</span
+            >
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        Keine Kappen, kein Scrim. Einziger Hinweis:
+        <b style="color: var(--ink)">⌘ HALTEN = TASTEN</b> in der Fußzeile (10px, --faint) und die
+        Kappe im Primärbutton.
+      </p>
+    </div>
+
+    <div>
+      <h2>ZUSTAND 2 — ⌘ GEHALTEN (nach ~350 ms)</h2>
+      <div
+        style="
+          position: relative;
+          width: 860px;
+          border: 1px solid var(--line-bright);
+          background: var(--panel);
+          display: flex;
+          flex-direction: column;
+          box-sizing: border-box;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px 10px;
+            border-bottom: 1px solid var(--line);
+          "
+        >
+          <span
+            style="
+              font-size: 11px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              color: var(--muted);
+            "
+            >Neue Aufgabe</span
+          >
+          <span style="margin-left: auto; display: flex; align-items: center; gap: 8px"
+            ><span
+              style="
+                border: 1px solid var(--amber);
+                background: rgba(232, 161, 58, 0.1);
+                border-radius: 2px;
+                padding: 1px 5px;
+                font-size: 10px;
+                color: var(--amber);
+              "
+              >ESC</span
+            ><span style="color: var(--muted)">✕</span></span
+          >
+        </div>
+        <div style="display: grid; grid-template-columns: 1fr 280px">
+          <div
+            style="
+              padding: 14px 16px;
+              display: flex;
+              flex-direction: column;
+              gap: 12px;
+              border-right: 1px solid var(--line);
+            "
+          >
+            <div style="display: flex; align-items: center; gap: 8px">
+              <span
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                  border: 1px solid var(--line);
+                  background: var(--panel-2);
+                  border-radius: 2px;
+                  padding: 4px 10px;
+                  font-size: 12px;
+                  color: var(--ink-bright);
+                "
+                ><span>🐑</span><span style="font-weight: 600">shepherd</span
+                ><span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌥R</span
+                ></span
+              >
+              <span style="font-size: 11px; color: var(--faint)">von</span>
+              <span
+                style="
+                  display: inline-flex;
+                  align-items: center;
+                  gap: 6px;
+                  border: 1px solid var(--line);
+                  background: var(--panel-2);
+                  border-radius: 2px;
+                  padding: 4px 10px;
+                  font-size: 12px;
+                  color: var(--ink);
+                "
+                >main<span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌥B</span
+                ></span
+              >
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 5px">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    font-size: 11px;
+                    letter-spacing: 0.18em;
+                    text-transform: uppercase;
+                    color: var(--muted);
+                  "
+                  >Prompt</span
+                >
+                <span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌘P</span
+                >
+                <span style="margin-left: auto; display: flex; gap: 6px"
+                  ><span
+                    style="
+                      position: relative;
+                      z-index: 2;
+                      border: 1px solid var(--amber);
+                      background: #12100b;
+                      border-radius: 2px;
+                      padding: 0 4px;
+                      font-size: 10px;
+                      color: var(--amber);
+                    "
+                    >#</span
+                  ><span
+                    style="
+                      position: relative;
+                      z-index: 2;
+                      border: 1px solid var(--amber);
+                      background: #12100b;
+                      border-radius: 2px;
+                      padding: 0 4px;
+                      font-size: 10px;
+                      color: var(--amber);
+                    "
+                    >/</span
+                  ><span
+                    style="
+                      position: relative;
+                      z-index: 2;
+                      border: 1px solid var(--amber);
+                      background: #12100b;
+                      border-radius: 2px;
+                      padding: 0 4px;
+                      font-size: 10px;
+                      color: var(--amber);
+                    "
+                    >⌘V</span
+                  ></span
+                >
+              </div>
+              <div
+                style="
+                  border: 1px solid var(--line-bright);
+                  border-radius: 2px;
+                  background: var(--inset);
+                  display: flex;
+                  flex-direction: column;
+                "
+              >
+                <div
+                  style="
+                    min-height: 108px;
+                    padding: 10px;
+                    font-size: 13px;
+                    color: var(--faint);
+                    line-height: 1.5;
+                  "
+                >
+                  Beschreibe Feature, Fix oder Aufgabe…
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    padding: 6px 8px;
+                    border-top: 1px solid var(--line);
+                  "
+                >
+                  <span
+                    style="
+                      position: relative;
+                      width: 26px;
+                      height: 26px;
+                      border: 1px solid var(--line);
+                      border-radius: 2px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      color: var(--muted);
+                    "
+                    >↥<span
+                      style="
+                        position: absolute;
+                        top: -9px;
+                        right: -12px;
+                        z-index: 2;
+                        border: 1px solid var(--amber);
+                        background: #12100b;
+                        border-radius: 2px;
+                        padding: 0 4px;
+                        font-size: 10px;
+                        color: var(--amber);
+                      "
+                      >⌘U</span
+                    ></span
+                  >
+                  <span
+                    style="
+                      position: relative;
+                      width: 26px;
+                      height: 26px;
+                      border: 1px solid var(--line);
+                      border-radius: 2px;
+                      display: flex;
+                      align-items: center;
+                      justify-content: center;
+                      color: var(--muted);
+                      margin-left: 10px;
+                    "
+                    >🎙<span
+                      style="
+                        position: absolute;
+                        top: -9px;
+                        right: -12px;
+                        z-index: 2;
+                        border: 1px solid var(--amber);
+                        background: #12100b;
+                        border-radius: 2px;
+                        padding: 0 4px;
+                        font-size: 10px;
+                        color: var(--amber);
+                      "
+                      >⌘D</span
+                    ></span
+                  >
+                  <span
+                    style="
+                      margin-left: auto;
+                      font-size: 10px;
+                      color: var(--faint);
+                      font-variant-numeric: tabular-nums;
+                    "
+                    >0 Zeichen</span
+                  >
+                </div>
+              </div>
+            </div>
+            <div
+              style="border: 1px solid var(--line); border-radius: 2px; background: var(--inset)"
+            >
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  gap: 8px;
+                  padding: 5px 8px 4px;
+                  border-bottom: 1px solid var(--line);
+                "
+              >
+                <span
+                  style="
+                    font-size: 10px;
+                    letter-spacing: 0.18em;
+                    text-transform: uppercase;
+                    color: var(--faint);
+                  "
+                  >Mit einem Issue starten</span
+                >
+                <span
+                  style="font-size: 10px; color: var(--faint); font-variant-numeric: tabular-nums"
+                  >55 offen</span
+                >
+                <span style="margin-left: auto; display: flex; align-items: center; gap: 8px"
+                  ><span
+                    style="
+                      display: inline-flex;
+                      align-items: center;
+                      gap: 5px;
+                      border: 1px solid var(--line);
+                      border-radius: 6px;
+                      padding: 1px 7px;
+                      font-size: 10px;
+                      color: var(--ink);
+                    "
+                    >Filter
+                    <span style="font-variant-numeric: tabular-nums; color: var(--muted)">2</span
+                    ><span
+                      style="
+                        position: relative;
+                        z-index: 2;
+                        border: 1px solid var(--amber);
+                        background: #12100b;
+                        border-radius: 2px;
+                        padding: 0 4px;
+                        font-size: 10px;
+                        color: var(--amber);
+                      "
+                      >⌘F</span
+                    ></span
+                  ><span style="display: flex; align-items: center; gap: 4px"
+                    ><span
+                      style="
+                        border: 1px solid var(--amber);
+                        color: var(--amber);
+                        font-size: 10px;
+                        letter-spacing: 0.1em;
+                        text-transform: uppercase;
+                        padding: 1px 7px;
+                        border-radius: 2px;
+                      "
+                      >Issues</span
+                    ><span
+                      style="
+                        color: var(--muted);
+                        font-size: 10px;
+                        letter-spacing: 0.1em;
+                        text-transform: uppercase;
+                        padding: 1px 4px;
+                      "
+                      >Befehle</span
+                    ><span
+                      style="
+                        position: relative;
+                        z-index: 2;
+                        border: 1px solid var(--amber);
+                        background: #12100b;
+                        border-radius: 2px;
+                        padding: 0 4px;
+                        font-size: 10px;
+                        color: var(--amber);
+                      "
+                      >⌥T</span
+                    ></span
+                  ></span
+                >
+              </div>
+              <div style="padding: 2px 2px 4px">
+                <div
+                  style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                  "
+                >
+                  <span style="color: var(--faint); font-variant-numeric: tabular-nums">#1951</span
+                  ><span
+                    style="
+                      color: var(--ink);
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                      flex: 1;
+                    "
+                    >Adopt Cursor's agent-swarm model…</span
+                  ><span
+                    style="
+                      position: relative;
+                      z-index: 2;
+                      border: 1px solid var(--amber);
+                      background: #12100b;
+                      border-radius: 2px;
+                      padding: 0 4px;
+                      font-size: 10px;
+                      color: var(--amber);
+                    "
+                    >↑↓</span
+                  >
+                </div>
+                <div
+                  style="
+                    display: flex;
+                    align-items: baseline;
+                    gap: 6px;
+                    padding: 4px 10px;
+                    font-size: 12px;
+                  "
+                >
+                  <span style="color: var(--faint); font-variant-numeric: tabular-nums">#1947</span
+                  ><span
+                    style="
+                      color: var(--ink);
+                      overflow: hidden;
+                      text-overflow: ellipsis;
+                      white-space: nowrap;
+                      flex: 1;
+                    "
+                    >Add a density budget to the plan-author…</span
+                  >
+                </div>
+              </div>
+            </div>
+          </div>
+          <div
+            style="
+              padding: 14px 16px;
+              display: flex;
+              flex-direction: column;
+              background: var(--panel-2);
+            "
+          >
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 6px;
+              "
+              >Modus</span
+            >
+            <div
+              style="
+                display: flex;
+                border: 1px solid var(--line);
+                border-radius: 2px;
+                overflow: hidden;
+              "
+            >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  background: var(--sel);
+                  color: var(--amber);
+                  border-right: 1px solid var(--line);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Code<span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 3px;
+                    font-size: 9px;
+                    color: var(--amber);
+                  "
+                  >⌥1</span
+                ></span
+              >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  color: var(--muted);
+                  border-right: 1px solid var(--line);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Rech.<span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 3px;
+                    font-size: 9px;
+                    color: var(--amber);
+                  "
+                  >⌥2</span
+                ></span
+              >
+              <span
+                style="
+                  flex: 1;
+                  text-align: center;
+                  padding: 6px 0;
+                  font-size: 10px;
+                  letter-spacing: 0.08em;
+                  text-transform: uppercase;
+                  color: var(--muted);
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  gap: 5px;
+                "
+                >Epic<span
+                  style="
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 3px;
+                    font-size: 9px;
+                    color: var(--amber);
+                  "
+                  >⌥3</span
+                ></span
+              >
+            </div>
+            <div style="height: 1px; background: var(--line); margin: 14px 0 12px"></div>
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 6px;
+              "
+              >Engine</span
+            >
+            <div style="display: flex; flex-direction: column; gap: 8px">
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  background: var(--inset);
+                  border: 1px solid var(--line);
+                  color: var(--ink-bright);
+                  font-size: 13px;
+                  padding: 8px 10px;
+                  border-radius: 2px;
+                "
+              >
+                Codex<span
+                  style="
+                    margin-left: auto;
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌘E</span
+                >
+              </div>
+              <div
+                style="
+                  display: flex;
+                  align-items: center;
+                  background: var(--inset);
+                  border: 1px solid var(--line);
+                  color: var(--ink-bright);
+                  font-size: 13px;
+                  padding: 8px 10px;
+                  border-radius: 2px;
+                "
+              >
+                gpt-5.6-sol<span
+                  style="
+                    margin-left: auto;
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌘M</span
+                >
+              </div>
+            </div>
+            <div style="height: 1px; background: var(--line); margin: 14px 0 12px"></div>
+            <span
+              style="
+                font-size: 10px;
+                letter-spacing: 0.2em;
+                text-transform: uppercase;
+                color: var(--faint);
+                padding-bottom: 8px;
+              "
+              >Leitplanken</span
+            >
+            <div style="display: flex; flex-direction: column; gap: 10px">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    width: 26px;
+                    height: 14px;
+                    border: 1px solid color-mix(in srgb, var(--amber) 62%, var(--line));
+                    border-radius: 2px;
+                    background: var(--inset);
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: flex-end;
+                    padding: 1px;
+                    box-sizing: border-box;
+                  "
+                  ><span
+                    style="width: 10px; height: 10px; background: var(--amber); border-radius: 1px"
+                  ></span
+                ></span>
+                <span style="font-size: 12px; color: var(--ink-bright)">Plan-Gate</span>
+                <span
+                  style="
+                    margin-left: auto;
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌘G</span
+                >
+              </div>
+              <div style="display: flex; align-items: center; gap: 8px">
+                <span
+                  style="
+                    width: 26px;
+                    height: 14px;
+                    border: 1px solid var(--line-bright);
+                    border-radius: 2px;
+                    background: var(--inset);
+                    display: inline-flex;
+                    align-items: center;
+                    padding: 1px;
+                    box-sizing: border-box;
+                  "
+                  ><span
+                    style="width: 10px; height: 10px; background: #566460; border-radius: 1px"
+                  ></span
+                ></span>
+                <span style="font-size: 12px; color: var(--ink-bright)">Autopilot bis zum PR</span>
+                <span
+                  style="
+                    margin-left: auto;
+                    position: relative;
+                    z-index: 2;
+                    border: 1px solid var(--amber);
+                    background: #12100b;
+                    border-radius: 2px;
+                    padding: 0 4px;
+                    font-size: 10px;
+                    color: var(--amber);
+                  "
+                  >⌘⇧A</span
+                >
+              </div>
+            </div>
+          </div>
+        </div>
+        <div
+          style="
+            position: absolute;
+            inset: 45px 0 57px;
+            background: rgba(10, 13, 12, 0.55);
+            z-index: 1;
+            pointer-events: none;
+          "
+        ></div>
+        <div
+          style="
+            position: relative;
+            z-index: 2;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 12px 16px;
+            border-top: 1px solid var(--line);
+            background: var(--head);
+          "
+        >
+          <span style="font-size: 11px; color: var(--amber); letter-spacing: 0.06em"
+            >⌘ GEHALTEN — Taste drücken oder loslassen</span
+          >
+          <div
+            style="
+              margin-left: auto;
+              display: flex;
+              align-items: center;
+              gap: 10px;
+              border: 1px solid var(--amber);
+              color: var(--amber);
+              padding: 9px 18px;
+              letter-spacing: 0.12em;
+              text-transform: uppercase;
+              font-size: 11px;
+              box-shadow: inset 0 0 18px -10px var(--amber);
+            "
+          >
+            Erstellen &amp; starten
+            <span
+              style="
+                font-size: 10px;
+                border: 1px solid var(--amber);
+                background: rgba(232, 161, 58, 0.14);
+                border-radius: 2px;
+                padding: 1px 5px;
+                text-transform: none;
+              "
+              >⌘↵</span
+            >
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        Scrim rgba(10,13,12,0.55) über dem Inhaltsbereich; Kopf- und Fußzeile liegen darüber. Jede
+        Kappe sitzt im Layout ihres Controls (kein absolutes Overlay) und wird per z-index über den
+        Scrim gehoben.
+      </p>
+    </div>
+
+    <div>
+      <h2>ZUSTAND 3 — VOLLE TASTENKARTE ( ? )</h2>
+      <div
+        style="
+          width: 560px;
+          border: 1px solid var(--line-bright);
+          background: var(--panel);
+          box-shadow: 0 24px 60px -30px #000;
+        "
+      >
+        <div
+          style="
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 12px 16px;
+            border-bottom: 1px solid var(--line);
+            background: var(--head);
+          "
+        >
+          <span
+            style="
+              font-size: 11px;
+              letter-spacing: 0.18em;
+              text-transform: uppercase;
+              color: var(--muted);
+            "
+            >Tastenkarte</span
+          >
+          <span style="font-size: 10px; color: var(--faint)">Neue Aufgabe</span>
+          <span style="margin-left: auto; font-size: 10px; color: var(--faint)">ESC schließt</span>
+        </div>
+        <div
+          style="padding: 14px 16px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px 24px"
+        >
+          <div style="display: flex; flex-direction: column; gap: 7px">
+            <span style="font-size: 9px; letter-spacing: 0.18em; color: var(--faint)">GLOBAL</span>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘↵</span
+              ><span style="font-size: 11px; color: var(--ink)">Erstellen &amp; starten</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >ESC</span
+              ><span style="font-size: 11px; color: var(--ink)">Schließen (Entwurf bleibt)</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘ halten</span
+              ><span style="font-size: 11px; color: var(--ink)">Tastenkappen einblenden</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >?</span
+              ><span style="font-size: 11px; color: var(--ink)">Diese Karte</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 7px">
+            <span style="font-size: 9px; letter-spacing: 0.18em; color: var(--faint)">PROMPT</span>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘P</span
+              ><span style="font-size: 11px; color: var(--ink)">In den Prompt springen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >#</span
+              ><span style="font-size: 11px; color: var(--ink)">Issue einfügen / suchen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >/</span
+              ><span style="font-size: 11px; color: var(--ink)">Befehl einfügen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘V</span
+              ><span style="font-size: 11px; color: var(--ink)">Bild einfügen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘U</span
+              ><span style="font-size: 11px; color: var(--ink)">Datei anhängen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘D</span
+              ><span style="font-size: 11px; color: var(--ink)">Diktat starten</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 7px">
+            <span style="font-size: 9px; letter-spacing: 0.18em; color: var(--faint)">KONTEXT</span>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌥R</span
+              ><span style="font-size: 11px; color: var(--ink)">Repo wechseln</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌥B</span
+              ><span style="font-size: 11px; color: var(--ink)">Basis-Branch wechseln</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘F</span
+              ><span style="font-size: 11px; color: var(--ink)">Issue-Filter</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌥T</span
+              ><span style="font-size: 11px; color: var(--ink)">Issues ⇄ Befehle</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >↑↓</span
+              ><span style="font-size: 11px; color: var(--ink)">In der Issue-Liste bewegen</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >↵</span
+              ><span style="font-size: 11px; color: var(--ink)">Issue übernehmen</span>
+            </div>
+          </div>
+          <div style="display: flex; flex-direction: column; gap: 7px">
+            <span style="font-size: 9px; letter-spacing: 0.18em; color: var(--faint)"
+              >OPTIONEN</span
+            >
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌥1 / ⌥2 / ⌥3</span
+              ><span style="font-size: 11px; color: var(--ink)">Modus Code / Recherche / Epic</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘E</span
+              ><span style="font-size: 11px; color: var(--ink)">Engine</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘M</span
+              ><span style="font-size: 11px; color: var(--ink)">Modell</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘G</span
+              ><span style="font-size: 11px; color: var(--ink)">Plan-Gate umschalten</span>
+            </div>
+            <div style="display: flex; align-items: center; gap: 10px">
+              <span style="min-width: 74px; text-align: right; font-size: 10px; color: var(--amber)"
+                >⌘⇧A</span
+              ><span style="font-size: 11px; color: var(--ink)">Autopilot umschalten</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="note">
+        Fallback für Entdeckung ohne Modifier — und die kanonische Liste. Öffnet mit
+        <b style="color: var(--ink)">?</b>, wenn kein Textfeld fokussiert ist, sowie über „⌘ halten"
+        + <b style="color: var(--ink)">?</b>.
+      </p>
+    </div>
+  </body>
+</html>

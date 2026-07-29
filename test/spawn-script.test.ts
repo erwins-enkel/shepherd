@@ -1,16 +1,33 @@
 import { test, expect, beforeEach, afterEach, describe } from "bun:test";
-import { execFile } from "node:child_process";
-import { existsSync, statSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync, utimesSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { promisify } from "node:util";
 import { posixShellJoin } from "../src/argv-limit";
 import { buildWrappedArgv } from "../src/herdr";
 import { buildSpawnScript, spawnCommandLine, writeSpawnScript } from "../src/spawn-script";
 import { DARWIN_MAX_INPUT } from "./helpers/spawn-script";
 
-const execFileAsync = promisify(execFile);
+/**
+ * Feed `input` to a real POSIX shell the way herdr does — TYPED on the shell's stdin — and return
+ * its stdout. Deliberately not `sh -c "<line>"`: the transport is a shell reading typed input, so
+ * stdin is the faithful reproduction, and it keeps a path derived from `SHEPHERD_AGENT_TMPDIR` off
+ * a child process's command line (the indirect-command-injection shape, flagged by CodeQL).
+ */
+function typeIntoShell(input: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const sh = spawn("sh", { stdio: ["pipe", "pipe", "inherit"] });
+    let out = "";
+    sh.stdout.setEncoding("utf8");
+    sh.stdout.on("data", (chunk) => (out += chunk));
+    sh.on("error", reject);
+    sh.on("close", (code) =>
+      code === 0 ? resolve(out) : reject(new Error(`sh exited with ${code}`)),
+    );
+    sh.stdin.end(input);
+  });
+}
 
 let scratch: string;
 let prevAgentTmp: string | undefined;
@@ -80,6 +97,77 @@ describe("writeSpawnScript", () => {
     const paths = await Promise.all([1, 2, 3].map(() => writeSpawnScript(ARGV)));
     expect(new Set(paths).size).toBe(3);
   });
+
+  test("reaps scripts a failed spawn abandoned, and never a live one", async () => {
+    // The self-delete only fires when the script RUNS, so a spawn whose `pane run` failed every
+    // attempt leaves one behind. Observed for real: a full test-suite run left four in the agent
+    // tmp root. Unreaped they accrete in the directory whose inodes Shepherd has exhausted before.
+    const abandoned = await writeSpawnScript(ARGV);
+    const fresh = await writeSpawnScript(ARGV);
+    const twoHoursAgo = new Date(Date.now() - 2 * 60 * 60 * 1000);
+    utimesSync(abandoned, twoHoursAgo, twoHoursAgo);
+
+    await writeSpawnScript(ARGV); // the next spawn is what sweeps
+
+    expect(existsSync(abandoned)).toBe(false);
+    // A script written moments ago may still be waiting for its pane — never reap that.
+    expect(existsSync(fresh)).toBe(true);
+  });
+
+  test("refuses a squatted script dir — writes to a private one instead", async () => {
+    // With the #1875 redirect rolled back the dir is a fixed `<tmpdir>/spawn` in a world-writable
+    // parent, and `mkdir(recursive)` accepts a pre-existing dir WITHOUT applying the mode. A local
+    // user who owns that dir could swap our script between the write and the pane's `sh` opening it
+    // — code execution as the Shepherd user. Group/other-writable stands in for foreign ownership,
+    // which a test cannot create without root; both are rejected by the same lstat check.
+    mkdirSync(join(scratch, "spawn"), { recursive: true });
+    chmodSync(join(scratch, "spawn"), 0o777);
+
+    const path = await writeSpawnScript(ARGV);
+
+    expect(dirname(path)).not.toBe(join(scratch, "spawn"));
+    expect(statSync(dirname(path)).mode & 0o077).toBe(0); // no group/other access
+    expect(statSync(dirname(path)).uid).toBe(process.getuid!());
+    await rm(dirname(path), { recursive: true, force: true });
+  });
+
+  test("refuses a symlink planted on the script dir rather than following it", async () => {
+    // lstat, not stat: a symlink pointing at an attacker-owned directory must not be followed.
+    const target = join(scratch, "elsewhere");
+    mkdirSync(target, { recursive: true });
+    symlinkSync(target, join(scratch, "spawn"));
+
+    const path = await writeSpawnScript(ARGV);
+
+    expect(path.startsWith(target)).toBe(false);
+    expect(path.startsWith(join(scratch, "spawn"))).toBe(false);
+    await rm(dirname(path), { recursive: true, force: true });
+  });
+
+  test("recovers when the private fallback dir is removed under it", async () => {
+    // The fallback is remembered across spawns, so a tmp cleaner that removes it must not strand
+    // every later spawn on a stale path (ENOENT on write).
+    mkdirSync(join(scratch, "spawn"), { recursive: true });
+    chmodSync(join(scratch, "spawn"), 0o777); // force the fallback
+    const first = await writeSpawnScript(ARGV);
+    await rm(dirname(first), { recursive: true, force: true });
+
+    const second = await writeSpawnScript(ARGV);
+
+    expect(existsSync(second)).toBe(true);
+    await rm(dirname(second), { recursive: true, force: true });
+  });
+
+  test("a failing reap never fails the spawn", async () => {
+    // Cleanup is best-effort by design: an unreadable dir must not be why an agent cannot start.
+    const path = await writeSpawnScript(ARGV);
+    chmodSync(dirname(path), 0o300); // no read permission → readdir throws
+    try {
+      await expect(writeSpawnScript(ARGV)).resolves.toContain("/spawn-");
+    } finally {
+      chmodSync(dirname(path), 0o700); // restore so afterEach can clean up
+    }
+  });
 });
 
 describe("spawnCommandLine", () => {
@@ -99,9 +187,9 @@ describe("spawnCommandLine", () => {
     expect(line).toMatch(/^'sh' '.*\.sh'$/);
   });
 
-  test("a REAL sh run of the typed line execs the argv byte-identically and removes the script", async () => {
-    // The one assertion here that cannot be satisfied by agreeing with our own arithmetic: it hands
-    // the script to a real /bin/sh and reads back what the process actually received.
+  test("typing the line at a REAL shell execs the argv byte-identically and removes the script", async () => {
+    // The one assertion here that cannot be satisfied by agreeing with our own arithmetic: it types
+    // the line at a real /bin/sh and reads back what the launched process actually received.
     const args = ["multi word", "with 'quote'", "two\nlines", "$HOME", ""];
     const line = await spawnCommandLine([
       "env",
@@ -113,7 +201,7 @@ describe("spawnCommandLine", () => {
     const path = /^'sh' '(.*)'$/.exec(line)?.[1] ?? "";
     expect(existsSync(path)).toBe(true);
 
-    const { stdout } = await execFileAsync("sh", ["-c", line]);
+    const stdout = await typeIntoShell(`${line}\n`);
     expect(stdout).toBe(args.map((a) => `[${a}]\n`).join(""));
     // Self-deleted by the script itself, mid-run, while sh still held it open.
     expect(existsSync(path)).toBe(false);
@@ -126,7 +214,7 @@ describe("spawnCommandLine", () => {
     // typed line; the command the script launches prints ITS pid. A missing `exec` anywhere in the
     // chain forks, and the two differ.
     const line = await spawnCommandLine(["sh", "-c", "echo $$"]);
-    const { stdout } = await execFileAsync("sh", ["-c", `echo $$; exec ${line}`]);
+    const stdout = await typeIntoShell(`echo $$\nexec ${line}\n`);
     const [outer, inner] = stdout.trim().split("\n");
     expect(inner).toBe(outer);
   });

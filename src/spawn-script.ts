@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { lstat, mkdir, mkdtemp, readdir, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { posixShellJoin } from "./argv-limit";
@@ -31,6 +31,51 @@ function spawnScriptDir(): string {
   return join(agentTmpDir() ?? tmpdir(), "spawn");
 }
 
+/** A real directory, owned by us, that no one else can write into. Uses `lstat`, so a symlink
+ *  planted on the path is rejected rather than followed. */
+async function isOwnPrivateDir(dir: string): Promise<boolean> {
+  try {
+    const st = await lstat(dir);
+    return st.isDirectory() && st.uid === process.getuid?.() && (st.mode & 0o077) === 0;
+  } catch {
+    return false;
+  }
+}
+
+/** Remembered across spawns once the preferred directory turns out to be squatted. */
+let fallbackDir: string | null = null;
+
+/** A private directory of our own under the system tmp dir, reused across spawns — but RE-VERIFIED
+ *  every time, never blindly reused: a tmp cleaner (or anything else) may have removed it since,
+ *  and a stale memo would fail every subsequent spawn with `ENOENT`. */
+async function privateFallbackDir(): Promise<string> {
+  if (fallbackDir && (await isOwnPrivateDir(fallbackDir))) return fallbackDir;
+  fallbackDir = await mkdtemp(join(tmpdir(), "shepherd-spawn-"));
+  return fallbackDir;
+}
+
+/**
+ * The directory to write into, PROVEN to be ours and private before anything is written to it.
+ *
+ * The check is load-bearing, not defensive dressing. With the #1875 redirect rolled back
+ * (`SHEPHERD_AGENT_TMPDIR=""`) the path is a fixed, guessable `<os.tmpdir()>/spawn` in a
+ * world-writable parent, and `mkdir(…, {recursive: true, mode})` silently accepts a pre-existing
+ * directory WITHOUT applying the mode. So a local user could pre-create (or symlink) that directory,
+ * then unlink our 0600 script and substitute their own between our write and the pane's `sh` opening
+ * it — arbitrary code as the Shepherd user. The `wx` flag on the file cannot help: it guards only
+ * the final component, inside a directory the attacker controls.
+ *
+ * Squatted path → fall back to a fresh `mkdtemp` directory (unpredictable name, 0700, ours by
+ * construction), memoized so a hostile `/tmp/spawn` cannot make us mint one per spawn. Refusing
+ * outright would hand any local user a spawn-wide denial of service instead.
+ */
+async function ensureSpawnDir(): Promise<string> {
+  const dir = spawnScriptDir();
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  if (await isOwnPrivateDir(dir)) return dir;
+  return privateFallbackDir();
+}
+
 /**
  * The POSIX script that launches `wrapped`. Two lines carry the whole contract:
  *
@@ -52,22 +97,54 @@ export function buildSpawnScript(wrapped: string[]): string {
   ].join("\n");
 }
 
+/** How long a script may sit before it is presumed abandoned. Two orders of magnitude above the
+ *  30s spawn deadline, so a script still waiting to be read can never be reaped out from under a
+ *  pane. */
+const STALE_SCRIPT_MS = 60 * 60 * 1000;
+
+/**
+ * Best-effort reap of scripts that were written but never ran — a spawn whose `pane run` failed
+ * every attempt leaves one behind, since the self-delete only fires when the script executes.
+ * Without this they accrete in the agent tmp root: exactly the directory whose inode table Shepherd
+ * has exhausted before (#560/#1875).
+ *
+ * Deliberately silent and non-blocking on failure: cleanup must never be the reason a spawn fails.
+ * Runs on the next spawn rather than on a timer, so it costs one `readdir` per spawn and needs no
+ * lifecycle wiring.
+ */
+async function reapStaleScripts(dir: string, now: number): Promise<void> {
+  try {
+    for (const name of await readdir(dir)) {
+      if (!name.startsWith("spawn-") || !name.endsWith(".sh")) continue;
+      const path = join(dir, name);
+      try {
+        if (now - (await stat(path)).mtimeMs > STALE_SCRIPT_MS) await rm(path, { force: true });
+      } catch {
+        /* raced with the script's own self-delete — nothing to do */
+      }
+    }
+  } catch {
+    /* unreadable dir — a spawn must not fail because cleanup could not run */
+  }
+}
+
 /**
  * Write {@link buildSpawnScript} to a fresh file and return its path. Async fs throughout: Shepherd
  * is one Bun loop pumping the web terminal, and sync fs on it stalls typing.
  *
- * Mode 0600 (dir 0700) because the script carries the full spawn command, including caller-supplied
- * env tokens such as `CLAUDE_CONFIG_DIR`. The name is random rather than pane-derived so it stays
- * short (every byte lands in the typed line) and can never collide across concurrent spawns, and
- * the write is `wx` (exclusive create) so it always lands on a fresh file of ours — never through a
- * pre-placed symlink, and never truncating an existing one whose mode we would not have set.
+ * Mode 0600 inside the verified-private directory {@link ensureSpawnDir} hands back, because the
+ * script carries the full spawn command, including caller-supplied env tokens such as
+ * `CLAUDE_CONFIG_DIR`. The name is random rather than pane-derived so it stays short (every byte
+ * lands in the typed line) and can never collide across concurrent spawns, and the write is `wx`
+ * (exclusive create) so it always lands on a fresh file of ours — never through a pre-placed
+ * symlink, and never truncating an existing one whose mode we would not have set.
  *
  * The script is deliberately NOT made executable: it is handed to `sh` as an argument, so it also
  * runs from a `noexec` mount.
  */
 export async function writeSpawnScript(wrapped: string[]): Promise<string> {
-  const dir = spawnScriptDir();
-  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const dir = await ensureSpawnDir();
+  await reapStaleScripts(dir, Date.now());
   const path = join(dir, `spawn-${randomBytes(6).toString("hex")}.sh`);
   await writeFile(path, buildSpawnScript(wrapped), { mode: 0o600, flag: "wx" });
   return path;

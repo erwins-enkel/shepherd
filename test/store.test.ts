@@ -1909,6 +1909,28 @@ test("listBackfillableCodexSpawns finds only completed codex rows with unknown t
   expect(s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId)).toEqual(["codex-null"]);
 });
 
+test("listBackfillableCodexSpawns covers plan_gate rows, not just critic rows", () => {
+  // The plan-gate reviewer books NULL on the same unresolved-rollout path as the critic, so the
+  // backfill must reach BOTH kinds — there is deliberately no `kind` filter (#1816).
+  const s = mk();
+  for (const kind of ["plan_gate", "review", "recap"] as const) {
+    s.recordReviewerSpawn({
+      reviewerSessionId: `rev-${kind}`,
+      taskSessionId: "t",
+      kind,
+      worktreePath: `/wt-${kind}`,
+      reviewerProvider: "codex" as never,
+      model: null,
+      spawnedAt: 1000,
+    });
+    s.completeReviewerSpawn(`rev-${kind}`, null, 2000);
+  }
+  const ids = s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId);
+  expect(ids).toContain("rev-plan_gate");
+  expect(ids).toContain("rev-review");
+  expect(ids).toContain("rev-recap");
+});
+
 test("backfillReviewerSpawnUsage fills unknown totals without touching completedAt", () => {
   const s = mk();
   s.recordReviewerSpawn({

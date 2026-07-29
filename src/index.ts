@@ -1656,6 +1656,10 @@ deferredStarts.push(() => {
       void sweepStaleReviewWorktrees().catch((err) =>
         console.warn("[worktrees] hourly sweep failed:", err),
       );
+      // Also hourly, not boot-only: a Shepherd instance stays up for weeks, so a row that finalized
+      // moments before its rollout appeared would otherwise stay unknown until the next restart.
+      // Cheap to repeat — no tree walk at all when no row is missing totals. (#1816)
+      backfillCodexSpawnUsage(store);
     },
     60 * 60 * 1000,
   );

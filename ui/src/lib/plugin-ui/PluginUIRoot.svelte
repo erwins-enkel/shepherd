@@ -5,7 +5,7 @@
   // the plugin id flows to descendants without prop-drilling through every container node.
   import { setContext } from "svelte";
   import type { PluginUINode } from "$lib/types";
-  import { PLUGIN_ID_CONTEXT } from "./context";
+  import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
   import PluginUIRenderer from "./PluginUIRenderer.svelte";
 
   let { pluginId, node }: { pluginId: string; node: PluginUINode } = $props();
@@ -13,6 +13,20 @@
   // never changes for the life of this component — the context value is stable by construction.
   // svelte-ignore state_referenced_locally
   setContext(PLUGIN_ID_CONTEXT, pluginId);
+
+  // One form scope per published view (issue #1961): input nodes register their named values
+  // here, and a `submit: true` action-button folds them into its POST body. A plain object,
+  // not $state — nothing renders from it, the button reads snapshot() once at click time.
+  const fields: Record<string, unknown> = {};
+  setContext<PluginFormScope>(PLUGIN_FORM_CONTEXT, {
+    set: (name, value) => {
+      fields[name] = value;
+    },
+    remove: (name) => {
+      delete fields[name];
+    },
+    snapshot: () => ({ ...fields }),
+  });
 </script>
 
 <PluginUIRenderer {node} />

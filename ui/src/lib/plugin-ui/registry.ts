@@ -12,6 +12,10 @@ import PuiTimeSeries from "./PuiTimeSeries.svelte";
 import PuiBarChart from "./PuiBarChart.svelte";
 import PuiTimeline from "./PuiTimeline.svelte";
 import PuiActionButton from "./PuiActionButton.svelte";
+import PuiTextInput from "./PuiTextInput.svelte";
+import PuiSelect from "./PuiSelect.svelte";
+import PuiCheckbox from "./PuiCheckbox.svelte";
+import PuiNumberInput from "./PuiNumberInput.svelte";
 
 /** Whitelist of plugin UI node types. Unknown types fall through to UnknownNodeTile. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -29,4 +33,10 @@ export const PLUGIN_UI_REGISTRY: Record<string, Component<any>> = {
   "bar-chart": PuiBarChart,
   timeline: PuiTimeline,
   "action-button": PuiActionButton,
+  // Input nodes (issue #1961) — these contribute named fields to a `submit: true`
+  // action-button's body; none of them POSTs on its own.
+  "text-input": PuiTextInput,
+  select: PuiSelect,
+  checkbox: PuiCheckbox,
+  number: PuiNumberInput,
 };

@@ -282,8 +282,39 @@ export interface PluginGearItem {
  *                      MUST be `"POST"` (a GET fetch with a body throws). `body` is opaque
  *                      plugin-authored JSON sent VERBATIM. An optional `confirm` string gates
  *                      the POST behind a confirmation dialog. `label`/`confirm` are verbatim DATA.
+ *                      Set `submit: true` to also send the view's input fields (below).
  *                      props: { label: string; tone?: Tone; route: { method: "POST"; path: string };
- *                               body?: unknown; confirm?: string }
+ *                               body?: unknown; confirm?: string; submit?: boolean }
+ *
+ *  Input nodes (issue #1961) — editable settings. These NEVER post on their own: each one
+ *  contributes a NAMED FIELD to the body of a `submit: true` action-button, so "POST a
+ *  plugin-authored body to your own route" stays the only network primitive and the
+ *  action-button's namespace guard keeps applying unchanged. The field scope is the whole
+ *  published view (one `publishUI` call), and on a key collision the FIELD wins over the
+ *  button's static `body` — the input is the live value, the body is the constant.
+ *
+ *  Every input needs a `name` (`/^[A-Za-z0-9_.-]{1,64}$/`), unique across the view — two
+ *  inputs sharing a name make the posted body non-deterministic, so the whole view is
+ *  rejected. `label` is optional verbatim DATA; when absent, `name` becomes the accessible
+ *  name. `value` seeds the field and re-seeds it ONLY when the published value actually
+ *  changes, so a plugin that re-publishes its panel on a timer never clobbers what the
+ *  operator is typing.
+ *
+ *  - `text-input`   — free text. `secret: true` renders a masked field; that is MASKING ONLY,
+ *                     the value still travels as plaintext JSON to the plugin's own route.
+ *                     props: { name: string; label?: string; value?: string;
+ *                              placeholder?: string; secret?: boolean }   → posts a string
+ *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or
+ *                     not among `options`, the field seeds to the FIRST option, so the posted
+ *                     value is always one the plugin offered.
+ *                     props: { name: string; label?: string; value?: string;
+ *                              options: { value: string; label?: string }[] } → posts a string
+ *  - `checkbox`     — a boolean toggle.
+ *                     props: { name: string; label?: string; value?: boolean } → posts a boolean
+ *  - `number`       — a numeric field. Posts `null` when empty or unparseable; the plugin
+ *                     validates range in its own route handler (the host does not clamp).
+ *                     props: { name: string; label?: string; value?: number;
+ *                              placeholder?: string }   → posts a number or null
  */
 export interface PluginUINode {
   type: string;

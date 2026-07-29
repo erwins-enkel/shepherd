@@ -10,13 +10,16 @@
   import { toasts } from "$lib/toasts.svelte";
   import { dialog } from "$lib/a11yDialog";
   import { toneColor } from "./tones";
-  import { PLUGIN_ID_CONTEXT } from "./context";
+  import { PLUGIN_FORM_CONTEXT, PLUGIN_ID_CONTEXT, type PluginFormScope } from "./context";
 
   let { node }: { node: PluginUINode } = $props();
 
   // Context-absent (a bare PluginUIRenderer mount with no PluginUIRoot wrapper): with no
   // plugin id there is no well-formed route — render disabled and never fetch.
   const pluginId = getContext<string | undefined>(PLUGIN_ID_CONTEXT);
+  // The view's editable fields (issue #1961). Absent on a bare mount, in which case a
+  // `submit` button simply posts its static body.
+  const form = getContext<PluginFormScope | undefined>(PLUGIN_FORM_CONTEXT);
 
   const p = $derived(node.props ?? {});
   const label = $derived(String(p.label ?? ""));
@@ -33,6 +36,19 @@
   const method = $derived(route?.["method"] === "POST" ? "POST" : null);
   const path = $derived(typeof route?.["path"] === "string" ? (route["path"] as string) : "");
   const body = $derived(p.body);
+  const submits = $derived(p.submit === true);
+
+  /** The body actually sent. With `submit`, the view's input fields are folded in — read at
+   *  CLICK time, so the operator's latest keystroke is included without the form scope having
+   *  to be reactive. Fields WIN over a colliding static `body` key: the field is the live
+   *  value, the static body is the constant the plugin baked in at publish time. A non-object
+   *  `body` (a plugin quirk — the seam allows any JSON) cannot be spread, so the fields
+   *  replace it outright rather than silently dropping the operator's edits. */
+  function requestBody(): unknown {
+    if (!submits) return body;
+    const fields = form?.snapshot() ?? {};
+    return isObj(body) ? { ...body, ...fields } : fields;
+  }
 
   // Client-side namespace guard, mirroring the server's validRoutePath (defense in depth):
   // non-empty, length-capped, safe charset, no leading "/", no ".." segment.
@@ -62,7 +78,7 @@
     if (!ready || pending || !pluginId) return;
     pending = true;
     try {
-      const text = await invokePluginRoute(pluginId, "POST", path, body);
+      const text = await invokePluginRoute(pluginId, "POST", path, requestBody());
       toasts.info(text.length > 0 ? text : m.plugin_action_done());
     } catch {
       toasts.info(m.plugin_action_failed(), {

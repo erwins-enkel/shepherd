@@ -53,6 +53,26 @@ describe("PuiActionButton", () => {
     expect(calls[0].init?.body).toBe(JSON.stringify(body));
   });
 
+  it("submit: true in a view with no input nodes posts the static body unchanged", async () => {
+    // Back-compat guard for the field contract (issue #1961): opting in to submit must not
+    // reshape the request when the view contributes no fields.
+    const calls: { init?: RequestInit }[] = [];
+    mockFetch((_url, init) => {
+      calls.push({ init });
+      return new Response("ok", { status: 200 });
+    });
+    const body = { mode: "specific", account: 2 };
+    const { container } = await renderInPlugin("acct", {
+      label: "Go",
+      route: ROUTE,
+      body,
+      submit: true,
+    });
+    (container.querySelector(".pui-action") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    expect(JSON.parse(calls[0].init?.body as string)).toEqual(body);
+  });
+
   it("with confirm set, a click opens a dialog and only Confirm fires the POST", async () => {
     const fetchFn = mockFetch(() => new Response("ok", { status: 200 }));
     const { container } = await renderInPlugin("acct", {

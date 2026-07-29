@@ -1689,6 +1689,29 @@ export interface DocAgentRun {
  *                     props: { bars: { label: string; value: number; tone?: Tone }[]; max?: number; orientation?: "horizontal" | "vertical" }
  *  - `timeline`     — recent discrete events.
  *                     props: { events: { at: string; label: string; caption?: string; tone?: Tone }[] }
+ *
+ *  Interactive node (issue #1209) — POSTs a plugin-authored body to one of THIS plugin's own
+ *  routes. The owning plugin id comes from context, never from props, which is what scopes the
+ *  request to the plugin's own namespace.
+ *
+ *  - `action-button` — props: { label: string; tone?: Tone; route: { method: "POST"; path: string };
+ *                              body?: unknown; confirm?: string; submit?: boolean }
+ *
+ *  Input nodes (issue #1961) — editable settings. These NEVER post on their own: each one
+ *  contributes a NAMED FIELD to the body of a `submit: true` action-button, so "POST a
+ *  plugin-authored body to your own route" stays the only network primitive. The field scope is
+ *  the whole published view, and on a key collision the FIELD wins over the button's static
+ *  `body`. Every input needs a `name` (`/^[A-Za-z0-9_.-]{1,64}$/`) unique across the view;
+ *  `value` seeds the field and re-seeds it only when the published value actually changes, so a
+ *  timer-driven re-publish never clobbers what the operator is typing.
+ *
+ *  - `text-input`   — props: { name: string; label?: string; value?: string; placeholder?: string;
+ *                              secret?: boolean }   → posts a string. `secret` MASKS ONLY.
+ *  - `select`       — props: { name: string; label?: string; value?: string;
+ *                              options: { value: string; label?: string }[] } → posts a string
+ *  - `checkbox`     — props: { name: string; label?: string; value?: boolean } → posts a boolean
+ *  - `number`       — props: { name: string; label?: string; value?: number; placeholder?: string }
+ *                     → posts a number, or null when empty/unparseable
  */
 export interface PluginUINode {
   type: string;

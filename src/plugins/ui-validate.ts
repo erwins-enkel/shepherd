@@ -39,12 +39,78 @@ function validActionButtonProps(props: Record<string, unknown>): boolean {
   if (route["method"] !== "POST") return false;
   const path = route["path"];
   if (typeof path !== "string" || !validRoutePath(path)) return false;
+  // Opt-in to sending the view's input fields (issue #1961).
+  const submit = props["submit"];
+  if (submit !== undefined && typeof submit !== "boolean") return false;
+  return true;
+}
+
+/** The input node types (issue #1961) and the JS type each one's `value` seeds from. Every
+ *  entry contributes a named field to a submitting `action-button` — none of them posts alone. */
+const INPUT_VALUE_TYPES: Record<string, "string" | "number" | "boolean"> = {
+  "text-input": "string",
+  select: "string",
+  checkbox: "boolean",
+  number: "number",
+};
+
+/** A field `name` is a JSON body key the plugin's own route handler reads back, so it is held
+ *  to a safe, bounded charset rather than accepting arbitrary text. */
+const VALID_FIELD_NAME = /^[A-Za-z0-9_.-]{1,64}$/;
+
+/** Per-type validation for an input node. `names` accumulates every field name in the tree:
+ *  two inputs sharing a name would make the submitted body non-deterministic (last mount wins),
+ *  so a duplicate drops the whole view rather than silently posting one of the two values. */
+function validInputProps(
+  type: string,
+  props: Record<string, unknown>,
+  names: Set<string>,
+): boolean {
+  const name = props["name"];
+  if (typeof name !== "string" || !VALID_FIELD_NAME.test(name)) return false;
+  if (names.has(name)) return false;
+  names.add(name);
+
+  const label = props["label"];
+  if (label !== undefined && typeof label !== "string") return false;
+
+  const value = props["value"];
+  if (value !== undefined && typeof value !== INPUT_VALUE_TYPES[type]) return false;
+  // A seeded number must be finite — NaN/Infinity do not survive JSON anyway, but a plugin
+  // could send a value that parses to something unrenderable.
+  if (type === "number" && value !== undefined && !Number.isFinite(value)) return false;
+
+  if (type === "text-input" || type === "number") {
+    const placeholder = props["placeholder"];
+    if (placeholder !== undefined && typeof placeholder !== "string") return false;
+  }
+  if (type === "text-input") {
+    const secret = props["secret"];
+    if (secret !== undefined && typeof secret !== "boolean") return false;
+  }
+  if (type === "select") {
+    // `options` is required and non-empty — a select with nothing to choose has no meaning.
+    // Length is already capped at MAX_ARRAY by propsWithinBounds.
+    const options = props["options"];
+    if (!Array.isArray(options) || options.length === 0) return false;
+    const validOption = (o: unknown): boolean =>
+      isPlainObject(o) &&
+      typeof o["value"] === "string" &&
+      (o["label"] === undefined || typeof o["label"] === "string");
+    if (!options.every(validOption)) return false;
+  }
   return true;
 }
 
 /** Recursively validate one node (re-parsed JSON) against the structural caps.
- *  `counter` accumulates the total node count across the whole tree. */
-function validateNode(node: unknown, depth: number, counter: { n: number }): boolean {
+ *  `counter` accumulates the total node count across the whole tree; `names` accumulates
+ *  every input field name so a cross-tree duplicate can be rejected. */
+function validateNode(
+  node: unknown,
+  depth: number,
+  counter: { n: number },
+  names: Set<string>,
+): boolean {
   if (depth > MAX_DEPTH) return false;
   if (!isPlainObject(node)) return false;
   if (++counter.n > MAX_NODES) return false;
@@ -60,10 +126,17 @@ function validateNode(node: unknown, depth: number, counter: { n: number }): boo
   )
     return false;
 
+  // Input node: validate its field contract (issue #1961).
+  if (
+    Object.hasOwn(INPUT_VALUE_TYPES, node["type"]) &&
+    !validInputProps(node["type"], isPlainObject(props) ? props : {}, names)
+  )
+    return false;
+
   const children = node["children"];
   if (children === undefined) return true;
   if (!Array.isArray(children) || children.length > MAX_ARRAY) return false;
-  return children.every((child) => validateNode(child, depth + 1, counter));
+  return children.every((child) => validateNode(child, depth + 1, counter, names));
 }
 
 /** Guards against a large gear item payload — a gear item is tiny in practice. */
@@ -179,5 +252,7 @@ export function validatePluginUIView(view: unknown): PluginUIView | null {
   if (parsed["schemaVersion"] !== 1) return null;
   if (typeof parsed["slot"] !== "string" || !VALID_SLOTS.has(parsed["slot"])) return null;
 
-  return validateNode(parsed["root"], 1, { n: 0 }) ? (parsed as unknown as PluginUIView) : null;
+  return validateNode(parsed["root"], 1, { n: 0 }, new Set())
+    ? (parsed as unknown as PluginUIView)
+    : null;
 }

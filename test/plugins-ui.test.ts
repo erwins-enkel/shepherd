@@ -174,6 +174,19 @@ function abView(props: unknown) {
   return { schemaVersion: 1, slot: "settings-panel", root: { type: "action-button", props } };
 }
 
+test("action-button: submit must be boolean when present", () => {
+  expect(
+    validatePluginUIView(
+      abView({ label: "Save", route: { method: "POST", path: "config" }, submit: "yes" }),
+    ),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(
+      abView({ label: "Save", route: { method: "POST", path: "config" }, submit: true }),
+    ),
+  ).not.toBeNull();
+});
+
 test("action-button: valid node round-trips, preserving body and confirm", () => {
   const props = {
     label: "Make primary",
@@ -239,6 +252,110 @@ test("action-button: namespace-escaping path is rejected (leading slash, .., bad
   expect(
     validatePluginUIView(abView({ label: "x", route: { method: "POST", path: "" } })),
   ).toBeNull();
+});
+
+// ── input node validation (issue #1961) ──────────────────────────────────────
+
+/** A view whose root is a stack over the given input/button nodes. */
+function formView(...children: PluginUINode[]): PluginUIView {
+  return { schemaVersion: 1, slot: "settings-panel", root: { type: "stack", children } };
+}
+
+const SAVE_BUTTON: PluginUINode = {
+  type: "action-button",
+  props: { label: "Save", submit: true, route: { method: "POST", path: "config" } },
+};
+
+test("input nodes: a full settings form round-trips unchanged", () => {
+  const view = formView(
+    {
+      type: "text-input",
+      props: { name: "relayUrl", label: "Relay URL", value: "wss://relay/buzz" },
+    },
+    { type: "text-input", props: { name: "keyEnv", secret: true, placeholder: "BUZZ_TOKEN" } },
+    {
+      type: "select",
+      props: {
+        name: "verbosity",
+        value: "normal",
+        options: [{ value: "quiet" }, { value: "normal", label: "Normal" }],
+      },
+    },
+    { type: "checkbox", props: { name: "relayEvents", value: true } },
+    { type: "number", props: { name: "retries", value: 3 } },
+    SAVE_BUTTON,
+  );
+  expect(validatePluginUIView(view)).toEqual(view);
+});
+
+test("input nodes: a missing or malformed name drops the whole view", () => {
+  expect(validatePluginUIView(formView({ type: "text-input", props: {} }))).toBeNull();
+  expect(validatePluginUIView(formView({ type: "text-input" }))).toBeNull();
+  expect(validatePluginUIView(formView({ type: "text-input", props: { name: "" } }))).toBeNull();
+  expect(
+    validatePluginUIView(formView({ type: "text-input", props: { name: "has space" } })),
+  ).toBeNull();
+  expect(validatePluginUIView(formView({ type: "text-input", props: { name: "a/b" } }))).toBeNull();
+  expect(
+    validatePluginUIView(formView({ type: "text-input", props: { name: "x".repeat(65) } })),
+  ).toBeNull();
+  expect(validatePluginUIView(formView({ type: "text-input", props: { name: 7 } }))).toBeNull();
+});
+
+test("input nodes: two inputs sharing a name drop the whole view", () => {
+  // Duplicate names would make the submitted body non-deterministic (last mount wins).
+  const dup = formView(
+    { type: "text-input", props: { name: "relayUrl" } },
+    {
+      type: "stack",
+      children: [{ type: "select", props: { name: "relayUrl", options: [{ value: "a" }] } }],
+    },
+  );
+  expect(validatePluginUIView(dup)).toBeNull();
+  // The same name in two SEPARATE views is fine — the scope is one published view.
+  expect(
+    validatePluginUIView(formView({ type: "text-input", props: { name: "relayUrl" } })),
+  ).not.toBeNull();
+});
+
+test("input nodes: a seeded value must match the node's own type", () => {
+  expect(
+    validatePluginUIView(formView({ type: "text-input", props: { name: "a", value: 1 } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(formView({ type: "checkbox", props: { name: "a", value: "yes" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(formView({ type: "number", props: { name: "a", value: "3" } })),
+  ).toBeNull();
+  expect(
+    validatePluginUIView(
+      formView({ type: "select", props: { name: "a", value: 2, options: [{ value: "x" }] } }),
+    ),
+  ).toBeNull();
+  // Omitting `value` entirely is always fine — the field just starts empty.
+  expect(validatePluginUIView(formView({ type: "checkbox", props: { name: "a" } }))).not.toBeNull();
+});
+
+test("select: options are required, non-empty and string-valued", () => {
+  const sel = (props: Record<string, unknown>) =>
+    validatePluginUIView(formView({ type: "select", props }));
+  expect(sel({ name: "a" })).toBeNull();
+  expect(sel({ name: "a", options: [] })).toBeNull();
+  expect(sel({ name: "a", options: "quiet" })).toBeNull();
+  expect(sel({ name: "a", options: ["quiet"] })).toBeNull();
+  expect(sel({ name: "a", options: [{ value: 1 }] })).toBeNull();
+  expect(sel({ name: "a", options: [{ value: "q", label: 2 }] })).toBeNull();
+  expect(sel({ name: "a", options: [{ value: "q" }] })).not.toBeNull();
+});
+
+test("text-input: secret and placeholder must be well-typed when present", () => {
+  const ti = (props: Record<string, unknown>) =>
+    validatePluginUIView(formView({ type: "text-input", props }));
+  expect(ti({ name: "a", secret: "yes" })).toBeNull();
+  expect(ti({ name: "a", placeholder: 1 })).toBeNull();
+  expect(ti({ name: "a", label: 1 })).toBeNull();
+  expect(ti({ name: "a", secret: true, placeholder: "…", label: "A" })).not.toBeNull();
 });
 
 // ── loader integration tests ─────────────────────────────────────────────────

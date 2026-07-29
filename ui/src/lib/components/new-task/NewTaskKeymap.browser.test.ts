@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../../app.css";
@@ -96,6 +96,12 @@ beforeEach(async () => {
   vi.mocked(listRepos).mockResolvedValue({ repos: [repo], recentWindowDays: 30 });
   vi.mocked(branchStatus).mockResolvedValue({ ahead: 0, behind: 0, diverged: false } as never);
   vi.mocked(getCommands).mockResolvedValue({ commands: [] });
+});
+
+// Same convention as NewTask.browser.test.ts: components accumulate in the DOM
+// otherwise, and every query below would start matching a stale dialog.
+afterEach(() => {
+  document.body.innerHTML = "";
 });
 
 const form = () => document.querySelector<HTMLElement>("form.card")!;

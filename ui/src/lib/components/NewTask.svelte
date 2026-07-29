@@ -1595,7 +1595,7 @@
           {#if !mobile}
             <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
             <div class="ctx-row" use:coachTarget={"nt-repo"}>
-              <div class="repo-chip">
+              <div class="repo-chip" class:keymap-held={held}>
                 <RepoSelect
                   bind:this={repoSelect}
                   {repos}
@@ -2567,6 +2567,12 @@
     gap: 8px;
     min-width: 0;
   }
+  /* While the keycaps are up, the trigger's mute ▾ hands its slot to the cap —
+     same rule as every other anchor: replace, never accumulate. */
+  .repo-chip.keymap-held :global(.rs-trigger .chevron) {
+    visibility: hidden;
+  }
+
   /* Chip-style the existing RepoSelect trigger without touching its internals. */
   .repo-chip {
     position: relative;
@@ -2728,6 +2734,8 @@
      glyph. A labeled control follows the `.gbtn` recipe (see /design-system), not the
      square icon-button one — hence auto width and the meta type scale. */
   .tool-btn {
+    /* Containing block for its absolutely-positioned keycap. */
+    position: relative;
     flex-shrink: 0;
     height: 28px;
     padding: 0 8px;

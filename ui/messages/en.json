@@ -3452,5 +3452,6 @@
   "feat_spawn_notice_body": "When a plan grows past the operating system's command-line limit, Shepherd used to fail the review spawn silently. Now it shortens the plan to fit and marks the badge, or — if too little of the plan would survive — refuses outright and tells you, rather than shipping a confident verdict on a stub.",
   "spawnnotice_review_failed_badge": "no review",
   "spawnnotice_review_failed_title": "Code review could not start",
-  "spawnnotice_review_failed_action": "The review prompt exceeds the operating system's argument limit, so no critic ran on this commit. Shortening `.shepherd-plan.md` is what frees the most room. Retry re-attempts with the current inputs."
+  "spawnnotice_review_failed_action": "The review prompt exceeds the operating system's argument limit, so no critic ran on this commit. Shortening `.shepherd-plan.md` is what frees the most room. Retry re-attempts with the current inputs.",
+  "newtask_attach_label": "Attach"
 }

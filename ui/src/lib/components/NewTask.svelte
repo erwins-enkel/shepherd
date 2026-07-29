@@ -1354,6 +1354,23 @@
   const footerCapacity = $derived(selectedProviderCapacity(usageLimits, agentProvider));
 </script>
 
+{#if mobile}
+  <!-- The overlay is sized to the region above the software keyboard, and iOS reports that
+       edge a few px short of the keyboard's real top — leaving a sliver of app content that
+       the overlay's scrim never reaches (undimmed AND unblurred, so the list behind reads
+       through). This full-screen backdrop paints underneath it, so the sliver recedes like
+       every other modal background; a tap on it closes, same as the overlay's own backdrop.
+       Sibling rather than a restructured overlay: the mobile sheets are `position: fixed`
+       and rely on `.overlay` being their containing block to stay above the keyboard. -->
+  <div
+    class="nt-backdrop scrim"
+    role="presentation"
+    onclick={() => {
+      confirmStep = false;
+      onclose?.();
+    }}
+  ></div>
+{/if}
 <div
   class="overlay"
   bind:this={overlayEl}
@@ -1579,7 +1596,24 @@
                   onclick={() => fileInput?.click()}
                   disabled={hasOutstandingUploads}
                 >
-                  {#if hasOutstandingUploads}…{:else}↥{/if}
+                  {#if hasOutstandingUploads}
+                    …
+                  {:else}
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                      />
+                    </svg>
+                  {/if}
+                  <span class="tool-label">{m.newtask_attach_label()}</span>
                 </button>
                 <MicButton
                   bind:this={mic}
@@ -2022,6 +2056,13 @@
   .composer.hidden {
     display: none;
   }
+  /* Full-screen dim + blur (the canonical `.scrim` primitive supplies both) one layer
+     below the overlay, so the strip the overlay's keyboard-fitted box leaves uncovered
+     still reads as backdrop. Invisible everywhere else: on mobile the card fills the
+     overlay, so the two scrims never stack in view. */
+  .nt-backdrop {
+    z-index: 19;
+  }
   .overlay {
     position: fixed;
     inset: 0;
@@ -2308,10 +2349,14 @@
     padding: 6px 8px;
     border-top: 1px solid var(--color-line);
   }
+  /* Attach: icon + word, so the affordance is readable rather than inferred from a lone
+     glyph. A labeled control follows the `.gbtn` recipe (see /design-system), not the
+     square icon-button one — hence auto width and the meta type scale. */
   .tool-btn {
     flex-shrink: 0;
-    width: 28px;
     height: 28px;
+    padding: 0 8px;
+    gap: 6px;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -2319,8 +2364,18 @@
     border: 1px solid var(--color-line);
     border-radius: 2px;
     color: var(--color-muted);
-    font: inherit;
+    font-family: var(--font-mono);
+    font-size: var(--fs-meta);
+    letter-spacing: 0.08em;
     cursor: pointer;
+  }
+  .tool-btn svg {
+    width: var(--icon-btn-glyph);
+    height: var(--icon-btn-glyph);
+    display: block;
+  }
+  .tool-label {
+    white-space: nowrap;
   }
   .tool-btn:hover {
     background: var(--color-hover);
@@ -2775,8 +2830,8 @@
       padding: 8px;
     }
     .tool-btn {
-      width: 44px;
       height: 44px;
+      padding: 0 12px;
     }
     .toolbar :global(.micbtn.inline) {
       width: 44px;

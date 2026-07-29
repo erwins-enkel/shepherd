@@ -153,7 +153,8 @@
   // snapshot refresh (a just-updated plugin drops to `up-to-date` and would otherwise
   // lose its "restart to finish" hint).
   type ApplyOutcome =
-    { kind: "live" | "restart"; version: string } | { kind: "error"; msg: string; detail?: string };
+    | { kind: "live" | "restart"; version: string; commits?: boolean }
+    | { kind: "error"; msg: string; detail?: string };
   let applyBusy = $state<Record<string, boolean>>({});
   let applyOutcome = $state<Record<string, ApplyOutcome>>({});
 
@@ -190,6 +191,10 @@
           [id]: {
             kind: res.result.restartRequired ? "restart" : "live",
             version: res.result.updatedTo,
+            // Captured before the snapshot refresh drops this plugin to up-to-date: a
+            // drift update leaves the version untouched, so naming it would read as a
+            // no-op ("updated to v0.1.0" when you were already on v0.1.0).
+            commits: !!u.behindCommits,
           },
         };
         onpluginapplied?.(res.result.status);
@@ -207,13 +212,38 @@
 
   /** Card-shaped update props: non-null when there is a badge to show OR an apply
    *  outcome to keep visible after the badge is gone. */
-  function cardUpdate(
-    id: string,
-  ): { latest: string | null; applying: boolean; outcome: ApplyOutcome | null } | null {
+  function cardUpdate(id: string): {
+    latest: string | null;
+    behindCommits?: number;
+    applying: boolean;
+    outcome: ApplyOutcome | null;
+  } | null {
     const u = availableUpdate(id);
     const outcome = applyOutcome[id] ?? null;
     if (!u && !outcome) return null;
-    return { latest: u?.latestVersion ?? null, applying: !!applyBusy[id], outcome };
+    return {
+      latest: u?.latestVersion ?? null,
+      ...(u?.behindCommits ? { behindCommits: u.behindCommits } : {}),
+      applying: !!applyBusy[id],
+      outcome,
+    };
+  }
+
+  /** What the last check concluded for a plugin with NO pending update — the answer to
+   *  "I clicked Check for updates and nothing happened". Null when no check has run yet,
+   *  or when an update/outcome is already occupying the card. */
+  function cardChecked(id: string): { label: string; detail?: string } | null {
+    const u = updById.get(id);
+    if (!u || u.state === "update-available" || applyOutcome[id]) return null;
+    const label =
+      u.state === "no-source"
+        ? m.pluginupdate_state_nosource()
+        : u.state === "error"
+          ? m.pluginupdate_state_error()
+          : u.state === "incompatible"
+            ? m.pluginupdate_state_incompatible({ latest: u.latestVersion ?? "?" })
+            : m.pluginupdate_state_uptodate();
+    return { label, ...(u.detail ? { detail: u.detail } : {}) };
   }
 
   // A restart is owed to UNLOAD a plugin whose folder is gone (`removed`) — that can't be
@@ -462,6 +492,7 @@
         busy={busyFolder === row.folder}
         onuninstall={(folder, name) => askUninstall(folder, name, true)}
         update={cardUpdate(rowId)}
+        checked={cardChecked(rowId)}
         onupdate={() => runUpdate(rowId)}
       />
     {:else if row.kind === "removed"}
@@ -482,7 +513,11 @@
         <span class="state micro" class:broken={row.kind === "broken"}>{stateLabel(row.kind)}</span>
         {#if upd?.latest}
           {@const updId = row.inst.id}
-          <span class="upd-badge micro">{m.pluginupdate_state_update({ latest: upd.latest })}</span>
+          <span class="upd-badge micro">
+            {upd.behindCommits
+              ? m.pluginupdate_state_commits({ count: upd.behindCommits })
+              : m.pluginupdate_state_update({ latest: upd.latest })}
+          </span>
           <button
             type="button"
             class="gbtn upd"
@@ -531,14 +566,29 @@
               {/if}
             {:else if o.kind === "restart"}
               <p class="upd-outcome micro">
-                {m.pluginupdate_applied_restart({ version: o.version })}
+                {o.commits
+                  ? m.pluginupdate_applied_commits_restart()
+                  : m.pluginupdate_applied_restart({ version: o.version })}
               </p>
             {:else}
               <p class="upd-outcome live micro">
-                {m.pluginupdate_applied_live({ version: o.version })}
+                {o.commits
+                  ? m.pluginupdate_applied_commits_live()
+                  : m.pluginupdate_applied_live({ version: o.version })}
               </p>
             {/if}
           </div>
+        {:else if row.kind !== "broken"}
+          {@const chk = cardChecked(row.inst.id)}
+          {#if chk}
+            <!-- Same as the loaded card: never let a completed check look like nothing
+                 happened. `detail` is the server-authored diagnostic, verbatim. -->
+            <div class="upd-line">
+              <p class="upd-checked micro">
+                {chk.label}{#if chk.detail}<span class="reason"> — {chk.detail}</span>{/if}
+              </p>
+            </div>
+          {/if}
         {/if}
       </div>
     {/if}
@@ -720,6 +770,16 @@
     color: var(--color-muted);
     font-family: var(--font-mono, monospace);
     word-break: break-word;
+  }
+  /* Steady-state check result — quiet by design: it reports that this row WAS looked at,
+     it is not an alert. Never amber, which belongs to a pending update. */
+  .upd-checked {
+    margin: 2px 0 0;
+    color: var(--color-muted);
+    word-break: break-word;
+  }
+  .upd-checked .reason {
+    font-family: var(--font-mono, monospace);
   }
 
   /* Restart-owed banner */

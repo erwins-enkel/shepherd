@@ -486,6 +486,57 @@ describe("SettingsPluginsPanel", () => {
     expect(page.getByRole("button", { name: "Update", exact: true }).elements()).toHaveLength(0);
   });
 
+  it("counts commits in the badge when the update doesn't move the version", async () => {
+    // A plugin whose repo ships from its default branch: new code, same version. Naming
+    // the version would read as a no-op ("update to v1.0.0").
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot({ latestVersion: "1.0.0", behindCommits: 13 }),
+    });
+    await expect.element(page.getByText("Update available → 13 new commits")).toBeVisible();
+    await expect.element(page.getByRole("button", { name: "Update", exact: true })).toBeVisible();
+  });
+
+  it("applying a commit-drift update reports commits, not an unchanged version", async () => {
+    stubApply([inst({ loaded: true })], () => ({
+      payload: {
+        ok: true,
+        restartRequired: false,
+        updatedTo: "1.0.0",
+        status: { plugins: [], updateAvailable: false, checkedAt: 2 },
+      },
+    }));
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot({ latestVersion: "1.0.0", behindCommits: 13 }),
+    });
+    await page.getByRole("button", { name: "Update", exact: true }).click();
+    await expect
+      .element(page.getByText("Updated to the latest commits — now running."))
+      .toBeVisible();
+    // "Updated to v1.0.0" would read as nothing having happened.
+    expect(document.body.textContent).not.toContain("Updated to v1.0.0");
+  });
+
+  it("says WHY a check found nothing, per plugin", async () => {
+    // The silent-failure bug: a non-actionable state rendered nothing at all, so a check
+    // that found nothing was indistinguishable from a check that never ran.
+    stubScan([inst({ loaded: true })]);
+    render(SettingsPluginsPanel, {
+      plugins: [plugin()],
+      updates: updSnapshot({
+        state: "no-source",
+        latestVersion: null,
+        detail: "the declared repository publishes no version tags",
+      }),
+    });
+    await expect.element(page.getByText("Not checkable")).toBeVisible();
+    await expect
+      .element(page.getByText("the declared repository publishes no version tags"))
+      .toBeVisible();
+  });
+
   it("a pending (not-loaded) row also carries the update badge + button", async () => {
     stubScan([inst({ id: "fresh", name: "Fresh Plugin", folder: "fresh" })]);
     render(SettingsPluginsPanel, {

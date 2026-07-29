@@ -29,8 +29,13 @@ import {
 } from "./visual-blocks";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { apiKeyFailClosed } from "./spawn-auth";
-import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
-import { readActivitySignal } from "./activity-signal";
+import { type SessionUsage } from "./usage";
+import {
+  createCodexRolloutResolver,
+  reviewerActivitySummary,
+  reviewerUsage,
+  type CodexRolloutResolver,
+} from "./codex-activity";
 import { effectiveAutopilot } from "./effective-autopilot";
 import { resolveAuxPatch, assembleAuxSpawn, type MembraneSeams } from "./spawn-membrane";
 import { spawnBudget } from "./spawn-budget";
@@ -470,6 +475,7 @@ export interface PlanGateServiceDeps extends MembraneSeams {
     | "get"
     | "recordReviewerSpawn"
     | "completeReviewerSpawn"
+    | "setReviewerSpawnProviderSessionId"
     | "listReviewerSpawns"
     | "putSpawnNotice"
     | "getSpawnNotice"
@@ -546,11 +552,25 @@ export interface PlanGateServiceDeps extends MembraneSeams {
    *  created — `createDetached` fetches `origin/<base>` and this measures against it. */
   anchorStaleness?: (repoPath: string, sha: string, base: string) => AnchorStaleness;
   /** Injectable reader for the plan reviewer's latest tool-use summary (default: parse its JSONL
-   *  transcript via readActivitySignal). null = no parseable activity yet. */
-  readActivity?: (worktreePath: string, reviewerSessionId: string) => string | null;
-  /** Injectable reader of a finished reviewer's token totals from its transcript
-   *  (default: readSessionUsage). null = transcript missing/unreadable → totals stay null. */
-  readUsage?: (worktreePath: string, reviewerSessionId: string) => Promise<SessionUsage | null>;
+   *  transcript via readActivitySignal for claude, or resolve its Codex rollout for codex). null =
+   *  no parseable activity yet. */
+  readActivity?: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  /** Injectable per-service Codex rollout resolver (backoff + positive cache, keyed by reviewer
+   *  session id). Default: a fresh {@link createCodexRolloutResolver}. */
+  codexResolver?: CodexRolloutResolver;
+  /** Injectable reader of a finished reviewer's token totals from its transcript (default:
+   *  readSessionUsage for claude, or parse the resolved Codex rollout for codex). null = transcript
+   *  unresolved/unreadable → the row's token totals stay NULL (unknown), NOT zero. */
+  readUsage?: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
+  ) => Promise<SessionUsage | null>;
 }
 
 interface PlanInFlight {
@@ -606,10 +626,17 @@ export class PlanGateService {
   private worktreeExists: (worktreePath: string) => boolean;
   private baseSha: (repoPath: string, base: string, worktreePath: string) => PlanAnchorResolution;
   private anchorStaleness: (repoPath: string, sha: string, base: string) => AnchorStaleness;
-  private readActivity: (worktreePath: string, reviewerSessionId: string) => string | null;
+  private readActivity: (
+    worktreePath: string,
+    reviewerSessionId: string,
+    provider: AgentProvider | null,
+  ) => string | null;
+  private codexResolver: CodexRolloutResolver;
   private readUsage: (
     worktreePath: string,
     reviewerSessionId: string,
+    provider: AgentProvider | null,
+    model: string | null,
   ) => Promise<SessionUsage | null>;
 
   constructor(private deps: PlanGateServiceDeps) {
@@ -624,8 +651,17 @@ export class PlanGateService {
     this.worktreeExists = deps.worktreeExists ?? existsSync;
     this.baseSha = deps.baseSha ?? defaultPlanAnchorSha;
     this.anchorStaleness = deps.anchorStaleness ?? defaultAnchorStaleness;
-    this.readActivity = deps.readActivity ?? defaultReadActivity;
-    this.readUsage = deps.readUsage ?? readSessionUsage;
+    this.codexResolver =
+      deps.codexResolver ??
+      createCodexRolloutResolver((id, rid) =>
+        deps.store.setReviewerSpawnProviderSessionId(id, rid),
+      );
+    this.readActivity =
+      deps.readActivity ??
+      ((wt, id, provider) => reviewerActivitySummary(wt, id, provider, this.codexResolver));
+    this.readUsage =
+      deps.readUsage ??
+      ((wt, id, provider, model) => reviewerUsage(wt, id, provider, model, this.codexResolver));
   }
 
   /** sha256 of the plan text — dedups re-reviews of an unchanged plan on the auto-path. The manual
@@ -1163,21 +1199,25 @@ export class PlanGateService {
   private async reapOrphanSpawn(sp: {
     worktreePath: string;
     reviewerSessionId: string;
+    reviewerProvider: AgentProvider | null;
+    model: string | null;
   }): Promise<void> {
     const terminalId = this.resolveTerminal(sp.worktreePath);
     void this.deps.herdr.stop(terminalId).catch(() => {});
     try {
-      const usage = await this.readUsage(sp.worktreePath, sp.reviewerSessionId);
-      // Always complete the row (zeros when no transcript, e.g. a Codex exec) so it isn't
-      // re-listed as an orphan every boot and its completion is recorded.
-      this.deps.store.completeReviewerSpawn(
+      const usage = await this.readUsage(
+        sp.worktreePath,
         sp.reviewerSessionId,
-        usage ?? ZEROED_USAGE,
-        this.now(),
+        sp.reviewerProvider,
+        sp.model,
       );
+      // Always complete the row so it isn't re-listed as an orphan every boot. null (unresolved
+      // Codex rollout) books NULL token columns (unknown), not 0 — a later run can backfill.
+      this.deps.store.completeReviewerSpawn(sp.reviewerSessionId, usage, this.now());
     } catch (err) {
       console.warn(`[plan-gate] orphan usage capture failed for ${sp.reviewerSessionId}:`, err);
     }
+    this.codexResolver.reset(sp.reviewerSessionId); // row closed → drop its resolver entry
     this.deps.worktree.remove(sp.worktreePath);
   }
 
@@ -1236,7 +1276,7 @@ export class PlanGateService {
         // still running — surface what the reviewer is doing right now. Emit every tick (not
         // only on change) so a reloaded client repopulates within one tick; the client dedups
         // identical summaries. Mirrors ReviewService.tick's critic-activity signal.
-        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId);
+        const summary = this.readActivity(f.worktreePath, f.reviewerSessionId, f.reviewerProvider);
         if (summary) this.deps.onActivity?.(f.sessionId, summary);
         continue;
       }
@@ -1249,7 +1289,7 @@ export class PlanGateService {
       try {
         await this.finalize(f, raw);
       } finally {
-        this.inflight.delete(f.sessionId);
+        this.dropInflight(f.sessionId, f);
       }
     }
   }
@@ -1268,18 +1308,22 @@ export class PlanGateService {
       // read before the `finally`'s worktree removal: the transcript
       // lives under ~/.claude/projects (keyed by worktree path), not inside the worktree itself.
       try {
-        const usage = await this.readUsage(f.worktreePath, f.reviewerSessionId);
-        // Complete the row even when usage is null (Codex exec writes no transcript) so
-        // `completedAt` reflects that the review finished — not a silent 0/N gap.
-        this.deps.store.completeReviewerSpawn(
+        const usage = await this.readUsage(
+          f.worktreePath,
           f.reviewerSessionId,
-          usage ?? ZEROED_USAGE,
-          this.now(),
+          f.reviewerProvider,
+          f.reviewerModel,
         );
+        // Complete the row even when usage is null (an unresolved Codex rollout) so `completedAt`
+        // reflects that the review finished — not a silent gap. null books NULL token columns
+        // (unknown, backfillable), NOT 0; a resolved-but-empty transcript books proven 0.
+        this.deps.store.completeReviewerSpawn(f.reviewerSessionId, usage, this.now());
       } catch (err) {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }
     } finally {
+      // NOTE: the resolver entry is released by dropInflight() in tick()'s finally — the single
+      // place every in-flight drop goes through, so no completion path can leak it.
       this.deps.onReviewing?.(f.sessionId, false);
       await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);
@@ -1559,9 +1603,18 @@ export class PlanGateService {
     if (f) {
       void this.deps.herdr.stop(f.terminalId).catch(() => {});
       this.deps.worktree.remove(f.worktreePath);
-      this.inflight.delete(sessionId);
+      this.dropInflight(sessionId, f);
       this.deps.onReviewing?.(sessionId, false);
     }
+  }
+
+  /** Drop an in-flight reviewer AND release its resolver entry. The two must stay coupled: the
+   *  resolver's cache + backoff are keyed per spawn and never reused, so a run dropped without a
+   *  reset (archive/reap, finalize) is retained for the server's lifetime. Every `inflight.delete`
+   *  goes through here so a future early-abort path can't forget it. */
+  private dropInflight(sessionId: string, f: PlanInFlight): void {
+    this.inflight.delete(sessionId);
+    this.codexResolver.reset(f.reviewerSessionId);
   }
 
   forget(sessionId: string): void {
@@ -1805,9 +1858,6 @@ function defaultReadPlan(worktreePath: string): string | null {
 /** Latest meaningful tool-use summary from the plan reviewer's JSONL transcript (its claude
  *  session id forces a predictable path under the disposable worktree). null when the transcript
  *  is missing or has no parseable activity yet. Mirrors review.ts's defaultReadActivity. */
-function defaultReadActivity(worktreePath: string, reviewerSessionId: string): string | null {
-  return readActivitySignal(jsonlPathFor(worktreePath, reviewerSessionId))?.summary ?? null;
-}
 
 /** Read the reviewer's verdict JSON from its disposable worktree. Null until written / on a
  *  partial-write parse failure (retried next tick). */

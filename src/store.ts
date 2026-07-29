@@ -1063,6 +1063,30 @@ export function resolveStepId(ids: string[], idOrPrefix: string): StepIdResoluti
   return { ok: false, reason: "not-found" };
 }
 
+/**
+ * Fresh-install DDL for `reviewer_spawns`. Exported so the fresh-schema path can be tested in
+ * isolation — running this ALONE (without migrateReviewerSpawnColumns) must already yield every
+ * column. A forgotten inline column would otherwise be silently repaired by the migration on the
+ * same constructor pass, leaving the fresh path broken but the end-state test green (issue #1816).
+ * `providerSessionId` is the Codex-native rollout id, persisted once resolution is proven.
+ */
+export const REVIEWER_SPAWNS_DDL = `CREATE TABLE IF NOT EXISTS reviewer_spawns (
+  reviewerSessionId TEXT PRIMARY KEY,
+  taskSessionId     TEXT NOT NULL,
+  kind              TEXT NOT NULL,
+  worktreePath      TEXT NOT NULL,
+  reviewerProvider  TEXT,
+  model             TEXT,
+  reviewerEffort    TEXT,
+  spawnedAt         INTEGER NOT NULL,
+  completedAt       INTEGER,
+  inputTokens       INTEGER,
+  outputTokens      INTEGER,
+  cacheReadTokens   INTEGER,
+  cacheWriteTokens  INTEGER,
+  totalTokens       INTEGER,
+  providerSessionId TEXT)`;
+
 export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   private db: Database;
 
@@ -1303,24 +1327,17 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // task. This table is the separate, append-only, archive-decoupled record that survives
     // both, so post-hoc cost reports can still attribute that burn. Each spawn forces a fresh
     // UUID, so a plain INSERT never collides on the PK.
-    this.db.run(`CREATE TABLE IF NOT EXISTS reviewer_spawns (
-      reviewerSessionId TEXT PRIMARY KEY,
-      taskSessionId     TEXT NOT NULL,
-      kind              TEXT NOT NULL,
-      worktreePath      TEXT NOT NULL,
-      reviewerProvider  TEXT,
-      model             TEXT,
-      reviewerEffort    TEXT,
-      spawnedAt         INTEGER NOT NULL,
-      completedAt       INTEGER,
-      inputTokens       INTEGER,
-      outputTokens      INTEGER,
-      cacheReadTokens   INTEGER,
-      cacheWriteTokens  INTEGER,
-      totalTokens       INTEGER)`);
+    this.db.run(REVIEWER_SPAWNS_DDL);
     this.migrateReviewerSpawnColumns();
     this.db.run(
       `CREATE INDEX IF NOT EXISTS reviewer_spawns_task ON reviewer_spawns (taskSessionId)`,
+    );
+    // A rollout is owned by exactly one spawn: a partial UNIQUE index makes a duplicate
+    // providerSessionId impossible (the many NULL rows don't collide), the safety net behind
+    // setReviewerSpawnProviderSessionId's code-level guard (issue #1816).
+    this.db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS reviewer_spawns_provider_session
+         ON reviewer_spawns (providerSessionId) WHERE providerSessionId IS NOT NULL`,
     );
     this.db.run(`CREATE TABLE IF NOT EXISTS signals (
       id TEXT PRIMARY KEY, repoPath TEXT NOT NULL, sessionId TEXT,
@@ -3534,7 +3551,11 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Fill a spawn's token totals + completedAt once its transcript is read. No-op when the
    *  reviewerSessionId is unknown (the WHERE simply matches nothing). */
-  completeReviewerSpawn(reviewerSessionId: string, u: SessionUsage, completedAt: number): void {
+  completeReviewerSpawn(
+    reviewerSessionId: string,
+    u: SessionUsage | null,
+    completedAt: number,
+  ): void {
     // Backfill the TRUE model from the transcript: the spawn-time `model` column held the
     // configured override, which is null when auto-resolved — but the transcript names the model
     // that actually ran. A reviewer spawn is one model, so `dominantModel(u)` is it. It returns
@@ -3542,20 +3563,78 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     // sentinel), and COALESCE then keeps the recorded value — the sentinel never overwrites it.
     // This lets usage-report weight a GC'd-transcript spawn's cost by its real tier, not a
     // task-model proxy. `u.messageCount` is intentionally dropped — not a cost fact.
+    //
+    // `u === null` means the token total is UNKNOWN (a Codex rollout that hasn't resolved yet), NOT
+    // proven-zero: write NULL token columns so a later backfill can fill the real values, while
+    // still setting `completedAt` (the review DID finish — never strand the row). `0` stays
+    // reserved for a resolved transcript that genuinely reports no tokens. (issue #1816)
     this.db.run(
       `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
          cacheWriteTokens = ?, totalTokens = ?, completedAt = ?, model = COALESCE(?, model)
          WHERE reviewerSessionId = ?`,
       [
-        u.input,
-        u.output,
-        u.cacheRead,
-        u.cacheWrite,
-        u.total,
+        u?.input ?? null,
+        u?.output ?? null,
+        u?.cacheRead ?? null,
+        u?.cacheWrite ?? null,
+        u?.total ?? null,
         completedAt,
-        dominantModel(u),
+        u ? dominantModel(u) : null,
         reviewerSessionId,
       ],
+    );
+  }
+
+  /** Completed Codex spawn rows whose token totals are still UNKNOWN (NULL) — the rows a boot-time
+   *  backfill can still fill once their rollout shows up. Newest first, capped: a rollout that never
+   *  appears (GC'd) would otherwise be retried forever, and only recent runs still have one on disk.
+   *  Excludes claude rows (their transcript is read at finalize or never) and legacy NULL-provider
+   *  rows (no provider ⇒ nothing to dispatch on). (#1816) */
+  listBackfillableCodexSpawns(limit = 200): ReviewerSpawnRow[] {
+    return this.db
+      .query(
+        `SELECT * FROM reviewer_spawns
+           WHERE completedAt IS NOT NULL AND totalTokens IS NULL AND reviewerProvider = 'codex'
+           ORDER BY spawnedAt DESC LIMIT ?`,
+      )
+      .all(limit) as ReviewerSpawnRow[];
+  }
+
+  /** Fill a completed row's token totals after the fact. Unlike `completeReviewerSpawn` this does
+   *  NOT touch `completedAt` — the run finished when it finished; only the previously-unknown cost
+   *  is being recorded. Guarded on `totalTokens IS NULL` so it can never overwrite real totals.
+   *  Returns true when a row was actually filled. (#1816) */
+  backfillReviewerSpawnUsage(reviewerSessionId: string, u: SessionUsage): boolean {
+    this.db.run(
+      `UPDATE reviewer_spawns SET inputTokens = ?, outputTokens = ?, cacheReadTokens = ?,
+         cacheWriteTokens = ?, totalTokens = ?, model = COALESCE(?, model)
+         WHERE reviewerSessionId = ? AND totalTokens IS NULL`,
+      [u.input, u.output, u.cacheRead, u.cacheWrite, u.total, dominantModel(u), reviewerSessionId],
+    );
+    // `changes()` reports rows modified by the last INSERT/UPDATE/DELETE; a SELECT doesn't reset it.
+    return (this.db.query<{ n: number }, []>(`SELECT changes() AS n`).get()?.n ?? 0) > 0;
+  }
+
+  /** Persist a spawn's resolved Codex rollout id, ONCE. Idempotent (writes only while the column is
+   *  still NULL, so a re-resolution never overwrites) and ownership-guarded (a rolloutId already
+   *  owned by another row is refused, not written — the partial UNIQUE index would otherwise throw
+   *  inside the tick). After this, the row resolves exactly by id and survives a restart. (#1816) */
+  setReviewerSpawnProviderSessionId(reviewerSessionId: string, providerSessionId: string): void {
+    const owner = this.db
+      .query<{ reviewerSessionId: string }, [string]>(
+        `SELECT reviewerSessionId FROM reviewer_spawns WHERE providerSessionId = ?`,
+      )
+      .get(providerSessionId);
+    if (owner && owner.reviewerSessionId !== reviewerSessionId) {
+      console.warn(
+        `[store] refusing to bind rollout ${providerSessionId} to ${reviewerSessionId}: already owned by ${owner.reviewerSessionId}`,
+      );
+      return;
+    }
+    this.db.run(
+      `UPDATE reviewer_spawns SET providerSessionId = ?
+         WHERE reviewerSessionId = ? AND providerSessionId IS NULL`,
+      [providerSessionId, reviewerSessionId],
     );
   }
 
@@ -3991,6 +4070,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     };
     add("reviewerProvider", `reviewerProvider TEXT`);
     add("reviewerEffort", `reviewerEffort TEXT`);
+    // Codex-native rollout id, backfilled once a spawn's rollout resolves (issue #1816). Legacy rows
+    // stay NULL and fall back to cwd resolution; the partial UNIQUE index (created in init) can't
+    // trip on them precisely because they're NULL.
+    add("providerSessionId", `providerSessionId TEXT`);
   }
 
   // ── learnings ─────────────────────────────────────────────────────────────

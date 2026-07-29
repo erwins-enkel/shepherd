@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
-import { SessionStore } from "../src/store";
+import { SessionStore, REVIEWER_SPAWNS_DDL } from "../src/store";
 import type { PrReview, Recap, ReviewVerdict, SessionLaunchMetadata } from "../src/types";
 import type { SessionUsage } from "../src/usage";
 
@@ -1411,7 +1411,81 @@ test("recordReviewerSpawn then listReviewerSpawns returns the row with NULL toke
     cacheReadTokens: null,
     cacheWriteTokens: null,
     totalTokens: null,
+    providerSessionId: null,
   });
+});
+
+test("reviewer_spawns FRESH schema (DDL alone, no migration) already has providerSessionId", () => {
+  // The constructor runs CREATE TABLE + migrateReviewerSpawnColumns() in sequence, so a forgotten
+  // inline column would be silently repaired by the migration and an end-state test would stay
+  // green. Run the fresh DDL ALONE against a bare DB to catch that (issue #1816).
+  const raw = new Database(":memory:");
+  raw.run(REVIEWER_SPAWNS_DDL);
+  const cols = (raw.query(`PRAGMA table_info(reviewer_spawns)`).all() as { name: string }[]).map(
+    (c) => c.name,
+  );
+  raw.close();
+  expect(cols).toContain("providerSessionId");
+});
+
+test("reviewer_spawns migration: an old table without providerSessionId gains a NULL column", () => {
+  const dir = mkdtempSync(join(tmpdir(), "shepherd-store-rev-migrate-"));
+  const dbPath = join(dir, "test.db");
+  try {
+    // Pre-create the table as it was BEFORE the providerSessionId column.
+    const raw = new Database(dbPath);
+    raw.run(`CREATE TABLE reviewer_spawns (
+      reviewerSessionId TEXT PRIMARY KEY, taskSessionId TEXT NOT NULL, kind TEXT NOT NULL,
+      worktreePath TEXT NOT NULL, reviewerProvider TEXT, model TEXT, reviewerEffort TEXT,
+      spawnedAt INTEGER NOT NULL, completedAt INTEGER, inputTokens INTEGER, outputTokens INTEGER,
+      cacheReadTokens INTEGER, cacheWriteTokens INTEGER, totalTokens INTEGER)`);
+    raw.run(
+      `INSERT INTO reviewer_spawns (reviewerSessionId, taskSessionId, kind, worktreePath, spawnedAt)
+       VALUES ('rev-old', 'task-1', 'review', '/wt', 1000)`,
+    );
+    raw.close();
+    // opening through the store runs migrateReviewerSpawnColumns, adding providerSessionId
+    const store = new SessionStore(dbPath);
+    const row = store.listReviewerSpawns().find((r) => r.reviewerSessionId === "rev-old");
+    expect(row).toBeDefined();
+    expect(row!.providerSessionId).toBeNull();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("setReviewerSpawnProviderSessionId: idempotent + ownership-guarded (UNIQUE)", () => {
+  const s = mk();
+  const rec = (id: string) =>
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "task-1",
+      kind: "review",
+      worktreePath: `/wt-${id}`,
+      model: null,
+      spawnedAt: 1000,
+    });
+  rec("rev-a");
+  rec("rev-b");
+
+  s.setReviewerSpawnProviderSessionId("rev-a", "rollout-1");
+  const byId = () =>
+    Object.fromEntries(
+      s.listReviewerSpawns().map((r) => [r.reviewerSessionId, r.providerSessionId]),
+    );
+  expect(byId()["rev-a"]).toBe("rollout-1");
+
+  // idempotent: a second bind on the same row does not overwrite
+  s.setReviewerSpawnProviderSessionId("rev-a", "rollout-DIFFERENT");
+  expect(byId()["rev-a"]).toBe("rollout-1");
+
+  // ownership-guarded: binding rev-a's rollout to rev-b is refused (no throw, no write)
+  s.setReviewerSpawnProviderSessionId("rev-b", "rollout-1");
+  expect(byId()["rev-b"]).toBeNull();
+
+  // a fresh rollout binds fine
+  s.setReviewerSpawnProviderSessionId("rev-b", "rollout-2");
+  expect(byId()["rev-b"]).toBe("rollout-2");
 });
 
 test("recordReviewerSpawn persists reviewer provider and effort", () => {
@@ -1452,6 +1526,28 @@ test("completeReviewerSpawn fills token totals + completedAt", () => {
   expect(row.cacheWriteTokens).toBe(40);
   expect(row.totalTokens).toBe(100);
   expect(row.model).toBe("opus");
+});
+
+test("completeReviewerSpawn with null usage → NULL token columns (unknown), not 0, but completedAt set", () => {
+  // A Codex reviewer whose rollout hasn't resolved has UNKNOWN totals, not proven-zero. The row
+  // must complete (completedAt set, never stranded) with NULL token columns so a later backfill
+  // can fill the real values; SUM() in cost reports skips NULL, so aggregates aren't inflated by 0s.
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-null",
+    taskSessionId: "task-1",
+    kind: "plan_gate",
+    worktreePath: "/rev-wt",
+    model: "gpt-5.6-sol",
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-null", null, 2000);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.completedAt).toBe(2000);
+  expect(row.totalTokens).toBeNull();
+  expect(row.inputTokens).toBeNull();
+  expect(row.cacheReadTokens).toBeNull();
+  expect(row.model).toBe("gpt-5.6-sol"); // COALESCE keeps the recorded model
 });
 
 test("completeReviewerSpawn backfills the true model from the transcript when spawn-time was auto (null)", () => {
@@ -1786,4 +1882,98 @@ test("ackManualSteps stamps manualStepsAckedAt and is idempotent (first ack wins
   // Re-ack is a durable no-op: COALESCE keeps the original ack time.
   s.ackManualSteps(a.id);
   expect(s.get(a.id)!.manualStepsAckedAt).toBe(first);
+});
+
+test("listBackfillableCodexSpawns finds only completed codex rows with unknown totals", () => {
+  const s = mk();
+  const rec = (id: string, provider: string | null) =>
+    s.recordReviewerSpawn({
+      reviewerSessionId: id,
+      taskSessionId: "t",
+      kind: "review",
+      worktreePath: `/wt-${id}`,
+      reviewerProvider: provider as never,
+      model: null,
+      spawnedAt: 1000,
+    });
+  rec("codex-open", "codex"); // completedAt NULL → not a backfill candidate (still in flight)
+  rec("codex-null", "codex");
+  s.completeReviewerSpawn("codex-null", null, 2000); // completed, totals unknown → candidate
+  rec("codex-filled", "codex");
+  s.completeReviewerSpawn("codex-filled", usage(), 2000); // real totals → not a candidate
+  rec("claude-null", "claude");
+  s.completeReviewerSpawn("claude-null", null, 2000); // claude → never a codex candidate
+  rec("legacy-null", null);
+  s.completeReviewerSpawn("legacy-null", null, 2000); // no provider → nothing to dispatch on
+
+  expect(s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId)).toEqual(["codex-null"]);
+});
+
+test("listBackfillableCodexSpawns covers plan_gate rows, not just critic rows", () => {
+  // The plan-gate reviewer books NULL on the same unresolved-rollout path as the critic, so the
+  // backfill must reach BOTH kinds — there is deliberately no `kind` filter (#1816).
+  const s = mk();
+  for (const kind of ["plan_gate", "review", "recap"] as const) {
+    s.recordReviewerSpawn({
+      reviewerSessionId: `rev-${kind}`,
+      taskSessionId: "t",
+      kind,
+      worktreePath: `/wt-${kind}`,
+      reviewerProvider: "codex" as never,
+      model: null,
+      spawnedAt: 1000,
+    });
+    s.completeReviewerSpawn(`rev-${kind}`, null, 2000);
+  }
+  const ids = s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId);
+  expect(ids).toContain("rev-plan_gate");
+  expect(ids).toContain("rev-review");
+  expect(ids).toContain("rev-recap");
+});
+
+test("a backfilled ZERO leaves the candidate set (no permanent re-scan)", () => {
+  // 0 is a real value, so the row must stop matching the NULL-totals candidate query — otherwise a
+  // proven-zero run would be re-read on every boot and every hourly sweep forever (#1816).
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-zero",
+    taskSessionId: "t",
+    kind: "plan_gate",
+    worktreePath: "/wt",
+    reviewerProvider: "codex" as never,
+    model: null,
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-zero", null, 2000);
+  expect(s.listBackfillableCodexSpawns().map((r) => r.reviewerSessionId)).toEqual(["rev-zero"]);
+
+  s.backfillReviewerSpawnUsage(
+    "rev-zero",
+    usage({ input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 }),
+  );
+  expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(0); // proven zero, not NULL
+  expect(s.listBackfillableCodexSpawns()).toEqual([]); // no longer a candidate
+});
+
+test("backfillReviewerSpawnUsage fills unknown totals without touching completedAt", () => {
+  const s = mk();
+  s.recordReviewerSpawn({
+    reviewerSessionId: "rev-1",
+    taskSessionId: "t",
+    kind: "review",
+    worktreePath: "/wt",
+    reviewerProvider: "codex",
+    model: null,
+    spawnedAt: 1000,
+  });
+  s.completeReviewerSpawn("rev-1", null, 2000);
+
+  expect(s.backfillReviewerSpawnUsage("rev-1", usage())).toBe(true);
+  const row = s.listReviewerSpawns()[0]!;
+  expect(row.totalTokens).toBe(100);
+  expect(row.completedAt).toBe(2000); // the run finished when it finished — NOT re-stamped
+
+  // guarded: a second backfill can never overwrite real totals
+  expect(s.backfillReviewerSpawnUsage("rev-1", usage({ total: 999, input: 999 }))).toBe(false);
+  expect(s.listReviewerSpawns()[0]!.totalTokens).toBe(100);
 });

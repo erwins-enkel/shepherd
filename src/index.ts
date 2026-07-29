@@ -88,6 +88,7 @@ import { ReviewService } from "./review";
 import { StandalonePrCriticService } from "./standalone-critic";
 import { createIssueLogger } from "./issue-log";
 import { PlanGateService, shouldConsiderOnSettle } from "./plan-gate";
+import { backfillCodexSpawnUsage } from "./codex-activity";
 import { AutopilotService, AUTOPILOT_LABEL } from "./autopilot";
 import { NAMER_LABEL } from "./namer";
 import { DrainService } from "./drain";
@@ -1643,6 +1644,10 @@ deferredStarts.push(() => {
       for (const id of ids) reKickReapedReview(id);
     })
     .then(() => sweepStaleReviewWorktrees())
+    // Last: fill token totals for completed Codex reviewer rows whose rollout hadn't resolved at
+    // finalize (they book NULL = unknown). Runs after the reaps so rows just closed by them are
+    // included. One shared tree walk, bounded by the store's row cap. (#1816)
+    .then(() => backfillCodexSpawnUsage(store))
     .catch((err) => console.warn("[boot] review/plan-gate orphan reconcile:", err));
   setInterval(
     () => {
@@ -1651,6 +1656,10 @@ deferredStarts.push(() => {
       void sweepStaleReviewWorktrees().catch((err) =>
         console.warn("[worktrees] hourly sweep failed:", err),
       );
+      // Also hourly, not boot-only: a Shepherd instance stays up for weeks, so a row that finalized
+      // moments before its rollout appeared would otherwise stay unknown until the next restart.
+      // Cheap to repeat — no tree walk at all when no row is missing totals. (#1816)
+      backfillCodexSpawnUsage(store);
     },
     60 * 60 * 1000,
   );

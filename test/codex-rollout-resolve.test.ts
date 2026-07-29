@@ -1,0 +1,247 @@
+import { describe, test, expect } from "bun:test";
+import { join } from "node:path";
+import {
+  selectCodexRollout,
+  CodexRolloutResolver,
+  backfillCodexSpawnUsage,
+  type RolloutMeta,
+} from "../src/codex-activity";
+
+const WT1 = "/wt/review-TASK-1";
+const WT2 = "/wt/review-TASK-2";
+
+function meta(path: string, cwd: string, rolloutId: string, mtimeMs = 1000): RolloutMeta {
+  return { path, cwd, rolloutId, source: "exec", mtimeMs };
+}
+
+describe("selectCodexRollout — ownership", () => {
+  test("exactly one exec rollout with cwd === worktreePath → resolve", () => {
+    const metas = [meta("/r/a.jsonl", WT1, "id-a"), meta("/r/b.jsonl", WT2, "id-b")];
+    expect(selectCodexRollout(metas, { worktreePath: WT1, source: "exec" })).toEqual({
+      path: "/r/a.jsonl",
+      rolloutId: "id-a",
+    });
+  });
+
+  test("0 candidates → null", () => {
+    const metas = [meta("/r/b.jsonl", WT2, "id-b")];
+    expect(selectCodexRollout(metas, { worktreePath: WT1, source: "exec" })).toBeNull();
+  });
+
+  test("≥2 candidates (legacy SHA-named cwd) → null (invariant violation)", () => {
+    const metas = [meta("/r/a.jsonl", WT1, "id-a"), meta("/r/a2.jsonl", WT1, "id-a2")];
+    expect(selectCodexRollout(metas, { worktreePath: WT1, source: "exec" })).toBeNull();
+  });
+
+  test("providerSessionId known → exact match on rollout id, cwd ignored", () => {
+    const metas = [meta("/r/a.jsonl", "/wrong/cwd", "id-a")];
+    expect(
+      selectCodexRollout(metas, {
+        worktreePath: WT1,
+        source: "exec",
+        providerSessionId: "id-a",
+      }),
+    ).toEqual({ path: "/r/a.jsonl", rolloutId: "id-a" });
+  });
+
+  test("source must match (a cli rollout is not an exec candidate)", () => {
+    const metas: RolloutMeta[] = [{ ...meta("/r/a.jsonl", WT1, "id-a"), source: "cli" }];
+    expect(selectCodexRollout(metas, { worktreePath: WT1, source: "exec" })).toBeNull();
+  });
+});
+
+describe("CodexRolloutResolver — backoff, cache, race", () => {
+  // A controllable clock + a spy-able rollout lister.
+  function harness(initial: RolloutMeta[]) {
+    let now = 0;
+    let metas = initial;
+    let scanCount = 0;
+    const warnings: string[] = [];
+    const resolver = new CodexRolloutResolver({
+      listMetas: () => {
+        scanCount += 1;
+        return metas;
+      },
+      now: () => now,
+      warn: (m) => warnings.push(m),
+    });
+    return {
+      resolver,
+      warnings,
+      setNow: (t: number) => (now = t),
+      setMetas: (m: RolloutMeta[]) => (metas = m),
+      scans: () => scanCount,
+    };
+  }
+
+  // The race test the plan mandates: at spawn 1's FIRST attempt only spawn 2's
+  // rollout exists (write order != launch order). Spawn 1 must return null and
+  // NOT grab spawn 2's rollout; once its own appears it converges.
+  test("only sibling's rollout visible → null, never grabs it; converges later", () => {
+    const h = harness([meta("/r/2.jsonl", WT2, "id-2")]);
+    expect(h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" })).toBeNull();
+    // spawn 1's own rollout finally appears
+    h.setMetas([meta("/r/2.jsonl", WT2, "id-2"), meta("/r/1.jsonl", WT1, "id-1")]);
+    h.setNow(999_999); // past any backoff
+    expect(h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" })).toEqual({
+      path: "/r/1.jsonl",
+      rolloutId: "id-1",
+    });
+  });
+
+  test("backoff bounds the tree walk: repeated misses don't rescan until nextAt", () => {
+    const h = harness([]); // no rollout ever
+    for (let i = 0; i < 5; i++) {
+      h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    }
+    expect(h.scans()).toBe(1); // one walk on the first miss, none until nextAt
+  });
+
+  test("distinct trackingId keys have independent backoff", () => {
+    const h = harness([]);
+    h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    h.resolver.resolve({ trackingId: "t2", worktreePath: WT2, source: "exec" });
+    expect(h.scans()).toBe(2); // each key's first miss walks once
+  });
+
+  test("proven resolution is cached (no rescan) and reset() clears it", () => {
+    const h = harness([meta("/r/1.jsonl", WT1, "id-1")]);
+    const first = h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(first).toEqual({ path: "/r/1.jsonl", rolloutId: "id-1" });
+    const scansAfterHit = h.scans();
+    h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(h.scans()).toBe(scansAfterHit); // served from cache, no new walk
+    h.resolver.reset("t1");
+    h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(h.scans()).toBe(scansAfterHit + 1); // cache cleared → walks again
+  });
+
+  test("≥2 candidates emit a warning and resolve to null", () => {
+    const h = harness([meta("/r/a.jsonl", WT1, "id-a"), meta("/r/b.jsonl", WT1, "id-b")]);
+    expect(h.resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" })).toBeNull();
+    expect(h.warnings.length).toBeGreaterThan(0);
+  });
+
+  test("onResolved fires ONCE, only on a proven resolution (persist-on-proof hook)", () => {
+    let now = 0;
+    let metas: RolloutMeta[] = [];
+    const resolved: Array<[string, string]> = [];
+    const resolver = new CodexRolloutResolver({
+      listMetas: () => metas,
+      now: () => now,
+      onResolved: (id, rid) => resolved.push([id, rid]),
+    });
+    // miss → no persist
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(resolved).toEqual([]);
+    // rollout appears → proof → persist once
+    metas = [meta("/r/1.jsonl", WT1, "id-1")];
+    now = 999_999;
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    // repeat resolve served from cache → no second persist
+    resolver.resolve({ trackingId: "t1", worktreePath: WT1, source: "exec" });
+    expect(resolved).toEqual([["t1", "id-1"]]);
+  });
+});
+
+describe("backfillCodexSpawnUsage", () => {
+  const FIXTURE = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
+
+  function store(rows: Array<Record<string, unknown>>) {
+    const filled: Array<{ id: string; total: number }> = [];
+    return {
+      filled,
+      listBackfillableCodexSpawns: () => rows as never,
+      backfillReviewerSpawnUsage: (id: string, u: { total: number }) => {
+        filled.push({ id, total: u.total });
+        return true;
+      },
+    };
+  }
+  const row = (id: string, wt: string, providerSessionId: string | null = null) => ({
+    reviewerSessionId: id,
+    worktreePath: wt,
+    model: "gpt-5.6-sol",
+    providerSessionId,
+  });
+
+  test("fills a completed row once its rollout shows up", () => {
+    const s = store([row("rev-1", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled).toEqual([{ id: "rev-1", total: 52976 }]);
+  });
+
+  test("resolves by persisted providerSessionId even when the cwd no longer matches", () => {
+    const s = store([row("rev-1", "/moved-away", "id-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/original", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+  });
+
+  test("a resolved rollout with no token_count books the proven zero, not NULL", () => {
+    // The contract distinguishes NULL (unknown — unresolved) from 0 (proven — resolved but the
+    // transcript records no tokens). finalize already books 0 for this case; the backfill must
+    // agree, or the row keeps matching the NULL-totals candidate query and is re-read on every
+    // boot and hourly sweep forever.
+    const empty = join(import.meta.dir, "fixtures/codex-activity/rollout-no-tokens.jsonl");
+    const s = store([row("rev-1", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: empty, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled).toEqual([{ id: "rev-1", total: 0 }]);
+  });
+
+  test("a GC'd rollout leaves the row unknown (NULL stays the honest answer)", () => {
+    const s = store([row("rev-1", "/wt-1")]);
+    expect(backfillCodexSpawnUsage(s, () => [])).toBe(0);
+    expect(s.filled).toEqual([]);
+  });
+
+  test("an ambiguous legacy cwd is left alone rather than guessed", () => {
+    const s = store([row("rev-1", "/shared-wt")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: FIXTURE, cwd: "/shared-wt", rolloutId: "a", source: "exec", mtimeMs: 1 },
+      { path: FIXTURE, cwd: "/shared-wt", rolloutId: "b", source: "exec", mtimeMs: 2 },
+    ]);
+    expect(n).toBe(0);
+  });
+
+  test("walks the rollout tree ONCE for the whole sweep, not once per row", () => {
+    let walks = 0;
+    const s = store([row("r1", "/wt-1"), row("r2", "/wt-2"), row("r3", "/wt-3")]);
+    backfillCodexSpawnUsage(s, () => {
+      walks += 1;
+      return [
+        { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+        { path: FIXTURE, cwd: "/wt-2", rolloutId: "id-2", source: "exec", mtimeMs: 1 },
+        { path: FIXTURE, cwd: "/wt-3", rolloutId: "id-3", source: "exec", mtimeMs: 1 },
+      ];
+    });
+    expect(s.filled).toHaveLength(3);
+    expect(walks).toBe(1);
+  });
+
+  test("no candidate rows → no tree walk at all", () => {
+    let walks = 0;
+    backfillCodexSpawnUsage(store([]), () => {
+      walks += 1;
+      return [];
+    });
+    expect(walks).toBe(0);
+  });
+
+  test("one unreadable row cannot abort the sweep", () => {
+    const s = store([row("bad", "/gone"), row("good", "/wt-1")]);
+    const n = backfillCodexSpawnUsage(s, () => [
+      { path: "/nonexistent.jsonl", cwd: "/gone", rolloutId: "x", source: "exec", mtimeMs: 1 },
+      { path: FIXTURE, cwd: "/wt-1", rolloutId: "id-1", source: "exec", mtimeMs: 1 },
+    ]);
+    expect(n).toBe(1);
+    expect(s.filled.map((f) => f.id)).toEqual(["good"]);
+  });
+});

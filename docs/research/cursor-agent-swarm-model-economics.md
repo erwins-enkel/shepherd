@@ -19,10 +19,13 @@ Cursor ran swarms of hundreds of agents against a hard benchmark — implement S
    driving cheap Composer 2.5 workers hit the same ~85 % for **$1,339**. The worker fleet alone:
    $9,373 (solo) vs $411 (hybrid) — a **23× reduction**. Workers generate 69–90 %+ of all tokens but
    a small fraction of cost, because planner tokens are the expensive ones.
-2. **Planner quality determines worker efficiency.** A Fable 5 planner was _cheaper per token_ than
-   Opus 4.8 but produced less precise instructions — its workers burned a multiple of the tokens
-   (64,305 LoC vs 19,013 LoC for the same engine) and the total bill came out **higher** despite the
-   cheaper planner. A worse planner is a false economy.
+2. **Planner choice dominates the total bill — through the workers, not its own line item.** The
+   Fable 5 planner "ran up a slightly smaller bill than the Opus 4.8 planner, despite roughly twice
+   the per-token price" — but its "workers went through several times as many tokens, and the run
+   as a whole came out substantially more expensive." Cursor offers no causal mechanism for the
+   worker-token blowup; the operational lesson is that a planner model must be judged by the total
+   cost it induces downstream, not by its own bill — and the priciest planner is not automatically
+   the best one.
 3. **Context efficiency, not parallelism, is the real win.** The swarm scales because the planner
    never holds implementation detail and each worker holds only its narrow task. Solo agents fail on
    long tasks because they oscillate between overview and detail in one ever-growing context. Cursor
@@ -148,30 +151,41 @@ brief. Two compounding wins:
   per Shepherd's own data, per-turn context re-read _is_ the cost (91–99 % `cacheRead`). The plan
   file becomes the compaction artifact, for free.
 
-Guardrails from Cursor's own Fable-planner anomaly: don't cheapen the _plan_ side, and make plan
-precision an explicit gate criterion — add "executable by a fresh agent with no planning context" to
-the plan-review rubric (`planReviewPrompt`, `src/plan-gate.ts:173-256`). Ship behind a flag, A/B a
-handful of tasks, compare `Auth cost*` and rework rounds against monolithic baselines.
+Guardrail from Cursor's planner comparison: the plan-side model choice swings the total bill far
+more than its own line item (their pricier Fable 5 planner produced a substantially more expensive
+run than Opus 4.8), so A/B the planner tier by induced total cost rather than assuming more
+expensive is better — and make plan precision an explicit gate criterion by adding "executable by a
+fresh agent with no planning context" to the plan-review rubric (`planReviewPrompt`,
+`src/plan-gate.ts:173-256`). Ship behind a flag, A/B a handful of tasks, compare `Auth cost*` and
+rework rounds against monolithic baselines.
 
 ### R2 — Right-size the expensive-by-default satellite roles
 
 Critic, plan reviewer, distiller, optimizer, and merge-suggest all inherit the global premium model
 today. Distiller/optimizer/merge-suggest are structured-output batch jobs — seed them
 `sonnet`-class explicit defaults like recap/rundown already have. The critic is the deliberate
-rigor role; don't blindly cheapen it — restructure it (R3). Keep the plan reviewer strong (Cursor:
-planner-side quality pays for itself). Evidence: reviewer tax ≥ 0.25× of authoring and undercounted.
+rigor role; don't blindly cheapen it — restructure it (R3). Keep the plan reviewer strong — plan
+quality is the input the downstream execution chain amplifies (Cursor's planner comparison shows the
+plan side moving the total bill far more than its own cost). Evidence: reviewer tax ≥ 0.25× of
+authoring and undercounted.
 
 ### R3 — Critic panel: N cheap diverse reviewers instead of one premium reviewer
 
 Convert the existing single-prompt "lenses" into **2–3 parallel critics on cheaper models with
 disjoint prompts** (correctness/spec-fit; security/latent-defect; scope/simplicity), then a
-deterministic merge: findings raised by ≥2 reviewers block, singletons route to the non-blocking
-suggestions section (the findings-routing machinery in `src/critic-core.ts` already separates these
-tiers). At Sonnet-vs-premium pricing (3/15 vs 5/25 or 10/50 $/Mtok, `src/pricing.ts`), a 2–3-critic
-Sonnet panel costs about the same as today's single premium critic — and buys Cursor's uncorrelated
-failure modes in _both_ directions: fewer missed defects **and** fewer single-reviewer-bias
-treadmills (majority approval breaks the never-approving-reviewer loop documented operationally).
-Same shape applies to the plan gate, where the treadmill risk is highest.
+deterministic, severity-aware merge. A correctness or security finding **blocks even when a single
+reviewer raises it** — with disjoint foci each lens is the sole owner of its domain, so real
+defects will usually be singletons, and requiring cross-reviewer agreement there would neuter the
+panel. Agreement gating applies only to judgment-call categories (scope, simplification, style): a
+singleton routes to the non-blocking suggestions section (the findings-routing machinery in
+`src/critic-core.ts` already separates these tiers), duplicates raised by several reviewers merge
+into one finding. At Sonnet-vs-premium pricing (3/15 vs 5/25 or 10/50 $/Mtok, `src/pricing.ts`), a
+2–3-critic Sonnet panel costs about the same as today's single premium critic — and buys Cursor's
+uncorrelated failure modes in _both_ directions: fewer missed defects **and** fewer
+single-reviewer-bias treadmills. The never-approving-reviewer loop documented operationally is
+broken on the _verdict_ side — a majority-of-panel approve decision — without ever diluting any
+single reviewer's blocking defect findings. Same shape applies to the plan gate, where the
+treadmill risk is highest.
 
 ### R4 — Proactive megafile management
 

@@ -992,6 +992,32 @@ test("codex reviewer with a resolved rollout books real token totals (not 0/NULL
   expect(h.completedSpawns).toHaveLength(1);
   expect(h.completedSpawns[0].u?.total).toBe(52976);
 });
+test("finalize drops the reviewer's resolver entry (no unbounded per-spawn retention)", async () => {
+  // The resolver's cache + backoff are keyed per spawn and never reused, so a run that ends without
+  // reset() would retain its entry for the whole server lifetime. Counting scans proves the entry is
+  // gone: a post-finalize resolve for the same id has to walk again instead of hitting the cache.
+  let scans = 0;
+  const codexResolver = new CodexRolloutResolver({
+    listMetas: () => {
+      scans += 1;
+      return [
+        { path: CODEX_FIXTURE, cwd: "/wt-detached", rolloutId: "id-x", source: "exec", mtimeMs: 1 },
+      ];
+    },
+    now: () => 0,
+  });
+  const h = harness({
+    env: () => ({ provider: "codex", model: "gpt-5.6-sol", effort: null }),
+    readVerdict: () => ({ decision: "approve", summary: "ok", body: "B", findings: [] }),
+    codexResolver,
+  });
+  await h.svc.consider(planningSession() as any);
+  await h.svc.tick(); // resolves (walks once) then finalizes → reset
+  const afterFinalize = scans;
+  const id = h.recordedSpawns[0].reviewerSessionId;
+  codexResolver.resolve({ trackingId: id, worktreePath: "/wt-detached", source: "exec" });
+  expect(scans).toBe(afterFinalize + 1); // cache was cleared → walked again, not served from cache
+});
 test("timeout with no verdict → error gate, reaped, not released", async () => {
   let t = 1000;
   const h = harness({ readVerdict: () => null, now: () => t });

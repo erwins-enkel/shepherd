@@ -1217,6 +1217,7 @@ export class PlanGateService {
     } catch (err) {
       console.warn(`[plan-gate] orphan usage capture failed for ${sp.reviewerSessionId}:`, err);
     }
+    this.codexResolver.reset(sp.reviewerSessionId); // row closed → drop its resolver entry
     this.deps.worktree.remove(sp.worktreePath);
   }
 
@@ -1321,6 +1322,10 @@ export class PlanGateService {
         console.warn(`[plan-gate] usage capture failed for ${f.sessionId}:`, err);
       }
     } finally {
+      // This run is over: drop its resolver cache + backoff entry. Without this the maps retain
+      // every reviewer for the server's lifetime (they're keyed per spawn, never reused). In the
+      // `finally` so a store failure above can't leak the entry.
+      this.codexResolver.reset(f.reviewerSessionId);
       this.deps.onReviewing?.(f.sessionId, false);
       await this.deps.herdr.stop(f.terminalId);
       this.deps.worktree.remove(f.worktreePath);

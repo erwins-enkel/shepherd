@@ -1190,6 +1190,9 @@ export class ReviewService {
         this.now(),
         f.sessionId,
       );
+      // This run is over: drop its resolver cache + backoff entry. Without this the maps retain
+      // every reviewer for the server's lifetime (they're keyed per spawn, never reused).
+      this.codexResolver.reset(f.criticSessionId);
     } finally {
       this.deps.onReviewing?.(f.sessionId, false);
       await reapRun(this.deps.herdr, this.deps.worktree, f.terminalId, f.worktreePath);
@@ -1699,6 +1702,7 @@ export class ReviewService {
       row.model,
     ).catch(() => null);
     this.deps.store.completeReviewerSpawn(row.reviewerSessionId, usage, this.now());
+    this.codexResolver.reset(row.reviewerSessionId); // row closed → drop its resolver entry
 
     // b. Worktree gone → finalize already ran; just a dangling completion row.
     //    Do NOT reap/drop/re-kick — preserves genuine-timeout error verdict accounting.

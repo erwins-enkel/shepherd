@@ -17,6 +17,7 @@ import {
   defaultCollectBaseDelta,
   roundBlock,
   effectiveRound,
+  captureUsage,
 } from "../src/critic-core";
 import { allowedToolsFor } from "../src/transient-agent-argv";
 import { planReviewPrompt } from "../src/plan-gate";
@@ -1119,4 +1120,65 @@ test("#1944 no plan → the clamped flag changes nothing", () => {
   const mk = (o: Record<string, unknown>) =>
     stableNonce_1944(reviewPrompt("BASE", "t", [], [], null, null, o));
   expect(mk({ planClamped: true })).toBe(mk({}));
+});
+
+// ── captureUsage ──────────────────────────────────────────────────────────────
+// The row must ALWAYS complete: the review finished, so `completedAt` has to say so. A null usage
+// (an unresolved Codex rollout) books NULL token columns — leaving the row uncompleted would strand
+// it for the orphan sweep to reprocess every boot (#1816).
+
+test("captureUsage completes the spawn row even when usage is null (unknown, not stranded)", async () => {
+  const calls: Array<{ id: string; usage: unknown; now: number }> = [];
+  await captureUsage(
+    async () => null, // unresolved rollout
+    (id, usage, now) => calls.push({ id, usage, now }),
+    "/wt",
+    "critic-1",
+    1234,
+    "s1",
+  );
+  expect(calls).toHaveLength(1);
+  expect(calls[0]!.id).toBe("critic-1");
+  expect(calls[0]!.usage).toBeNull(); // NULL token columns, not a zeroed usage
+  expect(calls[0]!.now).toBe(1234);
+});
+
+test("captureUsage passes real usage through unchanged", async () => {
+  const calls: Array<{ usage: unknown }> = [];
+  const usage = {
+    input: 1,
+    output: 2,
+    cacheRead: 3,
+    cacheWrite: 4,
+    total: 10,
+    messageCount: 1,
+    lastActivity: null,
+    byModel: {},
+    fullRecaches: 0,
+    sidechainCount: 0,
+  };
+  await captureUsage(
+    async () => usage,
+    (_id, u) => calls.push({ usage: u }),
+    "/wt",
+    "critic-1",
+    1,
+    "s1",
+  );
+  expect(calls[0]!.usage).toEqual(usage);
+});
+
+test("captureUsage never throws when the reader fails (finalize must not strand)", async () => {
+  const calls: unknown[] = [];
+  await captureUsage(
+    async () => {
+      throw new Error("transcript boom");
+    },
+    (id) => calls.push(id),
+    "/wt",
+    "critic-1",
+    1,
+    "s1",
+  );
+  expect(calls).toEqual([]); // reader threw → nothing booked, but no throw escaped
 });

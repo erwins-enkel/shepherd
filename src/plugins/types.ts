@@ -191,8 +191,27 @@ export interface PluginContext {
   route(method: string, path: string, handler: PluginRouteHandler): void;
   /** Namespaced logger into `shepherd.log`. */
   log: PluginLogger;
-  /** This plugin's own `config.json` (parsed; `{}` when absent). */
+  /** This plugin's own `config.json` (parsed; `{}` when absent). Mutated IN PLACE by
+   *  {@link PluginContext.setConfig}, so holding this object from `register()` keeps a live
+   *  view — never re-read it from a stale copy. */
   config: Record<string, unknown>;
+  /** Shallow-merge `patch` into this plugin's own `config.json` and persist it, so
+   *  `ctx.config` stays the single source of truth and no plugin needs a `ctx.state` overlay
+   *  shadowing it (issue #1961). Additive — guard with `typeof ctx.setConfig === "function"`.
+   *
+   *  The file is RE-READ before merging, so an operator's hand-edit made since boot is merged
+   *  rather than silently overwritten, and the write is atomic (temp file + rename).
+   *
+   *  REJECTS (the returned promise throws) rather than failing open — a rendering push that
+   *  drops is cosmetic, a config write that silently no-ops is data loss. Throws when `patch`
+   *  is not a plain JSON-serializable object, when the merged config exceeds the size cap, on
+   *  a write error, and — deliberately — when `config.json` EXISTS BUT IS UNPARSEABLE, so a
+   *  hand-broken file is never clobbered. A missing file is `{}` (the first write creates it).
+   *
+   *  Concurrent calls are serialized per plugin, so two patches cannot interleave their
+   *  read-modify-write. Only CONFIG becomes live this way: changing plugin CODE still needs a
+   *  restart, because the module stays cached. */
+  setConfig(patch: Record<string, unknown>): Promise<void>;
   /** Hard-block the in-flight spawn (opt out of the default fail-open). Throws. */
   abortSpawn(reason: string): never;
 }
@@ -263,8 +282,39 @@ export interface PluginGearItem {
  *                      MUST be `"POST"` (a GET fetch with a body throws). `body` is opaque
  *                      plugin-authored JSON sent VERBATIM. An optional `confirm` string gates
  *                      the POST behind a confirmation dialog. `label`/`confirm` are verbatim DATA.
+ *                      Set `submit: true` to also send the view's input fields (below).
  *                      props: { label: string; tone?: Tone; route: { method: "POST"; path: string };
- *                               body?: unknown; confirm?: string }
+ *                               body?: unknown; confirm?: string; submit?: boolean }
+ *
+ *  Input nodes (issue #1961) — editable settings. These NEVER post on their own: each one
+ *  contributes a NAMED FIELD to the body of a `submit: true` action-button, so "POST a
+ *  plugin-authored body to your own route" stays the only network primitive and the
+ *  action-button's namespace guard keeps applying unchanged. The field scope is the whole
+ *  published view (one `publishUI` call), and on a key collision the FIELD wins over the
+ *  button's static `body` — the input is the live value, the body is the constant.
+ *
+ *  Every input needs a `name` (`/^[A-Za-z0-9_.-]{1,64}$/`), unique across the view — two
+ *  inputs sharing a name make the posted body non-deterministic, so the whole view is
+ *  rejected. `label` is optional verbatim DATA; when absent, `name` becomes the accessible
+ *  name. `value` seeds the field and re-seeds it ONLY when the published value actually
+ *  changes, so a plugin that re-publishes its panel on a timer never clobbers what the
+ *  operator is typing.
+ *
+ *  - `text-input`   — free text. `secret: true` renders a masked field; that is MASKING ONLY,
+ *                     the value still travels as plaintext JSON to the plugin's own route.
+ *                     props: { name: string; label?: string; value?: string;
+ *                              placeholder?: string; secret?: boolean }   → posts a string
+ *  - `select`       — a choice among values the plugin enumerates. When `value` is absent or
+ *                     not among `options`, the field seeds to the FIRST option, so the posted
+ *                     value is always one the plugin offered.
+ *                     props: { name: string; label?: string; value?: string;
+ *                              options: { value: string; label?: string }[] } → posts a string
+ *  - `checkbox`     — a boolean toggle.
+ *                     props: { name: string; label?: string; value?: boolean } → posts a boolean
+ *  - `number`       — a numeric field. Posts `null` when empty or unparseable; the plugin
+ *                     validates range in its own route handler (the host does not clamp).
+ *                     props: { name: string; label?: string; value?: number;
+ *                              placeholder?: string }   → posts a number or null
  */
 export interface PluginUINode {
   type: string;

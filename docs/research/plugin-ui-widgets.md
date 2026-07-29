@@ -161,13 +161,13 @@ Start with **one slot** (`settings-panel`) — claude-swap's panel renders insid
 
 Net-new: ~1 server type + 1 `ctx` method + transport reuse; ~1 renderer + ~6 small Svelte components + 1 registry; ~1 panel edit. No new runtime dependency (DOMPurify already present and **not even needed** for the descriptor path). Gates touched: feature-announcements, i18n (EN+DE for any chrome the primitives author), `/design-system` recipes.
 
-**Component vocabulary (current):** display nodes `stack`, `text`, `badge`, `meter`, `table`, `key-value`, `callout` (Phase 0) + `gauge`, `sparkline`, `time-series`, `bar-chart`, `timeline` (#1189); and the first **interactive** node, `action-button` (#1209) — POSTs a plugin-authored body to the plugin's own route, with an optional `confirm` gate.
+**Component vocabulary (current):** display nodes `stack`, `text`, `badge`, `meter`, `table`, `key-value`, `callout` (Phase 0) + `gauge`, `sparkline`, `time-series`, `bar-chart`, `timeline` (#1189); and the first **interactive** node, `action-button` (#1209) — POSTs a plugin-authored body to the plugin's own route, with an optional `confirm` gate. **Extended by #1961** with four input nodes — `text-input`, `select`, `checkbox`, `number` — which contribute named fields to a `submit: true` action-button's body rather than posting on their own, so the single POST primitive is unchanged.
 
 ---
 
 ## 5. Risks & settled decisions
 
-- **Display vs interaction.** _v1 was display-only_ (this was the spike's deliberate scope). **Superseded by #1209:** interactivity now exists as the single, constrained `action-button` node — POST-only, scoped to the plugin's own route namespace, behind operator auth, with an optional confirm gate. General forms/optimistic-state remain out of scope; the cliff was crossed narrowly, not wholesale.
+- **Display vs interaction.** _v1 was display-only_ (this was the spike's deliberate scope). **Superseded by #1209:** interactivity now exists as the single, constrained `action-button` node — POST-only, scoped to the plugin's own route namespace, behind operator auth, with an optional confirm gate. General forms/optimistic-state remain out of scope; the cliff was crossed narrowly, not wholesale. **Extended again by #1961:** editable settings arrived as input nodes feeding that same button, plus `ctx.setConfig` to persist what they submit. Optimistic state remains out of scope — a field seeds from the published `value` and the plugin re-publishes after saving.
 - **Trust boundary is real but narrow.** Plugins are trusted, so the descriptor guards against _bugs_ (runaway trees, bad props), not _attackers_. Keep the caps anyway — fail-open, never crash the panel.
 - **Don't reach for `{@html}`/iframe/web-components.** They solve problems Shepherd doesn't have and route around the design-system/i18n gates. Iframe is the _only_ future-justified escape hatch, and only for arbitrary external web content.
 - **Schema evolution.** `schemaVersion` + unknown-node fallback tile = forward-compatible; one author owning both ends keeps the SDUI versioning tax negligible.

@@ -507,6 +507,37 @@ a.issue-list-title:hover {
   flex: none;
 }
 
+/* ── Plugin-UI field recipe ─────────────────────────────────────────────────
+   The canonical /design-system "Form fields" recipe, shared by every plugin-ui
+   input node (text-input, select, number — see ui/src/lib/plugin-ui/). Lives
+   here rather than repeated in each component's scoped <style>, so the three
+   controls cannot drift apart. Namespaced `pui-` because a plain .css import is
+   GLOBAL: a bare `.field` / `.input` would leak into unrelated components. */
+.pui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.pui-field > .pui-label {
+  font-size: var(--fs-meta);
+  color: var(--color-muted);
+}
+.pui-input {
+  background: var(--color-inset);
+  border: 1px solid var(--color-line);
+  color: var(--color-ink-bright);
+  font: inherit;
+  font-size: var(--fs-base);
+  padding: 8px 10px;
+  border-radius: 2px;
+  min-width: 0;
+}
+.pui-input:focus-visible {
+  outline: none;
+  border-color: var(--color-amber);
+}
+
 /* ── Header icon-button recipe ──────────────────────────────────────────────
    Shared .icon-btn class + .spin keyframes for terminal-header glyph controls
    (redraw, etc.). Replaces ad-hoc per-control sizing (.vp-redraw, etc.). */

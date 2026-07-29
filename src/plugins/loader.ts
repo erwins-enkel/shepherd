@@ -7,7 +7,7 @@
 // NOT protected against a plugin's own synchronous infinite loop (a you-bug you'd fix;
 // worker isolation would sever the synchronous spawn-mutation seam claude-swap needs).
 
-import { readdir, readFile, stat } from "node:fs/promises";
+import { readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join, basename } from "node:path";
 import { pathToFileURL } from "node:url";
 import {
@@ -34,6 +34,10 @@ import type { Session } from "../types";
 import type { GitState } from "../forge/types";
 
 const DEFAULT_HOOK_TIMEOUT_MS = 5_000;
+
+/** Ceiling on a plugin's own `config.json` after a `ctx.setConfig` merge. A config file is
+ *  tiny in practice; the cap exists to catch a runaway writer, not to constrain a real one. */
+const MAX_CONFIG_BYTES = 64 * 1024;
 
 /** Minimal store surface the registry needs — the `plugin_state` accessors only. */
 export interface PluginStateStore {
@@ -84,6 +88,10 @@ interface LoadedPlugin {
   unsubs: Array<() => void>;
   teardown?: () => void;
   config: Record<string, unknown>;
+  /** Tail of this plugin's serialized `ctx.setConfig` chain, so two concurrent patches cannot
+   *  interleave their read-modify-write. Always settled-or-pending, never rejected (see
+   *  `setPluginConfig`). Set at BOTH `plugins.set()` sites, like `folder`. */
+  configWrite: Promise<void>;
 }
 
 /** Thrown internally when a hook exceeds its timeout; distinguishes `timed-out` health. */
@@ -245,6 +253,7 @@ export class PluginRegistry {
         routes: new Map(),
         unsubs: [],
         config: {},
+        configWrite: Promise.resolve(),
       });
       console.warn(
         `[plugins] ${manifest.id} skipped: apiVersion ${manifest.apiVersion} != ${PLUGIN_API_VERSION}`,
@@ -265,6 +274,7 @@ export class PluginRegistry {
       routes: new Map(),
       unsubs: [],
       config,
+      configWrite: Promise.resolve(),
     };
     this.plugins.set(manifest.id, rec);
 
@@ -319,6 +329,90 @@ export class PluginRegistry {
     } catch {
       return {};
     }
+  }
+
+  /** Read `config.json` for a MERGE. Deliberately stricter than {@link readConfig}, which
+   *  fails open to `{}` so a broken config can never block boot: here `{}` would mean
+   *  "there was nothing to keep", and the merge would then WRITE that assumption back over
+   *  the operator's file. So an existing-but-unparseable file THROWS instead. Only a genuinely
+   *  absent file (ENOENT) is `{}` — that is the first-write case. */
+  private async readConfigForMerge(dir: string, id: string): Promise<Record<string, unknown>> {
+    let raw: string;
+    try {
+      raw = await readFile(join(dir, "config.json"), "utf8");
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code === "ENOENT") return {};
+      throw new Error(`[plugin:${id}] setConfig could not read config.json: ${errMsg(e)}`, {
+        cause: e,
+      });
+    }
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new Error(
+        `[plugin:${id}] setConfig refused: config.json exists but is not valid JSON ` +
+          `(fix or delete it — refusing to overwrite what is there)`,
+      );
+    }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      throw new Error(
+        `[plugin:${id}] setConfig refused: config.json is not a JSON object ` +
+          `(refusing to overwrite what is there)`,
+      );
+    }
+    return parsed as Record<string, unknown>;
+  }
+
+  /** Queue one `ctx.setConfig` behind this plugin's in-flight writes. Serializing is what
+   *  makes concurrent patches safe: each read-modify-write runs to completion before the next
+   *  one reads. The chain swallows a prior REJECTION so one failed write never poisons later
+   *  ones — the caller that failed still gets its own rejection from the promise returned here. */
+  private setPluginConfig(rec: LoadedPlugin, patch: Record<string, unknown>): Promise<void> {
+    const task = rec.configWrite.then(() => this.writePluginConfig(rec, patch));
+    rec.configWrite = task.then(
+      () => {},
+      () => {},
+    );
+    return task;
+  }
+
+  /** Merge `patch` into the plugin's on-disk `config.json` and update `ctx.config` live.
+   *  Throws (never fails open) — a config write that silently no-ops is data loss. */
+  private async writePluginConfig(
+    rec: LoadedPlugin,
+    patch: Record<string, unknown>,
+  ): Promise<void> {
+    const id = rec.manifest.id;
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      throw new Error(`[plugin:${id}] setConfig expects a plain object patch`);
+    }
+    // Round-trip through JSON so the persisted patch is exactly what a reload would parse
+    // back (functions/undefined stripped, cycles/BigInt rejected) — same normalization the
+    // publishUI/publishGearItem seams apply.
+    let normalized: Record<string, unknown>;
+    try {
+      const s = JSON.stringify(patch);
+      if (s === undefined) throw new Error("not serializable");
+      normalized = JSON.parse(s) as Record<string, unknown>;
+    } catch {
+      throw new Error(`[plugin:${id}] setConfig patch is not JSON-serializable`);
+    }
+
+    const dir = join(this.deps.pluginsDir, rec.folder);
+    const merged = { ...(await this.readConfigForMerge(dir, id)), ...normalized };
+    // Pretty-printed + trailing newline: the file stays hand-editable, which is the whole
+    // point of persisting to config.json rather than into an opaque state table.
+    const out = JSON.stringify(merged, null, 2) + "\n";
+    if (Buffer.byteLength(out, "utf8") > MAX_CONFIG_BYTES) {
+      throw new Error(`[plugin:${id}] setConfig result exceeds ${MAX_CONFIG_BYTES} bytes`);
+    }
+    await writeConfigFile(dir, out);
+
+    // Mutate IN PLACE: a plugin that captured `ctx.config` during register() holds this exact
+    // object, so reassigning would hand it a permanently stale view.
+    for (const k of Object.keys(rec.config)) delete rec.config[k];
+    Object.assign(rec.config, merged);
   }
 
   /** Build the per-plugin `ctx` — the sole seam. No raw core singletons handed out. */
@@ -413,6 +507,7 @@ export class PluginRegistry {
       },
       log,
       config: rec.config,
+      setConfig: (patch) => this.setPluginConfig(rec, patch),
       abortSpawn: (reason) => {
         throw new PluginSpawnAborted(reason, id);
       },
@@ -581,6 +676,21 @@ class SpawnPatchMerger {
     if (this.extraArgs.length) merged.extraArgs = this.extraArgs;
     if (this.credentialDir !== undefined) merged.credentialDir = this.credentialDir;
     return merged;
+  }
+}
+
+/** Persist a plugin's `config.json` atomically: write a sibling temp file, then rename over
+ *  the target. Same directory → same filesystem → the rename is atomic, so a crash mid-write
+ *  can never leave a half-written config that the next boot would parse as truth. The temp
+ *  file is cleaned up on any failure so a failed write leaves no debris in the plugin folder. */
+async function writeConfigFile(dir: string, contents: string): Promise<void> {
+  const tmp = join(dir, ".config.json.tmp");
+  try {
+    await writeFile(tmp, contents, "utf8");
+    await rename(tmp, join(dir, "config.json"));
+  } catch (e) {
+    await rm(tmp, { force: true }).catch(() => {});
+    throw e;
   }
 }
 

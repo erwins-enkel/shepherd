@@ -3453,5 +3453,7 @@
   "spawnnotice_review_failed_badge": "kein review",
   "spawnnotice_review_failed_title": "Code-Review konnte nicht starten",
   "spawnnotice_review_failed_action": "Der Review-Prompt überschreitet das Argumentlimit des Betriebssystems, daher lief für diesen Commit kein Critic. Am meisten Platz schafft es, `.shepherd-plan.md` zu kürzen. „Erneut versuchen“ startet einen neuen Versuch mit den aktuellen Eingaben.",
-  "newtask_attach_label": "Anhängen"
+  "newtask_attach_label": "Anhängen",
+  "feat_plugin_ui_inputs_title": "Plugin-Einstellungen im Plugins-Panel bearbeiten",
+  "feat_plugin_ui_inputs_body": "Plugin-Panels unter Einstellungen → Plugins können jetzt bearbeitbare Felder anbieten — Text, Auswahllisten, Checkboxen und Zahlen — samt Speichern-Button, und das Plugin schreibt deine Änderungen direkt in seine eigene Konfigurationsdatei. Kein händisches Editieren der config.json mit anschließendem Neustart mehr."
 }

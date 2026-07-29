@@ -122,10 +122,16 @@ test("codex interactive plan-gate hardens the stop clause and omits AskUserQuest
   expect(codex).toContain("<plan-gate-directive>");
   expect(codex).toContain("Do NOT write or modify ANY code this turn");
   expect(codex).not.toContain("AskUserQuestion");
+  expect(codex).toContain("Once all concrete questions are answered");
+  expect(codex).toContain("do not ask for a generic final confirmation");
+  expect(codex).toContain("write `.shepherd-plan.md` in the same turn");
   // Claude keeps the original AskUserQuestion phrasing and has no extra stop clause.
-  expect(
-    composeSystemPrompt(null, false, { planGate: "interactive", agentProvider: "claude" }),
-  ).toContain("AskUserQuestion");
+  const claude = composeSystemPrompt(null, false, {
+    planGate: "interactive",
+    agentProvider: "claude",
+  });
+  expect(claude).toContain("AskUserQuestion");
+  expect(claude).not.toContain("generic final confirmation");
 });
 
 test("codex auto plan-gate also gets the hardened stop clause (unattended path, no human backstop)", () => {

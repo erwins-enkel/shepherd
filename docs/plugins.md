@@ -196,6 +196,10 @@ ctx.events.subscribe((event, data) => {
 - **`list()`** → every session core holds, **archived rows included** (filter on
   `status === "archived"` / `archivedAt` if you only want live ones).
 
+```ts
+const live = ctx.sessions.list().filter((s) => s.status !== "archived");
+```
+
 Reads are **live**, not a boot-time freeze — hold the object from `register()` and keep
 calling it. Snapshots are point-in-time **copies**; mutating one does nothing.
 

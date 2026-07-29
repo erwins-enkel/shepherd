@@ -1,6 +1,14 @@
 import { test, expect, beforeEach, afterEach, describe } from "bun:test";
 import { spawn } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, statSync, symlinkSync, utimesSync } from "node:fs";
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  statSync,
+  symlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -141,6 +149,22 @@ describe("writeSpawnScript", () => {
 
     expect(path.startsWith(target)).toBe(false);
     expect(path.startsWith(join(scratch, "spawn"))).toBe(false);
+    await rm(dirname(path), { recursive: true, force: true });
+  });
+
+  test.each([
+    ["a plain file", (p: string) => writeFileSync(p, "squat")],
+    ["a dangling symlink", (p: string) => symlinkSync(join(p, "..", "nonexistent"), p)],
+  ])("keeps spawning when %s occupies the script dir path", async (_label, squat) => {
+    // Recursive mkdir swallows EEXIST only for a real DIRECTORY; a plain file or a dangling symlink
+    // throws. Unhandled, that is a spawn-wide denial of service any local user could trigger with a
+    // single `touch /tmp/spawn` — cheaper than the ownership squat above and just as total.
+    squat(join(scratch, "spawn"));
+
+    const path = await writeSpawnScript(ARGV);
+
+    expect(existsSync(path)).toBe(true);
+    expect(statSync(dirname(path)).mode & 0o077).toBe(0);
     await rm(dirname(path), { recursive: true, force: true });
   });
 

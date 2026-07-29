@@ -68,11 +68,22 @@ async function privateFallbackDir(): Promise<string> {
  * Squatted path → fall back to a fresh `mkdtemp` directory (unpredictable name, 0700, ours by
  * construction), memoized so a hostile `/tmp/spawn` cannot make us mint one per spawn. Refusing
  * outright would hand any local user a spawn-wide denial of service instead.
+ *
+ * EVERY way the path can be occupied has to route into that fallback, which is why the `mkdir` is
+ * inside the `try`: recursive `mkdir` swallows `EEXIST` only when the existing entry is a real
+ * DIRECTORY (verified against the runtime — a plain file, a symlink to a file and a dangling symlink
+ * all throw). Letting that throw would mean a local user could `touch /tmp/spawn` and permanently
+ * fail every spawn — the very denial of service the fallback exists to prevent, reachable by the
+ * cheapest possible squat.
  */
 async function ensureSpawnDir(): Promise<string> {
   const dir = spawnScriptDir();
-  await mkdir(dir, { recursive: true, mode: 0o700 });
-  if (await isOwnPrivateDir(dir)) return dir;
+  try {
+    await mkdir(dir, { recursive: true, mode: 0o700 });
+    if (await isOwnPrivateDir(dir)) return dir;
+  } catch {
+    /* occupied by a non-directory (or uncreatable) — the fallback below is the answer */
+  }
   return privateFallbackDir();
 }
 

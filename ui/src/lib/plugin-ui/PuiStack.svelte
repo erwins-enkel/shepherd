@@ -26,6 +26,7 @@
 <div
   class="pui-stack"
   style:flex-direction={direction === "horizontal" ? "row" : "column"}
+  style:flex-wrap={direction === "horizontal" ? "wrap" : "nowrap"}
   style:gap
 >
   {#each children as child, i (i)}
@@ -34,8 +35,16 @@
 </div>
 
 <style>
+  /* `flex-wrap` is set inline per direction, NOT here. Wrapping is only meaningful for a
+     horizontal stack; on a vertical one `wrap` made this a MULTI-LINE COLUMN container,
+     whose flex line is sized to the widest child's intrinsic width instead of to the
+     container — so one over-wide child (e.g. a <select> with a long option) stretched every
+     sibling past the panel and scrolled the settings pane sideways on a phone. */
   .pui-stack {
     display: flex;
-    flex-wrap: wrap;
+    /* A nested stack is itself a flex item, whose default `min-width: auto` is its
+       min-content width — and a <select>'s min-content is its full intrinsic width, so
+       without this a nested stack could not shrink and overflowed the panel instead. */
+    min-width: 0;
   }
 </style>

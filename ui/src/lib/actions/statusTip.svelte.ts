@@ -8,6 +8,12 @@ export interface StatusTipParams {
   stopClickPropagation?: boolean;
   /** Suppress the entrance animation (motion-free surfaces like the New Task modal). */
   still?: boolean;
+  /**
+   * Widen the panel for multi-sentence prose. The default 260px is sized for the
+   * one-or-two-line status explanations; a command description runs several hundred
+   * characters and would otherwise stack into a ~20-line column.
+   */
+  wide?: boolean;
 }
 
 // Module-scoped counter for unique popover ids. Client-only (actions never run on
@@ -42,21 +48,29 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let text = "";
   let stopClickPropagation = true;
   let still = false;
+  let wide = false;
   let open = false;
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
   let nodeListeners = false;
+
+  function panelClass() {
+    return ["status-tip", still && "status-tip-still", wide && "status-tip-wide"]
+      .filter(Boolean)
+      .join(" ");
+  }
 
   // Create the *visual* popover lazily (only when first shown) so hidden tooltip
   // text never pollutes the DOM / text queries; AT reads `aria-description` instead.
   function ensurePopover() {
     if (pop) {
       pop.textContent = text;
+      pop.className = panelClass();
       return;
     }
     pop = document.createElement("div");
     pop.id = `status-tip-${++uid}`;
-    pop.className = still ? "status-tip status-tip-still" : "status-tip";
+    pop.className = panelClass();
     pop.setAttribute("role", "tooltip");
     pop.setAttribute("popover", "manual");
     pop.textContent = text;
@@ -126,7 +140,11 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     text = next.text;
     stopClickPropagation = next.stopClickPropagation ?? true;
     still = next.still ?? false;
-    if (pop) pop.textContent = text;
+    wide = next.wide ?? false;
+    if (pop) {
+      pop.textContent = text;
+      pop.className = panelClass();
+    }
     // Expose the explanation to assistive tech directly (no referenced element).
     node.setAttribute("aria-description", text);
     // Raise above the `.unit-hit` overlay. Only set position when the element is

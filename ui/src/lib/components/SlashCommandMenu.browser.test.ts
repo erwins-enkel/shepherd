@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from "vitest";
+import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import "../../app.css";
 import type { SlashCommand } from "$lib/types";
@@ -9,12 +9,16 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-function command(name: string, providers: NonNullable<SlashCommand["providers"]>): SlashCommand {
+function command(
+  name: string,
+  providers: NonNullable<SlashCommand["providers"]>,
+  description = "",
+): SlashCommand {
   return {
     id: `test:${providers.join("+")}:${name}`,
     name,
     displayName: name,
-    description: "",
+    description,
     scope: "user",
     kind: "skill",
     invocationName: name,
@@ -49,5 +53,70 @@ describe("SlashCommandMenu", () => {
     });
 
     expect(document.querySelector(".sc-name")?.textContent).toBe("/shared");
+  });
+});
+
+// The row clamps the description to one line (`.sc-desc` is nowrap + ellipsis), so the
+// hover tooltip is the only way to read what a command actually does.
+describe("SlashCommandMenu description tooltip", () => {
+  const LONG =
+    "Review the changes since a fixed point (commit, branch, tag, or merge-base) along " +
+    "two axes — Standards (does the code follow this repo's documented coding standards?) " +
+    "and Spec (does the code match what the originating issue asked for?).";
+
+  const desc = () => document.querySelector(".sc-desc") as HTMLElement;
+  const tip = () => document.querySelector(".status-tip:popover-open");
+  // statusTip dismisses on scroll/resize, and the browser-test harness emits both while
+  // the container settles after mount — so retry the hover until it sticks rather than
+  // hovering once and racing the harness.
+  const hover = (el: HTMLElement) =>
+    vi.waitFor(() => {
+      el.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+      expect(tip()).not.toBeNull();
+    });
+
+  function renderOne(description: string, onpick: (cmd: SlashCommand) => void = () => {}) {
+    render(SlashCommandMenu, {
+      commands: [command("code-review", ["claude"], description)],
+      activeIndex: 0,
+      provider: "claude",
+      onpick,
+      onhover: () => {},
+    });
+  }
+
+  it("hovering the clipped description reveals the full text in a wide tooltip", async () => {
+    renderOne(LONG);
+    // The DOM already carries the full string — only CSS clips it — so the tooltip's job
+    // is purely to make it visible.
+    expect(desc().textContent).toBe(LONG);
+
+    await hover(desc());
+    expect(tip()?.textContent).toBe(LONG);
+    expect(tip()?.getAttribute("role")).toBe("tooltip");
+    // Prose variant: the 260px status width would stack this into ~20 lines.
+    expect(tip()?.classList.contains("status-tip-wide")).toBe(true);
+  });
+
+  it("keeps the row pickable while the pointer sits on the description", async () => {
+    const picked: string[] = [];
+    renderOne(LONG, (cmd) => picked.push(cmd.name));
+
+    await hover(desc());
+    desc().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+
+    expect(picked).toEqual(["code-review"]);
+  });
+
+  it("renders no description row — and no tooltip — for a command without one", async () => {
+    renderOne("");
+    expect(desc()).toBeNull();
+
+    // Plain dispatch, not the retrying `hover` helper — nothing is expected to open here.
+    document
+      .querySelector(".sc-row")!
+      .dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+    await new Promise((r) => setTimeout(r, 50));
+    expect(tip()).toBeNull();
   });
 });

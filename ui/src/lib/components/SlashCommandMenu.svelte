@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { SlashCommand } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
   import { commandInvocation, commandInvocationProvider, commandProviders } from "$lib/slash";
 
   let {
@@ -62,7 +63,23 @@
             {#if cmd.scope !== "project"}<span class="sc-scope">{cmd.scope}</span>{/if}
             <span class="sc-provider">{providerBadge(cmd)}</span>
           </div>
-          {#if cmd.description}<div class="sc-desc">{cmd.description}</div>{/if}
+          <!-- The row clamps the description to one line, so hovering it opens the full
+               text in a tooltip — otherwise there is no way to learn what a command does.
+               `stopClickPropagation: false` keeps the row's own pick handler reachable;
+               `still` matches the motion-free New Task modal. -->
+          {#if cmd.description}
+            <div
+              class="sc-desc"
+              use:statusTip={{
+                text: cmd.description,
+                still: true,
+                wide: true,
+                stopClickPropagation: false,
+              }}
+            >
+              {cmd.description}
+            </div>
+          {/if}
         </li>
       {/each}
     </ul>

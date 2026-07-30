@@ -29,9 +29,12 @@ export interface SlashCommand {
   argumentHint?: string;
 }
 
-// Descriptions ride to the client only to label rows; cap them so a verbose
-// skill front-matter blurb can't bloat the payload (the UI truncates anyway).
-const MAX_DESC = 280;
+// Descriptions ride to the client to label rows *and* to fill the hover tooltip that
+// un-truncates the row, so the cap is what a reader actually gets to see — not just a
+// payload guard. 600 covers the long skill front-matters (which routinely run past 280
+// and used to get cut mid-sentence in the tooltip) while still bounding a listing of
+// several hundred commands.
+const MAX_DESC = 600;
 
 interface Frontmatter {
   name?: string;

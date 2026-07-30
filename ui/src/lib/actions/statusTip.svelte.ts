@@ -53,6 +53,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   let pinned = false;
   let stopAnchor: (() => void) | null = null;
   let nodeListeners = false;
+  let closeTimer: ReturnType<typeof setTimeout> | null = null;
 
   function panelClass() {
     return ["status-tip", still && "status-tip-still", wide && "status-tip-wide"]
@@ -74,7 +75,35 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     pop.setAttribute("role", "tooltip");
     pop.setAttribute("popover", "manual");
     pop.textContent = text;
+    // The panel is a body-appended sibling floating 6px off its trigger, so pointing at
+    // it means leaving the trigger. Treat trigger + panel as one hover region: entering
+    // the panel cancels the pending close, leaving it schedules one. Without this a
+    // height-bounded (scrollable) panel could never be reached, which would put the
+    // overflow of an uncapped description permanently out of reach.
+    pop.addEventListener("pointerenter", (e) => {
+      if ((e as PointerEvent).pointerType === "touch") return;
+      cancelClose();
+    });
+    pop.addEventListener("pointerleave", (e) => {
+      if ((e as PointerEvent).pointerType === "touch" || pinned) return;
+      scheduleClose();
+    });
     document.body.appendChild(pop);
+  }
+
+  function cancelClose() {
+    if (closeTimer === null) return;
+    clearTimeout(closeTimer);
+    closeTimer = null;
+  }
+  // Grace period for the pointer to cross the gap between trigger and panel. Short
+  // enough that an ordinary "move away" still reads as an immediate dismissal.
+  function scheduleClose() {
+    cancelClose();
+    closeTimer = setTimeout(() => {
+      closeTimer = null;
+      hide();
+    }, 140);
   }
 
   function onDocPointerDown(e: PointerEvent) {
@@ -92,6 +121,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
 
   function show() {
+    cancelClose();
     if (open) return;
     ensurePopover();
     if (!pop) return;
@@ -108,6 +138,7 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
 
   function hide() {
+    cancelClose();
     pinned = false;
     if (!open) return;
     open = false;
@@ -124,7 +155,8 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
   }
   function onPointerLeave(e: PointerEvent) {
     if (e.pointerType === "touch" || pinned) return;
-    hide();
+    // Deferred, not immediate: the pointer may be on its way *into* the panel.
+    scheduleClose();
   }
   function onFocus() {
     show();

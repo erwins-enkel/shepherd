@@ -128,6 +128,32 @@ describe("SlashCommandMenu description tooltip", () => {
     await vi.waitFor(() => expect(tip()).toBeNull());
   });
 
+  // Reaching that scrollbar means leaving the trigger — the panel is a body-appended
+  // sibling floating 6px away. If the trigger's pointerleave closed immediately, the
+  // overflow would be permanently out of reach and the height bound would be a silent
+  // truncation after all.
+  it("stays open when the pointer moves off the trigger and onto the panel", async () => {
+    await renderOne("sentence. ".repeat(200).trim());
+    await hover(desc());
+    const panel = tip() as HTMLElement;
+
+    const pointer = (el: Element, type: string) =>
+      el.dispatchEvent(new PointerEvent(type, { pointerType: "mouse", bubbles: true }));
+
+    pointer(desc(), "pointerleave");
+    pointer(panel, "pointerenter");
+    await new Promise((r) => setTimeout(r, 250)); // well past the close grace period
+    expect(tip()).not.toBeNull();
+
+    // Scrolling it — the whole point of getting there — still doesn't close it.
+    panel.dispatchEvent(new Event("scroll", { bubbles: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(tip()).not.toBeNull();
+
+    pointer(panel, "pointerleave");
+    await vi.waitFor(() => expect(tip()).toBeNull());
+  });
+
   it("renders no description row — and no tooltip — for a command without one", async () => {
     await renderOne("");
     expect(desc()).toBeNull();

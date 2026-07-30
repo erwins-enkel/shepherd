@@ -92,18 +92,24 @@ export function createHoldReveal(opts: HoldRevealOptions) {
     hide();
   }
 
-  /** Flash the keycap of a control that was just triggered, then end the
-   *  revealed state — the spec's "combination fired while visible" path. */
+  /** Flash the keycap of a control that was just triggered, THEN end the
+   *  revealed state — the spec's "combination fired while visible" path.
+   *
+   *  The order matters and is easy to get wrong: keycaps only exist while the
+   *  reveal is up, so dropping `visible` here would unmount the very cap that is
+   *  supposed to light. `visible` therefore stays true for the whole flash and
+   *  the timer ends the overlay, which is also what the spec describes —
+   *  "blitzt einmal auf ... und der Overlay-Zustand endet". */
   function trigger(id: string) {
     if (!visible) return;
     flash = id;
+    disarm();
     if (flashTimer !== null) clearTimeout(flashTimer);
     flashTimer = setTimeout(() => {
       flash = null;
       flashTimer = null;
+      visible = false;
     }, FLASH_MS);
-    visible = false;
-    disarm();
   }
 
   /** Attach to the dialog root + window. Returns the teardown; callers wire it

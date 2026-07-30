@@ -82,9 +82,18 @@ Kappen erscheinen **nur bei Aktionen, die im aktuellen Zustand ausführbar sind*
 | Kontext  | `↵`            | markiertes Issue übernehmen               | – (nur Karte; ↵ ist kontextabhängig)        |
 | Optionen | `⌥1` `⌥2` `⌥3` | Modus Code / Recherche / Epic             | in jedem Segment neben dem Label            |
 | Optionen | `⌘E`           | Engine wählen                             | im Engine-Select, an Stelle des ▾           |
-| Optionen | `⌘M`           | Modell wählen                             | im Modell-Select, an Stelle des ▾           |
+| Optionen | `⌥M`[^1]       | Modell wählen                             | im Modell-Select, an Stelle des ▾           |
 | Optionen | `⌘G`           | Plan-Gate umschalten                      | rechts in der Zeile, ersetzt `AN`/`AUS`     |
-| Optionen | `⌘⇧A`          | Autopilot umschalten                      | rechts in der Zeile, ersetzt `AN`/`AUS`     |
+| Optionen | `⌥A`[^1]       | Autopilot umschalten                      | rechts in der Zeile, ersetzt `AN`/`AUS`     |
+
+[^1]:
+    **Nachträgliche Änderung, vom Auftraggeber am 2026-07-30 freigegeben.** Ursprünglich
+    spezifiziert waren `⌘M` und `⌘⇧A`. Beides sind Fenster- bzw. Tab-Aktionen des Browsers
+    (`⌘M` = Fenster minimieren unter macOS, `⌘⇧A` = Tab-Suche in Chrome) — genau die Klasse
+    von Tastenkombinationen, die eine Seite **nicht** per `preventDefault` abfangen kann,
+    im Gegensatz zu Seiten-Aktionen wie `⌘F`/`⌘P`/`⌘D`. Eine Tastenkappe darf nichts
+    versprechen, das nicht eintritt, deshalb wandern beide auf die `⌥`-Ebene, die dieser
+    Dialog ohnehin schon nutzt (`⌥R`, `⌥B`, `⌥T`) und die browserfrei ist.
 
 > Im gehaltenen Zustand **ersetzen** Kappen die stummen Zeichen an derselben Stelle (▾-Chevrons, `AN`/`AUS`-Readouts). Dadurch springt das Layout nicht: gleiche Zeilenhöhe, gleiche Position, nur anderer Inhalt. Einzige Ausnahme: bei den Modus-Segmenten wird `RECHERCHE` zu `RECH.` gekürzt, damit ⌥2 in die Spalte passt. Wo kein stummes Zeichen existiert (Issues/Befehle-Umschalter), wird die Kappe **angehängt** — der Umschalter selbst bleibt vollständig sichtbar.
 

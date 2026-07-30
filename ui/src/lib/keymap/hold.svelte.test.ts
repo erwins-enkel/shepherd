@@ -129,17 +129,37 @@ describe("dismissal", () => {
 });
 
 describe("trigger", () => {
-  it("flashes the fired control's keycap, then ends the revealed state", () => {
+  it("keeps the reveal up for the whole flash, then ends it", () => {
+    // Keycaps only exist while the reveal is up, so ending it at trigger time
+    // would unmount the very cap that is supposed to light.
     const hold = make();
     keydown("Meta");
     vi.advanceTimersByTime(HOLD_MS);
 
     hold.trigger("plan-gate");
     expect(hold.flash).toBe("plan-gate");
+    expect(hold.visible).toBe(true);
+
+    vi.advanceTimersByTime(FLASH_MS - 1);
+    expect(hold.visible).toBe(true);
+
+    vi.advanceTimersByTime(1);
+    expect(hold.flash).toBeNull();
+    expect(hold.visible).toBe(false);
+  });
+
+  it("lets go early without stranding the reveal", () => {
+    const hold = make();
+    keydown("Meta");
+    vi.advanceTimersByTime(HOLD_MS);
+    hold.trigger("plan-gate");
+
+    keyup("Meta"); // released mid-flash
     expect(hold.visible).toBe(false);
 
     vi.advanceTimersByTime(FLASH_MS);
     expect(hold.flash).toBeNull();
+    expect(hold.visible).toBe(false);
   });
 
   it("does not flash when nothing was revealed", () => {

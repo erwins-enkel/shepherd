@@ -25,6 +25,7 @@
     onauthor = undefined,
     ontogglelabel = undefined,
     keycap = undefined,
+    shortcut = undefined,
   }: {
     showMine: boolean;
     coachTargets?: boolean;
@@ -37,6 +38,8 @@
     ontogglelabel?: (label: string) => void;
     /** Renders in place of the mute ▾ when set. */
     keycap?: Snippet;
+    /** aria-keyshortcuts for the trigger, when a host binds one. */
+    shortcut?: string;
   } = $props();
 
   // Show the Author section at >=2 authors OR whenever a selection is set — the OR-guard
@@ -144,6 +147,7 @@
   aria-expanded={open}
   aria-controls={popoverId}
   aria-label={m.issue_filter_button_aria({ count: activeCount })}
+  aria-keyshortcuts={shortcut}
   onclick={() => (open = !open)}
   use:coachTarget={coachTargets ? "issue-filters" : ""}
 >

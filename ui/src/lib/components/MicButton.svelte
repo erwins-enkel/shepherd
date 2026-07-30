@@ -17,6 +17,7 @@
     setText,
     onTextRendered,
     inline = false,
+    shortcut = undefined,
   }: {
     /** Current field text (dictation appends after it). */
     getText: () => string;
@@ -27,6 +28,8 @@
     /** In-flow toolbar variant: the button sits in normal flow (no floating anchor);
      *  the host sizes it via the .inline classes (New Task's in-field toolbar). */
     inline?: boolean;
+    /** aria-keyshortcuts for the mic, when a host binds one (New Task's ⌘D). */
+    shortcut?: string;
   } = $props();
 
   // Closures (not the bare props) so the controller always calls the CURRENT prop value —
@@ -81,6 +84,7 @@
           ? m.micbtn_dictate_stop_aria()
           : m.micbtn_dictate_aria()}
       aria-pressed={dict.listening}
+      aria-keyshortcuts={shortcut}
       onpointerdown={tapMic}
     >
       <svg

@@ -265,6 +265,38 @@ describe("aria-keyshortcuts", () => {
     expect(modes).toEqual(["Alt+1", "Alt+2", "Alt+3"]);
   });
 
+  it("covers every anchored control, not just the ones carrying a chord", async () => {
+    // Regression guard: keycaps are decoration, so a control that shows one but
+    // exposes no aria-keyshortcuts is invisible to assistive tech.
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
+
+    const anchors: Record<string, string> = {
+      "focus-prompt": "#nt-prompt",
+      attach: ".tool-btn",
+      repo: ".rs-trigger",
+      "issue-filter": ".filter-chip",
+      "sources-tab": ".tab",
+      "list-nav": ".issue-list-row.is-interactive",
+    };
+    for (const [id, selector] of Object.entries(anchors)) {
+      const el = document.querySelector(selector);
+      expect(el, `${id}: nothing matched ${selector}`).toBeTruthy();
+      expect(el!.getAttribute("aria-keyshortcuts"), `${id} exposes no shortcut`).toBeTruthy();
+    }
+    // The guard switches are named through InstrumentToggle's own prop.
+    const switches = Array.from(document.querySelectorAll('button[role="switch"]'));
+    expect(switches.length).toBeGreaterThanOrEqual(2);
+    for (const sw of switches) expect(sw.getAttribute("aria-keyshortcuts")).toBeTruthy();
+  });
+
+  it("names arrow navigation with ARIA key names, not the ↑↓ glyph", async () => {
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
+    const row = document.querySelector(".issue-list-row.is-interactive")!;
+    expect(row.getAttribute("aria-keyshortcuts")).toBe("ArrowUp ArrowDown");
+  });
+
   it("keeps the scrim and every keycap out of the accessibility tree", async () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await vi.waitFor(() => expect(form()).toBeTruthy());

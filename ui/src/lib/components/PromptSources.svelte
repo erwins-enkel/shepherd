@@ -44,6 +44,9 @@
     filterKeycap = undefined,
     tabsKeycap = undefined,
     rowKeycap = undefined,
+    tabShortcut = undefined,
+    rowShortcut = undefined,
+    filterShortcut = undefined,
     agentProvider = "claude",
     epicParents = new Set(),
     nativeSubIssues = new Set(),
@@ -66,6 +69,11 @@
     tabsKeycap?: Snippet;
     /** Render on the first interactive issue row (↑↓). */
     rowKeycap?: Snippet;
+    /** aria-keyshortcuts for the Issues/Commands switch, the issue rows and the
+     *  filter chip, when a host binds them. */
+    tabShortcut?: string;
+    rowShortcut?: string;
+    filterShortcut?: string;
     agentProvider?: "claude" | "codex";
     epicParents?: Set<number>;
     nativeSubIssues?: Set<number>;
@@ -358,6 +366,7 @@
       <IssueFilterPopover
         bind:this={filterPopover}
         keycap={filterKeycap}
+        shortcut={filterShortcut}
         showMine={viewer != null}
         authors={availableAuthors}
         labels={availableLabels}
@@ -374,6 +383,7 @@
           class="tab"
           class:active={tab === "issues"}
           type="button"
+          aria-keyshortcuts={tabShortcut}
           onclick={() => (tab = "issues")}
         >
           {m.promptsources_issues_tab()}
@@ -383,6 +393,7 @@
         class="tab"
         class:active={tab === "commands"}
         type="button"
+        aria-keyshortcuts={tabShortcut}
         onclick={() => (tab = "commands")}
       >
         {m.promptsources_commands_tab()}
@@ -480,6 +491,7 @@
               type="button"
               onclick={() => onpickissue(i)}
               onkeydown={onListKeydown}
+              aria-keyshortcuts={rowShortcut}
               use:issueMenuTrigger={{
                 onopen: (x, y, node) => openMenu(i, onpicksteer != null, x, y, node),
               }}

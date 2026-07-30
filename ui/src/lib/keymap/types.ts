@@ -99,6 +99,11 @@ export interface KeymapEntry {
    *  advertise `⌘V` on a keycap while leaving the browser's own paste completely
    *  alone — intercepting ⌘V would break pasting plain text into the prompt. */
   chords: Chord[];
+  /** ARIA key names for rows whose keys are real keys but NOT dispatchable
+   *  chords — `↑↓` is the case: giving it chords would make `matchKeymap` hijack
+   *  the arrow keys dialog-wide, but the row still has to name itself to a
+   *  screen reader. Values are WAI-ARIA key names, joined with a space. */
+  ariaKeys?: string[];
   /** Verbatim key label for rows whose keys aren't a chord at all ("#", "/",
    *  "↑↓", "↵", "⌘ halten"). Takes precedence over rendering `chords`. Receives
    *  the platform so the hold row can say "⌘ halten" or "Strg halten". */

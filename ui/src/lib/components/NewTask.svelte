@@ -1178,9 +1178,14 @@
 
   const hold = createHoldReveal({
     isMac: () => isMac,
-    // Guard: never arm outside this dialog, and never on the mobile layout,
-    // where the anchors the keycaps point at are not mounted.
-    active: () => !mobile && !sheetOpen,
+    // The keyboard IS the gate: arming needs a real Meta/Control keydown, which
+    // a touch-only device never produces. So this deliberately does NOT check
+    // the layout — an iPad (or a phone) with a keyboard attached gets the
+    // reveal, and gets it in whichever layout it is actually running. Keycaps
+    // render at their anchors, so a layout that mounts fewer controls simply
+    // shows fewer caps; nothing points at something that isn't there.
+    // The only guard left is the key sheet, which owns the keyboard while open.
+    active: () => !sheetOpen,
   });
 
   /** True while the keycaps are showing — drives the scrim and every <Keycap>. */
@@ -1238,7 +1243,8 @@
   /** `aria-keyshortcuts` for a registry row — the semantic source of truth for
    *  assistive tech, present whether or not the keycaps are showing. */
   function shortcutAttr(id: string): string | undefined {
-    return ariaKeyshortcuts(keymapEntry(id).chords, isMac);
+    const entry = keymapEntry(id);
+    return entry.ariaKeys?.join(" ") ?? ariaKeyshortcuts(entry.chords, isMac);
   }
 
   // Form-level keydown: the single dispatch point for the whole dialog.
@@ -1595,7 +1601,7 @@
           {#if !mobile}
             <!-- Context chips row: repo (existing RepoSelect, chip-styled) from branch. -->
             <div class="ctx-row" use:coachTarget={"nt-repo"}>
-              <div class="repo-chip" class:keymap-held={held}>
+              <div class="repo-chip">
                 <RepoSelect
                   bind:this={repoSelect}
                   {repos}
@@ -1607,12 +1613,11 @@
                   {onnewproject}
                   onsync={handleSync}
                   onescape={() => promptInput?.focus()}
+                  keycap={held ? repoCap : undefined}
+                  shortcut={shortcutAttr("repo")}
                   hideHidden
                 />
               </div>
-              {#if held}
-                <Keycap id="repo" ctx={keymapCtx} flash={hold.flash === "repo"} />
-              {/if}
               <span class="ctx-from">{m.newtask_chip_from()}</span>
               <span class="branch-chip">
                 {#if branches.length > 0}
@@ -1710,6 +1715,7 @@
                   data-1p-ignore
                   rows="3"
                   aria-label={m.newtask_prompt_label()}
+                  aria-keyshortcuts={shortcutAttr("focus-prompt")}
                   placeholder={m.newtask_prompt_placeholder()}
                   oninput={onPromptInput}
                   onkeydown={onPromptKeydown}
@@ -1776,6 +1782,7 @@
                   <MicButton
                     bind:this={mic}
                     inline
+                    shortcut={shortcutAttr("dictate")}
                     getText={() => prompt}
                     setText={(t) => (prompt = t)}
                     onTextRendered={autogrow}
@@ -1913,6 +1920,9 @@
               filterKeycap={held ? filterCap : undefined}
               tabsKeycap={held ? tabsCap : undefined}
               rowKeycap={held ? rowCap : undefined}
+              filterShortcut={shortcutAttr("issue-filter")}
+              tabShortcut={shortcutAttr("sources-tab")}
+              rowShortcut={shortcutAttr("list-nav")}
               {repoPath}
               {issueData}
               {epicParents}
@@ -2350,6 +2360,10 @@
   </div>
 {/snippet}
 
+{#snippet repoCap()}
+  <Keycap id="repo" ctx={keymapCtx} flash={hold.flash === "repo"} />
+{/snippet}
+
 {#snippet engineCap()}
   <Keycap id="engine" ctx={keymapCtx} flash={hold.flash === "engine"} />
 {/snippet}
@@ -2566,11 +2580,6 @@
     align-items: center;
     gap: 8px;
     min-width: 0;
-  }
-  /* While the keycaps are up, the trigger's mute ▾ hands its slot to the cap —
-     same rule as every other anchor: replace, never accumulate. */
-  .repo-chip.keymap-held :global(.rs-trigger .chevron) {
-    visibility: hidden;
   }
 
   /* Chip-style the existing RepoSelect trigger without touching its internals. */

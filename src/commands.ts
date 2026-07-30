@@ -29,12 +29,12 @@ export interface SlashCommand {
   argumentHint?: string;
 }
 
-// Descriptions ride to the client to label rows *and* to fill the hover tooltip that
-// un-truncates the row, so the cap is what a reader actually gets to see — not just a
-// payload guard. 600 covers the long skill front-matters (which routinely run past 280
-// and used to get cut mid-sentence in the tooltip) while still bounding a listing of
-// several hundred commands.
-export const MAX_DESC = 600;
+// Descriptions ride to the client uncapped. They used to be clipped to a fixed length as
+// a payload guard, but the row's hover tooltip now *shows* this value, so any cap is text
+// a reader is silently denied. It was never buying much either: across a real 211-command
+// listing the longest description is ~1.1 KB and capping at 600 saved 4 KB of ~75 KB (6%),
+// while mutilating 13% of the entries. The UI bounds the tooltip's height instead, which
+// costs nothing and keeps the sentence intact.
 
 interface Frontmatter {
   name?: string;
@@ -99,9 +99,7 @@ function readCommand(
   const { fm, body } = parseFrontmatter(text);
   const bare = (fm.name?.trim() || fallbackName).trim();
   if (!bare) return null;
-  let description = (fm.description?.trim() || firstLine(body)).trim();
-  if (description.length > MAX_DESC)
-    description = description.slice(0, MAX_DESC - 1).trimEnd() + "…";
+  const description = (fm.description?.trim() || firstLine(body)).trim();
   const argumentHint = fm["argument-hint"]?.trim() || undefined;
   const name = prefix + bare;
   return {
@@ -227,9 +225,7 @@ function readCodexSkill(
   const bare = fm.name?.trim();
   if (!bare) return null;
   const name = prefix + bare;
-  let description = fm.description?.trim() || "";
-  if (description.length > MAX_DESC)
-    description = description.slice(0, MAX_DESC - 1).trimEnd() + "…";
+  const description = fm.description?.trim() || "";
   return {
     id: `${sourceNamespace}:${name}`,
     name,
@@ -298,11 +294,7 @@ function pluginVersionRoot(pluginRoot: string): string | null {
 }
 
 function codexPluginDescription(manifest: CodexPluginManifest | null, fallback: string): string {
-  const description =
-    manifest?.interface?.shortDescription?.trim() || manifest?.description?.trim() || fallback;
-  return description.length > MAX_DESC
-    ? description.slice(0, MAX_DESC - 1).trimEnd() + "…"
-    : description;
+  return manifest?.interface?.shortDescription?.trim() || manifest?.description?.trim() || fallback;
 }
 
 function codexPluginSkillsDir(

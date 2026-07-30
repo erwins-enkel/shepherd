@@ -82,7 +82,12 @@ export const statusTip: Action<HTMLElement, StatusTipParams | null | undefined> 
     if (node.contains(t) || pop?.contains(t)) return;
     hide();
   }
-  function onScrollOrResize() {
+  function onScrollOrResize(e: Event) {
+    // A scroll *inside* the panel is the reader using its own overflow (the `wide`
+    // variant is height-bounded and scrolls), not the page moving out from under the
+    // anchor — closing on it would make an overlong tooltip impossible to finish
+    // reading. The listener is on window in capture phase, so it sees these too.
+    if (e.type === "scroll" && pop && pop.contains(e.target as Node)) return;
     hide();
   }
 

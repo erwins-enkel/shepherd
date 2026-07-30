@@ -75,7 +75,7 @@ describe("SlashCommandMenu description tooltip", () => {
       expect(tip()).not.toBeNull();
     });
 
-  function renderOne(description: string, onpick: (cmd: SlashCommand) => void = () => {}) {
+  async function renderOne(description: string, onpick: (cmd: SlashCommand) => void = () => {}) {
     render(SlashCommandMenu, {
       commands: [command("code-review", ["claude"], description)],
       activeIndex: 0,
@@ -83,10 +83,13 @@ describe("SlashCommandMenu description tooltip", () => {
       onpick,
       onhover: () => {},
     });
+    // The harness emits scroll/resize while the container settles after mount, and
+    // statusTip dismisses on both — let that pass before any hover.
+    await new Promise((r) => setTimeout(r, 300));
   }
 
   it("hovering the clipped description reveals the full text in a wide tooltip", async () => {
-    renderOne(LONG);
+    await renderOne(LONG);
     // The DOM already carries the full string — only CSS clips it — so the tooltip's job
     // is purely to make it visible.
     expect(desc().textContent).toBe(LONG);
@@ -100,7 +103,7 @@ describe("SlashCommandMenu description tooltip", () => {
 
   it("keeps the row pickable while the pointer sits on the description", async () => {
     const picked: string[] = [];
-    renderOne(LONG, (cmd) => picked.push(cmd.name));
+    await renderOne(LONG, (cmd) => picked.push(cmd.name));
 
     await hover(desc());
     desc().dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
@@ -108,8 +111,25 @@ describe("SlashCommandMenu description tooltip", () => {
     expect(picked).toEqual(["code-review"]);
   });
 
+  // The server sends descriptions uncapped, so the panel is height-bounded and scrolls.
+  // statusTip otherwise closes on any scroll — which would make an overlong description
+  // impossible to finish reading.
+  it("survives a scroll raised inside the panel, but still closes on a page scroll", async () => {
+    await renderOne("sentence. ".repeat(200).trim());
+    await hover(desc());
+    const panel = tip() as HTMLElement;
+    expect(panel.scrollHeight).toBeGreaterThan(panel.clientHeight); // actually overflowing
+
+    panel.dispatchEvent(new Event("scroll", { bubbles: false }));
+    await new Promise((r) => setTimeout(r, 30));
+    expect(tip()).not.toBeNull();
+
+    document.dispatchEvent(new Event("scroll", { bubbles: false }));
+    await vi.waitFor(() => expect(tip()).toBeNull());
+  });
+
   it("renders no description row — and no tooltip — for a command without one", async () => {
-    renderOne("");
+    await renderOne("");
     expect(desc()).toBeNull();
 
     // Plain dispatch, not the retrying `hover` helper — nothing is expected to open here.

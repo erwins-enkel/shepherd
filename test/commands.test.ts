@@ -2,7 +2,7 @@ import { test, expect, beforeEach, afterEach } from "bun:test";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { listCommands } from "../src/commands";
+import { listCommands, MAX_DESC } from "../src/commands";
 
 let userClaude: string;
 let repo: string;
@@ -219,9 +219,9 @@ test("Codex installed plugin cache exposes browsing inventory and namespaced ski
 test("over-long description is truncated with an ellipsis", () => {
   const long = mkdtempSync(join(tmpdir(), "shepherd-cmds-long-"));
   try {
-    command(long, "big.md", `---\ndescription: ${"x".repeat(400)}\n---\n`);
+    command(long, "big.md", `---\ndescription: ${"x".repeat(MAX_DESC + 120)}\n---\n`);
     const big = commands(null, long).find((c) => c.name === "big");
-    expect(big!.description.length).toBeLessThanOrEqual(280);
+    expect(big!.description.length).toBeLessThanOrEqual(MAX_DESC);
     expect(big!.description.endsWith("…")).toBe(true);
   } finally {
     rmSync(long, { recursive: true, force: true });

@@ -34,7 +34,7 @@ export interface SlashCommand {
 // payload guard. 600 covers the long skill front-matters (which routinely run past 280
 // and used to get cut mid-sentence in the tooltip) while still bounding a listing of
 // several hundred commands.
-const MAX_DESC = 600;
+export const MAX_DESC = 600;
 
 interface Frontmatter {
   name?: string;

@@ -150,5 +150,3 @@ export function createHoldReveal(opts: HoldRevealOptions) {
     onPointerdown,
   };
 }
-
-export type HoldReveal = ReturnType<typeof createHoldReveal>;

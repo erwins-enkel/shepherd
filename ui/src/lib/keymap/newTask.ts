@@ -13,9 +13,9 @@
 
 import { m } from "$lib/paraglide/messages";
 import { chordMatches, modLabel } from "./chord";
-import type { Chord, KeymapEntry, NewTaskKeymapCtx } from "./types";
+import type { Chord, KeymapEntry } from "./types";
 
-export const KEYMAP_ZONES = ["global", "prompt", "context", "options"] as const;
+const KEYMAP_ZONES = ["global", "prompt", "context", "options"] as const;
 
 export function zoneLabel(zone: (typeof KEYMAP_ZONES)[number]): string {
   switch (zone) {
@@ -332,5 +332,3 @@ export function keymapByZone(): { zone: (typeof KEYMAP_ZONES)[number]; entries: 
 export function allChords(): { id: string; chord: Chord }[] {
   return NEW_TASK_KEYMAP.flatMap((e) => e.chords.map((chord) => ({ id: e.id, chord })));
 }
-
-export type { KeymapEntry, NewTaskKeymapCtx };

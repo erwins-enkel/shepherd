@@ -48,12 +48,7 @@
 <!-- aria-hidden: decorative. The semantic source is aria-keyshortcuts on the
      control itself, which is present whether or not the reveal is showing. -->
 <span
-  class="cap"
-  class:absolute
-  class:tight
-  class:wide
-  class:muted
-  class:flash
+  class={["cap", { absolute, tight, wide, muted, flash }]}
   data-keymap={id}
   in:revealIn
   out:revealOut

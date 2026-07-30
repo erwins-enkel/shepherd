@@ -57,6 +57,29 @@ export async function resolveNodeHost(run: TailscaleRunner = defaultRun): Promis
 export type ServeState = "ok" | "failed";
 export type TailscaleRunnerSync = (args: string[]) => void;
 
+/**
+ * True when a `tailscale serve` mutation was refused because the calling user may not
+ * write serve config — tailscaled answers `Access denied: serve config denied` unless the
+ * caller is root or the configured `--operator`.
+ *
+ * WHY this gets its own signal instead of folding into the per-slot "failed" state: it is a
+ * HOST MISCONFIGURATION, not a per-slot hiccup. Every register in the preview range fails
+ * identically until someone runs `tailscale set --operator=`, so live preview is dark
+ * fleet-wide while the `tailscale` diagnostic — which only asserts the HUD's own port is
+ * served, and that mapping survives from before — keeps reporting ok. The result is a
+ * green dashboard over a feature that cannot work; `DiagnosticsService.tailscaleProbe`
+ * reads this to say so out loud.
+ *
+ * Matches only tailscaled's specific `serve config denied` wording, not a bare
+ * "access denied", so an unrelated failure can't be misreported as a permissions problem.
+ */
+export function isServeConfigDenied(err: unknown): boolean {
+  const e = err as { stderr?: unknown; message?: unknown } | null;
+  const stderr = typeof e?.stderr === "string" ? e.stderr : "";
+  const message = typeof e?.message === "string" ? e.message : "";
+  return /serve config denied/i.test(`${stderr}\n${message}`);
+}
+
 // Kept tight on purpose: a healthy local `tailscale serve … off` is sub-second, so this
 // only bites when tailscaled hangs — exactly when we want to bail fast on shutdown rather
 // than block `systemctl stop`. Anything skipped self-heals on the next boot's reconcile.
@@ -88,6 +111,9 @@ export interface TailscaleServeOpts {
 export class TailscaleServeService {
   private byId = new Map<string, { port: number; state: ServeState }>();
   private queue: Promise<void> = Promise.resolve();
+  /** Latched by any serve mutation refused for lack of operator/root rights; cleared by the
+   *  next mutation that succeeds. Surfaced via {@link permissionDenied}. */
+  private denied = false;
 
   constructor(private opts: TailscaleServeOpts) {}
 
@@ -115,8 +141,10 @@ export class TailscaleServeService {
       try {
         await this.run(["serve", "--bg", `--https=${port}`, `127.0.0.1:${port}`]);
         this.byId.set(id, { port, state: "ok" });
+        this.denied = false;
         this.fire(id, port, "ok");
       } catch (err) {
+        if (isServeConfigDenied(err)) this.denied = true;
         console.warn(`[tailscale-serve] register failed for ${id} port ${port}:`, err);
         this.byId.set(id, { port, state: "failed" });
         this.fire(id, port, "failed");
@@ -159,8 +187,12 @@ export class TailscaleServeService {
       for (let port = this.opts.base; port < this.opts.base + this.opts.count; port++) {
         try {
           await this.run(["serve", `--https=${port}`, "off"]);
-        } catch {
-          /* benign */
+        } catch (err) {
+          // Clearing a slot that holds no mapping is benign and expected. A PERMISSION
+          // refusal is not: latch it here so the `tailscale` diagnostic can report a
+          // denied host at boot, instead of staying green until someone opens a preview
+          // and discovers the feature is dark.
+          if (isServeConfigDenied(err)) this.denied = true;
         }
       }
     });
@@ -190,5 +222,19 @@ export class TailscaleServeService {
   snapshot(): Record<string, ServeState> {
     if (!this.opts.enabled) return {};
     return Object.fromEntries([...this.byId].map(([id, e]) => [id, e.state]));
+  }
+
+  /**
+   * True when the most recent serve mutation was refused for lack of operator/root
+   * rights (see {@link isServeConfigDenied}) — i.e. the host needs
+   * `tailscale set --operator=<user>` before any preview can be published.
+   *
+   * Reports OBSERVED failures only: a boot that has neither reconciled nor registered
+   * anything yet reads `false`, and so does a disabled service. `reconcileStartup`
+   * exercises the whole range at boot, so in practice the answer is available before
+   * the first preview opens.
+   */
+  permissionDenied(): boolean {
+    return this.denied;
   }
 }

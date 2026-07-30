@@ -497,6 +497,36 @@ describe("DiagnosticsService probes", () => {
     expect(c.state).toBe("warning");
     expect(c.hintKey).toBe("diagnostics_hint_tailscale_not_serving");
   });
+  // The regression this closes: a host that refuses Shepherd's serve-config writes usually
+  // STILL has a working HUD mapping (written earlier with root), so the serve-status read
+  // succeeds and the row used to report `ok` while every preview registration was denied —
+  // a green dashboard over a dead feature. healthyDeps() serves config.port, so this asserts
+  // the denial verdict wins over an otherwise-healthy status.
+  it("tailscale: warning when serve config is denied, even though config.port is served", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      previewServeDenied: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "tailscale");
+    expect(c.state).toBe("warning");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_serve_denied");
+  });
+  it("tailscale: not-logged-in still outranks a denial verdict", async () => {
+    const svc = new DiagnosticsService({
+      ...healthyDeps(),
+      resolveHost: async () => null,
+      previewServeDenied: () => true,
+    });
+    const c = byId((await svc.check(0)).checks, "tailscale");
+    expect(c.state).toBe("error");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_missing");
+  });
+  it("tailscale: ok when serve config is not denied (default dep keeps today's behavior)", async () => {
+    const svc = new DiagnosticsService({ ...healthyDeps(), previewServeDenied: () => false });
+    const c = byId((await svc.check(0)).checks, "tailscale");
+    expect(c.state).toBe("ok");
+    expect(c.hintKey).toBe("diagnostics_hint_tailscale_ok");
+  });
   it("tailscale: never forwards raw serve-status text", async () => {
     const secret = "SECRET-SERVE-LINE-127.0.0.1";
     const svc = new DiagnosticsService({

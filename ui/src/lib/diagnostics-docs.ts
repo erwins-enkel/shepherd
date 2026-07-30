@@ -9,6 +9,9 @@ export const DOC_LINKS: Record<string, string> = {
   diagnostics_hint_gh_not_authenticated: "https://cli.github.com/manual/gh_auth_login",
   diagnostics_hint_tailscale_missing: "https://tailscale.com/kb/1347/installation",
   diagnostics_hint_tailscale_not_serving: "https://tailscale.com/kb/1242/tailscale-serve",
+  // The --operator flag (the fix for a denied serve config) is documented on the
+  // `tailscale set` CLI page, not the serve page.
+  diagnostics_hint_tailscale_serve_denied: "https://tailscale.com/kb/1080/cli#set",
   // Shepherd's own operating guide (resource-guardrails section) carries a
   // copy-paste `set-property` remedy — far more actionable than the raw systemd
   // man page. Both host_capacity non-ok states point here. Anchor slug is coupled

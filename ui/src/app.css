@@ -127,11 +127,15 @@
 
   /* Fill for a hold-to-reveal keycap (New Task, see docs/design/keymap-10a).
      MUST be opaque: a keycap sits above the reveal scrim and has to overwrite
-     it, not tint through it. Derived rather than a literal so it tracks all
-     three themes — the handoff specified a dark-only #12100b, which would land
-     as a black block on the light surface. A 10% amber wash over the panel
-     keeps the warm cast the design asks for while staying theme-correct. */
-  --cap-bg: color-mix(in srgb, var(--color-amber) 10%, var(--color-panel));
+     it, not tint through it.
+
+     The handoff's value, used verbatim on the dark surface it was measured
+     against — amber #e8a13a on it is 8.7:1. It is overridden for light below,
+     because a near-black chip there is not merely off-palette: with light's
+     darker amber it drops to 4.2:1, and in light+high-contrast (amber #7a4a00)
+     to 2.5:1 — worse than half of AA, in the theme whose whole purpose is more
+     contrast. See the light block for the counterpart. */
+  --cap-bg: #12100b;
 
   --status-running: var(--color-amber);
   /* done = WAITING (finished turn, parked for the operator's next steer). It is
@@ -209,6 +213,16 @@
 
   --scrim: rgba(20, 28, 25, 0.42);
   --term-fg: #2b3633;
+
+  /* Keycap fill, light counterpart to the dark literal in :root. The panel
+     itself, opaque and theme-native: it beats the dark literal in both light
+     variants (4.3:1 vs 4.2:1 here, 7.1:1 vs 2.5:1 under high contrast) while
+     the amber border and text carry the warmth the design asks for. Inherited
+     by [data-theme="light"][data-contrast="high"], which does not restate it.
+     NOTE: 4.3:1 is the ceiling for ANY fill here — it is the light theme's
+     amber-on-panel relationship, shared with every other amber chip in the app,
+     not something the keycap introduces. */
+  --cap-bg: var(--color-panel);
 
   /* sRGB-blending a midtone red toward near-white muddies into a dusty pink
      that reads as consumer-chat softness, not an operator alarm. Hand-tune the

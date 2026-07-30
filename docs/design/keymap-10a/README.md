@@ -168,11 +168,23 @@ Registrierung der Kürzel: **eine Quelle**, z. B. `ui/src/lib/keymap/newTask.ts`
 | `--faint` / `--muted` / `--ink` / `--ink-bright` | `#4a5752` / `#7c8c86` / `#c4d0cb` / `#eef4f0`             | Textstufen                  |
 | `--amber`                                        | `#e8a13a`                                                 | Kappen, Primäraktion        |
 | `--green`                                        | `#5ad19a`                                                 | „bereit"                    |
-| _(neu)_ `--cap-bg`                               | `#12100b`                                                 | Kappenfüllung               |
+| _(neu)_ `--cap-bg`                               | `#12100b` (dark) · `var(--color-panel)` (light)[^2]       | Kappenfüllung               |
 | Scrim                                            | `rgba(10,13,12,0.55)`                                     | Dimmung                     |
 | Radius                                           | `2px` Controls/Kappen · `6px` Chips · **nie** Pill        |
 | Abstände                                         | 4 / 8 / 12 / 16 / 22                                      |
 | Schrift                                          | `"Berkeley Mono","JetBrains Mono",ui-monospace,monospace` |
+
+[^2]:
+    **Nachträgliche Ergänzung.** Der spezifizierte Wert `#12100b` bleibt im Dark-Theme
+    unverändert — dort ist er vermessen (Amber `#e8a13a` darauf ≈ 8,7:1). Für die
+    Light-Themes, die der Handoff nicht kennt, wird er überschrieben: mit Lights dunklerem
+    Amber fällt derselbe Kasten auf 4,2:1, unter Light+High-Contrast (Amber `#7a4a00`)
+    sogar auf **2,5:1** — weniger als die Hälfte von WCAG AA, ausgerechnet im Theme, das
+    mehr Kontrast herstellen soll. `var(--color-panel)` erreicht dort 4,3:1 bzw. 7,1:1 und
+    ist ebenfalls deckend (Bedingung, um den Scrim zu überschreiben). Die 4,3:1 im
+    Light-Theme sind die Obergrenze für _jede_ Füllung: das ist Lights
+    Amber-auf-Panel-Verhältnis, das alle Amber-Chips der App teilen, keine Eigenheit der
+    Kappe.
 
 ## Assets
 

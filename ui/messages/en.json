@@ -3445,6 +3445,8 @@
   "api_upload_invalid_response": "The upload server returned an invalid response",
   "feat_upload_progress_title": "See attachment upload progress",
   "feat_upload_progress_body": "New Task now shows progress and estimated time remaining for large attachments, and keeps Create & Run disabled until every upload is confirmed.",
+  "feat_command_desc_tooltip_title": "Read the full command description on hover",
+  "feat_command_desc_tooltip_body": "Slash-command and skill descriptions were clipped to one line, so you had to guess what a command did. Hover a description — in the command menu or the Commands tab — and the full text now opens in a tooltip.",
   "spawnnotice_tip_clamped": "Heads up: the plan was too large to send whole, so a slice of its middle was removed to fit the operating system's argument limit. The review ran on the shortened copy. {detail}",
   "spawnnotice_tip_failed": "No review ran: the prompt exceeded the operating system's argument limit and Shepherd refused to send a gutted one. {detail}",
   "spawnnotice_plan_failed_title": "Plan review could not start",

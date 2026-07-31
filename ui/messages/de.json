@@ -3445,6 +3445,8 @@
   "api_upload_invalid_response": "Der Upload-Server hat eine ungültige Antwort geliefert",
   "feat_upload_progress_title": "Upload-Fortschritt für Anhänge sehen",
   "feat_upload_progress_body": "Neue Aufgabe zeigt jetzt Fortschritt und geschätzte Restzeit für große Anhänge und hält Erstellen & Starten deaktiviert, bis jeder Upload bestätigt ist.",
+  "feat_command_desc_tooltip_title": "Vollständige Befehlsbeschreibung beim Überfahren lesen",
+  "feat_command_desc_tooltip_body": "Beschreibungen von Slash-Befehlen und Skills waren auf eine Zeile beschnitten — man musste raten, was ein Befehl tut. Fahre jetzt mit der Maus über eine Beschreibung, im Befehlsmenü oder im Commands-Tab, und der vollständige Text erscheint als Tooltip.",
   "spawnnotice_tip_clamped": "Hinweis: Der Plan war zu groß, um vollständig übergeben zu werden; ein Teil aus seiner Mitte wurde entfernt, damit er unter das Argumentlimit des Betriebssystems passt. Das Review lief mit der gekürzten Fassung. {detail}",
   "spawnnotice_tip_failed": "Kein Review gelaufen: Der Prompt überschritt das Argumentlimit des Betriebssystems, und Shepherd hat es abgelehnt, eine ausgedünnte Fassung zu schicken. {detail}",
   "spawnnotice_plan_failed_title": "Plan-Review konnte nicht starten",

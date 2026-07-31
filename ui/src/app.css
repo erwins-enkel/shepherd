@@ -630,6 +630,22 @@ a.issue-list-title:hover {
   display: none;
 }
 
+/* Prose variant (`wide: true`) for multi-sentence bodies — a slash-command/skill
+   description runs several hundred characters, which stacks into an unreadable
+   ~20-line column at the 260px status width. Same specificity as the base rule,
+   so it must stay *after* it to win.
+
+   The height bound is what lets the *server* send descriptions uncapped: instead of
+   clipping the sentence into a "…" nobody can finish, an outsized blurb keeps every
+   word and scrolls. (statusTip ignores scroll events raised inside the panel, so
+   this overflow is actually usable — see its onScrollOrResize.) */
+.status-tip-wide[popover] {
+  max-width: min(420px, 90vw);
+  max-height: min(60vh, 460px);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 /* Actionable dialog (critic Open PR): a click-pinned column of explanation + link. */
 .status-tip-dialog[popover]:popover-open {
   display: flex;

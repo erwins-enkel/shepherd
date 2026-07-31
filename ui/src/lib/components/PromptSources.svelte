@@ -4,6 +4,7 @@
   import { getCommands } from "$lib/api";
   import type { Issue, SlashCommand, Steer } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { statusTip } from "$lib/actions/statusTip.svelte";
   import {
     commandInsertable,
     commandInvocation,
@@ -351,7 +352,18 @@
           >
             <span class="row-marker">{marker(c)}</span>
             <span class="cmd-name">{c.name}</span>
-            <span class="row-text cmd-desc">{c.description}</span>
+            <!-- Same one-line clamp as the slash menu, same escape hatch: hover reveals
+                 the full description. Click propagation must survive — the pick handler
+                 sits on the enclosing button. -->
+            <span
+              class="row-text cmd-desc"
+              use:statusTip={{
+                text: c.description,
+                still: true,
+                wide: true,
+                stopClickPropagation: false,
+              }}>{c.description}</span
+            >
             <span class="chip">{providerBadge(c)}</span>
             {#if c.scope === "user"}<span class="chip">user</span>{/if}
           </button>

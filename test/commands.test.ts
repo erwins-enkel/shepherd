@@ -216,13 +216,16 @@ test("Codex installed plugin cache exposes browsing inventory and namespaced ski
   });
 });
 
-test("over-long description is truncated with an ellipsis", () => {
+// The row's hover tooltip renders this value, so a server-side cap would be text the
+// reader is silently denied — long skill front-matters must arrive whole.
+test("a long description is delivered in full, never clipped", () => {
   const long = mkdtempSync(join(tmpdir(), "shepherd-cmds-long-"));
+  const blurb = "sentence. ".repeat(200).trim(); // ~2 KB, well past any real front-matter
   try {
-    command(long, "big.md", `---\ndescription: ${"x".repeat(400)}\n---\n`);
+    command(long, "big.md", `---\ndescription: ${blurb}\n---\n`);
     const big = commands(null, long).find((c) => c.name === "big");
-    expect(big!.description.length).toBeLessThanOrEqual(280);
-    expect(big!.description.endsWith("…")).toBe(true);
+    expect(big!.description).toBe(blurb);
+    expect(big!.description.endsWith("…")).toBe(false);
   } finally {
     rmSync(long, { recursive: true, force: true });
   }

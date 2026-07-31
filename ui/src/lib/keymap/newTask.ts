@@ -97,6 +97,9 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     zone: "prompt",
     chords: [],
     literal: () => "#",
+    // A printable character is its own ARIA key name. Needed because `chords` is
+    // empty (nothing to intercept), yet the prompt still has to name the key.
+    ariaKeys: ["#"],
     label: () => m.keymap_issue_token(),
     anchor: "PROMPT label row",
     enabled: always,
@@ -107,6 +110,7 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     zone: "prompt",
     chords: [],
     literal: () => "/",
+    ariaKeys: ["/"],
     label: () => m.keymap_command_token(),
     anchor: "PROMPT label row",
     enabled: always,
@@ -188,7 +192,7 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     chords: [{ code: "KeyF", mod: true }],
     label: () => m.keymap_issue_filter(),
     anchor: "Filter chip",
-    enabled: (c) => c.sourcesMounted && c.issueListReady,
+    enabled: (c) => c.issueFilterReady,
     run: (c) => c.openIssueFilter(),
   },
   {
@@ -197,7 +201,7 @@ export const NEW_TASK_KEYMAP: KeymapEntry[] = [
     chords: [{ code: "KeyT", alt: true }],
     label: () => m.keymap_sources_tab(),
     anchor: "Issues/Commands switch",
-    enabled: (c) => c.sourcesMounted,
+    enabled: (c) => c.sourcesTabReady,
     run: (c) => c.toggleSourcesTab(),
   },
   {

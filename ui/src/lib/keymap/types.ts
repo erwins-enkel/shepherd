@@ -57,9 +57,19 @@ export interface NewTaskKeymapCtx {
   desktop: boolean;
   /** Mode is forced by a relaunch/edit-held seed — the mode segment is locked. */
   modeLocked: boolean;
-  /** The PromptSources side list is mounted (desktop + issues allowed). */
-  sourcesMounted: boolean;
-  /** The side list is showing the Issues tab and has at least one row. */
+  /** The side list's tab switch will actually flip (mounted + Issues allowed).
+   *
+   *  These three are deliberately "will the action do something", not "is the
+   *  panel around". The side list mounts only with a repo on the desktop rail,
+   *  and its filter and rows exist only on the Issues tab — so a flag that meant
+   *  merely "mounted" would light ⌘F and ↑↓ on the Commands tab, where they
+   *  advertise a key that no-ops. PromptSources answers each one from its own
+   *  render conditions; NewTask forwards the answer. */
+  sourcesTabReady: boolean;
+  /** The issue-filter popover is mounted, so ⌘F has something to open. */
+  issueFilterReady: boolean;
+  /** At least one FOCUSABLE issue row exists, so ↑↓ lands somewhere. Not the
+   *  same as "the list is non-empty": epic-parent rows aren't focusable. */
   issueListReady: boolean;
   /** MicButton decided the browser can dictate (it hides itself otherwise). */
   micAvailable: boolean;

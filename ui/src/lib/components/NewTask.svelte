@@ -1200,8 +1200,13 @@
     canSubmit: readiness.canSubmit,
     desktop: !mobile,
     modeLocked,
-    sourcesMounted: !mobile && !relaunch,
-    issueListReady: !mobile && issueData.issues.length > 0,
+    // Asked of the live component, not re-derived from props: `sources` is bound
+    // only by the desktop rail's instance (the mobile sheet's is unbound), so an
+    // absent panel answers `false` for free — and the tab-dependent rows can't
+    // drift from the conditions that actually render their controls.
+    sourcesTabReady: sources?.tabsReady() ?? false,
+    issueFilterReady: sources?.filterReady() ?? false,
+    issueListReady: sources?.listReady() ?? false,
     micAvailable: mic?.available() ?? false,
     uploading: hasOutstandingUploads,
 
@@ -1245,6 +1250,15 @@
   function shortcutAttr(id: string): string | undefined {
     const entry = keymapEntry(id);
     return entry.ariaKeys?.join(" ") ?? ariaKeyshortcuts(entry.chords, isMac);
+  }
+
+  /** `aria-keyshortcuts` for several rows on ONE control. The attribute is a
+   *  space-separated list, and the prompt is the only control the `#`, `/` and
+   *  paste rows can hang off — their keycaps sit on the label row, which is a
+   *  <label>, not something assistive tech can land on. */
+  function shortcutAttrAll(...ids: string[]): string | undefined {
+    const keys = ids.flatMap((id) => shortcutAttr(id)?.split(" ") ?? []).filter(Boolean);
+    return keys.length ? [...new Set(keys)].join(" ") : undefined;
   }
 
   // Form-level keydown: the single dispatch point for the whole dialog.
@@ -1715,7 +1729,12 @@
                   data-1p-ignore
                   rows="3"
                   aria-label={m.newtask_prompt_label()}
-                  aria-keyshortcuts={shortcutAttr("focus-prompt")}
+                  aria-keyshortcuts={shortcutAttrAll(
+                    "focus-prompt",
+                    "issue-token",
+                    "command-token",
+                    "paste-image",
+                  )}
                   placeholder={m.newtask_prompt_placeholder()}
                   oninput={onPromptInput}
                   onkeydown={onPromptKeydown}

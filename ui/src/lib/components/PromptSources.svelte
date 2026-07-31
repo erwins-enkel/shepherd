@@ -146,6 +146,32 @@
     rows()[0]?.focus();
   }
 
+  // ── Readiness accessors: does the matching action above actually DO anything?
+  //
+  // A host binding a shortcut needs this to decide between a live and a muted
+  // keycap — advertising a key that no-ops is worse than showing it dimmed. Each
+  // one restates the render condition of the control it targets, so they live
+  // here (next to those conditions) rather than being re-derived by the host
+  // from props it would have to keep in sync. All read reactive state, so
+  // callers may use them inside $derived — same contract as MicButton.available().
+
+  /** The issue-filter popover is mounted, so `openFilter()` will open it. */
+  export function filterReady() {
+    return allowIssues && tab === "issues" && issues.length > 0;
+  }
+
+  /** The tab switch can flip — `toggleTab()` no-ops without the Issues tab. */
+  export function tabsReady() {
+    return allowIssues;
+  }
+
+  /** At least one focusable issue row exists, so `focusList()` lands somewhere.
+   *  Keys off `firstPickable`, not `issues.length`: a list of nothing but epic
+   *  parents renders rows that are plain <div>s and cannot take focus. */
+  export function listReady() {
+    return allowIssues && tab === "issues" && firstPickable !== undefined;
+  }
+
   /** The pickable rows, in visual order. Epic-parent rows are <div>s and the
    *  "N more" expander is outside .ps-rows, so both fall out naturally. */
   function rows(): HTMLElement[] {

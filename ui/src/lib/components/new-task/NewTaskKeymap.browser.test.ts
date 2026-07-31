@@ -290,6 +290,33 @@ describe("aria-keyshortcuts", () => {
     for (const sw of switches) expect(sw.getAttribute("aria-keyshortcuts")).toBeTruthy();
   });
 
+  it("announces the prompt's #, / and paste keys on the textarea", async () => {
+    // Regression: those three rows anchor to the PROMPT label row, which is a
+    // <label> — decoration only. Their keycaps are aria-hidden, so before this
+    // the keys existed for sighted mouse-free users and nobody else. The prompt
+    // is the control they all act on, and aria-keyshortcuts takes a list.
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await vi.waitFor(() => expect(document.querySelector("#nt-prompt")).toBeTruthy());
+
+    const keys = (document.querySelector("#nt-prompt")!.getAttribute("aria-keyshortcuts") ?? "")
+      .split(" ")
+      .filter(Boolean);
+    expect(keys).toContain("#");
+    expect(keys).toContain("/");
+    // Accepts either spelling: the primary modifier is Meta on macOS and
+    // Control elsewhere, and this suite runs on whatever the runner reports.
+    expect(
+      keys.some((k) => /^(Meta|Control)\+V$/.test(k)),
+      keys.join(" "),
+    ).toBe(true);
+    expect(
+      keys.some((k) => /^(Meta|Control)\+P$/.test(k)),
+      keys.join(" "),
+    ).toBe(true);
+    // No duplicates — the attribute is a set, not a concatenation.
+    expect(new Set(keys).size).toBe(keys.length);
+  });
+
   it("names arrow navigation with ARIA key names, not the ↑↓ glyph", async () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
@@ -343,6 +370,47 @@ describe("key sheet (?)", () => {
     expect(document.querySelector(".ks-scrim")).toBeTruthy();
     expect(sheet()!.getAttribute("aria-modal")).toBe("true");
     expect(sheet()!.getAttribute("role")).toBe("dialog");
+  });
+
+  it("dims ⌘F and ↑↓ in the card once the side list shows Commands", async () => {
+    // Regression: enablement rode on "the side panel is mounted", which stays
+    // true across a tab flip. On the Commands tab the filter chip and the issue
+    // rows are not rendered, so ⌘F and ↑↓ were still listed as available, were
+    // still swallowed from the browser (suppressing native Find), and then ran
+    // against an undefined target — a key advertised as live that does nothing.
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
+
+    const openSheet = async () => {
+      form().dispatchEvent(
+        new KeyboardEvent("keydown", { key: "?", code: "Slash", shiftKey: true, bubbles: true }),
+      );
+      await vi.waitFor(() => expect(sheet()).toBeTruthy());
+    };
+    const rowFor = (label: string) =>
+      Array.from(sheet()!.querySelectorAll<HTMLElement>(".ks-row")).find((r) =>
+        r.textContent?.includes(label),
+      );
+
+    await openSheet();
+    expect(rowFor(m.keymap_issue_filter())?.classList.contains("dim"), "⌘F on Issues").toBe(false);
+    expect(rowFor(m.keymap_list_nav())?.classList.contains("dim"), "↑↓ on Issues").toBe(false);
+
+    sheet()!.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+    await vi.waitFor(() => expect(sheet()).toBeNull());
+
+    const commandsTab = Array.from(document.querySelectorAll<HTMLElement>(".tab")).find(
+      (t) => t.textContent?.trim() === m.promptsources_commands_tab(),
+    );
+    expect(commandsTab, "no Commands tab rendered").toBeTruthy();
+    commandsTab!.click();
+    await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeNull());
+
+    await openSheet();
+    expect(rowFor(m.keymap_issue_filter())?.classList.contains("dim"), "⌘F on Commands").toBe(true);
+    expect(rowFor(m.keymap_list_nav())?.classList.contains("dim"), "↑↓ on Commands").toBe(true);
+    // The tab switch itself still acts, so it must stay live.
+    expect(rowFor(m.keymap_sources_tab())?.classList.contains("dim"), "⌥T").toBe(false);
   });
 
   it("does not open when `?` is typed into the prompt", async () => {

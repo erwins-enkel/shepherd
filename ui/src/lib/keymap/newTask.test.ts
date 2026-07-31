@@ -10,7 +10,8 @@ function stubCtx(overrides: Partial<NewTaskKeymapCtx> = {}): NewTaskKeymapCtx {
     canSubmit: true,
     desktop: true,
     modeLocked: false,
-    sourcesMounted: true,
+    sourcesTabReady: true,
+    issueFilterReady: true,
     issueListReady: true,
     micAvailable: true,
     uploading: false,
@@ -167,9 +168,45 @@ describe("enabled", () => {
   });
 
   it("dims the side-list rows when the list is absent", () => {
-    const gone = stubCtx({ sourcesMounted: false, issueListReady: false });
+    const gone = stubCtx({
+      sourcesTabReady: false,
+      issueFilterReady: false,
+      issueListReady: false,
+    });
     for (const id of ["issue-filter", "sources-tab", "list-nav", "list-pick"]) {
       expect(keymapEntry(id).enabled(gone), `${id} should be disabled`).toBe(false);
+    }
+  });
+
+  it("dims ⌘F and ↑↓ on the Commands tab, where their targets do not exist", () => {
+    // Regression: these used to ride on a "the panel is mounted" flag, so the
+    // Commands tab advertised a filter and a row list that aren't rendered
+    // there — a live keycap and an aria-keyshortcuts for a key that no-ops.
+    const commandsTab = stubCtx({
+      sourcesTabReady: true, // the tab switch itself still works…
+      issueFilterReady: false, // …but the filter chip is Issues-only
+      issueListReady: false, // …and so are the rows
+    });
+    expect(keymapEntry("issue-filter").enabled(commandsTab)).toBe(false);
+    expect(keymapEntry("list-nav").enabled(commandsTab)).toBe(false);
+    expect(keymapEntry("list-pick").enabled(commandsTab)).toBe(false);
+    expect(keymapEntry("sources-tab").enabled(commandsTab)).toBe(true);
+  });
+
+  it("keeps ⌘F independent of row focusability", () => {
+    // A list of nothing but epic parents renders the filter but no focusable
+    // row, so the two flags are genuinely separate — one must not gate the other.
+    const parentsOnly = stubCtx({ issueFilterReady: true, issueListReady: false });
+    expect(keymapEntry("issue-filter").enabled(parentsOnly)).toBe(true);
+    expect(keymapEntry("list-nav").enabled(parentsOnly)).toBe(false);
+  });
+
+  it("gives every anchored row an ARIA-nameable key", () => {
+    // Regression: `#`, `/` and ⌘V carry no dispatchable chord, so a row without
+    // `ariaKeys` had nothing to put in aria-keyshortcuts and went unannounced.
+    for (const entry of NEW_TASK_KEYMAP.filter((e) => e.anchor !== null)) {
+      const nameable = (entry.ariaKeys?.length ?? 0) > 0 || entry.chords.length > 0;
+      expect(nameable, `${entry.id} has no chord and no ariaKeys`).toBe(true);
     }
   });
 

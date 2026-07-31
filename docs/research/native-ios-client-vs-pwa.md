@@ -491,10 +491,10 @@ das heute schon.
 **Die App könnte einfach in den Browser verlinken, dann ist die Login-Frage gelöst.** Nein, nicht
 mit `SFSafariViewController`: Apple dokumentiert ausdrücklich, dass dessen Web-Sitzung von der App
 isoliert ist („You don't need to secure data between your app and Safari"). Der Nutzer müsste sich
-dort erneut anmelden. Der funktionierende Weg ist `WKWebView` plus
-`WKHTTPCookieStore.setCookie` (iOS 11+): Die App meldet sich einmal per Token an und injiziert das
-`shepherd_session`-Cookie selbst in die WebView. Das ist der technisch richtige Bauplan für die
-Hybrid-Idee — nur eben mit dem Push-Verlust aus Abschnitt 4.
+dort erneut anmelden, und die App kann nichts dagegen tun. Der funktionierende Weg ist `WKWebView`,
+dessen Cookie-Jar der App gehört (`WKHTTPCookieStore`, iOS 11+) und über App-Starts hinweg
+persistiert. Wie die Sitzung dort genau hineinkommt, ist allerdings nicht trivial — siehe
+Abschnitt 7 D.
 
 ---
 
@@ -565,14 +565,44 @@ gibt es keinen Grund, C statt B zu wählen.
 ### D — Hybrid: native Hülle + eingebettete Web-Views
 
 Das ist die Variante aus der ursprünglichen Frage — „kann initial nicht alles, verlinkt aber auf
-die Webseiten". Technisch der richtige Bauplan dafür steht in Abschnitt 6: **nicht**
-`SFSafariViewController` (eigener Cookie-Jar → zweiter Login), sondern `WKWebView` plus
-`WKHTTPCookieStore.setCookie`.
+die Webseiten". `SFSafariViewController` scheidet aus (eigener, für die App unerreichbarer
+Cookie-Jar → garantiert zweiter Login). Bleibt `WKWebView`.
 
 Realistisch nativ wären: Session-Liste mit Status, Terminal, Compose/Steer, Push, Diktat. Alles
 Übrige — Diff-Ansicht (`@pierre/diffs` + `shiki`), PR-Dashboard, Backlog/Epics, Settings, Plugin-UI —
 bliebe Web-View. Das ist ein ehrlicher, funktionierender Zuschnitt. Es ist nur der Weg mit den
 **addierten** Kosten: der zweite Client aus A **plus** die App-Store-Tretmühle aus B.
+
+#### Die Authentifizierung ist dabei der unangenehme Teil
+
+Shepherd kennt heute **zwei getrennte Credentials**, und sie sind nicht ineinander überführbar:
+
+- Das **Session-Cookie** `shepherd_session` (HMAC-signiert) wird **ausschließlich** von
+  `POST /api/login` ausgestellt, und dieser Handler verifiziert allein ein **Passwort** gegen
+  `config.passwordHash` (`src/server.ts:796-821`). Einen Token-Login gibt es nicht.
+- Der **Bearer-Token** `SHEPHERD_TOKEN` authentifiziert HTTP-Requests und WS-Upgrades am zentralen
+  Gate (`src/server.ts:705-718`) — aber er erzeugt **kein** Cookie. Der Sliding-Window-Restamp
+  greift nur bei bereits cookie-authentifizierten Requests; token-authentifizierte lässt er
+  ausdrücklich unangetastet (`src/server.ts:722-730`).
+
+Ein nativer Shell, der sich per Token verbindet, kann die WebView also **nicht** einfach
+mitautorisieren. Drei gangbare Wege, keiner davon geschenkt:
+
+| Weg                                                                                                                                                                                | Server-Änderung | Haken                                                                                                 |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- | ----------------------------------------------------------------------------------------------------- |
+| **1.** App hält das **Operator-Passwort** (Keychain/Face ID), ruft selbst `POST /api/login`, liest `Set-Cookie` aus der Antwort und injiziert es per `WKHTTPCookieStore.setCookie` | keine           | Die App verwahrt das Passwort statt eines widerrufbaren Tokens — sicherheitstechnisch ein Rückschritt |
+| **2.** Die WebView meldet sich **selbst** einmal an (die SPA rendert ihre Login-View); ihr Cookie-Jar persistiert über App-Starts                                                  | keine           | Zwei Credentials nebeneinander: Passwort für die WebView, Token für den nativen Teil                  |
+| **3.** Ein neuer Endpunkt tauscht einen gültigen Bearer-Token gegen ein Session-Cookie                                                                                             | **ja**, klein   | Der sauberste Weg — aber eben eine Server-Änderung, die es heute nicht gibt                           |
+
+Für einen ernsthaften Hybrid wäre **Weg 3** die richtige Wahl: ein Handler, der bei bestehender
+Token-Auth `signCookie(config.cookieSecret)` ausstellt — die Bausteine dafür liegen alle schon in
+`src/operator-auth.ts`. Das ist wenig Code, aber es gehört in die Aufwandsschätzung, statt als
+gelöst angenommen zu werden.
+
+_(Noch zu verifizieren, falls es je gebaut wird: `shepherd_session` ist `HttpOnly`. Das blockiert
+nur den JavaScript-Zugriff über `document.cookie`, nicht native Cookie-Store-APIs — dass
+`WKHTTPCookieStore.setCookie` ein aus Response-Headern geparstes `HttpOnly`-Cookie samt Attribut
+übernimmt, sollte man am Gerät prüfen, bevor man darauf baut.)_
 
 ### Nicht empfohlen: Wrapper-Dienste
 
@@ -630,9 +660,11 @@ Was die Belege **nicht** hergeben, ist eine Zahl, die die Frage entscheidet.
 Sollte die Entscheidung anders ausfallen, ist der Bauplan aus dieser Recherche eindeutig:
 
 - **Nicht** von Grund auf nativ, sondern **Hybrid**: native Hülle mit nativer Session-Liste,
-  nativem Terminal (SwiftTerm) und nativem Push; alles andere in einer `WKWebView`, in die die App
-  per `WKHTTPCookieStore.setCookie` das `shepherd_session`-Cookie injiziert, damit kein zweiter
-  Login entsteht.
+  nativem Terminal (SwiftTerm) und nativem Push; alles andere in einer `WKWebView`.
+- **Vorher den Server um einen Token→Cookie-Tausch erweitern** (Abschnitt 7 D). Ohne das gibt es
+  keinen sauberen Einmal-Login: `POST /api/login` akzeptiert heute nur ein Passwort, und ein
+  Bearer-Token erzeugt kein Session-Cookie. Andernfalls muss die App entweder das Operator-Passwort
+  verwahren oder zwei Credentials nebeneinander führen.
 - **Als Erstes den Push-Relay klären, nicht das Terminal.** Das Terminal ist ein Wochenende, der
   Relay ist eine Dauerverpflichtung. Wer mit dem Terminal anfängt, baut den einfachen Teil und
   entdeckt die eigentliche Entscheidung zu spät.
@@ -751,7 +783,9 @@ Sollte die Entscheidung anders ausfallen, ist der Bauplan aus dieser Recherche e
 **Code-Belege in diesem Repo**
 
 `src/pty-bridge.ts:42` · `src/pty-demux.mjs:20` · `src/socket-pty-bridge.ts` · `src/server.ts:705`
-(Auth-Seam), `:7757` (PTY-Owner), `:7793` (WS-Upgrade), `:7418` (Routen) · `src/push.ts:15`
+(Auth-Seam), `:722-730` (Restamp nur bei Cookie-Auth), `:796-821` (`handleLogin` — nur Passwort),
+`:7757` (PTY-Owner), `:7793` (WS-Upgrade), `:7418` (Routen) · `src/operator-auth.ts:66`
+(`signCookie`) · `src/push.ts:15`
 (18 Push-Arten), `:386` (VAPID-Selbstprovisionierung) · `src/config.ts:548` (Loopback-Bind) ·
 `src/validate.ts:928` (Origin-Klassifikation) · `ui/src/lib/pty.ts:97` · `ui/src/lib/pwa.ts:5` ·
 `ui/src/lib/dictation.svelte.ts:9` · `ui/src/lib/store.svelte.ts:65`, `:1031` ·

@@ -317,6 +317,29 @@ describe("aria-keyshortcuts", () => {
     expect(new Set(keys).size).toBe(keys.length);
   });
 
+  it("carries ⌘↵ on the dual CTA too, cap and all", async () => {
+    // Regression: the dual CTA is a whole separate branch of the submit button,
+    // and it had neither the cap nor aria-keyshortcuts — so in the one state
+    // where the button is ambiguous, the key that resolves it was invisible.
+    render(NewTask, {
+      props: { onsubmit: vi.fn(), initialRepoPath: repo.path, holdLikely: true },
+    });
+    await vi.waitFor(() => expect(document.querySelector(".run-dual")).toBeTruthy());
+
+    const hold = document.querySelector<HTMLElement>(".run-hold")!;
+    // Same spelling the ordinary CTA gets — both come from the `submit` row.
+    expect(hold.getAttribute("aria-keyshortcuts") ?? "").toMatch(/^(Meta|Control)\+Enter$/);
+    // "Submit anyway" forces past the hold; ⌘↵ does not, so it must NOT claim it.
+    expect(
+      document.querySelector(".run-anyway")?.getAttribute("aria-keyshortcuts") ?? null,
+    ).toBeNull();
+
+    await holdModifier();
+    expect(hold.querySelector('[data-keymap="submit"]'), "no cap on the dual CTA").toBeTruthy();
+    // …and still exactly one submit cap in the dialog, not one per branch.
+    expect(document.querySelectorAll('[data-keymap="submit"]')).toHaveLength(1);
+  });
+
   it("names arrow navigation with ARIA key names, not the ↑↓ glyph", async () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
@@ -422,6 +445,43 @@ describe("key sheet (?)", () => {
     prompt.focus();
     prompt.dispatchEvent(
       new KeyboardEvent("keydown", { key: "?", code: "Slash", shiftKey: true, bubbles: true }),
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sheet()).toBeNull();
+  });
+
+  it("does not open when `?` is typed into the prompt while the reveal is up", async () => {
+    // The spec makes the text-field rule absolute: `?` opens the card only when
+    // focus is NOT in a text/textarea field (README → "Textfelder"). There is no
+    // held exception — in a text field `?` is a character, overlay or not.
+    render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
+    await vi.waitFor(() => expect(form()).toBeTruthy());
+    await holdModifier();
+
+    const prompt = document.querySelector<HTMLTextAreaElement>("#nt-prompt")!;
+    prompt.focus();
+    // The modifier is released first: `?` is Shift+/, and a `?` still carrying
+    // the primary modifier is a different chord entirely.
+    key("keyup", { key: "Control", code: "ControlLeft" });
+    prompt.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "?", code: "Slash", shiftKey: true, bubbles: true }),
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    expect(sheet()).toBeNull();
+
+    // And with the modifier still down, which is the other half of "while the
+    // reveal is up": Ctrl+? is not the `?` chord at all, so it must not open
+    // the card either — nor leave the overlay claiming it would.
+    await holdModifier();
+    prompt.focus();
+    prompt.dispatchEvent(
+      new KeyboardEvent("keydown", {
+        key: "?",
+        code: "Slash",
+        shiftKey: true,
+        ctrlKey: true,
+        bubbles: true,
+      }),
     );
     await new Promise((r) => setTimeout(r, 60));
     expect(sheet()).toBeNull();

@@ -1269,10 +1269,11 @@
     const entry = matchKeymap(e, isMac);
     if (!entry?.run) return;
 
-    // `?` must not fight the prompt: typing it into a text field is text, not a
-    // command. It stays reachable there via ⌘-hold, which is a deliberate
-    // gesture rather than a character.
-    if (entry.id === "sheet" && isTextTarget(e.target) && !held) return;
+    // `?` must not fight the prompt: in a text field it is a character, not a
+    // command — with no exception for the reveal being up. The spec states the
+    // rule absolutely (README → "Textfelder"), and `?` is reachable from a text
+    // field anyway: Escape or a click leaves it, and the card is one key away.
+    if (entry.id === "sheet" && isTextTarget(e.target)) return;
 
     // Swallow the chord even when the action is unavailable — letting a disabled
     // ⌘G fall through to the browser's "find again" would be worse than nothing.
@@ -2136,13 +2137,21 @@
           </button>
         {:else if showDualCta}
           <div class="run-dual">
+            <!-- ⌘↵ lands here, not on "submit anyway": the registry's `submit`
+                 row calls submit() with force defaulting to false, which is
+                 exactly this button. Only the button the key actually presses
+                 may claim it — advertising it on both would be a lie on one. -->
             <button
               class="run run-hold"
               type="button"
+              aria-keyshortcuts={shortcutAttr("submit")}
               disabled={!readiness.canSubmit}
               onclick={(e) => submit(e, false)}
             >
               <span>{submitting ? m.newtask_spawning() : m.newtask_hold_for_reset()}</span>
+              {#if held}
+                <Keycap id="submit" ctx={keymapCtx} flash={hold.flash === "submit"} />
+              {/if}
             </button>
             <button
               class="run run-anyway"

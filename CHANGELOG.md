@@ -1,5 +1,48 @@
 # Changelog
 
+## [1.46.0](https://github.com/erwins-enkel/shepherd/compare/v1.45.0...v1.46.0) (2026-07-31)
+
+
+### Features
+
+* **backlog:** active filter chip picks the opened tab ([#1943](https://github.com/erwins-enkel/shepherd/issues/1943)) ([1d6b5f2](https://github.com/erwins-enkel/shepherd/commit/1d6b5f26816be9635234d62aa2ddf78bffb7123c))
+* **commands:** reveal the full command description in a hover tooltip ([#1975](https://github.com/erwins-enkel/shepherd/issues/1975)) ([2c7afed](https://github.com/erwins-enkel/shepherd/commit/2c7afed30f000b75a3241047c966119ac0671c5c))
+* **models:** let operators pin Claude Opus 5 exactly ([#1937](https://github.com/erwins-enkel/shepherd/issues/1937)) ([aecf696](https://github.com/erwins-enkel/shepherd/commit/aecf696948f7cd6c5d988c69ece5d1395b68014c))
+* **plugin-ui:** editable plugin settings — input nodes + ctx.setConfig ([#1961](https://github.com/erwins-enkel/shepherd/issues/1961)) ([#1966](https://github.com/erwins-enkel/shepherd/issues/1966)) ([69a1af3](https://github.com/erwins-enkel/shepherd/commit/69a1af3e6084e2e93838fbbcfbeceb2a37c271ae))
+* **plugins:** expose a curated session reader on ctx ([#1958](https://github.com/erwins-enkel/shepherd/issues/1958)) ([#1959](https://github.com/erwins-enkel/shepherd/issues/1959)) ([843ae37](https://github.com/erwins-enkel/shepherd/commit/843ae370803b1f7fc924b6228367975c8483d53b))
+* **preview:** detect dev servers on macOS via an lsof probe backend ([#1921](https://github.com/erwins-enkel/shepherd/issues/1921)) ([4b2b868](https://github.com/erwins-enkel/shepherd/commit/4b2b868c63d12d87573e2f80c3a5a8f7513d5426))
+* **ui:** collapse new-task modal to keyboard-aware compose state (7A) ([#1926](https://github.com/erwins-enkel/shepherd/issues/1926)) ([45326ea](https://github.com/erwins-enkel/shepherd/commit/45326eab9ffc7495eaa93884a53ad2f95d6d4038))
+* **ui:** give steers their own settings section ([#1928](https://github.com/erwins-enkel/shepherd/issues/1928)) ([4755709](https://github.com/erwins-enkel/shepherd/commit/47557099970347004780b46537565e6979b86acf))
+* **ui:** redesign steers settings section (9c token-field scoping + autosave) ([#1935](https://github.com/erwins-enkel/shepherd/issues/1935)) ([a3ef5b2](https://github.com/erwins-enkel/shepherd/commit/a3ef5b22abdb51e040afa291cbe1e96ba2fa11b9))
+* **ui:** show attachment upload progress when creating tasks ([#1952](https://github.com/erwins-enkel/shepherd/issues/1952)) ([eb143b9](https://github.com/erwins-enkel/shepherd/commit/eb143b90e0b204e8629fb75da9be2dc04451b77b))
+
+
+### Bug Fixes
+
+* **codex:** read reviewer activity + token usage from Codex rollouts ([#1816](https://github.com/erwins-enkel/shepherd/issues/1816)) ([#1930](https://github.com/erwins-enkel/shepherd/issues/1930)) ([a190e1e](https://github.com/erwins-enkel/shepherd/commit/a190e1ec90cce2666430cd81b962045fdc0680fb))
+* hydrate persisted session card state ([#1929](https://github.com/erwins-enkel/shepherd/issues/1929)) ([6113b49](https://github.com/erwins-enkel/shepherd/commit/6113b4991eb2d2bbed69728f9e0ce847cc9be575))
+* **newtask:** cover the strip above the mobile keyboard, make attach readable ([#1950](https://github.com/erwins-enkel/shepherd/issues/1950)) ([dfb9554](https://github.com/erwins-enkel/shepherd/commit/dfb9554ead1a5e25854fa2b3934b8b06a4437e91))
+* **plan-gate:** resume answered Codex sessions ([#1953](https://github.com/erwins-enkel/shepherd/issues/1953)) ([705c206](https://github.com/erwins-enkel/shepherd/commit/705c206dd6539358cecd71f654bc048a2887589c))
+* **plugin-ui:** stop one wide child stretching a whole plugin card on mobile ([#1976](https://github.com/erwins-enkel/shepherd/issues/1976)) ([7db4662](https://github.com/erwins-enkel/shepherd/commit/7db46623c04ea29cd995ce41b4f8cce40f7d47c0))
+* **plugin-update:** find plugin updates when the repo publishes no releases ([#1969](https://github.com/erwins-enkel/shepherd/issues/1969)) ([17cc5c5](https://github.com/erwins-enkel/shepherd/commit/17cc5c516bf6fad9acb80c3f1f5b61c7721cba24))
+* **recap:** seed Claude trust before temp spawn ([#1934](https://github.com/erwins-enkel/shepherd/issues/1934)) ([28e63a8](https://github.com/erwins-enkel/shepherd/commit/28e63a846cfdbc6564d283e4c7ded27ac607266c))
+* **repo-switcher:** keep the automation popover open while it scrolls ([#1971](https://github.com/erwins-enkel/shepherd/issues/1971)) ([be09983](https://github.com/erwins-enkel/shepherd/commit/be09983ea98e91da7d9cc4ffc76f9b31bf668509))
+* **review:** converge plan-gate and PR-critic rework loops ([#1948](https://github.com/erwins-enkel/shepherd/issues/1948)) ([5ef6647](https://github.com/erwins-enkel/shepherd/commit/5ef6647d7fc1408c1a83c5aee51387ef43717a1d))
+* **review:** stop silent critic timeouts; make the deadline configurable ([#1946](https://github.com/erwins-enkel/shepherd/issues/1946)) ([bcbfda1](https://github.com/erwins-enkel/shepherd/commit/bcbfda1096e2d1b39a24f26f22838935abdc040e))
+* **security:** refuse symlinked TODO.md atomically; drop check-then-use pairs ([#1945](https://github.com/erwins-enkel/shepherd/issues/1945)) ([721f359](https://github.com/erwins-enkel/shepherd/commit/721f35978086780eacbe254497049c71de8b8e87))
+* **spawn:** clamp or refuse oversized transient-agent prompts ([#1944](https://github.com/erwins-enkel/shepherd/issues/1944)) ([#1956](https://github.com/erwins-enkel/shepherd/issues/1956)) ([ce6e71d](https://github.com/erwins-enkel/shepherd/commit/ce6e71d80061e730878435d6baab7a188d0c5556))
+* **spawn:** route the herdr ≥0.7.5 pane spawn through a temp script ([#1968](https://github.com/erwins-enkel/shepherd/issues/1968)) ([92a6606](https://github.com/erwins-enkel/shepherd/commit/92a6606dddf99daa2f372ef07cd9b7a534b58a9b))
+* **spawn:** stop unattended critics wedging on the fullscreen-renderer dialog ([#1957](https://github.com/erwins-enkel/shepherd/issues/1957)) ([922eddd](https://github.com/erwins-enkel/shepherd/commit/922eddd88ca82288bac6b7c2b77b1abe26927d6d))
+* **ui:** make repository names readable in picker ([#1939](https://github.com/erwins-enkel/shepherd/issues/1939)) ([690a2b6](https://github.com/erwins-enkel/shepherd/commit/690a2b610ab6e8d2b07ac51a8029679da922a399))
+* **ui:** one tap from the mobile repo chip into the repo typeahead ([#1942](https://github.com/erwins-enkel/shepherd/issues/1942)) ([ea67f71](https://github.com/erwins-enkel/shepherd/commit/ea67f7179f0235dc0acf228d105600bde58d0806))
+* **ui:** scope done lens to repo filter ([#1491](https://github.com/erwins-enkel/shepherd/issues/1491)) ([bdbb32f](https://github.com/erwins-enkel/shepherd/commit/bdbb32f2991f3a7aba886a6042d3be50753ca7cc))
+
+
+### Documentation
+
+* **research:** map Cursor agent-swarm economics onto Shepherd ([#1949](https://github.com/erwins-enkel/shepherd/issues/1949)) ([95230ba](https://github.com/erwins-enkel/shepherd/commit/95230bae36f73e5dacdd4d630fa0e75a4c9d41ce))
+* **research:** review Claude Code and Codex releases ([#1964](https://github.com/erwins-enkel/shepherd/issues/1964)) ([ba315d0](https://github.com/erwins-enkel/shepherd/commit/ba315d0dae1b43947085d4b48fd4932145b6cd4b))
+
 ## [1.45.0](https://github.com/erwins-enkel/shepherd/compare/v1.44.0...v1.45.0) (2026-07-23)
 
 

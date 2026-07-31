@@ -1,10 +1,11 @@
 import { test, expect } from "bun:test";
-import { spawnSync, spawn, type ChildProcess } from "node:child_process";
+import { spawn, type ChildProcess } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { makeDarwinProbes } from "../src/proc-probes-darwin";
 import { scanListeningPortsByWorktree } from "../src/process-reaper";
+import { hasExecutable } from "./has-executable";
 
 // This test constructs the darwin backend EXPLICITLY and drives it against REAL
 // `lsof`, so it exercises the parser + cell + cwd↔port JOIN on the existing Linux
@@ -13,8 +14,10 @@ import { scanListeningPortsByWorktree } from "../src/process-reaper";
 // invocation), which is the actual residual risk across lsof vintages, not mere
 // parseability.
 
-const hasLsof = spawnSync("lsof", ["-v"], { stdio: "ignore" }).status !== null;
-const maybe = hasLsof ? test : test.skip;
+// `lsof` is not universally installed (e.g. a stock Arch box), so gate on it —
+// via the shared probe, NOT an inline `spawnSync(…).status !== null`, which fails
+// OPEN under Bun and made this suite run (and fail) without lsof (#1977).
+const maybe = hasExecutable("lsof") ? test : test.skip;
 
 /** Spawn a child that chdirs into `dir` and binds a listening TCP socket on an
  *  ephemeral loopback port, printing `PORT <n>`. Resolves once the port is known. */

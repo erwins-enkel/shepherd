@@ -1697,8 +1697,19 @@
               </div>
               {#if composing}
                 <!-- Compose: the button toolbar is folded (attach moves to the pinned
-                     action row); this slim meta line replaces it inside the field. -->
+                     action row); this slim meta line replaces it inside the field. The
+                     attachment chips ride along because the folded toolbar is the only
+                     place they render — without them a successful attach during compose
+                     would land with no visible confirmation at all. -->
                 <div class="compose-meta">
+                  {#each images as img (img.path)}
+                    <AttachmentChip
+                      name={img.name}
+                      previewFile={img.previewFile}
+                      coarse={coarse.current}
+                      onremove={() => removeUpload(img.path)}
+                    />
+                  {/each}
                   <span class="cm-count">{m.newtask_char_count({ count: prompt.length })}</span>
                   <span class="cm-hint">{m.newtask_syntax_hint_touch()}</span>
                 </div>
@@ -1827,9 +1838,27 @@
             title={m.newtask_drop_hint()}
             onpointerdown={(e) => e.preventDefault()}
             onclick={() => fileInput?.click()}
-            disabled={uploading}
+            disabled={hasOutstandingUploads}
           >
-            {#if uploading}…{:else}↥{/if}
+            {#if hasOutstandingUploads}
+              …
+            {:else}
+              <svg
+                width="24"
+                height="24"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+                aria-hidden="true"
+              >
+                <path
+                  d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"
+                />
+              </svg>
+            {/if}
           </button>
           <button
             type="button"
@@ -3063,6 +3092,7 @@
     .compose-meta {
       display: flex;
       align-items: center;
+      flex-wrap: wrap;
       gap: 6px;
       padding: 4px 8px;
       font-size: var(--fs-micro);

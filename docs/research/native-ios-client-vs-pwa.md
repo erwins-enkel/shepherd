@@ -6,22 +6,31 @@ Das Terminal ist **nicht** das Problem. Shepherds PTY-Wire-Protokoll ist so simp
 nativer Swift-Client es an einem Wochenende streamen kann, und mit SwiftTerm existiert ein
 ausgereifter, aktiv gepflegter Terminal-Emulator dafür. Das Problem ist **Push**: Ein Apple-DTS-
 Engineer bestätigt, dass Web Push in **keiner** App-Verpackung funktioniert — weder in Swift-nativ
-noch in Capacitor, Tauri oder einem PWABuilder-Wrapper. Sobald Shepherd eine iOS-App wird,
-verliert es genau die Eigenschaft, die es heute als Self-Hosted-Tool auszeichnet: Benachrichtigungen
-ohne jede zentrale Infrastruktur. Der Ersatz (APNs) zwingt das Projekt in einen dauerhaft
-betriebenen Push-Relay, ein Apple-Developer-Konto und eine DSGVO-Verantwortung für fremde
-Metadaten.
+noch in Capacitor, Tauri oder einem PWABuilder-Wrapper. Sobald Shepherd eine iOS-App wird, verliert
+es genau die Eigenschaft, die es heute als Self-Hosted-Tool auszeichnet: Benachrichtigungen ohne
+jede zentrale Infrastruktur. Web Push braucht laut WebKit ausdrücklich **keine**
+Apple-Developer-Mitgliedschaft und jede Instanz erzeugt ihr eigenes Schlüsselpaar; APNs verlangt
+einen Schlüssel, der dem Projekt gehört und vertraglich nicht weitergegeben werden darf. Es bräuchte
+also einen zentralen Push-Relay, den das Projekt dauerhaft betreibt.
 
-Damit kippt die Rechnung: Der einzige Bereich, in dem eine native App den größten Mehrwert
-verspräche — zuverlässige, reichere Benachrichtigungen — ist zugleich der Bereich, in dem sie
-architektonisch teurer wird. Was übrig bleibt (Diktat, Hardware-Tastatur, Live Activities), ist real,
-aber kein Fundament für einen zweiten Client neben ~113 000 Zeilen UI-Produktivcode.
+Damit kippt die Rechnung: Der Bereich, in dem eine native App den größten Mehrwert verspräche —
+zuverlässige, reichere Benachrichtigungen — ist zugleich der, in dem sie architektonisch teurer
+wird. Was übrig bleibt (Diktat, Hardware-Tastatur, Live Activities), ist real, aber kein Fundament
+für einen zweiten Client neben ~113 000 Zeilen UI-Produktivcode, vier UI-Qualitäts-Gates und einem
+Maintainer.
 
-Der Markt bestätigt beides. **Omnara**, das nächstliegende Vergleichsprodukt (Claude Code und Codex
-vom Handy steuern, Open Source), hat eine native iOS-App — und ist dafür eine **zentrale gehostete
-Kontrollebene** geworden, mit eigenem Notification-Service; Self-Hosting ist dort nur noch teilweise
-unterstützt. Und ihre Mobile-App streamt **kein Terminal**. Wer das Problem also schon gelöst hat,
-hat genau den Teil weggelassen, um den es in der Ausgangsfrage ging.
+Zwei Einschränkungen, damit das Urteil nicht härter klingt, als die Belege hergeben. **Erstens** ist
+der Relay leichter zu bauen, als es klingt: Mastodon, Nextcloud und ntfy betreiben Relays, die den
+Inhalt **nicht lesen können** — beim Mastodon-Muster spräche Shepherds Server sogar weiter normales
+Web Push, nur gegen einen anderen Endpoint (Abschnitt 4.3). **Zweitens** ist der Markt gespalten:
+Cursor, Omnara, Happy, Paseo und Superconductor haben nativ gebaut; Terragon und Factory haben sich
+ausdrücklich für PWA-only entschieden; Warp und Zed haben trotz jahrelanger Nachfrage nichts.
+Harte Zahlen zu Retention oder Push-Zuverlässigkeit für diese Nische existieren nicht (Abschnitt 4.5).
+
+Ein Detail bleibt bemerkenswert: **Omnara**, das nächstliegende Vergleichsprodukt, hat für seine
+native App eine zentrale gehostete Kontrollebene gebaut — und streamt auf dem Handy **kein
+Terminal**. Auch Cursors App tut das nicht. Wer das Problem schon gelöst hat, hat genau den Teil
+weggelassen, um den es in der Ausgangsfrage ging.
 
 Dies ist eine reine Recherche-Notiz (Research-Direktive): Der Bericht ist das Deliverable, es wurde
 kein Produktcode geändert.
@@ -33,7 +42,7 @@ kein Produktcode geändert.
 1. [Was ein nativer Client tatsächlich nachbauen müsste](#1-was-ein-nativer-client-tatsächlich-nachbauen-müsste)
 2. [Das Terminal — der einfachste Teil](#2-das-terminal--der-einfachste-teil)
 3. [Die echten Vorteile einer nativen App](#3-die-echten-vorteile-einer-nativen-app)
-4. [Der Show-Stopper: Push](#4-der-show-stopper-push)
+4. [Der Knackpunkt: Push](#4-der-knackpunkt-push)
 5. [Die weiteren Nachteile](#5-die-weiteren-nachteile)
 6. [Mythen: Was eine native App NICHT löst](#6-mythen-was-eine-native-app-nicht-löst)
 7. [Umsetzungswege im Vergleich](#7-umsetzungswege-im-vergleich)
@@ -246,7 +255,7 @@ Nicht theoretisch, sondern aktuell:
 
 ---
 
-## 4. Der Show-Stopper: Push
+## 4. Der Knackpunkt: Push
 
 ### 4.1 Der Befund
 
@@ -270,13 +279,54 @@ nichts.** Der Service Worker ist bewusst push-only ohne Offline-Caching
 (`ui/static/sw.js:1`) — Push ist der einzige Grund, warum die PWA überhaupt existiert
 (`ui/src/lib/pwa.ts:5-8`).
 
-APNs kehrt das um: Der Auth-Key (`.p8`) gehört dem Apple-Developer-Team, nicht dem Nutzer. Ihn an
-jeden Self-Hoster auszuliefern wäre gleichbedeutend damit, jedem die Fähigkeit zu geben, an **alle**
-Nutzer der App zu pushen. Bleibt nur ein zentraler Relay, den das Projekt dauerhaft betreibt:
-Verfügbarkeits-SPOF, laufende Kosten, DSGVO-Verantwortung für fremde Metadaten — für ein
-Ein-Personen-Open-Source-Projekt eine strukturelle Zäsur, keine Implementierungsdetail-Frage.
+Der entscheidende Unterschied ist nicht „mit oder ohne Apple" — **auch Web Push auf iOS läuft über
+APNs**. WebKit wörtlich: _„Web Push on iOS and iPadOS uses the same Apple Push Notification service
+that powers native push on all Apple devices."_ Wer also hofft, die PWA würde im reinen Tailnet
+ohne Internet Benachrichtigungen zustellen: nein, beide Wege brauchen Apples Cloud. (Praktisch
+selten relevant — ein Tailscale-verbundenes iPhone hat üblicherweise ohnehin Internet.)
 
-### 4.3 Der Präzedenzfall: Omnara
+Der Unterschied ist die **Schlüsselverwahrung**. Bei Web Push generiert jede Instanz ihr eigenes
+VAPID-Paar und spricht direkt mit Apple; WebKit stellt ausdrücklich fest: _„You do not need to be a
+member of the Apple Developer Program to use it."_ Bei APNs gehört der Auth-Key dem
+Developer-Team. Ihn an Self-Hoster auszuliefern wäre gleichbedeutend damit, jedem die Fähigkeit zu
+geben, an **alle** Nutzer der App zu pushen — und ist vertraglich untersagt: Das Developer Program
+License Agreement verpflichtet, Zertifikate und private Schlüssel zu schützen und _„not [to]
+provide or transfer Apple-issued digital certificates … to any third party"_ (5.1(b)/(d)).
+
+_Zwei Präzisierungen, damit das Bild stimmt:_ Seit dem 17. Februar 2025 kennt Apple **topic-spezifische
+Keys**, die an eine einzelne Bundle-ID gebunden sind — der Kompromittierungsradius lässt sich also
+auf diese eine App begrenzen. Das behebt das Kernproblem aber nicht: Wer den Key hat, kann an alle
+Nutzer _dieser_ App pushen.
+
+### 4.3 Wie andere den Relay bauen — und warum das leichter ist, als es klingt
+
+Der Relay ist eine Dauerverpflichtung, aber **kein Datenschutz-Monster**. Es gibt drei erprobte
+Muster, und zwei davon halten den Inhalt für den Relay unlesbar:
+
+| Projekt            | Muster                                                                                                                                                                              | Sieht der Relay den Inhalt? |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------- |
+| **ntfy**           | Self-hosted Server → ntfy.sh → FCM → APNs schickt nur eine **Weck-Nachricht mit Message-ID**; eine Notification Service Extension holt den Inhalt danach beim **eigenen** Server ab | nein                        |
+| **Nextcloud**      | Zentraler Push-Proxy hält die Zertifikate; das Gerät erzeugt beim Login ein Schlüsselpaar, der Server verschlüsselt gegen den Geräte-Public-Key                                     | nein                        |
+| **Mastodon**       | Der Server spricht **Standard-Web-Push (RFC 8030/8291)**, der Client bestimmt den Endpoint; jede Client-App betreibt einen schlanken Relay mit **ihrem** APNs-Key                   | nein (RFC 8291 E2E)         |
+| **Home Assistant** | Zentraler Relay (Cloud Functions), vom Projekt betrieben — **kostenlos, auch ohne Nabu-Casa-Abo**; Limit 500 Push/Tag/Gerät                                                         | ja                          |
+
+Das **Mastodon-Muster ist für Shepherd das interessanteste**: Ein einziger Relay mit einem einzigen
+App-Key genügt für beliebig viele self-hosted Server, weil die Nutzlast dank RFC 8291 ohnehin
+Ende-zu-Ende zwischen Server und App verschlüsselt ist. Der Server-Code müsste sich kaum ändern — er
+spricht weiter Web Push, nur gegen einen anderen Endpoint. Genau das machen in dieser Produktnische
+bereits **Happy** (E2E mit TweetNaCl, verschlüsselte Push-Payloads) und **Paseo** (Elixir-Relay,
+local-first).
+
+Was bleibt, ist trotzdem real: Apple-Konto, Key-Custody, ein Dienst, der laufen muss, ein SPOF für
+**alle** Self-Hoster, und DSGVO-Verantwortung für Metadaten (Device-Token, IP, Zeitstempel) — die
+sich, anders als der Inhalt, nicht wegverschlüsseln lassen. Für ein Ein-Personen-Projekt ist das
+kein Wochenendprojekt, aber auch keine Unmöglichkeit.
+
+_Was nicht funktioniert:_ **UnifiedPush** scheidet auf iOS aus (die Maintainer selbst: iOS erlaubt
+keine Hintergrunddienste, ein Distributor ist ohne Jailbreak nicht möglich). **FCM** verschiebt das
+Problem nur — Google verlangt trotzdem den Upload des eigenen `.p8`.
+
+### 4.4 Der Präzedenzfall: Omnara
 
 Das ist keine theoretische Sorge. **Omnara** („The Open Source Agent Control Plane", Apache-2.0) ist
 das nächstliegende Vergleichsprodukt überhaupt — Claude Code und Codex, die auf dem eigenen Laptop
@@ -291,16 +341,54 @@ direkt mit der Maschine des Nutzers. Self-Hosting ist laut eigenem README nur te
 an older version**" — dokumentiert ist im Wesentlichen ein Entwicklungs-Setup, keine
 produktionsreife Self-Hosting-Anleitung.
 
-Das ist die Bestätigung der These aus 4.2 durch den Markt: Wer in dieser Produktkategorie eine
-native Mobile-App will, wird zur gehosteten Kontrollebene. Shepherd ist heute bewusst das Gegenteil
-— Loopback-Bind plus Tailscale (`src/config.ts:548`), kein Multi-Tenant-Modus, ein einziges
-Operator-Passwort.
+Shepherd ist heute bewusst das Gegenteil — Loopback-Bind plus Tailscale (`src/config.ts:548`), kein
+Multi-Tenant-Modus, ein einziges Operator-Passwort.
 
 **Und ein zweiter, ebenso aufschlussreicher Befund:** Omnaras Mobile-App (React Native 0.81 /
 Expo 54, `expo-notifications`) enthält in ihrem Manifest **keine einzige Terminal-Abhängigkeit**.
-Der mobile Zuschnitt ist Nachrichten, Steuern, Freigeben — kein gestreamtes PTY. Wer das Problem
-also bereits gelöst hat, hat das Terminal auf dem Handy bewusst weggelassen. _(Inferenz aus
+Der mobile Zuschnitt ist Nachrichten, Steuern, Freigeben — kein gestreamtes PTY. _(Inferenz aus
 `apps/mobile/package.json`; nicht dasselbe wie eine ausdrückliche Aussage der Autoren.)_
+
+### 4.5 Der Markt ist gespalten — und das ist die ehrlichste Aussage
+
+Omnara ist kein Einzelfall, aber auch kein Konsens. In genau dieser Nische („lokale Claude-Code-/
+Codex-Session vom Handy fernsteuern") existiert bereits ein ganzer Sekundärmarkt nativer Apps:
+
+**Haben nativ gebaut:**
+
+- **Cursor** — native iOS-App seit 29. Juni 2026 (Public Beta, zahlende Pläne, iOS 26+). Fokus:
+  Agent starten, Diffs freigeben, Voice, Live Activities + Push. **Kein Beleg für Rohterminal-Streaming.**
+- **Omnara** — s. o., plus Apple-Watch-Companion.
+- **Happy** (Open Source, Expo/RN, E2E via TweetNaCl), **Paseo** (Open Source, Expo/RN + Elixir-Relay),
+  **Superconductor** (nativ iOS/iPad, Siri-Shortcuts) — allesamt purpose-built Mobile-first-Oberflächen.
+- **OpenAI Codex** in der ChatGPT-App (seit 14. Mai 2026) — laut Berichterstattung ausdrücklich
+  inklusive _„monitoring terminal output"_. Das ist der **einzige** gefundene Hinweis auf echtes
+  Terminal-Output-Streaming zu einem nativen Mobile-Client. _(Sekundärquelle 9to5Mac, nicht
+  erstquellenbelegt.)_
+
+**Haben sich bewusst dagegen entschieden:**
+
+- **Terragon/Terry** — solange aktiv, war Mobile ausdrücklich **nur PWA** („add to home screen"),
+  keine native App. Ein finanziertes Team, das dieselbe Abwägung traf und anders entschied.
+- **Factory (Droid)** — „Factory Web and Mobile" ist explizit responsive Web, kein Store-Build.
+- **Warp** und **Zed** — trotz jahrelanger Nachfrage **gar nichts**; Feature-Requests offen bzw. als
+  Duplikat geschlossen.
+- **GitHub Mobile** — bewusst kein Terminal; positioniert als „Triage & Collaborate".
+- **Coder.com** — kein offizieller iOS-Client; offizieller Weg ist Browser bzw. code-server-PWA.
+
+Das Konvergenzmuster bei den nativen: **React Native/Expo + Relay + Push**, und praktisch alle
+haben eine **eigene, mobil-erdachte Oberfläche** gebaut — keiner hat eine bestehende Desktop-Web-UI
+portiert. Das ist der Unterschied zu Shepherds Ausgangslage.
+
+Und ein Signal zum Schluss: Das Anthropic-Issue [claude-code#25746](https://github.com/anthropics/claude-code/issues/25746)
+fragte exakt Shepherds Szenario an — Homelab-Agent über Tailscale erreichbar machen und dabei die
+native Claude-Code-UX behalten. Anthropic hat es als **„not planned"** geschlossen. Selbst der
+bestressourcierte Akteur im Feld lässt diese Nische liegen.
+
+**Für belastbare Zahlen gibt es keine Grundlage.** Es existieren keine Studien zu Retention oder
+Push-Zuverlässigkeit nativ vs. PWA für Developer-Tools, erst recht nicht für self-hosted. Die
+gängigen „native Apps haben bessere Retention"-Aussagen stammen durchweg aus Agentur- und
+Anbieter-Blogs ohne Methodik. Wer hier mit Zahlen argumentiert, argumentiert mit Folklore.
 
 ---
 
@@ -325,7 +413,29 @@ Demo-Instanz**, die permanent läuft. Immich löst das über Transparenz in der 
 („you will need to run/manage the server on your own"), Home Assistant über einen öffentlichen
 Demo-Server. Beides ist zusätzlicher Dauerbetrieb.
 
-### 5.2 Guideline 4.2.7 — die ungeklärte Rechtsfrage
+Wie schwer die Mac-Pflicht ein Freiwilligenprojekt trifft, illustriert **Jellyfin** konkret: Die
+Entwicklung des nativen iOS-Clients Swiftfin stand still, weil der Maintainer keinen aktuellen Mac
+hatte — _„the toolkit we use to build the app made some changes that essentially prevented my
+continued development of the app without access to a modern Mac"_. Jellyfins Open Collective musste
+einen Mac Mini mitfinanzieren. Das ist kein Argument gegen native Apps, aber eine realistische
+Kostenposition für ein Projekt ohne Firma dahinter.
+
+### 5.2 Self-Hosted-Onboarding wird durch „nativ" nicht besser
+
+Ein verbreiteter Irrtum wäre, die native App würde das Verbinden mit dem eigenen Server
+vereinfachen. Die Belege sagen das Gegenteil:
+
+- **Home Assistant** (nativer Swift-Shell um eine WebView): Selbstsignierte Zertifikate sind ein
+  seit Jahren offenes Reibungsproblem — Nutzer müssen die `.pem` per AirDrop aufs Gerät bringen und
+  in den iOS-Einstellungen manuell als vertrauenswürdig markieren.
+- **Immich** (voll nativ, Flutter): Die iOS-App fragte die „Local Network"-Berechtigung nicht ab,
+  wodurch der Server schlicht unerreichbar blieb, bis man sie von Hand erteilte; dazu wiederkehrende
+  „Server not reachable"-Meldungen durch falsches URL-Format.
+
+Für Shepherd, das über Tailscale läuft, wäre das Onboarding also eine eigene Baustelle — unabhängig
+von der gewählten Technik.
+
+### 5.3 Guideline 4.2.7 — die ungeklärte Rechtsfrage
 
 Der Wortlaut (verifiziert am Primärtext):
 
@@ -349,7 +459,7 @@ architektonisch näher an GitHub Mobile oder Home Assistant als an VNC.
 2.5.2-Rejection-Fall für Terminal-Apps ließ sich eine Quelle finden — es gibt schlicht wenig
 öffentliche Evidenz in beide Richtungen.
 
-### 5.3 Zweiter Client = doppelte Wahrheit
+### 5.4 Zweiter Client = doppelte Wahrheit
 
 Siehe Abschnitt 1: 3 478 i18n-Schlüssel, ~150 Routen, keine Schema-Quelle, bereits doppelt gepflegte
 Typen. Die Chrome-Extension zeigt die Untergrenze eines Zweit-Clients: ~8 000 Zeilen, eigener
@@ -428,6 +538,10 @@ Zwei Einschränkungen, die man nicht wegkonfigurieren kann:
   Variante. Belastbare Messwerte speziell für xterm.js in `WKWebView` ließen sich allerdings nicht
   finden — das wäre vor einer Entscheidung selbst zu benchmarken, nicht anzunehmen.
 
+Dass diese Kombination im Store durchgeht, ist allerdings nicht nur Theorie: **Terminal7**
+(App Store, Open Source) ist genau das — Capacitor plus xterm.js als iPad-Terminal mit WebRTC/SSH.
+Ein direkter Existenzbeweis für Weg B **und** dafür, dass ein Terminal-Client die Review passiert.
+
 Nüchtern betrachtet ist B die Frage: Rechtfertigt „im App Store und mit APNs" den jährlichen
 Xcode-Rebuild, 99 USD, einen Mac, eine Demo-Instanz für Reviewer und einen Push-Relay — wenn die
 UI exakt dieselbe bleibt, die der Nutzer heute über „Zum Home-Bildschirm" bekommt?
@@ -482,10 +596,18 @@ Self-Hosted-Tool definiert — dass niemand außer dem Nutzer selbst etwas betre
 Die Terminal-Frage, die den Anstoß gab, entpuppt sich dabei als die am wenigsten interessante: Sie
 ist technisch leicht lösbar (Abschnitt 2), aber sie ist auch der Teil, der in der PWA heute schon
 funktioniert. Man würde also das Einfache neu bauen und das Schwierige (die 4 160 Zeilen
-Terminal-Verhaltenslogik) entweder verlieren oder ein zweites Mal bezahlen. Omnara — das einzige
-direkt vergleichbare Produkt mit nativer iOS-App — hat das Terminal auf dem Handy gar nicht erst
-mitgenommen (Abschnitt 4.3). Das ist ein Signal: Der mobile Wert liegt im Steuern und Freigeben,
-nicht im Zusehen.
+Terminal-Verhaltenslogik) entweder verlieren oder ein zweites Mal bezahlen. Weder Omnara noch Cursor
+haben das Terminal auf dem Handy überhaupt mitgenommen (Abschnitt 4.5). Das ist ein Signal: Der
+mobile Wert liegt im Steuern und Freigeben, nicht im Zusehen. (Die Gegenprobe: OpenAIs Codex in der
+ChatGPT-App soll Terminal-Output zeigen — belegt allerdings nur sekundär.)
+
+**Wie fest ist dieses Urteil?** Mittelfest. Es beruht nicht auf einem technischen K.-o. — beides ist
+baubar, Terminal7 beweist sogar, dass Capacitor plus xterm.js die Store-Review übersteht. Es beruht
+auf einem Verhältnis: viel dauerhafte Verpflichtung (Relay, Apple-Konto, Mac, jährlicher Rebuild,
+zweiter Client außerhalb aller vier UI-Gates) gegen einen Zugewinn, der sich auf Diktat, reichere
+Benachrichtigungen und Hardware-Tastatur konzentriert. Wer diese drei sehr hoch gewichtet — und
+bereit ist, den Relay zu betreiben — kann mit denselben Belegen zum gegenteiligen Schluss kommen.
+Was die Belege **nicht** hergeben, ist eine Zahl, die die Frage entscheidet.
 
 ### 8.2 Was stattdessen zu tun wäre — nach Nutzen pro Aufwand
 
@@ -514,6 +636,11 @@ Sollte die Entscheidung anders ausfallen, ist der Bauplan aus dieser Recherche e
 - **Als Erstes den Push-Relay klären, nicht das Terminal.** Das Terminal ist ein Wochenende, der
   Relay ist eine Dauerverpflichtung. Wer mit dem Terminal anfängt, baut den einfachen Teil und
   entdeckt die eigentliche Entscheidung zu spät.
+- **Den Relay nach dem Mastodon-Muster bauen**, nicht als eigene Push-Infrastruktur: Shepherds
+  Server spricht weiter Web Push (RFC 8030/8291) gegen einen projekteigenen Relay-Endpoint, der nur
+  den APNs-Key hält und den bereits verschlüsselten Payload durchreicht. Das hält den Server-Diff
+  klein, den Relay dumm und den Inhalt für das Projekt unlesbar — und deckt beliebig viele
+  Self-Hoster mit einem einzigen Key ab.
 - **In den Review-Notes ausdrücklich klarstellen**, dass es sich um einen API-/WebSocket-Client
   handelt und nicht um Screen-Mirroring — damit Guideline 4.2.7 gar nicht erst in Betracht gezogen
   wird. Dazu eine öffentlich erreichbare Demo-Instanz für den Reviewer bereitstellen.
@@ -578,6 +705,40 @@ Sollte die Entscheidung anders ausfallen, ist der Bauplan aus dieser Recherche e
 - Omnara im App Store — https://apps.apple.com/us/app/omnara-ai-command-center/id6748426727
 - Capacitor Releases (8.4.2 stabil, 9.0.0-alpha.6 — Juli 2026) — https://github.com/ionic-team/capacitor/releases
 - Tauri Releases (2.11.5 — Juli 2026) — https://github.com/tauri-apps/tauri/releases
+- Tauri: `plugin-notification` unterstützt iOS nicht — https://v2.tauri.app/reference/javascript/notification/
+- **Terminal7** — Capacitor + xterm.js im App Store — https://github.com/tuzig/terminal7 · https://apps.apple.com/us/app/terminal7/id1532882447
+- PWABuilder iOS — nur community-maintained, Mac zum Bauen nötig — https://github.com/pwa-builder/pwabuilder-ios-app-store
+
+**Push-Relay-Muster (Primärquellen der Projekte)**
+
+- Mastodon Web-Push→APNs-Relay (RFC 8291 E2E, ein Key pro Client-App) — https://github.com/mastodon/webpush-apn-relay
+- Mastodon Push-API — https://docs.joinmastodon.org/methods/push/
+- Nextcloud Push-Proxy v2 (Ende-zu-Ende, Proxy kann nicht mitlesen) — https://github.com/nextcloud/notifications/blob/master/docs/push-v2.md
+- ntfy — Warum Upstream-Forwarding auf iOS unvermeidbar ist — https://github.com/binwiederhier/ntfy/issues/1680
+- Home Assistant — Push-Relay (`mobile-apps-fcm-push`) — https://github.com/home-assistant/mobile-apps-fcm-push
+- Home Assistant — Rate-Limit 500/Tag/Gerät, Local Push — https://companion.home-assistant.io/docs/notifications/notification-details/
+- Matrix/Sygnal — warum Endnutzer keine eigene Instanz betreiben können — https://github.com/matrix-org/sygnal/blob/main/docs/applications.md
+- UnifiedPush FAQ — auf iOS nicht möglich — https://unifiedpush.org/users/faq/
+- Apple: Team-scoped und topic-spezifische APNs-Keys (17.02.2025) — https://developer.apple.com/news/?id=wy4tb0uo
+- Apple Developer Enterprise Program License Agreement, 5.1(b)/(d) — Schlüsselweitergabe untersagt — https://developer.apple.com/support/downloads/terms/apple-developer-enterprise-program/Apple-Developer-Enterprise-Program-License-Agreement-English.pdf
+
+**Marktvergleich**
+
+- Cursor iOS-App (29.06.2026) — https://cursor.com/blog/ios-mobile-app
+- Happy (Open Source, Expo/RN, E2E) — https://github.com/slopus/happy
+- Paseo (Open Source, Expo/RN + Elixir-Relay) — https://github.com/getpaseo/paseo
+- Superconductor — https://www.superconductor.com/
+- Terragon/Terry — Mobile war ausdrücklich nur PWA — https://docs.terragonlabs.com/docs/getting-started/mobile
+- Factory — „Web and Mobile" ist responsive Web — https://factory.ai/product/web
+- Warp — kein Mobile-Client, Request als Duplikat geschlossen — https://github.com/warpdotdev/warp/issues/8037
+- Zed — kein Mobile-Client, Diskussion offen — https://github.com/zed-industries/zed/discussions/49313
+- GitHub Mobile — bewusst kein Terminal — https://docs.github.com/en/get-started/using-github/github-mobile
+- Coder — kein offizieller iOS-Client — https://github.com/coder/coder/discussions/18627
+- Anthropic `claude-code#25746` — Tailscale/Homelab-Szenario, „not planned" — https://github.com/anthropics/claude-code/issues/25746
+- Jellyfin/Swiftfin — Mac-Hardware als Blocker — https://jellyfin.org/posts/ios-v1.6.0/
+- Home Assistant — Selbstsignierte Zertifikate, offenes UX-Problem — https://community.home-assistant.io/t/allow-self-signed-certificate-for-ssl-tls-please/18712
+- Immich — „Local Network"-Berechtigung wurde nicht abgefragt — https://github.com/immich-app/immich/issues/19257
+- OpenAI Codex in der ChatGPT-App inkl. Terminal-Output _(sekundär)_ — https://9to5mac.com/2026/05/14/openai-brings-codex-control-to-chatgpt-for-iphone-and-android/
 
 **Sekundärquellen (als solche gekennzeichnet)**
 

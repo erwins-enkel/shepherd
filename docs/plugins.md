@@ -392,6 +392,14 @@ Contract details worth knowing before you build a panel:
   yours to validate in the route handler; the host does not clamp.
 - **`secret` masks, it does not protect.** The value still travels as plaintext JSON to your
   route (as does everything else); it only keeps a token off the screen.
+- **Autofill is off on every input node, and you need do nothing to get it.** A panel is a
+  configuration surface, so the host renders each control with `autocomplete` disabled, a
+  meaningless `name` (the value you receive is still keyed on the `name` you declared — the
+  rendered one is decorative), and the opt-out attributes 1Password, Bitwarden, LastPass,
+  Dashlane and Proton Pass honour. Without this a `secret` field beside a plain one looks
+  exactly like a sign-in form, and a manager fills the plain field with a stored **username** —
+  which is how an `npub` once landed in a field meant to hold an environment variable's name.
+  Do not try to re-implement this from plugin side; you cannot set attributes on host controls.
 - **`label` is verbatim plugin data**, never an i18n key. Omit it and the field's `name` becomes
   its accessible name.
 

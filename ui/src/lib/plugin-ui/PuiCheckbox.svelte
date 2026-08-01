@@ -1,10 +1,17 @@
 <script lang="ts">
   // `checkbox` node (issue #1961): a boolean toggle contributing a named value to a
   // `submit: true` action-button's body. `label` is verbatim plugin DATA (never i18n).
+  //
+  // Carries the autofill guard's `name` + vendor opt-outs but NO `autocomplete` (issue #1978):
+  // the attribute does not apply to `type="checkbox"`, and a manager that toggles a
+  // "remember me" box is answering to the opt-outs, not to `autocomplete`.
   import type { PluginUINode } from "$lib/types";
+  import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 
   let { node }: { node: PluginUINode } = $props();
+
+  const guard = noAutofill();
 
   const p = $derived(node.props ?? {});
   const name = $derived(typeof p.name === "string" ? p.name : "");
@@ -19,6 +26,7 @@
 <label class="pui-check">
   <input
     class="pui-box"
+    {...guard}
     type="checkbox"
     aria-label={label ? null : name || null}
     checked={field.value}

@@ -210,6 +210,84 @@ describe("plugin-ui input nodes", () => {
   });
 });
 
+describe("plugin-ui autofill guard", () => {
+  // Issue #1978. What is verifiable here is the RENDERED CONTRACT — the attributes are present
+  // and correct. Reproducing the original fill would need a real password manager holding a
+  // saved credential for the origin, which this harness does not have, so these tests assert
+  // the guard is in place rather than that a filler was defeated.
+  beforeEach(() => {
+    mockFetch();
+  });
+
+  const OPT_OUTS: [string, string][] = [
+    ["data-1p-ignore", ""],
+    ["data-bwignore", ""],
+    ["data-lpignore", "true"],
+    ["data-form-type", "other"],
+    ["data-protonpass-ignore", ""],
+  ];
+
+  /** Every rendered control — the checkbox wears `.pui-box`, not `.pui-input`. */
+  function controls(container: HTMLElement) {
+    return [...container.querySelectorAll<HTMLInputElement | HTMLSelectElement>("input, select")];
+  }
+
+  /** One of each node type, in this DOM order: plain, secret, select, checkbox, number. */
+  function everyNodeType() {
+    return renderForm([
+      { type: "text-input", props: { name: "relayUrl" } },
+      { type: "text-input", props: { name: "token", secret: true } },
+      { type: "select", props: { name: "verbosity", options: [{ value: "quiet" }] } },
+      { type: "checkbox", props: { name: "relayEvents" } },
+      { type: "number", props: { name: "retries" } },
+    ]);
+  }
+
+  it("puts a non-guessable name and every vendor opt-out on all four node types", async () => {
+    const { container } = await everyNodeType();
+    const all = controls(container);
+    expect(all).toHaveLength(5);
+
+    for (const el of all) {
+      expect(el.getAttribute("name")).toMatch(/^pui-[0-9a-f]{8}$/);
+      for (const [attr, value] of OPT_OUTS) expect(el.getAttribute(attr)).toBe(value);
+    }
+    // Unique per instance — a shared token would let a heuristic correlate the fields again.
+    expect(new Set(all.map((el) => el.getAttribute("name"))).size).toBe(all.length);
+  });
+
+  it("says new-password on the secret field, off on the rest, nothing on the checkbox", async () => {
+    const { container } = await everyNodeType();
+    const [plain, secret, select, checkbox, number] = controls(container);
+
+    // Chromium ignores `off` on a password field by policy; `new-password` is the value it
+    // honours, and denying the sign-in reading is what protects the field NEXT to this one.
+    expect(secret.getAttribute("autocomplete")).toBe("new-password");
+    expect(plain.getAttribute("autocomplete")).toBe("off");
+    expect(select.getAttribute("autocomplete")).toBe("off");
+    expect(number.getAttribute("autocomplete")).toBe("off");
+    // The attribute does not apply to `type="checkbox"` — setting it would be dead markup.
+    expect(checkbox.getAttribute("autocomplete")).toBeNull();
+  });
+
+  it("never renders the plugin's own field name, yet still submits under it", async () => {
+    // The reported shape: a `secret` field beside a plain one whose name is a heuristic magnet.
+    const { container } = await renderForm([
+      { type: "text-input", props: { name: "buzzKey", label: "buzz key", secret: true } },
+      { type: "text-input", props: { name: "keyEnv", label: "key env var", value: "BUZZ_KEY" } },
+    ]);
+
+    const names = controls(container).map((el) => el.getAttribute("name"));
+    expect(names).not.toContain("buzzKey");
+    expect(names).not.toContain("keyEnv");
+
+    // The scrambled DOM name is decorative: the wire key is still the plugin's own `name`.
+    const [key] = controls(container) as HTMLInputElement[];
+    type(key, "nsec1-secret");
+    expect(await save(container)).toEqual({ buzzKey: "nsec1-secret", keyEnv: "BUZZ_KEY" });
+  });
+});
+
 describe("plugin-ui form scope re-seeding", () => {
   beforeEach(() => {
     mockFetch();

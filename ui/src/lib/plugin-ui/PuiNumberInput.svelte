@@ -9,9 +9,12 @@
   // the operator just typed. Holding the raw TEXT locally and mapping to a number only on the
   // way to the form scope keeps typing intact while still submitting a real JSON number.
   import type { PluginUINode } from "$lib/types";
+  import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 
   let { node }: { node: PluginUINode } = $props();
+
+  const guard = noAutofill();
 
   const p = $derived(node.props ?? {});
   const name = $derived(typeof p.name === "string" ? p.name : "");
@@ -37,8 +40,10 @@
   {#if label}<span class="pui-label">{label}</span>{/if}
   <input
     class="pui-input"
+    {...guard}
     type="text"
     inputmode="decimal"
+    autocomplete="off"
     {placeholder}
     aria-label={label ? null : name || null}
     value={field.value}

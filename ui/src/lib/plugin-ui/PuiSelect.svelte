@@ -5,10 +5,17 @@
   //
   // The seed is clamped to the offered set: an absent or unknown `value` falls back to the
   // FIRST option, so the value this field submits is always one the plugin itself listed.
+  //
+  // The autofill guard (issue #1978) matters here for a second reason: it also suppresses
+  // browser form-value RESTORATION, which sets a select's DOM value on reload WITHOUT firing
+  // `change` — leaving what the operator sees diverged from what the form scope would submit.
   import type { PluginUINode } from "$lib/types";
+  import { noAutofill } from "./autofill";
   import { pluginField } from "./field.svelte";
 
   let { node }: { node: PluginUINode } = $props();
+
+  const guard = noAutofill();
 
   function isObj(x: unknown): x is Record<string, unknown> {
     return !!x && typeof x === "object" && !Array.isArray(x);
@@ -40,6 +47,8 @@
   {#if label}<span class="pui-label">{label}</span>{/if}
   <select
     class="pui-input"
+    {...guard}
+    autocomplete="off"
     aria-label={label ? null : name || null}
     value={field.value}
     onchange={(e) => field.set(e.currentTarget.value)}

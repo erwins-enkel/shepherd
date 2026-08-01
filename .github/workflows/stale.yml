@@ -44,7 +44,7 @@ jobs:
     name: ping + close stale awaiting-response issues
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/stale@v10
+      - uses: actions/stale@v11
         with:
           # Only issues we're explicitly waiting on the reporter for.
           only-labels: "awaiting-response"

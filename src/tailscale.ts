@@ -111,8 +111,10 @@ export interface TailscaleServeOpts {
 export class TailscaleServeService {
   private byId = new Map<string, { port: number; state: ServeState }>();
   private queue: Promise<void> = Promise.resolve();
-  /** Latched by a `register`/`reconcileStartup` mutation refused for lack of operator/root
-   *  rights; cleared only by a subsequent SUCCESSFUL `register` — not by a successful
+  /** Latched by ANY async mutation refused for lack of operator/root rights — `register`,
+   *  `unregister` and `reconcileStartup` alike, since all three write serve config (only the
+   *  sync `stopAll` skips it: the process is exiting and nothing reads this afterwards).
+   *  Cleared only by a subsequent SUCCESSFUL `register` — not by a successful
    *  unregister or reconcile, neither of which clears it. That asymmetry is deliberate and
    *  matches the hint the operator is given ("run `tailscale set --operator=…`, then reopen
    *  the preview"): reopening a preview is a register, so the row goes green exactly when
@@ -164,6 +166,11 @@ export class TailscaleServeService {
       try {
         await this.run(["serve", `--https=${entry.port}`, "off"]);
       } catch (err) {
+        // Symmetric with register/reconcileStartup: a teardown is a serve-config WRITE, so a
+        // refusal here is the same host-level verdict. Without this, rights revoked mid-run
+        // (operator hands the tailnet back to root after a successful register) go unnoticed
+        // until some later register fails, and Diagnostics reads green in the meantime.
+        if (isServeConfigDenied(err)) this.denied = true;
         console.warn(`[tailscale-serve] unregister failed for ${id} port ${entry.port}:`, err);
       }
       this.byId.delete(id);

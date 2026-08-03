@@ -44,9 +44,12 @@ import type {
   SessionUsageBucket,
   WindowedBucketSum,
   SessionLaunchMetadata,
+  PromptBudgetDelivery,
+  PromptBudgetRecord,
 } from "./types";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
+import type { PromptBlockMeasure } from "./prompt-budget";
 import type {
   CapRow,
   CapStore,
@@ -857,6 +860,27 @@ function parsePostMergeStepsJson(raw: string | null | undefined): PostMergeStep[
   }
 }
 
+/** Raw `session_prompt_budget` row joined with its session (issue #1999). */
+type PromptBudgetRow = {
+  sessionId: string;
+  delivery: PromptBudgetDelivery;
+  totalChars: number;
+  totalBytes: number;
+  totalTokens: number;
+  blocks: string;
+  createdAt: number;
+  desig: string;
+  repoPath: string;
+  agentProvider: AgentProvider;
+  auto: number;
+};
+
+/** The one projection both prompt-budget reads share, so the get and the list can't diverge.
+ *  INNER JOIN — see the table's DDL comment for why an orphan row is deliberately invisible. */
+const PROMPT_BUDGET_SELECT = `SELECT b.sessionId, b.delivery, b.totalChars, b.totalBytes,
+    b.totalTokens, b.blocks, b.createdAt, s.desig, s.repoPath, s.agentProvider, s.auto
+  FROM session_prompt_budget b JOIN sessions s ON s.id = b.sessionId`;
+
 type PostMergeStepsRow = {
   sessionId: string;
   desig: string;
@@ -1477,6 +1501,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       steers INTEGER NOT NULL DEFAULT 0,
       inputKey TEXT, updatedAt INTEGER NOT NULL,
       PRIMARY KEY (sessionId, kind))`);
+    // Per-spawn prompt-budget instrument (issue #1999): total + per-block sizes of the assembled
+    // `composeSystemPrompt` payload, so the Claude-5 context-engineering deletions can be scored
+    // against a number instead of a vibe. NO foreign key, deliberately: the argv (and therefore this
+    // row) is assembled BEFORE `store.create()` inserts the sessions row — the same reason
+    // `session_injected_learnings` has none. The reads INNER JOIN sessions, so a row from a spawn
+    // that was then refused simply never surfaces. Such an orphan is also NOT swept: a sweep would
+    // race the very window it targets (the row is written, then `prepareSpawn` awaits, then the
+    // sessions row lands), and could delete a valid in-flight measurement. Refused spawns are rare
+    // and a row is a couple of KB, so leaking them is the cheaper mistake.
+    this.db.run(`CREATE TABLE IF NOT EXISTS session_prompt_budget (
+      sessionId TEXT PRIMARY KEY, delivery TEXT NOT NULL,
+      totalChars INTEGER NOT NULL, totalBytes INTEGER NOT NULL, totalTokens INTEGER NOT NULL,
+      blocks TEXT NOT NULL, createdAt INTEGER NOT NULL)`);
     this.db.run(`CREATE TABLE IF NOT EXISTS push_subscriptions (
       endpoint TEXT PRIMARY KEY, p256dh TEXT NOT NULL, auth TEXT NOT NULL,
       ua TEXT NOT NULL DEFAULT '', locale TEXT NOT NULL DEFAULT 'en',
@@ -3077,6 +3114,83 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     this.db.run(`DELETE FROM spawn_notices WHERE sessionId = ?`, [sessionId]);
   }
 
+  // ── spawn-prompt budget (issue #1999) ──────────────────────────────────────
+
+  /** Record what one spawn's assembled system prompt cost, block by block. Upsert by sessionId:
+   *  a relaunch REPLACES the previous measurement rather than accumulating rows, so the record
+   *  always describes the payload the live agent actually carries. */
+  putSessionPromptBudget(r: {
+    sessionId: string;
+    delivery: PromptBudgetDelivery;
+    totalChars: number;
+    totalBytes: number;
+    totalTokens: number;
+    blocks: PromptBlockMeasure[];
+    createdAt: number;
+  }): void {
+    this.db.run(
+      `INSERT INTO session_prompt_budget
+         (sessionId, delivery, totalChars, totalBytes, totalTokens, blocks, createdAt)
+       VALUES (?,?,?,?,?,?,?)
+       ON CONFLICT(sessionId) DO UPDATE SET
+         delivery = excluded.delivery, totalChars = excluded.totalChars,
+         totalBytes = excluded.totalBytes, totalTokens = excluded.totalTokens,
+         blocks = excluded.blocks, createdAt = excluded.createdAt`,
+      [
+        r.sessionId,
+        r.delivery,
+        r.totalChars,
+        r.totalBytes,
+        r.totalTokens,
+        JSON.stringify(r.blocks),
+        r.createdAt,
+      ],
+    );
+  }
+
+  /** Hydrate one joined row. `blocks` is tolerant of a malformed JSON payload (→ `[]`) rather than
+   *  throwing a read that only feeds a diagnostic view. */
+  private hydratePromptBudget(row: PromptBudgetRow): PromptBudgetRecord {
+    let blocks: PromptBlockMeasure[] = [];
+    try {
+      const parsed: unknown = JSON.parse(row.blocks);
+      if (Array.isArray(parsed)) blocks = parsed as PromptBlockMeasure[];
+    } catch {
+      blocks = [];
+    }
+    return {
+      sessionId: row.sessionId,
+      desig: row.desig,
+      repoPath: row.repoPath,
+      agentProvider: row.agentProvider,
+      auto: row.auto === 1,
+      delivery: row.delivery,
+      totalChars: row.totalChars,
+      totalBytes: row.totalBytes,
+      totalTokens: row.totalTokens,
+      blocks,
+      createdAt: row.createdAt,
+    };
+  }
+
+  /** The recorded breakdown for one session, or null. INNER JOIN: a measurement whose spawn was
+   *  then refused (no sessions row) reads as absent, which is the honest answer. */
+  getSessionPromptBudget(sessionId: string): PromptBudgetRecord | null {
+    const row = this.db
+      .query(`${PROMPT_BUDGET_SELECT} WHERE b.sessionId = ?`)
+      .get(sessionId) as PromptBudgetRow | null;
+    return row ? this.hydratePromptBudget(row) : null;
+  }
+
+  /** Recent recorded spawns, newest first. Spans attended and drain, Claude and Codex — one row per
+   *  session, so the list is a spawn history, not a per-turn log. */
+  listSessionPromptBudgets(limit: number): PromptBudgetRecord[] {
+    const rows = this.db
+      .query(`${PROMPT_BUDGET_SELECT} ORDER BY b.createdAt DESC, b.sessionId DESC LIMIT ?`)
+      .all(limit) as PromptBudgetRow[];
+    return rows.map((r) => this.hydratePromptBudget(r));
+  }
+
   snapshotPlanGates(): Record<string, PlanGate> {
     const rows = this.db
       .query(
@@ -3786,6 +3900,10 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       );
       this.db.run(
         `DELETE FROM recaps WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
+        params,
+      );
+      this.db.run(
+        `DELETE FROM session_prompt_budget WHERE sessionId IN (SELECT id FROM sessions WHERE ${victims})`,
         params,
       );
       // NOTE: post_merge_steps is INTENTIONALLY NOT cascaded here (#1061) — owed manual steps must

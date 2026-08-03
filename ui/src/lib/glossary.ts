@@ -140,6 +140,12 @@ const glossary: readonly GlossaryTerm[] = [
       de: "Inode",
     },
   },
+  {
+    id: "spawn-prompt",
+    kind: "internal",
+    termKey: "gloss_spawn_prompt_term",
+    bodyKey: "gloss_spawn_prompt_def",
+  },
 ];
 
 export const glossaryById = new Map<string, GlossaryTerm>(glossary.map((term) => [term.id, term]));

@@ -2,7 +2,13 @@ import { describe, it, expect, afterEach, vi } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
-import type { UsageLimits, UsageProjection, UsageRange, UsageTimeline } from "$lib/types";
+import type {
+  PromptBudgetRecord,
+  UsageLimits,
+  UsageProjection,
+  UsageRange,
+  UsageTimeline,
+} from "$lib/types";
 import { formatTokenLabel } from "$lib/format";
 import { m } from "$lib/paraglide/messages";
 import * as api from "$lib/api";
@@ -70,6 +76,22 @@ const inlineTimeline: UsageTimeline = {
   peakHourUnits: 40,
 };
 
+const inlinePromptBudgets: PromptBudgetRecord[] = [
+  {
+    sessionId: "s-1",
+    desig: "TASK-1",
+    repoPath: "/repo",
+    agentProvider: "claude",
+    auto: false,
+    delivery: "append-system-prompt",
+    totalChars: 8389,
+    totalBytes: 8451,
+    totalTokens: 2098,
+    blocks: [{ name: "engineering-posture", chars: 1643, bytes: 1655, tokens: 411 }],
+    createdAt: BASE,
+  },
+];
+
 // Mock the API so tests are deterministic and backend-independent.
 vi.mock("$lib/api", async () => {
   const { mockBreakdown } = await import("$lib/usage-mock");
@@ -88,6 +110,7 @@ vi.mock("$lib/api", async () => {
         backoff: { remaining: 0, resetAt: BASE + H, pausedUntil: BASE + H, blocked: true },
       }),
     ),
+    getPromptBudgets: vi.fn(() => Promise.resolve(inlinePromptBudgets)),
   };
 });
 
@@ -122,6 +145,23 @@ describe("Usage modal component", () => {
 
     // Overhead lens renders the reviewer-tax section
     await expect.element(page.getByText("Reviewer tax")).toBeInTheDocument();
+  });
+
+  it("clicking the Prompt tab loads and renders the spawn-prompt breakdown", async () => {
+    render(Usage, { onclose: vi.fn() });
+
+    const promptBtn = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
+      (b) => b.textContent?.trim() === "Prompt",
+    );
+    expect(promptBtn, "Prompt tab button exists").not.toBeNull();
+
+    promptBtn!.click();
+
+    // The lens renders (and so the tab is wired through every loading/error/content arm — a missed
+    // arm would leave this stuck on "Loading" or the error state forever).
+    await expect.element(page.getByText("engineering-posture")).toBeInTheDocument();
+    // The range selector belongs to the ranged lenses only.
+    expect(document.querySelector(".range-row"), "no range row on the Prompt tab").toBeNull();
   });
 
   it("clicking the Limits tab swaps to Limits lens and hides range selector", async () => {

@@ -13,6 +13,7 @@ import type {
   UsageBreakdown,
   UsageTimeline,
   UsageRange,
+  PromptBudgetRecord,
   GithubRateLimit,
   GitState,
   PrStatus,
@@ -916,6 +917,14 @@ export async function getUsageBreakdown(range: UsageRange): Promise<UsageBreakdo
   const r = await fetch(`/api/usage/breakdown?range=${range}`);
   if (!r.ok) throw await failed(r, "breakdown");
   return r.json();
+}
+
+/** Recent recorded spawn-prompt breakdowns, newest first (issue #1999). */
+export async function getPromptBudgets(): Promise<PromptBudgetRecord[]> {
+  const r = await fetch("/api/prompt-budget");
+  if (!r.ok) throw await failed(r, "prompt budget");
+  const body = (await r.json()) as { records?: PromptBudgetRecord[] };
+  return body.records ?? [];
 }
 
 export async function getUsageTimeline(range: UsageRange): Promise<UsageTimeline> {

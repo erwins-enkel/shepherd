@@ -111,10 +111,12 @@ guidance is already in every agent's prompt, so restating it is pure no-op cost.
   Readiness analyzer (it generates that snippet for the operator to adopt). Stay off
   that heading so the two never collide; add at most a one-line pointer:
   `> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.`
-- **Don't instruct agents to invoke skills or slash commands.** Unattended drain
-  sessions run with skills and slash commands **disabled** and are explicitly told to
-  ignore any CLAUDE.md/memory instruction to invoke them. Write for built-in tools
-  and plain prose only — never "run `/foo`" or "use the X skill".
+- **Only reference skills the repo itself ships.** Unattended drain sessions keep the
+  Skill tool and the repo's own `.claude/skills/`, but run with Claude Code's built-in
+  skills, the operator's personal ones, and every plugin **disabled**. So "use the X
+  skill" is fine when `X` lives in `.claude/skills/` of this repo, and wrong for
+  anything else — a personal or plugin skill won't be there. Slash commands are not
+  typed by an unattended agent either way: point at the skill by name, not as `/foo`.
 
 **Greenfield vs existing content model** (not just write-vs-merge):
 
@@ -243,7 +245,7 @@ to start it.
   block; an edge is `#<dependent> <- #<blocker>[, #<blocker>…]`. (A `- [ ] #<n>`
   checklist is also accepted as a member list with no edges.)
 - **CLAUDE.md exclusions:** no restating injected constants, no
-  `# House rules for AI agents` heading, no instructions to invoke skills/commands.
+  `# House rules for AI agents` heading, no pointers to skills the repo doesn't ship.
 
 ## Principles
 
@@ -253,5 +255,6 @@ to start it.
 - Draft, then create — the operator approves the whole tree before anything outward.
 - Point, don't kick off — leave the operator one clear first move, started in
   Shepherd's own New Task flow.
-- Write the CLAUDE.md for a drain agent that has skills disabled and already carries
-  Shepherd's injected guidance — say only what's repo-specific and new.
+- Write the CLAUDE.md for a drain agent that can load this repo's own skills but no
+  others, and already carries Shepherd's injected guidance — say only what's
+  repo-specific and new.

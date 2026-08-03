@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { tick } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import type { RepoEntry } from "$lib/types";
@@ -19,6 +20,8 @@
     windowDays,
     onescape,
     hideHidden = false,
+    keycap = undefined,
+    shortcut = undefined,
   }: {
     repos: RepoEntry[];
     value: string;
@@ -38,6 +41,12 @@
      *  them once a name search matches. Off by default so the other (backlog/steers/card)
      *  RepoSelect consumers are unaffected. */
     hideHidden?: boolean;
+    /** Renders in place of the mute ▾ when set — New Task swaps in a keycap
+     *  while ⌘ is held. A snippet rather than keymap props so this shared picker
+     *  stays unaware of any host's shortcut scheme. */
+    keycap?: Snippet;
+    /** aria-keyshortcuts for the trigger, when a host binds one. */
+    shortcut?: string;
   } = $props();
 
   let open = $state(false);
@@ -230,6 +239,7 @@
     onclick={toggle}
     aria-haspopup="listbox"
     aria-expanded={open}
+    aria-keyshortcuts={shortcut}
   >
     {#if selected}
       {@const identity = repoIdentity(selected)}
@@ -240,7 +250,9 @@
     {:else}
       <span class="placeholder">{m.reposelect_placeholder()}</span>
     {/if}
-    <span class="chevron" class:open>{open ? "▲" : "▼"}</span>
+    {#if keycap}{@render keycap()}{:else}
+      <span class="chevron" class:open>{open ? "▲" : "▼"}</span>
+    {/if}
   </button>
 
   {#if open}

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { untrack } from "svelte";
   import { SvelteSet } from "svelte/reactivity";
   import { getCommands } from "$lib/api";
@@ -40,6 +41,12 @@
     onpickissue,
     onpicksteer = undefined,
     allowIssues = true,
+    filterKeycap = undefined,
+    tabsKeycap = undefined,
+    rowKeycap = undefined,
+    tabShortcut = undefined,
+    rowShortcut = undefined,
+    filterShortcut = undefined,
     agentProvider = "claude",
     epicParents = new Set(),
     nativeSubIssues = new Set(),
@@ -55,6 +62,18 @@
      *  from the row's right-click / long-press context menu. Never spawns. */
     onpicksteer?: (issue: Issue, steer: Steer) => void;
     allowIssues?: boolean;
+    /** Replace the filter chip's mute ▾ (New Task's ⌘F keycap). */
+    filterKeycap?: Snippet;
+    /** Append after the Issues/Commands switch (⌥T) — the switch itself stays
+     *  fully visible, so this one is added rather than substituted. */
+    tabsKeycap?: Snippet;
+    /** Render on the first interactive issue row (↑↓). */
+    rowKeycap?: Snippet;
+    /** aria-keyshortcuts for the Issues/Commands switch, the issue rows and the
+     *  filter chip, when a host binds them. */
+    tabShortcut?: string;
+    rowShortcut?: string;
+    filterShortcut?: string;
     agentProvider?: "claude" | "codex";
     epicParents?: Set<number>;
     nativeSubIssues?: Set<number>;
@@ -105,6 +124,78 @@
   }
   function closeDetails() {
     details = null;
+  }
+
+  // ── imperative entry points, for a host that binds keyboard shortcuts ──
+  let filterPopover = $state<IssueFilterPopover | undefined>();
+  let bodyEl = $state<HTMLElement | null>(null);
+
+  /** Open the issue-filter popover (New Task's ⌘F). */
+  export function openFilter() {
+    filterPopover?.openPanel();
+  }
+
+  /** Flip between the Issues and Commands tabs (⌥T). */
+  export function toggleTab() {
+    if (!allowIssues) return;
+    tab = tab === "issues" ? "commands" : "issues";
+  }
+
+  /** Move focus onto the first pickable row (↑↓). */
+  export function focusList() {
+    rows()[0]?.focus();
+  }
+
+  // ── Readiness accessors: does the matching action above actually DO anything?
+  //
+  // A host binding a shortcut needs this to decide between a live and a muted
+  // keycap — advertising a key that no-ops is worse than showing it dimmed. Each
+  // one restates the render condition of the control it targets, so they live
+  // here (next to those conditions) rather than being re-derived by the host
+  // from props it would have to keep in sync. All read reactive state, so
+  // callers may use them inside $derived — same contract as MicButton.available().
+
+  /** The issue-filter popover is mounted, so `openFilter()` will open it. */
+  export function filterReady() {
+    return allowIssues && tab === "issues" && issues.length > 0;
+  }
+
+  /** The tab switch can flip — `toggleTab()` no-ops without the Issues tab. */
+  export function tabsReady() {
+    return allowIssues;
+  }
+
+  /** At least one focusable issue row exists, so `focusList()` lands somewhere.
+   *  Keys off `firstPickable`, not `issues.length`: a list of nothing but epic
+   *  parents renders rows that are plain <div>s and cannot take focus. */
+  export function listReady() {
+    return allowIssues && tab === "issues" && firstPickable !== undefined;
+  }
+
+  /** The pickable rows, in visual order. Epic-parent rows are <div>s and the
+   *  "N more" expander is outside .ps-rows, so both fall out naturally. */
+  function rows(): HTMLElement[] {
+    return Array.from(
+      bodyEl?.querySelectorAll<HTMLElement>(".issue-list-row.is-interactive") ?? [],
+    );
+  }
+
+  /** ↑↓ walk the list; Enter is the button's own default and needs no handler.
+   *  Wrapping at both ends matches the inline # menu's cycleIndex behaviour, so
+   *  the two issue lists in this dialog navigate identically. */
+  function onListKeydown(e: KeyboardEvent) {
+    if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+    const items = rows();
+    if (items.length === 0) return;
+    const at = items.indexOf(document.activeElement as HTMLElement);
+    const dir = e.key === "ArrowDown" ? 1 : -1;
+    // Focus outside the list (e.g. the filter chip): ↓ enters at the top,
+    // ↑ at the bottom.
+    const next =
+      at === -1 ? (dir === 1 ? 0 : items.length - 1) : (at + dir + items.length) % items.length;
+    e.preventDefault();
+    e.stopPropagation();
+    items[next]?.focus();
   }
 
   // Issues render from the SHARED loader (NewTask's IssueData) — this panel and the
@@ -259,6 +350,11 @@
 
   const COLLAPSED_ROWS = 3;
   const shownIssues = $derived(expanded ? visibleIssues : visibleIssues.slice(0, COLLAPSED_ROWS));
+  /** Issue number of the topmost pickable row — the ↑↓ keycap's anchor. Derived
+   *  rather than "index 0" because epic-parent rows are interleaved and not
+   *  pickable, so the first RENDERED row is often not the first focusable one. */
+  const firstPickable = $derived(shownIssues.find((i) => !epicParents.has(i.number))?.number);
+
   const moreCount = $derived(Math.max(0, visibleIssues.length - COLLAPSED_ROWS));
 
   function providerBadge(cmd: SlashCommand): string {
@@ -294,6 +390,9 @@
     {/if}
     {#if allowIssues && tab === "issues" && issues.length > 0}
       <IssueFilterPopover
+        bind:this={filterPopover}
+        keycap={filterKeycap}
+        shortcut={filterShortcut}
         showMine={viewer != null}
         authors={availableAuthors}
         labels={availableLabels}
@@ -310,6 +409,7 @@
           class="tab"
           class:active={tab === "issues"}
           type="button"
+          aria-keyshortcuts={tabShortcut}
           onclick={() => (tab = "issues")}
         >
           {m.promptsources_issues_tab()}
@@ -319,14 +419,16 @@
         class="tab"
         class:active={tab === "commands"}
         type="button"
+        aria-keyshortcuts={tabShortcut}
         onclick={() => (tab = "commands")}
       >
         {m.promptsources_commands_tab()}
       </button>
+      {#if tabsKeycap}{@render tabsKeycap()}{/if}
     </div>
   </div>
 
-  <div class="ps-body">
+  <div class="ps-body" bind:this={bodyEl}>
     {#if tab === "commands" && commandsLoading}
       <div class="muted">{m.common_loading()}</div>
     {:else if tab === "commands"}
@@ -414,6 +516,8 @@
               class="issue-list-row is-interactive issue-source-row"
               type="button"
               onclick={() => onpickissue(i)}
+              onkeydown={onListKeydown}
+              aria-keyshortcuts={rowShortcut}
               use:issueMenuTrigger={{
                 onopen: (x, y, node) => openMenu(i, onpicksteer != null, x, y, node),
               }}
@@ -422,6 +526,7 @@
               <span class="issue-list-title">{i.title}</span>
               {@render issueAuthor(i.author)}
               <IssueLabelChips labels={i.labels} labelColors={i.labelColors} />
+              {#if rowKeycap && i.number === firstPickable}{@render rowKeycap()}{/if}
             </button>
           {/if}
         {/each}

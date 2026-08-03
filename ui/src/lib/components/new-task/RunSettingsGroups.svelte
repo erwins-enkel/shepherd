@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import { m } from "$lib/paraglide/messages";
   import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { modelOptionLabel } from "$lib/model-guidance";
@@ -47,6 +48,14 @@
     onSandboxChange,
     onPlanGateChange,
     onAutopilotChange,
+    engineKeycap = undefined,
+    modelKeycap = undefined,
+    planGateKeycap = undefined,
+    autopilotKeycap = undefined,
+    planGateShortcut = undefined,
+    autopilotShortcut = undefined,
+    engineShortcut = undefined,
+    modelShortcut = undefined,
   }: {
     agentProvider: AgentProvider;
     model: string;
@@ -71,6 +80,16 @@
     onSandboxChange: (profile: "default" | SandboxProfile) => void;
     onPlanGateChange: (checked: boolean) => void;
     onAutopilotChange: (checked: boolean) => void;
+    /** Keycap slots — each REPLACES the mute ▾ / ON-OFF readout in place, so the
+     *  rail never reflows when New Task reveals its shortcuts. */
+    engineKeycap?: Snippet;
+    modelKeycap?: Snippet;
+    planGateKeycap?: Snippet;
+    autopilotKeycap?: Snippet;
+    planGateShortcut?: string;
+    autopilotShortcut?: string;
+    engineShortcut?: string;
+    modelShortcut?: string;
   } = $props();
 
   const provModels = $derived(providerModels(agentProvider));
@@ -93,6 +112,7 @@
       <select
         id="nt-agent-provider"
         aria-label={m.newtask_agent_provider_label()}
+        aria-keyshortcuts={engineShortcut}
         value={agentProvider}
         onchange={(e) => onProviderChange(e.currentTarget.value as AgentProvider)}
       >
@@ -110,7 +130,9 @@
           >{m.newtask_agent_provider_codex_alpha_badge()}</span
         >
       {/if}
-      <span class="chev" aria-hidden="true">▾</span>
+      {#if engineKeycap}{@render engineKeycap()}{:else}
+        <span class="chev" aria-hidden="true">▾</span>
+      {/if}
     </div>
 
     <EngineCapacityLine limits={usageLimits} provider={agentProvider} />
@@ -141,6 +163,7 @@
         <select
           id="nt-model"
           aria-label={m.newtask_model_label()}
+          aria-keyshortcuts={modelShortcut}
           value={model}
           onchange={(e) => onModelChange(e.currentTarget.value)}
         >
@@ -151,7 +174,9 @@
             {/if}
           {/each}
         </select>
-        <span class="chev" aria-hidden="true">▾</span>
+        {#if modelKeycap}{@render modelKeycap()}{:else}
+          <span class="chev" aria-hidden="true">▾</span>
+        {/if}
       </div>
       <ModelGuidance provider={agentProvider} {model} context="task" compact />
       {#if agentProvider === "claude" && !fableAvailable}
@@ -243,6 +268,8 @@
         disabled={modeLocked}
         loading={planGateLoading}
         defaultTip={defaultTip(planGateDefault)}
+        keycap={planGateKeycap}
+        shortcut={planGateShortcut}
         onchange={onPlanGateChange}
       />
     </div>
@@ -253,6 +280,8 @@
         disabled={modeLocked}
         loading={autopilotLoading}
         defaultTip={defaultTip(autopilotDefault)}
+        keycap={autopilotKeycap}
+        shortcut={autopilotShortcut}
         onchange={onAutopilotChange}
       />
     </div>

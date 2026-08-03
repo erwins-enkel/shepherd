@@ -1,4 +1,5 @@
 <script lang="ts">
+  import type { Snippet } from "svelte";
   import GlossaryText from "$lib/components/GlossaryText.svelte";
   import { statusTip } from "$lib/actions/statusTip.svelte";
   import { m } from "$lib/paraglide/messages";
@@ -19,6 +20,8 @@
     loading = false,
     defaultTip,
     onchange,
+    keycap = undefined,
+    shortcut = undefined,
   }: {
     checked: boolean;
     /** Message value with a glossary marker, e.g. "[[plan-gate|Plan gate]]". */
@@ -28,6 +31,11 @@
     /** "Repo default: on/off" text derived from the REAL repo default. */
     defaultTip: string;
     onchange: (checked: boolean) => void;
+    /** Replaces the ON/OFF readout while the host reveals keycaps. Same slot,
+     *  same line height — the row must not move when it swaps in. */
+    keycap?: Snippet;
+    /** aria-keyshortcuts for the switch. */
+    shortcut?: string;
   } = $props();
 
   const uid = $props.id();
@@ -41,6 +49,7 @@
     aria-checked={checked}
     aria-labelledby="{uid}-label"
     aria-describedby="{uid}-default"
+    aria-keyshortcuts={shortcut}
     disabled={disabled || loading}
     onclick={() => onchange(!checked)}
   ></button>
@@ -49,7 +58,9 @@
       <span class="knob"></span>
     </span>
     <span class="label" id="{uid}-label"><GlossaryText text={labelMarkup} /></span>
-    {#if loading}
+    {#if keycap}
+      <span class="status">{@render keycap()}</span>
+    {:else if loading}
       <span class="status loading">{m.common_loading()}</span>
     {:else}
       <span class="status" class:on={checked} use:statusTip={{ text: defaultTip, still: true }}

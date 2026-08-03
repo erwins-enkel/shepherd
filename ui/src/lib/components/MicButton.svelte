@@ -17,6 +17,7 @@
     setText,
     onTextRendered,
     inline = false,
+    shortcut = undefined,
   }: {
     /** Current field text (dictation appends after it). */
     getText: () => string;
@@ -27,6 +28,8 @@
     /** In-flow toolbar variant: the button sits in normal flow (no floating anchor);
      *  the host sizes it via the .inline classes (New Task's in-field toolbar). */
     inline?: boolean;
+    /** aria-keyshortcuts for the mic, when a host binds one (New Task's ⌘D). */
+    shortcut?: string;
   } = $props();
 
   // Closures (not the bare props) so the controller always calls the CURRENT prop value —
@@ -41,6 +44,19 @@
    *  unmount (dialog close) does the same via onDestroy. */
   export function teardown() {
     dict.teardown();
+  }
+
+  /** Start/stop dictation from outside — the keyboard path for hosts that bind a
+   *  shortcut to the mic (New Task's ⌘D). Same entry point as tapping it. */
+  export function toggle() {
+    dict.toggle();
+  }
+
+  /** Whether this browser can dictate at all. Renders nothing when false, so a
+   *  host binding a shortcut needs it to decide between a live and a muted
+   *  keycap. Reads reactive state, so callers may use it inside $derived. */
+  export function available() {
+    return dict.micVisible;
   }
 
   onDestroy(() => dict.teardown());
@@ -68,6 +84,7 @@
           ? m.micbtn_dictate_stop_aria()
           : m.micbtn_dictate_aria()}
       aria-pressed={dict.listening}
+      aria-keyshortcuts={shortcut}
       onpointerdown={tapMic}
     >
       <svg

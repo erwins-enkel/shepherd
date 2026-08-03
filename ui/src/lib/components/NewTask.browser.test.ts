@@ -1476,25 +1476,24 @@ describe("NewTask repo shortcuts", () => {
     await expect.poll(() => triggerLabel()).toBe(repoB.name);
   });
 
-  it("Alt+2 selects the 2nd recent repo (charlie, differs from list order)", async () => {
-    // list order: alpha, bravo, charlie
-    // recents order: bravo (count=5), charlie (count=2, more recent lastUsedAt)
-    // Digit2 → charlie (index 1 in recents)
+  // ⌥1/⌥2/⌥3 used to jump to recent repos. They now switch the MODE, per the
+  // keymap registry ($lib/keymap/newTask.ts). ⌥[ / ⌥] and ⌥R still cover repo
+  // switching, so only the digit tier moved.
+  it("Alt+2 switches to research mode and leaves the repo alone", async () => {
     render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
     await expect.poll(() => triggerLabel()).toBe(repoA.name);
 
     press("Digit2");
-    await expect.poll(() => triggerLabel()).toBe(repoC.name);
+    await expect.poll(() => segActive("Research")).toBe(true);
+    expect(triggerLabel()).toBe(repoA.name);
   });
 
-  it("Alt+3 is a silent no-op when only 2 recents exist", async () => {
-    // only repoB and repoC have recentAgentCount > 0, so recents has 2 entries
+  it("Alt+3 switches to epic mode", async () => {
     render(NewTask, { props: base({ initialRepoPath: repoA.path }) });
     await expect.poll(() => triggerLabel()).toBe(repoA.name);
 
     press("Digit3");
-    // label stays unchanged
-    await expect.poll(() => triggerLabel()).toBe(repoA.name);
+    await expect.poll(() => segActive("Epic")).toBe(true);
   });
 
   it("Alt+R opens the picker and focuses the filter input", async () => {
@@ -2462,13 +2461,15 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
     await expect.poll(() => selectedRepo()).toBe("ccc");
   });
 
-  it("Alt+1 digit shortcut never targets a hidden repo", async () => {
+  it("Alt+1 no longer moves the repo selection at all (it selects Code mode)", async () => {
+    // Regression guard for the retired digit tier: the hidden-repo protection
+    // that used to live here is still covered by the Alt+] cycle test above.
     const secret: RepoEntry = {
       name: "secret",
       path: "/repo/hh-dig-secret",
       display: "secret",
       realPath: "/repo/hh-dig-secret",
-      recentAgentCount: 9, // would be the #1 recent if not hidden
+      recentAgentCount: 9,
       hidden: true,
     };
     const realtop: RepoEntry = {
@@ -2489,10 +2490,9 @@ describe("NewTask — hidden repos excluded from keyboard selection paths", () =
 
     await expect.poll(() => selectedRepo()).toBe("other");
     altChord("Digit1");
-    // Alt+1 = first NON-hidden recent (realtop), never the higher-count hidden "secret".
-    await expect.poll(() => selectedRepo()).toBe("realtop");
+    await expect.poll(() => segActive("Code")).toBe(true);
+    expect(selectedRepo()).toBe("other");
   });
-
   it("cycle from a hidden current repo enters the visible subset at its boundary", async () => {
     const vis1: RepoEntry = {
       name: "vis1",
@@ -2740,7 +2740,7 @@ function typePrompt(text: string) {
 
 function pressCmdEnter(target?: HTMLElement) {
   (target ?? document.querySelector<HTMLElement>("form.card")!).dispatchEvent(
-    new KeyboardEvent("keydown", { key: "Enter", ctrlKey: true, bubbles: true }),
+    new KeyboardEvent("keydown", { key: "Enter", code: "Enter", ctrlKey: true, bubbles: true }),
   );
 }
 

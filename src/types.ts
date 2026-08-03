@@ -1,6 +1,7 @@
 import type { SandboxProfile } from "./sandbox";
 import type { VisualBlock } from "./visual-blocks";
 import type { ManualStep } from "./manual-steps";
+import type { PromptBlockMeasure } from "./prompt-budget";
 
 export type HerdrState = "idle" | "working" | "blocked" | "done" | "unknown";
 export type SessionStatus = "running" | "idle" | "blocked" | "done" | "archived";
@@ -1294,6 +1295,34 @@ export interface UsageBreakdown {
   satelliteByKind: UsageKindUnits[]; // global per-kind satellite tally, sorted desc by units
   dollars: number | null; // absolute USD spend; null unless api-key auth mode (subscription mode shows no dollars)
   repos: UsageRepoBreakdown[];
+}
+
+// ── Spawn-prompt budget (issue #1999) ────────────────────────────────────────
+// Mirror of the PromptBudgetRecord contract in ui/src/lib/types.ts — keep in sync.
+
+/** How the assembled directive payload reaches the agent. Claude takes it on
+ *  `--append-system-prompt`; Codex has no such flag, so the SAME payload rides inline on the prompt
+ *  wrapped in `<shepherd-directives>`. Recorded per spawn so the meter isn't misread as the literal
+ *  Codex argv. */
+export type PromptBudgetDelivery = "append-system-prompt" | "inline-prompt";
+
+/** One spawn's recorded prompt breakdown, joined with its session for display. Written once per
+ *  spawn at `composeDirectives`; upserted by sessionId, so a relaunch replaces rather than
+ *  accumulates. `blocks` are in emission order — the UI sorts for display. */
+export interface PromptBudgetRecord {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  agentProvider: AgentProvider;
+  /** True for an unattended (drain / auto) spawn — the acceptance criterion names both. */
+  auto: boolean;
+  delivery: PromptBudgetDelivery;
+  totalChars: number;
+  totalBytes: number;
+  /** ESTIMATE, not a tokenizer measurement — see CHARS_PER_TOKEN in src/prompt-budget.ts. */
+  totalTokens: number;
+  blocks: PromptBlockMeasure[];
+  createdAt: number;
 }
 
 // One hour of weighted-unit consumption — mirror of UsageTimelineHour in ui/src/lib/types.ts.

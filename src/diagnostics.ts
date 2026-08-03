@@ -340,6 +340,15 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
   };
 }
 
+/** Default `previewServeDenied`: an unwired service never reports a denial, so a caller that
+ *  doesn't pass the tailscale serve service keeps the pre-existing behavior. Resolved here
+ *  rather than inline in the constructor for the same reason `resolveClaudeTrustDeps` exists —
+ *  the ctor sits at the repo's complexity ceiling, and one more inline `??` trips the health
+ *  gate. */
+function resolvePreviewServeDenied(deps: DiagnosticsDeps): () => boolean {
+  return deps.previewServeDenied ?? (() => false);
+}
+
 // ── host_capacity check (#1732) ──────────────────────────────────────────────
 // Warns when a systemd-managed Shepherd host has no resource guardrails, or errors
 // when the host is under dangerous live memory/IO pressure. Every field below drives
@@ -990,7 +999,7 @@ export class DiagnosticsService {
         });
         return stdout.toString();
       });
-    this.previewServeDenied = deps.previewServeDenied ?? (() => false);
+    this.previewServeDenied = resolvePreviewServeDenied(deps);
     this.runRemediation = deps.runRemediation ?? defaultRunRemediation;
     this.anyForgeRepo = deps.anyForgeRepo ?? (() => true);
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);

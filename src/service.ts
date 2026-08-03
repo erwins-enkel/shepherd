@@ -452,12 +452,12 @@ export function spawnSettingsOverlay(
  * the literal token here ON PURPOSE: the hook header rides the ps-visible argv and is readable
  * from the autonomous agent's own `/proc/self/cmdline`, so baking it would hand a hijacked agent
  * the control-plane token — defeating the containment the autonomous profile exists to provide.
- * This is asymmetric with the build-queue curl (buildQueueDirective), which DOES carry the literal
- * token over the same ingress transport: that exposure is pre-existing, opt-in (only when
- * `buildQueueEnabled`), and already documented as accepted there. Token-LESS deployments (the
- * default) are unaffected and reach hooks under autonomous normally. To make token + autonomous
- * hooks reach, re-inject the token into the sandbox env or accept the literal-in-argv exposure —
- * intentionally NOT done here.
+ * This placeholder is now the ONLY place a Shepherd spawn carries the control-plane token at all
+ * (issue #2003): the build-queue and epic-authoring directives used to bake the literal token into
+ * their `curl` lines, and no longer do — they target the same auth-exempt ingress listener, which
+ * never checked the header. Token-LESS deployments (the default) are unaffected and reach hooks
+ * under autonomous normally. To make token + autonomous hooks reach, re-inject the token into the
+ * sandbox env or accept the literal-in-argv exposure — intentionally NOT done here.
  */
 export function buildHooksFragment(input: {
   sessionId: string;

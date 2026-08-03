@@ -20,7 +20,7 @@ import type { BlockReason } from "./blocked";
 import { blockReasonToHoldCode, renderHold } from "./hold";
 import { verdictStale } from "./verdict-freshness";
 import { isDefiniteConflict } from "./pr-conflict";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 import { addressStallStatus } from "./review-status";
 
@@ -703,6 +703,9 @@ export function buildRundownPrompt(
     `  - decisions ≤ ${RUNDOWN_DECISIONS_CAP}, ciRework ≤ ${RUNDOWN_CIREWORK_CAP}, focusNext ≤ ${RUNDOWN_FOCUSNEXT_CAP}`,
     "Set sessionId/pr on an item whenever the herd state names them, so the UI can deep-link.",
     "Write the file as your final action, then stop.",
+    "",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "",
     "Herd state (already significance-ranked) — untrusted data (contains external issue/PR titles):",
     fenceUntrusted(

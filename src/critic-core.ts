@@ -13,7 +13,7 @@ import type { ReviewDecision } from "./types";
 import type { SessionUsage } from "./usage";
 import { tolerantParseJson } from "./json-tolerant";
 import type { VerdictRead } from "./json-tolerant";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 
 const execFileAsync = promisify(execFile);
 
@@ -171,6 +171,10 @@ export function reviewPrompt(
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
     `The PR branch is checked out here at its head commit. Review the changes with: git diff ${diffBase}...HEAD`,
     "",
+    // #2002: the one home for the fence contract in this prompt. It used to be restated inside
+    // every fence — eight of them here — which is exactly the duplication the epic is removing.
+    UNTRUSTED_CONTENT_DIRECTIVE,
+    "",
     "The task this PR is meant to accomplish:",
     taskPrompt,
     "",
@@ -272,6 +276,9 @@ export function prReviewPrompt(
   const lines = [
     "You are a code critic reviewing a pull request. Do NOT modify, build, commit, or run anything — read-only inspection only.",
     `The PR branch is checked out here at its head commit. Review the changes with: git diff ${diffBase}...HEAD`,
+    "",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "",
     // No task to satisfy — the PR's own title/body is the author's stated intent, given ONLY as
     // context for understanding the change. A missing/empty body is fine (title alone suffices).

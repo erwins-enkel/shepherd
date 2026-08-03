@@ -23,6 +23,13 @@ import {
 } from "./operator-language";
 import { joinPromptBlocks, measurePromptBlocks, type PromptBlock } from "./prompt-budget";
 import { skillNameFrom } from "./commands";
+import { buildToolGuardFragment, toolGuardMembranePaths } from "./tool-guard-hook";
+import {
+  AGENT_SKILL_NAMES,
+  agentSkillsArgs,
+  agentSkillsAvailable,
+  agentSkillsMembranePaths,
+} from "./agent-skills";
 import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
@@ -406,6 +413,10 @@ export function resetUserSkillNamesCacheForTests(): void {
  * Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
  * this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
  * overlay JSON stays byte-for-byte identical to today.
+ *
+ * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
+ * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
+ * not an HTTP one — so it rides even when ingest is off, and the two never collide on an event.
  */
 export function spawnSettingsOverlay(
   opts: SpawnTrimOverlay & {
@@ -425,9 +436,13 @@ export function spawnSettingsOverlay(
       settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
     }
   }
-  if (config.hooksIngest && opts.hooks) {
-    settings.hooks = buildHooksFragment(opts.hooks);
-  }
+  // The guard owns `PreToolUse`; the ingest hooks own the eight lifecycle events. Merged key-wise
+  // (they never collide) so either can ride alone or both together.
+  const hooks = {
+    ...buildToolGuardFragment(),
+    ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
+  };
+  if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   // api-key mode folds in `apiKeyHelper` LAST so key order is stable; subscription
   // returns {} so the JSON is byte-for-byte identical to before (see spawn-auth).
   Object.assign(settings, apiKeySettingsFragment());
@@ -579,23 +594,28 @@ async function disableableSkillNames(
     skillNames(join(worktreePath, ".claude", "skills")),
   ]);
   if (project === null) return [];
-  const own = new Set(project);
+  // Shepherd's own `--add-dir` skills (#2002) are subtracted alongside the session's: they carry
+  // guidance this spawn's prompt no longer states, so a same-named personal skill must not switch
+  // them off. `skillOverrides` is keyed by name, and these names are fixed, so no listing is needed.
+  const own = new Set([...project, ...AGENT_SKILL_NAMES]);
   return user.filter((name) => !own.has(name));
 }
 type TrimDecision = Awaited<ReturnType<typeof trimDecision>>;
 
 /**
- * Appended to every spawned session's system prompt. The async namer
- * (`refineNameInBackground`) can `git branch -m` the session branch 10–60s after
- * start — while the agent is already working — so an agent that inspects git state
- * mid-task would otherwise read the changed branch name as an error (cf. TASK-177).
- * Pre-warning it at spawn removes the surprise at the source. Not user-facing chrome
+ * Injected only into spawns a background rename can actually reach (issue #2002). The async namer
+ * (`refineNameInBackground`) can `git branch -m` the session branch 10–60s after start — while the
+ * agent is already working — so an agent that inspects git state mid-task would otherwise read the
+ * changed branch name as an error (cf. TASK-177). Pre-warning it at spawn removes the surprise at
+ * the source; a session with no branch to rename (non-isolated), with LLM naming off, or whose
+ * heuristic name already won (`isHeuristicNameStrong` → `scheduleRefine` returns early) is warned
+ * about something that cannot happen, so `opts.branchRename` gates it. Not user-facing chrome
  * (it's an instruction to the agent), so no i18n.
  */
 const BRANCH_RENAME_NOTICE =
-  "Shepherd may rename this session's git branch shortly after startup to a clearer, " +
-  "prompt-derived name (via `git branch -m`). This is expected: your working tree, " +
-  "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
+  "Shepherd may rename this session's git branch shortly after startup (`git branch -m`) to a " +
+  "clearer, prompt-derived name. Your working tree, commits and checked-out HEAD are unaffected — " +
+  "never treat a changed branch name as an error.";
 
 /**
  * Appended to every spawned session's system prompt. `refs/stash` is a single stack shared
@@ -698,33 +718,30 @@ const CONTEXT_TRIM_NOTICE =
  * standing posture, so it lives in source and rides every spawn unconditionally.
  *
  * It biases the agent *against over-building*, the classic unattended-overnight failure mode
- * the curated (defect-prevention) house rules don't cover. Scope notes baked into the wording:
- *  - "Think before coding" is deliberately scoped to PRE-EXECUTION. Once running autonomously,
- *    the autopilot don't-pause-to-ask rule still wins — the agent proceeds on stated assumptions.
- *  - The dead-code clause harmonizes with the curated "don't ship dead code" rule: remove only
- *    what YOUR change orphaned; surface (don't silently delete) pre-existing unrelated dead code.
+ * the curated (defect-prevention) house rules don't cover. The dead-code clause harmonizes with the
+ * curated "don't ship dead code" rule: remove only what YOUR change orphaned; surface (don't
+ * silently delete) pre-existing unrelated dead code.
+ *
+ * This is the block's ALWAYS-ON core (issue #2002). It stays resident because it is standing
+ * behavioural law, not situational — model-invoked disclosure cannot guarantee it loads. Two
+ * clauses that WERE situational moved to their real homes and must not be re-added here:
+ *  - "think before coding" is pre-execution only, i.e. the plan gate — it now rides the
+ *    plan-gate directive, which is the only spawn shape that plans before it codes;
+ *  - the detached-background-job hazard is delivered by the PreToolUse guard, on the calls that
+ *    can actually create it (BACKGROUND_CONTEXT in scripts/tool-guard.mjs).
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * BRANCH_RENAME_NOTICE and the distiller/critic spawn prompts.
  */
 const ENGINEERING_POSTURE =
   "Standing engineering posture for every change — adopt it regardless of the task.\n" +
-  "- Think before coding (pre-execution only): before you start, state your key assumptions, " +
-  "surface genuine ambiguity and any clearly simpler approach, and name what's unclear. Resolve " +
-  "this up front — once you are executing autonomously, do NOT pause to ask; proceed on your stated assumptions.\n" +
-  "- Simplicity first: write the minimum code that solves the stated problem, nothing speculative. " +
-  "No features beyond what was asked, no abstractions for single-use code, no unrequested " +
-  "flexibility/config, no error handling for genuinely impossible cases. Test: would a senior " +
-  "engineer call this overcomplicated?\n" +
-  "- Surgical changes: touch only what the task requires — every changed line should trace to the " +
-  "request. Don't refactor working code, reformat, or polish adjacent code/comments; match existing " +
-  "style. Delete only the imports/vars/functions YOUR change orphaned; for pre-existing unrelated " +
-  "dead code, surface it rather than silently expanding the diff.\n" +
+  "- Simplicity first: write the minimum code that solves the stated problem, nothing speculative — " +
+  "no features beyond what was asked, no abstractions for single-use code, no unrequested " +
+  "flexibility/config, no error handling for genuinely impossible cases.\n" +
+  "- Surgical changes: every changed line should trace to the request. Don't refactor working code, " +
+  "reformat, or polish adjacent code/comments; match existing style. Delete only what YOUR change " +
+  "orphaned; surface pre-existing dead code rather than silently expanding the diff.\n" +
   "- Goal-driven execution: turn the task into explicit, verifiable success criteria up front, then " +
-  "loop until they actually pass — never declare work done before verifying against them.\n" +
-  "- Ephemeral scaffolding self-cleans: never leave a detached `&` background job (load generator, " +
-  "busy-loop, dev server, watcher) running past the step that needs it. Backgrounded jobs reparent to " +
-  "PID 1 when their shell exits and outlive you — silently burning CPU for days. Kill what you spawn in " +
-  "the SAME shell, or wrap a throwaway repro script so a `trap` reaps its jobs on exit.";
+  "loop until they actually pass — never declare work done before verifying against them.";
 
 /**
  * Fixed, repo-independent standing guidance injected into every spawn (issue #347, sourced from
@@ -1344,7 +1361,9 @@ function planGateDirectiveInteractive(
   return (
     stopClause +
     "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
-    "1. Research the codebase enough to plan confidently.\n" +
+    "1. Research the codebase enough to plan confidently. Think before coding: state your key " +
+    "assumptions, surface genuine ambiguity and any clearly simpler approach, and name what is unclear — " +
+    "this phase is where that gets resolved, not mid-implementation.\n" +
     askStep +
     "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
     "success criteria. Misalignment now is the costliest failure." +
@@ -1385,7 +1404,9 @@ function planGateDirectiveAuto(
     "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
     "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
     "at the repo root (goal, approach, out of scope, files, testing seams + decisions, steps, risks, " +
-    "success criteria).\n" +
+    "success criteria). Think before coding: state your key assumptions, surface genuine ambiguity and " +
+    "any clearly simpler approach, and name what is unclear — resolve it HERE, because once the plan is " +
+    "approved you execute autonomously and proceed on those stated assumptions rather than pausing.\n" +
     PLAN_REFERENCE_STYLE +
     "An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
@@ -1563,6 +1584,7 @@ function trailingBlocks(
   opts: ComposeSystemPromptOptions,
   nonCodeMode: boolean,
   operatorLanguage: OperatorLanguage,
+  skills: boolean,
 ): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
@@ -1570,8 +1592,12 @@ function trailingBlocks(
   if (!nonCodeMode && opts.buildQueue != null)
     blocks.push(taggedBlock("build-queue", opts.buildQueue));
   // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
-  // and have no dedicated worktree, so the hint would be misleading there.
-  if (opts.previewHint) blocks.push(taggedBlock("preview-hint-notice", PREVIEW_HINT_NOTICE));
+  // and have no dedicated worktree, so the hint would be misleading there. Since #2002 it is also
+  // the `shepherd-preview` skill: where that skill is loadable (Claude with the agent-skills dir)
+  // the block is dropped, because a session only needs it if it starts a dev server — the exact
+  // shape progressive disclosure exists for. Codex, or an install without the dir, keeps it.
+  if (opts.previewHint && !skills)
+    blocks.push(taggedBlock("preview-hint-notice", PREVIEW_HINT_NOTICE));
   // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
   if (opts.draftMode) blocks.push(taggedBlock("draft-mode", DRAFT_PR_NOTE));
   // Context-trim notice: only trimmed auto spawns (bundled + personal skills / plugins off).
@@ -1581,6 +1607,71 @@ function trailingBlocks(
   // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
   const languageBlock = operatorLanguageBlock(operatorLanguage);
   if (languageBlock) blocks.push({ name: "operator-language", text: languageBlock });
+  return blocks;
+}
+
+/**
+ * The PR-oriented blocks a CODE spawn carries, in emission order. Extracted from
+ * composeSystemPromptBlocks to keep it under the complexity gate.
+ *
+ * `prBlocksResident` is false once BOTH #2002 mechanisms reach the spawn: the single-PR invariant
+ * and the manual-steps notice then ship as the `shepherd-pull-requests` skill plus the guard's
+ * PR_CREATE_CONTEXT injection at `gh pr create`. Both are required — skills alone would make the
+ * rules depend on the model choosing to load them; the guard alone would deliver the actionable
+ * core without the full text behind it.
+ *
+ * The epic-authoring notice (#1391) is NOT part of that pair: it answers a direct operator epic ask,
+ * no skill or hook replaced it, so it rides on `epicIntent` alone (callers gate on `!input.auto`).
+ */
+function codeSpawnBlocks(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  epicIntent: boolean,
+  prBlocksResident: boolean,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (prBlocksResident) {
+    blocks.push(taggedBlock("single-pr-invariant", SINGLE_PR_INVARIANT));
+    // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
+    // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
+    // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
+    // gets it in the invisible system prompt, so it always rides; Codex delivers directives inline
+    // where they're visible to the operator, so — matching #1257's attended-Codex decision — the
+    // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
+    // attended Codex starts free of workflow guidance.
+    if (agentProvider !== "codex" || autopilotActive) {
+      blocks.push(taggedBlock("manual-steps-notice", MANUAL_STEPS_NOTICE));
+    }
+  }
+  if (epicIntent) blocks.push(taggedBlock("epic-authoring-notice", EPIC_AUTHORING_NOTICE));
+  return blocks;
+}
+
+/**
+ * The blocks whose residency depends on whether a DELIVERY MECHANISM reaches this spawn (issue
+ * #2002), in emission order. Extracted from composeSystemPromptBlocks for the same reason
+ * primaryDirectiveBlock and trailingBlocks were — to keep that function under the complexity gate.
+ *
+ * - branch-rename: pre-warns only where a background rename can actually land (see the notice).
+ * - worktree-stash (#1632) + tmpfs (#1862): global host/git invariants, now DENIED at the call site
+ *   by the PreToolUse guard (scripts/tool-guard.mjs) with the same explanation attached to the
+ *   refusal — strictly stronger than 2.2 KB of standing prose the model must hold all session, and
+ *   it also covers SUB-AGENT tool calls (verified), which the tmpfs notice could only ask the
+ *   top-level agent to restate by hand into each sub-agent's prompt. They stay resident wherever
+ *   the guard does not reach: every Codex spawn, and any Claude spawn with the guard killed
+ *   (SHEPHERD_TOOL_GUARD=0). Never both.
+ */
+function situationalBlocks(
+  agentProvider: AgentProvider,
+  guard: boolean,
+  branchRename: boolean,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (branchRename) blocks.push(taggedBlock("branch-rename-notice", BRANCH_RENAME_NOTICE));
+  if (!guard) {
+    blocks.push(taggedBlock("worktree-stash-notice", WORKTREE_STASH_NOTICE));
+    blocks.push(taggedBlock("tmpfs-worktree-notice", tmpfsWorktreeNotice(agentProvider)));
+  }
   return blocks;
 }
 
@@ -1602,6 +1693,15 @@ export interface ComposeSystemPromptOptions {
   epicIntent?: boolean;
   agentProvider?: AgentProvider;
   operatorLanguage?: OperatorLanguage;
+  /** Whether a background branch rename can actually reach this spawn (issue #2002): isolated,
+   *  LLM naming on, and the heuristic name not already strong. Absent → false (no notice). */
+  branchRename?: boolean;
+  /** Whether the PreToolUse tool guard rides this spawn (issue #2002). Defaults to
+   *  `config.toolGuard`; a test can pin it. Codex forces it false — no hook mechanism there. */
+  toolGuard?: boolean;
+  /** Whether Shepherd's `--add-dir` agent skills are reachable (issue #2002). Defaults to
+   *  {@link agentSkillsAvailable}; Codex forces it false — no skill loading there. */
+  agentSkills?: boolean;
 }
 
 /**
@@ -1615,6 +1715,33 @@ export interface ComposeSystemPromptOptions {
  *
  * The joined result is passed via a single `--append-system-prompt` (the flag is last-wins, not
  * repeatable, so all blocks must share one value).
+ *
+ * ── Per-family composition (issue #2002) ───────────────────────────────────────────────────────
+ * Situational text is delivered by a MECHANISM wherever one reaches the spawn, and stays resident
+ * wherever it does not. Both mechanisms are Claude Code features, so the split is per CLI FAMILY,
+ * not per model — Opus, Sonnet and Haiku 4.5 all run the same CLI and compose identically.
+ *
+ * Each row leaves the prompt only when ITS OWN mechanism is present — the rows do not share a
+ * gate, so "guard off" and "skills off" are different columns' worth of behaviour:
+ *
+ *   block                    │ leaves the prompt when │ delivered instead by  │ Codex
+ *   ─────────────────────────┼────────────────────────┼───────────────────────┼───────
+ *   worktree-stash-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   tmpfs-worktree-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   single-pr-invariant      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT
+ *   manual-steps-notice      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT (autopilot only)
+ *   preview-hint-notice      │ skills                 │ shepherd-preview skill│ RESIDENT (isolated)
+ *   branch-rename-notice     │ only when a rename can actually land (opts.branchRename)
+ *   engineering-posture      │ always-on core; think-before-coding → plan-gate directive,
+ *                            │ background-job hazard → the guard's BACKGROUND_CONTEXT
+ *
+ * Whenever a row's named mechanism is absent — its kill switch off, no skills dir, or Codex, which
+ * has neither — that block is RESIDENT. So `SHEPHERD_TOOL_GUARD=0` restores the hazard pair and the
+ * PR-time pair but NOT the preview hint, which the skill still covers.
+ *
+ * `opts.toolGuard` / `opts.agentSkills` default to the live `config.toolGuard` /
+ * {@link agentSkillsAvailable}, and a `codex` provider forces both false. A dropped block always
+ * requires the mechanism that replaces it to be present — never the other way round.
  *
  * House rules used to be prepended to the human prompt, which let standing guidance bleed
  * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
@@ -1656,32 +1783,21 @@ export function composeSystemPromptBlocks(
   // return null for "en"). The live value only ever arrives via composeDirectives passing
   // config.operatorLanguage in opts — never defaulted from config here.
   const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
+  // Per-family delivery (issue #2002). A block is dropped ONLY when the mechanism that replaces it
+  // actually reaches this spawn — the mechanisms are Claude-Code-only, so Codex keeps every block.
+  // Model tier is irrelevant here (Opus/Sonnet/Haiku all run the same CLI): the CLI decides.
+  const claudeFamily = agentProvider !== "codex";
+  const guard = claudeFamily && (opts.toolGuard ?? config.toolGuard);
+  const skills = claudeFamily && (opts.agentSkills ?? agentSkillsAvailable());
   const posture = taggedBlock("engineering-posture", ENGINEERING_POSTURE);
   const untrustedBoundary = taggedBlock("untrusted-content-boundary", UNTRUSTED_CONTENT_DIRECTIVE);
   const research = taggedBlock("research-first-notice", RESEARCH_FIRST_NOTICE);
-  const branchNotice = taggedBlock("branch-rename-notice", BRANCH_RENAME_NOTICE);
   // House rules arrive ALREADY wrapped (renderHouseRulesBlock emits <shepherd-house-rules>…), so
   // unlike the blocks around it this one is named without re-wrapping.
   const blocks: PromptBlock[] = houseRules
-    ? [
-        posture,
-        untrustedBoundary,
-        research,
-        { name: "shepherd-house-rules", text: houseRules },
-        branchNotice,
-      ]
-    : [posture, untrustedBoundary, research, branchNotice];
-  // Worktree git-stash safety (issue #1632): a global git-mechanism invariant (`refs/stash` is
-  // shared across all worktrees of a repo, so concurrent sessions collide), so it rides EVERY
-  // spawn unconditionally — including research and non-isolated sessions, whose shared-checkout
-  // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
-  // house-rules block.
-  blocks.push(taggedBlock("worktree-stash-notice", WORKTREE_STASH_NOTICE));
-  // tmpfs inode safety (issue #1862): like the stash notice, a host-filesystem invariant rather
-  // than per-repo learned guidance, so it rides EVERY spawn unconditionally — including research
-  // and non-isolated sessions. Provider-varied wording only (see tmpfsWorktreeNotice); never
-  // suppressed, because an exhausted inode table bricks the session on any provider.
-  blocks.push(taggedBlock("tmpfs-worktree-notice", tmpfsWorktreeNotice(agentProvider)));
+    ? [posture, untrustedBoundary, research, { name: "shepherd-house-rules", text: houseRules }]
+    : [posture, untrustedBoundary, research];
+  blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
   // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
   // deliverable is the EPIC, no PR at all), and a landing-repair session (its deliverable is a push
@@ -1691,24 +1807,20 @@ export function composeSystemPromptBlocks(
   // epic-intent notice, build-queue) are suppressed. One precomputed flag keeps the conditions
   // branch-light (complexity cap).
   const nonCodeMode = isNonCodeMode(opts);
+  // The PR-time pair (single-PR invariant + manual-steps) moved to the `shepherd-pull-requests`
+  // skill, with the guard's PR_CREATE_CONTEXT as the deterministic backstop at `gh pr create` —
+  // so BOTH mechanisms are required before they leave the prompt. Skills alone would make the
+  // rules depend on the model choosing to load them; the guard alone would deliver them without
+  // the full text behind it.
   if (!nonCodeMode) {
-    blocks.push(taggedBlock("single-pr-invariant", SINGLE_PR_INVARIANT));
-    // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
-    // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
-    // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
-    // gets it in the invisible system prompt, so it always rides; Codex delivers directives inline
-    // where they're visible to the operator, so — matching #1257's attended-Codex decision — the
-    // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
-    // attended Codex starts free of workflow guidance.
-    if (agentProvider !== "codex" || autopilotActive) {
-      blocks.push(taggedBlock("manual-steps-notice", MANUAL_STEPS_NOTICE));
-    }
-    // Epic-authoring notice (#1391): attended spawns whose prompt signals epic intent (callers
-    // gate on !input.auto — see composeDirectives). No per-provider gating: unlike the
-    // manual-steps notice, this block is directly relevant to the attended ask itself.
-    if (opts.epicIntent) {
-      blocks.push(taggedBlock("epic-authoring-notice", EPIC_AUTHORING_NOTICE));
-    }
+    blocks.push(
+      ...codeSpawnBlocks(
+        agentProvider,
+        autopilotActive,
+        opts.epicIntent === true,
+        !(guard && skills),
+      ),
+    );
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
   // directive (none of those fit a report-PR/issue deliverable). See primaryDirectiveBlock.
@@ -1717,7 +1829,7 @@ export function composeSystemPromptBlocks(
     operatorLanguage,
   });
   if (primary) blocks.push(primary);
-  blocks.push(...trailingBlocks(opts, nonCodeMode, operatorLanguage));
+  blocks.push(...trailingBlocks(opts, nonCodeMode, operatorLanguage, skills));
   return blocks;
 }
 
@@ -2482,6 +2594,10 @@ export class SessionService {
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
+          // #2002: the PreToolUse guard script must exist INSIDE the membrane — the standing
+          // notices it replaces are dropped host-side, so a missing bind would leave a sandboxed
+          // session with neither. Empty when the guard is off.
+          agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
         }
       : ({} as MembraneInputs);
 
@@ -2798,6 +2914,13 @@ export class SessionService {
       // operator epic ask, so nothing is lost.
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: args.agentProvider,
+      // #2002: warn about the background rename only where one can actually land — the same
+      // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
+      branchRename:
+        isolated &&
+        config.llmNaming &&
+        !!this.deps.refineName &&
+        !isHeuristicNameStrong(input.prompt),
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
@@ -2843,7 +2966,15 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
+    // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
+    // would swallow a following positional (the prompt) as another directory.
+    const argv = [
+      "claude",
+      ...agentSkillsArgs(),
+      "--dangerously-skip-permissions",
+      "--session-id",
+      claudeSessionId,
+    ];
     argv.push(
       "--settings",
       spawnSettingsOverlay({
@@ -2956,6 +3087,9 @@ export class SessionService {
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const argv = [
       "claude",
+      // #2002: a resumed session keeps the skills its prompt no longer carries as text. First, for
+      // the same variadic reason as the spawn argv.
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--resume",
       s.claudeSessionId,

@@ -147,6 +147,21 @@ Two independent stages, each an env override on a code default:
 | `SHEPHERD_HOOKS_INGEST` | `1` (on) | Inject observe-only lifecycle hooks into spawned agents (ingest route, ring buffer/logging, sub-agent roster fan-out). No status consumption; additive + fail-open. Set `0` to disable entirely (kill switch) |
 | `SHEPHERD_HOOKS_SIGNALS` | `0` (off) | Set `1` to forward matched hook events into the poller's signal pipeline. Meaningful only when `SHEPHERD_HOOKS_INGEST` is also on |
 
+## Tool guard (PreToolUse deny)
+
+Separate from the ingest hooks above: a **local** `PreToolUse` hook on the `Bash` tool that
+**denies** two hazards at the call site instead of warning about them in every agent's standing
+prompt — a bare `git stash` (the stash stack is shared across worktrees) and a worktree-add or
+dependency install under a tmpfs root. The refusal carries the explanation, so the agent learns why
+only when it matters. It runs as a local `command` hook (not the fail-open HTTP ingest transport)
+so the deny still holds for unattended, sandboxed sessions, and it is bound into the bwrap membrane
+so it exists inside the sandbox too. Claude spawns only — Codex spawns have no such mechanism and
+keep the equivalent prompt notices resident.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_TOOL_GUARD` | `1` (on) | Inject the `PreToolUse` Bash guard into Claude spawns. Set `0` to disable (kill switch) — turning it off puts both hazard notices back into the composed system prompt, so no guidance is lost |
+
 ## Documentation automation (PR-gated doc agent)
 
 Opt-in, default-off. When enabled, a manual trigger (`POST /api/doc-agent?repo=<path>`)

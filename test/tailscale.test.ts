@@ -452,6 +452,43 @@ describe("TailscaleServeService.permissionDenied", () => {
     expect(svc.permissionDenied()).toBe(false);
   });
 
+  // The blind spot this closes: rights are revoked MID-RUN (`tailscale set --operator=`)
+  // after a successful register, so the first refusal Shepherd sees is a teardown. That
+  // denial used to be dropped on the floor, leaving Diagnostics green over a host whose
+  // serve-config writes are being refused.
+  test("latches true when an unregister is refused for lack of operator rights", async () => {
+    // Rights hold for the register and are gone by the `off` — a fixed `denyingRun` can't
+    // express this, since unregister early-returns unless a register seeded the entry.
+    const run: TailscaleRunner = async (args) => {
+      if (args.includes("off")) throw deniedError();
+      return { stdout: "" };
+    };
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+
+    await svc.register("s1", 8001);
+    expect(svc.permissionDenied()).toBe(false);
+
+    await svc.unregister("s1");
+
+    expect(svc.permissionDenied()).toBe(true);
+    // The slot is still released: this is a host-level verdict, not slot bookkeeping.
+    expect(svc.snapshot()).toEqual({});
+  });
+
+  test("stays false when an unregister fails for an unrelated reason", async () => {
+    const run: TailscaleRunner = async (args) => {
+      if (args.includes("off")) throw new Error("fake run failure on port 8001");
+      return { stdout: "" };
+    };
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+
+    await svc.register("s1", 8001);
+    await svc.unregister("s1");
+
+    expect(svc.permissionDenied()).toBe(false);
+    expect(svc.snapshot()).toEqual({});
+  });
+
   test("stays false when the service is disabled (no mutation is ever attempted)", async () => {
     const svc = new TailscaleServeService({
       base: 8001,

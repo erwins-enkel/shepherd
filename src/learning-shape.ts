@@ -47,9 +47,10 @@ export const LEARNING_FACT_SHAPE = [
   "SHAPE — write each qualifying finding as ONE self-contained line carrying all three parts:",
   "  <the fact — what is true, naming the artifact> — <why it bites — the failure it causes> ; <how to apply it>",
   "Only this line is ever shown to a future agent, so it must stand alone. State the fact, not an",
-  'exhortation: prefer "`refs/stash` is one stack shared by every worktree of the repo, so a bare',
-  "`git stash pop` can take another session's entry — use `git stash create` + `apply <sha>`\" over",
-  '"never use git stash".',
+  "exhortation: prefer \"a column added by ALTER is missing from `update()`'s whitelist, so writes",
+  'to it are dropped with no error — add a dedicated setter beside the migration" over "remember',
+  'to add a setter". (Illustrative shape only — never propose an entry that merely restates a',
+  "directive the agent is already handed every session; see the REJECT list above.)",
 ].join("\n");
 
 /** Hard cap on stored rule text — the width every entry point trims to. */

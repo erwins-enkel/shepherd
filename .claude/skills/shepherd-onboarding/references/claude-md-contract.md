@@ -27,10 +27,12 @@ Write these, under their own headings:
   Readiness analyzer (it generates that snippet for the operator to adopt). Stay off
   that heading so the two never collide; add at most a one-line pointer:
   `> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.`
-- **Don't instruct agents to invoke skills or slash commands.** Unattended drain
-  sessions run with skills and slash commands **disabled** and are explicitly told to
-  ignore any CLAUDE.md/memory instruction to invoke them. Write for built-in tools
-  and plain prose only — never "run `/foo`" or "use the X skill".
+- **Only reference skills the repo itself ships.** Unattended drain sessions keep the
+  Skill tool and the repo's own `.claude/skills/`, but run with Claude Code's built-in
+  skills, the operator's personal ones, and every plugin **disabled**. So "use the X
+  skill" is fine when `X` lives in `.claude/skills/` of this repo, and wrong for
+  anything else — a personal or plugin skill won't be there. Slash commands are not
+  typed by an unattended agent either way: point at the skill by name, not as `/foo`.
 
 ## Long, conditional guidance belongs in path-scoped rules
 
@@ -38,8 +40,8 @@ If a convention only matters for part of the codebase (UI components, a migratio
 directory, one service), it does not belong in `CLAUDE.md` — that file is resident in
 every turn of every session. Put it in `.claude/rules/<topic>.md` with `paths:`
 frontmatter listing the globs it governs. Those rules load automatically when the
-agent touches a matching file, and — unlike skills — they survive the unattended
-drain trim, so they do not fall foul of the exclusion above.
+agent touches a matching file — unlike a skill, which loads only if the model decides
+to invoke it — so the convention reaches the turn that needs it either way.
 
 ## Greenfield vs existing content model
 

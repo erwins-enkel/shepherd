@@ -73,6 +73,28 @@ function parseFrontmatter(text: string): { fm: Frontmatter; body: string } {
   return { fm, body: lines.slice(end + 1).join("\n") };
 }
 
+/** The identity Claude Code gives a skill/command: its front-matter `name`, falling back to the
+ *  entry it was found under (directory for a skill, filename for a command file). One rule, two
+ *  readers — {@link readCommand} for the listing, {@link skillNameFrom} for the drain context trim,
+ *  which keys `skillOverrides` by exactly this string. Empty = unusable entry. */
+function resolvedName(fm: Frontmatter, fallbackName: string): string {
+  return (fm.name?.trim() || fallbackName).trim();
+}
+
+/**
+ * Resolve one skill's identity from its raw `SKILL.md` text (issue #2001).
+ *
+ * The drain trim disables the operator's user-level skills per-spawn via `skillOverrides`, which is
+ * keyed by skill NAME — and a directory listing is not that name: entries under `~/.claude/skills`
+ * are commonly symlinks into other trees, and front-matter may rename the skill outright. Keying off
+ * the directory would then both miss the skill (no saving) and compare the wrong string against the
+ * repo's own skills (silently disabling one). Sharing {@link resolvedName} with the listing is what
+ * keeps the trim and the UI on the same identity.
+ */
+export function skillNameFrom(text: string, fallbackName: string): string {
+  return resolvedName(parseFrontmatter(text).fm, fallbackName);
+}
+
 /** First non-empty body line (heading marker stripped) — the description fallback
  *  for command files that carry no front-matter `description`. */
 function firstLine(body: string): string {
@@ -97,7 +119,7 @@ function readCommand(
     return null; // unreadable file → skip, don't fail the whole listing
   }
   const { fm, body } = parseFrontmatter(text);
-  const bare = (fm.name?.trim() || fallbackName).trim();
+  const bare = resolvedName(fm, fallbackName);
   if (!bare) return null;
   const description = (fm.description?.trim() || firstLine(body)).trim();
   const argumentHint = fm["argument-hint"]?.trim() || undefined;

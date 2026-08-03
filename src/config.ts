@@ -720,10 +720,11 @@ export const config = {
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
   docAgentNightlyHour: parseHour(process.env.SHEPHERD_DOC_AGENT_NIGHTLY_HOUR, 3),
-  // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
-  // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
-  // overlay disabling every operator-enabled plugin (drops plugin hook injections,
-  // skills, and MCP) — overhead unattended agents never use. Default on; set
+  // Context trim for auto-spawned (drain) agents (issues #499, #2001): a per-spawn settings
+  // overlay disabling every operator-enabled plugin (drops plugin hook injections, skills,
+  // and MCP), Claude Code's bundled skills, and the operator's personal ~/.claude/skills —
+  // catalogs an unattended agent never invokes. The Skill tool and the session repo's OWN
+  // .claude/skills stay available, so progressive disclosure still works. Default on; set
   // SHEPHERD_TRIM_AUTO_CONTEXT=false/0/off as the escape hatch if drain quality regresses.
   trimAutoContext: parseTrimAutoContext(process.env.SHEPHERD_TRIM_AUTO_CONTEXT),
   // Standard command: legacy seed for the backlog quick-launch prompt. Quick-launch

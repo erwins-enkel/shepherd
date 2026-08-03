@@ -158,7 +158,9 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
     trimmed: true,
   });
   const measured = measurePromptBlocks(blocks);
-  expect(measured.totalChars).toBe(13408);
+  // 13,408 before #2001 reworded the context-trim notice (the trim keeps the repo's own skills now,
+  // so the notice has to say which skills are gone rather than "all of them").
+  expect(measured.totalChars).toBe(13600);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(houseRules, false, {
       buildQueue,

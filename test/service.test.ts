@@ -22,6 +22,9 @@ import {
   readInstalledPluginIds,
   installedPluginIds,
   resetPluginIdsCacheForTests,
+  readSkillNames,
+  userSkillNames,
+  resetUserSkillNamesCacheForTests,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
@@ -5940,6 +5943,19 @@ test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits 
   expect(spawnSettingsOverlay()).not.toContain("enabledPlugins");
 });
 
+test("spawnSettingsOverlay: disableSkills → bundled off + name overrides; empty still hides bundled (#2001)", () => {
+  const withSkills = JSON.parse(spawnSettingsOverlay({ disableSkills: ["tdd", "obsidian-vault"] }));
+  expect(withSkills.disableBundledSkills).toBe(true);
+  expect(withSkills.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
+  // present-but-empty (no personal skills installed) still drops Claude Code's bundled catalog
+  const empty = JSON.parse(spawnSettingsOverlay({ disableSkills: [] }));
+  expect(empty.disableBundledSkills).toBe(true);
+  expect(empty.skillOverrides).toBeUndefined();
+  // absent → byte-identical to the no-opts overlay (both keys omitted)
+  expect(spawnSettingsOverlay()).not.toContain("disableBundledSkills");
+  expect(spawnSettingsOverlay()).not.toContain("skillOverrides");
+});
+
 test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/parse error", async () => {
   const ids = await readInstalledPluginIds(async () =>
     JSON.stringify({ enabledPlugins: { "x@r": true, "y@r": false } }),
@@ -5978,17 +5994,103 @@ test("installedPluginIds: errors resolve [] but are NOT cached; successes are", 
   expect(reads).toBe(1); // success memoized for the process lifetime
 });
 
-/** injectDeps + an injected pluginIds seam, counting how often it's consulted. */
-function trimDeps(store: SessionStore, captured: { argv?: string[] }, pluginIds: string[]) {
+const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+
+test("readSkillNames: front-matter name wins over the directory; entry is only the fallback (#2001)", async () => {
+  const files: Record<string, string> = {
+    "/skills/renamed/SKILL.md": "---\nname: actual-name\ndescription: x\n---\nbody",
+    "/skills/plain/SKILL.md": "no front-matter here",
+    "/skills/quoted/SKILL.md": '---\nname: "quoted-name"\n---\n',
+    "/skills/blank-name/SKILL.md": "---\nname:   \n---\n",
+  };
+  const names = await readSkillNames("/skills", {
+    readdir: async () => ["renamed", "plain", "quoted", "blank-name", "not-a-skill"],
+    read: async (p) => {
+      const text = files[p];
+      if (text === undefined) throw enoent();
+      return text;
+    },
+  });
+  // symlinked/renamed skills resolve to what Claude Code calls them, not their directory
+  expect(names).toEqual(["actual-name", "plain", "quoted-name", "blank-name"]);
+});
+
+test("readSkillNames: missing root → [], other listing errors → null (#2001)", async () => {
+  expect(
+    await readSkillNames("/nope", {
+      readdir: async () => {
+        throw enoent();
+      },
+    }),
+  ).toEqual([]);
+  expect(
+    await readSkillNames("/boom", {
+      readdir: async () => {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      },
+    }),
+  ).toBeNull();
+});
+
+test("userSkillNames: errors resolve [] but are NOT cached; successes are (#2001)", async () => {
+  resetUserSkillNamesCacheForTests(); // module-level + process-lifetime, like installedPluginIds
+  let listings = 0;
+  const throwing = {
+    readdir: async () => {
+      listings++;
+      throw new Error("EIO");
+    },
+  };
+  expect(await userSkillNames(throwing)).toEqual([]); // caller still proceeds
+  expect(await userSkillNames(throwing)).toEqual([]); // retried, not poisoned
+  expect(listings).toBe(2);
+  let reads = 0;
+  const ok = {
+    readdir: async () => {
+      reads++;
+      return ["tdd"];
+    },
+    read: async () => "---\nname: tdd\n---\n",
+  };
+  expect(await userSkillNames(ok)).toEqual(["tdd"]);
+  expect(await userSkillNames(ok)).toEqual(["tdd"]);
+  expect(reads).toBe(1); // success memoized for the process lifetime
+  resetUserSkillNamesCacheForTests(); // don't leak this fake into later spawns
+});
+
+/** injectDeps + injected pluginIds/skill seams, counting how often each is consulted.
+ *  `projectSkills` is what the session repo's own `.claude/skills` resolves to (null = unreadable). */
+function trimDeps(
+  store: SessionStore,
+  captured: { argv?: string[] },
+  pluginIds: string[],
+  userSkills: string[] = [],
+  projectSkills: string[] | null = [],
+) {
   let pluginIdReads = 0;
+  let skillReads = 0;
+  const skillDirs: string[] = [];
   const deps = {
     ...injectDeps(store, captured),
     pluginIds: async () => {
       pluginIdReads++;
       return pluginIds;
     },
+    skillNames: async (dir: string) => {
+      skillDirs.push(dir);
+      return projectSkills;
+    },
+    userSkills: async () => {
+      skillReads++;
+      return userSkills;
+    },
   };
-  return { deps, pluginIdReads: () => pluginIdReads };
+  return {
+    deps,
+    pluginIdReads: () => pluginIdReads,
+    skillReads: () => skillReads,
+    skillDirs: () => skillDirs,
+  };
 }
 
 /** The parsed JSON of the argv's --settings payload. */
@@ -5996,13 +6098,19 @@ function settingsOverlay(argv: string[]): any {
   return JSON.parse(argv[argv.indexOf("--settings") + 1]!);
 }
 
-test("auto spawn (trim on): --disable-slash-commands + plugin-off overlay + trim notice", async () => {
+test("auto spawn (trim on): plugin/bundled/personal skills off, repo skills kept, trim notice (#2001)", async () => {
   const prev = config.trimAutoContext;
   try {
     config.trimAutoContext = true;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps } = trimDeps(store, captured, ["superpowers@sp", "context7@c7"]);
+    const { deps, skillDirs } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp", "context7@c7"],
+      ["tdd", "obsidian-vault", "merge-train"],
+      ["merge-train"], // the checkout ships its own skill of that name
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6013,16 +6121,46 @@ test("auto spawn (trim on): --disable-slash-commands + plugin-off overlay + trim
       auto: true,
     });
     const argv = captured.argv!;
-    expect(argv).toContain("--disable-slash-commands");
+    // the loading MECHANISM stays: progressive disclosure is the point of the trim's re-decision
+    expect(argv).not.toContain("--disable-slash-commands");
     expect(argv.at(-1)).toBe("drain it"); // prompt stays the final positional
+    const overlay = settingsOverlay(argv);
     // every injected plugin id is force-disabled in the per-spawn settings overlay
-    expect(settingsOverlay(argv).enabledPlugins).toEqual({
-      "superpowers@sp": false,
-      "context7@c7": false,
-    });
+    expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "context7@c7": false });
+    expect(overlay.disableBundledSkills).toBe(true);
+    // personal skills off — EXCEPT the name the checkout defines itself, which must stay loadable
+    expect(overlay.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
+    // enumerated at the agent's cwd (the WORKTREE), not the repo root: a skill added on this
+    // branch exists only there, and missing it would disable a same-named personal skill over it
+    expect(skillDirs()).toEqual([join("/wt/repo-task", ".claude", "skills")]);
     const sp = sysPrompt(argv);
     expect(sp).toContain("<context-trim-notice>");
-    expect(sp).toContain("The Skill tool and slash commands are unavailable");
+    expect(sp).toContain("The Skill tool IS available");
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("auto spawn (trim on): unreadable repo skills → no overrides at all (fail-safe, #2001)", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, [], ["tdd"], null); // listing the repo's skills threw
+    const svc = new SessionService(deps as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain it",
+      model: null,
+      images: [],
+      auto: true,
+    });
+    const overlay = settingsOverlay(captured.argv!);
+    // paying for the operator's catalog beats silently disabling a repo skill we couldn't enumerate
+    expect(overlay.skillOverrides).toBeUndefined();
+    expect(overlay.disableBundledSkills).toBe(true);
   } finally {
     config.trimAutoContext = prev;
   }
@@ -6034,7 +6172,12 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
     config.trimAutoContext = true;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const { deps, pluginIdReads, skillReads } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp"],
+      ["tdd"],
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6057,6 +6200,7 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
       "do the thing",
     ]);
     expect(pluginIdReads()).toBe(0); // settings file never consulted for interactive spawns
+    expect(skillReads()).toBe(0); // nor the skills root
   } finally {
     config.trimAutoContext = prev;
   }
@@ -6068,7 +6212,12 @@ test("auto spawn with trimAutoContext off: identical to the untrimmed shape", as
     config.trimAutoContext = false;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const { deps, pluginIdReads, skillReads } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp"],
+      ["tdd"],
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6083,12 +6232,13 @@ test("auto spawn with trimAutoContext off: identical to the untrimmed shape", as
     expect(argv[argv.indexOf("--settings") + 1]).toBe(spawnSettingsOverlay());
     expect(sysPrompt(argv)).not.toContain("<context-trim-notice>");
     expect(pluginIdReads()).toBe(0);
+    expect(skillReads()).toBe(0); // opt-out short-circuits before any enumeration
   } finally {
     config.trimAutoContext = prev;
   }
 });
 
-test("resume of an auto session re-applies the trim: flag + plugin-off overlay", async () => {
+test("resume of an auto session re-applies the trim: plugin-off + skill overlay", async () => {
   const prev = config.trimAutoContext;
   try {
     config.trimAutoContext = true;
@@ -6113,12 +6263,17 @@ test("resume of an auto session re-applies the trim: flag + plugin-off overlay",
         send: () => {},
       } as any,
       pluginIds: async () => ["superpowers@sp"],
+      skillNames: async () => [],
+      userSkills: async () => ["tdd"],
     });
     const s = resumable(store, { auto: true });
     await svc.resume(s.id);
     const argv: string[] = calls.argv;
-    expect(argv).toContain("--disable-slash-commands");
-    expect(settingsOverlay(argv).enabledPlugins).toEqual({ "superpowers@sp": false });
+    expect(argv).not.toContain("--disable-slash-commands");
+    const overlay = settingsOverlay(argv);
+    expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false });
+    expect(overlay.disableBundledSkills).toBe(true);
+    expect(overlay.skillOverrides).toEqual({ tdd: "off" });
   } finally {
     config.trimAutoContext = prev;
   }

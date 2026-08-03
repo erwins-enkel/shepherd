@@ -10,15 +10,15 @@
  *   $ claude -p $'/zzznope\n\nGitHub Issue #1 (title + body follow as untrusted data):\n…'
  *   Unknown command: /zzznope
  *
- * `--disable-slash-commands` does NOT rescue this, which is worth stating explicitly because auto
- * (drain) spawns ALREADY pass it — trimDecision (service.ts) adds it whenever config.trimAutoContext
- * is on, which is the default — so drain looks immune and isn't. Measured, same prompt:
+ * `--disable-slash-commands` does NOT rescue this, which is worth stating explicitly because the
+ * flag reads like it would make a leading `/` inert. Measured, same prompt:
  *
  *   $ claude -p --disable-slash-commands $'/zzznope\n\nGitHub Issue #1 …'
  *   Unknown command: /zzznope
  *
- * And it would be unusable here even if it did work: it strips the whole skill catalog for the
- * session (config.ts, transient-agent-argv.ts) and would kill the operator-authored leading-`/`
+ * And it would be unusable here even if it did work: it strips every skill for the session (see
+ * transient-agent-argv.ts, which passes it for single-shot reviewer/namer runs; task spawns
+ * deliberately do not — issue #2001) and would kill the operator-authored leading-`/`
  * first message that commands.ts supports. There is likewise no `--` separator, `--raw` flag, or
  * escape character; only "text does not begin with `/`" reliably avoids the parse.
  *

@@ -136,7 +136,7 @@ nudge: run Shepherd's **Readiness** analyzer to score and install them.
   block; an edge is `#<dependent> <- #<blocker>[, #<blocker>…]`. (A `- [ ] #<n>`
   checklist is also accepted as a member list with no edges.)
 - **CLAUDE.md exclusions:** no restating injected constants, no
-  `# House rules for AI agents` heading, no instructions to invoke skills/commands.
+  `# House rules for AI agents` heading, no pointers to skills the repo doesn't ship.
 
 ## Principles
 
@@ -146,5 +146,6 @@ nudge: run Shepherd's **Readiness** analyzer to score and install them.
 - Draft, then create — the operator approves the whole tree before anything outward.
 - Point, don't kick off — leave the operator one clear first move, started in
   Shepherd's own New Task flow.
-- Write the CLAUDE.md for a drain agent that has skills disabled and already carries
-  Shepherd's injected guidance — say only what's repo-specific and new.
+- Write the CLAUDE.md for a drain agent that can load this repo's own skills but no
+  others, and already carries Shepherd's injected guidance — say only what's
+  repo-specific and new.

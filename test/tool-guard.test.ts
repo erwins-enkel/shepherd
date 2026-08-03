@@ -148,6 +148,31 @@ describe("#2002 tmpfs rules (retire the tmpfs-worktree notice)", () => {
     }
   });
 
+  it("abstains when a `cd` moves somewhere this parse cannot name", () => {
+    // Keeping the PREVIOUS cwd after an unresolvable `cd` judges the install against a directory
+    // it is not running in — and with a tmpfs starting cwd (the agent's own scratch, or `/tmp`
+    // under the bwrap membrane) that hard-denies a legitimate `cd ~/repo && bun install`, naming
+    // the stale path as the reason. A shell-expanded target drops the claim instead.
+    for (const cmd of [
+      "cd ~/repo && bun install",
+      "cd $HOME/repo && bun install",
+      'cd "$(git rev-parse --show-toplevel)" && npm ci',
+      "cd `pwd`/pkg && pnpm install",
+      "cd && bun install", // bare `cd` is `cd $HOME`
+    ])
+      expect(`${cmd}: ${deny(bash(cmd, "/tmp/x"))}`).toBe(`${cmd}: null`);
+  });
+
+  it("never fabricates a path out of an unexpanded word", () => {
+    // `$TMPDIR/wt` under cwd `/tmp/x` must not "resolve" to `/tmp/x/$TMPDIR/wt` and be denied.
+    expect(deny(bash("git worktree add $TMPDIR/wt", "/tmp/x"))).toBeNull();
+    expect(deny(bash("git worktree add ~/wt", "/tmp/x"))).toBeNull();
+    // A RESOLVABLE relative target still resolves against the real cwd, and still denies.
+    expect(deny(bash("cd sub && bun install", "/tmp/x"))?.permissionDecisionReason).toContain(
+      "/tmp/x/sub",
+    );
+  });
+
   it("leaves ordinary installs in the worktree alone", () => {
     for (const cmd of ["bun install", "cd ui && bun install", "npm ci", "pnpm add -D vitest"])
       expect(`${cmd}: ${deny(bash(cmd))}`).toBe(`${cmd}: null`);

@@ -260,7 +260,10 @@ function gitOperands(args) {
 /** Resolve `arg` against `cwd`, tolerating `~` and a missing/relative cwd (fail open → null). */
 function resolvePath(arg, cwd) {
   const a = unquote(arg);
-  if (a.startsWith("~")) return null; // shell-expanded, not ours to guess
+  // Anything the SHELL would expand is not ours to guess: `~`, `$VAR`, `$(…)`, backticks, globs.
+  // Joining such a word produces a FABRICATED path — `cd $HOME/r` under `/tmp/x` would "resolve"
+  // to `/tmp/x/$HOME/r` — which could then be denied, naming a directory that never existed.
+  if (/^~|[$`*?]/.test(a)) return null;
   if (isAbsolute(a)) return resolve(a);
   if (typeof cwd !== "string" || !isAbsolute(cwd)) return null;
   return resolve(cwd, a);
@@ -329,10 +332,14 @@ function denyFor(command, eventCwd, isTmpfs) {
     const [cmd, ...args] = w;
 
     // `cd <path>` moves the effective directory for every LATER segment of the same command line.
+    // An UNRESOLVABLE target (`~/repo`, `$VAR`, `$(…)`) drops the claim entirely rather than
+    // keeping the previous cwd: the shell has moved somewhere this parse cannot name, so judging a
+    // later install against the OLD directory would deny a legitimate `cd ~/repo && bun install`
+    // whenever the starting cwd happened to be a tmpfs — and name the stale path as the reason.
+    // `cd` with no operand is `cd $HOME`, equally unknowable here.
     if (cmd === "cd") {
       const target = args.find((a) => !a.startsWith("-"));
-      const next = target ? resolvePath(target, cwd) : undefined;
-      cwd = next ?? cwd;
+      cwd = target ? (resolvePath(target, cwd) ?? undefined) : undefined;
       continue;
     }
 

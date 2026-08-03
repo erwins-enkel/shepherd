@@ -148,24 +148,91 @@ describe("trigger", () => {
     expect(hold.visible).toBe(false);
   });
 
-  it("lets go early without stranding the reveal", () => {
+  it("survives the modifier keyup that firing the shortcut always produces", () => {
+    // You cannot press ⌘G without letting go of ⌘ a moment later, so treating
+    // that keyup as a dismissal cut off practically every flash. The flash timer
+    // owns the teardown once it is running.
     const hold = make();
     keydown("Meta");
     vi.advanceTimersByTime(HOLD_MS);
     hold.trigger("plan-gate");
 
-    keyup("Meta"); // released mid-flash
-    expect(hold.visible).toBe(false);
+    keyup("Meta"); // released mid-flash — the normal case, not an interruption
+    expect(hold.flash).toBe("plan-gate");
+    expect(hold.visible).toBe(true);
 
-    vi.advanceTimersByTime(FLASH_MS);
+    vi.advanceTimersByTime(FLASH_MS - 1);
+    expect(hold.visible).toBe(true);
+
+    vi.advanceTimersByTime(1);
     expect(hold.flash).toBeNull();
     expect(hold.visible).toBe(false);
+  });
+
+  it("still ends on a hard dismissal mid-flash", () => {
+    // Blur/pointer/Escape are explicit "go away" signals, not the tail of a
+    // keystroke — they cut the flash short rather than waiting it out.
+    for (const dismiss of [(h: typeof hold) => h.onBlur(), (h: typeof hold) => h.onPointerdown()]) {
+      const h = make();
+      keydown("Meta");
+      vi.advanceTimersByTime(HOLD_MS);
+      h.trigger("plan-gate");
+
+      dismiss(h);
+      expect(h.visible).toBe(false);
+      expect(h.flash).toBeNull();
+
+      // …and the retired flash timer cannot fire later and resurrect anything.
+      vi.advanceTimersByTime(FLASH_MS * 2);
+      expect(h.visible).toBe(false);
+    }
   });
 
   it("does not flash when nothing was revealed", () => {
     const hold = make();
     hold.trigger("plan-gate");
     expect(hold.flash).toBeNull();
+  });
+});
+
+describe("pointer movement", () => {
+  const move = (x: number, y: number) =>
+    hold.onPointermove({ clientX: x, clientY: y } as PointerEvent);
+
+  it("cancels the pending arm when the mouse actually moves", () => {
+    // Spec: the timer may only elapse if no other key was pressed AND the mouse
+    // was not moved or clicked.
+    const hold = make();
+    move(10, 10); // seed the baseline
+    keydown("Meta");
+    vi.advanceTimersByTime(200);
+    move(40, 25);
+    vi.advanceTimersByTime(HOLD_MS * 2);
+    expect(hold.visible).toBe(false);
+  });
+
+  it("ignores a pointermove that reports the cursor where it already was", () => {
+    // Browsers emit these for reasons other than a moving pointer; a phantom
+    // event must not silently swallow the reveal.
+    const hold = make();
+    move(10, 10);
+    keydown("Meta");
+    move(10, 10);
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(hold.visible).toBe(true);
+  });
+
+  it("does not dismiss an already-visible reveal", () => {
+    // Dismissal is keyup/blur/mousedown/Escape — movement is an ARM condition
+    // only. Caps that vanish under a drifting cursor would defeat reading them.
+    const hold = make();
+    keydown("Meta");
+    vi.advanceTimersByTime(HOLD_MS);
+    expect(hold.visible).toBe(true);
+
+    move(10, 10);
+    move(80, 60);
+    expect(hold.visible).toBe(true);
   });
 });
 

@@ -27,6 +27,9 @@ export function createHoldReveal(opts: HoldRevealOptions) {
   let flash = $state<string | null>(null);
   let timer: ReturnType<typeof setTimeout> | null = null;
   let flashTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Last observed pointer position, so `onPointermove` can tell real movement
+   *  from a pointermove that reports the cursor sitting exactly where it was. */
+  let last: { x: number; y: number } | null = null;
 
   function modifierKeyName(): string {
     return opts.isMac() ? "Meta" : "Control";
@@ -39,9 +42,20 @@ export function createHoldReveal(opts: HoldRevealOptions) {
     }
   }
 
-  /** Cancel the pending arm AND hide anything already shown. */
+  function clearFlash() {
+    if (flashTimer !== null) {
+      clearTimeout(flashTimer);
+      flashTimer = null;
+    }
+    flash = null;
+  }
+
+  /** Cancel the pending arm AND hide anything already shown, flash included.
+   *  This is the hard dismissal (blur, pointer press, Escape); the modifier's
+   *  own keyup is softer — see `onKeyup`. */
   function hide() {
     disarm();
+    clearFlash();
     visible = false;
   }
 
@@ -78,7 +92,33 @@ export function createHoldReveal(opts: HoldRevealOptions) {
   }
 
   function onKeyup(e: KeyboardEvent) {
-    if (e.key === modifierKeyName()) hide();
+    if (e.key !== modifierKeyName()) return;
+    // A flash in flight owns the teardown. Releasing the modifier is the NORMAL
+    // end of firing a shortcut from the revealed state — you cannot press ⌘G
+    // without letting go of ⌘ a moment later — so hiding here would cut off
+    // essentially every flash the spec asks for. The flash timer is already
+    // scheduled to end the overlay; let it.
+    if (flashTimer !== null) {
+      disarm();
+      return;
+    }
+    hide();
+  }
+
+  /** Mouse movement during the arm window cancels it: the reveal answers a
+   *  hesitation at the keyboard, and someone reaching for the mouse is not
+   *  hesitating there. Deliberately only DISARMS — once the caps are up the
+   *  spec dismisses on mousedown, not on movement, and vanishing them under a
+   *  drifting cursor would fight the very reading the reveal exists for.
+   *  See README → "Auslösen" (arm condition vs. dismissal list). */
+  function onPointermove(e: PointerEvent) {
+    // Only genuine movement counts. Browsers emit pointermove for reasons other
+    // than a moving pointer (content scrolling beneath a still cursor, synthetic
+    // events), and a phantom one must not silently kill the arm — so compare
+    // against the last observed position and let the first sighting only seed it.
+    const moved = last !== null && (e.clientX !== last.x || e.clientY !== last.y);
+    last = { x: e.clientX, y: e.clientY };
+    if (moved) disarm();
   }
 
   /** Losing the window mid-hold would otherwise strand the overlay: the keyup
@@ -122,18 +162,18 @@ export function createHoldReveal(opts: HoldRevealOptions) {
     root.addEventListener("keyup", onKeyup);
     window.addEventListener("blur", onBlur);
     window.addEventListener("pointerdown", onPointerdown, true);
+    // passive: it only reads coordinates, and a move handler that can block
+    // scrolling is a cost nobody should pay for a keyboard affordance.
+    window.addEventListener("pointermove", onPointermove, { capture: true, passive: true });
     return () => {
       root.removeEventListener("keydown", onKeydown);
       root.removeEventListener("keyup", onKeyup);
       window.removeEventListener("blur", onBlur);
       window.removeEventListener("pointerdown", onPointerdown, true);
+      window.removeEventListener("pointermove", onPointermove, true);
       disarm();
-      if (flashTimer !== null) {
-        clearTimeout(flashTimer);
-        flashTimer = null;
-      }
+      clearFlash();
       visible = false;
-      flash = null;
     };
   }
 
@@ -154,5 +194,6 @@ export function createHoldReveal(opts: HoldRevealOptions) {
     onKeyup,
     onBlur,
     onPointerdown,
+    onPointermove,
   };
 }

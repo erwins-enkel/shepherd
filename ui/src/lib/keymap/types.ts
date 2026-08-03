@@ -121,10 +121,13 @@ export interface KeymapEntry {
   /** Resolves to the localized description. A function, not a string, because
    *  Paraglide messages must be called at render time to honor a locale switch. */
   label: () => string;
-  /** Where the keycap sits. `null` = documented in the sheet only (the spec
-   *  lists `?`, `↵` and "hold ⌘" this way — they have no single control to
-   *  point at). Every non-null anchor MUST be rendered by a component; the
-   *  registry test pins that contract from the DOM side. */
+  /** Where the KEYCAP sits — this governs the cap only, never the ARIA. `null`
+   *  = no cap, because the spec's inventory gives the row none (`?`, `↵`,
+   *  "hold ⌘"). Such a row can still be announced on a control: `↵` carries no
+   *  cap on an issue row (↑↓ already caps it) yet is named in that row's
+   *  `aria-keyshortcuts`, since a11y coverage is per-control and every control
+   *  must carry its keys. Every non-null anchor MUST be rendered by a
+   *  component; the registry test pins that contract from the DOM side. */
   anchor: string | null;
   enabled(ctx: NewTaskKeymapCtx): boolean;
   /** The action, AND the switch that decides interception: only rows with a

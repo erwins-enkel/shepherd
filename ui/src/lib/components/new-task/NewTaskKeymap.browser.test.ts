@@ -344,7 +344,9 @@ describe("aria-keyshortcuts", () => {
     render(NewTask, { props: { onsubmit: vi.fn(), initialRepoPath: repo.path } });
     await vi.waitFor(() => expect(document.querySelector(".issue-list-row")).toBeTruthy());
     const row = document.querySelector(".issue-list-row.is-interactive")!;
-    expect(row.getAttribute("aria-keyshortcuts")).toBe("ArrowUp ArrowDown");
+    // Enter rides along: ↑↓ move between rows, ↵ picks the focused one, and the
+    // row is the control for both — so both must be named on it.
+    expect(row.getAttribute("aria-keyshortcuts")).toBe("ArrowUp ArrowDown Enter");
   });
 
   it("keeps the scrim and every keycap out of the accessibility tree", async () => {

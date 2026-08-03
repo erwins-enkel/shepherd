@@ -1935,6 +1935,8 @@
           {/if}
 
           {#if repoPath && !mobile}
+            <!-- rowShortcut carries BOTH list keys: ↑↓ move between rows and ↵
+                 picks the focused one, and a row is the control for each. -->
             <PromptSources
               bind:this={sources}
               filterKeycap={held ? filterCap : undefined}
@@ -1942,7 +1944,7 @@
               rowKeycap={held ? rowCap : undefined}
               filterShortcut={shortcutAttr("issue-filter")}
               tabShortcut={shortcutAttr("sources-tab")}
-              rowShortcut={shortcutAttr("list-nav")}
+              rowShortcut={shortcutAttrAll("list-nav", "list-pick")}
               {repoPath}
               {issueData}
               {epicParents}

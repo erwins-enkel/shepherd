@@ -20,6 +20,7 @@ import { WorktreeMgr } from "../src/worktree";
 import type { GitForge } from "../src/forge/types";
 import { config, USAGE_HISTORY_RETENTION_MS } from "../src/config";
 import { ACTIVE_LABEL } from "../src/drain-core";
+import { dashify } from "../src/usage";
 
 // Create a real tmp dir inside config.repoRoot so validation passes
 let tmpRoot: string;
@@ -512,6 +513,57 @@ test("GET /api/sessions/:id/activity returns [] for a session w/o JSONL", async 
   const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/activity`));
   expect(res.status).toBe(200);
   expect(await res.json()).toEqual([]);
+});
+
+// #1990: a session spawned into a swap/pool account writes its JSONL under
+// <spawnAccountDir>/projects, so the endpoint MUST resolve through that dir. The fixture is
+// written there and NOWHERE else (config.claudeProjectsDir points at an empty dir), so a
+// non-empty response is reachable through exactly one path — asserting only "entries came
+// back" would fail open, since a missing file degrades to [].
+test("GET /api/sessions/:id/activity resolves the transcript under spawnAccountDir", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const worktreePath = "/wt-activity";
+  const claudeSessionId = "c0ffee00-0000-4000-8000-000000000099";
+  const accountDir = join(tmpRoot, "swap-account");
+  const emptyProjects = join(tmpRoot, "empty-projects");
+  mkdirSync(emptyProjects, { recursive: true });
+  const transcriptDir = join(accountDir, "projects", dashify(worktreePath));
+  mkdirSync(transcriptDir, { recursive: true });
+  writeFileSync(
+    join(transcriptDir, `${claudeSessionId}.jsonl`),
+    JSON.stringify({
+      type: "assistant",
+      timestamp: "2026-08-01T10:00:00.000Z",
+      message: {
+        role: "assistant",
+        model: "claude-opus-5",
+        content: [
+          { type: "tool_use", id: "tu-1", name: "Edit", input: { file_path: "/a/server.ts" } },
+        ],
+      },
+    }) + "\n",
+  );
+
+  const origProjectsDir = config.claudeProjectsDir;
+  config.claudeProjectsDir = emptyProjects;
+  try {
+    const s = deps.store.create({ ...USAGE_SESSION, worktreePath, claudeSessionId });
+    deps.store.setSpawnIdentity(s.id, "term_u", accountDir);
+
+    const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/activity`));
+    expect(res.status).toBe(200);
+    expect((await res.json()).map((e: { tool: string }) => e.tool)).toEqual(["Edit"]);
+
+    // Negative control: same worktree + transcript id, but no spawn account → resolves the
+    // server's own (empty) projects dir. Pins the direction — a "search both dirs" read fails.
+    const own = deps.store.create({ ...USAGE_SESSION, worktreePath, claudeSessionId });
+    const ownRes = await app.fetch(new Request(`http://x/api/sessions/${own.id}/activity`));
+    expect(ownRes.status).toBe(200);
+    expect(await ownRes.json()).toEqual([]);
+  } finally {
+    config.claudeProjectsDir = origProjectsDir;
+  }
 });
 
 test("GET /api/sessions/:id/activity 404s for unknown id", async () => {

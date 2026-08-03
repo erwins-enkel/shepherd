@@ -326,6 +326,19 @@ test("#2002 the guard's kill switch puts BOTH hazard notices back", () => {
   expect(off).toContain("manual-steps-notice");
 });
 
+test("#2002 each row is gated on ITS OWN mechanism, not on a shared one", () => {
+  // The rows do not share a gate, so the guard's kill switch must NOT be read as "everything comes
+  // back": the preview hint is the skill's alone and stays gone while the skills dir is present.
+  const guardOff = namesFor({ toolGuard: false, previewHint: true });
+  expect(guardOff).toContain("worktree-stash-notice"); // guard-gated → back
+  expect(guardOff).toContain("single-pr-invariant"); // guard AND skills → back
+  expect(guardOff).not.toContain("preview-hint-notice"); // skills-gated → still delivered
+  // And symmetrically: losing the skills dir does not resurrect the guard's hazard notices.
+  const skillsOff = namesFor({ agentSkills: false, previewHint: true });
+  expect(skillsOff).toContain("preview-hint-notice");
+  expect(skillsOff).not.toContain("tmpfs-worktree-notice");
+});
+
 test("#2002 an install without the skills dir keeps the disclosure-backed blocks", () => {
   const off = namesFor({ agentSkills: false, previewHint: true });
   expect(off).toContain("single-pr-invariant");

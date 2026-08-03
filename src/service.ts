@@ -1721,16 +1721,23 @@ export interface ComposeSystemPromptOptions {
  * wherever it does not. Both mechanisms are Claude Code features, so the split is per CLI FAMILY,
  * not per model — Opus, Sonnet and Haiku 4.5 all run the same CLI and compose identically.
  *
- *   block                    │ Claude (guard+skills) │ Claude, guard off │ Codex
- *   ─────────────────────────┼───────────────────────┼───────────────────┼───────
- *   worktree-stash-notice    │ PreToolUse deny       │ RESIDENT          │ RESIDENT
- *   tmpfs-worktree-notice    │ PreToolUse deny       │ RESIDENT          │ RESIDENT
- *   single-pr-invariant      │ skill + PR-time hook  │ RESIDENT          │ RESIDENT
- *   manual-steps-notice      │ skill + PR-time hook  │ RESIDENT          │ RESIDENT (autopilot only)
- *   preview-hint-notice      │ shepherd-preview skill│ RESIDENT (isolated)│ RESIDENT (isolated)
+ * Each row leaves the prompt only when ITS OWN mechanism is present — the rows do not share a
+ * gate, so "guard off" and "skills off" are different columns' worth of behaviour:
+ *
+ *   block                    │ leaves the prompt when │ delivered instead by  │ Codex
+ *   ─────────────────────────┼────────────────────────┼───────────────────────┼───────
+ *   worktree-stash-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   tmpfs-worktree-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   single-pr-invariant      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT
+ *   manual-steps-notice      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT (autopilot only)
+ *   preview-hint-notice      │ skills                 │ shepherd-preview skill│ RESIDENT (isolated)
  *   branch-rename-notice     │ only when a rename can actually land (opts.branchRename)
  *   engineering-posture      │ always-on core; think-before-coding → plan-gate directive,
  *                            │ background-job hazard → the guard's BACKGROUND_CONTEXT
+ *
+ * Whenever a row's named mechanism is absent — its kill switch off, no skills dir, or Codex, which
+ * has neither — that block is RESIDENT. So `SHEPHERD_TOOL_GUARD=0` restores the hazard pair and the
+ * PR-time pair but NOT the preview hint, which the skill still covers.
  *
  * `opts.toolGuard` / `opts.agentSkills` default to the live `config.toolGuard` /
  * {@link agentSkillsAvailable}, and a `codex` provider forces both false. A dropped block always

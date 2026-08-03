@@ -38,7 +38,9 @@ tokens are the instrument's chars/4 estimate.
 The two fallback rows are the point of the design, not an oversight: a block leaves the prompt only
 where the mechanism replacing it exists. Codex has neither Claude Code hooks nor `--add-dir` skill
 loading, so it keeps every moved block (it still gains the posture trim and the fence dedup). The
-guard-off row is the same rule under `SHEPHERD_TOOL_GUARD=0`.
+guard-off row is the same rule under `SHEPHERD_TOOL_GUARD=0` — note that each block is gated on its
+OWN mechanism, so that switch restores the two hazard notices and the PR-time pair (which needs both
+mechanisms), but not the preview hint, which the `shepherd-preview` skill still covers.
 
 ### The other side of the ledger
 
@@ -128,6 +130,6 @@ interpreter is the node binary the membrane already binds — deliberately not `
   delivered"; a deny that does not fire degrades to pre-#1632 behaviour. Neither breaks a spawn.
 - **A deny is a hard block.** A false positive costs one wasted call, and the reason names the
   sanctioned alternative, so the agent self-corrects. `SHEPHERD_TOOL_GUARD=0` is the code-free
-  revert, and it restores the notices.
+  revert, and it restores every block that depends on the guard.
 - **Per-`Bash`-call process spawn.** The guard runs a short node script on every `Bash` call. It is a
   dependency-free single file and exits immediately when nothing matches.

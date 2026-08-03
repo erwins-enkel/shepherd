@@ -4,6 +4,10 @@ src/content/docs/reference/plugins.md
 src/content/docs/reference/external-task-api.md
 src/content/docs/reference/security.md
 src/content/docs/reference/house-rules.md
+src/content/docs/reference/rules-design-system.md
+src/content/docs/reference/rules-i18n.md
+src/content/docs/reference/rules-feature-catalog.md
+src/content/docs/reference/rules-glossary.md
 # TypeScript API reference generated at build time by starlight-typedoc from
 # ../src (source of truth is src/; reproducible, not authored here).
 src/content/docs/api/

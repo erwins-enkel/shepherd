@@ -1109,16 +1109,20 @@
 
   function selectRepo(path: string) {
     repoPath = path;
-    queueMicrotask(() => {
-      // Picking inside the mobile context sheet must keep focus INSIDE the open
-      // aria-modal sheet (land on the in-sheet trigger, same as the Escape
-      // contract); the prompt refocus is the desktop behavior.
-      if (activeSheet === "context") {
-        contextSheetEl?.querySelector<HTMLElement>(".rs-trigger")?.focus();
-      } else {
-        promptInput?.focus();
-      }
-    });
+    if (activeSheet === "context") {
+      // A repo pick is the whole point of opening this sheet, so it ends here: close
+      // and put the caret straight back in the prompt. Synchronous throughout —
+      // a soft keyboard only rises for a focus() inside the activating tap's own call
+      // stack (same constraint as openRepoPicker), so flushSync, never `await tick()`.
+      // Order is load-bearing: the flush runs the sheet's use:dialog destroy, which
+      // restores focus to the opener — we must take it back AFTER, or that restore wins.
+      activeSheet = null;
+      flushSync();
+      promptInput?.focus();
+      promptInput?.setSelectionRange(prompt.length, prompt.length);
+      return;
+    }
+    queueMicrotask(() => promptInput?.focus());
   }
 
   function cycleRepo(dir: 1 | -1) {
@@ -1540,20 +1544,51 @@
     <div class="chead">
       <span class="chead-title">{heading}</span>
       {#if mobile && composing}
-        <!-- Compose state: the chip compresses to one read-only context line —
-             repo · branch · engine · gate. Everything here is confirmed already;
-             editing any of it means leaving compose (Next →) first. -->
+        <!-- Compose state: the chip compresses to one context line — repo · branch ·
+             engine · gate — split into two buttons whose hit areas match what each
+             segment names. Switching repo mid-compose is the single most common edit
+             (it gates the repo's slash commands and issue list), so it must not cost a
+             trip out of compose and back: both segments open their sheet directly.
+
+             onpointerdown preventDefault, per `.compose-actions` below: without it the
+             pointerdown blurs the textarea, the keyboard retracts, the vv-synced overlay
+             re-inflates and the button slides out from under the finger before `click`
+             fires. onclick stays the activation path so Enter/VoiceOver still work. -->
         <span class="ctx-line">
-          <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
-          <b>{selectedRepoName || m.reposelect_placeholder()}</b>
-          <span class="ctx-dim">
-            · {baseBranch} · {agentProvider === "codex"
-              ? m.agent_provider_codex()
-              : m.agent_provider_claude()} ·
-          </span>
-          <span class="es-gate" class:on={planGate}
-            >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+          <button
+            type="button"
+            class="ctx-seg ctx-seg-repo"
+            aria-haspopup="dialog"
+            aria-expanded={activeSheet === "context"}
+            aria-label={m.newtask_context_chip_aria({
+              repo: selectedRepoName || m.reposelect_placeholder(),
+              branch: baseBranch,
+            })}
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={openRepoPicker}
           >
+            <span aria-hidden="true">{projectIcons.iconFor(repoPath) ?? "▣"}</span>
+            <b>{selectedRepoName || m.reposelect_placeholder()}</b>
+            <span class="ctx-dim">· {baseBranch}</span>
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
+          <!-- Named by its own content, exactly as `.engine-summary` is. -->
+          <button
+            type="button"
+            class="ctx-seg ctx-seg-engine"
+            aria-haspopup="dialog"
+            aria-expanded={activeSheet === "engine"}
+            onpointerdown={(e) => e.preventDefault()}
+            onclick={() => (activeSheet = "engine")}
+          >
+            <span class="ctx-dim"
+              >{agentProvider === "codex" ? m.agent_provider_codex() : m.agent_provider_claude()} ·
+            </span>
+            <span class="es-gate" class:on={planGate}
+              >{planGate ? m.newtask_gate_on() : m.newtask_gate_off()}</span
+            >
+            <span class="chev" aria-hidden="true">▾</span>
+          </button>
         </span>
       {:else if mobile}
         <!-- Combined repo·branch chip: one control naming both payload-critical values;
@@ -3143,7 +3178,9 @@
     .chead {
       min-height: 44px;
       box-sizing: border-box;
-      padding: 8px 6px 8px 16px;
+      /* No vertical padding: the chip / context segments are the header's tap targets
+         and stretch to fill the full 44px row themselves (a11y touch floor). */
+      padding: 0 6px 0 16px;
     }
     .chead-title {
       display: none;
@@ -3152,6 +3189,7 @@
       display: inline-flex;
       align-items: center;
       gap: 6px;
+      min-height: 44px;
       min-width: 0;
       max-width: 80vw;
       border: 1px solid var(--color-line);
@@ -3348,14 +3386,46 @@
     .card.composing .hero:focus-within {
       border-color: var(--color-amber);
     }
-    /* Read-only header context line (repo · branch · engine · gate). */
+    /* Header context line (repo · branch · engine · gate) — two tap targets. */
     .ctx-line {
       display: flex;
-      align-items: center;
-      gap: 6px;
+      align-items: stretch;
+      gap: 2px;
       min-width: 0;
       font-size: var(--fs-meta);
       color: var(--color-ink);
+    }
+    .ctx-seg {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      /* Fills `.chead`'s 44px row — the a11y touch floor. */
+      min-height: 44px;
+      border: 0;
+      background: none;
+      padding: 0 4px;
+      font: inherit;
+      font-size: var(--fs-meta);
+      color: inherit;
+      cursor: pointer;
+    }
+    /* The repo NAME absorbs all the shrink; the engine segment is short and fixed. */
+    .ctx-seg-repo {
+      min-width: 0;
+    }
+    /* Branch holds its ground so a long repo name can't squeeze `main` down to `m…`.
+       Capped so an unusually long branch still can't crowd out the name. */
+    .ctx-seg-repo .ctx-dim {
+      flex-shrink: 0;
+      max-width: 12ch;
+    }
+    .ctx-seg-engine {
+      flex-shrink: 0;
+    }
+    .ctx-seg .chev {
+      flex-shrink: 0;
+      color: var(--color-faint);
+      font-size: var(--fs-micro);
     }
     .ctx-line b {
       font-weight: 600;

@@ -151,11 +151,14 @@
     }
   }
 
+  // Own state settles BEFORE onchange, which is allowed to tear this component down
+  // synchronously (NewTask's mobile context sheet closes on pick). Assigning after the
+  // call would write to a destroyed component.
   function pick(path: string) {
-    onchange(path);
     open = false;
     pickerFor = null;
     filter = "";
+    onchange(path);
   }
 
   $effect(() => {
@@ -284,6 +287,14 @@
           {/if}
           {@const r = row.repo}
           {@const identity = repoIdentity(r)}
+          <!-- onpointerdown preventDefault: the row is focusable (tabindex="-1"), so a
+               tap would focus it and blur `.rs-filter` BEFORE `click` reaches pick() —
+               on a phone that retracts the soft keyboard and re-inflates the visual
+               viewport mid-gesture. Guarding here keeps focus on the filter, which the
+               host can then hand straight back to its own field. `onclick` stays the
+               activation path (unlike SlashCommandMenu/IssueSearchMenu, which pick on
+               mousedown) so Enter/Space and VoiceOver are unaffected. It also covers the
+               nested emoji/sync buttons, which act on click and need no focus. -->
           <li
             id={`rs-opt-${i}`}
             class="rs-row"
@@ -293,6 +304,7 @@
             role="option"
             aria-selected={i === activeIdx}
             tabindex="-1"
+            onpointerdown={(e) => e.preventDefault()}
             onclick={() => pick(r.path)}
             onkeydown={(e) => {
               if (e.key === "Enter" || e.key === " ") pick(r.path);

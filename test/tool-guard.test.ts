@@ -9,6 +9,9 @@ import {
 } from "../scripts/tool-guard.mjs";
 import { buildToolGuardFragment, toolGuardMembranePaths } from "../src/tool-guard-hook";
 import { buildMembraneFlags } from "../src/sandbox";
+import { mkdtempSync, rmSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 /** A `PreToolUse` body for a Bash call. */
 const bash = (command: string, cwd = "/home/u/repo") => ({
@@ -276,5 +279,81 @@ describe("#2002 the guard is reachable inside the membrane", () => {
     expect(
       buildMembraneFlags({ ...membrane, agentSupportPaths: [] }, { exists: () => true }),
     ).toEqual(base);
+  });
+});
+
+// ── the CLI entry: the only part Claude Code actually executes ───────────────────────────────────
+
+describe("#2002 CLI entry (stdin → stdout)", () => {
+  const SCRIPT = join(import.meta.dir, "..", "scripts", "tool-guard.mjs");
+  // `node`, not process.execPath: the hook runs under the node binary Shepherd resolves (and the
+  // membrane binds), never under bun — and this matches how test/check-model-mirror.test.ts runs
+  // the repo's other .mjs scripts.
+  const NODE = "node";
+
+  /** Run the guard exactly as the hook does: body on stdin, decision on stdout. */
+  const run = async (event: unknown, path = SCRIPT) => {
+    const p = Bun.spawn([NODE, path], { stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+    p.stdin.write(typeof event === "string" ? event : JSON.stringify(event));
+    await p.stdin.end();
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    return { out, code };
+  };
+
+  it("emits the deny envelope and exits 0", async () => {
+    const { out, code } = await run(bash("git stash"));
+    expect(code).toBe(0); // a non-zero exit would surface as a hook ERROR to the agent
+    expect(JSON.parse(out)).toEqual({
+      hookSpecificOutput: {
+        hookEventName: "PreToolUse",
+        permissionDecision: "deny",
+        permissionDecisionReason: expect.stringContaining("refs/stash"),
+      },
+    });
+  });
+
+  it("stays silent — exit 0, no output — when it has no opinion", async () => {
+    for (const event of [bash("git status"), bash("bun run lint")]) {
+      const { out, code } = await run(event);
+      expect(out).toBe("");
+      expect(code).toBe(0);
+    }
+  });
+
+  it("fails open on malformed input rather than erroring", async () => {
+    for (const body of ["not json at all", "", "null"]) {
+      const { out, code } = await run(body);
+      expect(`${JSON.stringify(body)}: ${out} ${code}`).toBe(`${JSON.stringify(body)}:  0`);
+    }
+  });
+
+  it("runs when invoked through a symlinked path", async () => {
+    // Regression guard for the main-module check: Node realpath-resolves the entry behind
+    // `import.meta.url` but not argv[1], so a bare `resolve()` compare silently skipped main() —
+    // the hook emitted NOTHING while the prompt had already dropped both hazard notices.
+    const dir = mkdtempSync(join(tmpdir(), "tool-guard-link-"));
+    const link = join(dir, "linked-guard.mjs");
+    try {
+      symlinkSync(SCRIPT, link);
+      const { out } = await run(bash("git stash"), link);
+      expect(JSON.parse(out).hookSpecificOutput.permissionDecision).toBe("deny");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits nothing when imported rather than executed", async () => {
+    const p = Bun.spawn(
+      [NODE, "--input-type=module", "-e", `await import(${JSON.stringify(SCRIPT)})`],
+      {
+        stdin: "pipe",
+        stdout: "pipe",
+        stderr: "pipe",
+      },
+    );
+    p.stdin.write(JSON.stringify(bash("git stash")));
+    await p.stdin.end();
+    const [out, code] = await Promise.all([new Response(p.stdout).text(), p.exited]);
+    expect(`${out}|${code}`).toBe("|0");
   });
 });

@@ -16,6 +16,7 @@
 // a hazard MENTIONED as data (in a commit message, a PR body, a heredoc) must never read as one
 // INVOKED, and an ambiguous command line must produce no decision at all.
 
+import { realpathSync } from "node:fs";
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -380,6 +381,30 @@ async function main() {
   if (out) process.stdout.write(JSON.stringify(out));
 }
 
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+/**
+ * Is this module the process entry point (i.e. run as the hook command, not imported)?
+ *
+ * `realpathSync(argv[1])`, not a bare `resolve` — Node realpath-resolves the ENTRY module behind
+ * `import.meta.url` (`--preserve-symlinks-main` defaults off) but leaves argv[1] merely resolved, so
+ * ANY symlinked path component makes a bare compare false. Getting this wrong is silent and severe
+ * here: `main()` would never run, the hook would emit nothing, and every `git stash` / tmpfs install
+ * would be ALLOWED — while composeSystemPromptBlocks has already dropped both hazard notices from
+ * the prompt on the strength of this guard existing. Verified: invoking this file through a
+ * symlinked directory emitted nothing before this fix. Same idiom (and same reasoning) as
+ * `isMainModule` in scripts/check-model-mirror.mjs; `fileURLToPath` rather than a `file://` concat
+ * because `import.meta.url` is percent-encoded.
+ */
+function isMainModule() {
+  const entry = process.argv[1];
+  if (!entry) return false;
+  try {
+    return realpathSync(entry) === fileURLToPath(import.meta.url);
+  } catch {
+    // argv[1] isn't a resolvable path (eval / bundler harness) → not the CLI entry.
+    return false;
+  }
+}
+
+if (isMainModule()) {
   await main();
 }

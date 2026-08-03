@@ -16,7 +16,6 @@ export type LearningsCtx = {
   onseenretired: (repoPath: string) => void;
   onmerge: (suggestionId: string) => void;
   ondismissmerge: (suggestionId: string) => void;
-  onpromoteglobal: (suggestionId: string) => void;
   onmergenow: (repoPath: string) => void;
 
   // Shared scope-editor state — kept in parent to preserve single-open semantics.

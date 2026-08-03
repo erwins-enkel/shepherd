@@ -12,6 +12,12 @@ import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
 import { normalizeRule } from "./learning-rule";
+import {
+  LEARNING_ADMISSION_TEST,
+  LEARNING_FACT_SHAPE,
+  LEARNING_RULE_MAX_CHARS,
+  trimRuleToLimit,
+} from "./learning-shape";
 
 const PROPOSALS_FILE = ".shepherd-learnings.json";
 
@@ -451,7 +457,7 @@ export class DistillerService {
       have.add(key);
       this.deps.store.addLearning({
         repoPath: f.repoPath,
-        rule: r.rule.trim().slice(0, 240),
+        rule: trimRuleToLimit(r.rule),
         rationale: typeof r.rationale === "string" ? r.rationale : "",
         evidence,
         scopeGlobs: sanitizeScopeGlobs(r.scopeGlobs),
@@ -513,20 +519,29 @@ function isBlockedByPruneTombstone(
   );
 }
 
-function distillPrompt(): string {
+export function distillPrompt(): string {
   return [
-    "You are a code-review pattern analyst. Read `signals.json` in this directory.",
+    "You are a repo-gotcha analyst. Your job is NOT to write rules of conduct — it is to capture the",
+    "non-obvious FACTS about one repository that cost an agent real time when it does not know them.",
+    "Read `signals.json` in this directory.",
     "It is a JSON object with four fields:",
     "  `signals` — an array of past corrections, blocks, stalls, and critic findings for one repository;",
-    "  `existingRules` — all recorded/dismissed rules (do NOT ADD any of these — they are the dedup set);",
-    "  `activeRules` — currently-active house rules as {id, rule, promoted} objects. UPDATE/DELETE may target ONLY entries with promoted:false; promoted:true rules are mirrored in CLAUDE.md and may only be flagged ineffective.",
-    "  `proposedRules` — currently-proposed rules as {id, rule} objects (not yet active).",
+    "  `existingRules` — all recorded/dismissed entries (do NOT ADD any of these — they are the dedup set);",
+    "  `activeRules` — currently-active entries as {id, rule, promoted} objects. UPDATE/DELETE may target ONLY entries with promoted:false; promoted:true entries are mirrored in CLAUDE.md and may only be flagged ineffective.",
+    "  `proposedRules` — currently-proposed entries as {id, rule} objects (not yet active).",
+    "",
+    LEARNING_ADMISSION_TEST,
+    "",
+    LEARNING_FACT_SHAPE,
     "",
     "For each candidate finding, choose exactly ONE action:",
-    "  ADD    → emit in `rules`   (new guidance, not already in existingRules)",
+    "  ADD    → emit in `rules`   (passes the admission test, not already in existingRules)",
     "  UPDATE → emit in `updates` (same topic AND same target; richer wording — keep the most informative version)",
-    "  DELETE → emit in `deletes` (the finding directly CONTRADICTS that activeRule — emit any corrected rule as a separate ADD)",
-    "  NOOP   → emit nothing      (already fully covered by an existingRule or activeRule)",
+    "  DELETE → emit in `deletes` for EITHER reason: (a) the finding directly CONTRADICTS that activeRule",
+    "           (emit any corrected fact as a separate ADD), or (b) that activeRule FAILS the admission",
+    "           test above — it is judgement/process guidance, a restated standing directive, or a",
+    "           preference with no failure mode. Reason (b) needs no signal: judge the rule's own text.",
+    "  NOOP   → emit nothing      (fails the admission test, or already fully covered by an existingRule or activeRule)",
     "",
     "MULTI-VALUED GUARD: never UPDATE or DELETE a rule whose target (file / category / object) DIFFERS",
     "from the candidate, even if the topic is similar. A UI rule and a migration rule about the same",
@@ -549,7 +564,7 @@ function distillPrompt(): string {
     'glob patterns (e.g. "src/**", "ui/**/*.svelte") so the rule injects only for tasks touching',
     "those files. OMIT `scopeGlobs` (or use []) for general rules — do not invent a scope when unsure.",
     `Write your output as JSON to \`${PROPOSALS_FILE}\` in this directory, shaped exactly:`,
-    '{"rules":[{"rule":"<=160 char imperative","rationale":"why","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=160 char imperative","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"why"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}],"reaffirm":[{"id":"proposedRuleId","evidence":["signalId",...]}]}',
+    `{"rules":[{"rule":"<=${LEARNING_RULE_MAX_CHARS} char fact line (see SHAPE)","rationale":"why this is not derivable from the repo","evidence":["signalId",...],"scopeGlobs":["glob",...]}],"updates":[{"id":"activeRuleId","rule":"<=${LEARNING_RULE_MAX_CHARS} char fact line","rationale":"why"}],"deletes":[{"id":"activeRuleId","reason":"contradicted | fails-admission-test, plus one sentence"}],"ineffective":[{"id":"activeRuleId","evidence":["signalId",...]}],"reaffirm":[{"id":"proposedRuleId","evidence":["signalId",...]}]}`,
     'If nothing applies, write {"rules":[],"updates":[],"deletes":[],"ineffective":[],"reaffirm":[]}. Do not write anything else.',
   ].join("\n");
 }

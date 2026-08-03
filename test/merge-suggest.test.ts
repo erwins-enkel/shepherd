@@ -214,8 +214,9 @@ test("cross: a group promoted to global (applied) is NOT re-suggested on a later
   await svc.tick();
   const cross = store.listMergeSuggestions({ kind: "cross", status: "pending" });
   expect(cross.length).toBe(1);
-  // Simulate promote-global: mark applied. The member rules stay ACTIVE (no retire), so the
-  // dedup set must include `applied` or the same group re-appears next pass.
+  // A cross suggestion marked applied (the promote-global route that did this was removed in
+  // #2004; the store transition remains). Member rules stay ACTIVE (no retire), so the dedup
+  // set must include `applied` or the same group re-appears next pass.
   store.setMergeSuggestionStatus(cross[0]!.id, "applied");
 
   // Change the global active set so the cross pass isn't gated out by an unchanged signature —

@@ -2,6 +2,7 @@ import type { SessionStore } from "./store";
 import type { EventHub } from "./events";
 import type { EvidenceItem, Learning, SignalKind } from "./types";
 import { planHouseRulesInjection, prioritize } from "./house-rules";
+import { trimRuleToLimit } from "./learning-shape";
 
 /** Flatten + clip a signal payload to a one-line evidence excerpt for the drawer. */
 function evidenceExcerpt(payload: string, max = 140): string {
@@ -111,13 +112,13 @@ export class LearningsService {
 
   /**
    * Approve (→active) or dismiss a proposed rule. On approve, an edited rule is
-   * normalized to addLearning's contract (trim + 240 cap); an empty edit falls
+   * normalized to addLearning's contract (word-boundary trim to the rule cap); an empty edit falls
    * back to the stored rule. Returns null (no emit) when the rule isn't found.
    */
   setStatus(id: string, action: "approve" | "dismiss", ruleEdit?: string): Learning | null {
     let rule: string | undefined;
     if (action === "approve" && typeof ruleEdit === "string") {
-      const trimmed = ruleEdit.trim().slice(0, 240);
+      const trimmed = trimRuleToLimit(ruleEdit);
       if (trimmed) rule = trimmed;
     }
     const status = action === "approve" ? "active" : "dismissed";

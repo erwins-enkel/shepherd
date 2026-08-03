@@ -19,7 +19,6 @@
     markRetiredSeen,
     applyMergeSuggestion,
     dismissMergeSuggestion,
-    promoteGlobalLearning,
     mergeSuggestNow,
     getPlugins,
   } from "$lib/api";
@@ -443,13 +442,6 @@
       dismissMergeSuggestion(suggestionId)
         .then(() => learnings.load())
         .catch(() => {})}
-    onpromoteglobal={(suggestionId) =>
-      promoteGlobalLearning(suggestionId)
-        .then(() => {
-          toasts.info(m.learnings_recur_promote_done());
-          return learnings.load();
-        })
-        .catch(() => toasts.info(m.learnings_recur_promote_failed()))}
     onmergenow={(repoPath) =>
       mergeSuggestNow(repoPath)
         .then(() => toasts.info(m.learnings_merge_now_started({ repo: basename(repoPath) })))

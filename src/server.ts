@@ -510,11 +510,10 @@ export interface AppDeps {
     /** Async (MergeSuggestService.mergeNow); the trigger route fires it and forgets. */
     mergeNow: (repoPath: string) => Promise<void>;
   };
-  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR, or a cross-repo
-   *  recurrence rule into the user-global ~/.claude/CLAUDE.md directly (#872). */
+  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. (The user-global
+   *  ~/.claude/CLAUDE.md write that lived alongside it was dropped in #2004 — see promote.ts.) */
   promoter?: {
     promote: (id: string) => Promise<import("./promote").PromoteResult>;
-    promoteGlobal: (rule: string) => Promise<import("./promote").PromoteResult>;
   };
   /** PR-gated AI doc agent (issue #882). Optional + flag-gated (config.docAgentEnabled); the route
    *  404s when the flag is off or the service is unwired. Wired to DocAgentService in index.ts. */
@@ -1879,30 +1878,7 @@ function handleMergeSuggestionPost(
 ): Promise<Response> | null {
   if (parts[2] === "merge" && !parts[3]) return handleMergeApply(req, deps);
   if (parts[2] === "merge-dismiss") return handleMergeDismiss(req, deps);
-  if (parts[2] === "promote-global") return handleMergePromoteGlobal(req, deps);
   return null;
-}
-
-/** POST /api/learnings/promote-global — write a cross-repo recurrence rule into the user-global
- *  ~/.claude/CLAUDE.md (issue #872), body {suggestionId}. Explicit, operator-confirmed; no PR.
- *  Marks the suggestion `applied` so it leaves the band and isn't re-suggested (the cross dedup
- *  set includes `applied`). 409 on a stale re-post, mirroring handleMergeApply. */
-async function handleMergePromoteGlobal(req: Request, deps: AppDeps): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
-  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
-  if (!id) return json({ error: "suggestionId required" }, 400);
-  const sug = deps.store.getMergeSuggestion(id);
-  if (!sug) return json({ error: "not found" }, 404);
-  if (sug.kind !== "cross") return json({ error: "not a cross-repo suggestion" }, 400);
-  if (sug.status !== "pending") return json({ error: "already resolved" }, 409);
-  if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
-  const res = await deps.promoter.promoteGlobal(sug.mergedRule);
-  if (!res.ok) return json({ error: res.error }, res.status);
-  // Promoter-orchestrated (separate service): the suggestion bookkeeping stays inline; only
-  // the recurring emit tail unifies through the learnings service (#1092).
-  deps.store.setMergeSuggestionStatus(id, "applied");
-  learnings(deps).emitPending();
-  return json({ ok: true });
 }
 
 /** POST /api/learnings/merge-dismiss — dismiss a merge suggestion (intra or cross), body

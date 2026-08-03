@@ -1,8 +1,7 @@
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { promisify } from "node:util";
 import type { Options } from "prettier";
 import type { SessionStore } from "./store";
@@ -43,41 +42,19 @@ export class Promoter {
     this.git = deps.git ?? defaultGit;
     this.readClaudeMd =
       deps.readClaudeMd ?? ((p) => (existsSync(p) ? readFileSync(p, "utf8") : ""));
-    // Ensure the parent dir exists before writing — harmless for worktree paths (the dir is
-    // already there), and lets the global write (issue #872) create ~/.claude if absent.
-    this.writeClaudeMd =
-      deps.writeClaudeMd ??
-      ((p, c) => {
-        mkdirSync(dirname(p), { recursive: true });
-        writeFileSync(p, c);
-      });
+    this.writeClaudeMd = deps.writeClaudeMd ?? ((p, c) => writeFileSync(p, c));
   }
 
-  /** Write a single cross-repo rule into the user-global `~/.claude/CLAUDE.md` (issue #872).
-   *  No forge/branch/PR — a direct, operator-confirmed write to the home-dir file. Reads the
-   *  existing Shepherd-owned block, unions the rule in (dedup, order-preserving) and rewrites.
-   *  Idempotent: a no-op (no write) when the rule is already present. `homedir()` is the server
-   *  process's home — see the issue's home-dir-trust caveat. */
-  async promoteGlobal(rule: string): Promise<PromoteResult> {
-    const path = join(homedir(), ".claude", "CLAUDE.md");
-    try {
-      const current = this.readClaudeMd(path);
-      // Dedup in *sanitized* space: extractLearningsBlockRules returns the stored rules in
-      // their already-sanitized form, while `rule` is raw — comparing them raw would miss a
-      // rule that sanitize alters (leading marker / collapsible whitespace), writing a
-      // duplicate bullet and defeating the `next === current` no-op on re-promote.
-      const rules = [...new Set([...extractLearningsBlockRules(current), rule].map(sanitizeRule))];
-      const next = upsertLearningsBlock(current, rules);
-      if (next === current) return { ok: true, url: "" };
-      this.writeClaudeMd(path, next);
-      return { ok: true, url: "" };
-    } catch (err) {
-      // Don't leak raw fs stderr (EACCES/EROFS on the home dir) to the client; log it
-      // server-side and return a structured result, matching the PR-promote path.
-      console.warn(`[promote-global] failed:`, err);
-      return { ok: false, error: "global promote failed", status: 500 };
-    }
-  }
+  /* Promote-to-GLOBAL (`~/.claude/CLAUDE.md`, issue #872) was removed here in #2004 (the Claude-5
+   * context-engineering epic). Three reasons, recorded so it isn't re-added by reflex:
+   *   - Claude's own auto-memory now owns that file, written by the model that reads it. A second
+   *     writer duplicates the channel.
+   *   - A rule promoted there is resident in EVERY session of EVERY repo — the widest blast radius
+   *     available, for exactly the class of standing instruction this epic is cutting back.
+   *   - It was the one write in the flywheel with no review gate: no PR, no approval, straight to
+   *     the operator's home dir.
+   * The per-repo promotes below keep their PR, so a rule still reaches a CLAUDE.md — reviewably,
+   * and scoped to the repo whose gotcha it actually is. */
 
   async resyncPromoted(repoPath: string): Promise<PromoteResult> {
     // Claim inflight slot synchronously — repo path can't collide with a learning id.
@@ -120,8 +97,8 @@ export class Promoter {
         return { ok: false, error: "worktree creation failed", status: 500 };
       }
       try {
-        // Dedup in sanitized space (matches promoteGlobal): two stored rules that collapse to
-        // the same sanitized bullet must not both survive into the block.
+        // Dedup in sanitized space: two stored rules that collapse to the same sanitized bullet
+        // must not both survive into the block.
         const rules = [...new Set(promoted.map((l) => sanitizeRule(l.rule)))];
         const claudePath = join(wt.worktreePath, "CLAUDE.md");
         const current = this.readClaudeMd(claudePath);
@@ -269,8 +246,8 @@ export class Promoter {
     const promoted = this.deps.store
       .listLearnings(learning.repoPath, { status: "promoted" })
       .map((l) => l.rule);
-    // Dedup in sanitized space (matches promoteGlobal): a stored rule and the newly-promoted
-    // one that collapse to the same sanitized bullet must dedup, not emit a duplicate.
+    // Dedup in sanitized space: a stored rule and the newly-promoted one that collapse to the
+    // same sanitized bullet must dedup, not emit a duplicate.
     const rules = [...new Set([...promoted, learning.rule].map(sanitizeRule))];
     // Best-effort prettier-stabilize the block against this target's config (#935).
     const next = await formatLearningsBlockForTarget(
@@ -340,23 +317,6 @@ export function upsertLearningsBlock(content: string, rules: string[]): string {
   }
   const sep = content.length === 0 ? "" : content.endsWith("\n") ? "\n" : "\n\n";
   return content + sep + body + "\n";
-}
-
-/** Parse the rules out of the managed `shepherd:learnings` block — the inverse of
- *  `upsertLearningsBlock`, used to accumulate across successive global promotes (#872).
- *  Returns `[]` when no block is present. Tolerant of CRLF and leading whitespace; only
- *  `- <rule>` bullets are returned — non-bullet/prose lines inside the block are ignored
- *  (the block is Shepherd-owned and rewritten in full, so hand-edits aren't preserved). */
-export function extractLearningsBlockRules(content: string): string[] {
-  const start = content.indexOf(LEARNINGS_START);
-  const end = content.indexOf(LEARNINGS_END);
-  if (start === -1 || end === -1 || end <= start) return [];
-  return content
-    .slice(start + LEARNINGS_START.length, end)
-    .split("\n")
-    .map((line) => line.trim())
-    .filter((line) => line.startsWith("- "))
-    .map((line) => line.slice(2).trim());
 }
 
 /** Best-effort: re-format the managed `shepherd:learnings` block to match the target repo's

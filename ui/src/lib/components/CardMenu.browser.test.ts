@@ -137,3 +137,29 @@ describe("CardMenu merge action", () => {
     }
   });
 });
+
+describe("CardMenu stop action", () => {
+  it("renders the Stop agent item only when onstop is provided", async () => {
+    const { rerender } = await render(CardMenu, { props: base() });
+    // no onstop → no Stop item (a non-working session never offers it)
+    expect(page.getByRole("menuitem", { name: m.cardmenu_stop() }).query()).toBeNull();
+
+    await rerender(base({ onstop: vi.fn() }));
+    await expect
+      .element(page.getByRole("menuitem", { name: m.cardmenu_stop() }))
+      .toBeInTheDocument();
+  });
+
+  it("fires onstop on the FIRST click (no two-step arm) and takes no danger/armed wash", async () => {
+    const onstop = vi.fn();
+    render(CardMenu, { props: base({ onstop }) });
+
+    const item = page.getByRole("menuitem", { name: m.cardmenu_stop() });
+    // it must not read as the fleet e-stop: no armed wash, no danger colour
+    await expect.element(item).not.toHaveClass(/\barmed\b/);
+    await expect.element(item).not.toHaveClass(/\bdanger\b/);
+
+    await item.click();
+    expect(onstop).toHaveBeenCalledTimes(1);
+  });
+});

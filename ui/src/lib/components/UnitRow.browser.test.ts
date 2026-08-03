@@ -24,11 +24,13 @@ vi.mock("$lib/api", async (importOriginal) => {
       async () => ({ ok: true }) as { ok: boolean; reason?: "unsupported" | "no-run" },
     ),
     mergePr: vi.fn(async () => ({ state: "merged" }) as never),
+    interruptSession: vi.fn(async () => {}),
   };
 });
 
 const { reviews, planGates, repoConfig } = await import("$lib/reviews.svelte");
-const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr } = await import("$lib/api");
+const { releasePlanGate, reviewPlan, resumeQuota, retryCi, mergePr, interruptSession } =
+  await import("$lib/api");
 const { toasts } = await import("$lib/toasts.svelte");
 
 function session(partial: Partial<Session> & { id: string }): Session {
@@ -135,6 +137,7 @@ beforeEach(() => {
   vi.mocked(mergePr)
     .mockReset()
     .mockResolvedValue({ state: "merged" } as never);
+  vi.mocked(interruptSession).mockReset().mockResolvedValue(undefined);
 });
 
 function loadPreviewMode(repoPath: string, mode: "ask" | "inline" | "tab" = "ask") {
@@ -1303,5 +1306,86 @@ describe("UnitRow awaits-operator attention wash", () => {
     const bg = getComputedStyle(unit).backgroundColor;
     expect(bg).not.toBe(resolvedBackgroundColor("var(--color-sel)"));
     expect(bg).not.toBe("rgba(0, 0, 0, 0)");
+  });
+});
+
+describe("UnitRow stop agent action", () => {
+  function openMenu(rowName: string) {
+    page
+      .getByRole("button", { name: m.unit_open_aria({ name: rowName }) })
+      .element()
+      .dispatchEvent(
+        new MouseEvent("contextmenu", { button: 2, clientX: 40, clientY: 40, bubbles: true }),
+      );
+  }
+
+  it("offers Stop agent on a running row and interrupts that session id, toasting the outcome", async () => {
+    render(UnitRow, {
+      session: session({ id: "run-row", name: "run row", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+
+    openMenu("run row");
+    // one click, no arm — the item fires straight away
+    await page.getByRole("menuitem", { name: m.cardmenu_stop() }).click();
+
+    expect(interruptSession).toHaveBeenCalledWith("run-row");
+    // The toast container isn't mounted in an isolated row render — assert on the store.
+    await vi.waitFor(() =>
+      expect(toasts.items.some((t) => t.text === m.cardmenu_stop_toast({ name: "run row" }))).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("offers Stop agent on a blocked row flagged working (display-running)", async () => {
+    render(UnitRow, {
+      session: session({ id: "wb-row", name: "wb row", status: "blocked" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      workingBlocked: { "wb-row": true },
+      onrename: vi.fn(),
+    });
+
+    openMenu("wb row");
+    await expect
+      .element(page.getByRole("menuitem", { name: m.cardmenu_stop() }))
+      .toBeInTheDocument();
+  });
+
+  it("does not offer Stop agent on an idle row", async () => {
+    render(UnitRow, {
+      session: session({ id: "idle-row", name: "idle row", status: "idle" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+      onrename: vi.fn(), // something else to open the menu with
+    });
+
+    openMenu("idle row");
+    await expect.element(page.getByText(m.cardmenu_rename())).toBeInTheDocument();
+    await expect.element(page.getByText(m.cardmenu_stop())).not.toBeInTheDocument();
+  });
+
+  it("a 404 (dead pane) surfaces the failure toast instead of throwing", async () => {
+    vi.mocked(interruptSession).mockRejectedValue(new Error("interrupt failed (404)"));
+    render(UnitRow, {
+      session: session({ id: "dead-row", name: "dead row", status: "running" }),
+      selected: false,
+      nowMs: Date.now(),
+      onselect: () => {},
+    });
+
+    openMenu("dead row");
+    await page.getByRole("menuitem", { name: m.cardmenu_stop() }).click();
+
+    await vi.waitFor(() =>
+      expect(
+        toasts.items.some((t) => t.text === m.cardmenu_stop_failed({ name: "dead row" })),
+      ).toBe(true),
+    );
   });
 });

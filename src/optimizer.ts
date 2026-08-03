@@ -77,7 +77,15 @@ export interface OptimizerDeps {
 /**
  * Operator-triggered LLM pass that rewrites flagged ("not working") house rules using
  * their failure evidence, applies the rewrites in place (clearing the flag), and opens a
- * CLAUDE.md sync PR for any revised *promoted* rule. A faithful sibling of
+ * CLAUDE.md sync PR for any revised *promoted* rule.
+ *
+ * An OMITTED target (the agent judged it unrewritable — since #2004 that includes failing the
+ * admission test) is left flagged and unchanged, and nothing here retires it. Note this is NOT
+ * self-draining under `autoOptimizeFlagged`: `runAutoRetire` skips retirement while
+ * `autoOptimizedAt` is null and only `reviseLearning` stamps it, so an omitted target is
+ * re-enqueued for `optimizeOne` on every sweep. What actually drains a fails-the-test entry is
+ * the distiller's DELETE criterion (non-promoted active rules) — or plain auto-retire in a repo
+ * with `autoOptimizeFlagged` off. A faithful sibling of
  * {@link DistillerService} — same inflight/queue/tick/finalize/health shape and the same
  * shared read-only transient-agent contract. NEVER runs on a timer inside the service.
  */
@@ -377,8 +385,8 @@ export function optimizePrompt(): string {
     "Optionally refine the rationale. Preserve each target's `id` EXACTLY; do not invent ids or",
     "add targets. OMIT a target when it cannot be restated as a fact — including when it fails the",
     "admission test outright (judgement/process guidance, a restated standing directive, or a",
-    "preference with no failure mode). Omitting leaves it flagged, which is the correct outcome:",
-    "the lifecycle retires it. Do not rescue such an entry by making it a sterner instruction.",
+    "preference with no failure mode). Omitting leaves it flagged and unchanged, which is the",
+    "correct outcome; do not rescue such an entry by making it a sterner instruction.",
     `Write your output as JSON to \`${OUTPUT_FILE}\` in this directory, shaped exactly:`,
     `{"revisions": [{"id": "<id>", "rule": "<=${LEARNING_RULE_MAX_CHARS} char fact line", "rationale": "why (optional)"}]}`,
     "Write nothing else.",

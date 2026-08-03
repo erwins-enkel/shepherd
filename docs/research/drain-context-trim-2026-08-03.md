@@ -34,12 +34,12 @@ Environment: 6 enabled plugins (240 plugin skills), 30 user-level skills, 3 proj
 | previous trim — `--disable-slash-commands` + plugins off             | 34,175        | —                  |
 | **shipped** — plugins off + `disableBundledSkills` + user skills off | **35,234**    | **+1,059**         |
 | naive re-enable — drop the flag, plugins still off                   | 40,187        | +6,012             |
-| no trim at all                                                       | 46,448        | +12,288            |
+| no trim at all                                                       | 46,437        | +12,262            |
 
 What the flag's 6,012 tokens actually bought: bundled skills ≈ 1,790 · the operator's personal
 skills ≈ 3,163 · the Skill tool plus this repo's own 3 skills ≈ 1,059. In an empty directory (no
-`.claude/skills`, no CLAUDE.md) the same comparison is 20,743 → 21,366, so **≈ 623 tokens is the
-mechanism itself** and the rest scales with the skills a repo chooses to ship.
+`.claude/skills`, no CLAUDE.md) the same comparison is 20,743 → 21,366 (one run each, not n=3), so
+**≈ 623 tokens is the mechanism itself** and the rest scales with the skills a repo chooses to ship.
 
 Functional check under the shipped overlay — the model lists exactly
 `merge-train, shepherd-epic-authoring, shepherd-onboarding`: the repo's own skills, and nothing else.

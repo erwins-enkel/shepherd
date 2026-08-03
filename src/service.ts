@@ -14,7 +14,7 @@ import {
   visualBlockLanguageLine,
   type OperatorLanguage,
 } from "./operator-language";
-import { findCodexSessionId } from "./codex-session-id";
+import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
   CreateSessionInput,
@@ -119,11 +119,6 @@ export class RestoreError extends Error {
     this.name = "RestoreError";
   }
 }
-
-/** Generous negative clock-skew allowance when filtering Codex rollout files by mtime against a
- *  session's `createdAt` — a rollout is written just after spawn, so its mtime is >= createdAt on the
- *  same machine; this only guards against tiny FS/clock jitter so a legit rollout is never excluded. */
-const CODEX_ID_SKEW_MS = 5 * 60_000;
 
 /** Thrown by create() when an AUTONOMOUS (auto) spawn is refused because the originating issue's
  *  author is untrusted or its trust cannot be established (fail-closed). The drain's spawn catch

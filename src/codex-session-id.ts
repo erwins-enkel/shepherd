@@ -26,16 +26,34 @@ export interface SessionMetaHeader {
   source: string | null;
 }
 
+/** A resolved interactive rollout: its Codex-native id AND the file it lives in. */
+export interface CodexRollout {
+  id: string;
+  path: string;
+}
+
+/** Generous negative clock-skew allowance when filtering rollout files by mtime against a session's
+ *  `createdAt` — a rollout is written just after spawn, so its mtime is >= createdAt on the same
+ *  machine; this only guards against tiny FS/clock jitter so a legit rollout is never excluded.
+ *  Lives here, with the scan, because every caller's window MUST agree: the id the resume path
+ *  captures and the rollout the transcript readers show have to be the same conversation. */
+export const CODEX_ID_SKEW_MS = 5 * 60_000;
+
 /**
  * The newest interactive (`source === "cli"`) rollout whose recorded cwd equals `worktreePath`,
  * among rollouts modified at/after `notBeforeMs`; null if none. The scan is UNBOUNDED over that
  * mtime window (callers must not cap it) so a busy machine can't push the target rollout out of view.
+ *
+ * "Newest wins" is the right rule for an interactive session precisely because it is long-lived: a
+ * restore/relaunch writes a NEW rollout under the SAME worktree cwd (which is why `restore()`
+ * re-derives instead of trusting the persisted id), so the freshest match is the conversation the
+ * pane is actually running. Callers wanting a rollout id only should use `findCodexSessionId`.
  */
-export function findCodexSessionId(
+export function findCodexRollout(
   worktreePath: string,
   notBeforeMs: number,
   home = codexHome(),
-): string | null {
+): CodexRollout | null {
   const target = normalize(worktreePath);
   // listRolloutFiles is newest-first by mtime, so the first cwd+cli match is the newest one — and the
   // first file older than the window means every remaining file is too: stop rather than scan the tail.
@@ -43,9 +61,18 @@ export function findCodexSessionId(
     if (mtimeMs < notBeforeMs) break;
     const meta = readSessionMeta(path);
     if (!meta || meta.source !== "cli" || !meta.id) continue;
-    if (normalize(meta.cwd) === target) return meta.id;
+    if (normalize(meta.cwd) === target) return { id: meta.id, path };
   }
   return null;
+}
+
+/** {@link findCodexRollout}'s id alone — the resume/seed callers' view. */
+export function findCodexSessionId(
+  worktreePath: string,
+  notBeforeMs: number,
+  home = codexHome(),
+): string | null {
+  return findCodexRollout(worktreePath, notBeforeMs, home)?.id ?? null;
 }
 
 /** Parse line 1 of a rollout jsonl (the `session_meta` record). Tolerant: null on any read/parse

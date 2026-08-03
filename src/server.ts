@@ -98,6 +98,7 @@ import { computeDiff, toSessionDiff } from "./diff";
 import { buildDiffNotes } from "./diff-annotations";
 import { resolveDiffBase } from "./diff-base";
 import { readSessionUsage, jsonlPathFor, type SessionUsageRollup } from "./usage";
+import { CodexTranscriptLocator, codexSessionActivity } from "./codex-activity";
 import { buildUsageBreakdown } from "./usage-breakdown";
 import { buildUsageTimeline } from "./usage-timeline";
 import { isApiKeyMode } from "./spawn-auth";
@@ -277,6 +278,10 @@ export interface AppDeps {
    *  `index.ts` injects explicit singletons so production shares one instance. */
   learnings?: LearningsService;
   repoConfig?: RepoConfigService;
+  /** Locates a Codex session's rollout for the transcript reads (issue #1992), with the TTL cache
+   *  + miss backoff that keeps the Activity tab's 5s poll off the `$CODEX_HOME` tree. Optional for
+   *  the same reason as the two above — the `codexTranscripts(deps)` accessor lazily builds one. */
+  codexTranscripts?: CodexTranscriptLocator;
   /** Server-side plugin registry (issue #1124); absent → `/api/plugins/*` 404s and the
    *  Settings → Plugins panel stays hidden (the zero-plugin invariant). */
   pluginRegistry?: PluginRegistry;
@@ -666,6 +671,9 @@ function learnings(deps: AppDeps): LearningsService {
 }
 function repoConfigSvc(deps: AppDeps): RepoConfigService {
   return (deps.repoConfig ??= new RepoConfigService(deps.store));
+}
+function codexTranscripts(deps: AppDeps): CodexTranscriptLocator {
+  return (deps.codexTranscripts ??= new CodexTranscriptLocator());
 }
 
 /**
@@ -2226,6 +2234,15 @@ async function sessionUsageRead(id: string, deps: AppDeps): Promise<Response> {
 async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
+  // Provider dispatch (#1992): a Codex session writes no ~/.claude/projects JSONL at all, so
+  // resolving one would yield a path that never exists — which degrades to [] and leaves the
+  // Activity tab silently empty. Its transcript is a rollout under $CODEX_HOME, located by the
+  // session's launch-unique worktree cwd (null for a non-isolated session: the shared checkout
+  // cwd can't be attributed to one row, same stance `restore()` takes — see the locator).
+  if ((s.agentProvider ?? "claude") === "codex") {
+    const rollout = codexTranscripts(deps).pathFor(s);
+    return json(rollout ? await codexSessionActivity(rollout) : []);
+  }
   // pre-feature session (no pinned id) → no transcript to read.
   // spawnAccountDir MUST be passed (#1990): a spawn-account session writes its JSONL under
   // <account>/projects (see src/usage.ts) — omitting it resolves a nonexistent path, which

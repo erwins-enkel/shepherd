@@ -12,6 +12,9 @@
 //
 // Every rule FAILS OPEN: anything unparseable, unknown, or merely suspicious returns no decision, so
 // the guard can never wedge a session. It only ever blocks the two shapes it positively recognizes.
+// That contract is why `segments()` below is quoting- and heredoc-aware rather than a plain split:
+// a hazard MENTIONED as data (in a commit message, a PR body, a heredoc) must never read as one
+// INVOKED, and an ambiguous command line must produce no decision at all.
 
 import { isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -107,13 +110,94 @@ function unquote(word) {
   return m ? m[2] : word;
 }
 
-/** Split a command line into pipeline/list segments. Deliberately naive — a quoted `&&` splits a
- *  segment early, which can only ever make a rule see LESS, never more (fail open). */
+/**
+ * Split a command line into the segments that are genuinely COMMAND POSITIONS: the separator scan
+ * runs only outside quotes and skips heredoc bodies entirely.
+ *
+ * Quoting awareness is load-bearing, not polish. A naive split would treat a hazard MENTIONED as
+ * data as a hazard INVOKED — `git commit -m "a; git stash pop"`, or a `gh pr create --body` whose
+ * text has a column-0 `git stash pop` line — and hard-block a legitimate call. That is the exact
+ * inverse of this module's fail-open contract, so the parse errs the other way instead: an
+ * ambiguous command (unterminated quote or unterminated heredoc) yields NO segments at all, and
+ * therefore no decision.
+ *
+ * Everything inside `$( … )` / backticks is left in its segment and still read as a command
+ * position, which is correct — that IS a command position.
+ */
 function segments(command) {
-  return command
-    .split(/\r?\n|&&|\|\||[;&|]/)
-    .map((s) => s.trim())
-    .filter(Boolean);
+  const out = [];
+  const lines = command.split(/\r?\n/);
+  let cur = "";
+  let quote = null; // "'" or '"' while inside a quoted string (may span lines)
+  let heredoc = null; // terminator of the heredoc body currently being skipped
+  let pending = null; // terminator queued by a `<<WORD` seen earlier on this line
+
+  const flush = () => {
+    const s = cur.trim();
+    if (s) out.push(s);
+    cur = "";
+  };
+
+  for (const line of lines) {
+    if (heredoc !== null) {
+      // Inside a heredoc body: pure data, never a command position.
+      if (line.trim() === heredoc) heredoc = null;
+      continue;
+    }
+    for (let i = 0; i < line.length; i++) {
+      const c = line[i];
+      if (quote === "'") {
+        if (c === "'") quote = null;
+        cur += c;
+        continue;
+      }
+      if (quote === '"') {
+        if (c === "\\" && i + 1 < line.length) {
+          cur += c + line[++i];
+          continue;
+        }
+        if (c === '"') quote = null;
+        cur += c;
+        continue;
+      }
+      if (c === "\\" && i + 1 < line.length) {
+        cur += c + line[++i]; // escaped char is data, never a separator
+        continue;
+      }
+      if (c === "'" || c === '"') {
+        quote = c;
+        cur += c;
+        continue;
+      }
+      // `<<WORD` / `<<-WORD` opens a heredoc whose body is data; `<<<` is a here-STRING (not one).
+      if (c === "<" && line[i + 1] === "<" && line[i + 2] !== "<") {
+        const rest = line.slice(i + 2);
+        const m = /^-?\s*(?:'([^']*)'|"([^"]*)"|([A-Za-z_][A-Za-z0-9_]*))/.exec(rest);
+        if (m) {
+          pending = m[1] ?? m[2] ?? m[3];
+          i += 1 + m[0].length;
+          continue;
+        }
+      }
+      if (c === ";" || c === "|" || c === "&") {
+        flush();
+        if (line[i + 1] === c) i++; // `&&` / `||`
+        continue;
+      }
+      cur += c;
+    }
+    // A newline outside quotes ends the command; inside a quote it is part of the string.
+    if (quote === null) flush();
+    else cur += "\n";
+    if (pending !== null) {
+      heredoc = pending;
+      pending = null;
+    }
+  }
+  // Ambiguous parse ⇒ no opinion, rather than a decision taken on a misread command line.
+  if (quote !== null || heredoc !== null) return [];
+  flush();
+  return out;
 }
 
 /** Tokenize a segment and drop the parts that never carry meaning for these rules: leading `sudo`,

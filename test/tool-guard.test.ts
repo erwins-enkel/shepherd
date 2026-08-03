@@ -66,6 +66,39 @@ describe("#2002 stash rule (retires the worktree-stash notice)", () => {
     expect(deny(bash('echo "never run git stash here"'))).toBeNull();
     expect(deny(bash("gh pr comment -b 'do not git stash'"))).toBeNull();
   });
+
+  it("does not fire on a mention that carries its own separator", () => {
+    // The dangerous case: a quoted `;` or newline would split a naive scanner's segment and turn
+    // MENTIONED-as-data into INVOKED, hard-blocking a legitimate commit or PR body.
+    for (const cmd of [
+      'git commit -m "a; git stash pop"',
+      'git commit -m "fixes the crash; git stash pop was the trigger"',
+      'gh pr create --body "line one\ngit stash pop\nline three"',
+      "cat <<EOF\ngit stash pop\nEOF",
+      "cat <<-'MSG'\ngit stash pop\nMSG",
+      `gh pr create --body "$(cat <<'EOF'\ngit stash pop\nEOF\n)"`,
+      'echo "a | git stash" "b && git stash"',
+    ])
+      // Not "no decision" — a `gh pr create` row still gets its PR-time context; never a BLOCK.
+      expect(`${cmd}: ${deny(bash(cmd))?.permissionDecision}`).toBe(`${cmd}: undefined`);
+  });
+
+  it("still denies a real invocation behind any separator", () => {
+    // The flip side: quoting awareness must not make the rule blind to genuine command positions.
+    for (const cmd of [
+      "echo hi; git stash",
+      "git status\ngit stash pop",
+      "git fetch | tee log.txt; git stash drop",
+      "cat <<EOF > note.md\njust text\nEOF\ngit stash",
+    ])
+      expect(`${cmd}: ${deny(bash(cmd))?.permissionDecision}`).toBe(`${cmd}: deny`);
+  });
+
+  it("takes no decision at all on an ambiguous command line", () => {
+    // Unterminated quote / heredoc ⇒ the parse is a guess, and a guess must never hard-block.
+    expect(deny(bash('git commit -m "unterminated'))).toBeNull();
+    expect(deny(bash("cat <<EOF\ngit stash pop\n"))).toBeNull();
+  });
 });
 
 describe("#2002 tmpfs rules (retire the tmpfs-worktree notice)", () => {

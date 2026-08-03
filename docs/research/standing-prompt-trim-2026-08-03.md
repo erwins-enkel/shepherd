@@ -111,7 +111,10 @@ interpreter is the node binary the membrane already binds — deliberately not `
   moved.
 - **Every guard rule fails open.** Unparseable input, an unknown shape, a relative path with no
   usable cwd → no decision. It blocks only the two shapes it positively recognizes, and an ordinary
-  `bun install` in a worktree is untouched.
+  `bun install` in a worktree is untouched. The command splitter is quoting- and heredoc-aware for
+  the same reason: a naive split on `;`/newlines would read a hazard MENTIONED as data (a commit
+  message, a PR body) as one INVOKED and hard-block a legitimate call — so an ambiguous command
+  line (unterminated quote or heredoc) yields no segments, and therefore no decision.
 - **Aux prompts grew slightly.** The critic, plan-gate reviewer, recap, rundown, namer, classifier
   and prompt-recommend builders each now state `UNTRUSTED_CONTENT_DIRECTIVE` once. Multi-fence
   prompts (the critic's eight) shrink; a single-fence one (the namer) grows ~0.5 KB per transient

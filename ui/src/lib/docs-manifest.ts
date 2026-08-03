@@ -121,7 +121,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Internationalization",
     path: "/reference/rules-i18n/",
     keywords:
-      "never hardcode user-facing text — paraglide catalogs plus the server-side notification table. server-side notification text (no gate covers this) gate",
+      "never hardcode user-facing text — paraglide catalogs plus the server-side notification table. server-side notification text (no gate covers this) gates",
   },
   {
     title: "Security",

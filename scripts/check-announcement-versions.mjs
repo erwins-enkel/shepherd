@@ -23,7 +23,7 @@
 // the base can't be resolved (mirrors scripts/check-feature-catalog.sh) so an
 // unresolvable ref can't wave a bad entry through on a vacuous pass.
 //
-// Plain ESM — no dependencies, no transpile. See CLAUDE.md → "Feature discovery".
+// Plain ESM — no dependencies, no transpile. See .claude/rules/ui-feature-catalog.md.
 
 import { spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
@@ -110,7 +110,7 @@ if (errors.length) {
   console.error(
     `\n  Between releases, package.json holds the LAST released version — do not copy it into a\n` +
       `  new announcement. Run \`bun run next-version\` (currently ${nextVersion(released)}) and use that for\n` +
-      `  both the \`v<version>-<id>.ts\` filename and the \`sinceVersion\` field. See CLAUDE.md → "Feature discovery".`,
+      `  both the \`v<version>-<id>.ts\` filename and the \`sinceVersion\` field. See .claude/rules/ui-feature-catalog.md.`,
   );
   process.exit(1);
 }

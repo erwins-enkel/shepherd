@@ -4491,6 +4491,62 @@ export class SessionService {
     return result;
   }
 
+  /**
+   * Interrupt ONE session (`POST /api/sessions/:id/interrupt`): send a lone ESC — the agent's
+   * interrupt key — to that session's pane and nothing else (no bracketed paste, no trailing CR).
+   * Composable with reply, so a caller wanting cancel-then-re-prompt does interrupt → reply rather
+   * than needing a combined endpoint (#1993). Same non-throwing boolean contract as reply(): false
+   * for an unknown id, a dead/unlisted pane, an unreachable herdr, or a send that rejects.
+   *
+   * Three things it deliberately does NOT copy from `haltAll`:
+   *
+   *  1. It goes THROUGH #serializeSteer. haltAll bypasses the FIFO because an e-stop must never
+   *     queue behind the very steers it exists to cancel, and it accepts the resulting race (an ESC
+   *     landing after a paste block has closed clears the composed input while that steer's trailing
+   *     CR submits the remnant). A targeted interrupt is a steer, not an e-stop, so that reasoning
+   *     does not transfer: serializing makes interrupt → reply ordering deterministic — the ESC can
+   *     never land inside or after a reply's paste block. The accepted cost is the mirror image of
+   *     haltAll's: an interrupt can queue behind a wedged send, since the serializer chain is
+   *     process-wide rather than per-pane. /api/halt stays the un-queued escape hatch.
+   *  2. It does NOT filter on `agentStatus === "working"`. haltAll filters because it is a sweep
+   *     that must not touch bystanders; a caller naming one session has already chosen its target.
+   *     A status check would also cost a second herdr round-trip and still race the send. ESC on an
+   *     idle pane merely clears any composed input.
+   *  3. It resolves the pane the way the REPLY route does, not the way haltAll does: `liveAgentFor`
+   *     + `adoptLiveResumeAgent`, so a herdr-restored pane (live terminalId ≠ stored herdrAgentId)
+   *     is interrupted at its live id and the stored id is healed — interrupt and a following reply
+   *     therefore address the same pane. operatorReply's isolated-Codex RESUME is deliberately not
+   *     inherited: resuming a dead pane in order to interrupt it is meaningless.
+   *
+   * No `reply` signal is recorded (that kind carries operator words and is mined by the learnings
+   * distiller; an interrupt has no payload to mine) and no event is emitted (`halt:done` exists
+   * because a fleet sweep's reach is otherwise invisible; a single-target interrupt's outcome is
+   * its HTTP status).
+   */
+  async interrupt(id: string): Promise<boolean> {
+    const s = this.deps.store.get(id);
+    if (!s) return false;
+    let agent: HerdrAgent | null;
+    try {
+      // liveAgentFor lets a herdr-unreachable error propagate; an interrupt that can't reach herdr
+      // is a "didn't land", not a 500 (matches operatorReplyTarget's catch).
+      agent = this.liveAgentFor(id);
+    } catch {
+      return false;
+    }
+    if (!agent) return false; // dead / unlisted pane — the ESC would go nowhere
+    const target = agent.terminalId;
+    // Heal a herdr-restored pane's stale stored id, exactly as operatorReply does — a no-op when
+    // the ids already match. Null means the row vanished mid-call: don't send.
+    if (!this.adoptLiveResumeAgent(s, agent)) return false;
+    try {
+      await this.#serializeSteer(() => this.deps.herdr.send(target, "\x1b"));
+    } catch {
+      return false; // pane died between list and send
+    }
+    return true;
+  }
+
   /** Terminal ids herdr currently lists as live. Empty when herdr can't be reached, so
    *  callers treat an unlisted agent as a dead pane (the steer won't land). */
   private liveTerminalIds(): Set<string> {

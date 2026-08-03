@@ -2571,6 +2571,19 @@ async function handleSessionReply({ req, parts, deps }: Ctx): Promise<Response |
   return ok ? json({ ok: true }) : json({ error: "not found" }, 404);
 }
 
+// POST /api/sessions/:id/interrupt — interrupt ONE running session: a lone ESC to its pane and
+// nothing else (#1993). The per-session counterpart to the fleet-wide /api/halt, and composable
+// with /reply, so cancel-then-re-prompt is interrupt → reply rather than a combined endpoint.
+async function handleSessionInterrupt({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(req.method === "POST" && parts[2] && parts[3] === "interrupt")) return null;
+  // No body — the path id IS the target, so there is nothing to validate (mirrors handleHalt).
+  // interrupt() is non-throwing: unknown id, dead/unlisted pane, unreachable herdr and a rejected
+  // send all resolve false → 404 here, the same shape handleSessionReply uses.
+  return (await deps.service.interrupt(parts[2]))
+    ? json({ ok: true })
+    : json({ error: "not found" }, 404);
+}
+
 // POST /api/sessions/:id/recommend-prompt — analyze the session's recent terminal history via a
 // transient second agent (claude opus / codex gpt-5.5) and return a recommended next prompt.
 // 200 {prompt} on success; 422 {error} on an analysis failure; 503 when unwired.
@@ -3759,6 +3772,7 @@ async function handleSessions(ctx: Ctx): Promise<Response | null> {
     handleSessionWorktree,
     handleSessionDelete,
     handleSessionReply,
+    handleSessionInterrupt,
     handleSessionRecommend,
     handleSessionGo,
     handleSessionAnswerPlanQuestions,

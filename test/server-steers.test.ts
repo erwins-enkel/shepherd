@@ -109,3 +109,51 @@ test("POST /api/halt surfaces a herdr-unreachable failure as a 500 (not a fake s
   expect(res.status).toBe(500);
   expect((await res.json()).error).toBe("herdr down");
 });
+
+// ── POST /api/sessions/:id/interrupt — the per-session counterpart to /api/halt (#1993) ──
+
+/** makeApp over a stub service exposing only interrupt(), which records the ids it saw. */
+function interruptHarness(result: boolean) {
+  const seen: string[] = [];
+  const store = new SessionStore(":memory:");
+  const deps: AppDeps = {
+    store,
+    events: new EventHub(),
+    service: {
+      interrupt: async (id: string) => {
+        seen.push(id);
+        return result;
+      },
+    } as any,
+    usageLimits: { limits: () => ({}) } as any,
+  };
+  return { app: makeApp(deps), seen };
+}
+
+test("POST /api/sessions/:id/interrupt interrupts that one session", async () => {
+  const { app, seen } = interruptHarness(true);
+  // No body and no content-type: the path id IS the target, so there is nothing to validate.
+  const res = await app.fetch(
+    new Request("http://x/api/sessions/s1/interrupt", { method: "POST" }),
+  );
+  expect(res.status).toBe(200);
+  expect(await res.json()).toEqual({ ok: true });
+  expect(seen).toEqual(["s1"]);
+});
+
+test("POST /api/sessions/:id/interrupt 404s when it didn't land (unknown id / dead pane)", async () => {
+  const { app, seen } = interruptHarness(false);
+  const res = await app.fetch(
+    new Request("http://x/api/sessions/gone/interrupt", { method: "POST" }),
+  );
+  expect(res.status).toBe(404);
+  expect((await res.json()).error).toBe("not found");
+  expect(seen).toEqual(["gone"]);
+});
+
+test("GET /api/sessions/:id/interrupt does not interrupt", async () => {
+  const { app, seen } = interruptHarness(true);
+  const res = await app.fetch(new Request("http://x/api/sessions/s1/interrupt"));
+  expect(res.status).toBe(404);
+  expect(seen).toEqual([]); // never reached the service
+});

@@ -885,9 +885,9 @@ test("mergeSuggestionSignatures: cross includes 'applied' so a promoted group is
     repoPaths: ["/r1", "/r2"],
     signature: "cross-sig-1",
   });
-  // Before promote it is pending → already in the dedup set.
+  // Before it is applied it is pending → already in the dedup set.
   expect(s.mergeSuggestionSignatures({ kind: "cross" }).has("cross-sig-1")).toBe(true);
-  // promote-global marks it applied; cross members stay active, so 'applied' MUST still dedup.
+  // Once applied, cross members stay active, so 'applied' MUST still dedup.
   s.setMergeSuggestionStatus(sug.id, "applied");
   expect(s.mergeSuggestionSignatures({ kind: "cross" }).has("cross-sig-1")).toBe(true);
 });

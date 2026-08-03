@@ -359,7 +359,8 @@ test("Promoter.resyncPromoted dedups two promoted rules that collapse to one san
   });
   const res = await p.resyncPromoted("/repo-dup");
   expect(res.ok).toBe(true);
-  expect(extractLearningsBlockRules(written)).toEqual(["\\- dash"]); // exactly one bullet
+  expect(written.match(/^- /gm)?.length).toBe(1); // exactly one bullet
+  expect(written).toContain("\\- dash");
 });
 
 test("Promoter.resyncPromoted is a no-op when CLAUDE.md already has the current block", async () => {
@@ -534,115 +535,6 @@ test("Promoter.resyncPromoted returns 400 with lightweight message for local for
   }
   expect(openPrCalled).toBe(false);
   expect(worktreeCreated).toBe(false);
-});
-
-// --- extractLearningsBlockRules + promoteGlobal (issue #872) ---
-
-import { extractLearningsBlockRules } from "../src/promote";
-
-test("extractLearningsBlockRules returns [] when there is no managed block", () => {
-  expect(extractLearningsBlockRules("# Repo\n\nhello\n")).toEqual([]);
-  expect(extractLearningsBlockRules("")).toEqual([]);
-});
-
-test("extractLearningsBlockRules parses bullets and round-trips upsertLearningsBlock", () => {
-  const content = upsertLearningsBlock("# Repo\n", ["use bun", "rebase onto main"]);
-  expect(extractLearningsBlockRules(content)).toEqual(["use bun", "rebase onto main"]);
-});
-
-test("extractLearningsBlockRules tolerates CRLF + leading whitespace and ignores prose", () => {
-  const block = [
-    LEARNINGS_START,
-    "  - indented rule",
-    "- normal rule",
-    "some prose line", // no bullet → ignored (block is Shepherd-owned)
-    "",
-    LEARNINGS_END,
-  ].join("\r\n");
-  const content = "# Repo\r\n\r\n" + block + "\r\n";
-  expect(extractLearningsBlockRules(content)).toEqual(["indented rule", "normal rule"]);
-});
-
-/** Promoter wired only for global writes: store/worktree/forge are unused by promoteGlobal.
- *  Injected CLAUDE.md IO operates on `state` so the real ~/.claude is never touched. */
-function globalPromoter(state: { content: string; writes: string[] }) {
-  return new Promoter({
-    store: new SessionStore(":memory:"),
-    worktree: {
-      create: () => {
-        throw new Error("worktree unused by promoteGlobal");
-      },
-      remove: () => {},
-    },
-    resolveForge: () => null,
-    git: async () => {},
-    readClaudeMd: () => state.content,
-    writeClaudeMd: (_p, c) => {
-      state.content = c;
-      state.writes.push(c);
-    },
-  });
-}
-
-test("promoteGlobal writes a fresh block when the global file is empty", async () => {
-  const state = { content: "", writes: [] as string[] };
-  const res = await globalPromoter(state).promoteGlobal("always rebase onto main");
-  expect(res.ok).toBe(true);
-  expect(state.writes.length).toBe(1);
-  expect(extractLearningsBlockRules(state.writes[0]!)).toEqual(["always rebase onto main"]);
-});
-
-test("promoteGlobal accumulates onto the existing block (dedup, order-preserving)", async () => {
-  const existing = upsertLearningsBlock("# Global\n\nintro\n", ["rule a"]);
-  const state = { content: existing, writes: [] as string[] };
-  const res = await globalPromoter(state).promoteGlobal("rule b");
-  expect(res.ok).toBe(true);
-  expect(extractLearningsBlockRules(state.writes[0]!)).toEqual(["rule a", "rule b"]);
-  expect(state.writes[0]).toContain("intro"); // content outside the block is preserved
-});
-
-test("promoteGlobal is an idempotent no-op when the rule is already present", async () => {
-  const existing = upsertLearningsBlock("", ["rule a"]);
-  const state = { content: existing, writes: [] as string[] };
-  const res = await globalPromoter(state).promoteGlobal("rule a");
-  expect(res.ok).toBe(true);
-  expect(state.writes.length).toBe(0); // already current → nothing written
-});
-
-test("promoteGlobal re-promote of a sanitize-altered rule is an idempotent no-op", async () => {
-  // The stored block holds the *sanitized* form ("\- dash"); the incoming raw "- dash" must
-  // dedup against it, not write a second bullet. (Plain "rule a" wouldn't catch this — sanitize
-  // leaves it unchanged.)
-  const existing = upsertLearningsBlock("", ["- dash"]);
-  expect(extractLearningsBlockRules(existing)).toEqual(["\\- dash"]);
-  const state = { content: existing, writes: [] as string[] };
-  const res = await globalPromoter(state).promoteGlobal("- dash");
-  expect(res.ok).toBe(true);
-  expect(state.writes.length).toBe(0); // already current → no duplicate bullet, no write
-});
-
-test("promoteGlobal returns a structured 500 (not a throw) on an fs failure", async () => {
-  const p = new Promoter({
-    store: new SessionStore(":memory:"),
-    worktree: {
-      create: () => {
-        throw new Error("unused");
-      },
-      remove: () => {},
-    },
-    resolveForge: () => null,
-    git: async () => {},
-    writeClaudeMd: () => {},
-    readClaudeMd: () => {
-      throw new Error("EACCES: permission denied, open '/root/.claude/CLAUDE.md'");
-    },
-  });
-  const res = await p.promoteGlobal("a rule");
-  expect(res.ok).toBe(false);
-  if (!res.ok) {
-    expect(res.status).toBe(500);
-    expect(res.error).toBe("global promote failed"); // no raw fs stderr leaked
-  }
 });
 
 // ── formatLearningsBlockForTarget (#935: prettier-stable under proseWrap:"always") ───────────

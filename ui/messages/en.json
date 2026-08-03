@@ -1885,7 +1885,7 @@
   "learnings_merge_failed": "Couldn't merge rules",
   "learnings_actions_help": "The repo buttons start manual maintenance runs: “Suggest merges” looks for near-duplicate rules and groups them so you can fold each group into one rule while keeping its track record; “Distill now” scans recent sessions for signals and proposes new rules without waiting for the schedule.",
   "learnings_recur_heading": "Recurring across repos",
-  "learnings_recur_lead": "These rules appear in several repos — consider adding one to your global CLAUDE.md.",
+  "learnings_recur_lead": "These rules appear in several repos — a hint the underlying fact belongs in each repo's own CLAUDE.md.",
   "learnings_recur_repos": "In {count} repos: {repos}",
   "learnings_recur_dismiss_aria": "Dismiss this cross-repo suggestion",
   "learnings_help_rate": "helped {helped}/{pulls}",
@@ -1937,12 +1937,6 @@
   "issues_filter_all_sub_issues": "All matching issues are epic sub-issues — toggle off to see them, or start an epic drain",
   "feat_issues_filter_subissues_title": "Hide sub-issues by default",
   "feat_issues_filter_subissues_body": "The Repos and New Task issue lists now hide GitHub native sub-issues by default, so you start an epic drain from the parent instead of draining a child alone. Open the Filters menu and turn off \"hide sub-issues\" to show them; epic parents (including mid-level epics) stay visible. Remembered across both lists.",
-  "learnings_recur_promote": "Add to global CLAUDE.md",
-  "learnings_recur_promote_aria": "Add this rule to your user-global CLAUDE.md",
-  "learnings_recur_promote_confirm": "This writes the rule into ~/.claude/CLAUDE.md — a global, unversioned file applied to every repo. Shepherd owns this block and rewrites it on each promote.",
-  "learnings_recur_promote_action": "Write",
-  "learnings_recur_promote_done": "Rule added to your global CLAUDE.md.",
-  "learnings_recur_promote_failed": "Couldn't write to your global CLAUDE.md.",
   "feat_learnings_promote_global_title": "One-click promote a rule globally",
   "feat_learnings_promote_global_body": "A cross-repo recurrence suggestion can now be written straight into your user-global ~/.claude/CLAUDE.md with one guarded click (a two-step confirm) — no PR, applied to every repo.",
   "settings_reduced_push_title": "Reduced notifications",
@@ -3544,5 +3538,8 @@
   "gloss_spawn_prompt_term": "spawn prompt",
   "gloss_spawn_prompt_def": "The standing instructions Shepherd assembles and hands an agent the moment it starts — house rules, safety notices and the directive for this kind of task. It rides every turn of the session, so its size is paid for again and again.",
   "feat_prompt_budget_title": "See what every spawn's prompt costs",
-  "feat_prompt_budget_body": "Usage has a new Prompt lens: for any spawn, attended or drain, it shows the assembled system prompt block by block — which notice, directive or set of house rules is spending your context, and how much."
+  "feat_prompt_budget_body": "Usage has a new Prompt lens: for any spawn, attended or drain, it shows the assembled system prompt block by block — which notice, directive or set of house rules is spending your context, and how much.",
+  "learnings_proposed_admission_hint": "Keep entries that state a repo fact an agent can't derive — what is true, why it bites, how to apply it. Drop guidance a capable model already follows.",
+  "feat_learnings_gotchas_title": "The learnings flywheel now captures gotchas, not rules",
+  "feat_learnings_gotchas_body": "Distilled entries are re-targeted at non-derivable repo facts — what is true, why it bites, how to apply it — and behavioral guidance a capable model already follows is rejected and swept out of the injected block. One-click promote to your user-global ~/.claude/CLAUDE.md is gone; Claude's own memory owns that file now."
 }

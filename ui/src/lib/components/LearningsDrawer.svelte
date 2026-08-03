@@ -58,7 +58,6 @@
     onseenretired,
     onmerge,
     ondismissmerge,
-    onpromoteglobal,
     onmergenow,
     onclose,
   }: {
@@ -78,7 +77,6 @@
     onseenretired: (repoPath: string) => void;
     onmerge: (suggestionId: string) => void;
     ondismissmerge: (suggestionId: string) => void;
-    onpromoteglobal: (suggestionId: string) => void;
     onmergenow: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
@@ -120,7 +118,6 @@
     onseenretired,
     onmerge,
     ondismissmerge,
-    onpromoteglobal,
     onmergenow,
     editingScope,
     scopeDraft,
@@ -275,9 +272,10 @@
   <!-- Change 3: Triage summary band — stable above group list, reflects ALL attention repos -->
   <TriageBand {attention} activeRepo={repoOnly} onselect={toggleRepoFilter} />
 
-  <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for the
-       user-global CLAUDE.md. Promote (guarded, two-step) writes the rule there; or dismiss. -->
-  <RecurrenceBand suggestions={crossSuggestions} {onpromoteglobal} {ondismissmerge} />
+  <!-- Phase 4: cross-repo recurrence band — entries that recur across repos, surfaced as a hint
+       that the underlying fact belongs in each repo's own CLAUDE.md. Dismiss is the only action:
+       the one-click write into the user-global ~/.claude/CLAUDE.md was dropped in #2004. -->
+  <RecurrenceBand suggestions={crossSuggestions} {ondismissmerge} />
 
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>

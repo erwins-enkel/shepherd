@@ -82,6 +82,11 @@
   {/if}
 
   <!-- Change 7: hide proposals under either active lens -->
+  {#if !(flaggedOnly || overBudgetOnly) && group.proposed.length > 0}
+    <!-- The admission test the distiller applies (#2004), restated where the operator's approve
+         click applies the same judgement. -->
+    <p class="admission-hint">{m.learnings_proposed_admission_hint()}</p>
+  {/if}
   {#each flaggedOnly || overBudgetOnly ? [] : group.proposed as l (l.id)}
     <ProposedRuleCard learning={l} {ctx} />
   {/each}
@@ -297,6 +302,11 @@
     letter-spacing: 0.1em;
     color: var(--color-amber);
     margin: 4px 0 2px;
+  }
+  .admission-hint {
+    font-size: var(--fs-meta);
+    color: var(--color-muted);
+    line-height: 1.45;
   }
   .retired-section {
     display: flex;

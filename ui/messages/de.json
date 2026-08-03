@@ -1885,7 +1885,7 @@
   "learnings_merge_failed": "Regeln konnten nicht zusammengeführt werden",
   "learnings_actions_help": "Die Repo-Buttons starten manuelle Wartungsläufe: „Zusammenführungen vorschlagen“ sucht nahezu doppelte Regeln und gruppiert sie, damit du jede Gruppe zu einer Regel zusammenfassen kannst, deren Bilanz erhalten bleibt; „Jetzt destillieren“ wertet jüngste Sessions auf Signale aus und schlägt neue Regeln vor, ohne auf den Zeitplan zu warten.",
   "learnings_recur_heading": "Wiederkehrend über Repos hinweg",
-  "learnings_recur_lead": "Diese Regeln treten in mehreren Repos auf — erwäge, eine davon in deine globale CLAUDE.md aufzunehmen.",
+  "learnings_recur_lead": "Diese Regeln treten in mehreren Repos auf — ein Hinweis, dass der zugrunde liegende Fakt in die CLAUDE.md des jeweiligen Repos gehört.",
   "learnings_recur_repos": "In {count} Repos: {repos}",
   "learnings_recur_dismiss_aria": "Diesen repoübergreifenden Vorschlag verwerfen",
   "learnings_help_rate": "half {helped}/{pulls}",
@@ -1937,12 +1937,6 @@
   "issues_filter_all_sub_issues": "Alle passenden Issues sind Epic-Unteraufgaben — zum Anzeigen ausschalten oder einen Epic-Drain starten",
   "feat_issues_filter_subissues_title": "Unteraufgaben standardmäßig ausblenden",
   "feat_issues_filter_subissues_body": "Die Issue-Listen in Repos und in „Neue Aufgabe“ blenden GitHub-native Unteraufgaben jetzt standardmäßig aus, damit du einen Epic-Drain vom übergeordneten Issue startest, statt ein einzelnes Kinder-Issue zu bearbeiten. Öffne das Filters-Menü und deaktiviere „Unteraufgaben ausblenden“, um sie einzublenden; übergeordnete Epic-Issues (einschließlich mehrstufiger Epics) bleiben sichtbar. Die Einstellung gilt für beide Listen.",
-  "learnings_recur_promote": "Zur globalen CLAUDE.md hinzufügen",
-  "learnings_recur_promote_aria": "Diese Regel zu deiner benutzerglobalen CLAUDE.md hinzufügen",
-  "learnings_recur_promote_confirm": "Dies schreibt die Regel in ~/.claude/CLAUDE.md – eine globale, nicht versionierte Datei, die für jedes Repo gilt. Shepherd verwaltet diesen Block und schreibt ihn bei jeder Übernahme neu.",
-  "learnings_recur_promote_action": "Schreiben",
-  "learnings_recur_promote_done": "Regel zu deiner globalen CLAUDE.md hinzugefügt.",
-  "learnings_recur_promote_failed": "Schreiben in deine globale CLAUDE.md fehlgeschlagen.",
   "feat_learnings_promote_global_title": "Eine Regel global per Klick übernehmen",
   "feat_learnings_promote_global_body": "Ein repoübergreifender Wiederholungsvorschlag lässt sich jetzt mit einem abgesicherten Klick (zweistufige Bestätigung) direkt in deine benutzerglobale ~/.claude/CLAUDE.md schreiben – ohne PR, gültig für jedes Repo.",
   "settings_reduced_push_title": "Reduzierte Benachrichtigungen",
@@ -3538,5 +3532,8 @@
   "gloss_spawn_prompt_term": "Spawn-Prompt",
   "gloss_spawn_prompt_def": "Die stehenden Anweisungen, die Shepherd zusammensetzt und einem Agenten beim Start übergibt — House Rules, Sicherheitshinweise und die Direktive für diese Art von Aufgabe. Sie fahren bei jedem Zug der Session mit, ihre Größe wird also immer wieder bezahlt.",
   "feat_prompt_budget_title": "Sehen, was der Prompt jedes Spawns kostet",
-  "feat_prompt_budget_body": "Die Nutzungsansicht hat eine neue Prompt-Linse: Für jeden Spawn — begleitet oder Drain — zeigt sie den zusammengesetzten System-Prompt Block für Block. So siehst du, welcher Hinweis, welche Direktive oder welche House Rules deinen Kontext verbrauchen und wie viel."
+  "feat_prompt_budget_body": "Die Nutzungsansicht hat eine neue Prompt-Linse: Für jeden Spawn — begleitet oder Drain — zeigt sie den zusammengesetzten System-Prompt Block für Block. So siehst du, welcher Hinweis, welche Direktive oder welche House Rules deinen Kontext verbrauchen und wie viel.",
+  "learnings_proposed_admission_hint": "Behalte Einträge, die einen nicht ableitbaren Repo-Fakt festhalten — was gilt, warum es weh tut, wie man es anwendet. Verwirf Vorgaben, die ein fähiges Modell ohnehin befolgt.",
+  "feat_learnings_gotchas_title": "Das Learnings-Schwungrad erfasst jetzt Fallstricke statt Regeln",
+  "feat_learnings_gotchas_body": "Destillierte Einträge zielen jetzt auf nicht ableitbare Repo-Fakten — was gilt, warum es weh tut, wie man es anwendet. Verhaltensvorgaben, die ein fähiges Modell ohnehin befolgt, werden abgelehnt und aus dem injizierten Block entfernt. Die Ein-Klick-Übernahme in deine benutzerglobale ~/.claude/CLAUDE.md entfällt; diese Datei verwaltet Claudes eigenes Gedächtnis."
 }

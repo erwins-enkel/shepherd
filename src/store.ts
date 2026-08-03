@@ -67,6 +67,7 @@ import { sanitizeScopeGlobs } from "./house-rules";
 import type { EpicRun } from "./epic-core";
 import type { EpicLandingState } from "./completed-epic";
 import { normalizeRule } from "./learning-rule";
+import { trimRuleToLimit } from "./learning-shape";
 import type { GitState } from "./forge/types";
 
 /** Tolerantly parse a persisted JSON column, falling back to `fallback` on any error. */
@@ -4484,7 +4485,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   reviseLearning(id: string, rule: string, rationale?: string): Learning | null {
     const cur = this.getLearning(id);
     if (!cur || (cur.status !== "active" && cur.status !== "promoted")) return null;
-    const text = rule.trim().slice(0, 240);
+    const text = trimRuleToLimit(rule);
     if (!text) return null;
     const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
     const now = Date.now();
@@ -4507,7 +4508,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   mergeLearning(id: string, rule: string, rationale?: string): Learning | null {
     const cur = this.getLearning(id);
     if (!cur || cur.status !== "active") return null;
-    const text = rule.trim().slice(0, 240);
+    const text = trimRuleToLimit(rule);
     if (!text) return null;
     const resolvedRationale = rationale !== undefined ? rationale : cur.rationale;
     const now = Date.now();

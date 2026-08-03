@@ -58,7 +58,6 @@
     onseenretired,
     onmerge,
     ondismissmerge,
-    onpromoteglobal,
     onmergenow,
     onclose,
   }: {
@@ -78,7 +77,6 @@
     onseenretired: (repoPath: string) => void;
     onmerge: (suggestionId: string) => void;
     ondismissmerge: (suggestionId: string) => void;
-    onpromoteglobal: (suggestionId: string) => void;
     onmergenow: (repoPath: string) => void;
     onclose: () => void;
   } = $props();
@@ -120,7 +118,6 @@
     onseenretired,
     onmerge,
     ondismissmerge,
-    onpromoteglobal,
     onmergenow,
     editingScope,
     scopeDraft,
@@ -277,7 +274,7 @@
 
   <!-- Phase 4: cross-repo recurrence band — rules that recur across repos, suggested for the
        user-global CLAUDE.md. Promote (guarded, two-step) writes the rule there; or dismiss. -->
-  <RecurrenceBand suggestions={crossSuggestions} {onpromoteglobal} {ondismissmerge} />
+  <RecurrenceBand suggestions={crossSuggestions} {ondismissmerge} />
 
   {#if empty}
     <p class="empty">{m.learnings_empty()}</p>

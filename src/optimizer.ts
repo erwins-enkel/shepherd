@@ -10,6 +10,11 @@ import { apiKeyFailClosed, apiKeyPassthroughEnv } from "./spawn-auth";
 import { buildTransientAgentArgv } from "./transient-agent-argv";
 import { reapTransientByLabel } from "./transient-tab-reaper";
 import type { RoleEnvironment } from "./default-model";
+import {
+  LEARNING_ADMISSION_TEST,
+  LEARNING_FACT_SHAPE,
+  LEARNING_RULE_MAX_CHARS,
+} from "./learning-shape";
 
 const INPUT_FILE = "input.json";
 const OUTPUT_FILE = "optimized.json";
@@ -356,18 +361,26 @@ function coerceRevision(e: {
   return { id, rule: e.rule, rationale };
 }
 
-function optimizePrompt(): string {
+export function optimizePrompt(): string {
   return [
-    `You are a house-rule editor. Read \`${INPUT_FILE}\` in this directory.`,
+    `You are a repo-gotcha editor. Read \`${INPUT_FILE}\` in this directory.`,
     'It is a JSON object `{ "targets": [{ "id", "rule", "rationale", "failures": [{ "kind", "payload" }] }] }`.',
-    "Each target is a standing house rule for one repository that FAILED to prevent a mistake;",
+    "Each target is a standing entry for one repository that FAILED to prevent a mistake;",
     "`failures` are the signals (critic findings / blocks / corrections) showing it failing.",
-    "For each target, produce a STRONGER, more specific imperative rewrite (<=160 chars) that",
-    "would have prevented those failures — keep the same intent, make it concrete and actionable.",
+    "",
+    LEARNING_ADMISSION_TEST,
+    "",
+    LEARNING_FACT_SHAPE,
+    "",
+    "For each target, recover the underlying FACT its failures point at and restate the entry in the",
+    `shape above (<=${LEARNING_RULE_MAX_CHARS} chars) so an agent that reads it once cannot repeat those failures.`,
     "Optionally refine the rationale. Preserve each target's `id` EXACTLY; do not invent ids or",
-    "add targets. If a rule genuinely cannot be improved, omit it.",
+    "add targets. OMIT a target when it cannot be restated as a fact — including when it fails the",
+    "admission test outright (judgement/process guidance, a restated standing directive, or a",
+    "preference with no failure mode). Omitting leaves it flagged, which is the correct outcome:",
+    "the lifecycle retires it. Do not rescue such an entry by making it a sterner instruction.",
     `Write your output as JSON to \`${OUTPUT_FILE}\` in this directory, shaped exactly:`,
-    '{"revisions": [{"id": "<id>", "rule": "<=160 char imperative", "rationale": "why (optional)"}]}',
+    `{"revisions": [{"id": "<id>", "rule": "<=${LEARNING_RULE_MAX_CHARS} char fact line", "rationale": "why (optional)"}]}`,
     "Write nothing else.",
   ].join("\n");
 }

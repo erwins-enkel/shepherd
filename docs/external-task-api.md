@@ -162,3 +162,88 @@ Once a task exists, an external agent can also drive it:
   session or an out-of-root `path`.
 
 All of these honor the same auth/origin rules as task creation.
+
+## Exporting a whole session by Task-ID
+
+The inspection routes above are keyed on the internal session UUID and split
+across several calls. For **analysing a finished session** or **re-launching it
+in another CLI/model**, one endpoint returns everything at once, keyed on the
+designation an operator actually sees:
+
+```bash
+curl -H "Authorization: Bearer $SHEPHERD_TOKEN" \
+  http://localhost:7330/api/tasks/TASK-435/export
+```
+
+- `GET /api/tasks/:key/export` — metadata (incl. token usage), the full
+  transcript (raw JSONL **and** parsed), and the diff.
+- `GET /api/tasks/:key/transcript` — the untruncated raw JSONL as an
+  `application/x-ndjson` download.
+
+`:key` is whichever identifier you hold: `TASK-435`, the bare number `435`, or
+the session UUID. **Archived sessions are included** — post-hoc analysis is the
+point. The bare-number form matches on the numeric suffix, so `5` resolves the
+zero-padded `TASK-05`; `TASK-…` is the unambiguous form.
+
+```jsonc
+{
+  "meta": {
+    "desig": "TASK-435",
+    "id": "<uuid>",
+    "name": "...",
+    "prompt": "...",
+    "agentProvider": "claude",
+    "agentSessionId": "<claude session / codex rollout id>",
+    "model": "opus",
+    "effort": null,
+    "status": "archived",
+    "lastState": "done",
+    "repoPath": "...",
+    "branch": "...",
+    "baseBranch": "main",
+    "worktreePath": "...",
+    "isolated": true,
+    "issueNumber": 1268,
+    "createdAt": 0,
+    "updatedAt": 0,
+    "archivedAt": 0,
+    "archiveReason": null,
+    "usage": {/* same shape as GET /api/sessions/:id/usage */},
+  },
+  "transcript": {
+    "format": "jsonl",
+    "path": "/home/…/<agentSessionId>.jsonl",
+    "raw": "…", // capped at 8 MiB — always cut on a line boundary
+    "rawBytes": 551321, // FULL size on disk, not the length of `raw`
+    "truncated": false,
+    "unavailable": null,
+    "entries": [/* the COMPLETE parsed activity, not the 30-entry live tail */],
+  },
+  "diff": {/* same shape as GET /api/sessions/:id/diff */},
+  "diffUnavailable": null,
+}
+```
+
+### Gaps are marked, never silent
+
+A field is only empty when there is genuinely nothing there; anything Shepherd
+could not resolve says so:
+
+| Field                    | Value                | Meaning                                                                   |
+| ------------------------ | -------------------- | ------------------------------------------------------------------------- |
+| `transcript.unavailable` | `codex-pending-1267` | Non-Claude provider — native transcript resolution lands with issue #1267 |
+|                          | `no-transcript-id`   | Session predates the pinned agent session id; nothing to resolve          |
+|                          | `file-missing`       | Path resolved, but the JSONL is gone from disk                            |
+| `transcript.truncated`   | `true`               | Inline `raw` hit the 8 MiB cap — fetch `/transcript` for the full stream  |
+| `diffUnavailable`        | `worktree-removed`   | Archived isolated session: the transcript survives, the worktree does not |
+|                          | `no-branch`          | Non-isolated session — there is no branch to diff                         |
+|                          | _an error message_   | `git` failed; the rest of the bundle is still served                      |
+
+A truncated `raw` is still **valid JSONL** — it is cut back to the last complete
+line, never mid-record — so it can be parsed as-is. (If a single record exceeds
+the cap, `raw` is `""` and `rawBytes` tells you to stream instead.)
+
+Both routes sit behind the same operator cookie/bearer gate as every other read.
+They are deliberately **not** reachable through the loopback agent ingress: that
+listener is auth-exempt by design, and a full transcript is the most sensitive
+read in the API.

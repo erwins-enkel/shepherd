@@ -75,7 +75,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "External Task API",
     path: "/reference/external-task-api/",
     keywords:
-      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent request schema responses usage-aware hold gate steering and ending a task",
+      "submit tasks to shepherd from external agents over plain http. tl;dr why no new endpoint is needed cors / csrf does not block programmatic clients what actually gates access recommended setup for a remote agent request schema responses usage-aware hold gate steering and ending a task exporting a whole session by task-id gaps are marked, never silent",
   },
   {
     title: "Concepts & glossary",

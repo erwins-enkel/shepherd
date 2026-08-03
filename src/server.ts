@@ -89,6 +89,7 @@ import {
   resolveScratchpadUploadDir,
   placeScratchpadUpload,
 } from "./scratchpad";
+import { buildTaskExport, resolveTranscript } from "./task-export";
 import { listWorktree, resolveWorktreeFile } from "./worktree-files";
 import { loadSteers, saveSteers } from "./steers";
 import { loadIcons, setIcon } from "./project-icons";
@@ -566,7 +567,7 @@ export interface AppDeps {
  *  `available: false` is reserved for genuinely absent data — a readable-but-empty transcript
  *  is `available: true, total: 0`. Splits/messageCount/byModel are null when the resolved
  *  source doesn't carry them; `byModel` is always RAW tokens per model, never weighted units. */
-interface SessionUsageDto {
+export interface SessionUsageDto {
   available: boolean;
   source: "live" | "snapshot" | "codex" | "none";
   total: number;
@@ -2334,6 +2335,56 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (parts[3] === "leftovers") return json(deps.service.leftovers(parts[2]));
   if (!parts[3]) return sessionRead(parts[2], deps);
   return null;
+}
+
+// ── whole-session export, keyed on the Task-ID (issue #1268) ───────────────────────────────────
+//   GET /api/tasks/:key/export      → { meta, transcript, diff } in ONE call
+//   GET /api/tasks/:key/transcript  → the untruncated raw JSONL as a download
+// `:key` is whatever identifier the caller happens to hold: `TASK-435`, the bare `435`, or the
+// session UUID. Archived sessions included — post-hoc analysis is the point of the endpoint.
+//
+// Auth: registered in the main app ONLY, so it inherits the same cookie/bearer gate as the
+// /api/sessions/:id/* reads. It is deliberately NOT in `isAgentIngressRoute`: that loopback
+// ingress is auth-EXEMPT by design, and a full transcript is the most sensitive read in the API —
+// exposing it there would let any spawned agent dump another session's whole history.
+
+/** Resolve the `:key` path segment to a session: UUID first (exact primary key), then designation. */
+function sessionByTaskKey(key: string, deps: AppDeps): Session | null {
+  return deps.store.get(key) ?? deps.store.getByDesig(key);
+}
+
+/** Stream the full JSONL — what a `truncated` bundle points the caller at. */
+async function taskTranscriptDownload(s: Session): Promise<Response> {
+  const { path, unavailable } = resolveTranscript(s);
+  if (!path) return json({ error: "not found", reason: unavailable }, 404);
+  const f = Bun.file(path);
+  // Probe before streaming: a Response over a missing BunFile fails at consume time, which would
+  // surface as a broken download rather than the honest reason the bundle reports.
+  if (!(await f.exists())) return json({ error: "not found", reason: "file-missing" }, 404);
+  return new Response(f, {
+    headers: {
+      "content-type": "application/x-ndjson",
+      "content-disposition": attachmentDisposition(`${s.desig}.jsonl`),
+    },
+  });
+}
+
+async function handleTaskExport({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (req.method !== "GET" || parts[0] !== "api" || parts[1] !== "tasks") return null;
+  const key = parts[2];
+  if (!key || parts[4]) return null;
+  if (parts[3] !== "export" && parts[3] !== "transcript") return null;
+
+  const s = sessionByTaskKey(key, deps);
+  if (!s) return json({ error: "not found" }, 404);
+  if (parts[3] === "transcript") return taskTranscriptDownload(s);
+  return json(
+    await buildTaskExport(s, {
+      usage: await sessionUsageDto(s, deps.store),
+      prCache: deps.prCache,
+      resolveForge: deps.resolveForge,
+    }),
+  );
 }
 
 // ── scratchpad file browser: GET /api/sessions/:id/scratchpad[?path=] (list)
@@ -7465,6 +7516,7 @@ const ROUTE_HANDLERS = [
   handleSessionHooks,
   handleBuildQueue,
   handleEpicDraft,
+  handleTaskExport,
   handleSessions,
   handleExperimentCompare,
   handleSessionGit,

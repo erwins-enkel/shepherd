@@ -3279,8 +3279,20 @@ describe("NewTask mobile sheets + shortcuts", () => {
     await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
     expect(chip().getAttribute("aria-expanded")).toBe("true");
 
-    // Change only the repo: chip + payload repoPath update; base re-derives. The chip
-    // tap already opened the repo panel — clicking the trigger here would close it.
+    // Branch FIRST: a repo pick ends the sheet's life, so the independent branch edit
+    // has to happen while the sheet is still up. (Input fallback or select — the mock
+    // lists main only.) The chip tap already opened the repo panel, so the branch
+    // control is behind it; the trigger toggle collapses the panel to reach it.
+    document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
+    await expect.poll(() => document.querySelector(".rs-panel")).toBeNull();
+    const branchCtl = document.querySelector<HTMLSelectElement | HTMLInputElement>(
+      ".ctx-sheet .ctx-branch-select",
+    )!;
+    branchCtl.value = "main";
+    branchCtl.dispatchEvent(new Event("change", { bubbles: true }));
+
+    // Now the repo: chip + payload repoPath update; base re-derives.
+    document.querySelector<HTMLButtonElement>(".ctx-sheet .rs-trigger")!.click();
     await expect
       .poll(() =>
         Array.from(document.querySelectorAll<HTMLLIElement>('[role="option"]')).find((el) =>
@@ -3292,27 +3304,9 @@ describe("NewTask mobile sheets + shortcuts", () => {
       .find((el) => el.textContent?.includes("bravo"))!
       .click();
     await expect.poll(() => chip().textContent).toContain("bravo");
-    // The aria-modal context sheet stays open and focus stays INSIDE it (the
-    // in-sheet trigger), never escaping to the prompt behind the sheet.
-    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
-    await expect
-      .poll(() => document.querySelector(".ctx-sheet")?.contains(document.activeElement))
-      .toBe(true);
-
-    // Change only the branch (input fallback or select — the mock lists main only).
-    const branchCtl = document.querySelector<HTMLSelectElement | HTMLInputElement>(
-      ".ctx-sheet .ctx-branch-select",
-    )!;
-    branchCtl.value = "main";
-    branchCtl.dispatchEvent(new Event("change", { bubbles: true }));
-
-    // Close the sheet: focus returns to the chip.
-    window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape" }));
-    // (dispatch on the sheet so the dialog action sees it)
-    document
-      .querySelector<HTMLElement>('[role="dialog"][aria-modal="true"].sheet')
-      ?.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
-    await expect.poll(() => document.querySelector(".ctx-sheet")).toBeNull();
+    // The pick ends the flow: sheet gone, caret back in the prompt.
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector("#nt-prompt"));
 
     typePrompt("mobile task");
     await expect
@@ -3347,13 +3341,15 @@ describe("NewTask mobile sheets + shortcuts", () => {
     filter.dispatchEvent(new Event("input", { bubbles: true }));
     await expect.poll(() => document.querySelectorAll('.ctx-sheet [role="option"]').length).toBe(1);
 
-    // …and picking collapses the panel while the sheet stays open, so the branch control
-    // is right back in view.
+    // …and picking ends the flow in one tap: sheet closed, caret back in the prompt.
+    // Asserted synchronously for the same reason as above — selectRepo flushSync's the
+    // unmount so the focus() lands in the tap's own call stack and the soft keyboard
+    // comes straight back. An `await tick()` there would fail these three.
     document.querySelector<HTMLLIElement>('.ctx-sheet [role="option"]')!.click();
+    expect(document.querySelector(".ctx-sheet")).toBeNull();
+    expect(document.querySelector(".rs-panel")).toBeNull();
+    expect(document.activeElement).toBe(document.querySelector("#nt-prompt"));
     await expect.poll(() => chip().textContent).toContain("bravo");
-    await expect.poll(() => document.querySelector(".rs-panel")).toBeNull();
-    expect(document.querySelector(".ctx-sheet")).toBeTruthy();
-    expect(document.querySelector(".ctx-sheet .ctx-branch-select")).toBeTruthy();
   });
 
   it("three-press Escape: repo panel → focus in-sheet trigger; sheet → focus chip", async () => {
@@ -4240,21 +4236,29 @@ describe("NewTask 7A keyboard-compose state", () => {
   const settle = () =>
     new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 
-  async function mountMobile(extra: Record<string, unknown> = {}, coarse = true) {
+  const composeRepo = {
+    name: "compose-repo",
+    path: "/repo/compose",
+    display: "compose-repo",
+    realPath: "/repo/compose",
+  };
+  /** Second repo, so the compose-state repo switch has somewhere to go. */
+  const otherRepo = {
+    name: "other-repo",
+    path: "/repo/other",
+    display: "other-repo",
+    realPath: "/repo/other",
+  };
+
+  async function mountMobile(
+    extra: Record<string, unknown> = {},
+    coarse = true,
+    repos: RepoEntry[] = [composeRepo],
+  ) {
     mockPointer(coarse);
     await page.viewport(390, 844);
     const { fake, restore } = installFakeViewport(window.innerHeight);
-    mockListRepos.mockResolvedValue({
-      repos: [
-        {
-          name: "compose-repo",
-          path: "/repo/compose",
-          display: "compose-repo",
-          realPath: "/repo/compose",
-        },
-      ],
-      recentWindowDays: 30,
-    });
+    mockListRepos.mockResolvedValue({ repos, recentWindowDays: 30 });
     render(NewTask, { props: base({ initialRepoPath: "/repo/compose", ...extra }) });
     await expect.poll(() => document.querySelector(".ctx-chip")).toBeTruthy();
     return { fake, restore };
@@ -4554,5 +4558,119 @@ describe("NewTask 7A keyboard-compose state", () => {
     } finally {
       restore();
     }
+  });
+
+  // Switching repo mid-compose used to cost five taps and drop the soft keyboard twice:
+  // the context line was inert (tap 1 only blurred), a pick left the sheet open (tap 4
+  // dismissed it) and the prompt unfocused (tap 5). These pin the two-tap replacement.
+  describe("compose-state repo switching", () => {
+    const repoSeg = () => document.querySelector<HTMLButtonElement>(".ctx-seg-repo")!;
+    const engineSeg = () => document.querySelector<HTMLButtonElement>(".ctx-seg-engine")!;
+
+    async function mountTwoRepos() {
+      return mountMobile({ initialRepoPath: composeRepo.path }, true, [composeRepo, otherRepo]);
+    }
+
+    it("one tap on the repo segment opens the sheet, the repo panel and focuses the filter", async () => {
+      const { fake, restore } = await mountTwoRepos();
+      try {
+        await enterCompose(fake);
+        expect(repoSeg().getAttribute("aria-expanded")).toBe("false");
+        expect(repoSeg().getAttribute("aria-haspopup")).toBe("dialog");
+
+        repoSeg().click();
+
+        // Asserted synchronously — no await, no poll. openRepoPicker flushes both
+        // renders inside the click handler so the focus stays in the gesture's own call
+        // stack (a soft keyboard only rises for an in-stack focus()). An async hop here
+        // fails these rather than silently costing the keyboard on a real device.
+        expect(document.querySelector(".ctx-sheet")).toBeTruthy();
+        expect(document.querySelector(".ctx-sheet .rs-panel")).toBeTruthy();
+        expect(document.activeElement).toBe(document.querySelector(".ctx-sheet .rs-filter"));
+      } finally {
+        restore();
+      }
+    });
+
+    it("a repo pick closes the sheet and puts the caret back in the prompt", async () => {
+      const { fake, restore } = await mountTwoRepos();
+      try {
+        await enterCompose(fake);
+        promptField().value = "half a thought";
+        promptField().dispatchEvent(new Event("input", { bubbles: true }));
+        repoSeg().click();
+        await expect
+          .poll(() =>
+            Array.from(document.querySelectorAll<HTMLLIElement>('.ctx-sheet [role="option"]')).find(
+              (el) => el.textContent?.includes("other-repo"),
+            ),
+          )
+          .toBeTruthy();
+
+        Array.from(document.querySelectorAll<HTMLLIElement>('.ctx-sheet [role="option"]'))
+          .find((el) => el.textContent?.includes("other-repo"))!
+          .click();
+
+        // Synchronous again: selectRepo flushSync's the unmount so its focus() lands in
+        // the tap's own stack and the keyboard comes straight back. Caret at the end, so
+        // dictation resumes where it left off rather than at position 0.
+        expect(document.querySelector(".ctx-sheet")).toBeNull();
+        expect(document.activeElement).toBe(promptField());
+        expect(promptField().selectionStart).toBe("half a thought".length);
+      } finally {
+        restore();
+      }
+    });
+
+    it("the engine segment opens the engine sheet", async () => {
+      const { fake, restore } = await mountTwoRepos();
+      try {
+        await enterCompose(fake);
+        expect(engineSeg().getAttribute("aria-expanded")).toBe("false");
+
+        engineSeg().click();
+
+        await expect.poll(() => document.querySelector(".sheet .group")).toBeTruthy();
+        expect(document.querySelector(".ctx-sheet")).toBeNull();
+      } finally {
+        restore();
+      }
+    });
+
+    // The blur guards are the whole keyboard contract, and a bare `.click()` dispatches
+    // NO pointer events — every other test here would pass with the guards deleted. So
+    // these two drive real CDP input, where pointerdown's default focus action actually
+    // runs: unguarded, the focused element blurs mid-tap and the flow breaks outright.
+    it("real taps do not blur their field: the segment survives, the filter keeps focus", async () => {
+      const { fake, restore } = await mountTwoRepos();
+      try {
+        await enterCompose(fake);
+
+        // The guard is declared…
+        const down = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+        repoSeg().dispatchEvent(down);
+        expect(down.defaultPrevented).toBe(true);
+
+        // …and it is what keeps the segment alive long enough to be clicked. Without it
+        // the pointerdown blurs the prompt, `composing` flips false, the whole .ctx-line
+        // unmounts before pointerup, and the click never lands on anything.
+        await page.elementLocator(repoSeg()).click();
+        await expect.poll(() => document.querySelector(".ctx-sheet")).toBeTruthy();
+
+        // Same story one level down: the option row is tabindex="-1", so an unguarded
+        // tap focuses it and blurs .rs-filter — retracting the keyboard before pick().
+        const filter = document.querySelector<HTMLInputElement>(".ctx-sheet .rs-filter")!;
+        expect(document.activeElement).toBe(filter);
+        const row = Array.from(
+          document.querySelectorAll<HTMLLIElement>('.ctx-sheet [role="option"]'),
+        ).find((el) => el.textContent?.includes("other-repo"))!;
+        const rowDown = new PointerEvent("pointerdown", { bubbles: true, cancelable: true });
+        row.dispatchEvent(rowDown);
+        expect(rowDown.defaultPrevented).toBe(true);
+        expect(document.activeElement).toBe(filter);
+      } finally {
+        restore();
+      }
+    });
   });
 });

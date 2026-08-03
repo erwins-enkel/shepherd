@@ -3517,5 +3517,7 @@
   "keymap_mode_research_short": "RSCH.",
   "feat_newtask_keymap_title": "Hold ⌘ to see every shortcut",
   "feat_newtask_keymap_body": "In New Task, hold ⌘ (Ctrl on Windows/Linux) for a moment and every control shows its shortcut right where it sits — release to dismiss. Press ? for the full key card.",
-  "diagnostics_hint_tailscale_serve_denied": "Tailscale refuses Shepherd's serve config, so no live preview can be published — run sudo tailscale set --operator=$USER once, then reopen the preview."
+  "diagnostics_hint_tailscale_serve_denied": "Tailscale refuses Shepherd's serve config, so no live preview can be published — run sudo tailscale set --operator=$USER once, then reopen the preview.",
+  "feat_fast_repo_switch_title": "Switch repo without leaving the keyboard",
+  "feat_fast_repo_switch_body": "On a phone, tap the repo name in the New Task header while you're typing — the repo list opens straight away, and picking one drops you right back into your description with the keyboard still up. Two taps instead of five."
 }

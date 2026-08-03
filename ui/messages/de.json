@@ -3517,5 +3517,7 @@
   "keymap_mode_research_short": "RECH.",
   "feat_newtask_keymap_title": "⌘ halten zeigt alle Tastenkürzel",
   "feat_newtask_keymap_body": "Halte in „Neue Aufgabe\" kurz ⌘ (Strg unter Windows/Linux) — jedes Bedienelement zeigt sein Kürzel direkt an seinem Platz, Loslassen blendet wieder aus. ? öffnet die vollständige Tastenkarte.",
-  "diagnostics_hint_tailscale_serve_denied": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und öffne die Vorschau erneut."
+  "diagnostics_hint_tailscale_serve_denied": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und öffne die Vorschau erneut.",
+  "feat_fast_repo_switch_title": "Repo wechseln, ohne die Tastatur zu verlassen",
+  "feat_fast_repo_switch_body": "Tippe auf dem Handy beim Schreiben auf den Repo-Namen in der Kopfzeile von „Neue Aufgabe“ — die Repo-Liste öffnet sich sofort, und nach der Auswahl landest du direkt wieder in deiner Beschreibung, die Tastatur bleibt oben. Zwei Tipps statt fünf."
 }

@@ -26,7 +26,7 @@ planning skill. Everything it needs is below.
 ## Stages
 
 Work the stages in order. Create a TodoWrite item per stage. **Nothing outward
-(issue creation, epic import) happens before the Stage 4 approval gate.**
+(issue creation, body edits) happens before the Stage 4 approval gate.**
 
 ### 0. Orient
 
@@ -49,10 +49,10 @@ git remote -v                      # is there a GitHub remote?
 gh auth status 2>/dev/null         # is gh usable?
 ```
 
-A working GitHub remote + `gh` ⇒ **GitHub-native** (issues + epic import available).
-Otherwise treat the repo as **local/lightweight**: programmatic issue creation and
-epic import are unavailable (epic import asserts a GitHub-native forge), so the
-backlog will be left as importable markdown (Stage 5).
+A working GitHub remote + `gh` ⇒ **GitHub-native**: you can create issues, and the
+operator can run the epic link import (Stage 5). Otherwise treat the repo as
+**local/lightweight**: programmatic issue creation is unavailable and epic import has
+no forge to write to, so the backlog will be left as importable markdown (Stage 5).
 
 **Intent source:**
 
@@ -171,7 +171,7 @@ dependencies, sized one-PR-each.
 
 Present the full draft — the proposed `CLAUDE.md` (as a diff for an existing repo)
 and the entire issue/epic tree — then **stop**. Use `AskUserQuestion` to confirm,
-amend, or abort. **Nothing is created or imported before this gate.** If the operator
+amend, or abort. **Nothing is created or edited before this gate.** If the operator
 amends, revise the draft and re-present.
 
 ### 5. Create (ordered)
@@ -192,29 +192,50 @@ Only after approval. **GitHub-native repos** — order matters, because the pare
 2. **Create the parent epic issue** with a body containing the `epic-dag` fence that
    references those captured child numbers (and a checklist if you like). Capture its
    number too.
-3. **Trigger import per parent** so the links are actually wired — imports are **not**
-   automatic on creation, and the endpoint requires a **GitHub-native forge**:
+3. **Hand the per-parent import to the operator.** The fence in the parent body is
+   what Shepherd recognizes, so the epic is drainable the moment step 2 lands;
+   import only additionally wires the **native sub-issue + `blocked_by` links**, is
+   **not** automatic on creation, and requires a **GitHub-native forge**.
 
-   ```bash
-   curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
-     --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
-     --data-urlencode "parent=<PARENT_NUM>"
-   ```
+   **You cannot trigger it.** You reach the Shepherd server only through its
+   restricted loopback ingress, whose allowlist is session-scoped (hooks, build
+   queue, epic draft); the repo-scoped import route is not on it, and the main port
+   answers `{"error":"unauthorized"}` (401). That boundary is deliberate — import
+   performs GitHub writes, which stay on the operator's side of the gate. **Never
+   go hunting for the operator password or an API token to get around it.**
 
-   (`-G --data-urlencode` keeps the POST while URL-encoding the query, so a
-   repo path containing a space or `&` can't break the request.)
+   Give the operator both paths instead:
+   - **In the UI:** open the Backlog, expand the parent issue's row, and press
+     **Import structure** on the epic panel (also offered as a remediation inside
+     that panel's **Diagnose** modal).
+   - **From their own shell.** OPERATOR-RUN — needs their credentials, so print it
+     for them, don't run it:
 
-   (Use your Shepherd server's host/port; `7330` is the default.) The response
-   reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Re-check any
-   `unresolved` member numbers.
+     ```bash
+     curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
+       -H "Authorization: Bearer $SHEPHERD_TOKEN" \
+       --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
+       --data-urlencode "parent=<PARENT_NUM>"
+     ```
+
+     (Use your Shepherd server's host/port; `7330` is the default. The bearer
+     header only works if `SHEPHERD_TOKEN` is configured there — it's optional and
+     unset by default; without it, use the UI. `-G --data-urlencode` keeps the POST
+     while URL-encoding the query, so a repo path containing a space or `&` can't
+     break the request.)
+
+   The response reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`; tell
+   the operator that any `unresolved` member numbers are worth reporting back, since
+   they usually mean a typo'd or foreign issue reference in the parent body.
 
 **Local/lightweight repos** — `forge.createIssue` and epic import are unavailable, so
 do **not** attempt programmatic creation or import. Write the approved tree to an
 importable markdown file (e.g. `BACKLOG.md`) and tell the operator it's the manual
 reference / future-import source. Say this explicitly rather than failing silently.
 
-**Completion criterion:** every approved issue exists (GitHub) with epic links wired
-and `unresolved` empty, or the markdown backlog is written (local).
+**Completion criterion:** every approved issue exists with its parent body carrying
+the `epic-dag` fence and the link import handed to the operator (GitHub), or the
+markdown backlog is written (local).
 
 ### 6. Point to first task
 
@@ -223,9 +244,11 @@ them, the smallest tracer-bullet. Tell the operator exactly how to start it in
 Shepherd — open a New Task on issue `#<n>`. Do **not** spawn the session yourself
 (Shepherd owns session creation; a skill in one session can't cleanly spawn another).
 
-For GitHub repos, first confirm the per-parent import actually wired the links
-(sub-issues + blocked-by present) before pointing. For local repos, point at the
-markdown backlog.
+For GitHub repos, first confirm the parent body actually carries the `epic-dag`
+fence with the real child numbers (`gh issue view <PARENT_NUM> --json body`) — that,
+not the import, is what makes it drainable. Restate the import as the one step still
+owed by the operator; don't wait on it. For local repos, point at the markdown
+backlog.
 
 If obvious tooling guardrails are missing (no lint/typecheck/test/CI), add a one-line
 nudge: run Shepherd's **Readiness** analyzer to score and install them.
@@ -235,10 +258,13 @@ to start it.
 
 ## Gate rules (reference)
 
-- **Outward actions are gated.** Issue creation and epic import are outward and
-  happen only after the Stage 4 approval. Drafting is always safe; creating is not.
-- **GitHub-only operations:** `gh issue create` and `POST /api/epic/import` require a
+- **Outward actions are gated.** Issue creation is outward and happens only after
+  the Stage 4 approval. Drafting is always safe; creating is not.
+- **GitHub-only operations:** `gh issue create` and the epic link import require a
   GitHub-native forge. Local/lightweight repos get the markdown backlog instead.
+- **Import is the operator's, never yours:** it is off the agent ingress allowlist
+  and 401s for you (Stage 5). Hand it over — never hunt for credentials to force it
+  through.
 - **epic-dag grammar:** members are `#<n>` lines inside a fenced ` ```epic-dag `
   block; an edge is `#<dependent> <- #<blocker>[, #<blocker>…]`. (A `- [ ] #<n>`
   checklist is also accepted as a member list with no edges.)

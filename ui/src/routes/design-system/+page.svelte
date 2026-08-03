@@ -3,13 +3,13 @@
   // token layer (app.css) + the canonical component recipes the rest of the UI
   // follows, each with a when-to-use note and copy-paste markup. Its purpose is
   // to stop "design drift" — unattended agents re-inventing buttons/spacing/
-  // colors every session. The CLAUDE.md "Design system" directive points agents
-  // here before they author any UI.
+  // colors every session. The .claude/rules/ui-design-system.md rule points
+  // agents here before they author any UI.
   //
   // This is a developer/agent-facing INTERNAL reference, not end-user chrome, so
   // it is deliberately exempt from i18n (it is unlinked from the app and only
-  // reached by navigating to /design-system directly) — see CLAUDE.md, which
-  // marks a dev-only styleguide as exempt. Swatches/type rows render straight
+  // reached by navigating to /design-system directly) — see
+  // .claude/rules/ui-design-system.md, which marks a dev-only styleguide as exempt. Swatches/type rows render straight
   // off the live `var(--color-*)` / `var(--fs-*)` tokens, so this page can never
   // drift from the real theme: change app.css and this updates with it.
   // +layout.svelte already inits the theme globally for every route; the toggles

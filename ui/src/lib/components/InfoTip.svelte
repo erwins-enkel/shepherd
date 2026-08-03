@@ -9,7 +9,7 @@
   // from GlossaryTerm so the explanation escapes overflow-clipped containers and
   // never reserves vertical space inline (the point: keep dense forms compact,
   // especially on phones). Text-only content — no interactive children — so it is
-  // a non-blocking role="tooltip" and warrants no scrim (exempt per CLAUDE.md).
+  // a non-blocking role="tooltip" and warrants no scrim (exempt per .claude/rules/ui-design-system.md).
   //
   // `prominent` bumps the resting glyph one step brighter (muted → ink) for hosts where
   // the icon must actively invite discovery — e.g. the Herd stage headers, where a

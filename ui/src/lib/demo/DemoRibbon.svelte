@@ -2,7 +2,7 @@
   // Persistent marketing chrome for the demo build (Task 7). A small, honest
   // "this is a live demo" signal that reads as part of the real app rather than
   // a screen-hogging banner. Non-blocking, anchored — NOT a modal, so no
-  // scrim/blur (see CLAUDE.md "Modal & scrim" scope notes: a small anchored
+  // scrim/blur (see .claude/rules/ui-design-system.md "Modal & scrim" scope notes: a small anchored
   // popover/pill is exempt).
   import { m } from "$lib/paraglide/messages";
 

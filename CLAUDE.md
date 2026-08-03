@@ -1,6 +1,8 @@
 # Shepherd
 
-Three packages, each with its own deps: root (herdr/server, `bun`), `ui/` (SvelteKit), `extension/`.
+Five packages, each with its own deps and lockfile: root (herdr/server, `bun`), `ui/` (SvelteKit),
+`extension/`, `docs-site/` (Astro Starlight, docs.shepherd.run) and `site/` (Astro, the marketing
+site).
 
 > Conventions for UI, i18n, feature announcements and the glossary live in `.claude/rules/` and
 > load automatically when you touch the files they govern. They are published under
@@ -18,8 +20,12 @@ Three packages, each with its own deps: root (herdr/server, `bun`), `ui/` (Svelt
 | `ui/`        | `bun run check` | `bun run test` |
 | `extension/` | `bun run check` | `bun run test` |
 
-Run both halves when a change spans server + UI. Deps install themselves — the `ensure-deps.sh`
-SessionStart hook runs `bun install` in any package missing `node_modules`.
+Run both halves when a change spans server + UI.
+
+Deps for those three install themselves — the `ensure-deps.sh` SessionStart hook runs
+`bun install` in root, `ui/` and `extension/` when `node_modules` is absent. It does **not**
+cover `docs-site/` or `site/`: run `bun install` there by hand before building or checking
+either.
 
 ## Branch hygiene
 

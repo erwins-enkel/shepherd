@@ -5,7 +5,7 @@
 // this check turns that into a hard failure (CI `verify` + pre-push).
 //
 // It does NOT detect hardcoded strings that bypass the catalog entirely; that's
-// covered by the i18n steering in CLAUDE.md + code review.
+// covered by .claude/rules/i18n.md + code review.
 
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";

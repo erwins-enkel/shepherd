@@ -162,7 +162,7 @@
   {/if}
 </div>
 
-<!-- History popover — non-modal anchored popover, no scrim (see CLAUDE.md) -->
+<!-- History popover — non-modal anchored popover, no scrim (see .claude/rules/ui-design-system.md) -->
 <div
   id={popoverId}
   bind:this={popEl}

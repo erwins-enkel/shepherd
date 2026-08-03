@@ -6069,19 +6069,28 @@ function trimDeps(
 ) {
   let pluginIdReads = 0;
   let skillReads = 0;
+  const skillDirs: string[] = [];
   const deps = {
     ...injectDeps(store, captured),
     pluginIds: async () => {
       pluginIdReads++;
       return pluginIds;
     },
-    skillNames: async () => projectSkills,
+    skillNames: async (dir: string) => {
+      skillDirs.push(dir);
+      return projectSkills;
+    },
     userSkills: async () => {
       skillReads++;
       return userSkills;
     },
   };
-  return { deps, pluginIdReads: () => pluginIdReads, skillReads: () => skillReads };
+  return {
+    deps,
+    pluginIdReads: () => pluginIdReads,
+    skillReads: () => skillReads,
+    skillDirs: () => skillDirs,
+  };
 }
 
 /** The parsed JSON of the argv's --settings payload. */
@@ -6095,12 +6104,12 @@ test("auto spawn (trim on): plugin/bundled/personal skills off, repo skills kept
     config.trimAutoContext = true;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps } = trimDeps(
+    const { deps, skillDirs } = trimDeps(
       store,
       captured,
       ["superpowers@sp", "context7@c7"],
       ["tdd", "obsidian-vault", "merge-train"],
-      ["merge-train"], // the repo ships its own skill of that name
+      ["merge-train"], // the checkout ships its own skill of that name
     );
     const svc = new SessionService(deps as any);
     await svc.create({
@@ -6119,8 +6128,11 @@ test("auto spawn (trim on): plugin/bundled/personal skills off, repo skills kept
     // every injected plugin id is force-disabled in the per-spawn settings overlay
     expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "context7@c7": false });
     expect(overlay.disableBundledSkills).toBe(true);
-    // personal skills off — EXCEPT the name the repo defines itself, which must stay loadable
+    // personal skills off — EXCEPT the name the checkout defines itself, which must stay loadable
     expect(overlay.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
+    // enumerated at the agent's cwd (the WORKTREE), not the repo root: a skill added on this
+    // branch exists only there, and missing it would disable a same-named personal skill over it
+    expect(skillDirs()).toEqual([join("/wt/repo-task", ".claude", "skills")]);
     const sp = sysPrompt(argv);
     expect(sp).toContain("<context-trim-notice>");
     expect(sp).toContain("The Skill tool IS available");

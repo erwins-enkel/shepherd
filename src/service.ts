@@ -501,7 +501,7 @@ export interface SpawnTrimOverlay {
  *    (spawnSettingsOverlay): kills plugin SessionStart hook injections, skills, and MCP;
  *  - `disableBundledSkills` + a `skillOverrides: {<user skill>: "off"}` map: Claude Code's
  *    built-in skills and the operator's personal ones, neither of which an unattended coding
- *    run has any use for. The SESSION REPO's own `.claude/skills` stay listed and loadable;
+ *    run has any use for. The WORKTREE's own `.claude/skills` stay listed and loadable;
  *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`) — fresh spawns
  *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
  *    directives don't ride resumes either), so a resumed trimmed session deliberately runs
@@ -516,9 +516,11 @@ export interface SpawnTrimOverlay {
  * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
  * sessions that run unattended. Re-measured on Claude Code 2.1.220 against a drain-shaped spawn
  * (scripts/measure-spawn-prefix.sh), the resident prefix costs 34,175 tok with the flag,
- * 40,187 without it, and 35,234 under the shape above — so keeping the repo's own skills
- * available costs +1,059 tok/turn instead of +6,012, because the flag's saving was almost
- * entirely built-in and personal skills that no drain session would have invoked anyway.
+ * 40,187 without it, and 35,234 under the shape above — so keeping the session's own skills
+ * available costs +1,059 tok/turn in the prefix instead of +6,012, because the flag's saving was
+ * almost entirely built-in and personal skills that no drain session would have invoked anyway.
+ * Net ≈ +1,107 tok/turn once the ≈ 48 est. tokens CONTEXT_TRIM_NOTICE grew by are counted; see
+ * docs/research/drain-context-trim-2026-08-03.md for both sides of the ledger.
  *
  * Deliberately NOT `--settings disableAllHooks` — that would kill the operator's global
  * SessionStart hook Shepherd's status pipeline depends on. Interactive spawns are untouched, and
@@ -526,7 +528,7 @@ export interface SpawnTrimOverlay {
  */
 async function trimDecision(
   auto: boolean,
-  repoPath: string,
+  worktreePath: string,
   pluginIds: () => Promise<string[]>,
   skillNames: (dir: string) => Promise<string[] | null>,
   userSkills: () => Promise<string[]>,
@@ -537,32 +539,37 @@ async function trimDecision(
   return {
     overlayOpts: {
       disablePlugins: await pluginIds(),
-      disableSkills: await disableableSkillNames(repoPath, skillNames, userSkills),
+      disableSkills: await disableableSkillNames(worktreePath, skillNames, userSkills),
     },
     trimmed: true,
   };
 }
 
 /**
- * The operator's user-level skill names MINUS the ones the session's repo defines itself.
+ * The operator's user-level skill names MINUS the ones the session's own checkout defines.
  *
  * `skillOverrides` is keyed by skill NAME, not by source, so an `"off"` entry for a personal skill
  * would also silence a repo skill that happens to resolve to the same name — the precise failure
  * this trim exists to stop. Both sides are resolved through {@link readSkillNames} (front-matter
  * `name`, entry-name fallback), so they compare the identity Claude Code itself uses.
  *
- * FAIL-SAFE: when the repo's skills cannot be listed (`null` — anything but a missing directory)
- * the overrides are dropped entirely rather than applied blind. Paying for the operator's personal
- * catalog for one spawn is cheap; silently disabling the repo's own skill is not.
+ * Enumerated at `worktreePath`, NOT at the repo root: that is the agent's cwd (herdr.start runs it
+ * there), so it is where Claude Code resolves project skills from — and a branch that ADDS a skill
+ * has it only in the worktree. For a non-isolated session the two paths are the same string
+ * (src/worktree.ts returns the repo path as the worktree), so nothing special-cases that.
+ *
+ * FAIL-SAFE: when those skills cannot be listed (`null` — anything but a missing directory) the
+ * overrides are dropped entirely rather than applied blind. Paying for the operator's personal
+ * catalog for one spawn is cheap; silently disabling the session's own skill is not.
  */
 async function disableableSkillNames(
-  repoPath: string,
+  worktreePath: string,
   skillNames: (dir: string) => Promise<string[] | null>,
   userSkills: () => Promise<string[]>,
 ): Promise<string[]> {
   const [user, project] = await Promise.all([
     userSkills(),
-    skillNames(join(repoPath, ".claude", "skills")),
+    skillNames(join(worktreePath, ".claude", "skills")),
   ]);
   if (project === null) return [];
   const own = new Set(project);
@@ -2140,12 +2147,15 @@ export class SessionService {
   }
 
   /** trimDecision via the injected plugin/skill seams (tests) or the real memoized reads —
-   *  the one resolver both spawn sites (create + resume) go through. `repoPath` is the session's
-   *  repo, whose own `.claude/skills` the trim must not disable (issue #2001). */
-  private trimFor(auto: boolean | undefined, repoPath: string): ReturnType<typeof trimDecision> {
+   *  the one resolver both spawn sites (create + resume) go through. `worktreePath` is the agent's
+   *  cwd, whose own `.claude/skills` the trim must not disable (issue #2001). */
+  private trimFor(
+    auto: boolean | undefined,
+    worktreePath: string,
+  ): ReturnType<typeof trimDecision> {
     return trimDecision(
       auto ?? false,
-      repoPath,
+      worktreePath,
       this.deps.pluginIds ?? installedPluginIds,
       this.deps.skillNames ?? ((dir) => readSkillNames(dir)),
       this.deps.userSkills ?? (() => userSkillNames()),
@@ -3170,7 +3180,7 @@ export class SessionService {
 
   private async resolveCreateLaunch(
     input: CreateSessionInput,
-    wt: { isolated: boolean },
+    wt: { isolated: boolean; worktreePath: string },
     promptArg: string,
     sessionId: string,
     claudeSessionId: string,
@@ -3206,7 +3216,7 @@ export class SessionService {
     // CLI-agnostic. See resolvePlanGateOn for the override + research semantics. Replacements can
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
-    const trim = await this.trimFor(spawnInput.auto, spawnInput.repoPath);
+    const trim = await this.trimFor(spawnInput.auto, wt.worktreePath);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -3649,7 +3659,7 @@ export class SessionService {
         : composed.promptArg;
     const launch = await this.resolveCreateLaunch(
       input,
-      { isolated: s.isolated },
+      { isolated: s.isolated, worktreePath: s.worktreePath },
       promptArg,
       s.id,
       claudeSessionId,
@@ -4100,7 +4110,7 @@ export class SessionService {
 
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
     // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
-    const trim = await this.trimFor(session.auto, session.repoPath);
+    const trim = await this.trimFor(session.auto, session.worktreePath);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
@@ -4308,7 +4318,7 @@ export class SessionService {
       worktreeCreated = true;
     }
 
-    const trim = await this.trimFor(s.auto, s.repoPath);
+    const trim = await this.trimFor(s.auto, s.worktreePath);
     const outcome = await this.prepareResumeSpawn(
       s,
       this.buildResumeArgv(s, provider, trim, codexSessionId),

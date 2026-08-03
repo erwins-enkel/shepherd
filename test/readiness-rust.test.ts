@@ -157,6 +157,10 @@ test("generated Rust CLAUDE.md is Rust-correct and free of JS tooling text", () 
   expect(r.claudeMd).not.toContain("lint-staged");
   expect(r.claudeMd).not.toContain("eslint");
   expect(r.claudeMd).not.toContain("tsc");
+  // The posture section is profile-independent (issue #2015), so the cut must hold here too —
+  // a regression would otherwise reach Rust repos unnoticed.
+  expect(r.claudeMd).toContain("Fail closed");
+  expect(r.claudeMd).not.toContain("Surgical changes");
 });
 
 test("a mixed repo with both Cargo.toml and package.json resolves to js-ts (no regression)", () => {

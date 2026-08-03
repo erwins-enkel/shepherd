@@ -126,6 +126,15 @@ Once a task exists, an external agent can also drive it:
 
 - `POST /api/sessions/:id/reply` — send follow-up text to the live agent
   (`{ "text": "..." }`).
+- `POST /api/sessions/:id/interrupt` — interrupt that one session: a lone ESC to
+  its pane and nothing else (no body). The per-session counterpart to the
+  fleet-wide `POST /api/halt`, and composable with `/reply`, so cancel-then-re-prompt
+  is interrupt → reply. Unlike `/api/halt` it does not skip sessions that aren't
+  currently working (the caller named its target) and it is serialized against
+  other steers, so an interrupt issued before a reply always lands first; a
+  wedged send can therefore delay it, and `/api/halt` stays the un-queued escape
+  hatch. `200 {"ok":true}` when the ESC landed, `404 {"error":"not found"}` for an
+  unknown id, a dead pane, or an undeliverable send.
 - `POST /api/broadcast` — send the same text to many sessions at once.
 - `DELETE /api/sessions/:id` — archive (end) the session.
 - `GET /api/sessions` — list active sessions; `GET /api/sessions/:id/diff`,

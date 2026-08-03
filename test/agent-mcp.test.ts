@@ -11,13 +11,21 @@ import {
   applyQueueWrite,
   handleMcpRequest,
   hasAgentTools,
+  isNonCodeMode,
   sessionCapabilities,
   MCP_PROTOCOL_VERSION,
   type AgentControlDeps,
 } from "../src/agent-control";
 import { SessionStore } from "../src/store";
 
-function harness(opts: { buildQueue?: boolean; epicAuthoring?: boolean } = {}): {
+function harness(
+  opts: {
+    buildQueue?: boolean;
+    epicAuthoring?: boolean;
+    research?: boolean;
+    landingRepair?: boolean;
+  } = {},
+): {
   deps: AgentControlDeps;
   store: SessionStore;
   sessionId: string;
@@ -41,6 +49,8 @@ function harness(opts: { buildQueue?: boolean; epicAuthoring?: boolean } = {}): 
     claudeSessionId: "claude-x",
     model: null,
     epicAuthoring: opts.epicAuthoring,
+    research: opts.research,
+    landingRepair: opts.landingRepair,
   });
   return {
     deps: { store, events: { emit: (event, data) => emitted.push({ event, data }) } },
@@ -91,6 +101,28 @@ test("buildQueueEnabled exposes exactly the two queue tools", () => {
 test("an epic-authoring session gets epic_draft, and only it when the queue is off", () => {
   const { deps, sessionId } = harness({ epicAuthoring: true });
   expect(agentTools(deps, sessionId).map((t) => t.name)).toEqual(["epic_draft"]);
+});
+
+// The prompt path suppresses <build-queue> for the three non-code modes; the tool catalog has to
+// suppress the queue tools with it, or those sessions get "write your plan first" from a tool whose
+// prompt block — and therefore whose curation gate — was never delivered.
+for (const mode of ["research", "epicAuthoring", "landingRepair"] as const) {
+  test(`a ${mode} session in a buildQueueEnabled repo gets NO queue tools`, () => {
+    const { deps, sessionId } = harness({ buildQueue: true, [mode]: true });
+    expect(agentTools(deps, sessionId).map((t) => t.name)).toEqual(
+      mode === "epicAuthoring" ? ["epic_draft"] : [],
+    );
+    expect(sessionCapabilities(deps, sessionId).buildQueue).toBe(false);
+  });
+}
+
+test("isNonCodeMode is truthiness-based, so the prompt path's directive STRING counts too", () => {
+  expect(isNonCodeMode({})).toBe(false);
+  expect(isNonCodeMode({ research: false, epicAuthoring: null, landingRepair: undefined })).toBe(
+    false,
+  );
+  expect(isNonCodeMode({ epicAuthoring: "<pre-baked directive text>" })).toBe(true);
+  expect(isNonCodeMode({ landingRepair: true })).toBe(true);
 });
 
 test("queue_step's status parameter enumerates the whole vocabulary — the semantic the prose used to carry", () => {

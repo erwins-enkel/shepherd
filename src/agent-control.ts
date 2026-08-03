@@ -237,6 +237,28 @@ export interface AgentCapabilities {
   epicDraft: boolean;
 }
 
+/**
+ * The NON-CODE session modes — research, epic-authoring, landing-repair. Each caps at a
+ * non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual steps, epic-intent
+ * notice, `<build-queue>`) are suppressed for all three, and `shouldPreApproveBuildQueue` excludes
+ * research.
+ *
+ * ONE definition, used by BOTH the prompt path (`composeSystemPromptBlocks`) and the tool catalog,
+ * because they must agree: a research session in a `buildQueueEnabled` repo that saw `queue_write`
+ * ("Write it before starting work") would be told to author a plan by the tool while its prompt
+ * never mentions a queue — and, since the curation-gate sentence lives only in that suppressed
+ * block, with no word on whether to wait for approval. `unknown` fields because the prompt path
+ * carries `epicAuthoring` as the pre-baked directive STRING while the session row carries a
+ * boolean; both are truthiness-tested.
+ */
+export function isNonCodeMode(modes: {
+  research?: unknown;
+  epicAuthoring?: unknown;
+  landingRepair?: unknown;
+}): boolean {
+  return Boolean(modes.research || modes.epicAuthoring || modes.landingRepair);
+}
+
 /** The tools those capabilities warrant, in a stable order. */
 function toolsFor(caps: AgentCapabilities): McpTool[] {
   const tools: McpTool[] = [];
@@ -251,12 +273,14 @@ export function hasAgentTools(caps: AgentCapabilities): boolean {
   return toolsFor(caps).length > 0;
 }
 
-/** A stored session's capabilities; an unknown session has none. */
+/** A stored session's capabilities; an unknown session has none. Reads the session's PERSISTED
+ *  mode flags, so a resume applies the same non-code suppression the spawn did. */
 export function sessionCapabilities(deps: AgentControlDeps, sessionId: string): AgentCapabilities {
   const session = deps.store.get(sessionId);
   if (!session) return { buildQueue: false, epicDraft: false };
   return {
-    buildQueue: deps.store.getRepoConfig(session.repoPath).buildQueueEnabled,
+    buildQueue:
+      deps.store.getRepoConfig(session.repoPath).buildQueueEnabled && !isNonCodeMode(session),
     epicDraft: session.epicAuthoring,
   };
 }

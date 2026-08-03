@@ -8,6 +8,7 @@ import type { EventHub } from "./events";
 import {
   agentMcpConfigArg,
   hasAgentTools,
+  isNonCodeMode,
   sessionCapabilities,
   type AgentCapabilities,
 } from "./agent-control";
@@ -1689,7 +1690,7 @@ export function composeSystemPromptBlocks(
   // non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual-steps,
   // epic-intent notice, build-queue) are suppressed. One precomputed flag keeps the conditions
   // branch-light (complexity cap).
-  const nonCodeMode = [opts.research, opts.epicAuthoring, opts.landingRepair].some(Boolean);
+  const nonCodeMode = isNonCodeMode(opts);
   if (!nonCodeMode) {
     blocks.push(taggedBlock("single-pr-invariant", SINGLE_PR_INVARIANT));
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
@@ -2852,8 +2853,11 @@ export class SessionService {
     );
     // Capabilities come from the create inputs, not the store: `create` pre-generates the session
     // id and builds this argv BEFORE the row exists, so a store read here would always say "none".
+    // The queue capability carries the SAME non-code-mode suppression composeSystemPromptBlocks
+    // applies to the `<build-queue>` block — otherwise a research / epic-authoring / landing-repair
+    // session would be handed queue tools its prompt never mentions.
     this.pushAgentMcpFlag(argv, sessionId, baseUrl, {
-      buildQueue: repoConfig.buildQueueEnabled,
+      buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(input),
       epicDraft: Boolean(input.epicAuthoring),
     });
     argv.push(

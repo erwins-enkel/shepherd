@@ -36,6 +36,7 @@ import {
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
+import { agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
@@ -5494,6 +5495,78 @@ test("create with buildQueueEnabled=true: --mcp-config points at the session's o
   const sp = sysPrompt(argv);
   expect(sp).toContain("<build-queue>");
   expect(sp).not.toContain(`/api/sessions/${s.id}/queue`);
+});
+
+test("create research in a buildQueueEnabled repo: no queue tools — the same suppression <build-queue> gets (#2003)", async () => {
+  // The spawn path can't read the session row (the id is pre-generated), so the non-code-mode gate
+  // has to come off the create INPUTS. Without it a research session would be handed queue_write
+  // ("write your plan first") while its prompt block — and its curation gate — were suppressed.
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    images: [],
+    research: true,
+  });
+  const sp = sysPrompt(captured.argv!);
+  expect(sp).not.toContain("<build-queue>");
+  expect(captured.argv).not.toContain("--mcp-config");
+});
+
+test("create epic-authoring in a buildQueueEnabled repo: epic_draft only, no queue tools (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "shape an epic",
+    model: null,
+    images: [],
+    epicAuthoring: true,
+  });
+  // The MCP server IS wired (the draft tool needs it) …
+  expect(captured.argv).toContain("--mcp-config");
+  // … but the catalog it serves carries no queue tools, matching the suppressed prompt block.
+  expect(sysPrompt(captured.argv!)).not.toContain("<build-queue>");
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual(["epic_draft"]);
+});
+
+test("resume of a research session re-passes no queue tools either (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), buildQueueEnabled: true });
+  const s = resumable(store, { model: null, research: true });
+
+  await svc.resume(s.id);
+  expect(calls.argv).not.toContain("--mcp-config");
 });
 
 test("create with buildQueueEnabled=false: no --mcp-config — a session with no control plane pays nothing (#2003)", async () => {

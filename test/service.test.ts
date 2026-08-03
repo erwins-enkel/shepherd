@@ -8064,3 +8064,162 @@ test("#1144: a mid-batch throw still sweeps the ids already archived in that bat
   // `a` was already archived and its sweep deferred — it must still be swept.
   expect(sweeps).toEqual([new Set([a.id])]);
 });
+
+// ── interrupt(): the per-session counterpart to haltAll (#1993) ──────────────────────
+
+/** Minimal SessionService over an in-memory store with a scripted herdr, for interrupt().
+ *  `agents` is what herdr.list() returns (or a thrower); `send` defaults to recording. */
+function interruptHarness(opts: {
+  agents: unknown[] | (() => never);
+  send?: (target: string, text: string) => Promise<void>;
+}) {
+  const sent: { target: string; text: string }[] = [];
+  const emitted: { e: string; d: unknown }[] = [];
+  const store = new SessionStore(":memory:");
+  const session = store.create({
+    name: "a",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/a",
+    worktreePath: "/wt/a",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_a",
+  });
+  const service = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    events: { emit: (e: string, d: unknown) => emitted.push({ e, d }) } as any,
+    herdr: {
+      start: async () => ({}) as any,
+      list: typeof opts.agents === "function" ? opts.agents : () => opts.agents,
+      stop: async () => {},
+      send:
+        opts.send ??
+        (async (target: string, text: string) => {
+          sent.push({ target, text });
+        }),
+    } as any,
+  });
+  return { service, store, session, sent, emitted };
+}
+
+const liveAgent = (terminalId: string, agentStatus = "working") => ({
+  terminalId,
+  agentStatus,
+  cwd: "/wt/a",
+  name: "a",
+});
+
+test("interrupt sends ONE lone ESC to the session's live pane — no paste markers, no CR", async () => {
+  const { service, session, sent, emitted } = interruptHarness({ agents: [liveAgent("term_a")] });
+
+  expect(await service.interrupt(session.id)).toBe(true);
+  // A lone ESC is the whole payload: routing this through sendSteerTo instead would wrap it in
+  // \x1b[200~ … \x1b[201~ and append a CR, submitting an empty prompt after the interrupt.
+  expect(sent).toEqual([{ target: "term_a", text: "\x1b" }]);
+  // Unlike haltAll, a single-target interrupt reports its outcome through the HTTP status, so it
+  // emits nothing (and certainly not halt:done, whose count would be a lie for one session).
+  expect(emitted).toEqual([]);
+});
+
+test("interrupt records no signal — `reply` is a distiller-mined kind and ESC has no payload", async () => {
+  const { service, store, session } = interruptHarness({ agents: [liveAgent("term_a")] });
+
+  expect(await service.interrupt(session.id)).toBe(true);
+  expect(store.listSignals("/r")).toEqual([]);
+});
+
+test("interrupt hits an idle pane too — a caller naming one session already picked its target", async () => {
+  const { service, session, sent } = interruptHarness({ agents: [liveAgent("term_a", "idle")] });
+
+  // Deliberately NOT haltAll's `agentStatus === "working"` filter: that exists so a fleet sweep
+  // can't touch bystanders. ESC on an idle pane just clears any composed input.
+  expect(await service.interrupt(session.id)).toBe(true);
+  expect(sent).toEqual([{ target: "term_a", text: "\x1b" }]);
+});
+
+test("interrupt returns false for an unknown session id and sends nothing", async () => {
+  const { service, sent } = interruptHarness({ agents: [liveAgent("term_a")] });
+
+  expect(await service.interrupt("nope")).toBe(false);
+  expect(sent).toEqual([]);
+});
+
+test("interrupt returns false for a dead pane (session live in store, agent unlisted)", async () => {
+  const { service, session, sent } = interruptHarness({ agents: [] });
+
+  expect(await service.interrupt(session.id)).toBe(false);
+  expect(sent).toEqual([]);
+});
+
+test("interrupt returns false (never throws) when herdr can't be listed", async () => {
+  const { service, session, sent } = interruptHarness({
+    agents: () => {
+      throw new Error("herdr down");
+    },
+  });
+
+  // Unlike haltAll — whose throw is load-bearing, because a swallowed failure would emit a
+  // success-looking halt:done{halted:0} — a single interrupt has an honest "didn't land" answer
+  // (404), matching reply()'s non-throwing boolean contract.
+  expect(await service.interrupt(session.id)).toBe(false);
+  expect(sent).toEqual([]);
+});
+
+test("interrupt returns false when the send rejects (pane died between list and send)", async () => {
+  const { service, session } = interruptHarness({
+    agents: [liveAgent("term_a")],
+    send: async () => {
+      throw new Error("agent_not_found");
+    },
+  });
+
+  expect(await service.interrupt(session.id)).toBe(false);
+});
+
+test("interrupt adopts a herdr-restored pane: sends to the LIVE terminalId and heals the row", async () => {
+  // Stored id is stale (herdr daemon restarted); matchAgents re-pairs by cwd. Resolving the way
+  // the REPLY route does — rather than haltAll's agent.terminalId with no adoption — keeps
+  // interrupt and a following reply pointed at the same pane.
+  const { service, store, session, sent } = interruptHarness({ agents: [liveAgent("term_new")] });
+
+  expect(await service.interrupt(session.id)).toBe(true);
+  expect(sent).toEqual([{ target: "term_new", text: "\x1b" }]);
+  expect(store.get(session.id)!.herdrAgentId).toBe("term_new");
+});
+
+test("interrupt queues behind an in-flight reply: paste, CR, then ESC", async () => {
+  // The concrete reason interrupt goes THROUGH #serializeSteer instead of bypassing it like
+  // haltAll: a bypassing ESC could land after the paste block closed but before the CR, clearing
+  // the composed input so the CR submits an empty prompt. Serialized, interrupt → reply ordering
+  // is deterministic.
+  const order: string[] = [];
+  let releaseFirst!: () => void;
+  const firstSendGate = new Promise<void>((resolve) => {
+    releaseFirst = resolve;
+  });
+  let sends = 0;
+  const { service, session } = interruptHarness({
+    agents: [liveAgent("term_a")],
+    send: async (_target: string, text: string) => {
+      if (++sends === 1) await firstSendGate; // hold the paste mid-flight
+      order.push(text);
+    },
+  });
+
+  const reply = service.reply(session.id, "hello");
+  const interrupt = service.interrupt(session.id);
+  releaseFirst();
+  expect(await reply).toBe(true);
+  expect(await interrupt).toBe(true);
+
+  expect(order).toEqual(["\x1b[200~hello\x1b[201~", "\r", "\x1b"]);
+});

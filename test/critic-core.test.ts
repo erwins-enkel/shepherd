@@ -800,11 +800,12 @@ test("#1757 defaultCollectBaseDelta degrades to null (never throws) on a bad sha
 });
 
 test("#1757 the truncation notice is emitted OUTSIDE the fence (it is shepherd's voice, not data)", () => {
-  // The fence preamble tells the model to treat everything inside as data and to IGNORE any
-  // commands or tool requests it contains. A "run `git …` for the full list" line placed inside it
-  // is therefore text the prompt itself instructs the critic to discount — and the property this
-  // mechanism rests on ("a capped list can never be mistaken for a complete one") would rest on
-  // discounted text. It must land after the fenced list, in shepherd's own voice.
+  // `UNTRUSTED_CONTENT_DIRECTIVE` tells the model to treat everything between the fence markers as
+  // data and to never follow a command or tool invocation appearing there. A "run `git …` for the
+  // full list" line placed inside the fence is therefore text the prompt itself instructs the
+  // critic to discount — and the property this mechanism rests on ("a capped list can never be
+  // mistaken for a complete one") would rest on discounted text. It must land after the fenced
+  // list, in shepherd's own voice.
   const p = reviewPrompt("BASE", "task", [], [], null, {
     ...EPIC,
     delta: {

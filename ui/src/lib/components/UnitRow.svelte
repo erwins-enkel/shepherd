@@ -26,6 +26,7 @@
     resumeQuota,
     retryCi,
     mergePr,
+    interruptSession,
   } from "$lib/api";
   import { prMergeAvailable } from "./pr-badge";
   import CardMenu from "./CardMenu.svelte";
@@ -586,6 +587,16 @@
   // disagree. The merge endpoint is session-scoped, so no parent callback is needed; the server
   // re-validates on merge (a stale-eligibility merge fails harmlessly → toast).
   const mergeable = $derived(prMergeAvailable(git));
+  // Stop agent: offered only while the row reads as WORKING. dStatus (not raw status) is the gate
+  // on purpose — a working-while-blocked session is mid-turn and shows the amber working pip, so
+  // it is stoppable too. Everything else (idle / blocked-not-working / done / archived) has no turn
+  // to cut short, and its pane may well be gone. Like Merge PR the endpoint is session-scoped, so
+  // no parent callback is threaded — the row calls it and toasts the outcome itself.
+  const stoppable = $derived(dStatus === "running");
+  // Resolved here rather than as a ternary in the <CardMenu> tag: UnitRow's template sits at its
+  // grandfathered complexity cap (#855), and every inline conditional in the markup counts against
+  // it. undefined is what hides the menu item.
+  const onStop = $derived(stoppable ? stopFromMenu : undefined);
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
@@ -593,6 +604,7 @@
   // swallow the trailing tap). No-ops when nothing to offer or one is already open.
   const hasMenu = $derived(
     mergeable ||
+      stoppable ||
       resumable ||
       !!ondecommission ||
       !!onrename ||
@@ -649,6 +661,25 @@
         }),
         { alert: true, key: `pr-merge:${session.id}` },
       );
+    }
+  }
+  // "Stop agent" — a lone ESC to this session's pane (#1995). One click, no arm: it is exactly what
+  // pressing Esc in the terminal does, and it is reversible (the operator can steer again at once).
+  // Both outcomes toast, keyed per session so repeated taps collapse into one: a success is
+  // otherwise invisible from a card you are not watching, and a 404 (the pane died between render
+  // and click) is a NORMAL result, so it surfaces as an alert toast, never an unhandled rejection.
+  async function stopFromMenu() {
+    menu = null;
+    try {
+      await interruptSession(session.id);
+      toasts.info(m.cardmenu_stop_toast({ name: session.name }), {
+        key: `session-interrupt:${session.id}`,
+      });
+    } catch {
+      toasts.info(m.cardmenu_stop_failed({ name: session.name }), {
+        alert: true,
+        key: `session-interrupt:${session.id}`,
+      });
     }
   }
   function decommissionFromMenu() {
@@ -961,6 +992,7 @@
     {resumable}
     opener={menu.opener}
     onmergepr={mergeable ? mergeFromMenu : undefined}
+    onstop={onStop}
     onresume={resumeFromMenu}
     onrename={onrename ? renameFromMenu : undefined}
     onrelaunch={relaunchable ? relaunchFromMenu : undefined}

@@ -12,6 +12,7 @@
     resumable,
     opener,
     onmergepr,
+    onstop,
     onresume,
     onrename,
     onrelaunch,
@@ -32,6 +33,11 @@
     // eligible to merge). Positive but consequential, so it arms amber (not the red danger wash) —
     // the parent's handler closes over the session id + runs the merge, like the badge menu.
     onmergepr?: () => void;
+    // when provided, a "Stop agent" item appears (the session is working) — a lone ESC to its
+    // pane (#1995). Deliberately a plain, unarmed row: this is the per-session counterpart of
+    // pressing Esc in the terminal, NOT the fleet e-stop (which arms red and chips its count),
+    // and it is reversible — the operator can steer the session again immediately.
+    onstop?: () => void;
     onresume?: () => void;
     onrename?: () => void;
     // when provided, a two-step armed Relaunch item appears between Resume and
@@ -180,6 +186,18 @@
       <span class="cm-icon" aria-hidden="true">⇥</span>{mergeArmed
         ? m.prbadge_confirm_merge()
         : m.prbadge_merge()}
+    </button>
+  {/if}
+  {#if onstop}
+    <button
+      class="cm-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      title={m.cardmenu_stop_title()}
+      onclick={onstop}
+    >
+      <span class="cm-icon" aria-hidden="true">⎋</span>{m.cardmenu_stop()}
     </button>
   {/if}
   {#if resumable && onresume}

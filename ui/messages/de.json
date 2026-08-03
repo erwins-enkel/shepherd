@@ -3519,5 +3519,11 @@
   "feat_newtask_keymap_body": "Halte in „Neue Aufgabe\" kurz ⌘ (Strg unter Windows/Linux) — jedes Bedienelement zeigt sein Kürzel direkt an seinem Platz, Loslassen blendet wieder aus. ? öffnet die vollständige Tastenkarte.",
   "diagnostics_hint_tailscale_serve_denied": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und öffne die Vorschau erneut.",
   "feat_fast_repo_switch_title": "Repo wechseln, ohne die Tastatur zu verlassen",
-  "feat_fast_repo_switch_body": "Tippe auf dem Handy beim Schreiben auf den Repo-Namen in der Kopfzeile von „Neue Aufgabe“ — die Repo-Liste öffnet sich sofort, und nach der Auswahl landest du direkt wieder in deiner Beschreibung, die Tastatur bleibt oben. Zwei Tipps statt fünf."
+  "feat_fast_repo_switch_body": "Tippe auf dem Handy beim Schreiben auf den Repo-Namen in der Kopfzeile von „Neue Aufgabe“ — die Repo-Liste öffnet sich sofort, und nach der Auswahl landest du direkt wieder in deiner Beschreibung, die Tastatur bleibt oben. Zwei Tipps statt fünf.",
+  "cardmenu_stop": "Agent stoppen",
+  "cardmenu_stop_title": "Sendet Esc an diese Sitzung — bricht nur den laufenden Zug ab",
+  "cardmenu_stop_toast": "{name} gestoppt",
+  "cardmenu_stop_failed": "{name} konnte nicht gestoppt werden — läuft möglicherweise nicht mehr",
+  "feat_session_stop_title": "Einzelnen Agenten stoppen, ohne ihn zu öffnen",
+  "feat_session_stop_body": "Rechtsklick (oder langes Tippen) auf die Karte einer arbeitenden Sitzung, dann „Agent stoppen\" — das schickt ein einzelnes Esc nur an diese Sitzung. So brichst du einen entgleisten Zug ab, ohne die ganze Herde anzuhalten oder ins Terminal zu wechseln."
 }

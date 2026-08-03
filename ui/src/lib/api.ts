@@ -945,6 +945,15 @@ export async function replySession(id: string, text: string): Promise<void> {
   if (!r.ok) throw await failed(r, "reply");
 }
 
+/** Interrupt ONE session: a lone ESC to its pane, nothing else (#1993). No body — the
+ *  id IS the target. The server answers 404 for an unknown id or a dead/unlisted pane,
+ *  which is a NORMAL outcome here (the caller's card can be a tick stale), so callers
+ *  must catch and surface it as a toast rather than let it crash. */
+export async function interruptSession(id: string): Promise<void> {
+  const r = await fetch(`/api/sessions/${id}/interrupt`, { method: "POST" });
+  if (!r.ok) throw await failed(r, "interrupt");
+}
+
 /** A next-prompt recommendation: the suggested prompt, or a stable error code the
  *  RecommendDialog maps to a localized message. Never throws — the dialog needs a
  *  distinct error state, not a crash. */

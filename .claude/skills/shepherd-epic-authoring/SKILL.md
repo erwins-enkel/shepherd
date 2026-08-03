@@ -1,6 +1,6 @@
 ---
 name: shepherd-epic-authoring
-description: Author a Shepherd-recognized epic in an attended session — decompose work into child issues, create them, and mark the parent body with the structural epic marker (fenced dag / task-list), optionally wiring native sub-issue + blocked_by links via epic import. Use when asked to create an epic with sub-issues, promote an existing issue #N to an epic, split an issue into child issues, or make a body of work drainable as an epic — especially mid-session, where no injected epic guidance exists.
+description: Author a Shepherd-recognized epic in an attended session — decompose work into child issues, create them, mark the parent body with the structural epic marker (fenced dag / task-list), and hand the optional native sub-issue + blocked_by link import to the operator. Use when asked to create an epic with sub-issues, promote an existing issue #N to an epic, split an issue into child issues, or make a body of work drainable as an epic — especially mid-session, where no injected epic guidance exists.
 ---
 
 # Shepherd Epic Authoring
@@ -21,7 +21,7 @@ gap: invoke it whenever an epic ask arises, at spawn or mid-session. It is
 attended by default (unattended drains run with skills disabled unless the
 operator opts out of context trimming) and
 richer than the injected blocks: it drafts the whole tree, gates outward
-actions on approval, and wires native links.
+actions on approval, and hands the native-link import back to the operator.
 
 This skill is **self-contained**: it ships in the Shepherd repo and runs in
 _other_ operators' repos, so everything it needs is below.
@@ -58,14 +58,14 @@ If the system prompt carries an **`<epic-authoring-directive>`** with an epic-dr
 (`PUT …/api/sessions/<id>/epic-draft`), Shepherd's guided epic-draft flow is driving this session.
 In that mode the hard gate and the GitHub writes are **owned by the server**: follow ONLY the
 decomposition guidance below (Stage 1), emit the draft by PUTting it to that endpoint, then **STOP**.
-Do **not** perform Stages 3–5 (`gh issue create`/`gh issue edit`, the epic-import endpoint) — the
+Do **not** perform Stages 3–5 (`gh issue create`/`gh issue edit`, the import handoff) — the
 operator approves the draft in the UI and the server materializes it. The directive is authoritative;
 this skill only lends it the slicing/authoring guidance.
 
 ## Stages
 
 Work the stages in order; track one todo per stage. **Nothing outward (issue
-creation, body edits, epic import) happens before the Stage 2 approval gate.**
+creation, body edits) happens before the Stage 2 approval gate.**
 
 ### 0. Orient
 
@@ -82,10 +82,10 @@ git remote -v                      # is there a GitHub remote?
 gh auth status 2>/dev/null         # is gh usable?
 ```
 
-A working GitHub remote + `gh` ⇒ **GitHub-native** (issue creation + epic
-import available). Otherwise **local/lightweight**: programmatic creation and
-import are unavailable (import asserts a GitHub-native forge) — the deliverable
-becomes an importable markdown file instead (see Stage 3).
+A working GitHub remote + `gh` ⇒ **GitHub-native**: you can create issues, and
+the operator can run the link import (Stage 4). Otherwise **local/lightweight**:
+programmatic creation is unavailable and import has no forge to write to — the
+deliverable becomes an importable markdown file instead (see Stage 3).
 
 ### 1. Draft
 
@@ -143,30 +143,55 @@ Write the approved tree to an importable markdown file (e.g. `BACKLOG.md`) and
 tell the operator it's the manual reference / future-import source — say this
 explicitly rather than failing silently.
 
-### 4. Import (GitHub-native only)
+### 4. Hand import to the operator (GitHub-native only)
 
-The body marker alone already makes the epic recognized and drainable; import
-additionally wires **native sub-issue + `blocked_by` links**. It is **not**
-automatic — trigger it per parent:
+**You are already done with the epic.** The body marker **is** the recognition
+contract — with it in place the epic is recognized and drainable. Import is a
+separate, optional step that additionally wires **native sub-issue +
+`blocked_by` links**; it is not automatic, and **you cannot trigger it**.
 
-```bash
-curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
-  --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
-  --data-urlencode "parent=<PARENT_NUM>"
-```
+**Do not call the import endpoint.** You reach the Shepherd server only through
+its restricted loopback ingress, which admits a short session-scoped allowlist
+(hooks, build queue, epic draft). The import route is repo-scoped, not
+session-scoped, so it is not on that allowlist — calling the main port instead
+lands on the operator auth gate and returns `{"error":"unauthorized"}` (401).
+That boundary is deliberate: import performs GitHub writes, which Shepherd keeps
+on the operator's side of the gate. **Never go looking for the operator password
+or an API token to get around it** — a 401 here is the system working.
 
-(`-G --data-urlencode` keeps the POST while URL-encoding the query, so a repo
-path containing a space or `&` can't break the request.)
+Instead, tell the operator import is pending and give them both paths:
 
-(Use your Shepherd server's host/port; `7330` is the default.) The response
-reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Re-check any
-`unresolved` member numbers — they usually mean a typo'd or foreign issue
-reference in the parent body — fix the body and re-import.
+1. **In the UI (one click, always available).** Open the Backlog, expand the
+   parent issue's row, and press **Import structure** — the button appears on
+   the epic panel for a marker-derived epic. The same action is offered as a
+   remediation inside that panel's **Diagnose** modal.
+2. **From their own shell**, if they'd rather. OPERATOR-RUN — this needs the
+   operator's credentials, so print it for them, do not run it:
+
+   ```bash
+   curl -s -X POST -G "http://127.0.0.1:7330/api/epic/import" \
+     -H "Authorization: Bearer $SHEPHERD_TOKEN" \
+     --data-urlencode "repo=$(git rev-parse --show-toplevel)" \
+     --data-urlencode "parent=<PARENT_NUM>"
+   ```
+
+   Use your Shepherd server's host/port; `7330` is the default. The bearer
+   header only works if `SHEPHERD_TOKEN` is configured on that server — it is
+   optional and unset by default; without it, use the UI. The
+   `-G`/`--data-urlencode` form keeps the POST while URL-encoding the query, so
+   a repo path containing a space or `&` can't break the request.
+
+The response reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Tell
+the operator that any `unresolved` member numbers usually mean a typo'd or
+foreign issue reference in the parent body — worth reporting back so the body can
+be fixed and import re-run.
 
 ### 5. Verify + hand off
 
-Confirm the parent now carries the marker (and, if imported, the native
-links). Then stop and point:
+Confirm the parent now carries the marker — re-read the body you just wrote
+(`gh issue view <PARENT_NUM> --json body`) and check the fence lists the real
+child numbers. Do **not** wait on import: it is the operator's step, so name it
+as pending rather than treating it as a precondition. Then stop and point:
 
 - **The epic itself is the deliverable — open NO pull request.** If this
   session was spawned on the issue being promoted, the parent-body marker is
@@ -175,17 +200,21 @@ links). Then stop and point:
   and its own PR; an agent cannot trigger that itself. Tell the operator the
   epic is ready to drain and name the **DAG roots** (children with no
   blockers) as the first ones to start.
+- **Import is the one thing still owed** (GitHub-native repos) — restate it as
+  an operator step, with the UI path from Stage 4, and note that it only wires
+  the native links: drain does not wait on it.
 
 ## Gate rules (reference)
 
 - **Outward actions are gated** on the Stage 2 approval — drafting is always
-  safe; creating, editing, and importing are not.
-- **GitHub-only operations:** `gh issue create` / `gh issue edit` and the epic
-  import endpoint require a GitHub-native forge; local/lightweight repos get
-  the markdown fallback.
+  safe; creating and editing are not.
+- **GitHub-only operations:** `gh issue create` / `gh issue edit` require a
+  GitHub-native forge; local/lightweight repos get the markdown fallback.
+- **Import is the operator's, never yours:** it is off the agent ingress
+  allowlist and 401s for you (Stage 4). Hand it over — never hunt for
+  credentials to force it through.
 - **Marker grammar:** members are `#<n>` lines inside the fenced dag block; an
   edge is `#<dependent> <- #<blocker>[, #<blocker>…]`; the task-list variant
   lists members only. Real numbers, one fence, marker mandatory.
 - **No PR:** when the ask is to author or promote an epic, stop once the
-  parent body carries the marker (and import, where available, reports no
-  `unresolved`).
+  parent body carries the marker and import has been handed to the operator.

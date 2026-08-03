@@ -111,8 +111,12 @@ export interface TailscaleServeOpts {
 export class TailscaleServeService {
   private byId = new Map<string, { port: number; state: ServeState }>();
   private queue: Promise<void> = Promise.resolve();
-  /** Latched by any serve mutation refused for lack of operator/root rights; cleared by the
-   *  next mutation that succeeds. Surfaced via {@link permissionDenied}. */
+  /** Latched by a `register`/`reconcileStartup` mutation refused for lack of operator/root
+   *  rights; cleared only by a subsequent SUCCESSFUL `register` — not by a successful
+   *  unregister or reconcile, neither of which clears it. That asymmetry is deliberate and
+   *  matches the hint the operator is given ("run `tailscale set --operator=…`, then reopen
+   *  the preview"): reopening a preview is a register, so the row goes green exactly when
+   *  the fix is proven on the path that was broken. Surfaced via {@link permissionDenied}. */
   private denied = false;
 
   constructor(private opts: TailscaleServeOpts) {}
@@ -225,9 +229,9 @@ export class TailscaleServeService {
   }
 
   /**
-   * True when the most recent serve mutation was refused for lack of operator/root
-   * rights (see {@link isServeConfigDenied}) — i.e. the host needs
-   * `tailscale set --operator=<user>` before any preview can be published.
+   * True when a serve mutation was refused for lack of operator/root rights (see
+   * {@link isServeConfigDenied}) and no later `register` has since succeeded — i.e. the
+   * host needs `tailscale set --operator=<user>` before any preview can be published.
    *
    * Reports OBSERVED failures only: a boot that has neither reconciled nor registered
    * anything yet reads `false`, and so does a disabled service. `reconcileStartup`

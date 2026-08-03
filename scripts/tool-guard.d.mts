@@ -31,13 +31,19 @@ export const BACKGROUND_CONTEXT: string;
 export function worktreeTmpfsReason(path: string): string;
 export function installTmpfsReason(path: string): string;
 
-/** Tmpfs roots (host mounts + `TMPDIR`/`TMP`/`TEMP` from `env`), de-duplicated. */
-export function tmpfsRoots(env?: Record<string, string | undefined>): string[];
+/** Is `path` really on a memory-backed filesystem? Asked of the kernel (statfs), never guessed from
+ *  the path — Shepherd points agents' `TMPDIR` at a DISK-backed dir on purpose (#1875). */
+export function isTmpfsPath(path: string, statfs?: (p: string) => { type: number }): boolean;
 
-/** Decide one event: `null` = no opinion (normal permission flow). Pure. */
+/** Injectable environment for the rules. `isTmpfs` defaults to {@link isTmpfsPath}. */
+export interface ToolGuardDeps {
+  isTmpfs?: (path: string) => boolean;
+}
+
+/** Decide one event: `null` = no opinion (normal permission flow). */
 export function decideToolGuard(
   event: ToolGuardEvent | null | undefined,
-  env?: Record<string, string | undefined>,
+  deps?: ToolGuardDeps,
 ): ToolGuardDecision | null;
 
 /** Wrap a decision in the `hookSpecificOutput` envelope, or `null` for silence. */

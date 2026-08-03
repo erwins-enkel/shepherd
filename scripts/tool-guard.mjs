@@ -16,8 +16,8 @@
 // a hazard MENTIONED as data (in a commit message, a PR body, a heredoc) must never read as one
 // INVOKED, and an ambiguous command line must produce no decision at all.
 
-import { realpathSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
+import { realpathSync, statfsSync } from "node:fs";
+import { dirname, isAbsolute, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 /** Reason attached to a denied `git stash` — the content of the retired worktree-stash notice. */
@@ -33,23 +33,25 @@ export const STASH_REASON =
 /** Reason attached to a denied worktree-add under a tmpfs root (retired tmpfs notice, part 1). */
 export function worktreeTmpfsReason(path) {
   return (
-    `Blocked by Shepherd: \`${path}\` is on a small tmpfs with a HARD INODE CAP, independent of ` +
-    "its byte size. A git worktree there exhausts the inode table, after which every write fails " +
-    "with ENOSPC while `df -h` still shows plenty of free space (`df -i` is what shows the real " +
-    "cause). Put the worktree on the SAME filesystem as the repo instead — never under the " +
-    "scratchpad, $TMPDIR, or /tmp."
+    `Blocked by Shepherd: \`${path}\` is on a memory-backed filesystem (tmpfs) with a HARD INODE ` +
+    "CAP, independent of its byte size. A git worktree there exhausts the inode table, after which " +
+    "every write fails with ENOSPC while `df -h` still shows plenty of free space (`df -i` is what " +
+    "shows the real cause). Put the worktree on a disk-backed filesystem instead — your `$TMPDIR` " +
+    "is one (Shepherd points it at a disk-backed scratch dir for exactly this reason), as is the " +
+    "repo's own filesystem."
   );
 }
 
 /** Reason attached to a denied dependency install under a tmpfs root (retired notice, part 2). */
 export function installTmpfsReason(path) {
   return (
-    `Blocked by Shepherd: this would install dependencies under \`${path}\`, which is on a small ` +
-    "tmpfs with a HARD INODE CAP. A package manager must keep its content-addressable store on the " +
-    "SAME filesystem as the install target so it can hardlink, so it forks a second store there — " +
-    "hundreds of thousands of tiny files that exhaust the tmpfs INODE table. Every subsequent write " +
-    "then fails with ENOSPC while `df -h` still shows free space (`df -i` shows the real cause). " +
-    "Run the install inside the repo worktree instead."
+    `Blocked by Shepherd: this would install dependencies under \`${path}\`, which is on a ` +
+    "memory-backed filesystem (tmpfs) with a HARD INODE CAP. A package manager must keep its " +
+    "content-addressable store on the SAME filesystem as the install target so it can hardlink, so " +
+    "it forks a second store there — hundreds of thousands of tiny files that exhaust the tmpfs " +
+    "INODE table. Every subsequent write then fails with ENOSPC while `df -h` still shows free " +
+    "space (`df -i` shows the real cause). Run the install in the repo worktree, or under your " +
+    "`$TMPDIR` (Shepherd points it at a disk-backed scratch dir for exactly this reason)."
   );
 }
 
@@ -87,21 +89,36 @@ const INSTALL_SUBCOMMANDS = new Set(["install", "add", "ci", "i"]);
 /** `git stash` subcommands that READ the shared stack without mutating it. */
 const SAFE_STASH_SUBCOMMANDS = new Set(["list", "show", "create"]);
 
-/** Tmpfs roots a worktree or install must never land under. `env.TMPDIR` is Shepherd's own
- *  per-session scratchpad pin (#560); the rest are the standard host tmpfs mounts. */
-export function tmpfsRoots(env = {}) {
-  const roots = ["/tmp", "/var/tmp", "/dev/shm"];
-  for (const key of ["TMPDIR", "TMP", "TEMP"]) {
-    const v = env[key];
-    if (typeof v === "string" && v.startsWith("/")) roots.push(v);
-  }
-  return [...new Set(roots.map((r) => r.replace(/\/+$/, "") || "/"))];
-}
+/** `statfs` magic numbers for the memory-backed filesystems whose inode table this rule protects. */
+const TMPFS_MAGIC = 0x01021994;
+const RAMFS_MAGIC = 0x858458f6;
 
-/** True when `path` IS one of `roots` or sits underneath one. */
-function underAny(path, roots) {
-  const p = path.replace(/\/+$/, "") || "/";
-  return roots.some((root) => p === root || p.startsWith(`${root}/`));
+/**
+ * Is `path` REALLY on a memory-backed filesystem? Asked of the kernel, not guessed from the path.
+ *
+ * Deliberately NOT a path allow/deny list, and emphatically NOT `$TMPDIR`: Shepherd points every
+ * spawned agent's `TMPDIR` at the DISK-backed `agentTmpDir()` (`~/.cache/shepherd/tmp`, see
+ * src/tmp-sweep.ts, #1875) precisely SO THAT worktrees and dependency installs can land there
+ * safely. Treating `$TMPDIR` as a deny-root inverted that: it hard-blocked the exact location
+ * Shepherd redirects agents to, with a reason falsely claiming the path was tmpfs. Asking statfs
+ * makes the denial true by construction — and keeps the reason text honest — on any host layout.
+ *
+ * A path that does not exist yet (`git worktree add <new dir>`) is answered from its nearest
+ * existing ancestor, which is the filesystem it would be created on. Any error → `false`, matching
+ * the module's fail-open contract.
+ */
+export function isTmpfsPath(path, statfs = statfsSync) {
+  let p = resolve(path);
+  for (;;) {
+    try {
+      const { type } = statfs(p);
+      return type === TMPFS_MAGIC || type === RAMFS_MAGIC;
+    } catch {
+      const parent = dirname(p);
+      if (parent === p) return false; // reached "/" without a readable answer
+      p = parent;
+    }
+  }
 }
 
 /** Strip one layer of surrounding quotes from a shell word (the guard never evaluates a word;
@@ -267,10 +284,11 @@ function stashTouchesSharedStack(args) {
  * Decide what to do about one `PreToolUse` event. Returns `null` for "no opinion" (the normal
  * permission flow applies), or the `hookSpecificOutput` payload minus its `hookEventName`.
  *
- * `event` is the raw hook body; `env` supplies the tmpfs roots (defaults to none beyond the
- * standard host mounts). Pure — no filesystem, no process state.
+ * `event` is the raw hook body. `deps.isTmpfs` is the ONLY environment this touches — injected so
+ * the rules stay pure and testable, and so a test never depends on the host's mount table; it
+ * defaults to {@link isTmpfsPath}, which asks the kernel.
  */
-export function decideToolGuard(event, env = {}) {
+export function decideToolGuard(event, deps = {}) {
   if (!event || typeof event !== "object") return null;
   if (event.tool_name !== "Bash") return null;
   const input = event.tool_input;
@@ -278,7 +296,7 @@ export function decideToolGuard(event, env = {}) {
   const command = typeof input.command === "string" ? input.command : "";
   if (!command.trim()) return null;
 
-  const denial = denyFor(command, event.cwd, tmpfsRoots(env));
+  const denial = denyFor(command, event.cwd, deps.isTmpfs ?? isTmpfsPath);
   if (denial) return denial;
   if (opensPullRequest(command)) return { additionalContext: PR_CREATE_CONTEXT };
   if (isBackgrounded(input, command)) return { additionalContext: BACKGROUND_CONTEXT };
@@ -302,7 +320,7 @@ function isBackgrounded(input, command) {
 }
 
 /** The denial rules — the two hazards this guard exists to stop. `null` = nothing recognized. */
-function denyFor(command, eventCwd, roots) {
+function denyFor(command, eventCwd, isTmpfs) {
   let cwd = typeof eventCwd === "string" ? eventCwd : undefined;
 
   for (const segment of segments(command)) {
@@ -330,7 +348,7 @@ function denyFor(command, eventCwd, roots) {
         // unless the cwd already is one — which is itself the condition being denied.
         for (const operand of sub.slice(2)) {
           const path = resolvePath(operand, cwd);
-          if (path && underAny(path, roots)) {
+          if (path && isTmpfs(path)) {
             return {
               permissionDecision: "deny",
               permissionDecisionReason: worktreeTmpfsReason(path),
@@ -344,7 +362,7 @@ function denyFor(command, eventCwd, roots) {
     if (PACKAGE_MANAGERS.has(cmd)) {
       const sub = args.filter((a) => !a.startsWith("-"));
       const installs = sub.length === 0 ? cmd === "yarn" : INSTALL_SUBCOMMANDS.has(sub[0]);
-      if (installs && typeof cwd === "string" && underAny(cwd, roots)) {
+      if (installs && typeof cwd === "string" && isAbsolute(cwd) && isTmpfs(cwd)) {
         return { permissionDecision: "deny", permissionDecisionReason: installTmpfsReason(cwd) };
       }
     }
@@ -374,7 +392,7 @@ function readStdin() {
 async function main() {
   let out = null;
   try {
-    out = hookOutput(decideToolGuard(JSON.parse(await readStdin()), process.env));
+    out = hookOutput(decideToolGuard(JSON.parse(await readStdin())));
   } catch {
     out = null; // fail open on malformed input — never block on a parse error
   }

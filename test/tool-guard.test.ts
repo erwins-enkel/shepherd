@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import {
   decideToolGuard,
   hookOutput,
-  tmpfsRoots,
+  isTmpfsPath,
   type ToolGuardContext,
   type ToolGuardDenial,
   type ToolGuardEvent,
@@ -21,12 +21,19 @@ const bash = (command: string, cwd = "/home/u/repo") => ({
   cwd,
 });
 
-const ENV = { TMPDIR: "/home/u/.cache/shepherd/tmp/claude-1000/sess/scratchpad" };
+/** The agent's own scratch tree. Shepherd points spawns' `TMPDIR` at a DISK-backed dir (#1875)
+ *  precisely so worktrees and installs can land there, so it must NOT read as a tmpfs. */
+const AGENT_TMP = "/home/u/.cache/shepherd/tmp/claude-1000/sess/scratchpad";
+/** Host mounts that genuinely are memory-backed — the only thing the rule may deny. */
+const TMPFS = ["/tmp", "/var/tmp", "/dev/shm"];
+const DEPS = {
+  isTmpfs: (p: string) => TMPFS.some((root) => p === root || p.startsWith(`${root}/`)),
+};
 
 /** A decision, read as a denial (the context-only shapes assert through `ctx` instead). */
 const deny = (event: ToolGuardEvent | null | undefined) =>
-  decideToolGuard(event, ENV) as ToolGuardDenial | null;
-const ctx = (event: ToolGuardEvent) => decideToolGuard(event, ENV) as ToolGuardContext | null;
+  decideToolGuard(event, DEPS) as ToolGuardDenial | null;
+const ctx = (event: ToolGuardEvent) => decideToolGuard(event, DEPS) as ToolGuardContext | null;
 
 describe("#2002 stash rule (retires the worktree-stash notice)", () => {
   it("denies the invocations that touch the shared stack", () => {
@@ -110,7 +117,6 @@ describe("#2002 tmpfs rules (retire the tmpfs-worktree notice)", () => {
       "git worktree add /tmp/wt main",
       "git worktree add /var/tmp/wt",
       "git worktree add /dev/shm/wt",
-      `git worktree add ${ENV.TMPDIR}/wt`,
       "cd /tmp && git worktree add relative-wt",
       // A flag's value survives the flag filter, so the real path is not always the first operand.
       "git worktree add -b feat /tmp/wt",
@@ -130,7 +136,7 @@ describe("#2002 tmpfs rules (retire the tmpfs-worktree notice)", () => {
   it("denies a dependency install whose effective cwd is on tmpfs", () => {
     for (const [cmd, cwd] of [
       ["bun install", "/tmp/x"],
-      ["npm install", ENV.TMPDIR],
+      ["npm install", "/tmp/agent-scratch"],
       ["pnpm install --frozen-lockfile", "/tmp"],
       ["yarn", "/dev/shm/p"],
       ["npm ci", "/var/tmp/p"],
@@ -167,11 +173,29 @@ describe("#2002 the guard fails open", () => {
     ).toBeNull();
   });
 
-  it("collects tmpfs roots from the host mounts plus the env", () => {
-    expect(tmpfsRoots()).toEqual(["/tmp", "/var/tmp", "/dev/shm"]);
-    expect(tmpfsRoots({ TMPDIR: "/scratch/" })).toContain("/scratch");
-    expect(tmpfsRoots({ TMPDIR: "/tmp" })).toEqual(["/tmp", "/var/tmp", "/dev/shm"]); // de-duped
-    expect(tmpfsRoots({ TMPDIR: "relative" })).toEqual(["/tmp", "/var/tmp", "/dev/shm"]);
+  it("asks the kernel whether a path is tmpfs, and answers a new dir from its parent", () => {
+    const TMPFS_MAGIC = 0x01021994;
+    const fake = (byPath: Record<string, number>) => (p: string) => {
+      if (!(p in byPath)) throw new Error("ENOENT");
+      return { type: byPath[p]! };
+    };
+    expect(isTmpfsPath("/tmp", fake({ "/tmp": TMPFS_MAGIC }))).toBe(true);
+    expect(isTmpfsPath("/home/u/repo", fake({ "/home/u/repo": 0x9123683e }))).toBe(false);
+    // A worktree path that does not exist yet is judged by the filesystem it would land on.
+    expect(isTmpfsPath("/tmp/new/wt", fake({ "/tmp": TMPFS_MAGIC }))).toBe(true);
+    // Unanswerable all the way to "/" ⇒ no claim, so no denial.
+    expect(isTmpfsPath("/tmp/new/wt", fake({}))).toBe(false);
+  });
+
+  it("never treats the agent's disk-backed TMPDIR as a hazard (#1875)", () => {
+    // Shepherd redirects every spawn's TMPDIR to `~/.cache/shepherd/tmp` SO THAT worktrees and
+    // installs are safe there. Deriving deny-roots from $TMPDIR inverted that and hard-blocked the
+    // one location the redirect exists to provide — with a reason that misstated the filesystem.
+    expect(deny(bash(`git worktree add ${AGENT_TMP}/wt`))).toBeNull();
+    expect(deny(bash("bun install", AGENT_TMP))).toBeNull();
+    expect(deny(bash("npm ci", `${AGENT_TMP}/nested/pkg`))).toBeNull();
+    // The real host tmpfs is still denied.
+    expect(deny(bash("git worktree add /tmp/wt"))?.permissionDecision).toBe("deny");
   });
 });
 
@@ -199,7 +223,7 @@ describe("#2002 deterministic backstops for the moved notices", () => {
       (
         decideToolGuard(
           { tool_name: "Bash", tool_input: { command: "bun run dev", run_in_background: true } },
-          ENV,
+          DEPS,
         ) as ToolGuardContext | null
       )?.additionalContext,
     ).toContain("PID 1");

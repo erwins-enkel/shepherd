@@ -113,7 +113,9 @@ interpreter is the node binary the membrane already binds — deliberately not `
   moved.
 - **Every guard rule fails open.** Unparseable input, an unknown shape, a relative path with no
   usable cwd → no decision. It blocks only the two shapes it positively recognizes, and an ordinary
-  `bun install` in a worktree is untouched. The command splitter is quoting- and heredoc-aware for
+  `bun install` in a worktree is untouched. "On a tmpfs" is asked of the kernel (`statfs`), never
+  inferred from the path — notably NOT from `$TMPDIR`, which Shepherd deliberately points at a
+  DISK-backed dir (#1875) so worktrees and installs can land there safely. The command splitter is quoting- and heredoc-aware for
   the same reason: a naive split on `;`/newlines would read a hazard MENTIONED as data (a commit
   message, a PR body) as one INVOKED and hard-block a legitimate call — so an ambiguous command
   line (unterminated quote or heredoc) yields no segments, and therefore no decision.

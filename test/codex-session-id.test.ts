@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { findCodexSessionId } from "../src/codex-session-id";
+import { findCodexRollout, findCodexSessionId } from "../src/codex-session-id";
 
 let home: string;
 let sessionsDir: string;
@@ -128,4 +128,26 @@ test("missing CODEX_HOME sessions dir → null (graceful)", () => {
   } finally {
     rmSync(empty, { recursive: true, force: true });
   }
+});
+
+// findCodexRollout is the same scan, surfacing the FILE as well as the id — the transcript
+// readers (issue #1992) need the path, the resume/seed callers only ever wanted the id.
+test("findCodexRollout returns the matching rollout's path alongside its id", () => {
+  writeRollout("rollout-old.jsonl", { session_id: "uuid-old", cwd: CWD, source: "cli" }, 1000);
+  writeRollout("rollout-new.jsonl", { session_id: "uuid-new", cwd: CWD, source: "cli" }, 2000);
+  expect(findCodexRollout(CWD, 0, home)).toEqual({
+    id: "uuid-new",
+    path: join(sessionsDir, "rollout-new.jsonl"),
+  });
+});
+
+test("findCodexSessionId is exactly findCodexRollout's id (no divergence)", () => {
+  writeRollout("rollout-exec.jsonl", { session_id: "uuid-exec", cwd: CWD, source: "exec" }, 3000);
+  writeRollout("rollout-cli.jsonl", { session_id: "uuid-cli", cwd: CWD, source: "cli" }, 2000);
+  expect(findCodexSessionId(CWD, 0, home)).toBe(findCodexRollout(CWD, 0, home)!.id);
+});
+
+test("findCodexRollout → null when nothing matches", () => {
+  writeRollout("rollout-other.jsonl", { session_id: "o", cwd: "/nope", source: "cli" }, 1000);
+  expect(findCodexRollout(CWD, 0, home)).toBeNull();
 });

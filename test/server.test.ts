@@ -8,6 +8,7 @@ import {
   statSync,
   readFileSync,
   writeFileSync,
+  utimesSync,
 } from "node:fs";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -564,6 +565,148 @@ test("GET /api/sessions/:id/activity resolves the transcript under spawnAccountD
   } finally {
     config.claudeProjectsDir = origProjectsDir;
   }
+});
+
+// ── Codex activity (#1992) ───────────────────────────────────────────────────────────────────
+// A Codex session writes NO ~/.claude/projects JSONL; its transcript is a rollout under
+// $CODEX_HOME, located by the session's launch-unique worktree cwd. Every fixture below is
+// written ONLY there (config.claudeProjectsDir points at an empty dir), so a non-empty body is
+// reachable through exactly one code path — asserting "entries came back" cannot fail open.
+
+const CODEX_WT = "/wt-codex";
+
+interface RolloutSpec {
+  name: string;
+  cwd?: string;
+  source?: string;
+  /** Becomes the entry's `summary`, so each rollout is identifiable in the response. */
+  cmd?: string;
+  /** Seconds; defaults to now (inside the session's createdAt − skew window). */
+  mtimeSec?: number;
+}
+
+/** Seed a temp $CODEX_HOME with rollout jsonl files (session_meta header + one tool call). */
+function seedCodexHome(rollouts: RolloutSpec[]): string {
+  const home = join(tmpRoot, `codex-home-${rollouts.map((r) => r.name).join("-")}`);
+  const sessions = join(home, "sessions");
+  mkdirSync(sessions, { recursive: true });
+  for (const r of rollouts) {
+    const lines = [
+      JSON.stringify({
+        timestamp: "2026-08-01T10:00:00.000Z",
+        type: "session_meta",
+        payload: { session_id: `id-${r.name}`, cwd: r.cwd ?? CODEX_WT, source: r.source ?? "cli" },
+      }),
+      JSON.stringify({
+        timestamp: "2026-08-01T10:00:20.000Z",
+        type: "response_item",
+        payload: {
+          type: "custom_tool_call",
+          call_id: `call-${r.name}`,
+          name: "exec",
+          input: `const r = await tools.exec_command({cmd:${JSON.stringify(r.cmd ?? "echo hi")},workdir:"${CODEX_WT}"});`,
+        },
+      }),
+    ];
+    const path = join(sessions, r.name);
+    writeFileSync(path, lines.join("\n") + "\n");
+    if (r.mtimeSec !== undefined) utimesSync(path, r.mtimeSec, r.mtimeSec);
+  }
+  return home;
+}
+
+/** Run `fn` with $CODEX_HOME seeded and claudeProjectsDir pointed at an empty dir, restoring both. */
+async function withCodexHome(rollouts: RolloutSpec[], fn: () => Promise<void>): Promise<void> {
+  const home = seedCodexHome(rollouts);
+  const emptyProjects = join(tmpRoot, "empty-projects-codex");
+  mkdirSync(emptyProjects, { recursive: true });
+  const prevHome = process.env.CODEX_HOME;
+  const prevProjects = config.claudeProjectsDir;
+  process.env.CODEX_HOME = home;
+  config.claudeProjectsDir = emptyProjects;
+  try {
+    await fn();
+  } finally {
+    if (prevHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevHome;
+    config.claudeProjectsDir = prevProjects;
+  }
+}
+
+const CODEX_SESSION = {
+  ...USAGE_SESSION,
+  worktreePath: CODEX_WT,
+  agentProvider: "codex" as const,
+  claudeSessionId: "c0ffee00-0000-4000-8000-0000000000c0",
+};
+
+async function activityOf(app: ReturnType<typeof makeApp>, id: string) {
+  const res = await app.fetch(new Request(`http://x/api/sessions/${id}/activity`));
+  expect(res.status).toBe(200);
+  return (await res.json()) as Array<{ tool: string; summary: string }>;
+}
+
+test("GET /api/sessions/:id/activity reads a Codex session's rollout under $CODEX_HOME", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await withCodexHome([{ name: "rollout-mine.jsonl", cmd: "bun test ./test" }], async () => {
+    const s = deps.store.create(CODEX_SESSION);
+    const entries = await activityOf(app, s.id);
+    expect(entries.map((e) => [e.tool, e.summary])).toEqual([["exec", "$ bun test ./test"]]);
+  });
+});
+
+test("GET /api/sessions/:id/activity: the SAME fixture yields [] for a claude session", async () => {
+  // Negative control pinning the dispatch direction — a reader that tries both providers, or one
+  // that ignores agentProvider, would surface the rollout here.
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await withCodexHome([{ name: "rollout-mine.jsonl", cmd: "bun test ./test" }], async () => {
+    const s = deps.store.create({ ...CODEX_SESSION, agentProvider: "claude" as const });
+    expect(await activityOf(app, s.id)).toEqual([]);
+  });
+});
+
+test("GET /api/sessions/:id/activity: two cli rollouts share the cwd → the NEWER wins", async () => {
+  // The post-restore shape: a relaunch writes a new rollout under the same worktree cwd. This is
+  // why the read uses findCodexRollout's newest-wins rule and NOT CodexRolloutResolver, whose
+  // unique-candidate rule would resolve nothing here for the rest of the session's life.
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  const nowSec = Math.floor(Date.now() / 1000);
+  await withCodexHome(
+    [
+      { name: "rollout-before-restore.jsonl", cmd: "old run", mtimeSec: nowSec - 120 },
+      { name: "rollout-after-restore.jsonl", cmd: "new run", mtimeSec: nowSec - 10 },
+    ],
+    async () => {
+      const s = deps.store.create(CODEX_SESSION);
+      expect((await activityOf(app, s.id)).map((e) => e.summary)).toEqual(["$ new run"]);
+    },
+  );
+});
+
+test("GET /api/sessions/:id/activity: a non-isolated Codex session yields []", async () => {
+  // Its cwd is the shared repo checkout — also used by siblings, relaunches and the operator's own
+  // codex runs — so no rollout is attributable to this row. restore() refuses for the same reason.
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await withCodexHome([{ name: "rollout-shared.jsonl", cmd: "someone else" }], async () => {
+    const s = deps.store.create({ ...CODEX_SESSION, isolated: false });
+    expect(await activityOf(app, s.id)).toEqual([]);
+  });
+});
+
+test("GET /api/sessions/:id/activity never adopts a reviewer's (source=exec) rollout", async () => {
+  const deps = makeDeps();
+  const app = makeApp(deps);
+  await withCodexHome(
+    [{ name: "rollout-reviewer.jsonl", source: "exec", cmd: "critic run" }],
+    async () => {
+      const s = deps.store.create(CODEX_SESSION);
+      expect(await activityOf(app, s.id)).toEqual([]);
+    },
+  );
 });
 
 test("GET /api/sessions/:id/activity 404s for unknown id", async () => {

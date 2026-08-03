@@ -5,6 +5,8 @@ import {
   parseCodexUsage,
   parseCodexActivity,
   readCodexTranscriptSignals,
+  codexSessionActivity,
+  CodexTranscriptLocator,
 } from "../src/codex-activity";
 
 const FIXTURE_PATH = join(import.meta.dir, "fixtures/codex-activity/rollout-role-exec.jsonl");
@@ -128,5 +130,142 @@ describe("readCodexTranscriptSignals", () => {
     const r = readCodexTranscriptSignals(join(import.meta.dir, "fixtures/does-not-exist.jsonl"));
     expect(r.snapshot).toBeNull();
     expect(r.activity).toBeNull();
+  });
+});
+
+describe("codexSessionActivity", () => {
+  test("reads + parses a rollout into the same entries parseCodexActivity yields", async () => {
+    expect(await codexSessionActivity(FIXTURE_PATH, -1)).toEqual(parseCodexActivity(FIXTURE, -1));
+  });
+
+  test("missing file → [] (the Activity tab degrades, never 500s)", async () => {
+    expect(await codexSessionActivity(join(import.meta.dir, "fixtures/nope.jsonl"))).toEqual([]);
+  });
+
+  test("unreadable path (a directory) → [] rather than a throw", async () => {
+    expect(await codexSessionActivity(import.meta.dir)).toEqual([]);
+  });
+});
+
+describe("CodexTranscriptLocator", () => {
+  const SESSION = {
+    id: "sess-1",
+    worktreePath: "/wt/task-1",
+    createdAt: 10_000_000,
+    isolated: true,
+  };
+
+  /** Controllable clock + a spy-able finder — no filesystem in the loop. */
+  function harness(found: { id: string; path: string } | null) {
+    let now = 0;
+    let result = found;
+    const calls: Array<{ worktreePath: string; notBeforeMs: number }> = [];
+    const locator = new CodexTranscriptLocator({
+      now: () => now,
+      find: (worktreePath, notBeforeMs) => {
+        calls.push({ worktreePath, notBeforeMs });
+        return result;
+      },
+    });
+    return {
+      locator,
+      calls,
+      advance: (ms: number) => {
+        now += ms;
+      },
+      setResult: (r: { id: string; path: string } | null) => {
+        result = r;
+      },
+    };
+  }
+
+  const HIT = { id: "roll-a", path: "/codex/rollout-a.jsonl" };
+
+  test("resolves through find() and memoises — the 5s poll does not rescan", () => {
+    const h = harness(HIT);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    h.advance(5_000);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    h.advance(5_000);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.calls.length).toBe(1);
+  });
+
+  test("scans with the createdAt mtime floor, minus the clock-skew allowance", () => {
+    const h = harness(HIT);
+    h.locator.pathFor(SESSION);
+    expect(h.calls[0]).toEqual({
+      worktreePath: SESSION.worktreePath,
+      notBeforeMs: SESSION.createdAt - 5 * 60_000,
+    });
+  });
+
+  test("past the TTL it re-derives — a restore's NEW rollout is picked up", () => {
+    const h = harness(HIT);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    const next = { id: "roll-b", path: "/codex/rollout-b.jsonl" };
+    h.setResult(next);
+    h.advance(29_000); // still inside the TTL → stale path, no rescan
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    h.advance(2_000); // 31s > TTL
+    expect(h.locator.pathFor(SESSION)).toBe(next.path);
+    expect(h.calls.length).toBe(2);
+  });
+
+  test("misses back off exponentially, capped, and clear on a later hit", () => {
+    const h = harness(null);
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // scan 1 → backoff 2s
+    h.advance(1_000);
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // inside backoff → no scan
+    expect(h.calls.length).toBe(1);
+    h.advance(1_000);
+    expect(h.locator.pathFor(SESSION)).toBeNull(); // scan 2 → backoff 4s
+    expect(h.calls.length).toBe(2);
+
+    // widen past the cap: 8s, 16s→capped 15s, …
+    for (const step of [4_000, 8_000, 15_000, 15_000]) {
+      h.advance(step);
+      expect(h.locator.pathFor(SESSION)).toBeNull();
+    }
+    expect(h.calls.length).toBe(6);
+
+    // a rollout finally appears: the next attempt after the cap resolves and drops the backoff
+    h.setResult(HIT);
+    h.advance(15_000);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    h.setResult(null); // a hit is memoised, so no rescan can undo it inside the TTL
+    h.advance(1_000);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.calls.length).toBe(7);
+  });
+
+  test("non-isolated session → null without ever scanning (cwd is unattributable)", () => {
+    const h = harness(HIT);
+    expect(h.locator.pathFor({ ...SESSION, isolated: false })).toBeNull();
+    expect(h.calls.length).toBe(0);
+  });
+
+  test("reset() drops both the memoised hit and the backoff", () => {
+    const h = harness(HIT);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    h.locator.reset(SESSION.id);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.calls.length).toBe(2);
+  });
+
+  test("caches per session id — two sessions never share a resolution", () => {
+    const h = harness(HIT);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    const other = {
+      id: "sess-2",
+      worktreePath: "/wt/task-2",
+      createdAt: 20_000_000,
+      isolated: true,
+    };
+    const b = { id: "roll-b", path: "/codex/rollout-b.jsonl" };
+    h.setResult(b);
+    expect(h.locator.pathFor(other)).toBe(b.path);
+    expect(h.locator.pathFor(SESSION)).toBe(HIT.path);
+    expect(h.calls.length).toBe(2);
   });
 });

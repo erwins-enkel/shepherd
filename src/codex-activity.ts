@@ -5,9 +5,14 @@ import { readTranscriptTail, type ActivityEntry } from "./activity";
 import { readActivitySignal, signalFrom, type SessionActivity } from "./activity-signal";
 import { snapshotFrom, type ActivitySnapshot } from "./stall";
 import { codexHome, listRolloutFiles } from "./codex-usage";
-import { readSessionMeta } from "./codex-session-id";
+import {
+  CODEX_ID_SKEW_MS,
+  findCodexRollout,
+  readSessionMeta,
+  type CodexRollout,
+} from "./codex-session-id";
 import { jsonlPathFor, readSessionUsage, type SessionUsage } from "./usage";
-import type { AgentProvider } from "./types";
+import type { AgentProvider, Session } from "./types";
 
 const CMD_MAX = 60;
 const DEFAULT_LIMIT = 30;
@@ -475,6 +480,100 @@ export async function reviewerUsage(
     }
   }
   return readSessionUsage(worktreePath, trackingId);
+}
+
+// ── Task-session transcript locating + reading (issue #1992) ────────────────
+//
+// The reviewer readers above resolve an `exec` spawn's rollout through
+// `CodexRolloutResolver` (unique-cwd, fail-safe). A TASK session is different in kind: it is
+// interactive (`source: "cli"`) and long-lived, so a restore/relaunch writes a NEW rollout under
+// the SAME worktree cwd and the unique-candidate rule would resolve nothing for the rest of the
+// session's life. Task sessions therefore use `findCodexRollout`'s newest-wins rule — the same one
+// `restore()` and the poller's id capture already rely on.
+
+/** How long a proven rollout path is reused before re-deriving. Bounds how long a just-restored
+ *  session can still be read from its PREVIOUS rollout; file CONTENT is re-read on every request
+ *  regardless, so live output is never stale. */
+const ROLLOUT_TTL_MS = 30_000;
+/** Miss backoff: the scan is sync FS work on the single event loop (a full miss reads every
+ *  rollout header), and the Activity tab polls every 5s. Capped well below the reviewer
+ *  resolver's 60s so a just-started session's tab fills within one cap at worst. */
+const ROLLOUT_MISS_BASE_MS = 2_000;
+const ROLLOUT_MISS_CAP_MS = 15_000;
+
+export interface CodexTranscriptLocatorDeps {
+  /** Injected for tests; production is `findCodexRollout` over the real `$CODEX_HOME`. */
+  find: (worktreePath: string, notBeforeMs: number) => CodexRollout | null;
+  now: () => number;
+}
+
+/**
+ * Where a Codex TASK session's rollout lives, with a positive TTL cache and a miss backoff so the
+ * Activity tab's 5s poll can't rescan `$CODEX_HOME` on every request. One instance per app (see
+ * `AppDeps.codexTranscripts`); pure process state, safe to lose on restart.
+ *
+ * NON-ISOLATED sessions always yield null: they run in the shared repo checkout, whose cwd is also
+ * used by sibling sessions, relaunches and the operator's own `codex` runs, so no rollout can be
+ * attributed to one row. `resolveCodexRestoreId` refuses restore for exactly this reason (#1175) —
+ * showing another session's conversation would be worse than showing nothing.
+ */
+export class CodexTranscriptLocator {
+  // Both maps are keyed by session id and hold two words per entry; they grow only with the number
+  // of distinct Codex sessions whose transcript was read since boot, so no eviction is warranted.
+  private hits = new Map<string, { path: string; at: number }>();
+  private misses = new Map<string, { nextAt: number; count: number }>();
+
+  constructor(
+    private deps: CodexTranscriptLocatorDeps = { find: findCodexRollout, now: () => Date.now() },
+  ) {}
+
+  /** The session's rollout path, or null when it is unresolvable (or being backed off). */
+  pathFor(s: Pick<Session, "id" | "worktreePath" | "createdAt" | "isolated">): string | null {
+    if (!s.isolated) return null;
+
+    const now = this.deps.now();
+    const hit = this.hits.get(s.id);
+    if (hit) {
+      if (now - hit.at < ROLLOUT_TTL_MS) return hit.path;
+      this.hits.delete(s.id); // expired → re-derive below (a restore may have moved the rollout)
+    }
+
+    const miss = this.misses.get(s.id);
+    if (miss && now < miss.nextAt) return null;
+
+    const found = this.deps.find(s.worktreePath, s.createdAt - CODEX_ID_SKEW_MS);
+    if (!found) {
+      const count = (miss?.count ?? 0) + 1;
+      const delay = Math.min(ROLLOUT_MISS_BASE_MS * 2 ** (count - 1), ROLLOUT_MISS_CAP_MS);
+      this.misses.set(s.id, { nextAt: now + delay, count });
+      return null;
+    }
+    this.misses.delete(s.id);
+    this.hits.set(s.id, { path: found.path, at: now });
+    return found.path;
+  }
+
+  /** Drop a session's cached resolution + backoff (tests; a caller that knows the rollout moved). */
+  reset(id: string): void {
+    this.hits.delete(id);
+    this.misses.delete(id);
+  }
+}
+
+/** Read + parse one Codex rollout into the same `ActivityEntry[]` the Claude reader produces.
+ *  The Codex peer of `sessionActivity` (`src/activity.ts`): missing/unreadable → [], never throws,
+ *  so a vanished rollout degrades the Activity tab to empty rather than 500ing it. */
+export async function codexSessionActivity(
+  path: string,
+  limit = DEFAULT_LIMIT,
+): Promise<ActivityEntry[]> {
+  try {
+    const file = Bun.file(path);
+    if (!(await file.exists())) return [];
+    return parseCodexActivity(await file.text(), limit);
+  } catch {
+    return [];
+  }
 }
 
 // ── Boot-time usage backfill ────────────────────────────────────────────────

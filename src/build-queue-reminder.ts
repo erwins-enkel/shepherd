@@ -32,10 +32,9 @@ const DEFAULT_MAX_NUDGES = 3;
 /** The reconcile reminder injected into a drifted, settled-idle session. */
 export const RECONCILE_STEER =
   "🔄 Your build-queue step statuses look out of date — they don't reflect your actual " +
-  "progress (the queue still shows steps pending that you've moved past). Reconcile them now " +
-  "via the build-queue API: mark the step you're currently on `active` and any finished steps " +
-  "`done`. Marking a later step automatically completes the earlier ones, so a single update " +
-  "is enough. Then carry on.";
+  "progress (the queue still shows steps pending that you've moved past). Reconcile them now: " +
+  "mark the step you're currently on `active` and any finished steps `done`. Marking a later " +
+  "step automatically completes the earlier ones, so a single update is enough. Then carry on.";
 
 /**
  * Pure drift test. A queue is "drifted" when it's approved with work outstanding but no step

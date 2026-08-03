@@ -458,8 +458,10 @@ test("#1944 the note sits OUTSIDE every untrusted fence", () => {
     planClamped: true,
   });
   const noteAt = on.indexOf("mechanical, not authorial");
-  const fenceOpen = on.indexOf("⟦UNTRUSTED:");
-  const fenceClose = on.lastIndexOf("⟦/UNTRUSTED:");
+  // Anchor on the LABELLED fence: since #2002 the prompt also carries UNTRUSTED_CONTENT_DIRECTIVE,
+  // whose prose quotes the bare `⟦UNTRUSTED:…⟧` marker shape as an illustration.
+  const fenceOpen = on.indexOf("⟦UNTRUSTED:originating issue:");
+  const fenceClose = on.lastIndexOf("⟦/UNTRUSTED:originating issue:");
   expect(noteAt).toBeGreaterThanOrEqual(0);
   expect(fenceOpen).toBeGreaterThanOrEqual(0);
   expect(noteAt < fenceOpen || noteAt > fenceClose).toBe(true);

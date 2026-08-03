@@ -45,7 +45,7 @@ import {
   describeClamps,
   type ClampRecord,
 } from "./prompt-fit";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import { type OperatorLanguage } from "./operator-language";
 import { resumeThenSteer } from "./resume-then-steer";
 // The ROUND block + effective-round arithmetic are shared verbatim with the PR critic (#1948) so the
@@ -207,6 +207,8 @@ export function planReviewPrompt(
 ): string {
   const lines = [
     "You are an adversarial plan reviewer. Read-only — do NOT modify, build, commit, or run anything.",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "A coding agent wrote the PLAN below to accomplish a TASK, BEFORE writing any code. Your job is to",
     "try to REFUTE the plan: does it actually satisfy the task? What are the hidden risks, missing steps,",
     "wrong assumptions, or a materially simpler approach it ignored? You MAY inspect the codebase",

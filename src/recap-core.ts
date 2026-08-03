@@ -6,7 +6,7 @@ import type { ActivityEntry } from "./activity";
 import type { DiffFileStatus, Recap, RecapVerdict } from "./types";
 import { parseVisualBlocks } from "./visual-blocks";
 import type { VisualBlock } from "./visual-blocks";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import { visualBlockLanguageLine, type OperatorLanguage } from "./operator-language";
 
 export const RECAP_VERDICTS: readonly RecapVerdict[] = ["ready", "parked", "needs_attention"];
@@ -107,6 +107,9 @@ export function buildRecapPrompt(input: {
   const lines = [
     "You are summarizing a COMPLETED coding session for an operator who will decide whether to merge the work.",
     "Do NOT modify, build, commit, or run anything — read-only inspection only.",
+    "",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "",
     "The task that was worked on:",
     fenceUntrusted("task", input.taskPrompt),

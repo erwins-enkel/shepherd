@@ -7,6 +7,13 @@ import {
   TRUSTED_ASSOCIATIONS,
   UNTRUSTED_CONTENT_DIRECTIVE,
 } from "../src/untrusted";
+import { namingPrompt } from "../src/namer-llm";
+import { classifierPrompt } from "../src/autopilot-classify-core";
+import { recommenderPrompt } from "../src/prompt-recommend";
+import { buildRecapPrompt } from "../src/recap-core";
+import { prReviewPrompt, reviewPrompt } from "../src/critic-core";
+import { planReviewPrompt } from "../src/plan-gate";
+import { assembleHerdState, buildRundownPrompt } from "../src/rundown-core";
 
 describe("isTrustedAssociation", () => {
   it("trusts OWNER/MEMBER/COLLABORATOR", () => {
@@ -31,12 +38,13 @@ describe("isTrustedAssociation", () => {
 });
 
 describe("fenceUntrusted", () => {
-  it("wraps content in nonce-delimited markers with the caveat", () => {
+  it("wraps content in nonce-delimited markers, label + nonce only", () => {
     const out = fenceUntrusted("issue body", "hello world", "abc123def456");
     expect(out).toContain("abc123def456");
     expect(out).toContain("hello world");
     expect(out).toContain("UNTRUSTED");
-    expect(out.toLowerCase()).toContain("not instructions");
+    // #2002: the contract is stated once per PROMPT (UNTRUSTED_CONTENT_DIRECTIVE), not per fence.
+    expect(out.toLowerCase()).not.toContain("not instructions");
   });
   it("scrubs the nonce out of the content so it cannot forge the closing marker", () => {
     const nonce = "deadbeefcafe";
@@ -86,5 +94,59 @@ describe("UNTRUSTED_CONTENT_DIRECTIVE", () => {
   it("states the data-not-instructions boundary", () => {
     expect(UNTRUSTED_CONTENT_DIRECTIVE.toLowerCase()).toContain("untrusted");
     expect(UNTRUSTED_CONTENT_DIRECTIVE.toLowerCase()).toContain("never");
+  });
+});
+
+// ── #2002: every prompt that fences states the contract exactly once ─────────────────────────────
+
+describe("#2002 fence ⇒ directive invariant", () => {
+  // A fence carries label + nonce only, so the prompt around it MUST say what a fence means. This
+  // is asserted over the built prompts rather than a hand-kept list of builders: a builder left off
+  // such a list is exactly the failure mode that ships an undefended prompt (src/rundown-core.ts
+  // was one — it fences external issue/PR titles and carried no directive).
+  const UNTRUSTED = "⟦UNTRUSTED:";
+  const prompts: [string, string][] = [
+    ["namingPrompt", namingPrompt("ship the thing")],
+    ["classifierPrompt", classifierPrompt(["tail"], "task")],
+    ["recommenderPrompt", recommenderPrompt(["tail"], "task")],
+    [
+      "buildRecapPrompt",
+      buildRecapPrompt({
+        taskPrompt: "t",
+        plan: "",
+        changedFiles: [],
+        digest: "",
+        context: "ci is green",
+      }),
+    ],
+    ["reviewPrompt", reviewPrompt("origin/main", "task", [], [], "issue text")],
+    ["prReviewPrompt", prReviewPrompt("origin/main", "title", "body")],
+    ["planReviewPrompt", planReviewPrompt("task", "plan text", [], "issue text")],
+    [
+      "buildRundownPrompt",
+      buildRundownPrompt(
+        assembleHerdState({
+          sessions: [],
+          overnightDelta: { mergedPrs: [], archivedSessions: [] },
+          generatedFor: "2026-08-03",
+        }),
+      ),
+    ],
+  ];
+
+  for (const [name, prompt] of prompts) {
+    it(`${name} fences and states the directive exactly once`, () => {
+      expect(`${name} fences: ${prompt.includes(UNTRUSTED)}`).toBe(`${name} fences: true`);
+      expect(prompt.split(UNTRUSTED_CONTENT_DIRECTIVE).length - 1).toBe(1);
+    });
+  }
+
+  it("no longer restates the contract inside the fence", () => {
+    const fenced = fenceUntrusted("issue body", "hello", "abc123def456");
+    expect(fenced.split("\n")).toEqual([
+      "⟦UNTRUSTED:issue body:abc123def456⟧",
+      "hello",
+      "⟦/UNTRUSTED:issue body:abc123def456⟧",
+    ]);
   });
 });

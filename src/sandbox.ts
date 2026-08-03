@@ -181,6 +181,14 @@ export interface MembraneInputs {
    *  cat-able by an in-sandbox agent (host hygiene only, same class as audit R3/R4)
    *  — NOT in-membrane secrecy. */
   apiKeyHelperPath?: string | null;
+  /** Absolute host paths that must ALSO exist inside the sandbox for a Shepherd-injected
+   *  capability to work there (issue #2002): the PreToolUse tool-guard script, and the
+   *  agent-skills directory passed via `--add-dir`. Bound RO at the same path, like
+   *  `apiKeyHelperPath`. Load-bearing, not cosmetic: the decision to DROP the matching standing
+   *  prompt notices is taken on the host, so a capability that silently does not exist inside the
+   *  membrane leaves that session with neither the notice nor the mechanism. Absent/empty → no
+   *  flags, keeping the output byte-identical to a pre-#2002 spawn. */
+  agentSupportPaths?: string[];
   /** api-key mode: present <claudeDir>/.credentials.json as GENUINELY ABSENT
    *  inside the sandbox (not an empty /dev/null overlay) by binding every child
    *  of claudeDir individually EXCEPT the credential file — matching the
@@ -347,6 +355,20 @@ function nodeToolchainFlags(inputs: MembraneInputs, exists: (p: string) => boole
   }
   add(binDir);
   return flags;
+}
+
+/**
+ * The tool-guard hook script + the agent-skills dir (issue #2002), bound RO at the same path so the
+ * `--settings` hook command and the `--add-dir` flag resolve inside the sandbox. `-try` so a missing
+ * path degrades to "capability absent" rather than crashing bwrap. Empty when the features are off,
+ * keeping the flags byte-identical to a pre-#2002 spawn.
+ */
+function agentSupportFlags(paths: string[] | undefined): string[] {
+  const f: string[] = [];
+  for (const p of paths ?? []) {
+    if (typeof p === "string" && p.length > 0) f.push("--ro-bind-try", p, p);
+  }
+  return f;
 }
 
 /**
@@ -545,6 +567,9 @@ export function buildMembraneFlags(inputs: MembraneInputs, deps: PathProbeDeps =
   if (typeof inputs.apiKeyHelperPath === "string" && inputs.apiKeyHelperPath.length > 0) {
     f.push("--ro-bind-try", inputs.apiKeyHelperPath, inputs.apiKeyHelperPath);
   }
+
+  // ── Shepherd-injected agent capabilities (issue #2002) ───────────────────
+  f.push(...agentSupportFlags(inputs.agentSupportPaths));
 
   // ── worktree / git store ─────────────────────────────────────────────────
   if (inputs.isolated) {

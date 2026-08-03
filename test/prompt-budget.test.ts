@@ -67,6 +67,22 @@ const MATRIX: {
     autopilot: false,
     opts: { operatorLanguage: "de" },
   },
+  // #2002: the mechanism-off shapes. A block leaves the prompt only when the mechanism that
+  // replaces it reaches the spawn, so both fallbacks have to stay measurable.
+  { label: "tool guard off", houseRules: null, autopilot: false, opts: { toolGuard: false } },
+  { label: "agent skills off", houseRules: null, autopilot: false, opts: { agentSkills: false } },
+  {
+    label: "no mechanism at all",
+    houseRules: null,
+    autopilot: true,
+    opts: { toolGuard: false, agentSkills: false, previewHint: true, branchRename: true },
+  },
+  {
+    label: "branch rename possible",
+    houseRules: null,
+    autopilot: false,
+    opts: { branchRename: true },
+  },
 ];
 
 // ── the acceptance invariant: the meter cannot drift from what is sent ───────────────────────────
@@ -112,11 +128,15 @@ test("#1999 every block is named after the tag wrapping it, and names are unique
 test("#1999 reproduces the epic's measured spawn-payload baseline (chars)", () => {
   // Issue #1999 / epic #2005 state these in CHARACTERS. Bytes are larger (these blocks are em-dash
   // dense), which is exactly why the instrument records both — see the byte assertions below.
+  // #2002 moved the situational blocks out: the hazards are denied at the call site by the
+  // PreToolUse guard, the PR-time pair and the preview hint load from Shepherd's own skills, and
+  // the posture block keeps only its always-on core. The epic's scoreboard therefore moves — these
+  // are the numbers it moved TO, against the 8,389 / 9,347 / 13,171 / 6,320 it started from.
   const baseline: [string, number, string][] = [
-    ["attended Claude, no house rules", 8389, "8451"],
-    ["+ autopilot", 9347, "9413"],
-    ["plan-gate interactive", 13171, "13273"],
-    ["research", 6320, "6370"],
+    ["attended Claude, no house rules", 2148, "2174"],
+    ["+ autopilot", 3106, "3136"],
+    ["plan-gate interactive", 7130, "7198"],
+    ["research", 2957, "2987"],
   ];
   const payloads = [
     composeSystemPrompt(null, false),
@@ -160,8 +180,9 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   const measured = measurePromptBlocks(blocks);
   // 13,408 before #2001 reworded the context-trim notice (the trim keeps the repo's own skills now,
   // so the notice has to say which skills are gone rather than "all of them"); 13,600 before #2003
-  // replaced the build-queue curl tutorial with the queue_write / queue_step tools.
-  expect(measured.totalChars).toBe(10577);
+  // replaced the build-queue curl tutorial with the queue_write / queue_step tools (10,577), and
+  // before #2002 moved the situational blocks behind the guard + skills.
+  expect(measured.totalChars).toBe(3813);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(houseRules, false, {
       buildQueue,
@@ -180,9 +201,6 @@ test("#1999 the unconditional floor is every spawn's standing notices", () => {
     "engineering-posture",
     "untrusted-content-boundary",
     "research-first-notice",
-    "branch-rename-notice",
-    "worktree-stash-notice",
-    "tmpfs-worktree-notice",
     "research-directive",
   ]);
 });
@@ -276,4 +294,70 @@ test("#1999 store: list is newest-first and hides measurements with no session",
   expect(list.map((r) => r.sessionId)).toEqual([b.id, a.id]);
   expect(store.getSessionPromptBudget("never-spawned")).toBeNull();
   expect(store.listSessionPromptBudgets(1).map((r) => r.sessionId)).toEqual([b.id]);
+});
+
+// ── #2002: per-family composition ────────────────────────────────────────────────────────────────
+
+/** The blocks whose home moved in #2002, with the mechanism each one moved to. */
+const MOVED = [
+  "worktree-stash-notice",
+  "tmpfs-worktree-notice",
+  "single-pr-invariant",
+  "manual-steps-notice",
+] as const;
+
+const namesFor = (opts: ComposeSystemPromptOptions) =>
+  composeSystemPromptBlocks(null, false, opts).map((b) => b.name);
+
+test("#2002 Claude drops the moved blocks only when the mechanism reaches the spawn", () => {
+  const claude = namesFor({ previewHint: true });
+  for (const name of MOVED)
+    expect(`claude has ${name}: ${claude.includes(name)}`).toBe(`claude has ${name}: false`);
+  expect(claude).not.toContain("preview-hint-notice");
+});
+
+test("#2002 the guard's kill switch puts BOTH hazard notices back", () => {
+  // Fail-safe: SHEPHERD_TOOL_GUARD=0 must never leave a session with neither the deny nor the text.
+  const off = namesFor({ toolGuard: false });
+  expect(off).toContain("worktree-stash-notice");
+  expect(off).toContain("tmpfs-worktree-notice");
+  // The PR pair needs BOTH mechanisms, so it comes back too — the backstop lives in the guard.
+  expect(off).toContain("single-pr-invariant");
+  expect(off).toContain("manual-steps-notice");
+});
+
+test("#2002 an install without the skills dir keeps the disclosure-backed blocks", () => {
+  const off = namesFor({ agentSkills: false, previewHint: true });
+  expect(off).toContain("single-pr-invariant");
+  expect(off).toContain("manual-steps-notice");
+  expect(off).toContain("preview-hint-notice");
+  // The hazards are the guard's alone, so they stay denied rather than resident.
+  expect(off).not.toContain("worktree-stash-notice");
+});
+
+test("#2002 Codex keeps every moved block — it has neither hooks nor skills", () => {
+  const attended = namesFor({ agentProvider: "codex", previewHint: true });
+  for (const name of MOVED.filter((n) => n !== "manual-steps-notice"))
+    expect(`codex has ${name}: ${attended.includes(name)}`).toBe(`codex has ${name}: true`);
+  expect(attended).toContain("preview-hint-notice");
+  // Pre-existing #1257 divergence, unchanged by #2002: manual-steps rides Codex on autopilot only.
+  expect(attended).not.toContain("manual-steps-notice");
+  expect(
+    composeSystemPromptBlocks(null, true, { agentProvider: "codex" }).map((b) => b.name),
+  ).toContain("manual-steps-notice");
+  // Even asked for, the Claude-only mechanisms cannot switch a Codex block off.
+  expect(namesFor({ agentProvider: "codex", toolGuard: true, agentSkills: true })).toContain(
+    "worktree-stash-notice",
+  );
+});
+
+test("#2002 the branch-rename notice rides only where a rename can land", () => {
+  expect(namesFor({})).not.toContain("branch-rename-notice");
+  expect(namesFor({ branchRename: true })).toContain("branch-rename-notice");
+});
+
+test("#2002 the epic-authoring notice survives the PR blocks moving out", () => {
+  // It is not part of the PR-time pair: it answers a direct operator epic ask, and no skill or
+  // hook replaced it.
+  expect(namesFor({ epicIntent: true })).toContain("epic-authoring-notice");
 });

@@ -15,7 +15,7 @@ import {
   apiKeySettingsFragment,
   apiKeyPassthroughEnv,
 } from "./spawn-auth";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 
 /** The file the recommender agent writes its suggestion JSON to, in its temp cwd. */
@@ -88,6 +88,9 @@ export function recommenderPrompt(
     "most useful next prompt a human operator could send to that agent to move the work forward —",
     "e.g. unblock it, correct its direction, ask it to verify something, or tell it the next step.",
     "Do NOT do the task yourself. Do NOT run anything. Only propose the next prompt.",
+    "",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "",
     "The agent's original task (untrusted data):",
     fenceUntrusted("agent task", clippedTask),

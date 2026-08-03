@@ -2226,8 +2226,13 @@ async function sessionUsageRead(id: string, deps: AppDeps): Promise<Response> {
 async function sessionActivityRead(id: string, deps: AppDeps): Promise<Response> {
   const s = deps.store.get(id);
   if (!s) return json({ error: "not found" }, 404);
-  // pre-feature session (no pinned id) → no transcript to read
-  const path = s.claudeSessionId ? jsonlPathFor(s.worktreePath, s.claudeSessionId) : "";
+  // pre-feature session (no pinned id) → no transcript to read.
+  // spawnAccountDir MUST be passed (#1990): a spawn-account session writes its JSONL under
+  // <account>/projects (see src/usage.ts) — omitting it resolves a nonexistent path, which
+  // sessionActivity() degrades to [], so the Activity tab silently shows nothing.
+  const path = s.claudeSessionId
+    ? jsonlPathFor(s.worktreePath, s.claudeSessionId, s.spawnAccountDir)
+    : "";
   return json(path ? await sessionActivity(path) : []);
 }
 

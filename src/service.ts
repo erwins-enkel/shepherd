@@ -14,6 +14,7 @@ import {
   visualBlockLanguageLine,
   type OperatorLanguage,
 } from "./operator-language";
+import { joinPromptBlocks, measurePromptBlocks, type PromptBlock } from "./prompt-budget";
 import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
@@ -1316,9 +1317,118 @@ export function operatorLanguageSteerSuffix(
   return block ? `\n\n${block}` : "";
 }
 
+/** Wrap `body` in `<name>…</name>` and carry the tag as the block's instrument name (issue #1999),
+ *  so a recorded measurement maps straight back to the text it priced. */
+function taggedBlock(name: string, body: string): PromptBlock {
+  return { name, text: `<${name}>\n${body}\n</${name}>` };
+}
+
 /**
- * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
- * (the flag is last-wins, not repeatable, so all blocks must share one value).
+ * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
+ * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
+ * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
+ * keep that function under the complexity gate.
+ */
+function primaryDirectiveBlock(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  opts: {
+    research?: boolean;
+    epicAuthoring?: string | null;
+    landingRepair?: boolean;
+    planGate?: "interactive" | "auto";
+    operatorLanguage?: OperatorLanguage;
+  },
+): PromptBlock | null {
+  // Epic authoring is the highest-priority directive when set: like research it replaces the
+  // plan-gate/autopilot directives (none fit a no-write EPIC-draft deliverable). The pre-baked
+  // directive string (endpoint + session id) is composed by composeDirectives, mirroring buildQueue.
+  if (opts.epicAuthoring) {
+    return taggedBlock("epic-authoring-directive", opts.epicAuthoring);
+  }
+  if (opts.research) {
+    return taggedBlock("research-directive", researchDirective(agentProvider));
+  }
+  // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
+  // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
+  if (opts.landingRepair) {
+    return taggedBlock("landing-repair-directive", landingRepairDirective(agentProvider));
+  }
+  if (opts.planGate) {
+    const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
+    const variant =
+      opts.planGate === "auto"
+        ? planGateDirectiveAuto(agentProvider, operatorLanguage)
+        : planGateDirectiveInteractive(agentProvider, operatorLanguage);
+    return taggedBlock("plan-gate-directive", variant);
+  }
+  if (autopilotActive) {
+    return taggedBlock("autopilot-directive", AUTOPILOT_DIRECTIVE);
+  }
+  return null;
+}
+
+/**
+ * The blocks that ride AFTER the primary directive, each gated only on its own orthogonal option.
+ * Extracted from composeSystemPromptBlocks for the same reason primaryDirectiveBlock was — to keep
+ * that function under the complexity gate. Emission order is part of the contract.
+ */
+function trailingBlocks(
+  opts: ComposeSystemPromptOptions,
+  nonCodeMode: boolean,
+  operatorLanguage: OperatorLanguage,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
+  // but a research OR epic-authoring session authors no queue — suppress it there too.
+  if (!nonCodeMode && opts.buildQueue != null)
+    blocks.push(taggedBlock("build-queue", opts.buildQueue));
+  // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
+  // and have no dedicated worktree, so the hint would be misleading there.
+  if (opts.previewHint) blocks.push(taggedBlock("preview-hint-notice", PREVIEW_HINT_NOTICE));
+  // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
+  if (opts.draftMode) blocks.push(taggedBlock("draft-mode", DRAFT_PR_NOTE));
+  // Context-trim notice: only trimmed auto spawns (skill catalog / slash commands / plugins off).
+  if (opts.trimmed) blocks.push(taggedBlock("context-trim-notice", CONTEXT_TRIM_NOTICE));
+  // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
+  // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
+  // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
+  const languageBlock = operatorLanguageBlock(operatorLanguage);
+  if (languageBlock) blocks.push({ name: "operator-language", text: languageBlock });
+  return blocks;
+}
+
+/** Options accepted by {@link composeSystemPromptBlocks} / {@link composeSystemPrompt}. Named so the
+ *  blocks form and the joined form can never drift in signature. */
+export interface ComposeSystemPromptOptions {
+  research?: boolean;
+  /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
+   *  When set it is the primary directive and suppresses the same blocks as `research`. */
+  epicAuthoring?: string | null;
+  /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
+   *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
+  landingRepair?: boolean;
+  planGate?: "interactive" | "auto";
+  buildQueue?: string | null;
+  previewHint?: boolean;
+  draftMode?: boolean;
+  trimmed?: boolean;
+  epicIntent?: boolean;
+  agentProvider?: AgentProvider;
+  operatorLanguage?: OperatorLanguage;
+}
+
+/**
+ * The assembled spawn prompt as its NAMED PARTS (issue #1999), in emission order.
+ *
+ * This is the composer proper; {@link composeSystemPrompt} is `joinPromptBlocks` over it and stays
+ * byte-identical to what it always returned. The parts exist so the spawn path can record a
+ * per-block byte/token breakdown (see `measurePromptBlocks`) — every deletion slice in the Claude-5
+ * context-engineering epic is scored against that number, and without it a regression is invisible.
+ * Each block's `name` is the XML tag wrapping it, and names are unique within one assembly.
+ *
+ * The joined result is passed via a single `--append-system-prompt` (the flag is last-wins, not
+ * repeatable, so all blocks must share one value).
  *
  * House rules used to be prepended to the human prompt, which let standing guidance bleed
  * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
@@ -1347,72 +1457,11 @@ export function operatorLanguageSteerSuffix(
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
-/**
- * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
- * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
- * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
- * keep that function under the complexity gate.
- */
-function primaryDirectiveBlock(
-  agentProvider: AgentProvider,
-  autopilotActive: boolean,
-  opts: {
-    research?: boolean;
-    epicAuthoring?: string | null;
-    landingRepair?: boolean;
-    planGate?: "interactive" | "auto";
-    operatorLanguage?: OperatorLanguage;
-  },
-): string | null {
-  // Epic authoring is the highest-priority directive when set: like research it replaces the
-  // plan-gate/autopilot directives (none fit a no-write EPIC-draft deliverable). The pre-baked
-  // directive string (endpoint + session id) is composed by composeDirectives, mirroring buildQueue.
-  if (opts.epicAuthoring) {
-    return `<epic-authoring-directive>\n${opts.epicAuthoring}\n</epic-authoring-directive>`;
-  }
-  if (opts.research) {
-    return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
-  }
-  // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
-  // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
-  if (opts.landingRepair) {
-    return `<landing-repair-directive>\n${landingRepairDirective(agentProvider)}\n</landing-repair-directive>`;
-  }
-  if (opts.planGate) {
-    const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
-    const variant =
-      opts.planGate === "auto"
-        ? planGateDirectiveAuto(agentProvider, operatorLanguage)
-        : planGateDirectiveInteractive(agentProvider, operatorLanguage);
-    return `<plan-gate-directive>\n${variant}\n</plan-gate-directive>`;
-  }
-  if (autopilotActive) {
-    return `<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
-  }
-  return null;
-}
-
-export function composeSystemPrompt(
+export function composeSystemPromptBlocks(
   houseRules: string | null,
   autopilotActive = false,
-  opts: {
-    research?: boolean;
-    /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
-     *  When set it is the primary directive and suppresses the same blocks as `research`. */
-    epicAuthoring?: string | null;
-    /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
-     *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
-    landingRepair?: boolean;
-    planGate?: "interactive" | "auto";
-    buildQueue?: string | null;
-    previewHint?: boolean;
-    draftMode?: boolean;
-    trimmed?: boolean;
-    epicIntent?: boolean;
-    agentProvider?: AgentProvider;
-    operatorLanguage?: OperatorLanguage;
-  } = {},
-): string {
+  opts: ComposeSystemPromptOptions = {},
+): PromptBlock[] {
   // Provider-adjust only the two blocks that name a Claude-only tool/capability (research's
   // "sub-agents", the interactive plan-gate's "AskUserQuestion"). Absent → "claude", so every
   // existing Claude caller is byte-identical.
@@ -1421,26 +1470,32 @@ export function composeSystemPrompt(
   // return null for "en"). The live value only ever arrives via composeDirectives passing
   // config.operatorLanguage in opts — never defaulted from config here.
   const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
-  const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
-  const untrustedBoundary = `<untrusted-content-boundary>\n${UNTRUSTED_CONTENT_DIRECTIVE}\n</untrusted-content-boundary>`;
-  const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
-  const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
-  const blocks = houseRules
-    ? [posture, untrustedBoundary, research, houseRules, branchNotice]
+  const posture = taggedBlock("engineering-posture", ENGINEERING_POSTURE);
+  const untrustedBoundary = taggedBlock("untrusted-content-boundary", UNTRUSTED_CONTENT_DIRECTIVE);
+  const research = taggedBlock("research-first-notice", RESEARCH_FIRST_NOTICE);
+  const branchNotice = taggedBlock("branch-rename-notice", BRANCH_RENAME_NOTICE);
+  // House rules arrive ALREADY wrapped (renderHouseRulesBlock emits <shepherd-house-rules>…), so
+  // unlike the blocks around it this one is named without re-wrapping.
+  const blocks: PromptBlock[] = houseRules
+    ? [
+        posture,
+        untrustedBoundary,
+        research,
+        { name: "shepherd-house-rules", text: houseRules },
+        branchNotice,
+      ]
     : [posture, untrustedBoundary, research, branchNotice];
   // Worktree git-stash safety (issue #1632): a global git-mechanism invariant (`refs/stash` is
   // shared across all worktrees of a repo, so concurrent sessions collide), so it rides EVERY
   // spawn unconditionally — including research and non-isolated sessions, whose shared-checkout
   // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
   // house-rules block.
-  blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
+  blocks.push(taggedBlock("worktree-stash-notice", WORKTREE_STASH_NOTICE));
   // tmpfs inode safety (issue #1862): like the stash notice, a host-filesystem invariant rather
   // than per-repo learned guidance, so it rides EVERY spawn unconditionally — including research
   // and non-isolated sessions. Provider-varied wording only (see tmpfsWorktreeNotice); never
   // suppressed, because an exhausted inode table bricks the session on any provider.
-  blocks.push(
-    `<tmpfs-worktree-notice>\n${tmpfsWorktreeNotice(agentProvider)}\n</tmpfs-worktree-notice>`,
-  );
+  blocks.push(taggedBlock("tmpfs-worktree-notice", tmpfsWorktreeNotice(agentProvider)));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
   // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
   // deliverable is the EPIC, no PR at all), and a landing-repair session (its deliverable is a push
@@ -1451,7 +1506,7 @@ export function composeSystemPrompt(
   // branch-light (complexity cap).
   const nonCodeMode = [opts.research, opts.epicAuthoring, opts.landingRepair].some(Boolean);
   if (!nonCodeMode) {
-    blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
+    blocks.push(taggedBlock("single-pr-invariant", SINGLE_PR_INVARIANT));
     // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
     // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
     // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
@@ -1460,13 +1515,13 @@ export function composeSystemPrompt(
     // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
     // attended Codex starts free of workflow guidance.
     if (agentProvider !== "codex" || autopilotActive) {
-      blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
+      blocks.push(taggedBlock("manual-steps-notice", MANUAL_STEPS_NOTICE));
     }
     // Epic-authoring notice (#1391): attended spawns whose prompt signals epic intent (callers
     // gate on !input.auto — see composeDirectives). No per-provider gating: unlike the
     // manual-steps notice, this block is directly relevant to the attended ask itself.
     if (opts.epicIntent) {
-      blocks.push(`<epic-authoring-notice>\n${EPIC_AUTHORING_NOTICE}\n</epic-authoring-notice>`);
+      blocks.push(taggedBlock("epic-authoring-notice", EPIC_AUTHORING_NOTICE));
     }
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
@@ -1476,25 +1531,21 @@ export function composeSystemPrompt(
     operatorLanguage,
   });
   if (primary) blocks.push(primary);
-  // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
-  // but a research OR epic-authoring session authors no queue — suppress it there too.
-  if (!nonCodeMode && opts.buildQueue != null)
-    blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
-  // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
-  // and have no dedicated worktree, so the hint would be misleading there.
-  if (opts.previewHint) {
-    blocks.push(`<preview-hint-notice>\n${PREVIEW_HINT_NOTICE}\n</preview-hint-notice>`);
-  }
-  // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
-  if (opts.draftMode) blocks.push(`<draft-mode>\n${DRAFT_PR_NOTE}\n</draft-mode>`);
-  // Context-trim notice: only trimmed auto spawns (skill catalog / slash commands / plugins off).
-  if (opts.trimmed) {
-    blocks.push(`<context-trim-notice>\n${CONTEXT_TRIM_NOTICE}\n</context-trim-notice>`);
-  }
-  // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
-  // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
-  // or null for "en" — filtered out below so existing "en" callers stay byte-identical.
-  return [...blocks, operatorLanguageBlock(operatorLanguage)].filter(Boolean).join("\n\n");
+  blocks.push(...trailingBlocks(opts, nonCodeMode, operatorLanguage));
+  return blocks;
+}
+
+/**
+ * The assembled spawn prompt as the single string that ships — `--append-system-prompt` for Claude,
+ * inline inside `<shepherd-directives>` for Codex. Byte-identical to what it has always returned;
+ * {@link composeSystemPromptBlocks} is the composer, this is the join.
+ */
+export function composeSystemPrompt(
+  houseRules: string | null,
+  autopilotActive = false,
+  opts: ComposeSystemPromptOptions = {},
+): string {
+  return joinPromptBlocks(composeSystemPromptBlocks(houseRules, autopilotActive, opts));
 }
 
 /**
@@ -2469,6 +2520,13 @@ export class SessionService {
    * Side effect: `recordInjectedHouseRules` writes the injected-learnings join rows. It now runs on
    * the Codex path too (intended — Codex sessions should participate in the learning lifecycle), so
    * this must be called EXACTLY ONCE per spawn.
+   *
+   * Second side effect (issue #1999): the assembled payload is measured block by block and recorded
+   * against the session. This is the only place it can be, and the only place it needs to be — both
+   * spawn builders funnel through here, so attended and drain, Claude and Codex are all covered by
+   * one write. The measurement is taken at ASSEMBLY, before `prepareSpawn` can refuse the spawn; a
+   * refused spawn therefore leaves a row for a session that never starts, which is honest (the
+   * payload WAS assembled) and invisible to the reads (they inner-join `sessions`).
    */
   private composeDirectives(args: {
     input: CreateSessionInput;
@@ -2508,7 +2566,7 @@ export class SessionService {
           agentProvider: args.agentProvider,
         })
       : null;
-    return composeSystemPrompt(houseRules, autopilotActive, {
+    const blocks = composeSystemPromptBlocks(houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
       landingRepair: input.landingRepair,
@@ -2529,6 +2587,33 @@ export class SessionService {
       // literal "en" default).
       operatorLanguage: config.operatorLanguage,
     });
+    this.recordPromptBudget(args.sessionId, args.agentProvider, blocks);
+    return joinPromptBlocks(blocks);
+  }
+
+  /** Persist the per-block accounting for one spawn's assembled prompt (issue #1999). Never lets a
+   *  measurement failure take down a spawn: this is an instrument, not a gate. */
+  private recordPromptBudget(
+    sessionId: string,
+    agentProvider: AgentProvider,
+    blocks: PromptBlock[],
+  ): void {
+    try {
+      const measured = measurePromptBlocks(blocks);
+      this.deps.store.putSessionPromptBudget({
+        sessionId,
+        // Claude takes the payload on --append-system-prompt; Codex has no such flag, so the same
+        // payload rides inline inside <shepherd-directives> (see buildCodexSpawnArgv).
+        delivery: agentProvider === "codex" ? "inline-prompt" : "append-system-prompt",
+        totalChars: measured.totalChars,
+        totalBytes: measured.totalBytes,
+        totalTokens: measured.totalTokens,
+        blocks: measured.blocks,
+        createdAt: Date.now(),
+      });
+    } catch (e) {
+      console.warn(`[prompt-budget] failed to record spawn prompt budget: ${String(e)}`);
+    }
   }
 
   private buildSpawnArgv(

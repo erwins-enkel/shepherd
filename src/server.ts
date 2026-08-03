@@ -2349,6 +2349,12 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
+  // What this spawn's assembled system prompt cost, block by block (issue #1999). 404 when the
+  // session predates the instrument or its spawn recorded nothing.
+  if (parts[3] === "prompt-budget") {
+    const record = deps.store.getSessionPromptBudget(parts[2]);
+    return record ? json(record) : json({ error: "not found" }, 404);
+  }
   // annotations must precede the bare `diff` check (which matches parts[3]==="diff" regardless).
   if (parts[3] === "diff" && parts[4] === "annotations")
     return sessionDiffAnnotationsRead(parts[2], deps);
@@ -4231,6 +4237,25 @@ async function handleUsageTimeline({ req, parts, url, deps }: Ctx): Promise<Resp
     usageRollup: deps.usageRollup,
   });
   return json(timeline);
+}
+
+/** Cap on the recent-spawns list. Each record carries ~20 small block measurements, so a runaway
+ *  `?limit=` would be a needlessly fat response for a diagnostic read. */
+const PROMPT_BUDGET_MAX_LIMIT = 200;
+const PROMPT_BUDGET_DEFAULT_LIMIT = 50;
+
+// Spawn-prompt budget (issue #1999): what the assembled `composeSystemPrompt` payload cost, block by
+// block. GET /api/prompt-budget[?limit=] → recent spawns, newest first. The per-session read lives in
+// handleSessionReads, beside the other /api/sessions/:id/* GETs.
+function handlePromptBudget({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "prompt-budget" && !parts[2]))
+    return null;
+  const raw = Number(url.searchParams.get("limit") ?? PROMPT_BUDGET_DEFAULT_LIMIT);
+  // NaN / ≤0 / over-cap all fall back to something sane rather than 400ing a read-only view.
+  const limit = Number.isFinite(raw)
+    ? Math.min(PROMPT_BUDGET_MAX_LIMIT, Math.max(1, Math.floor(raw)))
+    : PROMPT_BUDGET_DEFAULT_LIMIT;
+  return json({ records: deps.store.listSessionPromptBudgets(limit) });
 }
 
 // ── self-update: status + trigger ──────────────────────────────────────
@@ -7559,6 +7584,7 @@ const ROUTE_HANDLERS = [
   handleUsageLimits,
   handleUsageBreakdown,
   handleUsageTimeline,
+  handlePromptBudget,
   handleUpdate,
   handleHerdrUpdate,
   handleHerdrDowngrade,

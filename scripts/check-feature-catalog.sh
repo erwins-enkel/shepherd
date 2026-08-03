@@ -30,7 +30,7 @@
 #     entry, or `[no-feature-entry]` if neither change truly surfaces UX.
 #
 # Base defaults to origin/main; CI can override via $BASE_REF for non-main bases.
-# See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
+# See .claude/rules/ui-feature-catalog.md.
 set -euo pipefail
 
 BASE="${BASE_REF:-origin/main}"
@@ -113,7 +113,7 @@ $(echo "$feat_commits" | sed 's/^/    • /')
 
   Every shipped user-facing feature adds ONE entry to the catalog in the SAME PR
   (id, sinceVersion, titleKey/bodyKey in EN+DE, optional targetId). It drives the
-  What's-New drawer + first-view coachmarks. See CLAUDE.md → "Feature discovery".
+  What's-New drawer + first-view coachmarks. See .claude/rules/ui-feature-catalog.md.
 
   Fix: add one FeatureAnnouncement fragment to ${CATALOG_DIR}
   Or, if this feat ships no user-facing UX (server-only / internal / mislabeled),

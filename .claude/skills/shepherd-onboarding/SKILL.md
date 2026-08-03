@@ -21,151 +21,25 @@ identical.
 
 This skill is **self-contained**: it ships in the Shepherd repo and runs in _other_
 operators' repos, so it never references any operator-specific command or external
-planning skill. Everything it needs is below.
+planning skill. Everything it needs is in this file and its `references/`.
 
 ## Stages
 
 Work the stages in order. Create a TodoWrite item per stage. **Nothing outward
 (issue creation, body edits) happens before the Stage 4 approval gate.**
 
-### 0. Orient
+| Stage                  | What happens                                                              | Detail                             |
+| ---------------------- | ------------------------------------------------------------------------- | ---------------------------------- |
+| 0. Orient              | Pin path (greenfield/existing), tracker (GitHub/local), and intent source | `references/intake.md`             |
+| 1. Brief               | ~10-line written brief every later decision is judged against             | `references/intake.md`             |
+| 2. Agent instructions  | Write/upgrade the repo's `CLAUDE.md` — scope it precisely                 | `references/claude-md-contract.md` |
+| 3. Decompose (draft)   | Tracer-bullet vertical slices + `epic-dag` dependencies, as markdown      | `references/intake.md`             |
+| 4. Approve (hard gate) | Below — present everything, then **stop**                                 | this file                          |
+| 5. Create (ordered)    | Below — children first, then the parent marker, then hand over import     | this file                          |
+| 6. Point to first task | Below — name the DAG roots and the first slice                            | this file                          |
 
-Establish three facts, then confirm them with the operator before proceeding.
-
-**Path** — greenfield vs existing:
-
-```bash
-git ls-files | head -50            # tracked source files
-git log --oneline -5 2>/dev/null   # history depth
-```
-
-A repo with little/no tracked source and no real history is **greenfield**; a real
-codebase is **existing**. Auto-detect, then confirm.
-
-**Tracker** — GitHub-native vs local/lightweight:
-
-```bash
-git remote -v                      # is there a GitHub remote?
-gh auth status 2>/dev/null         # is gh usable?
-```
-
-A working GitHub remote + `gh` ⇒ **GitHub-native**: you can create issues, and the
-operator can run the epic link import (Stage 5). Otherwise treat the repo as
-**local/lightweight**: programmatic issue creation is unavailable and epic import has
-no forge to write to, so the backlog will be left as importable markdown (Stage 5).
-
-**Intent source:**
-
-- Existing: `README`, any `docs/`, stated goals from the operator, and the current
-  issue list (`gh issue list --limit 50` if GitHub-native).
-- Greenfield: a PRD/spec doc in the repo (look in the root and `docs/`).
-
-If **greenfield and no PRD/spec exists**, do **not** run a full interview and do
-**not** send the operator to another tool. State plainly that a short intent doc is
-the required input, then offer a **minimal inline fallback**: ask only enough to
-shape a backlog —
-
-1. What are we building, in one paragraph?
-2. Who is it for, and what's the single most important thing it must do first?
-3. What's the first slice you could ship and see working end-to-end?
-
-Proceed once the answers are enough to decompose, or stop here if the operator would
-rather write the doc first.
-
-**Completion criterion:** path, tracker, and intent source are each pinned and
-confirmed.
-
-### 1. Brief
-
-Read the intent. For an existing repo, also survey the codebase (entry points, build
-manifest, test setup, domain terms). Produce a short brief (~10 lines): what this
-project is, its stack, its domain vocabulary, and what "shipped" means here. Every
-later decision is judged against this brief, so it is written once and reused.
-
-**Completion criterion:** a written brief the operator agrees describes the project.
-
-### 2. Agent instructions (CLAUDE.md)
-
-Write (greenfield) or upgrade (existing) the repo's `CLAUDE.md`. This is the
-"teach the agents how we work here" deliverable. Scope it precisely — most generic
-guidance is already in every agent's prompt, so restating it is pure no-op cost.
-
-**What the CLAUDE.md owns** (write these, under their own headings):
-
-- `## Project orientation` — what the project is, its stack, domain vocabulary, and
-  how to run/build/verify it.
-- `## How work flows here` — the **repo-specific** Shepherd work-contract: that work
-  lives as issues/epics; what a tracer-bullet vertical slice looks like _in this
-  codebase_ (name a concrete example seam); what "done" means here (e.g. which gate
-  must be green).
-
-**What it must NOT contain:**
-
-- **Don't restate what Shepherd injects at spawn.** Every Shepherd-driven agent
-  already receives an engineering posture, a research-first notice, a branch-rename
-  notice, a preview-hint notice, and the curated `<shepherd-house-rules>` learnings
-  block. Do not reproduce generic posture/process prose — it adds tokens and says
-  nothing new.
-- **Don't write the heading `# House rules for AI agents`** or reproduce a tooling
-  posture / "adopt these guardrails" list. That artifact is owned by Shepherd's
-  Readiness analyzer (it generates that snippet for the operator to adopt). Stay off
-  that heading so the two never collide; add at most a one-line pointer:
-  `> Tooling guardrails (lint/types/tests/CI): see Shepherd's Readiness tab.`
-- **Don't instruct agents to invoke skills or slash commands.** Unattended drain
-  sessions run with skills and slash commands **disabled** and are explicitly told to
-  ignore any CLAUDE.md/memory instruction to invoke them. Write for built-in tools
-  and plain prose only — never "run `/foo`" or "use the X skill".
-
-**Greenfield vs existing content model** (not just write-vs-merge):
-
-- **Greenfield** — the repo has no real stack/run/verify facts yet. Record the
-  **intended** stack and conventions, and explicitly **defer** concrete
-  run/build/verify commands to the first bootstrapping slice (note in CLAUDE.md that
-  they'll be filled in then).
-- **Existing** — record the **actual** surveyed stack and the real run/build/verify
-  commands. If a `CLAUDE.md` already exists, merge **surgically**: add the missing
-  `## How work flows here` section and fill gaps; never clobber existing content.
-
-**Completion criterion:** `CLAUDE.md` carries project orientation + the
-repo-specific work-contract, with none of the forbidden content above.
-
-### 3. Decompose (draft)
-
-Break the intent into a backlog of **tracer-bullet vertical slices**. The method:
-
-- A slice is a thin, end-to-end cut that delivers something observable, not a
-  horizontal layer. Prefer "user can create and see one note" over "build the
-  database schema". The first slice is the thinnest thing that proves the spine
-  works end-to-end.
-- **One slice = one PR = one Shepherd session.** Size every slice so it lands in a
-  single PR (the single-PR invariant). If a unit is too big for one PR, it is an
-  **epic** — split it into child slices.
-- Each issue gets a crisp title and a body stating the goal, the vertical cut, and a
-  checkable acceptance criterion.
-- **Don't bake concrete file paths into an issue body.** An issue can sit in the
-  backlog for weeks before it drains, and paths named in it may have moved or been
-  renamed by then — the draining agent then follows a stale map. Point at stable
-  anchors (a module/feature name, an exported symbol, a glob) and let the agent
-  locate the current files when it picks the issue up.
-
-Express dependencies with an `epic-dag` fence (the format Shepherd's importer reads —
-`#<dependent> <- #<blocker>, #<blocker>`; a bare `#<n>` line is a member with no
-deps). For an epic whose children are issues `#101…#103`:
-
-````
-```epic-dag
-#101
-#102 <- #101
-#103 <- #101, #102
-```
-````
-
-**Draft the entire tree as markdown** — parent epic(s) with their `epic-dag` fence,
-and each child issue's title + body. This markdown is both the approval artifact and
-the format the importer consumes, so it doubles as the local/lightweight fallback.
-
-**Completion criterion:** a complete markdown draft of every epic + issue with
-dependencies, sized one-PR-each.
+**Read `references/claude-md-contract.md` before Stage 2** — it lists what the
+CLAUDE.md must _not_ contain, which is where this stage usually goes wrong.
 
 ### 4. Approve (hard gate)
 
@@ -233,10 +107,6 @@ do **not** attempt programmatic creation or import. Write the approved tree to a
 importable markdown file (e.g. `BACKLOG.md`) and tell the operator it's the manual
 reference / future-import source. Say this explicitly rather than failing silently.
 
-**Completion criterion:** every approved issue exists with its parent body carrying
-the `epic-dag` fence and the link import handed to the operator (GitHub), or the
-markdown backlog is written (local).
-
 ### 6. Point to first task
 
 Identify where to start: the **DAG roots** (members with no blockers) and, among
@@ -252,9 +122,6 @@ backlog.
 
 If obvious tooling guardrails are missing (no lint/typecheck/test/CI), add a one-line
 nudge: run Shepherd's **Readiness** analyzer to score and install them.
-
-**Completion criterion:** the operator knows the exact first issue to drain and how
-to start it.
 
 ## Gate rules (reference)
 

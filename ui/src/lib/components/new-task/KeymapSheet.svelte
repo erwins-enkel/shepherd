@@ -3,7 +3,7 @@
   // every group, in registry order. Nothing here is hand-maintained; adding a
   // shortcut to $lib/keymap/newTask.ts adds it to this card.
   //
-  // It is a blocking surface (focus trap + aria-modal), so per CLAUDE.md it
+  // It is a blocking surface (focus trap + aria-modal), so per .claude/rules/ui-design-system.md it
   // carries the canonical dim+blur backdrop rather than floating bare — the
   // static design reference shows it without one, but every other Shepherd
   // modal dims what it covers and this is no different.

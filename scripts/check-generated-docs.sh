@@ -11,7 +11,7 @@
 # SCOPE — only COMMITTED generated outputs are gated. docs-site has three
 # generators; only one writes a committed artifact:
 #   • TypeDoc API reference (starlight-typedoc)          → src/content/docs/api/        [git-ignored]
-#   • Imported docs/* + CLAUDE.md (scripts/sync-docs.mjs)→ …/reference/{…,house-rules}.md [git-ignored]
+#   • Imported docs/* + CLAUDE.md + .claude/rules/* (sync-docs.mjs) → …/reference/*.md [git-ignored]
 #   • llms.txt (starlight-llms-txt)                      → dist/llms*.txt               [git-ignored]
 #   • herdr CLI reference (scripts/gen-cli-reference.ts) → …/reference/cli/*.md         [COMMITTED] ← gated
 # The first three regenerate on EVERY `astro build`, so they cannot be committed-

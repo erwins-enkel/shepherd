@@ -87,7 +87,7 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     title: "Project house rules",
     path: "/reference/house-rules/",
     keywords:
-      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. running checks in a fresh worktree branch hygiene (one feature, linear off main) never git stash in a worktree (shared refs/stash) design system (required for any ui work) internationalization (required for any ui work) feature discovery (required for user-facing features) glossary (required when marking ui terms)",
+      "shepherd's in-repo contributor & agent house rules (claude.md), rendered verbatim. verify branch hygiene locale-catalog merge conflicts are real",
   },
   {
     title: "Keyboard shortcuts",
@@ -100,6 +100,28 @@ export const DOCS_PAGES: readonly DocsPage[] = [
     path: "/reference/plugins/",
     keywords:
       "write server-side plugins: spawn hooks, routes, status/ui panels, and gear-menu items. location & loading installing from the ui updates — in place, one click manifest (plugin.json) entry contract the ctx capability seam reading sessions (ctx.sessions) the onspawn hook failure behavior the single-loop discipline (important) status panel declarative ui panel (publishui) editable settings — input nodes + a submitting button writing config (ctx.setconfig) gear-menu item (publishgearitem) three action kinds validation & security additive guard http routes a fuller example: spawn-labeler",
+  },
+  {
+    title: "Design system",
+    path: "/reference/rules-design-system/",
+    keywords: "semantic token layer, component recipes, and the modal scrim rule for any ui work.",
+  },
+  {
+    title: "Feature discovery",
+    path: "/reference/rules-feature-catalog/",
+    keywords:
+      "every shipped user-facing feature adds a what's-new catalog entry in the same pr. gates",
+  },
+  {
+    title: "Glossary rules",
+    path: "/reference/rules-glossary/",
+    keywords: "registry entries, en+de keys, and inline markers for defined terms in ui text. gate",
+  },
+  {
+    title: "Internationalization",
+    path: "/reference/rules-i18n/",
+    keywords:
+      "never hardcode user-facing text — paraglide catalogs plus the server-side notification table. server-side notification text (no gate covers this) gates",
   },
   {
     title: "Security",

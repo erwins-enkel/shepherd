@@ -119,7 +119,7 @@
 
 <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
      position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
-     Non-modal: no aria-modal, no scrim (small anchored non-blocking popover, exempt per CLAUDE.md). -->
+     Non-modal: no aria-modal, no scrim (small anchored non-blocking popover, exempt per .claude/rules/ui-design-system.md). -->
 <div
   id={popoverId}
   bind:this={popEl}

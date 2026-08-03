@@ -9,7 +9,7 @@
 // silently never surfaces in the What's-New drawer: the gate in
 // `ui/src/lib/feature-gate.ts` only shows entries where
 // `lastSeen < sinceVersion <= currentVersion`, and an already-upgraded user's
-// `lastSeen` is >= that released version. See CLAUDE.md → "Feature discovery".
+// `lastSeen` is >= that released version. See .claude/rules/ui-feature-catalog.md.
 //
 // The correct `sinceVersion` is always the NEXT release. release-please is
 // configured (`release-please-config.json`: `bump-minor-pre-major`) so any

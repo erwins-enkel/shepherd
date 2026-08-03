@@ -213,7 +213,7 @@
   {#if presentation === "floating"}
     <!-- popover="manual": native top-layer, escapes overflow:hidden containers.
          position:fixed + inset:auto + margin:0 so Floating UI's left/top drive placement.
-         Non-blocking anchored popover — no scrim (exempt per CLAUDE.md).
+         Non-blocking anchored popover — no scrim (exempt per .claude/rules/ui-design-system.md).
          role="dialog" (without aria-modal) for external terms that contain a link;
          role="tooltip" for internal-only terms that contain no interactive children. -->
     <div

@@ -6,7 +6,7 @@
 // ui/messages/en.json and de.json), and an optional targetId paired with
 // `use:coachTarget` on the anchor element. Enforced by the
 // `scripts/check-feature-catalog.sh` gate (PR-hygiene CI + pre-push).
-// See CLAUDE.md → "Feature discovery (REQUIRED for user-facing features)".
+// See .claude/rules/ui-feature-catalog.md.
 //
 // VERSION: `sinceVersion` is the NEXT (unreleased) version — run
 // `bun run next-version`, NEVER read package.json. Between releases package.json

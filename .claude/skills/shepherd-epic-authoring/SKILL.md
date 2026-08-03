@@ -11,20 +11,16 @@ flows share the same spine:
 - **Create** — "create an epic for X with sub-issues Y, Z".
 - **Promote** — "promote existing issue #N to an epic".
 
-Shepherd's spawn-time prompts already carry a short epic-shape contract (the
-single-PR invariant's promote hatch, plus an epic-authoring notice when the
-spawn prompt signals epic intent). But that detection is **spawn-time only**:
-an operator who asks for an epic **mid-session (steer-time)** gets no injected
-epic-shape guidance at all — the agent falls back on generic GitHub habits and
-ships an "epic" Shepherd never sees. This skill is the remedy for exactly that
-gap: invoke it whenever an epic ask arises, at spawn or mid-session. It is
-attended by default (unattended drains run with skills disabled unless the
-operator opts out of context trimming) and
-richer than the injected blocks: it drafts the whole tree, gates outward
-actions on approval, and hands the native-link import back to the operator.
+Shepherd's spawn-time prompts already carry a short epic-shape contract, but that
+detection is **spawn-time only**: an operator who asks for an epic **mid-session
+(steer-time)** gets no injected epic guidance at all — the agent falls back on
+generic GitHub habits and ships an "epic" Shepherd never sees. This skill is the
+remedy for exactly that gap: invoke it whenever an epic ask arises, at spawn or
+mid-session.
 
 This skill is **self-contained**: it ships in the Shepherd repo and runs in
-_other_ operators' repos, so everything it needs is below.
+_other_ operators' repos. Everything it needs is in this file and its
+`references/`.
 
 ## The recognition contract
 
@@ -52,98 +48,24 @@ Only the **first** fenced dag block in a body is parsed — keep exactly one.
 checklist without `#<n>` issue references, front-matter, or HTML markers. None
 of these exist in Shepherd's parser — don't reach for them.
 
-## Draft-only mode (Shepherd epic-draft flow)
-
-If the system prompt carries an **`<epic-authoring-directive>`** with an epic-draft endpoint
-(`PUT …/api/sessions/<id>/epic-draft`), Shepherd's guided epic-draft flow is driving this session.
-In that mode the hard gate and the GitHub writes are **owned by the server**: follow ONLY the
-decomposition guidance below (Stage 1), emit the draft by PUTting it to that endpoint, then **STOP**.
-Do **not** perform Stages 3–5 (`gh issue create`/`gh issue edit`, the import handoff) — the
-operator approves the draft in the UI and the server materializes it. The directive is authoritative;
-this skill only lends it the slicing/authoring guidance.
-
 ## Stages
 
 Work the stages in order; track one todo per stage. **Nothing outward (issue
 creation, body edits) happens before the Stage 2 approval gate.**
 
-### 0. Orient
+| Stage                      | What happens                                                       | Detail                   |
+| -------------------------- | ------------------------------------------------------------------ | ------------------------ |
+| 0. Orient                  | Pin the flow (create vs promote) and the tracker (GitHub vs local) | `references/drafting.md` |
+| 1. Draft                   | Decompose into tracer-bullet vertical slices; draft the whole tree | `references/drafting.md` |
+| 2. Approve (hard gate)     | Present the full draft, then **stop** for `AskUserQuestion`        | `references/creating.md` |
+| 3. Create (ordered)        | Children first (capture numbers), then mark the parent body        | `references/creating.md` |
+| 4. Hand import to operator | Below — you cannot run it yourself                                 | this file                |
+| 5. Verify + hand off       | Confirm the marker landed; name the DAG roots; open **no** PR      | `references/creating.md` |
 
-Pin two facts, then confirm them with the operator:
+**Read `references/drafting.md` before Stage 0** — it also covers the
+Shepherd-driven draft-only mode, which changes which stages you run at all.
 
-**Flow** — create a new epic, or promote an existing issue `#N`? For
-promotion, read the current parent (`gh issue view <N> --json title,body`) so
-the draft builds on what's there.
-
-**Tracker** — GitHub-native or local/lightweight:
-
-```bash
-git remote -v                      # is there a GitHub remote?
-gh auth status 2>/dev/null         # is gh usable?
-```
-
-A working GitHub remote + `gh` ⇒ **GitHub-native**: you can create issues, and
-the operator can run the link import (Stage 4). Otherwise **local/lightweight**:
-programmatic creation is unavailable and import has no forge to write to — the
-deliverable becomes an importable markdown file instead (see Stage 3).
-
-### 1. Draft
-
-Decompose the work into **tracer-bullet vertical slices**: each child is a
-thin end-to-end cut with an observable result, sized so it lands in a single
-PR — **one slice = one PR = one Shepherd session**. A child too big for one PR
-is itself an epic; split it further. Each child gets a crisp title and a body
-stating the goal, the vertical cut, and a checkable acceptance criterion.
-
-Draft the **entire tree as markdown**: every child's title + body, and the
-parent body carrying the dag fence (or the task-list when there are no
-dependencies) with placeholder numbers to be filled in at Stage 3. This draft
-is both the approval artifact and the local/lightweight fallback.
-
-**Don't bake concrete file paths into a child body.** A child issue can sit in
-the backlog for weeks before it drains, and by then the paths named in it may
-have moved or been renamed — the draining agent then follows a stale map. State
-the goal, the behaviour, and the acceptance criterion; point at stable anchors
-(a module/feature name, an exported symbol, a glob) rather than exact paths, and
-let the agent locate the current files when it picks the issue up.
-
-### 2. Approve (hard gate)
-
-Present the full draft — for promotion, show the parent-body change as
-before/after — then **stop**. Use `AskUserQuestion` to confirm, amend, or
-abort. If the operator amends, revise and re-present. Nothing is created or
-edited before this gate.
-
-### 3. Create (ordered)
-
-Only after approval. **GitHub-native repos** — order matters, because the
-parent marker must reference real child numbers:
-
-1. **Create the child issues first and capture their numbers.**
-   `gh issue create` prints the new issue URL; the trailing path segment is
-   the number:
-
-   ```bash
-   url=$(gh issue create --title "<title>" --body "<body>")
-   num=${url##*/}          # e.g. 142
-   ```
-
-   Repeat per child, recording each `num`.
-
-2. **Mark the parent body** with the captured numbers:
-   - **Create flow:** `gh issue create` the parent with the fence-bearing
-     body. Capture its number too.
-   - **Promote flow:** `gh issue edit <N> --body "<updated body>"` — the
-     existing body plus the fence/task-list. Creating the children while
-     leaving `#N`'s body unmarked leaves it a plain issue Shepherd never
-     recognizes; the parent edit **is** the promotion.
-
-**Local/lightweight repos** — do not attempt programmatic creation or import.
-Write the approved tree to an importable markdown file (e.g. `BACKLOG.md`) and
-tell the operator it's the manual reference / future-import source — say this
-explicitly rather than failing silently.
-
-### 4. Hand import to the operator (GitHub-native only)
+## Stage 4 — Hand import to the operator (GitHub-native only)
 
 **You are already done with the epic.** The body marker **is** the recognition
 contract — with it in place the epic is recognized and drainable. Import is a
@@ -185,24 +107,6 @@ The response reports `subIssuesAdded` / `dependenciesAdded` / `unresolved`. Tell
 the operator that any `unresolved` member numbers usually mean a typo'd or
 foreign issue reference in the parent body — worth reporting back so the body can
 be fixed and import re-run.
-
-### 5. Verify + hand off
-
-Confirm the parent now carries the marker — re-read the body you just wrote
-(`gh issue view <PARENT_NUM> --json body`) and check the fence lists the real
-child numbers. Do **not** wait on import: it is the operator's step, so name it
-as pending rather than treating it as a precondition. Then stop and point:
-
-- **The epic itself is the deliverable — open NO pull request.** If this
-  session was spawned on the issue being promoted, the parent-body marker is
-  the finish line.
-- **Drain is operator-started.** Shepherd drains each child as its own session
-  and its own PR; an agent cannot trigger that itself. Tell the operator the
-  epic is ready to drain and name the **DAG roots** (children with no
-  blockers) as the first ones to start.
-- **Import is the one thing still owed** (GitHub-native repos) — restate it as
-  an operator step, with the UI path from Stage 4, and note that it only wires
-  the native links: drain does not wait on it.
 
 ## Gate rules (reference)
 

@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
@@ -15,6 +15,7 @@ import {
   type OperatorLanguage,
 } from "./operator-language";
 import { joinPromptBlocks, measurePromptBlocks, type PromptBlock } from "./prompt-budget";
+import { skillNameFrom } from "./commands";
 import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
@@ -198,6 +199,12 @@ export interface ServiceDeps {
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
+  /** Skill names installed under one `.claude/skills` root — the session repo's, for the trim's
+   *  collision guard; defaults to the real readSkillNames. Inject point for tests. */
+  skillNames?: (dir: string) => Promise<string[] | null>;
+  /** The operator's user-level skill names, disabled on trimmed auto spawns; defaults to the
+   *  memoized read of ~/.claude/skills (userSkillNames). Inject point for tests. */
+  userSkills?: () => Promise<string[]>;
   /** Server-side plugin spawn-hook runner (issue #1124): runs every plugin `onSpawn`
    *  hook and returns the merged, bounded SpawnPatch. Absent (no plugins / tests) → no
    *  hooks fire. May reject with PluginSpawnAborted to hard-block the spawn. Wired from
@@ -287,6 +294,76 @@ export function resetPluginIdsCacheForTests(): void {
   pluginIdsCache = null;
 }
 
+/** Filesystem seams for {@link readSkillNames} — the same shape as readInstalledPluginIds' `read`,
+ *  split in two because a skills root needs a listing AND a per-entry read. */
+export interface SkillDirDeps {
+  readdir?: (path: string) => Promise<string[]>;
+  read?: (path: string) => Promise<string>;
+}
+
+/**
+ * Names of the skills installed under one `.claude/skills` root (issue #2001) — the operator's
+ * `~/.claude/skills` for the trim's override set, a repo's own for the collision guard.
+ *
+ * Identity is the SKILL.md front-matter `name` with the directory entry as fallback (see
+ * `skillNameFrom` in src/commands.ts), NOT the directory entry itself: entries here are commonly
+ * symlinks into other trees and front-matter may rename the skill, so a bare listing would key
+ * `skillOverrides` off strings Claude Code doesn't use — disabling nothing while mis-comparing the
+ * repo's own skills. Unreadable/absent `SKILL.md` → the entry is skipped, matching the listing's
+ * `collect`.
+ *
+ * Returns `[]` when the root does not exist (the norm — most machines and repos have no skills) and
+ * `null` when the listing THROWS for any other reason, so callers can tell "nothing to disable"
+ * from "we could not find out". Async fs only: this server is a single Bun loop pumping the live
+ * web terminal (see src/instrument.ts).
+ */
+export async function readSkillNames(
+  dir: string,
+  deps: SkillDirDeps = {},
+): Promise<string[] | null> {
+  const readdirFn = deps.readdir ?? ((p: string) => readdir(p));
+  const readFn = deps.read ?? ((p: string) => readFile(p, "utf8"));
+  let entries: string[];
+  try {
+    entries = await readdirFn(dir);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "ENOENT" ? [] : null;
+  }
+  const names: string[] = [];
+  for (const entry of entries) {
+    let text: string;
+    try {
+      text = await readFn(join(dir, entry, "SKILL.md"));
+    } catch {
+      continue; // not a skill dir (or unreadable) → skip, don't fail the whole set
+    }
+    const name = skillNameFrom(text, entry);
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+let userSkillNamesCache: Promise<string[]> | null = null;
+/** Memoized {@link readSkillNames} over `~/.claude/skills` — the operator's personal skills change
+ *  ~never, so one read per process lifetime (a server restart picks up changes). Same contract as
+ *  installedPluginIds: only SUCCESSFUL reads are cached, and a `null` (transient error) clears the
+ *  cache inside the chained promise so this spawn proceeds without the override while the next new
+ *  caller retries. Exported for tests. */
+export function userSkillNames(deps?: SkillDirDeps): Promise<string[]> {
+  return (userSkillNamesCache ??= readSkillNames(join(homedir(), ".claude", "skills"), deps).then(
+    (names) => {
+      if (names === null) userSkillNamesCache = null;
+      return names ?? [];
+    },
+  ));
+}
+
+/** Test seam: drop the process-lifetime user-skill-names cache. Mirrors
+ *  resetPluginIdsCacheForTests — the first real spawn populates it via the default fs path. */
+export function resetUserSkillNamesCacheForTests(): void {
+  userSkillNamesCache = null;
+}
+
 /**
  * Per-spawn `--settings` overlay merged on top of the user's settings files. Applied to every
  * Shepherd task spawn — both `create` (`buildSpawnArgv`) and `resume`.
@@ -311,14 +388,20 @@ export function resetPluginIdsCacheForTests(): void {
  * skills, and plugin MCP for this process only. Absent/empty → key omitted entirely, so
  * untrimmed spawns keep today's exact overlay.
  *
+ * `disableSkills` (trimmed auto spawns only, issue #2001) adds `disableBundledSkills: true` plus
+ * `skillOverrides: {<name>: "off"}` for each listed skill — Claude Code's built-ins and the
+ * operator's personal skills, hidden from the model while the session repo's own stay available.
+ * `disableBundledSkills` rides whenever the key is PRESENT, including for the empty array (a
+ * machine with no personal skills still shouldn't pay for the built-in catalog); absent → both keys
+ * omitted, so untrimmed spawns keep today's exact overlay.
+ *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
  * Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
  * this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
  * overlay JSON stays byte-for-byte identical to today.
  */
 export function spawnSettingsOverlay(
-  opts: {
-    disablePlugins?: string[];
+  opts: SpawnTrimOverlay & {
     hooks?: { sessionId: string; baseUrl: string; token: string | null };
   } = {},
 ): string {
@@ -328,6 +411,12 @@ export function spawnSettingsOverlay(
   };
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
+  }
+  if (opts.disableSkills) {
+    settings.disableBundledSkills = true;
+    if (opts.disableSkills.length > 0) {
+      settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
+    }
   }
   if (config.hooksIngest && opts.hooks) {
     settings.hooks = buildHooksFragment(opts.hooks);
@@ -396,38 +485,88 @@ export function buildHooksFragment(input: {
   };
 }
 
+/** The per-spawn context trim as {@link spawnSettingsOverlay} consumes it: plugin ids to switch
+ *  off, and skill names to hide from the model (see trimDecision). Both absent on an untrimmed
+ *  spawn, which keeps its overlay byte-identical to a pre-trim one. */
+export interface SpawnTrimOverlay {
+  disablePlugins?: string[];
+  disableSkills?: string[];
+}
+
 /**
  * Trim decision for one spawn/resume argv — the single helper shared by buildSpawnArgv
  * and resume() so the two spawn sites can't drift (issue #499). An auto (drain) session
  * with `config.trimAutoContext` on gains:
- *  - `--disable-slash-commands`: removes the entire skill catalog from the fixed prefix;
  *  - an `enabledPlugins:false` settings overlay for every operator-enabled plugin
  *    (spawnSettingsOverlay): kills plugin SessionStart hook injections, skills, and MCP;
+ *  - `disableBundledSkills` + a `skillOverrides: {<user skill>: "off"}` map: Claude Code's
+ *    built-in skills and the operator's personal ones, neither of which an unattended coding
+ *    run has any use for. The SESSION REPO's own `.claude/skills` stay listed and loadable;
  *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`) — fresh spawns
  *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
- *    directives don't ride resumes either), so a resumed trimmed session deliberately has
- *    skills off without the notice.
+ *    directives don't ride resumes either), so a resumed trimmed session deliberately runs
+ *    the same trim without the notice.
  *    ONE narrow, deliberate exception (issue #1624): buildClaudeResumeArgv DOES re-pass a
  *    single `--append-system-prompt` carrying ONLY the `<operator-language>` block (never the
  *    full directive set) so a compacted/resumed session keeps addressing the operator in their
  *    language instead of drifting back to English. Empirically verified honored on resume
  *    (both `-p` and interactive PTY). "en" carries nothing → resume argv stays byte-identical.
- * Measured −6,349 tokens/turn combined in the issue-499 spike. Deliberately NOT
- * `--settings disableAllHooks` — that would kill the operator's global SessionStart hook
- * Shepherd's status pipeline depends on. Interactive spawns are untouched.
+ *
+ * It deliberately no longer passes `--disable-slash-commands` (issue #2001). That flag is
+ * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
+ * sessions that run unattended. Re-measured on Claude Code 2.1.220 against a drain-shaped spawn
+ * (scripts/measure-spawn-prefix.sh), the resident prefix costs 34,175 tok with the flag,
+ * 40,187 without it, and 35,234 under the shape above — so keeping the repo's own skills
+ * available costs +1,059 tok/turn instead of +6,012, because the flag's saving was almost
+ * entirely built-in and personal skills that no drain session would have invoked anyway.
+ *
+ * Deliberately NOT `--settings disableAllHooks` — that would kill the operator's global
+ * SessionStart hook Shepherd's status pipeline depends on. Interactive spawns are untouched, and
+ * `SHEPHERD_TRIM_AUTO_CONTEXT=false` still opts the whole thing out.
  */
 async function trimDecision(
   auto: boolean,
+  repoPath: string,
   pluginIds: () => Promise<string[]>,
-): Promise<{ extraFlags: string[]; overlayOpts: { disablePlugins?: string[] }; trimmed: boolean }> {
+  skillNames: (dir: string) => Promise<string[] | null>,
+  userSkills: () => Promise<string[]>,
+): Promise<{ overlayOpts: SpawnTrimOverlay; trimmed: boolean }> {
   if (!auto || !config.trimAutoContext) {
-    return { extraFlags: [], overlayOpts: {}, trimmed: false };
+    return { overlayOpts: {}, trimmed: false };
   }
   return {
-    extraFlags: ["--disable-slash-commands"],
-    overlayOpts: { disablePlugins: await pluginIds() },
+    overlayOpts: {
+      disablePlugins: await pluginIds(),
+      disableSkills: await disableableSkillNames(repoPath, skillNames, userSkills),
+    },
     trimmed: true,
   };
+}
+
+/**
+ * The operator's user-level skill names MINUS the ones the session's repo defines itself.
+ *
+ * `skillOverrides` is keyed by skill NAME, not by source, so an `"off"` entry for a personal skill
+ * would also silence a repo skill that happens to resolve to the same name — the precise failure
+ * this trim exists to stop. Both sides are resolved through {@link readSkillNames} (front-matter
+ * `name`, entry-name fallback), so they compare the identity Claude Code itself uses.
+ *
+ * FAIL-SAFE: when the repo's skills cannot be listed (`null` — anything but a missing directory)
+ * the overrides are dropped entirely rather than applied blind. Paying for the operator's personal
+ * catalog for one spawn is cheap; silently disabling the repo's own skill is not.
+ */
+async function disableableSkillNames(
+  repoPath: string,
+  skillNames: (dir: string) => Promise<string[] | null>,
+  userSkills: () => Promise<string[]>,
+): Promise<string[]> {
+  const [user, project] = await Promise.all([
+    userSkills(),
+    skillNames(join(repoPath, ".claude", "skills")),
+  ]);
+  if (project === null) return [];
+  const own = new Set(project);
+  return user.filter((name) => !own.has(name));
 }
 type TrimDecision = Awaited<ReturnType<typeof trimDecision>>;
 
@@ -522,18 +661,21 @@ function tmpfsWorktreeNotice(agentProvider: AgentProvider): string {
 }
 
 /**
- * Injected only into trimmed auto (drain) spawns — sessions launched with
- * `--disable-slash-commands` + an `enabledPlugins:false` settings overlay (issue #499,
- * see trimDecision). Without it, CLAUDE.md / memory instructions like "use the superpowers
- * skill" would send the agent hunting for a Skill tool that isn't there. Agent-facing
- * prompt text (not operator UI), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
+ * Injected only into trimmed auto (drain) spawns (issue #499, see trimDecision). It used to
+ * announce that skills were gone entirely; since #2001 the trim keeps the Skill tool and the
+ * repo's own skills and drops only the catalogs a drain session can't use, so the notice now
+ * says which of the two an instruction like "use the superpowers skill" falls into — otherwise
+ * the agent hunts for a skill that isn't installed here. Agent-facing prompt text (not operator
+ * UI), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
  */
 const CONTEXT_TRIM_NOTICE =
-  "This unattended session runs with the skill catalog, slash commands, and optional " +
-  "plugins disabled to cut per-turn context overhead. The Skill tool and slash commands " +
-  "are unavailable — ignore any instructions (e.g. in CLAUDE.md or memory files) to invoke " +
-  "skills such as superpowers; use built-in tools directly instead (the Agent tool for " +
-  "subagent execution, Bash, Edit, and so on).";
+  "This unattended session runs with Claude Code's built-in skills, your personal " +
+  "(~/.claude/skills) skills, and every optional plugin disabled to cut per-turn context " +
+  "overhead. The Skill tool IS available and this repository's own skills (.claude/skills/) " +
+  "load normally — use them. Any OTHER skill named in CLAUDE.md or memory files (superpowers " +
+  "and other plugin/personal skills) is not installed here: ignore that instruction and use " +
+  "built-in tools directly instead (the Agent tool for subagent execution, Bash, Edit, and so " +
+  "on). Slash commands are not typed in this session.";
 
 /**
  * Universal engineering posture injected into every spawn (issue #349, adapted from the
@@ -1388,7 +1530,7 @@ function trailingBlocks(
   if (opts.previewHint) blocks.push(taggedBlock("preview-hint-notice", PREVIEW_HINT_NOTICE));
   // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
   if (opts.draftMode) blocks.push(taggedBlock("draft-mode", DRAFT_PR_NOTE));
-  // Context-trim notice: only trimmed auto spawns (skill catalog / slash commands / plugins off).
+  // Context-trim notice: only trimmed auto spawns (bundled + personal skills / plugins off).
   if (opts.trimmed) blocks.push(taggedBlock("context-trim-notice", CONTEXT_TRIM_NOTICE));
   // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
   // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
@@ -1997,10 +2139,17 @@ export class SessionService {
     }
   }
 
-  /** trimDecision via the injected plugin-id seam (tests) or the real memoized read —
-   *  the one resolver both spawn sites (create + resume) go through. */
-  private trimFor(auto: boolean | undefined): ReturnType<typeof trimDecision> {
-    return trimDecision(auto ?? false, this.deps.pluginIds ?? installedPluginIds);
+  /** trimDecision via the injected plugin/skill seams (tests) or the real memoized reads —
+   *  the one resolver both spawn sites (create + resume) go through. `repoPath` is the session's
+   *  repo, whose own `.claude/skills` the trim must not disable (issue #2001). */
+  private trimFor(auto: boolean | undefined, repoPath: string): ReturnType<typeof trimDecision> {
+    return trimDecision(
+      auto ?? false,
+      repoPath,
+      this.deps.pluginIds ?? installedPluginIds,
+      this.deps.skillNames ?? ((dir) => readSkillNames(dir)),
+      this.deps.userSkills ?? (() => userSkillNames()),
+    );
   }
 
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Checks
@@ -2627,13 +2776,7 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
-    const argv = [
-      "claude",
-      "--dangerously-skip-permissions",
-      "--session-id",
-      claudeSessionId,
-      ...trim.extraFlags,
-    ];
+    const argv = ["claude", "--dangerously-skip-permissions", "--session-id", claudeSessionId];
     argv.push(
       "--settings",
       spawnSettingsOverlay({
@@ -2740,7 +2883,6 @@ export class SessionService {
       "--dangerously-skip-permissions",
       "--resume",
       s.claudeSessionId,
-      ...trim.extraFlags,
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
@@ -3064,7 +3206,7 @@ export class SessionService {
     // CLI-agnostic. See resolvePlanGateOn for the override + research semantics. Replacements can
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
-    const trim = await this.trimFor(spawnInput.auto);
+    const trim = await this.trimFor(spawnInput.auto, spawnInput.repoPath);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -3957,8 +4099,8 @@ export class SessionService {
     if (this.resumeRefusedByAutoGate(session)) return null;
 
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
-    // keep the slim context, not silently regrow the skill catalog + plugin hooks.
-    const trim = await this.trimFor(session.auto);
+    // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
+    const trim = await this.trimFor(session.auto, session.repoPath);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
@@ -4166,7 +4308,7 @@ export class SessionService {
       worktreeCreated = true;
     }
 
-    const trim = await this.trimFor(s.auto);
+    const trim = await this.trimFor(s.auto, s.repoPath);
     const outcome = await this.prepareResumeSpawn(
       s,
       this.buildResumeArgv(s, provider, trim, codexSessionId),

@@ -18,9 +18,9 @@ an operator who asks for an epic **mid-session (steer-time)** gets no injected
 epic-shape guidance at all — the agent falls back on generic GitHub habits and
 ships an "epic" Shepherd never sees. This skill is the remedy for exactly that
 gap: invoke it whenever an epic ask arises, at spawn or mid-session. It is
-attended by default (unattended drains run with skills disabled unless the
-operator opts out of context trimming) and
-richer than the injected blocks: it drafts the whole tree, gates outward
+reachable from an unattended drain too — the context trim keeps the session
+repo's own skills, so this one loads wherever it ships — and richer than the
+injected blocks: it drafts the whole tree, gates outward
 actions on approval, and wires native links.
 
 This skill is **self-contained**: it ships in the Shepherd repo and runs in

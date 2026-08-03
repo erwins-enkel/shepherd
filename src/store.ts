@@ -2333,6 +2333,35 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     return r ? this.hydrate(r) : null;
   }
 
+  /**
+   * Resolve a session by its human-facing designation (issue #1268) — the id an operator or an
+   * external tool actually holds. Accepts `TASK-435` (case-insensitive) and the bare number `435`;
+   * the bare form matches on the NUMERIC suffix, so `5` resolves the zero-padded `TASK-05` too.
+   *
+   * Deliberately unfiltered by status: archived rows are the main target (post-hoc analysis /
+   * export happens after a task is done). A desig is unique in practice, but the store's own
+   * sequence seed warns that pre-fix rows *could* collide — newest-first + LIMIT 1 makes that
+   * resolve deterministically instead of throwing. Anything not desig-shaped → null.
+   */
+  getByDesig(desig: string): Session | null {
+    const key = desig.trim().toUpperCase();
+    // SUBSTR is 1-based, so the offset that strips the prefix is length + 1 (same as the seed query).
+    const numericSuffix = `CAST(SUBSTR(desig, ${DESIG_PREFIX.length + 1}) AS INTEGER)`;
+    let where: string;
+    let param: string | number;
+    if (key.startsWith(DESIG_PREFIX)) {
+      where = `UPPER(desig) = ?`;
+      param = key;
+    } else if (/^\d+$/.test(key)) {
+      where = `${numericSuffix} = ?`;
+      param = Number(key);
+    } else return null; // not desig-shaped
+    const r = this.db
+      .query(`SELECT ${COLS} FROM sessions WHERE ${where} ORDER BY createdAt DESC LIMIT 1`)
+      .get(param) as SessionRow | null;
+    return r ? this.hydrate(r) : null;
+  }
+
   list(opts?: { activeOnly?: boolean }): Session[] {
     const where = opts?.activeOnly ? `WHERE status != 'archived'` : ``;
     return (

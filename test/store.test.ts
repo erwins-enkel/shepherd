@@ -31,6 +31,31 @@ test("create assigns id, sequential desig, timestamps, default status", () => {
   expect(s.create({ ...base, herdrAgentId: "term_2" }).desig).toBe("TASK-02");
 });
 
+test("getByDesig resolves TASK-NN, the bare number, and archived rows", () => {
+  const s = mk();
+  const a = s.create(base);
+  const b = s.create({ ...base, herdrAgentId: "term_2" });
+  expect(a.desig).toBe("TASK-01");
+  expect(b.desig).toBe("TASK-02");
+
+  expect(s.getByDesig("TASK-01")?.id).toBe(a.id);
+  expect(s.getByDesig("task-01")?.id).toBe(a.id); // case-insensitive
+  expect(s.getByDesig("  TASK-02  ")?.id).toBe(b.id); // trimmed
+  // bare number matches the NUMERIC suffix, so the zero-padding is not the caller's problem
+  expect(s.getByDesig("1")?.id).toBe(a.id);
+  expect(s.getByDesig("01")?.id).toBe(a.id);
+  expect(s.getByDesig("2")?.id).toBe(b.id);
+
+  // archived rows stay resolvable — post-hoc export is the whole point
+  s.update(a.id, { status: "archived", lastState: "done" });
+  expect(s.getByDesig("TASK-01")?.id).toBe(a.id);
+
+  expect(s.getByDesig("TASK-99")).toBeNull();
+  expect(s.getByDesig("99")).toBeNull();
+  for (const junk of ["", "   ", "nonsense", "TASK-", "-1", "1e3", a.id])
+    expect(s.getByDesig(junk)).toBeNull();
+});
+
 test("session agentProvider defaults to claude and round-trips codex", () => {
   const s = mk();
   const claude = s.create(base);

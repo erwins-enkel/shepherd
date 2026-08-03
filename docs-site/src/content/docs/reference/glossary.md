@@ -79,6 +79,12 @@ An automated LLM pass Shepherd spawns alongside the main task agent — critic /
 PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real
 overhead attributed back to the task, on top of the agent's own authoring.
 
+### Spawn prompt
+
+The standing instructions Shepherd assembles and hands an agent the moment it
+starts — house rules, safety notices and the directive for this kind of task. It
+rides every turn of the session, so its size is paid for again and again.
+
 ## Industry terms
 
 ### PR

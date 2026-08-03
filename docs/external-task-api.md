@@ -142,6 +142,16 @@ Once a task exists, an external agent can also drive it:
   returns best-effort per-line Diff-tab annotations (agent reasoning anchored to
   changed lines plus routed critic findings) as `{ "notes": [...] }`; it degrades
   to an empty list on any error rather than failing.
+- `GET /api/sessions/:id/prompt-budget` — what that spawn's assembled system
+  prompt cost, block by block: `delivery` (`append-system-prompt` for Claude,
+  `inline-prompt` for Codex), `totalChars` / `totalBytes` / `totalTokens`, and a
+  `blocks` array of `{ name, chars, bytes, tokens }` in emission order. Token
+  figures are an **estimate** (characters ÷ 4), not a tokenizer's count.
+  `404 {"error":"not found"}` for a session that predates the instrument or whose
+  spawn recorded nothing. `GET /api/prompt-budget[?limit=]` returns
+  `{ "records": [...] }` — the same records for recent spawns, newest first,
+  across attended and drain, Claude and Codex (default 50, capped at 200; a
+  missing, non-numeric or out-of-range `limit` falls back rather than `400`ing).
 - `GET /api/sessions/:id/scratchpad[?path=]` — browse a live session's own
   scratchpad subtree, with the session's operator attachments overlaid as a
   synthetic read-only `attachments/` folder (New Task screenshots and

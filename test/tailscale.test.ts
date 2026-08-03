@@ -1,5 +1,6 @@
 import { test, expect, describe } from "bun:test";
 import {
+  isServeConfigDenied,
   resolveNodeHost,
   TailscaleServeService,
   type TailscaleRunner,
@@ -324,5 +325,144 @@ describe("TailscaleServeService", () => {
     await p2;
 
     expect(order).toEqual(["s1-exec-start", "s1-exec-done", "s2-exec"]);
+  });
+});
+
+// ── isServeConfigDenied / permissionDenied ────────────────────────────────────
+
+/** Verbatim stderr from tailscale 1.98.4 when a non-root, non-operator user writes
+ *  serve config. Copied from a real refusal so the matcher is tested against the
+ *  string tailscaled actually emits, not a paraphrase of it. */
+const DENIED_STDERR =
+  "sending serve config: Access denied: serve config denied\n\n" +
+  "Use 'sudo tailscale serve --bg --https=8001 127.0.0.1:8001'.\n" +
+  "To not require root, use 'sudo tailscale set --operator=$USER' once.\n";
+
+/** Shaped like a promisify(execFile) rejection: message carries the joined output,
+ *  stderr carries it verbatim. */
+function deniedError(): Error & { stderr: string } {
+  const err = new Error(
+    "Command failed: tailscale serve --bg --https=8001 127.0.0.1:8001\n" + DENIED_STDERR,
+  ) as Error & { stderr: string };
+  err.stderr = DENIED_STDERR;
+  return err;
+}
+
+/** A denial-shaped runner: every serve mutation is refused, as on a host with no --operator. */
+const denyingRun: TailscaleRunner = async () => {
+  throw deniedError();
+};
+
+describe("isServeConfigDenied", () => {
+  test("matches a real tailscaled refusal via stderr", () => {
+    expect(isServeConfigDenied(deniedError())).toBe(true);
+  });
+
+  test("matches when the wording only reached the message (no stderr field)", () => {
+    expect(isServeConfigDenied(new Error(`Command failed\n${DENIED_STDERR}`))).toBe(true);
+  });
+
+  test("does not match an unrelated failure", () => {
+    expect(isServeConfigDenied(new Error("spawn tailscale ENOENT"))).toBe(false);
+  });
+
+  // Guards against over-matching: a bare "access denied" from some other subsystem must not
+  // be reported to the operator as "run tailscale set --operator".
+  test("does not match a bare access-denied without the serve-config wording", () => {
+    expect(isServeConfigDenied(new Error("Access denied: tailnet lock"))).toBe(false);
+  });
+
+  test("tolerates non-Error rejections", () => {
+    expect(isServeConfigDenied(null)).toBe(false);
+    expect(isServeConfigDenied("serve config denied")).toBe(false);
+  });
+});
+
+describe("TailscaleServeService.permissionDenied", () => {
+  test("false before any mutation has been attempted", () => {
+    const { run } = makeRun();
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+    expect(svc.permissionDenied()).toBe(false);
+  });
+
+  test("latches true when a register is refused for lack of operator rights", async () => {
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: true,
+      run: denyingRun,
+    });
+
+    await svc.register("s1", 8001);
+
+    expect(svc.permissionDenied()).toBe(true);
+    // The per-slot state still reports the ordinary failure — this adds a host-level
+    // verdict alongside it rather than replacing it.
+    expect(svc.snapshot()).toEqual({ s1: "failed" });
+  });
+
+  // The blind spot this closes: reconcileStartup exercises the whole range at boot, so a
+  // denied host is known BEFORE anyone opens a preview.
+  test("latches true from reconcileStartup on a denied host", async () => {
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 3,
+      enabled: true,
+      run: denyingRun,
+    });
+
+    await svc.reconcileStartup();
+
+    expect(svc.permissionDenied()).toBe(true);
+  });
+
+  test("stays false when reconcileStartup only hits benign empty-slot errors", async () => {
+    const { run } = makeRun(new Set([8001, 8002, 8003]));
+    const svc = new TailscaleServeService({ base: 8001, count: 3, enabled: true, run });
+
+    await svc.reconcileStartup();
+
+    expect(svc.permissionDenied()).toBe(false);
+  });
+
+  test("stays false when a register fails for an unrelated reason", async () => {
+    const { run } = makeRun(new Set([8001]));
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+
+    await svc.register("s1", 8001);
+
+    expect(svc.snapshot()).toEqual({ s1: "failed" });
+    expect(svc.permissionDenied()).toBe(false);
+  });
+
+  test("clears once a later register succeeds (operator granted mid-run)", async () => {
+    let granted = false;
+    const run: TailscaleRunner = async () => {
+      if (!granted) throw deniedError();
+      return { stdout: "" };
+    };
+    const svc = new TailscaleServeService({ base: 8001, count: 5, enabled: true, run });
+
+    await svc.register("s1", 8001);
+    expect(svc.permissionDenied()).toBe(true);
+
+    granted = true;
+    await svc.register("s2", 8002);
+
+    expect(svc.permissionDenied()).toBe(false);
+  });
+
+  test("stays false when the service is disabled (no mutation is ever attempted)", async () => {
+    const svc = new TailscaleServeService({
+      base: 8001,
+      count: 5,
+      enabled: false,
+      run: denyingRun,
+    });
+
+    await svc.reconcileStartup();
+    await svc.register("s1", 8001);
+
+    expect(svc.permissionDenied()).toBe(false);
   });
 });

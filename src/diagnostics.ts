@@ -120,6 +120,10 @@ export interface DiagnosticsDeps {
    *  `findServedPort`. Both a direct `tailscale serve` mapping and a Tailscale
    *  Service mapping are detected. Reject ⇒ treated as "not serving". */
   runServeStatus?: () => Promise<string>;
+  /** True when `tailscale serve` refused a preview registration for lack of
+   *  operator/root rights (`TailscaleServeService.permissionDenied`). Default
+   *  `() => false` so an unwired service keeps today's behavior. */
+  previewServeDenied?: () => boolean;
   /** Run a verbatim remediation command (a shell pipeline like `curl … | bash`).
    *  Resolves on exit 0; rejects on non-zero exit or timeout. Default spawns a
    *  detached process group and SIGKILLs the whole group on timeout. Injected in tests. */
@@ -334,6 +338,15 @@ function resolveClaudeTrustDeps(deps: DiagnosticsDeps): {
     trustClaude: deps.trustClaude ?? (() => trustRepoRoot(cfg, config.repoRoot)),
     isApiKeyAuth: deps.isApiKeyAuth ?? isApiKeyMode,
   };
+}
+
+/** Default `previewServeDenied`: an unwired service never reports a denial, so a caller that
+ *  doesn't pass the tailscale serve service keeps the pre-existing behavior. Resolved here
+ *  rather than inline in the constructor for the same reason `resolveClaudeTrustDeps` exists —
+ *  the ctor sits at the repo's complexity ceiling, and one more inline `??` trips the health
+ *  gate. */
+function resolvePreviewServeDenied(deps: DiagnosticsDeps): () => boolean {
+  return deps.previewServeDenied ?? (() => false);
 }
 
 // ── host_capacity check (#1732) ──────────────────────────────────────────────
@@ -926,6 +939,7 @@ export class DiagnosticsService {
   private ghProbeRetryDelayMs: number;
   private resolveHost: () => Promise<string | null>;
   private runServeStatus: () => Promise<string>;
+  private previewServeDenied: () => boolean;
   private runRemediation: (cmd: string) => Promise<void>;
   private anyForgeRepo: () => boolean;
   private anyLightweightRepo: () => boolean;
@@ -985,6 +999,7 @@ export class DiagnosticsService {
         });
         return stdout.toString();
       });
+    this.previewServeDenied = resolvePreviewServeDenied(deps);
     this.runRemediation = deps.runRemediation ?? defaultRunRemediation;
     this.anyForgeRepo = deps.anyForgeRepo ?? (() => true);
     this.anyLightweightRepo = deps.anyLightweightRepo ?? (() => false);
@@ -1255,6 +1270,8 @@ export class DiagnosticsService {
   };
 
   /** tailscale: missing binary / not-logged-in (resolveNodeHost null) ⇒ error;
+   *  logged-in but tailscaled refuses our serve-config writes ⇒ warning (live
+   *  preview cannot publish any slot until the host names an --operator);
    *  logged-in but not serving the HUD's local port (findServedPort finds no
    *  mapping for config.port in `tailscale serve status --json`) ⇒ warning
    *  (advisory — Shepherd runs fine without serve, it only gates the
@@ -1267,6 +1284,17 @@ export class DiagnosticsService {
         id: "tailscale",
         state: "error",
         hintKey: "diagnostics_hint_tailscale_missing",
+      };
+    }
+    // Ordered BEFORE the serve-status read on purpose: a denied host typically still has a
+    // working HUD mapping (written earlier with root, or by another user), so `findServedPort`
+    // succeeds and the row would report `ok` while every preview registration is refused.
+    // That green-over-broken reading is the blind spot this check exists to close.
+    if (this.previewServeDenied()) {
+      return {
+        id: "tailscale",
+        state: "warning",
+        hintKey: "diagnostics_hint_tailscale_serve_denied",
       };
     }
     const status = await this.runServeStatus();

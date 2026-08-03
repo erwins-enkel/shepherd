@@ -2750,6 +2750,10 @@ const diagnostics = new DiagnosticsService({
   // Diagnose row reflects the same cell the sweeps read (a fresh ProcessReaper
   // would carry an always-cold cell). Pure read, no spawn.
   probeHealth: () => reaper.health(),
+  // Pure read of the serve service's latched permission verdict — no extra spawn. Lets the
+  // `tailscale` row report a host that refuses our serve-config writes, which the
+  // HUD-port-only serve-status check cannot see.
+  previewServeDenied: () => tailscaleServe.permissionDenied(),
   anyForgeRepo: () =>
     listRepos(config.repoRoot).some((r) => store.getRepoConfig(r.path).repoMode === "forge"),
   anyLightweightRepo: () =>

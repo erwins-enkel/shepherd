@@ -3042,7 +3042,13 @@
         ></iframe>
         <div class="preview-foot">
           {#if previewServeFailed}
-            <span class="preview-serve-failed">{m.viewport_preview_serve_failed()}</span>
+            <!-- title= carries the full sentence: this span is single-line elided
+                 (.preview-serve-failed), and in a narrow viewport the tail — which is
+                 exactly the "Settings → Diagnostics" pointer at the cause — is the part
+                 that gets cut. Shortening the string alone only postpones that. -->
+            <span class="preview-serve-failed" title={m.viewport_preview_serve_failed()}
+              >{m.viewport_preview_serve_failed()}</span
+            >
           {/if}
           <!-- Persistent static setup hint (NOT an auto-detected error): a blank
                frame usually means the preview port isn't tailscale-served yet, or the

@@ -537,7 +537,7 @@
   "viewport_preview_stop_failed": "Devserver konnte nicht gestoppt werden; er ignoriert möglicherweise das Stoppsignal.",
   "unitrow_preview_badge": "Vorschau",
   "unitrow_preview_badge_degraded": "Vorschau; Tailscale-Registrierung fehlgeschlagen, nur über Loopback erreichbar",
-  "viewport_preview_serve_failed": "Tailscale-Registrierung für diesen Vorschau-Port fehlgeschlagen; nur über Loopback erreichbar. Nutze 'In neuem Tab öffnen', wenn der Frame leer bleibt.",
+  "viewport_preview_serve_failed": "Tailscale-Registrierung fehlgeschlagen — nur Loopback. Die Ursache steht unter Einstellungen → Diagnose.",
   "viewport_git_actions": "PR",
   "viewport_git_actions_title": "PR, Merge, Kritiker & Merge-Freigabe",
   "viewport_git_actions_aria": "PR- und Merge-Aktionen ein-/ausblenden",
@@ -3516,5 +3516,6 @@
   "keymap_footer_held": "{mod} GEHALTEN — Taste drücken oder loslassen",
   "keymap_mode_research_short": "RECH.",
   "feat_newtask_keymap_title": "⌘ halten zeigt alle Tastenkürzel",
-  "feat_newtask_keymap_body": "Halte in „Neue Aufgabe\" kurz ⌘ (Strg unter Windows/Linux) — jedes Bedienelement zeigt sein Kürzel direkt an seinem Platz, Loslassen blendet wieder aus. ? öffnet die vollständige Tastenkarte."
+  "feat_newtask_keymap_body": "Halte in „Neue Aufgabe\" kurz ⌘ (Strg unter Windows/Linux) — jedes Bedienelement zeigt sein Kürzel direkt an seinem Platz, Loslassen blendet wieder aus. ? öffnet die vollständige Tastenkarte.",
+  "diagnostics_hint_tailscale_serve_denied": "Tailscale verweigert Shepherd die serve-Konfiguration, dadurch lässt sich keine Live-Vorschau veröffentlichen — führe einmalig sudo tailscale set --operator=$USER aus und öffne die Vorschau erneut."
 }

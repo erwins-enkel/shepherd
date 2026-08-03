@@ -148,8 +148,8 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   const buildQueue = buildQueueDirective({
     sessionId: "00000000-0000-4000-8000-000000000000",
     baseUrl: "http://127.0.0.1:7331",
-    token: null,
     autopilot: false,
+    agentProvider: "claude",
   });
   const blocks = composeSystemPromptBlocks(houseRules, false, {
     buildQueue,
@@ -159,8 +159,9 @@ test("#1999 kitchen sink: house rules + build queue + preview + draft + trim", (
   });
   const measured = measurePromptBlocks(blocks);
   // 13,408 before #2001 reworded the context-trim notice (the trim keeps the repo's own skills now,
-  // so the notice has to say which skills are gone rather than "all of them").
-  expect(measured.totalChars).toBe(13600);
+  // so the notice has to say which skills are gone rather than "all of them"); 13,600 before #2003
+  // replaced the build-queue curl tutorial with the queue_write / queue_step tools.
+  expect(measured.totalChars).toBe(10577);
   expect(measured.totalChars).toBe(
     composeSystemPrompt(houseRules, false, {
       buildQueue,

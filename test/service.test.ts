@@ -5247,12 +5247,31 @@ test("composeSystemPrompt omits <build-queue> block when null (1-arg backward co
   expect(composeSystemPrompt(null, true)).not.toContain("<build-queue>");
 });
 
-test("buildQueueDirective states the ordered contract that forward-fill relies on", () => {
+test("buildQueueDirective (Claude) names the tools and drops the curl tutorial (#2003)", () => {
   const d = buildQueueDirective({
     sessionId: "sess-1",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     autopilot: true,
+    agentProvider: "claude",
+  });
+  // The tools carry the mechanics; the block only says the queue exists and how it is gated.
+  expect(d).toContain("queue_write");
+  expect(d).toContain("queue_step");
+  expect(d).toContain("immediately begin executing");
+  // What the tool signatures now carry is GONE from the prompt.
+  expect(d).not.toContain("curl");
+  expect(d).not.toContain("/api/sessions/sess-1/queue");
+  expect(d).not.toMatch(/stored verbatim and never regenerated/);
+  // …and the whole point: it is a fraction of the size it was (3,443 chars pre-#2003).
+  expect(d.length).toBeLessThan(800);
+});
+
+test("buildQueueDirective (Codex) keeps the HTTP prose — the stated provider gap (#2003)", () => {
+  const d = buildQueueDirective({
+    sessionId: "sess-1",
+    baseUrl: "http://127.0.0.1:7330",
+    autopilot: true,
+    agentProvider: "codex",
   });
   // The ordered contract + server auto-completion of earlier steps.
   expect(d).toContain("IN ORDER");
@@ -5261,23 +5280,27 @@ test("buildQueueDirective states the ordered contract that forward-fill relies o
   expect(d).toContain("never batch the updates at the end");
   // The reconcile-reminder heads-up.
   expect(d).toMatch(/reminder to reconcile/);
-});
-
-test("buildQueueDirective makes assign-and-resend-your-own-ids the primary id rule", () => {
-  const d = buildQueueDirective({
-    sessionId: "sess-1",
-    baseUrl: "http://127.0.0.1:7330",
-    token: null,
-    autopilot: true,
-  });
   // Primary instruction: agent owns short stable ids and resends them.
   expect(d).toMatch(/short, stable `id`/);
   expect(d).toMatch(/ALWAYS resend a step with the SAME `id`/);
   expect(d).toContain('"id":"s1"');
-  // Verbatim-stored, never regenerated.
   expect(d).toMatch(/stored verbatim and never regenerated/);
-  // re-GET is demoted to a fallback, not an equal option.
   expect(d).toMatch(/Fallback only if you didn't/);
+  expect(d).toContain("http://127.0.0.1:7330/api/sessions/sess-1/queue");
+});
+
+test("buildQueueDirective carries NO bearer token on EITHER provider (#2003)", () => {
+  for (const agentProvider of ["claude", "codex"] as const) {
+    const d = buildQueueDirective({
+      sessionId: "sess-1",
+      baseUrl: "http://127.0.0.1:7330",
+      autopilot: false,
+      agentProvider,
+    });
+    // The agent-ingress listener is auth-exempt, so the header authenticated nothing while
+    // persisting Shepherd's control-plane secret into the agent transcript.
+    expect(d).not.toMatch(/Authorization|Bearer/i);
+  }
 });
 
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
@@ -5446,7 +5469,7 @@ test("create with buildQueueEnabled=true: system prompt contains <build-queue> b
   expect(sp).toContain("</build-queue>");
 });
 
-test("create with buildQueueEnabled=true: system prompt contains the real session id and queue endpoint", async () => {
+test("create with buildQueueEnabled=true: --mcp-config points at the session's own endpoint, and the queue URL leaves the prompt (#2003)", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(
@@ -5459,8 +5482,69 @@ test("create with buildQueueEnabled=true: system prompt contains the real sessio
     model: null,
     images: [],
   });
-  const sp = sysPrompt(captured.argv!);
-  expect(sp).toContain(`/api/sessions/${s.id}/queue`);
+  const argv = captured.argv!;
+  const i = argv.indexOf("--mcp-config");
+  expect(i).toBeGreaterThan(-1);
+  expect(JSON.parse(argv[i + 1]!)).toEqual({
+    mcpServers: {
+      shepherd: { type: "http", url: `http://127.0.0.1:7330/api/sessions/${s.id}/mcp` },
+    },
+  });
+  // The control plane is a tool now: the prompt no longer teaches the HTTP call.
+  const sp = sysPrompt(argv);
+  expect(sp).toContain("<build-queue>");
+  expect(sp).not.toContain(`/api/sessions/${s.id}/queue`);
+});
+
+test("create with buildQueueEnabled=false: no --mcp-config — a session with no control plane pays nothing (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: false }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(captured.argv).not.toContain("--mcp-config");
+});
+
+test("resume re-passes --mcp-config so a compacted session keeps its tools (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), buildQueueEnabled: true });
+  const s = resumable(store, { model: null });
+
+  await svc.resume(s.id);
+  const i = (calls.argv as string[]).indexOf("--mcp-config");
+  expect(i).toBeGreaterThan(-1);
+  expect(JSON.parse(calls.argv[i + 1])).toEqual({
+    mcpServers: {
+      shepherd: { type: "http", url: `http://127.0.0.1:7330/api/sessions/${s.id}/mcp` },
+    },
+  });
 });
 
 test("create with buildQueueEnabled=false: system prompt has no <build-queue> block", async () => {
@@ -7242,7 +7326,6 @@ test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses
   const directive = epicAuthoringDirective({
     sessionId: "sess-1",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     agentProvider: "claude",
   });
   const sp = composeSystemPrompt(null, true, {
@@ -7258,17 +7341,30 @@ test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses
   expect(sp).not.toContain("<single-pr-invariant>");
 });
 
-test("epicAuthoringDirective bakes the draft endpoint and forbids GitHub writes", () => {
+test("epicAuthoringDirective (Claude) submits via the tool, not a hand-written JSON curl (#2003)", () => {
   const d = epicAuthoringDirective({
     sessionId: "sess-42",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     agentProvider: "claude",
+  });
+  expect(d).toContain("epic_draft");
+  expect(d).toContain("NEVER run `gh issue create`");
+  // The draft contract now lives in the tool's parameter schema.
+  expect(d).not.toContain("curl");
+  expect(d).not.toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");
+  expect(d).not.toMatch(/Authorization|Bearer/i);
+});
+
+test("epicAuthoringDirective (Codex) keeps the tokenless draft curl — the stated gap (#2003)", () => {
+  const d = epicAuthoringDirective({
+    sessionId: "sess-42",
+    baseUrl: "http://127.0.0.1:7330",
+    agentProvider: "codex",
   });
   expect(d).toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");
   expect(d).toContain("NEVER run `gh issue create`");
   expect(d).toContain('"blockedBy"');
-  expect(d).not.toContain("epic import endpoint call"); // no write path baked in
+  expect(d).not.toMatch(/Authorization|Bearer/i);
 });
 
 test("create research: plan gate forced off even when repo planGateEnabled is true", async () => {

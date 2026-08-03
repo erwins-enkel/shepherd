@@ -19,8 +19,10 @@ const SID = "step_abc";
 const parts = (p: string) => p.split("/").filter(Boolean);
 
 // ── isAgentIngressRoute: exhaustive allow/deny table ────────────────────────────
-test("isAgentIngressRoute: ALLOWS exactly the four agent→server routes", () => {
+test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks`))).toBe(true);
+  // The session's MCP endpoint (issue #2003): the same control plane as a TOOL surface.
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/mcp`))).toBe(true);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/queue`))).toBe(true);
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/queue/steps/${SID}`))).toBe(true);
@@ -55,6 +57,10 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   );
   // hooks with a trailing extra segment.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/hooks/x`))).toBe(false);
+  // MCP is POST-only, exact-path.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/mcp`))).toBe(false);
+  expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/mcp`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/mcp/x`))).toBe(false);
   // Missing session id.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions//queue`))).toBe(false);
@@ -204,6 +210,50 @@ test("makeAgentIngressApp: GET /api/sessions/:id/queue delegates — the agent c
   const q = await get.json();
   expect(q.steps.length).toBe(1);
   expect(q.steps[0].id).toBe("s1");
+});
+
+test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue through a tool call (issue #2003)", async () => {
+  // The whole point of the slice: the agent moves a step WITHOUT being taught an HTTP call, and
+  // reaches the tool over the same auth-exempt ingress the curl used to.
+  const deps = makeDeps();
+  deps.store.setRepoConfig("/repo", {
+    ...deps.store.getRepoConfig("/repo"),
+    buildQueueEnabled: true,
+  });
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const app = makeAgentIngressApp(deps);
+  const rpc = async (method: string, params?: unknown) =>
+    app.fetch(
+      new Request(`http://x/api/sessions/${s.id}/mcp`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
+      }),
+    );
+
+  const list = await rpc("tools/list");
+  expect(list.status).toBe(200);
+  expect((await list.json()).result.tools.map((t: { name: string }) => t.name)).toEqual([
+    "queue_write",
+    "queue_step",
+  ]);
+
+  await rpc("tools/call", {
+    name: "queue_write",
+    arguments: { steps: [{ id: "s1", title: "A" }] },
+  });
+  const called = await rpc("tools/call", {
+    name: "queue_step",
+    arguments: { stepId: "s1", status: "active" },
+  });
+  expect(called.status).toBe(200);
+  expect(deps.store.getBuildQueue(s.id).steps[0]!.status).toBe("active");
 });
 
 test("makeAgentIngressApp: the ingress transport is EXEMPT from the human auth gate (issue #1079)", async () => {

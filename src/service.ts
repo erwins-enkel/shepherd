@@ -5,6 +5,12 @@ import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
+import {
+  agentMcpConfigArg,
+  hasAgentTools,
+  sessionCapabilities,
+  type AgentCapabilities,
+} from "./agent-control";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { createSerializer, matchAgents, needsAccountRedrive } from "./herdr";
@@ -888,11 +894,16 @@ export function detectEpicIntent(prompt: string): boolean {
  * Compose the steer payload for a mid-session (steer-time) operator reply (#1405). When the
  * operator's message signals epic intent, append the epic-authoring notice so the epic-shape
  * contract rides at steer-time too: spawn-time detectEpicIntent (composeDirectives) only fires on
- * the SPAWN prompt, and the `.claude/skills/shepherd-epic-authoring` skill is Claude-only AND
- * model-invoked — Codex never reads `.claude/skills/`, and even Claude may not auto-pick the skill
- * on a bare epic reply. The injected block is the PTY-text channel that reaches BOTH providers
- * deterministically, wrapped exactly like the spawn-time block. Returns null when the message shows
- * no epic intent (the caller then delivers it verbatim). Exported for tests.
+ * the SPAWN prompt, so without this a mid-session "promote #N to an epic" reaches the agent with no
+ * epic-shape guidance at all and it ships an "epic" Shepherd never recognizes.
+ *
+ * This block plus its spawn-time twin are now the ONLY rendering of the gh-based epic flow
+ * (issue #2003). The `.claude/skills/shepherd-epic-authoring` skill that used to restate the same
+ * contract is deleted: its stated reason to exist was exactly the steer-time gap THIS function
+ * already closes, and unlike this block — which reaches both providers, in every repo — the skill
+ * was Claude-only, model-invoked, and shipped only inside the Shepherd repo.
+ * Returns null when the message shows no epic intent (the caller then delivers it verbatim).
+ * Exported for tests.
  */
 export function composeEpicSteer(text: string): string | null {
   if (!detectEpicIntent(text)) return null;
@@ -974,27 +985,49 @@ function researchDirective(agentProvider: AgentProvider): string {
  * Injected as the highest-priority directive for an attended EPIC-AUTHORING task
  * (`epicAuthoring: true`, issue #1507). The session shapes a rough product idea into a reviewable
  * EPIC DRAFT and writes NO GitHub issues — the operator reviews the draft in the UI and only the
- * server-side approve route materializes it. Self-contained: it inlines the decomposition guidance
- * and the exact JSON draft contract, so it never delegates to the write-mandating epic-authoring
- * SKILL (whose Create/Import stages call `gh` + the import endpoint). Like the research directive it
- * SUPPRESSES the plan-gate, autopilot, and build-queue blocks (see composeSystemPrompt).
+ * server-side approve route materializes it. Like the research directive it SUPPRESSES the
+ * plan-gate, autopilot, and build-queue blocks (see composeSystemPrompt).
  *
- * The draft endpoint + session id are baked in at spawn (reliability + the write-gate is stated up
- * front) exactly as buildQueueDirective bakes its endpoint. Agent-facing prompt text, fixed English.
+ * Submission is a TOOL, not a worked example (issue #2003): Claude submits through
+ * `mcp__shepherd__epic_draft`, whose parameter schema IS the draft contract — parent, children,
+ * per-child `key` + `blockedBy` edges — so the hand-written JSON body and its `curl` are gone from
+ * the prompt, and with them the baked bearer token. Codex keeps the HTTP form (no verified MCP
+ * wiring; stated gap), now tokenless — the agent-ingress listener it targets is exempt from the
+ * human auth gate, so the header never authenticated anything (see buildQueueDirective).
+ *
+ * This block is now the ONE home of the draft flow's contract: the shipped epic-authoring skill,
+ * whose "draft-only mode" section existed to keep its own GitHub-write stages from firing inside
+ * this flow, is deleted (issue #2003). Agent-facing prompt text, fixed English.
  */
 export function epicAuthoringDirective(args: {
   sessionId: string;
   baseUrl: string;
-  token: string | null;
   agentProvider: AgentProvider;
 }): string {
-  const { sessionId, baseUrl, token, agentProvider } = args;
-  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const { sessionId, baseUrl, agentProvider } = args;
   const draftUrl = `${baseUrl}/api/sessions/${sessionId}/epic-draft`;
   const investigate =
     agentProvider === "codex"
       ? "Research the repo and its docs directly (read files, run git/gh reads) to ground the scope.\n"
       : "Research the repo and its docs (read files, dispatch sub-agents) to ground the scope.\n";
+  const submit =
+    agentProvider === "codex"
+      ? "- Emit the draft by PUTting this exact JSON to the endpoint below, then STOP and wait for " +
+        "the operator to review it in the UI. Author `parent.body` WITHOUT any epic-dag fence or " +
+        "issue numbers — the server appends the structural marker with real numbers at creation " +
+        'time. `key` is a stable temp id you assign per child (e.g. "c1") used only for ' +
+        "`blockedBy` edges:\n\n" +
+        `   curl -s -X PUT \\\n` +
+        `     -H "Content-Type: application/json" \\\n` +
+        `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
+        `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
+        `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
+        `     ${draftUrl}\n` +
+        `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
+        `Inspect the current draft any time with a GET on ${draftUrl}.\n\n`
+      : "- Submit the draft with the `epic_draft` tool (on the `shepherd` MCP server), then STOP " +
+        "and wait for the operator to review it in the UI. Re-submit the whole draft to revise it " +
+        "when the operator asks for changes (the amend loop).\n";
   return (
     "You are running as an attended EPIC-AUTHORING task — guided shaping of a rough product idea " +
     "into a reviewable EPIC DRAFT. You do NOT write product code and you do NOT create or edit any " +
@@ -1008,25 +1041,12 @@ export function epicAuthoringDirective(args: {
     "- You are attended: when a product/requirements decision is unresolved, ask the user ONE " +
     "focused question at a time. Research discoverable facts from the repo yourself instead of " +
     "asking.\n" +
-    "- Emit the draft by PUTting this exact JSON to the endpoint below, then STOP and wait for the " +
-    "operator to review it in the UI. Author `parent.body` WITHOUT any epic-dag fence or issue " +
-    "numbers — the server appends the structural marker with real numbers at creation time. `key` " +
-    'is a stable temp id you assign per child (e.g. "c1") used only for `blockedBy` edges:\n\n' +
-    `   curl -s -X PUT${authHeader} \\\n` +
-    `     -H "Content-Type: application/json" \\\n` +
-    `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
-    `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
-    `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
-    `     ${draftUrl}\n` +
-    `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
-    `Inspect the current draft any time with a GET on ${draftUrl}.\n\n` +
+    submit +
     "- HARD RULE — no GitHub writes: NEVER run `gh issue create`/`gh issue edit`, NEVER call the " +
     "epic import endpoint, NEVER open a pull request. The operator approves the draft in the UI and " +
-    "a separate SERVER step creates the parent + child issues and wires their links. If an " +
-    "epic-authoring skill is auto-invoked, follow ONLY its decomposition guidance — never its " +
-    "create/edit/import stages.\n" +
-    "- The EPIC is the entire deliverable. Once you have PUT a draft you are satisfied with and " +
-    "answered the operator's questions, STOP — creation happens on approval, not by you."
+    "a separate SERVER step creates the parent + child issues and wires their links.\n" +
+    "- The EPIC is the entire deliverable. Once you have submitted a draft you are satisfied with " +
+    "and answered the operator's questions, STOP — creation happens on approval, not by you."
   );
 }
 
@@ -1071,28 +1091,32 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
 /**
  * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
  *
- * The build queue is a per-session, ordered, self-revising plan: the agent authors it via a
- * local REST API right after reading the task, a human (or autopilot) approves it, then the
- * agent executes it step-by-step IN THIS SAME SESSION so it retains full context throughout.
+ * The build queue is a per-session, ordered, self-revising plan: the agent authors it right after
+ * reading the task, a human (or autopilot) approves it, then the agent executes it step-by-step IN
+ * THIS SAME SESSION so it retains full context throughout.
  *
- * Why bake the actual endpoint + session id at spawn time (rather than leaving the agent to
- * discover them)? Two reasons:
- *  1. Reliability: the agent doesn't have to guess the server address or its own session id
- *     under an unattended run — a misread would silently produce an unreachable URL.
- *  2. Curation gate: the autopilot/attended split is a policy decision that should be stated
- *     up front, not inferred mid-run. The agent knows BEFORE starting whether it must wait
- *     for human approval or may immediately execute after authoring.
+ * Provider-split (issue #2003), and this is the whole point of the slice:
  *
- * Token/auth: when `config.token` is set the server requires `Authorization: Bearer <token>`;
- * when null it's open to loopback callers — the curl lines must match exactly.
+ *  - **Claude** drives the queue through TOOLS (`mcp__shepherd__queue_write` /
+ *    `queue_step`, served by src/agent-control.ts and wired at spawn by `pushAgentMcpFlag`). The
+ *    tool signatures carry the mechanics the prose used to spell out — the status vocabulary is an
+ *    enum, step ids are a required parameter, and the "call it when you start / when you finish"
+ *    rule is one line of tool description read at the call site. So this block keeps ONLY what a
+ *    signature cannot state: that the session HAS a queue, and the curation gate. 3,443 chars of
+ *    `curl` tutorial deleted.
+ *  - **Codex** keeps the HTTP prose. Its MCP wiring (`config.toml` `[mcp_servers.*]`, streamable
+ *    HTTP behind an experimental client flag) is unverified on the `-c` override path Shepherd
+ *    would have to use, and Codex receives directives inline rather than via a flag. Stated gap,
+ *    not an oversight — a Codex session drives the queue exactly as it did before.
  *
- * SECURITY NOTE: baking the bearer token into the spawn prompt means it is persisted into the
- * agent's Claude Code transcript jsonl on disk (`~/.claude/projects/.../<session>.jsonl`). This
- * is an accepted exposure, not an oversight: the token is Shepherd's own loopback control-plane
- * secret, the transcript lives under the same user account on the same host, and the agent is
- * already spawned with `--dangerously-skip-permissions` (it can read that token from the running
- * server's env or config anyway). The exposure is also opt-in — most deployments leave
- * `config.token` null, so nothing is written. It is NOT a credential that reaches any third party.
+ * NO TOKEN, on either path (issue #2003). `baseUrl` is the restricted agent-ingress listener,
+ * which is EXEMPT from the human cookie/password gate (issue #1079) — the per-session id in the
+ * path is the capability. The `Authorization: Bearer <token>` this directive used to carry was
+ * therefore authenticating against a listener that never checked it, while persisting Shepherd's
+ * control-plane secret into the agent's on-disk transcript. It is gone. (In the pathological case
+ * where the ingress port is unknown and the gated main port is baked instead, a token-set
+ * deployment's queue calls 401 — the same fail-open-to-polling degradation `buildHooksFragment`
+ * already accepts, and it is why `agentIngressPort` is pinned.)
  *
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
@@ -1100,11 +1124,12 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
 export function buildQueueDirective(args: {
   sessionId: string;
   baseUrl: string;
-  token: string | null;
   autopilot: boolean;
+  /** Required, not defaulted: the two branches are materially different prompts, and a silent
+   *  "claude" default would hand a Codex session tool names it has no tools for. */
+  agentProvider: AgentProvider;
 }): string {
-  const { sessionId, baseUrl, token, autopilot } = args;
-  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const { sessionId, baseUrl, autopilot, agentProvider } = args;
   const queueUrl = `${baseUrl}/api/sessions/${sessionId}/queue`;
 
   const curationGate = autopilot
@@ -1114,13 +1139,24 @@ export function buildQueueDirective(args: {
       "in the UI; you will then receive a message telling you to begin. " +
       "Do NOT start executing steps until you get that go-ahead.";
 
+  if (agentProvider !== "codex") {
+    return (
+      "This session has a build queue: an ordered, curatable, self-revising plan that you author " +
+      "before starting work, then execute step-by-step IN THIS SAME SESSION. Each step builds on " +
+      "the previous one and you retain full context throughout — no context loss between steps.\n" +
+      "Author it with the `queue_write` tool, and keep its status honest with `queue_step` as you " +
+      "work. Both are on the `shepherd` MCP server; their parameters are the contract.\n" +
+      curationGate
+    );
+  }
+
   return (
     "This session has a build queue: an ordered, curatable, self-revising plan that you author " +
     "via the Shepherd API, then execute step-by-step IN THIS SAME SESSION. Each step builds on " +
     "the previous one and you retain full context throughout — no context loss between steps.\n\n" +
     "Build-queue API (use these exact curl commands):\n\n" +
     "1. Author / replace the whole plan (do this first, before starting any work):\n" +
-    `   curl -s -X PUT${authHeader} \\\n` +
+    `   curl -s -X PUT \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     `     -d '{"steps":[{"id":"s1","title":"Step title","detail":"Optional detail"}]}' \\\n` +
     `     ${queueUrl}\n` +
@@ -1129,11 +1165,11 @@ export function buildQueueDirective(args: {
     "cached ids stay valid across re-PUTs. The response echoes each step's `id` and the queue's " +
     "`approved` flag.\n\n" +
     "2. Mark a step's progress (use the `id` values from the PUT/GET response):\n" +
-    `   curl -s -X POST${authHeader} \\\n` +
+    `   curl -s -X POST \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"active"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you start a step\n` +
-    `   curl -s -X POST${authHeader} \\\n` +
+    `   curl -s -X POST \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"done"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you finish a step\n` +
@@ -1154,7 +1190,7 @@ export function buildQueueDirective(args: {
     "exact match; a server UUID may also be posted as an unambiguous prefix of ≥8 chars (a 409 " +
     "means the prefix matched several steps — use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
-    `   curl -s${authHeader} ${queueUrl}\n\n` +
+    `   curl -s ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
     "Only add, change, or remove steps that are still PENDING. ALWAYS include each carried step " +
     "with its existing `id` (its status is kept server-side) — that is how completed and " +
@@ -2640,6 +2676,27 @@ export class SessionService {
     if (spawnModel) argv.push("--model", spawnModel);
   }
 
+  /**
+   * Push `--mcp-config` for the session's own MCP endpoint (issue #2003) — the control plane the
+   * build-queue / epic-draft prose used to teach as `curl`. Pushed only when the session actually
+   * has tools (build queue on, or an epic-authoring session), so a plain session's argv and
+   * context surface are untouched.
+   *
+   * Claude-only, and it must ride BOTH the spawn and the Claude resume argv: `--mcp-config` is
+   * per-process, so a resumed/compacted session that didn't re-pass it would silently lose the
+   * tools mid-run. Codex keeps the prose directive (see buildQueueDirective) — its MCP wiring is
+   * a separate, unverified path.
+   */
+  private pushAgentMcpFlag(
+    argv: string[],
+    sessionId: string,
+    baseUrl: string,
+    caps: AgentCapabilities,
+  ): void {
+    if (!hasAgentTools(caps)) return;
+    argv.push("--mcp-config", agentMcpConfigArg(sessionId, baseUrl));
+  }
+
   private codexAuthMode(): CodexAuthMode {
     return this.deps.readCodexAuthMode?.() ?? readCodexAuthMode();
   }
@@ -2705,7 +2762,7 @@ export class SessionService {
       ? buildQueueDirective({
           sessionId,
           baseUrl,
-          token: config.token,
+          agentProvider: args.agentProvider,
           // Never hand a plan-gated session an AUTO-executing build queue (TASK-413): during the
           // plan gate the deliverable is the approved plan, so the queue must stop-and-wait, not
           // drive straight into execution. This matters most for Codex, whose directives ride
@@ -2721,7 +2778,6 @@ export class SessionService {
       ? epicAuthoringDirective({
           sessionId,
           baseUrl,
-          token: config.token,
           agentProvider: args.agentProvider,
         })
       : null;
@@ -2794,6 +2850,12 @@ export class SessionService {
         hooks: { sessionId, baseUrl, token: config.token },
       }),
     );
+    // Capabilities come from the create inputs, not the store: `create` pre-generates the session
+    // id and builds this argv BEFORE the row exists, so a store read here would always say "none".
+    this.pushAgentMcpFlag(argv, sessionId, baseUrl, {
+      buildQueue: repoConfig.buildQueueEnabled,
+      epicDraft: Boolean(input.epicAuthoring),
+    });
     argv.push(
       "--append-system-prompt",
       this.composeDirectives({
@@ -2899,6 +2961,7 @@ export class SessionService {
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     ];
+    this.pushAgentMcpFlag(argv, s.id, baseUrl, sessionCapabilities(this.deps, s.id));
     // Narrow #499 exception (#1624): re-pass ONLY the operator-language block on resume so a
     // compacted/resumed session keeps addressing the operator in their language. `null` for "en"
     // → nothing pushed, so the resume argv stays byte-identical for existing operators. Reads the
@@ -4462,10 +4525,10 @@ export class SessionService {
    *
    * When the operator's message signals epic intent (composeEpicSteer), the epic-authoring notice is
    * appended ONCE per session so the epic-shape contract reaches the agent mid-session too. This is
-   * the agnostic complement to the spawn-time #1391 notice, which only fires on the spawn prompt: the
-   * `.claude/skills/shepherd-epic-authoring` skill is Claude-only (Codex never reads `.claude/skills/`)
-   * AND model-invoked (even Claude may not auto-pick it), so operator-facing guidance that must reach
-   * both providers belongs in an injected steer block, not a skill. See #1405.
+   * the provider-agnostic complement to the spawn-time #1391 notice, which only fires on the spawn
+   * prompt. Guidance that must reach both providers in any repo belongs in an injected steer block,
+   * not a Claude-only, model-invoked skill — which is why the skill restating it is gone (#2003).
+   * See #1405.
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
    * so the learnings distiller never mines Shepherd's own notice. The session is marked only on

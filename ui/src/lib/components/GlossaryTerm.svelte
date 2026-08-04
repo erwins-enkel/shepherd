@@ -307,12 +307,22 @@
   .gt-body {
     display: block;
     margin: 0;
-    font-size: var(--fs-base);
+    /* Matches sibling InfoTip: an explanation is secondary text, not body copy —
+       and the smaller rung fits the whole definition in fewer lines. */
+    font-size: var(--fs-meta);
     font-weight: 400;
     line-height: 1.5;
     /* Read as prose even when the marker sits on a section heading, whose
        uppercase / letter-spacing would otherwise be inherited into the definition
-       (DOM inheritance reaches the popover's top-layer body too). */
+       (DOM inheritance reaches the popover's top-layer body too).
+       `white-space` belongs in that reset for the same reason, and skipping it bit:
+       markers inside a nowrap host (the new-task Guards toggles' `.label`) inherited
+       nowrap, so the definition ran on one line far past the fixed-width popover —
+       which the UA's `[popover] { overflow: auto }` turned into a horizontal
+       scrollbar, i.e. one clipped line above a full-width bar. `overflow-wrap`
+       keeps that bar away for a token too long to fit the column at all. */
+    white-space: normal;
+    overflow-wrap: break-word;
     text-transform: none;
     letter-spacing: normal;
   }

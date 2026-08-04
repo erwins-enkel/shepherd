@@ -142,6 +142,54 @@ describe("GlossaryTerm — activation-only inline disclosure", () => {
   });
 });
 
+// Regression: a definition is prose and must wrap regardless of where the marker sits.
+// The new-task dialog's Guards toggles put their label under `white-space: nowrap`, which
+// DOM-inherits into the top-layer popover — so the definition ran on a single line ~1470px
+// wide inside the 260px popover, and the UA's `[popover] { overflow: auto }` rendered that
+// as a horizontal scrollbar: one clipped line above a full-width bar.
+describe("GlossaryTerm — definition wraps inside a nowrap host", () => {
+  afterEach(() => {
+    document.body.style.whiteSpace = "";
+  });
+
+  async function openFloating(id: string, label: string): Promise<HTMLElement> {
+    document.body.style.whiteSpace = "nowrap";
+    render(GlossaryTerm, { id, label });
+
+    page
+      .getByRole("button", { name: label })
+      .element()
+      .dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse", bubbles: true }));
+
+    const tip = document.querySelector<HTMLElement>(".gloss-tooltip");
+    expect(tip).not.toBeNull();
+    await expect.poll(() => tip!.matches(":popover-open")).toBe(true);
+    return tip!;
+  }
+
+  it("internal term: body resets white-space, so the popover never scrolls sideways", async () => {
+    const tip = await openFloating("plan-gate", "Plan gate");
+
+    const body = document.querySelector<HTMLElement>(".gt-body");
+    expect(body).not.toBeNull();
+    expect(getComputedStyle(body!).whiteSpace).toBe("normal");
+
+    // The bar itself: overflow beyond the fixed width is what draws it.
+    expect(tip.scrollWidth).toBeLessThanOrEqual(tip.clientWidth);
+    // ...and the definition reads as a multi-line block. Measured against the computed
+    // line-height rather than a pixel constant so editing the definition can't flip it.
+    const lineHeight = Number.parseFloat(getComputedStyle(body!).lineHeight);
+    expect(body!.getBoundingClientRect().height).toBeGreaterThan(lineHeight * 1.5);
+  });
+
+  it("external term: the Wikipedia link line does not overflow either", async () => {
+    const tip = await openFloating("pr", "PR");
+
+    await expect.element(page.getByRole("link")).toBeVisible();
+    expect(tip.scrollWidth).toBeLessThanOrEqual(tip.clientWidth);
+  });
+});
+
 describe("GlossaryTerm — hide-info-tips preference", () => {
   afterEach(() => infoTips.set(false));
 

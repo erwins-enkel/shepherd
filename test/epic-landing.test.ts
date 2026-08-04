@@ -1,47 +1,89 @@
 import { describe, expect, it } from "bun:test";
 import { buildLandingPrBody, buildLandingPrTitle } from "../src/epic-landing";
 
+/** Build a landing title AND assert it clears the `pr title` gate. `.github/workflows/pr-title.yml`
+ *  lints the PR title with the repo's commitlint config, whose `subject-case` rule rejects a
+ *  subject whose first character is uppercase (#2021 — verified against `bunx commitlint`). Every
+ *  case below goes through this wrapper so the builder can never drift away from the gate again. */
+function build(parentNumber: number, parentTitle: string): string {
+  const title = buildLandingPrTitle(parentNumber, parentTitle);
+
+  const subject = /^\w+(?:\([^)]*\))?!?:\s*(.*)$/.exec(title)?.[1];
+  // A missing prefix is itself the #1206 bug — assert on `title` so the failure names it.
+  if (subject === undefined) expect(title).toBe("<a conventional type(scope)!?: prefix>");
+  expect(subject).not.toMatch(/^[A-Z]/);
+
+  return title;
+}
+
 describe("buildLandingPrTitle", () => {
   it("keeps a recognized conventional prefix at column 0 and appends the epic tag", () => {
-    expect(buildLandingPrTitle(535, "feat(comments): communication feed on Objectives")).toBe(
+    expect(build(535, "feat(comments): communication feed on Objectives")).toBe(
       "feat(comments): communication feed on Objectives (epic #535)",
     );
   });
 
   it("preserves a breaking-change `!` (with and without scope)", () => {
-    expect(buildLandingPrTitle(88, "fix(api)!: drop legacy route")).toBe(
+    expect(build(88, "fix(api)!: drop legacy route")).toBe(
       "fix(api)!: drop legacy route (epic #88)",
     );
-    expect(buildLandingPrTitle(89, "feat!: rework pipeline")).toBe(
-      "feat!: rework pipeline (epic #89)",
-    );
+    expect(build(89, "feat!: rework pipeline")).toBe("feat!: rework pipeline (epic #89)");
   });
 
   it("prepends the `feat:` fallback for a bare (non-conventional) title", () => {
-    expect(buildLandingPrTitle(327, "EFI value map")).toBe("feat: EFI value map (epic #327)");
+    expect(build(327, "EFI value map")).toBe("feat: eFI value map (epic #327)");
   });
 
   it("falls back to `feat:` for a non-type `Word:` prefix (not a real conventional type)", () => {
-    expect(buildLandingPrTitle(90, "Comments: communication feed")).toBe(
-      "feat: Comments: communication feed (epic #90)",
+    expect(build(90, "Comments: communication feed")).toBe(
+      "feat: comments: communication feed (epic #90)",
     );
   });
 
   it("lowercases a recognized but mixed-case type", () => {
-    expect(buildLandingPrTitle(91, "Feat(x): add y")).toBe("feat(x): add y (epic #91)");
+    expect(build(91, "Feat(x): add y")).toBe("feat(x): add y (epic #91)");
   });
 
   it("strips a trailing `[EPIC]` tag (case-insensitive)", () => {
-    expect(buildLandingPrTitle(535, "feat(comments): comms feed [EPIC]")).toBe(
+    expect(build(535, "feat(comments): comms feed [EPIC]")).toBe(
       "feat(comments): comms feed (epic #535)",
     );
-    expect(buildLandingPrTitle(328, "EFI value map [epic]")).toBe(
-      "feat: EFI value map (epic #328)",
-    );
+    expect(build(328, "EFI value map [epic]")).toBe("feat: eFI value map (epic #328)");
   });
 
   it("guards an empty description after a recognized prefix", () => {
-    expect(buildLandingPrTitle(42, "chore:")).toBe("chore: epic #42");
+    expect(build(42, "chore:")).toBe("chore: epic #42");
+  });
+
+  it("strips the leading `Epic:` Shepherd's own epic authoring produces", () => {
+    expect(build(7, "Epic: adopt X")).toBe("feat: adopt X (epic #7)");
+    expect(build(8, "epic: adopt X")).toBe("feat: adopt X (epic #8)");
+    expect(build(9, "Epic:adopt X")).toBe("feat: adopt X (epic #9)");
+  });
+
+  it("strips a leading `Epic:` and a trailing `[epic]` together", () => {
+    expect(build(10, "Epic: adopt X [epic]")).toBe("feat: adopt X (epic #10)");
+  });
+
+  it("keeps a real conventional type carried behind the `Epic:` tag", () => {
+    expect(build(11, "Epic: fix(api)!: drop legacy route")).toBe(
+      "fix(api)!: drop legacy route (epic #11)",
+    );
+  });
+
+  it("guards a title that is nothing but the `Epic:` tag", () => {
+    expect(build(12, "Epic:")).toBe("feat: epic #12");
+    expect(build(13, "Epic: [epic]")).toBe("feat: epic #13");
+  });
+
+  it("lowercases a capitalized description behind a recognized type", () => {
+    expect(build(14, "fix(api)!: Drop legacy route")).toBe(
+      "fix(api)!: drop legacy route (epic #14)",
+    );
+  });
+
+  it("leaves a non-letter-initial description alone (already gate-safe)", () => {
+    expect(build(15, "5 things to fix")).toBe("feat: 5 things to fix (epic #15)");
   });
 });
 

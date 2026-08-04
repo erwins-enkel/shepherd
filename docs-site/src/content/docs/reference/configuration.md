@@ -44,8 +44,11 @@ Detecting the dev servers agents start is platform-specific
 ([#1912](https://github.com/erwins-enkel/shepherd/issues/1912)). On **Linux**
 Shepherd reads `/proc` live. On **macOS** it runs one `lsof` call per refresh and
 serves every probe from that short-lived snapshot; previews there stay
-**loopback-only** and stopping one from the UI is unavailable (see the platform
-table in [Getting started](/getting-started/)). On any other platform there is no
+**loopback-only**, and stopping one from the UI works but is bounded — the
+snapshot must be within `SHEPHERD_PREVIEW_KILL_MAX_AGE_MS` and the candidate
+process is re-checked live before any signal, otherwise the stop is refused and
+reported as such (see the platform table in
+[Getting started](/getting-started/)). On any other platform there is no
 detection backend, so previews never bind. The **Preview detection** row in
 Settings → Diagnose reports which case a host is in — see
 [Operating Shepherd](/operating/).

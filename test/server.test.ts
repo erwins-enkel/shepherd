@@ -914,7 +914,7 @@ test("GET /api/sessions/:id/leftovers returns the reaper's detected list", async
 test("GET /api/sessions/:id/leftovers flags a dead probe snapshot", async () => {
   const { app, store } = harnessWithReaper({
     detect: () => [],
-    reap: () => {},
+    reap: () => 0,
     health: () => ({ state: "none", driven: true }),
   });
   const s = mkLeftoverSession(store);
@@ -928,7 +928,7 @@ test("GET /api/sessions/:id/leftovers flags a dead probe snapshot", async () => 
 test("GET /api/sessions/:id/leftovers flags a fresh snapshot that still can't detect", async () => {
   const { app, store } = harnessWithReaper({
     detect: () => [],
-    reap: () => {},
+    reap: () => 0,
     canDetectLeftovers: () => false,
     health: () => ({ state: "fresh", driven: true }),
   });
@@ -2196,7 +2196,11 @@ function clearMergedHarness(reaperExtra?: { canDetectLeftovers?: any; health?: a
     } as any,
     reaper: {
       detect,
-      reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
+      reap: (ls: any[]) => {
+        reaped.push(...ls.map((l) => l.key));
+
+        return ls.length; // terminations performed; nothing is refused here
+      },
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" as const }),
       ...reaperExtra,
     },
@@ -2834,7 +2838,7 @@ function harnessWithPreviewStop({
       stop: async () => {},
       send: () => {},
     } as any,
-    reaper: { detect: () => [], reap: () => {}, stopListenersOnPort, refresh },
+    reaper: { detect: () => [], reap: () => 0, stopListenersOnPort, refresh },
     preview: { devPortFor },
   });
   const usageLimits = {

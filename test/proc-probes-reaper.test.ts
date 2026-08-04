@@ -209,13 +209,17 @@ test("scanWorktreeProcs: no signal authority ⇒ offers zero class-2 leftovers",
     claudeSessionId: "sess-1",
     isolated: true,
   });
-  // Offering it would put it in the "Terminate & close" list, kill nothing (killPid
-  // is inert without signal authority), and still count as reaped — strictly worse
-  // than pre-#1912, where an empty scan meant nothing was ever offered.
+  // Offering it would put a dead entry in the "Terminate & close" list that kills nothing
+  // (killPid is inert without signal authority) — strictly worse than pre-#1912, where an
+  // empty scan meant nothing was ever offered. (Since #1925 the COUNT no longer lies either
+  // way: `reap` returns terminations performed, asserted below.)
   expect(leftovers).toEqual([]);
-  // And the belt-and-braces: even if a stale key were replayed, nothing is signalled.
-  reaper.reap([{ kind: "process", name: "vite", port: 5173, pid: 4242, key: "process:4242" }]);
+  // And the belt-and-braces: even if a stale key were replayed, nothing is signalled or counted.
+  const terminated = reaper.reap([
+    { kind: "process", name: "vite", port: 5173, pid: 4242, key: "process:4242" },
+  ]);
   expect(killed).toEqual([]);
+  expect(terminated).toBe(0);
 });
 
 test("scanWorktreeProcs: WITH signal authority the same process is still offered", () => {
@@ -225,6 +229,13 @@ test("scanWorktreeProcs: WITH signal authority the same process is still offered
     canAuthorizeSignal: true,
     scanProcs: () => [{ pid: 4242, cwd: "/wt/x", comm: "vite" }],
     portsForPid: () => [5173],
+    // `darwinFake` omits `cpuStatForPid` and stubs `cwdForPid` to null, either of which would
+    // suppress this process for a SECOND, unrelated reason (#1925's fail-closed signal bracket) and
+    // let the test pass without exercising the axis it exists to isolate. The bracket is satisfied
+    // here — matching cwd/comm, readable stat — so signal authority stays the only variable.
+    cpuStatForPid: () => ({ utime: 0, stime: 0, cutime: 0, cstime: 0, starttime: 1000 }),
+    cwdForPid: () => "/wt/x",
+    commForPid: () => "vite",
   });
   const leftovers = new ProcessReaper(probes).detect({
     worktreePath: "/wt/x",

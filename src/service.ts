@@ -5492,9 +5492,12 @@ export class SessionService {
    * Close a session: optionally terminate selected leftovers first, then stop the
    * agent, remove the worktree, and archive the row. `reapKeys` are leftover keys
    * the operator chose to kill; we re-detect and intersect by key so a stale/forged
-   * client selection can never make us kill an arbitrary pid. Returns the number of
-   * leftovers actually reaped (the intersection), so bulk callers can report a count
-   * that reflects what was killed rather than what was requested.
+   * client selection can never make us kill an arbitrary pid.
+   *
+   * Returns what `reap` actually TERMINATED — signals sent plus counter-commands run — not the size
+   * of the intersection, so bulk callers report what was killed rather than what was requested. The
+   * two diverge whenever `reap`'s pid-recycle guard refuses a pid recycled since the re-detect, or a
+   * counter-command throws.
    */
   async archive(
     id: string,
@@ -5510,8 +5513,7 @@ export class SessionService {
       await this.refreshForDetect(true);
       const want = new Set(reapKeys);
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
-      this.deps.reaper.reap(hit);
-      reaped = hit.length;
+      reaped = this.deps.reaper.reap(hit);
     }
     await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the

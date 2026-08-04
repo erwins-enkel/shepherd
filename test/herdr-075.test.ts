@@ -290,16 +290,19 @@ test("relabel (0.7.5): agent rename targets pane_id with a sanitized label; tab 
   expect(tabRename).toEqual(["tab", "rename", "t_075", "review TASK-42"]);
 });
 
-// ── cwd-collision name disambiguation tolerates 0.7.5 sanitization ────────────
+// ── cwd-collision disambiguation runs off TAB labels on 0.7.5 (#2029) ─────────
+//
+// These agents carry NO `name`, which is what the live daemon reports — verified by registering a
+// throwaway agent: the `--agent` label surfaces under `agent`, and only for externally-registered
+// spawns (a trusted auto-detected agent reports the bare kind `"claude"`, as here). The session's
+// raw name therefore survives on ONE surface only: its tab label.
 
-/** Two 0.7.5 agents sharing a cwd, each with a SANITIZED herdr name, plus stale terminalIds (as
- *  after a daemon restart). The sessions still hold their RAW names. */
-const SANITIZED_AGENTS: HerdrAgent[] = [
+/** Two 0.7.5 agents sharing a cwd with stale terminalIds, as after a daemon restart. */
+const UNNAMED_AGENTS: HerdrAgent[] = [
   {
     agent: "claude",
     agentStatus: "working",
     cwd: "/wt/shared",
-    name: "review-task-09", // sanitized from "review TASK-09"
     paneId: "pA",
     tabId: "tA",
     terminalId: "term_A",
@@ -309,7 +312,6 @@ const SANITIZED_AGENTS: HerdrAgent[] = [
     agent: "claude",
     agentStatus: "working",
     cwd: "/wt/shared",
-    name: "review-task-10", // sanitized from "review TASK-10"
     paneId: "pB",
     tabId: "tB",
     terminalId: "term_B",
@@ -317,20 +319,61 @@ const SANITIZED_AGENTS: HerdrAgent[] = [
   },
 ];
 
-test("matchAgent (0.7.5): same-cwd sessions re-pair by SANITIZED name after stale terminalId", () => {
+/** `tab create --label` / `tab rename` are given the RAW, human-facing session name. */
+const TAB_LABELS = new Map([
+  ["tA", "review TASK-09"],
+  ["tB", "review TASK-10"],
+]);
+
+test("matchAgent (0.7.5): same-cwd sessions re-pair by TAB label after a stale terminalId", () => {
   // terminalId is stale (daemon restart) → cwd fallback; cwd is contended → name disambiguation.
   const s = { herdrAgentId: "stale", worktreePath: "/wt/shared", name: "review TASK-10" };
-  expect(matchAgent(s, SANITIZED_AGENTS)?.terminalId).toBe("term_B");
+  expect(matchAgent(s, UNNAMED_AGENTS, () => TAB_LABELS)?.terminalId).toBe("term_B");
 });
 
-test("matchAgents (0.7.5): both same-cwd sessions resolve via sanitized-name arbitration", () => {
+test("matchAgent (0.7.5): with no label source a contended cwd stays unresolved, never mis-paired", () => {
+  const s = { herdrAgentId: "stale", worktreePath: "/wt/shared", name: "review TASK-10" };
+  expect(matchAgent(s, UNNAMED_AGENTS)).toBeNull();
+});
+
+test("matchAgents (0.7.5): both same-cwd sessions resolve via tab-label arbitration", () => {
   const sessions = [
     { id: "s1", herdrAgentId: "stale1", worktreePath: "/wt/shared", name: "review TASK-09" },
     { id: "s2", herdrAgentId: "stale2", worktreePath: "/wt/shared", name: "review TASK-10" },
   ];
-  const out = matchAgents(sessions, SANITIZED_AGENTS);
+  const out = matchAgents(sessions, UNNAMED_AGENTS, () => TAB_LABELS);
   expect(out.get("s1")?.terminalId).toBe("term_A");
   expect(out.get("s2")?.terminalId).toBe("term_B");
+});
+
+test("the label source is NOT consulted when every session matches by terminalId", () => {
+  // The claim that makes a `tab list`-backed thunk affordable on the 1s poller tick.
+  let calls = 0;
+  const src = () => {
+    calls++;
+    return TAB_LABELS;
+  };
+  const sessions = [
+    { id: "s1", herdrAgentId: "term_A", worktreePath: "/wt/shared", name: "review TASK-09" },
+    { id: "s2", herdrAgentId: "term_B", worktreePath: "/wt/shared", name: "review TASK-10" },
+  ];
+  const out = matchAgents(sessions, UNNAMED_AGENTS, src);
+  expect(out.get("s1")?.terminalId).toBe("term_A");
+  expect(calls).toBe(0);
+});
+
+test("the label source is memoized: one read arbitrates a whole contended pass", () => {
+  let calls = 0;
+  const src = () => {
+    calls++;
+    return TAB_LABELS;
+  };
+  const sessions = [
+    { id: "s1", herdrAgentId: "stale1", worktreePath: "/wt/shared", name: "review TASK-09" },
+    { id: "s2", herdrAgentId: "stale2", worktreePath: "/wt/shared", name: "review TASK-10" },
+  ];
+  matchAgents(sessions, UNNAMED_AGENTS, src);
+  expect(calls).toBe(1);
 });
 
 test("stop (0.7.5): closes the recorded tab of a started agent", async () => {

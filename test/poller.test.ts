@@ -3227,3 +3227,105 @@ test("stops probing the PTY once a resting session's claude is known dead (husk)
   expect(h.readCalls()).toBe(afterPrime); // no further PTY reads once known dead
   expect(h.blocks.filter((b) => b.block !== null)).toHaveLength(0); // never surfaced a banner
 });
+
+// ── contended-cwd disambiguation must resolve WITHIN the tick (#2029) ─────────
+//
+// After a herdr daemon restart every terminalId is stale, so two non-isolated sessions sharing a
+// worktree fall to the cwd branch and can only be told apart by name — which on 0.7.5 lives on the
+// TAB label, nowhere else. An unmatched session is reaped to `done` in the SAME tick, immediately
+// and with no debounce, so a label source that resolves "by the next tick" would persist that
+// terminal state first and heal nothing.
+
+/** Two same-cwd sessions whose recorded terminalIds no longer exist, plus the two live agents
+ *  herdr reports for them: no `name` (0.7.5), the raw session names only on their tabs. */
+function contendedHarness(opts: { tabsAsync?: () => Promise<{ tabId: string; label: string }[]> }) {
+  const store = new SessionStore(":memory:");
+  const a = store.create({
+    ...baseSession,
+    name: "alpha",
+    worktreePath: "/shared",
+    herdrAgentId: "stale_a",
+  });
+  const b = store.create({
+    ...baseSession,
+    name: "beta",
+    worktreePath: "/shared",
+    herdrAgentId: "stale_b",
+  });
+  const agents: HerdrAgent[] = [
+    {
+      agent: "claude",
+      agentStatus: "working",
+      cwd: "/shared",
+      paneId: "pA",
+      tabId: "tA",
+      terminalId: "term_A",
+      workspaceId: "w",
+    },
+    {
+      agent: "claude",
+      agentStatus: "working",
+      cwd: "/shared",
+      paneId: "pB",
+      tabId: "tB",
+      terminalId: "term_B",
+      workspaceId: "w",
+    },
+  ];
+  let tabCalls = 0;
+  const herdr: Record<string, unknown> = { list: () => agents, read: () => "" };
+  if (opts.tabsAsync) {
+    herdr.tabsAsync = () => {
+      tabCalls++;
+      return opts.tabsAsync!();
+    };
+  }
+  const poller = new StatusPoller(
+    store,
+    withListAsync(herdr as any),
+    () => {},
+    () => {},
+  );
+  return { store, poller, ids: { a: a.id, b: b.id }, tabCalls: () => tabCalls };
+}
+
+const SHARED_TABS = async () => [
+  { tabId: "tA", label: "alpha" },
+  { tabId: "tB", label: "beta" },
+];
+
+test("contended cwd: both sessions re-pair on the FIRST tick and are never reaped (#2029)", async () => {
+  const h = contendedHarness({ tabsAsync: SHARED_TABS });
+  await h.poller.tick();
+  await flush();
+  expect(h.store.get(h.ids.a)!.status).not.toBe("done");
+  expect(h.store.get(h.ids.b)!.status).not.toBe("done");
+  // re-paired by tab label, each to its OWN agent
+  expect(h.store.get(h.ids.a)!.herdrAgentId).toBe("term_A");
+  expect(h.store.get(h.ids.b)!.herdrAgentId).toBe("term_B");
+});
+
+test("an uncontended tick never reads the tab list", async () => {
+  const h = contendedHarness({ tabsAsync: SHARED_TABS });
+  await h.poller.tick(); // contended: one read
+  await flush();
+  const afterFirst = h.tabCalls();
+  expect(afterFirst).toBe(1);
+  // Both sessions now match by terminalId again — the hot path must not touch `tab list`.
+  await h.poller.tick();
+  await h.poller.tick();
+  await flush();
+  expect(h.tabCalls()).toBe(afterFirst);
+});
+
+test("a failing tab list leaves the pre-existing behaviour (reap), never a mis-pairing", async () => {
+  const h = contendedHarness({
+    tabsAsync: async () => {
+      throw new Error("herdr unreachable");
+    },
+  });
+  await h.poller.tick();
+  await flush();
+  expect(h.store.get(h.ids.a)!.status).toBe("done");
+  expect(h.store.get(h.ids.b)!.status).toBe("done");
+});

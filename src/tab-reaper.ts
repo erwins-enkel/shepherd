@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import type { HerdrDriver, HerdrPane } from "./herdr";
+import { DOC_AGENT_LABEL } from "./doc-agent";
 import { PROBE_NAME } from "./usage-probe";
 import { DISTILL_LABEL } from "./distiller";
 import { OPTIMIZE_LABEL } from "./optimizer";
@@ -10,7 +11,10 @@ import { RECOMMEND_LABEL } from "./prompt-recommend";
 import { VERIFY_KEY_LABEL } from "./verify-key";
 import { SHELLS } from "./json-tolerant";
 
-export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegroundProcs">;
+export type ReapableHerdr = Pick<
+  HerdrDriver,
+  "closeTab" | "tabsAsync" | "panes" | "paneForegroundProcs"
+>;
 
 /** Labels shepherd authors for its short-lived helper agents. A tab with one of these
  *  labels but no live agent is an orphaned husk (the probe/critic ended without its tab
@@ -55,11 +59,18 @@ export type ReapableHerdr = Pick<HerdrDriver, "closeTab" | "panes" | "paneForegr
  *  - `pr-critic <repo>#<n>` — standalone PR critic (standalone-critic.ts)
  *  - `recap <desig>`     — recap generator (recap.ts)
  *  - {@link RECOMMEND_LABEL}`<desig>` — prompt recommender (prompt-recommend.ts, #1852)
- *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated */
+ *  - {@link DOC_AGENT_LABEL}`<hex>`  — doc agent (doc-agent.ts, #2029)
+ *  - `rundown`           — herd-digest rundown (herd-digest.ts) — liveness-gated
+ *
+ *  **Read this against the TAB label, not a pane or agent label** (#2029). herdr 0.7.5 emits
+ *  `label` on neither husk panes nor agent records; `tab.list` is the only surface that still
+ *  carries it (and the generated schema marks `SuccessResponseTabInfo.label` required, while both
+ *  of the others are optional-and-nullable). */
 export function isShepherdHelperLabel(label: string): boolean {
   return (
     label === PROBE_NAME ||
     label.startsWith(DISTILL_LABEL) ||
+    label.startsWith(DOC_AGENT_LABEL) ||
     label.startsWith(OPTIMIZE_LABEL) ||
     label.startsWith(MERGE_LABEL) ||
     label === "rundown" ||
@@ -83,14 +94,23 @@ export interface ReapResult {
   /** Helper TABS spared because a pane's foreground held a non-shell proc (claude/node/etc.). */
   sparedLive: number;
   /** Helper TABS spared because a pane's process-info threw OR was empty/undeterminable
-   *  (fail-closed) — counted only when no pane was outright live. */
+   *  (fail-closed) — counted only when no pane was outright live. Also covers a helper tab with
+   *  no pane at all in `pane.list`: no evidence is never a reap. */
   sparedError: number;
   /** Tab ids whose EVERY pane was shell-only THIS sweep — feed back as `prevShellOnly`
    *  next sweep to debounce. */
   shellOnly: Set<string>;
+  /** Helper TABS in scope this sweep (helper-labelled entries in `tab.list`). Reported so the
+   *  caller can tell "no helper tabs exist" from "helper tabs found, all spared" — the two states
+   *  the old counters-only result rendered as the same silence (#2029). Invariant when neither
+   *  failure flag is set: `helperTabs === sparedLive + sparedError + shellOnly.size`. */
+  helperTabs: number;
   /** True when `panes()` itself threw: the sweep did ZERO work (fail-closed) — the caller
    *  must surface this instead of reading it as "nothing to do" (#1852). */
   panesFailed: boolean;
+  /** True when `tabsAsync()` threw: the sweep did ZERO work and the SCOPE is unknown, so
+   *  `helperTabs` is 0 for want of a reading, not because none exist (#2029). */
+  tabsFailed: boolean;
 }
 
 /**
@@ -99,6 +119,14 @@ export interface ReapResult {
  * (herdr.stop / start rollback) stop most leaks at the source; this is the durable safety
  * net for husks they can't reach — agents that crashed, or anything orphaned across a
  * shepherd restart (which clears in-memory review tracking). Returns a {@link ReapResult}.
+ *
+ * **Scope comes from `tab.list`, evidence from `pane.list` (#2029).** herdr 0.7.5 emits a pane
+ * `label` for almost no pane and for NO helper pane — measured live: 0 of 325 helper panes — and
+ * emits no `agent.name` at all. Filtering the pane list by label therefore selected the empty set
+ * on exactly the panes that need reaping, and this whole function ran to completion doing nothing,
+ * every hour, silently. The TAB label survives (required in the generated schema, present on
+ * 508/508 live tabs), so the helper set is derived from `tabsAsync()` and panes are joined to it
+ * by `tab_id` purely as process-liveness evidence.
  *
  * **Husk signal = process liveness (ground truth), not list-absence.** Under
  * herdr 0.7 an exited helper agent leaves its pane alive as an idle `zsh`, and that pane
@@ -115,8 +143,9 @@ export interface ReapResult {
  *
  * - **any pane live** (a non-shell proc: `claude` / `node` / …) → spare the whole tab
  *   (`sparedLive`); remaining panes aren't inspected.
- * - else **any pane errored/undeterminable** (process-info threw, or empty proc list) →
- *   spare the whole tab fail-closed (`sparedError`); we never reap on partial evidence.
+ * - else **any pane errored/undeterminable** (process-info threw, or empty proc list), or the tab
+ *   has NO pane in `pane.list` at all → spare the whole tab fail-closed (`sparedError`); we never
+ *   reap on partial or absent evidence.
  * - else — **every pane positively shell-only** (`procs.length > 0 && all in SHELLS`) →
  *   husk CANDIDATE this sweep.
  *
@@ -144,28 +173,55 @@ export async function reapOrphanTabs(
   herdr: ReapableHerdr,
   prevShellOnly: Set<string> = new Set(),
 ): Promise<ReapResult> {
-  let panes: ReturnType<ReapableHerdr["panes"]>;
+  /** Zero-work sweep: reap nothing, preserve the debounce set so no candidate is lost
+   *  mid-debounce, and flag WHICH read failed so the caller can log it. */
+  const zeroWork = (failed: "tabs" | "panes"): ReapResult => ({
+    closed: [],
+    sparedLive: 0,
+    sparedError: 0,
+    shellOnly: prevShellOnly,
+    helperTabs: 0,
+    panesFailed: failed === "panes",
+    tabsFailed: failed === "tabs",
+  });
+
+  let helperTabIds: string[];
   try {
-    panes = herdr.panes();
+    helperTabIds = (await herdr.tabsAsync())
+      .filter((t) => isShepherdHelperLabel(t.label))
+      .map((t) => t.tabId);
   } catch {
-    // Transient herdr read failure on a supported herdr — fail closed: reap nothing this
-    // sweep, preserve the debounce set, and flag the zero-work sweep for the caller.
+    return zeroWork("tabs"); // transient herdr read failure — scope unknown, fail closed
+  }
+  // Nothing helper-labelled exists: skip the pane read entirely. This is a REAL "nothing to
+  // do" — it reads the same surface an operator would check by hand (#2029).
+  if (helperTabIds.length === 0) {
     return {
       closed: [],
       sparedLive: 0,
       sparedError: 0,
-      shellOnly: prevShellOnly,
-      panesFailed: true,
+      shellOnly: new Set(),
+      helperTabs: 0,
+      panesFailed: false,
+      tabsFailed: false,
     };
   }
+
+  let panes: ReturnType<ReapableHerdr["panes"]>;
+  try {
+    panes = herdr.panes();
+  } catch {
+    return zeroWork("panes");
+  }
+  const byTab = panesByTab(panes);
 
   let sparedLive = 0;
   let sparedError = 0;
   const shellOnly = new Set<string>();
   const toReap: string[] = [];
 
-  for (const [tabId, group] of groupHelperPanesByTab(panes)) {
-    const cls = await classifyHelperTab(herdr, group);
+  for (const tabId of helperTabIds) {
+    const cls = await classifyHelperTab(herdr, byTab.get(tabId) ?? []);
     if (cls === "live") {
       sparedLive++;
       continue; // spared AND de-primed: not added to shellOnly
@@ -180,14 +236,22 @@ export async function reapOrphanTabs(
   }
 
   for (const tabId of toReap) await herdr.closeTab(tabId);
-  return { closed: toReap, sparedLive, sparedError, shellOnly, panesFailed: false };
+  return {
+    closed: toReap,
+    sparedLive,
+    sparedError,
+    shellOnly,
+    helperTabs: helperTabIds.length,
+    panesFailed: false,
+    tabsFailed: false,
+  };
 }
 
-/** Group helper-labeled panes by their owning tab — the reap unit is the TAB (#1852). */
-function groupHelperPanesByTab(panes: HerdrPane[]): Map<string, HerdrPane[]> {
+/** Group panes by their owning tab — the reap unit is the TAB (#1852). Every pane is grouped;
+ *  the helper SCOPE comes from the tab list, since 0.7.5 panes carry no label (#2029). */
+function panesByTab(panes: HerdrPane[]): Map<string, HerdrPane[]> {
   const byTab = new Map<string, HerdrPane[]>();
   for (const p of panes) {
-    if (!isShepherdHelperLabel(p.label)) continue;
     const group = byTab.get(p.tabId);
     if (group) group.push(p);
     else byTab.set(p.tabId, [p]);
@@ -198,11 +262,15 @@ function groupHelperPanesByTab(panes: HerdrPane[]): Map<string, HerdrPane[]> {
 /** Classify one helper TAB from its panes' foreground processes, with the fail-safe
  *  precedence documented on {@link reapOrphanTabs}: any live pane wins (short-circuit),
  *  else any errored/empty pane makes the tab undetermined, else it is positively
- *  shell-only. */
+ *  shell-only. An EMPTY group (the tab is in `tab.list` but owns no pane in `pane.list`) is
+ *  undetermined, never shell-only: the two lists disagree, which is no evidence at all. That
+ *  case only became reachable once the scope came from tabs (#2029) — an empty group would
+ *  otherwise fall straight through the loop and read as "positively shell-only". */
 async function classifyHelperTab(
   herdr: ReapableHerdr,
   group: HerdrPane[],
 ): Promise<"live" | "undetermined" | "shell-only"> {
+  if (group.length === 0) return "undetermined";
   let undetermined = false;
   for (const p of group) {
     let procs: string[];

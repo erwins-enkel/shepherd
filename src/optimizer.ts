@@ -61,7 +61,7 @@ export interface OptimizerDeps {
     SessionStore,
     "getLearning" | "listActiveLearnings" | "ineffectiveSignalsFor" | "reviseLearning"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   promoter: Pick<Promoter, "resyncPromoted">;
   onChange: () => void;

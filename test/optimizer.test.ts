@@ -512,16 +512,18 @@ test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + infligh
   flag(store, "/r", id);
   const closed: string[] = [];
   const listed = [
-    { name: OPTIMIZE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
-    { name: "review TASK-09", terminalId: "u1", tabId: "tabU" },
-    { name: OPTIMIZE_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
+    // 0.7.5 shape (#2029): the label lives on the TAB; agent records carry no `name`.
+    { label: OPTIMIZE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { label: "review TASK-09", terminalId: "u1", tabId: "tabU" },
+    { label: OPTIMIZE_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
   ];
   const svc = new OptimizerService({
     store,
     herdr: {
       start: async () => ({ terminalId: "live1" }),
       stop: async () => {},
-      list: () => listed,
+      list: () => listed.map(({ terminalId, tabId }) => ({ terminalId, tabId })),
+      tabsAsync: async () => listed.map(({ label, tabId }) => ({ tabId, label })),
       closeTab: async (t: string) => closed.push(t),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
@@ -532,7 +534,9 @@ test("reapOrphans closes orphaned __optimize__ tabs, sparing unrelated + infligh
     readOutput: () => null, // run stays in flight (not finalized)
   } as never);
   await svc.optimizeOne(id); // in-flight run owns terminalId "live1"
-  svc.reapOrphans();
+  svc.reapOrphans(); // fire-and-forget; the reap awaits `tab list` before closing anything
+  await Promise.resolve();
+  await Promise.resolve();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 

@@ -1720,13 +1720,14 @@ describe("herdr_health probe (via injected readHerdrFleet)", () => {
 });
 
 describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
-  // Minimal HerdrAgent builder — only the fields the reconciliation reads matter.
+  // Minimal HerdrAgent builder — only the fields the reconciliation reads matter. NOTE: no
+  // `name`, matching herdr 0.7.5, which omits the field entirely (#2029). Anything that needs a
+  // label reads it off the TAB (see `fakeHerdr`'s `tabLabels`).
   function agent(over: Partial<HerdrAgent>): HerdrAgent {
     return {
       agent: "claude",
       agentStatus: "idle",
       cwd: "/w",
-      name: "task-07",
       paneId: "w1:t1",
       tabId: "t1",
       terminalId: "term-1",
@@ -1749,9 +1750,19 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
   function fakeHerdr(
     agents: HerdrAgent[],
     procs: Record<string, string[]>,
+    opts: { tabLabels?: Record<string, string>; tabsThrow?: boolean } = {},
   ): Parameters<typeof defaultReadHerdrFleet>[1] {
     return {
       listAsync: async () => agents,
+      tabsAsync: async () => {
+        if (opts.tabsThrow) throw new Error("tab list unavailable");
+        return [...new Set(agents.map((a) => a.tabId))].map((tabId) => ({
+          tabId,
+          label: opts.tabLabels?.[tabId] ?? "some-session",
+          agentStatus: "unknown" as const,
+          workspaceId: "w1",
+        }));
+      },
       paneForegroundProcs: async (paneId: string) => {
         if (!(paneId in procs)) throw new Error(`no procs for ${paneId}`);
         return procs[paneId]!;
@@ -1762,7 +1773,7 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
   it("counts an unclaimed non-helper pane with a live proc as orphanLive", async () => {
     const facts = await defaultReadHerdrFleet(
       fakeStore([]), // no sessions → the agent is unclaimed
-      fakeHerdr([agent({ terminalId: "term-1", paneId: "p1", name: "task-07" })], {
+      fakeHerdr([agent({ terminalId: "term-1", paneId: "p1" })], {
         p1: ["node", "claude"], // a live non-shell proc
       }),
     );
@@ -1777,14 +1788,30 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
     expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
   });
 
-  it("a Shepherd helper agent is excluded even with a live proc", async () => {
+  it("a Shepherd helper agent is excluded even with a live proc — identified by its TAB label", async () => {
+    // #2029: the skip used to read `agent.name`, which herdr 0.7.5 never sends, so every live
+    // helper was counted as a fleet orphan. The agent built here HAS no name, as on 0.7.5.
     const facts = await defaultReadHerdrFleet(
       fakeStore([]),
-      fakeHerdr([agent({ terminalId: "term-h", paneId: "ph", name: "review TASK-07" })], {
-        ph: ["node", "claude"],
-      }),
+      fakeHerdr(
+        [agent({ terminalId: "term-h", paneId: "ph", tabId: "th" })],
+        { ph: ["node", "claude"] },
+        { tabLabels: { th: "review TASK-07" } },
+      ),
     );
     expect(facts).toEqual({ orphanLive: 0, orphanHusk: 0 });
+  });
+
+  it("an unreadable tab list degrades to no helper skip rather than failing the probe", async () => {
+    const facts = await defaultReadHerdrFleet(
+      fakeStore([]),
+      fakeHerdr(
+        [agent({ terminalId: "term-h", paneId: "ph", tabId: "th" })],
+        { ph: ["node", "claude"] },
+        { tabLabels: { th: "review TASK-07" }, tabsThrow: true },
+      ),
+    );
+    expect(facts).toEqual({ orphanLive: 1, orphanHusk: 0 });
   });
 
   it("a shell-only orphan pane counts as orphanHusk, not orphanLive", async () => {
@@ -1814,6 +1841,7 @@ describe("defaultReadHerdrFleet (session ↔ fleet join)", () => {
       listAsync: async () => {
         throw new Error("ECONNREFUSED");
       },
+      tabsAsync: async () => [],
       paneForegroundProcs: async () => [],
     } as Parameters<typeof defaultReadHerdrFleet>[1];
     await expect(defaultReadHerdrFleet(fakeStore([]), herdr)).rejects.toThrow("ECONNREFUSED");

@@ -7,6 +7,7 @@ import {
   mapState,
   matchAgent,
   matchAgents,
+  parseAgents,
   posixShellJoin,
   type HerdrAgent,
 } from "../src/herdr";
@@ -109,11 +110,14 @@ const AGENT_STARTED = JSON.stringify({
   },
 });
 
-test("list surfaces the agent name (empty when herdr omits it)", async () => {
+test("list surfaces the agent name, and leaves it UNDEFINED when herdr omits it", async () => {
+  // #2029: an absent `name` must stay absent rather than become `""`. herdr 0.7.5 omits the field
+  // on every record, and laundering it into an empty string is what turned three name-prefix
+  // reapers into silent no-ops — `"".startsWith(prefix)` is simply false, forever.
   const d = mkDriver(() => FIXTURE);
   const a = d.list();
   expect(a[0]!.name).toBe("flatten");
-  expect(a[1]!.name).toBe(""); // second fixture agent has no name field
+  expect(a[1]!.name).toBeUndefined(); // second fixture agent has no name field
 });
 
 // herdr reply for `workspace list` — one workspace exists, so start() skips bootstrap
@@ -925,10 +929,37 @@ test("panes() applies defensive defaults when optional fields are absent", async
   expect(p[0]).toMatchObject({
     paneId: "w1:p1",
     tabId: "w1:t1",
-    label: "",
+    label: undefined, // absent stays absent (#2029) — see HerdrPane.label
     cwd: "",
     agentStatus: "unknown",
   });
+});
+
+// The schema declares `label`/`name` as `?: string | null`, so herdr is free to send an explicit
+// JSON `null`. That must land in the domain types as `undefined`, not as a `null` masquerading as
+// a string — otherwise the optionality this change preserves is only skin-deep (#2029).
+const EXPLICIT_NULLS = JSON.stringify({
+  result: {
+    type: "pane_list",
+    panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", label: null, cwd: null }],
+  },
+});
+
+test("panes() normalizes an explicit null label to undefined", async () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "pane" && args[1] === "list" ? EXPLICIT_NULLS : FIXTURE,
+  );
+  const p = d.panes()[0]!;
+  expect(p.label).toBeUndefined();
+  expect(p.label).not.toBeNull();
+  expect(p.cwd).toBe(""); // required domain field: null still collapses to ""
+});
+
+test("parseAgents normalizes an explicit null name to undefined", () => {
+  const [a] = parseAgents({ agents: [{ terminal_id: "t0", name: null, cwd: null }] });
+  expect(a!.name).toBeUndefined();
+  expect(a!.name).not.toBeNull();
+  expect(a!.cwd).toBe("");
 });
 
 test("panes() returns [] when result.panes is absent", async () => {

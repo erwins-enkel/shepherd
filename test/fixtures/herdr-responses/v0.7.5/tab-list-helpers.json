@@ -1,0 +1,25 @@
+{
+  "result": {
+    "type": "tab_list",
+    "tabs": [
+      {
+        "agent_status": "unknown",
+        "focused": false,
+        "label": "__merge__6b1e1782",
+        "number": 3,
+        "pane_count": 1,
+        "tab_id": "w1:t3",
+        "workspace_id": "w1"
+      },
+      {
+        "agent_status": "working",
+        "focused": false,
+        "label": "review TASK-09",
+        "number": 4,
+        "pane_count": 1,
+        "tab_id": "t_075",
+        "workspace_id": "w1"
+      }
+    ]
+  }
+}

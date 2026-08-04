@@ -33,7 +33,7 @@ import {
   CHATGPT_INCOMPATIBLE_CODEX_MODELS,
   type CodexAuthMode,
 } from "./default-model";
-import { matchAgents, type IHerdrDriver } from "./herdr";
+import { matchAgents, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { isShepherdHelperLabel } from "./tab-reaper";
 import { readTmpInodeUsePct, sweepClaudeTmp, tmpInodeBands } from "./tmp-sweep";
 import { SHELLS } from "./json-tolerant";
@@ -887,15 +887,20 @@ function resolveTmpSweepDeps(deps: DiagnosticsDeps): {
  *  the probe's `onTimeout` uninspectable fallback. A pane adopted by a live session (`matchAgents`)
  *  is skipped — a running/pending session is never a leak. Shepherd's own short-lived helper agents
  *  are skipped via `isShepherdHelperLabel` (they legitimately register with no session and are reaped
- *  by the tab-reaper). Per-orphan `paneForegroundProcs` is fail-closed: a throw or empty proc list is
- *  skipped (never counted on no evidence), mirroring `reapOrphanTabs`. */
+ *  by the tab-reaper) — read off the agent's TAB label, since herdr 0.7.5 sends no `agent.name` and
+ *  the old name-based skip therefore counted every live helper as a fleet orphan (#2029). The tab
+ *  read is best-effort: on failure the labels are simply unavailable and no agent is skipped, which
+ *  is the pre-existing behaviour. The same map disambiguates contended cwds in `matchAgents`.
+ *  Per-orphan `paneForegroundProcs` is fail-closed: a throw or empty proc list is skipped (never
+ *  counted on no evidence), mirroring `reapOrphanTabs`. */
 export async function defaultReadHerdrFleet(
   store: Pick<SessionStore, "list">,
-  herdr: Pick<IHerdrDriver, "listAsync" | "paneForegroundProcs">,
+  herdr: Pick<IHerdrDriver, "listAsync" | "tabsAsync" | "paneForegroundProcs">,
 ): Promise<HerdrFleetFacts> {
   const sessions = store.list({ activeOnly: true });
   const agents = await herdr.listAsync();
-  const matched = matchAgents(sessions, agents);
+  const labels = await readTabLabels(herdr);
+  const matched = matchAgents(sessions, agents, () => labels);
   const claimed = new Set<string>();
   for (const a of matched.values()) if (a) claimed.add(a.terminalId);
 
@@ -903,18 +908,42 @@ export async function defaultReadHerdrFleet(
   let orphanHusk = 0;
   for (const a of agents) {
     if (claimed.has(a.terminalId)) continue; // adopted by a live session — never a leak
-    if (isShepherdHelperLabel(a.name)) continue; // Shepherd's own helper agents (reaped elsewhere)
-    let procs: string[];
-    try {
-      procs = await herdr.paneForegroundProcs(a.paneId);
-    } catch {
-      continue; // transient read failure — fail closed, never count on no evidence
-    }
-    if (procs.length === 0) continue; // undeterminable — fail closed
-    if (procs.every((n) => SHELLS.has(n))) orphanHusk++;
-    else orphanLive++;
+    const label = labels?.get(a.tabId);
+    // Shepherd's own helper agents (reaped elsewhere), identified by their tab label
+    if (label !== undefined && isShepherdHelperLabel(label)) continue;
+    const verdict = await classifyOrphanPane(herdr, a.paneId);
+    if (verdict === "husk") orphanHusk++;
+    else if (verdict === "live") orphanLive++;
   }
   return { orphanLive, orphanHusk };
+}
+
+/** Best-effort `tab_id`→label map. `undefined` on a failed read: no helper skip and no name
+ *  disambiguation, which is the pre-existing behaviour, never a wrong verdict. */
+async function readTabLabels(
+  herdr: Pick<IHerdrDriver, "tabsAsync">,
+): Promise<ReadonlyMap<string, string> | undefined> {
+  try {
+    return tabLabelMap(await herdr.tabsAsync());
+  } catch {
+    return undefined;
+  }
+}
+
+/** One unclaimed pane's foreground verdict. `null` = no evidence (read threw, or an empty proc
+ *  list) and is never counted — the same fail-closed rule `reapOrphanTabs` applies. */
+async function classifyOrphanPane(
+  herdr: Pick<IHerdrDriver, "paneForegroundProcs">,
+  paneId: string,
+): Promise<"live" | "husk" | null> {
+  let procs: string[];
+  try {
+    procs = await herdr.paneForegroundProcs(paneId);
+  } catch {
+    return null;
+  }
+  if (procs.length === 0) return null;
+  return procs.every((n) => SHELLS.has(n)) ? "husk" : "live";
 }
 
 /**

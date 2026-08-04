@@ -112,7 +112,7 @@ export interface DistillerDeps {
     | "getLearning"
     | "listLearningPruneTombstones"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   scratch: { create: () => { dir: string }; remove: (dir: string) => void };
   onChange: () => void;
   model?: string | null;

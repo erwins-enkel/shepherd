@@ -513,17 +513,19 @@ test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-o
   seedActive(store, "/r", "Use bun, not npm");
   seedActive(store, "/r", "Prefer bun over npm for installs");
   const closed: string[] = [];
+  // 0.7.5 shape (#2029): the label lives on the TAB; agent records carry no `name`.
   const listed = [
-    { name: MERGE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
-    { name: "some-session", terminalId: "u1", tabId: "tabU" },
-    { name: MERGE_LABEL + "live0001", terminalId: "m1", tabId: "tabL" },
+    { label: MERGE_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { label: "some-session", terminalId: "u1", tabId: "tabU" },
+    { label: MERGE_LABEL + "live0001", terminalId: "m1", tabId: "tabL" },
   ];
   const svc = new MergeSuggestionService({
     store,
     herdr: {
       start: async () => ({ terminalId: "m1" }),
       stop: async () => {},
-      list: () => listed,
+      list: () => listed.map(({ terminalId, tabId }) => ({ terminalId, tabId })),
+      tabsAsync: async () => listed.map(({ label, tabId }) => ({ tabId, label })),
       closeTab: async (t: string) => closed.push(t),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
@@ -535,7 +537,9 @@ test("reapOrphans closes orphaned __merge__ tabs, sparing unrelated + inflight-o
     log: () => {},
   } as never);
   await svc.consider("/r"); // in-flight run owns terminalId "m1"
-  svc.reapOrphans();
+  svc.reapOrphans(); // fire-and-forget; the reap awaits `tab list` before closing anything
+  await Promise.resolve();
+  await Promise.resolve();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 

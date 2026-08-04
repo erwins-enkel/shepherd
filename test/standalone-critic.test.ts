@@ -836,23 +836,27 @@ test("stopAll: reaps in-flight run without throwing (regression: unbound this)",
 
 // ── boot reapOrphans (issue #1136) ──────────────────────────────────────────
 
-test("reapOrphans closes orphaned pr-critic tabs, sparing unrelated names", () => {
+test("reapOrphans closes orphaned pr-critic tabs, sparing unrelated labels", async () => {
   const closed: string[] = [];
+  // 0.7.5 shape (#2029): the label lives on the TAB; agent records carry no `name`.
   const listed = [
-    { name: "pr-critic /r#42", terminalId: "orphan1", tabId: "tabO", agentStatus: "done" },
-    { name: "my-feature-branch", terminalId: "u1", tabId: "tabU", agentStatus: "running" },
-    { name: "review TASK-09", terminalId: "rv1", tabId: "tabR", agentStatus: "done" },
+    { label: "pr-critic /r#42", terminalId: "orphan1", tabId: "tabO" },
+    { label: "my-feature-branch", terminalId: "u1", tabId: "tabU" },
+    { label: "review TASK-09", terminalId: "rv1", tabId: "tabR" },
   ];
   const { deps } = makeDeps({
     herdr: {
       start: async () => ({ terminalId: "rt" }),
       stop: async () => {},
-      list: () => listed,
+      list: () => listed.map(({ terminalId, tabId }) => ({ terminalId, tabId })),
+      tabsAsync: async () => listed.map(({ label, tabId }) => ({ tabId, label })),
       closeTab: async (id: string) => closed.push(id),
     },
   });
   const svc = new StandalonePrCriticService(deps as any);
   svc.reapOrphans(); // no in-flight runs at boot → empty owned set
+  await Promise.resolve();
+  await Promise.resolve();
   expect(closed).toEqual(["tabO"]); // only the pr-critic orphan; unrelated + sibling reviewer spared
 });
 

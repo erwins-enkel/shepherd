@@ -166,7 +166,8 @@ function mkHarness(opts?: {
   sentinel?: string | null;
   stagedNames?: string; // stdout of `git diff --cached --name-only`
   worktreeListPorcelain?: string;
-  herdrAgents?: { name: string; tabId: string; cwd?: string; terminalId?: string }[];
+  /** A herdr tab as 0.7.5 reports it: the LABEL is on the tab, never on the agent (#2029). */
+  herdrAgents?: { label: string; tabId: string; cwd?: string; terminalId?: string }[];
   repos?: string[];
   originSha?: string | (() => string);
   originShaThrows?: boolean;
@@ -219,7 +220,7 @@ function mkHarness(opts?: {
       string | null,
     stagedNames: "docs-site/src/content/docs/reference/configuration.md",
     worktreeListPorcelain: "",
-    herdrAgents: [] as { name: string; tabId: string; cwd?: string; terminalId?: string }[],
+    herdrAgents: [] as { label: string; tabId: string; cwd?: string; terminalId?: string }[],
     repos: [] as string[],
     originSha: "origin-sha-1" as string,
     originShaThrows: false,
@@ -411,11 +412,16 @@ function mkHarness(opts?: {
       o.herdrAgents.map(
         (a) =>
           ({
-            name: a.name,
+            // no `name`: herdr 0.7.5 does not emit one (#2029)
             tabId: a.tabId,
             cwd: a.cwd ?? "",
             terminalId: a.terminalId ?? "",
           }) as any,
+      ),
+    tabs: () =>
+      o.herdrAgents.map(
+        (a) =>
+          ({ tabId: a.tabId, label: a.label, agentStatus: "unknown", workspaceId: "w1" }) as any,
       ),
     closeTab: async (tabId: string) => {
       closedTabs.push(tabId);
@@ -652,8 +658,8 @@ test("reapOrphans: closes only __docagent__ tabs and prunes only docs-update wor
     worktreeListPorcelain: porcelain,
     sentinel: null, // agent died mid-edit → prune (not re-adopt)
     herdrAgents: [
-      { name: "__docagent__deadbeef", tabId: "tab-doc", cwd: "/wt/gone" },
-      { name: "review TASK-7", tabId: "tab-review" },
+      { label: "__docagent__deadbeef", tabId: "tab-doc", cwd: "/wt/gone" },
+      { label: "review TASK-7", tabId: "tab-review" },
     ],
   });
   await h.svc.reapOrphans();

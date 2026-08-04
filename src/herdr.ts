@@ -429,7 +429,13 @@ export function isNameTakenError(err: unknown): boolean {
   return false;
 }
 
-type AgentListResult = { agents?: Record<string, string>[] } | null;
+/** Reply records are typed `string | null` per the generated schema — several fields are declared
+ *  `?: string | null`, and a JSON `null` must not reach a domain field typed `string | undefined`
+ *  (`Record<string, string>` would let it through unnoticed). The mappers below normalize with
+ *  `?? ""` where the domain field is required and `?? undefined` where it is optional. */
+type HerdrRecord = Record<string, string | null>;
+
+type AgentListResult = { agents?: HerdrRecord[] } | null;
 
 /**
  * Maps a herdr `agent.list` reply's `result` object to `HerdrAgent[]`. Pure and
@@ -444,17 +450,18 @@ export function parseAgents(result: unknown): HerdrAgent[] {
 
 /** The one snake_case→HerdrAgent field mapping, shared by `parseAgents` and
  *  `parseAgentInfo` so the two reply shapes can't drift apart.
- *  `noUncheckedIndexedAccess` widens Record<string,string> indexing to `| undefined`;
- *  `?? ""` keeps the fields herdr genuinely always supplies honest. `name` is NOT one of
- *  them — 0.7.5 omits it entirely — so it is passed through as `undefined` rather than
- *  laundered into `""` (#2029): an absent field must reach consumers as absent, not as a
- *  value that silently matches nothing. */
-function mapAgentRecord(a: Record<string, string>): HerdrAgent {
+ *  `noUncheckedIndexedAccess` widens the indexing to `| undefined`, and {@link HerdrRecord}
+ *  carries the schema's `| null`; `?? ""` keeps the fields herdr genuinely always supplies
+ *  honest. `name` is NOT one of them — 0.7.5 omits it entirely — so it is normalized to
+ *  `undefined` rather than laundered into `""` (#2029): an absent field must reach consumers as
+ *  absent, not as a value that silently matches nothing. `?? undefined` rather than a bare
+ *  pass-through, so a JSON `null` cannot masquerade as a `string` in a `string | undefined` field. */
+function mapAgentRecord(a: HerdrRecord): HerdrAgent {
   return {
     agent: a.agent ?? "",
     agentStatus: (a.agent_status ?? "unknown") as HerdrState,
     cwd: a.cwd ?? "",
-    name: a.name,
+    name: a.name ?? undefined,
     paneId: a.pane_id ?? "",
     tabId: a.tab_id ?? "",
     terminalId: a.terminal_id ?? "",
@@ -469,7 +476,7 @@ function mapAgentRecord(a: Record<string, string>): HerdrAgent {
  * directly (same convention as `parseAgents`).
  */
 export function parseTabs(result: unknown): HerdrTab[] {
-  const tabs = (result as { tabs?: Record<string, string>[] } | null)?.tabs ?? [];
+  const tabs = (result as { tabs?: HerdrRecord[] } | null)?.tabs ?? [];
   return tabs.map((t) => ({
     tabId: t.tab_id ?? "",
     label: t.label ?? "",
@@ -486,7 +493,7 @@ export function parseTabs(result: unknown): HerdrTab[] {
  * (confirmed against live herdr 0.7.3), so no post-start re-list is needed.
  */
 export function parseAgentInfo(agent: unknown): HerdrAgent {
-  return mapAgentRecord((agent ?? {}) as Record<string, string>);
+  return mapAgentRecord((agent ?? {}) as HerdrRecord);
 }
 
 /**
@@ -843,11 +850,12 @@ export class HerdrDriver implements IHerdrDriver {
   panes(): HerdrPane[] {
     const parsed = JSON.parse(this.runner(["pane", "list"]));
     const panes = parsed?.result?.panes ?? [];
-    return panes.map((p: Record<string, string>) => ({
+    return panes.map((p: HerdrRecord) => ({
       paneId: p.pane_id ?? "",
       tabId: p.tab_id ?? "",
-      // Passed through as absent, never `?? ""` — see HerdrPane.label (#2029).
-      label: p.label,
+      // Normalized to absent, never `?? ""` — see HerdrPane.label (#2029). `?? undefined` also
+      // keeps a schema-permitted JSON `null` out of a field typed `string | undefined`.
+      label: p.label ?? undefined,
       cwd: p.cwd ?? "",
       agentStatus: (p.agent_status ?? "unknown") as HerdrState,
     }));

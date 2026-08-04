@@ -7,6 +7,7 @@ import {
   mapState,
   matchAgent,
   matchAgents,
+  parseAgents,
   posixShellJoin,
   type HerdrAgent,
 } from "../src/herdr";
@@ -932,6 +933,33 @@ test("panes() applies defensive defaults when optional fields are absent", async
     cwd: "",
     agentStatus: "unknown",
   });
+});
+
+// The schema declares `label`/`name` as `?: string | null`, so herdr is free to send an explicit
+// JSON `null`. That must land in the domain types as `undefined`, not as a `null` masquerading as
+// a string — otherwise the optionality this change preserves is only skin-deep (#2029).
+const EXPLICIT_NULLS = JSON.stringify({
+  result: {
+    type: "pane_list",
+    panes: [{ pane_id: "w1:p1", tab_id: "w1:t1", label: null, cwd: null }],
+  },
+});
+
+test("panes() normalizes an explicit null label to undefined", async () => {
+  const d = new HerdrDriver((args) =>
+    args[0] === "pane" && args[1] === "list" ? EXPLICIT_NULLS : FIXTURE,
+  );
+  const p = d.panes()[0]!;
+  expect(p.label).toBeUndefined();
+  expect(p.label).not.toBeNull();
+  expect(p.cwd).toBe(""); // required domain field: null still collapses to ""
+});
+
+test("parseAgents normalizes an explicit null name to undefined", () => {
+  const [a] = parseAgents({ agents: [{ terminal_id: "t0", name: null, cwd: null }] });
+  expect(a!.name).toBeUndefined();
+  expect(a!.name).not.toBeNull();
+  expect(a!.cwd).toBe("");
 });
 
 test("panes() returns [] when result.panes is absent", async () => {

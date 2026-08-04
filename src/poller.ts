@@ -372,14 +372,6 @@ export class StatusPoller {
   /** This tick's session→agent match result (`matchAgents`), stashed so the throttled liveness sweep
    *  — which has no agent in scope — can evaluate the stranded fingerprint. Rebuilt every tick. */
   private lastMatched = new Map<string, HerdrAgent | null>();
-  /** tabId→label cache for the cwd-contention disambiguator in `matchAgents`. Populated only ever
-   *  in reaction to a tick that actually NEEDED it (see `tabLabels`): on 0.7.5 the tab label is the
-   *  sole surviving carrier of a session's name (#2029), but reading `tab list` on the 1s tick just
-   *  in case would double this poller's herdr traffic forever, for a branch that fires only after a
-   *  daemon restart with two same-cwd sessions. */
-  private tabLabelCache: ReadonlyMap<string, string> | undefined;
-  /** Guards against stacking refreshes while one is in flight. */
-  private tabLabelRefreshing = false;
   /** Consecutive liveness sweeps a session has been observed `stranded` — the 2-sweep debounce for
    *  the AUTONOMOUS auto-revive path (blunts a transient /proc false-negative). Reset when not
    *  stranded. */
@@ -551,29 +543,52 @@ export class StatusPoller {
   }
 
   /**
-   * Tab-label source for `matchAgents`' contended-cwd branch (#2029). Returns whatever the cache
-   * holds — `undefined` on the very first consultation, which behaves exactly like today — and
-   * kicks off a background refresh so the NEXT tick, one second later, can disambiguate. It is
-   * pull-driven: `matchAgents` only calls it when two still-unmatched sessions share a worktree,
-   * so an ordinary tick (every session matched by terminalId) issues no `tab list` at all.
+   * This tick's session→agent pairing. A cwd contended by 2+ unmatched sessions is the only case
+   * `matchAgents` cannot settle on its own, and it must be settled WITHIN this tick: an unmatched
+   * session is reaped to `done` by `reapGone` immediately and with no debounce, so a label read
+   * deferred to the next tick would persist that terminal state first and heal nothing (#2029).
+   * A failed read leaves the label-free pairing — the pre-existing behaviour, never a mis-pairing.
    */
-  private tabLabels(): ReadonlyMap<string, string> | undefined {
-    const fetch = this.herdr.tabsAsync;
-    if (fetch && !this.tabLabelRefreshing) {
-      this.tabLabelRefreshing = true;
-      void fetch
-        .call(this.herdr)
-        .then((tabs) => {
-          this.tabLabelCache = tabLabelMap(tabs);
-        })
-        .catch(() => {
-          /* transient herdr read failure — keep the previous cache and retry when next needed */
-        })
-        .finally(() => {
-          this.tabLabelRefreshing = false;
-        });
+  private async matchSessions(
+    sessions: Session[],
+    agents: HerdrAgent[],
+  ): Promise<Map<string, HerdrAgent | null>> {
+    const matched = matchAgents(sessions, agents);
+    if (!this.needsTabLabels(sessions, matched)) return matched;
+    const labels = await this.readTabLabels();
+    return labels ? matchAgents(sessions, agents, () => labels) : matched;
+  }
+
+  /**
+   * True when at least two still-unmatched sessions share a worktree — the ONE case `matchAgents`
+   * cannot resolve without tab labels, since on 0.7.5 the tab label is the only surviving carrier
+   * of a session's name (#2029). Mirrors `matchAgents`' own contention rule (unmatched sessions
+   * grouped by `worktreePath`), and it is the gate that keeps `tab list` off the 1s hot path: an
+   * ordinary tick, where every session matches by terminalId, never reaches the read.
+   */
+  private needsTabLabels(sessions: Session[], matched: Map<string, HerdrAgent | null>): boolean {
+    const unmatchedPerCwd = new Map<string, number>();
+    for (const s of sessions) {
+      if (matched.get(s.id)) continue;
+      const n = (unmatchedPerCwd.get(s.worktreePath) ?? 0) + 1;
+      if (n > 1) return true;
+      unmatchedPerCwd.set(s.worktreePath, n);
     }
-    return this.tabLabelCache;
+    return false;
+  }
+
+  /** One best-effort `tab list` → `tab_id`→label. `undefined` on failure (or on a driver without
+   *  the method), which leaves matching exactly as it would have been without labels. */
+  private async readTabLabels(): Promise<ReadonlyMap<string, string> | undefined> {
+    if (!this.herdr.tabsAsync) return undefined;
+    try {
+      return tabLabelMap(await this.herdr.tabsAsync());
+    } catch (err) {
+      // Consequential: without labels the contended sessions below stay unmatched and are reaped
+      // as gone, so this must not be swallowed silently.
+      console.warn("[poller] tab list failed; contended sessions cannot be disambiguated:", err);
+      return undefined;
+    }
   }
 
   async tick(): Promise<void> {
@@ -601,7 +616,7 @@ export class StatusPoller {
         return;
       }
       const sessions = this.store.list({ activeOnly: true });
-      const matched = matchAgents(sessions, agents, () => this.tabLabels());
+      const matched = await this.matchSessions(sessions, agents);
       this.lastMatched = matched; // stash for the throttled liveness sweep (has no agent in scope)
       const activeIds = new Set<string>();
       for (const s of sessions) {

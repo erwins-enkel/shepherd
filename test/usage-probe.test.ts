@@ -1,21 +1,26 @@
 import { test, expect } from "bun:test";
 import { HerdrUsageProbe, PROBE_NAME, awaitUsageFrame } from "../src/usage-probe";
 import { parseUsageFrame } from "../src/usage-limits";
-import type { HerdrAgent } from "../src/herdr";
+import type { HerdrAgent, HerdrTab } from "../src/herdr";
 import { config } from "../src/config";
 
+// NOTE: no `name` — herdr 0.7.5 omits the field entirely, so the probe sweep identifies its
+// agents by TAB label instead (#2029). `tab()` builds the matching tab record.
 function agent(over: Partial<HerdrAgent>): HerdrAgent {
   return {
     agent: "claude",
     agentStatus: "idle",
     cwd: "/repo",
-    name: "",
     paneId: "p",
     tabId: "t",
     terminalId: "term",
     workspaceId: "w",
     ...over,
   };
+}
+
+function tab(tabId: string, label: string): HerdrTab {
+  return { tabId, label, agentStatus: "unknown", workspaceId: "w" };
 }
 
 // Regression: probes used to leak a herdr tab whenever start() threw *after* `tab create`
@@ -31,6 +36,7 @@ test("scrape returns null without calling herdr.start in api-key mode", async ()
     let startCalled = false;
     const herdr = {
       list: () => [] as HerdrAgent[],
+      tabsAsync: async () => [] as HerdrTab[],
       start: async () => {
         startCalled = true;
         throw new Error("herdr.start must not be called in api-key mode");
@@ -48,15 +54,22 @@ test("scrape returns null without calling herdr.start in api-key mode", async ()
 test("scrape reaps leftover probe tabs and never touches real sessions", async () => {
   const stopped: string[] = [];
   const agents = [
-    agent({ name: PROBE_NAME, terminalId: "old1", paneId: "po1" }),
-    agent({ name: PROBE_NAME, terminalId: "old2", paneId: "po2" }),
-    agent({ name: "flatten", terminalId: "keep", paneId: "pk" }), // real session
+    agent({ terminalId: "old1", paneId: "po1", tabId: "t-old1" }),
+    agent({ terminalId: "old2", paneId: "po2", tabId: "t-old2" }),
+    agent({ terminalId: "keep", paneId: "pk", tabId: "t-keep" }), // real session
     // a user session whose prompt slugged to the OLD probe string — must survive the reserved-name
     // match (the collision this guards against).
-    agent({ name: "usage-probe", terminalId: "user", paneId: "pu" }),
+    agent({ terminalId: "user", paneId: "pu", tabId: "t-user" }),
+  ];
+  const tabs = [
+    tab("t-old1", PROBE_NAME),
+    tab("t-old2", PROBE_NAME),
+    tab("t-keep", "flatten"),
+    tab("t-user", "usage-probe"),
   ];
   const herdr = {
     list: () => agents,
+    tabsAsync: async () => tabs,
     start: async () => {
       throw new Error("agent start failed after tab create");
     },
@@ -88,6 +101,7 @@ test("scrape reaps leftover probe tabs and never touches real sessions", async (
 function throwingHerdr() {
   return {
     list: () => [] as HerdrAgent[],
+    tabsAsync: async () => [] as HerdrTab[],
     start: async () => {
       throw new Error("start stubbed — return null after pre-seed");
     },

@@ -71,7 +71,16 @@ describe("CLI/socket parity — parseAgentInfo ≡ parseAgents (per element)", (
   it("fills required-string fields with '' when herdr omits them (same as parseAgents)", () => {
     const raw = { terminal_id: "t0" };
     expect(parseAgentInfo(raw)).toEqual(parseAgents({ agents: [raw] })[0]!);
-    expect(parseAgentInfo(raw).name).toBe("");
+    expect(parseAgentInfo(raw).cwd).toBe("");
+  });
+
+  it("leaves an omitted `name` UNDEFINED on both paths (#2029)", () => {
+    // `name` is NOT a required-string field: herdr 0.7.5 omits it on every record, and coercing
+    // it to `""` is what silently disabled four label-prefix reapers. Both mappers must agree
+    // that absent means absent.
+    const raw = { terminal_id: "t0" };
+    expect(parseAgentInfo(raw).name).toBeUndefined();
+    expect(parseAgents({ agents: [raw] })[0]!.name).toBeUndefined();
   });
 });
 

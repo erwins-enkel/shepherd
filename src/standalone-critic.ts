@@ -84,7 +84,7 @@ export interface StandalonePrCriticDeps extends MembraneSeams {
     | "completeReviewerSpawn"
     | "listEpicCompleted"
   >;
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync" | "closeTab">;
   worktree: Pick<WorktreeMgr, "createDetached" | "remove" | "gitCommonDir">;
   resolveForge: (repoPath: string) => GitForge | null;
   /** Candidate repos to consider each sweep. The sweep itself filters to those with

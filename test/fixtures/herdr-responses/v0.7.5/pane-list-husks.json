@@ -1,0 +1,36 @@
+{
+  "result": {
+    "type": "pane_list",
+    "panes": [
+      {
+        "agent_status": "unknown",
+        "cwd": "/home/user",
+        "focused": false,
+        "foreground_cwd": "/home/user",
+        "pane_id": "w1:p4",
+        "revision": 1,
+        "scroll": { "max_offset_from_bottom": 0, "offset_from_bottom": 0, "viewport_rows": 23 },
+        "tab_id": "w1:t3",
+        "terminal_id": "term_65833e7ec6be22",
+        "terminal_title": "user@host:~",
+        "terminal_title_stripped": "user@host:~",
+        "workspace_id": "w1"
+      },
+      {
+        "agent": "claude",
+        "agent_status": "working",
+        "cwd": "/wt/a",
+        "focused": false,
+        "foreground_cwd": "/wt/a",
+        "pane_id": "p_075",
+        "revision": 3,
+        "scroll": { "max_offset_from_bottom": 0, "offset_from_bottom": 0, "viewport_rows": 23 },
+        "tab_id": "t_075",
+        "terminal_id": "term_075",
+        "terminal_title": "✳ Review TASK-09",
+        "terminal_title_stripped": "Review TASK-09",
+        "workspace_id": "w1"
+      }
+    ]
+  }
+}

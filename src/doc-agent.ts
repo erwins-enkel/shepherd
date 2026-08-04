@@ -9,7 +9,7 @@ import { EmptyDiffError } from "./forge/types";
 import type { GitForge, GitState } from "./forge/types";
 import { isSettledIdle } from "./recap-core";
 import type { HerdrDriver } from "./herdr";
-import { HerdrUnavailableError } from "./herdr";
+import { HerdrUnavailableError, tabLabelMap } from "./herdr";
 import type { SessionStore } from "./store";
 import type { DocAgentOutcome, DocAgentRun, Session } from "./types";
 import type { RoleEnvironment } from "./default-model";
@@ -223,7 +223,7 @@ export interface RetargetPromptCtx {
 }
 
 export interface DocAgentDeps extends MembraneSeams {
-  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "closeTab">;
+  herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabs" | "closeTab">;
   worktree: Pick<WorktreeMgr, "create" | "remove" | "gitCommonDir" | "ensureBaseRef">;
   resolveForge: (repoPath: string) => GitForge | null;
   /** Repos to enumerate in the boot orphan-sweep (herdr-independent worktree prune) and the nightly
@@ -1392,30 +1392,46 @@ export class DocAgentService {
       );
   }
 
-  /** A live herdr agent (doc-agent prefix) whose cwd is this worktree, or undefined. */
+  /** A live herdr agent (doc-agent prefix) whose cwd is this worktree, or undefined.
+   *  Identified by its TAB label: herdr 0.7.5 sends no `agent.name`, so the old
+   *  `a.name.startsWith(DOC_AGENT_LABEL)` matched nothing there (#2029). */
   private findLiveTab(
     worktreePath: string,
   ): { tabId: string; terminalId: string; name: string } | undefined {
     try {
-      return this.deps.herdr
+      const labels = tabLabelMap(this.deps.herdr.tabs());
+      const agent = this.deps.herdr
         .list()
-        .find((a) => a.name.startsWith(DOC_AGENT_LABEL) && a.cwd === worktreePath);
+        .find((a) => a.cwd === worktreePath && !!labels.get(a.tabId)?.startsWith(DOC_AGENT_LABEL));
+      if (!agent) return undefined;
+      return {
+        tabId: agent.tabId,
+        terminalId: agent.terminalId,
+        name: labels.get(agent.tabId) ?? "",
+      };
     } catch {
       return undefined;
     }
   }
 
-  /** Final pass: close any leftover doc-agent husk tab NOT owned by a re-adopted in-flight run. */
+  /** Final pass: close any leftover doc-agent husk tab NOT owned by a re-adopted in-flight run.
+   *  Scoped by TAB label (#2029) — which also brings husks whose agent already exited (absent
+   *  from `agent list`, still in `tab list`) into reach. The owned spares are keyed on agent
+   *  records, so candidate tabs are joined to `list()` by `tab_id` to resolve them. */
   private closeHuskTabs(): void {
     const ownedCwds = new Set([...this.inflight.values()].map((f) => f.worktreePath));
     const ownedTerms = new Set(
       [...this.inflight.values()].map((f) => f.terminalId).filter(Boolean),
     );
     try {
-      for (const a of this.deps.herdr.list()) {
-        if (!a.name.startsWith(DOC_AGENT_LABEL)) continue;
-        if (ownedTerms.has(a.terminalId) || ownedCwds.has(a.cwd)) continue; // spare re-adopted runs
-        void this.deps.herdr.closeTab(a.tabId);
+      const candidates = this.deps.herdr.tabs().filter((t) => t.label.startsWith(DOC_AGENT_LABEL));
+      if (candidates.length === 0) return;
+      const agentByTab = new Map(this.deps.herdr.list().map((a) => [a.tabId, a]));
+      for (const t of candidates) {
+        const agent = agentByTab.get(t.tabId);
+        // spare re-adopted runs (a husk has no agent record, so it can never be owned)
+        if (agent && (ownedTerms.has(agent.terminalId) || ownedCwds.has(agent.cwd))) continue;
+        void this.deps.herdr.closeTab(t.tabId);
       }
     } catch (err) {
       console.warn("[doc-agent] reapOrphans tab pass:", err);

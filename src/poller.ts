@@ -8,6 +8,7 @@ import {
   matchAgents,
   needsAccountRedrive,
   sanitizeHerdrAgentName,
+  tabLabelMap,
   type HerdrDriver,
   type HerdrAgent,
   type PushableAgentState,
@@ -371,6 +372,14 @@ export class StatusPoller {
   /** This tick's session→agent match result (`matchAgents`), stashed so the throttled liveness sweep
    *  — which has no agent in scope — can evaluate the stranded fingerprint. Rebuilt every tick. */
   private lastMatched = new Map<string, HerdrAgent | null>();
+  /** tabId→label cache for the cwd-contention disambiguator in `matchAgents`. Populated only ever
+   *  in reaction to a tick that actually NEEDED it (see `tabLabels`): on 0.7.5 the tab label is the
+   *  sole surviving carrier of a session's name (#2029), but reading `tab list` on the 1s tick just
+   *  in case would double this poller's herdr traffic forever, for a branch that fires only after a
+   *  daemon restart with two same-cwd sessions. */
+  private tabLabelCache: ReadonlyMap<string, string> | undefined;
+  /** Guards against stacking refreshes while one is in flight. */
+  private tabLabelRefreshing = false;
   /** Consecutive liveness sweeps a session has been observed `stranded` — the 2-sweep debounce for
    *  the AUTONOMOUS auto-revive path (blunts a transient /proc false-negative). Reset when not
    *  stranded. */
@@ -402,7 +411,8 @@ export class StatusPoller {
 
   constructor(
     private store: SessionStore,
-    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState">,
+    private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState"> &
+      Partial<Pick<HerdrDriver, "tabsAsync">>,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
     private intervalMs = 1000,
@@ -540,6 +550,32 @@ export class StatusPoller {
     return ep;
   }
 
+  /**
+   * Tab-label source for `matchAgents`' contended-cwd branch (#2029). Returns whatever the cache
+   * holds — `undefined` on the very first consultation, which behaves exactly like today — and
+   * kicks off a background refresh so the NEXT tick, one second later, can disambiguate. It is
+   * pull-driven: `matchAgents` only calls it when two still-unmatched sessions share a worktree,
+   * so an ordinary tick (every session matched by terminalId) issues no `tab list` at all.
+   */
+  private tabLabels(): ReadonlyMap<string, string> | undefined {
+    const fetch = this.herdr.tabsAsync;
+    if (fetch && !this.tabLabelRefreshing) {
+      this.tabLabelRefreshing = true;
+      void fetch
+        .call(this.herdr)
+        .then((tabs) => {
+          this.tabLabelCache = tabLabelMap(tabs);
+        })
+        .catch(() => {
+          /* transient herdr read failure — keep the previous cache and retry when next needed */
+        })
+        .finally(() => {
+          this.tabLabelRefreshing = false;
+        });
+    }
+    return this.tabLabelCache;
+  }
+
   async tick(): Promise<void> {
     // herdr is mid-update: don't poll — a list() here would resurrect the herdr
     // server and (seeing no agents) wrongly reap every live session.
@@ -565,7 +601,7 @@ export class StatusPoller {
         return;
       }
       const sessions = this.store.list({ activeOnly: true });
-      const matched = matchAgents(sessions, agents);
+      const matched = matchAgents(sessions, agents, () => this.tabLabels());
       this.lastMatched = matched; // stash for the throttled liveness sweep (has no agent in scope)
       const activeIds = new Set<string>();
       for (const s of sessions) {

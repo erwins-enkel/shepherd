@@ -30,7 +30,7 @@ import type {
   RundownEpicItem,
 } from "./types";
 import { WorktreeMgr } from "./worktree";
-import { matchAgent, type IHerdrDriver } from "./herdr";
+import { matchAgent, tabLabelMap, type IHerdrDriver } from "./herdr";
 import { selectHerdrDriver, SocketHerdrDriver } from "./herdr-socket-driver";
 import { startTerminalTransportSelfCheck } from "./terminal-transport-metrics";
 import { generateName } from "./namer";
@@ -545,6 +545,18 @@ deferredStarts.push(() => {
 });
 const herdr: IHerdrDriver = await selectHerdrDriver();
 const herdrSocketActive = herdr instanceof SocketHerdrDriver;
+/** Lazy tab-label source for `matchAgent`'s contended-cwd branch (#2029): on herdr 0.7.5 a
+ *  session's name survives only on its TAB label — `agent.name` is not sent at all — so without
+ *  this, two sessions sharing a worktree could never be told apart after a daemon restart.
+ *  `matchAgent` consults it ONLY when the cwd is contended, so the ordinary single-session lookup
+ *  still costs exactly one `agent list`. */
+const liveTabLabels = (): ReadonlyMap<string, string> | undefined => {
+  try {
+    return tabLabelMap(herdr.tabs());
+  } catch {
+    return undefined; // transient tab-list failure — no name evidence, never a wrong pairing
+  }
+};
 deferredStarts.push(() => {
   startTerminalTransportSelfCheck(herdrSocketActive);
 });
@@ -1003,13 +1015,26 @@ const orphanTabSweeper = createOrphanTabSweeper({
   maintenanceActive: () => maintenance.active,
   confirmDelayMs: 30_000,
   onResult: (r) => {
+    if (r.tabsFailed) {
+      console.warn(
+        "[tabs] orphan sweep: tab list unavailable — reaped nothing, debounce preserved",
+      );
+      return;
+    }
     if (r.panesFailed) {
       console.warn("[tabs] orphan sweep: panes() unavailable — reaped nothing, debounce preserved");
       return;
     }
-    if (r.closed.length || r.sparedError)
+    // One line per sweep that had anything in scope (#2029). The old rule logged only when a tab
+    // was closed or spared-undetermined, so a reaper whose scope filter had silently collapsed to
+    // the empty set was indistinguishable in the journal from one with nothing to do — seven days,
+    // zero output, while 321 husks accumulated. Reporting the SCOPE makes the two states different
+    // lines. A genuinely empty scope stays silent: it now reads the same `tab list` an operator
+    // would check by hand, so "no helper tabs" is a fact, not an artifact of the filter.
+    if (r.helperTabs > 0)
       console.warn(
-        `[tabs] reaped ${r.closed.length} husk tab(s); spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
+        `[tabs] sweep: ${r.helperTabs} helper tab(s) in scope — reaped ${r.closed.length}, ` +
+          `spared ${r.sparedLive} live, ${r.sparedError} undetermined`,
       );
   },
   onError: (err) => console.warn("[tabs] orphan sweep failed:", err),
@@ -1501,7 +1526,7 @@ const planGate = new PlanGateService({
   // Whether the planning session is still a live agent (mirrors autopilot.paneAlive).
   paneAlive: (id) => {
     const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list()) !== null;
+    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
   },
   // Resume an exited planning pane so the findings land — EXCEPT a NON-isolated Codex session:
   // `codex resume --last` is cwd-scoped and would resume/steer a SIBLING codex session (the exact
@@ -1828,7 +1853,7 @@ function readVisibleBuffer(id: string): string | null {
   const s = store.get(id);
   if (!s) return null;
   try {
-    const live = matchAgent(s, herdr.list());
+    const live = matchAgent(s, herdr.list(), liveTabLabels);
     return live ? herdr.read(live.terminalId, "visible") : null;
   } catch {
     return null;
@@ -1860,7 +1885,7 @@ const autopilot = new AutopilotService({
   resume: (id) => service.resume(id),
   paneAlive: (id) => {
     const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list()) !== null;
+    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
   },
   deferSteer: (id) => service.shouldDeferSteer(id),
   readTail: (id) => {
@@ -2093,7 +2118,7 @@ const autoMerge = new AutoMergeService({
   prCache: prPoller,
   paneAlive: (id) => {
     const s = store.get(id);
-    return !!s && matchAgent(s, herdr.list()) !== null;
+    return !!s && matchAgent(s, herdr.list(), liveTabLabels) !== null;
   },
   deferSteer: (id) => service.shouldDeferSteer(id),
   repos: () => listRepos(config.repoRoot).map((r) => r.path),
@@ -3026,7 +3051,7 @@ const appDeps: AppDeps = {
   recommend: async (id, provider, model) => {
     const s = store.get(id);
     if (!s) return { error: "no-history" as const };
-    const live = matchAgent(s, herdr.list());
+    const live = matchAgent(s, herdr.list(), liveTabLabels);
     if (!live) return { error: "no-history" as const };
     let tail: string[];
     try {

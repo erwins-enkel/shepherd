@@ -109,11 +109,14 @@ const AGENT_STARTED = JSON.stringify({
   },
 });
 
-test("list surfaces the agent name (empty when herdr omits it)", async () => {
+test("list surfaces the agent name, and leaves it UNDEFINED when herdr omits it", async () => {
+  // #2029: an absent `name` must stay absent rather than become `""`. herdr 0.7.5 omits the field
+  // on every record, and laundering it into an empty string is what turned three name-prefix
+  // reapers into silent no-ops — `"".startsWith(prefix)` is simply false, forever.
   const d = mkDriver(() => FIXTURE);
   const a = d.list();
   expect(a[0]!.name).toBe("flatten");
-  expect(a[1]!.name).toBe(""); // second fixture agent has no name field
+  expect(a[1]!.name).toBeUndefined(); // second fixture agent has no name field
 });
 
 // herdr reply for `workspace list` — one workspace exists, so start() skips bootstrap
@@ -925,7 +928,7 @@ test("panes() applies defensive defaults when optional fields are absent", async
   expect(p[0]).toMatchObject({
     paneId: "w1:p1",
     tabId: "w1:t1",
-    label: "",
+    label: undefined, // absent stays absent (#2029) — see HerdrPane.label
     cwd: "",
     agentStatus: "unknown",
   });

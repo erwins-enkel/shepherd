@@ -511,6 +511,7 @@ test("distiller increments ineffective for cited active rule ids with validated 
       start: async () => ({ terminalId: "t1" }) as never,
       stop: async () => {},
       list: () => [],
+      tabsAsync: async () => [],
       closeTab: async () => {},
     },
     scratch: { create: () => ({ dir: "/tmp/x" }), remove: () => {} },
@@ -1278,17 +1279,19 @@ test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight
   const store = new SessionStore(":memory:");
   seedSignals(store, "/r", 3);
   const closed: string[] = [];
+  // 0.7.5 shape (#2029): the label lives on the TAB and agent records carry no `name`.
   const listed = [
-    { name: DISTILL_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
-    { name: "my-feature-branch", terminalId: "u1", tabId: "tabU" },
-    { name: DISTILL_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
+    { label: DISTILL_LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" },
+    { label: "my-feature-branch", terminalId: "u1", tabId: "tabU" },
+    { label: DISTILL_LABEL + "live0001", terminalId: "live1", tabId: "tabL" },
   ];
   const svc = new DistillerService({
     store,
     herdr: {
       start: async () => ({ terminalId: "live1" }),
       stop: async () => {},
-      list: () => listed,
+      list: () => listed.map(({ terminalId, tabId }) => ({ terminalId, tabId })),
+      tabsAsync: async () => listed.map(({ label, tabId }) => ({ tabId, label })),
       closeTab: async (id: string) => closed.push(id),
     },
     scratch: { create: () => ({ dir: "/s" }), remove: () => {} },
@@ -1299,7 +1302,9 @@ test("reapOrphans closes orphaned __distill__ tabs, sparing unrelated + inflight
     readProposals: () => null, // run stays in flight (not finalized)
   } as never);
   await svc.distillNow("/r"); // in-flight run owns terminalId "live1"
-  svc.reapOrphans();
+  svc.reapOrphans(); // fire-and-forget; the reap now awaits `tab list` before closing anything
+  await Promise.resolve();
+  await Promise.resolve();
   expect(closed).toEqual(["tabO"]); // orphan only — unrelated + in-flight-owned spared
 });
 
@@ -1312,6 +1317,9 @@ test("reapOrphans is a no-op when herdr is unavailable", async () => {
       start: async () => ({ terminalId: "t" }),
       stop: async () => {},
       list: () => {
+        throw new HerdrUnavailableError();
+      },
+      tabsAsync: async () => {
         throw new HerdrUnavailableError();
       },
       closeTab: async () => {

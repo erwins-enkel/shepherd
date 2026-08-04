@@ -9,29 +9,66 @@ import {
   type ReapWorktreesDeps,
 } from "../src/tab-reaper";
 import { PROBE_NAME } from "../src/usage-probe";
+import { DOC_AGENT_LABEL } from "../src/doc-agent";
 import { DISTILL_LABEL } from "../src/distiller";
 import { OPTIMIZE_LABEL } from "../src/optimizer";
-import type { HerdrPane } from "../src/herdr";
+import type { HerdrPane, HerdrTab } from "../src/herdr";
 
-function pane(paneId: string, tabId: string, label: string): HerdrPane {
-  return { paneId, tabId, label, cwd: "/wt", agentStatus: "unknown" };
+/** One pane plus the label of the TAB that owns it. Deliberately split: on herdr 0.7.5 the pane
+ *  itself carries NO label (measured live: 0 of 325 helper panes had one) and the label lives on
+ *  the tab, so `procFake` emits exactly that shape and every test below runs against it (#2029). */
+type FakePane = { pane: HerdrPane; tabLabel: string };
+
+function pane(paneId: string, tabId: string, label: string): FakePane {
+  return { pane: { paneId, tabId, cwd: "/wt", agentStatus: "unknown" }, tabLabel: label };
 }
 
-/** Drives the process-info path: `panes()` returns the given panes, and
- *  `paneForegroundProcs(paneId)` resolves from `procMap` (a thrown value re-throws). */
+/** A pane that DOES carry a label, as some ≤0.7.4 / restored panes do — used to pin that pane
+ *  labels never widen the helper scope. */
+function labelledPane(
+  paneId: string,
+  tabId: string,
+  tabLabel: string,
+  paneLabel: string,
+): FakePane {
+  const p = pane(paneId, tabId, tabLabel);
+  return { ...p, pane: { ...p.pane, label: paneLabel } };
+}
+
+/** Drives the sweep: `tabsAsync()` returns one tab per distinct tabId (labelled from the
+ *  FakePane), `panes()` returns the label-less panes, and `paneForegroundProcs(paneId)` resolves
+ *  from `procMap` (a thrown value re-throws). `panesCalls` records whether the pane read was
+ *  issued at all, so an empty helper scope can assert it short-circuits. */
 function procFake(
-  panes: HerdrPane[],
+  panes: FakePane[],
   procMap: Record<string, string[] | Error>,
-  opts: { panesThrows?: boolean } = {},
-): { h: ReapableHerdr; closed: string[] } {
+  opts: { panesThrows?: boolean; tabsThrows?: boolean; extraTabs?: HerdrTab[] } = {},
+): { h: ReapableHerdr; closed: string[]; panesCalls: { n: number } } {
   const closed: string[] = [];
+  const panesCalls = { n: 0 };
+  const tabs = new Map<string, HerdrTab>();
+  for (const { pane: p, tabLabel } of panes) {
+    tabs.set(p.tabId, {
+      tabId: p.tabId,
+      label: tabLabel,
+      agentStatus: "unknown",
+      workspaceId: "w1",
+    });
+  }
+  for (const t of opts.extraTabs ?? []) tabs.set(t.tabId, t);
   return {
     closed,
+    panesCalls,
     h: {
       closeTab: async (id) => void closed.push(id),
+      tabsAsync: async () => {
+        if (opts.tabsThrows) throw new Error("tab list: herdr unreachable");
+        return [...tabs.values()];
+      },
       panes: () => {
+        panesCalls.n++;
         if (opts.panesThrows) throw new Error("pane list: unknown subcommand");
-        return panes;
+        return panes.map((p) => p.pane);
       },
       paneForegroundProcs: async (paneId) => {
         const v = procMap[paneId];
@@ -186,7 +223,8 @@ test("distiller unique label: tab __distill__<8hex> with live agent is spared (l
 });
 
 test("panes() throwing fails closed — reaps nothing, preserves debounce state, flags panesFailed", async () => {
-  const { h, closed } = procFake([], {}, { panesThrows: true });
+  // A helper tab must be IN SCOPE for the pane read to be attempted at all.
+  const { h, closed } = procFake([pane("w1:p1", "w1:t1", PROBE_NAME)], {}, { panesThrows: true });
   const r = await reapOrphanTabs(h, new Set(["w1:t1"]));
   expect(r.closed).toEqual([]);
   expect(closed).toEqual([]);
@@ -202,6 +240,127 @@ test("a normal sweep reports panesFailed=false", async () => {
   const f = procFake([pane("w1:p1", "w1:t1", PROBE_NAME)], { "w1:p1": ["zsh"] });
   const r = await reapOrphanTabs(f.h);
   expect(r.panesFailed).toBe(false);
+  expect(r.tabsFailed).toBe(false);
+});
+
+// ── 0.7.5 scope regression (#2029) ────────────────────────────────────────────
+//
+// The whole suite above already runs on the 0.7.5 shape: `procFake` emits panes with NO `label`
+// key, exactly as the live daemon does (0 of 325 helper panes carried one). The tests here pin
+// the specific properties that made the old pane-label scope a silent no-op.
+
+test("0.7.5 shape: helper husks are reaped even though NO pane carries a label", async () => {
+  const panes = [pane("w1:p1", "w1:t1", PROBE_NAME), pane("w1:p2", "w1:t2", "recap TASK-08")];
+  // The premise of the regression: nothing in `pane list` identifies these as helpers.
+  expect(panes.every((p) => p.pane.label === undefined)).toBe(true);
+  const procMap: Record<string, string[]> = { "w1:p1": ["bash"], "w1:p2": ["zsh"] };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.helperTabs).toBe(2);
+  expect(r1.shellOnly).toEqual(new Set(["w1:t1", "w1:t2"]));
+  expect(r1.closed).toEqual([]);
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly);
+  expect(r2.closed.sort()).toEqual(["w1:t1", "w1:t2"]);
+  expect(f2.closed.sort()).toEqual(["w1:t1", "w1:t2"]);
+});
+
+test("scope comes from the TAB label: a helper-labelled PANE under a non-helper tab is ignored", async () => {
+  const panes = [labelledPane("w1:p1", "w1:t1", "my-feature", PROBE_NAME)];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.helperTabs).toBe(0);
+  expect(r1.shellOnly.size).toBe(0);
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, new Set(["w1:t1"]));
+  expect(r2.closed).toEqual([]);
+  expect(f2.closed).toEqual([]);
+});
+
+test("helper tab with NO pane in pane.list is spared as undetermined, never reaped", async () => {
+  // tab.list and pane.list disagree — that is absent evidence, not proof of a husk. Before the
+  // scope moved to tabs this state was unreachable; the empty group would otherwise fall through
+  // the classifier's loop and read as "positively shell-only".
+  const orphanTab: HerdrTab = {
+    tabId: "w1:t9",
+    label: `${DISTILL_LABEL}a1b2c3d4`,
+    agentStatus: "unknown",
+    workspaceId: "w1",
+  };
+  const f = procFake([], {}, { extraTabs: [orphanTab] });
+
+  let prev = new Set<string>();
+  for (let sweep = 1; sweep <= 2; sweep++) {
+    const r = await reapOrphanTabs(f.h, prev);
+    expect(r.helperTabs).toBe(1);
+    expect(r.sparedError).toBe(1);
+    expect(r.closed).toEqual([]);
+    expect(f.closed).toEqual([]);
+    expect(r.shellOnly.size).toBe(0);
+    prev = r.shellOnly;
+  }
+});
+
+test("empty helper scope: helperTabs=0 and the pane read is skipped entirely", async () => {
+  const f = procFake([pane("w1:p1", "w1:t1", "my-feature")], { "w1:p1": ["zsh"] });
+  const r = await reapOrphanTabs(f.h);
+  expect(r.helperTabs).toBe(0);
+  expect(r.panesFailed).toBe(false);
+  expect(r.tabsFailed).toBe(false);
+  expect(f.panesCalls.n).toBe(0); // nothing in scope → no second herdr read
+});
+
+test("tabsAsync() throwing fails closed — flags tabsFailed and preserves the debounce set", async () => {
+  const f = procFake(
+    [pane("w1:p1", "w1:t1", PROBE_NAME)],
+    { "w1:p1": ["zsh"] },
+    {
+      tabsThrows: true,
+    },
+  );
+  const r = await reapOrphanTabs(f.h, new Set(["w1:t1"]));
+  expect(r.closed).toEqual([]);
+  expect(f.closed).toEqual([]);
+  expect(r.tabsFailed).toBe(true);
+  expect(r.panesFailed).toBe(false);
+  expect(r.helperTabs).toBe(0); // scope unknown, NOT "none exist" — hence the flag
+  expect(r.shellOnly).toEqual(new Set(["w1:t1"])); // debounce state preserved
+  expect(f.panesCalls.n).toBe(0);
+});
+
+test("helperTabs accounts for every tab in scope (live + undetermined + shell-only)", async () => {
+  const panes = [
+    pane("w1:p1", "w1:t1", PROBE_NAME), // shell-only
+    pane("w1:p2", "w1:t2", "review TASK-09"), // live
+    pane("w1:p3", "w1:t3", "plan-review TASK-07"), // undeterminable
+  ];
+  const procMap: Record<string, string[]> = {
+    "w1:p1": ["zsh"],
+    "w1:p2": ["claude"],
+    "w1:p3": [],
+  };
+  const f = procFake(panes, procMap);
+  const r = await reapOrphanTabs(f.h);
+  expect(r.helperTabs).toBe(3);
+  expect(r.sparedLive + r.sparedError + r.shellOnly.size).toBe(r.helperTabs);
+});
+
+test("doc-agent husk tabs are in helper scope (#2029)", async () => {
+  const panes = [pane("w1:p1", "w1:t1", `${DOC_AGENT_LABEL}a1b2c3d4`)];
+  const procMap: Record<string, string[]> = { "w1:p1": ["zsh"] };
+
+  const f1 = procFake(panes, procMap);
+  const r1 = await reapOrphanTabs(f1.h);
+  expect(r1.helperTabs).toBe(1);
+
+  const f2 = procFake(panes, procMap);
+  const r2 = await reapOrphanTabs(f2.h, r1.shellOnly);
+  expect(r2.closed).toEqual(["w1:t1"]);
 });
 
 // ── Per-tab liveness classification (#1852) ───────────────────────────────────
@@ -300,7 +459,9 @@ function rr(over: Partial<ReapResult> = {}): ReapResult {
     sparedLive: 0,
     sparedError: 0,
     shellOnly: new Set(),
+    helperTabs: 0,
     panesFailed: false,
+    tabsFailed: false,
     ...over,
   };
 }

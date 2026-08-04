@@ -6,20 +6,48 @@ import { AUTOPILOT_LABEL } from "../src/autopilot";
 import { NAMER_LABEL } from "../src/namer";
 import { RECOMMEND_LABEL } from "../src/prompt-recommend";
 import { VERIFY_KEY_LABEL } from "../src/verify-key";
+import type { HerdrAgent, HerdrTab } from "../src/herdr";
+import type { HerdrState } from "../src/types";
 
-interface FakeAgent {
-  name: string;
+/** A helper tab as herdr 0.7.5 presents it: the label lives on the TAB, and the agent record —
+ *  when one exists at all — carries no `name` (#2029, verified against a live daemon). `husk: true`
+ *  models a tab whose agent already exited: still in `tab list`, gone from `agent list`. */
+interface FakeTab {
+  label: string;
   terminalId: string;
   tabId: string;
+  husk?: boolean;
 }
 
-function fakeHerdr(listed: FakeAgent[], throwOnList = false) {
+function fakeHerdr(listed: FakeTab[], opts: { throwOnList?: boolean; throwOnTabs?: boolean } = {}) {
   const closed: string[] = [];
+  const listCalls = { n: 0 };
   return {
     closed,
-    list: () => {
-      if (throwOnList) throw new Error("herdr unavailable");
-      return listed as never;
+    listCalls,
+    list: (): HerdrAgent[] => {
+      listCalls.n++;
+      if (opts.throwOnList) throw new Error("herdr unavailable");
+      return listed
+        .filter((t) => !t.husk)
+        .map((t) => ({
+          agent: "claude", // 0.7.5 emits NO `name`; the kind lands here
+          agentStatus: "idle" as HerdrState,
+          cwd: "/wt",
+          paneId: `${t.tabId}:p`,
+          tabId: t.tabId,
+          terminalId: t.terminalId,
+          workspaceId: "w1",
+        }));
+    },
+    tabsAsync: async (): Promise<HerdrTab[]> => {
+      if (opts.throwOnTabs) throw new Error("herdr unavailable");
+      return listed.map((t) => ({
+        tabId: t.tabId,
+        label: t.label,
+        agentStatus: "unknown" as HerdrState,
+        workspaceId: "w1",
+      }));
     },
     closeTab: async (t: string) => {
       closed.push(t);
@@ -29,11 +57,11 @@ function fakeHerdr(listed: FakeAgent[], throwOnList = false) {
 
 const LABEL = "__distill__";
 
-test("closes prefix-matched orphan tabs, sparing unrelated names and owned terminals", async () => {
+test("closes prefix-matched orphan tabs, sparing unrelated labels and owned terminals", async () => {
   const h = fakeHerdr([
-    { name: LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" }, // orphan → close
-    { name: "some-session", terminalId: "u1", tabId: "tabU" }, // unrelated → spare
-    { name: LABEL + "live0001", terminalId: "m1", tabId: "tabL" }, // owned → spare
+    { label: LABEL + "deadbeef", terminalId: "orphan1", tabId: "tabO" }, // orphan → close
+    { label: "some-session", terminalId: "u1", tabId: "tabU" }, // unrelated → spare
+    { label: LABEL + "live0001", terminalId: "m1", tabId: "tabL" }, // owned → spare
   ]);
   await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[distill]");
   expect(h.closed).toEqual(["tabO"]);
@@ -41,8 +69,8 @@ test("closes prefix-matched orphan tabs, sparing unrelated names and owned termi
 
 test("closes ALL unowned prefix matches", async () => {
   const h = fakeHerdr([
-    { name: LABEL + "a", terminalId: "t1", tabId: "tab1" },
-    { name: LABEL + "b", terminalId: "t2", tabId: "tab2" },
+    { label: LABEL + "a", terminalId: "t1", tabId: "tab1" },
+    { label: LABEL + "b", terminalId: "t2", tabId: "tab2" },
   ]);
   await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
   expect(h.closed).toEqual(["tab1", "tab2"]);
@@ -50,22 +78,56 @@ test("closes ALL unowned prefix matches", async () => {
 
 test("different label prefix isolates each consumer's reaping", async () => {
   const h = fakeHerdr([
-    { name: "__distill__x", terminalId: "t1", tabId: "tabD" },
-    { name: "__optimize__y", terminalId: "t2", tabId: "tabO" },
+    { label: "__distill__x", terminalId: "t1", tabId: "tabD" },
+    { label: "__optimize__y", terminalId: "t2", tabId: "tabO" },
   ]);
   await reapTransientByLabel(h, "__optimize__", new Set(), "[optimize]");
   expect(h.closed).toEqual(["tabO"]); // distiller's tab is left for distiller's own pass
 });
 
 test("no matches → closes nothing", async () => {
-  const h = fakeHerdr([{ name: "regular-session", terminalId: "t", tabId: "tab" }]);
+  const h = fakeHerdr([{ label: "regular-session", terminalId: "t", tabId: "tab" }]);
   await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
   expect(h.closed).toEqual([]);
 });
 
-test("herdr unavailable (list throws) → best-effort no-op, never throws", async () => {
-  const h = fakeHerdr([], true);
+// ── 0.7.5 regression (#2029) ─────────────────────────────────────────────────
+//
+// The whole suite above already runs on the 0.7.5 shape: `fakeHerdr` emits agent records with no
+// `name` at all, exactly as the live daemon does. Under the old `a.name.startsWith(prefix)` scan
+// every one of these cases reaped nothing.
+
+test("reaps a helper HUSK whose agent has already exited (absent from agent list)", async () => {
+  const h = fakeHerdr([
+    { label: LABEL + "deadbeef", terminalId: "gone", tabId: "tabH", husk: true },
+  ]);
+  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  expect(h.closed).toEqual(["tabH"]);
+});
+
+test("an empty owned set never touches agent list (boot call: nothing of ours is running)", async () => {
+  const h = fakeHerdr([{ label: LABEL + "a", terminalId: "t1", tabId: "tab1" }]);
+  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  expect(h.closed).toEqual(["tab1"]);
+  expect(h.listCalls.n).toBe(0);
+});
+
+test("tab list unavailable → best-effort no-op, never throws", async () => {
+  const h = fakeHerdr([{ label: LABEL + "a", terminalId: "t1", tabId: "tab1" }], {
+    throwOnTabs: true,
+  });
   expect(() => reapTransientByLabel(h, LABEL, new Set(), "[distill]")).not.toThrow();
+  await reapTransientByLabel(h, LABEL, new Set(), "[distill]");
+  expect(h.closed).toEqual([]);
+});
+
+test("agent list throwing with an owned set is fail-closed — closes nothing", async () => {
+  // Without the terminalId→tabId mapping we cannot tell an owned live run from an orphan, so
+  // closing on the label alone could kill a run this process started.
+  const h = fakeHerdr([{ label: LABEL + "a", terminalId: "m1", tabId: "tab1" }], {
+    throwOnList: true,
+  });
+  await reapTransientByLabel(h, LABEL, new Set(["m1"]), "[distill]");
   expect(h.closed).toEqual([]);
 });
 
@@ -106,8 +168,8 @@ const SYNC_HELPERS = [
 test("each real helper label reaps its orphan and spares a user session slug", async () => {
   for (const { label } of SYNC_HELPERS) {
     const h = fakeHerdr([
-      { name: `${label}orphaned`, terminalId: "t1", tabId: "tabH" }, // prior-lifetime orphan → close
-      { name: "fix-the-thing", terminalId: "t2", tabId: "tabU" }, // user session slug → spare
+      { label: `${label}orphaned`, terminalId: "t1", tabId: "tabH" }, // prior-lifetime orphan → close
+      { label: "fix-the-thing", terminalId: "t2", tabId: "tabU" }, // user session slug → spare
     ]);
     await reapTransientByLabel(h, label, new Set(), "[boot]"); // empty owned set == the boot call
     expect(h.closed).toEqual(["tabH"]);

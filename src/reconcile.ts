@@ -1,7 +1,17 @@
 import type { SessionStore } from "./store";
-import { mapState, matchAgents, type HerdrDriver } from "./herdr";
+import { mapState, matchAgents, tabLabelMap, type HerdrDriver } from "./herdr";
 
-export function reconcile(store: SessionStore, herdr: Pick<HerdrDriver, "list">): void {
+/**
+ * `tabs` is optional and read LAZILY — only when two still-unmatched sessions share a worktree and
+ * `matchAgents` has to disambiguate them by name. That branch is the one this startup pass exists
+ * for (a herdr daemon restart invalidates every terminalId), and on 0.7.5 it is also the branch
+ * that cannot work off `agent.name`, which herdr no longer sends (#2029). A failing tab read
+ * degrades to "no name evidence" — the pre-existing behaviour — never to a wrong pairing.
+ */
+export function reconcile(
+  store: SessionStore,
+  herdr: Pick<HerdrDriver, "list"> & Partial<Pick<HerdrDriver, "tabs">>,
+): void {
   const sessions = store.list({ activeOnly: true });
   // herdr can be unreachable at startup (cold boot before herdr is up, or herdr was
   // just stopped — e.g. by an update). `agent list` then THROWS. This runs once at
@@ -18,7 +28,13 @@ export function reconcile(store: SessionStore, herdr: Pick<HerdrDriver, "list">)
     console.warn("[reconcile] herdr list failed; skipping startup reconcile:", err);
     return;
   }
-  const matched = matchAgents(sessions, agents);
+  const matched = matchAgents(sessions, agents, () => {
+    try {
+      return herdr.tabs ? tabLabelMap(herdr.tabs()) : undefined;
+    } catch {
+      return undefined; // transient tab-list failure — fall back to no name evidence
+    }
+  });
   for (const s of sessions) {
     const agent = matched.get(s.id) ?? null;
     if (!agent) store.update(s.id, { status: "done", lastState: "done" });

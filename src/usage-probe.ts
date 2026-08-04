@@ -67,7 +67,7 @@ export class HerdrUsageProbe implements UsageProbe {
   private trust: () => Promise<void>;
 
   constructor(
-    private herdr: Pick<HerdrDriver, "start" | "stop" | "list">,
+    private herdr: Pick<HerdrDriver, "start" | "stop" | "list" | "tabsAsync">,
     private cwd: string = config.repoRoot,
     private helperPath = new URL("./pty-attach.mjs", import.meta.url).pathname,
     // Trust pre-seed, injectable for tests. Defaults resolve the SAME `.claude.json`
@@ -90,10 +90,26 @@ export class HerdrUsageProbe implements UsageProbe {
    * post-start lookup threw while the agent itself was alive). It can't reach a tab whose
    * `agent start` failed outright — no agent is registered, so nothing shows in the list (the
    * boot/hourly tab-reaper sweep covers that husk).
+   *
+   * **Probes are identified by their TAB label (#2029).** The old `a.name !== PROBE_NAME` test
+   * could never match on herdr 0.7.5, which sends no `agent.name` at all — so this sweep, like
+   * the two tab reapers, silently stopped reaping. Measured on a live host: 49 lingering
+   * `__usage_probe__` tabs, four of them still holding an idle `claude`. A live probe agent is
+   * the one thing the husk sweep deliberately spares (its foreground is a non-shell proc), so
+   * this sweep is the only thing that closes them.
    */
   private async sweep(): Promise<void> {
+    let probeTabs: Set<string>;
+    try {
+      probeTabs = new Set(
+        (await this.herdr.tabsAsync()).filter((t) => t.label === PROBE_NAME).map((t) => t.tabId),
+      );
+    } catch {
+      return; // transient tab-list failure — best-effort, same as the per-stop catch below
+    }
+    if (probeTabs.size === 0) return;
     for (const a of this.herdr.list()) {
-      if (a.name !== PROBE_NAME) continue;
+      if (!probeTabs.has(a.tabId)) continue;
       try {
         await this.herdr.stop(a.terminalId);
       } catch {

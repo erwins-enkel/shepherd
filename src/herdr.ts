@@ -21,8 +21,14 @@ export interface HerdrAgent {
   agent: string;
   agentStatus: HerdrState;
   cwd: string;
-  /** herdr's unique agent name (empty for manually-started agents that have none). */
-  name: string;
+  /** herdr's unique agent name — **absent on 0.7.5, which never emits `name` at all** (#2029;
+   *  its `--agent` label surfaces under {@link HerdrAgent.agent} instead, holding the sanitized
+   *  name for externally-registered spawns but the bare agent KIND (`"claude"`) for
+   *  auto-detected ones). Optional exactly as the generated schema declares it
+   *  (`SuccessResponseAgentInfo.name?: string | null`): coercing it to `""` in the mapper is what
+   *  silently turned three name-prefix reapers into no-ops. Consumers that need a helper/session
+   *  label must read the TAB label, which every herdr still supplies as a required field. */
+  name?: string;
   paneId: string;
   tabId: string;
   terminalId: string;
@@ -41,7 +47,11 @@ export interface HerdrTab {
 export interface HerdrPane {
   paneId: string;
   tabId: string;
-  label: string;
+  /** The pane's own label — **absent for every helper pane on 0.7.5** (#2029): measured against a
+   *  live daemon, 35 of 508 panes carried one and NONE of the 325 helper panes did. Optional
+   *  exactly as the generated schema declares it (`SuccessResponsePaneInfo.label?: string | null`).
+   *  Husk scope is derived from the TAB label ({@link HerdrTab.label}, required) instead. */
+  label?: string;
   cwd: string;
   agentStatus: HerdrState;
 }
@@ -164,35 +174,80 @@ export function deriveHerdrState(input: {
 }
 
 /**
- * Compare a herdr agent's name to a session's name for the cwd-collision disambiguator. On the
- * 0.7.5 external-registration path the agent's `--agent` label was coerced through
- * {@link sanitizeHerdrAgentName} (e.g. `review TASK-09` → `review-task-09`), so it will NOT equal
- * the raw `session.name` — compare in sanitized space there. ≤0.7.4 keeps a strict raw comparison,
- * so its matching is byte-identical. Without this, 2+ same-cwd 0.7.5 sessions could never re-pair by
- * name after a herdr daemon restart (stale terminalIds), misclassifying a live session as stranded.
+ * Lazily resolves `tab_id` → the tab's raw label. Called AT MOST ONCE per match pass and ONLY
+ * when a contended cwd has to be disambiguated, so the 1s poller pays nothing in steady state
+ * (where every session matches on `terminal_id`). Returns `undefined` when tab labels are
+ * unavailable — a herdr read failed, or the caller has no source — which degrades matching to
+ * "no name evidence", never to a wrong pairing.
  */
-function agentNameMatchesSession(agentName: string, sessionName: string): boolean {
-  return herdrUsesExternalRegistrationSpawn()
-    ? agentName === sanitizeHerdrAgentName(sessionName)
-    : agentName === sessionName;
+export type TabLabelSource = () => ReadonlyMap<string, string> | undefined;
+
+/** `tab_id` → raw label, the lookup {@link TabLabelSource} hands to the matchers. */
+export function tabLabelMap(tabs: HerdrTab[]): ReadonlyMap<string, string> {
+  return new Map(tabs.map((t) => [t.tabId, t.label]));
+}
+
+/** Memoize a {@link TabLabelSource} so a pass that disambiguates several sessions still issues at
+ *  most one herdr read. A source that returned `undefined` is not retried within the pass. */
+function onceLabels(src: TabLabelSource | undefined): TabLabelSource {
+  if (!src) return () => undefined;
+  let called = false;
+  let value: ReadonlyMap<string, string> | undefined;
+  return () => {
+    if (!called) {
+      called = true;
+      value = src();
+    }
+    return value;
+  };
+}
+
+/**
+ * Compare a herdr agent's label to a session's name for the cwd-collision disambiguator. The
+ * comparison is RAW on every herdr version, because both surfaces carry the raw name: ≤0.7.4 puts
+ * it on `agent.name`, and the TAB label is whatever `tab create --label` / `tab rename` was given
+ * (`HerdrDriver.relabel` renames the tab with the raw, human-facing label).
+ *
+ * The TAB label wins where available, since 0.7.5 emits no `agent.name` at all (#2029). The
+ * previous sanitized-space comparison is gone: it assumed 0.7.5 would return the `--agent` label
+ * under `name`, but that value surfaces under `agent` — and only for externally-registered
+ * (sandboxed) spawns, while a trusted auto-detected agent reports the bare kind `"claude"`. So
+ * `agent` cannot disambiguate two sessions and the tab label is the only usable evidence.
+ *
+ * Without this, 2+ same-cwd 0.7.5 sessions could never re-pair after a herdr daemon restart (stale
+ * terminalIds), and both would be misclassified as gone.
+ */
+function agentNameMatchesSession(
+  a: HerdrAgent,
+  sessionName: string,
+  labels: TabLabelSource,
+): boolean {
+  const label = labels()?.get(a.tabId) ?? a.name;
+  return label !== undefined && label === sessionName;
 }
 
 /**
  * Resolve a session to its live herdr agent by a STABLE key. terminalId is the fast
  * path but is volatile across a herdr daemon restart, so on a miss we fall back to the
  * immutable worktree cwd. A cwd shared by 2+ agents (non-isolated same-repo sessions)
- * is disambiguated by agent name; still ambiguous → no match (never risk mis-pairing).
+ * is disambiguated by name; still ambiguous → no match (never risk mis-pairing).
+ *
+ * `labels` is consulted ONLY inside that disambiguation branch (see {@link TabLabelSource}), so
+ * callers on hot paths can pass a thunk that issues a herdr read and still pay nothing while
+ * every session matches by id. Omitting it degrades to `agent.name`, which 0.7.5 never sends.
  */
 export function matchAgent(
   s: { herdrAgentId: string; worktreePath: string; name: string },
   agents: HerdrAgent[],
+  labels?: TabLabelSource,
 ): HerdrAgent | null {
   const byId = agents.find((a) => a.terminalId === s.herdrAgentId);
   if (byId) return byId;
   const byCwd = agents.filter((a) => a.cwd === s.worktreePath);
   if (byCwd.length === 1) return byCwd[0]!;
   if (byCwd.length > 1) {
-    const byName = byCwd.filter((a) => agentNameMatchesSession(a.name, s.name));
+    const once = onceLabels(labels);
+    const byName = byCwd.filter((a) => agentNameMatchesSession(a, s.name, once));
     if (byName.length === 1) return byName[0]!;
   }
   return null;
@@ -292,10 +347,11 @@ function pickByCwd(
   s: { herdrAgentId: string; worktreePath: string; name: string },
   candidates: HerdrAgent[],
   contended: boolean,
+  labels: TabLabelSource,
 ): HerdrAgent | null {
-  if (!contended) return matchAgent(s, candidates);
+  if (!contended) return matchAgent(s, candidates, labels);
   const byName = candidates.filter(
-    (c) => c.cwd === s.worktreePath && agentNameMatchesSession(c.name, s.name),
+    (c) => c.cwd === s.worktreePath && agentNameMatchesSession(c, s.name, labels),
   );
   return byName.length === 1 ? byName[0]! : null;
 }
@@ -310,11 +366,16 @@ function pickByCwd(
  *   agent-NAME match is safe. A session that is the SOLE one at its cwd adopts its lone
  *   agent via `matchAgent` regardless of name, so an isolated session whose name drifted
  *   from its herdr agent still re-pairs. Each agent is adopted by at most one session.
+ *
+ * `labels` is memoized for the whole pass and only touched by the contended branch, so a caller
+ * may pass a thunk that reads `tab list` without paying for it on an uncontended tick.
  */
 export function matchAgents(
   sessions: { id: string; herdrAgentId: string; worktreePath: string; name: string }[],
   agents: HerdrAgent[],
+  labels?: TabLabelSource,
 ): Map<string, HerdrAgent | null> {
+  const once = onceLabels(labels);
   const out = new Map<string, HerdrAgent | null>();
   const taken = new Set<string>(); // claimed terminalIds
   const matched = new Set<string>(); // resolved session ids
@@ -337,7 +398,7 @@ export function matchAgents(
 
   for (const s of remaining) {
     const candidates = agents.filter((a) => !taken.has(a.terminalId));
-    const a = pickByCwd(s, candidates, (sessionsPerCwd.get(s.worktreePath) ?? 0) > 1);
+    const a = pickByCwd(s, candidates, (sessionsPerCwd.get(s.worktreePath) ?? 0) > 1, once);
     out.set(s.id, a);
     if (a) taken.add(a.terminalId);
   }
@@ -384,14 +445,16 @@ export function parseAgents(result: unknown): HerdrAgent[] {
 /** The one snake_case→HerdrAgent field mapping, shared by `parseAgents` and
  *  `parseAgentInfo` so the two reply shapes can't drift apart.
  *  `noUncheckedIndexedAccess` widens Record<string,string> indexing to `| undefined`;
- *  `?? ""` keeps these required-string fields honest — herdr always supplies them in
- *  practice. */
+ *  `?? ""` keeps the fields herdr genuinely always supplies honest. `name` is NOT one of
+ *  them — 0.7.5 omits it entirely — so it is passed through as `undefined` rather than
+ *  laundered into `""` (#2029): an absent field must reach consumers as absent, not as a
+ *  value that silently matches nothing. */
 function mapAgentRecord(a: Record<string, string>): HerdrAgent {
   return {
     agent: a.agent ?? "",
     agentStatus: (a.agent_status ?? "unknown") as HerdrState,
     cwd: a.cwd ?? "",
-    name: a.name ?? "",
+    name: a.name,
     paneId: a.pane_id ?? "",
     tabId: a.tab_id ?? "",
     terminalId: a.terminal_id ?? "",
@@ -783,7 +846,8 @@ export class HerdrDriver implements IHerdrDriver {
     return panes.map((p: Record<string, string>) => ({
       paneId: p.pane_id ?? "",
       tabId: p.tab_id ?? "",
-      label: p.label ?? "",
+      // Passed through as absent, never `?? ""` — see HerdrPane.label (#2029).
+      label: p.label,
       cwd: p.cwd ?? "",
       agentStatus: (p.agent_status ?? "unknown") as HerdrState,
     }));

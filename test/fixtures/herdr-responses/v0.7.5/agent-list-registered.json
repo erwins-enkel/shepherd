@@ -3,13 +3,18 @@
     "type": "agent_list",
     "agents": [
       {
-        "agent": "claude",
+        "agent": "review-task-09",
         "agent_status": "working",
         "cwd": "/wt/a",
-        "name": "review-task-09",
+        "focused": false,
+        "foreground_cwd": "/wt/a",
         "pane_id": "p_075",
+        "revision": 3,
+        "state_change_seq": 10,
         "tab_id": "t_075",
         "terminal_id": "term_075",
+        "terminal_title": "✳ Review TASK-09",
+        "terminal_title_stripped": "Review TASK-09",
         "workspace_id": "w1"
       }
     ]

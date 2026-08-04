@@ -129,8 +129,13 @@ export const demoState = {
       messageCount: 0,
       byModel: {},
     },
-  /** GET /api/sessions/:id/leftovers — the demo never leaves real subprocesses running. */
-  leftovers: (): Leftover[] => [],
+  /** GET /api/sessions/:id/leftovers — the demo never leaves real subprocesses running, and
+   *  has no probes to be broken, so the empty list is trustworthy (`probesUnavailable: false`,
+   *  matching a server with no reaper wired). */
+  leftovers: (): { leftovers: Leftover[]; probesUnavailable: boolean } => ({
+    leftovers: [],
+    probesUnavailable: false,
+  }),
   /** GET /api/sessions/:id/queue — the seeded queue if this session has one, else the same
    *  empty-but-valid record the real server returns for a session with no queue yet. */
   sessionBuildQueue: (id: string): BuildQueue =>
@@ -180,11 +185,13 @@ export const demoState = {
   pendingLearnings: (): Learning[] => world.pendingLearnings,
 
   /** Merged, non-archived session ids — for the "Clear merged" confirm modal.
-   *  Matches `getMergedClearable()`'s `{ids, leftovers}` in api.ts exactly; the demo
-   *  has no real leftover subprocesses, so the count is always 0. */
-  mergedClearable: (): { ids: string[]; leftovers: number } => ({
+   *  Matches `getMergedClearable()`'s `{ids, leftovers, probesUnavailable}` in api.ts exactly;
+   *  the demo has no real leftover subprocesses, so the count is always 0 — and no probes to
+   *  be broken, so that 0 is trustworthy. */
+  mergedClearable: (): { ids: string[]; leftovers: number; probesUnavailable: boolean } => ({
     ids: world.sessions.filter((s) => world.gitStates[s.id]?.state === "merged").map((s) => s.id),
     leftovers: 0,
+    probesUnavailable: false,
   }),
 
   /** GET /api/epic — one epic by repo + parent issue number. */

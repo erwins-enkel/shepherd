@@ -4783,6 +4783,28 @@ export class SessionService {
   }
 
   /**
+   * Can `leftovers()` be trusted to mean "nothing is running"? False ⇒ its `[]` is
+   * "nothing found"; true ⇒ it is "we cannot tell", and the decommission surfaces must
+   * say so rather than imply the host is clean (#1923).
+   *
+   * NOT the same predicate as the preview-start affordance, which is `probeHealth()`
+   * alone — and copying that here would be silent on exactly the broken host. Detection
+   * can be structurally dead while the snapshot is perfectly fresh: on darwin BOTH
+   * leftover classes short-circuit (`canDetectLeftovers`), yet the poller keeps that same
+   * cell warm for preview detection, so the health read alone reports "fine". Hence the
+   * capability arm first, the freshness arm second. `"stale"` does not trip it, matching
+   * preview-start.
+   *
+   * Neutral (`false`) when the reaper is unwired, for the reason `probeHealth` gives.
+   */
+  leftoverProbesUnavailable(): boolean {
+    const reaper = this.deps.reaper;
+    if (!reaper) return false;
+    if ((reaper.canDetectLeftovers?.() ?? true) === false) return true;
+    return (reaper.health?.().state ?? "fresh") === "none";
+  }
+
+  /**
    * Retry a set of usage-halted sessions. For each id:
    *  - If its pane is live (herdr still lists it) → steer with `continueText` so the
    *    agent can continue from where it stopped (live idle/blocked state).

@@ -466,8 +466,13 @@ export async function transcribeAudio(
   return (await r.json()).text as string;
 }
 
-/** Leftover subprocesses/proxies that would survive this session's close; [] when none. */
-export async function getLeftovers(id: string): Promise<Leftover[]> {
+/** Leftover subprocesses/proxies that would survive this session's close; `[]` when none.
+ *  `probesUnavailable` distinguishes that `[]` from "this host can't detect running
+ *  processes at all" (#1923) — without it a broken host reads as a clean one and the close
+ *  silently orphans every dev server the session started. */
+export async function getLeftovers(
+  id: string,
+): Promise<{ leftovers: Leftover[]; probesUnavailable: boolean }> {
   const r = await fetch(`/api/sessions/${id}/leftovers`);
   if (!r.ok) throw await failed(r, "leftovers");
   return r.json();
@@ -484,8 +489,13 @@ export async function archiveSession(id: string, reap?: string[]): Promise<void>
   if (!r.ok) throw await failed(r, "archive");
 }
 
-/** Merged-branch session ids + aggregate leftover count, for the clear-all confirm modal. */
-export async function getMergedClearable(): Promise<{ ids: string[]; leftovers: number }> {
+/** Merged-branch session ids + aggregate leftover count, for the clear-all confirm modal.
+ *  `probesUnavailable` ⇒ that count is "unknown", not "zero" (see `getLeftovers`). */
+export async function getMergedClearable(): Promise<{
+  ids: string[];
+  leftovers: number;
+  probesUnavailable: boolean;
+}> {
   const r = await fetch("/api/sessions/clear-merged");
   if (!r.ok) throw await failed(r, "merged clearable");
   return r.json();

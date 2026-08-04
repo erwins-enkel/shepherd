@@ -2339,8 +2339,16 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (parts[3] === "diff" && parts[4] === "annotations")
     return sessionDiffAnnotationsRead(parts[2], deps);
   if (parts[3] === "diff") return sessionDiffRead(parts[2], deps);
-  // leftover subprocesses/proxies that would survive this session's close
-  if (parts[3] === "leftovers") return json(deps.service.leftovers(parts[2]));
+  // Leftover subprocesses/proxies that would survive this session's close. An OBJECT, not
+  // the bare array it used to be: on a host where detection is dead the array is `[]`,
+  // indistinguishable from "nothing is running", and the close-confirm would tell the
+  // operator the session is clean while it leaks its dev server (#1923). The flag is what
+  // lets the client say "cannot tell" instead.
+  if (parts[3] === "leftovers")
+    return json({
+      leftovers: deps.service.leftovers(parts[2]),
+      probesUnavailable: deps.service.leftoverProbesUnavailable(),
+    });
   if (!parts[3]) return sessionRead(parts[2], deps);
   return null;
 }
@@ -2511,7 +2519,9 @@ function mergedSessionIds(deps: AppDeps): string[] {
 }
 
 // /api/sessions/clear-merged — bulk-close every merged-branch session.
-//   GET  → { ids, leftovers } summary feeding the confirm modal.
+//   GET  → { ids, leftovers, probesUnavailable } summary feeding the confirm modal. The flag
+//     says the leftover count is "unknown" rather than "zero" (#1923) — without it a broken
+//     host reads as a clean one and the batch clear leaks every dev server.
 //   POST {ids} → archive the merged subset, terminating each one's leftover
 //     subprocesses. The client ids are intersected with the server's merged set
 //     (re-validation) so a stale snapshot can never archive a still-live session;
@@ -2526,7 +2536,7 @@ async function handleSessionsClearMerged({ req, parts, deps }: Ctx): Promise<Res
   if (req.method === "GET") {
     const ids = [...merged];
     const leftovers = ids.reduce((n, id) => n + deps.service.leftovers(id).length, 0);
-    return json({ ids, leftovers });
+    return json({ ids, leftovers, probesUnavailable: deps.service.leftoverProbesUnavailable() });
   }
   if (req.method !== "POST") return json({ error: "method not allowed" }, 405);
   const body = (await req.json().catch(() => null)) as { ids?: unknown } | null;

@@ -29,6 +29,15 @@ const RELEASE_TYPES = new Set([
  *  entry rather than letting the merge fall through unrecognized (#1206). */
 const FALLBACK_TYPE = "feat";
 
+/** Lowercase the first character of a subject. `.github/workflows/pr-title.yml` lints this very
+ *  title with the repo's commitlint config, whose `subject-case` rule (never sentence-case /
+ *  start-case / pascal-case / upper-case) rejects a subject starting with an uppercase letter —
+ *  that single character is the whole invariant (#2021). A non-letter lead (digit, backtick,
+ *  paren) already passes, and `toLowerCase` is a no-op there. */
+function lowerFirst(subject: string): string {
+  return subject.charAt(0).toLowerCase() + subject.slice(1);
+}
+
 /** Landing-PR title that doubles as the squash-merge **subject** release-please parses, so it
  *  MUST lead with a recognized conventional `type(scope)!?:` at column 0 (#1206 — a subject
  *  led by `Land epic #<n>:` pushes the real type mid-line and release-please skips the merge).
@@ -37,19 +46,27 @@ const FALLBACK_TYPE = "feat";
  *  - Parent title already conventional with a recognized type → keep it (type lowercased,
  *    scope/`!` verbatim), append ` (epic #<n>)`.
  *  - Bare title, OR a non-type `Word:` prefix (e.g. `Comments: …`) → prepend `feat:`.
- *  A trailing `[EPIC]`/`[epic]` tag is stripped either way. */
+ *  A trailing `[EPIC]`/`[epic]` tag and a leading `Epic:` — the prefix Shepherd's own epic
+ *  authoring produces — are stripped either way. The description is then lowercase-initial in
+ *  BOTH branches so the `pr title` gate stays green (#2021; see `lowerFirst`). A title that is
+ *  nothing but the tag leaves no description, hence the guard in both returns. */
 export function buildLandingPrTitle(parentNumber: number, parentTitle: string): string {
-  const cleaned = parentTitle.trim().replace(/\s*\[epic\]\s*$/i, "");
+  // `epic` is not in RELEASE_TYPES, so stripping the leading tag can never clobber a real type.
+  const cleaned = parentTitle
+    .trim()
+    .replace(/\s*\[epic\]\s*$/i, "")
+    .replace(/^epic\s*:\s*/i, "");
   const epicTag = `(epic #${parentNumber})`;
 
   const m = /^(\w+)(\([^)]*\))?(!)?:\s*(.*)$/.exec(cleaned);
   if (m && RELEASE_TYPES.has(m[1]!.toLowerCase())) {
     const prefix = `${m[1]!.toLowerCase()}${m[2] ?? ""}${m[3] ?? ""}`;
-    const desc = m[4]!.trim();
+    const desc = lowerFirst(m[4]!.trim());
     return desc ? `${prefix}: ${desc} ${epicTag}` : `${prefix}: epic #${parentNumber}`;
   }
 
-  return `${FALLBACK_TYPE}: ${cleaned} ${epicTag}`;
+  const desc = lowerFirst(cleaned);
+  return desc ? `${FALLBACK_TYPE}: ${desc} ${epicTag}` : `${FALLBACK_TYPE}: epic #${parentNumber}`;
 }
 
 /** Sanitize a child title for a single Markdown table cell: collapse newlines to spaces (a

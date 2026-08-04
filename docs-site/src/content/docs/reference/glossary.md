@@ -27,6 +27,18 @@ large body of work split into smaller stories.)
 Shepherd's isolated, read-only review agent that inspects a PR's diff once CI is
 green and posts a verdict.
 
+### Plan gate
+
+A pre-execution checkpoint: the agent first researches the task and writes an
+implementation plan, which is adversarially reviewed and must be approved before
+any product code is written.
+
+### Autopilot
+
+Best-effort automation that drives a task autonomously through to an open pull
+request. Switched off, each step stays with the operator to discuss, iterate and
+approve; the per-task toggle overrides the repo's standing Autopilot default.
+
 ### Merge train
 
 Shepherd's queue that carries a ready PR through rebase and merge automatically,
@@ -79,6 +91,22 @@ An automated LLM pass Shepherd spawns alongside the main task agent — critic /
 PR-review, plan-gate, recap, rundown, or doc-agent. Its token spend is real
 overhead attributed back to the task, on top of the agent's own authoring.
 
+### Host capacity
+
+Whether Shepherd's systemd service (or its slice) sets a memory or CPU ceiling —
+`MemoryHigh`, `MemoryMax`, or `CPUQuota`. Without one, a burst of concurrent
+sessions can consume all the host's RAM or CPU and starve the box; the
+Diagnostics check warns until a limit is set (see
+[Operating Shepherd](/operating/#host-tuning--resource-guardrails)).
+
+### herdr runtime hygiene
+
+Shepherd reconciles herdr's panes and processes against its own session model to
+spot leftovers. It counts panes with live leftover processes — not systemd's
+"Tasks" figure for the herdr service, which counts threads (each agent process
+spawns many), so a Tasks count in the thousands is normal and not by itself a
+process leak.
+
 ## Industry terms
 
 ### PR
@@ -90,6 +118,13 @@ into a branch. ([Wikipedia](https://en.wikipedia.org/wiki/Distributed_version_co
 
 Continuous integration — automatically building and testing every change so
 problems surface early. ([Wikipedia](https://en.wikipedia.org/wiki/Continuous_integration))
+
+### Inode
+
+A filesystem's record for one file or directory. A filesystem has a limited
+number of them, set when it is created — so it can run out of inodes while still
+having free space, and every new file then fails as though the disk were full.
+([Wikipedia](https://en.wikipedia.org/wiki/Inode))
 
 ### Telemetry
 

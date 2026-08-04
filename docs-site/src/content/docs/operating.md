@@ -34,6 +34,18 @@ above) as well as a Tailscale **Service** front (e.g. `svc:shepherd` →
 — a non-Tailscale reverse proxy or custom-DNS name — still needs its hostname
 added to `SHEPHERD_ALLOWED_HOSTS`.
 
+`tailscaled` only accepts serve-config writes from `root` or the user named as its
+`--operator`. On a host where that isn't you, the HUD's own mapping usually
+survives from an earlier root-written setup while **every** live-preview
+registration is refused — so previews stay dark fleet-wide. The **Tailscale** row
+in Settings → Diagnose reports that case as its own warning (it is checked before
+the "is the HUD's port served?" test, precisely because that test would otherwise
+read `ok`). The one-time fix it names:
+
+```bash
+sudo tailscale set --operator=$USER   # then reopen the preview
+```
+
 Access control is layered: the network reach is gated by
 **tailnet membership**, and the app itself is gated by a **single-operator
 password**. The password is exchanged for an HMAC-signed session cookie that

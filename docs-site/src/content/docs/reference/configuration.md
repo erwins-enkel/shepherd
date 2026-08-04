@@ -87,6 +87,12 @@ the sweep's `/proc/<pid>/environ` reads near zero, **not** a safety floor.
 | `SHEPHERD_REAP_RUNAWAY_MIN_CPU` | `0.8` | CPU prefilter: fraction of one core, averaged over the process's whole lifetime, a candidate must have burned before it can be reaped. Clamped to `0.05`–`1` (a set-but-empty value clamps rather than dropping the gate) |
 | `SHEPHERD_REAP_RUNAWAY_MIN_AGE_S` | `300` | Minimum process age (seconds) before a candidate can be reaped — the floor that keeps a freshly restored session's briefly-archived row from being reaped. Clamped to a hard `60`s minimum (up to 24h) |
 
+## Critic deadline
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_REVIEW_TIMEOUT_MS` | `600000` (10 min) | Hard deadline for a single critic run (session critic **and** standalone PR critic): how long to wait for the verdict file before giving up and finalizing an `error` verdict. Clamped to `60000`–`3600000`. Env-only (deliberately not a UI knob) — raise it for a repo whose PRs genuinely outgrow the default, since the critic restarts from scratch on every retry and would otherwise die at the same wall each time |
+
 ## Main agent terminal renderer (research preview)
 
 Every spawned `claude` runs on Claude Code's **classic** renderer by default —

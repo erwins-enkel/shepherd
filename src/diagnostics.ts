@@ -899,12 +899,7 @@ export async function defaultReadHerdrFleet(
 ): Promise<HerdrFleetFacts> {
   const sessions = store.list({ activeOnly: true });
   const agents = await herdr.listAsync();
-  let labels: ReadonlyMap<string, string> | undefined;
-  try {
-    labels = tabLabelMap(await herdr.tabsAsync());
-  } catch {
-    labels = undefined; // best-effort: no labels → no helper skip, no name disambiguation
-  }
+  const labels = await readTabLabels(herdr);
   const matched = matchAgents(sessions, agents, () => labels);
   const claimed = new Set<string>();
   for (const a of matched.values()) if (a) claimed.add(a.terminalId);
@@ -916,17 +911,39 @@ export async function defaultReadHerdrFleet(
     const label = labels?.get(a.tabId);
     // Shepherd's own helper agents (reaped elsewhere), identified by their tab label
     if (label !== undefined && isShepherdHelperLabel(label)) continue;
-    let procs: string[];
-    try {
-      procs = await herdr.paneForegroundProcs(a.paneId);
-    } catch {
-      continue; // transient read failure — fail closed, never count on no evidence
-    }
-    if (procs.length === 0) continue; // undeterminable — fail closed
-    if (procs.every((n) => SHELLS.has(n))) orphanHusk++;
-    else orphanLive++;
+    const verdict = await classifyOrphanPane(herdr, a.paneId);
+    if (verdict === "husk") orphanHusk++;
+    else if (verdict === "live") orphanLive++;
   }
   return { orphanLive, orphanHusk };
+}
+
+/** Best-effort `tab_id`→label map. `undefined` on a failed read: no helper skip and no name
+ *  disambiguation, which is the pre-existing behaviour, never a wrong verdict. */
+async function readTabLabels(
+  herdr: Pick<IHerdrDriver, "tabsAsync">,
+): Promise<ReadonlyMap<string, string> | undefined> {
+  try {
+    return tabLabelMap(await herdr.tabsAsync());
+  } catch {
+    return undefined;
+  }
+}
+
+/** One unclaimed pane's foreground verdict. `null` = no evidence (read threw, or an empty proc
+ *  list) and is never counted — the same fail-closed rule `reapOrphanTabs` applies. */
+async function classifyOrphanPane(
+  herdr: Pick<IHerdrDriver, "paneForegroundProcs">,
+  paneId: string,
+): Promise<"live" | "husk" | null> {
+  let procs: string[];
+  try {
+    procs = await herdr.paneForegroundProcs(paneId);
+  } catch {
+    return null;
+  }
+  if (procs.length === 0) return null;
+  return procs.every((n) => SHELLS.has(n)) ? "husk" : "live";
 }
 
 /**

@@ -524,7 +524,10 @@ const linuxProbes: ReaperProbes = {
  * declaration the "absent ⇒ fresh" default would apply, and the fail-open sweeps
  * (`reapStaleReviewWorktrees`, `reapAbandonedWorktrees`) would treat empty data as
  * "nothing alive" and delete worktrees / disable their live-cwd guard. `false`
- * `canAuthorizeSignal` keeps `stopListenersOnPort` a no-op there too.
+ * `canAuthorizeSignal` AND no `liveProcForPid` keep `stopListenersOnPort` a no-op here
+ * too — reporting `"unsupported"`. Both halves matter: since #1922 darwin also sets the
+ * flag false, but supplies the live re-read that earns it a signal per candidate, so it
+ * reports `"refused"` rather than `"unsupported"` when it declines.
  */
 const nullProbes: ReaperProbes = {
   scanProcs: () => [],
@@ -601,18 +604,19 @@ export class ProcessReaper {
 
   /** Class 2 — processes living in the worktree that listen on a port. */
   private scanWorktreeProcs(worktreePath: string): Leftover[] {
-    // A backend that cannot authorize a signal (darwin) also cannot HONOUR one:
-    // `reap()` calls `probes.killPid`, which is a no-op there. Offering class-2
-    // leftovers anyway would list them under "Terminate & close", kill nothing, and
-    // still report `reaped = hit.length` (SessionService.archive) as if it had —
-    // strictly worse than the pre-#1912 behaviour, where an empty `scanProcs` meant
-    // nothing was ever offered. So fail closed, exactly as class-3 does when
-    // `listeningPorts` is absent.
+    // A backend that may not authorize a signal on its own (darwin) must not OFFER
+    // class-2 leftovers: `reap()` gates its pid branch on that same
+    // `canAuthorizeSignal` flag, so every one of them would be listed under
+    // "Terminate & close", signal nothing, and still be counted as
+    // `reaped = hit.length` (SessionService.archive) — strictly worse than the
+    // pre-#1912 behaviour, where an empty `scanProcs` meant nothing was ever offered.
+    // So fail closed, exactly as class-3 does when `listeningPorts` is absent.
     //
-    // #1922 armed `stopListenersOnPort` on darwin WITHOUT touching this: that path
-    // re-proves one pid live against one known port before signalling, which a
-    // whole-worktree leftover sweep has no equivalent of. So this stays closed
-    // deliberately, not by omission.
+    // The gate is the flag, NOT an inert `killPid`: #1922 made darwin's a real
+    // `process.kill`. It armed `stopListenersOnPort` alone, and only because that path
+    // re-proves one pid live against one known port immediately before signalling. A
+    // whole-worktree leftover sweep has no equivalent of that check, so this stays
+    // closed deliberately, not by omission.
     if (this.probes.canAuthorizeSignal === false) return [];
     const root = normRoot(worktreePath, this.probes);
     const out: Leftover[] = [];

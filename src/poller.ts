@@ -96,8 +96,11 @@ export interface PreviewWiring {
   pick: (ports: number[], worktreePath: string) => Promise<number | null>;
   /** Opt-in idle-stop. idleMs > 0 enables it; `stop` signals a session's dev-server
    *  process (wired to SessionService.stopPreview in index.ts). Returns the stop
-   *  outcome; `"unsupported"` (darwin, no signal authority) must NOT advance the
-   *  escalation ladder. Absent = disabled. */
+   *  outcome. The two that signalled NOTHING must NOT advance the escalation ladder:
+   *  `"unsupported"` (this host can never signal — `nullProbes`/Windows) and
+   *  `"refused"` (a snapshot backend that could not do so safely this time — darwin
+   *  past its kill-age bound, or a candidate that failed live re-verification). Since
+   *  #1922 darwin returns the latter, never the former. Absent = disabled. */
   idleStop?: {
     idleMs: number;
     stop: (sessionId: string, signal: NodeJS.Signals) => StopPreviewOutcome | void;

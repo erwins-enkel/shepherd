@@ -5,6 +5,7 @@
     UsageLimits,
     UsageProjection,
     UsageRange,
+    PromptBudgetRecord,
     GithubRateLimit,
   } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
@@ -13,19 +14,22 @@
     getUsageTimeline,
     getUsageLimits,
     getGithubRateLimit,
+    getPromptBudgets,
   } from "$lib/api";
   import { dialog } from "$lib/a11yDialog";
   import { formatTokenLabel } from "$lib/format";
+  import { coachTarget } from "$lib/actions/coachTarget.svelte";
   import { codexTokenUsage } from "$lib/components/usage-gauges";
   import SpendLens from "$lib/components/usage/SpendLens.svelte";
   import OverheadLens from "$lib/components/usage/OverheadLens.svelte";
+  import PromptLens from "$lib/components/usage/PromptLens.svelte";
   import LimitsLens from "$lib/components/usage/LimitsLens.svelte";
   import GithubLens from "$lib/components/usage/GithubLens.svelte";
   import TimelineLens from "$lib/components/usage/TimelineLens.svelte";
 
   let { onclose }: { onclose?: () => void } = $props();
 
-  type Tab = "spend" | "overhead" | "timeline" | "limits" | "github";
+  type Tab = "spend" | "overhead" | "prompt" | "timeline" | "limits" | "github";
 
   let tab = $state<Tab>("spend");
   let range = $state<UsageRange>("7d");
@@ -37,6 +41,10 @@
   let projections = $state<UsageProjection[]>([]);
   let github = $state<GithubRateLimit | null>(null);
   let githubError = $state(false);
+  // Spawn-prompt budgets (issue #1999). `null` = not loaded yet; an EMPTY array is valid content
+  // (no spawn has been measured yet) and the lens renders its own empty state for it.
+  let prompts = $state<PromptBudgetRecord[] | null>(null);
+  let promptsError = $state(false);
   let loading = $state(true);
   let error = $state(false);
   // Limits has its own error track (the Limits tab doesn't use `breakdown`), so a
@@ -119,12 +127,28 @@
     if (tab === "timeline") loadTimeline(range);
   });
 
+  // Prompt budgets are range-independent and loaded lazily on first visit to their tab; re-entering
+  // the tab refetches so a spawn made while the modal was open shows up.
+  async function loadPrompts() {
+    promptsError = false;
+    try {
+      prompts = await getPromptBudgets();
+    } catch {
+      promptsError = true;
+    }
+  }
+
+  $effect(() => {
+    if (tab === "prompt") loadPrompts();
+  });
+
   // Retry re-fetches ALL tracks so any failure surface recovers.
   function retry() {
     loadBreakdown(range);
     loadTimeline(range);
     loadLimits();
     loadGithub();
+    loadPrompts();
   }
 
   // Template-state derivations (kept out of the markup to keep the template's
@@ -133,12 +157,16 @@
   // Non-blocking refetch banner — Spend/Overhead use `breakdown`'s error track, Timeline its own.
   const showBreakdownError = $derived(error && (tab === "spend" || tab === "overhead"));
   const showTimelineError = $derived(timelineError && tab === "timeline");
+  // Prompt follows Timeline's shape rather than Limits'/GitHub's: banner, never inline — so a
+  // refetch that fails after a first success can't leave stale numbers on screen unannounced.
+  const showPromptsError = $derived(promptsError && tab === "prompt");
   // The active tab has data to render its lens (else we show loading/error chrome).
   const hasContent = $derived(
     ((tab === "spend" || tab === "overhead") && !!breakdown) ||
       (tab === "timeline" && !!timeline) ||
       (tab === "limits" && !!limits) ||
-      (tab === "github" && !!github),
+      (tab === "github" && !!github) ||
+      (tab === "prompt" && prompts !== null),
   );
   // No content yet, and the failing fetch for this tab errored (not still loading).
   // (Spend/Overhead/Timeline surface their error via the banner above, never inline.)
@@ -149,7 +177,8 @@
     ((tab === "spend" || tab === "overhead") && !breakdown && loading) ||
       (tab === "timeline" && !timeline && !timelineError) ||
       (tab === "limits" && !limits && !limitsError) ||
-      (tab === "github" && !github && !githubError),
+      (tab === "github" && !github && !githubError) ||
+      (tab === "prompt" && prompts === null && !promptsError),
   );
 </script>
 
@@ -189,6 +218,14 @@
         class:seg-active={tab === "overhead"}
         aria-pressed={tab === "overhead"}
         onclick={() => (tab = "overhead")}>{m.usage_overhead_tab()}</button
+      >
+      <button
+        type="button"
+        class="seg-btn"
+        class:seg-active={tab === "prompt"}
+        aria-pressed={tab === "prompt"}
+        use:coachTarget={"usage-prompt-tab"}
+        onclick={() => (tab = "prompt")}>{m.usage_prompt_tab()}</button
       >
       <button
         type="button"
@@ -270,7 +307,7 @@
       <!-- Breakdown-error banner for the Spend/Overhead tabs. Shown even when a stale
            `breakdown` is still present (a failed range-change refetch) so the user isn't
            silently left on old-range data with no indication the new range failed. -->
-      {#if showBreakdownError || showTimelineError}
+      {#if showBreakdownError || showTimelineError || showPromptsError}
         <div class="usage-error-banner" role="alert">
           <span class="usage-status-line usage-error">{m.usage_load_error()}</span>
           <button type="button" class="gbtn gbtn-secondary" onclick={retry}
@@ -283,6 +320,8 @@
         <SpendLens {breakdown} />
       {:else if tab === "overhead" && breakdown}
         <OverheadLens {breakdown} />
+      {:else if tab === "prompt" && prompts}
+        <PromptLens records={prompts} />
       {:else if tab === "timeline" && timeline}
         <TimelineLens {timeline} />
       {:else if tab === "limits" && limits}

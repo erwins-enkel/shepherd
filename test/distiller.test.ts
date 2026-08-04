@@ -1,5 +1,15 @@
 import { test, expect, beforeEach, afterEach, spyOn } from "bun:test";
-import { DistillerService, DISTILL_LABEL, type DistillerDeps } from "../src/distiller";
+import {
+  DistillerService,
+  DISTILL_LABEL,
+  distillPrompt,
+  type DistillerDeps,
+} from "../src/distiller";
+import {
+  LEARNING_ADMISSION_TEST,
+  LEARNING_FACT_SHAPE,
+  LEARNING_RULE_MAX_CHARS,
+} from "../src/learning-shape";
 import { SessionStore } from "../src/store";
 import { config } from "../src/config";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -1373,4 +1383,32 @@ test("tab baseline: repeated distill runs (success + timeout) leave zero open ta
     expect(openTabs.size).toBe(0);
   }
   expect(n).toBe(6); // six real spawns happened; all six tabs were closed
+});
+
+// ── admission test wiring (#2004) ────────────────────────────────────────────
+// The re-target lives entirely in prompt text, so these are the only regression guard against a
+// future edit quietly restoring rule-manufacturing.
+
+test("distill prompt carries the shared admission test + fact shape", () => {
+  const p = distillPrompt();
+  expect(p).toContain(LEARNING_ADMISSION_TEST);
+  expect(p).toContain(LEARNING_FACT_SHAPE);
+  expect(p).toContain("repo-gotcha analyst");
+  // DELETE must cover an active rule that merely FAILS the test — not only a contradicted one.
+  expect(p).toContain("FAILS the admission");
+  expect(p).toContain(String(LEARNING_RULE_MAX_CHARS));
+  expect(p).not.toContain("160 char imperative");
+});
+
+test("an over-long proposed rule is trimmed at a word boundary", async () => {
+  const store = new SessionStore(":memory:");
+  seedSignals(store, "/r", 3);
+  const long = "word ".repeat(80).trim(); // 399 chars, spaces throughout
+  const { deps } = mkDeps(store, { rules: [{ rule: long, rationale: "x", evidence: [] }] });
+  const d = new DistillerService(deps as any);
+  await d.distillNow("/r");
+  await d.tick();
+  const [stored] = store.listLearnings("/r");
+  expect(stored!.rule.length).toBeLessThanOrEqual(LEARNING_RULE_MAX_CHARS);
+  expect(stored!.rule.endsWith("word")).toBe(true); // no mid-word cut
 });

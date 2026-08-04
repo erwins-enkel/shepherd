@@ -221,24 +221,31 @@ test("de plan sidecar instructions carry the field-discipline verbatim-fields li
   }
 });
 
-// Worktree git-stash safety notice (#1632) — a global git-mechanism invariant that must ride
-// EVERY spawn, regardless of learnings / research / plan-gate / autopilot state.
-test("worktree-stash-notice rides every spawn variant", () => {
+// Worktree git-stash safety notice (#1632) — a global git-mechanism invariant. Since #2002 a
+// Claude spawn gets it as a PreToolUse DENIAL instead (scripts/tool-guard.mjs, pinned in
+// test/tool-guard.test.ts); the block still rides every spawn variant the guard cannot reach —
+// Codex, and any install with SHEPHERD_TOOL_GUARD=0 — regardless of learnings / research /
+// plan-gate / autopilot state.
+const NO_GUARD = { toolGuard: false } as const;
+test("worktree-stash-notice rides every spawn variant the guard cannot reach", () => {
   const variants = [
-    composeSystemPrompt(null, false), // plain code spawn, no learnings
-    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false), // with house rules
-    composeSystemPrompt(null, true), // autopilot
-    composeSystemPrompt(null, false, { research: true }), // research
-    composeSystemPrompt(null, true, { planGate: "interactive" }), // plan gate
+    composeSystemPrompt(null, false, NO_GUARD), // plain code spawn, no learnings
+    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false, NO_GUARD),
+    composeSystemPrompt(null, true, NO_GUARD), // autopilot
+    composeSystemPrompt(null, false, { ...NO_GUARD, research: true }), // research
+    composeSystemPrompt(null, true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
+    composeSystemPrompt(null, false, { agentProvider: "codex" }), // codex: no hook mechanism
   ];
   for (const p of variants) {
     expect(p).toContain("<worktree-stash-notice>");
     expect(p).toContain("refs/stash");
   }
+  // And it is GONE where the deny reaches — never both.
+  expect(composeSystemPrompt(null, false)).not.toContain("<worktree-stash-notice>");
 });
 
 test("worktree-stash-notice recommends read-only + create/apply, never store or bare stash", () => {
-  const p = composeSystemPrompt(null, false);
+  const p = composeSystemPrompt(null, false, NO_GUARD);
   // Read-only inspection is the primary safe path.
   expect(p).toContain("git show <ref>:<path>");
   expect(p).toContain("git diff <ref>");
@@ -271,13 +278,13 @@ test("both plan-gate directives tell the planner to reference code by path + sym
 // tmpfs inode safety (#1862) — like the stash notice, a host-filesystem invariant that must ride
 // EVERY spawn on EVERY provider. Provider divergence here is wording only, never suppression: an
 // exhausted inode table bricks the session regardless of which agent caused it.
-test("tmpfs-worktree-notice rides every spawn variant, on both providers", () => {
+test("tmpfs-worktree-notice rides every spawn variant the guard cannot reach", () => {
   const variants = [
-    composeSystemPrompt(null, false), // plain code spawn
-    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false), // house rules
-    composeSystemPrompt(null, true), // autopilot
-    composeSystemPrompt(null, false, { research: true }), // research
-    composeSystemPrompt(null, true, { planGate: "interactive" }), // plan gate
+    composeSystemPrompt(null, false, NO_GUARD), // plain code spawn
+    composeSystemPrompt("<shepherd-house-rules>\n- x\n</shepherd-house-rules>", false, NO_GUARD),
+    composeSystemPrompt(null, true, NO_GUARD), // autopilot
+    composeSystemPrompt(null, false, { ...NO_GUARD, research: true }), // research
+    composeSystemPrompt(null, true, { ...NO_GUARD, planGate: "interactive" }), // plan gate
     composeSystemPrompt(null, false, { agentProvider: "codex" }), // codex
     composeSystemPrompt(null, true, { agentProvider: "codex" }), // codex + autopilot
   ];
@@ -287,10 +294,11 @@ test("tmpfs-worktree-notice rides every spawn variant, on both providers", () =>
     expect(p).toContain("git worktree add");
     expect(p).toContain("pnpm install");
   }
+  expect(composeSystemPrompt(null, false)).not.toContain("<tmpfs-worktree-notice>");
 });
 
 test("tmpfs-worktree-notice narrows the scratchpad instruction for claude, stands alone for codex", () => {
-  const claude = composeSystemPrompt(null, false);
+  const claude = composeSystemPrompt(null, false, NO_GUARD);
   // Claude receives the harness "Scratchpad Directory" block, so the notice must NARROW it rather
   // than contradict it — an agent handed two conflicting absolutes picks one arbitrarily.
   expect(claude).toContain("Scratchpad Directory instruction stands for ordinary temporary files");
@@ -304,7 +312,7 @@ test("tmpfs-worktree-notice narrows the scratchpad instruction for claude, stand
 test("tmpfs-worktree-notice tells claude to carry the constraint into sub-agent prompts", () => {
   // Load-bearing: a dispatched sub-agent receives Claude Code's scratchpad block but NONE of this
   // composed prompt, so without this clause the notice misses the likeliest actor entirely.
-  const claude = composeSystemPrompt(null, false);
+  const claude = composeSystemPrompt(null, false, NO_GUARD);
   expect(claude).toContain("Sub-agents do NOT inherit this instruction");
   expect(claude).toContain("restate this constraint in that sub-agent's prompt");
 
@@ -315,7 +323,7 @@ test("tmpfs-worktree-notice tells claude to carry the constraint into sub-agent 
 
 test("tmpfs-worktree-notice explains the inode failure mode, not just the prohibition", () => {
   // The whole reason this is hard to diagnose: bytes look fine, inodes are gone.
-  const p = composeSystemPrompt(null, false);
+  const p = composeSystemPrompt(null, false, NO_GUARD);
   expect(p).toContain("ENOSPC");
   expect(p).toContain("df -i");
 });

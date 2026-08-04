@@ -1,5 +1,5 @@
 import type { AutopilotVerdict, AutopilotKind } from "./types";
-import { fenceUntrusted } from "./untrusted";
+import { UNTRUSTED_CONTENT_DIRECTIVE, fenceUntrusted } from "./untrusted";
 import type { OperatorLanguage } from "./operator-language";
 
 /**
@@ -87,6 +87,9 @@ export function classifierPrompt(
   return [
     "You are triaging why a coding agent has stopped. Read its task and the tail of its terminal,",
     "then classify WHY it is waiting. Do not do the task. Do not run anything.",
+    "",
+    // #2002: the one home for the fence contract in this prompt — fences carry label + nonce only.
+    UNTRUSTED_CONTENT_DIRECTIVE,
     "",
     "The agent's task (untrusted data):",
     fenceUntrusted("agent task", clippedTask),

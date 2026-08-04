@@ -653,9 +653,20 @@ export function analyzeReadiness(dir: string): ReadinessReport {
 }
 
 /**
- * A repo-tailored house-rules snippet encoding the surgical/mechanical posture
- * (generalized from Shepherd's own `<shepherd-house-rules>` + Karpathy posture),
- * plus a prescription of the missing tooling. Fully profile-driven: the stack label,
+ * A repo-tailored house-rules snippet: the few failure modes tooling can't catch, plus a
+ * prescription of the missing tooling.
+ *
+ * The posture section is deliberately short (issue #2015). It used to carry seven bullets —
+ * simplicity first, surgical changes, verify before claiming done and no dead code among them —
+ * which either restate the engineering posture every Shepherd spawn already receives in its system
+ * prompt, or state general judgement a capable model follows unprompted. This file is written into
+ * a *target* repo, where it is re-read on every turn of every session, so prose that says nothing
+ * new is pure cost. What survives is what fails QUIETLY: a swallowed error reading as success, a
+ * hardcoded count drifting, a doc comment left stale by a behavior change — none of which a gate
+ * fires on. Anything a gate CAN catch belongs in the prescription below as tooling, not here as
+ * prose. Keep it that way when editing.
+ *
+ * Fully profile-driven: the stack label,
  * all four adopt-line maps (tooling label, churn prose, install steps, prescription
  * note) and the trailing section come from the selected profile, so nothing JS-specific
  * (e.g. a "prettier + lint-staged" churn line) can leak into another stack's artifact.
@@ -689,22 +700,14 @@ with minimal human back-and-forth by having deterministic guardrails do the
 coaching — the gate fails, the agent self-corrects, a human is never pulled in to
 re-explain a mechanical defect.
 
-## Engineering posture (surgical & mechanical)
+## What the guardrails can't catch
 
-- **Simplicity first.** Write the minimum code that solves the stated problem —
-  no speculative features, abstractions for single use, or config nobody asked for.
-- **Surgical changes.** Every changed line traces to the request. Don't refactor,
-  reformat, or polish adjacent code; match existing style. Delete only what your
-  change orphaned; surface pre-existing dead code rather than silently expanding the diff.
 - **Fail closed.** Render error/unreachable paths as explicit failures; never let a
   swallowed error, empty result, or zero count masquerade as success.
 - **Single source of truth.** Derive counts, totals, and dimensions from the data
   (array length, column count) — never hardcode a magic number that silently drifts.
 - **Keep names and comments honest.** When you change a function's behavior, update
   its name, doc comment, and inline comments to match — no stale comment left behind.
-- **No dead code.** Delete unreachable branches and unused fields/params, or wire
-  them to a real path, before opening a PR.
-- **Verify before claiming done.** Run the gate; show the output. Evidence before assertions.
 
 ## Adopt these guardrails (highest leverage first)
 

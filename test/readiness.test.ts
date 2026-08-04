@@ -195,13 +195,32 @@ test("score is the weighted fraction of present guardrails, derived from the che
   expect(present("git_hooks", r)).toBe(true); // .husky/ implies a hook manager
 });
 
-test("generated CLAUDE.md is non-empty, encodes the surgical posture, and names missing tooling", () => {
+test("generated CLAUDE.md is non-empty, keeps the quiet-failure posture, and names missing tooling", () => {
   pkg({ name: "needs-coaching", devDependencies: { typescript: "^6" } });
   write("tsconfig.json", "{}");
   const r = analyzeReadiness(dir);
-  expect(r.claudeMd).toContain("Surgical");
+  expect(r.claudeMd).toContain("Fail closed");
   // a missing high-leverage guardrail should be called out in the prescription
   expect(r.claudeMd.toLowerCase()).toContain("prettier");
+});
+
+// Issue #2015: the artifact is written into a TARGET repo and re-read every turn, so it must not
+// restate the engineering posture every Shepherd spawn already carries in its system prompt, nor
+// general judgement a capable model follows unprompted. Without this guard nothing stops the
+// section re-growing — which is the whole failure the cut exists to prevent.
+test("generated CLAUDE.md carries no posture bullet the system prompt or the guardrails already cover", () => {
+  pkg({ name: "needs-coaching", devDependencies: { typescript: "^6" } });
+  const md = analyzeReadiness(dir).claudeMd;
+  for (const dropped of [
+    "Simplicity first",
+    "Surgical changes",
+    "Verify before claiming done",
+    "No dead code",
+  ])
+    expect(md).not.toContain(dropped);
+  // …while the bullets that describe a QUIET failure no gate fires on all survive.
+  for (const kept of ["Fail closed", "Single source of truth", "Keep names and comments honest"])
+    expect(md).toContain(kept);
 });
 
 test("CLAUDE.md always tells the repo to add .shepherd-* to .prettierignore, even when prettier is already present", () => {

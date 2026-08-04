@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readdirSync, statSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
 import type { EventHub } from "./events";
+import {
+  agentMcpConfigArg,
+  hasAgentTools,
+  isNonCodeMode,
+  sessionCapabilities,
+  type AgentCapabilities,
+} from "./agent-control";
 import type { WorktreeMgr } from "./worktree";
 import type { HerdrAgent, HerdrDriver } from "./herdr";
 import { createSerializer, matchAgents, needsAccountRedrive } from "./herdr";
@@ -14,6 +21,15 @@ import {
   visualBlockLanguageLine,
   type OperatorLanguage,
 } from "./operator-language";
+import { joinPromptBlocks, measurePromptBlocks, type PromptBlock } from "./prompt-budget";
+import { skillNameFrom } from "./commands";
+import { buildToolGuardFragment, toolGuardMembranePaths } from "./tool-guard-hook";
+import {
+  AGENT_SKILL_NAMES,
+  agentSkillsArgs,
+  agentSkillsAvailable,
+  agentSkillsMembranePaths,
+} from "./agent-skills";
 import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
@@ -197,6 +213,12 @@ export interface ServiceDeps {
   /** Plugin ids to disable on trimmed auto spawns; defaults to the memoized read of
    *  ~/.claude/settings.json `enabledPlugins` (installedPluginIds). Inject point for tests. */
   pluginIds?: () => Promise<string[]>;
+  /** Skill names installed under one `.claude/skills` root — the session repo's, for the trim's
+   *  collision guard; defaults to the real readSkillNames. Inject point for tests. */
+  skillNames?: (dir: string) => Promise<string[] | null>;
+  /** The operator's user-level skill names, disabled on trimmed auto spawns; defaults to the
+   *  memoized read of ~/.claude/skills (userSkillNames). Inject point for tests. */
+  userSkills?: () => Promise<string[]>;
   /** Server-side plugin spawn-hook runner (issue #1124): runs every plugin `onSpawn`
    *  hook and returns the merged, bounded SpawnPatch. Absent (no plugins / tests) → no
    *  hooks fire. May reject with PluginSpawnAborted to hard-block the spawn. Wired from
@@ -286,6 +308,76 @@ export function resetPluginIdsCacheForTests(): void {
   pluginIdsCache = null;
 }
 
+/** Filesystem seams for {@link readSkillNames} — the same shape as readInstalledPluginIds' `read`,
+ *  split in two because a skills root needs a listing AND a per-entry read. */
+export interface SkillDirDeps {
+  readdir?: (path: string) => Promise<string[]>;
+  read?: (path: string) => Promise<string>;
+}
+
+/**
+ * Names of the skills installed under one `.claude/skills` root (issue #2001) — the operator's
+ * `~/.claude/skills` for the trim's override set, a repo's own for the collision guard.
+ *
+ * Identity is the SKILL.md front-matter `name` with the directory entry as fallback (see
+ * `skillNameFrom` in src/commands.ts), NOT the directory entry itself: entries here are commonly
+ * symlinks into other trees and front-matter may rename the skill, so a bare listing would key
+ * `skillOverrides` off strings Claude Code doesn't use — disabling nothing while mis-comparing the
+ * repo's own skills. Unreadable/absent `SKILL.md` → the entry is skipped, matching the listing's
+ * `collect`.
+ *
+ * Returns `[]` when the root does not exist (the norm — most machines and repos have no skills) and
+ * `null` when the listing THROWS for any other reason, so callers can tell "nothing to disable"
+ * from "we could not find out". Async fs only: this server is a single Bun loop pumping the live
+ * web terminal (see src/instrument.ts).
+ */
+export async function readSkillNames(
+  dir: string,
+  deps: SkillDirDeps = {},
+): Promise<string[] | null> {
+  const readdirFn = deps.readdir ?? ((p: string) => readdir(p));
+  const readFn = deps.read ?? ((p: string) => readFile(p, "utf8"));
+  let entries: string[];
+  try {
+    entries = await readdirFn(dir);
+  } catch (e) {
+    return (e as NodeJS.ErrnoException)?.code === "ENOENT" ? [] : null;
+  }
+  const names: string[] = [];
+  for (const entry of entries) {
+    let text: string;
+    try {
+      text = await readFn(join(dir, entry, "SKILL.md"));
+    } catch {
+      continue; // not a skill dir (or unreadable) → skip, don't fail the whole set
+    }
+    const name = skillNameFrom(text, entry);
+    if (name) names.push(name);
+  }
+  return names;
+}
+
+let userSkillNamesCache: Promise<string[]> | null = null;
+/** Memoized {@link readSkillNames} over `~/.claude/skills` — the operator's personal skills change
+ *  ~never, so one read per process lifetime (a server restart picks up changes). Same contract as
+ *  installedPluginIds: only SUCCESSFUL reads are cached, and a `null` (transient error) clears the
+ *  cache inside the chained promise so this spawn proceeds without the override while the next new
+ *  caller retries. Exported for tests. */
+export function userSkillNames(deps?: SkillDirDeps): Promise<string[]> {
+  return (userSkillNamesCache ??= readSkillNames(join(homedir(), ".claude", "skills"), deps).then(
+    (names) => {
+      if (names === null) userSkillNamesCache = null;
+      return names ?? [];
+    },
+  ));
+}
+
+/** Test seam: drop the process-lifetime user-skill-names cache. Mirrors
+ *  resetPluginIdsCacheForTests — the first real spawn populates it via the default fs path. */
+export function resetUserSkillNamesCacheForTests(): void {
+  userSkillNamesCache = null;
+}
+
 /**
  * Per-spawn `--settings` overlay merged on top of the user's settings files. Applied to every
  * Shepherd task spawn — both `create` (`buildSpawnArgv`) and `resume`.
@@ -310,14 +402,24 @@ export function resetPluginIdsCacheForTests(): void {
  * skills, and plugin MCP for this process only. Absent/empty → key omitted entirely, so
  * untrimmed spawns keep today's exact overlay.
  *
+ * `disableSkills` (trimmed auto spawns only, issue #2001) adds `disableBundledSkills: true` plus
+ * `skillOverrides: {<name>: "off"}` for each listed skill — Claude Code's built-ins and the
+ * operator's personal skills, hidden from the model while the session repo's own stay available.
+ * `disableBundledSkills` rides whenever the key is PRESENT, including for the empty array (a
+ * machine with no personal skills still shouldn't pay for the built-in catalog); absent → both keys
+ * omitted, so untrimmed spawns keep today's exact overlay.
+ *
  * `hooks` (issue #704, only when `config.hooksIngest`) adds PostToolUse/PostToolUseFailure/
  * Notification/SessionStart/Stop/SessionEnd/SubagentStart/SubagentStop HTTP hooks pointing at
  * this session's ingest route (see buildHooksFragment). Flag off → key omitted entirely, so the
  * overlay JSON stays byte-for-byte identical to today.
+ *
+ * The `PreToolUse` tool guard (issue #2002, `config.toolGuard`) is merged into the same `hooks`
+ * object from buildToolGuardFragment. It is independent of `hooksIngest` — a local `command` hook,
+ * not an HTTP one — so it rides even when ingest is off, and the two never collide on an event.
  */
 export function spawnSettingsOverlay(
-  opts: {
-    disablePlugins?: string[];
+  opts: SpawnTrimOverlay & {
     hooks?: { sessionId: string; baseUrl: string; token: string | null };
   } = {},
 ): string {
@@ -328,9 +430,19 @@ export function spawnSettingsOverlay(
   if (opts.disablePlugins && opts.disablePlugins.length > 0) {
     settings.enabledPlugins = Object.fromEntries(opts.disablePlugins.map((id) => [id, false]));
   }
-  if (config.hooksIngest && opts.hooks) {
-    settings.hooks = buildHooksFragment(opts.hooks);
+  if (opts.disableSkills) {
+    settings.disableBundledSkills = true;
+    if (opts.disableSkills.length > 0) {
+      settings.skillOverrides = Object.fromEntries(opts.disableSkills.map((name) => [name, "off"]));
+    }
   }
+  // The guard owns `PreToolUse`; the ingest hooks own the eight lifecycle events. Merged key-wise
+  // (they never collide) so either can ride alone or both together.
+  const hooks = {
+    ...buildToolGuardFragment(),
+    ...(config.hooksIngest && opts.hooks ? buildHooksFragment(opts.hooks) : {}),
+  };
+  if (Object.keys(hooks).length > 0) settings.hooks = hooks;
   // api-key mode folds in `apiKeyHelper` LAST so key order is stable; subscription
   // returns {} so the JSON is byte-for-byte identical to before (see spawn-auth).
   Object.assign(settings, apiKeySettingsFragment());
@@ -355,12 +467,12 @@ export function spawnSettingsOverlay(
  * the literal token here ON PURPOSE: the hook header rides the ps-visible argv and is readable
  * from the autonomous agent's own `/proc/self/cmdline`, so baking it would hand a hijacked agent
  * the control-plane token — defeating the containment the autonomous profile exists to provide.
- * This is asymmetric with the build-queue curl (buildQueueDirective), which DOES carry the literal
- * token over the same ingress transport: that exposure is pre-existing, opt-in (only when
- * `buildQueueEnabled`), and already documented as accepted there. Token-LESS deployments (the
- * default) are unaffected and reach hooks under autonomous normally. To make token + autonomous
- * hooks reach, re-inject the token into the sandbox env or accept the literal-in-argv exposure —
- * intentionally NOT done here.
+ * This placeholder is now the ONLY place a Shepherd spawn carries the control-plane token at all
+ * (issue #2003): the build-queue and epic-authoring directives used to bake the literal token into
+ * their `curl` lines, and no longer do — they target the same auth-exempt ingress listener, which
+ * never checked the header. Token-LESS deployments (the default) are unaffected and reach hooks
+ * under autonomous normally. To make token + autonomous hooks reach, re-inject the token into the
+ * sandbox env or accept the literal-in-argv exposure — intentionally NOT done here.
  */
 export function buildHooksFragment(input: {
   sessionId: string;
@@ -395,53 +507,115 @@ export function buildHooksFragment(input: {
   };
 }
 
+/** The per-spawn context trim as {@link spawnSettingsOverlay} consumes it: plugin ids to switch
+ *  off, and skill names to hide from the model (see trimDecision). Both absent on an untrimmed
+ *  spawn, which keeps its overlay byte-identical to a pre-trim one. */
+export interface SpawnTrimOverlay {
+  disablePlugins?: string[];
+  disableSkills?: string[];
+}
+
 /**
  * Trim decision for one spawn/resume argv — the single helper shared by buildSpawnArgv
  * and resume() so the two spawn sites can't drift (issue #499). An auto (drain) session
  * with `config.trimAutoContext` on gains:
- *  - `--disable-slash-commands`: removes the entire skill catalog from the fixed prefix;
  *  - an `enabledPlugins:false` settings overlay for every operator-enabled plugin
  *    (spawnSettingsOverlay): kills plugin SessionStart hook injections, skills, and MCP;
+ *  - `disableBundledSkills` + a `skillOverrides: {<user skill>: "off"}` map: Claude Code's
+ *    built-in skills and the operator's personal ones, neither of which an unattended coding
+ *    run has any use for. The WORKTREE's own `.claude/skills` stay listed and loadable;
  *  - the context-trim system-prompt notice (composeSystemPrompt `trimmed`) — fresh spawns
  *    only: resume() re-passes no `--append-system-prompt` (pre-existing: house rules /
- *    directives don't ride resumes either), so a resumed trimmed session deliberately has
- *    skills off without the notice.
+ *    directives don't ride resumes either), so a resumed trimmed session deliberately runs
+ *    the same trim without the notice.
  *    ONE narrow, deliberate exception (issue #1624): buildClaudeResumeArgv DOES re-pass a
  *    single `--append-system-prompt` carrying ONLY the `<operator-language>` block (never the
  *    full directive set) so a compacted/resumed session keeps addressing the operator in their
  *    language instead of drifting back to English. Empirically verified honored on resume
  *    (both `-p` and interactive PTY). "en" carries nothing → resume argv stays byte-identical.
- * Measured −6,349 tokens/turn combined in the issue-499 spike. Deliberately NOT
- * `--settings disableAllHooks` — that would kill the operator's global SessionStart hook
- * Shepherd's status pipeline depends on. Interactive spawns are untouched.
+ *
+ * It deliberately no longer passes `--disable-slash-commands` (issue #2001). That flag is
+ * "Disable all skills": it deleted progressive disclosure — the mechanism — for exactly the
+ * sessions that run unattended. Re-measured on Claude Code 2.1.220 against a drain-shaped spawn
+ * (scripts/measure-spawn-prefix.sh), the resident prefix costs 34,175 tok with the flag,
+ * 40,187 without it, and 35,234 under the shape above — so keeping the session's own skills
+ * available costs +1,059 tok/turn in the prefix instead of +6,012, because the flag's saving was
+ * almost entirely built-in and personal skills that no drain session would have invoked anyway.
+ * Net ≈ +1,107 tok/turn once the ≈ 48 est. tokens CONTEXT_TRIM_NOTICE grew by are counted; see
+ * docs/research/drain-context-trim-2026-08-03.md for both sides of the ledger.
+ *
+ * Deliberately NOT `--settings disableAllHooks` — that would kill the operator's global
+ * SessionStart hook Shepherd's status pipeline depends on. Interactive spawns are untouched, and
+ * `SHEPHERD_TRIM_AUTO_CONTEXT=false` still opts the whole thing out.
  */
 async function trimDecision(
   auto: boolean,
+  worktreePath: string,
   pluginIds: () => Promise<string[]>,
-): Promise<{ extraFlags: string[]; overlayOpts: { disablePlugins?: string[] }; trimmed: boolean }> {
+  skillNames: (dir: string) => Promise<string[] | null>,
+  userSkills: () => Promise<string[]>,
+): Promise<{ overlayOpts: SpawnTrimOverlay; trimmed: boolean }> {
   if (!auto || !config.trimAutoContext) {
-    return { extraFlags: [], overlayOpts: {}, trimmed: false };
+    return { overlayOpts: {}, trimmed: false };
   }
   return {
-    extraFlags: ["--disable-slash-commands"],
-    overlayOpts: { disablePlugins: await pluginIds() },
+    overlayOpts: {
+      disablePlugins: await pluginIds(),
+      disableSkills: await disableableSkillNames(worktreePath, skillNames, userSkills),
+    },
     trimmed: true,
   };
+}
+
+/**
+ * The operator's user-level skill names MINUS the ones the session's own checkout defines.
+ *
+ * `skillOverrides` is keyed by skill NAME, not by source, so an `"off"` entry for a personal skill
+ * would also silence a repo skill that happens to resolve to the same name — the precise failure
+ * this trim exists to stop. Both sides are resolved through {@link readSkillNames} (front-matter
+ * `name`, entry-name fallback), so they compare the identity Claude Code itself uses.
+ *
+ * Enumerated at `worktreePath`, NOT at the repo root: that is the agent's cwd (herdr.start runs it
+ * there), so it is where Claude Code resolves project skills from — and a branch that ADDS a skill
+ * has it only in the worktree. For a non-isolated session the two paths are the same string
+ * (src/worktree.ts returns the repo path as the worktree), so nothing special-cases that.
+ *
+ * FAIL-SAFE: when those skills cannot be listed (`null` — anything but a missing directory) the
+ * overrides are dropped entirely rather than applied blind. Paying for the operator's personal
+ * catalog for one spawn is cheap; silently disabling the session's own skill is not.
+ */
+async function disableableSkillNames(
+  worktreePath: string,
+  skillNames: (dir: string) => Promise<string[] | null>,
+  userSkills: () => Promise<string[]>,
+): Promise<string[]> {
+  const [user, project] = await Promise.all([
+    userSkills(),
+    skillNames(join(worktreePath, ".claude", "skills")),
+  ]);
+  if (project === null) return [];
+  // Shepherd's own `--add-dir` skills (#2002) are subtracted alongside the session's: they carry
+  // guidance this spawn's prompt no longer states, so a same-named personal skill must not switch
+  // them off. `skillOverrides` is keyed by name, and these names are fixed, so no listing is needed.
+  const own = new Set([...project, ...AGENT_SKILL_NAMES]);
+  return user.filter((name) => !own.has(name));
 }
 type TrimDecision = Awaited<ReturnType<typeof trimDecision>>;
 
 /**
- * Appended to every spawned session's system prompt. The async namer
- * (`refineNameInBackground`) can `git branch -m` the session branch 10–60s after
- * start — while the agent is already working — so an agent that inspects git state
- * mid-task would otherwise read the changed branch name as an error (cf. TASK-177).
- * Pre-warning it at spawn removes the surprise at the source. Not user-facing chrome
+ * Injected only into spawns a background rename can actually reach (issue #2002). The async namer
+ * (`refineNameInBackground`) can `git branch -m` the session branch 10–60s after start — while the
+ * agent is already working — so an agent that inspects git state mid-task would otherwise read the
+ * changed branch name as an error (cf. TASK-177). Pre-warning it at spawn removes the surprise at
+ * the source; a session with no branch to rename (non-isolated), with LLM naming off, or whose
+ * heuristic name already won (`isHeuristicNameStrong` → `scheduleRefine` returns early) is warned
+ * about something that cannot happen, so `opts.branchRename` gates it. Not user-facing chrome
  * (it's an instruction to the agent), so no i18n.
  */
 const BRANCH_RENAME_NOTICE =
-  "Shepherd may rename this session's git branch shortly after startup to a clearer, " +
-  "prompt-derived name (via `git branch -m`). This is expected: your working tree, " +
-  "commits, and checked-out HEAD are unaffected — never treat a changed branch name as an error.";
+  "Shepherd may rename this session's git branch shortly after startup (`git branch -m`) to a " +
+  "clearer, prompt-derived name. Your working tree, commits and checked-out HEAD are unaffected — " +
+  "never treat a changed branch name as an error.";
 
 /**
  * Appended to every spawned session's system prompt. `refs/stash` is a single stack shared
@@ -521,18 +695,21 @@ function tmpfsWorktreeNotice(agentProvider: AgentProvider): string {
 }
 
 /**
- * Injected only into trimmed auto (drain) spawns — sessions launched with
- * `--disable-slash-commands` + an `enabledPlugins:false` settings overlay (issue #499,
- * see trimDecision). Without it, CLAUDE.md / memory instructions like "use the superpowers
- * skill" would send the agent hunting for a Skill tool that isn't there. Agent-facing
- * prompt text (not operator UI), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
+ * Injected only into trimmed auto (drain) spawns (issue #499, see trimDecision). It used to
+ * announce that skills were gone entirely; since #2001 the trim keeps the Skill tool and the
+ * repo's own skills and drops only the catalogs a drain session can't use, so the notice now
+ * says which of the two an instruction like "use the superpowers skill" falls into — otherwise
+ * the agent hunts for a skill that isn't installed here. Agent-facing prompt text (not operator
+ * UI), so fixed English — same precedent as BRANCH_RENAME_NOTICE.
  */
 const CONTEXT_TRIM_NOTICE =
-  "This unattended session runs with the skill catalog, slash commands, and optional " +
-  "plugins disabled to cut per-turn context overhead. The Skill tool and slash commands " +
-  "are unavailable — ignore any instructions (e.g. in CLAUDE.md or memory files) to invoke " +
-  "skills such as superpowers; use built-in tools directly instead (the Agent tool for " +
-  "subagent execution, Bash, Edit, and so on).";
+  "This unattended session runs with Claude Code's built-in skills, your personal " +
+  "(~/.claude/skills) skills, and every optional plugin disabled to cut per-turn context " +
+  "overhead. The Skill tool IS available and this repository's own skills (.claude/skills/) " +
+  "load normally — use them. Any OTHER skill named in CLAUDE.md or memory files (superpowers " +
+  "and other plugin/personal skills) is not installed here: ignore that instruction and use " +
+  "built-in tools directly instead (the Agent tool for subagent execution, Bash, Edit, and so " +
+  "on). Slash commands are not typed in this session.";
 
 /**
  * Universal engineering posture injected into every spawn (issue #349, adapted from the
@@ -541,33 +718,30 @@ const CONTEXT_TRIM_NOTICE =
  * standing posture, so it lives in source and rides every spawn unconditionally.
  *
  * It biases the agent *against over-building*, the classic unattended-overnight failure mode
- * the curated (defect-prevention) house rules don't cover. Scope notes baked into the wording:
- *  - "Think before coding" is deliberately scoped to PRE-EXECUTION. Once running autonomously,
- *    the autopilot don't-pause-to-ask rule still wins — the agent proceeds on stated assumptions.
- *  - The dead-code clause harmonizes with the curated "don't ship dead code" rule: remove only
- *    what YOUR change orphaned; surface (don't silently delete) pre-existing unrelated dead code.
+ * the curated (defect-prevention) house rules don't cover. The dead-code clause harmonizes with the
+ * curated "don't ship dead code" rule: remove only what YOUR change orphaned; surface (don't
+ * silently delete) pre-existing unrelated dead code.
+ *
+ * This is the block's ALWAYS-ON core (issue #2002). It stays resident because it is standing
+ * behavioural law, not situational — model-invoked disclosure cannot guarantee it loads. Two
+ * clauses that WERE situational moved to their real homes and must not be re-added here:
+ *  - "think before coding" is pre-execution only, i.e. the plan gate — it now rides the
+ *    plan-gate directive, which is the only spawn shape that plans before it codes;
+ *  - the detached-background-job hazard is delivered by the PreToolUse guard, on the calls that
+ *    can actually create it (BACKGROUND_CONTEXT in scripts/tool-guard.mjs).
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * BRANCH_RENAME_NOTICE and the distiller/critic spawn prompts.
  */
 const ENGINEERING_POSTURE =
   "Standing engineering posture for every change — adopt it regardless of the task.\n" +
-  "- Think before coding (pre-execution only): before you start, state your key assumptions, " +
-  "surface genuine ambiguity and any clearly simpler approach, and name what's unclear. Resolve " +
-  "this up front — once you are executing autonomously, do NOT pause to ask; proceed on your stated assumptions.\n" +
-  "- Simplicity first: write the minimum code that solves the stated problem, nothing speculative. " +
-  "No features beyond what was asked, no abstractions for single-use code, no unrequested " +
-  "flexibility/config, no error handling for genuinely impossible cases. Test: would a senior " +
-  "engineer call this overcomplicated?\n" +
-  "- Surgical changes: touch only what the task requires — every changed line should trace to the " +
-  "request. Don't refactor working code, reformat, or polish adjacent code/comments; match existing " +
-  "style. Delete only the imports/vars/functions YOUR change orphaned; for pre-existing unrelated " +
-  "dead code, surface it rather than silently expanding the diff.\n" +
+  "- Simplicity first: write the minimum code that solves the stated problem, nothing speculative — " +
+  "no features beyond what was asked, no abstractions for single-use code, no unrequested " +
+  "flexibility/config, no error handling for genuinely impossible cases.\n" +
+  "- Surgical changes: every changed line should trace to the request. Don't refactor working code, " +
+  "reformat, or polish adjacent code/comments; match existing style. Delete only what YOUR change " +
+  "orphaned; surface pre-existing dead code rather than silently expanding the diff.\n" +
   "- Goal-driven execution: turn the task into explicit, verifiable success criteria up front, then " +
-  "loop until they actually pass — never declare work done before verifying against them.\n" +
-  "- Ephemeral scaffolding self-cleans: never leave a detached `&` background job (load generator, " +
-  "busy-loop, dev server, watcher) running past the step that needs it. Backgrounded jobs reparent to " +
-  "PID 1 when their shell exits and outlive you — silently burning CPU for days. Kill what you spawn in " +
-  "the SAME shell, or wrap a throwaway repro script so a `trap` reaps its jobs on exit.";
+  "loop until they actually pass — never declare work done before verifying against them.";
 
 /**
  * Fixed, repo-independent standing guidance injected into every spawn (issue #347, sourced from
@@ -738,11 +912,16 @@ export function detectEpicIntent(prompt: string): boolean {
  * Compose the steer payload for a mid-session (steer-time) operator reply (#1405). When the
  * operator's message signals epic intent, append the epic-authoring notice so the epic-shape
  * contract rides at steer-time too: spawn-time detectEpicIntent (composeDirectives) only fires on
- * the SPAWN prompt, and the `.claude/skills/shepherd-epic-authoring` skill is Claude-only AND
- * model-invoked — Codex never reads `.claude/skills/`, and even Claude may not auto-pick the skill
- * on a bare epic reply. The injected block is the PTY-text channel that reaches BOTH providers
- * deterministically, wrapped exactly like the spawn-time block. Returns null when the message shows
- * no epic intent (the caller then delivers it verbatim). Exported for tests.
+ * the SPAWN prompt, so without this a mid-session "promote #N to an epic" reaches the agent with no
+ * epic-shape guidance at all and it ships an "epic" Shepherd never recognizes.
+ *
+ * This block plus its spawn-time twin are now the ONLY rendering of the gh-based epic flow
+ * (issue #2003). The `.claude/skills/shepherd-epic-authoring` skill that used to restate the same
+ * contract is deleted: its stated reason to exist was exactly the steer-time gap THIS function
+ * already closes, and unlike this block — which reaches both providers, in every repo — the skill
+ * was Claude-only, model-invoked, and shipped only inside the Shepherd repo.
+ * Returns null when the message shows no epic intent (the caller then delivers it verbatim).
+ * Exported for tests.
  */
 export function composeEpicSteer(text: string): string | null {
   if (!detectEpicIntent(text)) return null;
@@ -824,27 +1003,49 @@ function researchDirective(agentProvider: AgentProvider): string {
  * Injected as the highest-priority directive for an attended EPIC-AUTHORING task
  * (`epicAuthoring: true`, issue #1507). The session shapes a rough product idea into a reviewable
  * EPIC DRAFT and writes NO GitHub issues — the operator reviews the draft in the UI and only the
- * server-side approve route materializes it. Self-contained: it inlines the decomposition guidance
- * and the exact JSON draft contract, so it never delegates to the write-mandating epic-authoring
- * SKILL (whose Create/Import stages call `gh` + the import endpoint). Like the research directive it
- * SUPPRESSES the plan-gate, autopilot, and build-queue blocks (see composeSystemPrompt).
+ * server-side approve route materializes it. Like the research directive it SUPPRESSES the
+ * plan-gate, autopilot, and build-queue blocks (see composeSystemPrompt).
  *
- * The draft endpoint + session id are baked in at spawn (reliability + the write-gate is stated up
- * front) exactly as buildQueueDirective bakes its endpoint. Agent-facing prompt text, fixed English.
+ * Submission is a TOOL, not a worked example (issue #2003): Claude submits through
+ * `mcp__shepherd__epic_draft`, whose parameter schema IS the draft contract — parent, children,
+ * per-child `key` + `blockedBy` edges — so the hand-written JSON body and its `curl` are gone from
+ * the prompt, and with them the baked bearer token. Codex keeps the HTTP form (no verified MCP
+ * wiring; stated gap), now tokenless — the agent-ingress listener it targets is exempt from the
+ * human auth gate, so the header never authenticated anything (see buildQueueDirective).
+ *
+ * This block is now the ONE home of the draft flow's contract: the shipped epic-authoring skill,
+ * whose "draft-only mode" section existed to keep its own GitHub-write stages from firing inside
+ * this flow, is deleted (issue #2003). Agent-facing prompt text, fixed English.
  */
 export function epicAuthoringDirective(args: {
   sessionId: string;
   baseUrl: string;
-  token: string | null;
   agentProvider: AgentProvider;
 }): string {
-  const { sessionId, baseUrl, token, agentProvider } = args;
-  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const { sessionId, baseUrl, agentProvider } = args;
   const draftUrl = `${baseUrl}/api/sessions/${sessionId}/epic-draft`;
   const investigate =
     agentProvider === "codex"
       ? "Research the repo and its docs directly (read files, run git/gh reads) to ground the scope.\n"
       : "Research the repo and its docs (read files, dispatch sub-agents) to ground the scope.\n";
+  const submit =
+    agentProvider === "codex"
+      ? "- Emit the draft by PUTting this exact JSON to the endpoint below, then STOP and wait for " +
+        "the operator to review it in the UI. Author `parent.body` WITHOUT any epic-dag fence or " +
+        "issue numbers — the server appends the structural marker with real numbers at creation " +
+        'time. `key` is a stable temp id you assign per child (e.g. "c1") used only for ' +
+        "`blockedBy` edges:\n\n" +
+        `   curl -s -X PUT \\\n` +
+        `     -H "Content-Type: application/json" \\\n` +
+        `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
+        `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
+        `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
+        `     ${draftUrl}\n` +
+        `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
+        `Inspect the current draft any time with a GET on ${draftUrl}.\n\n`
+      : "- Submit the draft with the `epic_draft` tool (on the `shepherd` MCP server), then STOP " +
+        "and wait for the operator to review it in the UI. Re-submit the whole draft to revise it " +
+        "when the operator asks for changes (the amend loop).\n";
   return (
     "You are running as an attended EPIC-AUTHORING task — guided shaping of a rough product idea " +
     "into a reviewable EPIC DRAFT. You do NOT write product code and you do NOT create or edit any " +
@@ -858,25 +1059,12 @@ export function epicAuthoringDirective(args: {
     "- You are attended: when a product/requirements decision is unresolved, ask the user ONE " +
     "focused question at a time. Research discoverable facts from the repo yourself instead of " +
     "asking.\n" +
-    "- Emit the draft by PUTting this exact JSON to the endpoint below, then STOP and wait for the " +
-    "operator to review it in the UI. Author `parent.body` WITHOUT any epic-dag fence or issue " +
-    "numbers — the server appends the structural marker with real numbers at creation time. `key` " +
-    'is a stable temp id you assign per child (e.g. "c1") used only for `blockedBy` edges:\n\n' +
-    `   curl -s -X PUT${authHeader} \\\n` +
-    `     -H "Content-Type: application/json" \\\n` +
-    `     -d '{"parent":{"title":"…","body":"…","acceptanceCriteria":["…"],"nonGoals":["…"]},` +
-    `"children":[{"key":"c1","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":[]},` +
-    `{"key":"c2","title":"…","body":"…","acceptanceCriteria":["…"],"blockedBy":["c1"]}]}' \\\n` +
-    `     ${draftUrl}\n` +
-    `   Re-PUT the whole draft to revise it when the operator asks for changes (the amend loop). ` +
-    `Inspect the current draft any time with a GET on ${draftUrl}.\n\n` +
+    submit +
     "- HARD RULE — no GitHub writes: NEVER run `gh issue create`/`gh issue edit`, NEVER call the " +
     "epic import endpoint, NEVER open a pull request. The operator approves the draft in the UI and " +
-    "a separate SERVER step creates the parent + child issues and wires their links. If an " +
-    "epic-authoring skill is auto-invoked, follow ONLY its decomposition guidance — never its " +
-    "create/edit/import stages.\n" +
-    "- The EPIC is the entire deliverable. Once you have PUT a draft you are satisfied with and " +
-    "answered the operator's questions, STOP — creation happens on approval, not by you."
+    "a separate SERVER step creates the parent + child issues and wires their links.\n" +
+    "- The EPIC is the entire deliverable. Once you have submitted a draft you are satisfied with " +
+    "and answered the operator's questions, STOP — creation happens on approval, not by you."
   );
 }
 
@@ -921,28 +1109,32 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
 /**
  * Build the build-queue directive injected at spawn when the repo has `buildQueueEnabled`.
  *
- * The build queue is a per-session, ordered, self-revising plan: the agent authors it via a
- * local REST API right after reading the task, a human (or autopilot) approves it, then the
- * agent executes it step-by-step IN THIS SAME SESSION so it retains full context throughout.
+ * The build queue is a per-session, ordered, self-revising plan: the agent authors it right after
+ * reading the task, a human (or autopilot) approves it, then the agent executes it step-by-step IN
+ * THIS SAME SESSION so it retains full context throughout.
  *
- * Why bake the actual endpoint + session id at spawn time (rather than leaving the agent to
- * discover them)? Two reasons:
- *  1. Reliability: the agent doesn't have to guess the server address or its own session id
- *     under an unattended run — a misread would silently produce an unreachable URL.
- *  2. Curation gate: the autopilot/attended split is a policy decision that should be stated
- *     up front, not inferred mid-run. The agent knows BEFORE starting whether it must wait
- *     for human approval or may immediately execute after authoring.
+ * Provider-split (issue #2003), and this is the whole point of the slice:
  *
- * Token/auth: when `config.token` is set the server requires `Authorization: Bearer <token>`;
- * when null it's open to loopback callers — the curl lines must match exactly.
+ *  - **Claude** drives the queue through TOOLS (`mcp__shepherd__queue_write` /
+ *    `queue_step`, served by src/agent-control.ts and wired at spawn by `pushAgentMcpFlag`). The
+ *    tool signatures carry the mechanics the prose used to spell out — the status vocabulary is an
+ *    enum, step ids are a required parameter, and the "call it when you start / when you finish"
+ *    rule is one line of tool description read at the call site. So this block keeps ONLY what a
+ *    signature cannot state: that the session HAS a queue, and the curation gate. 3,443 chars of
+ *    `curl` tutorial deleted.
+ *  - **Codex** keeps the HTTP prose. Its MCP wiring (`config.toml` `[mcp_servers.*]`, streamable
+ *    HTTP behind an experimental client flag) is unverified on the `-c` override path Shepherd
+ *    would have to use, and Codex receives directives inline rather than via a flag. Stated gap,
+ *    not an oversight — a Codex session drives the queue exactly as it did before.
  *
- * SECURITY NOTE: baking the bearer token into the spawn prompt means it is persisted into the
- * agent's Claude Code transcript jsonl on disk (`~/.claude/projects/.../<session>.jsonl`). This
- * is an accepted exposure, not an oversight: the token is Shepherd's own loopback control-plane
- * secret, the transcript lives under the same user account on the same host, and the agent is
- * already spawned with `--dangerously-skip-permissions` (it can read that token from the running
- * server's env or config anyway). The exposure is also opt-in — most deployments leave
- * `config.token` null, so nothing is written. It is NOT a credential that reaches any third party.
+ * NO TOKEN, on either path (issue #2003). `baseUrl` is the restricted agent-ingress listener,
+ * which is EXEMPT from the human cookie/password gate (issue #1079) — the per-session id in the
+ * path is the capability. The `Authorization: Bearer <token>` this directive used to carry was
+ * therefore authenticating against a listener that never checked it, while persisting Shepherd's
+ * control-plane secret into the agent's on-disk transcript. It is gone. (In the pathological case
+ * where the ingress port is unknown and the gated main port is baked instead, a token-set
+ * deployment's queue calls 401 — the same fail-open-to-polling degradation `buildHooksFragment`
+ * already accepts, and it is why `agentIngressPort` is pinned.)
  *
  * Agent-facing prompt text (not operator UI), so fixed English — same precedent as
  * AUTOPILOT_DIRECTIVE, BRANCH_RENAME_NOTICE, and the other spawn-constant notices.
@@ -950,11 +1142,12 @@ function landingRepairDirective(agentProvider: AgentProvider): string {
 export function buildQueueDirective(args: {
   sessionId: string;
   baseUrl: string;
-  token: string | null;
   autopilot: boolean;
+  /** Required, not defaulted: the two branches are materially different prompts, and a silent
+   *  "claude" default would hand a Codex session tool names it has no tools for. */
+  agentProvider: AgentProvider;
 }): string {
-  const { sessionId, baseUrl, token, autopilot } = args;
-  const authHeader = token ? ` \\\n  -H "Authorization: Bearer ${token}"` : "";
+  const { sessionId, baseUrl, autopilot, agentProvider } = args;
   const queueUrl = `${baseUrl}/api/sessions/${sessionId}/queue`;
 
   const curationGate = autopilot
@@ -964,13 +1157,24 @@ export function buildQueueDirective(args: {
       "in the UI; you will then receive a message telling you to begin. " +
       "Do NOT start executing steps until you get that go-ahead.";
 
+  if (agentProvider !== "codex") {
+    return (
+      "This session has a build queue: an ordered, curatable, self-revising plan that you author " +
+      "before starting work, then execute step-by-step IN THIS SAME SESSION. Each step builds on " +
+      "the previous one and you retain full context throughout — no context loss between steps.\n" +
+      "Author it with the `queue_write` tool, and keep its status honest with `queue_step` as you " +
+      "work. Both are on the `shepherd` MCP server; their parameters are the contract.\n" +
+      curationGate
+    );
+  }
+
   return (
     "This session has a build queue: an ordered, curatable, self-revising plan that you author " +
     "via the Shepherd API, then execute step-by-step IN THIS SAME SESSION. Each step builds on " +
     "the previous one and you retain full context throughout — no context loss between steps.\n\n" +
     "Build-queue API (use these exact curl commands):\n\n" +
     "1. Author / replace the whole plan (do this first, before starting any work):\n" +
-    `   curl -s -X PUT${authHeader} \\\n` +
+    `   curl -s -X PUT \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     `     -d '{"steps":[{"id":"s1","title":"Step title","detail":"Optional detail"}]}' \\\n` +
     `     ${queueUrl}\n` +
@@ -979,11 +1183,11 @@ export function buildQueueDirective(args: {
     "cached ids stay valid across re-PUTs. The response echoes each step's `id` and the queue's " +
     "`approved` flag.\n\n" +
     "2. Mark a step's progress (use the `id` values from the PUT/GET response):\n" +
-    `   curl -s -X POST${authHeader} \\\n` +
+    `   curl -s -X POST \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"active"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you start a step\n` +
-    `   curl -s -X POST${authHeader} \\\n` +
+    `   curl -s -X POST \\\n` +
     `     -H "Content-Type: application/json" \\\n` +
     '     -d \'{"status":"done"}\' \\\n' +
     `     ${queueUrl}/steps/{stepId}     # when you finish a step\n` +
@@ -1004,7 +1208,7 @@ export function buildQueueDirective(args: {
     "exact match; a server UUID may also be posted as an unambiguous prefix of ≥8 chars (a 409 " +
     "means the prefix matched several steps — use a longer prefix or the full id).\n\n" +
     "3. Inspect the current queue at any time:\n" +
-    `   curl -s${authHeader} ${queueUrl}\n\n` +
+    `   curl -s ${queueUrl}\n\n` +
     "Self-revision: if you discover a better approach mid-run, PUT an updated steps array. " +
     "Only add, change, or remove steps that are still PENDING. ALWAYS include each carried step " +
     "with its existing `id` (its status is kept server-side) — that is how completed and " +
@@ -1157,7 +1361,9 @@ function planGateDirectiveInteractive(
   return (
     stopClause +
     "You are in Shepherd's pre-execution PLAN GATE. Do NOT write or modify any product code yet.\n" +
-    "1. Research the codebase enough to plan confidently.\n" +
+    "1. Research the codebase enough to plan confidently. Think before coding: state your key " +
+    "assumptions, surface genuine ambiguity and any clearly simpler approach, and name what is unclear — " +
+    "this phase is where that gets resolved, not mid-implementation.\n" +
     askStep +
     "asking sharp, specific questions until you and the user are genuinely aligned on scope, approach, and " +
     "success criteria. Misalignment now is the costliest failure." +
@@ -1198,7 +1404,9 @@ function planGateDirectiveAuto(
     "You are in Shepherd's pre-execution PLAN GATE, running unattended (no human to ask). Do NOT write " +
     "or modify product code yet. Research the codebase, then write a concrete plan to `.shepherd-plan.md` " +
     "at the repo root (goal, approach, out of scope, files, testing seams + decisions, steps, risks, " +
-    "success criteria).\n" +
+    "success criteria). Think before coding: state your key assumptions, surface genuine ambiguity and " +
+    "any clearly simpler approach, and name what is unclear — resolve it HERE, because once the plan is " +
+    "approved you execute autonomously and proceed on those stated assumptions rather than pausing.\n" +
     PLAN_REFERENCE_STYLE +
     "An adversarial reviewer " +
     "will critique it; revise `.shepherd-plan.md` to address findings. Begin implementing ONLY after you " +
@@ -1316,9 +1524,224 @@ export function operatorLanguageSteerSuffix(
   return block ? `\n\n${block}` : "";
 }
 
+/** Wrap `body` in `<name>…</name>` and carry the tag as the block's instrument name (issue #1999),
+ *  so a recorded measurement maps straight back to the text it priced. */
+function taggedBlock(name: string, body: string): PromptBlock {
+  return { name, text: `<${name}>\n${body}\n</${name}>` };
+}
+
 /**
- * Compose the spawn-time system prompt passed via a single `--append-system-prompt`
- * (the flag is last-wins, not repeatable, so all blocks must share one value).
+ * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
+ * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
+ * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
+ * keep that function under the complexity gate.
+ */
+function primaryDirectiveBlock(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  opts: {
+    research?: boolean;
+    epicAuthoring?: string | null;
+    landingRepair?: boolean;
+    planGate?: "interactive" | "auto";
+    operatorLanguage?: OperatorLanguage;
+  },
+): PromptBlock | null {
+  // Epic authoring is the highest-priority directive when set: like research it replaces the
+  // plan-gate/autopilot directives (none fit a no-write EPIC-draft deliverable). The pre-baked
+  // directive string (endpoint + session id) is composed by composeDirectives, mirroring buildQueue.
+  if (opts.epicAuthoring) {
+    return taggedBlock("epic-authoring-directive", opts.epicAuthoring);
+  }
+  if (opts.research) {
+    return taggedBlock("research-directive", researchDirective(agentProvider));
+  }
+  // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
+  // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
+  if (opts.landingRepair) {
+    return taggedBlock("landing-repair-directive", landingRepairDirective(agentProvider));
+  }
+  if (opts.planGate) {
+    const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
+    const variant =
+      opts.planGate === "auto"
+        ? planGateDirectiveAuto(agentProvider, operatorLanguage)
+        : planGateDirectiveInteractive(agentProvider, operatorLanguage);
+    return taggedBlock("plan-gate-directive", variant);
+  }
+  if (autopilotActive) {
+    return taggedBlock("autopilot-directive", AUTOPILOT_DIRECTIVE);
+  }
+  return null;
+}
+
+/**
+ * The blocks that ride AFTER the primary directive, each gated only on its own orthogonal option.
+ * Extracted from composeSystemPromptBlocks for the same reason primaryDirectiveBlock was — to keep
+ * that function under the complexity gate. Emission order is part of the contract.
+ */
+function trailingBlocks(
+  opts: ComposeSystemPromptOptions,
+  nonCodeMode: boolean,
+  operatorLanguage: OperatorLanguage,
+  skills: boolean,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
+  // but a research OR epic-authoring session authors no queue — suppress it there too.
+  if (!nonCodeMode && opts.buildQueue != null)
+    blocks.push(taggedBlock("build-queue", opts.buildQueue));
+  // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
+  // and have no dedicated worktree, so the hint would be misleading there. Since #2002 it is also
+  // the `shepherd-preview` skill: where that skill is loadable (Claude with the agent-skills dir)
+  // the block is dropped, because a session only needs it if it starts a dev server — the exact
+  // shape progressive disclosure exists for. Codex, or an install without the dir, keeps it.
+  if (opts.previewHint && !skills)
+    blocks.push(taggedBlock("preview-hint-notice", PREVIEW_HINT_NOTICE));
+  // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
+  if (opts.draftMode) blocks.push(taggedBlock("draft-mode", DRAFT_PR_NOTE));
+  // Context-trim notice: only trimmed auto spawns (bundled + personal skills / plugins off).
+  if (opts.trimmed) blocks.push(taggedBlock("context-trim-notice", CONTEXT_TRIM_NOTICE));
+  // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
+  // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
+  // or null for "en" — omitted entirely then, so existing "en" callers stay byte-identical.
+  const languageBlock = operatorLanguageBlock(operatorLanguage);
+  if (languageBlock) blocks.push({ name: "operator-language", text: languageBlock });
+  return blocks;
+}
+
+/**
+ * The PR-oriented blocks a CODE spawn carries, in emission order. Extracted from
+ * composeSystemPromptBlocks to keep it under the complexity gate.
+ *
+ * `prBlocksResident` is false once BOTH #2002 mechanisms reach the spawn: the single-PR invariant
+ * and the manual-steps notice then ship as the `shepherd-pull-requests` skill plus the guard's
+ * PR_CREATE_CONTEXT injection at `gh pr create`. Both are required — skills alone would make the
+ * rules depend on the model choosing to load them; the guard alone would deliver the actionable
+ * core without the full text behind it.
+ *
+ * The epic-authoring notice (#1391) is NOT part of that pair: it answers a direct operator epic ask,
+ * no skill or hook replaced it, so it rides on `epicIntent` alone (callers gate on `!input.auto`).
+ */
+function codeSpawnBlocks(
+  agentProvider: AgentProvider,
+  autopilotActive: boolean,
+  epicIntent: boolean,
+  prBlocksResident: boolean,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (prBlocksResident) {
+    blocks.push(taggedBlock("single-pr-invariant", SINGLE_PR_INVARIANT));
+    // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
+    // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
+    // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
+    // gets it in the invisible system prompt, so it always rides; Codex delivers directives inline
+    // where they're visible to the operator, so — matching #1257's attended-Codex decision — the
+    // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
+    // attended Codex starts free of workflow guidance.
+    if (agentProvider !== "codex" || autopilotActive) {
+      blocks.push(taggedBlock("manual-steps-notice", MANUAL_STEPS_NOTICE));
+    }
+  }
+  if (epicIntent) blocks.push(taggedBlock("epic-authoring-notice", EPIC_AUTHORING_NOTICE));
+  return blocks;
+}
+
+/**
+ * The blocks whose residency depends on whether a DELIVERY MECHANISM reaches this spawn (issue
+ * #2002), in emission order. Extracted from composeSystemPromptBlocks for the same reason
+ * primaryDirectiveBlock and trailingBlocks were — to keep that function under the complexity gate.
+ *
+ * - branch-rename: pre-warns only where a background rename can actually land (see the notice).
+ * - worktree-stash (#1632) + tmpfs (#1862): global host/git invariants, now DENIED at the call site
+ *   by the PreToolUse guard (scripts/tool-guard.mjs) with the same explanation attached to the
+ *   refusal — strictly stronger than 2.2 KB of standing prose the model must hold all session, and
+ *   it also covers SUB-AGENT tool calls (verified), which the tmpfs notice could only ask the
+ *   top-level agent to restate by hand into each sub-agent's prompt. They stay resident wherever
+ *   the guard does not reach: every Codex spawn, and any Claude spawn with the guard killed
+ *   (SHEPHERD_TOOL_GUARD=0). Never both.
+ */
+function situationalBlocks(
+  agentProvider: AgentProvider,
+  guard: boolean,
+  branchRename: boolean,
+): PromptBlock[] {
+  const blocks: PromptBlock[] = [];
+  if (branchRename) blocks.push(taggedBlock("branch-rename-notice", BRANCH_RENAME_NOTICE));
+  if (!guard) {
+    blocks.push(taggedBlock("worktree-stash-notice", WORKTREE_STASH_NOTICE));
+    blocks.push(taggedBlock("tmpfs-worktree-notice", tmpfsWorktreeNotice(agentProvider)));
+  }
+  return blocks;
+}
+
+/** Options accepted by {@link composeSystemPromptBlocks} / {@link composeSystemPrompt}. Named so the
+ *  blocks form and the joined form can never drift in signature. */
+export interface ComposeSystemPromptOptions {
+  research?: boolean;
+  /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
+   *  When set it is the primary directive and suppresses the same blocks as `research`. */
+  epicAuthoring?: string | null;
+  /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
+   *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
+  landingRepair?: boolean;
+  planGate?: "interactive" | "auto";
+  buildQueue?: string | null;
+  previewHint?: boolean;
+  draftMode?: boolean;
+  trimmed?: boolean;
+  epicIntent?: boolean;
+  agentProvider?: AgentProvider;
+  operatorLanguage?: OperatorLanguage;
+  /** Whether a background branch rename can actually reach this spawn (issue #2002): isolated,
+   *  LLM naming on, and the heuristic name not already strong. Absent → false (no notice). */
+  branchRename?: boolean;
+  /** Whether the PreToolUse tool guard rides this spawn (issue #2002). Defaults to
+   *  `config.toolGuard`; a test can pin it. Codex forces it false — no hook mechanism there. */
+  toolGuard?: boolean;
+  /** Whether Shepherd's `--add-dir` agent skills are reachable (issue #2002). Defaults to
+   *  {@link agentSkillsAvailable}; Codex forces it false — no skill loading there. */
+  agentSkills?: boolean;
+}
+
+/**
+ * The assembled spawn prompt as its NAMED PARTS (issue #1999), in emission order.
+ *
+ * This is the composer proper; {@link composeSystemPrompt} is `joinPromptBlocks` over it and stays
+ * byte-identical to what it always returned. The parts exist so the spawn path can record a
+ * per-block byte/token breakdown (see `measurePromptBlocks`) — every deletion slice in the Claude-5
+ * context-engineering epic is scored against that number, and without it a regression is invisible.
+ * Each block's `name` is the XML tag wrapping it, and names are unique within one assembly.
+ *
+ * The joined result is passed via a single `--append-system-prompt` (the flag is last-wins, not
+ * repeatable, so all blocks must share one value).
+ *
+ * ── Per-family composition (issue #2002) ───────────────────────────────────────────────────────
+ * Situational text is delivered by a MECHANISM wherever one reaches the spawn, and stays resident
+ * wherever it does not. Both mechanisms are Claude Code features, so the split is per CLI FAMILY,
+ * not per model — Opus, Sonnet and Haiku 4.5 all run the same CLI and compose identically.
+ *
+ * Each row leaves the prompt only when ITS OWN mechanism is present — the rows do not share a
+ * gate, so "guard off" and "skills off" are different columns' worth of behaviour:
+ *
+ *   block                    │ leaves the prompt when │ delivered instead by  │ Codex
+ *   ─────────────────────────┼────────────────────────┼───────────────────────┼───────
+ *   worktree-stash-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   tmpfs-worktree-notice    │ guard                  │ PreToolUse deny       │ RESIDENT
+ *   single-pr-invariant      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT
+ *   manual-steps-notice      │ guard AND skills       │ skill + PR-time hook  │ RESIDENT (autopilot only)
+ *   preview-hint-notice      │ skills                 │ shepherd-preview skill│ RESIDENT (isolated)
+ *   branch-rename-notice     │ only when a rename can actually land (opts.branchRename)
+ *   engineering-posture      │ always-on core; think-before-coding → plan-gate directive,
+ *                            │ background-job hazard → the guard's BACKGROUND_CONTEXT
+ *
+ * Whenever a row's named mechanism is absent — its kill switch off, no skills dir, or Codex, which
+ * has neither — that block is RESIDENT. So `SHEPHERD_TOOL_GUARD=0` restores the hazard pair and the
+ * PR-time pair but NOT the preview hint, which the skill still covers.
+ *
+ * `opts.toolGuard` / `opts.agentSkills` default to the live `config.toolGuard` /
+ * {@link agentSkillsAvailable}, and a `codex` provider forces both false. A dropped block always
+ * requires the mechanism that replaces it to be present — never the other way round.
  *
  * House rules used to be prepended to the human prompt, which let standing guidance bleed
  * into the task on every spawn. They now live in the system prompt, each block XML-wrapped
@@ -1347,72 +1770,11 @@ export function operatorLanguageSteerSuffix(
  * planning; the agent only opens a PR later). `opts.trimmed`, when true, appends the context-trim
  * notice — set only for trimmed auto spawns (see trimDecision), orthogonal to everything else.
  */
-/**
- * The single highest-priority directive block for a spawn: research REPLACES the plan-gate and
- * autopilot directives; a plan gate REPLACES autopilot; otherwise autopilot rides when active.
- * Returns the ready-wrapped block, or null when none applies. Extracted from composeSystemPrompt to
- * keep that function under the complexity gate.
- */
-function primaryDirectiveBlock(
-  agentProvider: AgentProvider,
-  autopilotActive: boolean,
-  opts: {
-    research?: boolean;
-    epicAuthoring?: string | null;
-    landingRepair?: boolean;
-    planGate?: "interactive" | "auto";
-    operatorLanguage?: OperatorLanguage;
-  },
-): string | null {
-  // Epic authoring is the highest-priority directive when set: like research it replaces the
-  // plan-gate/autopilot directives (none fit a no-write EPIC-draft deliverable). The pre-baked
-  // directive string (endpoint + session id) is composed by composeDirectives, mirroring buildQueue.
-  if (opts.epicAuthoring) {
-    return `<epic-authoring-directive>\n${opts.epicAuthoring}\n</epic-authoring-directive>`;
-  }
-  if (opts.research) {
-    return `<research-directive>\n${researchDirective(agentProvider)}\n</research-directive>`;
-  }
-  // Landing repair (Task 5's drain-spawned CI-fix session) is the same priority tier as research:
-  // it replaces plan-gate/autopilot (its deliverable is a push, not a planned-then-implemented PR).
-  if (opts.landingRepair) {
-    return `<landing-repair-directive>\n${landingRepairDirective(agentProvider)}\n</landing-repair-directive>`;
-  }
-  if (opts.planGate) {
-    const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
-    const variant =
-      opts.planGate === "auto"
-        ? planGateDirectiveAuto(agentProvider, operatorLanguage)
-        : planGateDirectiveInteractive(agentProvider, operatorLanguage);
-    return `<plan-gate-directive>\n${variant}\n</plan-gate-directive>`;
-  }
-  if (autopilotActive) {
-    return `<autopilot-directive>\n${AUTOPILOT_DIRECTIVE}\n</autopilot-directive>`;
-  }
-  return null;
-}
-
-export function composeSystemPrompt(
+export function composeSystemPromptBlocks(
   houseRules: string | null,
   autopilotActive = false,
-  opts: {
-    research?: boolean;
-    /** Pre-baked epic-authoring directive text (endpoint + session id), or null/absent when off.
-     *  When set it is the primary directive and suppresses the same blocks as `research`. */
-    epicAuthoring?: string | null;
-    /** Epic-landing-PR repair task kind; absent/false → off. Suppresses the same blocks as
-     *  `research`/`epicAuthoring` — its deliverable is a push to the existing landing PR, no new PR. */
-    landingRepair?: boolean;
-    planGate?: "interactive" | "auto";
-    buildQueue?: string | null;
-    previewHint?: boolean;
-    draftMode?: boolean;
-    trimmed?: boolean;
-    epicIntent?: boolean;
-    agentProvider?: AgentProvider;
-    operatorLanguage?: OperatorLanguage;
-  } = {},
-): string {
+  opts: ComposeSystemPromptOptions = {},
+): PromptBlock[] {
   // Provider-adjust only the two blocks that name a Claude-only tool/capability (research's
   // "sub-agents", the interactive plan-gate's "AskUserQuestion"). Absent → "claude", so every
   // existing Claude caller is byte-identical.
@@ -1421,26 +1783,21 @@ export function composeSystemPrompt(
   // return null for "en"). The live value only ever arrives via composeDirectives passing
   // config.operatorLanguage in opts — never defaulted from config here.
   const operatorLanguage: OperatorLanguage = opts.operatorLanguage ?? "en";
-  const posture = `<engineering-posture>\n${ENGINEERING_POSTURE}\n</engineering-posture>`;
-  const untrustedBoundary = `<untrusted-content-boundary>\n${UNTRUSTED_CONTENT_DIRECTIVE}\n</untrusted-content-boundary>`;
-  const research = `<research-first-notice>\n${RESEARCH_FIRST_NOTICE}\n</research-first-notice>`;
-  const branchNotice = `<branch-rename-notice>\n${BRANCH_RENAME_NOTICE}\n</branch-rename-notice>`;
-  const blocks = houseRules
-    ? [posture, untrustedBoundary, research, houseRules, branchNotice]
-    : [posture, untrustedBoundary, research, branchNotice];
-  // Worktree git-stash safety (issue #1632): a global git-mechanism invariant (`refs/stash` is
-  // shared across all worktrees of a repo, so concurrent sessions collide), so it rides EVERY
-  // spawn unconditionally — including research and non-isolated sessions, whose shared-checkout
-  // `git stash` writes the same shared stack. Sibling of branchNotice, not part of the per-repo
-  // house-rules block.
-  blocks.push(`<worktree-stash-notice>\n${WORKTREE_STASH_NOTICE}\n</worktree-stash-notice>`);
-  // tmpfs inode safety (issue #1862): like the stash notice, a host-filesystem invariant rather
-  // than per-repo learned guidance, so it rides EVERY spawn unconditionally — including research
-  // and non-isolated sessions. Provider-varied wording only (see tmpfsWorktreeNotice); never
-  // suppressed, because an exhausted inode table bricks the session on any provider.
-  blocks.push(
-    `<tmpfs-worktree-notice>\n${tmpfsWorktreeNotice(agentProvider)}\n</tmpfs-worktree-notice>`,
-  );
+  // Per-family delivery (issue #2002). A block is dropped ONLY when the mechanism that replaces it
+  // actually reaches this spawn — the mechanisms are Claude-Code-only, so Codex keeps every block.
+  // Model tier is irrelevant here (Opus/Sonnet/Haiku all run the same CLI): the CLI decides.
+  const claudeFamily = agentProvider !== "codex";
+  const guard = claudeFamily && (opts.toolGuard ?? config.toolGuard);
+  const skills = claudeFamily && (opts.agentSkills ?? agentSkillsAvailable());
+  const posture = taggedBlock("engineering-posture", ENGINEERING_POSTURE);
+  const untrustedBoundary = taggedBlock("untrusted-content-boundary", UNTRUSTED_CONTENT_DIRECTIVE);
+  const research = taggedBlock("research-first-notice", RESEARCH_FIRST_NOTICE);
+  // House rules arrive ALREADY wrapped (renderHouseRulesBlock emits <shepherd-house-rules>…), so
+  // unlike the blocks around it this one is named without re-wrapping.
+  const blocks: PromptBlock[] = houseRules
+    ? [posture, untrustedBoundary, research, { name: "shepherd-house-rules", text: houseRules }]
+    : [posture, untrustedBoundary, research];
+  blocks.push(...situationalBlocks(agentProvider, guard, opts.branchRename === true));
   // One-session-one-PR invariant (issue #839): rides every code spawn, suppressed for a research
   // session (caps at one report-PR/issue), an epic-authoring session (issue #1507 — its
   // deliverable is the EPIC, no PR at all), and a landing-repair session (its deliverable is a push
@@ -1449,25 +1806,21 @@ export function composeSystemPrompt(
   // non-new-PR deliverable, so the PR-oriented blocks (single-PR invariant, manual-steps,
   // epic-intent notice, build-queue) are suppressed. One precomputed flag keeps the conditions
   // branch-light (complexity cap).
-  const nonCodeMode = [opts.research, opts.epicAuthoring, opts.landingRepair].some(Boolean);
+  const nonCodeMode = isNonCodeMode(opts);
+  // The PR-time pair (single-PR invariant + manual-steps) moved to the `shepherd-pull-requests`
+  // skill, with the guard's PR_CREATE_CONTEXT as the deterministic backstop at `gh pr create` —
+  // so BOTH mechanisms are required before they leave the prompt. Skills alone would make the
+  // rules depend on the model choosing to load them; the guard alone would deliver them without
+  // the full text behind it.
   if (!nonCodeMode) {
-    blocks.push(`<single-pr-invariant>\n${SINGLE_PR_INVARIANT}\n</single-pr-invariant>`);
-    // Manual-operator-steps notice (#1257): rides every code spawn, suppressed for research (which
-    // opens no code PR). Gives the Owed lens a live data source by telling the agent to declare
-    // manual steps via the carriers parseManualSteps reads. Provider divergence (TASK-413): Claude
-    // gets it in the invisible system prompt, so it always rides; Codex delivers directives inline
-    // where they're visible to the operator, so — matching #1257's attended-Codex decision — the
-    // PR/manual-steps text rides only on effective autopilot (autonomous, PR-bound runs), keeping
-    // attended Codex starts free of workflow guidance.
-    if (agentProvider !== "codex" || autopilotActive) {
-      blocks.push(`<manual-steps-notice>\n${MANUAL_STEPS_NOTICE}\n</manual-steps-notice>`);
-    }
-    // Epic-authoring notice (#1391): attended spawns whose prompt signals epic intent (callers
-    // gate on !input.auto — see composeDirectives). No per-provider gating: unlike the
-    // manual-steps notice, this block is directly relevant to the attended ask itself.
-    if (opts.epicIntent) {
-      blocks.push(`<epic-authoring-notice>\n${EPIC_AUTHORING_NOTICE}\n</epic-authoring-notice>`);
-    }
+    blocks.push(
+      ...codeSpawnBlocks(
+        agentProvider,
+        autopilotActive,
+        opts.epicIntent === true,
+        !(guard && skills),
+      ),
+    );
   }
   // Research is the highest-priority directive: it replaces BOTH the plan-gate and the autopilot
   // directive (none of those fit a report-PR/issue deliverable). See primaryDirectiveBlock.
@@ -1476,25 +1829,21 @@ export function composeSystemPrompt(
     operatorLanguage,
   });
   if (primary) blocks.push(primary);
-  // Build queue rides independently of the plan-gate/autopilot directive (orthogonal repo config),
-  // but a research OR epic-authoring session authors no queue — suppress it there too.
-  if (!nonCodeMode && opts.buildQueue != null)
-    blocks.push(`<build-queue>\n${opts.buildQueue}\n</build-queue>`);
-  // Preview hint rides last — isolated sessions only. Non-isolated sessions share the main repo dir
-  // and have no dedicated worktree, so the hint would be misleading there.
-  if (opts.previewHint) {
-    blocks.push(`<preview-hint-notice>\n${PREVIEW_HINT_NOTICE}\n</preview-hint-notice>`);
-  }
-  // Draft-mode block rides independently (orthogonal repo config; harmless during planning phase).
-  if (opts.draftMode) blocks.push(`<draft-mode>\n${DRAFT_PR_NOTE}\n</draft-mode>`);
-  // Context-trim notice: only trimmed auto spawns (skill catalog / slash commands / plugins off).
-  if (opts.trimmed) {
-    blocks.push(`<context-trim-notice>\n${CONTEXT_TRIM_NOTICE}\n</context-trim-notice>`);
-  }
-  // Operator-language directive rides LAST. operatorLanguageBlock returns the already-wrapped
-  // <operator-language>...</operator-language> string (unlike the blocks above, do NOT re-wrap it),
-  // or null for "en" — filtered out below so existing "en" callers stay byte-identical.
-  return [...blocks, operatorLanguageBlock(operatorLanguage)].filter(Boolean).join("\n\n");
+  blocks.push(...trailingBlocks(opts, nonCodeMode, operatorLanguage, skills));
+  return blocks;
+}
+
+/**
+ * The assembled spawn prompt as the single string that ships — `--append-system-prompt` for Claude,
+ * inline inside `<shepherd-directives>` for Codex. Byte-identical to what it has always returned;
+ * {@link composeSystemPromptBlocks} is the composer, this is the join.
+ */
+export function composeSystemPrompt(
+  houseRules: string | null,
+  autopilotActive = false,
+  opts: ComposeSystemPromptOptions = {},
+): string {
+  return joinPromptBlocks(composeSystemPromptBlocks(houseRules, autopilotActive, opts));
 }
 
 /**
@@ -1946,10 +2295,20 @@ export class SessionService {
     }
   }
 
-  /** trimDecision via the injected plugin-id seam (tests) or the real memoized read —
-   *  the one resolver both spawn sites (create + resume) go through. */
-  private trimFor(auto: boolean | undefined): ReturnType<typeof trimDecision> {
-    return trimDecision(auto ?? false, this.deps.pluginIds ?? installedPluginIds);
+  /** trimDecision via the injected plugin/skill seams (tests) or the real memoized reads —
+   *  the one resolver both spawn sites (create + resume) go through. `worktreePath` is the agent's
+   *  cwd, whose own `.claude/skills` the trim must not disable (issue #2001). */
+  private trimFor(
+    auto: boolean | undefined,
+    worktreePath: string,
+  ): ReturnType<typeof trimDecision> {
+    return trimDecision(
+      auto ?? false,
+      worktreePath,
+      this.deps.pluginIds ?? installedPluginIds,
+      this.deps.skillNames ?? ((dir) => readSkillNames(dir)),
+      this.deps.userSkills ?? (() => userSkillNames()),
+    );
   }
 
   /** Sandbox backend probe: injected seam (tests) or the real cached self-test. Checks
@@ -2235,6 +2594,10 @@ export class SessionService {
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
           ...apiKeyAuth.membraneFields,
+          // #2002: the PreToolUse guard script must exist INSIDE the membrane — the standing
+          // notices it replaces are dropped host-side, so a missing bind would leave a sandboxed
+          // session with neither. Empty when the guard is off.
+          agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
         }
       : ({} as MembraneInputs);
 
@@ -2430,6 +2793,27 @@ export class SessionService {
     if (spawnModel) argv.push("--model", spawnModel);
   }
 
+  /**
+   * Push `--mcp-config` for the session's own MCP endpoint (issue #2003) — the control plane the
+   * build-queue / epic-draft prose used to teach as `curl`. Pushed only when the session actually
+   * has tools (build queue on, or an epic-authoring session), so a plain session's argv and
+   * context surface are untouched.
+   *
+   * Claude-only, and it must ride BOTH the spawn and the Claude resume argv: `--mcp-config` is
+   * per-process, so a resumed/compacted session that didn't re-pass it would silently lose the
+   * tools mid-run. Codex keeps the prose directive (see buildQueueDirective) — its MCP wiring is
+   * a separate, unverified path.
+   */
+  private pushAgentMcpFlag(
+    argv: string[],
+    sessionId: string,
+    baseUrl: string,
+    caps: AgentCapabilities,
+  ): void {
+    if (!hasAgentTools(caps)) return;
+    argv.push("--mcp-config", agentMcpConfigArg(sessionId, baseUrl));
+  }
+
   private codexAuthMode(): CodexAuthMode {
     return this.deps.readCodexAuthMode?.() ?? readCodexAuthMode();
   }
@@ -2469,6 +2853,13 @@ export class SessionService {
    * Side effect: `recordInjectedHouseRules` writes the injected-learnings join rows. It now runs on
    * the Codex path too (intended — Codex sessions should participate in the learning lifecycle), so
    * this must be called EXACTLY ONCE per spawn.
+   *
+   * Second side effect (issue #1999): the assembled payload is measured block by block and recorded
+   * against the session. This is the only place it can be, and the only place it needs to be — both
+   * spawn builders funnel through here, so attended and drain, Claude and Codex are all covered by
+   * one write. The measurement is taken at ASSEMBLY, before `prepareSpawn` can refuse the spawn; a
+   * refused spawn therefore leaves a row for a session that never starts, which is honest (the
+   * payload WAS assembled) and invisible to the reads (they inner-join `sessions`).
    */
   private composeDirectives(args: {
     input: CreateSessionInput;
@@ -2488,7 +2879,7 @@ export class SessionService {
       ? buildQueueDirective({
           sessionId,
           baseUrl,
-          token: config.token,
+          agentProvider: args.agentProvider,
           // Never hand a plan-gated session an AUTO-executing build queue (TASK-413): during the
           // plan gate the deliverable is the approved plan, so the queue must stop-and-wait, not
           // drive straight into execution. This matters most for Codex, whose directives ride
@@ -2504,11 +2895,10 @@ export class SessionService {
       ? epicAuthoringDirective({
           sessionId,
           baseUrl,
-          token: config.token,
           agentProvider: args.agentProvider,
         })
       : null;
-    return composeSystemPrompt(houseRules, autopilotActive, {
+    const blocks = composeSystemPromptBlocks(houseRules, autopilotActive, {
       research: input.research,
       epicAuthoring,
       landingRepair: input.landingRepair,
@@ -2524,11 +2914,45 @@ export class SessionService {
       // operator epic ask, so nothing is lost.
       epicIntent: !input.auto && detectEpicIntent(input.prompt),
       agentProvider: args.agentProvider,
+      // #2002: warn about the background rename only where one can actually land — the same
+      // conditions scheduleRefine checks before starting the namer, plus a branch to rename.
+      branchRename:
+        isolated &&
+        config.llmNaming &&
+        !!this.deps.refineName &&
+        !isHeuristicNameStrong(input.prompt),
       // The ONE place the live config value enters — never defaulted at any module-level
       // constant (see PLAN_GATE_DIRECTIVE_INTERACTIVE/_AUTO, computed at import time with the
       // literal "en" default).
       operatorLanguage: config.operatorLanguage,
     });
+    this.recordPromptBudget(args.sessionId, args.agentProvider, blocks);
+    return joinPromptBlocks(blocks);
+  }
+
+  /** Persist the per-block accounting for one spawn's assembled prompt (issue #1999). Never lets a
+   *  measurement failure take down a spawn: this is an instrument, not a gate. */
+  private recordPromptBudget(
+    sessionId: string,
+    agentProvider: AgentProvider,
+    blocks: PromptBlock[],
+  ): void {
+    try {
+      const measured = measurePromptBlocks(blocks);
+      this.deps.store.putSessionPromptBudget({
+        sessionId,
+        // Claude takes the payload on --append-system-prompt; Codex has no such flag, so the same
+        // payload rides inline inside <shepherd-directives> (see buildCodexSpawnArgv).
+        delivery: agentProvider === "codex" ? "inline-prompt" : "append-system-prompt",
+        totalChars: measured.totalChars,
+        totalBytes: measured.totalBytes,
+        totalTokens: measured.totalTokens,
+        blocks: measured.blocks,
+        createdAt: Date.now(),
+      });
+    } catch (e) {
+      console.warn(`[prompt-budget] failed to record spawn prompt budget: ${String(e)}`);
+    }
   }
 
   private buildSpawnArgv(
@@ -2542,12 +2966,14 @@ export class SessionService {
     baseUrl: string,
   ): string[] {
     const repoConfig = this.deps.store.getRepoConfig(input.repoPath);
+    // `--add-dir` (#2002) rides FIRST, where the next token is always a flag: it is variadic and
+    // would swallow a following positional (the prompt) as another directory.
     const argv = [
       "claude",
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--session-id",
       claudeSessionId,
-      ...trim.extraFlags,
     ];
     argv.push(
       "--settings",
@@ -2556,6 +2982,15 @@ export class SessionService {
         hooks: { sessionId, baseUrl, token: config.token },
       }),
     );
+    // Capabilities come from the create inputs, not the store: `create` pre-generates the session
+    // id and builds this argv BEFORE the row exists, so a store read here would always say "none".
+    // The queue capability carries the SAME non-code-mode suppression composeSystemPromptBlocks
+    // applies to the `<build-queue>` block — otherwise a research / epic-authoring / landing-repair
+    // session would be handed queue tools its prompt never mentions.
+    this.pushAgentMcpFlag(argv, sessionId, baseUrl, {
+      buildQueue: repoConfig.buildQueueEnabled && !isNonCodeMode(input),
+      epicDraft: Boolean(input.epicAuthoring),
+    });
     argv.push(
       "--append-system-prompt",
       this.composeDirectives({
@@ -2652,16 +3087,19 @@ export class SessionService {
     const baseUrl = this.resolveSpawnBaseUrl(s.sandboxApplied ?? undefined, s.repoPath);
     const argv = [
       "claude",
+      // #2002: a resumed session keeps the skills its prompt no longer carries as text. First, for
+      // the same variadic reason as the spawn argv.
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--resume",
       s.claudeSessionId,
-      ...trim.extraFlags,
       "--settings",
       spawnSettingsOverlay({
         ...trim.overlayOpts,
         hooks: { sessionId: s.id, baseUrl, token: config.token },
       }),
     ];
+    this.pushAgentMcpFlag(argv, s.id, baseUrl, sessionCapabilities(this.deps, s.id));
     // Narrow #499 exception (#1624): re-pass ONLY the operator-language block on resume so a
     // compacted/resumed session keeps addressing the operator in their language. `null` for "en"
     // → nothing pushed, so the resume argv stays byte-identical for existing operators. Reads the
@@ -2943,7 +3381,7 @@ export class SessionService {
 
   private async resolveCreateLaunch(
     input: CreateSessionInput,
-    wt: { isolated: boolean },
+    wt: { isolated: boolean; worktreePath: string },
     promptArg: string,
     sessionId: string,
     claudeSessionId: string,
@@ -2979,7 +3417,7 @@ export class SessionService {
     // CLI-agnostic. See resolvePlanGateOn for the override + research semantics. Replacements can
     // pass a runtime override so a session that already left planning does not re-enter the gate.
     const planGateOn = opts.planGateOn ?? this.resolvePlanGateOn(spawnInput, repoConfig);
-    const trim = await this.trimFor(spawnInput.auto);
+    const trim = await this.trimFor(spawnInput.auto, wt.worktreePath);
     const profileOverride =
       agentProvider === "codex"
         ? "trusted"
@@ -3422,7 +3860,7 @@ export class SessionService {
         : composed.promptArg;
     const launch = await this.resolveCreateLaunch(
       input,
-      { isolated: s.isolated },
+      { isolated: s.isolated, worktreePath: s.worktreePath },
       promptArg,
       s.id,
       claudeSessionId,
@@ -3872,8 +4310,8 @@ export class SessionService {
     if (this.resumeRefusedByAutoGate(session)) return null;
 
     // Same trim as the fresh-spawn path (buildSpawnArgv) — a resumed auto session must
-    // keep the slim context, not silently regrow the skill catalog + plugin hooks.
-    const trim = await this.trimFor(session.auto);
+    // keep the slim context, not silently regrow the bundled/personal catalogs + plugin hooks.
+    const trim = await this.trimFor(session.auto, session.worktreePath);
     // Forced respawn over a live agent: close the stale husk tab first so it doesn't
     // leak alongside the fresh one. (No-op when the agent is already gone.)
     // PLUGIN NOTE (#1124): this teardown runs on a forced resume OR a non-forced Locus-B
@@ -4081,7 +4519,7 @@ export class SessionService {
       worktreeCreated = true;
     }
 
-    const trim = await this.trimFor(s.auto);
+    const trim = await this.trimFor(s.auto, s.worktreePath);
     const outcome = await this.prepareResumeSpawn(
       s,
       this.buildResumeArgv(s, provider, trim, codexSessionId),
@@ -4225,10 +4663,10 @@ export class SessionService {
    *
    * When the operator's message signals epic intent (composeEpicSteer), the epic-authoring notice is
    * appended ONCE per session so the epic-shape contract reaches the agent mid-session too. This is
-   * the agnostic complement to the spawn-time #1391 notice, which only fires on the spawn prompt: the
-   * `.claude/skills/shepherd-epic-authoring` skill is Claude-only (Codex never reads `.claude/skills/`)
-   * AND model-invoked (even Claude may not auto-pick it), so operator-facing guidance that must reach
-   * both providers belongs in an injected steer block, not a skill. See #1405.
+   * the provider-agnostic complement to the spawn-time #1391 notice, which only fires on the spawn
+   * prompt. Guidance that must reach both providers in any repo belongs in an injected steer block,
+   * not a Claude-only, model-invoked skill — which is why the skill restating it is gone (#2003).
+   * See #1405.
    *
    * The notice rides the PTY only — the recorded `reply` signal stores just the raw operator text
    * so the learnings distiller never mines Shepherd's own notice. The session is marked only on

@@ -13,7 +13,7 @@ lines), read by the systemd unit if present.
 | --- | --- | --- |
 | `SHEPHERD_PORT` | `7330` | HTTP/WS listen port |
 | `SHEPHERD_HOST` | `127.0.0.1` | Bind address; loopback-only by default (set `0.0.0.0` to expose all NICs) |
-| `SHEPHERD_AGENT_INGRESS_PORT` | `SHEPHERD_PORT + 1` (e.g. `7331`) | Pinned loopback port for the auth-exempt agent-ingress listener (agent hook callbacks). Stable so the URL baked into a live agent's `--settings` survives restarts/deploys; validated at startup against collisions with the main port, served port, or preview range. Set `0` for an ephemeral port (the pre-pinning behavior) |
+| `SHEPHERD_AGENT_INGRESS_PORT` | `SHEPHERD_PORT + 1` (e.g. `7331`) | Pinned loopback port for the auth-exempt agent-ingress listener (agent hook callbacks plus the agent control plane: the build-queue/epic-draft routes and the per-session MCP endpoint). Stable so the URL baked into a live agent's `--settings`/`--mcp-config` survives restarts/deploys; validated at startup against collisions with the main port, served port, or preview range. Set `0` for an ephemeral port (the pre-pinning behavior) |
 | `SHEPHERD_DB` | `~/.shepherd/shepherd.db` | SQLite session store path |
 | `SHEPHERD_BACKUP_DIR` | `~/.shepherd/backups` (next to the DB) | Destination dir for the automated hourly SQLite backups (Linux backup timer); see [Operating Shepherd](/operating/) |
 | `SHEPHERD_REPO_ROOT` | `~` (home) | Repos must live under this root (spawn is confined to it) |
@@ -30,7 +30,7 @@ lines), read by the systemd unit if present.
 | `SHEPHERD_PLUGINS_DIR` | `~/.shepherd/plugins` (next to the DB) | Directory scanned at boot for server-side plugins (private/out-of-repo extensions). Lives alongside the state DB so plugins survive `bun run update` and never leak into the public repo; a missing/empty dir loads nothing. See [Server-side plugins](https://github.com/erwins-enkel/shepherd/blob/main/docs/plugins.md) |
 | `SHEPHERD_SANDBOX_DEFAULT_PROFILE` | `trusted` | Default sandbox profile for every spawned agent (`trusted` / `standard` / `autonomous`) — see below |
 | `SHEPHERD_TRUST_ISSUE_AUTHORS` | `0` (off) | Opt-in escape hatch for the fail-closed author-trust gate on autonomous (`auto=true`) drain. Set `1` to treat issue authors as trusted on forges that can't supply a GitHub-style `authorAssociation` (non-GitHub — Gitea/local), where autonomous drain would otherwise be silently disabled. Does **not** relax the gate on GitHub, where author trust is verifiable — a GitHub miss or untrusted author still refuses. See the [Security](/reference/security/) page |
-| `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (skill catalog + optional plugins disabled per-spawn). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
+| `SHEPHERD_TRIM_AUTO_CONTEXT` | `true` | Trim the per-turn context of auto-spawned (drain) agents (optional plugins, bundled skills and your personal `~/.claude/skills` disabled per-spawn; the repo's own skills stay available). Interactive sessions untouched. Set `false`/`0`/`off` if drain quality regresses |
 | `SHEPHERD_USAGE_HOLD_ENABLED` | `true` | Queue newly submitted tasks instead of spawning them while account usage is high (auto-released as usage falls). Set `0`/`false` to always spawn immediately |
 | `SHEPHERD_USAGE_HOLD_PCT` | `80` | Hold threshold: when the higher of the 5-hour / weekly usage window reaches this percent, new tasks are held. Range `0`–`100` |
 | `SHEPHERD_USAGE_HOLD_AUTO_RELEASE` | `true` | When on, the ~30 s sweeper auto-starts held tasks once usage drops back below the threshold. Set `0`/`false` to keep held tasks queued until the operator starts (or discards) each one manually from the held-tasks popover. Turning the gate off entirely (`SHEPHERD_USAGE_HOLD_ENABLED=0`) still flushes everything regardless of this flag |
@@ -146,6 +146,21 @@ Two independent stages, each an env override on a code default:
 | --- | --- | --- |
 | `SHEPHERD_HOOKS_INGEST` | `1` (on) | Inject observe-only lifecycle hooks into spawned agents (ingest route, ring buffer/logging, sub-agent roster fan-out). No status consumption; additive + fail-open. Set `0` to disable entirely (kill switch) |
 | `SHEPHERD_HOOKS_SIGNALS` | `0` (off) | Set `1` to forward matched hook events into the poller's signal pipeline. Meaningful only when `SHEPHERD_HOOKS_INGEST` is also on |
+
+## Tool guard (PreToolUse deny)
+
+Separate from the ingest hooks above: a **local** `PreToolUse` hook on the `Bash` tool that
+**denies** two hazards at the call site instead of warning about them in every agent's standing
+prompt — a bare `git stash` (the stash stack is shared across worktrees) and a worktree-add or
+dependency install under a tmpfs root. The refusal carries the explanation, so the agent learns why
+only when it matters. It runs as a local `command` hook (not the fail-open HTTP ingest transport)
+so the deny still holds for unattended, sandboxed sessions, and it is bound into the bwrap membrane
+so it exists inside the sandbox too. Claude spawns only — Codex spawns have no such mechanism and
+keep the equivalent prompt notices resident.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `SHEPHERD_TOOL_GUARD` | `1` (on) | Inject the `PreToolUse` Bash guard into Claude spawns. Set `0` to disable (kill switch) — turning it off puts both hazard notices back into the composed system prompt, so no guidance is lost |
 
 ## Documentation automation (PR-gated doc agent)
 

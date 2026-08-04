@@ -22,6 +22,9 @@ import {
   readInstalledPluginIds,
   installedPluginIds,
   resetPluginIdsCacheForTests,
+  readSkillNames,
+  userSkillNames,
+  resetUserSkillNamesCacheForTests,
   MERGE_STALE_MS,
   TRAIN_TRACKER_MAX_MS,
   DRAFT_PR_NOTE,
@@ -33,7 +36,9 @@ import {
   detectEpicIntent,
   UntrustedIssueAuthorError,
 } from "../src/service";
+import { agentTools } from "../src/agent-control";
 import { operatorLanguageBlock } from "../src/operator-language";
+import { agentSkillsArgs } from "../src/agent-skills";
 import { WorktreeRestoreError } from "../src/worktree";
 import { HOUSE_RULES_TAG } from "../src/house-rules";
 import { config, parseKillSwitch, parseTrimAutoContext } from "../src/config";
@@ -90,6 +95,7 @@ test("createSession: names, makes worktree, starts herdr, persists", async () =>
   // pins a claude session id; no --model flag when model is null (claude's own default)
   expect(calls.start.argv).toEqual([
     "claude",
+    ...agentSkillsArgs(),
     "--dangerously-skip-permissions",
     "--session-id",
     s.claudeSessionId,
@@ -990,8 +996,12 @@ test("syncWorktreeBranch returns null on a detached HEAD (currentBranch null)", 
 
 test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai connector MCP", () => {
   const prev = config.remoteControlAtStartup;
+  const prevGuard = config.toolGuard;
   const connectorEnv = { ENABLE_CLAUDEAI_MCP_SERVERS: "false" };
   try {
+    // #2002 adds a `hooks.PreToolUse` entry by default; this test is about the pinned keys, and
+    // the guard has its own coverage below.
+    config.toolGuard = false;
     config.remoteControlAtStartup = false;
     expect(JSON.parse(spawnSettingsOverlay())).toEqual({
       remoteControlAtStartup: false,
@@ -1004,6 +1014,7 @@ test("spawnSettingsOverlay pins remoteControlAtStartup + disables claude.ai conn
     });
   } finally {
     config.remoteControlAtStartup = prev;
+    config.toolGuard = prevGuard;
   }
 });
 
@@ -1037,10 +1048,14 @@ test("spawnSettingsOverlay: subscription => byte-identical (no apiKeyHelper); ap
   }
 });
 
-test("spawnSettingsOverlay: hooksIngest off (default) => no hooks key, byte-identical to today", () => {
+test("spawnSettingsOverlay: hooksIngest off + guard off => no hooks key, byte-identical to today", () => {
   const prev = config.hooksIngest;
+  const prevGuard = config.toolGuard;
   try {
     config.hooksIngest = false;
+    // The `hooks` key is now shared: the #2002 guard owns PreToolUse, ingest owns the eight
+    // lifecycle events. It disappears entirely only when BOTH are off.
+    config.toolGuard = false;
     const hookOpts = { sessionId: "sess-1", baseUrl: "http://127.0.0.1:7330", token: "tok" };
     // even with opts.hooks supplied, the flag-off output is unchanged from no-opts.
     const withHooks = spawnSettingsOverlay({ hooks: hookOpts });
@@ -1048,6 +1063,7 @@ test("spawnSettingsOverlay: hooksIngest off (default) => no hooks key, byte-iden
     expect(withHooks).toBe(spawnSettingsOverlay());
   } finally {
     config.hooksIngest = prev;
+    config.toolGuard = prevGuard;
   }
 });
 
@@ -1062,16 +1078,20 @@ test("spawnSettingsOverlay: hooksIngest on + token => all 8 lifecycle events (in
         hooks: { sessionId: "sess-42", baseUrl: "http://127.0.0.1:7330", token: config.token },
       }),
     );
+    // #2002: the local guard shares the `hooks` object, owning PreToolUse and nothing else — the
+    // eight HTTP lifecycle events must survive that merge untouched.
     expect(Object.keys(parsed.hooks).sort()).toEqual([
       "Notification",
       "PostToolUse",
       "PostToolUseFailure",
+      "PreToolUse",
       "SessionEnd",
       "SessionStart",
       "Stop",
       "SubagentStart",
       "SubagentStop",
     ]);
+    expect(parsed.hooks.PreToolUse[0].hooks[0].type).toBe("command");
     for (const event of [
       "PostToolUse",
       "PostToolUseFailure",
@@ -1408,6 +1428,7 @@ test("createSession: passes --model and persists it when a model is chosen", asy
   expect(s.model).toBe("opus");
   expect(calls.argv).toEqual([
     "claude",
+    ...agentSkillsArgs(),
     "--dangerously-skip-permissions",
     "--session-id",
     s.claudeSessionId,
@@ -2738,6 +2759,7 @@ test("resume respawns claude --resume in the worktree and re-points the agent", 
   expect(calls.start.cwd).toBe("/wt/x");
   expect(calls.start.argv).toEqual([
     "claude",
+    ...agentSkillsArgs(),
     "--dangerously-skip-permissions",
     "--resume",
     "abc-123",
@@ -2774,6 +2796,7 @@ test("resume omits --model when the session had none", async () => {
   await svc.resume(s.id);
   expect(calls.argv).toEqual([
     "claude",
+    ...agentSkillsArgs(),
     "--dangerously-skip-permissions",
     "--resume",
     "abc-123",
@@ -2815,6 +2838,7 @@ test("resume re-appends ONLY the operator-language block when operatorLanguage=d
     const block = operatorLanguageBlock("de")!;
     expect(calls.argv).toEqual([
       "claude",
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--resume",
       "abc-123",
@@ -2934,6 +2958,7 @@ test("resume re-emits the persisted --effort for a Claude session", async () => 
   await svc.resume(s.id);
   expect(calls.argv).toEqual([
     "claude",
+    ...agentSkillsArgs(),
     "--dangerously-skip-permissions",
     "--resume",
     "abc-123",
@@ -4462,7 +4487,10 @@ test("composeSystemPrompt adds the autopilot directive only when active", () => 
   // #1812 finding G: diff-scoped self-review before the PR (NOT "improve the code" → no scope creep)
   expect(on).toContain("self-review the diff");
   expect(on).toContain("do not expand scope");
-  expect(on).toContain("<branch-rename-notice>"); // still present alongside
+  // #2002: the branch-rename notice rides only where a rename can land, so it is opt-gated now.
+  expect(composeSystemPrompt(null, true, { branchRename: true })).toContain(
+    "<branch-rename-notice>",
+  );
 });
 
 test("create seeds the autopilot directive when the repo has autopilot on", async () => {
@@ -4567,14 +4595,17 @@ test("composeSystemPrompt always injects the engineering-posture block, with or 
   for (const sp of [withoutRules, withRules]) {
     expect(sp).toContain("<engineering-posture>");
     expect(sp).toContain("</engineering-posture>");
-    // The four Karpathy principles, by their distinguishing wording.
-    expect(sp).toContain("Think before coding");
+    // The always-on core, by its distinguishing wording.
     expect(sp).toContain("Simplicity first");
     expect(sp).toContain("Surgical changes");
     expect(sp).toContain("Goal-driven execution");
-    // Branch-rename notice still rides alongside.
-    expect(sp).toContain("<branch-rename-notice>");
+    // #2002 re-homed the two situational clauses: "think before coding" is pre-execution, so it
+    // belongs to the plan gate, and the detached-job hazard is delivered by the PreToolUse guard.
+    expect(sp).not.toContain("Think before coding");
+    expect(sp).not.toContain("Ephemeral scaffolding");
   }
+  for (const variant of ["interactive", "auto"] as const)
+    expect(composeSystemPrompt(null, true, { planGate: variant })).toContain("Think before coding");
   // Repo house rules still appear when present, distinct from posture.
   expect(withRules).toContain(`<${HOUSE_RULES_TAG}>`);
   expect(withoutRules).not.toContain(`<${HOUSE_RULES_TAG}>`);
@@ -4617,13 +4648,19 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
   // Issue #839: one session → one tracked PR. The block must ride every CODE spawn (with/without
   // house rules, autopilot on, plan-gate variants) but be suppressed for a research session, which
   // already caps at one report-PR / issue.
+  // #2002: since the invariant also ships as the `shepherd-pull-requests` skill plus the guard's
+  // PR-time injection, it is RESIDENT only where those cannot reach — Codex, or a guard-off
+  // install. That is what `toolGuard: false` pins here; the per-family matrix in
+  // test/prompt-budget.test.ts pins the other side.
   const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
+  const noMech = { toolGuard: false } as const;
   const codeSpawns = [
-    composeSystemPrompt(null),
-    composeSystemPrompt(withRules),
-    composeSystemPrompt(null, true),
-    composeSystemPrompt(null, true, { planGate: "interactive" }),
-    composeSystemPrompt(null, true, { planGate: "auto" }),
+    composeSystemPrompt(null, false, noMech),
+    composeSystemPrompt(withRules, false, noMech),
+    composeSystemPrompt(null, true, noMech),
+    composeSystemPrompt(null, true, { ...noMech, planGate: "interactive" }),
+    composeSystemPrompt(null, true, { ...noMech, planGate: "auto" }),
+    composeSystemPrompt(null, true, { agentProvider: "codex" }),
   ];
   for (const sp of codeSpawns) {
     // Anchor on the STABLE tag + DURABLE phrasing (not incidental wording like "always-safe default").
@@ -4642,11 +4679,11 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
     expect(sp).toContain("an `[EPIC]` title prefix");
   }
   // Suppressed for a research deliverable.
-  expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
+  expect(composeSystemPrompt(null, false, { ...noMech, research: true })).not.toContain(
     "<single-pr-invariant>",
   );
   // Suppressed for a landing-repair deliverable (#1667-derivative): push-only, no PR to invariant-check.
-  expect(composeSystemPrompt(null, false, { landingRepair: true })).not.toContain(
+  expect(composeSystemPrompt(null, false, { ...noMech, landingRepair: true })).not.toContain(
     "<single-pr-invariant>",
   );
 });
@@ -4654,13 +4691,15 @@ test("composeSystemPrompt rides the single-PR invariant on code spawns, never on
 test("composeSystemPrompt rides the manual-steps notice on code spawns, never on research", () => {
   // #1257: the notice gives the Owed lens a live data source. Same gate as the single-PR invariant —
   // every CODE spawn, suppressed only for research (which opens no code PR).
+  // #2002: resident only where the skill + PR-time injection cannot reach — see the single-PR test.
   const withRules = `<${HOUSE_RULES_TAG}>\nintro\n- Use bun\n</${HOUSE_RULES_TAG}>`;
+  const noMech = { toolGuard: false } as const;
   const codeSpawns = [
-    composeSystemPrompt(null),
-    composeSystemPrompt(withRules),
-    composeSystemPrompt(null, true),
-    composeSystemPrompt(null, true, { planGate: "interactive" }),
-    composeSystemPrompt(null, true, { planGate: "auto" }),
+    composeSystemPrompt(null, false, noMech),
+    composeSystemPrompt(withRules, false, noMech),
+    composeSystemPrompt(null, true, noMech),
+    composeSystemPrompt(null, true, { ...noMech, planGate: "interactive" }),
+    composeSystemPrompt(null, true, { ...noMech, planGate: "auto" }),
   ];
   for (const sp of codeSpawns) {
     expect(sp).toContain("<manual-steps-notice>");
@@ -4669,11 +4708,11 @@ test("composeSystemPrompt rides the manual-steps notice on code spawns, never on
     expect(sp).toContain("```shepherd:manual-steps");
     expect(sp).toContain("DEFAULT TO DECLARING NOTHING");
   }
-  expect(composeSystemPrompt(null, false, { research: true })).not.toContain(
+  expect(composeSystemPrompt(null, false, { ...noMech, research: true })).not.toContain(
     "<manual-steps-notice>",
   );
   // Landing repair opens no code PR either — suppressed, same as research.
-  expect(composeSystemPrompt(null, false, { landingRepair: true })).not.toContain(
+  expect(composeSystemPrompt(null, false, { ...noMech, landingRepair: true })).not.toContain(
     "<manual-steps-notice>",
   );
 });
@@ -4745,8 +4784,10 @@ test("create: epic-intent prompt injects the notice on attended spawns, never on
     auto: true,
   });
   expect(sysPrompt(auto.argv!)).not.toContain("<epic-authoring-notice>");
-  // The invariant (and its embedded contract) still rides the auto spawn — only the notice gates.
-  expect(sysPrompt(auto.argv!)).toContain("<single-pr-invariant>");
+  // #2002: the invariant itself now reaches a Claude spawn as the `shepherd-pull-requests` skill
+  // plus the guard's PR-time injection, so what this asserts is the GATE — the epic notice is
+  // attended-only — not the invariant's residency.
+  expect(sysPrompt(auto.argv!)).not.toContain("<epic-authoring-notice>");
 });
 
 test("resume adopts a live agent found by cwd under a new terminalId — no duplicate spawn", async () => {
@@ -5244,12 +5285,31 @@ test("composeSystemPrompt omits <build-queue> block when null (1-arg backward co
   expect(composeSystemPrompt(null, true)).not.toContain("<build-queue>");
 });
 
-test("buildQueueDirective states the ordered contract that forward-fill relies on", () => {
+test("buildQueueDirective (Claude) names the tools and drops the curl tutorial (#2003)", () => {
   const d = buildQueueDirective({
     sessionId: "sess-1",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     autopilot: true,
+    agentProvider: "claude",
+  });
+  // The tools carry the mechanics; the block only says the queue exists and how it is gated.
+  expect(d).toContain("queue_write");
+  expect(d).toContain("queue_step");
+  expect(d).toContain("immediately begin executing");
+  // What the tool signatures now carry is GONE from the prompt.
+  expect(d).not.toContain("curl");
+  expect(d).not.toContain("/api/sessions/sess-1/queue");
+  expect(d).not.toMatch(/stored verbatim and never regenerated/);
+  // …and the whole point: it is a fraction of the size it was (3,443 chars pre-#2003).
+  expect(d.length).toBeLessThan(800);
+});
+
+test("buildQueueDirective (Codex) keeps the HTTP prose — the stated provider gap (#2003)", () => {
+  const d = buildQueueDirective({
+    sessionId: "sess-1",
+    baseUrl: "http://127.0.0.1:7330",
+    autopilot: true,
+    agentProvider: "codex",
   });
   // The ordered contract + server auto-completion of earlier steps.
   expect(d).toContain("IN ORDER");
@@ -5258,23 +5318,27 @@ test("buildQueueDirective states the ordered contract that forward-fill relies o
   expect(d).toContain("never batch the updates at the end");
   // The reconcile-reminder heads-up.
   expect(d).toMatch(/reminder to reconcile/);
-});
-
-test("buildQueueDirective makes assign-and-resend-your-own-ids the primary id rule", () => {
-  const d = buildQueueDirective({
-    sessionId: "sess-1",
-    baseUrl: "http://127.0.0.1:7330",
-    token: null,
-    autopilot: true,
-  });
   // Primary instruction: agent owns short stable ids and resends them.
   expect(d).toMatch(/short, stable `id`/);
   expect(d).toMatch(/ALWAYS resend a step with the SAME `id`/);
   expect(d).toContain('"id":"s1"');
-  // Verbatim-stored, never regenerated.
   expect(d).toMatch(/stored verbatim and never regenerated/);
-  // re-GET is demoted to a fallback, not an equal option.
   expect(d).toMatch(/Fallback only if you didn't/);
+  expect(d).toContain("http://127.0.0.1:7330/api/sessions/sess-1/queue");
+});
+
+test("buildQueueDirective carries NO bearer token on EITHER provider (#2003)", () => {
+  for (const agentProvider of ["claude", "codex"] as const) {
+    const d = buildQueueDirective({
+      sessionId: "sess-1",
+      baseUrl: "http://127.0.0.1:7330",
+      autopilot: false,
+      agentProvider,
+    });
+    // The agent-ingress listener is auth-exempt, so the header authenticated nothing while
+    // persisting Shepherd's control-plane secret into the agent transcript.
+    expect(d).not.toMatch(/Authorization|Bearer/i);
+  }
 });
 
 test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () => {
@@ -5286,7 +5350,7 @@ test("composeSystemPrompt places <build-queue> after <autopilot-directive>", () 
 });
 
 test("composeSystemPrompt places <build-queue> after branch-rename-notice (no autopilot)", () => {
-  const sp = composeSystemPrompt(null, false, { buildQueue: "bq-text" });
+  const sp = composeSystemPrompt(null, false, { buildQueue: "bq-text", branchRename: true });
   const branchPos = sp.indexOf("<branch-rename-notice>");
   const bqPos = sp.indexOf("<build-queue>");
   expect(branchPos).toBeGreaterThan(-1);
@@ -5300,15 +5364,21 @@ test("composeSystemPrompt omits <preview-hint-notice> when previewHint is unset/
   expect(composeSystemPrompt(null, true)).not.toContain("<preview-hint-notice>");
 });
 
+// #2002: the hint is the `shepherd-preview` skill wherever that is loadable, so these three
+// residency/ordering tests pin the fallback shape — Codex, or an install without the skills dir.
 test("composeSystemPrompt includes <preview-hint-notice> when previewHint is true", () => {
-  const sp = composeSystemPrompt(null, false, { previewHint: true });
+  const sp = composeSystemPrompt(null, false, { previewHint: true, agentSkills: false });
   expect(sp).toContain("<preview-hint-notice>");
   expect(sp).toContain(".shepherd-preview");
   expect(sp).toContain("</preview-hint-notice>");
 });
 
 test("composeSystemPrompt places <preview-hint-notice> after <build-queue> when both present", () => {
-  const sp = composeSystemPrompt(null, true, { buildQueue: "bq-text", previewHint: true });
+  const sp = composeSystemPrompt(null, true, {
+    buildQueue: "bq-text",
+    previewHint: true,
+    agentSkills: false,
+  });
   const bqPos = sp.indexOf("<build-queue>");
   const phPos = sp.indexOf("<preview-hint-notice>");
   expect(bqPos).toBeGreaterThan(-1);
@@ -5316,7 +5386,11 @@ test("composeSystemPrompt places <preview-hint-notice> after <build-queue> when 
 });
 
 test("composeSystemPrompt places <preview-hint-notice> after <branch-rename-notice> when no build-queue", () => {
-  const sp = composeSystemPrompt(null, false, { previewHint: true });
+  const sp = composeSystemPrompt(null, false, {
+    previewHint: true,
+    agentSkills: false,
+    branchRename: true,
+  });
   const branchPos = sp.indexOf("<branch-rename-notice>");
   const phPos = sp.indexOf("<preview-hint-notice>");
   expect(branchPos).toBeGreaterThan(-1);
@@ -5339,7 +5413,10 @@ test("PREVIEW_SETUP_STEER tells reusable scripts to write the hint in the runtim
   expect(steer).not.toContain("/wt/setup/.shepherd-preview");
 });
 
-test("isolated spawn argv carries <preview-hint-notice> in system prompt", async () => {
+test("isolated spawn delivers the preview hint as a skill, not as prompt text", async () => {
+  // #2002: the notice moved into `shepherd-preview`, reached via `--add-dir`. The isolated/
+  // non-isolated distinction it used to encode still holds inside composeSystemPromptBlocks
+  // (previewHint), and the sibling test below still pins the non-isolated case.
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(injectDeps(store, captured) as any);
@@ -5350,7 +5427,8 @@ test("isolated spawn argv carries <preview-hint-notice> in system prompt", async
     model: null,
     images: [],
   });
-  expect(sysPrompt(captured.argv!)).toContain("<preview-hint-notice>");
+  expect(sysPrompt(captured.argv!)).not.toContain("<preview-hint-notice>");
+  expect(captured.argv!.slice(0, 3)).toEqual(["claude", ...agentSkillsArgs()]);
 });
 
 test("non-isolated spawn argv does NOT carry <preview-hint-notice> in system prompt", async () => {
@@ -5443,7 +5521,7 @@ test("create with buildQueueEnabled=true: system prompt contains <build-queue> b
   expect(sp).toContain("</build-queue>");
 });
 
-test("create with buildQueueEnabled=true: system prompt contains the real session id and queue endpoint", async () => {
+test("create with buildQueueEnabled=true: --mcp-config points at the session's own endpoint, and the queue URL leaves the prompt (#2003)", async () => {
   const store = new SessionStore(":memory:");
   const captured: { argv?: string[] } = {};
   const svc = new SessionService(
@@ -5456,8 +5534,141 @@ test("create with buildQueueEnabled=true: system prompt contains the real sessio
     model: null,
     images: [],
   });
+  const argv = captured.argv!;
+  const i = argv.indexOf("--mcp-config");
+  expect(i).toBeGreaterThan(-1);
+  expect(JSON.parse(argv[i + 1]!)).toEqual({
+    mcpServers: {
+      shepherd: { type: "http", url: `http://127.0.0.1:7330/api/sessions/${s.id}/mcp` },
+    },
+  });
+  // The control plane is a tool now: the prompt no longer teaches the HTTP call.
+  const sp = sysPrompt(argv);
+  expect(sp).toContain("<build-queue>");
+  expect(sp).not.toContain(`/api/sessions/${s.id}/queue`);
+});
+
+test("create research in a buildQueueEnabled repo: no queue tools — the same suppression <build-queue> gets (#2003)", async () => {
+  // The spawn path can't read the session row (the id is pre-generated), so the non-code-mode gate
+  // has to come off the create INPUTS. Without it a research session would be handed queue_write
+  // ("write your plan first") while its prompt block — and its curation gate — were suppressed.
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "research it",
+    model: null,
+    images: [],
+    research: true,
+  });
   const sp = sysPrompt(captured.argv!);
-  expect(sp).toContain(`/api/sessions/${s.id}/queue`);
+  expect(sp).not.toContain("<build-queue>");
+  expect(captured.argv).not.toContain("--mcp-config");
+});
+
+test("create epic-authoring in a buildQueueEnabled repo: epic_draft only, no queue tools (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: true }) as any,
+  );
+  const s = await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "shape an epic",
+    model: null,
+    images: [],
+    epicAuthoring: true,
+  });
+  // The MCP server IS wired (the draft tool needs it) …
+  expect(captured.argv).toContain("--mcp-config");
+  // … but the catalog it serves carries no queue tools, matching the suppressed prompt block.
+  expect(sysPrompt(captured.argv!)).not.toContain("<build-queue>");
+  expect(agentTools({ store }, s.id).map((t) => t.name)).toEqual(["epic_draft"]);
+});
+
+test("resume of a research session re-passes no queue tools either (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), buildQueueEnabled: true });
+  const s = resumable(store, { model: null, research: true });
+
+  await svc.resume(s.id);
+  expect(calls.argv).not.toContain("--mcp-config");
+});
+
+test("create with buildQueueEnabled=false: no --mcp-config — a session with no control plane pays nothing (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const captured: { argv?: string[] } = {};
+  const svc = new SessionService(
+    buildQueueDeps(store, captured, { buildQueueEnabled: false }) as any,
+  );
+  await svc.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "do it",
+    model: null,
+    images: [],
+  });
+  expect(captured.argv).not.toContain("--mcp-config");
+});
+
+test("resume re-passes --mcp-config so a compacted session keeps its tools (#2003)", async () => {
+  const store = new SessionStore(":memory:");
+  const calls: any = {};
+  const svc = new SessionService({
+    store,
+    namer: async () => "x",
+    worktree: {
+      create: () => ({}) as any,
+      ensureBaseRef: async () => {},
+      remove: () => {},
+      branchExists: () => false,
+    } as any,
+    herdr: {
+      start: async (_n: string, _c: string, argv: string[]) => {
+        calls.argv = argv;
+        return { terminalId: "term_new", agentStatus: "working" } as any;
+      },
+      list: () => [],
+      stop: async () => {},
+      send: () => {},
+    } as any,
+  });
+  store.setRepoConfig("/r", { ...store.getRepoConfig("/r"), buildQueueEnabled: true });
+  const s = resumable(store, { model: null });
+
+  await svc.resume(s.id);
+  const i = (calls.argv as string[]).indexOf("--mcp-config");
+  expect(i).toBeGreaterThan(-1);
+  expect(JSON.parse(calls.argv[i + 1])).toEqual({
+    mcpServers: {
+      shepherd: { type: "http", url: `http://127.0.0.1:7330/api/sessions/${s.id}/mcp` },
+    },
+  });
 });
 
 test("create with buildQueueEnabled=false: system prompt has no <build-queue> block", async () => {
@@ -5940,6 +6151,19 @@ test("spawnSettingsOverlay: disablePlugins ids map to false; absent/empty omits 
   expect(spawnSettingsOverlay()).not.toContain("enabledPlugins");
 });
 
+test("spawnSettingsOverlay: disableSkills → bundled off + name overrides; empty still hides bundled (#2001)", () => {
+  const withSkills = JSON.parse(spawnSettingsOverlay({ disableSkills: ["tdd", "obsidian-vault"] }));
+  expect(withSkills.disableBundledSkills).toBe(true);
+  expect(withSkills.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
+  // present-but-empty (no personal skills installed) still drops Claude Code's bundled catalog
+  const empty = JSON.parse(spawnSettingsOverlay({ disableSkills: [] }));
+  expect(empty.disableBundledSkills).toBe(true);
+  expect(empty.skillOverrides).toBeUndefined();
+  // absent → byte-identical to the no-opts overlay (both keys omitted)
+  expect(spawnSettingsOverlay()).not.toContain("disableBundledSkills");
+  expect(spawnSettingsOverlay()).not.toContain("skillOverrides");
+});
+
 test("readInstalledPluginIds: enabledPlugins keys; [] on no key; null on read/parse error", async () => {
   const ids = await readInstalledPluginIds(async () =>
     JSON.stringify({ enabledPlugins: { "x@r": true, "y@r": false } }),
@@ -5978,17 +6202,103 @@ test("installedPluginIds: errors resolve [] but are NOT cached; successes are", 
   expect(reads).toBe(1); // success memoized for the process lifetime
 });
 
-/** injectDeps + an injected pluginIds seam, counting how often it's consulted. */
-function trimDeps(store: SessionStore, captured: { argv?: string[] }, pluginIds: string[]) {
+const enoent = () => Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+
+test("readSkillNames: front-matter name wins over the directory; entry is only the fallback (#2001)", async () => {
+  const files: Record<string, string> = {
+    "/skills/renamed/SKILL.md": "---\nname: actual-name\ndescription: x\n---\nbody",
+    "/skills/plain/SKILL.md": "no front-matter here",
+    "/skills/quoted/SKILL.md": '---\nname: "quoted-name"\n---\n',
+    "/skills/blank-name/SKILL.md": "---\nname:   \n---\n",
+  };
+  const names = await readSkillNames("/skills", {
+    readdir: async () => ["renamed", "plain", "quoted", "blank-name", "not-a-skill"],
+    read: async (p) => {
+      const text = files[p];
+      if (text === undefined) throw enoent();
+      return text;
+    },
+  });
+  // symlinked/renamed skills resolve to what Claude Code calls them, not their directory
+  expect(names).toEqual(["actual-name", "plain", "quoted-name", "blank-name"]);
+});
+
+test("readSkillNames: missing root → [], other listing errors → null (#2001)", async () => {
+  expect(
+    await readSkillNames("/nope", {
+      readdir: async () => {
+        throw enoent();
+      },
+    }),
+  ).toEqual([]);
+  expect(
+    await readSkillNames("/boom", {
+      readdir: async () => {
+        throw Object.assign(new Error("EACCES"), { code: "EACCES" });
+      },
+    }),
+  ).toBeNull();
+});
+
+test("userSkillNames: errors resolve [] but are NOT cached; successes are (#2001)", async () => {
+  resetUserSkillNamesCacheForTests(); // module-level + process-lifetime, like installedPluginIds
+  let listings = 0;
+  const throwing = {
+    readdir: async () => {
+      listings++;
+      throw new Error("EIO");
+    },
+  };
+  expect(await userSkillNames(throwing)).toEqual([]); // caller still proceeds
+  expect(await userSkillNames(throwing)).toEqual([]); // retried, not poisoned
+  expect(listings).toBe(2);
+  let reads = 0;
+  const ok = {
+    readdir: async () => {
+      reads++;
+      return ["tdd"];
+    },
+    read: async () => "---\nname: tdd\n---\n",
+  };
+  expect(await userSkillNames(ok)).toEqual(["tdd"]);
+  expect(await userSkillNames(ok)).toEqual(["tdd"]);
+  expect(reads).toBe(1); // success memoized for the process lifetime
+  resetUserSkillNamesCacheForTests(); // don't leak this fake into later spawns
+});
+
+/** injectDeps + injected pluginIds/skill seams, counting how often each is consulted.
+ *  `projectSkills` is what the session repo's own `.claude/skills` resolves to (null = unreadable). */
+function trimDeps(
+  store: SessionStore,
+  captured: { argv?: string[] },
+  pluginIds: string[],
+  userSkills: string[] = [],
+  projectSkills: string[] | null = [],
+) {
   let pluginIdReads = 0;
+  let skillReads = 0;
+  const skillDirs: string[] = [];
   const deps = {
     ...injectDeps(store, captured),
     pluginIds: async () => {
       pluginIdReads++;
       return pluginIds;
     },
+    skillNames: async (dir: string) => {
+      skillDirs.push(dir);
+      return projectSkills;
+    },
+    userSkills: async () => {
+      skillReads++;
+      return userSkills;
+    },
   };
-  return { deps, pluginIdReads: () => pluginIdReads };
+  return {
+    deps,
+    pluginIdReads: () => pluginIdReads,
+    skillReads: () => skillReads,
+    skillDirs: () => skillDirs,
+  };
 }
 
 /** The parsed JSON of the argv's --settings payload. */
@@ -5996,13 +6306,19 @@ function settingsOverlay(argv: string[]): any {
   return JSON.parse(argv[argv.indexOf("--settings") + 1]!);
 }
 
-test("auto spawn (trim on): --disable-slash-commands + plugin-off overlay + trim notice", async () => {
+test("auto spawn (trim on): plugin/bundled/personal skills off, repo skills kept, trim notice (#2001)", async () => {
   const prev = config.trimAutoContext;
   try {
     config.trimAutoContext = true;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps } = trimDeps(store, captured, ["superpowers@sp", "context7@c7"]);
+    const { deps, skillDirs } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp", "context7@c7"],
+      ["tdd", "obsidian-vault", "merge-train"],
+      ["merge-train"], // the checkout ships its own skill of that name
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6013,16 +6329,46 @@ test("auto spawn (trim on): --disable-slash-commands + plugin-off overlay + trim
       auto: true,
     });
     const argv = captured.argv!;
-    expect(argv).toContain("--disable-slash-commands");
+    // the loading MECHANISM stays: progressive disclosure is the point of the trim's re-decision
+    expect(argv).not.toContain("--disable-slash-commands");
     expect(argv.at(-1)).toBe("drain it"); // prompt stays the final positional
+    const overlay = settingsOverlay(argv);
     // every injected plugin id is force-disabled in the per-spawn settings overlay
-    expect(settingsOverlay(argv).enabledPlugins).toEqual({
-      "superpowers@sp": false,
-      "context7@c7": false,
-    });
+    expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false, "context7@c7": false });
+    expect(overlay.disableBundledSkills).toBe(true);
+    // personal skills off — EXCEPT the name the checkout defines itself, which must stay loadable
+    expect(overlay.skillOverrides).toEqual({ tdd: "off", "obsidian-vault": "off" });
+    // enumerated at the agent's cwd (the WORKTREE), not the repo root: a skill added on this
+    // branch exists only there, and missing it would disable a same-named personal skill over it
+    expect(skillDirs()).toEqual([join("/wt/repo-task", ".claude", "skills")]);
     const sp = sysPrompt(argv);
     expect(sp).toContain("<context-trim-notice>");
-    expect(sp).toContain("The Skill tool and slash commands are unavailable");
+    expect(sp).toContain("The Skill tool IS available");
+  } finally {
+    config.trimAutoContext = prev;
+  }
+});
+
+test("auto spawn (trim on): unreadable repo skills → no overrides at all (fail-safe, #2001)", async () => {
+  const prev = config.trimAutoContext;
+  try {
+    config.trimAutoContext = true;
+    const store = new SessionStore(":memory:");
+    const captured: { argv?: string[] } = {};
+    const { deps } = trimDeps(store, captured, [], ["tdd"], null); // listing the repo's skills threw
+    const svc = new SessionService(deps as any);
+    await svc.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "drain it",
+      model: null,
+      images: [],
+      auto: true,
+    });
+    const overlay = settingsOverlay(captured.argv!);
+    // paying for the operator's catalog beats silently disabling a repo skill we couldn't enumerate
+    expect(overlay.skillOverrides).toBeUndefined();
+    expect(overlay.disableBundledSkills).toBe(true);
   } finally {
     config.trimAutoContext = prev;
   }
@@ -6034,7 +6380,12 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
     config.trimAutoContext = true;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const { deps, pluginIdReads, skillReads } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp"],
+      ["tdd"],
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6047,9 +6398,10 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
     // byte-identical to the pre-trim interactive shape
     expect(argv).toEqual([
       "claude",
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--session-id",
-      argv[3]!,
+      argv[argv.indexOf("--session-id") + 1]!,
       "--settings",
       spawnSettingsOverlay(),
       "--append-system-prompt",
@@ -6057,6 +6409,7 @@ test("interactive spawn (trim on): untouched — no flag, no enabledPlugins, no 
       "do the thing",
     ]);
     expect(pluginIdReads()).toBe(0); // settings file never consulted for interactive spawns
+    expect(skillReads()).toBe(0); // nor the skills root
   } finally {
     config.trimAutoContext = prev;
   }
@@ -6068,7 +6421,12 @@ test("auto spawn with trimAutoContext off: identical to the untrimmed shape", as
     config.trimAutoContext = false;
     const store = new SessionStore(":memory:");
     const captured: { argv?: string[] } = {};
-    const { deps, pluginIdReads } = trimDeps(store, captured, ["superpowers@sp"]);
+    const { deps, pluginIdReads, skillReads } = trimDeps(
+      store,
+      captured,
+      ["superpowers@sp"],
+      ["tdd"],
+    );
     const svc = new SessionService(deps as any);
     await svc.create({
       repoPath: "/repo",
@@ -6083,12 +6441,13 @@ test("auto spawn with trimAutoContext off: identical to the untrimmed shape", as
     expect(argv[argv.indexOf("--settings") + 1]).toBe(spawnSettingsOverlay());
     expect(sysPrompt(argv)).not.toContain("<context-trim-notice>");
     expect(pluginIdReads()).toBe(0);
+    expect(skillReads()).toBe(0); // opt-out short-circuits before any enumeration
   } finally {
     config.trimAutoContext = prev;
   }
 });
 
-test("resume of an auto session re-applies the trim: flag + plugin-off overlay", async () => {
+test("resume of an auto session re-applies the trim: plugin-off + skill overlay", async () => {
   const prev = config.trimAutoContext;
   try {
     config.trimAutoContext = true;
@@ -6113,12 +6472,17 @@ test("resume of an auto session re-applies the trim: flag + plugin-off overlay",
         send: () => {},
       } as any,
       pluginIds: async () => ["superpowers@sp"],
+      skillNames: async () => [],
+      userSkills: async () => ["tdd"],
     });
     const s = resumable(store, { auto: true });
     await svc.resume(s.id);
     const argv: string[] = calls.argv;
-    expect(argv).toContain("--disable-slash-commands");
-    expect(settingsOverlay(argv).enabledPlugins).toEqual({ "superpowers@sp": false });
+    expect(argv).not.toContain("--disable-slash-commands");
+    const overlay = settingsOverlay(argv);
+    expect(overlay.enabledPlugins).toEqual({ "superpowers@sp": false });
+    expect(overlay.disableBundledSkills).toBe(true);
+    expect(overlay.skillOverrides).toEqual({ tdd: "off" });
   } finally {
     config.trimAutoContext = prev;
   }
@@ -7047,6 +7411,7 @@ test("resume of a non-auto session stays untrimmed even with trim on", async () 
     await svc.resume(s.id);
     expect(calls.argv).toEqual([
       "claude",
+      ...agentSkillsArgs(),
       "--dangerously-skip-permissions",
       "--resume",
       "abc-123",
@@ -7087,7 +7452,6 @@ test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses
   const directive = epicAuthoringDirective({
     sessionId: "sess-1",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     agentProvider: "claude",
   });
   const sp = composeSystemPrompt(null, true, {
@@ -7103,17 +7467,30 @@ test("composeSystemPrompt: epicAuthoring is the primary directive and suppresses
   expect(sp).not.toContain("<single-pr-invariant>");
 });
 
-test("epicAuthoringDirective bakes the draft endpoint and forbids GitHub writes", () => {
+test("epicAuthoringDirective (Claude) submits via the tool, not a hand-written JSON curl (#2003)", () => {
   const d = epicAuthoringDirective({
     sessionId: "sess-42",
     baseUrl: "http://127.0.0.1:7330",
-    token: null,
     agentProvider: "claude",
+  });
+  expect(d).toContain("epic_draft");
+  expect(d).toContain("NEVER run `gh issue create`");
+  // The draft contract now lives in the tool's parameter schema.
+  expect(d).not.toContain("curl");
+  expect(d).not.toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");
+  expect(d).not.toMatch(/Authorization|Bearer/i);
+});
+
+test("epicAuthoringDirective (Codex) keeps the tokenless draft curl — the stated gap (#2003)", () => {
+  const d = epicAuthoringDirective({
+    sessionId: "sess-42",
+    baseUrl: "http://127.0.0.1:7330",
+    agentProvider: "codex",
   });
   expect(d).toContain("http://127.0.0.1:7330/api/sessions/sess-42/epic-draft");
   expect(d).toContain("NEVER run `gh issue create`");
   expect(d).toContain('"blockedBy"');
-  expect(d).not.toContain("epic import endpoint call"); // no write path baked in
+  expect(d).not.toMatch(/Authorization|Bearer/i);
 });
 
 test("create research: plan gate forced off even when repo planGateEnabled is true", async () => {

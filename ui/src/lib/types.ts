@@ -1375,6 +1375,36 @@ export interface UsageBreakdown {
   repos: UsageRepoBreakdown[];
 }
 
+// ── Spawn-prompt budget (issue #1999) — mirrors src/types.ts, keep in sync ────
+
+/** How the assembled directive payload reaches the agent: Claude takes it on
+ *  `--append-system-prompt`, Codex inline on the prompt (it has no such flag). */
+export type PromptBudgetDelivery = "append-system-prompt" | "inline-prompt";
+
+/** What one named block of the spawn prompt cost. `tokens` is an ESTIMATE (chars/4), never a
+ *  tokenizer measurement — every surface that shows it must say so. */
+export interface PromptBlockMeasure {
+  name: string; // the XML tag wrapping the block — data, never translated
+  chars: number;
+  bytes: number;
+  tokens: number;
+}
+
+/** One spawn's recorded prompt breakdown, joined with its session for display. */
+export interface PromptBudgetRecord {
+  sessionId: string;
+  desig: string;
+  repoPath: string;
+  agentProvider: AgentProvider;
+  auto: boolean; // true for an unattended (drain) spawn
+  delivery: PromptBudgetDelivery;
+  totalChars: number;
+  totalBytes: number;
+  totalTokens: number; // estimated
+  blocks: PromptBlockMeasure[]; // emission order
+  createdAt: number; // ms epoch
+}
+
 /** One hour of weighted-unit consumption (mirrors server UsageTimelineHour). */
 export interface UsageTimelineHour {
   hourStart: number; // ms epoch, floored to the hour (UTC boundary); never 0 (timeless rows excluded)

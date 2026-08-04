@@ -670,6 +670,15 @@ export const config = {
   // observe-only ingestion; it's additive + fail-open (an unreachable/hung endpoint times out per
   // the hook's 5s budget → polling). SHEPHERD_HOOKS_INGEST=0 is the kill switch.
   hooksIngest: parseKillSwitch(process.env.SHEPHERD_HOOKS_INGEST),
+  // PreToolUse tool guard (issue #2002): a local `command` hook that DENIES the two hazards that
+  // used to ride every spawn as standing prompt text — a bare `git stash` on the shared `refs/stash`
+  // stack (#1632) and a worktree-add / dependency install under a tmpfs root (#1862) — with the
+  // explanation attached to the refusal. Not the HTTP ingest transport: an HTTP hook is documented
+  // fail-open on timeout/non-2xx, and under the autonomous membrane `--clearenv` strips the token so
+  // the restricted ingress 401s by design — every deny would evaporate for exactly the unattended
+  // sessions that need it. Default ON; SHEPHERD_TOOL_GUARD=0 is the kill switch, and turning it off
+  // puts BOTH notices back into the composed prompt (see composeSystemPromptBlocks).
+  toolGuard: parseKillSwitch(process.env.SHEPHERD_TOOL_GUARD),
   // Phase 1: feed received hook events into the poller (the single owner of signal state).
   // Meaningful only when `hooksIngest` is also on — with ingest off no events arrive to feed.
   // Still OPT-IN (=== "1"): #740 flipped only ingest on. Promoting signals to default awaits
@@ -720,10 +729,11 @@ export const config = {
   // repo (issue #904). Once/day/repo, and only spawns when the default branch advanced since the last
   // run; default 3 (≈03:00 local). Invalid values fall back to 3.
   docAgentNightlyHour: parseHour(process.env.SHEPHERD_DOC_AGENT_NIGHTLY_HOUR, 3),
-  // Context trim for auto-spawned (drain) agents (issue #499): spawn them with
-  // `--disable-slash-commands` (drops the skill catalog) plus a per-spawn settings
-  // overlay disabling every operator-enabled plugin (drops plugin hook injections,
-  // skills, and MCP) — overhead unattended agents never use. Default on; set
+  // Context trim for auto-spawned (drain) agents (issues #499, #2001): a per-spawn settings
+  // overlay disabling every operator-enabled plugin (drops plugin hook injections, skills,
+  // and MCP), Claude Code's bundled skills, and the operator's personal ~/.claude/skills —
+  // catalogs an unattended agent never invokes. The Skill tool and the session repo's OWN
+  // .claude/skills stay available, so progressive disclosure still works. Default on; set
   // SHEPHERD_TRIM_AUTO_CONTEXT=false/0/off as the escape hatch if drain quality regresses.
   trimAutoContext: parseTrimAutoContext(process.env.SHEPHERD_TRIM_AUTO_CONTEXT),
   // Standard command: legacy seed for the backlog quick-launch prompt. Quick-launch

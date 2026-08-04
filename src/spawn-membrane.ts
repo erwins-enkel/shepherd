@@ -3,6 +3,8 @@ import { homedir } from "node:os";
 import { config } from "./config";
 import { apiKeyMembraneFields, apiKeyPassthroughEnv } from "./spawn-auth";
 import { PluginSpawnAborted, type SpawnDescriptor, type SpawnPatch } from "./plugins/types";
+import { toolGuardMembranePaths } from "./tool-guard-hook";
+import { agentSkillsMembranePaths } from "./agent-skills";
 import {
   detectBackend as realDetectBackend,
   wrapArgv,
@@ -109,6 +111,10 @@ export function resolveSpawnMembrane(args: {
     ...(redirecting ? { projectsBindSource: env.projectsDir ?? `${env.claudeDir}/projects` } : {}),
     // api-key mode: a bwrap-wrapped reviewer masks the OAuth credential + binds the helper.
     ...apiKeyMembraneFields(),
+    // #2002: same guard binds as a session spawn. Aux spawns run `--safe-mode` and carry no
+    // Shepherd `--settings` hooks, so nothing here depends on it today — but the bind is what keeps
+    // "the guard exists wherever a Shepherd-spawned agent runs" true if one ever does.
+    agentSupportPaths: [...toolGuardMembranePaths(), ...agentSkillsMembranePaths()],
   };
   const wrapped = wrapArgv(args.argv, { profile: "standard", backend, membrane });
   return { wrapped, backend };

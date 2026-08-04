@@ -1,5 +1,15 @@
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { OptimizerService, OPTIMIZE_LABEL, type OptimizerTarget } from "../src/optimizer";
+import {
+  OptimizerService,
+  OPTIMIZE_LABEL,
+  optimizePrompt,
+  type OptimizerTarget,
+} from "../src/optimizer";
+import {
+  LEARNING_ADMISSION_TEST,
+  LEARNING_FACT_SHAPE,
+  LEARNING_RULE_MAX_CHARS,
+} from "../src/learning-shape";
 import { SessionStore } from "../src/store";
 import { HerdrUnavailableError } from "../src/herdr";
 import { __setApiKeyConfigDirProvisionForTest } from "../src/spawn-auth";
@@ -548,4 +558,16 @@ test("reapOrphans is a no-op when herdr is unavailable (optimizer)", async () =>
   } as never);
   expect(() => svc.reapOrphans()).not.toThrow();
   expect(closes).toBe(0);
+});
+
+// ── admission test wiring (#2004) ────────────────────────────────────────────
+
+test("optimize prompt carries the shared admission test + fact shape", () => {
+  const p = optimizePrompt();
+  expect(p).toContain(LEARNING_ADMISSION_TEST);
+  expect(p).toContain(LEARNING_FACT_SHAPE);
+  // A rule that fails the test must be dropped, not rewritten into a sterner instruction.
+  expect(p).toContain("OMIT a target when it cannot be restated as a fact");
+  expect(p).toContain(String(LEARNING_RULE_MAX_CHARS));
+  expect(p).not.toContain("160 char imperative");
 });

@@ -11,7 +11,7 @@ The egress firewall (slirp4netns + nftables + dnsmasq, shipped in **PR #601**,
 closed **#551** — `src/egress.ts`) confines outbound traffic to
 `api.anthropic.com` + `statsig.anthropic.com` + the GitHub hosts, and watches
 for DNS drops. Egress is keyed to the **autonomous profile**, not to
-attendedness (`src/sandbox.ts` `egressApplies`, ~L682).
+attendedness (`src/sandbox.ts` `egressApplies`, ~L707).
 
 This note records two residuals the operator has **accepted** after the audit.
 
@@ -20,12 +20,12 @@ This note records two residuals the operator has **accepted** after the audit.
 The membrane keeps two token surfaces readable to any in-membrane tool call:
 
 - `~/.claude/.credentials.json` — bound **RW** so OAuth refresh writes back
-  (`src/sandbox.ts:436-438`, `--bind-try`); the whole `~/.claude` dir is
-  `--ro-bind`ed at `src/sandbox.ts:429-431`.
+  (`src/sandbox.ts:458-460`, `--bind-try`); the whole `~/.claude` dir is
+  `--ro-bind`ed at `src/sandbox.ts:451-453`.
 - `~/.config/gh` — bound **RO** (the gh token, needed to `git push` /
-  `gh pr create`) at `src/sandbox.ts:539`.
+  `gh pr create`) at `src/sandbox.ts:561`.
 
-`--clearenv` (`src/sandbox.ts:564`) strips **all** inherited env
+`--clearenv` (`src/sandbox.ts:589`) strips **all** inherited env
 (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `GH_TOKEN`, `SHEPHERD_TOKEN`,
 …), re-setting only HOME/PATH/TERM + non-secret locale vars — so these two
 **bound files** are the only token surfaces left inside the membrane.
@@ -50,8 +50,8 @@ secrets out of the membrane entirely.
 ## Attended-mode egress coverage
 
 Egress confinement is keyed to the autonomous **profile**, not to whether a human
-is watching (`willEgressConfine`, `src/sandbox.ts:693-698`; applied at
-`src/service.ts:1879`): the wrap applies iff the autonomous profile resolves
+is watching (`willEgressConfine`, `src/sandbox.ts:718-723`; applied at
+`src/service.ts:2545`): the wrap applies iff the autonomous profile resolves
 **and** the fs + egress backends are present, independent of `ctx.auto`.
 Consequences:
 
@@ -73,10 +73,13 @@ execution controls below, Shepherd bounds the injection surface at ingestion
   issue title/body, issue comments, PR bodies + author-notes, captured terminal
   tails, and the recap/rundown context — is wrapped in unforgeable `⟦UNTRUSTED:…⟧`
   markers (`fenceUntrusted`, with a per-fence random nonce that the content cannot
-  predict or close early) so the model treats it as **data, never instructions**. A
-  standing `<untrusted-content-boundary>` directive rides every spawn's system
-  prompt (`UNTRUSTED_CONTENT_DIRECTIVE`, via `composeSystemPrompt`) to establish
-  that hierarchy.
+  predict or close early) so the model treats it as **data, never instructions**.
+  The fence carries its **label and nonce only**; the instruction hierarchy has one
+  home, `UNTRUSTED_CONTENT_DIRECTIVE`, which every prompt that fences states exactly
+  once — session spawns get it as the standing `<untrusted-content-boundary>` block
+  (`composeSystemPromptBlocks`), and each aux prompt builder emits it itself. That
+  invariant is pinned by `test/untrusted.test.ts`: a builder that fences without the
+  directive fails there.
 - **Fail-closed author-trust gate.** An **autonomous** (`auto=true`) spawn from an
   issue whose author is **not** a trusted repo association (`OWNER` / `MEMBER` /
   `COLLABORATOR` — anything else, including an unresolvable, absent, or Gitea-side
@@ -98,9 +101,19 @@ execution controls below, Shepherd bounds the injection surface at ingestion
 These are content-boundary defenses; the execution-confinement residuals below
 still stand.
 
+- **A `PreToolUse` tool guard denies two hazards at the call site** on Claude
+  spawns (`scripts/tool-guard.mjs`, wired by `src/tool-guard-hook.ts`,
+  `config.toolGuard` / `SHEPHERD_TOOL_GUARD`): a bare `git stash` against the
+  shared `refs/stash` stack, and a worktree-add or dependency install under a
+  tmpfs root. It is a **local `command` hook**, not the fail-open HTTP ingest
+  transport, precisely so the deny still holds for unattended sessions whose
+  `--clearenv` membrane 401s the restricted ingress. Its script is bound RO into
+  the membrane (`agentSupportPaths` → `agentSupportFlags`, `src/sandbox.ts`),
+  because the decision to drop the equivalent prompt notices is taken host-side —
+  a guard missing inside the sandbox would leave that session with neither.
 - **Autonomous task agents** run `--dangerously-skip-permissions`, but behind
   **both** the filesystem and the egress membrane. `standard` auto-spawns are
-  refused outright (`src/sandbox.ts` `autoHoldReason`, ~L623).
+  refused outright (`src/sandbox.ts` `autoHoldReason`, ~L648).
 - **Unattended reviewers** (PR critic + plan-gate) run **read-only**, not
   skip-permissions: `--safe-mode --disable-slash-commands --allowedTools Read
 Grep Glob Bash(git diff *) Bash(git log *) Bash(git show *) Bash(git status)
@@ -108,7 +121,7 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
   `buildTransientAgentArgv("reviewer", …)`).
 - **Research is the deliberately egress-UNCONFINED surface.** A research session
   that would resolve to `autonomous` is **downgraded to `standard`**
-  (`src/service.ts` `researchSafeProfileOverride`, ~L2708, warns once),
+  (`src/service.ts` `researchSafeProfileOverride`, ~L3267, warns once),
   because research needs **open** web egress (search/fetch + sub-agents) that the
   autonomous firewall would block. The same downgrade applies to an
   **epic-authoring** session (`input.epicAuthoring`, #1507), which likewise needs
@@ -129,4 +142,5 @@ Write --permission-mode dontAsk` (`src/transient-agent-argv.ts`,
 ## See also
 
 - `src/egress.ts`, `src/sandbox.ts`, `src/service.ts`, `src/autopilot.ts`,
-  `src/transient-agent-argv.ts`, `src/untrusted.ts`.
+  `src/transient-agent-argv.ts`, `src/untrusted.ts`, `src/tool-guard-hook.ts`,
+  `scripts/tool-guard.mjs`.

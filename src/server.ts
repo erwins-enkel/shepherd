@@ -43,12 +43,9 @@ import {
   validateBroadcast,
   validateRetry,
   validateIconPatch,
-  validateBuildSteps,
-  validateBuildStepStatus,
   validateEpicRunPatch,
   type EpicRunPatch,
   validateEgressExtraHosts,
-  validateEpicDraftBody,
 } from "./validate";
 import {
   parseCookie,
@@ -172,6 +169,13 @@ import { computeEpicOthersFlags } from "./epic-core";
 import type { EpicDiagnosis } from "./epic-diagnosis";
 import { importEpicLinks, type ImportResult } from "./epic-import";
 import { validateEpicDraft, materializeEpicDraft, forgeSupportsIssueCreation } from "./epic-author";
+import {
+  applyEpicDraft,
+  applyQueueStep,
+  applyQueueWrite,
+  handleMcpRequest,
+  type ApplyResult,
+} from "./agent-control";
 import {
   anyLiveRepairSession,
   buildRollup,
@@ -510,11 +514,10 @@ export interface AppDeps {
     /** Async (MergeSuggestService.mergeNow); the trigger route fires it and forgets. */
     mergeNow: (repoPath: string) => Promise<void>;
   };
-  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR, or a cross-repo
-   *  recurrence rule into the user-global ~/.claude/CLAUDE.md directly (#872). */
+  /** Promote a curated rule into the repo's CLAUDE.md via an auto-opened PR. (The user-global
+   *  ~/.claude/CLAUDE.md write that lived alongside it was dropped in #2004 — see promote.ts.) */
   promoter?: {
     promote: (id: string) => Promise<import("./promote").PromoteResult>;
-    promoteGlobal: (rule: string) => Promise<import("./promote").PromoteResult>;
   };
   /** PR-gated AI doc agent (issue #882). Optional + flag-gated (config.docAgentEnabled); the route
    *  404s when the flag is off or the service is unwired. Wired to DocAgentService in index.ts. */
@@ -1879,30 +1882,7 @@ function handleMergeSuggestionPost(
 ): Promise<Response> | null {
   if (parts[2] === "merge" && !parts[3]) return handleMergeApply(req, deps);
   if (parts[2] === "merge-dismiss") return handleMergeDismiss(req, deps);
-  if (parts[2] === "promote-global") return handleMergePromoteGlobal(req, deps);
   return null;
-}
-
-/** POST /api/learnings/promote-global — write a cross-repo recurrence rule into the user-global
- *  ~/.claude/CLAUDE.md (issue #872), body {suggestionId}. Explicit, operator-confirmed; no PR.
- *  Marks the suggestion `applied` so it leaves the band and isn't re-suggested (the cross dedup
- *  set includes `applied`). 409 on a stale re-post, mirroring handleMergeApply. */
-async function handleMergePromoteGlobal(req: Request, deps: AppDeps): Promise<Response> {
-  const body = (await req.json().catch(() => ({}))) as { suggestionId?: unknown };
-  const id = typeof body.suggestionId === "string" ? body.suggestionId : "";
-  if (!id) return json({ error: "suggestionId required" }, 400);
-  const sug = deps.store.getMergeSuggestion(id);
-  if (!sug) return json({ error: "not found" }, 404);
-  if (sug.kind !== "cross") return json({ error: "not a cross-repo suggestion" }, 400);
-  if (sug.status !== "pending") return json({ error: "already resolved" }, 409);
-  if (!deps.promoter) return json({ error: "promote unavailable" }, 503);
-  const res = await deps.promoter.promoteGlobal(sug.mergedRule);
-  if (!res.ok) return json({ error: res.error }, res.status);
-  // Promoter-orchestrated (separate service): the suggestion bookkeeping stays inline; only
-  // the recurring emit tail unifies through the learnings service (#1092).
-  deps.store.setMergeSuggestionStatus(id, "applied");
-  learnings(deps).emitPending();
-  return json({ ok: true });
 }
 
 /** POST /api/learnings/merge-dismiss — dismiss a merge suggestion (intra or cross), body
@@ -2349,6 +2329,12 @@ async function handleSessionReads({ req, parts, deps }: Ctx): Promise<Response |
   if (parts[2] === "done" && !parts[3]) return json(doneSessionsWithIssueUrl(deps));
   if (parts[3] === "usage") return sessionUsageRead(parts[2], deps);
   if (parts[3] === "activity") return sessionActivityRead(parts[2], deps);
+  // What this spawn's assembled system prompt cost, block by block (issue #1999). 404 when the
+  // session predates the instrument or its spawn recorded nothing.
+  if (parts[3] === "prompt-budget") {
+    const record = deps.store.getSessionPromptBudget(parts[2]);
+    return record ? json(record) : json({ error: "not found" }, 404);
+  }
   // annotations must precede the bare `diff` check (which matches parts[3]==="diff" regardless).
   if (parts[3] === "diff" && parts[4] === "annotations")
     return sessionDiffAnnotationsRead(parts[2], deps);
@@ -3551,19 +3537,25 @@ function handleRelaunchUploads({ req, parts, deps }: Ctx): Response | null {
 }
 
 // Steer text sent to the agent when the operator approves the build queue.
-// Agent-facing — plain English, not user chrome, so no i18n.
+// Agent-facing — plain English, not user chrome, so no i18n. Provider-neutral about the channel
+// (issue #2003): Claude marks steps with the `queue_step` tool, Codex with the queue API, and this
+// one steer reaches both — so it names the action, not the transport.
 const APPROVE_STEER =
-  "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done via the build-queue API as you go (see the build-queue instructions in your system prompt). If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
+  "✅ Build queue approved by the operator. Begin now: work the steps in order, marking each step active then done as you go. If you find a better approach, revise only the remaining pending steps — never rewrite completed ones.";
+
+/** Render an applier outcome (src/agent-control.ts) as an HTTP response. The REST routes and the
+ *  MCP tools are two renderings of the SAME applier, so validation, events and status semantics
+ *  cannot drift between the curl path and the tool path (issue #2003). */
+function jsonApplied<T>(res: ApplyResult<T>): Response {
+  if (res.ok) return json(res.data);
+  return json({ error: res.error, ...(res.matches && { matches: res.matches }) }, res.status);
+}
 
 // PUT /api/sessions/:id/queue — replace the full step list.
 async function putBuildQueue(req: Request, deps: AppDeps, id: string): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const steps = validateBuildSteps(await req.json().catch(() => null));
-  if (steps === null) return json({ error: "invalid build steps" }, 400);
-  const q = deps.store.replaceBuildQueue(id, steps);
-  deps.events?.emit("queue:update", q);
-  return json(q);
+  return jsonApplied(applyQueueWrite(deps, id, await req.json().catch(() => null)));
 }
 
 // POST /api/sessions/:id/queue/steps/:stepId — set a single step's status.
@@ -3575,33 +3567,7 @@ async function postBuildStepStatus(
 ): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const status = validateBuildStepStatus(await req.json().catch(() => null));
-  if (status === null) return json({ error: "invalid status" }, 400);
-  // Resolve the posted id (full UUID or unambiguous ≥8-char prefix) before updating, so a
-  // short/abbreviated or stale id returns a clear 4xx instead of silently no-op'ing.
-  const resolved = deps.store.resolveStepId(id, stepId);
-  if (!resolved.ok) {
-    if (resolved.reason === "ambiguous") {
-      return json(
-        {
-          error: `ambiguous step id prefix "${stepId}" matches ${resolved.matches.length} steps — use a longer prefix or the full id`,
-          matches: resolved.matches,
-        },
-        409,
-      );
-    }
-    return json(
-      {
-        error: `step "${stepId}" not found — use a full or unambiguous (≥8-char) prefix step id from the PUT/GET response`,
-      },
-      404,
-    );
-  }
-  // resolved.ok ⇒ the row exists, so setBuildStepStatus returns true; ignore its boolean.
-  deps.store.setBuildStepStatus(id, resolved.id, status);
-  const q = deps.store.getBuildQueue(id);
-  deps.events?.emit("queue:update", q);
-  return json(q);
+  return jsonApplied(applyQueueStep(deps, id, stepId, await req.json().catch(() => null)));
 }
 
 // POST /api/sessions/:id/queue/approve — human gate: approve + steer the agent.
@@ -3670,18 +3636,9 @@ async function handleBuildQueue({ req, parts, deps }: Ctx): Promise<Response | n
 async function putEpicDraft(req: Request, deps: AppDeps, id: string): Promise<Response> {
   const ctErr = requireJsonContentType(req);
   if (ctErr) return ctErr;
-  const existing = deps.store.getEpicDraft(id);
-  // Only a draft may be (re)authored — a materializing or approved epic is frozen (the amend loop
-  // runs before approval). Guards against a late agent re-PUT racing/overwriting a created epic.
-  if (existing && existing.status !== "draft")
-    return json({ error: `epic draft is ${existing.status}, not editable` }, 409);
-  const content = validateEpicDraftBody(await req.json().catch(() => null));
-  if (content === null) return json({ error: "invalid epic draft" }, 400);
-  const semantic = validateEpicDraft(content);
-  if (!semantic.ok) return json({ error: semantic.error }, 400);
-  const draft = deps.store.replaceEpicDraft(id, content);
-  deps.events?.emit("session:epic-draft", draft);
-  return json(draft);
+  // Structural + semantic validation, the frozen-after-draft guard, and the event all live in
+  // applyEpicDraft — shared with the `epic_draft` tool.
+  return jsonApplied(applyEpicDraft(deps, id, await req.json().catch(() => null)));
 }
 
 // POST /api/sessions/:id/epic-draft/approve — the HARD GATE. Materializes the draft into GitHub
@@ -3772,6 +3729,25 @@ async function handleEpicDraft({ req, parts, deps }: Ctx): Promise<Response | nu
   if (req.method === "POST" && parts[4] === "approve" && !parts[5])
     return approveEpicDraft(deps, id);
   return null;
+}
+
+// POST /api/sessions/:id/mcp — the session's MCP endpoint (issue #2003): the build-queue
+// transitions and the epic-draft submission as TOOLS, so the spawn prompt no longer has to teach
+// the HTTP calls in prose. Streamable HTTP with JSON responses only — no SSE stream and no
+// `Mcp-Session-Id`, which is all Claude Code's client needs (verified against 2.1.220).
+// Deliberately NO requireJsonContentType gate: the body is written by an MCP client, not a
+// Shepherd curl, so its Content-Type is not ours to mandate — parse defensively instead (the same
+// rationale as the hook-ingest route above).
+async function handleSessionMcp({ req, parts, deps }: Ctx): Promise<Response | null> {
+  if (!(parts[0] === "api" && parts[1] === "sessions" && parts[3] === "mcp")) return null;
+  const id = parts[2];
+  if (!id || parts[4]) return null;
+  if (req.method !== "POST") return null;
+  if (!deps.store.get(id)) return json({ error: "session not found" }, 404);
+
+  const outcome = handleMcpRequest(deps, id, await req.json().catch(() => null));
+  if (outcome.body === null) return new Response(null, { status: outcome.status });
+  return json(outcome.body, outcome.status);
 }
 
 // Sessions core: dispatch to the create / read / delete / reply sub-handlers,
@@ -4231,6 +4207,25 @@ async function handleUsageTimeline({ req, parts, url, deps }: Ctx): Promise<Resp
     usageRollup: deps.usageRollup,
   });
   return json(timeline);
+}
+
+/** Cap on the recent-spawns list. Each record carries ~20 small block measurements, so a runaway
+ *  `?limit=` would be a needlessly fat response for a diagnostic read. */
+const PROMPT_BUDGET_MAX_LIMIT = 200;
+const PROMPT_BUDGET_DEFAULT_LIMIT = 50;
+
+// Spawn-prompt budget (issue #1999): what the assembled `composeSystemPrompt` payload cost, block by
+// block. GET /api/prompt-budget[?limit=] → recent spawns, newest first. The per-session read lives in
+// handleSessionReads, beside the other /api/sessions/:id/* GETs.
+function handlePromptBudget({ req, parts, url, deps }: Ctx): Response | null {
+  if (!(req.method === "GET" && parts[0] === "api" && parts[1] === "prompt-budget" && !parts[2]))
+    return null;
+  const raw = Number(url.searchParams.get("limit") ?? PROMPT_BUDGET_DEFAULT_LIMIT);
+  // NaN / ≤0 / over-cap all fall back to something sane rather than 400ing a read-only view.
+  const limit = Number.isFinite(raw)
+    ? Math.min(PROMPT_BUDGET_MAX_LIMIT, Math.max(1, Math.floor(raw)))
+    : PROMPT_BUDGET_DEFAULT_LIMIT;
+  return json({ records: deps.store.listSessionPromptBudgets(limit) });
 }
 
 // ── self-update: status + trigger ──────────────────────────────────────
@@ -7550,6 +7545,7 @@ const ROUTE_HANDLERS = [
   handleDocAgentRuns,
   handlePush,
   handleSessionHooks,
+  handleSessionMcp,
   handleBuildQueue,
   handleEpicDraft,
   handleTaskExport,
@@ -7559,6 +7555,7 @@ const ROUTE_HANDLERS = [
   handleUsageLimits,
   handleUsageBreakdown,
   handleUsageTimeline,
+  handlePromptBudget,
   handleUpdate,
   handleHerdrUpdate,
   handleHerdrDowngrade,
@@ -7658,6 +7655,21 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
   };
 }
 
+/** Methods allowed on each exact `/api/sessions/<id>/<sub>` agent route. A Map (not an object) so a
+ *  hostile sub-segment like `constructor` can never resolve through the prototype chain.
+ *   - `hooks`: the push-hook ingest (issue #704).
+ *   - `mcp`: the session's MCP endpoint (issue #2003) — strictly weaker than the routes beside it,
+ *     since every tool it exposes is one of them, gated by the session's own capabilities
+ *     (see agentTools), and neither approve gate has a tool at all.
+ *   - `queue`: PUT authors/replaces; GET is the "inspect the current queue" / re-GET-for-ids read.
+ *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507). */
+const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
+  ["hooks", ["POST"]],
+  ["mcp", ["POST"]],
+  ["queue", ["PUT", "GET"]],
+  ["epic-draft", ["PUT", "GET"]],
+]);
+
 /** Method+path allowlist for the restricted agent-ingress listener: EXACTLY the agent→server
  *  control-plane routes the spawn directives instruct the agent to call. `parts` is
  *  url.pathname.split("/").filter(Boolean), e.g. ["api","sessions","<id>","hooks"]. The session id
@@ -7666,20 +7678,11 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *  is deliberately EXCLUDED — it is the human/autopilot gate, not an agent action. */
 export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[2])) return false;
-  // POST /api/sessions/<id>/hooks
-  if (method === "POST" && parts[3] === "hooks" && !parts[4]) return true;
-  // PUT /api/sessions/<id>/queue (author/replace) + GET (the directive's "inspect the current
-  // queue" / re-GET-for-ids path — read-only, strictly weaker than the PUT already allowed).
-  if ((method === "PUT" || method === "GET") && parts[3] === "queue" && !parts[4]) return true;
-  // POST /api/sessions/<id>/queue/steps/<stepId>
-  if (method === "POST" && parts[3] === "queue" && parts[4] === "steps" && parts[5] && !parts[6]) {
-    return true;
-  }
-  // PUT /api/sessions/<id>/epic-draft (author/replace the epic draft) + GET (inspect). Like queue,
-  // /epic-draft/approve is deliberately EXCLUDED — it is the human write-gate, not an agent action
-  // (the whole point of #1507 is that the agent never triggers the GitHub writes).
-  if ((method === "PUT" || method === "GET") && parts[3] === "epic-draft" && !parts[4]) return true;
-  return false;
+  const sub = parts[3] ?? "";
+  // Exact `…/<sub>` routes (nothing after the sub-segment).
+  if (!parts[4]) return (AGENT_LEAF_ROUTES.get(sub) ?? []).includes(method);
+  // The one deeper route: POST /api/sessions/<id>/queue/steps/<stepId>.
+  return method === "POST" && sub === "queue" && parts[4] === "steps" && !!parts[5] && !parts[6];
 }
 
 /** Restricted ingress app: 404 unless the request is an allowlisted agent→server route; otherwise

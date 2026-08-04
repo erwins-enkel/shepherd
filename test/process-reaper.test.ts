@@ -20,16 +20,45 @@ function bashLine(command: string): string {
   });
 }
 
+/** The starttime every fingerprintable fake process reports unless a test says otherwise. */
+const TICKS = 1000;
+
+function stat(starttime: number): CpuStat {
+  return { utime: 0, stime: 0, cutime: 0, cstime: 0, starttime };
+}
+
 function makeProbes(over: Partial<ReaperProbes> = {}): ReaperProbes {
-  return {
+  const base: ReaperProbes = {
     scanProcs: () => [],
     portsForPid: () => [],
     listeningPorts: () => new Set(),
     readTranscript: () => "",
     killPid: () => {},
     run: () => {},
+    // Every kill site fails closed without a pid-recycle fingerprint (#1925), so the default
+    // backend must supply one or no fake would ever signal anything.
+    cpuStatForPid: () => stat(TICKS),
     ...over,
   };
+  const scanned = (pid: number) => base.scanProcs().find((p) => p.pid === pid);
+  return {
+    ...base,
+    // `openSignalBracket` re-reads cwd/comm and requires them unchanged since `scanProcs`. Default
+    // both to agree with this fake's own scanProcs, so the re-read passes unless a test explicitly
+    // makes them diverge (which is how the recycle cases are written).
+    cwdForPid: over.cwdForPid ?? ((pid) => scanned(pid)?.cwd ?? null),
+    commForPid: over.commForPid ?? ((pid) => scanned(pid)?.comm ?? ""),
+  };
+}
+
+/**
+ * A `cpuStatForPid` that fingerprints `pid` as TICKS on its FIRST read and as something else on
+ * every read after — i.e. the pid was recycled between the capture and the verify. Drives the real
+ * capture/verify pair the production code makes, rather than a proxy for it.
+ */
+function recycleAfterFirstRead(pid: number): (p: number) => CpuStat {
+  let reads = 0;
+  return (p) => (p === pid && reads++ > 0 ? stat(TICKS + 7) : stat(TICKS));
 }
 
 const session = { worktreePath: "/wt/repo-x", claudeSessionId: "sess-1", isolated: true };
@@ -43,7 +72,14 @@ test("class 2: a listening process under the worktree is detected", () => {
   );
   const out = reaper.detect(session);
   expect(out).toEqual([
-    { kind: "process", name: "vite", port: 5174, pid: 4242, key: "process:4242" },
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
   ]);
 });
 
@@ -175,9 +211,16 @@ test("reap kills process pids and runs counter-commands; survives a throw", () =
       run: (bin, args) => ran.push({ bin, args }),
     }),
   );
-  reaper.reap([
-    { kind: "process", name: "gone", port: null, pid: 999, key: "process:999" },
-    { kind: "process", name: "vite", port: 5174, pid: 4242, key: "process:4242" },
+  const terminated = reaper.reap([
+    { kind: "process", name: "gone", port: null, pid: 999, startTicks: TICKS, key: "process:999" },
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
     {
       kind: "system",
       name: "tailscale serve",
@@ -188,6 +231,8 @@ test("reap kills process pids and runs counter-commands; survives a throw", () =
   ]);
   expect(killed).toEqual([4242]);
   expect(ran).toEqual([{ bin: "tailscale", args: ["serve", "--https=5174", "off"] }]);
+  // One signal + one counter-command. The ESRCH throw is not a termination performed.
+  expect(terminated).toBe(2);
 });
 
 // ── stopListenersOnPort ───────────────────────────────────────────────────────
@@ -522,6 +567,279 @@ test("reapDeletedWorktreeOrphans: spares a deleted cwd that isn't a shepherd wor
         { pid: process.pid, cwd: `${WT} (deleted)`, comm: "bun" }, // self
       ],
       ppidForPid: (pid) => (pid === 22 ? 5000 : 1),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+// ── #1925: pid-recycle fingerprint at every kill site ────────────────────────
+//
+// Each site reads its identity signal (cwd, port, ppid, "(deleted)") strictly BEFORE it signals.
+// A pid recycled in that window would be signalled on the strength of the dead process's data.
+// `starttime` is captured once the cheap filter qualifies the process and re-read immediately
+// before killPid; a mismatch, an unreadable stat, or a backend with no `cpuStatForPid` at all must
+// all refuse. `reapMarkedOrphans` has always done this — these pin the other four.
+
+test("#1925 reap: a pid recycled between detect and kill is NOT signalled", () => {
+  const k = killSpy();
+  // reap() does not capture — startTicks came from detect — so the recycle is modelled by the
+  // backend simply reporting a different starttime than the one on the leftover.
+  const reaper = new ProcessReaper(
+    makeProbes({ killPid: k.killPid, cpuStatForPid: () => stat(TICKS + 7) }),
+  );
+  const terminated = reaper.reap([
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
+  ]);
+  expect(k.killed).toEqual([]);
+  expect(terminated).toBe(0);
+});
+
+test("#1925 reap: a leftover carrying no fingerprint is refused (fail closed)", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(makeProbes({ killPid: k.killPid }));
+  // No startTicks — e.g. a hand-built leftover, or one from a backend that couldn't fingerprint it.
+  const terminated = reaper.reap([
+    { kind: "process", name: "vite", port: 5174, pid: 4242, key: "process:4242" },
+  ]);
+  expect(k.killed).toEqual([]);
+  expect(terminated).toBe(0);
+});
+
+test("#1925 reap: a backend with no cpuStatForPid probe signals nothing (fail closed)", () => {
+  const k = killSpy();
+  const probes = makeProbes({ killPid: k.killPid });
+  delete probes.cpuStatForPid;
+  const terminated = new ProcessReaper(probes).reap([
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
+  ]);
+  expect(k.killed).toEqual([]);
+  expect(terminated).toBe(0);
+});
+
+test("#1925 reap: a refused pid does not suppress a sibling counter-command, which still counts", () => {
+  // The class-3 branch targets a port mapping, not a pid, so it has no recycle hazard and stays
+  // ungated. It must still count, or archive()/archiveMany would under-report every class-3 kill.
+  const k = killSpy();
+  const ran: { bin: string; args: string[] }[] = [];
+  const reaper = new ProcessReaper(
+    makeProbes({
+      killPid: k.killPid,
+      cpuStatForPid: () => stat(TICKS + 7), // the pid was recycled since detect
+      run: (bin, args) => ran.push({ bin, args }),
+    }),
+  );
+  const terminated = reaper.reap([
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
+    {
+      kind: "system",
+      name: "tailscale serve",
+      port: 5174,
+      command: { bin: "tailscale", args: ["serve", "--https=5174", "off"] },
+      key: "system:tailscale serve:5174",
+    },
+  ]);
+  expect(k.killed).toEqual([]);
+  expect(ran).toHaveLength(1);
+  expect(terminated).toBe(1);
+});
+
+test("#1925 reap: a counter-command that throws is not counted as a termination", () => {
+  const reaper = new ProcessReaper(
+    makeProbes({
+      run: () => {
+        throw new Error("exit 1");
+      },
+    }),
+  );
+  const terminated = reaper.reap([
+    {
+      kind: "system",
+      name: "tailscale serve",
+      port: 5174,
+      command: { bin: "tailscale", args: ["serve", "--https=5174", "off"] },
+      key: "system:tailscale serve:5174",
+    },
+  ]);
+  expect(terminated).toBe(0);
+});
+
+test("#1925 detect: a process whose starttime is unreadable is not OFFERED", () => {
+  // Offering it would list an un-killable process under "Terminate & close": reap() would refuse
+  // it, so detect must refuse it first and keep the two in agreement.
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      cpuStatForPid: () => null,
+    }),
+  );
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("#1925 detect: a backend with no cpuStatForPid probe offers no class-2 leftovers", () => {
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+    portsForPid: () => [5174],
+  });
+  delete probes.cpuStatForPid;
+  expect(new ProcessReaper(probes).detect(session)).toEqual([]);
+});
+
+// The window `scanProcs` itself opens: it is a full-host /proc walk, so a pid enumerated early can
+// be recycled before the loop reaches it. The fingerprint alone cannot see that — it would capture
+// the RECYCLED process and match it at verify time. Only re-reading cwd/comm inside the bracket
+// catches it, which is why `openSignalBracket` does both. Modelled by a probe whose live cwd/comm
+// disagree with what scanProcs reported.
+
+test("#1925 detect: a pid recycled between scanProcs and the capture is not OFFERED", () => {
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      cwdForPid: () => "/home/u", // the pid now belongs to something else entirely
+      commForPid: () => "firefox",
+    }),
+  );
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("#1925 detect: a candidate whose comm changed since scanProcs is not OFFERED", () => {
+  // comm is what spares `claude`/`codex`, so a stale one could get the agent killed.
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      commForPid: () => "claude",
+    }),
+  );
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("#1925 stopListenersOnPort: a pid recycled between scanProcs and the capture is not signalled", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      cwdForPid: () => "/home/u",
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGKILL").signalled).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 reapOrphansUnder: a pid recycled between scanProcs and the capture is not SIGKILLed", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: WT, comm: "yes" }],
+      ppidForPid: () => 1,
+      cwdForPid: () => "/home/u", // recycled into an unrelated process outside the worktree
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 reapDeletedWorktreeOrphans: a pid whose cwd is no longer the deleted worktree is spared", () => {
+  const k = killSpy();
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: `${WT} (deleted)`, comm: "yes" }],
+      ppidForPid: () => 1,
+      cwdForPid: () => "/home/u",
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaped).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 a backend that cannot re-read cwd/comm signals nothing (fail closed)", () => {
+  const k = killSpy();
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: ORPHAN_PID, cwd: WT, comm: "yes" }],
+    ppidForPid: () => 1,
+    killPid: k.killPid,
+  });
+  delete probes.cwdForPid;
+  expect(new ProcessReaper(probes).reapOrphansUnder(WT)).toBe(0);
+  const noComm = makeProbes({
+    scanProcs: () => [{ pid: ORPHAN_PID, cwd: WT, comm: "yes" }],
+    ppidForPid: () => 1,
+    killPid: k.killPid,
+  });
+  delete noComm.commForPid;
+  expect(new ProcessReaper(noComm).reapOrphansUnder(WT)).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 stopListenersOnPort: a pid recycled while its ports are read is not signalled", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: 4242, cwd: "/wt/repo-x", comm: "vite" }],
+      portsForPid: () => [5174],
+      cpuStatForPid: recycleAfterFirstRead(4242),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGKILL")).toEqual({
+    signalled: 0,
+    // "refused", NOT "ok" with 0: the listener may well still be running, we just could not
+    // prove this pid is still it. #1922's ladder must not advance on that — an "ok" here would
+    // read as "nothing was listening" and escalate past a live server.
+    outcome: "refused",
+  });
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 reapOrphansUnder: a pid recycled while its ppid is read is not SIGKILLed", () => {
+  const k = killSpy();
+  const reaper = new ProcessReaper(
+    makeProbes({
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: WT, comm: "yes" }],
+      ppidForPid: () => 1,
+      cpuStatForPid: recycleAfterFirstRead(ORPHAN_PID),
+      killPid: k.killPid,
+    }),
+  );
+  expect(reaper.reapOrphansUnder(WT)).toBe(0);
+  expect(k.killed).toEqual([]);
+});
+
+test("#1925 reapDeletedWorktreeOrphans: a pid recycled while its ppid is read is not SIGKILLed", () => {
+  const k = killSpy();
+  const { reaped } = reapDeletedWorktreeOrphans(
+    makeProbes({
+      scanProcs: () => [{ pid: ORPHAN_PID, cwd: `${WT} (deleted)`, comm: "yes" }],
+      ppidForPid: () => 1,
+      cpuStatForPid: recycleAfterFirstRead(ORPHAN_PID),
       killPid: k.killPid,
     }),
   );

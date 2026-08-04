@@ -2612,7 +2612,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
     reaper: {
       detect: detect as any,
-      reap: () => {},
+      reap: () => 0,
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
@@ -2661,7 +2661,10 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
     reaper: {
       detect: () => detected as any,
-      reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
+      reap: (ls: any[]) => {
+        reaped.push(ls.map((l) => l.key));
+        return ls.length; // terminations performed; nothing is refused here
+      },
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
@@ -2709,6 +2712,7 @@ test("archive with no reap keys never calls the reaper", async () => {
       },
       reap: () => {
         reapCalls++;
+        return 0;
       },
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
@@ -4223,7 +4227,10 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
     } as any,
     reaper: {
       detect,
-      reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)),
+      reap: (ls: any[]) => {
+        calls.reaped.push(...ls.map((l) => l.key));
+        return ls.length; // terminations performed; nothing is refused here
+      },
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
@@ -4272,7 +4279,7 @@ test("archiveMany forces a probe refresh per detect, not once per batch (#1912)"
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
     reaper: {
       detect,
-      reap: () => {},
+      reap: () => 0,
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
       refresh: async (opts) => {
         refreshCalls.push(opts ?? {});
@@ -4320,7 +4327,7 @@ test("archiveMany skips the probe refresh when the backend can't produce leftove
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
     reaper: {
       detect: () => [],
-      reap: () => {},
+      reap: () => 0,
       stopListenersOnPort: () => ({ signalled: 0, outcome: "unsupported" }),
       canDetectLeftovers: () => false,
       refresh: async (opts) => {
@@ -4848,7 +4855,7 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
     herdr: { start: async () => ({}) as any, list: () => [], stop: async () => {} } as any,
     reaper: {
       detect,
-      reap: () => {},
+      reap: () => 0,
       stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
@@ -5981,7 +5988,7 @@ function makeStopPreviewSvc(opts: {
     ? undefined
     : {
         detect: () => [],
-        reap: () => {},
+        reap: () => 0,
         stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => {
           stopCalls.push({ worktreePath, port, signal });
           return { signalled: opts.stopReturn ?? 1, outcome: opts.stopOutcome ?? "ok" };
@@ -6120,7 +6127,7 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
     } as any,
     reaper: {
       detect: () => [],
-      reap: () => {},
+      reap: () => 0,
       stopListenersOnPort: () => ({ signalled: 1, outcome: "ok" }),
     } as any,
     preview,

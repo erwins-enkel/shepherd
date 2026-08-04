@@ -2328,5 +2328,8 @@ export interface Leftover {
   port: number | null;
   key: string; // stable selection key echoed back to the server
   pid?: number;
+  // Server-side pid-recycle fingerprint (/proc/<pid>/stat starttime). Present for kind "process";
+  // serialized but not consumed here — only `key` is echoed back.
+  startTicks?: number;
   command?: { bin: string; args: string[] };
 }

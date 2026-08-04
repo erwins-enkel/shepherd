@@ -30,6 +30,19 @@ export interface Leftover {
   key: string;
   /** present for kind "process": the pid to kill */
   pid?: number;
+  /**
+   * present for kind "process": that pid's `starttime` (USER_HZ ticks since boot, /proc/<pid>/stat)
+   * as captured by `openSignalBracket` at detection — the kernel's own pid-recycle fingerprint.
+   * `reap()` re-reads it immediately before signalling and refuses on any mismatch, closing the
+   * bracket that the cwd/comm re-read and the `portsForPid` read sit inside. A pid recycled
+   * anywhere in the detect→kill window is therefore never signalled (bar same-tick reuse — see the
+   * pid-recycle note further down).
+   *
+   * ALWAYS SERVER-PRODUCED, never client-supplied: `SessionService.archive` re-runs `detect` and
+   * intersects by KEY, so the objects that reach `reap()` come from a fresh scan. The client only
+   * ever echoes back key strings. Absent ⇒ `reap()` refuses to signal (fail closed).
+   */
+  startTicks?: number;
   /** present for kind "system": the counter-command to run */
   command?: { bin: string; args: string[] };
 }
@@ -96,7 +109,12 @@ export interface ReaperProbes {
   cpuStatForPid?(pid: number): CpuStat | null;
   /** System uptime in seconds (/proc/uptime), or null when unreadable. */
   uptimeSeconds?(): number | null;
-  /** A process's cwd, for the log line only — never a gate. Null when unreadable. */
+  /**
+   * A process's cwd. Null when unreadable. Two uses: the runaway sweep's log line, and — since
+   * #1925 — the identity re-read inside `openSignalBracket`, where it IS a gate (absent ⇒ nothing
+   * is signalled). Must be a LIVE read on any backend that authorizes signals, or the re-read
+   * would just replay the same stale value `scanProcs` gave.
+   */
   cwdForPid?(pid: number): string | null;
   // ── snapshot-cell backends (darwin) ────────────────────────────────────────
   /**
@@ -243,6 +261,107 @@ export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">)
  *  guard would treat `/a/bc` as under `/a/b`). */
 export function isUnder(path: string, root: string): boolean {
   return path === root || path.startsWith(root + "/");
+}
+
+// ── pid-recycle fingerprint (#1925) ─────────────────────────────────────────
+//
+// Every path in this file that signals a pid does so on the strength of data read EARLIER: a cwd
+// and comm from `scanProcs`, a "(deleted)" suffix, a port from `portsForPid`, a ppid. Between those
+// reads and the `killPid` the process can exit and the kernel can hand its pid to something
+// unrelated, which the signal would then hit. `starttime` (ticks since boot) is the kernel's own
+// answer to "is this still the same process", and it is what `reapMarkedOrphans` has always used.
+//
+// The idiom is OPEN A BRACKET, VERIFY LATE. `openSignalBracket` captures `starttime` and then
+// RE-READS the cwd/comm that qualified the candidate; `isSameProcess` re-reads `starttime` at the
+// signal. Every read the decision rests on therefore happens strictly BETWEEN two matching
+// `starttime` reads, so a recycle anywhere in that span is caught.
+//
+// WHY THE RE-READ IS LOAD-BEARING and not belt-and-braces: `scanProcs` is a full-host /proc walk
+// that readlinks a cwd per pid, so the identity of a pid enumerated early is already many
+// milliseconds stale by the time the loop reaches it — a WIDER window than the per-candidate probes
+// that follow. Capturing `starttime` without re-reading cwd/comm would fingerprint whatever now
+// holds the pid and then happily match it at verify time, signalling the recycled process on the
+// dead one's cwd. The bracket has to start before the identity is established, not after.
+//
+// RESIDUAL, inherent to the fingerprint: `starttime` has USER_HZ (10ms) granularity, so a pid
+// recycled into a process that started within the same tick is indistinguishable. Closing that
+// needs pidfd, which is out of scope here — and `reapMarkedOrphans` has always carried it too.
+
+/** The identity `scanProcs` reported for a candidate — what every site's filter actually judged. */
+type ScannedProc = { pid: number; cwd: string; comm: string };
+
+/**
+ * A pid's `starttime`, or null when it cannot be read: the backend supplies no `cpuStatForPid`
+ * (darwin, `nullProbes`), or the process is already gone.
+ */
+function startTicksFor(pid: number, probes: ReaperProbes): number | null {
+  return probes.cpuStatForPid?.(pid)?.starttime ?? null;
+}
+
+/**
+ * Open the signal bracket for a candidate `scanProcs` qualified: capture its recycle fingerprint,
+ * then re-read the cwd and comm the caller's filter judged and require them UNCHANGED. Returns the
+ * captured `starttime` to hand to {@link isSameProcess} at the signal, or null when this process
+ * must not be signalled at all.
+ *
+ * Byte-equality against the scanned values rather than re-running each site's predicate: the
+ * predicate already passed on exactly these strings, so "still the same strings" is both sufficient
+ * and site-agnostic. A process that legitimately `chdir`s (or `prctl(PR_SET_NAME)`s) between the
+ * scan and here is therefore spared — the safe direction, and rare enough not to cost real coverage.
+ *
+ * FAILS CLOSED — an unreadable stat, an absent `cpuStatForPid`/`cwdForPid`/`commForPid`, and any
+ * divergence all answer null. That costs nothing on either real backend: `linuxProbes` supplies all
+ * three and reads world-readable /proc, so a null there means the process is already gone;
+ * `makeDarwinProbes` omits `cpuStatForPid` and sets `canAuthorizeSignal: false`, so every caller
+ * here is already a no-op on that backend.
+ */
+function openSignalBracket(p: ScannedProc, probes: ReaperProbes): number | null {
+  const startTicks = startTicksFor(p.pid, probes);
+  if (startTicks === null) return null;
+  // Strictly AFTER the capture, so a recycle before this point is caught by the verify.
+  if (!probes.cwdForPid || !probes.commForPid) return null;
+  if (probes.cwdForPid(p.pid) !== p.cwd || probes.commForPid(p.pid) !== p.comm) return null;
+  return startTicks;
+}
+
+/**
+ * Does `pid` still fingerprint the process `captured` was taken from?
+ *
+ * FAILS CLOSED — an absent capture, an absent probe, an unreadable stat and a genuine mismatch all
+ * answer false, i.e. "do not signal". That costs nothing on either real backend: `linuxProbes`
+ * always supplies `cpuStatForPid` and /proc/<pid>/stat is world-readable, so a null there means the
+ * process is already gone; `makeDarwinProbes` omits the probe but also omits `ppidForPid` and sets
+ * `canAuthorizeSignal: false`, so every caller here is already a no-op on that backend.
+ */
+function isSameProcess(
+  pid: number,
+  captured: number | null | undefined,
+  probes: ReaperProbes,
+): boolean {
+  return captured != null && startTicksFor(pid, probes) === captured;
+}
+
+/**
+ * The shared tail of both PPID-1 orphan sweeps ({@link ProcessReaper.reapOrphansUnder},
+ * {@link reapDeletedWorktreeOrphans}): confirm the kernel has reparented this process to PID 1 —
+ * the "abandoned, not a live child" signal — then SIGKILL it. The bracket spans both the cwd/comm
+ * re-read and the `ppidForPid` read, so every gate the kill rests on is verified against one
+ * unchanged `starttime`.
+ *
+ * Returns whether a signal was actually SENT (not a death confirmation). Best-effort: a `killPid`
+ * that throws because the process exited first is a false, not an error.
+ */
+function killReparentedOrphan(p: ScannedProc, probes: ReaperProbes): boolean {
+  const startTicks = openSignalBracket(p, probes);
+  if (startTicks === null) return false;
+  if ((probes.ppidForPid?.(p.pid) ?? null) !== 1) return false;
+  if (!isSameProcess(p.pid, startTicks, probes)) return false;
+  try {
+    probes.killPid(p.pid, "SIGKILL");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Canonical worktree root for comparison against probe-reported cwds: trailing
@@ -607,10 +726,12 @@ export class ProcessReaper {
     // A backend that may not authorize a signal on its own (darwin) must not OFFER
     // class-2 leftovers: `reap()` gates its pid branch on that same
     // `canAuthorizeSignal` flag, so every one of them would be listed under
-    // "Terminate & close", signal nothing, and still be counted as
-    // `reaped = hit.length` (SessionService.archive) — strictly worse than the
-    // pre-#1912 behaviour, where an empty `scanProcs` meant nothing was ever offered.
-    // So fail closed, exactly as class-3 does when `listeningPorts` is absent.
+    // "Terminate & close" and signal nothing — strictly worse than the pre-#1912
+    // behaviour, where an empty `scanProcs` meant nothing was ever offered. So fail
+    // closed, exactly as class-3 does when `listeningPorts` is absent. (The COUNT is
+    // honest either way since #1925: `reap()` returns terminations actually performed
+    // and `SessionService.archive` reports THAT, not the size of the list it was
+    // handed. It is the dead menu entry that is worth avoiding.)
     //
     // The gate is the flag, NOT an inert `killPid`: #1922 made darwin's a real
     // `process.kill`. It armed `stopListenersOnPort` alone, and only because that path
@@ -625,6 +746,14 @@ export class ProcessReaper {
       // own repo and listens on a port, so without this it could surface itself.
       if (p.pid === process.pid) continue;
       if (!isUnder(p.cwd, root) || AGENT_COMMS.has(p.comm)) continue;
+      // Open the signal bracket BEFORE the portsForPid read, so both that read and `reap`'s later
+      // verify sit inside it. A process the bracket refuses is not OFFERED at all: `reap` would
+      // refuse to signal it, so offering it would put an un-killable entry under "Terminate &
+      // close" that silently does nothing — the same dead affordance the no-authority
+      // short-circuit above exists to prevent. The COUNT is honest either way (`reap` returns
+      // terminations performed); it is the phantom menu entry that is worth avoiding.
+      const startTicks = openSignalBracket(p, this.probes);
+      if (startTicks === null) continue;
       const ports = this.probes.portsForPid(p.pid);
       if (ports.length === 0) continue; // no listener ⇒ a transient child, not a server
       out.push({
@@ -632,6 +761,7 @@ export class ProcessReaper {
         name: p.comm || `pid ${p.pid}`,
         port: ports[0]!,
         pid: p.pid,
+        startTicks,
         key: leftoverKey({ kind: "process", name: p.comm, port: ports[0]!, pid: p.pid }),
       });
     }
@@ -712,10 +842,21 @@ export class ProcessReaper {
     const root = normRoot(worktreePath, this.probes);
     let count = 0;
     let rejected = 0;
-    for (const pid of this.candidatePidsOn(root, port)) {
-      // Re-prove the SAME predicates against live data, so a pid that died and was
-      // recycled since the snapshot fails here rather than taking the signal.
-      if (verify && !this.verifiesLive(verify, pid, root, port)) {
+    for (const { pid, startTicks } of this.candidatesOn(root, port)) {
+      // TWO WAYS to prove the pid still belongs to the process the snapshot proposed, and a
+      // backend supplies exactly one of them:
+      //  - `liveProcForPid` (darwin, #1922) — re-prove the SAME predicates against live data.
+      //    macOS has no cheap starttime equivalent, so identity is proven by consequence: a
+      //    recycled pid fails on its cwd, its ports, or both.
+      //  - the starttime bracket (Linux, #1925) — re-read the fingerprint captured in
+      //    `candidatesOn` before `portsForPid`, so that read and this check straddle it.
+      // Requiring BOTH would disarm darwin, which has no `cpuStatForPid`; requiring neither is
+      // the hole #1925 closed. `isSameProcess` fails closed on a null capture, so a backend with
+      // neither seam signals nothing.
+      const proven = verify
+        ? this.verifiesLive(verify, pid, root, port)
+        : isSameProcess(pid, startTicks, this.probes);
+      if (!proven) {
         rejected++;
         continue;
       }
@@ -733,15 +874,23 @@ export class ProcessReaper {
     return { signalled: count, outcome: "ok" };
   }
 
-  /** Pids the backing snapshot PROPOSES for a stop: under `root`, listening on `port`,
-   *  and neither ourselves nor the agent. Only a proposal — on a snapshot backend
-   *  `verifiesLive` re-proves each one against live data before it may be signalled. */
-  private *candidatePidsOn(root: string, port: number): Iterable<number> {
+  /** Candidates the backing snapshot PROPOSES for a stop: under `root`, listening on `port`,
+   *  and neither ourselves nor the agent. Only a proposal — `stopListenersOnPort` proves each
+   *  one before it may be signalled, either live (`verifiesLive`) or by fingerprint.
+   *
+   *  `startTicks` is captured BEFORE the `portsForPid` read so that read falls inside the
+   *  bracket (#1925); it is null on a snapshot backend with no `cpuStatForPid`, which proves
+   *  its candidates the other way and never consults it. */
+  private *candidatesOn(
+    root: string,
+    port: number,
+  ): Iterable<{ pid: number; startTicks: number | null }> {
     for (const proc of this.probes.scanProcs()) {
       if (proc.pid === process.pid) continue;
       if (!isUnder(proc.cwd, root) || AGENT_COMMS.has(proc.comm)) continue;
+      const startTicks = openSignalBracket(proc, this.probes);
       if (!this.probes.portsForPid(proc.pid).includes(port)) continue;
-      yield proc.pid;
+      yield { pid: proc.pid, startTicks };
     }
   }
 
@@ -830,13 +979,7 @@ export class ProcessReaper {
     for (const p of this.probes.scanProcs()) {
       if (p.pid === process.pid || AGENT_COMMS.has(p.comm)) continue;
       if (!isUnder(p.cwd, root)) continue;
-      if ((this.probes.ppidForPid?.(p.pid) ?? null) !== 1) continue;
-      try {
-        this.probes.killPid(p.pid, "SIGKILL");
-        count++;
-      } catch {
-        /* best-effort: process may have already exited */
-      }
+      if (killReparentedOrphan(p, this.probes)) count++;
     }
     return count;
   }
@@ -844,25 +987,44 @@ export class ProcessReaper {
   /**
    * Best-effort terminate each leftover (kill pid / run counter-command).
    *
-   * The pid branch is gated on signal authority independently of `detect`. Today
-   * `scanWorktreeProcs` already returns [] on a no-authority backend, so a caller
-   * that derives leftovers from `detect` (SessionService.archive) can't reach it —
-   * but this method is what actually signals, and its keys round-trip through the
-   * client, so it refuses on its own rather than trusting an upstream filter. The
-   * counter-command branch is NOT gated: it runs `tailscale serve … off`, which
-   * targets a port mapping rather than a pid and so has no recycle hazard.
+   * Returns the number of terminations actually PERFORMED — a signal sent, or a counter-command
+   * that returned without throwing. Not a death confirmation (a process may ignore SIGTERM), but
+   * strictly honest about what this method did, which is why `SessionService.archive` reports it
+   * rather than the size of the list it was handed: the recycle guard below and a throwing
+   * `run()` both make the two diverge. BOTH kinds count — a class-3 `tailscale serve … off` is a
+   * termination the operator asked for, and dropping it would silently deflate the Clear-merged
+   * total `archiveMany` sums.
+   *
+   * The pid branch is gated twice, independently of `detect`:
+   *  - SIGNAL AUTHORITY. Today `scanWorktreeProcs` already returns [] on a no-authority backend, so
+   *    a caller that derives leftovers from `detect` (SessionService.archive) can't reach it — but
+   *    this method is what actually signals, and its keys round-trip through the client, so it
+   *    refuses on its own rather than trusting an upstream filter.
+   *  - PID RECYCLE. `startTicks` was captured when the leftover was detected; it is re-read here and
+   *    must still match. Fails closed, so a leftover carrying no fingerprint is never signalled.
+   *
+   * The counter-command branch is NOT gated: it targets a port mapping rather than a pid, so it has
+   * no recycle hazard.
    */
-  reap(leftovers: Leftover[]): void {
+  reap(leftovers: Leftover[]): number {
     const canSignal = this.probes.canAuthorizeSignal !== false;
+    let terminated = 0;
     for (const l of leftovers) {
       try {
         if (l.kind === "process" && l.pid != null) {
-          if (canSignal) this.probes.killPid(l.pid);
-        } else if (l.command) this.probes.run(l.command.bin, l.command.args);
+          if (!canSignal) continue;
+          if (!isSameProcess(l.pid, l.startTicks, this.probes)) continue;
+          this.probes.killPid(l.pid);
+          terminated++;
+        } else if (l.command) {
+          this.probes.run(l.command.bin, l.command.args);
+          terminated++;
+        }
       } catch {
-        /* best-effort: a process may have already exited */
+        /* best-effort: a process may have already exited, a counter-command may have failed */
       }
     }
+    return terminated;
   }
 }
 
@@ -891,13 +1053,7 @@ export function reapDeletedWorktreeOrphans(probes: ReaperProbes = defaultProbes)
     if (!p.cwd.endsWith(DELETED_SUFFIX)) continue;
     const realCwd = p.cwd.slice(0, -DELETED_SUFFIX.length);
     if (!(realCwd + "/").includes(WORKTREE_MARKER)) continue;
-    if ((probes.ppidForPid?.(p.pid) ?? null) !== 1) continue;
-    try {
-      probes.killPid(p.pid, "SIGKILL");
-      reaped++;
-    } catch {
-      /* best-effort: process may have already exited */
-    }
+    if (killReparentedOrphan(p, probes)) reaped++;
   }
   return { reaped };
 }

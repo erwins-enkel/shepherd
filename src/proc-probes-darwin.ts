@@ -42,6 +42,12 @@ import type { ReaperProbes } from "./process-reaper";
 // structurally unreachable here (the orphan reaps need the omitted `ppidForPid`,
 // the runaway reaper the omitted `environForPid`/`cpuStatForPid`/`uptimeSeconds`,
 // and `reap()` is gated on `canAuthorizeSignal`).
+//
+// Since #1925 `cpuStatForPid` carries a SECOND meaning: it is the starttime the
+// generic kill sites bracket their signals with. Omitting it therefore fails each
+// of them closed here a second time over, independently of the omissions above —
+// which is consistent, not redundant, because the one path that IS armed proves
+// its candidates the other way (below).
 
 /** The one `lsof` invocation the backend runs. `-d cwd` and `-iTCP` are different
  *  selection types, so lsof ORs them: one call yields, per process, its command,

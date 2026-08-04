@@ -3,5 +3,6 @@
   "framework": null,
   "buildCommand": "bun run build:demo",
   "outputDirectory": "build-demo",
+  "ignoreCommand": "bash ../scripts/vercel-ignore-build.sh ./ ../package.json",
   "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
 }

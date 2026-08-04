@@ -120,8 +120,7 @@ test("service.rename returns null for an unknown id", () => {
 });
 
 // ── POST /api/sessions/:id/rename ──────────────────────────────────────────
-function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {
-  const log: string[] = [];
+function fakeForge(over: Partial<GitForge> = {}): GitForge {
   const base: GitForge = {
     kind: "gitea",
     slug: "team/proj",
@@ -137,19 +136,21 @@ function fakeForge(over: Partial<GitForge> = {}): GitForge & { log: string[] } {
     postReview: async () => ({}),
     defaultBranch: async () => "main",
   };
-  return Object.assign(base, over, { log });
+  return Object.assign(base, over);
 }
 
 type RenameDeps = AppDeps & {
   emitted: { event: string; data: unknown }[];
   cacheWrites: string[];
   _wtLog: string[];
+  _prStatusCalls: string[];
   _sessionId: string;
 };
 
 function makeDeps(opts: {
   forge?: GitForge | null;
-  openPr?: boolean;
+  /** Seed the poller cache with this PR state (no entry when absent). */
+  cached?: "open" | "none";
   branchExists?: boolean;
 }): RenameDeps {
   const store = new SessionStore(":memory:");
@@ -174,8 +175,8 @@ function makeDeps(opts: {
   const emitted: { event: string; data: unknown }[] = [];
   const cacheWrites: string[] = [];
   const snap: Record<string, GitState> = {};
-  if (opts.openPr) {
-    snap[s.id] = { kind: "github", state: "open", checks: "none", deployConfigured: false };
+  if (opts.cached) {
+    snap[s.id] = { kind: "github", state: opts.cached, checks: "none", deployConfigured: false };
   }
   const prCache: PrCache = {
     snapshot: () => snap,
@@ -183,16 +184,28 @@ function makeDeps(opts: {
     set: (id) => cacheWrites.push(id),
     drop: (id) => cacheWrites.push(`drop:${id}`),
   };
+  // Record every live PR lookup so a test can assert the forge was (or wasn't) consulted.
+  const prStatusCalls: string[] = [];
+  const inner = opts.forge;
+  const forge: GitForge | null = inner
+    ? {
+        ...inner,
+        prStatus: (b: string) => {
+          prStatusCalls.push(b);
+          return inner.prStatus(b);
+        },
+      }
+    : null;
   return Object.assign(
     {
       store,
       service,
       events: { emit: (event: string, data: unknown) => emitted.push({ event, data }) } as never,
       usageLimits: { limits: () => ({}) } as never,
-      resolveForge: () => opts.forge ?? null,
+      resolveForge: () => forge,
       prCache,
     } as AppDeps,
-    { emitted, cacheWrites, _wtLog: wtLog, _sessionId: s.id },
+    { emitted, cacheWrites, _wtLog: wtLog, _prStatusCalls: prStatusCalls, _sessionId: s.id },
   );
 }
 
@@ -222,7 +235,17 @@ test("rename → 409 when the target branch already exists", async () => {
   expect(res.status).toBe(409);
 });
 
-test("rename with no open PR renames the local branch + emits session:renamed", async () => {
+test("a taken branch name doesn't block a display-only rename", async () => {
+  const deps = makeDeps({ forge: fakeForge(), cached: "open", branchExists: true });
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${deps._sessionId}/rename`, { name: "taken" }));
+  expect(res.status).toBe(200); // no branch moves → nothing to collide with
+  const body = await res.json();
+  expect(body.session.name).toBe("taken");
+  expect(body.branchRenamed).toBe(false);
+});
+
+test("rename with no forge renames the local branch + emits session:renamed", async () => {
   const deps = makeDeps({ forge: null });
   const id = deps._sessionId;
   const app = makeApp(deps);
@@ -230,7 +253,6 @@ test("rename with no open PR renames the local branch + emits session:renamed", 
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.branchRenamed).toBe(true);
-  expect(body.prRetargeted).toBe(false);
   expect(body.session.name).toBe("fresh-name");
   expect(body.session.branch).toBe("shepherd/fresh-name");
   expect(deps._wtLog).toEqual(["shepherd/old-name->shepherd/fresh-name"]);
@@ -238,36 +260,85 @@ test("rename with no open PR renames the local branch + emits session:renamed", 
   expect(deps.emitted.find((e) => e.event === "session:renamed")).toBeTruthy();
 });
 
-test("open PR on Gitea (no retarget) → display-only rename, branch kept", async () => {
-  const deps = makeDeps({ forge: fakeForge(), openPr: true }); // gitea forge has no renameBranch
+// #1927: GitHub's branch-rename API CLOSES a PR that uses the branch as its head, so an
+// open PR must pin the branch on every host — no remote rename, no `git branch -m`.
+test("cached open PR on GitHub → display-only rename, branch kept", async () => {
+  const deps = makeDeps({ forge: fakeForge({ kind: "github" }), cached: "open" });
   const id = deps._sessionId;
   const app = makeApp(deps);
   const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
   expect(res.status).toBe(200);
   const body = await res.json();
   expect(body.branchRenamed).toBe(false);
-  expect(body.prRetargeted).toBe(false);
   expect(body.session.name).toBe("renamed");
   expect(body.session.branch).toBe("shepherd/old-name"); // PR branch untouched
   expect(deps._wtLog).toEqual([]); // no git branch -m
+  expect(deps._prStatusCalls).toEqual([]); // cached "open" is trusted as-is
+  expect(deps.cacheWrites).toEqual([]); // still-valid PR state survives the rename
 });
 
-test("open PR on GitHub → forge retargets remote branch + local rename", async () => {
-  const renameLog: string[] = [];
-  const forge = fakeForge({
-    kind: "github",
-    renameBranch: async (o: string, n: string) => {
-      renameLog.push(`${o}->${n}`);
-    },
-  });
-  const deps = makeDeps({ forge, openPr: true });
+test("cached open PR on Gitea → display-only rename, branch kept", async () => {
+  const deps = makeDeps({ forge: fakeForge(), cached: "open" });
   const id = deps._sessionId;
   const app = makeApp(deps);
-  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "retargeted" }));
+  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
+  const body = await res.json();
+  expect(body.branchRenamed).toBe(false);
+  expect(body.session.branch).toBe("shepherd/old-name");
+  expect(deps._wtLog).toEqual([]);
+});
+
+test("cache miss + forge reports an open PR → display-only rename", async () => {
+  const deps = makeDeps({ forge: fakeForge({ kind: "github" }) }); // fakeForge.prStatus → open
+  const id = deps._sessionId;
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
+  const body = await res.json();
+  expect(body.branchRenamed).toBe(false);
+  expect(body.session.branch).toBe("shepherd/old-name");
+  expect(deps._wtLog).toEqual([]);
+  expect(deps._prStatusCalls).toEqual(["shepherd/old-name"]);
+});
+
+// The poller can still hold a "none" from before the agent opened the PR.
+test("stale cached none + forge reports an open PR → display-only rename", async () => {
+  const deps = makeDeps({ forge: fakeForge({ kind: "github" }), cached: "none" });
+  const id = deps._sessionId;
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._wtLog).toEqual([]);
+  expect(deps._prStatusCalls).toEqual(["shepherd/old-name"]);
+});
+
+test("cache miss + forge lookup throws → assume open, branch kept", async () => {
+  const forge = fakeForge({
+    kind: "github",
+    prStatus: async () => {
+      throw new Error("gh exploded");
+    },
+  });
+  const deps = makeDeps({ forge });
+  const id = deps._sessionId;
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
   expect(res.status).toBe(200);
+  expect((await res.json()).branchRenamed).toBe(false);
+  expect(deps._wtLog).toEqual([]);
+});
+
+test("cached none confirmed by the forge → local branch renamed", async () => {
+  const forge = fakeForge({
+    kind: "github",
+    prStatus: async () => ({ state: "none", checks: "none", deployConfigured: false }) as PrStatus,
+  });
+  const deps = makeDeps({ forge, cached: "none" });
+  const id = deps._sessionId;
+  const app = makeApp(deps);
+  const res = await app.fetch(post(`/api/sessions/${id}/rename`, { name: "renamed" }));
   const body = await res.json();
   expect(body.branchRenamed).toBe(true);
-  expect(body.prRetargeted).toBe(true);
-  expect(renameLog).toEqual(["shepherd/old-name->shepherd/retargeted"]);
-  expect(deps._wtLog).toEqual(["shepherd/old-name->shepherd/retargeted"]);
+  expect(body.session.branch).toBe("shepherd/renamed");
+  expect(deps._wtLog).toEqual(["shepherd/old-name->shepherd/renamed"]);
+  expect(deps.cacheWrites).toContain(`drop:${id}`); // moved branch → cached state is stale
 });

@@ -444,10 +444,6 @@ export interface GitForge {
    *  cut an epic integration branch off the default branch. Optional: hosts without a
    *  refs API omit it and the caller skips epic-branch orchestration. */
   ensureBranch?(branch: string, fromRef: string): Promise<void>;
-  /** Rename a branch on the host, retargeting any open PR to the new name. Optional:
-   *  hosts that can't do this safely (Gitea) omit it, and the caller falls back to a
-   *  display-only rename so an open PR is never orphaned. */
-  renameBranch?(oldBranch: string, newBranch: string): Promise<void>;
   merge(prNumber: number, o: MergeInput): Promise<void>;
   /** Post a plain issue comment on a PR (`gh pr comment`). Optional: only hosts
    *  with a comment API (GitHub) implement it; others omit it and the

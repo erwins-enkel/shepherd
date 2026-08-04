@@ -1434,14 +1434,14 @@ export async function mergePr(
   return gitJson(await fetch(`/api/sessions/${id}/git/merge`, JSON_POST(body ?? {})));
 }
 
-/** Rename a session. The server slugifies the name, renames the git branch (and a
- *  GitHub PR's remote branch when one is open), and broadcasts `session:renamed`.
- *  `branchRenamed` is false when an open PR on a non-retargetable host (Gitea) forced
- *  a display-only rename. Rejects with `name_taken` when the target branch exists. */
+/** Rename a session. The server slugifies the name, renames the git branch, and
+ *  broadcasts `session:renamed`. `branchRenamed` is false when an open PR pinned the
+ *  branch (no host can carry a PR onto a renamed head branch), leaving a display-only
+ *  rename. Rejects with `name_taken` when the target branch exists. */
 export async function renameSession(
   id: string,
   name: string,
-): Promise<{ session: Session; branchRenamed: boolean; prRetargeted: boolean }> {
+): Promise<{ session: Session; branchRenamed: boolean }> {
   return gitJson(await fetch(`/api/sessions/${id}/rename`, JSON_POST({ name })));
 }
 

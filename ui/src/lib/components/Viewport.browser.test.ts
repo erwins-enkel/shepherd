@@ -16,7 +16,6 @@ const stopPreviewFn = vi.fn(async () => ({ killed: 1 }) as { killed: number } | 
 const renameSessionFn = vi.fn(async (_id: string, name: string) => ({
   session: session({ id: "renamed", name }),
   branchRenamed: true,
-  prRetargeted: false,
 }));
 
 vi.mock("$lib/api", async (importOriginal) => {

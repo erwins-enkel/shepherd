@@ -2953,33 +2953,40 @@ async function parseRenameName(req: Request): Promise<string | Response> {
   return raw;
 }
 
-// Decide whether the local branch moves. An OPEN PR forces the host into the loop:
-// GitHub retargets it by renaming the remote branch first (so `s.branch` never points
-// away from the PR); a host that can't (Gitea) yields a display-only rename. Returns the
-// flag, or a 502 Response when the remote rename failed.
-async function resolveRenameBranch(
-  deps: AppDeps,
-  s: Session,
-  newBranch: string,
-  hasOpenPr: boolean,
-): Promise<boolean | Response> {
-  const renameLocalBranch = s.isolated && !!s.branch;
-  if (!hasOpenPr || !renameLocalBranch || !s.branch) return renameLocalBranch;
-
+/**
+ * Is a PR open on `s.branch` right now? Trusts the poller cache only when it says
+ * "open" — that's the conservative answer and needs no network. Every other cached
+ * value (missing, or a `none` the poller hasn't re-read since the agent opened the PR)
+ * is re-confirmed against the forge, because the caller is about to move the branch on
+ * the strength of it. No forge ⇒ no PR. A failed lookup answers "open": keeping the
+ * branch is always recoverable, detaching a live PR from its session isn't (#1927).
+ */
+async function sessionHasOpenPr(deps: AppDeps, s: Session): Promise<boolean> {
+  if (!s.branch) return false;
+  if (deps.prCache?.snapshot()[s.id]?.state === "open") return true;
   const forge = deps.resolveForge?.(s.repoPath) ?? null;
-  if (!forge?.renameBranch) return false; // can't retarget → keep the branch + PR, display-only
-
+  if (!forge) return false;
   try {
-    await forge.renameBranch(s.branch, newBranch);
+    return (await forge.prStatus(s.branch)).state === "open";
   } catch (e) {
-    return json({ error: e instanceof Error ? e.message : "rename failed" }, 502);
+    // Silent degradation would be untraceable: the rename still succeeds, just display-only.
+    console.warn(`[rename] PR lookup failed for ${s.branch}; keeping the branch:`, e);
+    return true;
   }
-  return renameLocalBranch;
+}
+
+// Decide whether the local branch moves. An OPEN PR pins it: no forge can carry a PR
+// onto a renamed head branch. GitHub's branch-rename API retargets PRs that use the
+// branch as their *base* and explicitly CLOSES any PR that uses it as its *head* — which
+// is every session PR — so renaming there is destructive, not a retarget (#1927). A PR's
+// head is immutable once open, so the only correct answer is a display-only rename.
+async function resolveRenameBranch(deps: AppDeps, s: Session): Promise<boolean> {
+  if (!s.isolated || !s.branch) return false;
+  return !(await sessionHasOpenPr(deps, s));
 }
 
 // POST /api/sessions/:id/rename — rename a session (display name + git branch).
-// When a PR is already open the local branch only moves if the host can retarget the
-// PR (GitHub renames the remote branch; Gitea can't, so it's a display-only rename).
+// An open PR makes it display-only: the branch stays put so the PR survives.
 async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "rename")) return null;
   const raw = await parseRenameName(req);
@@ -2988,17 +2995,14 @@ async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response 
   if (!s) return json({ error: "not found" }, 404);
 
   const slug = slugifyManual(raw);
-  if (slug === s.name) return json({ session: s, branchRenamed: false, prRetargeted: false });
+  if (slug === s.name) return json({ session: s, branchRenamed: false });
 
-  const newBranch = `shepherd/${slug}`;
-  if (s.isolated && deps.service.branchExists(s.repoPath, newBranch)) {
+  // Decide first: a display-only rename moves no branch, so a taken branch name is none
+  // of its business — only a rename that actually runs `git branch -m` can collide.
+  const renameLocalBranch = await resolveRenameBranch(deps, s);
+  if (renameLocalBranch && deps.service.branchExists(s.repoPath, `shepherd/${slug}`)) {
     return json({ error: "name_taken" }, 409);
   }
-
-  // capture before the cache drop below, which would otherwise hide the open PR
-  const hadOpenPr = deps.prCache?.snapshot()[s.id]?.state === "open";
-  const renameLocalBranch = await resolveRenameBranch(deps, s, newBranch, hadOpenPr);
-  if (renameLocalBranch instanceof Response) return renameLocalBranch;
 
   let updated: Session | null;
   try {
@@ -3008,17 +3012,15 @@ async function handleSessionRename({ req, parts, deps }: Ctx): Promise<Response 
   }
   if (!updated) return json({ error: "not found" }, 404);
 
-  deps.prCache?.drop(s.id); // clear stale state; the next poll re-reads the new/retargeted branch
+  // Only a moved branch invalidates the cached PR state; a display-only rename leaves it
+  // correct, and dropping it would blank the card's PR badge until the next sweep.
+  if (renameLocalBranch) deps.prCache?.drop(s.id); // next poll re-reads the new branch
   deps.events.emit("session:renamed", {
     id: updated.id,
     name: updated.name,
     branch: updated.branch,
   });
-  return json({
-    session: updated,
-    branchRenamed: renameLocalBranch,
-    prRetargeted: renameLocalBranch && hadOpenPr,
-  });
+  return json({ session: updated, branchRenamed: renameLocalBranch });
 }
 
 // POST /api/sessions/:id/resume — resume a finished session in a fresh agent.

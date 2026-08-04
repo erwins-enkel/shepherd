@@ -1011,7 +1011,7 @@
     try {
       const res = await renameSession(session.id, name);
       renaming = false;
-      // open PR on a host that can't retarget → display-only; tell the user the branch stayed
+      // an open PR pins the branch → display-only; tell the user the branch stayed
       if (session.branch && !res.branchRenamed) {
         renameNote = m.viewport_rename_branch_kept();
         clearTimeout(renameNoteTimer);

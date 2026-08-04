@@ -1,4 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "framework": "astro"
+  "framework": "astro",
+  "ignoreCommand": "bash ../scripts/vercel-ignore-build.sh ./ ../src ../docs ../CLAUDE.md ../.claude/rules"
 }

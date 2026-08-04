@@ -834,7 +834,7 @@ function harnessWithReaper(reaper: {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const fullReaper = {
-    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     ...reaper,
   };
   const service = new SessionService({
@@ -2197,7 +2197,7 @@ function clearMergedHarness(reaperExtra?: { canDetectLeftovers?: any; health?: a
     reaper: {
       detect,
       reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" as const }),
       ...reaperExtra,
     },
     events,
@@ -2805,13 +2805,17 @@ test("GET /api/preview without previewServe dep returns unchanged snapshot (back
 function harnessWithPreviewStop({
   devPortFor,
   stopListenersOnPort,
+  refresh,
 }: {
   devPortFor: (id: string) => number | null;
   stopListenersOnPort: (
     worktreePath: string,
     port: number,
     signal: NodeJS.Signals,
-  ) => { signalled: number; unsupported: boolean };
+  ) => { signalled: number; outcome: "ok" | "unsupported" | "refused" };
+  /** Optional probe-snapshot refresh seam, so a test can prove the handler
+   *  force-refreshes BEFORE it signals (#1922). */
+  refresh?: (opts?: { force?: boolean }) => Promise<void>;
 }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
@@ -2830,7 +2834,7 @@ function harnessWithPreviewStop({
       stop: async () => {},
       send: () => {},
     } as any,
-    reaper: { detect: () => [], reap: () => {}, stopListenersOnPort },
+    reaper: { detect: () => [], reap: () => {}, stopListenersOnPort, refresh },
     preview: { devPortFor },
   });
   const usageLimits = {
@@ -2862,20 +2866,25 @@ const previewStop = (app: ReturnType<typeof makeApp>, id: string) =>
     }),
   );
 
-test("POST /api/sessions/:id/preview/stop → 404 for unknown session id", async () => {
+test("POST /api/sessions/:id/preview/stop → 404 for unknown session id, without refreshing", async () => {
+  let refreshes = 0;
   const { app } = harnessWithPreviewStop({
     devPortFor: () => null,
-    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
+    refresh: async () => void refreshes++,
   });
   const res = await previewStop(app, "does-not-exist");
   expect(res.status).toBe(404);
   expect(await res.json()).toEqual({ error: "not found" });
+  // A stale client must not be able to make the server pay a full-host `lsof` scan
+  // per bogus id — the id is rejected before the refresh.
+  expect(refreshes).toBe(0);
 });
 
 test("POST /api/sessions/:id/preview/stop → 409 when no live preview bound", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => null, // no preview bound
-    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
   });
   const s = store.create({
     name: "x",
@@ -2899,7 +2908,7 @@ test("POST /api/sessions/:id/preview/stop → 200 with killed count (happy path)
     devPortFor: () => 5173,
     stopListenersOnPort: (worktreePath, port, signal) => {
       signalCalls.push({ worktreePath, port, signal });
-      return { signalled: 2, unsupported: false };
+      return { signalled: 2, outcome: "ok" };
     },
   });
   const s = store.create({
@@ -2922,7 +2931,7 @@ test("POST /api/sessions/:id/preview/stop → 200 with killed count (happy path)
 test("POST /api/sessions/:id/preview/stop → 200 {killed:0} is not an error", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => 5173,
-    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
   });
   const s = store.create({
     name: "x",
@@ -2940,10 +2949,89 @@ test("POST /api/sessions/:id/preview/stop → 200 {killed:0} is not an error", a
   expect(await res.json()).toEqual({ killed: 0 });
 });
 
+test("POST /api/sessions/:id/preview/stop → 409 refused (probe data could not authorize it)", async () => {
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    // Deliberately non-zero `signalled` alongside `refused`: the handler must relay the
+    // refusal, not a kill count. Nothing was sent.
+    stopListenersOnPort: () => ({ signalled: 4, outcome: "refused" }),
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  // NOT 200 {killed:0}: the UI renders that as "nothing was found to stop", which is
+  // the opposite of the truth — the dev server is still running.
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "refused" });
+});
+
+test("POST /api/sessions/:id/preview/stop → 409 unsupported on a host that cannot signal", async () => {
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "unsupported" }),
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  expect(res.status).toBe(409);
+  expect(await res.json()).toEqual({ error: "unsupported" });
+});
+
+test("POST /api/sessions/:id/preview/stop: force-refreshes the probe snapshot BEFORE signalling", async () => {
+  // Ordering is the assertion. On a snapshot backend the poller only refreshes while
+  // sessions have worktrees, so without this an operator clicking Stop on an idle host
+  // meets an out-of-window cell and is always refused.
+  const order: string[] = [];
+  const { app, store } = harnessWithPreviewStop({
+    devPortFor: () => 5173,
+    refresh: async (opts) => {
+      order.push(`refresh:${opts?.force === true}`);
+      await Promise.resolve(); // the handler must AWAIT it, not fire and forget
+      order.push("refresh:done");
+    },
+    stopListenersOnPort: () => {
+      order.push("stop");
+      return { signalled: 1, outcome: "ok" };
+    },
+  });
+  const s = store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+  const res = await previewStop(app, s.id);
+  expect(res.status).toBe(200);
+  expect(order).toEqual(["refresh:true", "refresh:done", "stop"]);
+});
+
 test("GET /api/sessions/:id/preview/stop (wrong method) → falls through router (non-200)", async () => {
   const { app, store } = harnessWithPreviewStop({
     devPortFor: () => 5173,
-    stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+    stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
   });
   const s = store.create({
     name: "x",

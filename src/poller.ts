@@ -105,10 +105,11 @@ export interface PreviewWiring {
 }
 
 /** Outcome of a preview-stop attempt, folded from `SessionService.stopPreview`. The
- *  poller only distinguishes `"unsupported"` (no signal authority — do not advance
- *  the ladder) from everything else. */
+ *  poller only distinguishes the two outcomes that signalled NOTHING — `"unsupported"`
+ *  (this host can never signal) and `"refused"` (it could not do so safely this time) —
+ *  from everything else. Neither may advance the ladder. */
 export type StopPreviewOutcome = {
-  result: "stopped" | "not_bound" | "not_found" | "unsupported";
+  result: "stopped" | "not_bound" | "not_found" | "unsupported" | "refused";
   killed: number;
 } | void;
 
@@ -285,10 +286,15 @@ export class StatusPoller {
     string,
     { devPort: number; level: "term" | "kill"; gaveUp: boolean }
   >();
-  /** Sessions for which idle-stop has already logged an "unsupported on this host"
-   *  line this episode, so the warn fires once rather than every sweep. Pruned
-   *  alongside `previewStopState`. */
-  private idleStopUnsupportedLogged = new Set<string>();
+  /** Sessions for which idle-stop has already logged a "signalled nothing" line this
+   *  episode, so the warn fires once rather than every sweep. Pruned alongside
+   *  `previewStopState`.
+   *
+   *  Keyed by REASON, not membership: a session whose refusal changes cause — say the
+   *  probe cell ages out of the kill window on a host that was previously reporting
+   *  `unsupported` — is a different fact about the host, and must re-log once rather
+   *  than stay silent under a stale entry. */
+  private idleStopSilentLogged = new Map<string, "unsupported" | "refused">();
   /** The resolved preview wiring (with real defaults filled in). */
   private readonly previewWiring: PreviewWiring;
 
@@ -1030,7 +1036,7 @@ export class StatusPoller {
         this.pushInFlight.delete(id);
         this.liveness.delete(id);
         this.previewStopState.delete(id);
-        this.idleStopUnsupportedLogged.delete(id);
+        this.idleStopSilentLogged.delete(id);
         this.livenessUnknown.delete(id);
         // archived/removed → no client cares anymore; drop without an emit
         this.workingWhileBlocked.delete(id);
@@ -1772,7 +1778,7 @@ export class StatusPoller {
       if (devPort === null) {
         // Server is gone — clear any escalation state and skip (converge will release it).
         this.previewStopState.delete(s.id);
-        this.idleStopUnsupportedLogged.delete(s.id);
+        this.idleStopSilentLogged.delete(s.id);
         continue;
       }
 
@@ -1787,7 +1793,7 @@ export class StatusPoller {
           // died and escalate; the preview clears only when the port actually disappears.
         } else {
           this.previewStopState.delete(s.id); // recovered: viewed again / resumed / not stale → reset episode
-          this.idleStopUnsupportedLogged.delete(s.id);
+          this.idleStopSilentLogged.delete(s.id);
         }
       }
 
@@ -1797,6 +1803,29 @@ export class StatusPoller {
     // converge releases sessions absent from `active` and ensures those present.
     // onChange (wired in index.ts) emits session:preview on real transitions only.
     this.previewWiring.service.converge(active);
+  }
+
+  /** Did this stop outcome signal NOTHING for a reason that must not advance the
+   *  ladder? A type guard, so the narrowed value keys `idleStopSilentLogged`. */
+  private isSilentStop(result: string): result is "unsupported" | "refused" {
+    return result === "unsupported" || result === "refused";
+  }
+
+  /** Warn that a stop attempt signalled nothing — once per session per REASON, so a
+   *  host whose cause changes re-logs rather than staying silent under a stale entry,
+   *  while a steady state doesn't repeat every sweep. */
+  private logSilentStop(
+    sessionId: string,
+    devPort: number,
+    reason: "unsupported" | "refused",
+  ): void {
+    if (this.idleStopSilentLogged.get(sessionId) === reason) return;
+    this.idleStopSilentLogged.set(sessionId, reason);
+    console.warn(
+      reason === "unsupported"
+        ? `[preview] idle-stop unsupported on this host — cannot reclaim ${sessionId} on :${devPort}`
+        : `[preview] idle-stop refused (probe data could not authorize a signal) — cannot reclaim ${sessionId} on :${devPort}`,
+    );
   }
 
   /** Advance the SIGTERM→SIGKILL→give-up escalation for an idle, no-viewer preview.
@@ -1828,21 +1857,18 @@ export class StatusPoller {
       return;
     }
     const outcome = idleStop.stop(sessionId, nextSignal);
-    // No signal authority on this host (darwin): NOTHING was signalled, so the
-    // ladder must NOT advance — otherwise three sweeps would burn SIGTERM→SIGKILL→
-    // gaveUp and log "could not reclaim" without ever having sent a signal. Log the
-    // reason once per episode and leave `previewStopState` untouched, so a later
-    // sweep on a host that regains authority still starts the ladder cleanly.
-    if (outcome && typeof outcome === "object" && outcome.result === "unsupported") {
-      if (!this.idleStopUnsupportedLogged.has(sessionId)) {
-        this.idleStopUnsupportedLogged.add(sessionId);
-        console.warn(
-          `[preview] idle-stop unsupported on this host — cannot reclaim ${sessionId} on :${devPort}`,
-        );
-      }
+    // NOTHING was signalled — either this host can never signal (`unsupported`), or it
+    // could not do so safely this time (`refused`: the probe snapshot is past its
+    // kill-age bound, or every candidate failed live re-verification). Either way the
+    // ladder must NOT advance; otherwise three sweeps would burn SIGTERM→SIGKILL→gaveUp
+    // and log "could not reclaim" without a signal ever having been sent. Log the
+    // reason once per episode and leave `previewStopState` untouched, so a later sweep
+    // on a host that regains authority still starts the ladder cleanly.
+    if (outcome && typeof outcome === "object" && this.isSilentStop(outcome.result)) {
+      this.logSilentStop(sessionId, devPort, outcome.result);
       return;
     }
-    this.idleStopUnsupportedLogged.delete(sessionId);
+    this.idleStopSilentLogged.delete(sessionId);
     if (st && st.devPort === devPort && st.level === "term") {
       st.level = "kill";
     } else {

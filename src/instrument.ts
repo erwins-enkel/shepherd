@@ -112,7 +112,8 @@ export function logRemainingOnLoopBlockers(): void {
       " local git in branch-pruner/repos/branches/worktree/plan-gate/review," +
       " herdr --version (herdr-update)," +
       " git remote get-url (forge/index, backlog)," +
-      " process-reaper counter-command.",
+      " process-reaper counter-command," +
+      " lsof per-pid kill verification (darwin preview stop).",
   );
 }
 

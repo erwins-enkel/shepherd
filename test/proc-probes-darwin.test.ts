@@ -390,3 +390,157 @@ test("commBasename: basenames a path-form comm, leaves a bare name untouched", (
   expect(commBasename("/usr/local/bin/claude")).toBe("claude");
   expect(commBasename("claude")).toBe("claude");
 });
+
+// ── #1922: the signal window ─────────────────────────────────────────────────
+//
+// The kill-age bound is deliberately NOT `maxNegativeAgeMs` (which scales with
+// `config.previewSweepMs`): a negative verdict merely delays a teardown when wrong,
+// a signal is a SIGKILL. These pin that it is its own, tighter clock.
+
+test("signalWindowOpen: false on a cold cell — no snapshot can authorize a signal", () => {
+  const probes = makeDarwinProbes({ run: async () => REAL_FIXTURE, now: () => 1000 });
+  expect(probes.signalWindowOpen()).toBe(false);
+});
+
+test("signalWindowOpen: false when the only refresh FAILED (cell never stamped)", async () => {
+  const probes = makeDarwinProbes({
+    run: async () => {
+      throw new Error("no lsof");
+    },
+    now: () => 1000,
+  });
+  await probes.refresh();
+  expect(probes.signalWindowOpen()).toBe(false);
+});
+
+test("signalWindowOpen: true inside the bound, false once past it", async () => {
+  let clock = 1_000_000;
+  const probes = makeDarwinProbes({ run: async () => REAL_FIXTURE, now: () => clock });
+  await probes.refresh();
+  // Default bound is 10s and the fixture run took 0ms of injected time.
+  clock += 9_999;
+  expect(probes.signalWindowOpen()).toBe(true);
+  clock += 2;
+  expect(probes.signalWindowOpen()).toBe(false);
+});
+
+test("signalWindowOpen: a slow lsof sample widens the bound by its own duration", async () => {
+  // `successAt` is a START stamp, so a run that itself took 5s reports 5s of age the
+  // instant it lands. Without the sample-duration term a slow sampler could never
+  // authorize a signal at all.
+  let clock = 1_000_000;
+  const probes = makeDarwinProbes({
+    run: async () => {
+      clock += 5_000; // the run itself burns 5s
+      return REAL_FIXTURE;
+    },
+    now: () => clock,
+  });
+  await probes.refresh();
+  expect(clock - 1_000_000).toBe(5_000); // sanity: the sample really was slow
+  // 5s of apparent age already; 10s bound + 5s sample = 15s of headroom from the START.
+  clock = 1_000_000 + 14_999;
+  expect(probes.signalWindowOpen()).toBe(true);
+  clock = 1_000_000 + 15_001;
+  expect(probes.signalWindowOpen()).toBe(false);
+});
+
+// ── #1922: liveProcForPid (per-pid re-verification) ──────────────────────────
+
+/** `lsof -F pcfn -a -p <pid> -d cwd` output for one process. */
+const cwdRun = (pid: number, comm: string, cwd: string) => `p${pid}\nc${comm}\nfcwd\nn${cwd}\n`;
+/** `lsof -F pcfn -a -p <pid> -iTCP -sTCP:LISTEN` output for one process. */
+const portRun = (pid: number, comm: string, ports: number[]) =>
+  `p${pid}\nc${comm}\n` + ports.map((p, i) => `f${i + 3}\nn*:${p}\n`).join("");
+
+/** Route the two verification runs by which selectors they carry. */
+function verifyRouter(cwdOut: string | null, portOut: string | null) {
+  const calls: string[][] = [];
+  const runner = (args: readonly string[]): string | null => {
+    calls.push([...args]);
+    return args.includes("-d") ? cwdOut : portOut;
+  };
+  return { runner, calls };
+}
+
+test("liveProcForPid: returns live cwd/comm/ports, joined from the two targeted runs", () => {
+  const { runner, calls } = verifyRouter(
+    cwdRun(4242, "/usr/local/bin/node", "/wt/x"),
+    portRun(4242, "/usr/local/bin/node", [5173]),
+  );
+  const probes = makeDarwinProbes({ run: async () => "", verifyRun: runner });
+  expect(probes.liveProcForPid(4242)).toEqual({
+    cwd: "/wt/x",
+    comm: "node", // basenamed, matching /proc/<pid>/comm semantics
+    ports: [5173],
+  });
+  // Two spawns, both ANDed onto -p with -a; `-a` ANDs ALL selectors, which is exactly
+  // why `-d cwd` and `-iTCP` cannot share one run.
+  expect(calls).toHaveLength(2);
+  expect(calls[0]).toEqual(["-nP", "-w", "+c", "0", "-F", "pcfn", "-a", "-p", "4242", "-d", "cwd"]);
+  expect(calls[1]).toEqual([
+    "-nP",
+    "-w",
+    "+c",
+    "0",
+    "-F",
+    "pcfn",
+    "-a",
+    "-p",
+    "4242",
+    "-iTCP",
+    "-sTCP:LISTEN",
+  ]);
+});
+
+test("liveProcForPid: does NOT read the snapshot cell — a pid absent from it still verifies", async () => {
+  // The whole point: the cell proposes candidates, live data authorizes them.
+  const { runner } = verifyRouter(cwdRun(9999, "node", "/wt/x"), portRun(9999, "node", [5173]));
+  const probes = makeDarwinProbes({ run: async () => REAL_FIXTURE, verifyRun: runner });
+  await probes.refresh();
+  expect(probes.cwdForPid!(9999)).toBeNull(); // not in the fixture
+  expect(probes.liveProcForPid(9999)?.cwd).toBe("/wt/x");
+});
+
+test("liveProcForPid: null when the cwd run fails (spawn error / timeout / no match)", () => {
+  const { runner } = verifyRouter(null, portRun(4242, "node", [5173]));
+  const probes = makeDarwinProbes({ run: async () => "", verifyRun: runner });
+  expect(probes.liveProcForPid(4242)).toBeNull();
+});
+
+test("liveProcForPid: null when the port run fails — a pid with no listener is not our server", () => {
+  const { runner } = verifyRouter(cwdRun(4242, "node", "/wt/x"), null);
+  const probes = makeDarwinProbes({ run: async () => "", verifyRun: runner });
+  expect(probes.liveProcForPid(4242)).toBeNull();
+});
+
+test("liveProcForPid: null on empty output, and on output for a DIFFERENT pid", () => {
+  const empty = makeDarwinProbes({ run: async () => "", verifyRun: () => "" });
+  expect(empty.liveProcForPid(4242)).toBeNull();
+
+  // Defensive: never accept a block lsof reported for some other process.
+  const { runner } = verifyRouter(cwdRun(1111, "node", "/wt/x"), portRun(1111, "node", [5173]));
+  const wrongPid = makeDarwinProbes({ run: async () => "", verifyRun: runner });
+  expect(wrongPid.liveProcForPid(4242)).toBeNull();
+});
+
+test("liveProcForPid: null when the pid listens on nothing (empty port set)", () => {
+  const { runner } = verifyRouter(cwdRun(4242, "node", "/wt/x"), portRun(4242, "node", []));
+  const probes = makeDarwinProbes({ run: async () => "", verifyRun: runner });
+  expect(probes.liveProcForPid(4242)).toBeNull();
+});
+
+test("liveProcForPid: refuses a non-integer / non-positive pid without spawning", () => {
+  const calls: string[][] = [];
+  const probes = makeDarwinProbes({
+    run: async () => "",
+    verifyRun: (args) => {
+      calls.push([...args]);
+      return cwdRun(1, "init", "/");
+    },
+  });
+  for (const bad of [0, -1, 1, 1.5, NaN]) {
+    expect(probes.liveProcForPid(bad)).toBeNull();
+  }
+  expect(calls).toEqual([]); // nothing ever reached `-p`
+});

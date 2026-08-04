@@ -38,7 +38,7 @@ function darwinFake(
 
 // ── stopListenersOnPort: never signals on a no-authority backend ─────────────
 
-test("stopListenersOnPort: darwin backend reports unsupported and never calls killPid", () => {
+test("stopListenersOnPort: no authority AND no verify seam ⇒ unsupported, never calls killPid", () => {
   const killed: number[] = [];
   const probes = darwinFake({
     scanProcs: () => [{ pid: 4242, cwd: "/wt/x", comm: "vite" }],
@@ -46,8 +46,123 @@ test("stopListenersOnPort: darwin backend reports unsupported and never calls ki
     killPid: (pid) => killed.push(pid),
   });
   const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
-  expect(r).toEqual({ signalled: 0, unsupported: true });
+  expect(r).toEqual({ signalled: 0, outcome: "unsupported" });
   expect(killed).toEqual([]);
+});
+
+// ── #1922: a snapshot backend ARMED by the two verification seams ─────────────
+//
+// `canAuthorizeSignal: false` stays false throughout — these pin that the arming is
+// earned per-signal, not by relaxing the flag.
+
+/** An armed darwin-shaped backend: one candidate in the cell, plus the seams. */
+function armedFake(over: Partial<ReaperProbes> = {}, killed: number[] = []) {
+  return darwinFake({
+    scanProcs: () => [{ pid: 4242, cwd: "/wt/x", comm: "vite" }],
+    portsForPid: () => [5173],
+    killPid: (pid) => killed.push(pid),
+    signalWindowOpen: () => true,
+    liveProcForPid: () => ({ cwd: "/wt/x", comm: "vite", ports: [5173] }),
+    ...over,
+  });
+}
+
+test("stopListenersOnPort: armed backend signals a live-verified candidate", () => {
+  const killed: number[] = [];
+  const probes = armedFake({}, killed);
+  const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
+  expect(r).toEqual({ signalled: 1, outcome: "ok" });
+  expect(killed).toEqual([4242]);
+  // The flag itself never moved — only stopListenersOnPort armed.
+  expect(probes.canAuthorizeSignal).toBe(false);
+});
+
+test("stopListenersOnPort: a shut signal window refuses BEFORE iterating candidates", () => {
+  const killed: number[] = [];
+  const scanned: true[] = [];
+  const probes = armedFake(
+    {
+      signalWindowOpen: () => false,
+      scanProcs: () => {
+        scanned.push(true);
+        return [{ pid: 4242, cwd: "/wt/x", comm: "vite" }];
+      },
+    },
+    killed,
+  );
+  const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
+  expect(r).toEqual({ signalled: 0, outcome: "refused" });
+  expect(killed).toEqual([]);
+  // Load-bearing: the cell is never read, so an out-of-window cell that happens to
+  // hold zero candidates cannot be reported as a successful "nothing was running".
+  expect(scanned).toEqual([]);
+});
+
+test("stopListenersOnPort: a candidate that fails live re-verification is refused, not killed", () => {
+  const killed: number[] = [];
+  const probes = armedFake({ liveProcForPid: () => null }, killed);
+  const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
+  expect(r).toEqual({ signalled: 0, outcome: "refused" });
+  expect(killed).toEqual([]);
+});
+
+test("stopListenersOnPort: live data is judged by the reaper's OWN policy, not the backend's", () => {
+  // Each of these is a pid the SNAPSHOT still vouches for, but whose live re-read no
+  // longer satisfies the predicate that authorizes the signal — i.e. a recycled pid.
+  for (const live of [
+    { cwd: "/somewhere/else", comm: "vite", ports: [5173] }, // moved out of the worktree
+    { cwd: "/wt/x", comm: "vite", ports: [9999] }, // no longer on the dev port
+    { cwd: "/wt/x", comm: "claude", ports: [5173] }, // recycled into the agent itself
+  ]) {
+    const killed: number[] = [];
+    const probes = armedFake({ liveProcForPid: () => live }, killed);
+    const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
+    expect(r).toEqual({ signalled: 0, outcome: "refused" });
+    expect(killed).toEqual([]);
+  }
+});
+
+test("stopListenersOnPort: armed backend with NO candidates is ok/0, not refused", () => {
+  // Nothing was rejected — there was genuinely nothing listening. That must stay
+  // distinguishable from a refusal.
+  const probes = armedFake({ scanProcs: () => [] });
+  expect(new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173)).toEqual({
+    signalled: 0,
+    outcome: "ok",
+  });
+});
+
+test("stopListenersOnPort: partial success is a success — one verified, one rejected", () => {
+  const killed: number[] = [];
+  const probes = armedFake(
+    {
+      scanProcs: () => [
+        { pid: 4242, cwd: "/wt/x", comm: "vite" },
+        { pid: 4343, cwd: "/wt/x", comm: "node" },
+      ],
+      liveProcForPid: (pid) =>
+        pid === 4242 ? { cwd: "/wt/x", comm: "vite", ports: [5173] } : null,
+    },
+    killed,
+  );
+  const r = new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173, "SIGKILL");
+  expect(r).toEqual({ signalled: 1, outcome: "ok" });
+  expect(killed).toEqual([4242]);
+});
+
+test("stopListenersOnPort: arming did NOT widen the blast radius (#1922 scope)", () => {
+  // The three other things `canAuthorizeSignal: false` gates must be untouched.
+  const probes = armedFake();
+  const reaper = new ProcessReaper(probes);
+  expect(reaper.detect({ worktreePath: "/wt/x", claudeSessionId: "c1", isolated: true })).toEqual(
+    [],
+  ); // class 2 still fails closed despite a listening proc in the cell
+  expect(reaper.canDetectLeftovers()).toBe(false); // still no lsof before an archive detect
+  const killed: number[] = [];
+  new ProcessReaper(armedFake({}, killed)).reap([
+    { kind: "process", name: "vite", port: 5173, pid: 4242, key: "process:4242" },
+  ]);
+  expect(killed).toEqual([]); // reap()'s pid branch still refuses
 });
 
 // ── class-3: fail closed when listeningPorts is absent ───────────────────────
@@ -173,7 +288,7 @@ test("makeDefaultProbes(win32): scan helpers return null so fail-open sweeps ski
   // And it authorizes no signals.
   expect(new ProcessReaper(probes).stopListenersOnPort("/wt/x", 5173)).toEqual({
     signalled: 0,
-    unsupported: true,
+    outcome: "unsupported",
   });
 });
 

@@ -4736,20 +4736,44 @@ export class SessionService {
   stopPreview(
     id: string,
     signal: NodeJS.Signals = "SIGTERM",
-  ): { result: "stopped" | "not_bound" | "not_found" | "unsupported"; killed: number } {
+  ): {
+    result: "stopped" | "not_bound" | "not_found" | "unsupported" | "refused";
+    killed: number;
+  } {
     const s = this.deps.store.get(id);
     if (!s || !this.deps.reaper || !this.deps.preview) return { result: "not_found", killed: 0 };
     const devPort = this.deps.preview.devPortFor(id);
     if (devPort == null) return { result: "not_bound", killed: 0 };
-    const { signalled, unsupported } = this.deps.reaper.stopListenersOnPort(
+    const { signalled, outcome } = this.deps.reaper.stopListenersOnPort(
       s.worktreePath,
       devPort,
       signal,
     );
-    // `unsupported` (darwin: no signal authority) is distinct from a genuine
-    // zero-kill "stopped": the idle-stop escalation ladder must NOT advance on it.
-    if (unsupported) return { result: "unsupported", killed: 0 };
+    // Both non-`ok` outcomes signalled NOTHING, and both are distinct from a genuine
+    // zero-kill "stopped": the idle-stop escalation ladder must not advance on either,
+    // and the operator must not be told nothing was running. `unsupported` = this host
+    // can never signal; `refused` = it could not do so safely this time.
+    if (outcome !== "ok") return { result: outcome, killed: 0 };
     return { result: "stopped", killed: signalled };
+  }
+
+  /**
+   * Force-refresh the probe snapshot ahead of a preview STOP (darwin; a no-op on
+   * Linux, whose probes have no `refresh`).
+   *
+   * Deliberately not `refreshForDetect`: that one is gated on `canDetectLeftovers`,
+   * which is still false on darwin (#1922 armed only the stop path), so it would
+   * return without refreshing. The stop path needs the opposite — without a fresh cell
+   * an operator clicking Stop on an otherwise-idle host meets a snapshot outside the
+   * kill-age bound and is always refused, since the poller only drives refreshes while
+   * sessions have worktrees.
+   *
+   * The backend caps how long a forced refresh may block (`FORCE_WAIT_BUDGET_MS`); if
+   * that budget expires the cell may still be out of window and the stop is refused —
+   * observably, which is the correct outcome rather than a reason to wait longer.
+   */
+  async refreshForStop(): Promise<void> {
+    await this.deps.reaper?.refresh?.({ force: true });
   }
 
   /**
@@ -4760,8 +4784,10 @@ export class SessionService {
    * both classes short-circuit (`canAuthorizeSignal: false` suppresses class-2, an
    * absent `listeningPorts` suppresses class-3), so refreshing would pay a
    * full-host `lsof` scan to feed a detector that can never return a hit. The gate
-   * lives in `ProcessReaper.canDetectLeftovers`, so it re-enables itself when #1922
-   * arms the kill path rather than depending on someone restoring it here.
+   * lives in `ProcessReaper.canDetectLeftovers`, which owns both conditions.
+   *
+   * Unchanged by #1922: that armed only `stopListenersOnPort`, which drives its own
+   * refresh through {@link SessionService.refreshForStop}.
    *
    * `onlyIfStale` is for `archive`: when it is reached from `archiveMany`, which
    * force-refreshed microseconds earlier, the cell is already fresh and this must

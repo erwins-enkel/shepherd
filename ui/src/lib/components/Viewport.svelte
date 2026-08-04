@@ -1363,6 +1363,23 @@
 
     if ("notBound" in res) return; // benign race — preview already gone; pane clears on its own
 
+    // Nothing was signalled and the server is still up — never the "nothing found to
+    // stop" message, which would claim the opposite of what happened.
+    if ("unsupported" in res) {
+      toasts.info(m.viewport_preview_stop_unsupported(), {
+        alert: true,
+        key: `preview-stop-warn-${unitId}`,
+      });
+      return;
+    }
+    if ("refused" in res) {
+      toasts.info(m.viewport_preview_stop_refused(), {
+        alert: true,
+        key: `preview-stop-warn-${unitId}`,
+      });
+      return;
+    }
+
     if (res.killed === 0) {
       toasts.info(m.viewport_preview_stop_nothing(), {
         alert: true,

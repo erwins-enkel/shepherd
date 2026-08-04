@@ -10,7 +10,11 @@ import "../../app.css";
 // without mocking them).
 // The fn is declared BEFORE vi.mock so vitest's hoisting can close over it.
 const startPreviewFn = vi.fn(async () => ({ ok: true as const, command: "npm run dev" }));
-const stopPreviewFn = vi.fn(async () => ({ killed: 1 }) as { killed: number } | { notBound: true });
+const stopPreviewFn = vi.fn(
+  async () =>
+    ({ killed: 1 }) as
+      { killed: number } | { notBound: true } | { unsupported: true } | { refused: true },
+);
 // Rename resolves without a backend so the commit path (renaming → false) runs and
 // the popover-reveal commit test can observe the post-rename remount.
 const renameSessionFn = vi.fn(async (_id: string, name: string) => ({
@@ -726,6 +730,59 @@ describe("Viewport preview stop — per-session pending resolution", () => {
 
     infoSpy.mockRestore();
   });
+});
+
+// #1922: a stop that signalled NOTHING must never render as "no dev-server process
+// was found to stop" — that tells the operator their server is already gone when it is
+// in fact still running, which is the exact inversion the issue exists to remove.
+describe("Viewport preview stop — outcomes that signalled nothing", () => {
+  async function clickStop() {
+    const stopBtn = page.getByRole("button", { name: /stop dev server/i });
+    await expect.element(stopBtn).toBeInTheDocument();
+    (stopBtn.element() as HTMLButtonElement).click();
+    const confirmBtn = page.getByRole("button", { name: /confirm stop/i });
+    await expect.element(confirmBtn).toBeInTheDocument();
+    (confirmBtn.element() as HTMLButtonElement).click();
+  }
+
+  for (const { label, result, key } of [
+    { label: "refused", result: { refused: true } as const, key: "refused" },
+    { label: "unsupported", result: { unsupported: true } as const, key: "unsupported" },
+  ]) {
+    it(`${label}: warns assertively with its own copy, not the "nothing found" message`, async () => {
+      stopPreviewFn.mockResolvedValue(result);
+      const infoSpy = vi.spyOn(toasts, "info");
+
+      await render(Viewport, {
+        session: session({ id: "A", name: "task one", status: "idle" }),
+        previewPort: 8001,
+        previewMap: { A: 8001 },
+        previewHost: null,
+        openPreviewTick: 1,
+      });
+      await clickStop();
+
+      const expected =
+        key === "refused"
+          ? m.viewport_preview_stop_refused()
+          : m.viewport_preview_stop_unsupported();
+      await vi.waitFor(() =>
+        expect(infoSpy.mock.calls.some(([text]) => String(text) === expected)).toBe(true),
+      );
+      // Assertive (role="alert"): nothing happened and the operator must notice.
+      const call = infoSpy.mock.calls.find(([text]) => String(text) === expected)!;
+      expect((call[1] as { alert?: boolean } | undefined)?.alert).toBe(true);
+      // And emphatically NOT the honest-zero copy, nor a "stopping…" progress toast.
+      expect(
+        infoSpy.mock.calls.some(([text]) => String(text) === m.viewport_preview_stop_nothing()),
+      ).toBe(false);
+      expect(
+        infoSpy.mock.calls.some(([text]) => String(text) === m.viewport_preview_stopping()),
+      ).toBe(false);
+
+      infoSpy.mockRestore();
+    });
+  }
 });
 
 // In the Viewport header the autopilot badge (NEEDS YOU / DELIVERED) can co-exist on

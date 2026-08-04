@@ -128,12 +128,44 @@ export interface ReaperProbes {
    */
   normalizeRoot?(path: string): string;
   /**
-   * May this backend's data authorize a SIGTERM/SIGKILL? Absent ⇒ true (Linux
-   * verifies pid→cwd→port at the instant of the signal via live /proc reads). The
-   * darwin backend sets this false: its data is a snapshot, and macOS exposes no
-   * cheap pid-recycle fingerprint, so `stopListenersOnPort` refuses instead.
+   * May this backend's data authorize a SIGTERM/SIGKILL ON ITS OWN? Absent ⇒ true
+   * (Linux verifies pid→cwd→port at the instant of the signal via live /proc reads).
+   * The darwin backend sets this false: its data is a snapshot, and macOS exposes no
+   * cheap pid-recycle fingerprint.
+   *
+   * False does NOT mean "never signals" — it means cell data alone is not enough. A
+   * backend that also supplies {@link ReaperProbes.liveProcForPid} can still be armed
+   * for `stopListenersOnPort`, which re-proves each candidate live before signalling.
+   * Everything else this flag gates (class-2 `scanWorktreeProcs`, `reap()`'s pid
+   * branch, `canDetectLeftovers`) stays fail-closed regardless — see #1922 for why the
+   * arming was kept that narrow.
    */
   canAuthorizeSignal?: boolean;
+  /**
+   * May the backing snapshot authorize a SIGNAL right now? Absent ⇒ true (Linux reads
+   * live /proc, whose data has no age). A snapshot backend returns false once its cell
+   * is older than a dedicated kill-age bound, deliberately tighter than the
+   * negative-verdict bound `snapshotState` uses: that one governs teardown decisions,
+   * this one governs a SIGKILL.
+   *
+   * `stopListenersOnPort` consults it ONCE, before iterating candidates — a stale cell
+   * yielding zero candidates must read as a refusal, never as a stop that found
+   * nothing to kill.
+   */
+  signalWindowOpen?(): boolean;
+  /**
+   * Re-read ONE pid's cwd, comm and listening ports LIVE, bypassing any snapshot.
+   * Null ⇒ the pid could not be fully re-read, which callers must treat as "do not
+   * signal". Absent ⇒ no re-verification is needed (Linux's probes already read live
+   * /proc at the instant of the signal, so the check would be redundant).
+   *
+   * Supplied by snapshot backends to close the pid-recycle hazard: `stopListenersOnPort`
+   * re-applies its OWN containment and port policy to this live answer, so a pid that
+   * died and was recycled between snapshot and signal fails on its cwd, its ports, or
+   * both. Deliberately returns facts rather than a verdict, so the policy lives in one
+   * place instead of being duplicated into each backend.
+   */
+  liveProcForPid?(pid: number): { cwd: string; comm: string; ports: number[] } | null;
 }
 
 /** Raw CPU accounting for one process, in USER_HZ ticks (see {@link USER_HZ}). */
@@ -575,8 +607,12 @@ export class ProcessReaper {
     // still report `reaped = hit.length` (SessionService.archive) as if it had —
     // strictly worse than the pre-#1912 behaviour, where an empty `scanProcs` meant
     // nothing was ever offered. So fail closed, exactly as class-3 does when
-    // `listeningPorts` is absent. Re-enabling this is part of arming the kill path
-    // (#1922), which needs a recycle fingerprint before it can signal safely.
+    // `listeningPorts` is absent.
+    //
+    // #1922 armed `stopListenersOnPort` on darwin WITHOUT touching this: that path
+    // re-proves one pid live against one known port before signalling, which a
+    // whole-worktree leftover sweep has no equivalent of. So this stays closed
+    // deliberately, not by omission.
     if (this.probes.canAuthorizeSignal === false) return [];
     const root = normRoot(worktreePath, this.probes);
     const out: Leftover[] = [];
@@ -636,36 +672,90 @@ export class ProcessReaper {
    * and killing up the tree risks disrupting the agent's pane/job control — the
    * exact harm the opt-in, agent-idle-gated design avoids.
    *
-   * Returns `{ signalled, unsupported }`. `unsupported` is true when the backend
-   * cannot authorize a signal (`canAuthorizeSignal === false`, i.e. darwin): its
-   * data is a snapshot and macOS has no cheap pid-recycle fingerprint, so a
-   * SIGKILL could hit a recycled pid. In that case NOTHING is signalled and the
-   * caller (idle-stop escalation) must not advance its ladder — see
-   * `StatusPoller.escalateIdleStop`. The Linux backend never sets `unsupported`.
+   * Returns `{ signalled, outcome }`:
+   *
+   * - `"ok"` — the run completed. `signalled` may still be 0, meaning nothing matched
+   *   (the normal Linux "already gone" answer).
+   * - `"unsupported"` — this backend cannot signal at all: it may not authorize on its
+   *   own (`canAuthorizeSignal === false`) AND supplies no `liveProcForPid` to earn it.
+   *   Windows/`nullProbes`.
+   * - `"refused"` — the backend COULD have signalled, but this attempt could not be
+   *   made safely: the snapshot is past its kill-age bound, or every candidate failed
+   *   live re-verification. Distinct from `"ok"` with 0 precisely so it never reads as
+   *   "nothing was running".
+   *
+   * Neither `"unsupported"` nor `"refused"` sends anything, so neither may advance the
+   * idle-stop escalation ladder — see `StatusPoller.escalateIdleStop`. The Linux
+   * backend only ever returns `"ok"`: both verification seams are absent there, which
+   * defaults to permissive because its probes already read live /proc at the instant of
+   * the signal.
    */
   stopListenersOnPort(
     worktreePath: string,
     port: number,
     signal: NodeJS.Signals = "SIGTERM",
-  ): { signalled: number; unsupported: boolean } {
-    if (this.probes.canAuthorizeSignal === false) {
-      return { signalled: 0, unsupported: true };
+  ): { signalled: number; outcome: "ok" | "unsupported" | "refused" } {
+    const verify = this.probes.liveProcForPid?.bind(this.probes);
+    // No authority of its own AND no way to earn it per-signal ⇒ nothing to do here.
+    if (this.probes.canAuthorizeSignal === false && !verify) {
+      return { signalled: 0, outcome: "unsupported" };
+    }
+    // BEFORE iterating: candidates come from the backing snapshot, so an out-of-window
+    // cell yielding zero of them is indistinguishable from "nothing is listening".
+    if (this.probes.signalWindowOpen?.() === false) {
+      return { signalled: 0, outcome: "refused" };
     }
     const root = normRoot(worktreePath, this.probes);
     let count = 0;
-    for (const proc of this.probes.scanProcs()) {
-      if (proc.pid === process.pid) continue;
-      if (!isUnder(proc.cwd, root) || AGENT_COMMS.has(proc.comm)) continue;
-      const ports = this.probes.portsForPid(proc.pid);
-      if (!ports.includes(port)) continue;
+    let rejected = 0;
+    for (const pid of this.candidatePidsOn(root, port)) {
+      // Re-prove the SAME predicates against live data, so a pid that died and was
+      // recycled since the snapshot fails here rather than taking the signal.
+      if (verify && !this.verifiesLive(verify, pid, root, port)) {
+        rejected++;
+        continue;
+      }
       try {
-        this.probes.killPid(proc.pid, signal);
+        this.probes.killPid(pid, signal);
         count++;
       } catch {
         /* best-effort: process may have already exited */
       }
     }
-    return { signalled: count, unsupported: false };
+    // A partial success is a success; only an all-rejected run is a refusal. A kill that
+    // threw (the process exited underneath us) is neither — that is the benign race the
+    // Linux path has always reported as `ok`.
+    if (count === 0 && rejected > 0) return { signalled: 0, outcome: "refused" };
+    return { signalled: count, outcome: "ok" };
+  }
+
+  /** Pids the backing snapshot PROPOSES for a stop: under `root`, listening on `port`,
+   *  and neither ourselves nor the agent. Only a proposal — on a snapshot backend
+   *  `verifiesLive` re-proves each one against live data before it may be signalled. */
+  private *candidatePidsOn(root: string, port: number): Iterable<number> {
+    for (const proc of this.probes.scanProcs()) {
+      if (proc.pid === process.pid) continue;
+      if (!isUnder(proc.cwd, root) || AGENT_COMMS.has(proc.comm)) continue;
+      if (!this.probes.portsForPid(proc.pid).includes(port)) continue;
+      yield proc.pid;
+    }
+  }
+
+  /** Re-apply this class's own containment/port/agent policy to a LIVE re-read of one
+   *  candidate pid — the same three tests `candidatePidsOn` applies to snapshot data,
+   *  so live and proposed candidates are judged by identical rules and the backend
+   *  only ever supplies facts. */
+  private verifiesLive(
+    verify: NonNullable<ReaperProbes["liveProcForPid"]>,
+    pid: number,
+    root: string,
+    port: number,
+  ): boolean {
+    const live = verify(pid);
+    if (!live) return false;
+    if (!isUnder(live.cwd, root)) return false;
+    if (AGENT_COMMS.has(live.comm)) return false;
+    return live.ports.includes(port);
   }
 
   /**
@@ -687,10 +777,13 @@ export class ProcessReaper {
    *
    * Callers use this to skip the refresh-before-`detect` that would otherwise pay a
    * full-host `lsof` scan per session to feed a detector that cannot return a hit.
-   * It is a capability question, not a freshness one — keeping it here means the
-   * two short-circuit conditions stay in the one file that owns them, and the
-   * refresh re-enables itself automatically when #1922 arms the kill path rather
-   * than depending on someone remembering to restore it.
+   * It is a capability question, not a freshness one — keeping it here means the two
+   * short-circuit conditions stay in the one file that owns them.
+   *
+   * Unaffected by #1922: arming `stopListenersOnPort` on darwin left
+   * `canAuthorizeSignal` false, so this still returns false there. The preview-stop
+   * path drives its own refresh (`SessionService.refreshForStop`) rather than riding
+   * this one.
    */
   canDetectLeftovers(): boolean {
     const classTwo = this.probes.canAuthorizeSignal !== false;

@@ -3543,5 +3543,9 @@
   "feat_prompt_budget_body": "Usage has a new Prompt lens: for any spawn, attended or drain, it shows the assembled system prompt block by block — which notice, directive or set of house rules is spending your context, and how much.",
   "learnings_proposed_admission_hint": "Keep entries that state a repo fact an agent can't derive — what is true, why it bites, how to apply it. Drop guidance a capable model already follows.",
   "feat_learnings_gotchas_title": "The learnings flywheel now captures gotchas, not rules",
-  "feat_learnings_gotchas_body": "Distilled entries are re-targeted at non-derivable repo facts — what is true, why it bites, how to apply it — and behavioral guidance a capable model already follows is rejected and swept out of the injected block. One-click promote to your user-global ~/.claude/CLAUDE.md is gone; Claude's own memory owns that file now."
+  "feat_learnings_gotchas_body": "Distilled entries are re-targeted at non-derivable repo facts — what is true, why it bites, how to apply it — and behavioral guidance a capable model already follows is rejected and swept out of the injected block. One-click promote to your user-global ~/.claude/CLAUDE.md is gone; Claude's own memory owns that file now.",
+  "viewport_preview_stop_unsupported": "This host can't signal dev-server processes, so nothing was stopped. Stop it from the session's terminal instead.",
+  "viewport_preview_stop_refused": "Couldn't confirm which process holds the preview port, so nothing was signalled. Try again in a moment.",
+  "feat_macos_preview_stop_title": "Stop a dev server on macOS",
+  "feat_macos_preview_stop_body": "Stop dev server now works on macOS. It was previously a no-op there: Shepherd reads macOS processes from a periodic snapshot, and a snapshot can't rule out that the process it saw has since exited and its id been reused, so it refused to send a signal rather than risk hitting the wrong one. Shepherd now re-checks the process right before signalling it, and refuses only when that check can't be made — telling you so instead of reporting that nothing was running. Idle-stop reclaims idle previews on macOS too."
 }

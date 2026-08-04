@@ -113,3 +113,53 @@ onDarwin(
     }
   },
 );
+
+onDarwin(
+  "darwin: liveProcForPid re-reads a real process — Apple's lsof honours `-a` AND semantics",
+  async () => {
+    // THE assertion this whole file exists for, as far as #1922 is concerned. The
+    // per-pid kill verification rests on `-a` ANDing `-p <pid>` with the selector that
+    // follows it. That was verified against GNU lsof while designing the change; Apple
+    // ships an entirely different (much older) implementation, and if it ORed those
+    // selectors instead, run A would return every process's cwd on the host and the
+    // "is this pid still under the worktree" check would pass for ANY pid — turning a
+    // recycle guard into a rubber stamp. So assert it against the real binary.
+    const rawRoot = mkdtempSync(join(tmpdir(), "shepherd-verify-"));
+    const root = realpathSync(rawRoot);
+    const { child, port } = await spawnListener(process.execPath, rawRoot);
+    try {
+      const probes = makeDarwinProbes();
+      const live = probes.liveProcForPid(child.pid!);
+      expect(live).not.toBeNull();
+      expect(live!.cwd).toBe(root);
+      expect(live!.ports).toContain(port);
+      // AND semantics, positively: exactly ONE process came back, not the whole host.
+      // (`cwd` is a single scalar, so an ORed run would have overwritten it with some
+      // other process's — this pins that it is genuinely ours.)
+      expect(commBasename(live!.comm)).toBe(commBasename(process.execPath));
+
+      // And the signal window is open right after a successful refresh, so a real stop
+      // on a real host would not be refused for staleness.
+      await probes.refresh({ force: true });
+      expect(probes.signalWindowOpen()).toBe(true);
+    } finally {
+      child.kill("SIGKILL");
+      rmSync(rawRoot, { recursive: true, force: true });
+    }
+  },
+);
+
+onDarwin("darwin: liveProcForPid returns null for a pid that is gone", async () => {
+  const rawRoot = mkdtempSync(join(tmpdir(), "shepherd-verify-gone-"));
+  const { child } = await spawnListener(process.execPath, rawRoot);
+  const pid = child.pid!;
+  child.kill("SIGKILL");
+  await new Promise((r) => child.once("exit", r));
+  try {
+    // The fail-closed path: a dead (or recycled-into-something-unrelated) pid must
+    // never verify, so `stopListenersOnPort` refuses rather than signals.
+    expect(makeDarwinProbes().liveProcForPid(pid)).toBeNull();
+  } finally {
+    rmSync(rawRoot, { recursive: true, force: true });
+  }
+});

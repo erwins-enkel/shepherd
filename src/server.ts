@@ -2886,14 +2886,30 @@ async function handlePreviewStart({ req, parts, deps }: Ctx): Promise<Response |
 // signal and reports how many processes it signalled.
 //   unknown id   → 404 { error: "not found" }
 //   not bound    → 409 { error: "not_bound" }
+//   unsupported  → 409 { error: "unsupported" }  (this host can never signal)
+//   refused      → 409 { error: "refused" }      (probe data could not authorize it)
 //   stopped      → 200 { killed: <n> }   (killed is a signals-SENT count)
-function handlePreviewStop({ req, parts, deps }: Ctx): Response | null {
+//
+// The two 409s exist because both signalled NOTHING while a 200 { killed: 0 } would
+// have been rendered as "no dev-server process was found to stop" — telling the
+// operator their server is already gone when it is in fact still running (#1922).
+async function handlePreviewStop({ req, parts, deps }: Ctx): Promise<Response | null> {
   if (!(req.method === "POST" && parts[2] && parts[3] === "preview" && parts[4] === "stop"))
     return null;
   const id = parts[2];
+  // Reject an unknown id BEFORE the refresh below, so a stale client can't make the
+  // server pay a full-host `lsof` per bogus request. `stopPreview` re-checks anyway
+  // (and owns the other not_found cases: an unwired reaper/preview).
+  if (!deps.store.get(id)) return json({ error: "not found" }, 404);
+  // Force-refresh FIRST: on a snapshot backend (darwin) the poller only drives
+  // refreshes while sessions have worktrees, so an operator clicking Stop on an
+  // otherwise-idle host would otherwise always meet an out-of-window cell and be
+  // refused. A no-op on Linux, and internally budget-capped so it cannot hang here.
+  await deps.service.refreshForStop();
   const { result, killed } = deps.service.stopPreview(id, "SIGKILL");
   if (result === "not_found") return json({ error: "not found" }, 404);
   if (result === "not_bound") return json({ error: "not_bound" }, 409);
+  if (result === "unsupported" || result === "refused") return json({ error: result }, 409);
   return json({ killed });
 }
 

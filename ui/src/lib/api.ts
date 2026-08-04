@@ -2459,12 +2459,23 @@ export async function startPreview(
  *  - `{killed}` — signal dispatched to `killed` process(es) (signals-sent, NOT a death
  *    confirmation; the preview clears via the sweep when the port stops listening).
  *  - `{notBound:true}` — no live preview (benign race; already gone).
+ *  - `{unsupported:true}` — this host can never signal a dev server (no process-probe
+ *    backend with signal authority).
+ *  - `{refused:true}` — it could signal, but not safely right now: the process snapshot
+ *    was too old to authorize a kill, or the candidate could not be re-verified.
+ *  The last two are deliberately NOT folded into `{killed:0}` — nothing was signalled
+ *  and the server is still running, which is the opposite of what a zero kill count
+ *  reads as.
  *  Throws on 404 (unknown session) or any other unexpected failure. */
-export async function stopPreview(id: string): Promise<{ killed: number } | { notBound: true }> {
+export async function stopPreview(
+  id: string,
+): Promise<{ killed: number } | { notBound: true } | { unsupported: true } | { refused: true }> {
   const r = await fetch(`/api/sessions/${id}/preview/stop`, { method: "POST" });
   const body = (await r.json().catch(() => ({}))) as { killed?: number; error?: string };
   if (r.ok) return { killed: body.killed ?? 0 };
   if (r.status === 409 && body.error === "not_bound") return { notBound: true };
+  if (r.status === 409 && body.error === "unsupported") return { unsupported: true };
+  if (r.status === 409 && body.error === "refused") return { refused: true };
   throw apiError(r.status, body, `stopPreview failed: ${r.status}`);
 }
 

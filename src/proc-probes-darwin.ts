@@ -2,6 +2,9 @@ import { execFile } from "node:child_process";
 import { realpathSync } from "node:fs";
 import { basename } from "node:path";
 import { config } from "./config";
+// Instrumented wrapper, not node's: every deliberate on-loop sync spawn goes through
+// `timed` so `logRemainingOnLoopBlockers` and the profile flag can see it.
+import { execFileSync } from "./instrument";
 import type { ReaperProbes } from "./process-reaper";
 
 // ── darwin probe backend ─────────────────────────────────────────────────────
@@ -16,12 +19,29 @@ import type { ReaperProbes } from "./process-reaper";
 // (`scanProcs`/`portsForPid`/`cwdForPid`/`listPids`/`commForPid`) plus the refresh
 // seam. It deliberately omits `ppidForPid` (keeps the orphan reaps no-op on
 // darwin), `environForPid`/`cpuStatForPid`/`uptimeSeconds` (keeps the #1144
-// runaway reaper fail-closed), `listeningPorts` (class-3 `tailscale serve`
+// runaway reaper fail-closed) and `listeningPorts` (class-3 `tailscale serve`
 // detection needs a uid-agnostic listener set the non-root `lsof` can't give;
 // its absence makes `scanSystemSideEffects` return [] — fail closed, matching
-// today), and it sets `canAuthorizeSignal: false` so `stopListenersOnPort` never
-// SIGKILLs a pid resolved from cell data on a platform with no recycle
-// fingerprint.
+// today).
+//
+// SIGNALLING (#1922) — `canAuthorizeSignal` stays FALSE, so cell data alone still
+// authorizes nothing: class-2 leftover detection, `reap()`'s pid branch and
+// `canDetectLeftovers` all remain fail-closed exactly as before. What the backend
+// now supplies is a NARROW pair of seams that only `stopListenersOnPort` consults:
+//
+//   `signalWindowOpen()`  — refuses outright once the cell is older than a dedicated
+//                           kill-age bound (see `maxKillAgeMs`).
+//   `liveProcForPid()`    — re-reads ONE pid's cwd/comm/ports LIVE, bypassing the
+//                           cell, so the caller re-proves its authorizing predicates
+//                           at the instant of the signal.
+//
+// Together those close the pid-recycle hazard by re-proving the PREDICATES rather
+// than fingerprinting identity — macOS has no cheap equivalent of Linux's
+// `starttime`, and carrying one would cost a full-host `ps` on every refresh.
+// `killPid` is therefore a real `process.kill`; every other caller of it stays
+// structurally unreachable here (the orphan reaps need the omitted `ppidForPid`,
+// the runaway reaper the omitted `environForPid`/`cpuStatForPid`/`uptimeSeconds`,
+// and `reap()` is gated on `canAuthorizeSignal`).
 
 /** The one `lsof` invocation the backend runs. `-d cwd` and `-iTCP` are different
  *  selection types, so lsof ORs them: one call yields, per process, its command,
@@ -41,10 +61,32 @@ export const LSOF_ARGV = [
   "-sTCP:LISTEN",
 ] as const;
 
+/** Shared `-F` selection flags for the two TARGETED per-pid verification runs. Same
+ *  parseable output shape as {@link LSOF_ARGV} (so {@link parseLsofFields} reads both),
+ *  minus the host-wide `-d cwd` / `-iTCP` selectors — each verify run appends its own,
+ *  ANDed onto `-p <pid>` with `-a`. */
+const LSOF_VERIFY_ARGV = ["-nP", "-w", "+c", "0", "-F", "pcfn"] as const;
+
 /** Hard timeout on the async `lsof` spawn — a `-d cwd` walk touches every process
  *  on the host, so an unbounded call could hang on a stalled mount and leave the
  *  cell permanently stale. Mirrors the diagnostics-probe discipline. */
 const REFRESH_TIMEOUT_MS = 3000;
+
+/** Hard timeout on each SYNCHRONOUS verification spawn. Far below
+ *  {@link REFRESH_TIMEOUT_MS} because these run on an HTTP handler's thread and are
+ *  scoped to one pid rather than every process on the host. */
+const VERIFY_TIMEOUT_MS = 2000;
+
+/** Fallback when `config.previewKillMaxAgeMs` is unusable (a typo'd or negative
+ *  `SHEPHERD_PREVIEW_KILL_MAX_AGE_MS`).
+ *
+ *  Not a safety guard — `signalWindowOpen` compares `age <= bound`, and every
+ *  comparison against NaN is false, so an unusable bound already fails CLOSED. It is a
+ *  DIAGNOSABILITY guard: without it a single mistyped env var would silently refuse
+ *  every preview stop on the host forever, surfacing only as a generic "couldn't
+ *  confirm which process holds the port" toast with nothing pointing at the config.
+ *  Falling back to the default turns that into ordinary behaviour instead. */
+const DEFAULT_KILL_MAX_AGE_MS = 10_000;
 
 /** Poller tick granularity (StatusPoller's `intervalMs` default), a term in the
  *  worst-case healthy-cell age below. Kept as a named constant, not read from the
@@ -228,9 +270,44 @@ const defaultRunner: LsofRunner = () =>
     );
   });
 
+/**
+ * Synchronous runner for one TARGETED per-pid `lsof` verification spawn. Resolves to
+ * stdout on a clean run, or `null` on ANY failure.
+ *
+ * The all-failures-are-null contract is deliberate, and the opposite of
+ * {@link lsofOutcome}'s. There, a non-zero exit that still printed is normal and
+ * TRUSTED (lsof reports 1 when a search term matched nothing, having printed what it
+ * did find). Here a non-zero exit IS the no-match case, and a no-match must read as
+ * "not verified" — so must a spawn error and so must the timeout. Every failure mode
+ * collapses to the same fail-CLOSED answer: refuse to signal.
+ *
+ * Injectable so tests never spawn.
+ */
+export type LsofVerifyRunner = (args: readonly string[]) => string | null;
+
+const defaultVerifyRunner: LsofVerifyRunner = (args) => {
+  try {
+    return execFileSync("lsof", [...args], {
+      timeout: VERIFY_TIMEOUT_MS,
+      killSignal: "SIGKILL",
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024,
+      // stderr ignored: `-w` already suppresses lsof's warnings, and inheriting it
+      // would spray the server log on every unverifiable pid.
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    return null;
+  }
+};
+
 export interface DarwinProbeOptions {
   /** Injectable `lsof` runner (default: real spawn). */
   run?: LsofRunner;
+  /** Injectable runner for the synchronous per-pid verification spawns (default:
+   *  real spawn). Kept separate from `run` — different invocation, different
+   *  success contract, and the tests for each must not bleed into the other. */
+  verifyRun?: LsofVerifyRunner;
   /** Injectable clock for the snapshot cell (default: Date.now). */
   now?: () => number;
   /** Forced-refresh wait budget (default: FORCE_WAIT_BUDGET_MS); injectable so the
@@ -246,6 +323,11 @@ interface Cell {
    *  its completion — completion-stamping would report ~0 age for sample-duration-
    *  old data. `null` until the first success. */
   successAt: number | null;
+  /** Wall duration of the last SUCCESSFUL `lsof` run. `successAt` is a START stamp, so
+   *  `now - successAt` overstates the age of anything sampled late in that run by up to
+   *  this much; the kill-age bound adds it back rather than punishing a slow sampler.
+   *  0 until the first success. */
+  sampleMs: number;
   /** Instant of the last attempt either way; rate-limits retries + the failure warn. */
   attemptAt: number;
 }
@@ -255,6 +337,21 @@ interface Cell {
  *  of margin, plus a full refresh timeout, plus one poller tick. */
 function maxNegativeAgeMs(): number {
   return 2 * config.previewSweepMs + REFRESH_TIMEOUT_MS + POLLER_TICK_MS;
+}
+
+/** Age past which the cell may no longer authorize a SIGNAL (issue #1922).
+ *
+ * Deliberately NOT `maxNegativeAgeMs`, and deliberately not derived from
+ * `config.previewSweepMs` at all: that bound is `2 × cadence + slack`, so an operator
+ * who tuned the sweep up to 30s would silently widen the window in which a snapshot may
+ * authorize a SIGKILL to over two minutes. A kill window is not a detection window, so
+ * it gets its own knob (`SHEPHERD_PREVIEW_KILL_MAX_AGE_MS`).
+ *
+ * Falls back to a sane default for a non-finite or negative configured value — see
+ * {@link DEFAULT_KILL_MAX_AGE_MS} for what that guard is and is not for. */
+function maxKillAgeMs(): number {
+  const v = config.previewKillMaxAgeMs;
+  return Number.isFinite(v) && v >= 0 ? v : DEFAULT_KILL_MAX_AGE_MS;
 }
 
 /** Coalescing window — how long before issuing another (non-forced) refresh is
@@ -267,7 +364,12 @@ function refreshTtlMs(): number {
  *  tests) can use them without optional-chaining, unlike the base interface where
  *  they are optional for the Linux/live-`/proc` backends. */
 export type DarwinProbes = ReaperProbes &
-  Required<Pick<ReaperProbes, "refresh" | "snapshotState" | "normalizeRoot">>;
+  Required<
+    Pick<
+      ReaperProbes,
+      "refresh" | "snapshotState" | "normalizeRoot" | "signalWindowOpen" | "liveProcForPid"
+    >
+  >;
 
 /**
  * Construct a darwin `ReaperProbes` backend over a single memoised `lsof` snapshot.
@@ -279,6 +381,7 @@ export type DarwinProbes = ReaperProbes &
  */
 export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
   const run = opts.run ?? defaultRunner;
+  const verifyRun = opts.verifyRun ?? defaultVerifyRunner;
   const now = opts.now ?? Date.now;
   const budgetMs = opts.budgetMs ?? FORCE_WAIT_BUDGET_MS;
   const rootCache = new Map<string, string>();
@@ -286,7 +389,7 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
   // `attemptAt: -Infinity` (not 0) so the FIRST refresh always passes the coalescing
   // window regardless of the clock's magnitude — an injected test clock starting at
   // a small value would otherwise fall inside `now() - 0 < refreshTtlMs`.
-  const cell: Cell = { procs: null, successAt: null, attemptAt: -Infinity };
+  const cell: Cell = { procs: null, successAt: null, sampleMs: 0, attemptAt: -Infinity };
   let inFlight: Promise<void> | null = null;
   let forcedInFlight: Promise<void> | null = null;
   let lastFailWarnAt = -Infinity;
@@ -298,6 +401,65 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
   function snapshotState(): "none" | "stale" | "fresh" {
     if (cell.procs === null || cell.successAt === null) return "none";
     return now() - cell.successAt > maxNegativeAgeMs() ? "stale" : "fresh";
+  }
+
+  /**
+   * May the cell authorize a SIGNAL right now (issue #1922)?
+   *
+   * Checked ONCE, up front, before `stopListenersOnPort` iterates candidates — the
+   * ordering is load-bearing. Candidates are derived from the cell, so a stale cell
+   * that happens to yield zero of them would otherwise be indistinguishable from a
+   * genuine "nothing is listening there", and a refusal would be reported to the
+   * operator as a successful stop that killed nothing.
+   *
+   * Stricter than `snapshotState() === "fresh"` on purpose: that bound scales with
+   * `previewSweepMs` because it governs NEGATIVE VERDICTS, which merely delay a
+   * teardown when wrong. This one governs a SIGKILL.
+   */
+  function signalWindowOpen(): boolean {
+    if (cell.procs === null || cell.successAt === null) return false;
+    return now() - cell.successAt <= maxKillAgeMs() + cell.sampleMs;
+  }
+
+  /**
+   * Re-read ONE pid's cwd, comm and listening ports LIVE, deliberately bypassing the
+   * cell. Returns null when the pid cannot be fully re-read — which every caller must
+   * treat as "do not signal".
+   *
+   * This is what makes signalling safe on a platform with no cheap pid-recycle
+   * fingerprint: rather than proving the pid is the SAME PROCESS the snapshot saw
+   * (Linux's `starttime` trick, unavailable here without a full-host `ps` on every
+   * refresh), it re-proves the facts that AUTHORIZE the signal, at the instant of the
+   * signal. A recycled pid fails on its cwd, its ports, or both.
+   *
+   * Two spawns rather than one because `-a` ANDs *all* selection options: `-d cwd`
+   * ANDed with `-iTCP` selects nothing at all, a cwd fd not being a TCP socket. Both
+   * emit the same `-F pcfn` shape {@link parseLsofFields} already reads.
+   *
+   * Deliberately returns FACTS, not a verdict. The containment and port policy stays
+   * in `ProcessReaper`, applied identically to live and snapshot data — and keeping
+   * `isUnder` out of this module avoids a genuine runtime import cycle with
+   * `process-reaper.ts`, which constructs this backend at its own module init.
+   *
+   * SYNCHRONOUS because `stopListenersOnPort` is. Bounded at
+   * {@link VERIFY_TIMEOUT_MS} per spawn and scoped to a single pid, and only ever
+   * reached on a stop the operator or the idle-stop ladder explicitly asked for —
+   * never on the poller's hot path.
+   */
+  function liveProcForPid(pid: number): { cwd: string; comm: string; ports: number[] } | null {
+    // Guard the argv rather than trusting the caller: a non-integer or non-positive
+    // pid must never reach `-p`, and pid 1 is never a dev server.
+    if (!Number.isInteger(pid) || pid <= 1) return null;
+    const arg = String(pid);
+    const cwdOut = verifyRun([...LSOF_VERIFY_ARGV, "-a", "-p", arg, "-d", "cwd"]);
+    if (cwdOut === null) return null;
+    const cwdProc = parseLsofFields(cwdOut).find((p) => p.pid === pid);
+    if (!cwdProc || cwdProc.cwd === "") return null;
+    const portOut = verifyRun([...LSOF_VERIFY_ARGV, "-a", "-p", arg, "-iTCP", "-sTCP:LISTEN"]);
+    if (portOut === null) return null; // no listener at all, or an unusable run — same answer
+    const portProc = parseLsofFields(portOut).find((p) => p.pid === pid);
+    if (!portProc || portProc.ports.length === 0) return null;
+    return { cwd: cwdProc.cwd, comm: commBasename(cwdProc.comm), ports: portProc.ports };
   }
 
   /**
@@ -365,6 +527,7 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
     }
     cell.procs = procs;
     cell.successAt = startedAt; // START stamp — see Cell.successAt
+    cell.sampleMs = Math.max(0, now() - startedAt);
     rootCache.clear();
   }
 
@@ -433,15 +596,15 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
       // so no caller reads this on darwin. Return "" to keep the interface total.
       return "";
     },
-    killPid() {
-      // Intentionally inert: `canAuthorizeSignal: false` means this backend's
-      // snapshot data may not authorize a signal (macOS exposes no cheap
-      // pid-recycle fingerprint). Every caller is gated so this is not reached —
-      // `stopListenersOnPort` refuses up front, the orphan reaps need the omitted
-      // `ppidForPid`, and `reap()` gets nothing to act on because
-      // `scanWorktreeProcs`/`scanSystemSideEffects` both fail closed here. This
-      // stays a no-op rather than a throw so a future caller degrades to
-      // "nothing happened" instead of breaking teardown.
+    killPid(pid, signal) {
+      // Real as of #1922, and reachable from EXACTLY ONE caller:
+      // `stopListenersOnPort`, which first checks `signalWindowOpen()` and then
+      // re-proves the pid's cwd/comm/ports through `liveProcForPid`. Every other
+      // caller stays structurally unreachable on this backend — the orphan reaps need
+      // the omitted `ppidForPid`, the #1144 runaway reaper the omitted
+      // `environForPid`/`cpuStatForPid`/`uptimeSeconds`, and `reap()` is gated on
+      // `canAuthorizeSignal`, which is still false here.
+      process.kill(pid, signal);
     },
     run() {
       // Counter-commands are class-3 only; unreachable on darwin (see readTranscript).
@@ -469,7 +632,13 @@ export function makeDarwinProbes(opts: DarwinProbeOptions = {}): DarwinProbes {
       rootCache.set(path, resolved);
       return resolved;
     },
+    // Still FALSE: cell data on its own authorizes nothing. Class-2 leftover
+    // detection, `reap()`'s pid branch and `canDetectLeftovers` therefore stay
+    // fail-closed exactly as before #1922 — only `stopListenersOnPort` arms, and only
+    // through the two seams below.
     canAuthorizeSignal: false,
+    signalWindowOpen,
+    liveProcForPid,
     snapshotState,
     refreshAttemptedRecently,
     refresh(o) {

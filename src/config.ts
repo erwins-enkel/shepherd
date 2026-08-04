@@ -924,6 +924,12 @@ export const config = {
   previewPortCount: Number(process.env.SHEPHERD_PREVIEW_PORT_COUNT ?? 16),
   // Throttle cadence for the preview sweep (ms); mitigates /proc scan cost.
   previewSweepMs: Number(process.env.SHEPHERD_PREVIEW_SWEEP_MS ?? 4000),
+  // How old a probe SNAPSHOT may be and still authorize a preview-stop SIGNAL
+  // (issue #1922). Deliberately NOT derived from previewSweepMs — the negative-verdict
+  // bound already is (2× cadence + slack), and reusing that would let a tuned sweep
+  // interval silently widen the kill window toward two minutes. Only the snapshot
+  // backends (darwin) consult it; Linux reads live /proc, whose data has no age.
+  previewKillMaxAgeMs: Number(process.env.SHEPHERD_PREVIEW_KILL_MAX_AGE_MS ?? 10_000),
   // The agent node's own tailnet hostname (e.g. "mynode.ts.net"), resolved ONCE
   // at startup and stored here. When the HUD is fronted on a different host/identity
   // than the agent node (e.g. a Tailscale Service), the preview URL must target THIS

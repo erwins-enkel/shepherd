@@ -28,6 +28,23 @@ describe("stopPreview", () => {
     expect(await stopPreview("s1")).toEqual({ notBound: true });
   });
 
+  it("maps 409 unsupported → {unsupported: true}", async () => {
+    globalThis.fetch = mockFetch(409, { error: "unsupported" });
+    expect(await stopPreview("s1")).toEqual({ unsupported: true });
+  });
+
+  it("maps 409 refused → {refused: true}, never a zero kill count", async () => {
+    // Nothing was signalled and the dev server is still up — the opposite of what
+    // {killed: 0} renders as.
+    globalThis.fetch = mockFetch(409, { error: "refused" });
+    expect(await stopPreview("s1")).toEqual({ refused: true });
+  });
+
+  it("still throws on an unrecognised 409 rather than silently succeeding", async () => {
+    globalThis.fetch = mockFetch(409, { error: "something_new" });
+    await expect(stopPreview("s1")).rejects.toThrow("something_new");
+  });
+
   it("throws on 404 (unknown session)", async () => {
     globalThis.fetch = mockFetch(404, { error: "not found" });
     await expect(stopPreview("s1")).rejects.toThrow("not found");

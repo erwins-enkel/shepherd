@@ -2613,7 +2613,7 @@ test("leftovers proxies to the reaper for the session; [] for unknown id", () =>
     reaper: {
       detect: detect as any,
       reap: () => {},
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
   const s = store.create({
@@ -2662,7 +2662,7 @@ test("archive reaps only the selected leftovers, re-detected (no trusting raw cl
     reaper: {
       detect: () => detected as any,
       reap: (ls: any[]) => reaped.push(ls.map((l) => l.key)),
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
   const s = store.create({
@@ -2710,7 +2710,7 @@ test("archive with no reap keys never calls the reaper", async () => {
       reap: () => {
         reapCalls++;
       },
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
   const s = store.create({
@@ -4224,7 +4224,7 @@ test("archiveMany clears each session, reaping all its leftovers", async () => {
     reaper: {
       detect,
       reap: (ls: any[]) => calls.reaped.push(...ls.map((l) => l.key)),
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
   const mk = (name: string, term: string) =>
@@ -4273,7 +4273,7 @@ test("archiveMany forces a probe refresh per detect, not once per batch (#1912)"
     reaper: {
       detect,
       reap: () => {},
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
       refresh: async (opts) => {
         refreshCalls.push(opts ?? {});
       },
@@ -4321,7 +4321,7 @@ test("archiveMany skips the probe refresh when the backend can't produce leftove
     reaper: {
       detect: () => [],
       reap: () => {},
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: true }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "unsupported" }),
       canDetectLeftovers: () => false,
       refresh: async (opts) => {
         refreshCalls.push(opts ?? {});
@@ -4849,7 +4849,7 @@ test("archiveMany isolates a failing session: others still clear, the failed id 
     reaper: {
       detect,
       reap: () => {},
-      stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 0, outcome: "ok" }),
     },
   });
   const mk = (name: string) =>
@@ -5957,7 +5957,7 @@ function makeStopPreviewSvc(opts: {
   hasSession?: boolean;
   devPort?: number | null;
   stopReturn?: number;
-  stopUnsupported?: boolean;
+  stopOutcome?: "ok" | "unsupported" | "refused";
   omitReaper?: boolean;
   omitPreview?: boolean;
 }) {
@@ -5984,7 +5984,7 @@ function makeStopPreviewSvc(opts: {
         reap: () => {},
         stopListenersOnPort: (worktreePath: string, port: number, signal: NodeJS.Signals) => {
           stopCalls.push({ worktreePath, port, signal });
-          return { signalled: opts.stopReturn ?? 1, unsupported: opts.stopUnsupported ?? false };
+          return { signalled: opts.stopReturn ?? 1, outcome: opts.stopOutcome ?? "ok" };
         },
       };
   const preview = opts.omitPreview
@@ -6060,10 +6060,19 @@ test("stopPreview: stopped with explicit SIGKILL", () => {
 });
 
 test("stopPreview: unsupported (darwin) surfaces distinctly, not as stopped/0 (#1912)", () => {
-  const { svc, s } = makeStopPreviewSvc({ devPort: 3000, stopUnsupported: true });
+  const { svc, s } = makeStopPreviewSvc({ devPort: 3000, stopOutcome: "unsupported" });
   const result = svc.stopPreview(s!.id);
   // The idle-stop ladder keys on this to refuse advancing.
   expect(result).toEqual({ result: "unsupported", killed: 0 });
+});
+
+test("stopPreview: refused surfaces distinctly, not as stopped/0 (#1922)", () => {
+  // A backend that COULD signal but couldn't do so safely (snapshot past the kill-age
+  // bound, or the candidate failed live re-verification). `signalled` is deliberately
+  // non-zero to prove the count is discarded rather than relayed: nothing was sent.
+  const { svc, s } = makeStopPreviewSvc({ devPort: 3000, stopReturn: 3, stopOutcome: "refused" });
+  const result = svc.stopPreview(s!.id);
+  expect(result).toEqual({ result: "refused", killed: 0 });
 });
 
 test("stopPreview: honest zero — stopListenersOnPort returning 0 yields stopped/0, not downgraded", () => {
@@ -6112,7 +6121,7 @@ test("stopPreview: does NOT call any release method on the preview dep", () => {
     reaper: {
       detect: () => [],
       reap: () => {},
-      stopListenersOnPort: () => ({ signalled: 1, unsupported: false }),
+      stopListenersOnPort: () => ({ signalled: 1, outcome: "ok" }),
     } as any,
     preview,
   });

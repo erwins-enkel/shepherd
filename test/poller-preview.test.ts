@@ -651,8 +651,10 @@ function makeIdleStopPoller(opts: {
   stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }>;
   /** Override pick to be dynamic — takes precedence over pickResult. */
   pickFn?: () => Promise<number | null>;
-  /** When true, `idleStop.stop` reports `unsupported` (darwin, no signal authority). */
-  unsupportedStop?: boolean;
+  /** Force `idleStop.stop` to report an outcome that signalled NOTHING: `unsupported`
+   *  (this host can never signal) or `refused` (#1922 — it could not do so safely this
+   *  time). Neither may advance the ladder. */
+  silentStop?: "unsupported" | "refused";
 }) {
   const { store, agents, clock, idleSinceMs, pickResult, idleMs, stopCalls, pickFn } = opts;
 
@@ -697,8 +699,8 @@ function makeIdleStopPoller(opts: {
           idleMs,
           stop: (sessionId, signal) => {
             stopCalls.push({ sessionId, signal });
-            return opts.unsupportedStop
-              ? { result: "unsupported" as const, killed: 0 }
+            return opts.silentStop
+              ? { result: opts.silentStop, killed: 0 }
               : { result: "stopped" as const, killed: 1 };
           },
         },
@@ -1235,7 +1237,7 @@ test("idle-stop (unsupported): repeated sweeps never advance the ladder or give 
     pickResult: 5173,
     idleMs: 30_000,
     stopCalls,
-    unsupportedStop: true, // darwin: no signal authority
+    silentStop: "unsupported", // this host can never signal
   });
 
   // Three sweeps that would, on a Linux host, burn SIGTERM → SIGKILL → gaveUp.
@@ -1245,6 +1247,50 @@ test("idle-stop (unsupported): repeated sweeps never advance the ladder or give 
   // so no SIGKILL was ever "escalated" to and no "could not reclaim" state was set.
   expect(stopCalls.length).toBe(3);
   expect(stopCalls.every((c) => c.signal === "SIGTERM")).toBe(true);
+});
+
+// ── #1922: a REFUSED stop must not burn the ladder either ────────────────────
+
+test("idle-stop (refused): repeated sweeps never advance the ladder or give up", async () => {
+  const store = new SessionStore(":memory:");
+  const s = store.create(baseSessionInput);
+  store.update(s.id, { status: "idle" });
+
+  const stopCalls: Array<{ sessionId: string; signal: NodeJS.Signals }> = [];
+  const clock = { v: 100_000 };
+  const warns: string[] = [];
+  const realWarn = console.warn;
+  console.warn = (...a: unknown[]) => void warns.push(a.join(" "));
+  try {
+    const { poller } = makeIdleStopPoller({
+      store,
+      agents: [baseHerdrAgent],
+      clock,
+      idleSinceMs: 60_000,
+      pickResult: 5173,
+      idleMs: 30_000,
+      stopCalls,
+      // The probe snapshot is past its kill-age bound, or the candidate failed live
+      // re-verification. Nothing was signalled.
+      silentStop: "refused",
+    });
+
+    // Five sweeps — enough to burn SIGTERM → SIGKILL → gaveUp twice over on a host
+    // that DID signal.
+    for (let i = 0; i < 5; i++) await runSweep(clock, poller);
+
+    expect(stopCalls.length).toBe(5);
+    // Every attempt is still the first rung: the ladder never advanced.
+    expect(stopCalls.every((c) => c.signal === "SIGTERM")).toBe(true);
+  } finally {
+    console.warn = realWarn;
+  }
+
+  // The refusal is observable, exactly once per episode — and never as the
+  // "could not reclaim after SIGKILL" line, which would claim a signal was sent.
+  const refusals = warns.filter((w) => w.includes("idle-stop refused"));
+  expect(refusals.length).toBe(1);
+  expect(warns.some((w) => w.includes("could not reclaim"))).toBe(false);
 });
 
 // ── #1912: a null preview scan leaves bound listeners alone (no converge teardown) ──

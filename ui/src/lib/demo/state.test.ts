@@ -281,7 +281,11 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
   });
 
   it("mergedClearable returns the merged, non-archived deps + envflag sessions", () => {
-    expect(demoState.mergedClearable()).toEqual({ ids: ["deps", "envflag"], leftovers: 0 });
+    expect(demoState.mergedClearable()).toEqual({
+      ids: ["deps", "envflag"],
+      leftovers: 0,
+      probesUnavailable: false,
+    });
   });
 
   it("clearMerged archives the merged ids, emits session:archived, and deps disappears", () => {
@@ -291,7 +295,11 @@ describe("demoState mutators emit the correct WsEvent frames", () => {
     expect(result).toEqual({ cleared: ["deps"], leftovers: 0 });
     expect(demoState.sessions().find((s) => s.id === "deps")).toBeUndefined();
     // envflag is still merged + un-archived, so it's still offered.
-    expect(demoState.mergedClearable()).toEqual({ ids: ["envflag"], leftovers: 0 });
+    expect(demoState.mergedClearable()).toEqual({
+      ids: ["envflag"],
+      leftovers: 0,
+      probesUnavailable: false,
+    });
   });
 
   it("clearMerged skips ids that aren't actually merged", () => {

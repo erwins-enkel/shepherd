@@ -4,7 +4,13 @@ import { page } from "vitest/browser";
 import "../../../app.css";
 import AppOverlays from "./AppOverlays.svelte";
 import type { HerdStore } from "$lib/store.svelte";
-import type { AgentProvider, DiagnosticsSnapshot, HerdrUpdateStatus, Steer } from "$lib/types";
+import type {
+  AgentProvider,
+  DiagnosticsSnapshot,
+  HerdrUpdateStatus,
+  Session,
+  Steer,
+} from "$lib/types";
 import { steers } from "$lib/steers.svelte";
 import { repos } from "$lib/repos.svelte";
 import { steersSettingsOpen } from "../../../routes/steers-settings-open";
@@ -132,6 +138,7 @@ function baseProps(): Props {
     onepicdiagnoseclose: vi.fn(),
     clearMergedSessions: null,
     clearMergedLeftovers: 0,
+    clearMergedProbesUnavailable: false,
     onclearmergedclose: vi.fn(),
     onclearmergedconfirm: vi.fn(),
     showBacklog: false,
@@ -320,6 +327,32 @@ describe("AppOverlays — command bar wiring", () => {
     props.decomLeftovers = [];
     render(AppOverlays, props);
     expect(page.getByText("vite").elements()).toHaveLength(0);
+  });
+
+  // The batch clear reaps without asking, so on a host that can't detect processes the
+  // operator would be shown a clean-looking dialog and leak every dev server (#1923). The
+  // caution must therefore render at leftovers === 0 — i.e. OUTSIDE the count guard that
+  // hides the `clearmerged_leftovers` line.
+  it("cautions in ClearMergedDialog at a zero count when leftover probes are unavailable", async () => {
+    const props = baseProps();
+    props.clearMergedSessions = [
+      { id: "s1", desig: "TASK-01", name: "task one" },
+    ] as unknown as Session[];
+    props.clearMergedLeftovers = 0;
+    props.clearMergedProbesUnavailable = true;
+    render(AppOverlays, props);
+    await expect.element(page.getByText(m.clearmerged_probes_unavailable())).toBeVisible();
+  });
+
+  it("shows no such caution when the probes work", async () => {
+    const props = baseProps();
+    props.clearMergedSessions = [
+      { id: "s1", desig: "TASK-01", name: "task one" },
+    ] as unknown as Session[];
+    props.clearMergedLeftovers = 0;
+    props.clearMergedProbesUnavailable = false;
+    render(AppOverlays, props);
+    expect(page.getByText(m.clearmerged_probes_unavailable()).elements()).toHaveLength(0);
   });
 });
 

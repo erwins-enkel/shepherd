@@ -181,6 +181,7 @@
     onepicdiagnoseclose,
     clearMergedSessions,
     clearMergedLeftovers,
+    clearMergedProbesUnavailable,
     onclearmergedclose,
     onclearmergedconfirm,
     showBacklog,
@@ -323,6 +324,9 @@
     onepicdiagnoseclose: () => void;
     clearMergedSessions: Session[] | null;
     clearMergedLeftovers: number;
+    /** The host can't detect leftovers at all, so `clearMergedLeftovers` is "unknown", not
+     *  "zero" — the dialog cautions instead of implying the batch is clean (#1923). */
+    clearMergedProbesUnavailable: boolean;
     onclearmergedclose: () => void;
     onclearmergedconfirm: () => void;
     showBacklog: boolean;
@@ -640,6 +644,7 @@
   <ClearMergedDialog
     sessions={clearMergedSessions}
     leftovers={clearMergedLeftovers}
+    probesUnavailable={clearMergedProbesUnavailable}
     onclose={onclearmergedclose}
     onconfirm={onclearmergedconfirm}
   />

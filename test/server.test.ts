@@ -824,7 +824,13 @@ test("DELETE /api/sessions/:id archives", async () => {
 
 // Build an app whose service is backed by a stub reaper, so we can drive the
 // /leftovers + reap-on-DELETE paths without touching real /proc.
-function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort?: any }) {
+function harnessWithReaper(reaper: {
+  detect: any;
+  reap: any;
+  stopListenersOnPort?: any;
+  canDetectLeftovers?: any;
+  health?: any;
+}) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const fullReaper = {
@@ -870,6 +876,20 @@ function harnessWithReaper(reaper: { detect: any; reap: any; stopListenersOnPort
   return { app, store };
 }
 
+/** A session row for the /leftovers reads (the store is the only thing those need). */
+const mkLeftoverSession = (store: SessionStore) =>
+  store.create({
+    name: "x",
+    prompt: "x",
+    repoPath: "/r",
+    baseBranch: "main",
+    branch: "shepherd/x",
+    worktreePath: "/wt/x",
+    isolated: true,
+    herdrSession: "default",
+    herdrAgentId: "term_z",
+  });
+
 test("GET /api/sessions/:id/leftovers returns the reaper's detected list", async () => {
   const detected = [{ kind: "process", name: "vite", port: 5174, pid: 9, key: "process:9" }];
   const { app, store } = harnessWithReaper({ detect: () => detected, reap: () => {} });
@@ -886,17 +906,46 @@ test("GET /api/sessions/:id/leftovers returns the reaper's detected list", async
   });
   const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual(detected);
+  expect(await res.json()).toEqual({ leftovers: detected, probesUnavailable: false });
 });
 
-test("GET /api/sessions/:id/leftovers → [] without a reaper", async () => {
+// A reaper that CAN detect but has no snapshot to detect from — the operator must be told
+// the empty list means "unknown", not "clean" (#1923).
+test("GET /api/sessions/:id/leftovers flags a dead probe snapshot", async () => {
+  const { app, store } = harnessWithReaper({
+    detect: () => [],
+    reap: () => {},
+    health: () => ({ state: "none", driven: true }),
+  });
+  const s = mkLeftoverSession(store);
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: true });
+});
+
+// The darwin shape, and the reason this can't reuse preview-start's `probeHealth()` rule:
+// detection is structurally dead (both leftover classes short-circuit) while the poller keeps
+// the snapshot cell perfectly fresh for preview detection. Health alone would report "fine".
+test("GET /api/sessions/:id/leftovers flags a fresh snapshot that still can't detect", async () => {
+  const { app, store } = harnessWithReaper({
+    detect: () => [],
+    reap: () => {},
+    canDetectLeftovers: () => false,
+    health: () => ({ state: "fresh", driven: true }),
+  });
+  const s = mkLeftoverSession(store);
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}/leftovers`));
+  expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: true });
+});
+
+// No reaper ⇒ no preview functionality at all, so the caution would be noise, not signal.
+test("GET /api/sessions/:id/leftovers → [] and no caution without a reaper", async () => {
   const app = harness();
   const created = await (
     await postSessions(app, { repoPath: validRepo, baseBranch: "main", prompt: "go" })
   ).json();
   const res = await app.fetch(new Request(`http://x/api/sessions/${created.id}/leftovers`));
   expect(res.status).toBe(200);
-  expect(await res.json()).toEqual([]);
+  expect(await res.json()).toEqual({ leftovers: [], probesUnavailable: false });
 });
 
 test("DELETE /api/sessions/:id with a reap body terminates the selected leftovers", async () => {
@@ -2119,7 +2168,7 @@ test("GET /api/learnings/health returns safe default when distiller lacks health
 // ── clear-all-merged endpoint ────────────────────────────────────────────────
 // Build an app with a mutable stub prCache (the merged source of truth) + reaper.
 // Rows get random ids, so we create them first, then seed each session's PR state.
-function clearMergedHarness() {
+function clearMergedHarness(reaperExtra?: { canDetectLeftovers?: any; health?: any }) {
   const store = new SessionStore(":memory:");
   const events = new EventHub();
   const emitted: string[] = [];
@@ -2149,6 +2198,7 @@ function clearMergedHarness() {
       detect,
       reap: (ls: any[]) => reaped.push(...ls.map((l) => l.key)),
       stopListenersOnPort: () => ({ signalled: 0, unsupported: false }),
+      ...reaperExtra,
     },
     events,
   });
@@ -2212,6 +2262,20 @@ test("GET /api/sessions/clear-merged lists only merged ids and totals their left
   const body = await res.json();
   expect(new Set(body.ids)).toEqual(new Set([a.id, b.id]));
   expect(body.leftovers).toBe(2); // one detected leftover per merged session
+  expect(body.probesUnavailable).toBe(false); // a working reaper ⇒ the count means what it says
+});
+
+// The batch clear reaps every leftover it detects without asking, so a host that detects
+// nothing clears the batch and leaks every dev server. The count must read as "unknown".
+test("GET /api/sessions/clear-merged flags leftover probes that can't detect", async () => {
+  const h = clearMergedHarness({
+    canDetectLeftovers: () => false,
+    health: () => ({ state: "fresh", driven: true }),
+  });
+  h.mk("a", "merged");
+  const res = await h.app.fetch(new Request("http://x/api/sessions/clear-merged"));
+  const body = await res.json();
+  expect(body.probesUnavailable).toBe(true);
 });
 
 test("POST /api/sessions/clear-merged archives only merged sessions, ignoring others", async () => {

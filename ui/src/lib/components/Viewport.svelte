@@ -949,7 +949,20 @@
   async function confirmDecommission(id: string) {
     // only interrupt the close with the dialog when something is actually still
     // running; a probe failure must never block decommission, so fall through to close.
-    const found = await getLeftovers(id).catch(() => [] as Leftover[]);
+    const { leftovers: found, probesUnavailable } = await getLeftovers(id).catch(() => ({
+      leftovers: [] as Leftover[],
+      probesUnavailable: false,
+    }));
+    // Detection is dead on this host (#1923): the list is "unknown", not "nothing". Both
+    // exits below skip the dialog when it's empty, so a caution rendered inside
+    // LeftoverDialog would be unreachable on exactly the host that needs it — hence a
+    // toast, and the close still proceeds.
+    if (probesUnavailable) {
+      toasts.info(m.toast_decom_probes_unavailable(), {
+        alert: true,
+        key: `decom-no-detection-${id}`,
+      });
+    }
     if (found.length === 0) {
       onarchive?.(id);
       return;

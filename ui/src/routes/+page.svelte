@@ -307,6 +307,9 @@
   // leftover subprocess count (both fetched server-side when the modal opens).
   let clearMergedSessions = $state<Session[] | null>(null);
   let clearMergedLeftovers = $state(0);
+  // …and whether that count can be trusted: false ⇒ "0 leftovers" really means none, true ⇒
+  // this host can't detect them at all and the batch may leak every dev server (#1923).
+  let clearMergedProbesUnavailable = $state(false);
   // Pending merge-train awaiting operator confirmation. Setting it opens the
   // confirm modal; confirming runs `run` (the original launch); closing discards
   // with zero side effects. `run` carries the full launch closure for whichever
@@ -2257,7 +2260,18 @@
   let decomLeftoverTarget = $state<string | null>(null);
 
   async function commandDecommission(id: string) {
-    const found = await getLeftovers(id).catch(() => [] as Leftover[]);
+    const { leftovers: found, probesUnavailable } = await getLeftovers(id).catch(() => ({
+      leftovers: [] as Leftover[],
+      probesUnavailable: false,
+    }));
+    // Same caution as Viewport's button (#1923): an empty list from a host that can't detect
+    // means "unknown", and the empty-list exit below never mounts a dialog to say so in.
+    if (probesUnavailable) {
+      toasts.info(m.toast_decom_probes_unavailable(), {
+        alert: true,
+        key: `decom-no-detection-${id}`,
+      });
+    }
     if (found.length === 0) {
       onarchive(id);
       return;
@@ -2404,7 +2418,7 @@
   // leftover count, so we ask it rather than trust the local snapshot.
   async function onclearmerged() {
     try {
-      const { ids, leftovers } = await getMergedClearable();
+      const { ids, leftovers, probesUnavailable } = await getMergedClearable();
       // store.sessions mirrors every active session, so each merged id resolves to a
       // row here — `targets` matches the server's `ids` and `leftovers` lines up with
       // the listed sessions. (Were a merged id somehow absent, we'd list and clear only
@@ -2414,6 +2428,7 @@
         .filter((s): s is Session => s != null);
       if (targets.length === 0) return; // nothing merged (or already cleared) → no modal
       clearMergedLeftovers = leftovers;
+      clearMergedProbesUnavailable = probesUnavailable;
       clearMergedSessions = targets;
     } catch {
       toasts.info(m.toast_clear_merged_failed());
@@ -3283,6 +3298,7 @@
   onepicdiagnoseclose={() => (showEpicDiagnose = false)}
   {clearMergedSessions}
   {clearMergedLeftovers}
+  {clearMergedProbesUnavailable}
   onclearmergedclose={() => (clearMergedSessions = null)}
   onclearmergedconfirm={confirmClearMerged}
   {showBacklog}

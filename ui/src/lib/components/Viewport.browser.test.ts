@@ -18,6 +18,14 @@ const renameSessionFn = vi.fn(async (_id: string, name: string) => ({
   branchRenamed: true,
 }));
 
+// Decommission probes for leftovers first; without a backend the real call throws into the
+// path's own `catch`, which is indistinguishable from a clean host — mock it so the
+// probes-unavailable branch is reachable.
+const getLeftoversFn = vi.fn(async () => ({
+  leftovers: [] as Leftover[],
+  probesUnavailable: false,
+}));
+
 vi.mock("$lib/api", async (importOriginal) => {
   const actual = await importOriginal<typeof import("$lib/api")>();
   return {
@@ -25,6 +33,7 @@ vi.mock("$lib/api", async (importOriginal) => {
     startPreview: startPreviewFn,
     stopPreview: stopPreviewFn,
     renameSession: renameSessionFn,
+    getLeftovers: getLeftoversFn,
   };
 });
 
@@ -42,6 +51,7 @@ import { m } from "$lib/paraglide/messages";
 import type {
   Session,
   BuildQueue,
+  Leftover,
   Recap,
   PlanGate,
   ReviewVerdict,
@@ -1226,6 +1236,52 @@ describe("Viewport armed decommission icon-only rendering", () => {
       decomBtn!.querySelector(".decom-confirm"),
       "no .decom-confirm after arming quiet form",
     ).toBeNull();
+  });
+});
+
+// ── Decommission with leftover detection dead on this host (#1923) ────────────
+// `getLeftovers` returning [] is ambiguous: "nothing is running" or "can't tell". On a host
+// that can't tell, the close-confirm used to report the session clean and silently orphan its
+// dev server. The empty-list branch returns BEFORE any dialog mounts, so the caution can only
+// be a toast — and the close must still go through, per the deliberate "a probe failure must
+// never block decommission" guard.
+describe("Viewport decommission — leftover probes unavailable", () => {
+  it("fires an assertive keyed toast and still archives", async () => {
+    getLeftoversFn.mockResolvedValueOnce({ leftovers: [], probesUnavailable: true });
+    const infoSpy = vi.spyOn(toasts, "info");
+    const onarchive = vi.fn();
+    const { container } = await render(Viewport, {
+      session: session({ id: "dc-probes", readyToMerge: false }),
+      mobile: true,
+      previewPort: null,
+      openPreviewTick: 0,
+      onarchive,
+    });
+
+    // Two-step arm, direct DOM clicks (same reason as the stop-preview test above).
+    const decomBtn = container.querySelector<HTMLButtonElement>("button.decom.icon-btn.compact");
+    expect(decomBtn, "compact decom button should render").not.toBeNull();
+    decomBtn!.click();
+    await vi.waitFor(() => expect(decomBtn!.classList.contains("armed")).toBe(true));
+    decomBtn!.click();
+
+    await vi.waitFor(() =>
+      expect(
+        infoSpy.mock.calls.some(([text, opts]) => {
+          const o = opts as { alert?: boolean; key?: string } | undefined;
+          return (
+            String(text) === m.toast_decom_probes_unavailable() &&
+            o?.alert === true &&
+            o?.key === "decom-no-detection-dc-probes"
+          );
+        }),
+        "assertive, per-session-deduped caution fired",
+      ).toBe(true),
+    );
+    // The guard worth pinning: the decommission itself is NOT blocked.
+    await vi.waitFor(() => expect(onarchive).toHaveBeenCalledWith("dc-probes"));
+
+    infoSpy.mockRestore();
   });
 });
 

@@ -6,12 +6,16 @@
   let {
     sessions,
     leftovers,
+    probesUnavailable,
     onclose,
     onconfirm,
   }: {
     sessions: Session[];
     /** Total leftover subprocesses across the listed sessions that will be terminated. */
     leftovers: number;
+    /** This host can't detect running processes, so `leftovers` is "unknown" rather than a
+     *  real count — its 0 must not read as "nothing is running" (#1923). */
+    probesUnavailable: boolean;
     onclose: () => void;
     /** Clear all listed sessions (worktree + agent + merged branch). */
     onconfirm: () => void;
@@ -50,6 +54,11 @@
 
     {#if leftovers > 0}
       <p class="warn">{m.clearmerged_leftovers({ count: leftovers })}</p>
+    {/if}
+
+    <!-- OUTSIDE the count guard: the caution exists precisely for the host that reports 0. -->
+    {#if probesUnavailable}
+      <p class="warn">{m.clearmerged_probes_unavailable()}</p>
     {/if}
 
     <div class="actions">

@@ -71,7 +71,7 @@ describe("polished GET handlers return the shape api.ts consumes", () => {
   it("GET /api/sessions/clear-merged returns the merged, non-archived ids (deps + envflag)", async () => {
     const { status, body } = await get("/api/sessions/clear-merged");
     expect(status).toBe(200);
-    expect(body).toEqual({ ids: ["deps", "envflag"], leftovers: 0 });
+    expect(body).toEqual({ ids: ["deps", "envflag"], leftovers: 0, probesUnavailable: false });
   });
 
   it("the rich scenario seeds eight sessions across two repos", async () => {
@@ -147,6 +147,7 @@ describe("mutation handlers call the mutator and return the caller's shape", () 
     expect((await get("/api/sessions/clear-merged")).body).toEqual({
       ids: ["envflag"],
       leftovers: 0,
+      probesUnavailable: false,
     });
   });
 
@@ -286,8 +287,15 @@ describe("session-detail tab GETs never fall back to {}", () => {
     expect(unseeded.total).toBe(0);
   });
 
-  it("GET /api/sessions/:id/leftovers returns [], never {}", async () => {
-    expect((await get("/api/sessions/coupon/leftovers")).body).toEqual([]);
+  // Shape-pinned deliberately: the real endpoint moved from a bare array to
+  // `{leftovers, probesUnavailable}` (#1923) so a host that can't detect processes stops
+  // reading as a clean one. `getLeftovers` destructures both fields, so a demo that drifts
+  // back to an array would leave `found` undefined and throw on `.length`.
+  it("GET /api/sessions/:id/leftovers returns {leftovers, probesUnavailable}, never a bare array", async () => {
+    expect((await get("/api/sessions/coupon/leftovers")).body).toEqual({
+      leftovers: [],
+      probesUnavailable: false,
+    });
   });
 
   it("GET /api/sessions/:id/queue returns a BuildQueue with a `steps` array for every session", async () => {

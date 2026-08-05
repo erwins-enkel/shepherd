@@ -118,6 +118,19 @@ export class SocketHerdrDriver implements IHerdrDriver {
     return this.cli.panes();
   }
 
+  /** Delegates to the CLI driver's async runner — already non-blocking, and pane liveness is a
+   *  low-rate poller read, so a socket-native pane list buys nothing here. */
+  panesAsync() {
+    return this.cli.panesAsync();
+  }
+
+  /** Clean-terminal spawn (pane-direct `tab create`, no agent) — delegates to the CLI driver:
+   *  that exact path is live-probe-verified, and a bare tab create involves none of the
+   *  agent-registration machinery the socket transport exists to accelerate. */
+  startShellTab(cwd: string, label: string, env?: Record<string, string>) {
+    return this.cli.startShellTab(cwd, label, env);
+  }
+
   read(target: string, source: "visible" | "recent" = "visible", lines = 200): string {
     return this.cli.read(target, source, lines);
   }

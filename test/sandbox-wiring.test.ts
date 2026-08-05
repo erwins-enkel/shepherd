@@ -7,7 +7,7 @@ import type { EgressBackend } from "../src/egress";
 import { egressTmpDir } from "../src/egress";
 import { existsSync, readFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
-import type { CreateSessionInput, Session } from "../src/types";
+import type { StandardCreateInput, Session } from "../src/types";
 import type { GitForge, Issue, PrStatus } from "../src/forge/types";
 import type { UsageLimits } from "../src/usage-limits";
 import type { EgressWatcher } from "../src/egress-watch";
@@ -70,7 +70,7 @@ function makeService(opts: {
   });
 }
 
-const baseInput = (over: Partial<CreateSessionInput> = {}): CreateSessionInput => ({
+const baseInput = (over: Partial<StandardCreateInput> = {}): StandardCreateInput => ({
   repoPath: "/repo",
   baseBranch: "main",
   prompt: "do it",
@@ -322,7 +322,7 @@ test("drain pre-check: standard profile holds → service.create NOT called", as
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "standard" });
   let createCalls = 0;
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> => {
+    create: async (input: StandardCreateInput): Promise<Session> => {
       createCalls++;
       return store.create({
         name: "auto",
@@ -426,7 +426,7 @@ test("drain + autonomous repo + egress NULL → held, service.create NOT called"
   store.setRepoConfig("/repo", { ...defaultRepoConfig(), sandboxProfile: "autonomous" });
   let createCalls = 0;
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> => {
+    create: async (input: StandardCreateInput): Promise<Session> => {
       createCalls++;
       return store.create({
         name: "auto",

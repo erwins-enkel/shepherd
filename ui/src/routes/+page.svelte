@@ -1,5 +1,6 @@
 <script module lang="ts">
   import { relaunchOverrides } from "./relaunch-payload";
+  import { cleanTerminalCreateInput } from "$lib/format";
 </script>
 
 <script lang="ts">
@@ -2146,6 +2147,37 @@
   // Relaunch elsewhere: open the New Task composer pre-filled from this session so the
   // operator can pick a different repo / base branch / prompt before submitting. The
   // submit routes through onsubmit's relaunch branch (relaunchOriginalId set).
+  // Clean terminal (right-click item on session rows + repo chips): ONE bare-shell session
+  // per repo in its MAIN checkout — focus the live one when present, else create. On the 409
+  // race (another tab/operator won the singleton) the new row arrives via the session:new
+  // push, so a store re-lookup usually resolves it; otherwise surface the coded toast.
+  async function openCleanTerminal(repoPath: string) {
+    const live = store.sessions.find((s) => s.terminal && s.repoPath === repoPath);
+    if (live) {
+      selectNewSession(live.id, repoPath);
+      return;
+    }
+    try {
+      const r = await createSession(cleanTerminalCreateInput(repoPath));
+      if (!("held" in r)) selectNewSession(r.id, repoPath);
+    } catch (e) {
+      if (e instanceof ApiError && e.status === 409) {
+        const s = store.sessions.find((x) => x.terminal && x.repoPath === repoPath);
+        if (s) {
+          selectNewSession(s.id, repoPath);
+          return;
+        }
+      }
+      const slug = e instanceof ApiError && e.serverAuthored ? e.message : null;
+      toasts.info(
+        slug === "terminal_unsupported"
+          ? m.toast_terminal_unsupported()
+          : m.toast_terminal_failed(),
+        { alert: true },
+      );
+    }
+  }
+
   async function onrelaunchElsewhere(id: string) {
     const s = store.sessions.find((x) => x.id === id);
     if (!s) return;
@@ -2716,6 +2748,7 @@
         mobile={mobile.current}
         onrepofilter={applyRepoFilter}
         onpinrepo={setPinnedRepo}
+        oncleanterminal={openCleanTerminal}
       />
       <QueueStrip autoMerge={store.autoMerge} onselect={jumpToSession} />
     </header>
@@ -2769,6 +2802,7 @@
             ondecommission={onarchive}
             {onrelaunch}
             {onrelaunchElsewhere}
+            oncleanTerminal={openCleanTerminal}
             {onvariant}
             {onreplace}
             {oncompare}
@@ -2931,6 +2965,7 @@
               ondecommission={onarchive}
               {onrelaunch}
               {onrelaunchElsewhere}
+              oncleanTerminal={openCleanTerminal}
               {onvariant}
               {onreplace}
               {oncompare}

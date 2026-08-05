@@ -17,6 +17,7 @@
     pinnedRepo = null,
     onrepofilter,
     onpinrepo = () => {},
+    oncleanterminal = () => {},
     mobile = false,
   }: {
     chips: RepoChip[];
@@ -29,6 +30,8 @@
     onrepofilter: (repoPath: string, additive: boolean) => void;
     // pin or unpin a repo in the switcher; null clears the pin
     onpinrepo?: (repoPath: string | null) => void;
+    // open (or focus) the repo's clean-terminal session — a bare shell in the MAIN checkout
+    oncleanterminal?: (repoPath: string) => void;
     // true when rendered on a phone-sized viewport — suppresses the lone-repo
     // telemetry band (collapses into the selected-state subline instead)
     mobile?: boolean;
@@ -269,6 +272,13 @@
     closeMenu();
   }
 
+  function commitCleanTerminal() {
+    if (!menu) return;
+    const { repoPath } = menu.chip;
+    closeMenu();
+    oncleanterminal(repoPath);
+  }
+
   function openAutomation() {
     if (!menu) return;
     // AutomationPanel is right-aligned to its positioned parent. Put that parent
@@ -483,6 +493,15 @@
       onclick={openAutomation}
     >
       <span class="rs-menu-icon" aria-hidden="true">⚙</span>{m.repo_chip_automation_settings()}
+    </button>
+    <button
+      class="rs-menu-item"
+      type="button"
+      role="menuitem"
+      tabindex="-1"
+      onclick={commitCleanTerminal}
+    >
+      <span class="rs-menu-icon" aria-hidden="true">❯</span>{m.repo_chip_clean_terminal()}
     </button>
     {#if menuRepoWeb?.repoPath === menu.chip.repoPath && menuRepoWeb.kind === "github" && menuRepoWeb.webUrl}
       <!-- eslint-disable svelte/no-navigation-without-resolve -- external GitHub URL, not an app route -->

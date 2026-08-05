@@ -1,5 +1,5 @@
 import { m } from "$lib/paraglide/messages";
-import type { Session, SessionStatus, GitState, LivenessState } from "./types";
+import type { Session, SessionStatus, GitState, LivenessState, TerminalCreateInput } from "./types";
 import { isMerging } from "./components/merge-train";
 
 /**
@@ -18,6 +18,7 @@ import { isMerging } from "./components/merge-train";
  * regardless.
  */
 export function canResume(s: Session, liveness?: LivenessState): boolean {
+  if (s.terminal) return false; // a clean terminal has no agent to resume (server fences it too)
   const provider = s.agentProvider ?? "claude";
   return (
     (provider === "codex" || !!s.claudeSessionId) &&
@@ -45,7 +46,14 @@ export function isStrandedLiveness(liveness?: LivenessState): boolean {
  * operator may legitimately redo it. The server independently 409s an already-archived
  * original; this gate is the UI affordance.
  */
+/** The EXACT clean-terminal create payload — `{repoPath, terminal: true}` and nothing else.
+ *  Single source of the wire shape so the handler and its payload-pin test cannot drift. */
+export function cleanTerminalCreateInput(repoPath: string): TerminalCreateInput {
+  return { repoPath, terminal: true };
+}
+
 export function canRelaunch(s: Session, git?: GitState, now: number = Date.now()): boolean {
+  if (s.terminal) return false; // relaunch/variant/replace are agent verbs (server fences them)
   if (s.readyToMerge || s.autopilotComplete) return false;
   if (git?.state === "merged") return false;
   if (isMerging(s, now)) return false;

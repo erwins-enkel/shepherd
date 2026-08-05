@@ -11,6 +11,7 @@ import {
   canRelaunch,
   canReplaceAgent,
   waitTier,
+  cleanTerminalCreateInput,
 } from "./format";
 import type { Session, SessionStatus, GitState } from "./types";
 
@@ -323,4 +324,20 @@ describe("heartbeatTone", () => {
   for (const [ms, out] of cases) {
     it(`${ms}ms → ${out}`, () => expect(heartbeatTone(ms)).toBe(out));
   }
+});
+
+describe("cleanTerminalCreateInput", () => {
+  it("pins the EXACT wire payload — {repoPath, terminal: true} and no other keys", () => {
+    const input = cleanTerminalCreateInput("/repo/x");
+    expect(input).toEqual({ repoPath: "/repo/x", terminal: true });
+    expect(Object.keys(input).sort()).toEqual(["repoPath", "terminal"]);
+    // The POST body the handler sends is exactly this JSON — no prompt, no baseBranch.
+    expect(JSON.parse(JSON.stringify(input))).toEqual({ repoPath: "/repo/x", terminal: true });
+  });
+});
+
+describe("terminal sessions are fenced out of agent-verb affordances", () => {
+  const term = { terminal: true, status: "running", agentProvider: "claude" } as never;
+  it("canResume refuses a terminal session", () => expect(canResume(term)).toBe(false));
+  it("canRelaunch refuses a terminal session", () => expect(canRelaunch(term)).toBe(false));
 });

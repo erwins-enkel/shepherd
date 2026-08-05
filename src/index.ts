@@ -1126,6 +1126,11 @@ const poller = new StatusPoller(
     events.emit("session:halt", { id, haltReason, haltedAt }),
   // usageLimits: corroborates the transcript-tail match against measured pct windows.
   usageLimits,
+  undefined, // detectAuth — use default
+  // Clean-terminal auto-archive: the pane sweep confirmed the shell exited (2 consecutive
+  // gone sweeps) — archive so focus-existing never lands on a dead terminal. Fire-and-forget;
+  // archive() already tolerates a concurrently-archived row.
+  (id) => void service.archive(id).catch((err) => console.warn("[poller] terminal archive:", err)),
 );
 
 // Proactively re-drive a herdr-restored plugin/account pane (herdr's bare `claude --resume` lost the

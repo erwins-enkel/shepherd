@@ -4,6 +4,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import type { RepoConfig, SessionStore } from "./store";
+import { TERMINAL_CLAIM_TTL_MS } from "./store";
+import { detectedHerdrVersion, herdrPaneControlSupported } from "./herdr-capabilities";
 import type { EventHub } from "./events";
 import {
   agentMcpConfigArg,
@@ -34,6 +36,8 @@ import { CODEX_ID_SKEW_MS, findCodexSessionId } from "./codex-session-id";
 import type {
   AgentProvider,
   CreateSessionInput,
+  StandardCreateInput,
+  TerminalCreateInput,
   IssueRef,
   LaunchAttachmentMetadata,
   RelaunchOverrides,
@@ -151,6 +155,40 @@ export class UntrustedIssueAuthorError extends Error {
   }
 }
 
+/** Thrown by create() when a clean-terminal create loses the one-per-repo race: a live terminal
+ *  session already exists (`existingId` carried so the UI can focus it) or another create holds
+ *  the reservation lease (`existingId: null`). Route-mapped to 409. */
+export class TerminalExistsError extends Error {
+  constructor(readonly existingId: string | null) {
+    super(
+      existingId
+        ? `clean terminal already open for this repo (session ${existingId})`
+        : "a clean-terminal create for this repo is already in flight",
+    );
+    this.name = "TerminalExistsError";
+  }
+}
+
+/** Fail-closed create preflight: the detected herdr cannot host a clean terminal (its CLI lacks
+ *  pane-level `terminal session control`, the only transport an agentless pane can attach
+ *  through) — refuse rather than create a session with no usable terminal. */
+export class TerminalUnsupportedError extends Error {
+  constructor(version: string | null) {
+    super(`clean terminals need a newer herdr (detected ${version ?? "unknown"})`);
+    this.name = "TerminalUnsupportedError";
+  }
+}
+
+/** Thrown by every agent-input / agent-lifecycle verb when targeted at a clean-terminal
+ *  session — a bare shell has no agent to resume, relaunch, steer, or restore. Route-mapped
+ *  to 409. */
+export class TerminalSessionError extends Error {
+  constructor(verb: string) {
+    super(`${verb} is not available for a clean-terminal session`);
+    this.name = "TerminalSessionError";
+  }
+}
+
 export const MERGE_STALE_MS = 30 * 60_000;
 
 /** Absolute backstop for a STILL-RUNNING merge-train completion-tracker entry: a
@@ -177,7 +215,17 @@ export interface ServiceDeps {
     | "gitCommonDir"
     | "restoreExisting"
   >;
-  herdr: Pick<HerdrDriver, "start" | "list" | "stop" | "send" | "relabel" | "paneForegroundProcs">;
+  herdr: Pick<
+    HerdrDriver,
+    | "start"
+    | "list"
+    | "stop"
+    | "send"
+    | "relabel"
+    | "paneForegroundProcs"
+    | "startShellTab"
+    | "closeTab"
+  >;
   namer: (prompt: string) => string | Promise<string>;
   /** Background namer: comprehends the prompt into a slug (null = keep heuristic). Absent → no refine. */
   refineName?: (args: { taskText: string; label: string }) => Promise<string | null>;
@@ -2198,7 +2246,7 @@ export class SessionService {
    * proceeds without them; the caller emits an operator-visible signal for the drop.
    */
   private async composePromptArg(
-    input: CreateSessionInput,
+    input: StandardCreateInput,
     worktreePath: string,
   ): Promise<{
     promptArg: string;
@@ -2233,7 +2281,7 @@ export class SessionService {
   }
 
   private composeUploadPrompt(
-    input: CreateSessionInput,
+    input: StandardCreateInput,
     worktreePath: string,
   ): { promptBlock: string; dropped: number; attachments: LaunchAttachmentMetadata[] } {
     if (input.images.length === 0) return { promptBlock: "", dropped: 0, attachments: [] };
@@ -2744,7 +2792,7 @@ export class SessionService {
    *  set (#842). Records the injected rule ids against the session (join rows only — counters
    *  are advanced symmetrically with the reward at archive, never here). Injected into every
    *  new agent's system prompt via composeSystemPrompt. */
-  private recordInjectedHouseRules(sessionId: string, input: CreateSessionInput): string | null {
+  private recordInjectedHouseRules(sessionId: string, input: StandardCreateInput): string | null {
     const { repoPath } = input;
     if (!this.deps.store.getRepoConfig(repoPath).learningsEnabled) return null;
     const targetPaths = extractTargetPaths(
@@ -2862,7 +2910,7 @@ export class SessionService {
    * payload WAS assembled) and invisible to the reads (they inner-join `sessions`).
    */
   private composeDirectives(args: {
-    input: CreateSessionInput;
+    input: StandardCreateInput;
     sessionId: string;
     planGateOn: boolean | undefined;
     isolated: boolean;
@@ -2956,7 +3004,7 @@ export class SessionService {
   }
 
   private buildSpawnArgv(
-    input: CreateSessionInput,
+    input: StandardCreateInput,
     claudeSessionId: string,
     sessionId: string,
     promptArg: string,
@@ -3015,7 +3063,7 @@ export class SessionService {
   }
 
   private buildCodexSpawnArgv(args: {
-    input: CreateSessionInput;
+    input: StandardCreateInput;
     sessionId: string;
     promptArg: string;
     planGateOn: boolean | undefined;
@@ -3265,7 +3313,7 @@ export class SessionService {
    * config.sandboxDefaultProfile), using input.sandboxProfile as the override.
    */
   private researchSafeProfileOverride(
-    input: CreateSessionInput,
+    input: StandardCreateInput,
     repoConfig: RepoConfig,
     sessionId: string,
   ): string | null | undefined {
@@ -3296,7 +3344,7 @@ export class SessionService {
    * prompt, so the gate machinery must match — and it is drain-spawned/unattended, with no operator
    * to plan with).
    */
-  private resolvePlanGateOn(input: CreateSessionInput, repoConfig: RepoConfig): boolean {
+  private resolvePlanGateOn(input: StandardCreateInput, repoConfig: RepoConfig): boolean {
     if (input.research || input.epicAuthoring || input.landingRepair) return false;
     return input.planGateEnabled ?? repoConfig.planGateEnabled;
   }
@@ -3308,7 +3356,7 @@ export class SessionService {
    * resolved.baseRef may be a sha (fresh upstream tip when behind) or the branch name
    * (diverged / no upstream / up to date). Falls back to the named branch when the
    * impl returns nothing — fail-safe, never undefined. */
-  private async resolveBaseRef(input: CreateSessionInput): Promise<string> {
+  private async resolveBaseRef(input: StandardCreateInput): Promise<string> {
     const resolved = await this.deps.worktree.ensureBaseRef(input.repoPath, input.baseBranch);
     const baseRef = resolved?.baseRef ?? input.baseBranch;
     console.info(
@@ -3318,8 +3366,8 @@ export class SessionService {
   }
 
   private buildLaunchMetadata(args: {
-    input: CreateSessionInput;
-    spawnInput: CreateSessionInput;
+    input: StandardCreateInput;
+    spawnInput: StandardCreateInput;
     attachments: LaunchAttachmentMetadata[];
     branch: string | null;
     agentProvider: AgentProvider;
@@ -3380,7 +3428,7 @@ export class SessionService {
   }
 
   private async resolveCreateLaunch(
-    input: CreateSessionInput,
+    input: StandardCreateInput,
     wt: { isolated: boolean; worktreePath: string },
     promptArg: string,
     sessionId: string,
@@ -3388,8 +3436,8 @@ export class SessionService {
     opts: { planGateOn?: boolean } = {},
   ): Promise<{
     agentProvider: AgentProvider;
-    resolvedInput: CreateSessionInput;
-    spawnInput: CreateSessionInput;
+    resolvedInput: StandardCreateInput;
+    spawnInput: StandardCreateInput;
     repoConfig: RepoConfig;
     planGateOn: boolean;
     profileOverride: string | null | undefined;
@@ -3465,7 +3513,7 @@ export class SessionService {
    *  autonomous drain isn't silently disabled there; GitHub is never relaxed by the flag. Signals the
    *  untrusted_author store/event ONCE per (repoPath, issue) per process — the drain retries a
    *  refused issue on a cooldown, which would otherwise append a new signal on every retry. */
-  private async assertIssueAuthorTrusted(input: CreateSessionInput): Promise<void> {
+  private async assertIssueAuthorTrusted(input: StandardCreateInput): Promise<void> {
     if (!input.auto || !input.issueRef) return;
     const n = input.issueRef.number;
     let association: string | null;
@@ -3501,7 +3549,77 @@ export class SessionService {
     throw new UntrustedIssueAuthorError(n, association);
   }
 
+  /**
+   * Clean-terminal create (pane-direct, issue: clean-terminal-in-main-repo). Order matters:
+   * (1) fail-closed capability preflight; (2) reserve the one-per-repo singleton lease in the
+   * DB — BEFORE any herdr call, so a losing racer never spawns; (3) spawn a bare shell tab at
+   * the MAIN checkout and assert the reply's cwd; (4) persist. A heartbeat renews the lease
+   * while the spawn is in flight (a slow herdr can never get this create reclaimed out from
+   * under it); the sessions partial unique index remains the durable final invariant, and any
+   * failure after the tab exists closes that tab — no orphan shells, no orphan claims.
+   */
+  private async createTerminalSession(input: TerminalCreateInput): Promise<Session> {
+    if (!herdrPaneControlSupported()) throw new TerminalUnsupportedError(detectedHerdrVersion());
+    const sessionId = randomUUID();
+    const claim = this.deps.store.claimTerminalRepo(input.repoPath, sessionId);
+    if (!claim.ok) throw new TerminalExistsError(claim.existingId);
+    const heartbeat = setInterval(
+      () => this.deps.store.renewTerminalClaim(input.repoPath, sessionId),
+      TERMINAL_CLAIM_TTL_MS / 6,
+    );
+    try {
+      const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
+      const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
+      const name = this.uniqueName("terminal", herdSlug, input.repoPath);
+      const shell = await this.deps.herdr.startShellTab(input.repoPath, name, {
+        [SESSION_MARKER_ENV]: sessionId,
+      });
+      try {
+        // Contract assert (probe-verified reply shape): the pane must sit exactly at the main
+        // checkout — a mismatch would hand the operator a shell in the wrong directory.
+        if (safeRealpath(shell.cwd) !== safeRealpath(input.repoPath)) {
+          throw new Error(`herdr: shell pane opened at ${shell.cwd}, expected ${input.repoPath}`);
+        }
+        return this.deps.store.create({
+          id: sessionId,
+          name,
+          prompt: "",
+          repoPath: input.repoPath,
+          baseBranch: "",
+          branch: null,
+          worktreePath: input.repoPath,
+          isolated: false,
+          herdrSession: config.herdrSession,
+          herdrAgentId: shell.terminalId,
+          claudeSessionId: "",
+          terminal: true,
+          terminalTabId: shell.tabId,
+          terminalPaneId: shell.paneId,
+          // Inert placeholder — a terminal has no agent; every agent flow is fenced on
+          // `terminal`, and widening AgentProvider would ripple through dozens of switches.
+          agentProvider: "claude",
+          model: null,
+          planGateEnabled: false,
+          autopilotEnabled: false,
+          planPhase: null,
+        });
+      } catch (err) {
+        // The tab exists but the session row doesn't (cwd mismatch / unique-index loss on a
+        // bypass race) — close the tab so nothing orphans.
+        await this.deps.herdr.closeTab(shell.tabId).catch(() => {});
+        throw err;
+      }
+    } finally {
+      clearInterval(heartbeat);
+      this.deps.store.releaseTerminalClaim(input.repoPath, sessionId);
+    }
+  }
+
   async create(input: CreateSessionInput): Promise<Session> {
+    // Clean-terminal kind (union arm): a bare operator shell in the MAIN checkout, pane-direct.
+    // None of the agent-create machinery below (worktree, prompt, argv, plan gate) applies —
+    // and the narrowed TerminalCreateInput has no prompt/baseBranch members to misuse.
+    if (input.terminal === true) return this.createTerminalSession(input);
     await this.assertIssueAuthorTrusted(input);
     const repoBasename = input.repoPath.split("/").filter(Boolean).at(-1) ?? "";
     const herdSlug = repoBasename ? slugifyManual(repoBasename) : undefined;
@@ -3705,6 +3823,12 @@ export class SessionService {
    * spawn). On any error AFTER `create`, the just-created session is best-effort
    * torn down and the error rethrown, so no orphaned new session leaks.
    */
+  /** Agent-verb fence: a clean-terminal session has no agent to resume/relaunch/steer/restore —
+   *  refuse with the typed 409 error instead of undefined behavior. See TerminalSessionError. */
+  private assertNotTerminal(s: Session, verb: string): void {
+    if (s.terminal) throw new TerminalSessionError(verb);
+  }
+
   async relaunch(
     originalId: string,
     issueRef?: IssueRef,
@@ -3714,6 +3838,7 @@ export class SessionService {
     const s = this.deps.store.get(originalId);
     if (!s || s.status === "archived")
       throw new Error(`cannot relaunch ${originalId}: missing or archived`);
+    this.assertNotTerminal(s, "relaunch");
 
     // Attachment handling forks on whether overrides are present:
     //   - quick relaunch (no overrides) → auto-carry the original's uploads, copied (not
@@ -3764,7 +3889,7 @@ export class SessionService {
     images: string[],
     attachmentNames: string[] | undefined,
     authPolicy: "error" | "clamp",
-  ): CreateSessionInput {
+  ): StandardCreateInput {
     // Provider/model coupling: resolve the EFFECTIVE provider and reconcile the carried model
     // against it (see reconcileRelaunchModel) so a provider switch never drags an incompatible model.
     const agentProvider = overrides?.agentProvider ?? original.agentProvider ?? "claude";
@@ -3823,6 +3948,7 @@ export class SessionService {
     const s = this.deps.store.get(id);
     if (!s || s.status === "archived")
       throw new Error(`cannot replace agent for ${id}: missing or archived`);
+    this.assertNotTerminal(s, "replace");
 
     const agentProvider = opts.agentProvider ?? s.agentProvider ?? "claude";
     const sourceProvider = s.agentProvider ?? "claude";
@@ -3834,7 +3960,7 @@ export class SessionService {
       console.warn(
         `[replace] ${s.id}: ${carriedUploads.length} files exceed cap ${MAX_IMAGES}; dropped ${carriedUploads.length - promptUploads.length}`,
       );
-    const input: CreateSessionInput = {
+    const input: StandardCreateInput = {
       repoPath: s.repoPath,
       baseBranch: s.baseBranch,
       prompt: composeProviderHandoffPrompt(
@@ -4291,6 +4417,7 @@ export class SessionService {
     if (!target) return null;
 
     const { session, provider } = target;
+    this.assertNotTerminal(session, "resume");
     const agent = this.liveAgentFor(id);
     if (agent && !opts.force && !needsAccountRedrive(session, agent)) {
       // Already live (idle at the prompt, or restored by a herdr restart under a new terminalId)
@@ -4505,6 +4632,9 @@ export class SessionService {
     if (!s) return null;
 
     if (s.status !== "archived") throw new RestoreError("not_archived");
+    // An archived terminal's pane is gone, and un-archiving would collide with the live-terminal
+    // singleton (partial unique index) — restoring it is undefined by design.
+    this.assertNotTerminal(s, "restore");
 
     const provider = s.agentProvider ?? "claude";
     // Codex resumes by an explicit id; Claude by `--resume`. resolveCodexRestoreId enforces
@@ -4680,6 +4810,7 @@ export class SessionService {
   async operatorReply(id: string, text: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
+    this.assertNotTerminal(s, "reply");
     const resumableCodex = (s.agentProvider ?? "claude") === "codex" && s.isolated;
     const target = await this.operatorReplyTarget(id, resumableCodex);
     if (!target) return false;
@@ -4713,6 +4844,9 @@ export class SessionService {
   async startPreview(id: string, command: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
+    // Fenced directly (not just via the reply→sendSteerTo funnel) so the route surfaces the
+    // typed 409 instead of a silent `false`.
+    this.assertNotTerminal(s, "preview");
     return await this.reply(id, PREVIEW_START_STEER(command, s.agentProvider ?? "claude"));
   }
 
@@ -4849,6 +4983,9 @@ export class SessionService {
     for (const id of ids) {
       const s = this.deps.store.get(id);
       if (!s) continue;
+      // Defensive: a terminal can never carry haltReason, but a mixed id set must not steer or
+      // resume one — skip silently, keep processing the rest.
+      if (s.terminal) continue;
       let succeeded = false;
       // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
       // than steered — else the retry lands on the wrong-account pane.
@@ -4889,7 +5026,13 @@ export class SessionService {
   async broadcast(
     ids: string[],
     text: string,
-  ): Promise<{ delivered: number; queued: number; offline: number; total: number }> {
+  ): Promise<{
+    delivered: number;
+    queued: number;
+    offline: number;
+    skipped: number;
+    total: number;
+  }> {
     let agents: HerdrAgent[];
     try {
       agents = this.deps.herdr.list();
@@ -4901,8 +5044,17 @@ export class SessionService {
     let delivered = 0;
     let queued = 0;
     let offline = 0;
+    let skipped = 0;
     for (const id of ids) {
       const s = this.deps.store.get(id);
+      // A clean-terminal session must never receive an agent steer (the herdr.send invariant) —
+      // and one terminal in a fleet-wide id set must not abort the broadcast for everyone else.
+      // Skipped BEFORE the liveness split and reported additively (delivered + queued + offline
+      // + skipped === total); old clients simply ignore the new count (#1630 precedent).
+      if (s?.terminal) {
+        skipped++;
+        continue;
+      }
       if (!s || !live.has(s.herdrAgentId)) {
         offline++; // unknown id or dead pane — the steer can't land
         continue;
@@ -4917,7 +5069,7 @@ export class SessionService {
       if (statusByTerminal.get(s.herdrAgentId) === "working") queued++;
       else delivered++;
     }
-    return { delivered, queued, offline, total: ids.length };
+    return { delivered, queued, offline, skipped, total: ids.length };
   }
 
   /**
@@ -4940,7 +5092,10 @@ export class SessionService {
    */
   async haltAll(): Promise<{ halted: number }> {
     const agents = this.deps.herdr.list(); // let a herdr-unreachable error propagate
-    const sessions = this.deps.store.list({ activeOnly: true });
+    // Clean terminals are filtered out BEFORE matching: they have no agent, and a shell running
+    // a long build could plausibly read `working` through some future match path — it must never
+    // receive a stray ESC (haltAll deliberately bypasses the sendSteerTo funnel guard).
+    const sessions = this.deps.store.list({ activeOnly: true }).filter((s) => !s.terminal);
     let halted = 0;
     for (const agent of matchAgents(sessions, agents).values()) {
       if (agent?.agentStatus !== "working") continue;
@@ -5007,6 +5162,9 @@ export class SessionService {
   async interrupt(id: string): Promise<boolean> {
     const s = this.deps.store.get(id);
     if (!s) return false;
+    // Same invariant as the sendSteerTo funnel guard: a lone ESC is still herdr.send, and a
+    // clean-terminal pane must never receive it (this route bypasses the steer funnel).
+    this.assertNotTerminal(s, "interrupt");
     let agent: HerdrAgent | null;
     try {
       // liveAgentFor lets a herdr-unreachable error propagate; an interrupt that can't reach herdr
@@ -5071,6 +5229,11 @@ export class SessionService {
    *  recorded `reply` signal stays the operator's words alone, so the learnings distiller never
    *  mines Shepherd's own notice (`reply` is a mined signal kind). */
   private async sendSteerTo(s: Session, text: string, signalPayload: string = text): Promise<void> {
+    // FUNNEL GUARD — the herdr.send invariant: every steer in the codebase (reply, broadcast,
+    // retry-halted, autopilot, plan-gate, build-queue, …) flows through here, so this single
+    // check makes "a clean-terminal session never receives herdr.send" hold for every present
+    // and FUTURE call site. (haltAll bypasses this funnel by design and carries its own filter.)
+    this.assertNotTerminal(s, "steer");
     this.deps.store.addSignal({
       repoPath: s.repoPath,
       sessionId: s.id,
@@ -5187,7 +5350,7 @@ export class SessionService {
    * `#liveTrains` and any already-open participant session is marked immediately
    * (reconcileTrainMarks runs inside registerTrain). Empty/absent → no train.
    */
-  #maybeRegisterTrain(session: Session, input: CreateSessionInput): void {
+  #maybeRegisterTrain(session: Session, input: StandardCreateInput): void {
     if (input.mergeTrainPrs && input.mergeTrainPrs.length > 0)
       this.registerTrain(session.id, session.repoPath, input.mergeTrainPrs);
   }
@@ -5515,7 +5678,13 @@ export class SessionService {
       const hit = this.deps.reaper.detect(s).filter((l) => want.has(l.key));
       reaped = this.deps.reaper.reap(hit);
     }
-    await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
+    if (s.terminal) {
+      // Pane-direct teardown: there is no agent to stop — close the persisted tab (best-effort:
+      // the shell may already have exited and taken the tab with it).
+      if (s.terminalTabId) await this.deps.herdr.closeTab(s.terminalTabId).catch(() => {});
+    } else {
+      await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
+    }
     // Best-effort pre-teardown hook (recap generation): the recap generator reads the
     // worktree to build its prompt, so it MUST run while the worktree still exists.
     // Race a 15s timeout so a stuck git can never permanently stall teardown / the merge

@@ -487,7 +487,7 @@ describe("RepoSwitcher — filter rail", () => {
     );
 
     const items = [...document.querySelectorAll<HTMLElement>(".rs-menu-item")];
-    expect(items.length).toBe(4);
+    expect(items.length).toBe(5);
     // The open effect focuses the first item.
     expect(document.activeElement).toBe(items[0]);
 
@@ -496,11 +496,11 @@ describe("RepoSwitcher — filter rail", () => {
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }));
     expect(document.activeElement).toBe(items[2]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "End", bubbles: true }));
-    expect(document.activeElement).toBe(items[3]);
+    expect(document.activeElement).toBe(items[4]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Home", bubbles: true }));
     expect(document.activeElement).toBe(items[0]);
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true }));
-    expect(document.activeElement).toBe(items[3]);
+    expect(document.activeElement).toBe(items[4]);
 
     // Escape still closes.
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));

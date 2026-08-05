@@ -3,7 +3,7 @@ import { DrainService } from "../src/drain";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { CreateSessionInput, Session } from "../src/types";
+import type { StandardCreateInput, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 
 // #645 (c): drain.buildEpic scans the host for stray epic/* branches, throttled per epic,
@@ -103,7 +103,7 @@ function makeHarness(branchesRef: BranchesRef, clock: { t: number }) {
   const drain = new DrainService({
     store,
     service: {
-      create: async (input: CreateSessionInput): Promise<Session> =>
+      create: async (input: StandardCreateInput): Promise<Session> =>
         store.create({
           name: "auto",
           prompt: input.prompt,

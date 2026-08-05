@@ -94,6 +94,13 @@
     failed = false;
     try {
       const r = await apiBroadcast(text.trim(), [...selected]);
+      if (r.delivered + r.queued === 0 && (r.skipped ?? 0) > 0 && r.offline === 0) {
+        // Every selected target was a clean terminal — nothing can receive a steer, but that
+        // is a deliberate skip, not a delivery failure.
+        toasts.info(m.toast_broadcast_skipped_terminals({ skipped: r.skipped ?? 0 }));
+        onclose();
+        return;
+      }
       if (r.delivered + r.queued === 0) {
         // Nothing reached any agent (all targets offline/dead-pane) — a literal no-op.
         // Surface it like a failure so the dialog stays open with Retry, not a "sent 0" toast.
@@ -105,6 +112,9 @@
       // Confirmation outlives the dialog: a toast names the reach after close. Honest about
       // queued-on-busy (those agents act only after their current turn) so a busy-herd
       // broadcast no longer reads as a no-op.
+      if ((r.skipped ?? 0) > 0) {
+        toasts.info(m.toast_broadcast_skipped_terminals({ skipped: r.skipped ?? 0 }));
+      }
       if (r.queued === 0 && r.offline === 0) {
         toasts.info(m.toast_broadcast_delivered({ delivered: r.delivered }));
       } else {

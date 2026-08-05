@@ -12,7 +12,7 @@ import { SessionStore } from "../src/store";
 import type { GitForge, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
-import type { CreateSessionInput } from "../src/types";
+import type { StandardCreateInput } from "../src/types";
 import { epicIntegrationBranch } from "../src/epic-branch";
 import { config } from "../src/config";
 
@@ -109,7 +109,7 @@ function fakeForge(opts: { prStatus?: (branch: string) => Promise<PrStatus> }): 
 }
 
 interface CreateCall {
-  input: CreateSessionInput;
+  input: StandardCreateInput;
 }
 
 interface RepairCountCall {
@@ -189,7 +189,7 @@ function makeHarness(opts: {
   const drain = new DrainService({
     store,
     service: {
-      create: async (input: CreateSessionInput) => {
+      create: async (input: StandardCreateInput) => {
         createCalls.push({ input });
         if (opts.createThrows) throw new Error("spawn refused (hold/egress/transient)");
         return { id: "repair-sess", baseBranch: input.baseBranch } as never;

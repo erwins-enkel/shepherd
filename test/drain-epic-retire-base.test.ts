@@ -10,7 +10,7 @@ import type {
   PrStatus,
 } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
+import type { StandardCreateInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 
 // #645 Task 2: retire enforces the child PR's base against the pinned epic integration branch.
@@ -150,7 +150,7 @@ function makeHarness(
   const archived: string[] = [];
 
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> =>
+    create: async (input: StandardCreateInput): Promise<Session> =>
       store.create({
         name: "auto",
         prompt: input.prompt,

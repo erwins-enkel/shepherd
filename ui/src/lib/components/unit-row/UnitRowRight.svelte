@@ -4,6 +4,7 @@
   import { isMerging } from "../merge-train";
   import { m } from "$lib/paraglide/messages";
   import ResearchBadge from "../ResearchBadge.svelte";
+  import TerminalBadge from "../TerminalBadge.svelte";
   import PrBadge from "../PrBadge.svelte";
   import CriticBadge from "../CriticBadge.svelte";
   import BuildQueueBadge from "../BuildQueueBadge.svelte";
@@ -162,6 +163,7 @@
     </span>
   {/if}
   <ResearchBadge {session} tip />
+  <TerminalBadge {session} tip />
   {#if !stepperTerminal}<PrBadge {git} sessionId={session.id} />{/if}
   <CriticBadge sessionId={session.id} tip prUrl={git?.url} />
   <BuildQueueBadge

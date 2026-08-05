@@ -3547,5 +3547,14 @@
   "viewport_preview_stop_unsupported": "This host can't signal dev-server processes, so nothing was stopped. Stop it from the session's terminal instead.",
   "viewport_preview_stop_refused": "Couldn't confirm which process holds the preview port, so nothing was signalled. Try again in a moment.",
   "feat_macos_preview_stop_title": "Stop a dev server on macOS",
-  "feat_macos_preview_stop_body": "Stop dev server now works on macOS. It was previously a no-op there: Shepherd reads macOS processes from a periodic snapshot, and a snapshot can't rule out that the process it saw has since exited and its id been reused, so it refused to send a signal rather than risk hitting the wrong one. Shepherd now re-checks the process right before signalling it, and refuses only when that check can't be made — telling you so instead of reporting that nothing was running. Idle-stop reclaims idle previews on macOS too."
+  "feat_macos_preview_stop_body": "Stop dev server now works on macOS. It was previously a no-op there: Shepherd reads macOS processes from a periodic snapshot, and a snapshot can't rule out that the process it saw has since exited and its id been reused, so it refused to send a signal rather than risk hitting the wrong one. Shepherd now re-checks the process right before signalling it, and refuses only when that check can't be made — telling you so instead of reporting that nothing was running. Idle-stop reclaims idle previews on macOS too.",
+  "cardmenu_clean_terminal": "Clean terminal in main repo",
+  "repo_chip_clean_terminal": "Clean terminal in main repo",
+  "terminal_badge_label": "Terminal",
+  "terminal_badge_title": "Clean terminal: a bare shell in the repo's main checkout (no agent)",
+  "toast_terminal_failed": "Couldn't open the clean terminal",
+  "toast_terminal_unsupported": "Clean terminals need a newer herdr — update herdr and retry",
+  "toast_broadcast_skipped_terminals": "{skipped} terminal session(s) skipped — terminals receive no steers",
+  "feat_clean_terminal_title": "Clean terminal in the main repo",
+  "feat_clean_terminal_body": "Right-click a session row or a repo chip and pick “Clean terminal in main repo”: a bare shell opens directly in the repo's main checkout (not a worktree, no agent) — for quick git and CLI work. One terminal per repo; picking it again focuses the existing one. Exit the shell and the session archives itself."
 }

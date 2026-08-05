@@ -634,9 +634,10 @@ export class RecapService {
     const idleMs = now - entry.stamp;
     if (!isSettledIdle(s.status, idleMs, this.idleThresholdMs)) return;
 
-    // Skip drain sessions and sessions without a branch — stable for the episode, so
-    // burn the marker (no point re-checking until the session re-activates).
-    if (s.auto || !s.branch) {
+    // Skip drain sessions, clean terminals (no agent transcript to summarize — also implied
+    // by branch:null, made explicit here), and sessions without a branch — stable for the
+    // episode, so burn the marker (no point re-checking until the session re-activates).
+    if (s.auto || s.terminal || !s.branch) {
       entry.fired = true;
       return;
     }

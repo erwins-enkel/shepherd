@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import { releaseHeldTasks, type HeldReleaseDeps } from "../src/held-release";
-import type { CreateSessionInput, Session } from "../src/types";
+import type { StandardCreateInput, Session } from "../src/types";
 import type { UsageLimits } from "../src/usage-limits";
 import { SandboxAutoRefused } from "../src/sandbox";
 
@@ -8,7 +8,7 @@ import { SandboxAutoRefused } from "../src/sandbox";
 // (it's the session:new payload), so a full literal would be noise.
 const fakeSession = (id: string) => ({ id }) as unknown as Session;
 
-function makeInput(prompt: string, issueNumber?: number): CreateSessionInput {
+function makeInput(prompt: string, issueNumber?: number): StandardCreateInput {
   return {
     repoPath: "/tmp/repo",
     baseBranch: "main",
@@ -22,12 +22,12 @@ function makeInput(prompt: string, issueNumber?: number): CreateSessionInput {
 }
 
 function makeDeps(
-  tasks: { id: string; input: CreateSessionInput }[],
+  tasks: { id: string; input: StandardCreateInput }[],
   limits: Partial<UsageLimits> = {},
-  createFn?: (input: CreateSessionInput) => Promise<Session>,
+  createFn?: (input: StandardCreateInput) => Promise<Session>,
 ): HeldReleaseDeps & {
   emitted: { event: string; data: unknown }[];
-  creates: CreateSessionInput[];
+  creates: StandardCreateInput[];
   labeled: number[];
 } {
   const rows = tasks.map((t, i) => ({
@@ -37,7 +37,7 @@ function makeDeps(
     createdAt: i + 1,
   }));
   const emitted: { event: string; data: unknown }[] = [];
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const labeled: number[] = [];
 
   const defaultLimits: UsageLimits = {
@@ -61,7 +61,7 @@ function makeDeps(
       countHeldTasks: () => rows.length,
     },
     service: {
-      async create(input: CreateSessionInput): Promise<Session> {
+      async create(input: StandardCreateInput): Promise<Session> {
         if (createFn) return createFn(input);
         creates.push(input);
         return fakeSession("fake-session");
@@ -103,7 +103,7 @@ test("usage high (>=holdPct) + enabled → released:0, service not called", asyn
 });
 
 test("usage low + 3 held → releases all 3 FIFO", async () => {
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const tasks = [
     { id: "t1", input: makeInput("task 1") },
     { id: "t2", input: makeInput("task 2") },
@@ -267,7 +267,7 @@ test("released task with linked issue → re-stamps the drain claim", async () =
 // listHeldTasks() returns usage-held tasks first, capacity-held tasks last.
 
 function makeRowsWithReason(
-  tasks: { id: string; input: CreateSessionInput; reason: "usage" | "capacity" }[],
+  tasks: { id: string; input: StandardCreateInput; reason: "usage" | "capacity" }[],
 ) {
   return tasks.map((t, i) => ({ ...t, repoPath: "/tmp/repo", createdAt: i + 1 }));
 }
@@ -278,7 +278,7 @@ test("capacity-last: usage-held task released before capacity-held (store orderi
   const capTask = { id: "c1", input: makeInput("cap task"), reason: "capacity" as const };
   const rows = makeRowsWithReason([usageTask, capTask]);
 
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const deps = makeDeps([], {}, async (input) => {
     creates.push(input);
     return fakeSession("fake");
@@ -308,7 +308,7 @@ test("capacity-last: failing capacity task does not block releasable usage task 
   const capTask = { id: "c1", input: makeInput("cap task"), reason: "capacity" as const };
   const rows = makeRowsWithReason([usageTask, capTask]);
 
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const deps = makeDeps([], {}, async (input) => {
     if (input.prompt === "cap task") throw new SandboxAutoRefused("no accounts");
     creates.push(input);

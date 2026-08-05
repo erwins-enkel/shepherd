@@ -3,7 +3,7 @@ import { DrainService, type DrainStatus } from "../src/drain";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
+import type { StandardCreateInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
 
@@ -115,12 +115,12 @@ function makeHarness(parentTitleRef: { title: string }, subIssues: SubIssueRef[]
 
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const statuses: DrainStatus[] = [];
   const epics: Epic[] = [];
 
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> => {
+    create: async (input: StandardCreateInput): Promise<Session> => {
       creates.push(input);
       return store.create({
         name: "auto",

@@ -31,7 +31,7 @@ test("validateCreate accepts a ~ path inside repoRoot", () => {
   // repoRoot = home; repoPath '~' resolves to home (which exists & is a dir)
   const r = validateCreate({ repoPath: "~", baseBranch: "main", prompt: "go" }, homedir());
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.repoPath).toBe(homedir());
+  if (r.ok && r.value.terminal !== true) expect(r.value.repoPath).toBe(homedir());
 });
 
 // ── validateCreate ────────────────────────────────────────────────────────────
@@ -53,7 +53,7 @@ test("valid input returns ok with value", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) {
+  if (r.ok && r.value.terminal !== true) {
     expect(r.value.repoPath).toBe(validRepo);
     expect(r.value.baseBranch).toBe("main");
     expect(r.value.prompt).toBe("do the thing");
@@ -84,7 +84,7 @@ test("validateCreate accepts index-aligned attachment names and visible launch c
   );
 
   expect(r.ok).toBe(true);
-  if (r.ok) {
+  if (r.ok && r.value.terminal !== true) {
     expect(r.value.images).toEqual([upload]);
     expect(r.value.attachmentNames).toEqual(["mockup.png"]);
     expect(r.value.launchUiState).toEqual({
@@ -165,7 +165,7 @@ test("known model accepted and passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.model).toBe("opus");
+  if (r.ok && r.value.terminal !== true) expect(r.value.model).toBe("opus");
 });
 
 test("codex model accepted and passed through when provider is codex", () => {
@@ -180,7 +180,7 @@ test("codex model accepted and passed through when provider is codex", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.model).toBe("gpt-5.5");
+  if (r.ok && r.value.terminal !== true) expect(r.value.model).toBe("gpt-5.5");
 });
 
 test("verified curated GPT-5.6 Codex model accepted when provider is codex", () => {
@@ -195,7 +195,7 @@ test("verified curated GPT-5.6 Codex model accepted when provider is codex", () 
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.model).toBe("gpt-5.6-sol");
+  if (r.ok && r.value.terminal !== true) expect(r.value.model).toBe("gpt-5.6-sol");
 });
 
 test("future-looking safe codex model accepted when provider is codex", () => {
@@ -210,7 +210,7 @@ test("future-looking safe codex model accepted when provider is codex", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.model).toBe("gpt-5.6-codex");
+  if (r.ok && r.value.terminal !== true) expect(r.value.model).toBe("gpt-5.6-codex");
 });
 
 test("unsafe codex model rejected", () => {
@@ -250,7 +250,7 @@ test("agentProvider accepts claude and codex", () => {
       root,
     );
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.agentProvider).toBe(agentProvider);
+    if (r.ok && r.value.terminal !== true) expect(r.value.agentProvider).toBe(agentProvider);
   }
 });
 
@@ -274,7 +274,7 @@ test("1M-context and pinned model aliases accepted and passed through verbatim",
       root,
     );
     expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value.model).toBe(alias);
+    if (r.ok && r.value.terminal !== true) expect(r.value.model).toBe(alias);
   }
 });
 
@@ -284,7 +284,7 @@ test('model "default" normalizes to null', () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.model).toBeNull();
+  if (r.ok && r.value.terminal !== true) expect(r.value.model).toBeNull();
 });
 
 test("unknown model rejected", () => {
@@ -302,13 +302,13 @@ test("sandboxProfile: valid value accepted + passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.sandboxProfile).toBe("autonomous");
+  if (r.ok && r.value.terminal !== true) expect(r.value.sandboxProfile).toBe("autonomous");
 });
 
 test("sandboxProfile: absent → undefined (inherit repo default)", () => {
   const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.sandboxProfile).toBeUndefined();
+  if (r.ok && r.value.terminal !== true) expect(r.value.sandboxProfile).toBeUndefined();
 });
 
 test("sandboxProfile: invalid value rejected", () => {
@@ -326,7 +326,7 @@ test("autopilotEnabled: false accepted + passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.autopilotEnabled).toBe(false);
+  if (r.ok && r.value.terminal !== true) expect(r.value.autopilotEnabled).toBe(false);
 });
 
 test("autopilotEnabled: true accepted + passed through", () => {
@@ -335,7 +335,7 @@ test("autopilotEnabled: true accepted + passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.autopilotEnabled).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.autopilotEnabled).toBe(true);
 });
 
 test("autopilotEnabled: null accepted (inherit repo default)", () => {
@@ -344,13 +344,13 @@ test("autopilotEnabled: null accepted (inherit repo default)", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.autopilotEnabled).toBeNull();
+  if (r.ok && r.value.terminal !== true) expect(r.value.autopilotEnabled).toBeNull();
 });
 
 test("autopilotEnabled: absent → undefined (inherit repo default)", () => {
   const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.autopilotEnabled).toBeUndefined();
+  if (r.ok && r.value.terminal !== true) expect(r.value.autopilotEnabled).toBeUndefined();
 });
 
 test("autopilotEnabled: non-boolean string rejected", () => {
@@ -368,7 +368,7 @@ test("research: true accepted + passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.research).toBe(true);
+  if (r.ok && r.value.terminal !== true) expect(r.value.research).toBe(true);
 });
 
 test("research: false accepted + passed through", () => {
@@ -377,13 +377,13 @@ test("research: false accepted + passed through", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.research).toBe(false);
+  if (r.ok && r.value.terminal !== true) expect(r.value.research).toBe(false);
 });
 
 test("research: absent → false", () => {
   const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.research).toBe(false);
+  if (r.ok && r.value.terminal !== true) expect(r.value.research).toBe(false);
 });
 
 test("research: non-boolean string rejected", () => {
@@ -684,13 +684,13 @@ test("validateCreate accepts attachments inside the staging dir", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.images).toEqual([img]);
+  if (r.ok && r.value.terminal !== true) expect(r.value.images).toEqual([img]);
 });
 
 test("validateCreate defaults images to [] when omitted", () => {
   const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.images).toEqual([]);
+  if (r.ok && r.value.terminal !== true) expect(r.value.images).toEqual([]);
 });
 
 // regression: an empty images array must NOT require the staging dir to exist.
@@ -702,7 +702,7 @@ test("validateCreate accepts an empty images array without a staging dir", () =>
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.images).toEqual([]);
+  if (r.ok && r.value.terminal !== true) expect(r.value.images).toEqual([]);
 });
 
 test("validateCreate rejects an attachment outside the staging dir", () => {
@@ -784,13 +784,13 @@ test("validateCreate accepts a valid issueRef with an oversized body", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.issueRef).toEqual(validIssueRef);
+  if (r.ok && r.value.terminal !== true) expect(r.value.issueRef).toEqual(validIssueRef);
 });
 
 test("validateCreate defaults issueRef to undefined when omitted", () => {
   const r = validateCreate({ repoPath: validRepo, baseBranch: "main", prompt: "go" }, root);
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.issueRef).toBeUndefined();
+  if (r.ok && r.value.terminal !== true) expect(r.value.issueRef).toBeUndefined();
 });
 
 test("validateCreate rejects an issueRef with a non-positive number", () => {
@@ -1359,7 +1359,35 @@ test("mergeTrainPrs: [1, 2, 3] accepted", () => {
     root,
   );
   expect(r.ok).toBe(true);
-  if (r.ok) expect(r.value.mergeTrainPrs).toEqual([1, 2, 3]);
+  if (r.ok && r.value.terminal !== true) expect(r.value.mergeTrainPrs).toEqual([1, 2, 3]);
+});
+
+// ── clean-terminal union arm ───────────────────────────────────────────────────
+
+test("terminal arm: the exact payload {repoPath, terminal: true} yields the TerminalCreateInput", () => {
+  const r = validateCreate({ repoPath: validRepo, terminal: true }, root);
+  expect(r.ok).toBe(true);
+  if (r.ok) expect(r.value).toEqual({ terminal: true, repoPath: validRepo });
+});
+
+test("terminal arm: stray standard fields are unknown-key rejections, never silently ignored", () => {
+  for (const extra of [{ prompt: "hi" }, { baseBranch: "main" }, { model: null }, { auto: true }]) {
+    const r = validateCreate({ repoPath: validRepo, terminal: true, ...extra }, root);
+    expect(r.ok).toBe(false);
+  }
+});
+
+test("terminal arm: terminal must be true when present (false is not a standard create)", () => {
+  const r = validateCreate(
+    { repoPath: validRepo, terminal: false, prompt: "x", baseBranch: "main" },
+    root,
+  );
+  expect(r.ok).toBe(false);
+});
+
+test("terminal arm: repoPath is still fully validated (outside root rejects)", () => {
+  const r = validateCreate({ repoPath: "/etc", terminal: true }, root);
+  expect(r.ok).toBe(false);
 });
 
 // ── validateModelChoice / validateReplaceAgentChoice: effort (#1418) ─────────

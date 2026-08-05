@@ -13,7 +13,7 @@ import type {
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
 import type {
   AgentProvider,
-  CreateSessionInput,
+  StandardCreateInput,
   ReviewDecision,
   Session,
   SessionArchiveReason,
@@ -133,7 +133,7 @@ interface Harness {
   store: SessionStore;
   drain: DrainService;
   forgeRec: ForgeRec;
-  creates: CreateSessionInput[];
+  creates: StandardCreateInput[];
   statuses: DrainStatus[];
   epics: Epic[];
   sessionNews: Session[];
@@ -222,7 +222,7 @@ function makeHarness(
 
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const statuses: Harness["statuses"] = [];
   const epics: Epic[] = [];
   const sessionNews: Session[] = [];
@@ -231,7 +231,7 @@ function makeHarness(
 
   // fake service: create inserts an auto session into the real store so it shows up
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> => {
+    create: async (input: StandardCreateInput): Promise<Session> => {
       creates.push(input);
       if (opts.createImpl) await opts.createImpl();
       return store.create({
@@ -1027,13 +1027,13 @@ test("tick + snapshot over repos: only drain-enabled repo is acted on and report
     getIssueCalls: [],
   };
   const forge = fakeForge([issue(1)], forgeRec);
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const statuses: DrainStatus[] = [];
 
   const drain = new DrainService({
     store,
     service: {
-      create: async (input: CreateSessionInput): Promise<Session> => {
+      create: async (input: StandardCreateInput): Promise<Session> => {
         creates.push(input);
         return store.create({
           name: "auto",

@@ -60,6 +60,7 @@
     ondecommission,
     onrelaunch = undefined,
     onrelaunchElsewhere = undefined,
+    oncleanTerminal = undefined,
     onvariant = undefined,
     onreplace = undefined,
     oncompare = undefined,
@@ -141,6 +142,8 @@
     onrelaunch?: (id: string) => void;
     // when provided, each row's CardMenu gains a one-click "Relaunch elsewhere" item
     onrelaunchElsewhere?: (id: string) => void;
+    // when provided, each row's CardMenu gains a "Clean terminal in main repo" item
+    oncleanTerminal?: (repoPath: string) => void;
     // when provided, each row's CardMenu gains "Start as variant…" / "Continue with…" items
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
@@ -422,6 +425,7 @@
     onrelaunchElsewhere,
     onvariant,
     onreplace,
+    oncleanTerminal,
     repoFilter,
     onrepofilter,
     workingBlocked,

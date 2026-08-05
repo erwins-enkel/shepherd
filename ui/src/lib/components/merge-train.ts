@@ -1,5 +1,5 @@
 import { m } from "$lib/paraglide/messages";
-import type { Session, GitState, CreateInput } from "$lib/types";
+import type { Session, GitState, StandardCreateInput } from "$lib/types";
 
 /** Safety backstop, NOT the authoritative TTL. The server keeps a merge mark for
  *  the life of the train and clears it authoritatively on merge/close/archive, so
@@ -109,7 +109,7 @@ export function mergeTrainCreateInput(
   baseBranch: string,
   prs: Pick<ReadyPr, "number" | "title" | "url">[],
   handpicked = false,
-): CreateInput {
+): StandardCreateInput {
   const formatted = formatReadyPrs(prs);
   return {
     repoPath,

@@ -6,7 +6,7 @@ import { SessionStore } from "../src/store";
 import { EventHub } from "../src/events";
 import { config } from "../src/config";
 import type { UpNextSnapshot, UpNextSection } from "../src/up-next-core";
-import type { CreateSessionInput, Session } from "../src/types";
+import type { StandardCreateInput, Session } from "../src/types";
 
 let tmpRoot: string;
 let repoDir: string;
@@ -50,7 +50,7 @@ function harness(
   opts: {
     snapshot?: UpNextSnapshot | null;
     hiddenRepoPathsRaw?: () => Set<string>;
-    create?: (input: CreateSessionInput) => Promise<Session>;
+    create?: (input: StandardCreateInput) => Promise<Session>;
     defaultBranch?: () => Promise<string>;
     limits?: () => { session5h?: { pct: number }; week?: { pct: number } };
   } = {},
@@ -61,9 +61,9 @@ function harness(
     repoPath: string;
     number: number | undefined;
     prompt: string;
-    agentProvider: CreateSessionInput["agentProvider"];
-    model: CreateSessionInput["model"];
-    effort: CreateSessionInput["effort"];
+    agentProvider: StandardCreateInput["agentProvider"];
+    model: StandardCreateInput["model"];
+    effort: StandardCreateInput["effort"];
   }> = [];
   const labelCalls: number[] = [];
   const recomputeCalls: Array<Array<{ repoPath: string; issueNumber: number }>> = [];
@@ -74,7 +74,7 @@ function harness(
     service: {
       create:
         opts.create ??
-        (async (input: CreateSessionInput) => {
+        (async (input: StandardCreateInput) => {
           createCalls.push({
             at: ++n,
             repoPath: input.repoPath,

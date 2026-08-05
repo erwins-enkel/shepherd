@@ -62,7 +62,7 @@ const STOP_WINDOW_MAX_MS = 30_000;
 
 /** Clean-terminal pane sweep cadence: `pane list` costs a herdr round-trip, and shell-exit
  *  detection tolerates seconds of latency (archive needs 2 confirmed-gone sweeps anyway). */
-export const TERMINAL_PANE_SWEEP_MS = 5_000;
+const TERMINAL_PANE_SWEEP_MS = 5_000;
 
 /** Codex session-id capture back-off: after a missed rescan, wait `BASE << misses` (capped) before the
  *  next scan. A rollout normally appears within seconds of spawn, so early retries stay quick; a

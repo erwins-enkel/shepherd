@@ -359,6 +359,12 @@ function strOrEmpty(v: string | null | undefined): string {
   return v ?? "";
 }
 
+/** Normalize an absent TEXT value to null (nullable columns) — a helper (not inline `??`) so
+ *  the flat, field-count-driven builders below stay under their complexity caps. */
+function strOrNull(v: string | null | undefined): string | null {
+  return v ?? null;
+}
+
 /** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
 function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
   return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
@@ -2280,8 +2286,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
       terminal: Boolean(input.terminal),
-      terminalTabId: input.terminalTabId ?? null,
-      terminalPaneId: input.terminalPaneId ?? null,
+      terminalTabId: strOrNull(input.terminalTabId),
+      terminalPaneId: strOrNull(input.terminalPaneId),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -2352,8 +2358,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           Number(s.epicAuthoring), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           Number(s.landingRepair), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           Number(s.terminal), // Number() not `? 1 : 0` — same rationale as the two kinds above
-          s.terminalTabId ?? null,
-          s.terminalPaneId ?? null,
+          strOrNull(s.terminalTabId), // helper, not inline `??` — no branch on the flat INSERT arrow
+          strOrNull(s.terminalPaneId),
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -5569,8 +5575,8 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       epicAuthoring: !!r.epicAuthoring,
       landingRepair: !!r.landingRepair,
       terminal: !!r.terminal,
-      terminalTabId: r.terminalTabId ?? null,
-      terminalPaneId: r.terminalPaneId ?? null,
+      terminalTabId: strOrNull(r.terminalTabId),
+      terminalPaneId: strOrNull(r.terminalPaneId),
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),

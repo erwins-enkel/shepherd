@@ -4980,12 +4980,14 @@ export class SessionService {
     const live = this.liveTerminalIds();
     let resumed = 0;
     let steered = 0;
-    for (const id of ids) {
-      const s = this.deps.store.get(id);
-      if (!s) continue;
-      // Defensive: a terminal can never carry haltReason, but a mixed id set must not steer or
-      // resume one — skip silently, keep processing the rest.
-      if (s.terminal) continue;
+    // Resolve + screen targets up front: unknown ids drop, and (defensively) so do clean
+    // terminals — a terminal can never carry haltReason, and a mixed id set must not steer or
+    // resume one. Screening here (not per-iteration branches) keeps the loop's complexity flat.
+    const targets = ids
+      .map((id) => this.deps.store.get(id))
+      .filter((s): s is Session => s !== null && !s.terminal);
+    for (const s of targets) {
+      const id = s.id;
       let succeeded = false;
       // A live herdr-restored account husk must be deferred to resume() (Locus B re-drive) rather
       // than steered — else the retry lands on the wrong-account pane.

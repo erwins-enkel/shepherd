@@ -16,6 +16,7 @@
     onrename?: (id: string) => void;
     onrelaunch?: (id: string) => void;
     onrelaunchElsewhere?: (id: string) => void;
+    oncleanTerminal?: (repoPath: string) => void;
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
     repoFilter: ReadonlySet<string>;
@@ -120,6 +121,7 @@
       onrename={ctx.onrename}
       onrelaunch={ctx.onrelaunch}
       onrelaunchElsewhere={ctx.onrelaunchElsewhere}
+      oncleanTerminal={ctx.oncleanTerminal}
       onvariant={ctx.onvariant}
       onreplace={ctx.onreplace}
       repoFilter={ctx.repoFilter}

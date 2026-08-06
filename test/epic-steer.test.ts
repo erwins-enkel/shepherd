@@ -307,7 +307,7 @@ describe("broadcast", () => {
   test("injects the notice on an epic-intent broadcast while preserving accounting + raw signal", async () => {
     const { svc, store, pasted, id } = makeSvc();
     const res = await svc.broadcast([id], EPIC_MSG);
-    expect(res).toEqual({ delivered: 1, queued: 0, offline: 0, total: 1 });
+    expect(res).toEqual({ delivered: 1, queued: 0, offline: 0, skipped: 0, total: 1 });
     expect(pasted()).toContain(NOTICE_MARK); // the notice rides the PTY
     expect(store.listSignals("/r")[0]!.payload).toBe(EPIC_MSG); // ...but the signal stays raw
   });

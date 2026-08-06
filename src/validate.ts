@@ -527,6 +527,13 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
   }
 
   const obj = body as Record<string, unknown>;
+  // Clean-terminal union arm (TerminalCreateInput): branch BEFORE the standard allowlist —
+  // the terminal payload has its own, stricter key set, and the standard arm keeps its
+  // required prompt/baseBranch untouched (no weakening of ordinary creates).
+  if (obj.terminal !== undefined) {
+    if (obj.terminal !== true) return err("terminal must be true when present");
+    return validateTerminalCreate(obj, repoRoot);
+  }
   for (const key of Object.keys(obj)) {
     if (!ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
   }
@@ -571,6 +578,20 @@ export function validateCreate(body: unknown, repoRoot: string): Result {
       ...options.value,
     },
   };
+}
+
+const TERMINAL_ALLOWED_KEYS = new Set(["repoPath", "terminal"]);
+
+/** The clean-terminal arm of the create union: exactly `{ repoPath, terminal: true }` — a stray
+ *  `prompt`/`baseBranch`/anything else is an unknown-key rejection, never a silently-ignored
+ *  field (the arm has no such members to carry it in). */
+function validateTerminalCreate(obj: Record<string, unknown>, repoRoot: string): Result {
+  for (const key of Object.keys(obj)) {
+    if (!TERMINAL_ALLOWED_KEYS.has(key)) return err(`unknown key: ${key}`);
+  }
+  const repoPath = validateRepoPath(obj.repoPath, resolve(expandHome(repoRoot)));
+  if (!repoPath.ok) return repoPath;
+  return { ok: true, value: { terminal: true, repoPath: repoPath.value } };
 }
 
 function validateCreateLaunchFields(

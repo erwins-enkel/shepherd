@@ -83,3 +83,18 @@ export function herdrUsesExternalRegistrationSpawn(): boolean {
   if (!detected) return false;
   return compareSemver(detected, HERDR_EXTERNAL_REGISTRATION_VERSION) >= 0;
 }
+
+/** First herdr version whose CLI exposes pane-level `terminal session control` — the ONLY
+ *  transport an agentless clean-terminal pane can attach through (`agent attach` refuses such
+ *  panes with `agent_not_found`; probe-verified live on 0.7.5). Matches the version the
+ *  SocketPtyBridge wire fixtures were captured on. */
+const HERDR_FIRST_PANE_CONTROL_VERSION = "0.7.3";
+
+/** Whether the detected herdr can host a clean terminal (pane-level socket attach available).
+ *  Unlike the spawn gates above this fails CLOSED on an unknown version: a clean terminal
+ *  whose pane cannot be attached would be a session with no usable terminal, so the create
+ *  preflight refuses until the boot probe has recorded a capable version. */
+export function herdrPaneControlSupported(): boolean {
+  if (!detected) return false;
+  return compareSemver(detected, HERDR_FIRST_PANE_CONTROL_VERSION) >= 0;
+}

@@ -1794,7 +1794,14 @@ export async function putSteers(steers: Steer[]): Promise<Steer[]> {
 export async function broadcast(
   text: string,
   ids: string[],
-): Promise<{ delivered: number; queued: number; offline: number; total: number }> {
+): Promise<{
+  delivered: number;
+  queued: number;
+  offline: number;
+  /** Clean-terminal targets excluded from delivery (additive; absent on older servers). */
+  skipped?: number;
+  total: number;
+}> {
   const r = await fetch("/api/broadcast", {
     method: "POST",
     headers: JSON_HEADERS,

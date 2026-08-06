@@ -804,6 +804,23 @@ export interface IHerdrDriver {
   stop(terminalId: string): Promise<void>;
   relabel(terminalId: string, newName: string): Promise<void>;
   closeTab(tabId: string): Promise<void>;
+  /** Non-blocking sibling of `panes()` — for poller-loop consumers (clean-terminal pane
+   *  liveness) that must never run `execFileSync` on Bun's loop. */
+  panesAsync(): Promise<HerdrPane[]>;
+  /** Spawn a bare shell tab (clean terminal, pane-direct): `tab create` ONLY — deliberately no
+   *  `agent start` (herdr hosts only known agent CLIs, and a shell needs none). The fresh tab's
+   *  root pane IS an interactive shell at `cwd`; callers attach via the pane-level socket
+   *  transport (`terminal session control <paneId>`), never `agent attach`. */
+  startShellTab(cwd: string, label: string, env?: Record<string, string>): Promise<HerdrShellTab>;
+}
+
+/** The result of a clean-terminal `tab create` — the root pane IS the shell. `cwd` echoes what
+ *  herdr reports back for that pane so the caller can assert it matches the requested repo. */
+export interface HerdrShellTab {
+  tabId: string;
+  paneId: string;
+  terminalId: string;
+  cwd: string;
 }
 
 export class HerdrDriver implements IHerdrDriver {
@@ -848,7 +865,15 @@ export class HerdrDriver implements IHerdrDriver {
 
   /** Every pane across all tabs (`pane list`). Includes idle shell panes left behind by exited agents. */
   panes(): HerdrPane[] {
-    const parsed = JSON.parse(this.runner(["pane", "list"]));
+    return this.parsePanes(JSON.parse(this.runner(["pane", "list"])));
+  }
+
+  /** Non-blocking sibling of `panes()` — see IHerdrDriver.panesAsync. */
+  async panesAsync(): Promise<HerdrPane[]> {
+    return this.parsePanes(JSON.parse(await this.asyncRunner(["pane", "list"])));
+  }
+
+  private parsePanes(parsed: { result?: { panes?: HerdrRecord[] } } | null): HerdrPane[] {
     const panes = parsed?.result?.panes ?? [];
     return panes.map((p: HerdrRecord) => ({
       paneId: p.pane_id ?? "",
@@ -980,6 +1005,37 @@ export class HerdrDriver implements IHerdrDriver {
    * concurrent spawns can't race the workspace/tab orchestration (the async yield points
    * removed the implicit mutual exclusion the blocking sync path had).
    */
+  /** See IHerdrDriver.startShellTab. Rides the same start serializer as agent spawns — tab
+   *  orchestration on the shared workspace must not interleave (issue #1553). */
+  async startShellTab(
+    cwd: string,
+    label: string,
+    env?: Record<string, string>,
+  ): Promise<HerdrShellTab> {
+    return this.serializeStart(() => this.startShellTabImpl(cwd, label, env));
+  }
+
+  private async startShellTabImpl(
+    cwd: string,
+    label: string,
+    env?: Record<string, string>,
+  ): Promise<HerdrShellTab> {
+    await this.ensureWorkspace(cwd);
+    const args = ["tab", "create", "--cwd", cwd, "--label", label, "--no-focus"];
+    for (const [k, v] of Object.entries(env ?? {})) args.push("--env", `${k}=${v}`);
+    const created = JSON.parse(await this.asyncRunner(args));
+    const tabId: string | undefined = created?.result?.tab?.tab_id;
+    const pane = created?.result?.root_pane ?? {};
+    const paneId: string | undefined = pane.pane_id;
+    const terminalId: string | undefined = pane.terminal_id;
+    if (!tabId || !paneId || !terminalId) {
+      // A half-created tab must not linger — roll it back so a failed create leaves nothing.
+      if (tabId) await this.closeTab(tabId).catch(() => {});
+      throw new Error(`herdr: tab create returned an incomplete shell pane for ${label}`);
+    }
+    return { tabId, paneId, terminalId, cwd: pane.cwd ?? "" };
+  }
+
   async start(
     name: string,
     cwd: string,

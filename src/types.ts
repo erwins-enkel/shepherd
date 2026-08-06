@@ -81,6 +81,18 @@ export interface Session {
   /** True for an epic-landing-PR repair session: pushes directly to the epic integration branch and
    *  never opens a PR. */
   landingRepair: boolean;
+  /** True for a clean-terminal session: a bare operator shell in the repo's MAIN checkout
+   *  (pane-direct — no herdr agent, no worktree, no prompt). Fenced out of every agent-input
+   *  and agent-lifecycle flow; its pane target lives in terminalTabId/terminalPaneId.
+   *  OPTIONAL (like autoMergeRebaseSteeredAt above) so existing Session fixtures stay valid —
+   *  absent and false are equivalent; the store always hydrates a real boolean. */
+  terminal?: boolean;
+  /** herdr tab hosting the clean-terminal shell; null/absent on non-terminal sessions.
+   *  Decommission closes this tab directly (there is no agent to resolve it from). */
+  terminalTabId?: string | null;
+  /** herdr pane running the clean-terminal shell — the socket-transport attach target
+   *  (`terminal session control <pane>`); null/absent on non-terminal sessions. */
+  terminalPaneId?: string | null;
   /** Full-auto merge opt-in: true/false override, or null to inherit the repo default. */
   autoMergeEnabled: boolean | null;
   /** Consecutive auto-rebase attempts the merge train has spent on this session
@@ -231,7 +243,24 @@ export interface SessionLaunchMetadata {
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
 }
 
-export interface CreateSessionInput {
+/**
+ * Create input is a DISCRIMINATED UNION on `terminal` (issue: clean-terminal-in-main-repo).
+ * The terminal arm deliberately has NO `prompt`/`baseBranch` members — a clean terminal is a
+ * bare shell in the repo's main checkout, so those fields cannot even be referenced in its
+ * create path (compile-time fence). The standard arm is byte-for-byte the pre-union shape;
+ * existing constructors satisfy it unchanged.
+ */
+export type CreateSessionInput = StandardCreateInput | TerminalCreateInput;
+
+/** A clean-terminal create: bare operator shell, pane-direct, main checkout. Nothing else. */
+export interface TerminalCreateInput {
+  terminal: true;
+  repoPath: string;
+}
+
+export interface StandardCreateInput {
+  /** Discriminant: absent/false = a normal agent session. */
+  terminal?: false;
   repoPath: string;
   baseBranch: string;
   prompt: string;
@@ -1162,7 +1191,7 @@ export interface HeldTask {
   id: string;
   repoPath: string;
   /** The original CreateSessionInput, replayed through service.create() when released. */
-  input: CreateSessionInput;
+  input: StandardCreateInput;
   createdAt: number;
   /** Hold reason: `'usage'` = usage-gate hold; `'capacity'` = plugin-refused (no account). */
   reason: "usage" | "capacity";

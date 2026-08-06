@@ -38,7 +38,7 @@ import type {
   RundownItem,
   RundownEpicItem,
   HeldTask,
-  CreateSessionInput,
+  StandardCreateInput,
   SessionUsageRow,
   SessionUsageSnapshot,
   SessionUsageBucket,
@@ -359,6 +359,12 @@ function strOrEmpty(v: string | null | undefined): string {
   return v ?? "";
 }
 
+/** Normalize an absent TEXT value to null (nullable columns) — a helper (not inline `??`) so
+ *  the flat, field-count-driven builders below stay under their complexity caps. */
+function strOrNull(v: string | null | undefined): string | null {
+  return v ?? null;
+}
+
 /** Coerce a persisted RundownEpicItem.pausedReason to its union, or undefined for anything else. */
 function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
   return v === "cap" || v === "conflict" || v === "driver" ? v : undefined;
@@ -366,6 +372,11 @@ function coercePauseReason(v: unknown): RundownEpicItem["pausedReason"] {
 
 /** Designation prefix for task sessions, e.g. "TASK-07". Single source for the prefix + its SUBSTR offset. */
 const DESIG_PREFIX = "TASK-";
+
+/** Staleness bound for a clean-terminal create's reservation lease: reclaim only when the
+ *  owner's heartbeat (renewTerminalClaim, every TTL/6) has been silent this long — i.e. the
+ *  owning process crashed or wedged. A still-running create is never reclaimable. */
+export const TERMINAL_CLAIM_TTL_MS = 30_000;
 
 /** Allowed learning status transitions (spec §3). Terminal states have no exits. */
 const LEARNING_TRANSITIONS: Record<LearningStatus, LearningStatus[]> = {
@@ -547,7 +558,7 @@ const COLS = `id, desig, name, prompt, repoPath, baseBranch, branch, worktreePat
   planGateEnabled, planPhase,
   autoMergeEnabled, autoMergeRebaseCount, autoMergeRebaseHead, autoMergeRebaseSteeredAt,
   auto, issueNumber, sandboxApplied, sandboxDegraded, egressApplied, egressDegraded,
-  research, epicAuthoring, landingRepair,
+  research, epicAuthoring, landingRepair, terminal, terminalTabId, terminalPaneId,
   createdAt, updatedAt, archivedAt, mergingSince, mergingTrainId, mergeTrainPrs, mergingPrNumber,
   haltReason, haltedAt, manualStepsJson, manualStepsAckedAt, experimentId, experimentRole,
   spawnTerminalId, spawnAccountDir, providerSessionId, launchMetadataJson, archiveReason`;
@@ -596,6 +607,9 @@ type SessionRow = {
   research: number;
   epicAuthoring: number;
   landingRepair: number;
+  terminal: number;
+  terminalTabId: string | null;
+  terminalPaneId: string | null;
   createdAt: number;
   updatedAt: number;
   archivedAt: number | null;
@@ -2271,6 +2285,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       // field-count-driven buildSessionRow (keeps it under its complexity cap).
       epicAuthoring: Boolean(input.epicAuthoring),
       landingRepair: Boolean(input.landingRepair),
+      terminal: Boolean(input.terminal),
+      terminalTabId: strOrNull(input.terminalTabId),
+      terminalPaneId: strOrNull(input.terminalPaneId),
       status: "running",
       lastState: "idle",
       createdAt: now,
@@ -2299,7 +2316,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       const seq = this.nextDesignationSeq();
       const s = this.buildSessionRow(input, seq, now);
       this.db.run(
-        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+        `INSERT INTO sessions (${COLS}) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [
           s.id,
           s.desig,
@@ -2340,6 +2357,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
           s.research ? 1 : 0,
           Number(s.epicAuthoring), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
           Number(s.landingRepair), // Number() not `? 1 : 0` — no ternary → no cognitive bump on the INSERT arrow
+          Number(s.terminal), // Number() not `? 1 : 0` — same rationale as the two kinds above
+          strOrNull(s.terminalTabId), // helper, not inline `??` — no branch on the flat INSERT arrow
+          strOrNull(s.terminalPaneId),
           s.createdAt,
           s.updatedAt,
           s.archivedAt,
@@ -2369,6 +2389,72 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       .query(`SELECT ${COLS} FROM sessions WHERE id = ?`)
       .get(id) as SessionRow | null;
     return r ? this.hydrate(r) : null;
+  }
+
+  // ── Clean-terminal singleton lease ──────────────────────────────────────────
+
+  /** The live (unarchived) clean-terminal session for a repo, or null. Backs focus-existing
+   *  and the create-time singleton check. */
+  getLiveTerminalSession(repoPath: string): Session | null {
+    const r = this.db
+      .query(
+        `SELECT ${COLS} FROM sessions
+          WHERE repoPath = ? AND terminal = 1 AND archivedAt IS NULL LIMIT 1`,
+      )
+      .get(repoPath) as SessionRow | null;
+    return r ? this.hydrate(r) : null;
+  }
+
+  /**
+   * Reserve the one-clean-terminal-per-repo slot BEFORE any herdr spawn. One transaction:
+   * (a) reclaim claims whose heartbeat went stale (owner crashed/wedged ≥ TTL — a live create
+   * renews every TTL/6 via renewTerminalClaim, so it is never reclaimable); (b) refuse when a
+   * live terminal session already exists (carrying its id so the caller can focus it); (c)
+   * refuse when another create holds the claim; else insert. Single SQLite transaction on the
+   * shared DB file ⇒ atomic across processes and bypass paths.
+   */
+  claimTerminalRepo(
+    repoPath: string,
+    sessionId: string,
+    now: number = Date.now(),
+  ): { ok: true } | { ok: false; existingId: string | null } {
+    return this.db.transaction((): { ok: true } | { ok: false; existingId: string | null } => {
+      this.db.run(`DELETE FROM terminal_claims WHERE renewedAt < ?`, [now - TERMINAL_CLAIM_TTL_MS]);
+      const live = this.db
+        .query(
+          `SELECT id FROM sessions WHERE repoPath = ? AND terminal = 1 AND archivedAt IS NULL LIMIT 1`,
+        )
+        .get(repoPath) as { id: string } | null;
+      if (live) return { ok: false, existingId: live.id };
+      const holder = this.db
+        .query(`SELECT sessionId FROM terminal_claims WHERE repoPath = ?`)
+        .get(repoPath);
+      if (holder) return { ok: false, existingId: null };
+      this.db.run(`INSERT INTO terminal_claims (repoPath, sessionId, renewedAt) VALUES (?, ?, ?)`, [
+        repoPath,
+        sessionId,
+        now,
+      ]);
+      return { ok: true };
+    })();
+  }
+
+  /** Heartbeat for an in-flight terminal create — sessionId-matched so a reclaimed-and-reissued
+   *  claim belonging to another create is never touched. */
+  renewTerminalClaim(repoPath: string, sessionId: string, now: number = Date.now()): void {
+    this.db.run(`UPDATE terminal_claims SET renewedAt = ? WHERE repoPath = ? AND sessionId = ?`, [
+      now,
+      repoPath,
+      sessionId,
+    ]);
+  }
+
+  /** Release a terminal-create claim (sessionId-matched; see renewTerminalClaim). */
+  releaseTerminalClaim(repoPath: string, sessionId: string): void {
+    this.db.run(`DELETE FROM terminal_claims WHERE repoPath = ? AND sessionId = ?`, [
+      repoPath,
+      sessionId,
+    ]);
   }
 
   /**
@@ -3958,6 +4044,12 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("epicAuthoring", `epicAuthoring INTEGER NOT NULL DEFAULT 0`);
     // epic-landing-PR repair task kind: default 0 (false) for pre-existing rows.
     add("landingRepair", `landingRepair INTEGER NOT NULL DEFAULT 0`);
+    // clean-terminal task kind (bare shell in the main checkout): default 0 for pre-existing rows.
+    add("terminal", `terminal INTEGER NOT NULL DEFAULT 0`);
+    // clean-terminal pane target (pane-direct, no agent): tab to close on decommission + the
+    // socket-transport attach pane. Nullable — null on every non-terminal row.
+    add("terminalTabId", `terminalTabId TEXT`);
+    add("terminalPaneId", `terminalPaneId TEXT`);
     add("mergeTrainPrs", `mergeTrainPrs TEXT`);
     add("mergingPrNumber", `mergingPrNumber INTEGER`);
     // halt detection: reason + timestamp; nullable, no default (null = not halted).
@@ -3979,6 +4071,19 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     add("spawnAccountDir", `spawnAccountDir TEXT`);
     add("launchMetadataJson", `launchMetadataJson TEXT`);
     add("archiveReason", `archiveReason TEXT`);
+    // Durable one-clean-terminal-per-repo invariant. Partial: only LIVE terminal rows count, so
+    // archiving frees the slot. Created here (after the column adds above) so the terminal
+    // column exists on legacy DBs before the index references it.
+    this.db.run(
+      `CREATE UNIQUE INDEX IF NOT EXISTS sessions_terminal_singleton
+         ON sessions (repoPath) WHERE terminal = 1 AND archivedAt IS NULL`,
+    );
+    // Pre-spawn reservation lease for clean-terminal creates (heartbeat-renewed; see
+    // claimTerminalRepo). Its own table so a reservation never surfaces as a session row.
+    this.db.run(`CREATE TABLE IF NOT EXISTS terminal_claims (
+      repoPath TEXT PRIMARY KEY,
+      sessionId TEXT NOT NULL,
+      renewedAt INTEGER NOT NULL)`);
   }
 
   // Migrate build_queue_steps from the legacy global `PRIMARY KEY (id)` to the composite
@@ -5469,6 +5574,9 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
       research: !!r.research,
       epicAuthoring: !!r.epicAuthoring,
       landingRepair: !!r.landingRepair,
+      terminal: !!r.terminal,
+      terminalTabId: strOrNull(r.terminalTabId),
+      terminalPaneId: strOrNull(r.terminalPaneId),
       mergingSince: r.mergingSince ?? null,
       mergingTrainId: r.mergingTrainId ?? null,
       mergeTrainPrs: parseMergeTrainPrsJson(r.mergeTrainPrs),
@@ -5494,7 +5602,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
   addHeldTask(row: {
     id: string;
     repoPath: string;
-    input: CreateSessionInput;
+    input: StandardCreateInput;
     createdAt: number;
     reason: "usage" | "capacity";
   }): void {
@@ -5518,7 +5626,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     }[];
     return rows.map((r) => ({
       ...r,
-      input: JSON.parse(r.input) as CreateSessionInput,
+      input: JSON.parse(r.input) as StandardCreateInput,
       reason: r.reason as "usage" | "capacity",
     }));
   }
@@ -5536,7 +5644,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
     if (!r) return null;
     return {
       ...r,
-      input: JSON.parse(r.input) as CreateSessionInput,
+      input: JSON.parse(r.input) as StandardCreateInput,
       reason: r.reason as "usage" | "capacity",
     };
   }
@@ -5547,7 +5655,7 @@ export class SessionStore implements CapStore, CreditStore, ModelWeekStore {
 
   /** Replace a held task's stored input (e.g. an operator edited it while it stays
    *  held). repoPath mirrors input.repoPath so a repo change updates both columns. */
-  updateHeldTask(id: string, input: CreateSessionInput): void {
+  updateHeldTask(id: string, input: StandardCreateInput): void {
     this.db.run(`UPDATE held_tasks SET repoPath = ?, input = ? WHERE id = ?`, [
       input.repoPath,
       JSON.stringify(input),

@@ -3720,7 +3720,7 @@ test("broadcast fans the text out to known sessions, skips unknown ids", async (
 
   // term_a + term_b are live & idle → delivered; "ghost" has no live pane → offline.
   const res = await svc.broadcast([a.id, "ghost", b.id], "run tests");
-  expect(res).toEqual({ delivered: 2, queued: 0, offline: 1, total: 3 });
+  expect(res).toEqual({ delivered: 2, queued: 0, offline: 1, skipped: 0, total: 3 });
   expect(sent).toEqual([
     { target: "term_a", text: "\x1b[200~run tests\x1b[201~" },
     { target: "term_a", text: "\r" },
@@ -3770,6 +3770,7 @@ test("broadcast classifies working agents as queued, non-working as delivered", 
     delivered: 1,
     queued: 1,
     offline: 0,
+    skipped: 0,
     total: 2,
   });
 });
@@ -3809,6 +3810,7 @@ test("broadcast reports every target offline when no panes are live", async () =
     delivered: 0,
     queued: 0,
     offline: 2,
+    skipped: 0,
     total: 2,
   });
   expect(sent).toEqual([]); // nothing delivered

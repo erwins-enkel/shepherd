@@ -19,6 +19,7 @@
     onrelaunchElsewhere,
     onvariant,
     onreplace,
+    oncleanTerminal,
     ondecommission,
     onclose,
   }: {
@@ -50,6 +51,9 @@
     // provider/model picker (its explicit confirm is the confirmation, so no two-step arm here)
     onvariant?: () => void;
     onreplace?: () => void;
+    // when provided, a "Clean terminal in main repo" item appears — opens (or focuses) the
+    // repo's bare-shell session in the MAIN checkout; one-click, the action is cheap+reversible
+    oncleanTerminal?: () => void;
     ondecommission?: () => void;
     onclose: () => void;
   } = $props();
@@ -243,6 +247,11 @@
   {#if onreplace}
     <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={onreplace}>
       <span class="cm-icon" aria-hidden="true">⇆</span>{m.cardmenu_replace_with()}
+    </button>
+  {/if}
+  {#if oncleanTerminal}
+    <button class="cm-item" type="button" role="menuitem" tabindex="-1" onclick={oncleanTerminal}>
+      <span class="cm-icon" aria-hidden="true">❯</span>{m.cardmenu_clean_terminal()}
     </button>
   {/if}
   {#if ondecommission}

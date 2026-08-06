@@ -4,7 +4,7 @@ import { ACTIVE_LABEL } from "../src/drain-core";
 import { SessionStore } from "../src/store";
 import type { GitForge, GitState, Issue, PrStatus, SubIssueRef } from "../src/forge/types";
 import { EMPTY_BACKLOG_COUNTS } from "../src/forge/types";
-import type { CreateSessionInput, ReviewDecision, Session } from "../src/types";
+import type { StandardCreateInput, ReviewDecision, Session } from "../src/types";
 import type { UsageLimits as UsageLimitsType } from "../src/usage-limits";
 import type { Epic } from "../src/epic-core";
 
@@ -100,7 +100,7 @@ interface Harness {
   store: SessionStore;
   drain: DrainService;
   forgeRec: ForgeRec;
-  creates: CreateSessionInput[];
+  creates: StandardCreateInput[];
   statuses: DrainStatus[];
   epics: Epic[];
 }
@@ -161,12 +161,12 @@ function makeHarness(
 
   const prCache: Record<string, GitState> = {};
   const reviews: Record<string, { decision: ReviewDecision; headSha: string }> = {};
-  const creates: CreateSessionInput[] = [];
+  const creates: StandardCreateInput[] = [];
   const statuses: DrainStatus[] = [];
   const epics: Epic[] = [];
 
   const service = {
-    create: async (input: CreateSessionInput): Promise<Session> => {
+    create: async (input: StandardCreateInput): Promise<Session> => {
       creates.push(input);
       return store.create({
         name: "auto",

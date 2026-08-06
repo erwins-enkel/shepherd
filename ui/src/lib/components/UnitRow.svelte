@@ -72,6 +72,7 @@
     onrelaunchElsewhere,
     onvariant,
     onreplace,
+    oncleanTerminal,
     repoFilter = undefined,
     onrepofilter,
     workingBlocked = {},
@@ -110,6 +111,9 @@
     // the provider/model picker anchored at the passed coords (comparison experiments)
     onvariant?: (id: string, anchor: { x: number; y: number }) => void;
     onreplace?: (id: string, anchor: { x: number; y: number }) => void;
+    // when provided, the CardMenu gains a "Clean terminal in main repo" item (repo-scoped:
+    // the handler receives repoPath, not the session id). Hidden on a terminal row itself.
+    oncleanTerminal?: (repoPath: string) => void;
     // active page-level repo filter (selected repo paths); drives the icon's pressed state
     repoFilter?: ReadonlySet<string>;
     // when provided, clicking the inline repo emoji scopes the herd to this repo. Always a
@@ -592,11 +596,17 @@
   // it is stoppable too. Everything else (idle / blocked-not-working / done / archived) has no turn
   // to cut short, and its pane may well be gone. Like Merge PR the endpoint is session-scoped, so
   // no parent callback is threaded — the row calls it and toasts the outcome itself.
-  const stoppable = $derived(dStatus === "running");
+  // A clean-terminal session's status never advances (no agent to reconcile), so it would
+  // read "running" forever — and its pane must never receive the stop ESC anyway.
+  const stoppable = $derived(dStatus === "running" && !session.terminal);
   // Resolved here rather than as a ternary in the <CardMenu> tag: UnitRow's template sits at its
   // grandfathered complexity cap (#855), and every inline conditional in the markup counts against
   // it. undefined is what hides the menu item.
   const onStop = $derived(stoppable ? stopFromMenu : undefined);
+  // Same cap rationale: resolve the clean-terminal item outside the template. Hidden on a
+  // terminal row (focusing itself is pointless).
+  const cleanTerminalAble = $derived(!!oncleanTerminal && !session.terminal);
+  const onCleanTerminal = $derived(cleanTerminalAble ? cleanTerminalFromMenu : undefined);
   let hitEl = $state<HTMLButtonElement>();
   let elapsedEl = $state<HTMLSpanElement>();
   let menu = $state<{ x: number; y: number; opener: HTMLElement } | null>(null);
@@ -611,7 +621,8 @@
       relaunchable ||
       relaunchElsewhereAble ||
       variantable ||
-      replaceable,
+      replaceable ||
+      cleanTerminalAble,
   );
   function openMenuAt(x: number, y: number): boolean {
     if (menu || !hasMenu) return false;
@@ -694,6 +705,11 @@
     menu = null;
     onrelaunch?.(session.id);
   }
+  function cleanTerminalFromMenu() {
+    menu = null;
+    oncleanTerminal?.(session.repoPath);
+  }
+
   function relaunchElsewhereFromMenu() {
     menu = null;
     onrelaunchElsewhere?.(session.id);
@@ -999,6 +1015,7 @@
     onrelaunchElsewhere={relaunchElsewhereAble ? relaunchElsewhereFromMenu : undefined}
     onvariant={variantable ? variantFromMenu : undefined}
     onreplace={replaceable ? replaceFromMenu : undefined}
+    oncleanTerminal={onCleanTerminal}
     ondecommission={ondecommission ? decommissionFromMenu : undefined}
     onclose={() => (menu = null)}
   />

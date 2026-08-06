@@ -1090,6 +1090,13 @@ export interface Session {
   sandboxDegraded: boolean;
   /** Research task kind: web research → report PR or issue; never code-PR-steered. */
   research: boolean;
+  /** Clean-terminal kind: a bare operator shell in the repo's MAIN checkout (pane-direct, no
+   *  agent, no worktree). Optional like the server mirror — absent and false are equivalent. */
+  terminal?: boolean;
+  /** herdr tab hosting the clean-terminal shell; null/absent on non-terminal sessions. */
+  terminalTabId?: string | null;
+  /** herdr pane of the clean-terminal shell (socket attach target); null/absent otherwise. */
+  terminalPaneId?: string | null;
   /** Epic-authoring task kind: attended guided shaping → an EPIC draft; writes no GitHub issues. */
   epicAuthoring: boolean;
   /** True when the network-egress allowlist was applied (autonomous sessions only). */
@@ -2028,7 +2035,19 @@ export interface SessionLaunchMetadata {
   agent: { provider: AgentProvider; model: string | null; effort: string | null };
 }
 
-export interface CreateInput {
+/** Create input mirrors the server's discriminated union (src/types.ts): the terminal arm has
+ *  no prompt/baseBranch members at all, the standard arm is the pre-union shape unchanged. */
+export type CreateInput = StandardCreateInput | TerminalCreateInput;
+
+/** A clean-terminal create: bare operator shell in the repo's main checkout. Nothing else. */
+export interface TerminalCreateInput {
+  terminal: true;
+  repoPath: string;
+}
+
+export interface StandardCreateInput {
+  /** Discriminant: absent/false = a normal agent session. */
+  terminal?: false;
   repoPath: string;
   baseBranch: string;
   prompt: string;
@@ -2052,7 +2071,7 @@ export interface CreateInput {
 export interface HeldTask {
   id: string;
   repoPath: string;
-  input: CreateInput;
+  input: StandardCreateInput;
   createdAt: number;
 }
 

@@ -3547,5 +3547,14 @@
   "viewport_preview_stop_unsupported": "Dieser Host kann Devserver-Prozessen kein Signal senden; es wurde nichts gestoppt. Stoppe ihn stattdessen im Terminal der Session.",
   "viewport_preview_stop_refused": "Der Prozess hinter dem Vorschau-Port ließ sich nicht bestätigen; es wurde kein Signal gesendet. Versuche es gleich noch einmal.",
   "feat_macos_preview_stop_title": "Devserver unter macOS stoppen",
-  "feat_macos_preview_stop_body": "„Devserver stoppen\" funktioniert jetzt unter macOS. Bisher passierte dort nichts: Shepherd liest macOS-Prozesse aus einem periodischen Snapshot, und ein Snapshot kann nicht ausschließen, dass der gesehene Prozess inzwischen beendet und seine ID neu vergeben wurde — also wurde lieber kein Signal gesendet, als den falschen Prozess zu treffen. Shepherd prüft den Prozess jetzt unmittelbar vor dem Signal erneut und verweigert nur, wenn diese Prüfung nicht möglich ist — und sagt dir das, statt zu melden, es liefe nichts. Auch der Idle-Stop gibt untätige Vorschauen unter macOS wieder frei."
+  "feat_macos_preview_stop_body": "„Devserver stoppen\" funktioniert jetzt unter macOS. Bisher passierte dort nichts: Shepherd liest macOS-Prozesse aus einem periodischen Snapshot, und ein Snapshot kann nicht ausschließen, dass der gesehene Prozess inzwischen beendet und seine ID neu vergeben wurde — also wurde lieber kein Signal gesendet, als den falschen Prozess zu treffen. Shepherd prüft den Prozess jetzt unmittelbar vor dem Signal erneut und verweigert nur, wenn diese Prüfung nicht möglich ist — und sagt dir das, statt zu melden, es liefe nichts. Auch der Idle-Stop gibt untätige Vorschauen unter macOS wieder frei.",
+  "cardmenu_clean_terminal": "Clean-Terminal im Main-Repo",
+  "repo_chip_clean_terminal": "Clean-Terminal im Main-Repo",
+  "terminal_badge_label": "Terminal",
+  "terminal_badge_title": "Clean-Terminal: eine nackte Shell im Haupt-Checkout des Repos (ohne Agent)",
+  "toast_terminal_failed": "Clean-Terminal konnte nicht geöffnet werden",
+  "toast_terminal_unsupported": "Clean-Terminals brauchen ein neueres herdr — herdr aktualisieren und erneut versuchen",
+  "toast_broadcast_skipped_terminals": "{skipped} Terminal-Session(s) übersprungen — Terminals erhalten keine Steers",
+  "feat_clean_terminal_title": "Clean-Terminal im Main-Repo",
+  "feat_clean_terminal_body": "Rechtsklick auf eine Session-Zeile oder einen Repo-Chip und „Clean-Terminal im Main-Repo“ wählen: Eine nackte Shell öffnet sich direkt im Haupt-Checkout des Repos (kein Worktree, kein Agent) — für schnelle Git- und CLI-Handgriffe. Ein Terminal pro Repo; erneutes Wählen fokussiert das bestehende. Beim Beenden der Shell archiviert sich die Session selbst."
 }

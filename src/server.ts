@@ -2,11 +2,17 @@ import type { RepoConfig, SessionStore } from "./store";
 import type { PluginRegistry } from "./plugins/loader";
 import type { PluginInfo } from "./plugins/types";
 import type { SessionService } from "./service";
-import { PREVIEW_SETUP_STEER, RestoreError } from "./service";
+import {
+  PREVIEW_SETUP_STEER,
+  RestoreError,
+  TerminalExistsError,
+  TerminalSessionError,
+  TerminalUnsupportedError,
+} from "./service";
 import { WorktreeMissingBaseError, WorktreeRestoreError } from "./worktree";
 import { LearningsService } from "./learnings-service";
 import { RepoConfigService } from "./repo-config-service";
-import type { CreateSessionInput } from "./types";
+import type { StandardCreateInput } from "./types";
 import type { EventHub } from "./events";
 import { PtyBridge } from "./pty-bridge";
 import { SocketPtyBridge } from "./socket-pty-bridge";
@@ -1171,7 +1177,7 @@ function parseUpNextStartPayload(body: unknown): UpNextStartPayload | Response {
   };
 }
 
-function usageHoldApplies(value: CreateSessionInput, deps: AppDeps): boolean {
+function usageHoldApplies(value: StandardCreateInput, deps: AppDeps): boolean {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
   if (provider !== "claude") return false;
   const lim = deps.usageLimits.limits(Date.now());
@@ -1192,7 +1198,7 @@ function findHeldIssue(deps: AppDeps, repoPath: string, issueNumber: number) {
 
 function holdUpNextIssue(
   deps: AppDeps,
-  input: CreateSessionInput,
+  input: StandardCreateInput,
 ): { id: string; repoPath: string; number: number; reused?: boolean } {
   const number = input.issueRef?.number;
   if (number == null) throw new Error("held Up Next item missing issueRef");
@@ -1237,7 +1243,7 @@ async function handleUpNextStart(req: Request, deps: AppDeps): Promise<Response>
       const base = await forge.defaultBranch();
       const rc = deps.store.getRepoConfig(it.dir);
       const provider = choice?.agentProvider ?? config.defaultAgentProvider;
-      const input: CreateSessionInput = {
+      const input: StandardCreateInput = {
         repoPath: it.dir,
         baseBranch: base,
         prompt: issueSpawnPrompt(it.issueRef.number, it.issueRef.title),
@@ -2117,7 +2123,19 @@ export async function claimLinkedIssue(forge: GitForge | null, issueNumber: numb
 /** Map a service.create() error to the appropriate Response.
  *  SandboxAutoRefused → 403; missing base ref → 422; agent_name_taken → 409;
  *  anything else → 502. */
+/** 409 mappings for the clean-terminal fences (TerminalExistsError & friends, service.ts).
+ *  `existingId` rides the singleton conflict so the UI can focus the already-open terminal. */
+function terminalErrorResponse(e: unknown): Response | null {
+  if (e instanceof TerminalExistsError)
+    return json({ error: "terminal_exists", existingId: e.existingId }, 409);
+  if (e instanceof TerminalUnsupportedError) return json({ error: "terminal_unsupported" }, 409);
+  if (e instanceof TerminalSessionError) return json({ error: "terminal_session" }, 409);
+  return null;
+}
+
 function createErrorResponse(e: unknown): Response {
+  const t = terminalErrorResponse(e);
+  if (t) return t;
   if (e instanceof SandboxAutoRefused) return json({ error: e.holdReason }, 403);
   if (e instanceof WorktreeMissingBaseError) return json({ error: e.message }, 422);
   const msg = e instanceof Error ? e.message : "create failed";
@@ -2128,7 +2146,7 @@ function createErrorResponse(e: unknown): Response {
 /** Check hold gate; if triggered, persist the held task and return the 200 response.
  *  Returns null when the task should proceed to normal creation. */
 function persistHeldTask(
-  value: CreateSessionInput,
+  value: StandardCreateInput,
   deps: AppDeps,
   reason: "usage" | "capacity",
 ): Response {
@@ -2139,7 +2157,7 @@ function persistHeldTask(
   return json({ held: true, id, count: deps.store.countHeldTasks() }, 200);
 }
 
-function tryHoldNewTask(body: unknown, value: CreateSessionInput, deps: AppDeps): Response | null {
+function tryHoldNewTask(body: unknown, value: StandardCreateInput, deps: AppDeps): Response | null {
   const provider = normalizeAgentProvider(value.agentProvider ?? config.defaultAgentProvider);
   if (provider !== "claude") return null;
 
@@ -2174,6 +2192,19 @@ async function handleSessionCreate({ req, parts, deps }: Ctx): Promise<Response 
   const body = await req.json().catch(() => null);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
+
+  // Clean-terminal union arm: no usage-hold gate (a bare shell spends no agent budget) and no
+  // issue claim — straight to create. Singleton/preflight conflicts map to 409 in
+  // createErrorResponse (terminal_exists carries existingId so the UI can focus it).
+  if (result.value.terminal === true) {
+    try {
+      const t = await deps.service.create(result.value);
+      deps.events.emit("session:new", t);
+      return json(t, 201);
+    } catch (e) {
+      return createErrorResponse(e);
+    }
+  }
 
   // ── usage-aware hold gate ──────────────────────────────────────────────────
   const held = tryHoldNewTask(body, result.value, deps);
@@ -5515,6 +5546,9 @@ async function heldUpdate(id: string, deps: AppDeps, body: unknown): Promise<Res
   if (!existing) return json({ error: "not found" }, 404);
   const result = validateCreate(body, config.repoRoot);
   if (!result.ok) return json({ error: result.error }, 400);
+  // Held tasks are parked agent creates; a clean terminal is never held and can't become one.
+  if (result.value.terminal === true)
+    return json({ error: "held tasks cannot be terminal creates" }, 400);
   // The edit composer round-trips every field EXCEPT merge-train membership, which has no
   // UI — so carry mergeTrainPrs forward from the held row. Otherwise editing a held
   // merge-train task would strip its participant PRs and they'd never be marked "merging".
@@ -7653,9 +7687,18 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
       const parts = url.pathname.split("/").filter(Boolean); // ["api","sessions",":id"]
       const ctx: Ctx = { req, parts, url, deps };
 
-      for (const handle of ROUTE_HANDLERS) {
-        const res = await handle(ctx);
-        if (res) return res;
+      try {
+        for (const handle of ROUTE_HANDLERS) {
+          const res = await handle(ctx);
+          if (res) return res;
+        }
+      } catch (e) {
+        // Clean-terminal fence errors are business 409s, not 500s — mapped ONCE at the dispatch
+        // seam so every verb route (reply, resume, relaunch, replace, restore, preview,
+        // interrupt, …) surfaces them uniformly without per-route catches.
+        const t = terminalErrorResponse(e);
+        if (t) return t;
+        throw e;
       }
 
       if (url.pathname.startsWith("/api")) return json({ error: "not found" }, 404);
@@ -7787,6 +7830,11 @@ export function livePtyAttach(
   cur: Session,
   herdr: Pick<HerdrDriver, "list"> | undefined,
 ): LivePtyAttach | null {
+  // Clean-terminal session (pane-direct): the attach target is the PERSISTED pane — there is
+  // no herdr agent to match against. The stored ids are stable for the pane's lifetime; when
+  // the pane is gone the socket bridge reports terminal.closed("not found") → PTY_GONE.
+  if (cur.terminal)
+    return { terminalId: cur.herdrAgentId, paneTarget: cur.terminalPaneId ?? undefined };
   if (!herdr) return { terminalId: cur.herdrAgentId };
   try {
     const a = matchAgent(cur, herdr.list());
@@ -7837,7 +7885,15 @@ export function pickTerminalBridgeKind(opts: {
   herdrSocketActive?: boolean;
   paneTarget?: string;
   recentlyFailed: boolean;
+  /** True for a clean-terminal session (agentless pane). */
+  terminalSession?: boolean;
 }): "socket" | "node-pty" {
+  // A clean-terminal session has NO node-pty path — `herdr agent attach` refuses agentless
+  // panes with agent_not_found (probe-verified) — so it rides the socket bridge whenever its
+  // pane target exists, regardless of the interim sub-flag and the failure memo (falling back
+  // would land in a guaranteed-broken transport). A missing pane target (corrupt legacy row)
+  // keeps node-pty as the loud-failure path.
+  if (opts.terminalSession) return opts.paneTarget ? "socket" : "node-pty";
   return opts.herdrSocketTerminal &&
     opts.herdrSocketActive &&
     opts.paneTarget &&
@@ -7983,6 +8039,7 @@ export function serve(deps: AppDeps, port: number) {
             herdrSocketActive: deps.herdrSocketActive,
             paneTarget: attach.paneTarget,
             recentlyFailed: recentlyFailed(socketTerminalFailures, tid, Date.now()),
+            terminalSession: !!cur.terminal,
           });
           // Narrowed alias: the hook closures below run asynchronously, after which TS can no
           // longer see that `ws.data.kind === "pty"` still holds (it never changes, but control
@@ -8010,6 +8067,12 @@ export function serve(deps: AppDeps, port: number) {
                 flushPending(data.bridge!);
               },
               onFallback: () => {
+                // A clean-terminal pane has no node-pty fallback (agent attach refuses it) —
+                // surface "ended" instead of a guaranteed agent_not_found reconnect loop.
+                if (cur.terminal) {
+                  ws.close(PTY_GONE_CODE, "ended");
+                  return;
+                }
                 recordFallback();
                 console.info(`[herdr] socket terminal → node-pty fallback ${tid}`);
                 socketTerminalFailures.set(tid, Date.now());
@@ -8023,7 +8086,9 @@ export function serve(deps: AppDeps, port: number) {
                 ws.close(PTY_GONE_CODE, "ended");
               },
               onAbnormalExit: () => {
-                socketTerminalFailures.set(tid, Date.now());
+                // The failure memo only exists to steer AGENT terminals back to node-pty; a
+                // clean terminal has no such fallback, so don't stamp it.
+                if (!cur.terminal) socketTerminalFailures.set(tid, Date.now());
               },
             });
             data.bridge = sb;

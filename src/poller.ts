@@ -60,6 +60,10 @@ const BLOCK_NOTIFICATION_TYPES = new Set(["permission_prompt"]);
  *  done-flip more than this apart are treated as unrelated turns and never paired. */
 const STOP_WINDOW_MAX_MS = 30_000;
 
+/** Clean-terminal pane sweep cadence: `pane list` costs a herdr round-trip, and shell-exit
+ *  detection tolerates seconds of latency (archive needs 2 confirmed-gone sweeps anyway). */
+const TERMINAL_PANE_SWEEP_MS = 5_000;
+
 /** Codex session-id capture back-off: after a missed rescan, wait `BASE << misses` (capped) before the
  *  next scan. A rollout normally appears within seconds of spawn, so early retries stay quick; a
  *  never-matching session widens to one scan per ~2 min instead of every 1 s tick. */
@@ -357,6 +361,12 @@ export class StatusPoller {
 
   /** Timestamp of the last claude-liveness sweep (0 = never). */
   private lastLivenessSweepAt = 0;
+  /** Throttle stamp for the clean-terminal pane sweep (`pane list` at most every
+   *  TERMINAL_PANE_SWEEP_MS). */
+  private lastTerminalSweepAt = 0;
+  /** Consecutive confirmed-gone pane sweeps per clean-terminal session. Archive fires at 2
+   *  (same debounce idea as strandedSweeps); a FAILED pane listing never touches this. */
+  private terminalGoneSweeps = new Map<string, number>();
   /** Last-swept per-session claude liveness; onChange fires on flips only. */
   private lastClaudeAlive = new Map<string, boolean>();
   /** Session ids whose claude-liveness is UNKNOWN because the last sweep's scan
@@ -404,7 +414,7 @@ export class StatusPoller {
   constructor(
     private store: SessionStore,
     private herdr: Pick<HerdrDriver, "listAsync" | "read" | "readAsync" | "reportAgentState"> &
-      Partial<Pick<HerdrDriver, "tabsAsync">>,
+      Partial<Pick<HerdrDriver, "tabsAsync" | "panesAsync">>,
     private onChange: (id: string, status: string) => void,
     private onBlock: (id: string, block: BlockReason | null) => void,
     private intervalMs = 1000,
@@ -490,6 +500,12 @@ export class StatusPoller {
      * Injectable for tests; defaults to a bounded tail read + `detectAuthUrl`.
      */
     private detectAuth: (s: Session) => string | null = readAuthUrl,
+    /**
+     * Archive a clean-terminal session whose pane is confirmed gone (the shell exited) — a
+     * dead terminal has no branch/PR and focus-existing must never land on it. Wired in
+     * src/index.ts to `service.archive`; undefined (tests that don't care) ⇒ no auto-archive.
+     */
+    private archiveTerminal?: (id: string) => void,
   ) {
     // Merge supplied overrides with real defaults. When preview is omitted entirely
     // we create a no-op wiring so tick() never throws on undefined access.
@@ -621,6 +637,9 @@ export class StatusPoller {
       const activeIds = new Set<string>();
       for (const s of sessions) {
         activeIds.add(s.id);
+        // Clean-terminal sessions (pane-direct) have NO herdr agent: reconciling would read
+        // "gone" every tick. Their liveness is pane existence — sweepTerminalPanes below.
+        if (s.terminal) continue;
         const agent = matched.get(s.id) ?? null;
         if (!agent) this.reapGone(s);
         else this.reconcileAgent(s, agent);
@@ -652,6 +671,11 @@ export class StatusPoller {
       this.maybeRunPreviewSweep(sessions);
       // claude-liveness sweep: throttled; synchronous (one cheap /proc pass)
       this.maybeRunLivenessSweep(sessions);
+      // Clean-terminal pane liveness: throttled, async, fail-closed. Deliberately fire-and-
+      // forget — awaiting it would extend tick()'s awaited critical section by a socket
+      // round-trip and shift the microtask timing the classify paths' floating promises ride
+      // on. Overlap is impossible: the throttle stamp is taken synchronously before the await.
+      void this.maybeSweepTerminalPanes(sessions).catch(() => {});
     } finally {
       this.ticking = false;
     }
@@ -692,11 +716,60 @@ export class StatusPoller {
    * bare shell keeps the agent listed as idle). Emits onChange on flips only;
    * tracking for sessions no longer active is pruned in place.
    */
+  /**
+   * Clean-terminal pane liveness (pane-direct sessions have no herdr agent to reconcile).
+   * Fail-closed state machine over `panesAsync`:
+   *  - pane present in a SUCCESSFUL listing → live; gone-counter resets.
+   *  - pane absent in a SUCCESSFUL listing → count; archive on the 2nd consecutive miss
+   *    (debounce blunts a transient herdr hiccup, mirroring strandedSweeps).
+   *  - listing THROWS → no state change at all: counter frozen, no archive, retry next sweep.
+   *    Destructive action only ever follows positive evidence.
+   */
+  private async maybeSweepTerminalPanes(sessions: Session[]): Promise<void> {
+    const terms = sessions.filter((s) => s.terminal);
+    if (terms.length === 0) {
+      this.terminalGoneSweeps.clear();
+      return;
+    }
+    if (!this.herdr.panesAsync || !this.archiveTerminal) return;
+    const t = this.now();
+    if (t - this.lastTerminalSweepAt < TERMINAL_PANE_SWEEP_MS) return;
+    this.lastTerminalSweepAt = t;
+    let panes;
+    try {
+      panes = await this.herdr.panesAsync();
+    } catch (err) {
+      console.warn("[poller] terminal pane list failed; keeping state:", err);
+      return; // fail closed — see contract above
+    }
+    const livePaneIds = new Set(panes.map((p) => p.paneId));
+    for (const s of terms) {
+      if (s.terminalPaneId && livePaneIds.has(s.terminalPaneId)) {
+        this.terminalGoneSweeps.delete(s.id);
+        continue;
+      }
+      const n = (this.terminalGoneSweeps.get(s.id) ?? 0) + 1;
+      if (n < 2) {
+        this.terminalGoneSweeps.set(s.id, n);
+        continue;
+      }
+      this.terminalGoneSweeps.delete(s.id);
+      try {
+        this.archiveTerminal(s.id);
+      } catch (err) {
+        console.warn(`[poller] terminal auto-archive failed for ${s.id}:`, err);
+      }
+    }
+  }
+
   private maybeRunLivenessSweep(sessions: Session[]): void {
     const t = this.now();
     if (t - this.lastLivenessSweepAt < this.livenessWiring.sweepMs) return;
     this.lastLivenessSweepAt = t;
-    const candidates = sessions.filter((s) => s.worktreePath);
+    // Terminal sessions are exempt: scanClaudeAliveByWorktree matches agent comms only, so a
+    // shell would read husk/stranded and auto-revive could re-spawn it. Pane existence is
+    // their real signal (sweepTerminalPanes).
+    const candidates = sessions.filter((s) => s.worktreePath && !s.terminal);
     let byWorktree: Map<string, boolean> | null;
     try {
       byWorktree = this.livenessWiring.scan(candidates.map((s) => s.worktreePath));
@@ -753,6 +826,7 @@ export class StatusPoller {
    * sessions reset the debounce counter.
    */
   private maybeAutoRevive(s: Session, armed: boolean): void {
+    if (s.terminal) return; // a clean terminal is never husk/stranded and must never be revived
     if (this.lastLiveness.get(s.id) !== "stranded" || !isAutoRevivable(s)) {
       this.strandedSweeps.delete(s.id);
       this.reviveGaveUp.delete(s.id); // left the stranded set → a later strand starts fresh

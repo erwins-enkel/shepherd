@@ -40,6 +40,7 @@ import {
   captureUsage,
   reapRun,
   VERDICT_FILE,
+  VERDICT_BODY_FILE,
   type RawVerdict,
   type EpicContext,
   type LandingContext,
@@ -537,7 +538,7 @@ export class StandalonePrCriticService {
     // The worktree is checked out at the UNTRUSTED PR head (a fork's `refs/pull/<n>/head`); a
     // malicious PR could commit a strict-JSON verdict / `-o` fallback to short-circuit the real critic
     // (see scrubStaleVerdictArtifacts). Scrub right before spawn.
-    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE);
+    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE, VERDICT_BODY_FILE);
     let terminalId: string;
     try {
       terminalId = (

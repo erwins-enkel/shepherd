@@ -42,6 +42,7 @@ import {
   captureUsage,
   reapRun,
   VERDICT_FILE,
+  VERDICT_BODY_FILE,
   type RawVerdict,
   type EpicBaseDelta,
   type EpicContext,
@@ -187,6 +188,9 @@ interface InFlight {
   lastVisible?: string | null;
   /** Set once the pane is confirmed wedged on an interactive prompt; drives the `blocked` cause. */
   stuckShape?: BlockShape | null;
+  /** Raw bytes of the verdict file from the previous tick, recorded ONLY while it is unparseable.
+   *  Two consecutive identical reads mean the critic has stopped writing (see resolveWait). */
+  lastUnparseableRaw?: string;
   finalizing?: boolean;
 }
 
@@ -1079,6 +1083,18 @@ export class ReviewService {
       );
       return action;
     }
+    // #2042: a STABLE unparseable verdict means a finished-but-broken critic — finalize now.
+    //
+    // The prompt makes the verdict JSON the critic's LAST action ("then stop"), so once those bytes
+    // stop changing there is nothing left to wait for. Without this the run sits in `wait` until the
+    // hard deadline, because the pane stays alive-but-idle after the write and `isSpawnAlive` (rightly)
+    // reports alive. A real critic lost 23 of its 30 minutes to exactly that, then reported a bare
+    // timeout. Requiring two consecutive IDENTICAL reads keeps a genuine partial write waiting — that
+    // one is still growing between ticks.
+    if (read.status === "unparseable" && read.raw !== undefined) {
+      if (f.lastUnparseableRaw === read.raw) return "finalize-null"; // claim stays held; caller finalizes
+      f.lastUnparseableRaw = read.raw; // first sighting — re-check next tick
+    }
     f.finalizing = false; // release: not finalizing this tick
     // still running (or gated, awaiting completion) — surface what the critic is doing right now.
     // Emit every tick (not only on change) so a reloaded client repopulates within one tick; the
@@ -1488,7 +1504,7 @@ export class ReviewService {
     // strict-JSON verdict / `-o` fallback to short-circuit the real critic (see
     // scrubStaleVerdictArtifacts). Scrub HERE — after rebaseSkip, which can re-materialize a
     // committed artifact — right before spawn.
-    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE);
+    scrubStaleVerdictArtifacts(worktreePath, VERDICT_FILE, VERDICT_BODY_FILE);
     const aux = prompt.assemble(fitted.prompt);
     try {
       const started = await this.deps.herdr.start(

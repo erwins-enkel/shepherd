@@ -1144,6 +1144,62 @@ test("wedged pane with an unparseable verdict still finalizes as an error", asyn
   }
 });
 
+// ── #2042: a STABLE unparseable verdict finalizes immediately, not at the deadline ───────────────
+// The prompt makes the verdict JSON the critic's last action, so once its bytes stop changing there
+// is nothing to wait for. The pane stays alive-but-idle after that write, so `wait` alone would hold
+// the run for the full 1800s and then report a bare timeout (TASK-2125 lost 23 of 30 minutes here).
+
+test("#2042: unparseable verdict that stops changing finalizes early, well inside the deadline", async () => {
+  let t = 1000;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, timeoutMs: 1_800_000 },
+      // Alive, NOT wedged (a plain idle pane) — so only the stable-bytes rule can finalize this.
+      { verdictRead: { status: "unparseable", raw: "{oops" }, criticProcs: ["node"] },
+    );
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+
+    await svc.tick(); // first sighting of the broken bytes — still waiting
+    expect(reviews["s1"]).toBeUndefined();
+
+    await svc.tick(); // identical bytes → the critic has stopped writing
+    expect(reviews["s1"]?.decision).toBe("error");
+    expect(reviews["s1"]?.summaryCode).toBe("no-verdict-unparseable");
+    expect(t - 1000).toBeLessThan(1_800_000); // finalized far short of the hard deadline
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
+test("#2042: a still-growing partial write keeps waiting — it is not 'stable'", async () => {
+  let t = 1000;
+  let n = 0;
+  const origWarn = console.warn;
+  console.warn = () => {};
+  try {
+    const { deps: d, reviews } = makeDeps(
+      { now: () => t, timeoutMs: 1_800_000 },
+      { criticProcs: ["node"] },
+    );
+    // Each read returns MORE bytes: a genuine mid-write file, which must never be failed fast.
+    (d as any).readVerdict = () => ({ status: "unparseable", raw: "{".repeat(++n) });
+    const svc = new ReviewService(d as any);
+    await svc.consider(session(), OPEN_GREEN);
+    t = 1000 + STARTUP_GRACE_MS + 1000;
+
+    await svc.tick();
+    await svc.tick();
+    await svc.tick();
+    expect(reviews["s1"]).toBeUndefined(); // still waiting, no premature error verdict
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
 // A live critic that is genuinely working must never be killed: its buffer advances between reads.
 test("advancing pane is left alone even when it looks like a menu", async () => {
   let t = 1000;

@@ -103,10 +103,18 @@ export function readRoleResultText(
  * race must not block the spawn). Harmless for base-checkout reviewers (the plan reviewer detaches at
  * the trusted base) — a defense-in-depth no-op there.
  */
-export function scrubStaleVerdictArtifacts(worktreePath: string, resultFile: string): void {
-  try {
-    rmSync(join(worktreePath, resultFile), { force: true });
-  } catch {
-    /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
+export function scrubStaleVerdictArtifacts(worktreePath: string, ...resultFiles: string[]): void {
+  // Variadic so a role with more than one fixed-name artifact scrubs them in ONE call: the critic
+  // now also writes a sidecar body (`VERDICT_BODY_FILE`), and a second call site is exactly the kind
+  // of thing a later change forgets to add. A pre-seeded sidecar cannot fake a verdict on its own
+  // (the read still requires a parseable verdict JSON), but it WOULD be spliced in as the body of a
+  // genuine run and posted to the PR as the critic's review — attacker-authored prose under
+  // Shepherd's name. Same fixed name, same untrusted checkout, same scrub.
+  for (const f of resultFiles) {
+    try {
+      rmSync(join(worktreePath, f), { force: true });
+    } catch {
+      /* best-effort — a pre-seed we can't remove still fails closed via the read path's validators */
+    }
   }
 }

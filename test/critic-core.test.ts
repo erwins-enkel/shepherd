@@ -113,6 +113,23 @@ test("#2042: an inline JSON body still works when no sidecar exists (older criti
   expect(read.value.body).toBe("## inline");
 });
 
+// A Codex critic answers in CHAT and writes no files, so its verdict arrives through the per-spawn
+// `-o` capture and no sidecar can ever exist for it. Its body therefore has to ride inline in the
+// JSON — which is why `body` stays a documented OPTIONAL field. Without it this path posts a review
+// whose body is "" (buildVerdictCore coerces a missing body), i.e. the marker and nothing else.
+test("#2042: the codex `-o` fallback still carries a body inline — no sidecar can exist there", () => {
+  const dir = mkdtempSync(join(tmpdir(), "critic-codex-"));
+  writeFileSync(
+    join(dir, ".shepherd-last-message-spawn-7.txt"),
+    '{"decision":"comment","summary":"s","body":"## Full review from chat","findings":[]}',
+  );
+
+  const read = defaultReadVerdict(dir, "spawn-7");
+  expect(read.status).toBe("parsed");
+  if (read.status !== "parsed") throw new Error("unreachable");
+  expect(read.value.body).toBe("## Full review from chat"); // NOT "" — the posted review has text
+});
+
 test("#2042: a pre-seeded sidecar alone is not a verdict — the JSON is still the completion signal", () => {
   const dir = mkdtempSync(join(tmpdir(), "critic-preseed-"));
   // A malicious PR commits a flattering body but cannot write the JSON (it is scrubbed pre-launch).
@@ -297,6 +314,21 @@ test("smellLens on leaves the shared verdict-output contract byte-identical to t
   const withLens = reviewPrompt("b", "task", [], [], null, null, { smellLens: true });
   const outputContract = (s: string) => s.slice(s.indexOf("When done, write TWO files"));
   expect(outputContract(withLens)).toBe(outputContract(prReviewPrompt("b", "t", "body")));
+});
+
+// The prompt is the half that actually regressed: dropping `body` from the documented shape left a
+// Codex critic (chat-only, no files, no sidecar possible) with nowhere to put its review. The reader
+// has always accepted an inline body, so only asserting on the reader would not have caught it.
+test("#2042: the output contract still documents `body`, as optional and file-loses-to-sidecar", () => {
+  for (const p of [
+    reviewPrompt("BASE", "do the thing", [], []),
+    prReviewPrompt("b", "t", "body"),
+  ]) {
+    const contract = p.slice(p.indexOf("When done, write TWO files"));
+    expect(contract).toContain('"body"'); // still in the documented shape
+    expect(contract).toContain('OMIT "body" when you wrote `.shepherd-review.md`'); // sidecar wins
+    expect(contract).toContain("if you cannot write files at all"); // the codex-in-chat carve-out
+  }
 });
 
 test("reviewPrompt fences PR author notes as untrusted", () => {

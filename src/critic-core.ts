@@ -719,13 +719,19 @@ function scopeAndOutputTail(
     // Binds the term once: every rule above says `"body"` (sections, citations, stated limitations),
     // and they all now resolve to this file. Cheaper and less drift-prone than restating ~10 rules.
     '1. `.shepherd-review.md` — your full markdown review. Everywhere these instructions say "body" — the named sections, the `path:line` citations, the stated limitations — they mean THIS file. It is NOT JSON: write the prose directly, escape nothing, quote however you like.',
-    "2. `.shepherd-review.json` — the structured verdict, with EXACTLY this shape:",
-    '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...]}',
+    "2. `.shepherd-review.json` — the structured verdict, with this shape:",
+    '{"decision": "request-changes" | "comment", "summary": "<=100 char one-liner", "findings": ["<discrete actionable item>", ...], "body": "<optional — see below>"}',
     // #2042: the body used to live inside this JSON. A single unescaped `"` before a `:` or `,` —
     // which German `„…":` prose produces constantly — is indistinguishable from a real key/value
     // boundary, so it silently destroyed complete verdicts. Keeping the prose out of JSON entirely
     // is the only fix that cannot regress; the note below keeps the remaining escaping honest.
-    'Escaping matters ONLY in the JSON file, and it is short: inside "summary" and each "findings" entry every `"` must be written `\\"`. If that feels error-prone, phrase them without quotation marks — the markdown file is where quoting is free.',
+    //
+    // `body` stays a DOCUMENTED OPTIONAL field, not a removed one: a Codex critic answers in chat and
+    // writes no files at all (its verdict is recovered from the `-o` last-message capture — see
+    // captureLastMessage in review.ts and the fallback in defaultReadVerdict). For that provider the
+    // sidecar cannot exist, so dropping `body` from the shape would post a review with no text in it.
+    'OMIT "body" when you wrote `.shepherd-review.md` — the file always wins. Include it ONLY if you cannot write files at all (you are answering in chat rather than editing a worktree): then put the full markdown review in "body" and escape every `"` inside it as `\\"`.',
+    'Escaping matters ONLY in the JSON file, and — when you wrote the markdown file — it is short: inside "summary" and each "findings" entry every `"` must be written `\\"`. If that feels error-prone, phrase them without quotation marks; the markdown file is where quoting is free.',
     'The "findings" array lists every discrete change the author must make — one entry per point, routed per FINDINGS ROUTING above. Use [] when everything you found is non-blocking (report those in the body sections named above) or there is genuinely nothing to address; "request-changes" requires at least one finding.',
     // Ordering is load-bearing: the server finalizes as soon as the JSON parses, so the JSON must be
     // written LAST — otherwise a tick landing between the two writes finalizes with an empty body.
@@ -908,10 +914,16 @@ export function defaultReadVerdict(
   if (r.status !== "ok") return { status: "unparseable", raw: text };
   const value = r.value as RawVerdict;
   // #2042: the body travels as a sidecar markdown file. Read it from the SAME worktree and splice it
-  // in. A missing sidecar is not an error — an inline `body` stays valid, which keeps every older
-  // critic, a Codex critic answering through the `-o` fallback, and any run already in flight across
-  // a server restart working unchanged. Sidecar wins when both exist: it is the format the current
-  // prompt asks for, and it is the one that cannot have been mangled by escaping.
+  // in. A missing sidecar is not an error — an inline `body` stays valid, which keeps an older critic
+  // and any run already in flight across a server restart working unchanged.
+  //
+  // It is also the ONLY way a Codex critic can carry a body: that provider answers in chat and writes
+  // no files, so its verdict arrives through the `-o` last-message fallback above and NO sidecar can
+  // exist for it. That is why `body` remains a documented optional field in the prompt rather than a
+  // removed one — drop it there and this path posts a review with no text.
+  //
+  // Sidecar wins when both exist: it is the format the prompt asks for whenever files are writable,
+  // and it is the one that cannot have been mangled by escaping.
   const body = readVerdictBody(worktreePath);
   if (body !== null) value.body = body;
   return { status: "parsed", value, repaired: r.repaired };

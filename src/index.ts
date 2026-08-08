@@ -249,7 +249,10 @@ const store = new SessionStore(config.dbPath);
 // refreshes the cell these consumers then read. A single instance here is for
 // clarity, not correctness; what WOULD carry an independent, always-cold cell is a
 // reaper constructed with its own `makeDarwinProbes()` (as the tests do).
-const reaper = new ProcessReaper();
+// `agentTmpDir()` arms the scratchpad provenance fallback: a dev server an agent started
+// from its scratchpad instead of the worktree is still this session's, and must be
+// stoppable and offerable as a leftover.
+const reaper = new ProcessReaper(undefined, agentTmpDir());
 // a repo root chosen in the UI (persisted) overrides the env var / default — but
 // only if it still sits within the immutable ceiling; a stale/escaping value is
 // ignored so the active root can never climb above the ceiling across restarts.

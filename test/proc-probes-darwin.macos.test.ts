@@ -104,9 +104,14 @@ onDarwin(
       await probes.refresh();
       // The stored root is the raw (pre-realpath) path; normalizeRoot must resolve it
       // so it matches lsof's kernel-resolved cwd.
-      const byWorktree = scanListeningPortsByWorktree([rawRoot], probes);
+      const byWorktree = scanListeningPortsByWorktree(
+        [{ worktreePath: rawRoot, sessionId: "s-1" }],
+        probes,
+      );
       expect(byWorktree).not.toBeNull();
-      expect(byWorktree!.get(rawRoot)).toContain(port);
+      expect(byWorktree!.get(rawRoot)!.ports).toContain(port);
+      // No `environForPid` on darwin ⇒ the scratchpad fallback never fires here.
+      expect(byWorktree!.get(rawRoot)!.hintDirs).toEqual([]);
     } finally {
       child.kill("SIGKILL");
       rmSync(rawRoot, { recursive: true, force: true });

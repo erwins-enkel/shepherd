@@ -80,21 +80,24 @@ test("ensurePreviewStartScript: package wrapper runs dev command with selected p
 // ── #1912: findPreviewDevPort forces a refresh + handles the null (unknown) scan ──
 
 import { findPreviewDevPort } from "../src/preview-launch";
+import type { WorktreeListeners } from "../src/process-reaper";
 
 test("findPreviewDevPort: forces a refresh before scanning (finds a just-started server)", async () => {
   const events: string[] = [];
   // The scan reflects a dev server that only became visible AFTER a forced refresh:
   // it returns nothing until `refresh({force})` runs, then 5173.
   let refreshed = false;
-  const port = await findPreviewDevPort("/wt/app", {
+  const port = await findPreviewDevPort("/wt/app", "s-1", {
     refresh: async (opts) => {
       events.push(`refresh:${opts?.force ? "force" : "coalesce"}`);
       if (opts?.force) refreshed = true;
     },
-    scan: (worktrees) => {
+    scan: (targets) => {
       events.push("scan");
-      const m = new Map<string, number[]>();
-      for (const w of worktrees) m.set(w, refreshed ? [5173] : []);
+      const m = new Map<string, WorktreeListeners>();
+      for (const t of targets) {
+        m.set(t.worktreePath, { ports: refreshed ? [5173] : [], hintDirs: [] });
+      }
       return m;
     },
   });
@@ -104,7 +107,7 @@ test("findPreviewDevPort: forces a refresh before scanning (finds a just-started
 });
 
 test("findPreviewDevPort: a null scan (unknown) yields no dev port", async () => {
-  const port = await findPreviewDevPort("/wt/app", {
+  const port = await findPreviewDevPort("/wt/app", "s-1", {
     refresh: async () => {},
     scan: () => null,
   });

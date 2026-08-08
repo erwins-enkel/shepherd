@@ -154,9 +154,9 @@ test("stopListenersOnPort: arming did NOT widen the blast radius (#1922 scope)",
   // The three other things `canAuthorizeSignal: false` gates must be untouched.
   const probes = armedFake();
   const reaper = new ProcessReaper(probes);
-  expect(reaper.detect({ worktreePath: "/wt/x", claudeSessionId: "c1", isolated: true })).toEqual(
-    [],
-  ); // class 2 still fails closed despite a listening proc in the cell
+  expect(
+    reaper.detect({ id: "s-1", worktreePath: "/wt/x", claudeSessionId: "c1", isolated: true }),
+  ).toEqual([]); // class 2 still fails closed despite a listening proc in the cell
   expect(reaper.canDetectLeftovers()).toBe(false); // still no lsof before an archive detect
   const killed: number[] = [];
   new ProcessReaper(armedFake({}, killed)).reap([
@@ -184,6 +184,7 @@ test("scanSystemSideEffects: no listeningPorts probe ⇒ offers zero class-3 lef
   const probes = darwinFake({ readTranscript: () => transcript });
   expect(probes.listeningPorts).toBeUndefined();
   const leftovers = new ProcessReaper(probes).detect({
+    id: "s-1",
     worktreePath: "/wt/x",
     claudeSessionId: "sess-1",
     isolated: true,
@@ -205,6 +206,7 @@ test("scanWorktreeProcs: no signal authority ⇒ offers zero class-2 leftovers",
   });
   const reaper = new ProcessReaper(probes);
   const leftovers = reaper.detect({
+    id: "s-1",
     worktreePath: "/wt/x",
     claudeSessionId: "sess-1",
     isolated: true,
@@ -238,6 +240,7 @@ test("scanWorktreeProcs: WITH signal authority the same process is still offered
     commForPid: () => "vite",
   });
   const leftovers = new ProcessReaper(probes).detect({
+    id: "s-1",
     worktreePath: "/wt/x",
     claudeSessionId: "sess-1",
     isolated: true,
@@ -276,7 +279,9 @@ test("scan helpers return null on a stale/none cell, not an all-false / empty ma
   for (const state of ["none", "stale"] as const) {
     const probes = darwinFake({ state });
     expect(scanClaudeAliveByWorktree(["/wt/x"], probes)).toBeNull();
-    expect(scanListeningPortsByWorktree(["/wt/x"], probes)).toBeNull();
+    expect(
+      scanListeningPortsByWorktree([{ worktreePath: "/wt/x", sessionId: "s-1" }], probes),
+    ).toBeNull();
     expect(liveProcCwds(probes)).toBeNull();
   }
 });

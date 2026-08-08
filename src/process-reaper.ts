@@ -1,4 +1,5 @@
 import { readdirSync, readlinkSync, readFileSync } from "node:fs";
+import { dirname } from "node:path";
 import { execFileSync } from "./instrument";
 import { jsonlPathFor } from "./usage";
 import { eachJsonlObject } from "./jsonl";
@@ -9,10 +10,11 @@ import { makeDarwinProbes } from "./proc-probes-darwin";
 // but anything the agent spun up out-of-band keeps running. Three classes:
 //   1. children of the agent (run_in_background bash, stdio MCP) — die WITH the
 //      agent, so we never touch them.
-//   2. detached processes living in the worktree (Vite / `bun run dev`) — survive,
-//      found by scanning /proc for a cwd under the worktree that also LISTENS on a
-//      port (the listening-port test is what tells a persistent server apart from a
-//      transient agent child; servers listen, one-shot children don't).
+//   2. detached processes the session left behind (Vite / `bun run dev`) — survive,
+//      found by scanning /proc for a cwd under the worktree (or, since the scratchpad
+//      fallback below, one under the agent scratch tree carrying this session's marker)
+//      that also LISTENS on a port (the listening-port test is what tells a persistent
+//      server apart from a transient agent child; servers listen, one-shot children don't).
 //   3. system side-effects (`tailscale serve --bg` — its own daemon, often root) —
 //      survive, found by scanning the transcript for the launching command and
 //      derived back to a counter-command. Only offered when the port still LISTENS,
@@ -261,6 +263,88 @@ export function leftoverKey(l: Pick<Leftover, "kind" | "name" | "port" | "pid">)
  *  guard would treat `/a/bc` as under `/a/b`). */
 export function isUnder(path: string, root: string): boolean {
   return path === root || path.startsWith(root + "/");
+}
+
+// ── scratchpad provenance fallback ──────────────────────────────────────────
+//
+// Containment used to be cwd-only: a process counted as a session's if its cwd sat
+// under that session's worktree. Agents prototyping in the Claude scratchpad
+// (`$TMPDIR/claude-$uid/…`, i.e. under `agentTmpDir()`) start their dev servers THERE,
+// so a cwd test alone renders them invisible — no preview, no stop, no leftover offer.
+//
+// The fallback attributes such a process by PROVENANCE instead: `SESSION_MARKER_ENV` is
+// stamped on every agent spawn and inherited by everything it spawns, so it survives the
+// `cd` that moved the process out of the worktree. Two properties keep it narrow:
+//
+//   - the cwd must first be under the scratch root, a plain string test on data
+//     `scanProcs` already read. Only then is the environ consulted, so the mmap-lock
+//     read never touches an unrelated host process.
+//   - `scratchRoot === null` (redirect disabled via SHEPHERD_AGENT_TMPDIR="") and a
+//     backend without `environForPid` (darwin, deliberately, to keep the #1144 runaway
+//     reaper fail-closed) both disable it entirely.
+//
+// The scratch root is passed IN rather than imported: `tmp-sweep.ts` already imports
+// this module, so reading `agentTmpDir()` here would close a cycle. It doubles as the
+// test seam.
+
+/** This process's owning session per `SESSION_MARKER_ENV`, or null when the backend
+ *  exposes no environ or the process carries no marker. */
+function sessionMarkerFor(pid: number, probes: ReaperProbes): string | null {
+  const id = probes.environForPid?.(pid)?.[SESSION_MARKER_ENV];
+  return typeof id === "string" && id.length > 0 ? id : null;
+}
+
+/** Cheap gate: is this cwd inside the agent scratch tree at all? False whenever the
+ *  redirect is disabled, which is what keeps the whole fallback opt-out-able. */
+function isScratchRooted(cwd: string, scratchRoot: string | null): boolean {
+  return scratchRoot !== null && isUnder(cwd, scratchRoot);
+}
+
+/**
+ * Does this process belong to the session rooted at `root`?
+ *
+ * cwd containment first (unchanged fast path), then the scratchpad provenance fallback.
+ * THE single predicate for every single-session site — the class-2 leftover sweep and
+ * BOTH halves of the stop path (`candidatesOn` proposes, `verifiesLive` re-proves).
+ * Teaching only one half of that pair would either propose candidates the live check
+ * then rejects — turning every stop of a scratchpad-rooted server into `"refused"` — or
+ * signal on a weaker rule than the one that proposed it. `scanListeningPortsByWorktree`
+ * resolves many sessions at once so it cannot use this shape, but it is built from the
+ * same two primitives above.
+ */
+function containedBySession(
+  proc: { pid: number; cwd: string },
+  root: string,
+  sessionId: string | null | undefined,
+  scratchRoot: string | null,
+  probes: ReaperProbes,
+): boolean {
+  if (isUnder(proc.cwd, root)) return true;
+  if (!sessionId || !isScratchRooted(proc.cwd, scratchRoot)) return false;
+  return sessionMarkerFor(proc.pid, probes) === sessionId;
+}
+
+/** Max hint directories reported per scratchpad-rooted listener (see `hintDirsFor`). */
+const MAX_HINT_DIRS = 4;
+
+/**
+ * Directories to look for a `.shepherd-preview` hint next to a scratchpad-rooted
+ * server: its own cwd, then ancestors, stopping at (and excluding) the scratch root.
+ *
+ * An agent that writes the hint one level up from where it started the server is the
+ * case this covers. Capped, and every entry is already proven to be under the scratch
+ * root, so the preview sweep reads a bounded number of tiny files.
+ */
+function hintDirsFor(cwd: string, scratchRoot: string): string[] {
+  const out: string[] = [];
+  let dir = cwd;
+  while (out.length < MAX_HINT_DIRS && isUnder(dir, scratchRoot) && dir !== scratchRoot) {
+    out.push(dir);
+    const parent = dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return out;
 }
 
 // ── pid-recycle fingerprint (#1925) ─────────────────────────────────────────
@@ -704,10 +788,17 @@ export function liveProcCwds(probes: ReaperProbes = defaultProbes): string[] | n
 }
 
 export class ProcessReaper {
-  constructor(private probes: ReaperProbes = defaultProbes) {}
+  /** `scratchRoot` enables the scratchpad provenance fallback for the single-session
+   *  paths (leftover sweep + stop). Null (the default) leaves them cwd-only; production
+   *  wires `agentTmpDir()` in src/index.ts. */
+  constructor(
+    private probes: ReaperProbes = defaultProbes,
+    private scratchRoot: string | null = null,
+  ) {}
 
   /** Detect surviving leftovers for a session (classes 2 + 3). */
   detect(s: {
+    id: string;
     worktreePath: string;
     claudeSessionId: string;
     isolated: boolean;
@@ -717,12 +808,13 @@ export class ProcessReaper {
     // the shared repo root, where the shepherd server itself (and other unrelated
     // long-running servers) are rooted. A cwd scan there flags processes that merely
     // share the dir, not ones the session launched, so skip class 2 entirely.
-    const procs = s.isolated ? this.scanWorktreeProcs(s.worktreePath) : [];
+    const procs = s.isolated ? this.scanWorktreeProcs(s.worktreePath, s.id) : [];
     return [...procs, ...this.scanSystemSideEffects(s)];
   }
 
-  /** Class 2 — processes living in the worktree that listen on a port. */
-  private scanWorktreeProcs(worktreePath: string): Leftover[] {
+  /** Class 2 — processes belonging to the session that listen on a port: living in its
+   *  worktree, or scratchpad-rooted and carrying its marker. */
+  private scanWorktreeProcs(worktreePath: string, sessionId: string): Leftover[] {
     // A backend that may not authorize a signal on its own (darwin) must not OFFER
     // class-2 leftovers: `reap()` gates its pid branch on that same
     // `canAuthorizeSignal` flag, so every one of them would be listed under
@@ -745,7 +837,8 @@ export class ProcessReaper {
       // Never offer to reap ourselves: the shepherd server runs in the worktree's
       // own repo and listens on a port, so without this it could surface itself.
       if (p.pid === process.pid) continue;
-      if (!isUnder(p.cwd, root) || AGENT_COMMS.has(p.comm)) continue;
+      if (AGENT_COMMS.has(p.comm)) continue;
+      if (!containedBySession(p, root, sessionId, this.scratchRoot, this.probes)) continue;
       // Open the signal bracket BEFORE the portsForPid read, so both that read and `reap`'s later
       // verify sit inside it. A process the bracket refuses is not OFFERED at all: `reap` would
       // refuse to signal it, so offering it would put an un-killable entry under "Terminate &
@@ -828,6 +921,7 @@ export class ProcessReaper {
     worktreePath: string,
     port: number,
     signal: NodeJS.Signals = "SIGTERM",
+    sessionId?: string | null,
   ): { signalled: number; outcome: "ok" | "unsupported" | "refused" } {
     const verify = this.probes.liveProcForPid?.bind(this.probes);
     // No authority of its own AND no way to earn it per-signal ⇒ nothing to do here.
@@ -842,7 +936,7 @@ export class ProcessReaper {
     const root = normRoot(worktreePath, this.probes);
     let count = 0;
     let rejected = 0;
-    for (const { pid, startTicks } of this.candidatesOn(root, port)) {
+    for (const { pid, startTicks } of this.candidatesOn(root, port, sessionId)) {
       // TWO WAYS to prove the pid still belongs to the process the snapshot proposed, and a
       // backend supplies exactly one of them:
       //  - `liveProcForPid` (darwin, #1922) — re-prove the SAME predicates against live data.
@@ -854,7 +948,7 @@ export class ProcessReaper {
       // the hole #1925 closed. `isSameProcess` fails closed on a null capture, so a backend with
       // neither seam signals nothing.
       const proven = verify
-        ? this.verifiesLive(verify, pid, root, port)
+        ? this.verifiesLive(verify, pid, root, port, sessionId)
         : isSameProcess(pid, startTicks, this.probes);
       if (!proven) {
         rejected++;
@@ -874,9 +968,10 @@ export class ProcessReaper {
     return { signalled: count, outcome: "ok" };
   }
 
-  /** Candidates the backing snapshot PROPOSES for a stop: under `root`, listening on `port`,
-   *  and neither ourselves nor the agent. Only a proposal — `stopListenersOnPort` proves each
-   *  one before it may be signalled, either live (`verifiesLive`) or by fingerprint.
+  /** Candidates the backing snapshot PROPOSES for a stop: contained by the session (under
+   *  `root`, or scratchpad-rooted with its marker), listening on `port`, and neither ourselves
+   *  nor the agent. Only a proposal — `stopListenersOnPort` proves each one before it may be
+   *  signalled, either live (`verifiesLive`) or by fingerprint.
    *
    *  `startTicks` is captured BEFORE the `portsForPid` read so that read falls inside the
    *  bracket (#1925); it is null on a snapshot backend with no `cpuStatForPid`, which proves
@@ -884,10 +979,12 @@ export class ProcessReaper {
   private *candidatesOn(
     root: string,
     port: number,
+    sessionId?: string | null,
   ): Iterable<{ pid: number; startTicks: number | null }> {
     for (const proc of this.probes.scanProcs()) {
       if (proc.pid === process.pid) continue;
-      if (!isUnder(proc.cwd, root) || AGENT_COMMS.has(proc.comm)) continue;
+      if (AGENT_COMMS.has(proc.comm)) continue;
+      if (!containedBySession(proc, root, sessionId, this.scratchRoot, this.probes)) continue;
       const startTicks = openSignalBracket(proc, this.probes);
       if (!this.probes.portsForPid(proc.pid).includes(port)) continue;
       yield { pid: proc.pid, startTicks };
@@ -903,10 +1000,12 @@ export class ProcessReaper {
     pid: number,
     root: string,
     port: number,
+    sessionId?: string | null,
   ): boolean {
     const live = verify(pid);
     if (!live) return false;
-    if (!isUnder(live.cwd, root)) return false;
+    if (!containedBySession({ pid, cwd: live.cwd }, root, sessionId, this.scratchRoot, this.probes))
+      return false;
     if (AGENT_COMMS.has(live.comm)) return false;
     return live.ports.includes(port);
   }
@@ -1356,29 +1455,93 @@ export function scanClaudeAliveByWorktree(
   return result;
 }
 
+/** Everything one sweep needs to attribute a single process; built once per scan. */
+interface AttributionCtx {
+  roots: string[];
+  worktreePaths: string[];
+  /** sessionId → worktreePath, for the provenance fallback. */
+  pathBySession: Map<string, string>;
+  inodeMap: Map<number, number> | null;
+  scratchRoot: string | null;
+  probes: ReaperProbes;
+}
+
 /**
- * Scan listening ports for a set of worktree paths in a single pass.
+ * Resolve ONE process to the worktree whose listeners it belongs to.
+ *
+ * Returns null whenever the process is not a session's server: it is us or the agent, its
+ * cwd is neither under a worktree nor under the scratch root, it listens on nothing, or
+ * its marker names no session in this sweep.
+ */
+function attributeListener(
+  proc: { pid: number; cwd: string; comm: string },
+  ctx: AttributionCtx,
+): { path: string; ports: number[]; hintDirs: string[] } | null {
+  if (proc.pid === process.pid || AGENT_COMMS.has(proc.comm)) return null;
+  const owned = matchWorktreePath(proc.cwd, ctx.roots, ctx.worktreePaths);
+  if (owned === null && !isScratchRooted(proc.cwd, ctx.scratchRoot)) return null;
+
+  const ports = portsForProcBatched(proc.pid, ctx.inodeMap, ctx.probes);
+  if (ports.length === 0) return null; // not a server — and no reason to read its environ
+  if (owned !== null) return { path: owned, ports, hintDirs: [] };
+
+  // Environ LAST: only a scratchpad-rooted process that actually LISTENS is worth the
+  // mmap-lock read, which keeps the fallback's cost at zero on a normal sweep.
+  const sessionId = sessionMarkerFor(proc.pid, ctx.probes);
+  const path = sessionId === null ? undefined : ctx.pathBySession.get(sessionId);
+  if (path === undefined) return null;
+  return { path, ports, hintDirs: hintDirsFor(proc.cwd, ctx.scratchRoot!) };
+}
+
+/** One session to resolve listeners for. The id is the provenance key the scratchpad
+ *  fallback matches against `SESSION_MARKER_ENV`. */
+export interface ListenerScanTarget {
+  worktreePath: string;
+  sessionId: string;
+}
+
+/** What a worktree's listeners amount to for one sweep. */
+export interface WorktreeListeners {
+  /** Sorted unique listening ports. */
+  ports: number[];
+  /** Extra directories to look for a `.shepherd-preview` hint in, contributed by
+   *  scratchpad-rooted listeners. Always empty on a backend without `environForPid`. */
+  hintDirs: string[];
+}
+
+/**
+ * Scan listening ports for a set of sessions in a single pass.
  *
  * Builds the listening inode→port map EXACTLY ONCE, then resolves each
  * candidate PID's socket inodes against it — never rebuilds per-PID.
  * Excludes `claude` agent processes and the current process (process.pid).
  *
- * Returns a Map from worktreePath → sorted unique listening port numbers (every
- * supplied worktreePath appears as a key, empty array when no ports found), or
- * `null` when the snapshot backend cannot support a negative verdict
- * (`snapshotState()` is `"none"`/`"stale"`). An empty map here would drive
- * `converge` to tear down every bound preview, so `null` must be treated as
+ * A process whose cwd is under a worktree is that worktree's, as before. One whose cwd
+ * is under `scratchRoot` instead is resolved by its `SESSION_MARKER_ENV` marker (see the
+ * fallback header above) and contributes its own directory tree as hint locations.
+ *
+ * Returns a Map from worktreePath → listeners (every supplied worktreePath appears as a
+ * key, empty when nothing found), or `null` when the snapshot backend cannot support a
+ * negative verdict (`snapshotState()` is `"none"`/`"stale"`). An empty map here would
+ * drive `converge` to tear down every bound preview, so `null` must be treated as
  * "unknown, leave listeners bound", not as "no ports".
  */
 export function scanListeningPortsByWorktree(
-  worktreePaths: string[],
+  targets: ListenerScanTarget[],
   probes: ReaperProbes = defaultProbes,
-): Map<string, number[]> | null {
+  scratchRoot: string | null = null,
+): Map<string, WorktreeListeners> | null {
   if (probes.snapshotState && probes.snapshotState() !== "fresh") return null;
-  const result = new Map<string, number[]>(worktreePaths.map((p) => [p, []]));
+  const worktreePaths = [...new Set(targets.map((t) => t.worktreePath))];
+  const result = new Map<string, WorktreeListeners>(
+    worktreePaths.map((p) => [p, { ports: [], hintDirs: [] }]),
+  );
   if (worktreePaths.length === 0) return result;
 
   const roots = worktreePaths.map((p) => normRoot(p, probes));
+  // Keyed by session id, not worktree path: ids are unique, so two sessions sharing a
+  // worktree path resolve to that same path rather than shadowing each other.
+  const pathBySession = new Map(targets.map((t) => [t.sessionId, t.worktreePath]));
 
   // Build the inode→port map exactly once for all PIDs.
   // Both inodeToPortMap + socketInodesForPid must be supplied together;
@@ -1389,21 +1552,30 @@ export function scanListeningPortsByWorktree(
       : null;
 
   const portSets = new Map<string, Set<number>>(worktreePaths.map((p) => [p, new Set()]));
+  const hintSets = new Map<string, Set<string>>(worktreePaths.map((p) => [p, new Set()]));
 
+  const ctx: AttributionCtx = {
+    roots,
+    worktreePaths,
+    pathBySession,
+    inodeMap,
+    scratchRoot,
+    probes,
+  };
   for (const proc of probes.scanProcs()) {
-    if (proc.pid === process.pid || AGENT_COMMS.has(proc.comm)) continue;
-    const matchedPath = matchWorktreePath(proc.cwd, roots, worktreePaths);
-    if (matchedPath === null) continue;
-    const ports = portsForProcBatched(proc.pid, inodeMap, probes);
-    const set = portSets.get(matchedPath)!;
-    for (const port of ports) set.add(port);
+    const hit = attributeListener(proc, ctx);
+    if (hit === null) continue;
+    const set = portSets.get(hit.path)!;
+    for (const port of hit.ports) set.add(port);
+    const hintSet = hintSets.get(hit.path)!;
+    for (const dir of hit.hintDirs) hintSet.add(dir);
   }
 
-  for (const [path, set] of portSets) {
-    result.set(
-      path,
-      [...set].sort((a, b) => a - b),
-    );
+  for (const path of worktreePaths) {
+    result.set(path, {
+      ports: [...portSets.get(path)!].sort((a, b) => a - b),
+      hintDirs: [...hintSets.get(path)!],
+    });
   }
   return result;
 }

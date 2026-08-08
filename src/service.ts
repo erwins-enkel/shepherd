@@ -822,12 +822,14 @@ const RESEARCH_FIRST_NOTICE =
  * BRANCH_RENAME_NOTICE and the other spawn-constant notices. No i18n.
  */
 const PREVIEW_HINT_NOTICE =
-  "If you start a long-running dev server in this worktree and want Shepherd's live preview to " +
-  "target a specific port, write that port — a bare number, nothing else — to a file named " +
-  "`.shepherd-preview` in the repository root. Shepherd uses it only when that port is actually " +
-  "listening; otherwise it auto-detects the port. This is optional: skip it if you have no dev " +
-  "server or the default detection already targets the right port. Shepherd never starts or stops " +
-  "your dev server.";
+  "If you start a long-running dev server and want Shepherd's live preview to target a specific " +
+  "port, write that port — a bare number, nothing else — to a file named `.shepherd-preview` in " +
+  "the repository root. Start the server from this worktree whenever you can; if you are " +
+  "prototyping from your scratchpad instead, Shepherd still finds it, and the hint file then " +
+  "belongs in the directory you started the server from. Shepherd uses the declared port only " +
+  "when it is actually listening; otherwise it auto-detects the port. This is optional: skip it " +
+  "if you have no dev server or the default detection already targets the right port. Shepherd " +
+  "never starts or stops your dev server.";
 
 /**
  * Seeded into the system prompt at spawn when the repo has autopilot on, so the agent knows
@@ -4882,6 +4884,7 @@ export class SessionService {
       s.worktreePath,
       devPort,
       signal,
+      s.id,
     );
     // Both non-`ok` outcomes signalled NOTHING, and both are distinct from a genuine
     // zero-kill "stopped": the idle-stop escalation ladder must not advance on either,

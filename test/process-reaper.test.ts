@@ -61,7 +61,12 @@ function recycleAfterFirstRead(pid: number): (p: number) => CpuStat {
   return (p) => (p === pid && reads++ > 0 ? stat(TICKS + 7) : stat(TICKS));
 }
 
-const session = { worktreePath: "/wt/repo-x", claudeSessionId: "sess-1", isolated: true };
+const session = {
+  id: "s-1",
+  worktreePath: "/wt/repo-x",
+  claudeSessionId: "sess-1",
+  isolated: true,
+};
 
 test("class 2: a listening process under the worktree is detected", () => {
   const reaper = new ProcessReaper(
@@ -124,7 +129,7 @@ test("class 2: a non-isolated session (worktreePath == repo root) never cwd-scan
     }),
   );
   expect(
-    reaper.detect({ worktreePath: "/repo", claudeSessionId: "sess-1", isolated: false }),
+    reaper.detect({ id: "s-1", worktreePath: "/repo", claudeSessionId: "sess-1", isolated: false }),
   ).toEqual([]);
 });
 
@@ -136,6 +141,147 @@ test("class 2: the reaper never offers its own process (self-pid)", () => {
     }),
   );
   expect(reaper.detect(session)).toEqual([]);
+});
+
+// ── class 2 / stop: the scratchpad provenance fallback ───────────────────────
+//
+// An agent prototyping in its Claude scratchpad starts the dev server THERE, so the
+// cwd test alone never sees it. `SESSION_MARKER_ENV` is what re-attaches it to the
+// session — and it must reach the leftover sweep AND both halves of the stop path,
+// or Shepherd binds a preview it can neither stop nor clean up.
+
+const SCRATCH = "/scratch/claude-1000/wt-slug/cc-session/scratchpad";
+
+/** Probes for a listener at `cwd`, optionally carrying a session marker. */
+function scratchProbes(cwd: string, marker: string | null, over: Partial<ReaperProbes> = {}) {
+  return makeProbes({
+    scanProcs: () => [{ pid: 4242, cwd, comm: "vite" }],
+    portsForPid: (pid) => (pid === 4242 ? [5174] : []),
+    environForPid: (): Record<string, string> =>
+      marker === null ? {} : { SHEPHERD_SESSION_ID: marker },
+    ...over,
+  });
+}
+
+test("class 2: a scratchpad-rooted listener carrying this session's marker is offered", () => {
+  const reaper = new ProcessReaper(scratchProbes(`${SCRATCH}/proto`, "s-1"), "/scratch");
+  expect(reaper.detect(session)).toEqual([
+    {
+      kind: "process",
+      name: "vite",
+      port: 5174,
+      pid: 4242,
+      startTicks: TICKS,
+      key: "process:4242",
+    },
+  ]);
+});
+
+test("class 2: a scratchpad-rooted listener belonging to ANOTHER session is not offered", () => {
+  const reaper = new ProcessReaper(scratchProbes(`${SCRATCH}/proto`, "s-other"), "/scratch");
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("class 2: an unmarked scratchpad-rooted listener is not offered", () => {
+  const reaper = new ProcessReaper(scratchProbes(`${SCRATCH}/proto`, null), "/scratch");
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("class 2: no scratchRoot (redirect disabled) leaves the sweep cwd-only", () => {
+  const reaper = new ProcessReaper(scratchProbes(`${SCRATCH}/proto`, "s-1"));
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("class 2: a backend without environForPid cannot attribute by marker (darwin)", () => {
+  const probes = makeProbes({
+    scanProcs: () => [{ pid: 4242, cwd: `${SCRATCH}/proto`, comm: "vite" }],
+    portsForPid: () => [5174],
+    // environForPid deliberately absent
+  });
+  expect(new ProcessReaper(probes, "/scratch").detect(session)).toEqual([]);
+});
+
+test("class 2: a marked listener OUTSIDE the scratch root is still ignored", () => {
+  // Provenance alone is not containment: the cwd gate is what keeps the environ read
+  // (and the blast radius) off unrelated host processes.
+  const reaper = new ProcessReaper(scratchProbes("/tmp/elsewhere", "s-1"), "/scratch");
+  expect(reaper.detect(session)).toEqual([]);
+});
+
+test("stopListenersOnPort: signals a scratchpad-rooted listener of this session", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    scratchProbes(`${SCRATCH}/proto`, "s-1", {
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+    "/scratch",
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGTERM", "s-1")).toEqual({
+    signalled: 1,
+    outcome: "ok",
+  });
+  expect(killed).toEqual([4242]);
+});
+
+test("stopListenersOnPort: without the session id the scratchpad listener stays invisible", () => {
+  // The pre-fallback behaviour, and what a caller that forgets to thread the id gets:
+  // no candidate, `ok`/0 — never a signal against a process we cannot attribute.
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    scratchProbes(`${SCRATCH}/proto`, "s-1", {
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+    "/scratch",
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174)).toEqual({
+    signalled: 0,
+    outcome: "ok",
+  });
+  expect(killed).toEqual([]);
+});
+
+test("stopListenersOnPort: another session's scratchpad listener is never signalled", () => {
+  const killed: number[] = [];
+  const reaper = new ProcessReaper(
+    scratchProbes(`${SCRATCH}/proto`, "s-other", {
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+    "/scratch",
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGTERM", "s-1")).toEqual({
+    signalled: 0,
+    outcome: "ok",
+  });
+  expect(killed).toEqual([]);
+});
+
+test("stopListenersOnPort: verifiesLive judges a scratchpad candidate by the SAME rule that proposed it", () => {
+  // The divergence hazard: a snapshot backend proposes via `candidatesOn`, then re-proves
+  // via `verifiesLive`. If only the proposal knew about the fallback, every stop of a
+  // scratchpad-rooted server would come back "refused" having signalled nothing.
+  const killed: number[] = [];
+  const cwd = `${SCRATCH}/proto`;
+  const reaper = new ProcessReaper(
+    scratchProbes(cwd, "s-1", {
+      canAuthorizeSignal: false,
+      liveProcForPid: (pid) => (pid === 4242 ? { cwd, comm: "vite", ports: [5174] } : null),
+      killPid: (pid) => {
+        killed.push(pid);
+      },
+    }),
+    "/scratch",
+  );
+  expect(reaper.stopListenersOnPort("/wt/repo-x", 5174, "SIGTERM", "s-1")).toEqual({
+    signalled: 1,
+    outcome: "ok",
+  });
+  expect(killed).toEqual([4242]);
 });
 
 test("class 3: tailscale serve --bg is scraped from the transcript when its port still listens", () => {

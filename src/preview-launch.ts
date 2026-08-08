@@ -3,8 +3,14 @@ import { chmod, mkdir, stat, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { spawn } from "node:child_process";
-import { ProcessReaper, scanListeningPortsByWorktree } from "./process-reaper";
+import {
+  ProcessReaper,
+  scanListeningPortsByWorktree,
+  type ListenerScanTarget,
+  type WorktreeListeners,
+} from "./process-reaper";
 import { resolveDevPort } from "./preview";
+import { agentTmpDir } from "./tmp-sweep";
 
 const execFileAsync = promisify(execFile);
 
@@ -166,7 +172,7 @@ export interface FindDevPortDeps {
   refresh: (opts?: { force?: boolean }) => Promise<void>;
   /** Batched listening-port scan; returns `null` when the snapshot backend can't
    *  support a negative verdict. Defaults to the real `scanListeningPortsByWorktree`. */
-  scan: (worktrees: string[]) => Map<string, number[]> | null;
+  scan: (targets: ListenerScanTarget[]) => Map<string, WorktreeListeners> | null;
 }
 
 // Constructed without explicit probes, so it shares the module-private default
@@ -175,19 +181,20 @@ export interface FindDevPortDeps {
 const defaultReaper = new ProcessReaper();
 const defaultFindDevPortDeps: FindDevPortDeps = {
   refresh: (opts) => defaultReaper.refresh(opts),
-  scan: (worktrees) => scanListeningPortsByWorktree(worktrees),
+  scan: (targets) => scanListeningPortsByWorktree(targets, undefined, agentTmpDir()),
 };
 
 export async function findPreviewDevPort(
   worktreePath: string,
+  sessionId: string,
   deps: FindDevPortDeps = defaultFindDevPortDeps,
 ): Promise<number | null> {
   // Force so a dev server started within the coalescing window is seen (else a
   // start click could spawn a second server where an existing one would bind).
   await deps.refresh({ force: true });
-  const map = deps.scan([worktreePath]);
+  const map = deps.scan([{ worktreePath, sessionId }]);
   // `null` = unknown (darwin, stale/none cell) — no dev port can be asserted.
   if (map === null) return null;
-  const ports = map.get(worktreePath) ?? [];
-  return resolveDevPort(ports, worktreePath);
+  const listeners = map.get(worktreePath);
+  return resolveDevPort(listeners?.ports ?? [], [worktreePath, ...(listeners?.hintDirs ?? [])]);
 }

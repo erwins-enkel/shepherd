@@ -37,7 +37,7 @@ export function herdrAssetKey(
 /** The GitHub release-tag page for a version — the manual-install pointer the loud failure
  *  branches (and the preflight banner's no-asset fallback) hand the operator. */
 export function herdrReleaseTagUrl(version: string): string {
-  return `https://github.com/ogulcancelik/herdr/releases/tag/v${sanitizeVersion(version)}`;
+  return `https://github.com/herdrdev/herdr/releases/tag/v${sanitizeVersion(version)}`;
 }
 
 /** The version-addressable release-asset URL, built from a HARDCODED template (the same GitHub
@@ -48,7 +48,7 @@ export function herdrReleaseTagUrl(version: string): string {
  *  has nothing to protect, and a static remediation string (or a bare-host provision run, with no
  *  Shepherd process) has no service to call. */
 export function herdrReleaseUrl(version: string, assetKey: string): string {
-  return `https://github.com/ogulcancelik/herdr/releases/download/v${sanitizeVersion(version)}/herdr-${assetKey}`;
+  return `https://github.com/herdrdev/herdr/releases/download/v${sanitizeVersion(version)}/herdr-${assetKey}`;
 }
 
 /**
@@ -175,7 +175,7 @@ export function herdrPinnedInstallCommand(
   // built on the Shepherd host but can execute elsewhere (the harness applies it inside an Incus
   // instance), and provision.ts runs it on hosts Shepherd has never introspected. The arms must
   // agree with herdrAssetKey() — test/herdr-install.test.ts asserts that for every mapped pair.
-  const url = `https://github.com/ogulcancelik/herdr/releases/download/v${v}/herdr-$O-$A`;
+  const url = `https://github.com/herdrdev/herdr/releases/download/v${v}/herdr-$O-$A`;
   return [
     "(",
     `case "$(uname -s)" in Linux) O=linux ;; Darwin) O=macos ;;`,

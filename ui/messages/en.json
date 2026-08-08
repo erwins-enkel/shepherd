@@ -3556,5 +3556,7 @@
   "toast_terminal_unsupported": "Clean terminals need a newer herdr — update herdr and retry",
   "toast_broadcast_skipped_terminals": "{skipped} terminal session(s) skipped — terminals receive no steers",
   "feat_clean_terminal_title": "Clean terminal in the main repo",
-  "feat_clean_terminal_body": "Right-click a session row or a repo chip and pick “Clean terminal in main repo”: a bare shell opens directly in the repo's main checkout (not a worktree, no agent) — for quick git and CLI work. One terminal per repo; picking it again focuses the existing one. Exit the shell and the session archives itself."
+  "feat_clean_terminal_body": "Right-click a session row or a repo chip and pick “Clean terminal in main repo”: a bare shell opens directly in the repo's main checkout (not a worktree, no agent) — for quick git and CLI work. One terminal per repo; picking it again focuses the existing one. Exit the shell and the session archives itself.",
+  "feat_herdr_080_title": "herdr 0.8.0 is supported",
+  "feat_herdr_080_body": "The in-app herdr updater no longer blocks 0.8.0 — if you were seeing an update badge and a “not supported” refusal, that pair is resolved. Shepherd was verified against a live 0.8.0 daemon before the ceiling moved: its socket protocol (17 → 19) only adds methods and events, and the command surface Shepherd drives is unchanged. One teardown change needed handling: on 0.8.0 closing a workspace's last tab closes the whole workspace, so Shepherd now declines that close and keeps your workspace, its label and its tab arrangement intact."
 }

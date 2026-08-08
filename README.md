@@ -138,13 +138,14 @@ exists. It also invokes upstream installers it does not control — specifically
 `unzip`, and the C/C++ build toolchain + `python3` (needed for the node-pty native build). herdr is
 **not** installed through `herdr.dev/install.sh` (which is latest-only): Shepherd downloads a
 **version-pinned** binary from
-[github.com/ogulcancelik/herdr/releases](https://github.com/ogulcancelik/herdr/releases) — the
+[github.com/herdrdev/herdr/releases](https://github.com/herdrdev/herdr/releases) — the
 highest release Shepherd supports — verifies it reports that version, and installs it to
 `~/.local/bin`. That release binary is still third-party code fetched and executed on your machine.
 
-> **Shepherd supports herdr up to 0.7.5.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
-> Shepherd drives it through a CLI external-registration path. Don't upgrade past 0.7.5 yet —
-> Shepherd warns at startup and blocks its in-app herdr updater on any newer, untested version.
+> **Shepherd supports herdr up to 0.8.0.** herdr 0.7.5 (protocol 17) reshaped `agent start`;
+> Shepherd drives it through a CLI external-registration path, and 0.8.0 (protocol 19) keeps that
+> path — 17 → 19 only added methods and events. Shepherd warns at startup and blocks its in-app
+> herdr updater on any newer, untested version.
 
 In keeping with Shepherd's radical-transparency posture the script echoes each third-party command
 before running it. Read the script first:
@@ -695,7 +696,7 @@ Shepherd exists because of [herdr](https://herdr.dev), the agent multiplexer by
 herdr owns the real interactive PTYs that everything above is built on: it is what lets Shepherd
 drive genuine `claude` sessions instead of a headless SDK (the entire ToS-compliance model), and
 what lets sessions survive a Shepherd restart untouched. Thank you, Can. The source lives at
-[github.com/ogulcancelik/herdr](https://github.com/ogulcancelik/herdr).
+[github.com/herdrdev/herdr](https://github.com/herdrdev/herdr).
 
 ## License
 

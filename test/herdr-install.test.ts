@@ -89,10 +89,10 @@ describe("herdrPinnedInstallCommand: shape", () => {
 describe("herdrReleaseTagUrl", () => {
   it("points at the pinned release tag and sanitizes", () => {
     expect(herdrReleaseTagUrl("0.7.5")).toBe(
-      "https://github.com/ogulcancelik/herdr/releases/tag/v0.7.5",
+      "https://github.com/herdrdev/herdr/releases/tag/v0.7.5",
     );
     expect(herdrReleaseTagUrl("0.7.5; rm -rf ~")).toBe(
-      "https://github.com/ogulcancelik/herdr/releases/tag/v0.7.5",
+      "https://github.com/herdrdev/herdr/releases/tag/v0.7.5",
     );
   });
 });

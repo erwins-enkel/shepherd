@@ -20,7 +20,8 @@ on 2026-08-08. Implementation would be one or more follow-up issues; §6 ranks t
   `pull_request.stacked` webhook action, and an **official `gh-stack` SKILL.md that installs directly
   into Claude Code**.
 - **There is a compat gap that exists independent of anything we choose to build.** `forge.merge()` is
-  `gh pr merge --squash`, and GitHub documents that the legacy synchronous merge **cannot merge a
+  `gh pr merge` (method and `--delete-branch` come from `MergeInput`; `--squash` in practice because
+  `mergeMethod` defaults to `"squash"`), and GitHub documents that the legacy synchronous merge **cannot merge a
   stacked PR**. `--admin` bypass does not work on stacks either, and **auto-merge is unsupported
   entirely**. The merge train and the Backlog "Merge" button therefore fail against any stacked PR — and
   Shepherd already _renders_ stacked PRs (the `→base` chip), so the UI invites the click that breaks.
@@ -166,14 +167,16 @@ structure as data instead of narrative.
 This is the part that is arguably urgent regardless of which proposals land.
 
 1. **The merge train cannot merge a stacked PR.** `GithubForge.merge()`
-   (`src/forge/github.ts:1619`) shells out to `gh pr merge <n> --squash --delete-branch`. GitHub
+   (`src/forge/github.ts:1619-1625`) shells out to `gh pr merge <n> [--squash|--merge|--rebase]
+[--delete-branch]` — both flags conditional on `MergeInput`, with `--squash` the effective default
+   because `mergeMethod` defaults to `"squash"` (`src/forge/github.ts:440`). GitHub
    documents that the legacy synchronous merge path does not work on stacks. `AutoMergeService` would
    burn its `MERGE_ERROR_CAP = 3` retries and hold.
 2. **The Backlog "Merge" button has the same defect** — `POST /api/prs/merge` → `handlePrMerge` →
    `forge.merge`. And Shepherd _already displays_ stacked PRs: `PrRow.svelte` renders a `→{nonDefaultBase}`
    target-branch chip whose type comment literally says it "exists solely to surface non-default
    (**stacked**) PRs in the backlog PRs tab." We show them, then offer a button that fails.
-3. **`isFullAuto` only excludes `epic/` bases** (`src/full-auto.ts:24`). A session based on any other
+3. **`isFullAuto` only excludes `epic/` bases** (`src/full-auto.ts:25`). A session based on any other
    sibling branch is still train-eligible, and nothing rebases or retargets dependents after it lands.
 4. **`--admin` bypass and auto-merge are both unavailable on stacks**, so any future "just force it"
    recovery path is closed off by design.
@@ -202,7 +205,8 @@ attacked from the other side: instead of an AI pre-reviewing one big diff, the d
 along the seams the operator already signed off on.
 
 What is missing from the data model: no `branch`, `baseBranch`, or `prNumber` on `build_queue_steps`;
-rows are keyed by `sessionId` alone. Adding those three columns is the bulk of the work.
+a step's only external key is `sessionId` (the primary key itself is composite,
+`PRIMARY KEY (sessionId, id)`, `src/store.ts:1425`). Adding those three columns is the bulk of the work.
 
 ### 5.2 Epic dependency chains as stacks
 
@@ -217,8 +221,10 @@ _warning_ (`src/epic-model.ts:176`, surfaced in `EpicPanel.svelte:149`) — so S
 real dependency structure to be the norm.
 
 **A stack models one chain, and Shepherd's dependency model is a genuine DAG — so stacks augment
-`selectEpicCandidates`, they do not replace it.** `blockedBy` is a per-child _list_ of blockers
-(`src/types.ts:990`), and `assembleEpic` filters only self-loops and out-of-epic edges
+`selectEpicCandidates`, they do not replace it.** `blockedBy` is a per-child _list_ of blockers — the
+runtime form the gate reads is `EpicChild.blockedBy: number[]` (`src/epic-core.ts:15`); the
+pre-materialize draft form is `EpicDraftChild.blockedBy: string[]` (`src/types.ts:990`) — and
+`assembleEpic` filters only self-loops and out-of-epic edges
 (`src/epic-model.ts:135-145`). Fan-in and fan-out are both first-class: a child may have several
 blockers, and several children may share one.
 
@@ -436,6 +442,8 @@ GitHub auto-merge. It needs the async merge API, not the auto-merge feature.
 - [Community discussion #201439](https://github.com/orgs/community/discussions/201439)
 
 Shepherd source referenced: `src/forge/github.ts`, `src/forge/types.ts`, `src/full-auto.ts`,
-`src/automerge.ts`, `src/automerge-core.ts`, `src/drain.ts`, `src/epic-core.ts`, `src/epic-branch.ts`,
-`src/review.ts`, `src/autopilot.ts`, `src/service.ts`, `src/store.ts`, `src/types.ts`,
-`src/agent-skills.ts`, `ui/src/lib/components/PrRow.svelte`.
+`src/automerge.ts`, `src/automerge-core.ts`, `src/drain.ts`, `src/drain-core.ts`, `src/epic-core.ts`,
+`src/epic-branch.ts`, `src/epic-model.ts`, `src/epic-landing.ts`, `src/completed-epic.ts`,
+`src/review.ts`, `src/standalone-critic.ts`, `src/autopilot.ts`, `src/service.ts`, `src/store.ts`,
+`src/types.ts`, `src/agent-skills.ts`, `ui/src/lib/components/PrRow.svelte`,
+`ui/src/lib/components/EpicPanel.svelte`.

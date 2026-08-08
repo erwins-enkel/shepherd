@@ -29,6 +29,10 @@ test("isAgentIngressRoute: ALLOWS exactly the agent→server routes", () => {
   // Epic-draft author/inspect (issue #1507) — like queue, PUT + GET are agent routes.
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/epic-draft`))).toBe(true);
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/epic-draft`))).toBe(true);
+  // Self-read + self-rename (issue #2053): the coordinates the public `video-brief` skill uses to
+  // retitle its own session. SELF only — the id segment is the capability.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}`))).toBe(true);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/rename`))).toBe(true);
 });
 
 test("isAgentIngressRoute: DENIES everything else (containment property)", () => {
@@ -40,9 +44,23 @@ test("isAgentIngressRoute: DENIES everything else (containment property)", () =>
   expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/epic-draft`))).toBe(false);
   // Spawn a new session = full firewall escape; must never be reachable.
   expect(isAgentIngressRoute("POST", parts(`/api/sessions`))).toBe(false);
-  // Read/delete a session.
-  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}`))).toBe(false);
+  // Self-read is GET-only: nothing may mutate or destroy the session through the bare route.
   expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}`))).toBe(false);
+  expect(isAgentIngressRoute("PATCH", parts(`/api/sessions/${ID}`))).toBe(false);
+  // The enumeration route hiding in the SAME path shape as the self-read: GET /api/sessions/done
+  // answers with every recently-archived session across every repo. The id segment must look like
+  // a session UUID, which no reserved literal ever will.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/done`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/not-a-uuid`))).toBe(false);
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}x`))).toBe(false);
+  // An unknown sub-segment under a real session id is not a route.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/x`))).toBe(false);
+  // Rename is POST-only, exact-path.
+  expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/rename`))).toBe(false);
+  expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/rename`))).toBe(false);
+  expect(isAgentIngressRoute("DELETE", parts(`/api/sessions/${ID}/rename`))).toBe(false);
+  expect(isAgentIngressRoute("POST", parts(`/api/sessions/${ID}/rename/x`))).toBe(false);
   // Wrong methods on the allowed paths.
   expect(isAgentIngressRoute("GET", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
   expect(isAgentIngressRoute("PUT", parts(`/api/sessions/${ID}/hooks`))).toBe(false);
@@ -82,6 +100,7 @@ function makeDeps(): AppDeps {
       create: () => ({ worktreePath: "/wt", branch: "shepherd/x", isolated: true }),
       ensureBaseRef: async () => {},
       branchExists: () => false,
+      renameBranch: () => {},
       remove: () => {},
     } as any,
     herdr: {
@@ -210,6 +229,83 @@ test("makeAgentIngressApp: GET /api/sessions/:id/queue delegates — the agent c
   const q = await get.json();
   expect(q.steps.length).toBe(1);
   expect(q.steps[0].id).toBe("s1");
+});
+
+test("makeAgentIngressApp: GET /api/sessions/:id delegates to the canonical session read (issue #2053)", async () => {
+  // The `video-brief` skill reads its own session to learn the current name before proposing a
+  // better one. Delegation (not a bespoke ingress reader) is what keeps the payload identical to
+  // what the HUD sees — including the derived `hasScratchpadFiles` flag sessionRead attaches.
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const app = makeAgentIngressApp(deps);
+
+  const res = await app.fetch(new Request(`http://x/api/sessions/${s.id}`));
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  expect(body.id).toBe(s.id);
+  expect(body.name).toBe(s.name);
+  // The derived flag only sessionRead attaches — a bespoke ingress reader wouldn't have it.
+  expect(body).toHaveProperty("hasScratchpadFiles");
+});
+
+test("makeAgentIngressApp: GET /api/sessions/done is 404'd at the gate (no enumeration)", async () => {
+  // Same path SHAPE as the self-read above, but `done` is the Done-lens enumeration route: every
+  // recently-archived session across every repo. The UUID gate is what separates them.
+  const deps = makeDeps();
+  const res = await makeAgentIngressApp(deps).fetch(new Request("http://x/api/sessions/done"));
+  expect(res.status).toBe(404);
+  expect(await res.json()).toEqual({ error: "not found" });
+});
+
+test("makeAgentIngressApp: POST /api/sessions/:id/rename delegates to the canonical rename (issue #2053)", async () => {
+  // Self-rename must run the REAL handler: slugification, the open-PR display-only decision, the
+  // branch move, collision handling, persistence and the live event all stay centralized.
+  const deps = makeDeps();
+  const s = await deps.service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const renamed: unknown[] = [];
+  deps.events.subscribe((event, data) => {
+    if (event === "session:renamed") renamed.push(data);
+  });
+  const app = makeAgentIngressApp(deps);
+
+  const res = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/rename`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Login crash on submit" }),
+    }),
+  );
+  expect(res.status).toBe(200);
+  const body = await res.json();
+  // Slugified by the canonical handler, not stored verbatim.
+  expect(body.session.name).toBe("login-crash-on-submit");
+  expect(body.branchRenamed).toBe(true);
+  expect(deps.store.get(s.id)!.name).toBe("login-crash-on-submit");
+  expect(deps.store.get(s.id)!.branch).toBe("shepherd/login-crash-on-submit");
+  // The live event the HUD re-renders on fired too — proof the whole handler ran, not a shortcut.
+  expect(renamed.length).toBe(1);
+
+  // The handler's own validation is reachable: an invalid body is a 400, not a gate 404.
+  const bad = await app.fetch(
+    new Request(`http://x/api/sessions/${s.id}/rename`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "" }),
+    }),
+  );
+  expect(bad.status).toBe(400);
 });
 
 test("makeAgentIngressApp: the MCP endpoint delegates and drives the queue through a tool call (issue #2003)", async () => {

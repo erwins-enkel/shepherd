@@ -31,7 +31,7 @@ any sandbox exists, and it invokes upstream installers it does not control —
 for `git`, `unzip`, and the C/C++ build toolchain + `python3` (needed for the
 node-pty native build). herdr is **not** installed via `herdr.dev/install.sh`
 (latest-only); Shepherd downloads a **version-pinned** release binary from
-[GitHub](https://github.com/ogulcancelik/herdr/releases), verifies the version it
+[GitHub](https://github.com/herdrdev/herdr/releases), verifies the version it
 reports, and installs it to `~/.local/bin` — still third-party code fetched and
 executed on your machine. In keeping with
 Shepherd's radical-transparency posture the script echoes each third-party command
@@ -112,12 +112,13 @@ Open <http://localhost:7330>. To expose it (e.g. via Tailscale), set
 - [Bun](https://bun.sh) — backend runtime + package manager
 - `herdr` on `PATH` — [Can Celik](https://github.com/ogulcancelik)'s agent
   multiplexer ([herdr.dev](https://herdr.dev)); manages the interactive `claude`
-  panes (owns the PTYs). **herdr 0.7.5 is the last supported version — do not
-  upgrade past 0.7.5 yet.** herdr 0.7.5 (protocol 17) reshaped `agent start`, so
-  Shepherd spawns on it through a CLI external-registration path (`tab create` →
-  `pane run` → `report-agent`) rather than the legacy `agent start`. Any newer,
-  untested version is refused: Shepherd warns at startup, blocks the in-app
-  updater, and refuses to spawn on it.
+  panes (owns the PTYs). **herdr 0.8.0 is the last supported version.** herdr
+  0.7.5 (protocol 17) reshaped `agent start`, so Shepherd spawns through a CLI
+  external-registration path (`tab create` → `pane run` → `report-agent`) rather
+  than the legacy `agent start`; 0.8.0 (protocol 19) keeps that path, since
+  17 → 19 only added methods and events without removing or reshaping any. Any
+  newer, untested version is refused: Shepherd warns at startup, blocks the
+  in-app updater, and refuses to spawn on it.
 - The `claude` CLI, logged in with your Max/Pro subscription
 - Node.js — for the PTY helper subprocess
 

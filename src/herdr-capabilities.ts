@@ -5,22 +5,24 @@
 // Shepherd's legacy spawn command — an `env …` shim (always) wrapped, when a bwrap backend is
 // present, in `bwrap … -- env … claude …`. Shepherd now spawns on 0.7.5 through the CLI
 // external-registration path (`tab create` → `pane run` → `report-agent`, #1890), so 0.7.5 is fully
-// supported. This module is the single source of truth for the version ceilings; callers warn
+// supported — and 0.8.0 (protocol 19) with it, since 17 → 19 added methods/events without removing
+// or reshaping any (#2039). This module is the single source of truth for the version ceilings; callers warn
 // (preflight/diagnostics), fail spawns loudly (the driver), and block the in-app herdr-update for a
 // herdr newer than Shepherd can drive.
 import { compareSemver } from "./semver";
 
 /** The newest herdr version Shepherd's general ceiling admits. Feeds the preflight banner, the
- *  in-app updater block, and the diagnostics ceiling display. Re-converged with
- *  {@link HERDR_LAST_SPAWNABLE_VERSION} now that Shepherd drives 0.7.5 (#1893) — both are `0.7.5`;
- *  a herdr newer than this is warned/blocked/refused across the capability layer AND the driver. */
-export const HERDR_LAST_SUPPORTED_VERSION = "0.7.5";
+ *  in-app updater block, and the diagnostics ceiling display. Equal to
+ *  {@link HERDR_LAST_SPAWNABLE_VERSION} since #1893; a herdr newer than this is
+ *  warned/blocked/refused across the capability layer AND the driver. */
+export const HERDR_LAST_SUPPORTED_VERSION = "0.8.0";
 
-/** The newest herdr version the CLI driver can SPAWN on. 0.7.5 (protocol 17) is spawnable via the
- *  external-registration path (`tab create` → `pane run` → `report-agent`, #1890). Now equal to
- *  {@link HERDR_LAST_SUPPORTED_VERSION} — the two were briefly decoupled while the CLI driver could
- *  spawn on 0.7.5 but the capability layer still gated at 0.7.4; #1893 re-converged them. */
-export const HERDR_LAST_SPAWNABLE_VERSION = "0.7.5";
+/** The newest herdr version the CLI driver can SPAWN on. 0.8.0 (protocol 19) still spawns via the
+ *  external-registration path introduced for 0.7.5 (`tab create` → `pane run` → `report-agent`,
+ *  #1890): protocol 17 → 19 is purely additive (`workspace.move_block`, the `workspace.reordered`
+ *  event, two new `IntegrationTarget`s), with no method, param or result shape removed or reshaped,
+ *  so the 0.7.5 spawn surface carries over unchanged (#2039). */
+export const HERDR_LAST_SPAWNABLE_VERSION = "0.8.0";
 
 /** First herdr version that requires the external-registration spawn path instead of `agent start`
  *  (protocol 17 reshaped `agent start` so the wrapped `env …`/`bwrap …` argv can no longer be

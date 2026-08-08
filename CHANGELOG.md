@@ -1,5 +1,57 @@
 # Changelog
 
+## [1.47.0](https://github.com/erwins-enkel/shepherd/compare/v1.46.0...v1.47.0) (2026-08-08)
+
+
+### Features
+
+* adopt the Claude 5 context-engineering rules in Shepherd's prompt assembly (epic [#2005](https://github.com/erwins-enkel/shepherd/issues/2005)) ([#2018](https://github.com/erwins-enkel/shepherd/issues/2018)) ([561e577](https://github.com/erwins-enkel/shepherd/commit/561e577cdf777b7b0ab4d5c197fd7267f7ca2a02))
+* **agent-cli:** support mise-managed claude/codex install + update ([#2051](https://github.com/erwins-enkel/shepherd/issues/2051)) ([aaddc48](https://github.com/erwins-enkel/shepherd/commit/aaddc48befc2d96a26cc72c5ebfa45a030832c98))
+* **api:** export a whole session by Task-ID ([#1989](https://github.com/erwins-enkel/shepherd/issues/1989)) ([f54479f](https://github.com/erwins-enkel/shepherd/commit/f54479fbc0e3061f7f4117035bfb1b8e53978d8e))
+* **preview:** arm macOS preview stop behind a kill-age bound ([#1922](https://github.com/erwins-enkel/shepherd/issues/1922)) ([#2025](https://github.com/erwins-enkel/shepherd/issues/2025)) ([38270f0](https://github.com/erwins-enkel/shepherd/commit/38270f0a6fc735242ded3c7aa6c4abf94c35d993))
+* recommend the public video-brief skill for video tasks ([#2053](https://github.com/erwins-enkel/shepherd/issues/2053)) ([#2057](https://github.com/erwins-enkel/shepherd/issues/2057)) ([1105517](https://github.com/erwins-enkel/shepherd/commit/1105517d4217345970180bc0b8a6ae340a7ef92a))
+* **sessions:** per-session interrupt (POST /api/sessions/:id/interrupt) ([#1996](https://github.com/erwins-enkel/shepherd/issues/1996)) ([780d95e](https://github.com/erwins-enkel/shepherd/commit/780d95e98b540da05c9034d9997be2aecc4f7272))
+* **terminal:** clean-terminal session in the main repo via right-click menus ([#2040](https://github.com/erwins-enkel/shepherd/issues/2040)) ([023d4bc](https://github.com/erwins-enkel/shepherd/commit/023d4bc60fb07cbdfed7376c124234c04c59dfee))
+* **ui:** per-session stop on the session-card menu ([#1995](https://github.com/erwins-enkel/shepherd/issues/1995)) ([#2007](https://github.com/erwins-enkel/shepherd/issues/2007)) ([2911f6d](https://github.com/erwins-enkel/shepherd/commit/2911f6d7f8fde959a0768506d70e5d27004ad8cb))
+* **ui:** reveal New Task shortcuts on hold, from one keymap registry ([#1974](https://github.com/erwins-enkel/shepherd/issues/1974)) ([0f81275](https://github.com/erwins-enkel/shepherd/commit/0f812753e00036fb29cc96eaa5d216aa2f2cf71b))
+* **ui:** switch repo mid-compose in two taps, keyboard up ([#1997](https://github.com/erwins-enkel/shepherd/issues/1997)) ([7c80d77](https://github.com/erwins-enkel/shepherd/commit/7c80d77271041ed2e4ff10772c2c582003f23019))
+
+
+### Bug Fixes
+
+* **api:** read Codex rollouts in GET /api/sessions/:id/activity ([#1994](https://github.com/erwins-enkel/shepherd/issues/1994)) ([0bc0d24](https://github.com/erwins-enkel/shepherd/commit/0bc0d246fc869aef4c1c57b8327077a31811d318))
+* **api:** resolve session activity under spawnAccountDir ([#1991](https://github.com/erwins-enkel/shepherd/issues/1991)) ([a52b9e3](https://github.com/erwins-enkel/shepherd/commit/a52b9e33f369b0b7fd573cd4b6111896143b219f)), closes [#1990](https://github.com/erwins-enkel/shepherd/issues/1990)
+* **critic:** carry the verdict body as a markdown sidecar ([#2046](https://github.com/erwins-enkel/shepherd/issues/2046)) ([dbb9a02](https://github.com/erwins-enkel/shepherd/commit/dbb9a02f50501067bbeaf1af2366c67b1a004078))
+* **diagnostics:** report a tailscale serve config Shepherd may not write ([#1981](https://github.com/erwins-enkel/shepherd/issues/1981)) ([36ffdb6](https://github.com/erwins-enkel/shepherd/commit/36ffdb689b52249d9d780f8406218f045ed4f17e))
+* **epic:** strip leading `Epic:`, lowercase landing-PR subject ([#2022](https://github.com/erwins-enkel/shepherd/issues/2022)) ([be7624f](https://github.com/erwins-enkel/shepherd/commit/be7624f32edc6d011f4235090bc70d31e6b537b2))
+* **herdr:** key every helper-tab reaper on the tab label ([#2029](https://github.com/erwins-enkel/shepherd/issues/2029)) ([#2034](https://github.com/erwins-enkel/shepherd/issues/2034)) ([f9b37cf](https://github.com/erwins-enkel/shepherd/commit/f9b37cfb547f0411064fcb880b974763cd51847a))
+* **plugin-ui:** stop password managers autofilling plugin inputs ([#1988](https://github.com/erwins-enkel/shepherd/issues/1988)) ([4bf1d81](https://github.com/erwins-enkel/shepherd/commit/4bf1d810c9a9c457bfb10ce8ad1a169096dfad8b)), closes [#1978](https://github.com/erwins-enkel/shepherd/issues/1978)
+* **preview:** see dev servers agents start in the scratchpad ([#2050](https://github.com/erwins-enkel/shepherd/issues/2050)) ([e3a682b](https://github.com/erwins-enkel/shepherd/commit/e3a682b3e322f30ec65f4819a436ca210618f489))
+* **preview:** surface probesUnavailable on the decommission surfaces ([#1923](https://github.com/erwins-enkel/shepherd/issues/1923)) ([#2024](https://github.com/erwins-enkel/shepherd/issues/2024)) ([01413a1](https://github.com/erwins-enkel/shepherd/commit/01413a1bfb16a259979488ef39516fed99bdcfbc))
+* **reaper:** guard every killPid site with a pid-recycle fingerprint ([#1925](https://github.com/erwins-enkel/shepherd/issues/1925)) ([#2026](https://github.com/erwins-enkel/shepherd/issues/2026)) ([cec6641](https://github.com/erwins-enkel/shepherd/commit/cec6641f9fe667e21ca04a46c8f122e72c8ebfbc))
+* session rename must not move a branch heading an open PR ([#1927](https://github.com/erwins-enkel/shepherd/issues/1927)) ([#2023](https://github.com/erwins-enkel/shepherd/issues/2023)) ([82a8390](https://github.com/erwins-enkel/shepherd/commit/82a83909ff0e92c3b292ff1bc193aa24bbedac8c))
+* **skills:** hand epic import to the operator, agents can't reach it ([#2010](https://github.com/erwins-enkel/shepherd/issues/2010)) ([a9f0d1e](https://github.com/erwins-enkel/shepherd/commit/a9f0d1e01c7aad601f1338058d28183091078b3d)), closes [#2009](https://github.com/erwins-enkel/shepherd/issues/2009)
+* **tailscale:** latch a serve-config denial seen by unregister ([#2006](https://github.com/erwins-enkel/shepherd/issues/2006)) ([dbdff45](https://github.com/erwins-enkel/shepherd/commit/dbdff45d3cddc69de22e86c9780e0f33a8a97647)), closes [#1998](https://github.com/erwins-enkel/shepherd/issues/1998)
+* **test:** skip darwin lsof probe test when lsof is absent ([#1984](https://github.com/erwins-enkel/shepherd/issues/1984)) ([0724fc1](https://github.com/erwins-enkel/shepherd/commit/0724fc1bf464f34e7ef7c2acc27b57c30af6f8c5)), closes [#1977](https://github.com/erwins-enkel/shepherd/issues/1977)
+* **ui:** prefer active filter in repos dialog ([#2054](https://github.com/erwins-enkel/shepherd/issues/2054)) ([f5c5977](https://github.com/erwins-enkel/shepherd/commit/f5c597786d9935dfa64406dc47afa2695218095a))
+* **ui:** wrap glossary tooltip prose instead of a one-line scrollbar ([#2035](https://github.com/erwins-enkel/shepherd/issues/2035)) ([f215414](https://github.com/erwins-enkel/shepherd/commit/f2154148321f8c0437a911666068c40ce5a9e1e1))
+
+
+### Performance Improvements
+
+* stop rebuilding every Vercel project on every commit ([#2030](https://github.com/erwins-enkel/shepherd/issues/2030)) ([701b580](https://github.com/erwins-enkel/shepherd/commit/701b5801128c693744d12df8ba1a5dd7052a809f)), closes [#2027](https://github.com/erwins-enkel/shepherd/issues/2027)
+
+
+### Code Refactoring
+
+* doctor pass on CLAUDE.md + shipped skills ([#2016](https://github.com/erwins-enkel/shepherd/issues/2016)) ([7350ff6](https://github.com/erwins-enkel/shepherd/commit/7350ff64c47589c095aa97286947a171864657bc))
+
+
+### Documentation
+
+* **research:** native iOS client vs the PWA — verdict: not now ([#1983](https://github.com/erwins-enkel/shepherd/issues/1983)) ([78f029f](https://github.com/erwins-enkel/shepherd/commit/78f029fe55a1cb3b9e2965ea3399fa4063231b20))
+* sync docs to recent source changes ([#2038](https://github.com/erwins-enkel/shepherd/issues/2038)) ([98d6170](https://github.com/erwins-enkel/shepherd/commit/98d6170e3bc9317fbded3e3dd3969ca43e8e98df))
+
 ## [1.46.0](https://github.com/erwins-enkel/shepherd/compare/v1.45.0...v1.46.0) (2026-07-31)
 
 

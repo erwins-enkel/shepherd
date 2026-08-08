@@ -85,18 +85,40 @@ its hostname to `SHEPHERD_ALLOWED_HOSTS`.
 | `effort`        | `"low" \| "medium" \| "high" \| "xhigh" \| "max"`, `"default"`, or `null`                                                                                                                        | —        | Reasoning-effort tier. Omit/`null`/`"default"` = the provider CLI's own default (no effort flag). Passed through as `--effort` for Claude; for Codex `xhigh`/`max` clamp down to `high` at spawn (Codex's domain tops out at `high`)                                       |
 | `images`        | `string[]`                                                                                                                                                                                       | —        | ≤10 paths, each confined to the upload staging dir (see `POST /api/uploads`)                                                                                                                                                                                               |
 | `force`         | boolean                                                                                                                                                                                          | —        | `true` bypasses the usage-aware hold gate so the task spawns even at high usage (transport-only; not stored on the session)                                                                                                                                                |
+| `terminal`      | `true`                                                                                                                                                                                           | —        | Selects the **clean-terminal** arm of the create union (see below). Present-but-not-`true` is a `400`                                                                                                                                                                      |
+
+The body is a **discriminated union** on `terminal`. Omitting it (or the whole
+field) creates an ordinary agent task, exactly as documented above. Sending
+`{"repoPath": "…", "terminal": true}` instead creates a **clean terminal** — a
+bare operator shell opened directly in the repo's **main checkout** (no agent, no
+worktree, no prompt), which the HUD attaches to like any other session terminal.
+The terminal arm has no other members: a stray `prompt`, `baseBranch`, `model`,
+… is an unknown-key `400` rather than a silently ignored field. Because it spawns
+no agent it is never held by the usage gate, and a held task can't be edited into
+one (`PATCH /api/held/:id` refuses it `400`). There is at most **one** terminal per
+repo — a second create is refused `409 { "error": "terminal_exists", "existingId": … }`
+so the caller can focus the one already open.
+
+A clean terminal is fenced out of every agent-input flow: `reply`, `interrupt`,
+`resume`, `relaunch`, `replace`, `restore`, and `preview` all answer
+`409 { "error": "terminal_session" }` for one, and `POST /api/broadcast` skips
+terminals — its result counts them in an additive `skipped` field
+(`{ delivered, queued, offline, skipped, total }`). Archiving
+(`DELETE /api/sessions/:id`) works normally and closes the underlying herdr tab;
+Shepherd also archives the session on its own once the shell has exited.
 
 ### Responses
 
-| Status | Meaning                                                                                                                                                                                                                  |
-| ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                                                                                    |
-| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                                                                                        |
-| `400`  | Validation failed — body `{ error }`                                                                                                                                                                                     |
-| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer)                                                                   |
-| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                                                                                                |
-| `409`  | First-run gate pending — a fresh install whose repo root hasn't been picked yet; body `{ error: "first_run_pending" }`. Pick a workspace folder in the HUD (or start the server with `SHEPHERD_REPO_ROOT` set) and retry |
-| `415`  | Missing/incorrect `Content-Type`                                                                                                                                                                                         |
+| Status | Meaning                                                                                                                                                                                                                                                                                   |
+| ------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `200`  | **Held** by the usage-aware hold gate — body `{ held: true, id, count }`; the task is queued, not spawned (see below)                                                                                                                                                                     |
+| `201`  | Created — body is the full `Session` (`id`, `desig`, `status`, `worktreePath`, …)                                                                                                                                                                                                         |
+| `400`  | Validation failed — body `{ error }`                                                                                                                                                                                                                                                      |
+| `401`  | No valid session cookie **and** no valid bearer token (the server is gated by default — machine clients must set `SHEPHERD_TOKEN` and send the bearer)                                                                                                                                    |
+| `403`  | Origin header present and not in `SHEPHERD_ALLOWED_HOSTS`                                                                                                                                                                                                                                 |
+| `409`  | First-run gate pending — a fresh install whose repo root hasn't been picked yet; body `{ error: "first_run_pending" }`. Pick a workspace folder in the HUD (or start the server with `SHEPHERD_REPO_ROOT` set) and retry                                                                  |
+| `409`  | Clean-terminal conflict — `{ error: "terminal_exists", existingId }` (that repo already has a terminal), `{ error: "terminal_unsupported" }` (the installed herdr has no `terminal session control`), or `{ error: "terminal_session" }` (an agent-only verb aimed at a terminal session) |
+| `415`  | Missing/incorrect `Content-Type`                                                                                                                                                                                                                                                          |
 
 ## Usage-aware hold gate
 

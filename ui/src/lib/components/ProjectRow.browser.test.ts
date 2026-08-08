@@ -1,10 +1,11 @@
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect, vi, afterEach } from "vitest";
 import { render } from "vitest-browser-svelte";
 import { page } from "vitest/browser";
 import "../../app.css";
 import ProjectRow from "./ProjectRow.svelte";
 import type { BacklogProject } from "$lib/types";
 import { m } from "$lib/paraglide/messages";
+import { projectIcons } from "$lib/projectIcons.svelte";
 
 function project(partial: Partial<BacklogProject> = {}): BacklogProject {
   return {
@@ -81,6 +82,37 @@ describe("ProjectRow PR-kind counts", () => {
     const prs = document.body.querySelector(".count-prs");
     expect(prs?.textContent?.trim()).toBe("5");
     expect(document.body.querySelector(".bot-note")).toBeNull();
+  });
+});
+
+describe("ProjectRow repo glyph", () => {
+  afterEach(() => projectIcons.apply({}));
+
+  it("shows the configured project emoji", () => {
+    projectIcons.apply({ "/repo/a": "🐑" });
+    render(ProjectRow, {
+      project: project(),
+      pinned: false,
+      selected: false,
+      onselect: () => {},
+      onhide: () => {},
+    });
+    const glyph = document.body.querySelector(".row-glyph");
+    expect(glyph?.textContent?.trim()).toBe("🐑");
+    expect(glyph?.classList.contains("emoji")).toBe(true);
+  });
+
+  it("falls back to the ▣ marker when the repo has no icon", () => {
+    render(ProjectRow, {
+      project: project(),
+      pinned: false,
+      selected: false,
+      onselect: () => {},
+      onhide: () => {},
+    });
+    const glyph = document.body.querySelector(".row-glyph");
+    expect(glyph?.textContent?.trim()).toBe("▣");
+    expect(glyph?.classList.contains("emoji")).toBe(false);
   });
 });
 

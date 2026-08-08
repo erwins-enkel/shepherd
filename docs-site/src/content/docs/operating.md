@@ -109,6 +109,28 @@ the package-manager store reclaim, which doesn't depend on process data. Idle-st
 behaves the same way; see `SHEPHERD_PREVIEW_IDLE_STOP_MS` in
 [Configuration](/reference/configuration/).
 
+## Agent CLIs managed by mise
+
+If `claude` or `codex` is managed by [mise](https://mise.jdx.dev), Shepherd works
+_with_ that install instead of planting a second one beside it.
+
+**Installing.** When a `claude`/`codex` check is red and `mise which <tool>` resolves,
+the **Fix** button symlinks the mise binary into `~/.local/bin` rather than running the
+vendor installer. mise exposes tools through a shims dir that isn't on the systemd
+unit's `PATH`, and `mise activate` only runs in interactive shells — so the binary
+existed, it was just unreachable. `~/.local/bin` **is** on the unit's `PATH`. Hosts
+without mise, and tools mise doesn't manage, get the vendor installer exactly as before.
+
+**Updating.** When mise owns the `codex` on `PATH` — a shim, an install path, or a
+symlink resolving to one — the codex update runs `mise upgrade codex` and **nothing
+else**. `mise upgrade` respects the version request in your mise config, so a pinned
+codex won't advance; Shepherd then reports the update as not converged and points you at
+`mise use -g codex@latest` rather than falling back to `codex update` or `npm install -g`,
+either of which would install a second codex shadowing the mise-managed one.
+
+Claude Code has no Shepherd-side updater (it self-updates), so a mise-managed `claude` is
+upgraded by you: `mise upgrade claude`.
+
 ## Host tuning — tmpfs inodes
 
 Shepherd keeps spawned agents' Node compile cache **off** the `/tmp` tmpfs and runs

@@ -1,7 +1,16 @@
 import { HERDR_LAST_SUPPORTED_VERSION } from "../src/herdr-capabilities";
 import { describe, expect, it } from "bun:test";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readlinkSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { REMEDIATIONS, autoFixCommandFor, HERDR_SERVE, HERDR_INSTALL } from "../src/remediations";
@@ -334,4 +343,124 @@ describe("herdr_outdated is behaviorally recover-on-fail, not just shaped right 
     }
     // buildUpdateScript's grace loop sleeps 3×2s before the fallback — allow for it.
   }, 15_000);
+});
+
+// ── claude/codex install: mise-managed hosts must not get a second copy ────────
+//
+// EXECUTED, not string-matched: which branch a host takes is the whole feature. The PATH
+// here is tighter than makeSandbox's usual one and deliberately EXCLUDES the system bin
+// dirs — a developer host really can have mise in /usr/bin, and inheriting it would make
+// the "no mise" cases flip branch depending on whose machine runs the suite. Only the few
+// externals the remediation and the stubs need are linked in, resolved from the real PATH
+// so this is not pinned to a distro's /usr/bin layout.
+
+/** Sandbox HOME with a stubbed `curl` (records the native-installer branch) and, optionally,
+ *  a stubbed `mise`. Returns the marker paths the assertions read. */
+function makeInstallSandbox(mise: "absent" | "unmanaged" | "manages") {
+  const dir = mkdtempSync(join(tmpdir(), "agent-cli-install-"));
+  const binDir = join(dir, ".local", "bin");
+  const sysBin = join(dir, "sysbin");
+  mkdirSync(binDir, { recursive: true });
+  mkdirSync(sysBin);
+  // mkdir/ln for the mise branch, touch for the stubs' markers, sh/bash for the `| sh` and
+  // `| bash` the native installers end in. Throw rather than degrade: a silently missing
+  // util would make the native branch look un-taken and pass the wrong assertion.
+  for (const util of ["mkdir", "ln", "touch", "sh", "bash"]) {
+    const real = Bun.which(util);
+    if (!real) throw new Error(`test host has no \`${util}\``);
+    symlinkSync(real, join(sysBin, util));
+  }
+  const curlRan = join(dir, "curl.ran");
+  // `| bash` still runs on the native branch, so the stub must emit a script bash can read.
+  writeFileSync(join(binDir, "curl"), `#!/bin/sh\ntouch '${curlRan}'\necho ':'\n`, { mode: 0o755 });
+  const installs = join(dir, ".local", "share", "mise", "installs");
+  if (mise !== "absent") {
+    writeFileSync(
+      join(binDir, "mise"),
+      mise === "manages"
+        ? `#!/bin/sh\n[ "$1" = which ] && echo "${installs}/$2/bin/$2"\nexit 0\n`
+        : `#!/bin/sh\nexit 1\n`, // `mise which <tool>` fails ⇒ mise does not manage it
+      { mode: 0o755 },
+    );
+  }
+  return {
+    dir,
+    curlRan,
+    binDir,
+    misePathFor: (tool: string) => join(installs, tool, "bin", tool),
+    run: (cmd: string) =>
+      spawnSync("sh", ["-c", cmd], {
+        env: { ...process.env, HOME: dir, PATH: `${binDir}:${sysBin}` },
+        encoding: "utf8",
+      }),
+  };
+}
+
+describe("claude/codex install remediation is mise-aware", () => {
+  for (const [tool, hint] of [
+    ["claude", "diagnostics_hint_claude_missing"],
+    ["codex", "diagnostics_hint_codex_missing"],
+  ] as const) {
+    it(`${tool}: a mise-managed tool is linked into ~/.local/bin, never re-installed`, () => {
+      const s = makeInstallSandbox("manages");
+      try {
+        s.run(REMEDIATIONS[hint]!);
+        // the binary already exists — it was only unreachable from shepherd.service's PATH
+        expect(readlinkSync(join(s.binDir, tool))).toBe(s.misePathFor(tool));
+        expect(existsSync(s.curlRan)).toBe(false); // a second, diverging copy is the bug
+      } finally {
+        rmSync(s.dir, { recursive: true, force: true });
+      }
+    });
+
+    it(`${tool}: no mise on the host → the native installer, unchanged`, () => {
+      const s = makeInstallSandbox("absent");
+      try {
+        s.run(REMEDIATIONS[hint]!);
+        expect(existsSync(s.curlRan)).toBe(true);
+        expect(existsSync(join(s.binDir, tool))).toBe(false);
+      } finally {
+        rmSync(s.dir, { recursive: true, force: true });
+      }
+    });
+
+    it(`${tool}: mise installed but not managing it → still the native installer`, () => {
+      // mise's mere presence must never divert: only "mise can hand us this binary" does.
+      const s = makeInstallSandbox("unmanaged");
+      try {
+        s.run(REMEDIATIONS[hint]!);
+        expect(existsSync(s.curlRan)).toBe(true);
+        expect(existsSync(join(s.binDir, tool))).toBe(false);
+      } finally {
+        rmSync(s.dir, { recursive: true, force: true });
+      }
+    });
+  }
+
+  it("keeps the verbatim native installers the harness and provision.ts rely on", () => {
+    expect(REMEDIATIONS.diagnostics_hint_claude_missing).toContain(
+      "curl -fsSL https://claude.ai/install.sh | bash",
+    );
+    expect(REMEDIATIONS.diagnostics_hint_codex_missing).toContain(
+      "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh",
+    );
+    // `optional` (the other CLI is present) fixes the same way as `missing`
+    expect(REMEDIATIONS.diagnostics_hint_claude_optional).toBe(
+      REMEDIATIONS.diagnostics_hint_claude_missing,
+    );
+    expect(REMEDIATIONS.diagnostics_hint_codex_optional).toBe(
+      REMEDIATIONS.diagnostics_hint_codex_missing,
+    );
+  });
+
+  it("stays one-click fixable in-app for every agent-CLI hint", () => {
+    for (const hint of [
+      "diagnostics_hint_claude_missing",
+      "diagnostics_hint_claude_optional",
+      "diagnostics_hint_codex_missing",
+      "diagnostics_hint_codex_optional",
+    ]) {
+      expect(autoFixCommandFor(hint)).toBe(REMEDIATIONS[hint]!);
+    }
+  });
 });

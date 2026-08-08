@@ -103,10 +103,21 @@ function sanitizeVersion(v: string | null | undefined): string {
   return clean || "unknown";
 }
 
-/** The two installers that can update the codex on PATH. Which one actually
- *  WORKS is a property of the host, not something either side can know up front
- *  — see {@link buildUpdateScript}. */
-export type CodexUpdateChannel = "npm" | "codex";
+/** The installers that can update the codex on PATH. Which one actually WORKS is
+ *  a property of the host, not something either side can know up front — see
+ *  {@link buildUpdateScript}. `mise` is not a peer of the other two: it applies
+ *  only when mise OWNS the on-PATH codex, and then it is the only channel. */
+const CODEX_UPDATE_CHANNELS = ["npm", "codex", "mise"] as const;
+export type CodexUpdateChannel = (typeof CODEX_UPDATE_CHANNELS)[number];
+
+/** Narrow an untrusted value (the persisted memo, a parsed log marker) to a
+ *  channel. ONE validator so the union cannot grow past a hard-coded membership
+ *  test left behind in the store read or the marker parse. */
+export function parseCodexUpdateChannel(value: unknown): CodexUpdateChannel | null {
+  return (CODEX_UPDATE_CHANNELS as readonly unknown[]).includes(value)
+    ? (value as CodexUpdateChannel)
+    : null;
+}
 
 /** Marker the script emits once the on-PATH version has ADVANCED, naming the
  *  channel that did it. This is the ONLY attribution of a winning channel:
@@ -127,7 +138,8 @@ export const CONVERGED_MARKER = `${CODEX_UPDATE_LOG_PREFIX} converged via channe
  *   put (issue #1560).
  * - **`npm install -g @openai/codex`** — updates the npm-global copy.
  *
- * Neither is universally right. `codex update` SELF-SELECTS its channel, and that
+ * …unless **mise owns the codex we run**, which changes the shape entirely (see the mise section
+ * below). Neither is universally right. `codex update` SELF-SELECTS its channel, and that
  * choice can miss the install actually on PATH: on a host whose on-PATH `codex` is
  * a wrapper resolving to the npm-global copy, `codex update` may run `bun install
  * -g`, succeed, exit 0 — and change nothing the operator runs. Success therefore
@@ -141,6 +153,19 @@ export const CONVERGED_MARKER = `${CODEX_UPDATE_LOG_PREFIX} converged via channe
  * that changed channels), which rewrites the memo. With no memo yet, the order is
  * `codex update` then npm — the historical order, so a fresh host is never worse
  * off than before.
+ *
+ * **mise-managed codex.** If the codex actually on PATH is one mise hands out, BOTH channels above
+ * are wrong: `codex update` cannot repoint a mise install, and npm would install a second codex that
+ * shadows — or is shadowed by — the mise-managed one. So a mise-owned codex gets `mise upgrade
+ * codex` as the ONLY channel, with no fallback. `mise upgrade` deliberately respects the version
+ * request in the operator's mise config, so a PINNED codex does not advance and the run reports
+ * non-converged (naming `mise use -g codex@latest` as the operator's escape hatch) rather than
+ * shadow-installing past the pin. Ownership is tested two ways because both host shapes exist: the
+ * on-PATH path lies under `$MISE_DATA_DIR` (a shim, or a direct install path), or it resolves to the
+ * same real file as `mise which codex` (the `~/.local/bin` symlink our own install remediation
+ * creates). Realpath alone is not enough — a mise shim is a symlink to the `mise` BINARY, not into
+ * the install tree. When mise does not own it, everything below is unchanged, and a stale `mise`
+ * memo simply falls through to the default order like any non-runnable channel.
  *
  * Safety rails baked into the script:
  * - **Probe first.** `codex update` is only ever invoked if `codex --help`
@@ -178,7 +203,7 @@ export function buildUpdateScript(
   const cx = `'${codexBin.replace(/'/g, "'\\''")}'`;
   const P = CODEX_UPDATE_LOG_PREFIX;
   // `preferred` is a closed union, never interpolated from an external string.
-  const pref = preferred === "npm" || preferred === "codex" ? preferred : "";
+  const pref = parseCodexUpdateChannel(preferred) ?? "";
   const readVersion = `"$CX" --version 2>/dev/null | grep -oE '[0-9]+[.][0-9]+[.][0-9]+' | head -1`;
   return [
     `LOG=${q}`,
@@ -196,17 +221,42 @@ export function buildUpdateScript(
     // reveals PATH duplicates — the documented cause of a non-converging update.
     `  dups="$(type -a codex 2>/dev/null || true)"`,
     `  echo "${P} codex on PATH:" $dups`,
+    // Does mise OWN the codex we run? Two tests, because both host shapes exist: the on-PATH path
+    // sits under the mise data dir (a shim, or a direct install path), or it resolves to the same
+    // real file as `mise which codex` (the ~/.local/bin symlink our install remediation creates).
+    // Realpath alone would miss a shim — a shim is a symlink to the `mise` binary itself, not into
+    // the install tree. `-x "$cxpath"` first, so the `<not found>` placebo above never matches.
+    // The data dir follows mise's own resolution order (MISE_DATA_DIR, then XDG_DATA_HOME, then
+    // the default). `readlink -f` is absent on older macOS; there it yields an empty string, which
+    // the `-n "$cxreal"` guard turns into "prefix test only" rather than a false match.
+    `  MISE_DATA="\${MISE_DATA_DIR:-\${XDG_DATA_HOME:-$HOME/.local/share}/mise}"`,
+    "  mise_owns=0",
+    '  if command -v mise >/dev/null 2>&1 && [ -x "$cxpath" ]; then',
+    `    mw="$(mise which codex 2>/dev/null || true)"`,
+    `    if [ -n "$mw" ]; then`,
+    `      case "$cxpath" in "$MISE_DATA"/*) mise_owns=1 ;; esac`,
+    `      cxreal="$(readlink -f "$cxpath" 2>/dev/null || true)"`,
+    `      mwreal="$(readlink -f "$mw" 2>/dev/null || true)"`,
+    `      if [ -n "$cxreal" ] && [ "$cxreal" = "$mwreal" ]; then mise_owns=1; fi`,
+    "    fi",
+    `    if [ "$mise_owns" -eq 1 ]; then echo "${P} codex is mise-managed: $mw"; fi`,
+    "  fi",
     // Probe once: a codex without the subcommand leaves npm as the ONLY channel,
     // so it must never appear in the order — not even as the fallback.
     `  if "$CX" --help 2>/dev/null | grep -qE '^[[:space:]]+update[[:space:]]'; then`,
     "    has_update=1",
     "  else",
-    `    echo '${P} codex update subcommand not present; using npm'`,
+    // …but not on a mise-owned host, where npm is never in the order and the line would misdescribe
+    // what happens next.
+    `    [ "$mise_owns" -eq 1 ] || echo '${P} codex update subcommand not present; using npm'`,
     "    has_update=0",
     "  fi",
     // Channel order: memo first when we have one and it is runnable, else the
     // historical order (codex update, then npm).
-    `  if [ "$has_update" -eq 0 ]; then order='npm'; src='default'`,
+    // A mise-owned codex is updated by mise ALONE: falling back would install a second codex that
+    // shadows the mise-managed one — the exact defect this branch exists to prevent.
+    `  if [ "$mise_owns" -eq 1 ]; then order='mise'; src='mise-owned'`,
+    `  elif [ "$has_update" -eq 0 ]; then order='npm'; src='default'`,
     `  elif [ "$PREF" = 'npm' ]; then order='npm codex'; src='memo'`,
     `  elif [ "$PREF" = 'codex' ]; then order='codex npm'; src='memo'`,
     `  else order='codex npm'; src='default'; fi`,
@@ -220,6 +270,11 @@ export function buildUpdateScript(
     `    if [ "$ch" = 'codex' ]; then`,
     `      "$CX" update; rc=$?`,
     `      echo "${P} codex update exited rc=$rc"`,
+    `    elif [ "$ch" = 'mise' ]; then`,
+    // Bare tool name, matching `mise which codex` — mise resolves by tool, not by our (possibly
+    // absolute, possibly CODEX_BIN-overridden) launcher path.
+    "      mise upgrade codex; rc=$?",
+    `      echo "${P} mise upgrade exited rc=$rc"`,
     "    else",
     "      npm install -g @openai/codex; rc=$?",
     `      echo "${P} npm install exited rc=$rc"`,
@@ -241,6 +296,15 @@ export function buildUpdateScript(
     `    echo "${CONVERGED_MARKER}$winner"`,
     "  else",
     `    echo '${P} did not converge'`,
+    // A mise-owned codex that did not move is the EXPECTED outcome of a pinned version, not a
+    // broken update — so say what happened and hand over the one command that moves the pin. The
+    // modal streams these lines verbatim, which is why the explanation lives here and needs no
+    // user-facing string of its own.
+    `    if [ "$mise_owns" -eq 1 ]; then`,
+    `      echo '${P} codex is managed by mise, and mise upgrade respects the version request in your mise config — a pinned codex will not advance.'`,
+    `      echo '${P} to move the pin: mise use -g codex@latest'`,
+    `      echo '${P} not falling back to codex update / npm: either would install a SECOND codex shadowing the mise-managed one.'`,
+    "    fi",
     "  fi",
     `  echo "${P} codex --version now: $("$CX" --version 2>/dev/null || echo '<unreadable>')"`,
     '} 2>&1 | tee -a "$LOG"',
@@ -834,8 +898,8 @@ export class CodexUpdateService {
         }
         const ch = line.indexOf(CONVERGED_MARKER);
         if (ch !== -1) {
-          const val = line.slice(ch + CONVERGED_MARKER.length).trim();
-          if (val === "npm" || val === "codex") channel = val;
+          const parsed = parseCodexUpdateChannel(line.slice(ch + CONVERGED_MARKER.length).trim());
+          if (parsed) channel = parsed;
         }
         this.onLog(line);
       },

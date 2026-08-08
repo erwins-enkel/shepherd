@@ -72,6 +72,8 @@
     modelForManualProviderChange,
   } from "./new-task/run-config";
   import { IssueData } from "./new-task/issue-data.svelte";
+  import VideoBriefNotice from "./new-task/VideoBriefNotice.svelte";
+  import { hasVideoAttachment, VideoSkillInventory } from "./new-task/video-skill.svelte";
   import type { UsageLimits } from "$lib/types";
 
   type TaskAttachment = {
@@ -728,6 +730,31 @@
       .catch(() => {
         if (rp === repoPath && provider === commandProvider) allCommands = [];
       });
+  });
+
+  // ── `video-brief` skill recommendation (issue #2053) ──
+  // A screen recording an agent can't decode is worked from the operator's prose alone, silently.
+  // While one is attached, read the SELECTED provider's skill inventory (its own read — see
+  // video-skill.svelte.ts on why `commandProvider` is the wrong key) and, only when that read
+  // PROVES the public skill is absent, point at it. Loading/failed show nothing.
+  const videoAttached = $derived(hasVideoAttachment(images.map((i) => i.name)));
+  const videoSkill = new VideoSkillInventory();
+  $effect(() => {
+    if (!videoAttached) {
+      videoSkill.reset();
+      return;
+    }
+    void videoSkill.load(repoPath, agentProvider);
+  });
+  // Refresh on return to the tab: the operator's likely next move after seeing this row is to
+  // install the skill in another terminal, and coming back should clear it.
+  $effect(() => {
+    if (!videoAttached) return;
+    const rp = repoPath;
+    const provider = agentProvider;
+    const onFocus = () => void videoSkill.load(rp, provider);
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
   });
 
   // Epic-parent tracking issues for the selected repo (issue picker shows them disabled).
@@ -1723,6 +1750,13 @@
               >
             {:else if baseMissing}
               <BaseRepairNotice repairing={repairingBase} onrepair={repairInitialCommit} />
+            {/if}
+
+            <!-- `agentProvider` is safe as the label: a provider flip re-runs the effect above in
+                 the same flush, and load() drops to `loading` before awaiting — so `recommend` is
+                 never true against a verdict read for a different engine. -->
+            {#if videoSkill.recommend}
+              <VideoBriefNotice provider={agentProvider} />
             {/if}
 
             {#if relaunch}
@@ -3372,6 +3406,7 @@
        so failure feedback must stay visible. */
     .card.composing .nt-upstream,
     .card.composing :global(.nt-base-repair),
+    .card.composing :global(.nt-video-brief),
     .card.composing .relaunch-note,
     .card.composing .field-note,
     .card.composing .issue-ref,

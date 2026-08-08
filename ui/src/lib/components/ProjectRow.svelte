@@ -1,6 +1,7 @@
 <script lang="ts">
   import type { BacklogProject } from "$lib/types";
   import { m } from "$lib/paraglide/messages";
+  import { projectIcons } from "$lib/projectIcons.svelte";
 
   let {
     project,
@@ -45,6 +46,11 @@
     project.path.replace(/\/+$/, "").split("/").pop() || project.slug || project.display,
   );
 
+  // Repo identity glyph, same recipe as the New Task repo picker (RepoSelect) and
+  // the learnings drawer's repo groups: the configured project emoji when set,
+  // else the ▣ marker so every row's name starts on the same column.
+  const repoIcon = $derived(projectIcons.iconFor(project.path));
+
   const issuesLabel = $derived(
     project.openIssues != null
       ? m.backlog_tab_issues_count({ count: project.openIssues })
@@ -68,6 +74,7 @@
   title={project.display}
 >
   <div class="row-main">
+    <span class="row-glyph" class:emoji={!!repoIcon} aria-hidden="true">{repoIcon ?? "▣"}</span>
     <span class="row-name">{displayName}</span>
     {#if pinned}
       <span class="pin-icon" role="img" aria-label={m.backlog_pinned_label()}>
@@ -237,6 +244,23 @@
     gap: 6px;
     min-width: 0;
     flex: 1;
+  }
+
+  /* Fixed box (sized off the type scale, not the glyph's own font-size) so the
+     names stay on one column whether a row shows an emoji or the ▣ fallback. */
+  .row-glyph {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: calc(var(--fs-base) * 1.4);
+    color: var(--color-faint);
+    font-size: var(--fs-micro);
+    line-height: 1;
+  }
+
+  .row-glyph.emoji {
+    font-size: var(--fs-base);
   }
 
   .row-name {

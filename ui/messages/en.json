@@ -3556,5 +3556,7 @@
   "toast_terminal_unsupported": "Clean terminals need a newer herdr — update herdr and retry",
   "toast_broadcast_skipped_terminals": "{skipped} terminal session(s) skipped — terminals receive no steers",
   "feat_clean_terminal_title": "Clean terminal in the main repo",
-  "feat_clean_terminal_body": "Right-click a session row or a repo chip and pick “Clean terminal in main repo”: a bare shell opens directly in the repo's main checkout (not a worktree, no agent) — for quick git and CLI work. One terminal per repo; picking it again focuses the existing one. Exit the shell and the session archives itself."
+  "feat_clean_terminal_body": "Right-click a session row or a repo chip and pick “Clean terminal in main repo”: a bare shell opens directly in the repo's main checkout (not a worktree, no agent) — for quick git and CLI work. One terminal per repo; picking it again focuses the existing one. Exit the shell and the session archives itself.",
+  "feat_backlog_repo_icon_title": "Repo emoji in the Repos overlay",
+  "feat_backlog_repo_icon_body": "The repo list in the Repos overlay now leads each row with the repo's configured emoji — the same identity glyph session cards, epic headers and the New Task repo picker already use, so a repo looks the same everywhere. Repos without an emoji show the plain ▣ marker; set one from the repo picker in New Task."
 }

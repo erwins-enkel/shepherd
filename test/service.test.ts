@@ -7907,7 +7907,9 @@ test("relaunch keeps research:true; explicit override flips it to false", async 
 // port. config.hooksIngest must be ON for the overlay to emit the hooks URL.
 function baseUrlService(opts: {
   store: SessionStore;
-  record: { argv?: string[] };
+  /** `env` is herdr.start's 4th argument — the spawn env, where the provider-neutral
+   *  control-plane coordinates ride (issue #2053). */
+  record: { argv?: string[]; env?: Record<string, string> };
   detectBackend?: () => "bwrap" | null;
   detectEgressBackend?: () => "slirp4netns" | null;
   detectEgressHostLoopback?: () => boolean;
@@ -7924,8 +7926,9 @@ function baseUrlService(opts: {
       branchExists: () => false,
     } as any,
     herdr: {
-      start: async (_name: string, cwd: string, argv: string[]) => {
+      start: async (_name: string, cwd: string, argv: string[], env: Record<string, string>) => {
         opts.record.argv = argv;
+        opts.record.env = env;
         return { terminalId: "term_x", cwd } as any;
       },
       list: () => [],
@@ -8062,6 +8065,141 @@ test("baseUrl: trusted with no ingress port yet (early boot) → falls back to g
   } finally {
     config.hooksIngest = prev;
   }
+});
+
+// ── #2053: provider-neutral control-plane coordinates in the spawn env ────────
+//
+// The public `video-brief` skill retitles the session it is running in by reading
+// SHEPHERD_AGENT_API_URL + SHEPHERD_SESSION_ID and calling the ingress. Both must reach BOTH
+// providers on every spawn path — a Claude-only carrier (e.g. the `--settings` overlay's `env`)
+// would leave every Codex session unable to self-rename.
+
+/** Just the two coordinates out of a captured spawn env — so a miss reads as an explicit
+ *  `undefined` in the diff rather than as a passing subset match. */
+function coordinates(env: Record<string, string> | undefined) {
+  return {
+    SHEPHERD_AGENT_API_URL: env?.SHEPHERD_AGENT_API_URL,
+    SHEPHERD_SESSION_ID: env?.SHEPHERD_SESSION_ID,
+  };
+}
+
+/** The ingress base every test below pins, via `agentIngressPort: () => 7331` on a trusted spawn. */
+const INGRESS_BASE = "http://127.0.0.1:7331";
+
+test("agent coordinates: a Claude create carries SHEPHERD_AGENT_API_URL + SHEPHERD_SESSION_ID", async () => {
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({ store, record, agentIngressPort: () => 7331 });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    agentProvider: "claude",
+    model: null,
+    images: [],
+  });
+  expect(coordinates(record.env)).toEqual({
+    SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+    SHEPHERD_SESSION_ID: s.id,
+  });
+});
+
+test("agent coordinates: a Codex create carries them too (the control plane is provider-neutral)", async () => {
+  // The regression this guards: parking the pair on Claude's `--settings` overlay would pass the
+  // Claude test above and silently leave Codex with no coordinates at all.
+  const store = new SessionStore(":memory:");
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({ store, record, agentIngressPort: () => 7331 });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    agentProvider: "codex",
+    model: null,
+    images: [],
+  });
+  expect(record.argv?.[0]).toBe("codex"); // it really is a Codex spawn
+  expect(coordinates(record.env)).toEqual({
+    SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+    SHEPHERD_SESSION_ID: s.id,
+  });
+});
+
+test("agent coordinates: resume re-stamps them for both providers", async () => {
+  for (const agentProvider of ["claude", "codex"] as const) {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[]; env?: Record<string, string> } = {};
+    const service = baseUrlService({ store, record, agentIngressPort: () => 7331 });
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider,
+      model: null,
+      images: [],
+    });
+    record.env = undefined; // only the RESUME spawn may satisfy the assertion below
+    const resumed = await service.resume(s.id, { force: true });
+    expect(resumed).not.toBeNull();
+    expect(coordinates(record.env)).toEqual({
+      SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+      SHEPHERD_SESSION_ID: s.id,
+    });
+  }
+});
+
+test("agent coordinates: provider replacement carries them in BOTH directions", async () => {
+  for (const [from, to] of [
+    ["claude", "codex"],
+    ["codex", "claude"],
+  ] as const) {
+    const store = new SessionStore(":memory:");
+    const record: { argv?: string[]; env?: Record<string, string> } = {};
+    const service = baseUrlService({ store, record, agentIngressPort: () => 7331 });
+    const s = await service.create({
+      repoPath: "/repo",
+      baseBranch: "main",
+      prompt: "go",
+      agentProvider: from,
+      model: null,
+      images: [],
+    });
+    record.env = undefined;
+    await service.replaceAgent(s.id, { agentProvider: to, model: null });
+    // The session id is stable across a replacement — same row, new agent.
+    expect(coordinates(record.env)).toEqual({
+      SHEPHERD_AGENT_API_URL: INGRESS_BASE,
+      SHEPHERD_SESSION_ID: s.id,
+    });
+  }
+});
+
+test("agent coordinates: the sandboxed membrane carries them past bwrap --clearenv", async () => {
+  // The trusted path's spawnEnv is wiped by `--clearenv` inside the membrane, so a sandboxed spawn
+  // only keeps what rides the bwrap `--setenv` loop. Both variables must be on THAT path too.
+  const store = new SessionStore(":memory:");
+  store.setRepoConfig("/repo", { ...store.getRepoConfig("/repo"), sandboxProfile: "standard" });
+  const record: { argv?: string[]; env?: Record<string, string> } = {};
+  const service = baseUrlService({
+    store,
+    record,
+    detectBackend: () => "bwrap",
+    agentIngressPort: () => 7331,
+  });
+  const s = await service.create({
+    repoPath: "/repo",
+    baseBranch: "main",
+    prompt: "go",
+    model: null,
+    images: [],
+  });
+  const argv = record.argv ?? [];
+  const setenv = (name: string) => {
+    const i = argv.findIndex((a, idx) => a === name && argv[idx - 1] === "--setenv");
+    return i < 0 ? undefined : argv[i + 1];
+  };
+  expect(setenv("SHEPHERD_AGENT_API_URL")).toBe(INGRESS_BASE);
+  expect(setenv("SHEPHERD_SESSION_ID")).toBe(s.id);
 });
 
 // Regression guard: when fable is globally unavailable (config.fableAvailable = false),

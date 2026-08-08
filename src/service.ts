@@ -1926,6 +1926,21 @@ function agentLoopbackIngressBaseUrl(ingressPort: number): string {
 }
 
 /**
+ * Env var carrying the agent-ingress base URL into a spawn (issue #2053). With `SESSION_MARKER_ENV`
+ * beside it, an agent skill has everything it needs to address its OWN session on the restricted
+ * ingress — today, `video-brief`'s optional self-rename
+ * (`POST $SHEPHERD_AGENT_API_URL/api/sessions/$SHEPHERD_SESSION_ID/rename`).
+ *
+ * Deliberately NOT put in the Claude `--settings` overlay (`spawnSettingsOverlay`, whose `env` a
+ * Codex spawn never reads): the control plane is provider-neutral, so its coordinates ride the
+ * plain spawn env — and the membrane's `--setenv` loop — exactly like the session marker does.
+ *
+ * Module-local: the tests assert the VALUE on a captured spawn env, not this binding, so exporting
+ * it would only widen the surface.
+ */
+const AGENT_API_URL_ENV = "SHEPHERD_AGENT_API_URL";
+
+/**
  * Pick an override value over an original: an `undefined` override inherits the original;
  * any present value (including explicit `null`) replaces it. Mirrors the relaunch override
  * semantics where absent means "keep the original" and present means "use this".
@@ -2597,6 +2612,13 @@ export class SessionService {
     // FS-only (network open) — warrants the egress-degraded banner.
     const egressDegraded = isEgressDegraded(profile, backend, egressBackend ?? null);
 
+    // Provider-neutral control-plane coordinates (issue #2053), resolved from the SAME inputs the
+    // hooks fragment uses (profileOverride + repoPath), so the URL an agent skill calls and the URL
+    // Claude's hooks post to can never diverge. Resolved here rather than threaded down from the
+    // four callers (create / resume / relaunch / replaceAgent) because only this seam is common to
+    // all of them — and only Claude's path computes a base URL of its own.
+    const agentApiUrl = this.resolveSpawnBaseUrl(ctx.profileOverride, ctx.repoPath);
+
     // Renderer env for the MAIN session ONLY (satellites call herdr.start directly and keep the
     // classic pin). Applied via BOTH the membrane --setenv (sandboxed; the outer env shim is wiped
     // by bwrap --clearenv) AND spawnEnv (trusted). See mainSessionRendererEnv for details.
@@ -2633,13 +2655,14 @@ export class SessionService {
           home: homedir(),
           nodeBinReal,
           term: process.env.TERM,
-          // SESSION_MARKER_ENV rides the membrane's --setenv loop so it survives bwrap's
-          // --clearenv (see sandbox.ts). Last, so nothing above can shadow it.
+          // SESSION_MARKER_ENV and AGENT_API_URL_ENV ride the membrane's --setenv loop so they
+          // survive bwrap's --clearenv (see sandbox.ts). Last, so nothing above can shadow them.
           extraEnv: {
             ...passthroughEnv,
             ...rendererEnv,
             ...patchEnv,
             [SESSION_MARKER_ENV]: ctx.sessionId,
+            [AGENT_API_URL_ENV]: agentApiUrl,
           },
           // api-key mode: bind the helper RO + mask the OAuth credential in place
           // (the operator's ~/.claude customizations stay bound). Subscription: null/false.
@@ -2671,12 +2694,15 @@ export class SessionService {
     // on every process it ever spawns. /proc/<pid>/environ is fixed at exec, so the marker survives
     // `cd`, backgrounding, PID-1 reparenting and worktree deletion: it is what lets the runaway
     // reaper attribute an orphan to a session without guessing from its cwd. Stamped on BOTH paths
-    // (here for trusted, and on membrane.extraEnv above for sandboxed) so they stay uniform.
+    // (here for trusted, and on membrane.extraEnv above for sandboxed) so they stay uniform —
+    // as is AGENT_API_URL_ENV (issue #2053), which together with it addresses this session on the
+    // restricted ingress from inside an agent skill, on Claude and Codex alike.
     const spawnEnv = {
       ...apiKeyPassthrough,
       ...rendererEnv,
       ...patchEnv,
       [SESSION_MARKER_ENV]: ctx.sessionId,
+      [AGENT_API_URL_ENV]: agentApiUrl,
     };
     const agent = await this.deps.herdr.start(ctx.name, ctx.worktreePath, wrapped, spawnEnv);
     // Start the egress drop-watcher AFTER herdr.start (the agent is now running).

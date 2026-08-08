@@ -7733,16 +7733,33 @@ export function makeApp(deps: AppDeps, opts: { skipAuth?: boolean } = {}) {
  *     since every tool it exposes is one of them, gated by the session's own capabilities
  *     (see agentTools), and neither approve gate has a tool at all.
  *   - `queue`: PUT authors/replaces; GET is the "inspect the current queue" / re-GET-for-ids read.
- *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507). */
+ *   - `epic-draft`: PUT authors/replaces the draft; GET inspects it (issue #1507).
+ *   - `rename`: the session's own retitle (issue #2053) — the write half of the coordinates the
+ *     public `video-brief` skill uses to name a session after the recording it just watched. */
 const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
   ["hooks", ["POST"]],
   ["mcp", ["POST"]],
   ["queue", ["PUT", "GET"]],
   ["epic-draft", ["PUT", "GET"]],
+  ["rename", ["POST"]],
 ]);
 
+/**
+ * Canonical session-id shape (`randomUUID()`, as minted by SessionService.create and
+ * createTerminalSession). Gates the ONE agent route with no sub-segment — the bare self-read
+ * `GET /api/sessions/<id>`.
+ *
+ * Load-bearing, not cosmetic: `/api/sessions/<seg>` with no further segment is also how the Done
+ * lens is addressed (`GET /api/sessions/done` → every recently-archived session across every repo,
+ * see handleSessionReads). A shape-only "no fourth segment ⇒ allow GET" rule would hand every
+ * spawned agent that enumeration. Requiring a UUID excludes `done` — and any reserved literal added
+ * later — structurally, and states in code what this file already claims in prose: the unguessable
+ * per-session id IS the capability.
+ */
+const SESSION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 /** Method+path allowlist for the restricted agent-ingress listener: EXACTLY the agent→server
- *  control-plane routes the spawn directives instruct the agent to call. `parts` is
+ *  control-plane routes the spawn directives (and, since #2053, an agent skill) call. `parts` is
  *  url.pathname.split("/").filter(Boolean), e.g. ["api","sessions","<id>","hooks"]. The session id
  *  segment is an unguessable per-session UUID the agent only knows for its own session, so it is the
  *  de-facto per-session capability; the listener exposes no enumeration route. NOTE: /queue/approve
@@ -7750,6 +7767,8 @@ const AGENT_LEAF_ROUTES = new Map<string, readonly string[]>([
 export function isAgentIngressRoute(method: string, parts: string[]): boolean {
   if (!(parts[0] === "api" && parts[1] === "sessions" && parts[2])) return false;
   const sub = parts[3] ?? "";
+  // The bare self-read `GET /api/sessions/<uuid>` — GET-only, UUID-gated (see SESSION_ID_RE).
+  if (!sub) return method === "GET" && SESSION_ID_RE.test(parts[2]);
   // Exact `…/<sub>` routes (nothing after the sub-segment).
   if (!parts[4]) return (AGENT_LEAF_ROUTES.get(sub) ?? []).includes(method);
   // The one deeper route: POST /api/sessions/<id>/queue/steps/<stepId>.

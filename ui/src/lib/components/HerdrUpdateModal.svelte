@@ -36,7 +36,7 @@
   // 2026-06-11 while upstream was 0.6.10, and itself links to this GitHub repo —
   // same slug as latest.json's binary-download asset URLs. Revisit if
   // herdr.dev/releases/ catches up or the repo moves.
-  const HERDR_RELEASES_URL = "https://github.com/ogulcancelik/herdr/releases";
+  const HERDR_RELEASES_URL = "https://github.com/herdrdev/herdr/releases";
 
   // Render the (GitHub release) notes as markdown, sanitized before @html.
   // marked + DOMPurify are dynamically imported on first render so they stay

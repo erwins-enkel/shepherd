@@ -90,7 +90,7 @@ test("banner falls back to the release-tag page when herdr publishes no binary f
 test("banner renders a pinned, copy-pasteable install line for a mapped platform", () => {
   const banner = herdrMissingBanner("linux-x86_64");
   expect(banner).toContain(
-    `curl -fsSL -o ~/.local/bin/herdr https://github.com/ogulcancelik/herdr/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-linux-x86_64`,
+    `curl -fsSL -o ~/.local/bin/herdr https://github.com/herdrdev/herdr/releases/download/v${HERDR_LAST_SUPPORTED_VERSION}/herdr-linux-x86_64`,
   );
   expect(banner).not.toContain("undefined");
 });

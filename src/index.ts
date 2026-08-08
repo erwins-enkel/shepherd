@@ -64,7 +64,7 @@ import { bootstrapAuth } from "./operator-auth";
 import { backupConfiguredMarker, lastSuccessMarker } from "./backup-paths";
 import { UpdateService } from "./update";
 import { HerdrUpdateService } from "./herdr-update";
-import { CodexUpdateService } from "./codex-update";
+import { CodexUpdateService, parseCodexUpdateChannel } from "./codex-update";
 import { PluginUpdateService } from "./plugin-update";
 import { RestartService } from "./restart";
 import { DiagnosticsService, defaultReadHerdrFleet, nextDiagnosticsDelay } from "./diagnostics";
@@ -2750,10 +2750,7 @@ const codexUpdates = new CodexUpdateService({
   // self-selects its channel and can miss the install actually on PATH, so the
   // only way to know which one works is to have watched one work. Persisting it
   // makes the next update a single installer run instead of a try-fail-retry.
-  readChannel: () => {
-    const saved = store.getSetting(CODEX_UPDATE_CHANNEL_KEY);
-    return saved === "npm" || saved === "codex" ? saved : null;
-  },
+  readChannel: () => parseCodexUpdateChannel(store.getSetting(CODEX_UPDATE_CHANNEL_KEY)),
   writeChannel: (channel) => store.setSetting(CODEX_UPDATE_CHANNEL_KEY, channel),
 });
 const checkCodexUpdate = async () =>

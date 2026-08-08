@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,6 +14,7 @@ import { join } from "node:path";
 import {
   CodexUpdateService,
   buildUpdateScript,
+  parseCodexUpdateChannel,
   CODEX_UPDATE_LOG_PREFIX,
   CONVERGED_MARKER,
   type CodexUpdateChannel,
@@ -135,6 +137,14 @@ interface HarnessOpts {
   codexAdvances?: boolean;
   /** does `npm install -g` actually move the on-PATH version? */
   npmAdvances?: boolean;
+  /** How mise sees this host. Absent ⇒ no `mise` on PATH at all (every pre-mise test).
+   *  - `unmanaged`: mise is installed but `mise which codex` fails — NOT mise's codex.
+   *  - `shim`: the on-PATH codex lives under the mise data dir (mise's shims dir).
+   *  - `symlink`: the on-PATH codex is a symlink resolving to the same file as
+   *    `mise which codex` — the `~/.local/bin` link our install remediation creates. */
+  mise?: "unmanaged" | "shim" | "symlink";
+  /** does `mise upgrade codex` actually move the on-PATH version? (false ⇒ a pinned tool) */
+  miseAdvances?: boolean;
 }
 
 function runScript(opts: HarnessOpts) {
@@ -142,14 +152,36 @@ function runScript(opts: HarnessOpts) {
   const version = join(dir, "version"); // the "installed" version, mutated by a winning fake
   const codexRan = join(dir, "codex-update.ran");
   const npmRan = join(dir, "npm-install.ran");
+  const miseRan = join(dir, "mise-upgrade.ran");
   writeFileSync(version, BEFORE);
 
   // the `update` line must match the script's `^[[:space:]]+update[[:space:]]` probe
   const helpBody = opts.hasUpdate === false ? "  login    Log in" : "  update   Update codex";
   const bump = (advances: boolean | undefined) => (advances ? `echo ${AFTER} > '${version}'` : ":");
 
+  // HOME=dir, so this is the `$MISE_DATA_DIR` default the script computes. `mise which` reports
+  // the install path; where the ON-PATH codex sits is what decides ownership, and each `mise`
+  // shape puts it somewhere different.
+  const miseInstall = join(dir, ".local/share/mise/installs/codex/latest/bin/codex");
+  let codexPath = join(dir, "codex");
+  const pathDirs = [dir];
+  if (opts.mise === "shim") {
+    // a real mise shim is a symlink to the `mise` BINARY, so realpath can't identify it — only
+    // the mise-data-dir prefix can. Model that: the fake codex IS the shim, and `mise which`
+    // reports the (separate) install path.
+    const shims = join(dir, ".local/share/mise/shims");
+    mkdirSync(shims, { recursive: true });
+    codexPath = join(shims, "codex");
+    pathDirs.unshift(shims);
+  } else if (opts.mise === "symlink") {
+    // the ~/.local/bin shape: the on-PATH entry is OUTSIDE the mise tree and only resolves in.
+    mkdirSync(join(dir, ".local/share/mise/installs/codex/latest/bin"), { recursive: true });
+    codexPath = miseInstall;
+    symlinkSync(miseInstall, join(dir, "codex"));
+  }
+
   writeFileSync(
-    join(dir, "codex"),
+    codexPath,
     `#!/bin/bash
 case "$1" in
   --version) echo "codex-cli $(cat '${version}')" ;;
@@ -166,8 +198,21 @@ touch '${npmRan}'; ${bump(opts.npmAdvances)}; echo "npm $*"
 exit 0
 `,
   );
-  chmodSync(join(dir, "codex"), 0o755);
+  chmodSync(codexPath, 0o755);
   chmodSync(join(dir, "npm"), 0o755);
+  if (opts.mise) {
+    writeFileSync(
+      join(dir, "mise"),
+      `#!/bin/bash
+case "$1" in
+  which)   ${opts.mise === "unmanaged" ? "exit 1" : `echo '${miseInstall}'`} ;;
+  upgrade) touch '${miseRan}'; ${bump(opts.miseAdvances)}; echo "mise upgrade $2" ;;
+esac
+exit 0
+`,
+    );
+    chmodSync(join(dir, "mise"), 0o755);
+  }
 
   const script = buildUpdateScript(
     join(dir, "log"),
@@ -178,12 +223,13 @@ exit 0
   );
   const stdout = execFileSync("bash", ["-c", script], {
     encoding: "utf8",
-    env: { PATH: `${dir}:/usr/bin:/bin`, HOME: dir }, // fakes shadow the real installers
+    env: { PATH: `${pathDirs.join(":")}:/usr/bin:/bin`, HOME: dir }, // fakes shadow the real installers
   });
   return {
     stdout,
     codexUpdateRan: existsSync(codexRan),
     npmInstallRan: existsSync(npmRan),
+    miseUpgradeRan: existsSync(miseRan),
     installed: readFileSync(version, "utf8").trim(),
     converged: /converged via channel=(\w+)/.exec(stdout)?.[1] ?? null,
   };
@@ -300,6 +346,85 @@ test("harness: neither channel advances → no winner, nothing to memoize", () =
   expect(r.converged).toBeNull(); // …neither won
   expect(r.stdout).toContain("did not converge");
   expect(r.installed).toBe(BEFORE);
+});
+
+// ── mise-managed codex: one channel, no fallback ───────────────────────────────
+//
+// When mise owns the codex on PATH, BOTH other channels install a SECOND codex that
+// shadows (or is shadowed by) the mise-managed one — the divergence this branch exists
+// to prevent. So mise is the whole order, and a pinned tool that refuses to advance is
+// reported, never worked around.
+
+test("harness: mise owns the on-PATH codex (shim) → `mise upgrade` ONLY", () => {
+  const r = runScript({ mise: "shim", miseAdvances: true, codexAdvances: true, npmAdvances: true });
+  expect(r.miseUpgradeRan).toBe(true);
+  expect(r.codexUpdateRan).toBe(false); // neither may run: both would plant a second codex
+  expect(r.npmInstallRan).toBe(false);
+  expect(r.converged).toBe("mise");
+  expect(r.installed).toBe(AFTER);
+  expect(r.stdout).toContain("channel=mise (source=mise-owned)");
+  expect(r.stdout).toContain("codex is mise-managed:");
+});
+
+test("harness: mise owns it via a ~/.local/bin symlink → `mise upgrade` ONLY", () => {
+  // The shape our own install remediation creates: the on-PATH entry sits outside the
+  // mise tree, so ownership is provable only by resolving it.
+  const r = runScript({ mise: "symlink", miseAdvances: true, codexAdvances: true });
+  expect(r.miseUpgradeRan).toBe(true);
+  expect(r.codexUpdateRan).toBe(false);
+  expect(r.converged).toBe("mise");
+});
+
+test("harness: a pinned mise codex does NOT fall back to codex update / npm", () => {
+  const r = runScript({
+    mise: "shim",
+    miseAdvances: false,
+    codexAdvances: true,
+    npmAdvances: true,
+  });
+  expect(r.miseUpgradeRan).toBe(true);
+  expect(r.codexUpdateRan).toBe(false); // …even though either WOULD have advanced a shadow copy
+  expect(r.npmInstallRan).toBe(false);
+  expect(r.converged).toBeNull();
+  expect(r.installed).toBe(BEFORE);
+  expect(r.stdout).toContain("did not converge");
+  expect(r.stdout).toContain("mise use -g codex@latest"); // the operator's escape hatch
+});
+
+test("harness: mise installed but not managing codex → untouched historical order", () => {
+  const r = runScript({ mise: "unmanaged", codexAdvances: true, npmAdvances: true });
+  expect(r.miseUpgradeRan).toBe(false);
+  expect(r.codexUpdateRan).toBe(true);
+  expect(r.converged).toBe("codex");
+  expect(r.stdout).toContain("channel=codex (source=default)");
+  expect(r.stdout).not.toContain("mise-managed");
+});
+
+test("harness: a stale `mise` memo on a non-mise host falls back to the default order", () => {
+  // The operator moved off mise. The memo is not a precondition — it only picks who goes
+  // first — so an unrunnable channel must degrade to the historical order, not strand us.
+  const r = runScript({ preferred: "mise", codexAdvances: true, npmAdvances: true });
+  expect(r.miseUpgradeRan).toBe(false);
+  expect(r.codexUpdateRan).toBe(true);
+  expect(r.converged).toBe("codex");
+  expect(r.stdout).toContain("channel=codex (source=default)");
+});
+
+test("buildUpdateScript: mise-owned ordering and step are emitted", () => {
+  const s = buildUpdateScript(LOG, "0.142.2", "0.142.4", CB);
+  expect(s).toContain(`if [ "$mise_owns" -eq 1 ]; then order='mise'; src='mise-owned'`);
+  expect(s).toContain("mise upgrade codex"); // bare tool name, as `mise which codex` resolves it
+  expect(s).not.toContain("mise use -g codex@latest;"); // named as advice, never RUN for the operator
+});
+
+test("parseCodexUpdateChannel: accepts the three channels, rejects anything else", () => {
+  expect(parseCodexUpdateChannel("npm")).toBe("npm");
+  expect(parseCodexUpdateChannel("codex")).toBe("codex");
+  expect(parseCodexUpdateChannel("mise")).toBe("mise");
+  expect(parseCodexUpdateChannel("brew")).toBeNull();
+  expect(parseCodexUpdateChannel(null)).toBeNull();
+  expect(parseCodexUpdateChannel(undefined)).toBeNull();
+  expect(parseCodexUpdateChannel(7)).toBeNull();
 });
 
 // ── check(): version compare against the npm registry ─────────────────────────
@@ -917,6 +1042,17 @@ test("memo: `codex update` winning persists `codex` (standalone / #1560 attribut
   svc.apply();
   await settle();
   expect(memoWrites).toEqual(["codex"]);
+});
+
+test("memo: a mise-owned win persists `mise` (the widened union reaches the store)", async () => {
+  const { svc, memoWrites } = primed({
+    installedAfter: "0.142.4",
+    runUpdate: emitting(`${CONVERGED_MARKER}mise`),
+  });
+  await svc.check(1);
+  svc.apply();
+  await settle();
+  expect(memoWrites).toEqual(["mise"]);
 });
 
 test("memo: converged but NO channel marker → left untouched, never guessed", async () => {

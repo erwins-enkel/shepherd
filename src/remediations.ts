@@ -87,6 +87,38 @@ export const HERDR_SERVE =
 
 const CODEX_INSTALL =
   "curl -fsSL https://chatgpt.com/codex/install.sh | CODEX_NON_INTERACTIVE=1 sh";
+const CLAUDE_INSTALL = "curl -fsSL https://claude.ai/install.sh | bash";
+
+/**
+ * The claude/codex install remediation, made mise-aware.
+ *
+ * When the tool is ALREADY managed by mise, the native installer is the wrong fix: it plants a
+ * SECOND copy beside the mise-managed one, and the two then diverge silently (the shepherd host
+ * this was written on carries a native claude 2.1.226 next to mise's 2.1.222). mise-managed is the
+ * ONLY condition that diverts — never a "mise exists, so prefer it" heuristic — and `mise which
+ * <tool>` is the test: exit 0 + a path when mise can hand us that binary right now, non-zero
+ * ("… is not a mise bin") otherwise. `mise ls <tool>` exits 0 either way and cannot be used.
+ *
+ * The diverted branch SYMLINKS rather than installs, because when `mise which` succeeds the binary
+ * already exists — it is merely unreachable. mise exposes tools through a shims dir that is absent
+ * from shepherd.service's pinned PATH, and `mise activate` only ever runs in an interactive shell.
+ * `$HOME/.local/bin` IS on that PATH, so one symlink turns the red check green with no change to
+ * how anything resolves binaries. This mirrors NODE_INSTALL's fnm handling directly above.
+ *
+ * Overwriting `$HOME/.local/bin/<tool>` is safe: a remediation only ever runs for a NON-ok check,
+ * i.e. `<tool> --version` already failed, so what it replaces is a broken or absent entry.
+ *
+ * POSIX sh only — the in-app Fix endpoint spawns `sh -c` (see DiagnosticsService.runRemediation).
+ * On a host with no mise, or a tool mise does not manage, the emitted command is the native
+ * installer verbatim, so the onboarding harness and deploy/provision.ts are unaffected.
+ */
+function agentCliInstall(tool: "claude" | "codex", nativeInstall: string): string {
+  return (
+    `if command -v mise >/dev/null 2>&1 && M="$(mise which ${tool} 2>/dev/null)" && [ -n "$M" ]; ` +
+    `then mkdir -p "$HOME/.local/bin" && ln -sf "$M" "$HOME/.local/bin/${tool}"; ` +
+    `else ${nativeInstall}; fi`
+  );
+}
 
 // git has no user-space installer — it's a distro system package. One cross-distro
 // chain (the same apt||apk||dnf||pacman shape the onboarding baseline's ensurePkg
@@ -136,10 +168,10 @@ export const REMEDIATIONS: Record<string, string> = {
   // detection-only), so buildUpdateScript's baked `config.herdrBin` is always the right one.
   diagnostics_hint_herdr_outdated: buildUpdateScript(config.herdrUpdateLogPath),
   diagnostics_hint_herdr_offline: HERDR_SERVE,
-  diagnostics_hint_claude_missing: "curl -fsSL https://claude.ai/install.sh | bash",
-  diagnostics_hint_claude_optional: "curl -fsSL https://claude.ai/install.sh | bash",
-  diagnostics_hint_codex_missing: CODEX_INSTALL,
-  diagnostics_hint_codex_optional: CODEX_INSTALL,
+  diagnostics_hint_claude_missing: agentCliInstall("claude", CLAUDE_INSTALL),
+  diagnostics_hint_claude_optional: agentCliInstall("claude", CLAUDE_INSTALL),
+  diagnostics_hint_codex_missing: agentCliInstall("codex", CODEX_INSTALL),
+  diagnostics_hint_codex_optional: agentCliInstall("codex", CODEX_INSTALL),
   diagnostics_hint_tailscale_missing: "curl -fsSL https://tailscale.com/install.sh | sh",
   diagnostics_hint_git_missing: GIT_INSTALL,
 };

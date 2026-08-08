@@ -3,6 +3,7 @@
   import { m } from "$lib/paraglide/messages";
   import { displayStatus } from "$lib/display-status";
   import { learnings } from "$lib/learnings.svelte";
+  import { repos } from "$lib/repos.svelte";
   import { toasts } from "$lib/toasts.svelte";
   import { capacitySuggestedProvider } from "$lib/provider-capacity";
   import { basename } from "$lib/components/learnings-drawer";
@@ -354,6 +355,11 @@
   // in <script> rather than the overlay template (keeps this template's synthetic
   // complexity under the Tier-1 bar).
   const newTaskInitialRepo = $derived(composeRepoPath ?? repoFilter ?? undefined);
+  const backlogInitialRepo = $derived(
+    backlogSelectPath ??
+      repos.entries.find((entry) => entry.realPath === repoFilter)?.path ??
+      repoFilter,
+  );
   const newTaskInitialBaseBranch = $derived(composeBaseBranch ?? undefined);
   const newTaskInitialIssue = $derived(composeIssue ?? undefined);
   const newTaskInitialPrompt = $derived(composePrompt ?? undefined);
@@ -663,7 +669,7 @@
     {onaddclone}
     {onaddfork}
     {onaddnewproject}
-    selectPath={backlogSelectPath}
+    selectPath={backlogInitialRepo}
     onclose={onbacklogclose}
     epics={store.epics}
     {inTrainPrs}

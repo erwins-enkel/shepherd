@@ -25,6 +25,7 @@ beforeEach(async () => {
 afterEach(() => {
   steers.list = [];
   steers.loaded = false;
+  repos.entries = [];
   repos.loaded = false;
 });
 
@@ -181,13 +182,21 @@ const frames = (n = 2) =>
   });
 
 describe("AppOverlays — Repos selection", () => {
-  it("selects the active repo filter instead of the pinned repo", async () => {
+  it("selects the backlog raw path for a realpath-based active repo filter", async () => {
     const props = baseProps();
     props.showBacklog = true;
     props.repoFilter = "/repos/filtered";
+    repos.entries = [
+      {
+        name: "filtered",
+        path: "/repos/filtered-link",
+        display: "/repos/filtered-link",
+        realPath: "/repos/filtered",
+      },
+    ];
     props.backlog = {
       pinnedPath: "/repos/pinned",
-      projects: ["/repos/pinned", "/repos/filtered"].map((path) => ({
+      projects: ["/repos/pinned", "/repos/filtered-link"].map((path) => ({
         path,
         display: path,
         slug: null,
@@ -204,9 +213,9 @@ describe("AppOverlays — Repos selection", () => {
 
     render(AppOverlays, props);
 
-    await expect.element(page.getByText("filtered", { exact: true })).toBeVisible();
+    await expect.element(page.getByText("filtered-link", { exact: true })).toBeVisible();
     expect(document.querySelectorAll(".project-row")).toHaveLength(2);
-    expect(document.querySelector(".project-row.sel .row-name")?.textContent).toBe("filtered");
+    expect(document.querySelector(".project-row.sel .row-name")?.textContent).toBe("filtered-link");
   });
 });
 

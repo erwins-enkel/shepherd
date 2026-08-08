@@ -3608,7 +3608,9 @@ export class SessionService {
       } catch (err) {
         // The tab exists but the session row doesn't (cwd mismatch / unique-index loss on a
         // bypass race) — close the tab so nothing orphans.
-        await this.deps.herdr.closeTab(shell.tabId).catch(() => {});
+        // allowLastTab: undoing OUR just-created tab, so the last-tab guard (#2039) must not
+        // leave it orphaned — the same contract as the drivers' spawn rollback.
+        await this.deps.herdr.closeTab(shell.tabId, { allowLastTab: true }).catch(() => {});
         throw err;
       }
     } finally {
@@ -5686,7 +5688,11 @@ export class SessionService {
     if (s.terminal) {
       // Pane-direct teardown: there is no agent to stop — close the persisted tab (best-effort:
       // the shell may already have exited and taken the tab with it).
-      if (s.terminalTabId) await this.deps.herdr.closeTab(s.terminalTabId).catch(() => {});
+      // allowLastTab: this is the terminal branch's equivalent of the `stop()` below, which
+      // already bypasses the last-tab guard (#2039) — teardown must actually tear down, or
+      // archiving a terminal session would silently leave its tab behind.
+      if (s.terminalTabId)
+        await this.deps.herdr.closeTab(s.terminalTabId, { allowLastTab: true }).catch(() => {});
     } else {
       await this.deps.herdr.stop(s.herdrAgentId); // stop the live claude agent so it doesn't leak
     }
